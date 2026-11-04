@@ -223,7 +223,7 @@
                 </li>
                 <li class="flex items-center gap-3 text-sm" :class="!createdConnection ? 'text-ink-muted' : ''">
                   <UIcon :name="indexingState?.status === 'completed' ? 'i-heroicons-check-circle' : indexingState?.status === 'failed' ? 'i-heroicons-exclamation-circle' : 'i-heroicons-table-cells'" class="w-5 h-5 flex-none" :class="indexingState?.status === 'completed' ? 'text-green-600' : indexingState?.status === 'failed' ? 'text-red-600' : 'text-ink-muted'" />
-                  <span>{{ $t('data.schemaDiscovery') }}</span>
+                  <span>{{ selectedDataSource?.data_shape === 'tools' ? $t('data.toolsLabel') : $t('data.schemaDiscovery') }}</span>
                 </li>
               </ol>
               <p v-if="formState.busy" class="text-sm text-gray-500 mb-4">{{ $t('data.setupConnecting') }}</p>

@@ -76,6 +76,7 @@ def _tool_row(
     user_policy: Optional[str],
 ) -> AgentToolSchema:
     """One place that shapes a ConnectionTool (+ overlay state) into the API row."""
+    from app.services.remote_shell_policy import display_policy
     return AgentToolSchema(
         id=str(tool.id),
         connection_id=str(tool.connection_id),
@@ -91,7 +92,7 @@ def _tool_row(
         default_is_enabled=tool.is_enabled,
         default_policy=normalize_tool_policy(tool.policy),
         user_policy=user_policy,
-        effective_policy=resolve_effective_policy(policy, user_policy),
+        effective_policy=display_policy(conn, tool.name, policy, user_policy),
     )
 
 
@@ -676,3 +677,48 @@ async def reset_my_tool_policy(
         pass
 
     return await _my_policy_response(db, ds, tool, current_user)
+
+
+@router.get("/data_sources/{data_source_id}/tools/{tool_id}/my_shell_rules")
+@requires_resource_permission('data_source', 'view')
+async def get_my_shell_rules(data_source_id: str, tool_id: str, request: Request,
+    db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user)):
+    from app.services.remote_shell_policy import user_shell_rules
+    ds = await _load_agent(db, data_source_id, organization)
+    tool = await _load_agent_tool(db, ds, tool_id)
+    return await user_shell_rules(db, current_user.id, tool.id)
+
+
+@router.put("/data_sources/{data_source_id}/tools/{tool_id}/my_shell_rules")
+@requires_resource_permission('data_source', 'view')
+async def replace_my_shell_rules(data_source_id: str, tool_id: str, request: Request,
+    rules: List[dict], db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
+    from app.schemas.data_sources.remote_server import ShellRule
+    from app.models.user_connection_tool_preference import UserConnectionToolPreference
+    ds = await _load_agent(db, data_source_id, organization)
+    tool = await _load_agent_tool(db, ds, tool_id)
+    conn = next(c for c in ds.connections if str(c.id) == str(tool.connection_id))
+    if conn.type != 'remote_ssh' or tool.name != 'execute_shell':
+        raise HTTPException(status_code=400, detail="Command rules require a remote shell tool")
+    try:
+        if len(rules) > 200:
+            raise ValueError('Too many rules')
+        validated = [ShellRule.model_validate(r).model_dump() for r in rules]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid command rules")
+    row = (await db.execute(select(UserConnectionToolPreference).where(
+        UserConnectionToolPreference.user_id == str(current_user.id),
+        UserConnectionToolPreference.connection_tool_id == str(tool.id),
+    ).with_for_update())).scalar_one_or_none()
+    if row is None:
+        row = await ToolPolicyService().set_user_preference(db, current_user.id, tool.id, 'ask')
+    row.command_rules = validated
+    row.deleted_at = None
+    await db.commit()
+    await audit_service.log(db=db, organization_id=organization.id,
+        action="data_source.shell_user_rules_updated", user_id=current_user.id,
+        resource_type="data_source", resource_id=str(data_source_id),
+        details={"tool_id": str(tool.id), "rule_count": len(validated)}, request=request)
+    return validated

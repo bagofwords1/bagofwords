@@ -46,13 +46,16 @@ def normalize_tool_policy(value: Optional[str], default: Optional[str] = TOOL_PO
     return default
 
 
-def resolve_effective_policy(admin_policy: Optional[str], user_policy: Optional[str]) -> str:
+def resolve_effective_policy(admin_policy: Optional[str], user_policy: Optional[str], *, mandatory_approval: bool = False) -> str:
     """User preference wins over the admin policy, except admin deny is absolute."""
     admin = normalize_tool_policy(admin_policy)
     if admin == TOOL_POLICY_DENY:
         return TOOL_POLICY_DENY
     user = normalize_tool_policy(user_policy, default=None)
-    return user or admin
+    effective = user or admin
+    if mandatory_approval and effective != TOOL_POLICY_DENY:
+        return TOOL_POLICY_ASK
+    return effective
 
 
 # Strictest first. When several of a run's agents carry the same tool (one
@@ -102,7 +105,7 @@ class ToolPolicyService:
                 UserConnectionToolPreference.user_id == str(user_id),
                 UserConnectionToolPreference.connection_tool_id.in_(ids),
                 UserConnectionToolPreference.deleted_at.is_(None),
-            )
+            ).execution_options(populate_existing=True)
         )
         return {
             str(p.connection_tool_id): normalize_tool_policy(p.policy, default=None)

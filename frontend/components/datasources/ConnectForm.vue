@@ -47,7 +47,13 @@
               <label :for="field.field_name" class="text-xs text-gray-700 dark:text-gray-300">{{ field.title || field.field_name }}</label>
               <span v-if="field.description" class="text-xs text-ink-muted ms-3">{{ field.description }}</span>
             </div>
-            <select v-if="fieldOptions(field).length" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
+            <div v-if="uiType(field) === 'checkboxes'" class="space-y-2 py-1" :id="field.field_name" role="group" :aria-label="field.title || field.field_name">
+              <UCheckbox v-for="option in field.items?.enum || []" :key="option"
+                :label="schemaTranslation(field['ui:enumLabelKeys']?.[option]) || option"
+                :model-value="(formData.config[field.field_name] || []).includes(option)"
+                @update:model-value="setArrayOption(field.field_name, option, $event)" />
+            </div>
+            <select v-else-if="fieldOptions(field).length" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
               <option v-for="opt in fieldOptions(field)" :key="String(opt.value)" :value="opt.value">{{ opt.label }}</option>
             </select>
             <input v-else-if="field.type === 'string' && uiType(field) !== 'textarea' && uiType(field) !== 'password'" type="text" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-ink-subtle dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" />
@@ -512,6 +518,14 @@ const selectedTitle = computed(() => {
   const match = (available_ds.value || []).find((x: any) => String(x.type) === String(selectedType.value))
   return match?.title || selectedType.value
 })
+
+function setArrayOption(name: string, option: string, enabled: boolean) {
+  const values = new Set<string>(formData.config[name] || [])
+  if (enabled) values.add(option)
+  else values.delete(option)
+  formData.config[name] = [...values]
+  clearTestResult()
+}
 
 function fieldOptions(field: any): Array<{ value: string | number | boolean; label: string }> {
   const options = [field.enum, field['ui:options'], field.options]

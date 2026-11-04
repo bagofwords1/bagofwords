@@ -128,6 +128,7 @@ dependencies = [
     "sqlglot>=27,<28",
     "python-oxmsg>=0.0.2,<0.1",
     "compressed-rtf>=1.0.7,<2",
+    "smbprotocol>=1.17.0",
 ]
 
 [project.optional-dependencies]

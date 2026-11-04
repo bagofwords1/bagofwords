@@ -62,7 +62,7 @@ const tablesRef = ref<any>(null)
 const saving = ref(false)
 
 const shapeOf = (c: any) => registryByType.value[c.type]?.data_shape
-  || (c.type === 'mcp' || c.type === 'custom_api' ? 'tools' : undefined)
+  || (['mcp', 'custom_api', 'remote_ssh', 'remote_smb'].includes(c.type) ? 'tools' : undefined)
 const tableConns = computed(() => connections.value.filter((c: any) => { const s = shapeOf(c); return s === 'tables' || s === 'objects' }))
 const toolConns = computed(() => connections.value.filter((c: any) => shapeOf(c) === 'tools'))
 const tableConnectionIds = computed(() => tableConns.value.map((c: any) => String(c.id)).join(','))

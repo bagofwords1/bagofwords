@@ -78,7 +78,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits(['saved', 'add-mcp', 'add-custom-api', 'edit-connection', 'delete-connection'])
 
 const shapeOf = (c: any) => props.registryByType[c.type]?.data_shape
-  || (c.type === 'mcp' || c.type === 'custom_api' ? 'tools' : 'tables')
+  || (['mcp', 'custom_api', 'remote_ssh', 'remote_smb'].includes(c.type) ? 'tools' : 'tables')
 
 const fileConnections = computed(() => (props.connections || []).filter((c) => shapeOf(c) === 'files'))
 const toolConnections = computed(() => (props.connections || []).filter((c) => shapeOf(c) === 'tools'))

@@ -203,7 +203,7 @@ const unresolved = computed<string[]>(() => Array.isArray(result.value?.unresolv
 const requiresConnect = computed<boolean>(() => !!result.value?.requires_user_connect)
 
 const FILE_TYPES = ['network_dir', 's3', 'sharepoint', 'sharepoint_onprem', 'documentum', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail']
-const TOOL_TYPES = ['mcp', 'custom_api']
+const TOOL_TYPES = ['mcp', 'custom_api', 'remote_ssh', 'remote_smb']
 
 // Live agent state
 const agentActive = ref<boolean>(true)

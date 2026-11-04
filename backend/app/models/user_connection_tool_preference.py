@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, String, ForeignKey, UniqueConstraint, JSON
 from sqlalchemy.orm import relationship
 
 from app.models.base import BaseSchema
@@ -29,6 +29,8 @@ class UserConnectionToolPreference(BaseSchema):
         String(36), ForeignKey("connection_tools.id", ondelete="CASCADE"), nullable=False, index=True
     )
     policy = Column(String, nullable=False)  # allow | ask | deny | auto
+
+    command_rules = Column(JSON, nullable=True)
 
     user = relationship("User", lazy="selectin")
     connection_tool = relationship("ConnectionTool", backref="user_preferences")

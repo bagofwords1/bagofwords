@@ -71,7 +71,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MEMBER_PERMISSIONS = ["view", "view_schema"]
 OWNER_PERMISSIONS = ["manage"]
-TOOL_COMPATIBLE_CONNECTION_TYPES = {"mcp", "custom_api"}
+TOOL_COMPATIBLE_CONNECTION_TYPES = {"mcp", "custom_api", "remote_ssh", "remote_smb"}
 
 
 # ---------------------------------------------------------------------------
