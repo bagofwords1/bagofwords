@@ -16,6 +16,7 @@ from app.models.completion import Completion
 from app.models.external_platform import ExternalPlatform
 from app.settings.database import create_async_session_factory
 from app.services.platform_adapters.adapter_factory import PlatformAdapterFactory
+from app.services.row_owner import step_report_id
 
 # This service runs as a fire-and-forget asyncio.create_task() spawned
 # from Step.after_update. The bg task outlives the request that created
@@ -265,7 +266,7 @@ _REPORT_LINK_DEDUP_SECONDS = 120
 _recent_report_links: dict = {}
 
 
-async def _handle_table_step_link(adapter, external_user_id: str, step: 'Step', thread_ts: str = None, channel_id: str = None):
+async def _handle_table_step_link(adapter, db, external_user_id: str, step: 'Step', thread_ts: str = None, channel_id: str = None):
     """WhatsApp: link to the full table in BOW instead of a raw CSV file.
 
     A UUID-named CSV attachment is useless inside a phone chat — the customer
@@ -273,24 +274,25 @@ async def _handle_table_step_link(adapter, external_user_id: str, step: 'Step', 
     web report instead.
     """
     from app.settings.config import settings
-    # widget.report is eager-loaded by send_step_result_to_slack.
-    report = step.widget.report if step.widget else None
-    if not report:
-        logger.info("SLACK_NOTIFIER: No report for table step %s; skipping WhatsApp link", step.id)
+    # row_owner, not step.widget.report: a published dashboard's copy has no
+    # widget, and this is the one place that resolves a step's conversation.
+    report_id = await step_report_id(db, step)
+    if not report_id:
+        logger.info("SLACK_NOTIFIER: No conversation for table step %s; skipping WhatsApp link", step.id)
         return False
     # Every table step of one answer belongs to the same report, so they would
     # all send the same URL. Send it once per user+report within a short window.
-    key = (external_user_id, str(report.id))
+    key = (external_user_id, report_id)
     now = time.monotonic()
     for k, ts in list(_recent_report_links.items()):
         if now - ts > _REPORT_LINK_DEDUP_SECONDS:
             del _recent_report_links[k]
     if key in _recent_report_links:
-        logger.info("SLACK_NOTIFIER: Report link for %s already sent; skipping duplicate", report.id)
+        logger.info("SLACK_NOTIFIER: Report link for %s already sent; skipping duplicate", report_id)
         return True
     _recent_report_links[key] = now
     title = step.title or "Table"
-    url = f"{settings.bow_config.base_url}/reports/{report.id}"
+    url = f"{settings.bow_config.base_url}/reports/{report_id}"
     # Bare URL (not a markdown link) so WhatsApp auto-links it; *title* is WhatsApp bold.
     msg = f"*{title}*\n{url}"
     return await adapter.send_dm_in_thread(external_user_id, msg, thread_ts, channel_id=channel_id)
@@ -413,7 +415,7 @@ async def send_step_result_to_slack(step_id: str, external_user_id: str | None =
                 if platform_type == "whatsapp":
                     # WhatsApp: a raw CSV is useless on a phone — send a link to
                     # the full table in BOW instead (customer request).
-                    success = await _handle_table_step_link(adapter, external_user_id, step, thread_ts, channel_id)
+                    success = await _handle_table_step_link(adapter, db, external_user_id, step, thread_ts, channel_id)
                 else:
                     success = await _handle_table_step_dm(adapter, external_user_id, step, thread_ts, channel_id)
             elif data_type == "count":

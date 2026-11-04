@@ -25,9 +25,13 @@ def test_step_row_count():
     assert svc._step_row_count(SimpleNamespace(data=None)) == 0
 
 
-def _patch_session_returning(step, platform):
-    """Return a context-manager session whose execute() yields step then platform."""
+def _patch_session_returning(step, platform, widget_report_id=None):
+    """Return a context-manager session whose execute() yields step then platform.
+
+    db.scalar() answers row_owner's "which conversation owns this widget".
+    """
     db = AsyncMock()
+    db.scalar = AsyncMock(return_value=widget_report_id)
 
     step_result = MagicMock()
     step_result.scalar_one_or_none.return_value = step
@@ -135,12 +139,11 @@ async def test_small_count_is_still_sent():
     adapter.send_dm_in_thread.assert_called_once()
 
 
-def _make_whatsapp_step(n_rows, report_id="rep-123"):
-    """A table step with a widget->report chain, as WhatsApp table linking needs."""
+def _make_whatsapp_step(n_rows):
+    """A conversation's table step (it has a widget), as WhatsApp table linking needs."""
     step = _make_step("table", n_rows)
-    step.widget = SimpleNamespace(
-        report=SimpleNamespace(id=report_id, organization_id="org-1")
-    )
+    step.widget_id = "widget-1"
+    step.query_id = "query-1"
     return step
 
 
@@ -148,14 +151,14 @@ def _make_whatsapp_step(n_rows, report_id="rep-123"):
 async def test_whatsapp_large_table_sends_report_link_not_csv():
     # WhatsApp: a raw CSV is useless on a phone, so a large table goes out as a
     # link to the full report in BOW instead of a file upload.
-    step = _make_whatsapp_step(10, report_id="rep-abc")
+    step = _make_whatsapp_step(10)
     platform = SimpleNamespace(platform_type="whatsapp", organization_id="org-1")
     adapter = AsyncMock()
     adapter.send_dm_in_thread = AsyncMock(return_value=True)
     adapter.send_file_in_thread = AsyncMock(return_value=True)
 
     with (
-        patch.object(svc, "create_async_session_factory", return_value=_patch_session_returning(step, platform)),
+        patch.object(svc, "create_async_session_factory", return_value=_patch_session_returning(step, platform, widget_report_id="rep-abc")),
         patch.object(svc.PlatformAdapterFactory, "create_adapter", return_value=adapter),
     ):
         await svc.send_step_result_to_slack(
@@ -180,7 +183,7 @@ async def test_whatsapp_small_table_is_not_sent(n_rows):
     adapter = AsyncMock()
 
     with (
-        patch.object(svc, "create_async_session_factory", return_value=_patch_session_returning(step, platform)),
+        patch.object(svc, "create_async_session_factory", return_value=_patch_session_returning(step, platform, widget_report_id="rep-123")),
         patch.object(svc.PlatformAdapterFactory, "create_adapter", return_value=adapter),
     ):
         await svc.send_step_result_to_slack(
@@ -224,9 +227,9 @@ async def test_whatsapp_report_link_sent_once_per_report():
     adapter.send_dm_in_thread = AsyncMock(return_value=True)
 
     for _ in range(3):
-        step = _make_whatsapp_step(10, report_id="rep-dup")
+        step = _make_whatsapp_step(10)
         with (
-            patch.object(svc, "create_async_session_factory", return_value=_patch_session_returning(step, platform)),
+            patch.object(svc, "create_async_session_factory", return_value=_patch_session_returning(step, platform, widget_report_id="rep-dup")),
             patch.object(svc.PlatformAdapterFactory, "create_adapter", return_value=adapter),
         ):
             await svc.send_step_result_to_slack(
