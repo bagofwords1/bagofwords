@@ -2814,7 +2814,7 @@ class KmsLighthouseUserPassCredentials(BaseModel):
 
 # Visible ASCII only: a token goes into an HTTP header as-is. Use fullmatch
 # (\Z, not $: `$` also matches before a trailing newline).
-KMS_TOKEN_RE = re.compile(r"[\x21-\x7e]+\Z")
+KMS_TOKEN_RE = re.compile(r"\A[\x21-\x7e]+\Z")
 KMS_TOKEN_FORMAT_MESSAGE = (
     "The KMS API token can contain only plain letters, digits and punctuation, with no spaces. "
     "Copy it again from KMS Lighthouse and paste it as plain text."

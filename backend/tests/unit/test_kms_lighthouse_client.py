@@ -53,9 +53,13 @@ def kms_server():
 
 @pytest.fixture
 def kms(kms_server):
+    # The client's process-level session pool (ADR-6) would otherwise carry
+    # sessions and login holds from one test into the next.
+    kc.clear_session_cache()
     kms_server["mock"].reset()
     yield kms_server
     kms_server["mock"].reset()
+    kc.clear_session_cache()
 
 
 def client(kms, user="alice", **kw):
@@ -94,6 +98,7 @@ def raw_kms():
     Some transport failures (a cut-off body, a bad gzip stream, duplicate
     cookies) cannot come out of http.server, so this boundary writes the bytes.
     """
+    kc.clear_session_cache()   # a reused port must not inherit another test's pooled session
     state = {"response": b"", "requests": []}
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.bind(("127.0.0.1", 0))
@@ -347,6 +352,8 @@ def test_login_without_a_session_is_not_treated_as_logged_in(kms):
     assert _no_marker(result["message"]) == []
     # Not blamed on the password: the login itself was accepted.
     assert result["message"] != str(kc.KmsHTTPError(401, "auth"))
+    # Nor is it the generic "unexpected response" answer: it names what is missing.
+    assert result["message"] != str(kc.KmsHTTPError(200, "server"))
     for _ in range(2):
         with pytest.raises(kc.KmsHTTPError) as info:
             c._request("tree", "/cm/tree/branch/view")
@@ -420,7 +427,8 @@ def test_error_kinds_have_fixed_messages_without_auth_markers():
     with pytest.raises(ValueError):
         kc.KmsHTTPError(500, "no-such-kind")
     # The sweep over every fixed string, including those only some paths use.
-    fixed = [*kc._MESSAGES.values(), kc._USERPASS_AUTH, kc._TOKEN_AUTH, kc._TOP_LEVEL_HINT, kc._NO_SESSION]
+    fixed = [*kc._MESSAGES.values(), kc._USERPASS_AUTH, kc._TOKEN_AUTH, kc._TOP_LEVEL_HINT, kc._NO_SESSION,
+             kc._HELD_AUTH, kc._SESSION_REFUSED]
     for message in fixed:
         assert _no_marker(message) == [], message
 
@@ -567,7 +575,8 @@ def test_expired_session_relogs_in_once(kms, expired_response):
 
 
 @pytest.mark.parametrize("expired_response", ["401", "302"])
-def test_second_rejection_is_auth_error(kms, expired_response):
+def test_second_rejection_is_auth_error(kms, caplog, expired_response):
+    caplog.set_level(logging.DEBUG, logger=kc.__name__)
     mock = kms["mock"]
     mock.STATE["expired_response"] = expired_response
     mock.STATE["session_expiry"] = "immediate"   # every login session is dead on arrival
@@ -576,6 +585,11 @@ def test_second_rejection_is_auth_error(kms, expired_response):
         c._request("tree", _TREE)
     assert (info.value.status, info.value.kind) == (401, "auth")
     _assert_closed(info.value, mock.USERS["alice"]["password"])
+    # KMS just accepted the password, so the refusal is not blamed on it.
+    assert str(info.value) != str(kc.KmsHTTPError(401, "auth"))
+    warnings = [r.getMessage() for r in caplog.records if r.name == kc.__name__ and r.levelno == logging.WARNING]
+    assert any(w.startswith("kms_lighthouse tree ") for w in warnings), warnings
+    assert all(mock.USERS["alice"]["password"] not in w for w in warnings)
     # The first login plus exactly one re-login, and the call plus exactly one retry.
     assert mock.STATE["accepted_logins"] == 2
     assert len(_rows(kms, _TREE)) == 2
@@ -719,7 +733,8 @@ def test_debug_logs_never_contain_credentials_or_query(kms, caplog, monkeypatch)
     assert any(r.name.startswith("urllib3") and outside in r.getMessage() for r in caplog.records)
 
 
-def test_closed_errors_pass_fixed_errors_and_close_the_rest():
+def test_closed_errors_pass_fixed_errors_and_close_the_rest(caplog):
+    caplog.set_level(logging.DEBUG, logger=kc.__name__)
     marker = "unexpected-" + uuid.uuid4().hex
     fixed = [kc.KmsError("fixed"), kc.KmsHTTPError(404, "not_found"), GlobScopeError("outside"),
              FileTooLargeError("too big"), SearchStopped("deadline", [])]
@@ -742,6 +757,10 @@ def test_closed_errors_pass_fixed_errors_and_close_the_rest():
         broken(True)
     assert (info.value.status, info.value.kind) == (0, "server")
     _assert_closed(info.value, marker)
+    # Logged by class name only.
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("broken" in w and "RuntimeError" in w for w in warnings), warnings
+    assert all(marker not in r.getMessage() and not r.exc_info for r in caplog.records)
 
 
 def test_deeply_nested_json_is_a_server_error(raw_kms):
@@ -755,7 +774,7 @@ def test_deeply_nested_json_is_a_server_error(raw_kms):
     assert result["success"] is False and result["message"] == str(info.value)
 
 
-@pytest.mark.parametrize("token", ["lt-☃-{m}", "lt-{m}\r\nX-Injected: 1", "lt-{m}\n", "lt {m}", ""])
+@pytest.mark.parametrize("token", ["lt-☃-{m}", "lt-{m}\r\nX-Injected: 1", "lt-{m}\n", "lt {m}"])
 def test_unusable_login_token_is_a_server_error_before_any_request(raw_kms, token):
     marker = "tok-" + uuid.uuid4().hex
     raw_kms["state"]["response"] = _http_200(json.dumps(
@@ -775,10 +794,11 @@ def test_rejected_credentials_are_not_echoed_by_validation_errors():
     with pytest.raises(pydantic.ValidationError) as info:
         by_auth["token"].schema(api_token=marker)
     assert marker not in str(info.value) and marker.split()[-1] not in str(info.value)
-    password = "pw-" + uuid.uuid4().hex
+    # Short enough that pydantic would print it whole if inputs were shown.
+    password = "pw-" + uuid.uuid4().hex[:8]
     with pytest.raises(pydantic.ValidationError) as info:   # no username: the whole input is the culprit
         by_auth["userpass"].schema(password=password)
-    assert password not in str(info.value)
+    assert password not in str(info.value) and "input_value" not in str(info.value)
 
 
 def test_username_is_trimmed_but_password_is_not(kms):
@@ -788,6 +808,247 @@ def test_username_is_trimmed_but_password_is_not(kms):
                                     password=kms["mock"].USERS["alice"]["password"]).test_connection()
     assert result["success"] is True, result
     assert [row[0] for row in _rows(kms, "/login")] == ["alice"]
+
+
+def test_token_pattern_is_anchored_at_both_ends():
+    # Any caller that searches with it (not only fullmatch) must still refuse a bad token.
+    from app.schemas.data_sources.configs import KMS_TOKEN_RE
+    for bad in ("two words", " leading-space", "café-tok", "tok\n", "tok\r\nX-Injected: 1"):
+        assert KMS_TOKEN_RE.search(bad) is None, bad
+    assert KMS_TOKEN_RE.search("alice-api-token-1")
+
+
+# ------------------------------------------------------------------ P2: urllib3 gate scope
+def test_urllib3_gate_is_per_thread(kms, caplog):
+    mock = kms["mock"]
+    caplog.set_level(logging.DEBUG)
+    c = token_client(kms)
+    outcome = []
+    worker = threading.Thread(target=lambda: outcome.append(c._request("item", "/_mock/held")))
+    worker.start()
+    outside = "outside-" + uuid.uuid4().hex
+    try:
+        # The KMS request is now parked inside the client, with its thread's gate closed.
+        assert mock.HELD["arrived"].wait(5)
+        with requests.Session() as plain:
+            plain.trust_env = False
+            plain.get(f"{kms['base_url']}{mock.PREFIX}/sessionInfo?probe={outside}", timeout=5)
+    finally:
+        mock.HELD["release"].set()
+        worker.join(10)
+    assert outcome and outcome[0]["status"] == "SUCCESS"
+    urllib3_lines = [r.getMessage() for r in caplog.records if r.name.startswith("urllib3")]
+    # This thread's request is logged; the parked KMS request is not.
+    assert any(outside in line for line in urllib3_lines)
+    assert not any("/_mock/held" in line for line in urllib3_lines)
+
+
+def test_urllib3_gate_reopens_after_a_transport_failure(caplog):
+    caplog.set_level(logging.DEBUG)
+    port = _closed_port()
+    c = kc.KmsLighthouseClient(base_url=f"http://127.0.0.1:{port}", allow_http=True, api_token="raw-api-token")
+    with pytest.raises(kc.KmsHTTPError) as info:
+        c._request("tree", _TREE)
+    assert info.value.kind == "unreachable"
+    outside = "outside-" + uuid.uuid4().hex
+    with requests.Session() as plain:
+        plain.trust_env = False
+        with pytest.raises(requests.ConnectionError):
+            plain.get(f"http://127.0.0.1:{port}/?probe={outside}", timeout=5)
+    assert any(r.name.startswith("urllib3") and f"127.0.0.1:{port}" in r.getMessage() for r in caplog.records)
+
+
+# ------------------------------------------------------------------ P2: refusals are logged by reason
+_REFUSAL_MARKER = "refusal-marker-" + uuid.uuid4().hex
+
+
+@pytest.mark.parametrize("case,op", [
+    ("not_json", "tree"), ("error_body", "item"), ("bad_tree_shape", "tree"),
+    ("unusable_login_token", "login"), ("no_session", "login"),
+])
+def test_refusals_are_logged_by_a_fixed_reason_only(kms, raw_kms, caplog, case, op):
+    caplog.set_level(logging.DEBUG, logger=kc.__name__)
+    mock = kms["mock"]
+    if case == "not_json":
+        raw_kms["state"]["response"] = _http_200(b"<html>" + _REFUSAL_MARKER.encode() + b"</html>")
+        c = kc.KmsLighthouseClient(base_url=raw_kms["base_url"], allow_http=True, api_token="raw-api-token")
+        call = lambda: c._request("tree", _TREE)  # noqa: E731
+    elif case == "error_body":
+        call = lambda: token_client(kms)._request("item", f"/_mock/status_error/{_REFUSAL_MARKER}")  # noqa: E731
+    elif case == "bad_tree_shape":
+        mock.STATE["odd_shapes"] = "bad_id"
+        call = None
+    elif case == "unusable_login_token":
+        raw_kms["state"]["response"] = _http_200(json.dumps(
+            {"status": "SUCCESS", "data": {"token": "lt " + _REFUSAL_MARKER}}).encode())
+        c = kc.KmsLighthouseClient(base_url=raw_kms["base_url"], allow_http=True, username="alice",
+                                   password=_SECRET_PW)
+        call = lambda: c._request("tree", _TREE)  # noqa: E731
+    else:
+        mock.STATE["login_mode"] = "none"
+        call = lambda: client(kms)._request("tree", _TREE)  # noqa: E731
+    if call is None:
+        result = token_client(kms).test_connection()
+        assert result["success"] is False
+        info_lines = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
+        assert any("test_connection" in line and "server" in line for line in info_lines), info_lines
+    else:
+        with pytest.raises(kc.KmsHTTPError):
+            call()
+    own = [r.getMessage() for r in caplog.records if r.name == kc.__name__]
+    assert any(line.startswith(f"kms_lighthouse {op} refused: ") for line in own), own
+    for line in own:
+        assert _REFUSAL_MARKER not in line and _SECRET_PW not in line and mock.ODD_MARKER not in line
+
+
+# ------------------------------------------------------------------ P2b: session reuse and login hold
+def _frozen_clock(monkeypatch, start=1000.0):
+    """Replace the client's clock seam; returns a one-item list holding the current time."""
+    now = [start]
+    monkeypatch.setattr(kc, "_clock", lambda: now[0])
+    return now
+
+
+def _tree_identities(rows):
+    return [row[0] for row in rows if row[1] == "GET" and row[2].endswith(_TREE)]
+
+
+def test_session_is_reused_across_client_instances(kms):
+    mock = kms["mock"]
+    for _ in range(2):
+        assert client(kms)._request("tree", _TREE)["status"] == "SUCCESS"
+    assert mock.STATE["login_count"] == 1
+    assert _tree_identities(mock.REQUEST_LOG) == ["alice", "alice"]
+
+
+@pytest.mark.parametrize("case", ["other_user", "wrong_password", "other_prefix"])
+def test_sessions_are_never_shared_across_identities(kms, monkeypatch, case):
+    mock = kms["mock"]
+    # The hardest case for the key: bob's password is the same text as alice's.
+    monkeypatch.setitem(mock.USERS["bob"], "password", mock.USERS["alice"]["password"])
+    client(kms)._request("tree", _TREE)          # alice's session is now pooled
+    second = {
+        "other_user": lambda: client(kms, user="bob"),
+        "wrong_password": lambda: client(kms, password="wrong-" + uuid.uuid4().hex),
+        "other_prefix": lambda: client(kms, api_prefix="/other/api"),
+    }[case]()
+    start = len(mock.REQUEST_LOG)
+    if case == "other_user":
+        assert second._request("tree", _TREE)["status"] == "SUCCESS"
+    else:
+        with pytest.raises(kc.KmsHTTPError) as info:
+            second._request("tree", _TREE)
+        assert info.value.kind == {"wrong_password": "auth", "other_prefix": "not_found"}[case]
+    gets = [row for row in mock.REQUEST_LOG[start:] if row[1] == "GET"]
+    # The mock names whichever session a request carried: never alice's for another identity.
+    assert all(row[0] != "alice" for row in gets), gets
+    if case == "other_user":
+        assert gets and {row[0] for row in gets} == {"bob"}
+    else:
+        assert gets == []
+
+
+def test_a_password_that_is_not_valid_utf8_still_builds_a_client(kms):
+    # A JSON credential can carry a lone surrogate; building the pool key must not raise with it.
+    odd = "pw-\ud800-" + uuid.uuid4().hex[:8]
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms, password=odd)._request("tree", _TREE)
+    _assert_closed(info.value, odd)
+    assert _rows(kms, _TREE) == []
+
+
+def test_session_reuse_expires_after_ttl(kms, monkeypatch):
+    mock = kms["mock"]
+    now = _frozen_clock(monkeypatch)
+    client(kms)._request("tree", _TREE)
+    now[0] += 599                                # the plan's 10-minute reuse window
+    client(kms)._request("tree", _TREE)
+    assert mock.STATE["login_count"] == 1
+    now[0] += 2
+    client(kms)._request("tree", _TREE)
+    assert mock.STATE["login_count"] == 2
+    assert _tree_identities(mock.REQUEST_LOG) == ["alice"] * 3
+
+
+def test_rejected_login_is_not_repeated_within_hold(kms, monkeypatch):
+    mock = kms["mock"]
+    now = _frozen_clock(monkeypatch)
+    wrong = "wrong-" + uuid.uuid4().hex
+    messages = []
+    for _ in range(2):
+        with pytest.raises(kc.KmsHTTPError) as info:
+            client(kms, password=wrong)._request("tree", _TREE)
+        assert info.value.kind == "auth"
+        _assert_closed(info.value, wrong)
+        messages.append(str(info.value))
+    assert mock.STATE["login_count"] == 1
+    # The held refusal says so; it is not a second "check the password" answer.
+    assert messages[1] != messages[0]
+    # The right password is a different identity key: it logs in at once.
+    assert client(kms)._request("tree", _TREE)["status"] == "SUCCESS"
+    assert mock.STATE["login_count"] == 2
+    now[0] += 299                                # the plan's 5-minute hold
+    with pytest.raises(kc.KmsHTTPError):
+        client(kms, password=wrong)._request("tree", _TREE)
+    assert mock.STATE["login_count"] == 2
+    now[0] += 2
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms, password=wrong)._request("tree", _TREE)
+    assert info.value.kind == "auth"
+    assert mock.STATE["login_count"] == 3
+
+
+def test_concurrent_expiry_across_clients_relogs_in_once(kms):
+    mock = kms["mock"]
+    clients = [client(kms), client(kms)]
+    for c in clients:
+        c._request("tree", _TREE)
+    accepted = mock.STATE["accepted_logins"]
+    mock.STATE["hold_stale_401s"] = 2
+    mock.expire_sessions()
+    results, errors = [], []
+
+    def call(c):
+        try:
+            results.append(c._request("tree", _TREE))
+        except Exception as exc:  # recorded and asserted below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=call, args=(c,)) for c in clients]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(15)
+    assert errors == [] and len(results) == 2
+    assert all(r["status"] == "SUCCESS" and r["data"] for r in results)
+    # Both instances really got a 401 before anyone logged in again ...
+    assert mock.STATE["stale_401s"] == 2
+    # ... and the two expiries caused one login.
+    assert mock.STATE["accepted_logins"] == accepted + 1
+
+
+def test_test_connection_logs_in_fresh_but_honours_hold(kms, monkeypatch):
+    mock = kms["mock"]
+    _frozen_clock(monkeypatch)
+    client(kms)._request("tree", _TREE)          # a tool call pools alice's session
+    assert mock.STATE["login_count"] == 1
+    assert client(kms).test_connection()["success"] is True
+    assert mock.STATE["login_count"] == 2        # the probe was not answered warm
+    # The password changes on the KMS side; BOW still holds the old one.
+    saved = mock.USERS["alice"]["password"]
+    changed = "changed-" + uuid.uuid4().hex
+    monkeypatch.setitem(mock.USERS["alice"], "password", changed)
+    first = client(kms, password=saved).test_connection()
+    assert first["success"] is False and mock.STATE["login_count"] == 3
+    second = client(kms, password=saved).test_connection()
+    assert second["success"] is False
+    assert mock.STATE["login_count"] == 3        # held: no new login went out
+    assert second["message"] != first["message"] and _no_marker(second["message"]) == []
+    for text in (repr(first), repr(second)):
+        assert changed not in text and saved not in text
+    # Tool calls keep the session they already hold (ADR-6), without a login.
+    assert client(kms, password=saved)._request("tree", _TREE)["status"] == "SUCCESS"
+    assert mock.STATE["login_count"] == 3
 
 
 @pytest.mark.parametrize("key,value,error", [

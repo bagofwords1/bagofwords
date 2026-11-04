@@ -25,6 +25,8 @@ Test-only switches and routes (not part of the KMS API):
     401/302, and are counted in STATE["stale_401s"]; a broken barrier answers
     500, so a test fails instead of hanging.
   - GET {PREFIX}/_mock/status_error/<id>  HTTP 200 {"status": "ERROR"} echoing the id
+  - GET {PREFIX}/_mock/held               waits for HELD["release"] (sets HELD["arrived"] first),
+                                          so a test can act while a KMS request is in flight
   - GET {PREFIX}/_mock/empty              HTTP 200 with an empty body
   - GET {PREFIX}/_mock/oversized          HTTP 200 with a large JSON body (OVERSIZED_BYTES)
 
@@ -102,6 +104,8 @@ _DEFAULTS = {
     "odd_shapes": False,             # False | "list" | "error" | "bad_id" | "bad_username"
 }
 _STALE = {"barrier": None}           # the barrier for STATE["hold_stale_401s"]
+# GET {PREFIX}/_mock/held sets "arrived", then waits up to 5 s for "release".
+HELD = {"arrived": threading.Event(), "release": threading.Event()}
 
 
 class _State(dict):
@@ -146,6 +150,8 @@ def reset():
         REQUEST_LOG.clear()
         _SESSIONS.clear()
         _LOGIN_TOKENS.clear()
+        for event in HELD.values():
+            event.clear()
 
 
 def expire_sessions():
@@ -297,6 +303,11 @@ class Handler(BaseHTTPRequestHandler):
             item_id = route[len("/_mock/status_error/"):]
             return self._send_json(200, {"status": "ERROR", "exception": f"Item {item_id} was not found",
                                          "message": f"no item {item_id}"})
+        if route == "/_mock/held":
+            HELD["arrived"].set()
+            if not HELD["release"].wait(5):
+                return self._send_empty(500)   # never released: fail instead of hanging
+            return self._send_json(200, {"status": "SUCCESS", "data": []})
         if route == "/_mock/empty":
             return self._send_empty(200)
         if route == "/_mock/oversized":

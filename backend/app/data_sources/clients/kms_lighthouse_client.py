@@ -14,6 +14,8 @@ URL, a query string, a provider response body or a credential.
 from __future__ import annotations
 
 import functools
+import hashlib
+import hmac
 import http.client
 import json
 import logging
@@ -21,6 +23,7 @@ import os
 import re
 import threading
 import time
+from collections import OrderedDict
 from urllib.parse import unquote, urlsplit
 
 import requests
@@ -74,6 +77,11 @@ _NO_SESSION = (
     "KMS Lighthouse accepted the login but returned no session, so it cannot be used. "
     "Ask the KMS administrator whether this account may use the KMS API."
 )
+_HELD_AUTH = _USERPASS_AUTH + " New login attempts with this account are paused for a few minutes."
+_SESSION_REFUSED = (
+    "KMS Lighthouse accepted the login but refused the session it returned. "
+    "Ask the KMS administrator whether this account may use the KMS API."
+)
 _MESSAGES = {
     "auth": _USERPASS_AUTH,
     "forbidden": "KMS Lighthouse denied access to this content for the current identity.",
@@ -101,6 +109,62 @@ _TRANSPORT_ERRORS = (requests.RequestException, urllib3.exceptions.HTTPError, ht
                      OSError, UnicodeError, requests.cookies.CookieConflictError)
 _URL_MESSAGE = ("KMS Lighthouse URL must be an HTTP(S) URL such as https://example.lighthouse-cloud.com, "
                 "without a user name or password in the URL, a query, or a fragment.")
+
+
+# ADR-6: userpass clients for one identity share one KMS session per process.
+# Every tool call builds a new client, so a per-instance session would mean
+# one login per call; a rejected login is not repeated for a while, so a wrong
+# password cannot lock the KMS account. Nothing is persisted.
+_SESSION_TTL_S = 600
+_FAILED_LOGIN_HOLD_S = 300
+_SESSION_POOL_MAX = 256
+# A per-process random key: the pool key is neither the password nor a hash
+# of it that could be checked offline.
+_POOL_SECRET = os.urandom(32)
+_clock = time.monotonic          # the only time source for the TTL and the hold (a test seam)
+
+
+class _PoolEntry:
+    """Login state for one identity, shared by every client instance and thread using it.
+
+    ``login_lock`` serialises logins (so one expiry causes one login);
+    ``state_lock`` guards the fields below. Lock order: login_lock, then state_lock.
+    """
+
+    def __init__(self):
+        self.login_lock = threading.Lock()
+        self.state_lock = threading.Lock()
+        self.generation = 0
+        self.cookies: dict = {}
+        self.token: str | None = None
+        self.created_at: float | None = None   # when the current session was logged in
+        self.failed_at: float | None = None    # when KMS last rejected this login
+
+
+_POOL: OrderedDict = OrderedDict()
+_POOL_LOCK = threading.Lock()
+
+
+def _pool_key(base: str, prefix: str, username: str, password: str) -> str:
+    # surrogatepass: a lone surrogate from a JSON credential must not raise (with the password in .object).
+    message = "\0".join((base, prefix, username, password)).encode("utf-8", "surrogatepass")
+    return hmac.new(_POOL_SECRET, message, hashlib.sha256).hexdigest()
+
+
+def _pool_entry(key: str) -> _PoolEntry:
+    with _POOL_LOCK:
+        entry = _POOL.get(key)
+        if entry is None:
+            entry = _POOL[key] = _PoolEntry()
+            while len(_POOL) > _SESSION_POOL_MAX:
+                _POOL.popitem(last=False)   # the oldest entry goes first
+        return entry
+
+
+def clear_session_cache() -> None:
+    """Forget every pooled session and login hold in this process (tests and operations)."""
+    with _POOL_LOCK:
+        _POOL.clear()
 
 
 class KmsError(ValueError):
@@ -262,15 +326,11 @@ class KmsLighthouseClient(DataSourceClient):
         self._password = password if self.auth_method == "userpass" else None
         self._api_token = api_token if self.auth_method == "token" else None
 
-        # Login state, shared by this instance's threads. Each thread-local
-        # session re-applies it whenever the generation moves ahead.
-        # _login_lock serialises logins (so one expiry causes one login);
-        # _auth_lock guards the state below.
-        self._login_lock = threading.Lock()
-        self._auth_lock = threading.Lock()
-        self._generation = 0
-        self._cookies: dict = {}
-        self._session_token: str | None = None
+        # Login state lives in the process pool entry for this identity (ADR-6),
+        # shared with every other instance built for it. Each thread-local
+        # session re-applies it whenever the entry's generation moves ahead.
+        self._entry = (_pool_entry(_pool_key(self._base, prefix, username, password))
+                       if self.auth_method == "userpass" else None)
         self._local = threading.local()
 
     # ------------------------------------------------------------------ meta
@@ -309,9 +369,10 @@ class KmsLighthouseClient(DataSourceClient):
             if self.auth_method == "token":
                 self._local.session.headers["Authorization"] = "Bearer " + self._api_token
         session = self._local.session
-        if self.auth_method == "userpass" and self._local.generation != self._generation:
-            with self._auth_lock:
-                cookies, token, generation = dict(self._cookies), self._session_token, self._generation
+        entry = self._entry
+        if entry is not None and self._local.generation != entry.generation:
+            with entry.state_lock:
+                cookies, token, generation = dict(entry.cookies), entry.token, entry.generation
             session.cookies.clear()
             session.cookies.update(cookies)
             if token:
@@ -321,34 +382,54 @@ class KmsLighthouseClient(DataSourceClient):
             self._local.generation = generation
         return session
 
+    def _check_hold(self, entry: _PoolEntry) -> None:
+        """Refuse without contacting KMS while a rejected login of this identity is recent."""
+        if entry.failed_at is not None and _clock() - entry.failed_at < _FAILED_LOGIN_HOLD_S:
+            raise KmsHTTPError(401, "auth", _HELD_AUTH)
+
     def _ensure_login(self) -> None:
-        if self.auth_method != "userpass":
+        entry = self._entry
+        if entry is None:
             return
-        with self._login_lock:
-            if not self._generation:
-                self._login(self._new_session())
+        with entry.login_lock:
+            if entry.created_at is not None and _clock() - entry.created_at < _SESSION_TTL_S:
+                return   # a pooled session of this identity, still young enough to reuse
+            self._check_hold(entry)
+            self._login(self._new_session())
 
     def _relogin(self, used_generation: int) -> None:
         """Log in again after the session of ``used_generation`` was refused.
 
-        If another thread already logged in again (the generation moved on),
-        adopt its session instead, so one expiry causes one login.
+        If another thread or instance already logged in again (the entry's
+        generation moved on), adopt its session instead, so one expiry causes
+        one login.
         """
-        with self._login_lock:
-            if self._generation == used_generation:
+        entry = self._entry
+        with entry.login_lock:
+            if entry.generation == used_generation:
+                self._check_hold(entry)
                 self._login(self._new_session())
 
+    def _rejected(self) -> KmsHTTPError:
+        """KMS refused this login: hold new attempts for this identity."""
+        with self._entry.state_lock:
+            self._entry.failed_at = _clock()
+        return KmsHTTPError(401, "auth", _USERPASS_AUTH)
+
     def _login(self, session: requests.Session) -> None:
-        """The only place that authenticates (a hash login would plug in here)."""
+        """The only place that authenticates (a hash login would plug in here).
+
+        Called with the pool entry's login_lock held.
+        """
         status, body = self._send(session, "login", "POST", "/login",
                                   params={"username": self._username, "password": self._password})
         if status in (400, 401, 403):
-            raise KmsHTTPError(401, "auth", _USERPASS_AUTH)
+            raise self._rejected()
         if status != 200:
             raise KmsHTTPError(status, _kind_for_status(status))
-        payload = self._decode(body)
+        payload = self._decode(body, "login")
         if not isinstance(payload, dict) or str(payload.get("status", "")).upper() != "SUCCESS":
-            raise KmsHTTPError(401, "auth", _USERPASS_AUTH)
+            raise self._rejected()
         data = payload.get("data")
         token = None
         if isinstance(data, dict) and isinstance(data.get("token"), str):
@@ -359,6 +440,7 @@ class KmsLighthouseClient(DataSourceClient):
             token = payload["token"]
         if token and not KMS_TOKEN_RE.fullmatch(token):
             # It cannot go into an HTTP header as-is; refuse it before it becomes the session.
+            logger.debug("kms_lighthouse %s refused: %s", "login", "unusable session token")
             raise KmsHTTPError(200, "server")
         # By name and value: dict(jar) raises CookieConflictError when the
         # server sets one name twice (for example on two paths).
@@ -366,11 +448,15 @@ class KmsLighthouseClient(DataSourceClient):
         if not cookies and not token:
             # Nothing to authenticate the next call with: do not count this as
             # a login, or the next 401 would wrongly blame the password.
+            logger.debug("kms_lighthouse %s refused: %s", "login", "no session in the answer")
             raise KmsHTTPError(200, "server", _NO_SESSION)
-        with self._auth_lock:
-            self._cookies = cookies
-            self._session_token = token or None
-            self._generation += 1
+        entry = self._entry
+        with entry.state_lock:
+            entry.cookies = cookies
+            entry.token = token or None
+            entry.created_at = _clock()
+            entry.failed_at = None
+            entry.generation += 1
 
     # ------------------------------------------------------------------ http
     def _send(self, session, op, method, path, *, params=None, headers=None):
@@ -407,13 +493,14 @@ class KmsLighthouseClient(DataSourceClient):
         return status, body
 
     @staticmethod
-    def _decode(body: bytes):
+    def _decode(body: bytes, op: str):
         failed = False
         try:
             payload = json.loads(body)
         except (ValueError, RecursionError):  # RecursionError: absurdly deep nesting
             failed = True
         if failed:
+            logger.debug("kms_lighthouse %s refused: %s", op, "body is not JSON")
             raise KmsHTTPError(0, "server")
         return payload
 
@@ -428,7 +515,9 @@ class KmsLighthouseClient(DataSourceClient):
             self._relogin(used_generation)
             status, body = self._send(self._session(), op, "GET", path, params=params, headers=headers)
             if _session_lost(status):
-                raise KmsHTTPError(401, "auth", _USERPASS_AUTH)
+                # KMS has just accepted the password, so do not blame it.
+                logger.warning("kms_lighthouse %s session refused after a fresh login", op)
+                raise KmsHTTPError(401, "auth", _SESSION_REFUSED)
         elif status == 401:
             # A pasted token cannot be renewed here.
             raise KmsHTTPError(401, "auth", _TOKEN_AUTH)
@@ -436,8 +525,9 @@ class KmsLighthouseClient(DataSourceClient):
             raise KmsHTTPError(status, _kind_for_status(status))
         if not body.strip():
             raise KmsHTTPError(200, "no_data")
-        payload = self._decode(body)
+        payload = self._decode(body, op)
         if isinstance(payload, dict) and str(payload.get("status", "")).upper() == "ERROR":
+            logger.debug("kms_lighthouse %s refused: %s", op, "status ERROR")
             raise KmsHTTPError(200, missing)
         return payload
 
@@ -446,9 +536,11 @@ class KmsLighthouseClient(DataSourceClient):
         payload = self._request("tree", "/cm/tree/branch/view", params=params)
         data = payload.get("data") if isinstance(payload, dict) else None
         if not isinstance(data, list):
+            logger.debug("kms_lighthouse %s refused: %s", "tree", "data is not a list")
             raise KmsHTTPError(200, "server")
         for record in data:
             if not isinstance(record, dict) or not _DIGITS_RE.match(str(record.get("id", ""))):
+                logger.debug("kms_lighthouse %s refused: %s", "tree", "record without a numeric id")
                 raise KmsHTTPError(200, "server")
         return data
 
@@ -456,9 +548,12 @@ class KmsLighthouseClient(DataSourceClient):
     @_closed_errors
     def test_connection(self):
         try:
-            if self.auth_method == "userpass":
-                # A health probe always logs in fresh (never a warm session).
-                with self._login_lock:
+            entry = self._entry
+            if entry is not None:
+                # A health probe always logs in fresh (never a warm session),
+                # but a recently rejected login is not sent again (ADR-6).
+                with entry.login_lock:
+                    self._check_hold(entry)
                     self._login(self._new_session())
             identity = None
             try:
@@ -489,6 +584,7 @@ class KmsLighthouseClient(DataSourceClient):
                             "root_folder_id": self.root_folder_id},
             }
         except (KmsError, GlobScopeError) as exc:
+            logger.info("kms_lighthouse test_connection failed: %s", getattr(exc, "kind", "error"))
             return {"success": False, "message": str(exc)}
         except Exception as exc:
             # The class name only: the exception text may hold a URL or a secret.
