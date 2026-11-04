@@ -464,3 +464,36 @@ async def test_send_response_normalizes_markdown_before_sending(monkeypatch):
     sent = captured["body"]["text"]["body"]
     assert "**" not in sent
     assert "*Music Store*" in sent and "*3,503*" in sent
+
+
+def test_bold_italic_becomes_whatsapp_bold_italic():
+    out = markdown_to_whatsapp("***Iron Maiden*** rules")
+    assert "**" not in out
+    assert "*_Iron Maiden_*" in out
+
+
+def test_bold_containing_single_star_is_converted():
+    out = markdown_to_whatsapp("**5 * 3 = 15**")
+    assert "**" not in out
+    assert out == "*5 * 3 = 15*"
+
+
+def test_dunder_identifier_is_not_turned_into_bold():
+    raw = "call df.__len__() first"
+    assert markdown_to_whatsapp(raw) == raw
+
+
+def test_code_fence_content_is_left_untouched():
+    raw = "Run:\n```\nx = obj.__dict__\n| a | b |\n|---|---|\n**raw**\n```\nthen **done**"
+    out = markdown_to_whatsapp(raw)
+    assert "```\nx = obj.__dict__\n| a | b |\n|---|---|\n**raw**\n```" in out
+    assert out.endswith("then *done*")
+
+
+@pytest.mark.parametrize("raw", [
+    "| just a line that starts with a pipe",
+    "first\n--\nsecond",
+    "| a | b |\n| c | d |",  # no separator row -> not a markdown table
+])
+def test_non_table_lines_are_left_alone(raw):
+    assert markdown_to_whatsapp(raw) == raw

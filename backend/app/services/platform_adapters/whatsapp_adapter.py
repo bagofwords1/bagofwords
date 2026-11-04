@@ -16,34 +16,64 @@ def _graph_base_url() -> str:
 
 # Markdown link: [label](url) -> capture label and url
 _MD_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)")
-# Bold: **text** or __text__ -> *text* (WhatsApp bold is a single marker)
-_MD_BOLD_RE = re.compile(r"(?<!\*)\*\*(?!\s)([^*\n]+?)(?<!\s)\*\*(?!\*)")
-_MD_BOLD_US_RE = re.compile(r"(?<!_)__(?!\s)([^_\n]+?)(?<!\s)__(?!_)")
+# Bold-italic: ***text*** -> *_text_* (WhatsApp's bold+italic)
+_MD_BOLD_ITALIC_RE = re.compile(r"(?<!\*)\*\*\*(?!\s)((?:[^*\n]|\*(?!\*))+?)(?<!\s)\*\*\*(?!\*)")
+# Bold: **text** -> *text* (WhatsApp bold is a single marker). A lone * inside
+# the bold text (e.g. "5 * 3") is allowed.
+_MD_BOLD_RE = re.compile(r"(?<!\*)\*\*(?!\s)((?:[^*\n]|\*(?!\*))+?)(?<!\s)\*\*(?!\*)")
+# Bold: __text__ -> *text*. Not when glued to an identifier, so df.__len__()
+# or my__var__x stay as they are.
+_MD_BOLD_US_RE = re.compile(r"(?<![\w.])__(?!\s)([^_\n]+?)(?<!\s)__(?![\w(])")
 # ATX heading at line start: leading #'s -> bold line
 _MD_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$", re.MULTILINE)
-# Markdown table separator row: |---|:--:|---| (dashes/colons/pipes/space only)
-_MD_TABLE_SEP_RE = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$")
+# Markdown table separator row: |---|:--:|---| (must contain a pipe)
+_MD_TABLE_SEP_RE = re.compile(r"^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?$|^\|\s*:?-{2,}:?\s*\|$")
+# Fenced code block — left untouched (WhatsApp renders ```monospace```).
+_CODE_FENCE_RE = re.compile(r"(```[\s\S]*?```)")
 
 
 def _flatten_markdown_tables(text: str) -> str:
-    """Turn markdown table rows into plain lines WhatsApp can show.
+    """Turn markdown tables into plain lines WhatsApp can show.
 
-    A markdown table (``| a | b |`` with a ``|---|---|`` separator) renders as a
-    wall of literal pipes and dashes on WhatsApp. The full data is available via
-    the report link we send alongside, so here we just de-uglify the text: drop
-    separator rows and collapse each ``| x | y |`` row to ``x — y``.
+    A markdown table (``| a | b |`` rows with a ``|---|---|`` separator)
+    renders as a wall of literal pipes and dashes on WhatsApp. Only a real
+    table is touched: a run of 2+ consecutive lines starting with ``|`` that
+    includes a separator row. In it the separator is dropped and each row is
+    collapsed to ``a — b``. Other lines starting with ``|`` are left alone.
     """
+    lines = text.split("\n")
     out = []
-    for line in text.split("\n"):
-        s = line.strip()
-        if _MD_TABLE_SEP_RE.match(s):
-            continue  # drop the |---|---| divider
-        if s.startswith("|"):
-            cells = [c.strip() for c in s.strip().strip("|").split("|")]
-            out.append(" — ".join(c for c in cells if c))
+    i = 0
+    while i < len(lines):
+        if not lines[i].strip().startswith("|"):
+            out.append(lines[i])
+            i += 1
+            continue
+        j = i
+        while j < len(lines) and lines[j].strip().startswith("|"):
+            j += 1
+        block = lines[i:j]
+        if len(block) >= 2 and any(_MD_TABLE_SEP_RE.match(l.strip()) for l in block):
+            for line in block:
+                s = line.strip()
+                if _MD_TABLE_SEP_RE.match(s):
+                    continue  # drop the |---|---| divider
+                cells = [c.strip() for c in s.strip("|").split("|")]
+                out.append(" — ".join(c for c in cells if c))
         else:
-            out.append(line)
+            out.extend(block)
+        i = j
     return "\n".join(out)
+
+
+def _convert_prose(text: str) -> str:
+    text = _MD_LINK_RE.sub(lambda m: f"{m.group(1)}: {m.group(2)}", text)
+    text = _flatten_markdown_tables(text)
+    text = _MD_HEADING_RE.sub(lambda m: f"*{m.group(1).strip()}*" if m.group(1).strip() else "", text)
+    text = _MD_BOLD_ITALIC_RE.sub(r"*_\1_*", text)
+    text = _MD_BOLD_RE.sub(r"*\1*", text)
+    text = _MD_BOLD_US_RE.sub(r"*\1*", text)
+    return text
 
 
 def markdown_to_whatsapp(text: str) -> str:
@@ -54,22 +84,20 @@ def markdown_to_whatsapp(text: str) -> str:
     tables), which WhatsApp shows as literal characters. This is the safety net
     that normalizes it so the user never sees stray ``**``, ``[]()`` or ``|``:
 
+      ``***x***``            -> ``*_x_*``  (bold + italic)
       ``**x**`` / ``__x__`` -> ``*x*``   (WhatsApp bold is a single ``*``)
       ``# Heading``          -> ``*Heading*``
       ``[label](url)``       -> ``label: url``
       ``| a | b |`` table    -> ``a — b`` lines (divider row dropped)
 
-    Bullet lines (``- item``) are left as-is — WhatsApp renders them fine.
+    Text inside ```fenced``` code blocks is never changed. Bullet lines
+    (``- item``) are left as-is — WhatsApp renders them fine.
     """
     if not text:
         return text
-    # Links first, before bold, so a bolded label inside a link is handled once.
-    text = _MD_LINK_RE.sub(lambda m: f"{m.group(1)}: {m.group(2)}", text)
-    text = _flatten_markdown_tables(text)
-    text = _MD_HEADING_RE.sub(lambda m: f"*{m.group(1).strip()}*" if m.group(1).strip() else "", text)
-    text = _MD_BOLD_RE.sub(r"*\1*", text)
-    text = _MD_BOLD_US_RE.sub(r"*\1*", text)
-    return text
+    parts = _CODE_FENCE_RE.split(text)
+    # split() with a capture group puts code blocks at odd indexes.
+    return "".join(p if i % 2 else _convert_prose(p) for i, p in enumerate(parts))
 
 
 class WhatsAppAdapter(PlatformAdapter):

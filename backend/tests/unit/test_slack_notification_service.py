@@ -213,3 +213,28 @@ def test_create_plot_renders_bar_chart_to_png(tmp_path):
 def test_create_plot_returns_none_on_empty_data():
     dm = {"type": "bar_chart", "series": [{"key": "x", "value": "y"}]}
     assert svc.create_plot(dm, {"rows": []}, "t") is None
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_report_link_sent_once_per_report():
+    # Several table steps of one answer share a report: the user gets its
+    # link once, not once per table.
+    platform = SimpleNamespace(platform_type="whatsapp", organization_id="org-1")
+    adapter = AsyncMock()
+    adapter.send_dm_in_thread = AsyncMock(return_value=True)
+
+    for _ in range(3):
+        step = _make_whatsapp_step(10, report_id="rep-dup")
+        with (
+            patch.object(svc, "create_async_session_factory", return_value=_patch_session_returning(step, platform)),
+            patch.object(svc.PlatformAdapterFactory, "create_adapter", return_value=adapter),
+        ):
+            await svc.send_step_result_to_slack(
+                step_id="step-1",
+                external_user_id="U-dedup",
+                organization_id="org-1",
+                platform_type="whatsapp",
+            )
+
+    adapter.send_dm_in_thread.assert_called_once()
+

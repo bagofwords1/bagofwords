@@ -623,14 +623,16 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
                 "~strikethrough~, ```monospace```. No headers (#), no HTML, no markdown links, "
                 "no markdown tables — they all render as literal characters on WhatsApp.\n"
                 "- create_data visualizations render as image attachments on WhatsApp — set a "
-                "`visualization_type` (bar/line/pie/area/scatter/heatmap) when a chart is the "
+                "`visualization_type` (bar_chart, line_chart, pie_chart, area_chart, scatter_plot "
+                "or heatmap) when a chart is the "
                 "clearest answer, and the user gets a rendered chart image. Prefer a chart over "
                 "any table when the question is about a trend, ranking, or breakdown.\n"
                 "- Still describe the key numbers in your text (e.g. \"Revenue was $1.2M, up "
                 "8% MoM\") — on a phone the text is what the user reads first.\n"
-                "- Do NOT build tables in your text. For plain tabular results the user gets a "
-                "link to open the full table in BOW — describe the top values in prose and let "
-                "the link carry the detail."
+                "- Do NOT build tables in your text. For tabular results with 10+ rows the user "
+                "also gets a link to open the full table in BOW — describe the top values in "
+                "prose and let the link carry the detail. Smaller results get NO link, so include "
+                "every value in your text."
             )
         if platform == "google_chat":
             return (

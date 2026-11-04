@@ -1,4 +1,5 @@
 import os
+import time
 import uuid
 import csv
 import logging
@@ -23,11 +24,12 @@ from app.services.platform_adapters.adapter_factory import PlatformAdapterFactor
 # standard module logger.
 logger = logging.getLogger(__name__)
 
-# Below this row count, we don't send the raw table data to Slack/WhatsApp.
+# Below this row count, we don't send table data to Slack/WhatsApp (a CSV on
+# Slack, a report link on WhatsApp).
 # The agent's text answer already describes small results in prose (the
 # planner is instructed to do so for small datasets), so attaching a CSV
 # on top is noise. Larger results still go through so the user can
-# scan/download them. Teams skips table sends entirely (see
+# scan/download them (Slack) or open the full table in BOW (WhatsApp). Teams skips table sends entirely (see
 # send_step_result_to_slack): the agent's text answer renders its own
 # markdown table there, so a second raw table is a duplicate.
 MIN_ROWS_TO_SEND = 10
@@ -81,10 +83,28 @@ def _fmt_value(v) -> str:
         n = float(v)
     except (TypeError, ValueError):
         return str(v)
-    for unit, size in (("B", 1e9), ("M", 1e6), ("K", 1e3)):
-        if abs(n) >= size:
-            return f"{n / size:.1f}{unit}".replace(".0", "")
-    return f"{n:g}"
+    units = (("", 1.0), ("K", 1e3), ("M", 1e6), ("B", 1e9))
+    i = 0
+    while i + 1 < len(units) and abs(n) >= units[i + 1][1]:
+        i += 1
+    if i == 0:
+        return f"{n:g}"
+    scaled = round(n / units[i][1], 1)
+    # Rounding can push a value into the next unit (999,950 -> 1000.0K -> 1M).
+    if abs(scaled) >= 1000 and i + 1 < len(units):
+        i += 1
+        scaled = round(n / units[i][1], 1)
+    text = f"{scaled:.1f}".rstrip("0").rstrip(".")
+    return f"{text}{units[i][0]}"
+
+
+def _label_xy(ax, x_col, y_col, rotate_x: bool = True):
+    """Axis labels + shared styling for x/y charts (bar, line, area, scatter)."""
+    ax.set_xlabel(x_col, color=_INK)
+    ax.set_ylabel(y_col, color=_INK)
+    if rotate_x:
+        plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+    _style_axes(ax)
 
 
 def create_plot(data_model: dict, data: dict, title: str) -> str:
@@ -112,10 +132,7 @@ def create_plot(data_model: dict, data: dict, title: str) -> str:
         if chart_type == 'bar_chart':
             x_col, y_col = series['key'], series['value']
             bars = ax.bar(df[x_col].astype(str), df[y_col], color=primary, width=0.65)
-            ax.set_xlabel(x_col, color=_INK)
-            ax.set_ylabel(y_col, color=_INK)
-            plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
-            _style_axes(ax)
+            _label_xy(ax, x_col, y_col)
             try:  # value labels above each bar (matplotlib >= 3.4)
                 ax.bar_label(bars, labels=[_fmt_value(v) for v in df[y_col]],
                              padding=3, color=_INK, fontsize=10)
@@ -132,10 +149,7 @@ def create_plot(data_model: dict, data: dict, title: str) -> str:
                     pass
             ax.plot(df[x_col], df[y_col], marker='o', color=primary, linewidth=2.2,
                     markersize=5, markerfacecolor="white", markeredgecolor=primary)
-            ax.set_xlabel(x_col, color=_INK)
-            ax.set_ylabel(y_col, color=_INK)
-            plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
-            _style_axes(ax)
+            _label_xy(ax, x_col, y_col)
 
         elif chart_type == 'pie_chart':
             labels_col, values_col = series['key'], series['value']
@@ -166,17 +180,12 @@ def create_plot(data_model: dict, data: dict, title: str) -> str:
                     pass
             ax.fill_between(df[x_col], df[y_col], alpha=0.25, color=primary)
             ax.plot(df[x_col], df[y_col], color=primary, linewidth=2.2)
-            ax.set_xlabel(x_col, color=_INK)
-            ax.set_ylabel(y_col, color=_INK)
-            plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
-            _style_axes(ax)
+            _label_xy(ax, x_col, y_col)
 
         elif chart_type == 'scatter_plot':
             x_col, y_col = series['x'], series['y']
             ax.scatter(df[x_col], df[y_col], color=primary, alpha=0.75, edgecolor="white", s=55)
-            ax.set_xlabel(x_col, color=_INK)
-            ax.set_ylabel(y_col, color=_INK)
-            _style_axes(ax)
+            _label_xy(ax, x_col, y_col, rotate_x=False)
 
         elif chart_type == 'heatmap':
             x_col, y_col, val_col = series['x'], series['y'], series['value']
@@ -250,6 +259,12 @@ async def _handle_table_step_dm(adapter, external_user_id: str, step: 'Step', th
             os.remove(file_path)
     return success
 
+# (external_user_id, report_id) -> monotonic time the WhatsApp report link was
+# sent. Per-process only; it just keeps one answer from repeating its link.
+_REPORT_LINK_DEDUP_SECONDS = 120
+_recent_report_links: dict = {}
+
+
 async def _handle_table_step_link(adapter, external_user_id: str, step: 'Step', thread_ts: str = None, channel_id: str = None):
     """WhatsApp: link to the full table in BOW instead of a raw CSV file.
 
@@ -258,12 +273,22 @@ async def _handle_table_step_link(adapter, external_user_id: str, step: 'Step', 
     web report instead.
     """
     from app.settings.config import settings
-    try:
-        report = step.widget.report if step.widget else None
-    except Exception:
-        report = None
+    # widget.report is eager-loaded by send_step_result_to_slack.
+    report = step.widget.report if step.widget else None
     if not report:
+        logger.info("SLACK_NOTIFIER: No report for table step %s; skipping WhatsApp link", step.id)
         return False
+    # Every table step of one answer belongs to the same report, so they would
+    # all send the same URL. Send it once per user+report within a short window.
+    key = (external_user_id, str(report.id))
+    now = time.monotonic()
+    for k, ts in list(_recent_report_links.items()):
+        if now - ts > _REPORT_LINK_DEDUP_SECONDS:
+            del _recent_report_links[k]
+    if key in _recent_report_links:
+        logger.info("SLACK_NOTIFIER: Report link for %s already sent; skipping duplicate", report.id)
+        return True
+    _recent_report_links[key] = now
     title = step.title or "Table"
     url = f"{settings.bow_config.base_url}/reports/{report.id}"
     # Bare URL (not a markdown link) so WhatsApp auto-links it; *title* is WhatsApp bold.
@@ -365,8 +390,8 @@ async def send_step_result_to_slack(step_id: str, external_user_id: str | None =
             # text answer describes the data in-message, and neither platform
             # can take a CSV upload under app auth (Teams renders its own
             # markdown table; Chat's media upload rejects app credentials).
-            # Slack/WhatsApp are unaffected — their data goes out as a CSV
-            # attachment, not a second table in the chat.
+            # Slack gets a CSV attachment and WhatsApp a link to the report
+            # (see below), not a second table in the chat.
             if data_type == "table" and platform_type in ("teams", "google_chat"):
                 logger.info(
                     "SLACK_NOTIFIER: Skipping table send for step %s (%s gets data via the text answer)",
