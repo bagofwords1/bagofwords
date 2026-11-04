@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.610 (November 4, 2026)
+- Added Starburst Galaxy and Starburst Enterprise as a data source, sharing the Trino connector (#1596)
+- Added role, access-token login, TLS certificate verification, additional catalogs and session timezone to Trino connections (#1596)
+- Fixed Trino connections over HTTPS on ports other than 443 sending credentials over plain HTTP (#1596)
+- Fixed timed-out Trino queries continuing to run on the cluster (#1596)
+
 ## Version 0.0.609 (November 4, 2026)
 - Added Neo4j as a read-only graph data source (#1579)
 - Changed connection lists and table selectors to use each connector's own noun, e.g. "forms", "lists", "messages", instead of "tables" or "files" (#1579)
