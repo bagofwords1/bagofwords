@@ -8,6 +8,7 @@ Public API Documentation 5.0 and the public username/password login:
   POST {PREFIX}/login?username&password     cookie and/or token (STATE["login_mode"])
   GET  {PREFIX}/sessionInfo                 data.userId, data.userFullName, data.username
   GET  {PREFIX}/cm/tree/branch/view         ?parentId; ids and statuses are strings
+  GET  {PREFIX}/search/full                 ?query&start&rows[&layoutId] -> regularSearch.results[]
 
 Faithfulness rules enforced on purpose:
   - A rejected login answers a bare HTTP 400 with no body.
@@ -15,7 +16,12 @@ Faithfulness rules enforced on purpose:
   - Every route other than /login needs a session cookie, a login token or a
     pasted API token (TOKENS); a missing or expired session answers 401, or a
     302 to the login page when STATE["expired_response"] == "302".
-  - Each user sees only the tree nodes in their `visible` set.
+  - Each user sees only the tree nodes in their `visible` set, and only the
+    search results whose `visible` set names them.
+  - Search does not rank or filter by the query: every query matches every
+    result the user may see, paged by `start`/`rows`. There is no length rule
+    on `query` (the PDF states none); a 400 with no body is the PDF's
+    "message too long" answer (STATE["search_400"]).
 
 Test-only switches and routes (not part of the KMS API):
   - STATE["session_expiry"] = "immediate": every session /login hands out is
@@ -29,6 +35,12 @@ Test-only switches and routes (not part of the KMS API):
                                           so a test can act while a KMS request is in flight
   - STATE["hold_login"] = True: POST /login waits the same way on HELD, so a
     test can act while a login is in flight.
+  - STATE["hold_stale_session"] = True: a request carrying an expired session
+    waits the same way on HELD before it gets its 401/302.
+  - Search: every /search/full call is counted in STATE["search_count"], and
+    its query, start, rows and layoutId (None when absent) are recorded in
+    STATE["last_search_params"]. STATE["extra_results"] holds extra result
+    records (visible to every user unless they carry a `visible` set).
   - GET {PREFIX}/_mock/empty              HTTP 200 with an empty body
   - GET {PREFIX}/_mock/oversized          HTTP 200 with a large JSON body (OVERSIZED_BYTES)
 
@@ -60,6 +72,37 @@ TREE = {
     "301": {"parent": "90", "title": "Billing dispute", "type": "ITEM", "status": "2"},
 }
 
+# Planted in search titles and descriptions; neither may reach client output.
+# Both are made-up test values (the JWT is a well-formed but unsigned dummy).
+CONTENT_JWT = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJtb2NrLXNlYXJjaCJ9.bW9jay1zaWduYXR1cmU"
+URL_TOKEN = "mock-url-token-3b9e71"
+
+# /search/full results (PDF shape), plus who may see each one.
+SEARCH_RESULTS = [
+    {"id": "279", "subType": "T_PROCEDURE", "title": "Reset a customer <strong>password</strong>",
+     "description": "Steps to <strong>reset</strong> a password from the agent desk.",
+     "status": "Online", "statusCode": "2", "updateDate": "10/04/2024", "visible": {"alice", "svc"}},
+    {"id": "301", "subType": "T_PROCEDURE", "title": "<strong>Billing</strong> dispute",
+     "description": "Open a <strong>billing</strong> dispute &amp; track it.",
+     "status": "Online", "statusCode": "2", "updatedDate": "2024-05-09 12:57:56.0",
+     "visible": {"alice", "bob", "svc"}},
+    {"id": "4400", "subType": "T_SCENARIO_FLOW", "title": "Card <strong>blocked</strong> flow",
+     "description": "A decision tree for a blocked card.", "status": "Online", "statusCode": "2",
+     "visible": {"alice", "bob", "svc"}},
+    {"id": "4410", "subType": "T_PROCEDURE", "title": "Draft <strong>refund</strong> rules",
+     "description": "Not published yet.", "status": "Offline", "statusCode": "1",
+     "visible": {"alice", "bob", "svc"}},
+    {"id": "4420", "subType": "T_PROCEDURE",
+     "title": f"Token notes {CONTENT_JWT} https://kms.example.com/contents?token={URL_TOKEN}",
+     "description": (f"See https://kms.example.com/contents?id=7&amp;token={URL_TOKEN}&amp;lang=en and "
+                     f"<strong>bearer</strong> {CONTENT_JWT} for details."),
+     "status": "Online", "statusCode": "2", "visible": {"alice", "bob", "svc"}},
+    {"id": "4430", "subType": "T_PROCEDURE", "title": "Restricted <strong>escalation</strong> path",
+     "description": "Managers only.", "status": "Online", "statusCode": "2", "visible": {"alice"}},
+    {"id": "4440", "type": "FOLDER", "title": "A folder hit", "description": "", "status": "Online",
+     "statusCode": "2", "visible": {"alice", "bob", "svc"}},
+]
+
 # "session_username" is what sessionInfo reports; it differs from the login
 # name on purpose, so a test can tell a reported identity from the typed one.
 USERS = {
@@ -90,9 +133,11 @@ _SWITCHES = {
     "ai_text_available": (True, False),
     "top_level_requires_parent": (True, False),
     "hold_login": (True, False),
+    "hold_stale_session": (True, False),
+    "search_400": (True, False),
 }
 # Counters and sizes: non-negative integers (bool is not an int here).
-_COUNTERS = ("login_count", "accepted_logins", "hold_stale_401s", "stale_401s")
+_COUNTERS = ("login_count", "accepted_logins", "hold_stale_401s", "stale_401s", "search_count")
 _DEFAULTS = {
     "login_mode": "cookie",          # cookie | token | both | none (SUCCESS, no session)
     "expired_response": "401",       # 401 | 302
@@ -104,6 +149,10 @@ _DEFAULTS = {
     "accepted_logins": 0,            # logins that returned SUCCESS
     "hold_stale_401s": 0,            # N > 0: the first N stale-session requests meet at a barrier
     "stale_401s": 0,                 # requests that carried an expired session
+    "hold_stale_session": False,     # True: a stale-session request waits on HELD before its 401/302
+    "search_400": False,             # True: /search/full answers 400 with no body ("message too long")
+    "search_count": 0,               # /search/full requests
+    "last_search_params": None,      # {"query", "start", "rows", "layoutId"} of the last /search/full
     "extra_results": [],
     "odd_shapes": False,             # False | "list" | "error" | "bad_id" | "bad_username"
 }
@@ -224,6 +273,10 @@ class Handler(BaseHTTPRequestHandler):
                     barrier.wait()
                 except threading.BrokenBarrierError:
                     return self._send_empty(500)
+            if STATE["hold_stale_session"]:
+                HELD["arrived"].set()
+                if not HELD["release"].wait(5):
+                    return self._send_empty(500)   # never released: fail instead of hanging
         if STATE["expired_response"] == "302":
             self._send_empty(302, {"Location": "/kms/lh/login"})
         else:
@@ -307,6 +360,8 @@ class Handler(BaseHTTPRequestHandler):
                 if node["parent"] == parent and node_id in visible
             ]
             return self._send_json(200, {"status": "SUCCESS", "data": data})
+        if route == "/search/full":
+            return self._search(user, query, odd)
         if route.startswith("/_mock/status_error/"):
             item_id = route[len("/_mock/status_error/"):]
             return self._send_json(200, {"status": "ERROR", "exception": f"Item {item_id} was not found",
@@ -322,6 +377,29 @@ class Handler(BaseHTTPRequestHandler):
             filler = "x" * OVERSIZED_BYTES
             return self._send_json(200, {"status": "SUCCESS", "data": filler})
         return self._send_empty(404)
+
+    def _search(self, user, query, odd):
+        params = {key: (query.get(key) or [None])[0] for key in ("query", "start", "rows", "layoutId")}
+        with _LOCK:
+            STATE["search_count"] += 1
+            STATE["last_search_params"] = params
+        if STATE["search_400"]:
+            return self._send_empty(400)
+        if odd == "list":
+            return self._send_json(200, [ODD_MARKER])
+        if odd == "error":
+            return self._send_json(200, {"status": "ERROR", "message": ODD_MARKER, "params": {}})
+        if odd == "bad_id":
+            return self._send_json(200, {"regularSearch": {"query": ODD_MARKER, "results": [
+                {"id": "x-" + ODD_MARKER, "title": ODD_MARKER, "description": ODD_MARKER, "status": "Online"}]}})
+        try:
+            start, rows = int(params["start"] or 0), int(params["rows"] or 10)
+        except ValueError:
+            return self._send_empty(400)
+        visible = [r for r in SEARCH_RESULTS + list(STATE["extra_results"]) if user in r.get("visible", (user,))]
+        page = [{k: v for k, v in r.items() if k != "visible"} for r in visible[start:start + rows]]
+        return self._send_json(200, {"regularSearch": {
+            "query": params["query"], "suggestedQueryAlternative": None, "results": page}})
 
 
 def make_server(port: int = 0, host: str = "127.0.0.1"):

@@ -1058,7 +1058,7 @@ def test_test_connection_logs_in_fresh_but_honours_hold(kms, monkeypatch):
     second = client(kms, password=saved).test_connection()
     assert second["success"] is False
     assert mock.STATE["login_count"] == 3        # held: no new login went out
-    assert second["message"] != first["message"] and _no_marker(second["message"]) == []
+    assert second["message"] == kc._HELD_AUTH and _no_marker(second["message"]) == []
     for text in (repr(first), repr(second)):
         assert changed not in text and saved not in text
     # Tool calls keep the session they already hold (ADR-6), without a login.
@@ -1126,6 +1126,66 @@ def test_pool_evicts_an_idle_entry_before_a_held_one(kms, monkeypatch):
     with pytest.raises(kc.KmsHTTPError):
         client(kms, password=wrong)._request("tree", _TREE)
     assert mock.STATE["login_count"] == 2                          # alice is still held
+
+
+def test_pool_does_not_evict_an_entry_with_a_login_in_flight(kms, monkeypatch):
+    mock = kms["mock"]
+    _frozen_clock(monkeypatch)
+    monkeypatch.setattr(kc, "_SESSION_POOL_MAX", 2)
+    wrong = "wrong-" + uuid.uuid4().hex
+    mock.STATE["hold_login"] = True
+    outcome = []
+
+    def rejected_search():
+        try:
+            client(kms, password=wrong).search_files("billing")
+        except kc.KmsHTTPError as exc:
+            outcome.append(exc.kind)
+
+    worker = threading.Thread(target=rejected_search)
+    worker.start()
+    try:
+        assert mock.HELD["arrived"].wait(5)     # alice's login is parked at KMS
+        client(kms, user="bob")                  # built, never logged in
+        client(kms, user="svc")                  # a third identity: one entry must go
+        assert len(kc._POOL) == 2
+    finally:
+        mock.HELD["release"].set()
+        worker.join(10)
+    assert outcome == ["auth"] and mock.STATE["login_count"] == 1
+    mock.STATE["hold_login"] = False
+    # The rejection landed on the pooled entry, so the hold covers a new instance too.
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms, password=wrong).search_files("billing")
+    assert info.value.kind == "auth"
+    assert mock.STATE["login_count"] == 1
+
+
+def test_session_cleared_while_a_request_is_in_flight_logs_in_again(kms):
+    mock = kms["mock"]
+    c = client(kms)
+    assert c.search_files("billing")             # alice's session is pooled and young
+    mock.expire_sessions()
+    mock.STATE["hold_stale_session"] = True
+    outcome = []
+
+    def search():
+        try:
+            outcome.append(c.search_files("billing"))
+        except Exception as exc:  # recorded and asserted below
+            outcome.append(exc)
+
+    worker = threading.Thread(target=search)
+    worker.start()
+    try:
+        assert mock.HELD["arrived"].wait(5)     # the stale request is parked before its 401
+        kc.clear_session_cache()                 # an operator clears the pool meanwhile
+    finally:
+        mock.HELD["release"].set()
+        worker.join(10)
+    # The 401 meets a cleared entry: one fresh login, not "KMS refused the session".
+    assert len(outcome) == 1 and isinstance(outcome[0], list) and outcome[0], outcome
+    assert mock.STATE["accepted_logins"] == 2
 
 
 def test_rejected_relogin_starts_a_hold_for_other_instances(kms, monkeypatch):

@@ -23,7 +23,9 @@ import os
 import re
 import threading
 import time
+import unicodedata
 from collections import OrderedDict
+from datetime import datetime
 from urllib.parse import unquote, urlsplit
 
 import requests
@@ -31,6 +33,7 @@ import urllib3
 
 from app.data_sources.clients.base import Capability, DataSourceClient, SearchStopped
 from app.data_sources.clients._file_source_common import FileTooLargeError, GlobScopeError
+from app.data_sources.clients.mail_common import strip_html
 from app.data_sources.clients.progress import discovery_progress
 from app.schemas.data_sources.configs import KMS_TOKEN_FORMAT_MESSAGE, KMS_TOKEN_RE
 
@@ -99,6 +102,10 @@ _MESSAGES = {
     "unreachable": "KMS Lighthouse could not be reached.",
     "too_large": "The KMS Lighthouse response was too large.",
 }
+_SEARCH_REJECTED = (
+    "KMS Lighthouse rejected the search; the query may be too long (try fewer words), "
+    "or the Layout ID setting may be wrong."
+)
 _TOP_LEVEL_HINT = (
     "Connected to KMS Lighthouse, but the top level of the folder tree came back empty. Set Root folder ID "
     "to a folder this account can open, or check the account's KMS permissions."
@@ -157,12 +164,26 @@ def _pool_key(base: str, prefix: str, username: str, password: str) -> str:
     return hmac.new(_POOL_SECRET, message.encode("utf-8", "surrogatepass"), hashlib.sha256).hexdigest()
 
 
+def _young(entry: _PoolEntry, now: float) -> bool:
+    """The entry holds a session young enough to reuse (caller holds ``state_lock``)."""
+    return entry.created_at is not None and now - entry.created_at < _SESSION_TTL_S
+
+
+def _held(entry: _PoolEntry, now: float) -> bool:
+    """A rejected login of this identity is recent enough to refuse new ones."""
+    return entry.failed_at is not None and now - entry.failed_at < _FAILED_LOGIN_HOLD_S
+
+
 def _is_idle(entry: _PoolEntry, now: float) -> bool:
-    """Neither a session young enough to reuse nor an active login hold: cheap to forget."""
+    """No young session, no active login hold and no login in flight: cheap to forget.
+
+    A login in flight counts as busy: forgetting its entry would let its
+    outcome (a session, or a rejection and its hold) land on an orphan.
+    """
+    if entry.login_lock.locked():
+        return False
     with entry.state_lock:
-        live = entry.created_at is not None and now - entry.created_at < _SESSION_TTL_S
-        held = entry.failed_at is not None and now - entry.failed_at < _FAILED_LOGIN_HOLD_S
-    return not live and not held
+        return not _young(entry, now) and not _held(entry, now)
 
 
 def _pool_entry(key: str) -> _PoolEntry:
@@ -188,7 +209,9 @@ def clear_session_cache() -> None:
     """Forget every pooled session and login hold in this process (tests and operations).
 
     Live client instances keep their entry, so it is reset too: their next
-    call logs in again instead of reusing the forgotten session or hold.
+    call logs in again instead of reusing the forgotten session or hold. A
+    login in flight during the clear may still land on live instances (its
+    session or hold is stored when it finishes).
     """
     with _POOL_LOCK:
         for entry in _POOL.values():
@@ -272,6 +295,99 @@ def _session_lost(status: int) -> bool:
 def _clean_text(value, limit: int = 200) -> str:
     text = "".join(ch for ch in str(value) if ch.isprintable())
     return " ".join(text.split())[:limit]
+
+
+# ------------------------------------------------------------------ content helpers (pure)
+_MAX_QUERY_CHARS = 200        # a URL-length guard: the PDF states no query limit
+_SEARCH_PAGE_ROWS = 50
+_MAX_SEARCH_PAGES = 20
+_SNIPPET_CHARS = 300
+_MAX_SEGMENT_CHARS = 200
+_KINDS = ("item", "scenario", "folder")
+_KIND_PREFIX_RE = re.compile(r"^(item|scenario|folder):", re.IGNORECASE)
+_JWT_RE = re.compile(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*")
+_QUERY_STRING_RE = re.compile(r"\?([^\s#\"'<>]*)")
+_SECRET_PARAMS = frozenset({"token", "access_token", "jwt", "auth"})
+_DAY_FIRST_RE = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})$")
+
+
+def _without_controls(text: str) -> str:
+    """Control, format and surrogate characters become spaces; whitespace is collapsed."""
+    return " ".join("".join(" " if unicodedata.category(ch)[0] == "C" else ch for ch in text).split())
+
+
+def _drop_secret_params(match: re.Match) -> str:
+    kept = []
+    for part in match.group(1).split("&"):
+        name = unquote(part.split("=", 1)[0]).strip().lower()
+        if name.startswith("amp;"):     # a "&amp;" that survived one round of unescaping
+            name = name[len("amp;"):]
+        if name not in _SECRET_PARAMS:
+            kept.append(part)
+    return "?" + "&".join(kept) if kept else ""
+
+
+def _scrub(text: str) -> str:
+    """Drop token-like query parameters from any URL and redact bare JWTs.
+
+    Run after ``strip_html``, so entity-encoded and plain-text URLs are caught too.
+    """
+    return _JWT_RE.sub("[redacted]", _QUERY_STRING_RE.sub(_drop_secret_params, text))
+
+
+def _safe_title(title) -> str:
+    """A KMS title as one path segment the folder-path rules accept (Durable Decisions)."""
+    text = _without_controls(_scrub(strip_html("" if title is None else str(title))).replace("/", "-"))
+    text = _KIND_PREFIX_RE.sub(lambda m: m.group(1) + " -", text)
+    text = text[:_MAX_SEGMENT_CHARS].rstrip()
+    if not text.strip("."):
+        return "untitled"
+    return text
+
+
+def _kind_of(record: dict) -> str:
+    if str(record.get("type") or "").upper() == "FOLDER":
+        return "folder"
+    if any("SCENARIO" in str(record.get(key) or "").upper() for key in ("type", "subType", "sub_type")):
+        return "scenario"
+    return "item"
+
+
+def _is_online(record: dict) -> bool | None:
+    """From the first status field present; None when KMS sent none (shown, and checked again on read)."""
+    for key in ("statusCode", "status_id", "status"):
+        value = record.get(key)
+        if value is None or not str(value).strip():
+            continue
+        return str(value).strip().lower() in ("2", "online")
+    return None
+
+
+def _make_id(kind: str, raw_id) -> str:
+    raw = str(raw_id)
+    if kind not in _KINDS or not _DIGITS_RE.match(raw):
+        logger.debug("kms_lighthouse %s refused: %s", "content", "record without a numeric id")
+        raise KmsHTTPError(200, "server")
+    return f"{kind}:{raw}"
+
+
+def _normalise_date(value) -> str | None:
+    """``dd/mm/yyyy`` (day first), ``yyyy-mm-dd hh:mm:ss[.f]`` or ISO, as ISO-8601; never raises."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    try:
+        day_first = _DAY_FIRST_RE.match(text)
+        if day_first:
+            day, month, year = (int(part) for part in day_first.groups())
+            return datetime(year, month, day).date().isoformat()
+        return datetime.fromisoformat(text).isoformat()
+    except (ValueError, OverflowError):
+        return None
+
+
+def _clean_query(query) -> str:
+    return _without_controls("" if query is None else str(query))[:_MAX_QUERY_CHARS].rstrip()
 
 
 def planner_scope_note(config: dict) -> str:
@@ -416,14 +532,16 @@ class KmsLighthouseClient(DataSourceClient):
 
     def _check_hold(self, entry: _PoolEntry) -> None:
         """Refuse without contacting KMS while a rejected login of this identity is recent."""
-        if entry.failed_at is not None and _clock() - entry.failed_at < _FAILED_LOGIN_HOLD_S:
+        with entry.state_lock:
+            held = _held(entry, _clock())
+        if held:
             logger.debug("kms_lighthouse %s refused: %s", "login", "login hold")
             raise KmsHTTPError(401, "auth", _HELD_AUTH)
 
     @staticmethod
     def _is_young(entry: _PoolEntry) -> bool:
         with entry.state_lock:
-            return entry.created_at is not None and _clock() - entry.created_at < _SESSION_TTL_S
+            return _young(entry, _clock())
 
     def _ensure_login(self) -> None:
         entry = self._entry
@@ -443,12 +561,14 @@ class KmsLighthouseClient(DataSourceClient):
         """Log in again after the session of ``used_generation`` was refused.
 
         If another thread or instance already logged in again (the entry's
-        generation moved on), adopt its session instead, so one expiry causes
-        one login.
+        generation moved on and its session is young), adopt that session
+        instead, so one expiry causes one login. A generation that moved on
+        without a young session (``clear_session_cache`` ran meanwhile) has
+        nothing to adopt, so it logs in.
         """
         entry = self._entry
         with entry.login_lock:
-            if entry.generation == used_generation:
+            if entry.generation == used_generation or not self._is_young(entry):
                 self._check_hold(entry)
                 self._login(self._new_session())
 
@@ -643,6 +763,80 @@ class KmsLighthouseClient(DataSourceClient):
             # The class name only: the exception text may hold a URL or a secret.
             logger.warning("kms_lighthouse test_connection failed unexpectedly: %s", type(exc).__name__)
             return {"success": False, "message": "KMS connection test failed."}
+
+    @_closed_errors
+    def search_files(self, query, limit=100, deadline=None, cancel_check=None, **_):
+        """Full-text search as this identity: typed, plain-text, scrubbed entries.
+
+        Pages until ``min(limit, max_results)`` entries, a short page or 20
+        pages. ``deadline`` (a ``time.monotonic()`` value) and ``cancel_check``
+        are checked before every page; a stop raises ``SearchStopped`` with the
+        entries found so far.
+        """
+        text = _clean_query(query)
+        cap = min(int(100 if limit is None else limit), self.max_results)
+        if not text or cap <= 0:
+            return []
+        files, seen, start = [], set(), 0
+        for _page in range(_MAX_SEARCH_PAGES):
+            if cancel_check is not None and cancel_check():
+                raise SearchStopped("cancelled", files)
+            if deadline is not None and time.monotonic() >= deadline:
+                raise SearchStopped("deadline", files)
+            rows = min(_SEARCH_PAGE_ROWS, cap - len(files))
+            params = {"query": text, "start": str(start), "rows": str(rows)}
+            if self.layout_id is not None:
+                params["layoutId"] = str(self.layout_id)
+            results = self._search_page(params)
+            for record in results:
+                entry = self._search_entry(record)
+                if entry is None or entry["id"] in seen:
+                    continue
+                seen.add(entry["id"])
+                files.append(entry)
+                if len(files) >= cap:
+                    return files
+            if len(results) < rows:
+                break
+            start += rows
+        return files
+
+    def _search_page(self, params: dict) -> list:
+        rejected = False
+        try:
+            payload = self._request("search", "/search/full", params=params)
+        except KmsHTTPError as exc:
+            if exc.kind != "bad_request":
+                raise
+            rejected = True
+        # Raised outside the except block. The PDF: a 400 with no body means the query is too long.
+        if rejected:
+            raise KmsHTTPError(400, "bad_request", _SEARCH_REJECTED)
+        block = payload.get("regularSearch") if isinstance(payload, dict) else None
+        results = block.get("results") if isinstance(block, dict) else None
+        if isinstance(block, dict) and results is None:
+            results = []    # no hits
+        if not isinstance(results, list) or not all(isinstance(r, dict) for r in results):
+            logger.debug("kms_lighthouse %s refused: %s", "search", "results are not a list of records")
+            raise KmsHTTPError(200, "server")
+        return results
+
+    def _search_entry(self, record: dict) -> dict | None:
+        kind = _kind_of(record)
+        entry_id = _make_id(kind, record.get("id", ""))
+        online = _is_online(record)
+        if kind == "folder" or (online is False and not self.include_offline):
+            return None   # search lists no folders (path == name); offline content is hidden
+        name = _safe_title(record.get("title")) + ".txt"
+        description = record.get("description")
+        return {
+            "id": entry_id, "name": name, "path": name, "size": 0,
+            "modified_at": _normalise_date(record.get("updateDate") or record.get("updatedDate")),
+            "mime_type": "text/plain", "is_folder": False, "kind": kind,
+            "status": None if online is None else ("online" if online else "offline"),
+            "snippet": _scrub(strip_html("" if description is None else str(description)))[:_SNIPPET_CHARS],
+            "web_url": None,
+        }
 
     @discovery_progress
     def get_schemas(self, progress_callback=None):
