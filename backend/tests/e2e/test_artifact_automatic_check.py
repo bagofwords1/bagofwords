@@ -1184,7 +1184,8 @@ def test_only_the_failures_the_check_reports_are_stamped(chromium, stub_render, 
 
 def test_a_restricted_check_hides_all_its_preview_activity(chromium, stub_render, owner):
     """restricted withholds the evidence: the activity log must not leak it on
-    the next turn, so every event of the check's preview is stamped (hidden)."""
+    the next turn or on request, so every event of the check's preview is
+    withheld from the agent for good."""
     refuse = _refusing("conversation.agent_forbidden")
 
     async def refuse_then_revoke(page):
@@ -1198,8 +1199,16 @@ def test_a_restricted_check_hides_all_its_preview_activity(chromium, stub_render
 
     _assert_withheld(_check(payload), payload=payload)
     rows, section = asyncio.run(_preview_rows(owner["report_id"]))
-    assert rows == [("conversation.agent_forbidden", completion_id)]
+    from app.services import artifact_activity
+
+    assert rows == [("conversation.agent_forbidden", artifact_activity.WITHHELD)]
     assert section is None, section
+
+    async def agent_read():
+        async with async_session_maker() as db:
+            return await artifact_activity.read(db, report_id=owner["report_id"])
+
+    assert asyncio.run(agent_read())["events"] == [], "read_artifact_activity does not return them either"
 
 
 def test_a_crash_the_check_reported_is_not_repeated_next_turn(chromium, stub_render, owner):

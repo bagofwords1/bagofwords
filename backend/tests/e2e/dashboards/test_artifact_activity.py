@@ -417,3 +417,160 @@ def test_preview_activity_is_shown_next_turn_unless_marked_shown(corpus, corpus_
     shown = run(section())
     assert shown and "app.not_reported" in shown and "app.other_preview" in shown
     assert "app.reported" not in shown
+
+
+# ── events a restricted automatic check withheld (artifact_activity.withhold) ──
+
+def session_of(rows, aid, message) -> str:
+    """The stored session of the event carrying ``message``."""
+    with rows.engine.begin() as conn:
+        for session_id, detail in conn.execute(text(
+                "select session_id, detail from artifact_activity_events where artifact_id = :id"), {"id": aid}):
+            detail = json.loads(detail) if isinstance(detail, str) else (detail or {})
+            if detail.get("message") == message:
+                return session_id
+    raise AssertionError(f"no event carries {message!r}")
+
+
+def withheld_setup(corpus, corpus_rows, test_client):
+    """An editor's own failure, and a check's failure that the check then
+    withheld (as artifact_verification does when access is revoked)."""
+    aid = own(corpus_rows, corpus, DASH)
+    owner = as_(corpus, "owner")
+    secret = f"TypeError: secret-{uuid.uuid4().hex}"
+    for event in ({"kind": "error", "status": "error", "seq": 1, "detail": {"message": secret}}, {**FAILED_SEND, "seq": 1}):
+        assert test_client.post(path(aid), json=batch(event), headers=owner).status_code == 200
+    check_session = session_of(corpus_rows, aid, secret)
+
+    async def withhold():
+        async with async_session_maker() as db:
+            # Shown to the agent once already (an earlier turn): withholding still wins.
+            await artifact_activity.mark_shown(db, session_id=check_session, completion_id=str(uuid.uuid4()))
+            await artifact_activity.withhold(db, session_id=check_session)
+
+    run(withhold())
+    return aid, owner, secret, report_of(corpus_rows, aid)
+
+
+def test_events_a_restricted_check_withheld_never_reach_the_agent(corpus, corpus_rows, test_client):
+    aid, owner, secret, report_id = withheld_setup(corpus, corpus_rows, test_client)
+    ui = test_client.get(path(aid), headers=owner).json()["events"]
+    withheld_id = next(e["id"] for e in ui if secret in e["text"])
+
+    async def agent_reads():
+        async with async_session_maker() as db:
+            listed = await artifact_activity.read(db, report_id=report_id)
+            by_id = await artifact_activity.read(db, report_id=report_id, event_id=withheld_id)
+            section = await artifact_activity.context_section(db, report_id=report_id, mark=False)
+            return listed, by_id, section
+
+    listed, by_id, section = run(agent_reads())
+    assert secret not in str(listed) and listed["events"], "the editor's own event is still listed"
+    assert "event" not in by_id and by_id["events"] == [] and by_id.get("error"), "a lookup by id finds nothing"
+    assert section is not None and secret not in section and "conversations.create" in section
+    # The editor's own activity log still lists both.
+    assert {e["kind"] for e in ui} == {"error", "request"}
+
+
+def test_marking_events_shown_never_undoes_a_withheld_check(corpus, corpus_rows, test_client):
+    aid, owner, secret, report_id = withheld_setup(corpus, corpus_rows, test_client)
+
+    async def stamp_then_read():
+        async with async_session_maker() as db:
+            await artifact_activity.context_section(db, report_id=report_id, completion_id=str(uuid.uuid4()))
+        async with async_session_maker() as db:
+            return await artifact_activity.read(db, report_id=report_id)
+
+    assert secret not in str(run(stamp_then_read()))
+
+
+def test_a_check_withheld_while_the_section_was_built_stays_withheld(monkeypatch, corpus, corpus_rows, test_client):
+    """context_section reads unstamped failures, then stamps them; a check
+    that withholds them in between must win. Two sessions can't be
+    interleaved deterministically through the API, so this patches the
+    service's own read to withhold right after it (the one internal seam)."""
+    aid = own(corpus_rows, corpus, DASH)
+    owner = as_(corpus, "owner")
+    secret = f"TypeError: secret-{uuid.uuid4().hex}"
+    assert test_client.post(path(aid), json=batch({"kind": "error", "status": "error", "seq": 1,
+                                                   "detail": {"message": secret}}), headers=owner).status_code == 200
+    report_id, session_id = report_of(corpus_rows, aid), session_of(corpus_rows, aid, secret)
+    real_recent = artifact_activity.recent
+
+    async def recent_then_withhold(*args, **kwargs):
+        rows = await real_recent(*args, **kwargs)
+        async with async_session_maker() as other:
+            await artifact_activity.withhold(other, session_id=session_id)
+        return rows
+
+    async def section_then_read():
+        monkeypatch.setattr(artifact_activity, "recent", recent_then_withhold)
+        async with async_session_maker() as db:
+            await artifact_activity.context_section(db, report_id=report_id, completion_id=str(uuid.uuid4()))
+        monkeypatch.setattr(artifact_activity, "recent", real_recent)
+        async with async_session_maker() as db:
+            return await artifact_activity.read(db, report_id=report_id)
+
+    assert secret not in str(run(section_then_read()))
+
+
+@pytest.mark.parametrize("same_process", [True, False], ids=["same-process", "another-process"])
+def test_events_a_withheld_session_stores_later_are_withheld_too(same_process, corpus, corpus_rows, test_client):
+    """A preview whose close failed keeps logging after its check withheld it.
+    In another process (no memory of the withhold) the session's withheld
+    rows still decide."""
+    aid, owner, secret, report_id = withheld_setup(corpus, corpus_rows, test_client)
+    check_session = session_of(corpus_rows, aid, secret)
+    if not same_process:
+        artifact_activity._WITHHELD_SESSIONS.clear()
+    later = f"TypeError: later-{uuid.uuid4().hex}"
+    assert test_client.post(path(aid), json=batch({"kind": "error", "status": "error", "seq": 2,
+                                                   "detail": {"message": later}}, session=check_session),
+                            headers=owner).status_code == 200
+    assert session_of(corpus_rows, aid, later) == check_session
+
+    async def agent_reads():
+        async with async_session_maker() as db:
+            listed = await artifact_activity.read(db, report_id=report_id)
+            section = await artifact_activity.context_section(db, report_id=report_id, mark=False)
+            return listed, section
+
+    listed, section = run(agent_reads())
+    assert later not in str(listed) and later not in (section or "")
+    assert any(later in e["text"] for e in test_client.get(path(aid), headers=owner).json()["events"]), \
+        "the editor's log still lists it"
+
+
+def test_a_short_event_id_never_resolves_to_a_withheld_event(corpus, corpus_rows, test_client):
+    from app.ai.tools.implementations.read_artifact_activity import ReadArtifactActivityTool
+    from app.models.report import Report
+
+    aid, owner, secret, report_id = withheld_setup(corpus, corpus_rows, test_client)
+    ui = test_client.get(path(aid), headers=owner).json()["events"]
+    withheld_id = next(e["id"] for e in ui if secret in e["text"])
+    # Store visible events until one shares the withheld event's first
+    # character: a full batch per request (50 new ids), so a few requests at
+    # most (a miss after 4 batches is 1 in ~10^5).
+    visible_id = None
+    click = {"kind": "click", "detail": {"target": "button 'Go'"}}
+    for _ in range(4):
+        assert test_client.post(path(aid), json=batch(*[click] * artifact_activity.MAX_BATCH),
+                                headers=owner).status_code == 200
+        ids = [e["id"] for e in test_client.get(path(aid), params={"limit": 200}, headers=owner).json()["events"]]
+        visible_id = next((i for i in ids if i != withheld_id and i[0] == withheld_id[0]), None)
+        if visible_id:
+            break
+    assert visible_id, "no visible event shares a first character with the withheld one"
+
+    async def call(**args):
+        async with async_session_maker() as db:
+            report = await db.get(Report, report_id)
+            out = None
+            async for event in ReadArtifactActivityTool().run_stream(args, {"db": db, "report": report}):
+                if event.type == "tool.end":
+                    out = event.payload["output"]
+            return out
+
+    found = run(call(event_id=withheld_id[0]))
+    assert found.get("event") and found["event"]["id"] != withheld_id and secret not in str(found)
+    assert not run(call(event_id=withheld_id[:12])).get("event"), "the withheld event itself stays unreadable"

@@ -499,6 +499,26 @@ def _merge(result, classified):
         result.setdefault("_cursors", {}).setdefault(message, []).extend(cursors)
 
 
+async def _withhold_activity(evidence_id):
+    """Hide a restricted check's preview events from the agent for good (see
+    artifact_activity.withhold). A failure is logged as an error: the evidence
+    would stay readable by the agent."""
+    from app.dependencies import async_session_maker
+    from app.services import artifact_activity
+    from app.services.artifact_preview_service import activity_session_id
+
+    if not evidence_id:
+        return
+    for attempt in range(2):  # one retry: a transient DB error must not leave it readable
+        try:
+            async with async_session_maker() as db:
+                await artifact_activity.withhold(db, session_id=activity_session_id(evidence_id))
+            return
+        except Exception:
+            if attempt:
+                logger.error("Automatic artifact check could not withhold its restricted evidence", exc_info=True)
+
+
 async def _mark_activity_shown(runtime_ctx, evidence_id, seqs=None, messages=None):
     """Stamp the check's preview events in the app's activity log as shown in
     this completion (those with a cursor in ``seqs``, or all of them), so the
@@ -686,12 +706,12 @@ async def run_automatic_artifact_check(runtime_ctx: dict, *, artifact_id: str, v
         logger.info("automatic_artifact_check withheld its result: reason=%s status=%s %s",
                     reason, result["status"], _log_ids(runtime_ctx, result))
         if restricted:
-            # Withheld evidence must not reach the agent through <app_activity>
-            # either: every event of this preview is stamped (hidden), although
-            # the result does not report it. check_failed stamps nothing: those
-            # events were never shown, so the next turn reports them.
+            # Withheld evidence must not reach the agent at all: not through
+            # <app_activity>, not through read_artifact_activity. check_failed
+            # withholds nothing: those events were never shown, so the next
+            # turn reports them.
             for evidence_id in previews:
-                await _mark_activity_shown(runtime_ctx, evidence_id)
+                await _withhold_activity(evidence_id)
         return _emptied(result, reason)
     if previews:
         await _mark_activity_shown(runtime_ctx, previews[-1],

@@ -29,7 +29,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Any, Callable, Iterable, Optional
 
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import delete, exists, or_, select, update
 
 from app.models.artifact_activity import KINDS, SOURCES, ArtifactActivityEvent, ArtifactActivityPayload
 
@@ -41,6 +41,14 @@ MAX_TEXT = 300
 CONTEXT_LINES = 10
 STEPS_BEFORE = 3
 PAYLOAD_RETENTION_HOURS = 24
+# shown_in_completion_id of events a restricted automatic check withheld from
+# the agent (never a completion id: those are UUIDs).
+WITHHELD = "withheld"
+# Sessions withheld in this process, newest last. Checked when a session's
+# events are stored, so a preview that keeps logging after its check withheld
+# it (a failed close, a write already in flight) stays hidden too.
+_WITHHELD_SESSIONS: dict[str, None] = {}
+_WITHHELD_SESSIONS_MAX = 1000
 MAX_PAYLOAD_CHARS = 32_000   # request, response and stream, each, serialized
 MAX_STREAM_EVENTS = 200
 MAX_STREAM_TEXT = 500
@@ -233,6 +241,19 @@ async def _redactor(organization_id: str) -> tuple:
         return None, False
 
 
+def _session_key(session_id: Any) -> str:
+    """The stored form of a session id: every write and match uses it."""
+    return str(session_id)[:64]
+
+
+async def _is_withheld(db, session: str) -> bool:
+    if session in _WITHHELD_SESSIONS:
+        return True
+    return bool((await db.execute(select(exists().where(
+        ArtifactActivityEvent.session_id == session,
+        ArtifactActivityEvent.shown_in_completion_id == WITHHELD)))).scalar())
+
+
 async def record(db, *, organization_id: str, artifact_id: str, report_id: Optional[str],
                  user_id: Optional[str], session_id: str, source: str, events: Iterable[dict],
                  artifact_version: Optional[int] = None, commit: bool = True) -> int:
@@ -244,6 +265,8 @@ async def record(db, *, organization_id: str, artifact_id: str, report_id: Optio
     if not rows:
         return 0
     redactor, redaction_ok = await _redactor(organization_id)
+    session = _session_key(session_id)
+    withheld = await _is_withheld(db, session)
     stored = []
     for row, payload in rows:
         if redactor is not None and row["detail"]:
@@ -251,9 +274,11 @@ async def record(db, *, organization_id: str, artifact_id: str, report_id: Optio
         event = ArtifactActivityEvent(
             organization_id=str(organization_id), artifact_id=str(artifact_id),
             artifact_version=artifact_version, report_id=str(report_id) if report_id else None,
-            user_id=str(user_id) if user_id else None, session_id=str(session_id)[:64],
+            user_id=str(user_id) if user_id else None, session_id=session,
             source=source, **row,
         )
+        if withheld:
+            event.shown_in_completion_id = WITHHELD
         db.add(event)
         # A payload needs an owner to be private to, and the PII rules to have
         # loaded: without either it is dropped, never stored unredacted.
@@ -269,6 +294,10 @@ async def record(db, *, organization_id: str, artifact_id: str, report_id: Optio
     await prune(db, report_id=report_id, artifact_id=artifact_id)
     if commit:
         await db.commit()
+        # Withheld while these were being written: withhold() marks the session
+        # before its UPDATE, so either that UPDATE sees these rows or this does.
+        if not withheld and session in _WITHHELD_SESSIONS:
+            await withhold(db, session_id=session)
     return len(rows)
 
 
@@ -306,7 +335,7 @@ async def mark_shown(db, *, session_id: str, completion_id: str, seqs: Optional[
     those with a ``seq`` in ``seqs``, or all of them), so ``context_section``
     skips them. With ``seqs``, ``match`` also selects error/console events
     without a seq (0) by their ``detail``. One UPDATE."""
-    unstamped = (ArtifactActivityEvent.session_id == str(session_id)[:64],
+    unstamped = (ArtifactActivityEvent.session_id == _session_key(session_id),
                  ArtifactActivityEvent.shown_in_completion_id.is_(None))
     q = update(ArtifactActivityEvent).where(*unstamped)
     if seqs is not None:
@@ -325,6 +354,22 @@ async def mark_shown(db, *, session_id: str, completion_id: str, seqs: Optional[
 
 
 # ── reading ────────────────────────────────────────────────────────────────
+
+async def withhold(db, *, session_id: str) -> None:
+    """Hide one preview session's events from the agent for good: a restricted
+    automatic check withholds its evidence. Every event of the session, shown
+    before or not; no completion is needed. The editor's activity log still
+    lists them. Events the session stores later are withheld as they are
+    stored. Raises on failure (the caller logs it)."""
+    session = _session_key(session_id)
+    _WITHHELD_SESSIONS.pop(session, None)
+    _WITHHELD_SESSIONS[session] = None
+    while len(_WITHHELD_SESSIONS) > _WITHHELD_SESSIONS_MAX:
+        _WITHHELD_SESSIONS.pop(next(iter(_WITHHELD_SESSIONS)))
+    await db.execute(update(ArtifactActivityEvent).where(ArtifactActivityEvent.session_id == session)
+                     .values(shown_in_completion_id=WITHHELD))
+    await db.commit()
+
 
 def line(e: ArtifactActivityEvent) -> str:
     """One compact, readable line for the agent: when, who, which version, what."""
@@ -376,9 +421,13 @@ def is_failure(e: ArtifactActivityEvent) -> bool:
 
 async def recent(db, *, report_id: str, artifact_id: Optional[str] = None, since: Optional[datetime] = None,
                  kinds: Optional[list[str]] = None, only_errors: bool = False, source: Optional[str] = None,
-                 limit: int = 60) -> list[ArtifactActivityEvent]:
-    """Events for a report (or one of its artifacts), oldest first."""
+                 limit: int = 60, agent: bool = False) -> list[ArtifactActivityEvent]:
+    """Events for a report (or one of its artifacts), oldest first. ``agent``:
+    for the agent, which never sees events a restricted check withheld."""
     q = select(ArtifactActivityEvent).where(ArtifactActivityEvent.report_id == str(report_id))
+    if agent:
+        q = q.where(or_(ArtifactActivityEvent.shown_in_completion_id.is_(None),
+                        ArtifactActivityEvent.shown_in_completion_id != WITHHELD))
     if artifact_id:
         q = q.where(ArtifactActivityEvent.artifact_id == str(artifact_id))
     if since:
@@ -405,7 +454,7 @@ async def read(db, *, report_id: str, artifact_id: Optional[str] = None, since_m
     "the model may see data" switch: off, a payload comes back as its shape."""
     if event_id:
         e = await db.get(ArtifactActivityEvent, str(event_id))
-        if e is None or str(e.report_id) != str(report_id):
+        if e is None or str(e.report_id) != str(report_id) or e.shown_in_completion_id == WITHHELD:
             return {"events": [], "error": "Event not found in this report"}
         event = {"id": e.id, "line": line(e), "kind": e.kind, "op": e.op, "status": e.status,
                  "error_code": e.error_code, "duration_ms": e.duration_ms, "source": e.source,
@@ -418,7 +467,7 @@ async def read(db, *, report_id: str, artifact_id: Optional[str] = None, since_m
         return {"event": event}
     since = datetime.utcnow() - timedelta(minutes=since_minutes) if since_minutes else None
     rows = await recent(db, report_id=report_id, artifact_id=artifact_id, since=since, kinds=kinds,
-                        only_errors=only_errors, source=source, limit=max(1, min(limit, 100)))
+                        only_errors=only_errors, source=source, limit=max(1, min(limit, 100)), agent=True)
     with_payload = await payload_event_ids(db, [e.id for e in rows])
     return {
         # artifact_version is the version number (v1, v2...), as in each line;
@@ -445,7 +494,7 @@ async def context_section(db, *, report_id: str, completion_id: Optional[str] = 
     """The automatic per-turn section: failures the agent has not seen yet,
     each with the few steps before it. None when there are none.
     With ``mark``, stamps them (and their steps) with ``completion_id``."""
-    rows = await recent(db, report_id=report_id, limit=200)
+    rows = await recent(db, report_id=report_id, limit=200, agent=True)
     unseen = [i for i, e in enumerate(rows) if e.shown_in_completion_id is None and is_failure(e)]
     if not unseen:
         return None
@@ -471,7 +520,10 @@ async def context_section(db, *, report_id: str, completion_id: Optional[str] = 
         text = text[-6000:]
     if mark and completion_id:
         ids = list({rows[j].id for j in keep} | {rows[i].id for i in unseen})
-        await db.execute(update(ArtifactActivityEvent).where(ArtifactActivityEvent.id.in_(ids))
+        # Only rows still unstamped: a restricted check may have withheld some
+        # of them since they were read, and that must not be undone.
+        await db.execute(update(ArtifactActivityEvent).where(ArtifactActivityEvent.id.in_(ids),
+                                                             ArtifactActivityEvent.shown_in_completion_id.is_(None))
                          .values(shown_in_completion_id=str(completion_id)))
         await db.commit()
     return text
