@@ -30,6 +30,16 @@
  *     embed.destroy()     // after logout(): removes the frame once it has signed out (at most 6 s)
  *   </script>
  *
+ * Sizes: `height` (both modes) and `width` (floating) are a number of
+ * pixels (at least 1) or any CSS length the browser accepts ('40rem',
+ * '80dvh', 'calc(100vh - 80px)'). Floating defaults to 600 x 720 px, capped
+ * by the viewport; inline fills the container width, height '100%'.
+ * Floating also takes `zIndex` (an integer or 'auto'; default 2147483000),
+ * `accentColor` for the launcher (any CSS colour; default '#2563eb') and
+ * `position` ('bottom-right' or 'bottom-left'). A value the browser refuses,
+ * or a colour that would hide the launcher, warns in the console and the
+ * default is used.
+ *
  * startTimeout (ms, default 15000, 0 turns it off): a frame the browser
  * refuses (the artifact doesn't exist or doesn't allow this application, the
  * application is disabled, this origin isn't listed) never runs, so it can't
@@ -63,6 +73,98 @@
   function plain(obj) {
     if (!obj || typeof obj !== 'object') return null;
     try { return JSON.parse(JSON.stringify(obj)); } catch (e) { return null; }
+  }
+
+  // The floating panel's size. Wide enough that a chat looks as it does in
+  // BOW's artifact preview; the viewport still caps both sides.
+  var FLOATING_WIDTH = '600px';
+  var FLOATING_HEIGHT = '720px';
+
+  // Tell the host an option was refused. Neither an odd value (one with no
+  // text form) nor a host console that throws may stop the mount.
+  function warnIgnored(name, value, hint, fallback) {
+    var shown;
+    try { shown = JSON.stringify(String(value)); } catch (e) { shown = '(a value with no text form)'; }
+    try {
+      if (root.console && root.console.warn) {
+        root.console.warn('[bow-embed] ignoring ' + name + ' ' + shown + ': ' + hint + '; using ' + fallback);
+      }
+    } catch (e) { /* the warning is a courtesy: a broken console must not break the embed */ }
+  }
+
+  // The same value with dvh/svh/lvh turned into plain vh, for browsers that
+  // do not know the dynamic units.
+  function plainVh(length) {
+    return length.replace(/(\d)[dsl]vh\b/gi, '$1vh');
+  }
+
+  // Set one size property (width or height), optionally capped by `cap`. It is
+  // set through the single style property, so it cannot add other
+  // declarations, and the browser decides what is valid. The vh form goes
+  // first; the dvh form replaces it where the browser knows dvh.
+  function setLength(el, prop, value, cap) {
+    var wrap = function (v, c) { return c ? 'min(' + v + ', ' + c + ')' : v; };
+    el.style[prop] = '';
+    el.style[prop] = wrap(plainVh(value), cap && plainVh(cap));
+    el.style[prop] = wrap(value, cap);
+  }
+
+  // A size option: a number is pixels (at least 1), a string is any CSS length
+  // the browser keeps. Anything else warns and is the default.
+  var SIZE_HINT = 'use a number of pixels (at least 1) or a CSS length';
+  function applySize(el, prop, value, fallback, cap) {
+    var given = null;
+    if (typeof value === 'number' && isFinite(value) && value >= 1) given = value + 'px';
+    else if (typeof value === 'string' && value.trim()) given = value.trim();
+    if (given) {
+      setLength(el, prop, given, cap);
+      if (el.style[prop]) return;
+    }
+    if (value != null) warnIgnored(prop, value, SIZE_HINT, fallback);
+    setLength(el, prop, fallback, cap);
+  }
+
+  // z-index: 'auto', or an integer in CSS's range, as a number or a string of
+  // digits; anything else given warns and is the default.
+  var Z_INDEX = '2147483000';
+  var Z_MIN = -2147483648;
+  var Z_MAX = 2147483647;
+  function zIndexOf(value) {
+    if (value == null) return Z_INDEX;
+    var text = typeof value === 'string' ? value.trim() : null;
+    if (text !== null && text.toLowerCase() === 'auto') return 'auto';
+    var n = typeof value === 'number' ? value : (text !== null && /^-?\d+$/.test(text) ? Number(text) : NaN);
+    if (isFinite(n) && Math.floor(n) === n && n >= Z_MIN && n <= Z_MAX) return String(n);
+    warnIgnored('zIndex', value, 'use a whole number or \'auto\'', Z_INDEX);
+    return Z_INDEX;
+  }
+
+  // The launcher's colour: any colour the browser accepts. It is set through
+  // the one style property, so it cannot add other declarations, and read back:
+  // a value the browser dropped (or one that is not a string) warns and is the
+  // default.
+  var ACCENT = '#2563eb';
+  function setAccent(launcher, value) {
+    if (value == null) { launcher.style.backgroundColor = ACCENT; return; }
+    if (typeof value === 'string') {
+      launcher.style.backgroundColor = value.trim();
+      if (launcher.style.backgroundColor) return;
+    }
+    warnIgnored('accentColor', value, 'use a CSS colour such as \'#2563eb\'', ACCENT);
+    launcher.style.backgroundColor = ACCENT;
+  }
+
+  // Once the launcher is on the page: a colour that computes to see-through or
+  // to white (the icon's colour), such as 'transparent', 'currentcolor' or an
+  // undefined var(--brand), would hide the launcher, so it warns and is the default.
+  var HIDDEN_COLOR = /^(transparent|rgba\(.*,\s*0(\.0*)?\)|rgba?\(\s*255,\s*255,\s*255(,\s*1(\.0*)?)?\s*\))$/i;
+  function checkAccentShows(launcher, value) {
+    if (value == null) return;
+    var shown;
+    try { shown = root.getComputedStyle ? root.getComputedStyle(launcher).backgroundColor : ''; } catch (e) { return; }
+    if (!shown || !HIDDEN_COLOR.test(String(shown).trim())) return;
+    warnIgnored('accentColor', value, 'it would hide the launcher', ACCENT);
+    launcher.style.backgroundColor = ACCENT;
   }
 
   function element(target) {
@@ -110,28 +212,40 @@
       var container = element(options.container);
       if (!container) throw new Error('BOWEmbed.mount: inline mode needs a `container` element or selector');
       wrapper.style.width = '100%';
-      wrapper.style.height = options.height || '100%';
+      applySize(wrapper, 'height', options.height, '100%', null);
       wrapper.appendChild(iframe);
       container.appendChild(wrapper);
     } else {
       var side = options.position === 'bottom-left' ? 'left' : 'right';
-      wrapper.style.cssText = 'position:fixed;bottom:88px;' + side + ':16px;width:min(420px,calc(100vw - 32px));' +
-        'height:min(640px,calc(100vh - 120px));border-radius:12px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.18);' +
-        'background:#fff;display:none;z-index:' + String(options.zIndex || 2147483000);
+      var zIndex = zIndexOf(options.zIndex);
+      wrapper.style.cssText = 'position:fixed;bottom:88px;' + side + ':16px;' +
+        'border-radius:12px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.18);' +
+        'background:#fff;display:none;z-index:' + zIndex;
+      applySize(wrapper, 'width', options.width, FLOATING_WIDTH, 'calc(100vw - 32px)');
+      applySize(wrapper, 'height', options.height, FLOATING_HEIGHT, 'calc(100dvh - 120px)');
       wrapper.appendChild(iframe);
       launcher = document.createElement('button');
       launcher.type = 'button';
       launcher.setAttribute('aria-label', options.title || 'Open assistant');
       launcher.setAttribute('aria-expanded', 'false');
       launcher.setAttribute('data-bow-embed-launcher', options.artifact);
+      // The background longhands are reset so a host rule such as
+      // button{background-image:...} cannot paint over the accent. The colour
+      // itself is set by setAccent; neither background-color nor the
+      // background shorthand goes here: with the shorthand, Chromium reads
+      // style.backgroundColor back as 'initial', which defeats setAccent's
+      // check that the browser kept the colour.
       launcher.style.cssText = 'position:fixed;bottom:16px;' + side + ':16px;width:56px;height:56px;border-radius:28px;' +
-        'border:0;cursor:pointer;color:#fff;background:' + (options.accentColor || '#2563eb') + ';' +
-        'box-shadow:0 6px 20px rgba(0,0,0,.2);z-index:' + String(options.zIndex || 2147483000);
+        'background-image:none;background-clip:border-box;background-origin:padding-box;' +
+        'background-size:auto;background-position:0% 0%;background-repeat:repeat;background-attachment:scroll;' +
+        'border:0;cursor:pointer;color:#fff;box-shadow:0 6px 20px rgba(0,0,0,.2);z-index:' + zIndex;
+      setAccent(launcher, options.accentColor);
       launcher.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
         'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
       launcher.addEventListener('click', function () { setOpen(!state.open); });
       document.body.appendChild(wrapper);
       document.body.appendChild(launcher);
+      checkAccentShows(launcher, options.accentColor);
     }
 
     function setOpen(open) {

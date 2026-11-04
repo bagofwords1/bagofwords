@@ -176,6 +176,10 @@ jobs:
       working-directory: ./frontend
       run: npx playwright install --with-deps chromium
 
+    - name: Embed SDK tests
+      working-directory: ./frontend
+      run: node --test tests/unit/embedSdk.mjs tests/unit/embedSdkBrowser.mjs
+
     - name: Start backend server
       working-directory: ./backend
       env:
