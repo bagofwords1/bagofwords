@@ -16,6 +16,8 @@ import tempfile
 import uuid
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from app.data_sources.clients.remote_process import run_bounded
 from app.data_sources.clients.tool_provider_base import ToolProviderClient
 from app.schemas.data_sources.remote_server import (
@@ -42,12 +44,24 @@ class RemoteServerClient(ToolProviderClient):
     }
 
     def __init__(self, **kwargs):
-        self.config = self.config_class.model_validate(kwargs)
+        try:
+            self.config = self.config_class.model_validate(kwargs)
+        except ValidationError as exc:
+            if any(e["loc"] == ("host_public_key",) for e in exc.errors()):
+                raise ValueError(
+                    "Verify the server's SSH key to continue, or enter a valid trusted public key under Advanced."
+                ) from None
+            raise ValueError("Check the remote connection settings. A required field is missing or invalid.") from None
         self.auth_type = kwargs.get("auth_type", "key")
         cls = self.credential_classes.get(self.auth_type)
         if cls is None:
             raise ValueError("Unsupported remote authentication method")
-        self.credentials = cls.model_validate(kwargs).model_dump()
+        try:
+            self.credentials = cls.model_validate(kwargs).model_dump()
+        except ValidationError:
+            raise ValueError(
+                "Check the login credentials. Enter the username and credentials required by the selected authentication method."
+            ) from None
         self._approved_digest = None
         self.pool_scope = "adhoc:" + uuid.uuid4().hex
 

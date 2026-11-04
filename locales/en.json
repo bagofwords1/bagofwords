@@ -4338,6 +4338,20 @@
       "read_file": "Read files and logs",
       "search_file": "Search within files",
       "system_status": "Inspect system status"
+    },
+    "sshSetup": {
+      "title": "Verify server identity",
+      "hint": "Compare the fingerprint with one provided by your server administrator or trusted SSH records. Fetching a key does not verify it.",
+      "saved": "Server key saved. Connections reject a different key.",
+      "fetch": "Fetch server key",
+      "fingerprint": "Server key fingerprint",
+      "confirm": "I verified this fingerprint using a trusted source.",
+      "trust": "Verify and trust",
+      "fetchFailed": "Could not fetch the server key. Check the hostname, port and network access, or enter a trusted key under Advanced.",
+      "upload": "Upload private-key file",
+      "uploadInvalid": "Choose an SSH private-key file smaller than 64 KB. Public keys and other files are not accepted.",
+      "keyRequired": "Verify the server’s SSH key to continue, or enter a trusted key under Advanced.",
+      "required": "Complete the required fields: {fields}."
     }
   },
   "share": {
@@ -4570,7 +4584,8 @@
     "APPLICATION_AGENTS_INVALID": "Select existing agents in this organization",
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
-    "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW"
+    "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
+    "ssh.key_discovery_failed": "Could not fetch the server key. Check the hostname, port and network access, or enter a trusted key under Advanced."
   },
   "email": {
     "dashboardShare": {

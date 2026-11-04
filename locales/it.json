@@ -3937,6 +3937,20 @@
       "read_file": "Leggi file e registri",
       "search_file": "Cerca nei file",
       "system_status": "Controlla lo stato del sistema"
+    },
+    "sshSetup": {
+      "title": "Verifica identità del server",
+      "hint": "Confronta l’impronta con quella fornita dall’amministratore o da registri SSH attendibili. Recuperare una chiave non la verifica.",
+      "saved": "Chiave del server salvata. Le connessioni con una chiave diversa saranno rifiutate.",
+      "fetch": "Recupera chiave del server",
+      "fingerprint": "Impronta della chiave del server",
+      "confirm": "Ho verificato questa impronta tramite una fonte attendibile.",
+      "trust": "Verifica e autorizza",
+      "fetchFailed": "Impossibile recuperare la chiave. Controlla host, porta e rete oppure inserisci una chiave attendibile nelle impostazioni avanzate.",
+      "upload": "Carica file di chiave privata",
+      "uploadInvalid": "Scegli una chiave SSH privata inferiore a 64 KB. Chiavi pubbliche e altri file non sono accettati.",
+      "keyRequired": "Verifica la chiave SSH del server per continuare o inserisci una chiave attendibile nelle impostazioni avanzate.",
+      "required": "Compila i campi obbligatori: {fields}."
     }
   },
   "share": {
@@ -4148,7 +4162,8 @@
     "APPLICATION_AGENTS_INVALID": "Select existing agents in this organization",
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
-    "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW"
+    "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
+    "ssh.key_discovery_failed": "Impossibile recuperare la chiave. Controlla host, porta e rete oppure inserisci una chiave attendibile nelle impostazioni avanzate."
   },
   "email": {
     "dashboardShare": {

@@ -4276,6 +4276,20 @@
       "read_file": "Leer archivos y registros",
       "search_file": "Buscar en archivos",
       "system_status": "Consultar el estado del sistema"
+    },
+    "sshSetup": {
+      "title": "Verificar identidad del servidor",
+      "hint": "Compare la huella con la proporcionada por el administrador o registros SSH fiables. Obtener una clave no la verifica.",
+      "saved": "Clave del servidor guardada. Se rechazarán las conexiones con una clave diferente.",
+      "fetch": "Obtener clave del servidor",
+      "fingerprint": "Huella de la clave del servidor",
+      "confirm": "He verificado esta huella con una fuente fiable.",
+      "trust": "Verificar y confiar",
+      "fetchFailed": "No se pudo obtener la clave. Compruebe el servidor, puerto y red, o introduzca una clave fiable en Avanzado.",
+      "upload": "Subir archivo de clave privada",
+      "uploadInvalid": "Elija una clave SSH privada de menos de 64 KB. No se aceptan claves públicas ni otros archivos.",
+      "keyRequired": "Verifique la clave SSH del servidor para continuar o introduzca una clave fiable en Avanzado.",
+      "required": "Complete los campos obligatorios: {fields}."
     }
   },
   "share": {
@@ -4510,7 +4524,8 @@
     "APPLICATION_AGENTS_INVALID": "Selecciona agentes existentes en esta organización",
     "INSTRUCTION_APPLICATIONS_INVALID": "Selecciona aplicaciones existentes en esta organización",
     "APPLICATION_AGENT_FORBIDDEN": "La aplicación no tiene acceso a este agente",
-    "APPLICATION_MANAGEMENT_FORBIDDEN": "Administra las aplicaciones directamente en BOW"
+    "APPLICATION_MANAGEMENT_FORBIDDEN": "Administra las aplicaciones directamente en BOW",
+    "ssh.key_discovery_failed": "No se pudo obtener la clave. Compruebe el servidor, puerto y red, o introduzca una clave fiable en Avanzado."
   },
   "email": {
     "dashboardShare": {

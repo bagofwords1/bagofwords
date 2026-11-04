@@ -144,6 +144,11 @@
                 <!-- Fallback for schemas without ui:type — without this the field
                      would not render at all. Secret-looking names get masked. -->
                 <input v-else :type="isPasswordField(field.field_name) ? 'password' : 'text'" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-ink-subtle dark:placeholder:text-gray-500" :placeholder="credentialPlaceholder(field)" />
+                <div v-if="selectedType === 'remote_ssh' && field.field_name === 'private_key'" class="mt-2">
+                  <UButton color="gray" variant="soft" size="xs" @click="privateKeyFileInput?.click()">{{ $t('data.sshSetup.upload') }}</UButton>
+                  <input :ref="el => { privateKeyFileInput = el as HTMLInputElement }" type="file" class="hidden" :aria-label="$t('data.sshSetup.upload')" @change="uploadPrivateKey" />
+                  <p v-if="keyUploadError" role="alert" class="mt-1 text-xs text-red-600">{{ keyUploadError }}</p>
+                </div>
               </div>
             </template>
           </div>
@@ -182,6 +187,8 @@
 
         </div>
 
+        <SSHServerVerification v-if="group.name === 'main' && selectedType === 'remote_ssh'"
+          :connection-id="isConnectionEdit ? props.connectionId : undefined" :host="formData.config.host" :port="formData.config.port || 22" v-model="formData.config.host_public_key" />
         </template>
 
         <div v-if="!embedded" class="pt-1">
@@ -231,6 +238,7 @@
 
 <script setup lang="ts">
 import Spinner from '@/components/Spinner.vue'
+import SSHServerVerification from './SSHServerVerification.vue'
 import MemberIdentityBindings from '@/components/datasources/MemberIdentityBindings.vue'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
 
@@ -479,7 +487,7 @@ const advancedOpen = ref(false)
 const configGroups = computed(() => {
   if (!fields.value?.config) return [{ name: 'main', fields: [] }]
   if (!['remote_ssh', 'remote_smb'].includes(selectedType.value)) return [{ name: 'main', fields: configFields.value }]
-  const main = ['host', 'port', 'operating_system', 'share', 'host_public_key']
+  const main = ['host', 'port', 'operating_system', 'share']
   return [
     { name: 'main', fields: main.flatMap(name => configFields.value.filter(f => f.field_name === name)) },
     { name: 'advanced', fields: configFields.value.filter(f => !main.includes(f.field_name) && (f.field_name !== 'reader_path' || formData.config.inspection_mode === 'restricted_reader')) },
@@ -732,6 +740,40 @@ function describeApiError(err: any): string | null {
   return parts.length ? parts.join('; ') : null
 }
 
+const privateKeyFileInput = ref<HTMLInputElement | null>(null)
+const keyUploadError = ref('')
+let uploadGeneration = 0
+watch(selectedAuth, () => { uploadGeneration++; keyUploadError.value = '' })
+async function uploadPrivateKey(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  const generation = ++uploadGeneration
+  const auth = selectedAuth.value
+  keyUploadError.value = ''
+  try {
+    if (file.size > 65536) throw new Error('Invalid key file')
+    const value = await file.text()
+    if (!/^-----BEGIN (?:(?:OPENSSH|RSA|EC|DSA|ENCRYPTED) )?PRIVATE KEY-----[\r\n]/.test(value.trim())) throw new Error('Invalid key file')
+    if (generation !== uploadGeneration || selectedAuth.value !== auth || credentialsLocked.value) return
+    formData.credentials.private_key = value.trim() + '\n'
+    clearTestResult()
+  } catch {
+    if (generation === uploadGeneration) keyUploadError.value = t('data.sshSetup.uploadInvalid')
+  }
+}
+function validateRemoteSetup(): string | null {
+  if (selectedType.value !== 'remote_ssh') return null
+  if (!formData.config.host_public_key?.trim()) return t('data.sshSetup.keyRequired')
+  const missing = (fields.value?.config?.required || []).filter((key: string) => !String(formData.config[key] ?? '').trim())
+  if (!credentialsLocked.value && showSystemCredentialFields.value) {
+    const schema = fields.value?.credentials_by_auth?.[selectedAuth.value || ''] || fields.value?.credentials
+    missing.push(...(schema?.required || []).filter((key: string) => !String(formData.credentials[key] ?? '').trim()))
+  }
+  return missing.length ? t('data.sshSetup.required', { fields: missing.map(fieldLabel).join(', ') }) : null
+}
+
 const formElement = ref<HTMLFormElement | null>(null)
 const submitError = ref('')
 watch([submitting, isTestingConnection, submitError, testResultMessage, testResultLevel, settingsChanged], () => {
@@ -742,6 +784,8 @@ defineExpose({ connect: () => formElement.value?.requestSubmit(), test: testConn
 async function onSubmit() {
   if (submitting.value || isTestingConnection.value || !selectedType.value) return
   submitError.value = ''
+  const validation = validateRemoteSetup()
+  if (validation) { submitError.value = validation; return }
   if (props.embedded) {
     await testConnection()
     if (!connectionTestPassed.value) return
@@ -847,6 +891,13 @@ async function onSubmit() {
 
 async function testConnection() {
   if (!selectedType.value || isTestingConnection.value) return
+  const validation = validateRemoteSetup()
+  if (validation) {
+    connectionTestPassed.value = false
+    testResultLevel.value = 'error'
+    testResultMessage.value = validation
+    return
+  }
   isTestingConnection.value = true
   connectionTestPassed.value = false
   try {

@@ -165,3 +165,5 @@ class ErrorCode(str, Enum):
     SHELL_CONFIRMATION_INVALID_SCOPE = "shell_confirmation.invalid_scope"
     SHELL_CONFIRMATION_REPORT_REQUIRED = "shell_confirmation.report_required"
     SHELL_CONFIRMATION_RULE_MISMATCH = "shell_confirmation.rule_mismatch"
+
+    SSH_KEY_DISCOVERY_FAILED = "ssh.key_discovery_failed"

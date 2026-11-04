@@ -5,6 +5,27 @@
 existing agent/connection RBAC, per-tool policies, user preferences and audit flow.
 The catalog forms are generated from `backend/app/schemas/data_sources/remote_server.py`.
 
+## Connect and verify the server
+
+Enter the SSH hostname, port, OS and login credentials. Paste a private key or
+upload its file (up to 64 KB); use a passphrase if the key is encrypted. Upload
+reads the file into the form only and uses the existing encrypted credential
+storage when the connection is saved.
+
+Click **Fetch server key**. This credential-free request retrieves candidate
+public keys and SHA-256 fingerprints; it does not establish trust. Compare the
+chosen fingerprint with one supplied by your server administrator or existing
+trusted SSH records, check the confirmation box, then select **Verify and trust**.
+Test and save the connection. A trusted public key can also be entered manually
+under Advanced. Changing the hostname or port clears the form's pinned key;
+late discovery responses for the previous destination are ignored.
+
+The server continues to enforce strict host-key checking on every SSH transport.
+A different key is rejected; it is never silently accepted. Legitimate key rotation
+requires independent verification and an explicit update. Host-key discovery
+requires connection creation/management permission and follows deployment egress
+policy; it does not authenticate, accept passwords/private keys, or save a key.
+
 ## Default: agentless SSH
 
 No reader installation is required. The connection runs bounded inspection code

@@ -3937,6 +3937,20 @@
       "read_file": "Lire les fichiers et journaux",
       "search_file": "Rechercher dans les fichiers",
       "system_status": "Consulter l’état du système"
+    },
+    "sshSetup": {
+      "title": "Vérifier l’identité du serveur",
+      "hint": "Comparez l’empreinte avec celle fournie par l’administrateur ou des données SSH fiables. Récupérer une clé ne la vérifie pas.",
+      "saved": "Clé du serveur enregistrée. Une clé différente sera refusée.",
+      "fetch": "Récupérer la clé du serveur",
+      "fingerprint": "Empreinte de la clé du serveur",
+      "confirm": "J’ai vérifié cette empreinte auprès d’une source fiable.",
+      "trust": "Vérifier et approuver",
+      "fetchFailed": "Impossible de récupérer la clé. Vérifiez l’hôte, le port et le réseau, ou saisissez une clé fiable dans les paramètres avancés.",
+      "upload": "Importer un fichier de clé privée",
+      "uploadInvalid": "Choisissez une clé SSH privée de moins de 64 Ko. Les clés publiques et autres fichiers sont refusés.",
+      "keyRequired": "Vérifiez la clé SSH du serveur pour continuer ou saisissez une clé fiable dans les paramètres avancés.",
+      "required": "Remplissez les champs obligatoires : {fields}."
     }
   },
   "share": {
@@ -4148,7 +4162,8 @@
     "APPLICATION_AGENTS_INVALID": "Select existing agents in this organization",
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
-    "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW"
+    "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
+    "ssh.key_discovery_failed": "Impossible de récupérer la clé. Vérifiez l’hôte, le port et le réseau, ou saisissez une clé fiable dans les paramètres avancés."
   },
   "email": {
     "dashboardShare": {

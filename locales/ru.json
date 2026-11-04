@@ -3937,6 +3937,20 @@
       "read_file": "Чтение файлов и журналов",
       "search_file": "Поиск в файлах",
       "system_status": "Проверка состояния системы"
+    },
+    "sshSetup": {
+      "title": "Проверить подлинность сервера",
+      "hint": "Сравните отпечаток с данными администратора или доверенными записями SSH. Получение ключа не подтверждает его подлинность.",
+      "saved": "Ключ сервера сохранён. Подключения с другим ключом будут отклонены.",
+      "fetch": "Получить ключ сервера",
+      "fingerprint": "Отпечаток ключа сервера",
+      "confirm": "Я проверил этот отпечаток по доверенному источнику.",
+      "trust": "Проверить и доверять",
+      "fetchFailed": "Не удалось получить ключ. Проверьте адрес, порт и сеть или введите доверенный ключ в дополнительных настройках.",
+      "upload": "Загрузить файл закрытого ключа",
+      "uploadInvalid": "Выберите закрытый ключ SSH размером менее 64 КБ. Открытые ключи и другие файлы не принимаются.",
+      "keyRequired": "Для продолжения проверьте ключ SSH сервера или введите доверенный ключ в дополнительных настройках.",
+      "required": "Заполните обязательные поля: {fields}."
     }
   },
   "share": {
@@ -4148,7 +4162,8 @@
     "APPLICATION_AGENTS_INVALID": "Select existing agents in this organization",
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
-    "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW"
+    "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
+    "ssh.key_discovery_failed": "Не удалось получить ключ. Проверьте адрес, порт и сеть или введите доверенный ключ в дополнительных настройках."
   },
   "email": {
     "dashboardShare": {
