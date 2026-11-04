@@ -2737,6 +2737,70 @@ class DocumentumImpersonationCredentials(BaseModel):
         json_schema_extra={"ui:type": "string"})
 
 
+# KMS Lighthouse (knowledge articles and decision-tree scenarios, read-only file connector).
+class KmsLighthouseConfig(BaseModel):
+    base_url: str = Field(
+        ...,
+        title="KMS Lighthouse URL",
+        description="Tenant base URL, e.g. https://example.lighthouse-cloud.com (the API prefix may be included).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    api_prefix: str = Field(
+        "/kms/lh/api",
+        title="API path prefix",
+        description="Path of the KMS public API under the base URL. Change it only if your tenant serves the API elsewhere.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    layout_id: Optional[int] = Field(
+        None, ge=1, title="Layout ID",
+        description="Optional KMS layout that search is limited to. Leave blank to search every layout the identity can see.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    root_folder_id: Optional[int] = Field(
+        None, ge=0, title="Root folder ID",
+        description=(
+            "Optional KMS folder that browsing starts from. It limits browsing only: search and reads "
+            "cover everything the identity can see in KMS."
+        ),
+        json_schema_extra={"ui:type": "number"},
+    )
+    include_offline: bool = Field(
+        False, title="Include offline content",
+        description="Also show articles and scenarios that are not Online (drafts, offline). Off by default.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    max_results: int = Field(
+        200, ge=1, le=1000, title="Max results",
+        description="Upper bound on entries returned by one search or listing.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    allow_http: bool = Field(False, title="Allow HTTP (test labs only)",
+        description="Allow unencrypted HTTP for an isolated lab. Use HTTPS with a trusted certificate for customer deployments.",
+        json_schema_extra={"ui:type": "boolean"})
+    # No catalog (live only): keeps the index_mode consumers reporting "Live".
+    index_mode: str = Field("none", title="Indexing", json_schema_extra={"ui:hidden": True})
+
+    @field_validator("index_mode")
+    @classmethod
+    def _live_only(cls, value):
+        if value != "none":
+            raise ValueError("KMS Lighthouse connections are live only (no indexing).")
+        return value
+
+
+class KmsLighthouseUserPassCredentials(BaseModel):
+    """A KMS Lighthouse login (username and password)."""
+    username: str = Field(..., min_length=1, title="Username",
+        description="KMS Lighthouse login name.", json_schema_extra={"ui:type": "string"})
+    password: str = Field(..., min_length=1, title="Password", json_schema_extra={"ui:type": "password"})
+
+
+class KmsLighthouseTokenCredentials(BaseModel):
+    """A pasted KMS Lighthouse API token, sent as a Bearer token."""
+    api_token: str = Field(..., min_length=1, title="API token",
+        description="KMS Lighthouse access token for this identity.", json_schema_extra={"ui:type": "password"})
+
+
 # SharePoint Lists (Microsoft Graph — same auth as SharePoint, but surfaces
 # the site's LISTS as queryable tables instead of its libraries as files).
 # Microsoft Intune (Microsoft Graph, app-only). Tenant-wide device inventory is
