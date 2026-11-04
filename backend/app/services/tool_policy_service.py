@@ -46,16 +46,13 @@ def normalize_tool_policy(value: Optional[str], default: Optional[str] = TOOL_PO
     return default
 
 
-def resolve_effective_policy(admin_policy: Optional[str], user_policy: Optional[str], *, mandatory_approval: bool = False) -> str:
+def resolve_effective_policy(admin_policy: Optional[str], user_policy: Optional[str]) -> str:
     """User preference wins over the admin policy, except admin deny is absolute."""
     admin = normalize_tool_policy(admin_policy)
     if admin == TOOL_POLICY_DENY:
         return TOOL_POLICY_DENY
     user = normalize_tool_policy(user_policy, default=None)
-    effective = user or admin
-    if mandatory_approval and effective != TOOL_POLICY_DENY:
-        return TOOL_POLICY_ASK
-    return effective
+    return user or admin
 
 
 # Strictest first. When several of a run's agents carry the same tool (one

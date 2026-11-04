@@ -4030,6 +4030,11 @@
     "fork": "Crea copia"
   },
   "errors": {
+    "shell_rules.tool_required": "Le regole dei comandi richiedono uno strumento shell remoto.",
+    "shell_rules.invalid": "Regole dei comandi non valide.",
+    "shell_confirmation.invalid_scope": "Ambito di autorizzazione non valido.",
+    "shell_confirmation.report_required": "Le autorizzazioni di sessione richiedono un report.",
+    "shell_confirmation.rule_mismatch": "Regola di comando non valida, oppure il pattern non corrisponde a questo comando.",
     "saml_unavailable": "Configurazione SSO non disponibile. Contatta il tuo amministratore.",
     "saml_login_failed": "Accesso SSO non riuscito. Riprova o contatta il tuo amministratore.",
     "invitation_required": "La registrazione è disabilitata. Chiedi un invito al tuo amministratore.",

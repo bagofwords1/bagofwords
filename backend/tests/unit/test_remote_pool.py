@@ -57,3 +57,50 @@ def test_failed_operation_is_not_replayed_and_transport_is_discarded():
             assert replacement is not failed
     finally:
         pool.close()
+
+
+def test_waiter_wakes_when_scope_is_released():
+    import threading
+
+    pool = RemotePool()
+    released = threading.Event()
+    seen = []
+    try:
+        def hold():
+            with pool.lease("a", "v", Transport) as first:
+                seen.append(first)
+                released.wait(5)
+
+        holder = threading.Thread(target=hold)
+        holder.start()
+        while not seen:
+            pass
+        waiter_done = threading.Event()
+
+        def wait_for_scope():
+            with pool.lease("a", "v", Transport) as same:
+                seen.append(same)
+            waiter_done.set()
+
+        threading.Thread(target=wait_for_scope).start()
+        assert not waiter_done.wait(0.2)
+        released.set()
+        assert waiter_done.wait(5)
+        holder.join(5)
+        assert seen[0] is seen[1]
+    finally:
+        released.set()
+        pool.close()
+
+
+def test_factory_runs_outside_the_pool_lock():
+    pool = RemotePool()
+    try:
+        def factory():
+            assert pool.lock.acquire(blocking=False) is False or pool.lock.release() is None
+            return Transport()
+
+        with pool.lease("a", "v", factory):
+            pass
+    finally:
+        pool.close()

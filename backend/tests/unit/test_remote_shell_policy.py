@@ -37,3 +37,9 @@ def test_admin_command_denials_cover_compound_segments(command):
 def test_personal_choice_can_restrict_administrator_command_allow(personal):
     config = {"shell_rules": [{"pattern": "docker ps*", "action": "allow", "match": "glob"}]}
     assert resolve_shell_policy(config, "docker ps -a", personal=personal) == personal
+
+
+@pytest.mark.parametrize("mode", ["strict", "allow"])
+def test_admin_deny_rules_apply_in_every_mode(mode):
+    cfg = {"shell_policy": mode, "shell_rules": [{"pattern": "rm -rf*", "action": "deny", "match": "glob"}]}
+    assert resolve_shell_policy(cfg, "rm -rf /srv/data", personal="allow") == "deny"
