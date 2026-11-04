@@ -338,22 +338,25 @@ _QUOTE_CLOSERS = {'"': '"', "'": "'", chr(0x201C): chr(0x201D), chr(0x2018): chr
 _ASCII_QUOTE_CLOSERS = {'"': '"', "'": "'"}
 # A structured key and its ':' or '=' (JSON, YAML, a config or env line): a quoted
 # key (groups 1-3: opening quote, name, closing quote; '"newPassword":',
-# "'api_key':") or a bare one (group 4) that starts after no key character. Only
-# blanks may follow the separator, so a heading with its text on the next line has no value.
+# "'api_key':", and JSON escaped inside a string, '\"password\":', with a
+# backslash before the closing quote) or a bare one (group 4) that starts after no
+# key character. Only blanks may follow the separator, so a heading with its text
+# on the next line has no value.
 _STRUCTURED_NAME_RE = re.compile(
-    "(?:([" + re.escape("".join(_QUOTE_CLOSERS)) + "])([A-Za-z0-9_-]++)(["
+    "(?:([" + re.escape("".join(_QUOTE_CLOSERS)) + "])([A-Za-z0-9_-]++)\\\\?+(["
     + re.escape("".join(dict.fromkeys(_QUOTE_CLOSERS.values()))) + "])"
     r"|(?<![A-Za-z0-9_-])([A-Za-z0-9_-]++))[ \t]*+[:=][ \t]*+")
 # An unquoted structured value: a bracketed run ("[abc]", "[redacted]") or the run
 # up to whitespace, ',', '}', ']', '&' or ';'.
 _STRUCTURED_VALUE_RE = re.compile(r"\[[^\s,}\]&;]*+\]|[^\s,}\]&;]*+")
-_BLANKS_RE = re.compile(r"[ \t]*+")
+_VALUE_GAP_RE = re.compile(r"[ \t]*+")       # never fails: the blanks between a scheme word and its credential
 _SCHEME_WORDS = frozenset(("bearer", "basic", "token"))
 _REDACTED = "[redacted]"
 # Identifier shapes: two lower-case letters before an inner capital (apiToken,
 # clientSecret), an acronym before a capitalised word (APIKey, APIToken), and a
-# dotted config prefix of two or more characters right before the name
-# (db.password, spring.datasource.password; not "e.g.password").
+# dotted config prefix of two or more characters right before a name that starts
+# in lower case (db.password, spring.datasource.password, app.apiKey; not
+# "e.g.password" or "Reset it.Password").
 _CAMEL_CASE_RE = re.compile(r"[a-z]{2}[A-Z]")
 _ACRONYM_CAMEL_RE = re.compile(r"[A-Z]{3}[a-z]")
 _DOTTED_PREFIX_RE = re.compile(r"[A-Za-z0-9_]{2}\.")
@@ -394,7 +397,7 @@ _SECRET_PARAMS = frozenset(_param_key(name) for name in (
     "client_secret", "auth_token", "private_token", "access_key", "ticket"))
 # A compound or camel-case name ending with one of these is secret too (newPassword, apiToken, secret_key).
 _SECRET_SUFFIXES = ("token", "password", "passwd", "pwd", "secret", "apikey", "accesskey", "privatekey",
-                    "authkey", "secretkey", "sessionid")
+                    "authkey", "secretkey", "sessionid", "subscriptionkey")
 # Structured keys (JSON, YAML, config, env) have their own, shorter list: "code",
 # "key", "auth", "sig", "signature", "session" and "ticket" name a secret only as
 # URL parameters ('{"code": "E1001"}', '{"key": "Enter"}' are content).
@@ -402,9 +405,14 @@ _SECRET_KEYS = frozenset(_param_key(name) for name in (
     "token", "access_token", "id_token", "refresh_token", "auth_token", "private_token", "jwt", "password",
     "passwd", "pwd", "api_key", "secret", "client_secret", "access_key", "jsessionid", "sessionid",
     "x-amz-security-token", "x-amz-signature", "x-amz-credential"))
-# Two words a hyphen may join into a secret key name (auth-token, client-secret, api-key).
+# A structured key ending with "pass" after a separator ('_', '-' or a camel-case
+# capital: DB_PASS, db-pass, dbPass); never the word alone ("Pass:") or "bypass".
+_COMPOUND_PASS_RE = re.compile(r"(?:[A-Za-z0-9][_-](?i:pass)|[a-z0-9]Pass)$")
+# The services whose "<name>-pass" a hyphen joins into a key ("Boarding-Pass" and "by-pass" are words).
+_PASS_PREFIXES = ("db", "smtp", "ftp", "sftp", "ldap", "mysql", "redis", "proxy", "mail", "imap", "admin", "user")
+# Two words a hyphen may join into a secret key name (auth-token, client-secret, api-key, db-pass).
 _COMPOUND_SECRET_KEYS = frozenset(key for key in _SECRET_KEYS | set(_SECRET_SUFFIXES) if key not in (
-    "token", "password", "passwd", "pwd", "secret", "jwt", "jsessionid"))
+    "token", "password", "passwd", "pwd", "secret", "jwt", "jsessionid")) | {word + "pass" for word in _PASS_PREFIXES}
 
 
 def _is_listed(key: str, names: frozenset[str]) -> bool:
@@ -422,8 +430,8 @@ def _is_secret_name(name: str) -> bool:
 
 
 def _is_secret_key(name: str) -> bool:
-    """A structured key that names a credential: a listed key, or one ending with a secret word."""
-    return _is_listed(_param_key(name), _SECRET_KEYS)
+    """A structured key that names a credential: a listed key, one ending with a secret word, or a compound "...pass"."""
+    return _is_listed(_param_key(name), _SECRET_KEYS) or _COMPOUND_PASS_RE.search(name[-6:]) is not None
 
 
 def _without_controls(text: str) -> str:
@@ -567,8 +575,8 @@ def _is_identifier_shaped(text: str, start: int, name: str) -> bool:
     """
     if "_" in name or _CAMEL_CASE_RE.search(name) or _ACRONYM_CAMEL_RE.search(name):
         return True
-    if start >= 3 and _DOTTED_PREFIX_RE.match(text, start - 3):
-        return True
+    if start >= 3 and "a" <= name[0] <= "z" and _DOTTED_PREFIX_RE.match(text, start - 3):
+        return True      # a capital after the dot is a sentence boundary ("Reset it.Password:")
     if "-" not in name:
         return False
     lower = name.lower()
@@ -579,8 +587,10 @@ def _is_identifier_shaped(text: str, start: int, name: str) -> bool:
 
 
 def _at_key_start(text: str, start: int) -> bool:
-    """A quoted key at ``start`` begins a line (after blanks) or follows '{', ',' or '['."""
+    """A quoted key at ``start`` begins a line (after blanks) or follows '{', ',' or '[' (also escaped: '{\\"')."""
     i = start - 1
+    if i >= 0 and text[i] == "\\":
+        i -= 1
     while i >= 0 and text[i] in " \t":
         i -= 1
     return i < 0 or text[i] in "\n\r{,["
@@ -605,7 +615,10 @@ def _redact_structured_values(text: str) -> str:
     otherwise the run up to whitespace, ',', '}', ']', '&' or ';' (a bracketed
     run and an earlier "[redacted]" inside the run are taken whole, so no
     bracket is left over); a scheme word ("Bearer", "Basic", "Token") goes
-    with the run after it. Every scan goes on after the
+    with the run after it, and stays when no run follows on its line. A
+    backslash may come before each quote (escaped JSON), and a quoted name
+    whose quotes do not pair still counts when it is identifier-shaped or a
+    listed key. Every scan goes on after the
     key (or after the redacted value), so the loop is linear.
     """
     pieces, last, pos = [], 0, 0
@@ -618,16 +631,28 @@ def _redact_structured_values(text: str) -> str:
         shaped = _is_identifier_shaped(text, match.start(2 if quoted_name is not None else 4), name)
         if quoted_name is None and not shaped:
             continue
-        if quoted_name is not None and (closer != _QUOTE_CLOSERS[opener]
-                                        or not (shaped or _at_key_start(text, match.start()))):
-            continue
-        if not shaped and not text.startswith(tuple(_QUOTE_CLOSERS), pos):
+        if quoted_name is not None:
+            # Quotes that do not pair (a smart opener, an ASCII closer) still mark a key whose name says it all.
+            if closer != _QUOTE_CLOSERS[opener] and not (shaped or _param_key(name) in _SECRET_KEYS):
+                continue
+            if not (shaped or _at_key_start(text, match.start())):
+                continue
+        # JSON escaped inside a string: a backslash before each quote of the value.
+        escaped = text.startswith("\\", pos) and text.startswith(tuple(_QUOTE_CLOSERS), pos + 1)
+        value_at = pos + 1 if escaped else pos
+        if not shaped and not text.startswith(tuple(_QUOTE_CLOSERS), value_at):
             continue                  # a plain word's unquoted value is prose ('"Password": your PIN')
-        start, end, quoted = _value_span(text, pos, _STRUCTURED_VALUE_RE, _QUOTE_CLOSERS)
+        start, end, quoted = _value_span(text, value_at, _STRUCTURED_VALUE_RE, _QUOTE_CLOSERS)
+        if quoted and escaped and end > start and text[end - 1] == "\\":
+            end -= 1                  # the backslash of the closing quote stays with it
         if not quoted:
             end = _unquoted_value_end(text, start)
             if text[start:end].lower() in _SCHEME_WORDS:
-                end = max(end, _unquoted_value_end(text, _BLANKS_RE.match(text, end).end()))
+                credential_at = _VALUE_GAP_RE.match(text, end).end()
+                credential_end = _unquoted_value_end(text, credential_at)
+                if credential_end == credential_at:
+                    continue          # a scheme word with no credential after it is text ("X-Auth-Token: Bearer")
+                end = credential_end
         if end > start:
             pieces.append(text[last:start] + _REDACTED)
             last = pos = end
@@ -670,6 +695,18 @@ def _redact_basic(match: re.Match) -> str:
     return match.group(0)
 
 
+# A command-line "user:password" (curl -u, -uuser:pass, --user, --user=), quoted or
+# not. The user is at most 64 characters, so each '-' reads a bounded run.
+_CLI_USER_RE = re.compile(r"(?<![\w-])(?:-u[ \t]*+|--user(?:[ \t]++|=))['\"]?+([^\s:'\"]{1,64}+):([^\s'\"]++)")
+
+
+def _redact_cli_user(match: re.Match) -> str:
+    user, password = match.group(1, 2)
+    if user.isdigit() and password.isdigit():
+        return match.group(0)      # a numeric user:group ("docker run -u 1000:1000")
+    return match.group(0)[:match.start(2) - match.start()] + _REDACTED
+
+
 def _scrub_at(text: str, depth: int) -> str:
     text = _drop_invisible(text)
     text = _ESCAPED_SEPARATOR_RE.sub(_unescape_separator, text)
@@ -679,6 +716,7 @@ def _scrub_at(text: str, depth: int) -> str:
     text = _JWT_RE.sub("[redacted]", text)
     text = _BEARER_RE.sub(_redact_bearer, text)
     text = _BASIC_RE.sub(_redact_basic, text)
+    text = _CLI_USER_RE.sub(_redact_cli_user, text)
     # After the JWT, Bearer and Basic rules, so a scheme word is never taken as the
     # whole value ("X-Auth-Token: Bearer X"); their "[redacted]" is not redacted again.
     return _redact_structured_values(text)
@@ -713,10 +751,22 @@ def _scrub_at(text: str, depth: int) -> str:
 #     opening quote is taken instead);
 #   * a numeric '=' or '&' reference without ';' that a digit (or a hex digit)
 #     follows ("&#x3dab12": HTML reads it as another character);
-#   * a URL scheme longer than 32 characters.
+#   * a URL scheme longer than 32 characters;
+#   * a command-line user name longer than 64 characters ("-u <user>:<password>"),
+#     and a numeric pair, which is a user:group ("docker run -u 1000:1000");
+#   * a "<word>-pass" key unless the word names a service (db-pass, smtp-pass;
+#     "Boarding-Pass: gate 4" is a word); DB_PASS and dbPass need no list;
+#   * shell quoting after an unquoted structured value: "curl -H 'X-Api-Key: S'"
+#     loses the closing quote with the value.
 # Over-redaction accepted: a camel-case word starting "eyJ" ("eyJumpsMonkey"), an
-# identifier-shaped quoted key in prose ('the "api_key": field'), and parameter
-# names that end with a secret word ("nextPageToken", "showPassword").
+# identifier-shaped quoted key in prose ('the "api_key": field'), parameter names
+# that end with a secret word ("nextPageToken", "showPassword"), and these
+# crafted shapes: a dotted identifier-shaped key in prose ("etc.password: see
+# below" loses "see"); a word after a scheme-word value ("x_token: Token based
+# login" loses "based"; a scheme word with nothing after it on its line stays);
+# bracket debris inside a value ("(api_key=S)" loses the ')', "api_key:
+# Sv1[x9Qk2]abc" leaves "]abc" after the redaction); a stray ']' after a YAML flow
+# list value; a user:group of names after "-u" ("-u app:app" loses the group).
 # A ZWNJ or ZWJ kept inside a word (a format character) becomes a space in a title
 # or a snippet (``_without_controls``), not in an article body; a variation
 # selector is a mark (Mn), so it stays everywhere.
@@ -742,13 +792,17 @@ def _scrub(text: str) -> str:
     or the quoted text. URL passwords (``user:...@``, up to the last '@'),
     Bearer tokens (with a digit or one of ``_~+/=``) and Basic credentials
     (base64 with a digit, '+', '/' or '=', or letters that decode to
-    ``user:password``) are redacted next. Last, the value of a structured
-    secret key (JSON, YAML, config or env; its own, shorter name list) is
-    redacted when the key is identifier-shaped (``api_key=``,
-    ``clientSecret:``, ``APIKey:``, ``db.password=``, ``x-api-key:``), or a
-    quoted plain word where a key starts with a quoted value
-    (``{"password": "..."}``); a scheme word as the value goes with its
-    credential, and an earlier "[redacted]" is not redacted again.
+    ``user:password``) are redacted next, then the password of a command-line
+    ``-u``/``--user`` ``user:password``. Last, the value of a structured
+    secret key (JSON, YAML, config or env; its own, shorter name list, plus a
+    compound name ending with "pass" after a separator) is redacted when the
+    key is identifier-shaped (``api_key=``, ``clientSecret:``, ``APIKey:``,
+    ``db.password=``, ``x-api-key:``, ``DB_PASS=``), or a quoted plain word
+    where a key starts with a quoted value (``{"password": "..."}``); JSON
+    escaped inside a string (a backslash before each quote) and quotes that do
+    not pair around a self-evident or identifier-shaped name count as quotes.
+    A scheme word as the value goes with its credential (alone, it stays), and
+    an earlier "[redacted]" is not redacted again.
     """
     return _scrub_at(text, 0)
 

@@ -7,12 +7,15 @@ Behaviour is asserted on the public methods' output only.
 # The shared fixtures are imported from the client test module, so test
 # parameters named after them look like redefinitions to the linter.
 # ruff: noqa: F811
+import ast
 import logging
+import random
 import re
 import time
 import unicodedata
 import uuid
 from datetime import datetime
+from pathlib import Path
 from urllib.parse import quote
 
 import pytest
@@ -313,7 +316,8 @@ _SECRET_NAMES = ("token", "access_token", "id_token", "refresh_token", "jwt", "a
                  "session", "sessionid", "X-Amz-Security-Token", "X-Amz-Signature", "X-Amz-Credential",
                  "client_secret", "auth_token", "private_token", "access_key", "ticket")
 _COMPOUND_SECRET_NAMES = ("newPassword", "apiToken", "refreshToken", "secret_key", "auth_key", "private_key",
-                          "aws_secret_access_key", "user-passwd", "x-api-key", "AccessKey", "php_sessionid")
+                          "aws_secret_access_key", "user-passwd", "x-api-key", "AccessKey", "php_sessionid",
+                          "subscription-key", "Ocp-Apim-Subscription-Key")
 
 
 def _nested(text, rounds):
@@ -424,6 +428,30 @@ _SECRET_FORMS = [
     ("userinfo_after_digit", "7https://user:{s}@kms.example.com/x"),
     ("userinfo_after_dot", "1.https://user:{s}@kms.example.com/x"),
     ("userinfo_after_dash", "--https://user:{s}@kms.example.com/x"),
+    # A dotted config key whose name starts in lower case (camel case after the dot).
+    ("structured_dotted_camel", "app.apiKey: {s}"),
+    # JSON escaped inside a JSON string: a backslash before each quote of the key and the value.
+    ("escaped_json_body", '"body": "{{\\"username\\":\\"u\\",\\"password\\":\\"{s}\\"}}"'),
+    ("escaped_json_api_key", '{{\\"api_key\\":\\"{s}\\"}}'),
+    ("escaped_json_client_secret_spaced", '{{\\"client_secret\\": \\"{s}\\"}}'),
+    # A quoted name whose closing quote does not pair with its opener.
+    ("smart_open_ascii_close_name", '“api_key": "{s}"'),
+    ("ascii_open_smart_close_name", '"api_key”: "{s}"'),
+    ("smart_open_plain_name", '{{“password": "{s}"}}'),
+    # Command-line credentials: the user stays, the password goes.
+    ("curl_u", "curl -u admin:{s} https://kms.example.com/x"),
+    ("curl_user_spaced", "curl --user admin:{s} https://kms.example.com/x"),
+    ("curl_user_equals", "curl --user=admin:{s} https://kms.example.com/x"),
+    ("curl_u_attached", "curl -uadmin:{s} https://kms.example.com/x"),
+    ("curl_u_quoted", "curl -u 'admin:{s}' https://kms.example.com/x"),
+    # A compound name ending with "pass" after a separator, and a subscription key header.
+    ("structured_db_pass", "DB_PASS={s}"),
+    ("structured_smtp_pass", "SMTP_PASS: {s}"),
+    ("structured_hyphen_db_pass", "db-pass: {s}"),
+    ("structured_hyphen_smtp_pass", "smtp-pass: {s}"),
+    ("structured_camel_db_pass", "dbPass: {s}"),
+    ("structured_subscription_key_header", "Ocp-Apim-Subscription-Key: {s}"),
+    ("structured_subscription_key", "subscription-key: {s}"),
 ] + [(f"name_{name}", _URL + f"?id=7&{name}={{s}}&lang=en") for name in _SECRET_NAMES] + [
     # Compound and camel-case names: secret when the name ends with a secret word.
     (f"compound_{name}", _URL + f"?id=7&{name}={{s}}&lang=en") for name in _COMPOUND_SECRET_NAMES
@@ -515,6 +543,9 @@ def test_search_redacts_jwts_split_by_invisible_characters(kms, form, text):
     # An unquoted structured value stops at '&' and ';': the parameters after it stay.
     ("client_secret=Sv1x9Qk2&lang=en done", "Sv1x9Qk2", "&lang=en done"),
     ("api_key: Sv1x9Qk2;lang=en", "Sv1x9Qk2", ";lang=en"),
+    # A command-line credential keeps its user name and the rest of the command.
+    ("curl -u admin:Sv1x9Qk2 https://kms.example.com/x", "Sv1x9Qk2", "curl -u admin:[redacted] https:"),
+    ("curl --user=reader:Sv1x9Qk2 -X GET", "Sv1x9Qk2", "curl --user=reader:[redacted] -X GET"),
 ])
 def test_search_keeps_ordinary_words_after_a_redaction(kms, text, secret, kept):
     entry = _search_one(kms, text)
@@ -578,6 +609,15 @@ def test_search_scrub_keeps_harmless_parameters(kms):
                                   "Reset-Password: Open Settings", "Change-password: Go to Settings",
                                   "SafeNet eToken: insert the device", "ws-security-token: see section 3",
                                   "Re-token: COVID-19", "e.g.password: 1234",
+                                  # A sentence boundary without a space is not a dotted config key.
+                                  "Reset it.Password: abc123", "Done.Token: see the portal", "No.Password: 1234",
+                                  "Chapter 12.Token: what it is", "Go to Settings.Password: Open the tab",
+                                  # "pass" names a secret only at the end of a compound machine name.
+                                  "Pass: the exam", "Boarding-Pass: gate 4", "bypass: see section 2",
+                                  "by-pass: see section 2", "BYPASS: see section 2", "PASS: 80 points",
+                                  # "-u" without a user:password pair, and a numeric user:group pair.
+                                  "ls -u", "sort -u file", "pip install --user requests",
+                                  "docker run -u 1000:1000 app",
                                   # Documented limitation: an all-caps single-word key is shown as written.
                                   "PGPASSWORD=Sv1x9Qk2"])
 def test_search_scrub_keeps_ordinary_prose(kms, text):
@@ -592,6 +632,9 @@ def test_search_scrub_keeps_ordinary_prose(kms, text):
     ("db_password=https://u:Sv1x9Qk2@db.example.com/x next", "db_password=[redacted] next"),
     ("X-Auth-Token: Bearer Sv1x9Qk2abc next", "X-Auth-Token: [redacted] next"),
     ("api_key: [Sv1x9Qk2] next", "api_key: [redacted] next"),
+    # Escaped JSON keeps its escaping and every other key and value.
+    ('"body": "{\\"username\\":\\"u\\",\\"password\\":\\"Sv1x9Qk2\\"}"',
+     '"body": "{\\"username\\":\\"u\\",\\"password\\":\\"[redacted]\\"}"'),
 ])
 def test_search_redaction_leaves_no_debris(kms, text, shown):
     # A value already redacted by an earlier rule is not redacted again, and no bracket is left over.
@@ -599,6 +642,23 @@ def test_search_redaction_leaves_no_debris(kms, text, shown):
     for field in ("name", "snippet"):
         assert shown in entry[field], (field, entry[field])
         assert "]]" not in entry[field] and "Sv1x9Qk2" not in entry[field], (field, entry[field])
+
+
+@pytest.mark.parametrize("text", ["Set API_TOKEN=token", "X-Auth-Token: Bearer", "X-Auth-Token: Bearer\nnext",
+                                  "Set X-Auth-Token: Bearer, then the token", "x-api-key: Basic;",
+                                  "auth_token: token", '{"apiToken":Token}', "client_secret=token&lang=en",
+                                  "api_key: token;x", "api_key: Basic}"])
+def test_search_keeps_a_scheme_word_with_no_credential_after_it(kms, text):
+    # A scheme word that ends the text, a line or the value carries no credential: the search
+    # succeeds (it once failed with a server error) and the text is shown as written. The text ends
+    # both fields, so no word follows that could pass for a credential.
+    raw_id = str(uuid.uuid4().int)[:9]
+    kms["mock"].STATE["extra_results"] = [_record(raw_id, "Guide " + text, description="Guide " + text)]
+    entry = _by_id(client(kms).search_files("x"))[f"item:{raw_id}"]
+    shown = " ".join(text.split())
+    for field in ("name", "snippet"):
+        assert shown in entry[field], (field, entry[field])
+        assert "[redacted]" not in entry[field], (field, entry[field])
 
 
 @pytest.mark.parametrize("text", ["x <= 5 and y >= 3", "Orders < 100 and > 50 NIS", "5 < 6 > 4",
@@ -703,6 +763,19 @@ _ADVERSARIAL = {
     "unterminated_entity_names": _adversarial("?token&#61"),
     "bare_amp_names": "?" + _adversarial("amp") + "sig=x",
     "bare_amp_params": _adversarial("&ampsig=x"),
+    # The forms added in fix round 6.
+    "escaped_json_names": _adversarial('{\\"password\\":\\"'),
+    "escaped_json_shaped_names": _adversarial('\\"api_key\\":'),
+    "escaped_unclosed_values": _adversarial('\\"api_key\\": \\"' + "a" * 300),
+    "curl_user_pairs": _adversarial("curl -u a:b "),
+    "curl_flags_without_blanks": _adversarial(".-u"),
+    "curl_long_users": _adversarial(" -u" + "a" * 70),
+    "curl_user_flags": _adversarial("--user="),
+    "curl_blank_runs": _adversarial("-u" + " " * 50),
+    "mismatched_quote_names": _adversarial('“api_key": '),
+    "mismatched_plain_names": _adversarial('{“password": "'),
+    "mismatched_unclosed_values": _adversarial('“api_key": "' + "a" * 300),
+    "compound_pass_names": _adversarial("db-pass: "),
 }
 
 
@@ -713,6 +786,48 @@ def test_scrub_is_linear_on_adversarial_input(name):
     started = time.perf_counter()
     kc._scrub(_ADVERSARIAL[name])
     assert time.perf_counter() - started < 2.0, name
+
+
+# Pieces a page may put next to each other: every corpus text, every name form, and the characters
+# the rules stop at, split on, or treat as quotes and escapes.
+_EDGES = ("", " ", "\t", "\n", ":", "=", ": ", "= ", "&", ";", ",", "}", "]", "[", "{", '"', "'", "\\", "\\\"",
+          "“", "”", "‘", "’", "@", "?", "#", "%", "-u", "--user=", "-u ", ".", "/", "<br>")
+_KEYS = ("api_key: ", "API_TOKEN=", "X-Auth-Token: ", '{"apiToken":', "auth_token:", "x-api-key: ", "db.password=",
+         '{\\"password\\":', '\\"api_key\\": ', "“api_key\": ", '{“password": ', "DB_PASS=", "curl -u ",
+         "--user=", "?token=", "https://user:")
+_WORDS = ("Bearer", "bearer", "Basic", "Token", "token", "password", "db-pass", "user:pass", "[redacted]",
+          "eyJabcdef", "dXNlcjpwYXNz", "Sv1x9Qk2", '"Sv1x9Qk2"', '\\"Sv1x9Qk2\\"', "next", "@h")
+
+
+def _fragment_pools():
+    forms = [template.replace("{{", "{").replace("}}", "}") for _, template in _SECRET_FORMS]
+    return forms + [text for _, text in _JWT_FORMS], list(_EDGES), list(_KEYS), list(_WORDS)
+
+
+def test_scrub_never_raises_on_mixed_fragments():
+    # Deterministic: the same seeded mixes every run. A scheme word right before the end of the text,
+    # a ',', a ';' or a '}' once raised AttributeError, which failed the whole search.
+    rng = random.Random(20261105)
+    pools = _fragment_pools()
+    for _ in range(4000):
+        text = "".join(rng.choice(rng.choice(pools)) for _ in range(rng.randint(1, 6)))
+        result = kc._scrub(text)
+        assert isinstance(result, str), repr(text)
+
+
+def test_client_module_assigns_each_name_once():
+    # A second module-level assignment silently replaces the first one for every earlier function.
+    tree = ast.parse(Path(kc.__file__).read_text(encoding="utf-8"))
+    names = []
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            names += [n.id for target in node.targets for n in ast.walk(target) if isinstance(n, ast.Name)]
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)) and isinstance(node.target, ast.Name):
+            names.append(node.target.id)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.append(node.name)
+    repeated = sorted({name for name in names if names.count(name) > 1})
+    assert repeated == [], repeated
 
 
 _HTML_ADVERSARIAL = {
