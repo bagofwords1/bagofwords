@@ -97,6 +97,10 @@ class Artifact(BaseSchema):
     # Collaboration (collab01): the dashboard's notes -- its README, carried
     # into every editing conversation.
     notes = Column(Text, nullable=True)
+    # When the dashboard's content last changed (dashlist01): a completed
+    # version, a rename, a publish, a restore. Never a data refresh, which
+    # moves updated_at. NULL reads as created_at.
+    content_updated_at = Column(DateTime, nullable=True, index=True)
 
     # Never loaded implicitly: a version's content JSON can be ~100kB.
     versions = relationship(
@@ -242,3 +246,5 @@ class ArtifactVersion(BaseSchema):
 # e.g. the agent-delete foreign-key guard, must see them).
 from app.models import artifact_release  # noqa: E402,F401
 from app.models import dashboard_refresh_run  # noqa: E402,F401
+from app.models import artifact_star  # noqa: E402,F401
+from app.models import artifact_list_seen  # noqa: E402,F401
