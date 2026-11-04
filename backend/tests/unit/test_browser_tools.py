@@ -15,6 +15,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.ai.tools.implementations._browser_common import (
+    _ignore_https_errors,
     _is_link_local_literal,
     _is_top_level_document,
     get_browser_connection,
@@ -157,3 +158,25 @@ class TestConnectionResolution:
     def test_no_browser_connection(self):
         rep = SimpleNamespace(data_sources=[])
         assert get_browser_connection({"report": rep}) is None
+
+
+class TestIgnoreHttpsErrors:
+    """An internal artifact preview trusts the deployment's own cert (it reaches
+    no other origin); general browsing trusts a cert only behind the dev flag."""
+
+    def test_preview_always_trusts_its_own_origin_cert(self, monkeypatch):
+        monkeypatch.delenv("BOW_BROWSER_IGNORE_HTTPS_ERRORS", raising=False)
+        # A preview is in play regardless of the flag -> on-prem self-signed CA works.
+        assert _ignore_https_errors(SimpleNamespace()) is True
+        monkeypatch.setenv("BOW_BROWSER_IGNORE_HTTPS_ERRORS", "false")
+        assert _ignore_https_errors(SimpleNamespace()) is True
+
+    def test_general_browsing_only_trusts_behind_the_flag(self, monkeypatch):
+        monkeypatch.delenv("BOW_BROWSER_IGNORE_HTTPS_ERRORS", raising=False)
+        assert _ignore_https_errors(None) is False
+        for off in ("", "0", "no", "off"):
+            monkeypatch.setenv("BOW_BROWSER_IGNORE_HTTPS_ERRORS", off)
+            assert _ignore_https_errors(None) is False
+        for on in ("1", "true", "TRUE", "yes"):
+            monkeypatch.setenv("BOW_BROWSER_IGNORE_HTTPS_ERRORS", on)
+            assert _ignore_https_errors(None) is True

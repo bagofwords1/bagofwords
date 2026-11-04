@@ -74,6 +74,21 @@ def _proxy_from_env() -> Optional[Dict[str, str]]:
     return proxy
 
 
+def _ignore_https_errors(preview) -> bool:
+    """Whether the browser context should accept an untrusted TLS cert.
+
+    An internal artifact preview only ever reaches the deployment's own origin
+    (ArtifactPreview.route aborts every other scheme://host), so trusting its
+    cert is safe and lets a self-hosted install with a private/self-signed CA
+    verify artifacts -- without it page.goto fails ERR_CERT_AUTHORITY_INVALID
+    and the agent can never watch its own app run. General web browsing reaches
+    arbitrary external origins, so there a cert is trusted only behind the
+    explicit dev flag (a local MITM proxy), never by default."""
+    if preview:
+        return True
+    return os.environ.get("BOW_BROWSER_IGNORE_HTTPS_ERRORS", "").lower() in ("1", "true", "yes")
+
+
 def chromium_executable() -> Optional[str]:
     """Best-effort path to a pre-installed Chromium, or None to let Playwright
     resolve it. Honors PLAYWRIGHT_BROWSERS_PATH (set in the managed env)."""
@@ -466,8 +481,10 @@ class BrowserSessionManager:
                     "accept_downloads": allow_downloads,
                     "service_workers": "block" if preview else "allow",
                 }
-                # Sandbox/dev only: trust a MITM proxy's cert. Never set in prod.
-                if os.environ.get("BOW_BROWSER_IGNORE_HTTPS_ERRORS", "").lower() in ("1", "true", "yes"):
+                # Preview reaches only the deployment's own origin, so trust its
+                # cert there (self-hosted private CAs); general browsing trusts a
+                # cert only behind the dev flag. See _ignore_https_errors.
+                if _ignore_https_errors(preview):
                     ctx_kwargs["ignore_https_errors"] = True
                 s.context = await s.browser.new_context(**ctx_kwargs)
                 await self._install_guard(s)
