@@ -36,8 +36,10 @@
  * and the viewport caps both, so the panel still fits a small window. A
  * browser without dvh/svh/lvh uses the same size in vh. Inline mode: the
  * width follows the container, and `height` also takes any CSS value as
- * given, such as 'calc(100vh - 80px)' (default '100%'), except a plain
- * length below 1px such as '0px'.
+ * given, such as 'calc(100vh - 80px)' (default '100%'), except a height
+ * the browser reads back as a px length below 1px (such as '0', '0px' or
+ * '0.5px'), which is refused. Other zero heights ('0%', '0rem', 'calc(0px)')
+ * are the host's choice.
  *
  * Floating mode also takes `zIndex` (a whole number from -2147483648 to
  * 2147483647, or a string of digits such as '1000'; default 2147483000),
@@ -202,10 +204,12 @@
       else if (typeof inlineHeight === 'number' && isFinite(inlineHeight) && inlineHeight >= 1) wrapper.style.height = inlineHeight + 'px';
       else {
         if (typeof inlineHeight === 'string') wrapper.style.height = inlineHeight;
-        // A plain length below 1px (the browser reads '0' back as '0px') would
-        // leave an invisible frame, as the number 0 would.
+        // A height the browser reads back as a px length below 1px ('0' reads
+        // back as '0px', a tiny one as '1e-05px') would leave an invisible
+        // frame, as the number 0 would. Other zero heights ('0%', '0rem',
+        // 'calc(0px)') are the host's choice.
         var shown = typeof inlineHeight === 'string' ? String(wrapper.style.height || '') : '';
-        var px = /^\s*(\d*\.?\d+)px\s*$/i.exec(shown);
+        var px = /^\s*([\d.e+-]+)px\s*$/i.exec(shown);
         if (typeof inlineHeight !== 'string' || !shown || (px && Number(px[1]) < 1)) {
           warnIgnored('height', inlineHeight, 'use a number of pixels (at least 1) or a CSS height', '100%');
           wrapper.style.height = '100%';
@@ -232,7 +236,15 @@
       launcher.setAttribute('aria-label', options.title || 'Open assistant');
       launcher.setAttribute('aria-expanded', 'false');
       launcher.setAttribute('data-bow-embed-launcher', options.artifact);
+      // The background longhands are reset so a host rule such as
+      // button{background-image:...} cannot paint over the accent. The colour
+      // itself is set by setAccent; neither background-color nor the
+      // background shorthand goes here: with the shorthand, Chromium reads
+      // style.backgroundColor back as 'initial', which defeats setAccent's
+      // check that the browser kept the colour.
       launcher.style.cssText = 'position:fixed;bottom:16px;' + side + ':16px;width:56px;height:56px;border-radius:28px;' +
+        'background-image:none;background-clip:border-box;background-origin:padding-box;' +
+        'background-size:auto;background-position:0% 0%;background-repeat:repeat;background-attachment:scroll;' +
         'border:0;cursor:pointer;color:#fff;box-shadow:0 6px 20px rgba(0,0,0,.2);z-index:' + zIndex;
       setAccent(launcher, options.accentColor);
       launcher.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +

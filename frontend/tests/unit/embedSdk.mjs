@@ -463,13 +463,22 @@ console.log('PASS: z-index takes integer strings, inline height refusals warn, d
     assert.equal(result.backgroundColor, '#2563eb')
     assert.deepEqual(warnings, [])
   }
-  // The style text sets no background, so it can never override the colour set above.
-  assert.doesNotMatch(launcherOf({ accentColor: '#abc' }).cssText, /background/)
+  // The style text never sets background-color or the background shorthand, so it
+  // can never override the colour set above, but it resets the other background
+  // longhands so a host rule such as button{background-image:...} cannot paint over it.
+  {
+    const css = launcherOf({ accentColor: '#abc' }).cssText
+    assert.doesNotMatch(css, /background-color/)
+    assert.doesNotMatch(css, /background:/)
+    for (const reset of ['background-image:none;', 'background-clip:border-box;', 'background-origin:padding-box;']) {
+      assert.ok(css.includes(reset), `launcher style text resets ${reset}`)
+    }
+  }
 
   // Inline height: a string the browser reads back as less than 1px gives an
   // invisible frame, so it is refused like the number 0.
   const inline = (height) => mountWith({ height }).embed.iframe.parentNode.style.height
-  for (const tiny of ['0px', '0.5px', '0PX', ' 0px ']) {
+  for (const tiny of ['0px', '0.5px', '0PX', ' 0px ', '1e-05px', '1E-5px']) {
     const { result, warnings } = withWarnings(() => inline(tiny))
     assert.equal(result, '100%', `refuses inline height ${JSON.stringify(tiny)}`)
     assert.equal(warnings.length, 1)

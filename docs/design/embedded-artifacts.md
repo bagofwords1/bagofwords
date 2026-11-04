@@ -212,8 +212,10 @@ BOWEmbed.mount({
                                       //   default 600 x 720, capped by the viewport; without dvh/svh/lvh support the
                                       //   same size applies in vh; a refused value warns in the console
                                       // inline: height only, a number of px (at least 1) or any CSS value the browser
-                                      //   accepts other than a plain length below 1px ('0px'); default '100%', also
-                                      //   used (with a warning) for a refused value
+                                      //   accepts, except one it reads back as a px length below 1px ('0', '0px',
+                                      //   '0.5px'), which is refused; other zero heights ('0%', '0rem', 'calc(0px)')
+                                      //   are the host's choice; default '100%', also used (with a warning) for a
+                                      //   refused value
   zIndex: 1000,                       // floating: a whole number (-2147483648 to 2147483647) or a string of digits
                                       //   ('1000'); default 2147483000
   accentColor: '#2563eb',             // floating launcher: any CSS colour the browser accepts ('#abcd', 'hsl(…)',
