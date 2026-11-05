@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.611 (November 5, 2026)
+- Added multiple Glue databases per AWS Athena connection — list, glob or `!`-exclude them in Database; tables are named `database.table`
+
 ## Version 0.0.610 (November 5, 2026)
 - Fixed answers ending in a cut-off error when a query hit a table the agent can't use; the agent now explains and continues (#1592)
 - Changed the floating embedded chat to open at 600 × 720 px, matching BOW's preview (#1594) — `width` / `height` options in `BOWEmbed.mount`
