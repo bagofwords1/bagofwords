@@ -583,4 +583,63 @@ assert.equal(list.isolate(null), '')
 assert.deepEqual(list.isolateParams({ name: 'Alice Nguyen', n: 3 }), { name: '⁨Alice Nguyen⁩', n: 3 })
 assert.deepEqual(list.isolateParams({}), {})
 
+// --- P11: what the results area shows while a list loads -----------------------------
+
+// The skeleton only when there is nothing to show yet (the first load, or after
+// an empty list); otherwise the cards on screen stay, dimmed, until the new ones land.
+assert.equal(list.listDisplay(true, 0), 'skeleton', 'first load, or nothing on screen')
+assert.equal(list.listDisplay(true, 15), 'stale', 'a tab, chip, sort or page change: keep the cards')
+assert.equal(list.listDisplay(false, 15), 'list')
+assert.equal(list.listDisplay(false, 0), 'empty')
+
+// --- P11: "All agents" / "Anyone", a real first option of a multi-select ------------------
+
+{
+  const ALL = '__all__'
+  // Nothing chosen: the menu shows "All" as the selected option.
+  assert.deepEqual(list.allOptionModel([], ALL), [ALL])
+  assert.deepEqual(list.allOptionModel([A1, A2], ALL), [A1, A2])
+  // From "All", ticking an item: that item alone.
+  assert.deepEqual(list.applyAllOption([ALL], [ALL, A1], ALL), [A1])
+  // Items chosen, then "All": the filter is cleared.
+  assert.deepEqual(list.applyAllOption([A1], [A1, ALL], ALL), [])
+  assert.deepEqual(list.applyAllOption([A1, A2], [A1, A2, ALL], ALL), [])
+  // "All" ticked again while it is the selection: it stays cleared, never empty-and-unchecked.
+  assert.deepEqual(list.applyAllOption([ALL], [], ALL), [])
+  // The items stay multi-select.
+  assert.deepEqual(list.applyAllOption([A1], [A1, A2], ALL), [A1, A2])
+  assert.deepEqual(list.applyAllOption([A1, A2], [A2], ALL), [A2])
+  // Unticking the last item: back to "All".
+  assert.deepEqual(list.applyAllOption([A1], [], ALL), [])
+}
+
+// --- P11: the refresh line, the same on the card and the list row (decision #21) ----------
+
+{
+  const org = { reasons: ['org'], primary: 'org', via_name: null }
+  const ran = { last_run_at: '2026-11-05T09:00:00Z', last_run_status: 'success' }
+  // "Data as of" only when it reached the reader through the organization alone.
+  assert.equal(list.refreshLine(card({ ...ran, access: org }), 'shared'), 'dataAsOf')
+  assert.equal(list.refreshLine(card({ ...ran }), 'shared'), null, 'shared directly: the Edited time says it')
+  assert.equal(list.refreshLine(card({ ...ran, access: { reasons: ['group', 'org'], primary: 'group', via_name: 'Ops' } }), 'shared'), null)
+  assert.equal(list.refreshLine(card({ access: org, last_run_at: null }), 'shared'), null, 'never ran: nothing to say')
+  assert.equal(list.refreshLine(my({ ...ran }), 'my'), null)
+  assert.equal(list.refreshLine(card({ ...ran, access: org }), 'my'), null, '"Data as of" is for the Shared tab only')
+  // A failing refresh is said on either tab, to whoever gets the status (its editors).
+  assert.equal(list.refreshLine(card({ access: org, last_run_at: ran.last_run_at, last_run_status: 'failed' }), 'shared'), 'failing')
+  assert.equal(list.refreshLine(my({ last_run_status: 'failed', last_run_at: null }), 'my'), 'failing')
+}
+
+// --- P11: the empty state's description ---------------------------------------------------
+
+assert.equal(list.emptyDescriptionKey(DEFAULT_STATE), 'dashboards.emptyMy')
+assert.equal(list.emptyDescriptionKey({ ...DEFAULT_STATE, tab: 'shared' }), 'dashboards.emptyShared')
+// Any filter, the search, the type or an access chip: the "clear the filters" line.
+for (const over of [{ q: 'x' }, { type: 'doc' }, { agents: [A1] }, { starred: true }, { status: 'draft' },
+  { tab: 'shared', access: 'org' }, { tab: 'shared', owners: [U9] }, { tab: 'shared', attention: true }]) {
+  assert.equal(list.emptyDescriptionKey({ ...DEFAULT_STATE, ...over }), 'dashboards.emptyFiltered', JSON.stringify(over))
+}
+// A Shared-only filter left in a My URL is not applied (activeFilterChips): no "clear" link for it.
+assert.equal(list.emptyDescriptionKey({ ...DEFAULT_STATE, access: 'org' }), 'dashboards.emptyMy')
+
 console.log('dashboardList: ok')

@@ -69,7 +69,7 @@
 
                 <!-- Refresh failing: only its editors get last_run_status (default 8). -->
                 <p
-                    v-if="failing"
+                    v-if="refresh === 'failing'"
                     class="text-xs mt-0.5 truncate flex items-center gap-1.5 text-red-600 dark:text-red-400"
                     :title="formatDateTime(dashboard.last_run_at)"
                     data-testid="dashboard-card-refresh"
@@ -78,7 +78,7 @@
                     {{ $t('dashboards.card.refreshFailing') }}
                 </p>
                 <p
-                    v-else-if="orgOnly && dashboard.last_run_at"
+                    v-else-if="refresh === 'dataAsOf'"
                     class="text-xs mt-0.5 truncate flex items-center gap-1.5 text-ink-muted"
                     :title="formatDateTime(dashboard.last_run_at)"
                     data-testid="dashboard-card-refresh"
@@ -113,14 +113,16 @@
                 data-testid="dashboard-card-edit"
                 @click.prevent.stop="emit('edit')"
             />
-            <!-- Star: on hover, or always once starred. It waits while its request is in flight. -->
+            <!-- Star: with a mouse, on hover (or focus), or always once starred.
+                 On a touch screen there is no hover: always shown.
+                 It waits while its request is in flight. -->
             <UButton
                 color="white"
                 variant="ghost"
                 size="xs"
                 square
-                class="pointer-events-auto absolute bottom-2 end-2 rounded-full bg-white/90 hover:bg-white dark:hover:bg-white shadow-sm transition-opacity focus:opacity-100 disabled:cursor-wait"
-                :class="dashboard.is_starred ? '' : 'opacity-0 group-hover:opacity-100'"
+                class="pointer-events-auto absolute bottom-2 end-2 rounded-full bg-white/90 hover:bg-white dark:hover:bg-white shadow-sm transition-opacity disabled:cursor-wait"
+                :class="dashboard.is_starred ? '' : HOVER_REVEAL"
                 :disabled="starPending"
                 :aria-busy="starPending ? 'true' : undefined"
                 :aria-label="starLabel"
@@ -144,7 +146,7 @@
 import DashboardAccessLabel from '~/components/dashboards/DashboardAccessLabel.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ReportStatusDot from '~/components/ReportStatusDot.vue'
-import { cardMeta, isolate, statusPill, type DashboardCardData } from '~/utils/dashboardList'
+import { cardMeta, isolate, refreshLine, statusPill, type DashboardCardData } from '~/utils/dashboardList'
 
 const props = defineProps<{
     dashboard: DashboardCardData
@@ -163,12 +165,11 @@ const { relativeTime } = useRelativeTime()
 const { formatDate, formatDateTime } = useFormatDate()
 
 const title = computed(() => props.dashboard.title || t('dashboardCollab.page.untitled'))
-const shared = computed(() => props.tab === 'shared')
-// Reached only through the organization: no one shared it with the reader.
-const orgOnly = computed(() => shared.value && props.dashboard.access?.primary === 'org')
 const meta = computed(() => cardMeta(props.dashboard, props.tab))
 const editable = computed(() => props.dashboard.role === 'owner' || props.dashboard.role === 'edit')
-const failing = computed(() => props.dashboard.last_run_status === 'failed')
+const refresh = computed(() => refreshLine(props.dashboard, props.tab))
+// Hidden until hover only where the device can hover; focus shows it too.
+const HOVER_REVEAL = '[@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:focus:opacity-100'
 const editedAt = computed(() => props.dashboard.edited_at || props.dashboard.created_at)
 const ownerName = computed(() => props.dashboard.owner?.name || '')
 const agents = computed(() => props.dashboard.agents || [])

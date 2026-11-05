@@ -30,7 +30,7 @@
             v-if="open"
             :id="panelId"
             ref="panelRef"
-            class="absolute end-0 z-dropdown mt-2 w-[380px] max-w-[92vw] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-lg p-4"
+            class="absolute start-0 md:start-auto md:end-0 z-dropdown mt-2 w-[380px] max-w-[92vw] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-lg p-4"
             data-testid="dashboard-filters-popover"
         >
             <div class="space-y-3">
@@ -38,14 +38,14 @@
                 <div class="flex items-center justify-between gap-3">
                     <span class="text-xs text-ink-muted">{{ t('dashboards.filters.agent') }}</span>
                     <USelectMenu
-                        :model-value="state.agents"
+                        :model-value="agentModel"
                         :options="agentOptions"
                         multiple
                         value-attribute="id"
                         option-attribute="name"
                         class="w-48"
                         data-testid="dashboard-filter-agent"
-                        @update:model-value="(ids: string[]) => emit('update', { agents: ids })"
+                        @update:model-value="(ids: string[]) => emit('update', { agents: applyAllOption(agentModel, ids, ALL) })"
                     >
                         <template #label>
                             <span class="flex items-center gap-1.5 min-w-0 text-xs">
@@ -61,7 +61,7 @@
                         </template>
                         <template #option="{ option }">
                             <span class="flex items-center gap-1.5 w-full min-w-0 text-xs">
-                                <DataSourceIcon :type="option.type" :icon-token="option.icon_token" class="h-3.5 shrink-0" />
+                                <DataSourceIcon v-if="option.id !== ALL" :type="option.type" :icon-token="option.icon_token" class="h-3.5 shrink-0" />
                                 <span v-text-dir class="truncate">{{ option.name }}</span>
                                 <span v-if="option.count !== undefined" class="ms-auto text-ink-muted nums">{{ option.count }}</span>
                             </span>
@@ -129,14 +129,14 @@
                 <div v-if="tab === 'shared'" class="flex items-center justify-between gap-3">
                     <span class="text-xs text-ink-muted">{{ t('dashboards.filters.owner') }}</span>
                     <USelectMenu
-                        :model-value="state.owners"
+                        :model-value="ownerModel"
                         :options="ownerOptions"
                         multiple
                         value-attribute="id"
                         option-attribute="name"
                         class="w-48"
                         data-testid="dashboard-filter-owner"
-                        @update:model-value="(ids: string[]) => emit('update', { owners: ids })"
+                        @update:model-value="(ids: string[]) => emit('update', { owners: applyAllOption(ownerModel, ids, ALL) })"
                     >
                         <template #label>
                             <span v-text-dir class="text-xs whitespace-nowrap truncate">{{ ownerLabel }}</span>
@@ -218,6 +218,8 @@ import {
     PRESETS,
     STATUSES,
     activeFilterCount,
+    allOptionModel,
+    applyAllOption,
     type DashboardFacets,
     type DashboardListState,
     type DashboardStatus,
@@ -264,8 +266,15 @@ const panelRef = ref<HTMLElement | null>(null)
 const panelId = useId()
 const count = computed(() => activeFilterCount(props.state))
 
-// Agents: those the facets list (with counts), then any selected one they
-// leave out, so it can still be cleared.
+// "All agents" and "Anyone" are real first options, as on the Conversations
+// list (pages/reports/index.vue): picking one clears that filter, and it is the
+// selected option while nothing else is. ALL is no agent's or owner's id (UUIDs).
+const ALL = '__all__'
+const agentModel = computed(() => allOptionModel(props.state.agents, ALL))
+const ownerModel = computed(() => allOptionModel(props.state.owners, ALL))
+
+// Agents: "All agents", those the facets list (with counts), then any
+// selected one they leave out, so it can still be cleared.
 const agentOptions = computed(() => {
     const listed = (props.facets?.agents ?? []).map(a => ({ ...a, name: a.name || t('dashboards.filters.unknownAgent') }))
     const ids = new Set(listed.map(a => a.id))
@@ -273,7 +282,8 @@ const agentOptions = computed(() => {
         const known = props.names?.agents[id]
         return { id, name: known?.name || t('dashboards.filters.unknownAgent'), type: known?.type ?? null, icon_token: known?.icon_token ?? null, count: undefined as number | undefined }
     })
-    return [...listed, ...missing]
+    const all = { id: ALL, name: t('dashboards.filters.allAgents'), type: null, icon_token: null, count: undefined as number | undefined }
+    return [all, ...listed, ...missing]
 })
 const selectedAgents = computed(() => agentOptions.value.filter(a => props.state.agents.includes(a.id)))
 const agentLabel = computed(() => {
@@ -287,7 +297,7 @@ const ownerOptions = computed(() => {
     const ids = new Set(listed.map(o => o.id))
     const missing = props.state.owners.filter(id => !ids.has(id))
         .map(id => ({ id, name: props.names?.owners[id] || t('dashboards.filters.unknownOwner'), count: undefined }))
-    return [...listed, ...missing]
+    return [{ id: ALL, name: t('dashboards.filters.anyone'), count: undefined }, ...listed, ...missing]
 })
 const ownerLabel = computed(() => {
     const n = props.state.owners.length

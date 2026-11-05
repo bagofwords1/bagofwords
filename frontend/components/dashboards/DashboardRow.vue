@@ -56,7 +56,7 @@
                         <UIcon
                             name="i-heroicons-clock"
                             class="h-3.5 w-3.5"
-                            :class="failing ? 'text-red-600 dark:text-red-400' : 'text-ink-muted'"
+                            :class="refresh === 'failing' ? 'text-red-600 dark:text-red-400' : 'text-ink-muted'"
                             aria-hidden="true"
                         />
                     </span>
@@ -81,11 +81,11 @@
                     <span class="text-ink-subtle" aria-hidden="true">·</span>
                     <span>{{ t('dashboards.card.by', { name: isolate(ownerName) }) }}</span>
                 </template>
-                <template v-if="failing">
+                <template v-if="refresh === 'failing'">
                     <span class="text-ink-subtle" aria-hidden="true">·</span>
                     <span class="text-red-600 dark:text-red-400" :title="formatDateTime(dashboard.last_run_at)">{{ t('dashboards.card.refreshFailing') }}</span>
                 </template>
-                <template v-else-if="shared && dashboard.last_run_at">
+                <template v-else-if="refresh === 'dataAsOf'">
                     <span class="text-ink-subtle" aria-hidden="true">·</span>
                     <span :title="formatDateTime(dashboard.last_run_at)">{{ t('dashboards.card.dataAsOf', { time: relativeTime(dashboard.last_run_at) }) }}</span>
                 </template>
@@ -122,7 +122,7 @@
 import DashboardAccessLabel from '~/components/dashboards/DashboardAccessLabel.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ReportStatusDot from '~/components/ReportStatusDot.vue'
-import { isolate, statusPill, type DashboardCardData } from '~/utils/dashboardList'
+import { isolate, refreshLine, statusPill, type DashboardCardData } from '~/utils/dashboardList'
 
 const props = defineProps<{
     dashboard: DashboardCardData
@@ -144,7 +144,8 @@ const link = computed(() => `/d/${props.dashboard.slug || props.dashboard.id}`)
 const title = computed(() => props.dashboard.title || t('dashboardCollab.page.untitled'))
 const shared = computed(() => props.tab === 'shared')
 const editable = computed(() => props.dashboard.role === 'owner' || props.dashboard.role === 'edit')
-const failing = computed(() => props.dashboard.last_run_status === 'failed')
+// Failing on either tab; Data as of only when reached through the organization alone (#21).
+const refresh = computed(() => refreshLine(props.dashboard, props.tab))
 const editedAt = computed(() => props.dashboard.edited_at || props.dashboard.created_at)
 const ownerName = computed(() => props.dashboard.owner?.name || '')
 const agents = computed(() => props.dashboard.agents || [])

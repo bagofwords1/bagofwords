@@ -512,6 +512,51 @@ export function removeFilterChip(state: DashboardListState, id: string): Dashboa
   }
 }
 
+/**
+ * The empty state's description: "clear the filters" when the search, the
+ * type, an access chip or any filter that applies on the tab is set; else what
+ * the tab is for.
+ */
+export function emptyDescriptionKey(state: DashboardListState): string {
+  const shared = state.tab === 'shared'
+  const filtered = activeFilterChips(state).length > 0
+    || state.type !== 'all'
+    || (shared && state.access !== 'all')
+  if (filtered) return 'dashboards.emptyFiltered'
+  return shared ? 'dashboards.emptyShared' : 'dashboards.emptyMy'
+}
+
+/**
+ * What the results area shows. A load with cards on screen keeps them
+ * (dimmed) until the new ones land, so a tab, chip, sort or page change does
+ * not flash a skeleton; the skeleton is only for a load with nothing to show.
+ */
+export function listDisplay(loading: boolean, rows: number): 'skeleton' | 'stale' | 'list' | 'empty' {
+  if (loading) return rows > 0 ? 'stale' : 'skeleton'
+  return rows > 0 ? 'list' : 'empty'
+}
+
+/**
+ * A multi-select with a real first "All" option (`all`, an id no item has),
+ * as on the Conversations list. The menu's value: "All" when nothing is chosen.
+ */
+export function allOptionModel(ids: readonly string[], all: string): string[] {
+  return ids.length ? [...ids] : [all]
+}
+
+/**
+ * The chosen ids after the menu changed from `prev` to `next` (both menu
+ * values, as allOptionModel makes them). Picking "All" clears the filter;
+ * picking an item while "All" is shown starts a selection; items stay
+ * multi-select. Never returns `all`.
+ */
+export function applyAllOption(prev: readonly string[], next: readonly string[], all: string): string[] {
+  const wasAll = prev.includes(all)
+  const isAll = next.includes(all)
+  if (isAll && !wasAll) return []
+  return next.filter(id => id !== all)
+}
+
 function rangeActive(preset: DatePreset, from: string, to: string): boolean {
   if (preset === 'custom') return !!(from || to)
   return preset !== 'any'
@@ -622,6 +667,18 @@ export function cardMeta(card: DashboardCardData, tab: DashboardTab): CardMetaPa
     ? ['edited', 'created']
     : ['by', card.access?.primary === 'org' ? 'published' : 'edited']
   return parts.filter(part => has[part])
+}
+
+/**
+ * The refresh line under a card's meta (and in a list row's): "Refresh
+ * failing" to whoever gets the status (its editors), on either tab; else
+ * "Data as of", only for a dashboard reached through the organization alone
+ * (decision #21) that has run. Else none.
+ */
+export function refreshLine(card: DashboardCardData, tab: DashboardTab): 'failing' | 'dataAsOf' | null {
+  if (card.last_run_status === 'failed') return 'failing'
+  if (tab === 'shared' && card.access?.primary === 'org' && card.last_run_at) return 'dataAsOf'
+  return null
 }
 
 /**

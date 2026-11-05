@@ -125,7 +125,12 @@
                         @click="go({ ...state, access: chip, page: 1 })"
                     >
                         {{ $t(`dashboards.access.${chip}`) }}
-                        <span v-if="facets?.access" class="ms-1 text-2xs text-ink-muted nums">{{ facets.access[chip] }}</span>
+                        <!-- Until the counts arrive, the last ones seen (or a hidden 0) hold the chip's width. -->
+                        <span
+                            class="ms-1 text-2xs text-ink-muted nums"
+                            :class="accessCounts ? '' : 'invisible'"
+                            :aria-hidden="accessCounts ? undefined : 'true'"
+                        >{{ accessCounts ? accessCounts[chip] : 0 }}</span>
                     </button>
                 </div>
 
@@ -196,8 +201,9 @@
                     >{{ $t('dashboards.filters.clearAll') }}</UButton>
                 </div>
 
-                <!-- Loading state -->
-                <div v-if="isLoading" class="mt-4">
+                <!-- Loading with nothing on screen yet: the skeleton. With cards on
+                     screen, they stay (dimmed) until the new ones land (listDisplay). -->
+                <div v-if="display === 'skeleton'" class="mt-4" data-testid="dashboard-skeleton">
                     <div v-if="view === 'grid'" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
                         <div
                             v-for="i in 10"
@@ -222,7 +228,18 @@
                     </div>
                 </div>
 
-                <div v-else-if="reports.length > 0">
+                <!-- While the next list loads, the current one stays, dimmed. pointer-events-none
+                     only stops stray mouse clicks on the cards; the corner star and pencil
+                     (pointer-events-auto) and the keyboard still work on purpose: acting on a
+                     card that is still on screen is safe, and `inert` would drop the focus of a
+                     keyboard user who just pressed a page button. -->
+                <div
+                    v-else-if="display === 'list' || display === 'stale'"
+                    class="transition-opacity"
+                    :class="display === 'stale' ? 'opacity-60 pointer-events-none' : ''"
+                    :aria-busy="display === 'stale' ? 'true' : 'false'"
+                    data-testid="dashboard-results"
+                >
                     <!-- Grid: one card per dashboard; it opens the dashboard's
                          /d page on both tabs. Whoever may edit it (its owner,
                          its editors -- collab01) does so through the pencil:
@@ -232,7 +249,7 @@
                             v-for="dashboard in reports"
                             :key="dashboard.id"
                             :dashboard="dashboard"
-                            :tab="state.tab"
+                            :tab="shownTab"
                             :editing="editingId === dashboard.id"
                             :busy="!!editingId"
                             :star-pending="pendingStars.has(dashboard.id)"
@@ -258,7 +275,7 @@
                                 v-for="dashboard in reports"
                                 :key="dashboard.id"
                                 :dashboard="dashboard"
-                                :tab="state.tab"
+                                :tab="shownTab"
                                 :editing="editingId === dashboard.id"
                                 :busy="!!editingId"
                                 :star-pending="pendingStars.has(dashboard.id)"
@@ -273,7 +290,8 @@
                         v-if="pagination.total_pages > 1"
                         class="mt-6 flex flex-col md:flex-row gap-3 md:items-center justify-between"
                     >
-                        <div class="text-xs text-ink-muted">
+                        <!-- Hidden while the list is stale: the URL's page is new, the totals still old. -->
+                        <div class="text-xs text-ink-muted" :class="display === 'stale' ? 'invisible' : ''">
                             {{ $t('dashboards.showingRange', {
                                 start: ((currentPage - 1) * pagination.limit) + 1,
                                 end: Math.min(currentPage * pagination.limit, pagination.total),
@@ -338,7 +356,7 @@
                         {{ $t('dashboards.empty') }}
                     </h3>
                     <p class="mt-1 text-sm text-ink-muted">
-                        <i18n-t v-if="hasFilters" keypath="dashboards.emptyFiltered" tag="span">
+                        <i18n-t v-if="emptyKey === 'dashboards.emptyFiltered'" keypath="dashboards.emptyFiltered" tag="span">
                             <template #clear>
                                 <UButton
                                     color="primary"
@@ -350,7 +368,7 @@
                                 >{{ $t('dashboards.clearTheFilters') }}</UButton>
                             </template>
                         </i18n-t>
-                        <template v-else>{{ $t('dashboards.emptyDescription') }}</template>
+                        <template v-else>{{ $t(emptyKey) }}</template>
                     </p>
                 </div>
             </div>
@@ -370,7 +388,9 @@ import {
     activeFilterChips,
     clampPage,
     clearAllFilters,
+    emptyDescriptionKey,
     isNormalQuery,
+    listDisplay,
     mergeStarState,
     parseListQuery,
     removeFilterChip,
@@ -400,6 +420,10 @@ const { timeZone } = useFormatDate()
 const { isExcel } = useExcel()
 
 definePageMeta({ auth: true })
+// The scrollbar's gutter stays reserved on this page only (the class leaves
+// with the page): a list that grows past the window, or shrinks under it, no
+// longer shifts the centred layout sideways by the scrollbar's width.
+useHead({ htmlAttrs: { class: 'bow-stable-gutter' } })
 
 // --- the state lives in the URL -----------------------------------------------------
 
@@ -531,7 +555,11 @@ const setView = (next: 'grid' | 'list') => {
 // --- the list ---------------------------------------------------------------------------
 
 const reports = ref<any[]>([])
+// The tab the cards on screen were fetched for: while the next tab loads they
+// stay as they were (stale-while-loading), not restyled for the new tab.
+const shownTab = ref<DashboardTab>(state.value.tab)
 const isLoading = ref(true)
+const display = computed(() => listDisplay(isLoading.value, reports.value.length))
 const pagination = ref({
     total: 0,
     page: 1,
@@ -604,6 +632,11 @@ const facetQueryKey = () => JSON.stringify([
     toFacetParams(state.value, new Date(0), { newSince: newSince.value, timeZone: timeZone.value }),
     timeZone.value ?? null,
 ])
+// The access chips' counts: the latest facets that had them, so a tab switch
+// (whose facets are still on their way) does not empty and re-widen the chips.
+// Written only here: a success keeps them, a failure clears them, so the chips
+// never show another query's counts once the facets have failed.
+const lastAccess = ref<DashboardFacets['access']>(null)
 const fetchFacets = async () => {
     const seq = ++facetSeq
     try {
@@ -618,33 +651,37 @@ const fetchFacets = async () => {
         }
         const body = error.value ? null : (data.value as DashboardFacets | null)
         facets.value = body
+        lastAccess.value = body?.access ?? null
         for (const agent of body?.agents ?? []) names.agents[agent.id] = agent
         for (const owner of body?.owners ?? []) if (owner.name) names.owners[owner.id] = owner.name
     } catch (error) {
         if (seq !== facetSeq) return
         console.warn('Could not fetch dashboard facets:', error)
         facets.value = null
+        lastAccess.value = null
         facetKey = null
     }
 }
 const newCount = computed(() => facets.value?.new_count ?? 0)
+const accessCounts = computed(() => facets.value?.access ?? lastAccess.value ?? null)
 const attention = computed(() => (state.value.tab === 'shared' && state.value.access === 'org' ? facets.value?.attention ?? null : null))
 
 // Dashboards whose star request is in flight: a second click on one waits.
 const pendingStars = reactive(new Set<string>())
 
-// Only the newest fetch writes the list and clears the skeleton: an older
+// Only the newest fetch writes the list and ends the loading state: an older
 // response landing late (a page or tab the reader has left) is dropped.
 let fetchSeq = 0
 // A quiet refetch must not join a GET already in flight (useMyFetch shares
 // identical in-flight GETs): that one may have left before the star landed.
 let freshSeq = 0
 
-// quiet: refresh the cards in place, without the loading skeleton or a toast (after a star).
+// quiet: refresh the cards in place, without the loading state or a toast (after a star).
 const fetchDashboards = async (quiet = false) => {
     const seq = ++fetchSeq
     if (!quiet) isLoading.value = true
-    // Past the last page: the URL is replaced, and the skeleton stays until that load.
+    // Past the last page: the URL is replaced, and the loading state (the skeleton,
+    // or the dimmed cards of the page before) stays until that load.
     let clamping = false
     try {
         const response = await useMyFetch('/artifacts', {
@@ -667,6 +704,7 @@ const fetchDashboards = async (quiet = false) => {
             }
             // A star still in flight keeps its local state: this response may predate it.
             reports.value = mergeStarState(body.dashboards, pendingStars, reports.value)
+            shownTab.value = state.value.tab
             pagination.value = body.meta
         } else {
             throw response.error.value ?? new Error('Could not fetch dashboards')
@@ -737,9 +775,8 @@ watch(timeZone, () => {
 // --- active filters and the empty state ----------------------------------------------------
 
 const chips = computed(() => activeFilterChips(state.value))
-const hasFilters = computed(() => chips.value.length > 0
-    || state.value.type !== 'all'
-    || (state.value.tab === 'shared' && state.value.access !== 'all'))
+// No filter set: what the tab is for; else "clear the filters".
+const emptyKey = computed(() => emptyDescriptionKey(state.value))
 
 const PRESET_LABEL: Record<string, string> = {
     '7': 'dashboards.presets.last7',
@@ -844,3 +881,10 @@ onBeforeUnmount(() => {
     cancelSearch()
 })
 </script>
+
+<style>
+/* Not scoped: it is <html>'s. Only while this page is mounted (useHead above). */
+html.bow-stable-gutter {
+    scrollbar-gutter: stable;
+}
+</style>
