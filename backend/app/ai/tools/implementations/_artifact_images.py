@@ -52,6 +52,8 @@ async def load_image_bytes(db, included_files: List[Dict[str, Any]]) -> Dict[str
             continue
         try:
             disk_path = Path.cwd() / "uploads" / "files" / Path(row.path).name
+            from app.services import storage
+            await storage.aensure_local(disk_path)
             async with aiofiles.open(disk_path, "rb") as fh:
                 out[str(f["id"])] = await fh.read()
         except Exception as e:
@@ -88,6 +90,8 @@ async def build_file_datauris(db, included_files: List[Dict[str, Any]]) -> List[
         if row is not None and row.path:
             try:
                 disk_path = Path.cwd() / "uploads" / "files" / Path(row.path).name
+                from app.services import storage
+                await storage.aensure_local(disk_path)
                 async with aiofiles.open(disk_path, "rb") as fh:
                     raw = await fh.read()
                 ct = f.get("content_type") or row.content_type or "application/octet-stream"

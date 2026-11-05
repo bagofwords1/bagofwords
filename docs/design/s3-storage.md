@@ -1,6 +1,50 @@
-# Object storage backend (S3-compatible + Azure Blob) — design map (not implemented)
+# Object storage backend (S3-compatible + Azure Blob)
 
-Status: **mapping only**. Nothing here is built yet.
+Status: **implemented** (`storage.backend: local | s3 | azure`, default
+`local`). The sections after "As built" are the original design map, kept for
+context; where they differ, "As built" wins.
+
+## As built
+
+**One design choice drives everything:** the app keeps reading and writing real
+files under `backend/uploads/` (the sandbox, pandas, Playwright and LibreOffice
+need paths), and the object store is a mirror that is the source of truth.
+`app/services/storage/` exposes:
+
+| Call | When | Local backend |
+|---|---|---|
+| `persist(path)` / `apersist` | after writing a durable file | no-op |
+| `ensure_local(path)` / `aensure_local` | before reading one (downloads on a miss; by default also checks the remote ETag, so a copy replaced or deleted on another pod is never served; `fresh=False` for write-once names) | `os.path.isfile` |
+| `discard(path)` / `adiscard` | when deleting one | no-op |
+| `persist_tree` / `ensure_local_tree` / `discard_tree` | slide previews, PBIX cache dirs | no-op / exists |
+| `check()` | app startup: put/get/delete a canary, the pod exits if it fails | describes local |
+
+Keys are the path relative to `uploads/` (`files/<uuid>_name.csv`), so no DB
+value changed and no migration of rows is needed.
+
+**Mirrored areas:** `files` (uploads, tool outputs, connector copies),
+`thumbnails`, `pptx`, `pptx_previews`, `branding`, `avatars`, `demo_data`,
+`fast`, `git_state` (learned SSH host keys, merged across pods),
+`pbix_file_cache`, `pbix_data_cache`, `pbirs_schema_cache`, `qvd_cache`.
+
+**Per-pod only** (`keys.LOCAL_ONLY_AREAS`): `repo_cache` (git mirrors),
+`pdfs` (rendered and served in the same request), `artifact_js`
+(content-addressed compile cache), `filecache` (fail-open read cache).
+
+**Config:** `storage:` in bow-config, or `BOW_STORAGE_*` env (YAML wins).
+Auth: S3 `default` (IRSA / Pod Identity / instance role) · `static` ·
+`assume_role` (auto-refreshing STS); Azure `default` (Workload / Managed
+Identity) · `service_principal` · `connection_string` · `sas`.
+
+**Not built (follow-ups):**
+- Signed-URL downloads (files stream through the app, keeping auth + audit).
+- Remote GC of orphaned fast-mode extracts (`fast_artifact_maintenance`
+  prunes only the local copy; orphans only come from a crash mid-refresh).
+- The fast-mode refresh lock is a file lock per pod; two pods can refresh one
+  connection at the same time (duplicate work, not corruption).
+- Native GCS (GCS works through its S3-interoperable API with HMAC keys).
+
+Verification: `docs/feedback-loops/object-storage-backends.md`.
 
 ## Why
 

@@ -22,6 +22,7 @@ from sqlalchemy import select, exists
 from app.core.telemetry import telemetry
 from app.services.file_preview import generate_file_preview
 from app.data_sources.clients._file_source_common import storage_safe_name
+from app.services import storage
 import logging
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,23 @@ def is_agent_owned_file(file, inherited_ids: set) -> bool:
     """
     kind = (getattr(file, 'source_kind', '') or '') or 'upload'
     return str(getattr(file, 'id', '')) in inherited_ids or kind != 'upload'
+
+
+async def _persist_or_fail(file_location: str, content_type: Optional[str]) -> None:
+    """Upload a freshly written file to the object store (no-op on local disk).
+
+    A file only this pod holds would vanish for every other replica, so a
+    failed upload fails the request instead of creating a dangling row.
+    """
+    try:
+        await storage.apersist(file_location, content_type)
+    except storage.StorageError as e:
+        logger.error("File storage upload failed for %s: %s", file_location, e)
+        try:
+            os.remove(file_location)
+        except OSError:
+            pass
+        raise HTTPException(status_code=503, detail="File storage is unavailable; the file was not saved.")
 
 
 class FileService:
@@ -87,6 +105,7 @@ class FileService:
         async with aiofiles.open(file_location, "wb") as buffer:
             content = await file.read()
             await buffer.write(content)
+        await _persist_or_fail(file_location, file.content_type)
 
         # Create the database entry
         db_file = File(
@@ -190,6 +209,7 @@ class FileService:
 
         async with aiofiles.open(file_location, "wb") as buffer:
             await buffer.write(content)
+        await _persist_or_fail(file_location, content_type)
 
         db_file = File(
             filename=safe_name,
@@ -414,6 +434,7 @@ class FileService:
             DeprecationWarning,
             stacklevel=2
         )
+        await storage.aensure_local(file.path)
         
         from openpyxl import load_workbook
         from openpyxl.utils.exceptions import InvalidFileException
@@ -489,6 +510,7 @@ class FileService:
             DeprecationWarning,
             stacklevel=2
         )
+        await storage.aensure_local(file.path)
         
         import tiktoken
         from app.ai.agents.doc.doc import DocAgent

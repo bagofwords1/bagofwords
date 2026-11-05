@@ -36,6 +36,30 @@ from app.settings.logging_config import get_logger
 logger = get_logger(__name__)
 
 _CACHE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "uploads" / "pbix_file_cache"
+
+
+def _hydrate_dir(cache_dir: Path) -> None:
+    """Fetch a cache dir another pod materialized (object storage only)."""
+    from app.services import storage
+    if storage.enabled() and not (cache_dir / "manifest.json").exists():
+        storage.ensure_local_tree(cache_dir)
+
+
+def _publish_dir(cache_dir: Path) -> None:
+    """Share a materialized cache dir with every pod. manifest.json goes last:
+    it marks the dir complete, so a pod never adopts a half-uploaded one.
+    Best effort — a failed upload only costs a re-decode elsewhere."""
+    from app.services import storage
+    if not storage.enabled():
+        return
+    try:
+        for p in sorted(cache_dir.iterdir()):
+            if p.is_file() and p.name != "manifest.json" and not p.name.startswith("."):
+                storage.persist(p)
+        if (cache_dir / "manifest.json").is_file():
+            storage.persist(cache_dir / "manifest.json")
+    except (OSError, storage.StorageError) as e:
+        logger.warning("pbix: cache not uploaded to object storage: %s", e)
 # Bumped when the extraction pipeline changes what it writes, so old caches are
 # reconverted instead of served stale.
 _CACHE_SCHEMA_VERSION = 1
@@ -111,6 +135,7 @@ class PBIXClient(DataSourceClient):
     @staticmethod
     def _read_manifest(cache_dir: Path) -> dict[str, str] | None:
         manifest_path = cache_dir / "manifest.json"
+        _hydrate_dir(cache_dir)
         if not manifest_path.exists():
             return None
         try:
@@ -125,7 +150,8 @@ class PBIXClient(DataSourceClient):
         Served from schema.json in the cache dir when present; otherwise parsed
         with pbixray (metadata only, no data decode) and cached there."""
         schema_path = cache_dir / "schema.json"
-        if schema_path.exists():
+        from app.services import storage
+        if storage.ensure_local(schema_path, fresh=False):
             try:
                 with schema_path.open("r", encoding="utf-8") as f:
                     return json.load(f)
@@ -143,6 +169,7 @@ class PBIXClient(DataSourceClient):
             cache_dir.mkdir(parents=True, exist_ok=True)
             with schema_path.open("w", encoding="utf-8") as f:
                 json.dump(model, f)
+            storage.persist(schema_path)
         except Exception as e:
             logger.debug(f"pbix schema cache write failed for {filepath}: {e}")
         return model
@@ -172,6 +199,7 @@ class PBIXClient(DataSourceClient):
             manifest = materialize_pbix_parquets(filepath, cache_dir)
         else:
             manifest = materialize_pbix_parquets_isolated(filepath, cache_dir)
+        _publish_dir(cache_dir)
         logger.info(
             "pbix.convert.done",
             extra={

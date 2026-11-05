@@ -27,6 +27,9 @@ spec:
         {{- include "bowapp.selectorLabels" . | nindent 8 }}
         app: {{ include "bowapp.name" . }}
         version: {{ .Chart.AppVersion | quote }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- with .Values.podAnnotations }}
       annotations:
         {{- toYaml . | nindent 8 }}
@@ -111,6 +114,10 @@ spec:
               mountPath: /app/certs
               readOnly: true
             {{- end }}
+            {{- if include "bowapp.uploadsVolume" . }}
+            - name: uploads
+              mountPath: /app/backend/uploads
+            {{- end }}
             {{- with .Values.extraVolumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -128,6 +135,15 @@ spec:
             items:
               - key: {{ .Values.database.auth.sslRootCert.key }}
                 path: rds-combined-ca-bundle.pem
+        {{- end }}
+        {{- if ne (.Values.storage.backend | default "local") "local" }}
+        - name: uploads
+          emptyDir:
+            sizeLimit: {{ .Values.storage.cache.sizeLimit | default "10Gi" }}
+        {{- else if .Values.storage.local.persistence.enabled }}
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: {{ .Values.storage.local.persistence.existingClaim | default (printf "%s-uploads" (include "bowapp.name" .)) }}
         {{- end }}
         {{- with .Values.extraVolumes }}
         {{- toYaml . | nindent 8 }}

@@ -4,6 +4,8 @@ import re
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
+from app.services import storage
+
 router = APIRouter(tags=["settings"])
 
 # Single-segment basename: no path separators, no traversal.
@@ -22,7 +24,7 @@ async def get_general_icon(icon_key: str):
     resolved = os.path.realpath(os.path.join(base_dir, icon_key))
     if not resolved.startswith(base_dir + os.sep):
         raise HTTPException(status_code=404, detail="Icon not found")
-    if not os.path.isfile(resolved):
+    if not await storage.aensure_local(resolved):
         raise HTTPException(status_code=404, detail="Icon not found")
     return FileResponse(resolved)
 
@@ -40,7 +42,7 @@ async def get_user_avatar(avatar_key: str):
     resolved = os.path.realpath(os.path.join(base_dir, avatar_key))
     if not resolved.startswith(base_dir + os.sep):
         raise HTTPException(status_code=404, detail="Avatar not found")
-    if not os.path.isfile(resolved):
+    if not await storage.aensure_local(resolved):
         raise HTTPException(status_code=404, detail="Avatar not found")
     return FileResponse(resolved, media_type="image/png")
 
@@ -57,6 +59,6 @@ async def get_thumbnail(filename: str):
     resolved = os.path.realpath(os.path.join(base_dir, filename))
     if not resolved.startswith(base_dir + os.sep):
         raise HTTPException(status_code=404, detail="Thumbnail not found")
-    if not os.path.isfile(resolved):
+    if not await storage.aensure_local(resolved):
         raise HTTPException(status_code=404, detail="Thumbnail not found")
     return FileResponse(resolved, media_type="image/png")

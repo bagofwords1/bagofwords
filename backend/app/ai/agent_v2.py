@@ -2012,6 +2012,8 @@ class AgentV2:
                 file_path = getattr(f, 'path', None)
                 if not file_path:
                     continue
+                from app.services import storage
+                await storage.aensure_local(file_path)
                 async with aiofiles.open(file_path, 'rb') as file:
                     content = await file.read()
                 data = base64.b64encode(content).decode('utf-8')

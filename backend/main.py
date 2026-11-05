@@ -452,6 +452,17 @@ async def startup_event():
         logger.error(f"Failed to connect to database after 3 retries: {str(e)}")
         exit(1)
 
+    # Object storage (storage.backend = s3 | azure): prove read/write/delete
+    # before serving, so bad credentials fail the pod instead of every upload.
+    try:
+        import asyncio as _asyncio
+        from app.services import storage as _storage
+        where = await _asyncio.to_thread(_storage.check)
+        logger.info(f"File storage: {where}")
+    except Exception as e:
+        logger.error(f"❌ File storage is not usable: {e}")
+        exit(1)
+
     # Pay process-local tool discovery/schema and active connector import costs
     # during worker startup, rather than on the first user's first prompt.
     try:

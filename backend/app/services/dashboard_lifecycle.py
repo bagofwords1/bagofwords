@@ -291,7 +291,10 @@ def _remove_edit_files(stem: str, deck: str | None, thumbnail: str | None) -> No
 
     from app.services.dashboard_copy import _UPLOADS
 
+    from app.services import storage
+
     shutil.rmtree(_UPLOADS / "pptx_previews" / stem, ignore_errors=True)
+    storage.discard_tree(_UPLOADS / "pptx_previews" / stem)
     for path in (deck, thumbnail):
         if not path or "pptx_previews/" in str(path):
             continue  # a deck's thumbnail is one of its previews, gone with the folder
@@ -299,6 +302,7 @@ def _remove_edit_files(stem: str, deck: str | None, thumbnail: str | None) -> No
             target = Path(path) if Path(path).is_absolute() else _UPLOADS / str(path)
             target.resolve().relative_to(_UPLOADS.resolve())  # never outside uploads/
             target.unlink(missing_ok=True)
+            storage.discard(target)
         except (ValueError, OSError):
             logger.warning("Edit: copied file %s not removed", path)
 

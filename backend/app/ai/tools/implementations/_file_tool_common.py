@@ -14,6 +14,8 @@ import uuid
 from typing import Any, Dict, Optional, Tuple
 
 import aiofiles
+
+from app.services import storage
 import pandas as pd
 from sqlalchemy import select
 
@@ -463,9 +465,13 @@ class SessionFileClient:
 
     async def aread_file(self, _file_id: str, **kwargs) -> Any:
         import asyncio as _asyncio
+        from app.services import storage
+        await storage.aensure_local(self._file.path)
         return await _asyncio.to_thread(self._inner().read_file, self._name, **kwargs)
 
     def read_raw_bytes(self, _file_id: str):
+        from app.services import storage
+        storage.ensure_local(self._file.path)
         return self._inner().read_raw_bytes(self._name)
 
     @property
@@ -1059,6 +1065,7 @@ async def attach_drive_file_to_session(
             # for content that is byte-identical. Size first (free), full
             # compare only on a size match.
             unchanged = False
+            await storage.aensure_local(path)
             try:
                 if (
                     cached.content_type == resolved_mime
@@ -1079,6 +1086,7 @@ async def attach_drive_file_to_session(
                 return str(cached.id)
             async with aiofiles.open(path, "wb") as fh:
                 await fh.write(content_bytes)
+            await storage.apersist(path, resolved_mime)
             cached.content_type = resolved_mime
             cached.filename = filename
             db_file = cached
@@ -1099,6 +1107,7 @@ async def attach_drive_file_to_session(
             path = f"uploads/files/{unique_filename}"
             async with aiofiles.open(path, "wb") as fh:
                 await fh.write(content_bytes)
+            await storage.apersist(path, resolved_mime)
 
             db_file = File(
                 filename=filename,

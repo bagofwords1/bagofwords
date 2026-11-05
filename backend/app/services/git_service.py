@@ -36,7 +36,7 @@ from app.models.metadata_indexing_job import MetadataIndexingJob
 from app.models.metadata_resource import MetadataResource
 from app.models.instruction import Instruction
 from app.errors.redact import redact_error
-from app.services.git_hardening import ssh_command, with_https_auth
+from app.services.git_hardening import persist_learned_hosts, ssh_command, with_https_auth
 from app.schemas.git_repository_schema import (
     GitRepositoryCreate,
     GitRepositoryUpdate,
@@ -268,6 +268,7 @@ class GitService:
             return git.cmd.Git().ls_remote(repo_url, env=git_env)
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
+            persist_learned_hosts()
 
     async def _ls_remote_with_pat(
         self, repo_url: str, access_token: str, username: Optional[str] = None
@@ -767,6 +768,7 @@ class GitService:
                     )
                 finally:
                     shutil.rmtree(ssh_dir, ignore_errors=True)
+                    persist_learned_hosts()
             else:
                 # Public repo - no auth
                 repo = git.Repo.clone_from(
@@ -1060,6 +1062,7 @@ class GitService:
                 )
             finally:
                 shutil.rmtree(ssh_dir, ignore_errors=True)
+                persist_learned_hosts()
         else:
             raise HTTPException(status_code=400, detail="No credentials configured for push")
 
@@ -1098,6 +1101,7 @@ class GitService:
                 repo.git.push('origin', branch_name, '--set-upstream', '--force', env=git_env)
             finally:
                 shutil.rmtree(ssh_dir, ignore_errors=True)
+                persist_learned_hosts()
 
     async def _resolve_reference_names(
         self, db: AsyncSession, references_json: list
