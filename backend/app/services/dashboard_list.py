@@ -12,47 +12,280 @@ paging.
 A card carries the conversation id only for whoever may edit the dashboard
 (the pencil); readers get the /d link. The thumbnail is the published
 version's for everyone, else -- for its editors -- the draft's.
+
+Finding a dashboard (findability P4): a `ListQuery` narrows and orders the
+list in SQL, through the expressions of a per-request `ReaderScope` (why
+the reader has each dashboard, starred, edited, unpublished changes). The
+filters only narrow what a tab lists; they never let in more.
 """
+import logging
+from dataclasses import dataclass
 from datetime import datetime
+from functools import cached_property
 
 from fastapi import HTTPException
-from sqlalchemy import and_, delete, exists, func, or_, select
+from sqlalchemy import and_, case, delete, exists, false, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 
 from app.errors import AppError, ErrorCode
 from app.models.artifact import Artifact, ArtifactVersion
 from app.models.artifact_list_seen import ArtifactListSeen
-from app.models.artifact_release import ArtifactShare
+from app.models.artifact_release import ArtifactConversation, ArtifactRelease, ArtifactShare
 from app.models.artifact_star import ArtifactStar
 
-def _like(text: str) -> str:
-    """The words typed, not a pattern: % and _ match themselves."""
-    return "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+logger = logging.getLogger(__name__)
+
+BLANKS = " \t\r\n"  # what a blank title is made of (trim(x, chars): SQLite and Postgres alike)
 
 
-async def _shared_with(db, user, organization):
-    """What admit_reader can let in that is not mine: a published dashboard
-    shared with the organization or the public, or with me or one of my
-    groups; or one in a project I can view (its editors)."""
+def _like(text: str, *, prefix: bool = False) -> str:
+    """The words typed, not a pattern: % and _ match themselves. Anywhere,
+    or (`prefix`) from the start."""
+    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return escaped + "%" if prefix else "%" + escaped + "%"
+
+
+@dataclass(frozen=True)
+class ListQuery:
+    """One request of the dashboards page. Datetimes are naive UTC; a `from`
+    is inclusive, a `to` exclusive. `access` applies on Shared only and
+    `status` on My only; each is accepted and ignored on the other tab."""
+    filter: str = "my"
+    search: str | None = None
+    mode: str | None = None
+    access: str = "all"
+    owner_ids: tuple[str, ...] = ()
+    created_from: datetime | None = None
+    created_to: datetime | None = None
+    edited_from: datetime | None = None
+    edited_to: datetime | None = None
+    status: str | None = None
+    starred: bool = False
+    sort: str = "edited"
+    page: int = 1
+    limit: int = 15
+
+
+def _live_report(report_id):
+    """`report_id` is a conversation still there (dashboard_collab._live_reports).
+
+    These subqueries sit two levels below the listed dashboard (inside the
+    `newest` version subquery): SQLAlchemy auto-correlates one level only,
+    so each correlates everything but its own table explicitly -- else the
+    outer `artifacts` is joined in again and the test runs over every row."""
+    from app.models.report import Report
+
+    report = aliased(Report)
+    return exists(select(report.id).where(report.id == report_id, report.deleted_at.is_(None),
+                                          report.status != "archived").correlate_except(report))
+
+
+def _editing_conversation(report_id=None):
+    """A live conversation edits the dashboard -- its own or a joined one
+    (dashboard_collab.editing_report_ids); with `report_id`, that one."""
+    joined = aliased(ArtifactConversation)
+    own = and_(Artifact.report_id.isnot(None), _live_report(Artifact.report_id))
+    other = [joined.artifact_id == Artifact.id, joined.ended_at.is_(None), joined.deleted_at.is_(None),
+             _live_report(joined.report_id)]
+    if report_id is not None:
+        own = and_(own, Artifact.report_id == report_id)
+        other.append(joined.report_id == report_id)
+    return or_(own, exists(select(joined.id).where(*other).correlate_except(joined)))
+
+
+class ReaderScope:
+    """The SQL vocabulary of one reader's list (ADR-2): the list conditions,
+    the order and (later) the card columns and facets use these same
+    expressions, each built once per request."""
+
+    def __init__(self, user_id: str, organization_id: str, groups, project_ids: tuple[str, ...]):
+        self.user_id = user_id
+        self.organization_id = organization_id
+        self.groups = groups  # a subquery of my group ids in this organization
+        self.project_ids = project_ids  # the projects I can view
+
+    def _share(self, *where):
+        return exists(select(ArtifactShare.id).where(ArtifactShare.artifact_id == Artifact.id, *where))
+
+    @cached_property
+    def direct(self):
+        """A share to me by name (to view or to edit)."""
+        return self._share(ArtifactShare.user_id == self.user_id)
+
+    @cached_property
+    def group(self):
+        return self._share(ArtifactShare.group_id.in_(self.groups))
+
+    @cached_property
+    def project(self):
+        if not self.project_ids:
+            return false()
+        return Artifact.project_id.in_(self.project_ids)
+
+    @cached_property
+    def org(self):
+        return and_(Artifact.published_release_id.isnot(None), Artifact.visibility.in_(("internal", "public")))
+
+    @cached_property
+    def edit(self):
+        """Whoever can_edit lets in besides the owner: an edit grant, or the project."""
+        granted = self._share(ArtifactShare.role == "edit",
+                              or_(ArtifactShare.user_id == self.user_id, ArtifactShare.group_id.in_(self.groups)))
+        return or_(granted, self.project)
+
+    @cached_property
+    def shared_with(self):
+        """What admit_reader can let in that is not mine: a published dashboard
+        shared with the organization or the public, or with me or one of my
+        groups; one I may edit (collab01), published or not; or one in a
+        project I can view (its editors)."""
+        published = Artifact.published_release_id.isnot(None)
+        granted = self._share(or_(ArtifactShare.user_id == self.user_id, ArtifactShare.group_id.in_(self.groups)))
+        edit_granted = self._share(ArtifactShare.role == "edit", or_(
+            ArtifactShare.user_id == self.user_id, ArtifactShare.group_id.in_(self.groups)))
+        terms = [and_(published, Artifact.visibility.in_(("internal", "public"))),
+                 and_(published, Artifact.visibility == "shared", granted), edit_granted]
+        if self.project_ids:
+            terms.append(Artifact.project_id.in_(self.project_ids))
+        return or_(*terms)
+
+    @cached_property
+    def rank(self):
+        """Shared, every reason: shares to me first, then my groups' and my
+        projects', then the organization's."""
+        return case((self.direct, 0), (or_(self.group, self.project), 1), else_=2)
+
+    @cached_property
+    def starred(self):
+        return exists(select(ArtifactStar.id).where(ArtifactStar.artifact_id == Artifact.id,
+                                                    ArtifactStar.user_id == self.user_id))
+
+    @cached_property
+    def edited(self):
+        return func.coalesce(Artifact.content_updated_at, Artifact.created_at)
+
+    @cached_property
+    def published_at(self):
+        release = aliased(ArtifactRelease)
+        return select(release.published_at).where(release.id == Artifact.published_release_id).scalar_subquery()
+
+    @cached_property
+    def title(self):
+        """The card's title, case-folded: its own when not blank, else its
+        legacy conversation's when not blank; else NULL (sorted last)."""
+        from app.models.report import Report
+
+        legacy = aliased(Report)
+        legacy_title = select(legacy.title).where(legacy.id == Artifact.legacy_report_id).scalar_subquery()
+
+        def blank_is_null(text):  # as _card_title's strip(): spaces, tabs and line breaks
+            return func.nullif(func.trim(text, BLANKS), "")
+
+        return func.lower(func.coalesce(blank_is_null(Artifact.title), blank_is_null(legacy_title)))
+
+    @cached_property
+    def unpublished_changes(self):
+        """Published, and the draft's newest completed version is not the
+        live release's (dashboard_publish.publish_status): the newest by
+        version number, of the implicit draft, in a live editing conversation
+        when the dashboard has any."""
+        version, release = aliased(ArtifactVersion), aliased(ArtifactRelease)
+        newest = select(version.id).where(
+            version.artifact_id == Artifact.id, version.status == "completed", version.deleted_at.is_(None),
+            version.draft_id.is_(None),
+            or_(~_editing_conversation(), _editing_conversation(version.report_id)),
+        ).order_by(version.version.desc()).limit(1).scalar_subquery()
+        source = select(release.source_version_id).where(release.id == Artifact.published_release_id).scalar_subquery()
+        return and_(Artifact.published_release_id.isnot(None), newest.isnot(None),
+                    or_(source.is_(None), newest != source))
+
+
+async def reader_scope(db, user, organization) -> ReaderScope:
     from app.services.project_service import project_service
     from app.services.report_service import ReportService
 
     groups = ReportService._user_group_ids_subquery(user.id, str(organization.id))
-    granted = exists(select(ArtifactShare.id).where(
-        ArtifactShare.artifact_id == Artifact.id,
-        or_(ArtifactShare.user_id == str(user.id), ArtifactShare.group_id.in_(groups))))
-    published = Artifact.published_release_id.isnot(None)
-    # An editor (collab01) sees the dashboard published or not.
-    edit_granted = exists(select(ArtifactShare.id).where(
-        ArtifactShare.artifact_id == Artifact.id, ArtifactShare.role == "edit",
-        or_(ArtifactShare.user_id == str(user.id), ArtifactShare.group_id.in_(groups))))
-    terms = [and_(published, Artifact.visibility.in_(("internal", "public"))),
-             and_(published, Artifact.visibility == "shared", granted), edit_granted]
     projects = await project_service.get_visible_project_ids(db, user, organization)
-    if projects:
-        terms.append(Artifact.project_id.in_([str(p) for p in projects]))
-    return or_(*terms)
+    return ReaderScope(str(user.id), str(organization.id), groups, tuple(str(p) for p in projects))
+
+
+def conditions(scope: ReaderScope, query: ListQuery, *, ignore: str | None = None) -> list:
+    """The SQL candidates of one tab with the query's filters; `ignore`
+    names one filter to leave out (a facet counts without its own)."""
+    from app.models.report import Report
+    from app.models.user import User
+
+    where = [Artifact.organization_id == scope.organization_id, Artifact.deleted_at.is_(None),
+             Artifact.owner_id.isnot(None), not_an_older_legacy_version(), not_only_failed()]
+    if query.filter == "my":
+        where.append(Artifact.owner_id == scope.user_id)
+    else:
+        where += [Artifact.owner_id != scope.user_id, scope.shared_with]
+    named = {}
+    if query.search and query.search.strip():
+        typed = query.search.strip()
+        like = _like(typed)
+        terms = [  # by either name an old dashboard's card may show
+            Artifact.title.ilike(like, escape="\\"),
+            exists().where(Report.id == Artifact.legacy_report_id, Report.title.ilike(like, escape="\\"))]
+        if query.filter == "shared":
+            # And by its owner (on My that is always the reader): the name
+            # anywhere, the email only from its start -- a domain alone
+            # would match everyone.
+            terms.append(exists().where(User.id == Artifact.owner_id, or_(
+                User.name.ilike(like, escape="\\"), User.email.ilike(_like(typed, prefix=True), escape="\\"))))
+        named["search"] = or_(*terms)
+    if query.mode in ("page", "slides", "doc"):
+        named["mode"] = Artifact.mode == query.mode
+    if query.filter == "shared" and query.access != "all":
+        named["access"] = {"direct": scope.direct, "group": scope.group, "project": scope.project,
+                           "org": scope.org, "edit": scope.edit}[query.access]
+    if query.owner_ids:
+        named["owners"] = Artifact.owner_id.in_(query.owner_ids)
+    if query.created_from is not None or query.created_to is not None:
+        named["created"] = _within(Artifact.created_at, query.created_from, query.created_to)
+    if query.edited_from is not None or query.edited_to is not None:
+        named["edited"] = _within(scope.edited, query.edited_from, query.edited_to)
+    if query.filter == "my" and query.status is not None:
+        # My only: unpublished changes are for the dashboard's editors.
+        published = Artifact.published_release_id.isnot(None)
+        named["status"] = {"draft": Artifact.published_release_id.is_(None),
+                           "changes": and_(published, scope.unpublished_changes),
+                           "published": and_(published, ~scope.unpublished_changes)}[query.status]
+    if query.starred:
+        named["starred"] = scope.starred
+    return where + [term for name, term in named.items() if name != ignore]
+
+
+def _within(column, start: datetime | None, end: datetime | None):
+    terms = []
+    if start is not None:
+        terms.append(column >= start)
+    if end is not None:
+        terms.append(column < end)
+    return and_(*terms)
+
+
+def order_by(scope: ReaderScope, query: ListQuery) -> list:
+    """Starred first; on Shared with every reason, the rank; the sort; the
+    id, so the order is total and pages never overlap. A missing key (no
+    title, never published) sorts last on both databases."""
+    keys = [case((scope.starred, 0), else_=1)]
+    if query.filter == "shared" and query.access == "all":
+        keys.append(scope.rank)
+    if query.sort == "title":
+        keys += [scope.title.is_(None), scope.title]
+    elif query.sort == "published":
+        keys += [scope.published_at.is_(None), scope.published_at.desc()]
+    elif query.sort == "created":
+        keys.append(Artifact.created_at.desc())
+    elif query.sort == "-created":
+        keys.append(Artifact.created_at.asc())
+    else:
+        keys.append(scope.edited.desc())
+    return keys + [Artifact.id]
 
 
 def _thumbnail_url(path: str | None) -> str | None:
@@ -148,44 +381,34 @@ def not_only_failed():
     return or_(~has_versions, has_working, Artifact.published_release_id.isnot(None))
 
 
-async def list_dashboards(db, user, organization, *, filter: str = "my", search: str | None = None,
-                          mode: str | None = None, page: int = 1, limit: int = 15) -> dict:
+async def list_dashboards(db, user, organization, query: ListQuery) -> dict:
     """One tab of the dashboards page. `meta.total` is an upper bound: it
     counts the SQL narrowing, and admit_reader can still leave a card out of
     its page (a release not ready yet, a monitoring dashboard the reader
     lacks the scope for), so a page may hold fewer than `limit` cards."""
     from app.services import dashboard_access
 
-    conditions = [Artifact.organization_id == str(organization.id), Artifact.deleted_at.is_(None),
-                  Artifact.owner_id.isnot(None), not_an_older_legacy_version(), not_only_failed()]
-    if filter == "my":
-        conditions.append(Artifact.owner_id == str(user.id))
-    else:
-        conditions += [Artifact.owner_id != str(user.id), await _shared_with(db, user, organization)]
-    if search and search.strip():
-        from app.models.report import Report
-
-        like = _like(search.strip())
-        conditions.append(or_(  # by either name an old dashboard's card may show
-            Artifact.title.ilike(like, escape="\\"),
-            exists().where(Report.id == Artifact.legacy_report_id, Report.title.ilike(like, escape="\\"))))
-    if mode in ("page", "slides", "doc"):
-        conditions.append(Artifact.mode == mode)
+    scope = await reader_scope(db, user, organization)
+    where = conditions(scope, query)
+    page, limit = query.page, query.limit
     # The SQL narrows to what admit_reader can let in, counts and pages; the
     # check then guards only the cards returned (a card it refuses -- a
     # monitoring dashboard the reader lacks the scope for, a release not
     # ready -- is left out of this page).
-    total = (await db.execute(select(func.count()).select_from(Artifact).where(*conditions))).scalar() or 0
+    total = (await db.execute(select(func.count()).select_from(Artifact).where(*where))).scalar() or 0
     total_pages = (total + limit - 1) // limit if total else 0
     candidates = (await db.execute(
-        select(Artifact).where(*conditions).order_by(Artifact.updated_at.desc(), Artifact.id)
+        select(Artifact).where(*where).order_by(*order_by(scope, query))
         .offset((page - 1) * limit).limit(limit)
     )).scalars().all()
     shown = []
     for artifact in candidates:
         try:
             await dashboard_access.admit_reader(db, artifact, user)
-        except (AppError, HTTPException):
+        except (AppError, HTTPException) as refused:
+            # By id only: a title would say what the reader may not see.
+            logger.debug("dashboards list: candidate %s refused by admit_reader (%s)",
+                         artifact.id, type(refused).__name__)
             continue
         shown.append(artifact)
     starred = await _starred_ids(db, user, [str(a.id) for a in shown])

@@ -9,9 +9,12 @@ decorator reads `artifact_id` as a version id and resolves its conversation.
 """
 import asyncio
 import contextlib
+import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,6 +47,7 @@ from app.schemas.dashboard_schema import (
 from app.schemas.completion_v2_schema import CompletionCreate
 from app.schemas.query_schema import QueryRunRequest
 from app.services import dashboard_access, dashboard_settings_service
+from app.services.dashboard_list import ListQuery
 
 router = APIRouter(tags=["dashboards"])
 
@@ -128,14 +132,79 @@ async def get_draft_dashboard(
     )
 
 
-@router.get("/artifacts", response_model=DashboardListResponse)
-@requires_permission("view_reports")
-async def list_dashboards(
+MAX_LIST_IDS = 100
+
+
+def _invalid(name: str, message: str, value) -> RequestValidationError:
+    return RequestValidationError([{"type": "value_error", "loc": ("query", name), "msg": message,
+                                    "input": value}])
+
+
+def _id_list(name: str, raw: str | None) -> tuple[str, ...]:
+    """A comma-separated list of ids: trimmed, empty items dropped, each a
+    UUID in its canonical (lowercase) form, repeats once; a bad id or more
+    than MAX_LIST_IDS is a 422."""
+    ids = []
+    for item in (raw or "").split(","):
+        if not item.strip():
+            continue
+        try:
+            ids.append(str(uuid.UUID(item.strip())))
+        except ValueError:
+            raise _invalid(name, "Not an id", item) from None
+    ids = tuple(dict.fromkeys(ids))
+    if len(ids) > MAX_LIST_IDS:
+        raise _invalid(name, f"At most {MAX_LIST_IDS} ids", raw)
+    return ids
+
+
+def _naive_utc(name: str, value: datetime | None) -> datetime | None:
+    if value is None or value.tzinfo is None:
+        return value
+    try:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    except OverflowError:  # a valid date whose UTC time is out of range
+        raise _invalid(name, "Out of range", value.isoformat()) from None
+
+
+def _range(name: str, start: datetime | None, end: datetime | None) -> None:
+    if start is not None and end is not None and start >= end:
+        raise _invalid(name, "The start must be before the end", f"{start.isoformat()}..{end.isoformat()}")
+
+
+def dashboard_list_query(
     page: int = Query(1, ge=1),
     limit: int = Query(15, ge=1, le=100),
     filter: str = Query("my", pattern="^(my|shared)$"),
     search: str | None = Query(None, max_length=200),
     mode: str | None = Query(None, pattern="^(page|slides|doc)$"),
+    access: str = Query("all", pattern="^(all|direct|group|project|org|edit)$",
+                        description="Why I have it; Shared only"),
+    owner_ids: str | None = Query(None, max_length=MAX_LIST_IDS * 40,
+                                  description="Comma-separated owner ids, at most 100"),
+    created_from: datetime | None = Query(None, description="Inclusive"),
+    created_to: datetime | None = Query(None, description="Exclusive"),
+    edited_from: datetime | None = Query(None, description="Inclusive"),
+    edited_to: datetime | None = Query(None, description="Exclusive"),
+    status: str | None = Query(None, pattern="^(published|changes|draft)$", description="My only"),
+    starred: bool = Query(False),
+    sort: str = Query("edited", pattern="^(edited|created|-created|title|published)$"),
+) -> ListQuery:
+    """The dashboards page's query, for the list (and its facets)."""
+    created_from, created_to = _naive_utc("created_from", created_from), _naive_utc("created_to", created_to)
+    edited_from, edited_to = _naive_utc("edited_from", edited_from), _naive_utc("edited_to", edited_to)
+    _range("created_from", created_from, created_to)
+    _range("edited_from", edited_from, edited_to)
+    return ListQuery(
+        filter=filter, search=search, mode=mode, access=access, owner_ids=_id_list("owner_ids", owner_ids),
+        created_from=created_from, created_to=created_to, edited_from=edited_from, edited_to=edited_to,
+        status=status, starred=starred, sort=sort, page=page, limit=limit)
+
+
+@router.get("/artifacts", response_model=DashboardListResponse)
+@requires_permission("view_reports")
+async def list_dashboards(
+    query: ListQuery = Depends(dashboard_list_query),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
@@ -144,8 +213,7 @@ async def list_dashboards(
     with me -- only those whose /d page would open for me."""
     from app.services.dashboard_list import list_dashboards as list_for
 
-    return await list_for(db, current_user, organization, filter=filter, search=search, mode=mode,
-                          page=page, limit=limit)
+    return await list_for(db, current_user, organization, query)
 
 
 @router.post("/artifacts/shared/seen", response_model=DashboardSeenResponse)
