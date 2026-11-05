@@ -252,6 +252,10 @@ class _LoginFailure(KmsHTTPError):
     """A login that failed (rejected, held, a 5xx, an unusable answer): it concerns every call, never one branch or item."""
 
 
+# Kinds whose message speaks of the content asked for; a failed login says nothing about it.
+_CONTENT_KINDS = frozenset(("not_found", "forbidden", "bad_request", "no_data", "rejected"))
+
+
 def _is_timeout(exc: BaseException) -> bool:
     """A connect or read timeout, also when requests wraps urllib3's (a read timeout while streaming)."""
     timeouts = (requests.Timeout, urllib3.exceptions.TimeoutError, TimeoutError)
@@ -1082,8 +1086,14 @@ def _html_to_text(value: str) -> str:
 
 
 def _plain_text(value) -> str:
-    """A KMS title or description as plain, scrubbed text, at full length (callers cut the result)."""
+    """KMS HTML (a title, a description, an item element) as plain, scrubbed text, at full length (linear)."""
     return _scrub(_html_to_text("" if value is None else str(value)))
+
+
+def _plain_ai_text(value) -> str:
+    """ai_answers_item text (already plain: no markup is stripped, no entity decoded), scrubbed, lines tidied."""
+    lines = [_BLANKS_RE.sub(" ", line).strip() for line in ("" if value is None else str(value)).splitlines()]
+    return _scrub(_BLANK_LINES_RE.sub("\n\n", "\n".join(lines)).strip())
 
 
 def _safe_title(title) -> str:
@@ -1145,6 +1155,19 @@ _GATEWAY_STATUSES = frozenset((502, 503, 504))
 def _concerns_one_branch(failed: KmsHTTPError) -> bool:
     """A tree-call failure that answers for that branch alone: a branch kind, no gateway status, not from a login."""
     return (failed.kind in _BRANCH_FAILURES and failed.status not in _GATEWAY_STATUSES
+            and not isinstance(failed, _LoginFailure))
+
+
+# ai_answers_item failures that answer for that one item (/public/item already proved access, so a
+# tenant without the AI module may refuse every ai call with a 403); "auth", "throttled", "unreachable"
+# and "redirect" concern every call.
+_AI_ITEM_FAILURES = frozenset(("not_found", "bad_request", "server", "no_data", "rejected", "forbidden",
+                               "too_large"))
+
+
+def _ai_text_falls_back(failed: KmsHTTPError) -> bool:
+    """An ai text failure that answers for that item alone: an item kind, no gateway status, not from a login."""
+    return (failed.kind in _AI_ITEM_FAILURES and failed.status not in _GATEWAY_STATUSES
             and not isinstance(failed, _LoginFailure))
 _BAD_LIST_LIMIT = "The list limit must be a positive whole number."
 # A segment that already ends like a sibling suffix gets one of its own, so a
@@ -1282,11 +1305,6 @@ def _line(value) -> str:
     return _without_controls(_plain_text(value))
 
 
-def _body(value) -> str:
-    """An element's HTML or text as plain, scrubbed text, at full length (linear)."""
-    return _scrub(_html_to_text("" if value is None else str(value)))
-
-
 def _same_id(value, digits: str) -> bool:
     """The record's id is the one asked for (compared as numbers)."""
     raw = "" if value is None or isinstance(value, bool) else str(value)
@@ -1357,7 +1375,7 @@ def _item_sections(item: dict) -> list:
             continue
         tab_id = element.get("tabId")
         key = str(tab_id) if tab_id is not None and str(tab_id) in captions else None
-        by_tab.setdefault(key, []).append((_line(element.get("title")), _body(element.get("value"))))
+        by_tab.setdefault(key, []).append((_line(element.get("title")), _plain_text(element.get("value"))))
     sections = [(_GENERAL, by_tab[None])] if None in by_tab else []
     return sections + [(caption, by_tab[key]) for key, caption in captions.items() if key in by_tab]
 
@@ -1381,7 +1399,7 @@ def _ai_sections(elements, visible: set) -> list | None:
     by_tab: dict = {}
     for element in shown:
         by_tab.setdefault(_line(element.get("tab_caption")) or None, []).append(
-            (_line(element.get("element_caption")), _body(element.get("element_text"))))
+            (_line(element.get("element_caption")), _plain_ai_text(element.get("element_text"))))
     general = by_tab.pop(None, None)
     return ([(_GENERAL, general)] if general else []) + list(by_tab.items())
 
@@ -1581,9 +1599,10 @@ class KmsLighthouseClient(DataSourceClient):
         """The only place that authenticates (a hash login would plug in here).
 
         Called with the pool entry's login_lock held. Every failure is a
-        ``_LoginFailure`` (same kind, status and fixed message), so a caller
-        that tolerates one branch's or one item's failure never takes a login
-        outage for one.
+        ``_LoginFailure`` with the same status, so a caller that tolerates one
+        branch's or one item's failure never takes a login outage for one. A
+        kind that would speak of the content asked for (e.g. a login 404 as
+        "Not found") becomes ``server``; the others keep kind and message.
         """
         failed = None
         try:
@@ -1594,6 +1613,8 @@ class KmsLighthouseClient(DataSourceClient):
             failed = exc
         # Raised outside the except block, so nothing rides along as context.
         if failed is not None:
+            if failed.kind in _CONTENT_KINDS:
+                raise _LoginFailure(failed.status, "server")
             raise _LoginFailure(failed.status, failed.kind, str(failed))
 
     def _send_login(self, session: requests.Session) -> None:
@@ -1869,7 +1890,7 @@ class KmsLighthouseClient(DataSourceClient):
         try:
             payload = self._request("search", "/search/full", params=params, deadline=deadline)
         except KmsHTTPError as exc:
-            if exc.kind != "bad_request":
+            if exc.kind != "bad_request" or isinstance(exc, _LoginFailure):
                 raise
             rejected = True
         # Raised outside the except block. The PDF: a 400 with no body means the query is too long.
@@ -2158,6 +2179,9 @@ class KmsLighthouseClient(DataSourceClient):
         if not isinstance(item, dict) or not _same_id(item.get("id"), digits):
             logger.debug("kms_lighthouse %s refused: %s", "item", "not the item asked for")
             raise KmsHTTPError(200, "server")
+        if item.get("elements") is not None and not isinstance(item["elements"], dict):
+            logger.debug("kms_lighthouse %s refused: %s", "item", "elements is not a record map")
+            raise KmsHTTPError(200, "server")
         if self._hidden(item):
             raise KmsHTTPError(404, "not_found")
         version, language = _version(item.get("version")), _language(item.get("language"))
@@ -2173,25 +2197,35 @@ class KmsLighthouseClient(DataSourceClient):
     def _ai_text(self, digits: str, version: str, language: str, item: dict) -> list | None:
         """The ai-ready sections of this read, or None to fall back to the item HTML.
 
-        Only the item's own "not found" (a 404, or an ERROR answer) falls back,
-        for this read alone. Anything else raises: a failed login, a refused
-        session, throttling, a 400 or a 5xx is never hidden behind other text.
+        ``/public/item`` has already proved this identity may read the item,
+        so a failure about this one item (``_ai_text_falls_back``: a 4xx, a
+        plain 500, an empty, non-JSON or ERROR answer) falls back, for this
+        read alone. Anything that concerns every call raises: a failed login,
+        a refused session, throttling, a redirect, an unreachable KMS or a
+        502/503/504 gateway answer is never hidden behind other text. An
+        answer for another item, or with no element ``/public/item`` shows,
+        falls back too.
         """
-        payload, unknown = None, False
+        payload, failed = None, None
         try:
             payload = self._request("ai_text", "/ai_answers_item", missing="not_found",
                                     params={"itemId": digits, "version": version, "language": language})
         except KmsHTTPError as exc:
-            if exc.kind != "not_found" or isinstance(exc, _LoginFailure):
-                raise
-            unknown = True
-        if unknown:
-            logger.debug("kms_lighthouse %s fell back: %s", "ai_text", "not_found")
+            failed = exc
+        # Raised outside the except block, so nothing rides along as context.
+        if failed is not None:
+            if not _ai_text_falls_back(failed):
+                raise failed
+            logger.debug("kms_lighthouse %s fell back: %s", "ai_text", failed.kind)
             return None
         if not isinstance(payload, dict) or ("item_id" in payload and not _same_id(payload["item_id"], digits)):
+            logger.debug("kms_lighthouse %s fell back: %s", "ai_text", "not the item asked for")
             return None
         visible = {name for name, element in _elements(item).items() if element.get("type") != _IMAGE_FIELD}
-        return _ai_sections(payload.get("elements"), visible)
+        sections = _ai_sections(payload.get("elements"), visible)
+        if sections is None:
+            logger.debug("kms_lighthouse %s fell back: %s", "ai_text", "no element the item shows")
+        return sections
 
     def _read_scenario(self, digits: str) -> DocumentText:
         """A scenario's header lines (the decision tree is rendered by a later phase)."""

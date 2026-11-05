@@ -942,7 +942,8 @@ def test_sessions_are_never_shared_across_identities(kms, monkeypatch, case):
     else:
         with pytest.raises(kc.KmsHTTPError) as info:
             second._request("tree", _TREE)
-        assert info.value.kind == {"wrong_password": "auth", "other_prefix": "not_found", "nul_split": "auth"}[case]
+        # other_prefix: the login itself answers 404, which says nothing about content, so it is "server".
+        assert info.value.kind == {"wrong_password": "auth", "other_prefix": "server", "nul_split": "auth"}[case]
     gets = [row for row in mock.REQUEST_LOG[start:] if row[1] == "GET"]
     # The mock names whichever session a request carried: never alice's for another identity.
     assert all(row[0] != "alice" for row in gets), gets

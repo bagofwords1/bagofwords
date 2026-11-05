@@ -241,6 +241,19 @@ def test_search_400_names_both_causes(kms):
     assert "a very long question" not in str(err)
 
 
+@pytest.mark.parametrize("login_status", [422, 409])
+def test_search_login_4xx_is_not_blamed_on_the_query(kms, login_status):
+    mock = kms["mock"]
+    mock.STATE["login_status"] = login_status
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms).search_files("billing")
+    err = info.value
+    assert str(err) != kc._SEARCH_REJECTED and "too long" not in str(err)
+    assert err.status == login_status
+    assert err.__context__ is None and err.__cause__ is None
+    assert mock.STATE["login_count"] == 1 and mock.STATE["search_count"] == 0
+
+
 @pytest.mark.parametrize("query", ["", "   ", "\n\t", None, "\x00\x1f"])
 def test_empty_query_makes_no_request(kms, query):
     assert client(kms).search_files(query) == []
@@ -700,14 +713,32 @@ def test_a_login_failure_inside_a_lookup_fails_it_with_one_login(kms, monkeypatc
 
 @pytest.mark.parametrize("bad", [
     {40: 403}, {"40": "403"}, {"40": True}, {"40": 99}, {"40": 600}, {"40": 403.0}, {None: 403}, {"4x": 403},
-    {"": 403}, {"40\n": 403}, {"٤٠": 403}, [("40", 403)], None,
+    {"": 403}, {"40\n": 403}, {"٤٠": 403}, [("40", 403)], None, {"40": 100}, {"40": 199},
 ])
 def test_mock_tree_status_takes_only_folder_ids_and_http_statuses(kms, bad):
     mock = kms["mock"]
     with pytest.raises(ValueError):
         mock.STATE["tree_status"] = bad
-    mock.STATE["tree_status"] = {"40": 100, "45": 599}
-    assert mock.STATE["tree_status"] == {"40": 100, "45": 599}
+    mock.STATE["tree_status"] = {"40": 200, "45": 599}
+    assert mock.STATE["tree_status"] == {"40": 200, "45": 599}
+
+
+@pytest.mark.parametrize("key,bad", [
+    ("login_status", 100), ("login_status", 199), ("login_status", 600), ("login_status", True),
+    ("login_status", "503"), ("login_status", 503.0),
+    ("ai_status", 100), ("ai_status", 199), ("ai_status", 600), ("ai_status", True), ("ai_status", "503"),
+    ("ai_status", "Empty"), ("ai_status", "json"), ("ai_status", False), ("ai_status", 404.0),
+])
+def test_mock_forced_statuses_take_only_final_http_statuses(kms, key, bad):
+    mock = kms["mock"]
+    with pytest.raises(ValueError):
+        mock.STATE[key] = bad
+    for good in (None, 200, 599):
+        mock.STATE[key] = good
+        assert mock.STATE[key] == good
+    for good in ("empty", "not_json", "error"):
+        mock.STATE["ai_status"] = good
+        assert mock.STATE["ai_status"] == good
 
 
 def test_a_folder_found_with_no_call_left_to_list_it_says_so(kms):
@@ -832,24 +863,115 @@ def test_ai_text_only_renders_elements_visible_in_item(kms):
     assert "AI summary: verify the caller, then reset." in text and "AI links." in text
 
 
-@pytest.mark.parametrize("case", ["version_mismatch", "login_failure"])
-def test_ai_text_failure_other_than_not_found_is_not_hidden(kms, monkeypatch, case):
+@pytest.mark.parametrize("case", [400, 422, 403, 500, "empty", "not_json", "error", "version_mismatch"])
+def test_ai_text_item_failure_falls_back_to_item_html(kms, monkeypatch, caplog, case):
     mock = kms["mock"]
-    c = client(kms)
-    c.read_file("item:301")                       # logs in; the session is pooled
-    logins = mock.STATE["login_count"]
+    caplog.set_level(logging.DEBUG, logger=kc.logger.name)
+    # /public/item already proved this identity may read the item, so an ai answer about this one item
+    # (a 4xx, a plain 500, an empty, non-JSON or ERROR 200) shows the item HTML instead, for this read only.
     if case == "version_mismatch":
-        monkeypatch.setitem(mock.AI_ITEMS["279"], "version", 9)       # the ai endpoint answers 400
-        expected = "bad_request"
+        monkeypatch.setitem(mock.AI_ITEMS["279"], "version", 9)       # the mock's own 400
     else:
+        mock.STATE["ai_status"] = case
+    c = client(kms)
+    text = c.read_file("item:279")
+    assert "Item summary: verify the caller first." in text and "AI summary" not in text
+    assert [r["itemId"] for r in mock.STATE["ai_requests"]] == ["279"]
+    fell_back = [r.getMessage() for r in caplog.records if "fell back" in r.getMessage()]
+    assert len(fell_back) == 1 and "279" not in fell_back[0]          # the kind only
+    mock.STATE["ai_status"] = None
+    second = c.read_file("item:301")
+    assert "AI text for a billing dispute." in second and "Item text" not in second
+    assert [r["itemId"] for r in mock.STATE["ai_requests"]] == ["279", "301"]
+
+
+@pytest.mark.parametrize("make,case,kind,logins_added", [
+    (client, 502, "server", 0), (client, 503, "server", 0), (client, 504, "server", 0),
+    (client, 429, "throttled", 0), (token_client, 401, "auth", 0), (client, 401, "auth", 1),
+    (token_client, 302, "redirect", 0), (client, "login_503", "server", 1), (client, "login_500", "server", 1),
+], ids=["502", "503", "504", "429", "token_401", "session_refused_401", "token_302", "login_503", "login_500"])
+def test_ai_text_global_failure_is_not_hidden(kms, make, case, kind, logins_added):
+    mock = kms["mock"]
+    make(kms).read_file("item:301")               # logs in (userpass); the session is pooled
+    logins = mock.STATE["login_count"]
+    login_status = {"login_503": 503, "login_500": 500}.get(case)
+    if login_status:
+        # The session expires at the ai call and the re-login fails: a login outage, not this item.
         mock.STATE["expire_sessions_at"] = "ai_answers_item"
-        mock.STATE["login_status"] = 503
-        expected = "server"
+        mock.STATE["login_status"] = login_status
+    else:
+        mock.STATE["ai_status"] = case
+    with pytest.raises(kc.KmsHTTPError) as info:
+        make(kms).read_file("item:279")
+    assert info.value.kind == kind
+    assert info.value.status == (login_status or case)
+    assert info.value.__context__ is None and info.value.__cause__ is None
+    assert mock.STATE["login_count"] == logins + logins_added
+
+
+def _with_ai_summary(mock, monkeypatch, text):
+    elements = [dict(e, element_text=text) if e["element_name"] == "E_SUMMARY" else e
+                for e in mock.AI_ITEMS["279"]["elements"]]
+    monkeypatch.setitem(mock.AI_ITEMS["279"], "elements", elements)
+
+
+@pytest.mark.parametrize("authored", ["Enter <account number> in the field", "if a<b and c>d",
+                                      "Use format <YYYY-MM-DD>"])
+def test_ai_text_is_plain_text_shown_as_written(kms, monkeypatch, authored):
+    mock = kms["mock"]
+    # ai element_text is plain text (API PDF): nothing in it is markup to strip.
+    _with_ai_summary(mock, monkeypatch, authored)
+    sections = _sections(client(kms).read_file("item:279"))
+    assert f"### Summary\n{authored}\n" in sections["Overview"]
+
+
+def test_ai_text_lines_and_blanks_are_normalised(kms, monkeypatch):
+    mock = kms["mock"]
+    _with_ai_summary(mock, monkeypatch, "  Step one:\t  open   the desk  \n\n\n\n  Step two \r\n")
+    sections = _sections(client(kms).read_file("item:279"))
+    assert "### Summary\nStep one: open the desk\n\nStep two\n" in sections["Overview"]
+
+
+@pytest.mark.parametrize("change,reason", [
+    ({"item_id": 280}, "not the item asked for"),
+    ({"elements": [{"element_name": "E_RESTRICTED", "element_caption": "Managers only",
+                    "tab_caption": "Overview", "element_text": "restricted"}]}, "no element the item shows"),
+])
+def test_dropped_ai_text_is_logged_without_ids_or_content(kms, monkeypatch, caplog, change, reason):
+    mock = kms["mock"]
+    caplog.set_level(logging.DEBUG, logger=kc.logger.name)
+    for key, value in change.items():
+        monkeypatch.setitem(mock.AI_ITEMS["279"], key, value)
+    text = client(kms).read_file("item:279")
+    assert "Item summary: verify the caller first." in text and "restricted" not in text
+    lines = [r.getMessage() for r in caplog.records if r.name == kc.logger.name and "fell back" in r.getMessage()]
+    assert lines == [f"kms_lighthouse ai_text fell back: {reason}"]
+
+
+def test_item_elements_that_are_not_a_record_map_fail_closed(kms, caplog):
+    mock = kms["mock"]
+    caplog.set_level(logging.DEBUG, logger=kc.logger.name)
+    mock.STATE["ai_text_available"] = False
+    mock.STATE["odd_shapes"] = "bad_elements"
     with pytest.raises(kc.KmsHTTPError) as info:
         client(kms).read_file("item:279")
-    assert info.value.kind == expected
+    assert (info.value.status, info.value.kind) == (200, "server")
+    assert mock.ODD_MARKER not in str(info.value) and info.value.__context__ is None
+    assert any(r.getMessage() == "kms_lighthouse item refused: elements is not a record map"
+               for r in caplog.records)
+
+
+@pytest.mark.parametrize("file_id", ["item:279", "279"])
+def test_login_failure_on_read_is_not_an_item_kind(kms, file_id):
+    mock = kms["mock"]
+    # A login that answers 404 says nothing about item 279; it is no reason to try a scenario either.
+    mock.STATE["login_status"] = 404
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms).read_file(file_id)
+    assert (info.value.status, info.value.kind) == (404, "server")
+    assert str(info.value) == kc._MESSAGES["server"]
     assert info.value.__context__ is None and info.value.__cause__ is None
-    assert mock.STATE["login_count"] == logins + (case == "login_failure")
+    assert _scenario_rows(kms) == [] and mock.STATE["login_count"] == 1
 
 
 def test_file_version_is_not_implemented(kms):
@@ -888,9 +1010,14 @@ def test_article_text_scrubs_token_urls(kms, ai_text, case):
     assert ("AI links." in text) is ai_text        # the path under test really ran
     assert mock.ARTICLE_SECRETS[case] not in text
     assert "eyJ" not in text and "token=" not in text and mock.ARTICLE_SECRETS["img"] not in text
-    # Only the secret parameter goes; the rest of each URL and the words around it stay.
-    assert "Form at https://kms.example.com/contents or https://kms.example.com/contents?id=7&lang=en." in text
-    assert "Signed [redacted]" in text
+    # Only the secret parameter goes; the rest of each URL and the words around it stay. The ai text is
+    # plain text, so its "&amp;" is shown as written (no entity is decoded there).
+    if ai_text:
+        assert "Form at https://kms.example.com/contents or https://kms.example.com/contents?id=7&amp" in text
+        assert "lang=en. Signed [redacted]" in text
+    else:
+        assert "Form at https://kms.example.com/contents or https://kms.example.com/contents?id=7&lang=en." in text
+        assert "Signed [redacted]" in text
 
 
 def test_read_offline_item_is_not_found(kms):

@@ -62,15 +62,22 @@ Test-only switches and routes (not part of the KMS API):
   - Read: STATE["ai_text_available"] = False makes every /ai_answers_item
     answer 404; STATE["ai_missing_items"] (item ids) does so for those items
     only. Every /ai_answers_item call appends its itemId, version and
-    language to STATE["ai_requests"]. Item 279 carries the planted secrets
+    language to STATE["ai_requests"]. STATE["ai_status"] = N (an int,
+    200-599) makes every /ai_answers_item call answer HTTP N with no body;
+    "empty" is a 200 with an empty body, "not_json" a 200 whose body is not
+    JSON, and "error" a 200 {"status": "ERROR"}. Item 279 carries the planted secrets
     (ARTICLE_SECRETS) in its title, description and HTML, and its AI text
     adds an element (E_RESTRICTED, RESTRICTED_MARKER) that /public/item does
     not return. Item 21302 exists only as a scenario.
-  - STATE["login_status"] = N: POST /login answers HTTP N with no body (still
-    counted in "login_count").
-  - STATE["expire_sessions_at"] = "<parentId>" or "ai_answers_item": a tree
-    call for that parentId, or an /ai_answers_item call, first expires every
-    login session (expire_sessions), so it answers 401/302.
+  - STATE["odd_shapes"] = "bad_elements": /public/item answers item 279 with
+    an `elements` value that is a list, not a map of records.
+  - STATE["login_status"] = N (an int, 200-599): POST /login answers HTTP N
+    with no body (still counted in "login_count").
+  - STATE["expire_sessions_at"] = "<parentId>" or "ai_answers_item": while it
+    is set, every tree call for that parentId, or every /ai_answers_item
+    call (a client's retry after a re-login too), first expires every
+    session /login opened (expire_sessions; pasted API tokens stay valid),
+    so a userpass client's call answers 401, or 302 with expired_response.
   - GET {PREFIX}/_mock/empty              HTTP 200 with an empty body
   - GET {PREFIX}/_mock/oversized          HTTP 200 with a large JSON body (OVERSIZED_BYTES)
 
@@ -293,7 +300,7 @@ _SWITCHES = {
     "login_mode": ("cookie", "token", "both", "none"),
     "expired_response": ("401", "302"),
     "session_expiry": ("never", "immediate"),
-    "odd_shapes": (False, "list", "error", "bad_id", "bad_username"),
+    "odd_shapes": (False, "list", "error", "bad_id", "bad_username", "bad_elements"),
     "ai_text_available": (True, False),
     "top_level_requires_parent": (True, False),
     "hold_login": (True, False),
@@ -301,6 +308,8 @@ _SWITCHES = {
     "search_400": (True, False),
     "hold_search_after_first": (True, False),
 }
+# The odd 200 answers STATE["ai_status"] can name besides an HTTP status.
+_AI_ANSWERS = ("empty", "not_json", "error")
 # Counters and sizes: non-negative integers (bool is not an int here).
 _COUNTERS = ("login_count", "accepted_logins", "hold_stale_401s", "stale_401s", "search_count")
 _DEFAULTS = {
@@ -321,12 +330,13 @@ _DEFAULTS = {
     "last_search_params": None,      # {"query", "start", "rows", "layoutId"} of the last /search/full
     "extra_results": [],
     "search_body": None,             # None | a JSON value sent as the whole /search/full body
-    "odd_shapes": False,             # False | "list" | "error" | "bad_id" | "bad_username"
+    "odd_shapes": False,             # False | "list" | "error" | "bad_id" | "bad_username" | "bad_elements"
     "tree_status": {},               # parentId -> HTTP status: that tree call answers it with no body
     "tree_status_sent": [],          # the parentId of every tree call answered from "tree_status", in order
     "ai_missing_items": [],          # item ids whose /ai_answers_item answers 404
     "ai_requests": [],               # {"itemId", "version", "language"} of every /ai_answers_item call, in order
-    "login_status": None,            # None | an HTTP status (int 100-599): POST /login answers it with no body
+    "ai_status": None,               # None | an HTTP status (int 200-599) | "empty" | "not_json" | "error"
+    "login_status": None,            # None | an HTTP status (int 200-599): POST /login answers it with no body
     "expire_sessions_at": None,      # None | a tree parentId (digit string) | "ai_answers_item"
 }
 _STALE = {"barrier": None}           # the barrier for STATE["hold_stale_401s"]
@@ -338,11 +348,15 @@ def _is_digits(value) -> bool:
     return type(value) is str and re.fullmatch(r"[0-9]+", value) is not None
 
 
+def _is_status(value) -> bool:
+    """An int HTTP status a final answer can carry, 200-599 (bool is not an int here)."""
+    return type(value) is int and 200 <= value <= 599
+
+
 def _valid_tree_status(value) -> bool:
-    """A dict of ASCII digit-string folder ids to int HTTP statuses (bool is not an int here)."""
+    """A dict of ASCII digit-string folder ids to int HTTP statuses."""
     return type(value) is dict and all(
-        type(key) is str and re.fullmatch(r"[0-9]+", key) is not None
-        and type(status) is int and 100 <= status <= 599
+        type(key) is str and re.fullmatch(r"[0-9]+", key) is not None and _is_status(status)
         for key, status in value.items())
 
 
@@ -358,11 +372,14 @@ class _State(dict):
             raise ValueError(f"STATE[{key!r}] must be a non-negative int, not {value!r}")
         if key == "tree_status" and not _valid_tree_status(value):
             raise ValueError(f"STATE[{key!r}] must map folder ids (digit strings) to HTTP statuses "
-                             f"(ints 100-599), not {value!r}")
+                             f"(ints 200-599), not {value!r}")
         if key == "ai_missing_items" and not (type(value) is list and all(_is_digits(v) for v in value)):
             raise ValueError(f"STATE[{key!r}] must be a list of item ids (digit strings), not {value!r}")
-        if key == "login_status" and not (value is None or (type(value) is int and 100 <= value <= 599)):
-            raise ValueError(f"STATE[{key!r}] must be None or an HTTP status (int 100-599), not {value!r}")
+        if key == "login_status" and not (value is None or _is_status(value)):
+            raise ValueError(f"STATE[{key!r}] must be None or an HTTP status (int 200-599), not {value!r}")
+        if key == "ai_status" and not (value is None or _is_status(value) or value in _AI_ANSWERS):
+            raise ValueError(f"STATE[{key!r}] must be None, an HTTP status (int 200-599) or one of "
+                             f"{_AI_ANSWERS!r}, not {value!r}")
         if key == "expire_sessions_at" and not (value is None or value == "ai_answers_item" or _is_digits(value)):
             raise ValueError(f"STATE[{key!r}] must be None, a parentId or 'ai_answers_item', not {value!r}")
         if key == "hold_stale_401s":
@@ -611,6 +628,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(200, {"id": "x-" + ODD_MARKER, "title": ODD_MARKER, "status": 2,
                                          "elements": {"E_SUMMARY": {"value": ODD_MARKER, "tabId": "1"}}})
         item = ITEMS.get(item_id)
+        if odd == "bad_elements" and item_id == "279":
+            return self._send_json(200, {**item, "elements": [ODD_MARKER]})
         if item is None or not self._item_visible(user, item_id):
             # The PDF's not-found shape.
             return self._send_json(200, {"status": "ERROR", "exception": "Cannot get property 'id' on null object",
@@ -621,6 +640,21 @@ class Handler(BaseHTTPRequestHandler):
         params = {key: (query.get(key) or [None])[0] for key in ("itemId", "version", "language")}
         with _LOCK:
             STATE["ai_requests"].append(params)
+        forced = STATE["ai_status"]
+        if forced == "empty":
+            return self._send_empty(200)
+        if forced == "not_json":
+            raw = b"<html>not json</html>"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+            return None
+        if forced == "error":
+            return self._send_json(200, {"status": "ERROR", "exception": "AI text failed", "data": None})
+        if forced is not None:
+            return self._send_empty(forced)
         item_id = params["itemId"] or ""
         body = AI_ITEMS.get(item_id)
         if (not STATE["ai_text_available"] or item_id in STATE["ai_missing_items"] or body is None
