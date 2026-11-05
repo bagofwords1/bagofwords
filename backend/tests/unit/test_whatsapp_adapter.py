@@ -433,6 +433,23 @@ def test_markdown_table_flattened_to_plain_lines():
     assert "Latin — 579" in out
 
 
+@pytest.mark.parametrize("raw", [
+    "הנה גרף:\n\n{{viz:a3a9f5a1-f7f2-4bc3-ab63-6429c2223ab3}}\n\nTop 5 ...",
+    "before {{ viz: 123e4567-e89b }} after",
+    "pic {{image:abc-def}} done",
+])
+def test_doc_embed_placeholders_are_stripped(raw):
+    out = markdown_to_whatsapp(raw)
+    assert "{{" not in out and "}}" not in out       # no raw placeholder leaks
+    assert "viz:" not in out and "image:" not in out
+
+
+def test_placeholder_removal_does_not_leave_triple_blank_lines():
+    out = markdown_to_whatsapp("line one\n\n{{viz:x-1}}\n\nline two")
+    assert "\n\n\n" not in out
+    assert "line one" in out and "line two" in out
+
+
 def test_already_whatsapp_text_is_left_alone():
     raw = "*already bold* and _italic_ and a - bullet"
     out = markdown_to_whatsapp(raw)
