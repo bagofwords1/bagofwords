@@ -64,6 +64,30 @@ def _scoped_listing(data: Any) -> bool:
     return bool((getattr(data, "folder_id", None) or "").strip().strip("/") or getattr(data, "cursor", None))
 
 
+def _kms_target(runtime_ctx: dict[str, Any], connection_id: str):
+    """The kms_lighthouse connection the selection names, or None, matched in
+    the order resolve_file_client uses: connection id, data source id, data
+    source name, connection name, then the agent's only file connection."""
+    from ._file_tool_common import attached_file_connections
+
+    attached = attached_file_connections(runtime_ctx)
+    sid = str(connection_id or "").strip()
+    low = sid.lower()
+
+    def name(obj) -> str:
+        return (getattr(obj, "name", "") or "").strip().lower()
+
+    conn = None
+    for matches in (lambda ds, c: str(c.id) == sid, lambda ds, c: str(ds.id) == sid,
+                    lambda ds, c: bool(low) and name(ds) == low, lambda ds, c: bool(low) and name(c) == low):
+        conn = next((c for ds, c in attached if matches(ds, c)), None)
+        if conn is not None:
+            break
+    if conn is None and len(attached) == 1:
+        conn = attached[0][1]
+    return conn if conn is not None and conn.type == "kms_lighthouse" else None
+
+
 class ListFilesTool(Tool):
     # Capability the resolved connection must expose. Overridden by ListEmailsTool
     # so the same listing path backs a mailbox (LIST_EMAILS).
@@ -755,6 +779,16 @@ class ListFilesTool(Tool):
                     data.connection_id, f"live {self._operation_name} failed: {e}"
                 )
                 return
+
+        # KMS Lighthouse has no catalog: without its client the cache path below
+        # would answer "Catalog is empty" and hide why the client failed.
+        kms_conn = _kms_target(runtime_ctx, data.connection_id) if client is None and _client_err else None
+        if kms_conn is not None:
+            from ._file_tool_common import friendly_tool_error
+            yield self._fail(data.connection_id, friendly_tool_error(
+                self._operation_name, getattr(kms_conn, "name", "") or "", Exception(_client_err),
+            ))
+            return
 
         # --- Cache path ---
         data_source, err = await resolve_file_data_source(runtime_ctx, data.connection_id)

@@ -209,7 +209,8 @@ def test_kms_file_scope_descriptor_tells_the_planner_how_to_browse(render):
     assert "<note>" in kms_xml
     note = kms_xml[kms_xml.index("<note>"):kms_xml.index("</note>")]
     assert "folder_id" in note
-    assert "Procedures/Billing" in note
+    assert "(for example 'Folder/Subfolder')" in note and "Procedures" not in note
+    assert "paths start below the configured root folder when one is set" in note
     assert f"at most {_KMS_CONFIG['max_results']} articles" in note
     assert f"after {kc._MAX_FOLDER_CALLS} folder lookups" in note
     assert "no catalog" in note
@@ -326,4 +327,54 @@ def test_list_files_folder_id_help_mentions_kms_paths():
 
     help_text = ListFilesInput.model_json_schema()["properties"]["folder_id"]["description"]
     assert "KMS Lighthouse" in help_text
-    assert "Procedures/Billing" in help_text
+    assert "(for example 'Folder/Subfolder')" in help_text and "Procedures" not in help_text
+    assert "paths start below the connection's root folder when one is set" in help_text
+
+
+# ------------------------------------------------------------------ list_files without a client
+
+_CLIENT_ERR = "Failed to construct client: 403: User credentials required for this connection"
+_EGRESS_ERR = "Failed to construct client: Outbound access to that address is not allowed."
+
+
+def _list_files_without_a_client(conn_type, client_err=_CLIENT_ERR):
+    """ListFilesTool when the connection's client could not be built (no catalog rows either)."""
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    from app.ai.tools.implementations.list_files import ListFilesTool
+
+    conn = SimpleNamespace(id="CONN-K", type=conn_type, name="KMS", is_active=True)
+    ds = SimpleNamespace(id="DS-K", name="Support Agent", is_active=True, connections=[conn])
+    ctx = {"report": SimpleNamespace(data_sources=[ds])}
+
+    async def run():
+        with patch("app.ai.tools.implementations.list_files.resolve_file_client",
+                   new=AsyncMock(return_value=(None, client_err))), \
+             patch("app.ai.tools.implementations.list_files.resolve_file_data_source",
+                   new=AsyncMock(return_value=(ds, None))), \
+             patch("app.services.data_source_service.DataSourceService.get_data_source_schema",
+                   new=AsyncMock(return_value=[])):
+            return [e async for e in ListFilesTool().run_stream({"connection_id": "CONN-K"}, ctx)]
+
+    return asyncio.run(run())[-1].payload
+
+
+def test_list_files_reports_a_kms_client_error_instead_of_an_empty_catalog():
+    # A missing sign-in reads as the call to Connect that the other file tools give.
+    payload = _list_files_without_a_client("kms_lighthouse")
+    out = payload["output"]
+    assert out["success"] is False, out
+    assert "tell the user to Connect 'KMS' from the agent selector" in out["error"], out
+    assert "Catalog is empty" not in str(payload)
+    # Any other client failure keeps its own text.
+    payload = _list_files_without_a_client("kms_lighthouse", _EGRESS_ERR)
+    assert payload["output"]["success"] is False
+    assert _EGRESS_ERR in payload["output"]["error"] and "Connect" not in payload["output"]["error"]
+    assert "Catalog is empty" not in str(payload)
+
+
+def test_list_files_without_a_client_is_unchanged_for_other_types():
+    payload = _list_files_without_a_client("onedrive")
+    assert payload["output"]["success"] is True
+    assert "Catalog is empty" in payload["observation"]["summary"]

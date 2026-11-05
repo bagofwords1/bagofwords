@@ -413,6 +413,9 @@ def test_contract_sharepoint_server(browse_agent, test_client, monkeypatch, remo
 def test_contract_kms_lighthouse(browse_agent, test_client, monkeypatch, kms):
     billing = kms_client(kms).read_raw_bytes("item:301")[0]
     outside = kms_client(kms).read_raw_bytes("item:279")[0]    # under Accounts, outside folder 10
+    # Independent anchors from the mock's own data, so the byte comparison cannot pass on empty reads.
+    assert "AI text for a billing dispute." in billing.decode("utf-8")
+    assert "AI summary: verify the caller, then reset." in outside.decode("utf-8")
     _serve(monkeypatch, lambda: kms_client(kms, root_folder_id=10))
     body = _assert_contract(
         test_client, browse_agent,

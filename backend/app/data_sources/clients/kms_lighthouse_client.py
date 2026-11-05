@@ -1692,8 +1692,9 @@ def planner_scope_note(config: dict) -> str:
         f"call also stops after {_MAX_FOLDER_CALLS} folder lookups, so a short listing can be incomplete too; "
         "open a specific folder by its path or use search_files. There is no catalog: the file count shown is "
         "always 0, and every listing and read is live. To open a folder, "
-        "pass the folder part of an entry's path as folder_id (for example 'Procedures/Billing') with "
-        "recursive=true; folder ids are not shown. The root folder limits browsing only: search_files covers "
+        "pass the folder part of an entry's path as folder_id (for example 'Folder/Subfolder') with "
+        "recursive=true; paths start below the configured root folder when one is set, and folder ids are "
+        "not shown. The root folder limits browsing only: search_files covers "
         f"everything this identity can see{in_layout}, and is the better first step. Read with read_file and "
         "the entry's id (item:<id> or scenario:<id>)."
     )
@@ -1789,7 +1790,8 @@ class KmsLighthouseClient(DataSourceClient):
             f"accessed as {who}; KMS permissions apply. Use search_files to find procedures. list_files with "
             f"no folder lists up to {self.max_results} articles and scenarios from the {origin}, each with a "
             "path of folder names; to open one folder, pass the folder part of a path as folder_id (for example "
-            "folder_id='Procedures/Billing') and set recursive=true to include its subfolders. Read with "
+            "folder_id='Folder/Subfolder'; paths start below the root folder when one is set) and set "
+            "recursive=true to include its subfolders. Read with "
             f"read_file and the entry's id (item:<id> or scenario:<id>). {shown}. The root folder limits browsing only; search covers everything the identity can see"
             f"{layout}."
         )
@@ -1858,10 +1860,19 @@ class KmsLighthouseClient(DataSourceClient):
         instead, so one expiry causes one login. A generation that moved on
         without a young session (``clear_session_cache`` ran meanwhile) has
         nothing to adopt, so it logs in.
+
+        KMS refused the pooled session of ``used_generation``, so it is
+        forgotten first: when the re-login fails or is held, later calls stop
+        at the hold instead of sending the dead session again. Only this path
+        forgets it; a rejected ``test_connection`` login leaves a young session
+        to the tool calls that hold it (ADR-6).
         """
         entry = self._entry
         with entry.login_lock:
             if entry.generation == used_generation or not self._is_young(entry):
+                if entry.generation == used_generation:
+                    with entry.state_lock:
+                        entry.cookies, entry.token, entry.created_at = {}, None, None
                 self._check_hold(entry)
                 self._login(self._new_session())
 
@@ -2095,8 +2106,10 @@ class KmsLighthouseClient(DataSourceClient):
         """Full-text search as this identity: typed, plain-text, scrubbed entries.
 
         Pages of 50 until ``min(limit, max_results)`` entries or a short page.
-        Twenty full pages without reaching the cap raise
-        ``SearchStopped("max_results", files)`` (more results may exist).
+        Reaching that cap while more results exist (a usable record past it,
+        or the cap filled on a full page) raises ``SearchStopped("max_results",
+        files)``, and so do twenty full pages without reaching the cap (more
+        results may exist).
         ``deadline`` (a ``time.monotonic()`` value) and ``cancel_check`` are
         checked before every page, and the deadline also bounds each request's
         timeouts; a stop, or a request that times out at the deadline, raises
@@ -2135,10 +2148,16 @@ class KmsLighthouseClient(DataSourceClient):
                     if entry is None or entry["id"] in seen:
                         hidden += 1
                         continue
+                    if len(files) >= cap:
+                        # A usable entry past the cap: more results exist.
+                        raise SearchStopped("max_results", files)
                     seen.add(entry["id"])
                     files.append(entry)
-                    if len(files) >= cap:
-                        return files
+                if len(files) >= cap:
+                    if len(results) >= _SEARCH_PAGE_ROWS:
+                        # The cap filled on a full page: more results may exist.
+                        raise SearchStopped("max_results", files)
+                    return files
                 if len(results) < _SEARCH_PAGE_ROWS:
                     break
             else:

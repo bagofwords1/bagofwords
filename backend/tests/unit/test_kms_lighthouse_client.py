@@ -444,6 +444,9 @@ def test_description_names_one_identity_for_both_variants(kms, base_url):
     host = base_url.split("//", 1)[1]
     assert host in userpass
     assert _no_marker(userpass.replace(host, "")) == []
+    # The folder example is root-relative, as the listing's paths are.
+    assert "folder_id='Folder/Subfolder'" in userpass and "Procedures" not in userpass
+    assert "paths start below the root folder when one is set" in userpass
 
 
 # An unusable login token is a server error, not a transport one:
@@ -498,7 +501,9 @@ def test_planner_scope_note_states_handle_cap_and_scope(root, max_results, layou
         config["layout_id"] = layout
     note = kc.planner_scope_note(config)
     assert "folder_id" in note
-    assert "Procedures/Billing" in note
+    # A root-relative example: under a root folder, paths start below it (the root's name is not in them).
+    assert "(for example 'Folder/Subfolder')" in note and "Procedures" not in note
+    assert "paths start below the configured root folder when one is set" in note
     assert str(max_results or 200) in note
     assert "browsing only" in note
     assert ("4711" in note) is (root is not None)
@@ -1198,6 +1203,27 @@ def test_rejected_relogin_starts_a_hold_for_other_instances(kms, monkeypatch):
         client(kms, password=saved)._request("tree", _TREE)        # 401 again, re-login held
     assert info.value.kind == "auth"
     assert mock.STATE["login_count"] == before + 1
+
+
+def test_rejected_relogin_forgets_the_dead_session(kms, monkeypatch):
+    mock = kms["mock"]
+    _frozen_clock(monkeypatch)
+    saved = mock.USERS["alice"]["password"]
+    c = client(kms)
+    c._request("tree", _TREE)                    # alice's session is pooled and young
+    mock.expire_sessions()
+    monkeypatch.setitem(mock.USERS["alice"], "password", "changed-" + uuid.uuid4().hex)
+    with pytest.raises(kc.KmsHTTPError) as info:
+        c._request("tree", _TREE)                # the session's 401, then the one re-login is rejected
+    assert str(info.value) == kc._USERPASS_AUTH
+    # During the hold, neither this instance nor a new one sends the dead session again:
+    # each call stops at the hold without any KMS request.
+    mock.REQUEST_LOG.clear()
+    for c2 in (c, client(kms, password=saved)):
+        with pytest.raises(kc.KmsHTTPError) as info:
+            c2._request("tree", _TREE)
+        assert info.value.kind == "auth" and str(info.value) == kc._HELD_AUTH
+    assert mock.REQUEST_LOG == []
 
 
 def test_login_answer_without_success_starts_a_hold(raw_kms):

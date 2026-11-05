@@ -8,6 +8,7 @@ Behaviour is asserted on the public methods' output only.
 # parameters named after them look like redefinitions to the linter.
 # ruff: noqa: F811
 import ast
+import asyncio
 import html
 import logging
 import random
@@ -138,15 +139,49 @@ def test_search_paging_is_bounded(kms):
     assert info.value.stop_reason == "max_results"
     assert mock.STATE["search_count"] == 20
     assert info.value.files and all(e["status"] != "offline" for e in info.value.files)
-    # Every page asks for 50 rows; the limit trims the entries.
+    # Every page asks for 50 rows; the limit trims the entries, and says more results exist.
     mock.reset()
     mock.STATE["extra_results"] = [_record(30000 + i) for i in range(500)]
     for limit in (7, 130):
-        entries = client(kms).search_files("x", limit=limit)
+        with pytest.raises(SearchStopped) as info:
+            client(kms).search_files("x", limit=limit)
+        entries = info.value.files
+        assert info.value.stop_reason == "max_results"
         assert len(entries) == limit and len({e["id"] for e in entries}) == limit
         assert mock.STATE["last_search_params"]["rows"] == "50"
     # The connection's max_results caps a larger limit.
-    assert len(client(kms, max_results=60).search_files("x", limit=500)) == 60
+    with pytest.raises(SearchStopped) as info:
+        client(kms, max_results=60).search_files("x", limit=500)
+    assert info.value.stop_reason == "max_results" and len(info.value.files) == 60
+
+
+def test_search_at_the_cap_says_more_results_may_exist(kms):
+    from unittest.mock import AsyncMock, patch
+
+    from app.ai.tools.implementations.search_files import SearchFilesTool
+
+    mock = kms["mock"]
+    # 120 extra records plus the mock's own answer: 125 visible entries over pages of 50, 50 and 27.
+    mock.STATE["extra_results"] = [_record(70000 + i) for i in range(120)]
+    for cap in (40, 50, 100, 124):      # reached on the first, second and last page; 124 is one short
+        with pytest.raises(SearchStopped) as info:
+            client(kms, max_results=cap).search_files("x", limit=2000)
+        assert info.value.stop_reason == "max_results", cap
+        assert len(info.value.files) == cap and len({e["id"] for e in info.value.files}) == cap
+    # Exactly every visible entry, on a short last page: a complete answer, not a stop.
+    assert len(client(kms, max_results=125).search_files("x", limit=2000)) == 125
+
+    # The agent's search tool shows the stop as an incomplete result.
+    c = client(kms, max_results=30)
+
+    async def run():
+        with patch("app.ai.tools.implementations.search_files.resolve_file_client",
+                   new=AsyncMock(return_value=(c, None))):
+            return [e async for e in SearchFilesTool().run_stream({"connection_id": "K1", "query": "x"}, {})]
+
+    out = asyncio.run(run())[-1].payload["output"]
+    assert out["success"] is True and out["file_count"] == 30, out
+    assert out["incomplete"] is True and out["stop_reason"] == "max_results"
 
 
 def test_search_page_bound_with_visible_results_says_max_results(kms):
@@ -3467,7 +3502,10 @@ def test_bad_limit_is_named_not_blamed_on_kms(kms, limit):
 
 
 def test_numeric_text_limit_is_accepted(kms):
-    assert len(token_client(kms).search_files("billing", limit="2")) == 2
+    # More than two results exist, so the cap of two is reported as a stop.
+    with pytest.raises(SearchStopped) as info:
+        token_client(kms).search_files("billing", limit="2")
+    assert info.value.stop_reason == "max_results" and len(info.value.files) == 2
 
 
 def test_search_read_timeout_follows_the_deadline(kms, monkeypatch):
