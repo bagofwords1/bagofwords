@@ -70,6 +70,19 @@ class UserManager(BaseUserManager[User, str]):
         """
         user = await self._do_authenticate(credentials)
         if user is None:
+            from app.ee.audit.security_events import record_security_event
+            known = None
+            try:
+                known = await self.get_by_email(credentials.username)
+            except Exception:
+                known = None
+            # A failed attempt against a known account is evidence for that
+            # account's organizations; an unknown account has none.
+            await record_security_event(
+                "auth.login_failed", user=known, outcome="failure", failure_reason="invalid_credentials",
+                method="ldap" if settings.bow_config.ldap.enabled else "password",
+                details={"email": (credentials.username or "")[:255], "account_known": known is not None},
+            )
             return None
         # Credentials are correct at this point, so naming the real reason
         # leaks nothing an attacker could not already confirm — and the
@@ -78,6 +91,11 @@ class UserManager(BaseUserManager[User, str]):
         # route would otherwise fold this into LOGIN_BAD_CREDENTIALS, so the
         # distinction has to be drawn here, before it returns.
         if not user.is_active:
+            from app.ee.audit.security_events import record_security_event
+            await record_security_event(
+                "auth.login_failed", user=user, outcome="failure", failure_reason="account_disabled",
+                method="password", details={"email": user.email},
+            )
             raise AppError(
                 ErrorCode.ACCOUNT_DISABLED,
                 "Your account has been disabled. Contact your administrator.",
@@ -86,6 +104,11 @@ class UserManager(BaseUserManager[User, str]):
         if (settings.bow_config.auth.mode == "sso_only" and
                 not getattr(user, "_directory_authenticated", False) and
                 not await self._user_can_use_local_login(user)):
+            from app.ee.audit.security_events import record_security_event
+            await record_security_event(
+                "auth.login_failed", user=user, outcome="failure", failure_reason="local_login_not_allowed",
+                method="password", details={"email": user.email},
+            )
             return None
         return user
 
@@ -183,6 +206,20 @@ class UserManager(BaseUserManager[User, str]):
                 await session.commit()
         except Exception:
             pass
+
+        # The OAuth/OIDC/SAML handlers record their own auth.login with the
+        # provider; the local form (password or LDAP bind) is recorded here.
+        if not (request and request.url.path.endswith("/callback")):
+            from app.ee.audit import context as audit_context
+            from app.ee.audit.security_events import record_security_event, session_id_of
+            ctx = audit_context.current()
+            if ctx is not None:
+                audit_context.bind(ctx.with_(session_id=session_id_of(user) or ctx.session_id))
+            await record_security_event(
+                "auth.login", request=request, user=user, outcome="success",
+                method="ldap" if getattr(user, "_directory_authenticated", False) else "password",
+                details={"email": user.email},
+            )
 
         # Handle redirect for any OAuth/OIDC callback
         if request and request.url.path.endswith("/callback"):
@@ -602,11 +639,17 @@ class UserManager(BaseUserManager[User, str]):
         self, user: User, token: str, request: Optional[Request] = None
     ):
         await self._send_reset_password_email(user, token, request)
+        from app.ee.audit.security_events import record_security_event
+        await record_security_event("auth.password_reset_requested", request=request, user=user,
+                                    outcome="success", method="password", details={"email": user.email})
 
     async def on_after_reset_password(self, user: User, request: Optional[Request] = None):
         # A password reset is the one moment where the old sessions are most
         # likely the attacker's, so they must not survive it.
         await revoke_all_user_sessions(user.id)
+        from app.ee.audit.security_events import record_security_event
+        await record_security_event("auth.password_reset", request=request, user=user, outcome="success",
+                                    method="password", details={"email": user.email, "sessions_revoked": True})
 
     async def on_after_update(
         self,
@@ -618,6 +661,9 @@ class UserManager(BaseUserManager[User, str]):
         # edits (name, avatar) leave sessions alone.
         if "password" in update_dict or "hashed_password" in update_dict:
             await revoke_all_user_sessions(user.id)
+            from app.ee.audit.security_events import record_security_event
+            await record_security_event("auth.password_changed", request=request, user=user, outcome="success",
+                                        method="password", details={"email": user.email, "sessions_revoked": True})
 
     async def _send_reset_password_email(self, user: User, token: str, request: Optional[Request] = None):
         base_url = settings.bow_config.base_url
@@ -1059,12 +1105,21 @@ class SessionEpochJWTStrategy(JWTStrategy):
     async def write_token(self, user: User) -> str:
         from fastapi_users.jwt import generate_jwt
 
+        # Opaque per-login correlation id for audit events: random, never
+        # derived from the credential, safe to hand to a collector.
+        import uuid as _uuid
+        session_id = _uuid.uuid4().hex
+        try:
+            user._session_id = session_id
+        except Exception:
+            pass
         data = {
             "saml_identity": getattr(user, "_saml_identity_hash", None),
             "sub": str(user.id),
             "aud": self.token_audience,
             SESSION_EPOCH_CLAIM: _session_epoch_of(user),
             "directory_subject": user.ldap_subject if getattr(user, "_directory_authenticated", False) else None,
+            "sid": session_id,
         }
         return generate_jwt(
             data, self.encode_key, self.lifetime_seconds, algorithm=self.algorithm
@@ -1146,6 +1201,9 @@ class RevocableAuthenticationBackend(AuthenticationBackend):
 
     async def logout(self, strategy, user, token):
         await bump_session_epoch(user.id)
+        from app.ee.audit.security_events import record_security_event
+        await record_security_event("auth.logout", user=user, outcome="success", method="bearer",
+                                    details={"email": user.email, "sessions_revoked": True})
         return await super().logout(strategy, user, token)
 
 

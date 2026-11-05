@@ -26,36 +26,26 @@ _auth_logger = _logging.getLogger(__name__)
 async def _audit_auth_event(
     action: str,
     request: Request,
-    user_id: str | None = None,
+    user_id: Optional[str] = None,
     details: dict | None = None,
 ) -> None:
-    """Fire-and-forget audit log for auth events (login/failure).
+    """Fire-and-forget audit log for provider logins (OAuth/OIDC/SAML).
 
-    Uses its own session since auth handlers have no injected db session.
+    Routed by app.ee.audit.security_events: once per organization of a known
+    account, otherwise without an organization (platform stream only).
     """
-    try:
-        from app.dependencies import async_session_maker
-        from app.ee.audit.service import audit_service
+    from app.ee.audit.security_events import record_security_event
 
-        ip_address = None
-        forwarded = request.headers.get("X-Forwarded-For")
-        if forwarded:
-            ip_address = forwarded.split(",")[0].strip()
-        else:
-            ip_address = request.client.host if request.client else None
-
-        async with async_session_maker() as session:
-            await audit_service.log(
-                db=session,
-                organization_id=None,
-                action=action,
-                user_id=user_id,
-                resource_type="auth",
-                details=details,
-                request=request,
-            )
-    except Exception:
-        _auth_logger.debug("_audit_auth_event failed", exc_info=True)
+    d = dict(details or {})
+    failed = action.endswith("_failed")
+    reason = d.pop("reason", None) if failed else None
+    await record_security_event(
+        action, request=request, user_id=user_id,
+        outcome="failure" if failed else "success",
+        failure_reason=(reason or "provider_login_failed") if failed else None,
+        method=f"oauth:{d.get('provider')}" if d.get("provider") else "oauth",
+        details=d,
+    )
 
 
 def _cookie_secure() -> bool:

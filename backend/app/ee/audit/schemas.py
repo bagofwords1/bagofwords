@@ -31,6 +31,15 @@ class AuditLogResponse(AuditLogBase):
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
     created_at: datetime
+    # Contract v2 fields (null on legacy rows)
+    occurred_at: Optional[datetime] = None
+    outcome: Optional[str] = None
+    failure_reason: Optional[str] = None
+    request_id: Optional[str] = None
+    session_id: Optional[str] = None
+    actor_type: Optional[str] = None
+    actor_snapshot: Optional[dict] = None
+    schema_version: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -48,6 +57,8 @@ class AuditLogListResponse(BaseModel):
 class AuditLogFilters(BaseModel):
     """Filters for querying audit logs"""
     action: Optional[str] = None
+    outcome: Optional[str] = None
+    request_id: Optional[str] = None
     resource_type: Optional[str] = None
     resource_id: Optional[str] = None
     user_id: Optional[str] = None

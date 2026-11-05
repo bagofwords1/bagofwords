@@ -10,6 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from fastapi import Request
 
+from app.ee.audit import context as audit_context
+from app.ee.audit.content_policy import sanitize_details
+from app.ee.audit.contract import ACTOR_UNKNOWN, SCHEMA_VERSION, actor_type_for, normalize_outcome
 from app.ee.audit.models import AuditLog
 from app.ee.audit.schemas import AuditLogResponse, AuditLogFilters
 from app.models.user import User
@@ -30,7 +33,7 @@ class AuditService:
     async def log(
         self,
         db: AsyncSession,
-        organization_id: str,
+        organization_id: Optional[str],
         action: str,
         user_id: Optional[str] = None,
         resource_type: Optional[str] = None,
@@ -38,51 +41,104 @@ class AuditService:
         details: Optional[dict] = None,
         request: Optional[Request] = None,
         commit: bool = True,
+        *,
+        outcome: Optional[str] = None,
+        failure_reason: Optional[str] = None,
+        actor: Optional[User] = None,
+        actor_snapshot: Optional[dict] = None,
+        occurred_at: Optional[datetime] = None,
+        service_account: bool = False,
     ) -> Optional[AuditLog]:
         """
-        Create an audit log entry.
-        Always logs regardless of license - viewing is gated at API level.
+        Create an audit log entry under the event contract
+        (docs/design/audit-event-contract.md). Always logs regardless of
+        license - viewing is gated at API level.
 
-        Args:
-            db: Database session
-            organization_id: Organization ID
-            action: Action name (e.g., "report.created")
-            user_id: User who performed the action
-            resource_type: Type of resource affected
-            resource_id: ID of resource affected
-            details: Additional context as dict
-            request: FastAPI request for IP/user agent extraction
+        Source context (ip, user agent, request id, session id) comes from the
+        request when given, else from the ambient audit context bound by the
+        HTTP middleware or a job scope. Details go through the content policy
+        before they reach the row. ``outcome`` defaults to the contract's
+        inference for legacy call sites; new producers state it.
+
+        ``commit=False`` ties the row to the caller's transaction: a rolled
+        back business change takes its audit row with it, so a committed
+        success is never recorded for work that did not happen. With
+        ``commit=True`` a failed write falls back to the durable queue/spill
+        (app.ee.audit.tool_audit) instead of being lost.
         """
-        ip_address = None
-        user_agent = None
+        ctx = audit_context.current()
+        if request is not None:
+            req_ctx = audit_context.from_request(request)
+            # Keep the request id of the ambient context (the middleware
+            # minted it and echoed it to the client); fill the rest from the
+            # request itself.
+            req_ctx = req_ctx.with_(request_id=ctx.request_id if ctx and ctx.request_id else req_ctx.request_id)
+            ctx = req_ctx
+        ip_address = ctx.ip_address if ctx else None
+        user_agent = ctx.user_agent if ctx else None
 
-        if request:
-            # Get client IP (handle proxies)
-            forwarded = request.headers.get("X-Forwarded-For")
-            if forwarded:
-                ip_address = forwarded.split(",")[0].strip()
-            else:
-                ip_address = request.client.host if request.client else None
-
-            user_agent = request.headers.get("User-Agent", "")[:500]
+        details = sanitize_details(details)
+        user_id = str(user_id) if user_id else None
+        snapshot = actor_snapshot
+        if snapshot is None and (actor is not None or user_id):
+            snapshot = await self._actor_snapshot(db, actor, user_id)
+        a_type = actor_type_for(user_id, details, service=service_account)
+        if not user_id and ctx is not None and ctx.source == "http" and action.startswith("auth."):
+            a_type = ACTOR_UNKNOWN
 
         audit_log = AuditLog(
-            organization_id=organization_id,
+            organization_id=str(organization_id) if organization_id else None,
             user_id=user_id,
             action=action,
             resource_type=resource_type,
-            resource_id=resource_id,
+            resource_id=str(resource_id) if resource_id else None,
             details=details,
             ip_address=ip_address,
             user_agent=user_agent,
+            occurred_at=occurred_at or datetime.utcnow(),
+            outcome=normalize_outcome(outcome, action),
+            failure_reason=(failure_reason or None) and str(failure_reason)[:255],
+            request_id=ctx.request_id if ctx else None,
+            session_id=ctx.session_id if ctx else None,
+            actor_type=a_type,
+            actor_snapshot=snapshot,
+            schema_version=SCHEMA_VERSION,
         )
 
         db.add(audit_log)
         if commit:
-            await db.commit()
+            try:
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                from app.ee.audit import tool_audit
+                tool_audit.note_recording_failure()
+                logger.warning("Audit write failed for %s; handing the event to the durable queue", action, exc_info=True)
+                await tool_audit.enqueue_row(audit_log)
+                return audit_log
 
         logger.debug(f"Audit log created: {action} by user {user_id} in org {organization_id}")
         return audit_log
+
+    @staticmethod
+    async def _actor_snapshot(db: AsyncSession, actor: Optional[User], user_id: Optional[str]) -> Optional[dict]:
+        """Identity at event time, so later renames or deletion of the user
+        row never rewrite what the evidence says."""
+        try:
+            if actor is None and user_id:
+                row = (await db.execute(select(User.email, User.name).where(User.id == user_id))).first()
+                if row is None:
+                    return None
+                email, name = row
+            elif actor is not None:
+                email, name = getattr(actor, "email", None), getattr(actor, "name", None)
+            else:
+                return None
+            snap = {"email": email, "name": name}
+            return {k: v for k, v in snap.items() if v}
+        except Exception:
+            logger.debug("actor snapshot failed", exc_info=True)
+            return None
 
     @staticmethod
     def build_conditions(organization_id: str, filters: Optional[AuditLogFilters]) -> list:
@@ -109,6 +165,10 @@ class AuditService:
                 conditions.append(AuditLog.resource_type.in_(types))
         if filters.resource_id:
             conditions.append(AuditLog.resource_id == filters.resource_id)
+        if filters.outcome:
+            conditions.append(AuditLog.outcome == filters.outcome)
+        if filters.request_id:
+            conditions.append(AuditLog.request_id == filters.request_id)
         if filters.user_id:
             conditions.append(AuditLog.user_id == filters.user_id)
         if filters.start_date:
@@ -183,6 +243,14 @@ class AuditService:
                 ip_address=log.ip_address,
                 user_agent=log.user_agent,
                 created_at=log.created_at,
+                occurred_at=log.occurred_at,
+                outcome=log.outcome,
+                failure_reason=log.failure_reason,
+                request_id=log.request_id,
+                session_id=log.session_id,
+                actor_type=log.actor_type,
+                actor_snapshot=log.actor_snapshot,
+                schema_version=log.schema_version,
             )
             responses.append(response)
 
@@ -222,6 +290,14 @@ class AuditService:
             ip_address=log.ip_address,
             user_agent=log.user_agent,
             created_at=log.created_at,
+            occurred_at=log.occurred_at,
+            outcome=log.outcome,
+            failure_reason=log.failure_reason,
+            request_id=log.request_id,
+            session_id=log.session_id,
+            actor_type=log.actor_type,
+            actor_snapshot=log.actor_snapshot,
+            schema_version=log.schema_version,
         )
 
     async def get_action_types(

@@ -323,8 +323,6 @@ def test_tool_events_written_late_still_reach_the_stream(test_client, bootstrap_
     _tick(_later(120))
     assert _get(test_client, admin, s["id"])["status"]["pending"] == 0
 
-    # Treat any delay as "late" so the replayed rows record their original time.
-    monkeypatch.setattr(ta, "_LATE_WRITE_SECONDS", 0.0)
     assert _run(ta.replay_spilled_tool_audit_events()) == 3
     _tick(_later(600))
 
@@ -332,8 +330,10 @@ def test_tool_events_written_late_still_reach_the_stream(test_client, bootstrap_
     assert len(late) == 3
     stats = siem.state.stats("https", _db_ids(test_client, admin))
     assert stats["missing"] == [] and stats["duplicates"] == 0
-    # The original event time is preserved for the late writes.
-    assert all(e["metadata"].get("occurred_at") for e in late)
+    # The event time is the original one, fixed when the event was built;
+    # the write (recorded_at) came later, after the replay.
+    assert all(e["occurred_at"] < e["recorded_at"] for e in late)
+    assert all(e["schema_version"] == 2 and e["legacy"] is False for e in late)
 
 
 def test_racing_stampers_give_every_row_one_unique_sequence(test_client, bootstrap_admin, siem):
