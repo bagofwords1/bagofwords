@@ -239,7 +239,6 @@ class SapHanaClient(DataSourceClient):
         except IndexingCancelled:
             raise
         except Exception as e:
-            self.mark_discovery_incomplete("sap_hana catalog")
             print(f"Error retrieving tables: {e}")
             return []
 

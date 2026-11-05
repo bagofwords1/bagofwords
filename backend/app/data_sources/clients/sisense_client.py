@@ -254,7 +254,6 @@ class SisenseClient(DataSourceClient):
             except IndexingCancelled:
                 raise
             except Exception as e:
-                self.mark_discovery_incomplete("sisense catalog")
                 logging.warning(f"Failed to get schema for model '{model_title}': {e}")
                 continue
 

@@ -477,7 +477,6 @@ class ElasticsearchClient(DataSourceClient):
             except IndexingCancelled:
                 raise
             except Exception:
-                self.mark_discovery_incomplete("elasticsearch catalog")
                 continue
         return list(streams.values())
 
@@ -531,7 +530,6 @@ class ElasticsearchClient(DataSourceClient):
                 except IndexingCancelled:
                     raise
                 except Exception as e:
-                    self.mark_discovery_incomplete("elasticsearch catalog")
                     errors.append(f"{target}: {e}")
                 continue
             path = f"/{target}/_mapping" if target else "/_mapping"
@@ -541,7 +539,6 @@ class ElasticsearchClient(DataSourceClient):
             except IndexingCancelled:
                 raise
             except Exception as e:
-                self.mark_discovery_incomplete("elasticsearch catalog")
                 errors.append(f"{target or '_all'}: {e}")
         return mappings, errors
 
@@ -562,7 +559,6 @@ class ElasticsearchClient(DataSourceClient):
             except IndexingCancelled:
                 raise
             except Exception:
-                self.mark_discovery_incomplete("elasticsearch catalog")
                 continue
         return aliases
 
@@ -684,7 +680,6 @@ class ElasticsearchClient(DataSourceClient):
             except IndexingCancelled:
                 raise
             except Exception:
-                self.mark_discovery_incomplete("elasticsearch catalog")
                 continue
 
         tables: List[Table] = []
@@ -746,7 +741,6 @@ class ElasticsearchClient(DataSourceClient):
         except IndexingCancelled:
             raise
         except Exception as e:
-            self.mark_discovery_incomplete("elasticsearch catalog")
             logger.warning(f"Kibana spaces enumeration failed ({e}); using default space")
             return ["default"]
 
@@ -782,7 +776,6 @@ class ElasticsearchClient(DataSourceClient):
         except IndexingCancelled:
             raise
         except Exception as e:
-            self.mark_discovery_incomplete("elasticsearch catalog")
             logger.warning(f"Kibana _bulk_get failed: {e}")
             return {}
 
@@ -1007,7 +1000,6 @@ class ElasticsearchClient(DataSourceClient):
                 except IndexingCancelled:
                     raise
                 except Exception as e:
-                    self.mark_discovery_incomplete("elasticsearch catalog")
                     logger.warning(
                         f"Kibana dashboard catalog skipped "
                         f"{space}/{(dash.get('attributes') or {}).get('title')}: {e}")
@@ -1059,14 +1051,12 @@ class ElasticsearchClient(DataSourceClient):
         except IndexingCancelled:
             raise
         except Exception as e:
-            self.mark_discovery_incomplete("elasticsearch catalog")
             logger.warning(f"Kibana dashboard catalog failed: {e}")
         try:
             tables.extend(self._kibana_saved_search_tables())
         except IndexingCancelled:
             raise
         except Exception as e:
-            self.mark_discovery_incomplete("elasticsearch catalog")
             logger.warning(f"Kibana saved-search catalog failed: {e}")
         return tables
 

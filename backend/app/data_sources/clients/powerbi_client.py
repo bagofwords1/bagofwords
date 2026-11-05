@@ -1511,7 +1511,6 @@ UNION(
                     except IndexingCancelled:
                         raise
                     except Exception:
-                        self.mark_discovery_incomplete("powerbi catalog")
                         ws_datasets[ws["id"]] = []
 
                 for fut in discovery_items(as_completed(rpt_futures), 'workspace_reports', label=lambda fut: rpt_futures[fut].get('name'), total=len(rpt_futures)):
@@ -1858,7 +1857,6 @@ UNION(
 
         probed = unlisted[: self.MAX_UNLISTED_PROBES]
         if len(unlisted) > len(probed):
-            self.mark_discovery_incomplete("item-shared model probe limit")
             logging.warning(
                 "PowerBI discovery: %d unlisted dataset(s) known to the catalog, probing "
                 "only the first %d (executeQueries rate limit); the rest are omitted "
@@ -1886,7 +1884,6 @@ UNION(
                     except IndexingCancelled:
                         raise
                     except Exception:
-                        self.mark_discovery_incomplete("powerbi catalog")
                         continue
                     if not ok:
                         # Report only a refusal Power BI named. The model is in
@@ -1943,13 +1940,10 @@ UNION(
             )
             if resp.status_code < 300:
                 return True, ""
-            if resp.status_code == 429 or resp.status_code >= 500:
-                self.mark_discovery_incomplete("item-shared model probe failed")
             return False, self._named_denial(resp)
         except IndexingCancelled:
             raise
         except Exception:
-            self.mark_discovery_incomplete("powerbi catalog")
             return False, ""
 
     def _tables_from_prior(

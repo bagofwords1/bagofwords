@@ -1270,7 +1270,6 @@ class KubernetesClient(DataSourceClient):
                 except IndexingCancelled:
                     raise
                 except Exception as e:  # never fail the whole catalog on CRD trouble
-                    self.mark_discovery_incomplete("kubernetes catalog")
                     logger.warning("kubernetes: CRD discovery failed: %s", e)
         return tables
 
@@ -1364,7 +1363,6 @@ class KubernetesClient(DataSourceClient):
                 probe = self._list_objects(api, spec["api"], spec["plural"], spec["namespaced"],
                                            list(self.namespaces) or None, {}, limit=1)
             except RuntimeError:
-                self.mark_discovery_incomplete("kubernetes catalog")
                 continue
             if not probe:
                 continue

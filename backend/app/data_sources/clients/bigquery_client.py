@@ -223,7 +223,6 @@ class BigqueryClient(DataSourceClient):
         except IndexingCancelled:
             raise
         except Exception as e:
-            self.mark_discovery_incomplete("bigquery catalog")
             print(f"Error retrieving tables: {e}")
             return []
 

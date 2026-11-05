@@ -305,7 +305,6 @@ class PostgresqlClient(DataSourceClient):
         except IndexingCancelled:
             raise
         except Exception as e:
-            self.mark_discovery_incomplete("postgresql catalog")
             print(f"Error retrieving tables: {e}")
             return []
 

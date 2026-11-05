@@ -116,7 +116,6 @@ class PinotClient(DataSourceClient):
             except IndexingCancelled:
                 raise
             except Exception:
-                self.mark_discovery_incomplete("pinot catalog")
                 return []
 
         for t in discovery_items(table_names, 'tables', label=str):
@@ -141,7 +140,6 @@ class PinotClient(DataSourceClient):
             except IndexingCancelled:
                 raise
             except Exception:
-                self.mark_discovery_incomplete("pinot catalog")
                 pass
             tables[t] = Table(name=t, columns=columns, pks=[], fks=[], metadata_json={})
         return list(tables.values())

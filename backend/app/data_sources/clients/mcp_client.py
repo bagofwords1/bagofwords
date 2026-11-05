@@ -1,10 +1,8 @@
-import asyncio
 import json
 import logging
 import re
 from typing import List, Dict, Any, Optional
 from app.data_sources.clients.tool_provider_base import ToolProviderClient
-from app.data_sources.clients.progress import IndexingCancelled
 from app.utils.tabular_payload import detect_content_type
 
 logger = logging.getLogger(__name__)
@@ -235,8 +233,6 @@ class McpClient(ToolProviderClient):
                 else:
                     logger.warning("MCP tools/list: stopped after %d pages", _MAX_TOOL_PAGES)
             return tools
-        except (asyncio.CancelledError, IndexingCancelled):
-            raise
         except BaseException as e:
             raise RuntimeError(self._unwrap_exception(e)) from None
 
@@ -727,10 +723,7 @@ class McpClient(ToolProviderClient):
 
     # Override async wrappers to use native async implementations
     async def alist_tools(self) -> List[Dict[str, Any]]:
-        self.reset_discovery()
-        result = await self._alist_tools()
-        from app.data_sources.clients.discovery import require_complete_discovery
-        return require_complete_discovery(self, result)
+        return await self._alist_tools()
 
     async def acall_tool(self, tool_name: str, arguments: Dict[str, Any], read_only: bool = False) -> Dict[str, Any]:
         return await self._acall_tool(tool_name, arguments, read_only=read_only)

@@ -4051,7 +4051,6 @@
     "shell_confirmation.invalid_scope": "Ungültiger Berechtigungsbereich.",
     "shell_confirmation.report_required": "Sitzungsberechtigungen erfordern einen Bericht.",
     "shell_confirmation.rule_mismatch": "Ungültige Befehlsregel, oder das Muster passt nicht zu diesem Befehl.",
-    "catalog_discovery_incomplete": "Die Katalogaktualisierung ist fehlgeschlagen, da die Erkennung unvollständig war. Der bisherige Katalog und die Tabellenauswahl wurden beibehalten.",
     "saml_unavailable": "Die SSO-Konfiguration ist nicht verfügbar. Wenden Sie sich an Ihren Administrator.",
     "saml_login_failed": "Die SSO-Anmeldung ist fehlgeschlagen. Versuchen Sie es erneut oder kontaktieren Sie Ihren Administrator.",
     "invitation_required": "Die Registrierung ist deaktiviert. Bitten Sie Ihren Administrator um eine Einladung.",

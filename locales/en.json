@@ -4457,7 +4457,6 @@
     "shell_confirmation.invalid_scope": "Invalid permission scope.",
     "shell_confirmation.report_required": "Session permissions require a report.",
     "shell_confirmation.rule_mismatch": "Invalid command rule, or the pattern does not match this command.",
-    "catalog_discovery_incomplete": "Catalog refresh failed because discovery was incomplete. The previous catalog and table selections were retained.",
     "saml_unavailable": "SSO configuration is unavailable. Contact your administrator.",
     "saml_login_failed": "SSO sign-in failed. Try again or contact your administrator.",
     "invitation_required": "Sign-up is disabled. Ask your admin for an invite.",

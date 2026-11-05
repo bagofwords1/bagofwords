@@ -241,7 +241,6 @@ class TableauClient(DataSourceClient):
                     except IndexingCancelled:
                         raise
                     except Exception:
-                        self.mark_discovery_incomplete("tableau catalog")
                         continue
                     columns = [
                         TableColumn(

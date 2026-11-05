@@ -3,10 +3,7 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any
 
 
-from app.data_sources.clients.discovery import DiscoveryClient, require_complete_discovery
-
-
-class ToolProviderClient(DiscoveryClient, ABC):
+class ToolProviderClient(ABC):
     """
     Abstract base class for tool-providing connections (MCP servers, custom APIs).
     Parallel to DataSourceClient but for tool discovery and invocation
@@ -62,9 +59,7 @@ class ToolProviderClient(DiscoveryClient, ABC):
     # Async wrappers — offload blocking I/O to a thread so the event loop stays free.
 
     async def alist_tools(self) -> List[Dict[str, Any]]:
-        self.reset_discovery()
-        result = await asyncio.to_thread(self.list_tools)
-        return require_complete_discovery(self, result)
+        return await asyncio.to_thread(self.list_tools)
 
     async def acall_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         return await asyncio.to_thread(self.call_tool, tool_name, arguments)

@@ -231,7 +231,6 @@ class DuckDBClient(DataSourceClient):
                     except IndexingCancelled:
                         raise
                     except Exception:
-                        self.mark_discovery_incomplete("duckdb catalog")
                         pass
                 tables.append(Table(name=name, columns=cols, pks=[], fks=[]))
         return tables

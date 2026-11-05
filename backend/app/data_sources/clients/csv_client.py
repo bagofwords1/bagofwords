@@ -12,7 +12,6 @@ import duckdb
 import pandas as pd
 
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
-from app.data_sources.clients.progress import IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.progress import ProgressCallback, make_reporter
 from app.settings.logging_config import get_logger
@@ -195,10 +194,7 @@ class CSVClient(DataSourceClient):
                 try:
                     for fname, ftype in self._describe_file(con, filepath):
                         cols.append(TableColumn(name=fname, dtype=ftype))
-                except IndexingCancelled:
-                    raise
                 except Exception as exc:
-                    self.mark_discovery_incomplete("csv catalog")
                     logger.warning(
                         "csv.schema.file.error",
                         extra={"csv_file": filepath, "csv_error": str(exc)},

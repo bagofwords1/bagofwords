@@ -307,7 +307,6 @@ class PrometheusClient(DataSourceClient):
                 session, "/api/v1/labels", params=[("match[]", name)] + window,
             ) or []
         except (RuntimeError, requests.exceptions.HTTPError) as e:
-            self.mark_discovery_incomplete("prometheus catalog")
             logger.warning("Prometheus label discovery failed for metric %s: %s", name, e)
             return set()
         return {k for k in keys if k != "__name__"}

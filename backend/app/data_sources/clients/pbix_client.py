@@ -134,7 +134,6 @@ class PBIXClient(DataSourceClient):
         try:
             model = extract_pbix_model(filepath)
         except Exception as e:
-            self.mark_discovery_incomplete("PBIX model schema")
             logger.warning(
                 "pbix.schema.file.error",
                 extra={"pbix_file": filepath, "pbix_error": str(e)},

@@ -253,7 +253,6 @@ class SharepointListsClient(GraphDriveClient):
                     "sharepoint_lists: app-only catalog crawl denied (%s); "
                     "catalog will populate per user after sign-in.", str(e)[:160],
                 )
-                self.catalog_identity_available = False
                 return []
             raise
 

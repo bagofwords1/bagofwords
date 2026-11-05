@@ -219,11 +219,7 @@ def test_personal_refresh_endpoint_reads_current_columns(
             f"/api/connections/{ids[0]}/my-schema/refresh?background={str(background).lower()}",
             headers=headers,
         )
-        if unreadable and not background:
-            assert response.status_code == 503, response.text
-            assert response.json()["error_code"] == "catalog_discovery_incomplete"
-        else:
-            assert response.status_code == 200, response.text
+        assert response.status_code == 200, response.text
         diagnostics = response.json()
         if background:
             # Wait for actual DB commits, not arbitrary sleeps, and observe the
@@ -235,7 +231,7 @@ def test_personal_refresh_endpoint_reads_current_columns(
                 assert job_response.status_code == 200
                 job = job_response.json()
                 if job["status"] in {"completed", "failed", "cancelled"}:
-                    assert job["status"] == ("failed" if unreadable else "completed"), job
+                    assert job["status"] == "completed", job
                     diagnostics = job["stats"]
                     break
                 remaining = deadline - time.monotonic()
@@ -244,11 +240,8 @@ def test_personal_refresh_endpoint_reads_current_columns(
         event.remove(Session, "after_commit", on_commit)
     rows, selected, identities = asyncio.run(refresh_and_read(ids, profile["id"], refresh=False))
     if unreadable:
-        # Failed discovery retains the previously accessible snapshot. Upstream
-        # query authorization still uses the caller's credentials.
-        assert rows
-        assert selected[0].id == ids[2]
-        assert {c.name for t in rows for c in t.columns} == {"old"}
+        assert rows == []
+        assert diagnostics["unreadable_datasets"]
     else:
         assert {c.name for t in rows for c in t.columns} == {"renamed", "added"}
         assert selected[0].id == ids[2]

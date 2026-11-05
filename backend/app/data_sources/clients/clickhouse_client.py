@@ -199,7 +199,6 @@ class ClickhouseClient(DataSourceClient):
         except IndexingCancelled:
             raise
         except Exception as e:
-            self.mark_discovery_incomplete("SQL catalog")
             print(f"Error retrieving tables: {e}")
             return []
 

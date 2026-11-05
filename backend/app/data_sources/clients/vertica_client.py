@@ -211,7 +211,6 @@ class VerticaClient(DataSourceClient):
         except IndexingCancelled:
             raise
         except Exception as e:
-            self.mark_discovery_incomplete("vertica catalog")
             print(f"Error retrieving tables: {e}")
             return []
 

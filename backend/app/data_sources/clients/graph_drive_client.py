@@ -28,7 +28,6 @@ import httpx
 import pandas as pd
 
 from app.ai.prompt_formatters import Table, TableColumn
-from app.data_sources.clients.progress import IndexingCancelled
 from app.data_sources.clients.base import Capability, DataSourceClient
 from app.data_sources.clients._sharepoint_listing import SharepointBoundedListing
 from app.data_sources.clients._document_text import (
@@ -1009,13 +1008,10 @@ class GraphDriveClient(DataSourceClient):
                         break
                     try:
                         root = self._resolve_root_item_id(did)
-                    except IndexingCancelled:
-                        raise
                     except Exception as e:
                         # folder_path need not exist in every library, and a
                         # library can be inaccessible to this identity. Skip it
                         # rather than failing the whole listing.
-                        self.mark_discovery_incomplete("graph_drive catalog")
                         logger.info(
                             "graph_drive: skipping library %r — %s", lib, str(e)[:200]
                         )

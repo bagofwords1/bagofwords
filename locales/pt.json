@@ -4051,7 +4051,6 @@
     "shell_confirmation.invalid_scope": "Escopo de permissão inválido.",
     "shell_confirmation.report_required": "As permissões de sessão exigem um relatório.",
     "shell_confirmation.rule_mismatch": "Regra de comando inválida, ou o padrão não corresponde a este comando.",
-    "catalog_discovery_incomplete": "A atualização do catálogo falhou porque a descoberta ficou incompleta. O catálogo anterior e as seleções de tabelas foram mantidos.",
     "saml_unavailable": "Configuração de SSO indisponível. Contate seu administrador.",
     "saml_login_failed": "Falha no login SSO. Tente novamente ou contate seu administrador.",
     "invitation_required": "O cadastro está desativado. Peça um convite ao seu administrador.",

@@ -288,7 +288,6 @@ class SparkConnectClient(DataSourceClient):
             raise
         except Exception:
             # Fall back to the current database only
-            self.mark_discovery_incomplete("spark_connect catalog")
             try:
                 return [spark.catalog.currentDatabase()]
             except IndexingCancelled:
@@ -310,7 +309,6 @@ class SparkConnectClient(DataSourceClient):
                 except IndexingCancelled:
                     raise
                 except Exception:
-                    self.mark_discovery_incomplete("spark_connect catalog")
                     continue
                 for t in discovery_items(catalog_tables, 'tables', label=lambda table: table.name):
                     cols: List[TableColumn] = []
@@ -334,7 +332,6 @@ class SparkConnectClient(DataSourceClient):
                         raise
                     except Exception:
                         # Skip columns we can't introspect; keep the table listed
-                        self.mark_discovery_incomplete("spark_connect catalog")
                         pass
                     fqn = f"{db}.{t.name}" if db else t.name
                     if self.profile_partitions and part_cols:

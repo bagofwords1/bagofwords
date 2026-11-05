@@ -1187,8 +1187,15 @@ async def refresh_my_connection_schema(
     from app.services.data_source_service import DataSourceService
     from app.models.user_data_source_overlay import UserDataSourceTable
     ds_service = DataSourceService()
-    await ds_service.refresh_user_connection_catalog(db, connection, current_user)
-    unreadable = ds_service.last_discovery_diagnostics
+    unreadable = []
+    for ds in (connection.data_sources or []):
+        try:
+            # Live fetch with the user's creds + upsert their overlay (same path
+            # the OAuth callback runs after sign-in).
+            await ds_service.get_user_data_source_schema(db=db, data_source=ds, user=current_user, force_refresh=True)
+            unreadable.extend(getattr(ds_service, "last_discovery_diagnostics", []) or [])
+        except Exception as e:
+            logger.warning(f"Per-user schema refresh failed for data source {ds.id}: {e}")
 
     # Recompute the user's accessible table count for this connection.
     ds_ids = [str(ds.id) for ds in (connection.data_sources or [])]

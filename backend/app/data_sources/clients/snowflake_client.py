@@ -188,7 +188,6 @@ class SnowflakeClient(DataSourceClient):
         except IndexingCancelled:
             raise
         except Exception:
-            self.mark_discovery_incomplete("snowflake catalog")
             pass
 
         return tables
@@ -268,7 +267,6 @@ class SnowflakeClient(DataSourceClient):
                 except IndexingCancelled:
                     raise
                 except Exception:
-                    self.mark_discovery_incomplete("snowflake catalog")
                     return tables
             else:
                 for schema in schemas:
@@ -280,7 +278,6 @@ class SnowflakeClient(DataSourceClient):
                     except IndexingCancelled:
                         raise
                     except Exception:
-                        self.mark_discovery_incomplete("snowflake catalog")
                         continue
 
             for sv_row in discovery_items(sv_results, 'semantic_views', label=lambda row: str(row[0])):
