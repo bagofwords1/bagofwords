@@ -71,6 +71,14 @@ async def _open_release(db: AsyncSession, ref: str, user: User, organization: Or
     return artifact, release
 
 
+async def _reader_sees_code(db: AsyncSession, user: User, organization_id) -> bool:
+    """Whether this reader's role in the organization holds view_code."""
+    from app.core.code_visibility import can_view_code
+    from app.core.permission_resolver import resolve_permissions
+
+    return can_view_code(await resolve_permissions(db, str(user.id), str(organization_id)))
+
+
 async def _release_chart(db: AsyncSession, viz: Visualization, artifact, release, user: User) -> Dict[str, Any]:
     """One chart of a release, with the rows this reader may see."""
     from app.services.dashboard_data import default_step, resolve_release_step
@@ -81,10 +89,7 @@ async def _release_chart(db: AsyncSession, viz: Visualization, artifact, release
     data = resolution.data if resolution is not None else {}
     withheld = resolution is not None and resolution.withheld
     # Code follows the reader's role, as on /d.
-    from app.core.code_visibility import can_view_code
-    from app.core.permission_resolver import resolve_permissions
-
-    code_visible = can_view_code(await resolve_permissions(db, str(user.id), str(artifact.organization_id)))
+    code_visible = await _reader_sees_code(db, user, artifact.organization_id)
     return {"step": step, "query": query, "rows": (data or {}).get("rows", []),
             "columns": (data or {}).get("columns", []), "hide_code": withheld or not code_visible}
 
@@ -101,14 +106,11 @@ async def _report_step_rows(db: AsyncSession, step: Optional[Step], report, user
     """
     if step is None:
         return {"rows": [], "columns": [], "withheld": False, "code": ""}
-    from app.core.code_visibility import can_view_code
-    from app.core.permission_resolver import resolve_permissions
     from app.services.viewer_data_policy import resolve_step_data
 
     resolution = await resolve_step_data(db, step, report, requesting_user=user)
     data = resolution.data or {}
-    code_visible = not resolution.withheld and can_view_code(
-        await resolve_permissions(db, str(user.id), str(report.organization_id)))
+    code_visible = not resolution.withheld and await _reader_sees_code(db, user, report.organization_id)
     return {"rows": data.get("rows", []), "columns": data.get("columns", []),
             "withheld": resolution.withheld, "code": step.code if code_visible else ""}
 

@@ -16,10 +16,7 @@ import asyncio
 import json
 
 import pytest
-from sqlalchemy import select
 
-from app.dependencies import async_session_maker
-from app.models.artifact import ArtifactVersion
 from tests.e2e.rbac.test_code_visibility import _strip_code_role
 from tests.e2e.rbac.test_mcp_app_tools_user_scoped import _artifact_version_of, _call
 from tests.e2e.rbac.test_viewer_run_shared_artifacts import (
@@ -45,20 +42,6 @@ def _call_payload(test_client, api_key, name, arguments) -> dict:
     )
     assert response.status_code == 200, response.text
     return json.loads(response.json()["result"]["content"][0]["text"])
-
-
-async def _reorder_dashboard(report_id: str, viz_ids: list[str]) -> None:
-    """Set the order the dashboard's code indexes its charts in.
-
-    Direct write: an artifact's content is produced by the agent's LLM run;
-    no endpoint edits its visualization_ids.
-    """
-    async with async_session_maker() as db:
-        artifact = (await db.execute(
-            select(ArtifactVersion).where(ArtifactVersion.report_id == report_id)
-        )).scalars().first()
-        artifact.content = {**(artifact.content or {}), "visualization_ids": list(viz_ids)}
-        await db.commit()
 
 
 def test_mcp_withholds_code_from_a_reader_whose_role_lacks_view_code(
@@ -126,7 +109,15 @@ def test_mcp_get_artifact_data_serves_charts_in_the_dashboards_order(
     artifact_id = _run(_artifact_version_of(report["id"]))
     # Not the order the queries were created in: the code's viz[0] is the last.
     order = [seeded["viz_ids"][i] for i in (2, 0, 1)]
-    _run(_reorder_dashboard(report["id"], order))
+    owner_headers = _headers(owner["token"], admin["org_id"])
+    current = test_client.get(f"/api/artifacts/{artifact_id}", headers=owner_headers)
+    assert current.status_code == 200, current.text
+    reordered = test_client.patch(
+        f"/api/artifacts/{artifact_id}",
+        json={"content": {**current.json()["content"], "visualization_ids": order}},
+        headers=owner_headers,
+    )
+    assert reordered.status_code == 200, reordered.text
 
     for who in (owner, viewer):
         key = create_api_key(user_token=who["token"], org_id=admin["org_id"])["key"]
