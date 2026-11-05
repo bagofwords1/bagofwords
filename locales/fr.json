@@ -3390,6 +3390,7 @@
       }
     },
     "connectionAlerts": {
+      "heading": "E-mails d'alerte",
       "label": "E-mails d'alerte de connexion hors service",
       "description": "Envoyer un e-mail aux administrateurs de la connexion lorsqu'une connexion partagée tombe en panne ou se rétablit. Les notifications dans l'application sont toujours actives.",
       "saveError": "Impossible d'enregistrer le paramètre d'alerte de connexion."

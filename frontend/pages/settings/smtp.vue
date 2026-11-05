@@ -133,16 +133,20 @@
       </div>
     </form>
 
-    <!-- Connection down alert emails (org-wide). Saves on its own, not with
-         the SMTP form above — it governs which system emails go out, not the
-         transport. The in-app inbox notification is always delivered. -->
-    <div class="mt-8 pt-6 border-t border-gray-200 dark:border-gray-800">
-      <div class="flex items-center justify-between gap-4">
-        <div class="font-medium text-gray-900 dark:text-white">{{ $t('settings.connectionAlerts.label') }}</div>
-        <UToggle v-model="connAlertsEmail" :disabled="connAlertsSaving"
-          @update:model-value="saveConnAlerts" data-testid="connection-alerts-toggle" />
+    <!-- Org-wide "connection down" alert emails. Its own card — matching the
+         "Use a custom SMTP server" switch above — and saves on its own, since it
+         governs which system emails go out, not the transport. The in-app inbox
+         notification is always delivered. -->
+    <div class="md:w-2/3 mt-8 pt-6 border-t border-gray-200 dark:border-gray-800">
+      <h3 class="text-sm font-medium text-gray-900 dark:text-white mb-3">{{ $t('settings.connectionAlerts.heading') }}</h3>
+      <div class="flex items-start gap-3 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2.5">
+        <UToggle v-model="connAlertsEmail" :disabled="connAlertsSaving" class="mt-0.5"
+          data-testid="connection-alerts-toggle" @update:model-value="saveConnAlerts" />
+        <div class="text-sm">
+          <div class="font-medium text-gray-900 dark:text-white">{{ $t('settings.connectionAlerts.label') }}</div>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('settings.connectionAlerts.description') }}</p>
+        </div>
       </div>
-      <p class="text-xs text-ink-muted mt-1">{{ $t('settings.connectionAlerts.description') }}</p>
     </div>
   </div>
 </template>

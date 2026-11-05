@@ -3390,6 +3390,7 @@
       }
     },
     "connectionAlerts": {
+      "heading": "Varnings-e-post",
       "label": "E-postvarningar för nedkopplad anslutning",
       "description": "Mejla anslutningens administratörer när en delad anslutning går ner eller återställs. Aviseringar i appen är alltid på.",
       "saveError": "Det gick inte att spara inställningen för anslutningsvarningar."

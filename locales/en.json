@@ -2971,6 +2971,7 @@
       }
     },
     "connectionAlerts": {
+      "heading": "Alert emails",
       "label": "Connection down alert emails",
       "description": "Email connection admins when a shared connection goes down or comes back. In-app notifications are always on.",
       "saveError": "Couldn't save the connection-alert setting."

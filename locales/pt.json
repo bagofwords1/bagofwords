@@ -3390,6 +3390,7 @@
       }
     },
     "connectionAlerts": {
+      "heading": "E-mails de alerta",
       "label": "E-mails de alerta de conexão fora do ar",
       "description": "Enviar e-mail aos administradores da conexão quando uma conexão compartilhada cai ou volta. As notificações no app estão sempre ativas.",
       "saveError": "Não foi possível salvar a configuração de alertas de conexão."

@@ -3390,6 +3390,7 @@
       }
     },
     "connectionAlerts": {
+      "heading": "Warnungs-E-Mails",
       "label": "E-Mail-Warnungen bei Verbindungsausfall",
       "description": "Die Administratoren der Verbindung per E-Mail benachrichtigen, wenn eine gemeinsame Verbindung ausfällt oder wiederhergestellt wird. In-App-Benachrichtigungen sind immer aktiv.",
       "saveError": "Die Einstellung für Verbindungswarnungen konnte nicht gespeichert werden."

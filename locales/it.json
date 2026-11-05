@@ -3390,6 +3390,7 @@
       }
     },
     "connectionAlerts": {
+      "heading": "E-mail di avviso",
       "label": "E-mail di avviso connessione inattiva",
       "description": "Invia un'e-mail agli amministratori della connessione quando una connessione condivisa va offline o si ripristina. Le notifiche in-app sono sempre attive.",
       "saveError": "Impossibile salvare l'impostazione degli avvisi di connessione."
