@@ -4163,8 +4163,8 @@ const downloadMarkdown = () => {
 }
 
 // Export one agent as a zip bundle (instructions markdown + agent.yaml +
-// evals/*.yaml). Gated on per-agent `manage` (canManageAgent) — full admins
-// pass via the wildcard. Backend enforces the same permission.
+// evals/*.yaml + queries/*.yaml). Gated on per-agent `manage` (canManageAgent)
+// — full admins pass via the wildcard. Backend enforces the same permission.
 const exportingInstructions = ref(false)
 const exportAgentInstructions = async (agentId?: string) => {
   if (!agentId || exportingInstructions.value) return
