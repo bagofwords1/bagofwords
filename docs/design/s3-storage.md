@@ -121,7 +121,7 @@ pod, or the same pod after a restart, need this file?*
 | Connector file copies | `_file_tool_common.py:1214`, `file_reference_service.py:63` (`source_kind="connector"`) | **Shared — S3** | `File` rows point at them; another pod has the row but not the bytes. Same treatment as uploads. |
 | PBIX / QVD / PBIRS Parquet | `pbix_client.py:38`, `qvd_client.py:35`, `powerbi_report_server_client.py:32,37` | **Shared — S3** | Conversion takes minutes. Without sharing, the indexing job's output on pod A is useless to a query on pod B, and every restart reconverts. Key by file hash + schema version; `materialize()` before DuckDB reads. |
 | Extracted text / rendered pages | `_file_cache.py:25` (`filecache`) | S3 preferred, local OK | Pure perf, but extraction (OCR/page render) is expensive enough that per-pod misses hurt. |
-| Git clones | `services/repo_cache.py:51` | **Local OK** | Git needs a working tree; re-clone on miss is cheap and already handled (TTL + eviction). |
+| Git clones | `services/repo_cache.py:51` | **Local OK** | Read-only mirror of the remote (only `git_repo_client.py` uses it); writes in `git_service.py` clone→commit→push in a throwaway tempdir. Git needs a POSIX tree and the cache uses `fcntl` locks (`repo_cache.py:158`), so S3/NFS don't fit. Costs: per-pod cold clone (up to 300s, up to 5GB), pods may serve different commits within the 600s TTL (fix: pin the resolved SHA in the DB), and depends on shared SSH host keys above. |
 | `materialize()` copies (new) | `storage.cache.dir` | **Local OK** | Copies of objects already in S3. |
 
 Local dirs in k8s must be an `emptyDir` with `sizeLimit` (and matching
