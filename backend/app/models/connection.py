@@ -37,6 +37,12 @@ class Connection(BaseSchema):
     # when this reaches the threshold (see ConnectionService.test_connection),
     # so one slow probe does not hide its tables from every agent.
     consecutive_test_failures = Column(Integer, nullable=False, default=0, server_default="0")
+    # When the last "connection is down" alert email went out for this shared
+    # connection. The in-app inbox row always fires on the down transition
+    # (deduped by group_key); the email is additionally throttled to at most
+    # one per cooldown window (BOW_CONN_DOWN_ALERT_COOLDOWN_MINUTES, default 60)
+    # so a flapping connection cannot spam admins. NULL = never alerted.
+    last_down_alert_at = Column(DateTime, nullable=True, default=None)
 
     # Authentication policy
     auth_policy = Column(String, nullable=False, default="system_only")  # system_only, user_required

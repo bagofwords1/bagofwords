@@ -99,6 +99,29 @@ async def update_organization_locale(
     return await settings_service.update_locale(db, organization, current_user, locale)
 
 
+@router.get("/organization/connection-alerts")
+async def get_organization_connection_alerts(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Whether the org sends connection down/restored alert emails (default on)."""
+    return await settings_service.get_connection_alerts(db, organization, current_user)
+
+
+@router.put("/organization/connection-alerts")
+@requires_permission('manage_settings')
+async def update_organization_connection_alerts(
+    payload: dict,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Turn connection-alert emails on/off. Pass {"email_enabled": true|false}."""
+    email_enabled = bool(payload.get("email_enabled", True))
+    return await settings_service.update_connection_alerts(db, organization, current_user, email_enabled)
+
+
 @router.get("/organization/timezone")
 async def get_organization_timezone(
     current_user: User = Depends(current_user),

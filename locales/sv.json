@@ -454,6 +454,14 @@
       "automation_failed": {
         "title": "\"{name}\" misslyckades"
       },
+      "connection_down": {
+        "title": "Anslutningen ”{name}” är nere",
+        "body": "”{name}” klarade inte sina hälsokontroller och markerades som offline. Agenter som förlitar sig på den kan inte köra frågor mot den förrän den återställs."
+      },
+      "connection_restored": {
+        "title": "Anslutningen ”{name}” är online igen",
+        "body": "”{name}” återanslöts och är aktiv igen."
+      },
       "trigger_run": {
         "title": "⚡ \"{name}\" utlöstes — {summary}",
         "body": "Utredningen är klar — öppna sessionen för att se resultaten."
@@ -3380,6 +3388,11 @@
         "monday": "Måndag",
         "saturday": "Lördag"
       }
+    },
+    "connectionAlerts": {
+      "label": "E-postvarningar för nedkopplad anslutning",
+      "description": "Mejla anslutningens administratörer när en delad anslutning går ner eller återställs. Aviseringar i appen är alltid på.",
+      "saveError": "Det gick inte att spara inställningen för anslutningsvarningar."
     },
     "smtpTab": "SMTP",
     "timezone": {

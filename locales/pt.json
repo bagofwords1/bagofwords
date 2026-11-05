@@ -454,6 +454,14 @@
       "automation_failed": {
         "title": "\"{name}\" falhou"
       },
+      "connection_down": {
+        "title": "A conexão «{name}» está fora do ar",
+        "body": "«{name}» falhou nas verificações de integridade e foi marcada como offline. Os agentes que dependem dela não podem consultá-la até que se recupere."
+      },
+      "connection_restored": {
+        "title": "A conexão «{name}» está online novamente",
+        "body": "«{name}» reconectou-se e está ativa novamente."
+      },
       "trigger_run": {
         "title": "⚡ \"{name}\" foi acionado — {summary}",
         "body": "A investigação foi concluída — abra a sessão para ver os resultados."
@@ -3380,6 +3388,11 @@
         "monday": "Segunda-feira",
         "saturday": "Sábado"
       }
+    },
+    "connectionAlerts": {
+      "label": "E-mails de alerta de conexão fora do ar",
+      "description": "Enviar e-mail aos administradores da conexão quando uma conexão compartilhada cai ou volta. As notificações no app estão sempre ativas.",
+      "saveError": "Não foi possível salvar a configuração de alertas de conexão."
     },
     "smtpTab": "SMTP",
     "timezone": {

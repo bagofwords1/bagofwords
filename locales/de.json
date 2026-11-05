@@ -454,6 +454,14 @@
       "automation_failed": {
         "title": "\"{name}\" ist fehlgeschlagen"
       },
+      "connection_down": {
+        "title": "Verbindung „{name}“ ist ausgefallen",
+        "body": "„{name}“ hat die Statusprüfungen nicht bestanden und wurde als offline markiert. Agenten, die darauf angewiesen sind, können sie erst nach der Wiederherstellung abfragen."
+      },
+      "connection_restored": {
+        "title": "Verbindung „{name}“ ist wieder online",
+        "body": "„{name}“ hat sich wieder verbunden und ist wieder aktiv."
+      },
       "trigger_run": {
         "title": "⚡ \"{name}\" wurde ausgelöst — {summary}",
         "body": "Die Untersuchung ist abgeschlossen — öffnen Sie die Sitzung für die Ergebnisse."
@@ -3380,6 +3388,11 @@
         "monday": "Montag",
         "saturday": "Samstag"
       }
+    },
+    "connectionAlerts": {
+      "label": "E-Mail-Warnungen bei Verbindungsausfall",
+      "description": "Die Administratoren der Verbindung per E-Mail benachrichtigen, wenn eine gemeinsame Verbindung ausfällt oder wiederhergestellt wird. In-App-Benachrichtigungen sind immer aktiv.",
+      "saveError": "Die Einstellung für Verbindungswarnungen konnte nicht gespeichert werden."
     },
     "smtpTab": "SMTP",
     "timezone": {

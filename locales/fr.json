@@ -454,6 +454,14 @@
       "automation_failed": {
         "title": "« {name} » a échoué"
       },
+      "connection_down": {
+        "title": "La connexion « {name} » est hors service",
+        "body": "« {name} » a échoué à ses vérifications d'état et a été marquée hors ligne. Les agents qui en dépendent ne peuvent plus l'interroger jusqu'à son rétablissement."
+      },
+      "connection_restored": {
+        "title": "La connexion « {name} » est de nouveau en ligne",
+        "body": "« {name} » s'est reconnectée et est de nouveau active."
+      },
       "trigger_run": {
         "title": "⚡ « {name} » s'est déclenché — {summary}",
         "body": "L'enquête est terminée — ouvrez la session pour voir les résultats."
@@ -3380,6 +3388,11 @@
         "monday": "Lundi",
         "saturday": "Samedi"
       }
+    },
+    "connectionAlerts": {
+      "label": "E-mails d'alerte de connexion hors service",
+      "description": "Envoyer un e-mail aux administrateurs de la connexion lorsqu'une connexion partagée tombe en panne ou se rétablit. Les notifications dans l'application sont toujours actives.",
+      "saveError": "Impossible d'enregistrer le paramètre d'alerte de connexion."
     },
     "smtpTab": "SMTP",
     "timezone": {

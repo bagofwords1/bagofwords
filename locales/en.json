@@ -490,6 +490,14 @@
       "automation_failed": {
         "title": "\"{name}\" failed"
       },
+      "connection_down": {
+        "title": "Connection \"{name}\" is down",
+        "body": "\"{name}\" failed its health checks and was marked offline. Agents that rely on it can't query it until it recovers."
+      },
+      "connection_restored": {
+        "title": "Connection \"{name}\" is back online",
+        "body": "\"{name}\" reconnected and is active again."
+      },
       "trigger_run": {
         "title": "⚡ \"{name}\" fired — {summary}",
         "body": "The investigation completed — open the session for the findings."
@@ -2961,6 +2969,11 @@
         "monday": "Monday",
         "saturday": "Saturday"
       }
+    },
+    "connectionAlerts": {
+      "label": "Connection down alert emails",
+      "description": "Email connection admins when a shared connection goes down or comes back. In-app notifications are always on.",
+      "saveError": "Couldn't save the connection-alert setting."
     },
     "workspacePlaceholder": "Workspace name",
     "changeIcon": "Change Icon",

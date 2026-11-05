@@ -1323,22 +1323,26 @@ class ConnectionService:
                 connection.last_connection_checked_at = datetime.utcnow()
 
             # Update is_active for system_only connections
+            transition = None
             if connection.auth_policy == "system_only":
-                self._record_probe_outcome(connection, success)
+                transition = self._record_probe_outcome(connection, success)
 
             await db.commit()
+            await self._alert_on_health_transition(db, connection, transition, current_user)
             return self._finish_status(connection_status, t0)
 
         except Exception as e:
             if persist:
+                transition = None
                 if current_user is None:
                     connection.last_connection_status = "not_connected"
                     connection.last_connection_checked_at = datetime.utcnow()
 
                 if connection.auth_policy == "system_only":
-                    self._record_probe_outcome(connection, False)
+                    transition = self._record_probe_outcome(connection, False)
 
                 await db.commit()
+                await self._alert_on_health_transition(db, connection, transition, current_user)
             return {
                 "success": False,
                 "message": str(e),
@@ -1347,7 +1351,7 @@ class ConnectionService:
             }
 
     @staticmethod
-    def _record_probe_outcome(connection: Connection, success: bool) -> None:
+    def _record_probe_outcome(connection: Connection, success: bool) -> Optional[str]:
         """Apply one probe result to a shared connection's ``is_active``.
 
         A success reactivates at once. A failure deactivates only after
@@ -1355,12 +1359,19 @@ class ConnectionService:
         an inactive connection drops out of every agent's context, so a single
         slow or busy moment on the source (a BI server mid-reload, a network
         blip) must not make the agent report it as disconnected.
+
+        Returns the health *transition* this probe caused, or ``None`` when the
+        flag did not change: ``"up"`` (False→True) or ``"down"`` (True→False).
+        Callers use this edge — not the resulting state — to fire a one-shot
+        down/restored alert, so a connection that stays down across many probes
+        is announced once, not every tick.
         """
         if success:
             connection.consecutive_test_failures = 0
             if not connection.is_active:
                 connection.is_active = True
-            return
+                return "up"
+            return None
         failures = (connection.consecutive_test_failures or 0) + 1
         connection.consecutive_test_failures = failures
         try:
@@ -1369,6 +1380,34 @@ class ConnectionService:
             threshold = 3
         if failures >= threshold and connection.is_active:
             connection.is_active = False
+            return "down"
+        return None
+
+    @staticmethod
+    async def _alert_on_health_transition(
+        db: AsyncSession,
+        connection: Connection,
+        transition: Optional[str],
+        current_user: User = None,
+    ) -> None:
+        """Fire a down/restored alert when an automated probe flips a shared
+        connection's health.
+
+        Only the automated status sweep (``current_user is None``) alerts: a
+        human clicking "Test connection" is diagnosing a known issue and must
+        not spray the admins with mail. Best-effort — a failed alert can never
+        break the probe that triggered it, which has already committed.
+        """
+        if transition is None or current_user is not None:
+            return
+        try:
+            from app.services.connection_alerts import notify_connection_health
+            await notify_connection_health(db, connection, transition)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "connection health alert failed for %s", getattr(connection, "id", "?"),
+                exc_info=True,
+            )
 
     @staticmethod
     def _finish_status(connection_status, t0):

@@ -29,6 +29,9 @@ from app.models.connection_table import ConnectionTable
 from app.models.data_source import DataSource
 from app.models.datasource_table import DataSourceTable
 from app.models.domain_connection import domain_connection
+from app.models.membership import Membership
+from app.models.notification import SOURCE_CONNECTION
+from app.models.notification import Notification
 from app.models.organization import Organization
 from app.models.user import User
 from app.services.connection_service import ConnectionService
@@ -318,3 +321,95 @@ def test_agent_test_follows_the_connection_not_one_probe(fake_client, monkeypatc
     fake_client(probe_ok=True)
     _run(_probe_agent(ids))
     assert _run(_active_flags(ids)) == (True, True)
+
+
+# ---------------------------------------------------------------------------
+# Health alerts: the automated sweep tells the connection's admins when a
+# shared connection goes down and when it recovers — once per edge, and never
+# from a human-triggered test.
+# ---------------------------------------------------------------------------
+
+
+async def _add_admin(org_id):
+    """A real org admin — the audience a connection-down alert must reach."""
+    suffix = uuid.uuid4().hex[:8]
+    async with async_session_maker() as db:
+        admin = User(name="Admin", email=f"admin-{suffix}@example.com",
+                     hashed_password="x", is_active=True, is_superuser=False, is_verified=True)
+        db.add(admin)
+        await db.flush()
+        db.add(Membership(user_id=admin.id, organization_id=org_id, role="admin"))
+        await db.commit()
+        return str(admin.id)
+
+
+async def _conn_alerts(user_id, ntype):
+    async with async_session_maker() as db:
+        rows = (await db.execute(
+            select(Notification).where(
+                Notification.user_id == str(user_id),
+                Notification.source == SOURCE_CONNECTION,
+                Notification.type == ntype,
+                Notification.deleted_at.is_(None),
+            )
+        )).scalars().all()
+        return rows
+
+
+async def _probe_as(ids, user_id):
+    """A human clicking "Test connection" — the probe carries a current_user."""
+    async with async_session_maker() as db:
+        org = await db.get(Organization, ids["org_id"])
+        user = await db.get(User, user_id)
+        await ConnectionService().test_connection(
+            db=db, connection_id=str(ids["conn_id"]), organization=org, current_user=user)
+
+
+@pytest.mark.e2e
+@pytest.mark.db
+def test_automated_probe_alerts_admins_on_down_then_restore(fake_client, monkeypatch):
+    monkeypatch.setenv("BOW_CONN_DEACTIVATE_AFTER_FAILURES", "3")
+    ids = _run(_seed(["Sales/Orders"]))
+    admin_id = _run(_add_admin(ids["org_id"]))
+
+    # A sustained outage deactivates the shared connection.
+    fake_client(probe_ok=False)
+    for _ in range(3):
+        _run(_probe(ids))
+    assert _run(_active_flags(ids))[0] is False
+
+    # The admin is told once, as an error — not once per failed probe.
+    downs = _run(_conn_alerts(admin_id, "connection_down"))
+    assert len(downs) == 1
+    assert downs[0].severity == "error"
+
+    # Still down across more probes: no new alert (no new edge).
+    for _ in range(3):
+        _run(_probe(ids))
+    assert len(_run(_conn_alerts(admin_id, "connection_down"))) == 1
+
+    # Recovery is announced once, on the first success.
+    fake_client(probe_ok=True)
+    _run(_probe(ids))
+    assert _run(_active_flags(ids))[0] is True
+    assert len(_run(_conn_alerts(admin_id, "connection_restored"))) == 1
+
+
+@pytest.mark.e2e
+@pytest.mark.db
+def test_manual_test_connection_never_alerts(fake_client, monkeypatch):
+    """A person diagnosing a connection with the Test button must not spray the
+    admins — only the unattended sweep alerts."""
+    monkeypatch.setenv("BOW_CONN_DEACTIVATE_AFTER_FAILURES", "3")
+    ids = _run(_seed(["Sales/Orders"]))
+    admin_id = _run(_add_admin(ids["org_id"]))
+
+    # Drive the exact same down edge, but every probe is a human test
+    # (current_user set). The connection still deactivates...
+    fake_client(probe_ok=False)
+    for _ in range(3):
+        _run(_probe_as(ids, admin_id))
+    assert _run(_active_flags(ids))[0] is False
+
+    # ...yet no alert was produced.
+    assert _run(_conn_alerts(admin_id, "connection_down")) == []

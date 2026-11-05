@@ -454,6 +454,14 @@
       "automation_failed": {
         "title": "\"{name}\" non è riuscito"
       },
+      "connection_down": {
+        "title": "La connessione «{name}» è inattiva",
+        "body": "«{name}» non ha superato i controlli di integrità ed è stata contrassegnata come offline. Gli agenti che vi fanno affidamento non possono interrogarla finché non si ripristina."
+      },
+      "connection_restored": {
+        "title": "La connessione «{name}» è di nuovo online",
+        "body": "«{name}» si è riconnessa ed è di nuovo attiva."
+      },
       "trigger_run": {
         "title": "⚡ \"{name}\" si è attivato — {summary}",
         "body": "L'indagine è terminata — apri la sessione per vedere i risultati."
@@ -3380,6 +3388,11 @@
         "monday": "Lunedì",
         "saturday": "Sabato"
       }
+    },
+    "connectionAlerts": {
+      "label": "E-mail di avviso connessione inattiva",
+      "description": "Invia un'e-mail agli amministratori della connessione quando una connessione condivisa va offline o si ripristina. Le notifiche in-app sono sempre attive.",
+      "saveError": "Impossibile salvare l'impostazione degli avvisi di connessione."
     },
     "smtpTab": "SMTP",
     "timezone": {
