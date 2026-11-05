@@ -81,6 +81,15 @@ passed with 0 skipped** across all four backends; e2e 9 passed on moto +
 Azurite. Each new test was seen failing with its wiring removed (download
 route, PBIX hydration).
 
+Regression on the default local backend: every e2e suite touching files,
+dashboards, decks, exports, uploads, branding, email or connectors (140 files,
+run as CI runs them): 1313 passed. The only failures are 25 dashboard
+migration/visibility tests (`public_sharing_allowed None -> True`) that fail
+identically on the commit before this change. A few file and connector tests
+also failed only because this container sets `REQUESTS_CA_BUNDLE`; they pass
+once it is unset. Unit tests importing any changed module: 2101 passed (one
+file needs `libodbc`, missing here).
+
 ## Found along the way
 
 - Images attached to a chat message are read from disk to send to the LLM
