@@ -18,8 +18,9 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload, lazyload
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
+from app.errors import AppError, ErrorCode
 
-from app.data_sources.clients.progress import IndexingCancelled
+from app.data_sources.clients.progress import IndexingCancelled, unreadable_note
 from app.models.connection import Connection, RUNTIME_CONFIG_KEYS
 from app.models.connection_table import ConnectionTable, KIND_TABLE, KIND_BOW
 from app.models.connection_tool import ConnectionTool
@@ -253,6 +254,59 @@ async def _acount_tables_for_validation(client) -> int | None:
         return None
 
 
+def _unread_prefixes(client) -> tuple[str, ...]:
+    sep = getattr(client, "unindexed_table_prefix_separator", "/") or "/"
+    try:
+        return tuple(
+            f"{str(p).rstrip(sep)}{sep}"
+            for p in (client.unindexed_table_prefixes() or [])
+            if p and str(p).strip(sep)
+        )
+    except Exception:
+        return ()
+
+
+def _athena_config_is_multi(config) -> bool:
+    from app.data_sources.clients.aws_athena_client import parse_database_spec
+    return parse_database_spec((config or {}).get("database"))[2]
+
+
+def _validate_connection_config(connection_type: str, config) -> None:
+    if connection_type != "aws_athena" or not isinstance(config, dict):
+        return
+    from pydantic import ValidationError
+    from app.schemas.data_sources.configs import AWSAthenaConfig
+    try:
+        AWSAthenaConfig(**{k: v for k, v in config.items() if v is not None and v != ""})
+    except ValidationError as e:
+        first = e.errors()[0]
+        field = ".".join(str(p) for p in first["loc"]) or "config"
+        reason = str(first["msg"]).removeprefix("Value error, ")
+        raise AppError.bad_request(
+            ErrorCode.CONNECTION_CONFIG_INVALID, f"{field}: {reason}", detail=f"{field}: {reason}",
+        )
+
+
+def _reject_athena_mode_switch(connection, new_config) -> None:
+    if connection.type != "aws_athena" or not isinstance(new_config, dict):
+        return
+    stored = connection.config
+    if isinstance(stored, str):
+        stored = json.loads(stored)
+    if _athena_config_is_multi(stored) != _athena_config_is_multi(new_config):
+        raise AppError.bad_request(
+            ErrorCode.CONNECTION_ATHENA_MODE_SWITCH,
+            "Cannot switch an Athena connection between one database and several. Create a new connection instead.",
+        )
+
+
+def _unreadable_after_count(client) -> list:
+    try:
+        return list((client.index_stats() or {}).get("unreadable_datasets") or [])
+    except Exception:
+        return []
+
+
 def _connected_message(
     connection_type: str, table_count: int, approximate: bool = False,
     config: Optional[dict] = None,
@@ -462,6 +516,7 @@ class ConnectionService:
         _reject_unsafe_oauth_urls(config, credentials)
         _reject_unsafe_google_keys(credentials)
         _check_network_dir_root(type, config)
+        _validate_connection_config(type, config)
 
         # Check enterprise license for restricted data sources
         from app.ee.license import is_datasource_allowed, is_enterprise_licensed
@@ -692,6 +747,8 @@ class ConnectionService:
         _reject_unsafe_oauth_urls(updates.get("config"), updates.get("credentials"))
         _reject_unsafe_google_keys(updates.get("credentials"))
         connection = await self.get_connection(db, connection_id, organization)
+        _validate_connection_config(connection.type, updates.get("config"))
+        _reject_athena_mode_switch(connection, updates.get("config"))
 
         # Check enterprise license if switching to user_required auth policy
         new_auth_policy = updates.get("auth_policy")
@@ -1180,6 +1237,7 @@ class ConnectionService:
         credentials: dict,
     ) -> dict:
         """Test connection with given parameters (before saving)."""
+        _validate_connection_config(data_source_type, config)
         # Per-user OAuth MCP connectors (oauth_app / DCR) have NO token at
         # admin-config time — the admin only registers the OAuth client; each
         # user signs in later. So an authenticated tools/list is impossible here,
@@ -1264,7 +1322,7 @@ class ConnectionService:
                 data_source_type, table_count,
                 approximate=bool(schema_status.get("table_count_approximate")),
                 config=config,
-            )
+            ) + unreadable_note(schema_status.get("unreadable"))
             return {
                 "success": True,
                 "message": message,
@@ -1826,14 +1884,8 @@ class ConnectionService:
             # Parts of the catalog the client could not read on this run (a
             # BI app that was busy or mid-reload). Their existing tables are
             # kept below rather than pruned — see unindexed_table_prefixes.
-            try:
-                unread_prefixes = tuple(
-                    f"{str(p).rstrip('/')}/"
-                    for p in (client.unindexed_table_prefixes() or [])
-                    if p and str(p).strip("/")
-                )
-            except Exception:
-                unread_prefixes = ()
+            unread_prefixes = _unread_prefixes(client)
+            prefix_sep = getattr(client, "unindexed_table_prefix_separator", "/") or "/"
             # Entry types the client could not read on this run (routine
             # discovery failed while the tables were read): existing entries
             # of these types are kept rather than pruned as dropped.
@@ -1852,7 +1904,7 @@ class ConnectionService:
                     "refresh_schema: connection %s could not read %d part(s) of its catalog "
                     "on this run; their existing tables are kept: %s",
                     connection.id, len(unread_prefixes),
-                    ", ".join(p.rstrip("/") for p in unread_prefixes[:10]),
+                    ", ".join(p.rstrip(prefix_sep) for p in unread_prefixes[:10]),
                 )
 
             # Only needed to pass to the client; release them before saving.
@@ -1924,14 +1976,16 @@ class ConnectionService:
                 unreadable = (_stats or {}).get("unreadable_datasets") or []
                 if unreadable:
                     self.last_discovery_diagnostics = unreadable
-                    _summary = "; ".join(
-                        f"{d.get('datasetName') or d.get('name')} "
-                        f"({d.get('workspaceName') or d.get('workspaceId')}): {d.get('reason')}"
-                        for d in unreadable[:10]
-                    )
+                    def _describe(d):
+                        scope = d.get('workspaceName') or d.get('workspaceId')
+                        return (
+                            f"{d.get('datasetName') or d.get('name')}"
+                            f"{f' ({scope})' if scope else ''}: {d.get('reason')}"
+                        )
+                    _summary = "; ".join(_describe(d) for d in unreadable[:10])
                     logger.warning(
-                        "refresh_schema: %d semantic model(s) on connection %s were "
-                        "found but not readable and were not indexed: %s",
+                        "refresh_schema: %d source(s) on connection %s were "
+                        "not found or not readable and were not indexed: %s",
                         len(unreadable), connection.id, _summary,
                     )
             except Exception:
@@ -2035,7 +2089,7 @@ class ConnectionService:
             # added next to them.
             if unread_prefixes:
                 for prefix in unread_prefixes:
-                    placeholder = prefix.rstrip("/")
+                    placeholder = prefix.rstrip(prefix_sep)
                     if placeholder in incoming and placeholder not in existing_tables and any(
                         n.startswith(prefix) for n in existing_tables
                     ):
@@ -2609,6 +2663,7 @@ class ConnectionService:
             # Tabular sources that can count from a catalog view skip the full
             # column introspection — the test only needs the count.
             table_count = await _acount_tables_for_validation(client)
+            unreadable = _unreadable_after_count(client) if table_count is not None else []
             if table_count is None:
                 tables = None
                 if hasattr(client, "aget_schemas"):
@@ -2636,6 +2691,7 @@ class ConnectionService:
             return {
                 "success": True,
                 "table_count": table_count,
+                "unreadable": unreadable,
             }
         except Exception as e:
             return {

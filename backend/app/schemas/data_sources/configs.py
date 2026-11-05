@@ -1437,10 +1437,46 @@ class AWSAthenaDefaultCredentials(BaseModel):
 
 class AWSAthenaConfig(BaseModel):
     region: str = Field(..., title="Region", description="", json_schema_extra={"ui:type": "string"})
-    database: str = Field(..., title="Database", description="", json_schema_extra={"ui:type": "string"})
+    database: str = Field(
+        ...,
+        title="Database",
+        description="One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. '*_db, !billing_db, analytics_history'. With several, tables are named database.table.",
+        json_schema_extra={"ui:type": "string", "ui:descriptionKey": "data.athena.databaseDescription"},
+    )
     workgroup: str = Field("primary", title="Workgroup", description="", json_schema_extra={"ui:type": "string"})
     s3_output_location: Optional[str] = Field(None, title="S3 Output Location", description="Leave blank if your workgroup has a default output location", json_schema_extra={"ui:type": "string"})
     data_source: str = Field("AwsDataCatalog", title="Data Source", description="", json_schema_extra={"ui:type": "string"})
+    table_exclude_pattern: Optional[str] = Field(
+        None,
+        title="Table Exclude Pattern",
+        description="Optional regular expression; tables whose name matches are not indexed, e.g. '^day_\\d{2}'. Changing it removes newly excluded tables and the agent's selection of them on the next index.",
+        json_schema_extra={"ui:type": "string", "ui:titleKey": "data.athena.tableExcludeTitle",
+                           "ui:descriptionKey": "data.athena.tableExcludeDescription"},
+    )
+
+    @field_validator("table_exclude_pattern")
+    @classmethod
+    def _check_table_exclude_pattern(cls, value):
+        from app.utils.safe_regex import compile_bounded, pattern_cost_problem
+        if value is not None and value.strip():
+            problem = pattern_cost_problem(value.strip())
+            if problem:
+                raise ValueError(f"table_exclude_pattern is too costly: {problem}")
+            if compile_bounded(value.strip()) is None:
+                raise ValueError("table_exclude_pattern is not a valid regular expression")
+        return value
+
+    @model_validator(mode="after")
+    def _check_database_spec(self):
+        entries = [e.strip() for e in self.database.split(",")]
+        if any(not e or e == "!" for e in entries):
+            raise ValueError("database must not contain empty entries")
+        if not any(not e.startswith("!") for e in entries):
+            raise ValueError("database needs at least one database name or pattern, not only !-exclusions")
+        multi = len(entries) > 1 or any(c in self.database for c in "*?[!")
+        if multi and self.data_source != "AwsDataCatalog":
+            raise ValueError("data_source must be AwsDataCatalog when database lists several databases or patterns")
+        return self
 
 
 # AWS CloudWatch — log groups (Logs Insights) + metrics.

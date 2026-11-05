@@ -89,6 +89,15 @@ def _iso_utc(dt) -> "str | None":
     return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _strip_unreadable(progress) -> None:
+    if progress.scope == "user" or not progress.stats:
+        return
+    progress.stats = {
+        k: v for k, v in progress.stats.items()
+        if k not in ("unreadable_datasets", "unreadable_dataset_count")
+    }
+
+
 def _indexing_to_progress(row, include_events: bool = True) -> "ConnectionIndexingProgress | None":
     """Adapt a ConnectionIndexing ORM row to the polling payload. Returns None
     when no row is provided.
@@ -308,6 +317,10 @@ async def list_connections(
         indexing_payload = _indexing_to_progress(
             indexing_by_conn.get(str(conn.id)), include_events=False
         )
+        if indexing_payload is not None and not (
+            is_admin or resolved.has_resource_permission("connection", str(conn.id), "manage_connection")
+        ):
+            _strip_unreadable(indexing_payload)
 
         tool_count = tool_count_by_conn.get(str(conn.id), 0) if conn.type in _TOOL_PROVIDER_TYPES else 0
 
@@ -1253,9 +1266,8 @@ async def get_connection_indexing(
                     int(stats["synced_domains"] or 0),
                     len(await visible_linked_agents(db, organization, current_user, connection)),
                 )
-            stats.pop("unreadable_datasets", None)
-            stats.pop("unreadable_dataset_count", None)
             progress.stats = stats if progress.stats is not None else None
+            _strip_unreadable(progress)
             progress.events = []
     return progress
 

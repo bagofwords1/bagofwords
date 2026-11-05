@@ -3926,6 +3926,11 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "Name der Dokumentbibliothek oder * für alle sichtbaren Bibliotheken. Ein leeres Feld wählt die Standardbibliothek nur im Modus „Modernes REST“."
     },
+    "athena": {
+      "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
+      "tableExcludeTitle": "Table Exclude Pattern",
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+    },
     "qlikOnPrem": {
       "appFilterTitle": "App-Filter",
       "appFilterDescription": "Optionale, durch Kommas getrennte App-Namen oder IDs in den ausgewählten Streams. Leer umfasst alle passenden Apps. Verwenden Sie IDs für Namen mit Kommas.",
@@ -4051,6 +4056,8 @@
     "shell_confirmation.invalid_scope": "Ungültiger Berechtigungsbereich.",
     "shell_confirmation.report_required": "Sitzungsberechtigungen erfordern einen Bericht.",
     "shell_confirmation.rule_mismatch": "Ungültige Befehlsregel, oder das Muster passt nicht zu diesem Befehl.",
+    "connection.config_invalid": "Invalid connection configuration: {detail}",
+    "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
     "saml_unavailable": "Die SSO-Konfiguration ist nicht verfügbar. Wenden Sie sich an Ihren Administrator.",
     "saml_login_failed": "Die SSO-Anmeldung ist fehlgeschlagen. Versuchen Sie es erneut oder kontaktieren Sie Ihren Administrator.",
     "invitation_required": "Die Registrierung ist deaktiviert. Bitten Sie Ihren Administrator um eine Einladung.",
