@@ -587,10 +587,11 @@ assert.deepEqual(list.isolateParams({}), {})
 
 // The skeleton only when there is nothing to show yet (the first load, or after
 // an empty list); otherwise the cards on screen stay, dimmed, until the new ones land.
-assert.equal(list.listDisplay(true, 0), 'skeleton', 'first load, or nothing on screen')
-assert.equal(list.listDisplay(true, 15), 'stale', 'a tab, chip, sort or page change: keep the cards')
-assert.equal(list.listDisplay(false, 15), 'list')
-assert.equal(list.listDisplay(false, 0), 'empty')
+assert.equal(list.listDisplay(true, 0, false), 'skeleton', 'first load: nothing on screen yet')
+assert.equal(list.listDisplay(true, 15, true), 'stale', 'a tab, chip, sort or page change: keep the cards')
+assert.equal(list.listDisplay(true, 0, true), 'staleEmpty', 'leaving an empty tab: keep the empty state, no skeleton')
+assert.equal(list.listDisplay(false, 15, true), 'list')
+assert.equal(list.listDisplay(false, 0, true), 'empty')
 
 // --- P11: "All agents" / "Anyone", a real first option of a multi-select ------------------
 

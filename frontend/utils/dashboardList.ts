@@ -527,12 +527,17 @@ export function emptyDescriptionKey(state: DashboardListState): string {
 }
 
 /**
- * What the results area shows. A load with cards on screen keeps them
- * (dimmed) until the new ones land, so a tab, chip, sort or page change does
- * not flash a skeleton; the skeleton is only for a load with nothing to show.
+ * What the results area shows. A load keeps what is on screen (dimmed) until
+ * the new list lands: the cards ('stale') or the empty state ('staleEmpty'),
+ * so a tab, chip, sort or page change never flashes a skeleton. The skeleton
+ * is only for the first load, before any list has landed (`settled`).
  */
-export function listDisplay(loading: boolean, rows: number): 'skeleton' | 'stale' | 'list' | 'empty' {
-  if (loading) return rows > 0 ? 'stale' : 'skeleton'
+export function listDisplay(
+  loading: boolean,
+  rows: number,
+  settled: boolean,
+): 'skeleton' | 'stale' | 'staleEmpty' | 'list' | 'empty' {
+  if (loading) return rows > 0 ? 'stale' : settled ? 'staleEmpty' : 'skeleton'
   return rows > 0 ? 'list' : 'empty'
 }
 

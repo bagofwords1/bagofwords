@@ -346,8 +346,15 @@
                     </div>
                 </div>
 
-                <!-- Empty state (also when the list failed to load) -->
-                <div v-else class="mt-12 flex flex-col items-center text-center" data-testid="dashboard-empty">
+                <!-- Empty state (also when the list failed to load). While the next list
+                     loads it stays, dimmed ('staleEmpty'), instead of a skeleton flash. -->
+                <div
+                    v-else
+                    class="mt-12 flex flex-col items-center text-center transition-opacity"
+                    :class="display === 'staleEmpty' ? 'opacity-60' : ''"
+                    :aria-busy="display === 'staleEmpty' ? 'true' : 'false'"
+                    data-testid="dashboard-empty"
+                >
                     <Icon
                         name="heroicons:chart-bar-square"
                         class="mx-auto h-12 w-12 text-ink-muted"
@@ -559,7 +566,9 @@ const reports = ref<any[]>([])
 // stay as they were (stale-while-loading), not restyled for the new tab.
 const shownTab = ref<DashboardTab>(state.value.tab)
 const isLoading = ref(true)
-const display = computed(() => listDisplay(isLoading.value, reports.value.length))
+// True once a list (or a failure) has landed: from then on a load keeps what is shown.
+const settled = ref(false)
+const display = computed(() => listDisplay(isLoading.value, reports.value.length, settled.value))
 const pagination = ref({
     total: 0,
     page: 1,
@@ -706,6 +715,7 @@ const fetchDashboards = async (quiet = false) => {
             reports.value = mergeStarState(body.dashboards, pendingStars, reports.value)
             shownTab.value = state.value.tab
             pagination.value = body.meta
+            settled.value = true
         } else {
             throw response.error.value ?? new Error('Could not fetch dashboards')
         }
@@ -716,6 +726,7 @@ const fetchDashboards = async (quiet = false) => {
             // The empty state, with "clear the filters" when any is set.
             reports.value = []
             pagination.value = { ...pagination.value, total: 0, total_pages: 0 }
+            settled.value = true
             if (!unmounted) toast.add({
                 title: t('dashboards.fetchFailed'),
                 description: getErrorMessage(error, t('dashboards.fetchFailed')),
@@ -776,7 +787,8 @@ watch(timeZone, () => {
 
 const chips = computed(() => activeFilterChips(state.value))
 // No filter set: what the tab is for; else "clear the filters".
-const emptyKey = computed(() => emptyDescriptionKey(state.value))
+// The tab whose (empty) list is on screen: while leaving it, its copy stays.
+const emptyKey = computed(() => emptyDescriptionKey({ ...state.value, tab: shownTab.value }))
 
 const PRESET_LABEL: Record<string, string> = {
     '7': 'dashboards.presets.last7',
