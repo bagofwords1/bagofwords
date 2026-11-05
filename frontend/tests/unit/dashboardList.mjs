@@ -19,6 +19,7 @@ import {
   cardMeta,
   mergeStarState,
 } from '../../utils/dashboardList.ts'
+import * as list from '../../utils/dashboardList.ts'
 
 // The dashboards page keeps its whole state in the URL (a bookmark, Back and
 // Forward), and turns it into GET /api/artifacts params. These are the pure
@@ -418,5 +419,160 @@ assert.equal(statusPill(card({ role: 'edit', unpublished_changes: false }), 'sha
   assert.equal(fresh[1].is_starred, false, 'the response is not mutated')
   assert.deepEqual(mergeStarState(fresh, new Set(), local).map(c => c.is_starred), [true, false, false])
 }
+
+// --- P9: what the page adds -------------------------------------------------------------
+// The page's own pieces, through one namespace: a missing helper fails here
+// as "is not a function", not as a module link error.
+
+// The label never shows a raw key or an empty name: an unknown reason reads
+// "Shared"; a group or project without a name is told without one.
+assert.deepEqual(accessLabel(card({ access: { reasons: ['team'], primary: 'team', via_name: null } })),
+  { key: 'dashboards.reason.other', params: {}, icon: 'i-heroicons-share' })
+assert.deepEqual(accessLabel(card({ access: { reasons: ['group'], primary: 'group', via_name: '' } })),
+  { key: 'dashboards.reason.groupAny', params: {}, icon: 'i-heroicons-user-group' })
+assert.deepEqual(accessLabel(card({ access: { reasons: ['group'], primary: 'group', via_name: '   ' } })),
+  { key: 'dashboards.reason.groupAny', params: {}, icon: 'i-heroicons-user-group' })
+assert.deepEqual(accessLabel(card({ access: { reasons: ['project'], primary: 'project', via_name: null } })),
+  { key: 'dashboards.reason.projectAny', params: {}, icon: 'i-heroicons-folder' })
+assert.deepEqual(accessTitleParts(card({ access: { reasons: ['team'], primary: 'team', via_name: null } }))[0],
+  { key: 'dashboards.reason.other', params: {} })
+assert.deepEqual(accessTitleParts(card({ access: { reasons: ['group'], primary: 'group', via_name: '' } }))[0],
+  { key: 'dashboards.reasonTitle.groupOther', params: {} })
+assert.deepEqual(accessTitleParts(card({ access: { reasons: ['project'], primary: 'project', via_name: null } }))[0],
+  { key: 'dashboards.reasonTitle.projectOther', params: {} })
+
+// A time zone Intl does not know (an org setting from an older runtime) does
+// not throw: the dates fall back to the runtime's zone.
+{
+  const dated = { ...DEFAULT_STATE, edited: 'year', created: 'custom', createdFrom: '2026-03-01', createdTo: '2026-03-31' }
+  const runtime = toApiParams(dated, NOW, { view: 'grid' })
+  assert.deepEqual(toApiParams(dated, NOW, { view: 'grid', timeZone: 'Mars/Olympus_Mons' }), runtime)
+  assert.ok(runtime.edited_from && runtime.created_from && runtime.created_to)
+  assert.deepEqual(list.toFacetParams(dated, NOW, { timeZone: 'Mars/Olympus_Mons' }), list.toFacetParams(dated, NOW, {}))
+}
+
+// The URL keys the page owns; any other key (Excel's `excel`) is carried along.
+assert.deepEqual(list.ROUTE_KEYS, ['tab', 'q', 'type', 'access', 'agents', 'owners', 'created', 'created_from',
+  'created_to', 'edited', 'edited_from', 'edited_to', 'status', 'starred', 'attention', 'sort', 'page'])
+assert.deepEqual(list.withListQuery({ excel: 'true', q: 'old', sort: 'title', page: '4' },
+  { ...DEFAULT_STATE, tab: 'shared', q: 'rev', page: 2 }), { excel: 'true', tab: 'shared', q: 'rev', page: '2' })
+assert.deepEqual(list.withListQuery({}, DEFAULT_STATE), {})
+assert.deepEqual(list.withListQuery({ tab: 'shared', starred: '1' }, DEFAULT_STATE), {})
+
+// A URL the page did not write itself is replaced once on load (normalized).
+assert.equal(list.isNormalQuery({}), true)
+assert.equal(list.isNormalQuery({ excel: 'true' }), true)
+assert.equal(list.isNormalQuery({ tab: 'shared', q: 'rev', agents: `${A1},${A2}`, edited: '30', sort: 'title', page: '2' }), true)
+assert.equal(list.isNormalQuery({ created_from: '2026-01-01', created_to: '2026-01-31', starred: '1' }), true)
+assert.equal(list.isNormalQuery({ tab: 'nope' }), false, 'an unknown value')
+assert.equal(list.isNormalQuery({ tab: 'my' }), false, 'a default written out')
+assert.equal(list.isNormalQuery({ page: '1' }), false)
+assert.equal(list.isNormalQuery({ agents: `${A1},junk` }), false, 'one id dropped')
+assert.equal(list.isNormalQuery({ agents: A1.toUpperCase() }), false, 'ids are lowercased')
+assert.equal(list.isNormalQuery({ created: '7', created_from: '2026-01-01' }), false, 'a preset wins over dates')
+assert.equal(list.isNormalQuery({ sort: 'published' }), false, 'a Shared sort on My')
+assert.equal(list.isNormalQuery({ starred: 'true' }), false, 'written as 1')
+assert.equal(list.isNormalQuery({ q: ['a', 'b'] }), false, 'a repeated key')
+assert.equal(list.isNormalQuery({ q: '' }), false)
+
+// Search: the first change of a typing burst pushes, later ones replace,
+// until 1.5 s pass without a change (or the field loses focus: burst = null).
+assert.equal(list.SEARCH_BURST_MS, 1500)
+assert.equal(list.searchHistoryMethod(null, 10_000), 'push')
+assert.equal(list.searchHistoryMethod(10_000, 10_300), 'replace')
+assert.equal(list.searchHistoryMethod(10_000, 11_499), 'replace')
+assert.equal(list.searchHistoryMethod(10_000, 11_500), 'push')
+
+// A tab switch: page 1; to My, the Shared-only filters go and "Recently
+// published" becomes "Recently edited"; to Shared, the My-only status goes.
+{
+  const onShared = { ...DEFAULT_STATE, tab: 'shared', q: 'rev', agents: [A1], owners: [U9], access: 'org',
+    attention: true, starred: true, sort: 'published', page: 3 }
+  assert.deepEqual(list.switchTab(onShared, 'my'), { ...DEFAULT_STATE, q: 'rev', agents: [A1], starred: true })
+  assert.equal(list.switchTab({ ...onShared, sort: 'title' }, 'my').sort, 'title')
+  assert.equal(onShared.tab, 'shared', 'the state is not mutated')
+  const onMy = { ...DEFAULT_STATE, status: 'draft', edited: '30', sort: 'created', page: 2 }
+  assert.deepEqual(list.switchTab(onMy, 'shared'), { ...DEFAULT_STATE, tab: 'shared', edited: '30', sort: 'created' })
+}
+
+// "Clear all": every filter, the search, the type and the access chip; the tab and the sort stay.
+assert.deepEqual(list.clearAllFilters({ ...DEFAULT_STATE, tab: 'shared', q: 'x', type: 'doc', access: 'edit', agents: [A1],
+  owners: [U9], created: 'custom', createdFrom: '2026-01-01', createdTo: '2026-02-01', edited: 'year', status: 'draft',
+  starred: true, attention: true, sort: 'title', page: 4 }), { ...DEFAULT_STATE, tab: 'shared', sort: 'title' })
+
+// The active-filters row: one chip per value that applies on the tab, each removable.
+{
+  const busy = { ...DEFAULT_STATE, tab: 'shared', q: '  rev  ', agents: [A1, A2], owners: [U9], created: 'custom',
+    createdFrom: '2026-02-01', createdTo: '2026-02-28', edited: 'custom', editedFrom: '2026-01-01', status: 'draft',
+    starred: true, attention: true, page: 3 }
+  assert.deepEqual(list.activeFilterChips(busy).map(c => c.id),
+    ['q', `agent:${A1}`, `agent:${A2}`, `owner:${U9}`, 'created', 'edited', 'starred', 'attention'])
+  assert.deepEqual(list.activeFilterChips({ ...busy, tab: 'my' }).map(c => c.id),
+    ['q', `agent:${A1}`, `agent:${A2}`, 'created', 'edited', 'status', 'starred', 'attention'])
+  assert.deepEqual(list.activeFilterChips({ ...DEFAULT_STATE, q: ' rev ', agents: [A1], status: 'changes' }), [
+    { id: 'q', kind: 'q', value: 'rev' },
+    { id: `agent:${A1}`, kind: 'agent', value: A1 },
+    { id: 'status', kind: 'status', value: 'changes' },
+  ])
+  assert.deepEqual(list.activeFilterChips(DEFAULT_STATE), [])
+  assert.deepEqual(list.activeFilterChips({ ...DEFAULT_STATE, q: '   ', created: 'custom' }), [], 'blank search, custom without dates')
+
+  assert.deepEqual(list.removeFilterChip(busy, `agent:${A1}`), { ...busy, agents: [A2], page: 1 })
+  assert.deepEqual(list.removeFilterChip(busy, `owner:${U9}`), { ...busy, owners: [], page: 1 })
+  assert.deepEqual(list.removeFilterChip(busy, 'q'), { ...busy, q: '', page: 1 })
+  assert.deepEqual(list.removeFilterChip(busy, 'created'), { ...busy, created: 'any', createdFrom: '', createdTo: '', page: 1 })
+  assert.deepEqual(list.removeFilterChip(busy, 'edited'), { ...busy, edited: 'any', editedFrom: '', editedTo: '', page: 1 })
+  assert.deepEqual(list.removeFilterChip(busy, 'status'), { ...busy, status: 'any', page: 1 })
+  assert.deepEqual(list.removeFilterChip(busy, 'starred'), { ...busy, starred: false, page: 1 })
+  assert.deepEqual(list.removeFilterChip(busy, 'attention'), { ...busy, attention: false, page: 1 })
+  assert.equal(list.removeFilterChip(busy, 'nope'), busy, 'an unknown chip changes nothing')
+  assert.deepEqual(busy.agents, [A1, A2], 'the state is not mutated')
+}
+
+// GET /api/artifacts/facets: the list's filters without paging or sort, and
+// `new_since` on both tabs (the Shared tab's "{n} new" shows on My too).
+assert.deepEqual(list.toFacetParams({ ...DEFAULT_STATE, agents: [A1], edited: '7', status: 'draft', sort: 'title', page: 3 }, NOW,
+  { newSince: '2026-11-01T00:00:00Z', timeZone: 'UTC' }),
+{ filter: 'my', agent_ids: A1, edited_from: '2026-10-29T10:30:00.000Z', status: 'draft', new_since: '2026-11-01T00:00:00Z' })
+assert.deepEqual(list.toFacetParams({ ...DEFAULT_STATE, tab: 'shared', access: 'org', attention: true, status: 'draft' }, NOW,
+  { newSince: null }), { filter: 'shared', access: 'org', attention: true })
+
+// The org time zone arrives after the first fetch on a cold load: only a
+// state with "This year" or a custom date reads it, so only that one refetches.
+assert.equal(list.usesZonedDates(DEFAULT_STATE), false)
+for (const preset of ['7', '30', '90', 'older90', 'any']) {
+  assert.equal(list.usesZonedDates({ ...DEFAULT_STATE, created: preset, edited: preset }), false, `rolling ${preset}`)
+}
+assert.equal(list.usesZonedDates({ ...DEFAULT_STATE, edited: 'year' }), true)
+assert.equal(list.usesZonedDates({ ...DEFAULT_STATE, created: 'year' }), true)
+assert.equal(list.usesZonedDates({ ...DEFAULT_STATE, created: 'custom', createdFrom: '2026-01-01' }), true)
+assert.equal(list.usesZonedDates({ ...DEFAULT_STATE, edited: 'custom', editedTo: '2026-01-31' }), true)
+assert.equal(list.usesZonedDates({ ...DEFAULT_STATE, edited: 'custom' }), false, 'custom without a date is no filter')
+assert.equal(list.usesZonedDates({ ...DEFAULT_STATE, edited: '30', editedFrom: '2026-01-01' }), false,
+  'a rolling preset ignores leftover dates')
+assert.equal(list.usesZonedDates({ ...DEFAULT_STATE, created: 'custom', editedFrom: '2026-01-01' }), false,
+  "the other key's dates do not count")
+
+// A URL page past the end (a bookmark after deletions): the last page, once.
+{
+  const meta = (total, total_pages) => ({ total, total_pages })
+  assert.equal(list.clampPage({ ...DEFAULT_STATE, page: 9 }, meta(32, 3), 0), 3)
+  assert.equal(list.clampPage({ ...DEFAULT_STATE, page: 4 }, meta(32, 3), 0), 3)
+  assert.equal(list.clampPage({ ...DEFAULT_STATE, page: 9 }, meta(0, 0), 0), null, 'nothing matches: the empty state')
+  assert.equal(list.clampPage({ ...DEFAULT_STATE, page: 3 }, meta(32, 3), 2), null, 'rows came back')
+  assert.equal(list.clampPage({ ...DEFAULT_STATE, page: 9 }, meta(32, 3), 2), null, 'rows came back, even past the end')
+  assert.equal(list.clampPage({ ...DEFAULT_STATE, page: 2 }, meta(32, 3), 0), null,
+    'an empty page inside the range stays (meta.total is an upper bound)')
+  assert.equal(list.clampPage({ ...DEFAULT_STATE, page: 3 }, meta(32, 3), 0), null, 'not past the end')
+  assert.equal(list.clampPage({ ...DEFAULT_STATE, page: 5 }, meta(4, 0), 0), 1, 'total_pages 0 with a total: page 1')
+  assert.equal(list.clampPage({ ...DEFAULT_STATE, page: 1 }, meta(4, 0), 0), null, 'already page 1: no loop')
+}
+
+// The URL holds only real calendar dates for a custom range.
+assert.deepEqual(toRouteQuery({ ...DEFAULT_STATE, created: 'custom', createdFrom: '2026-02-30', createdTo: '2026-03-01' }),
+  { created_to: '2026-03-01' })
+assert.deepEqual(toRouteQuery({ ...DEFAULT_STATE, edited: 'custom', editedFrom: 'yesterday', editedTo: '2026-13-01' }), {})
+assert.deepEqual(toRouteQuery({ ...DEFAULT_STATE, edited: 'custom', editedFrom: '2024-02-29', editedTo: '2024-03-01' }),
+  { edited_from: '2024-02-29', edited_to: '2024-03-01' })
 
 console.log('dashboardList: ok')

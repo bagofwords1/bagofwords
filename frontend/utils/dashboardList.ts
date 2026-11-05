@@ -67,6 +67,25 @@ export interface DashboardCardData {
   agents?: Array<{ id: string; name?: string | null; type?: string | null; icon_token?: string | null }>
 }
 
+export interface FacetAgent { id: string; name?: string | null; type?: string | null; icon_token?: string | null }
+
+/** GET /api/artifacts/facets (backend DashboardListFacets): counts are upper bounds. */
+export interface DashboardFacets {
+  tabs: { my: number; shared: number }
+  access?: Record<AccessChip, number> | null
+  agents?: Array<FacetAgent & { count: number }>
+  owners?: Array<{ id: string; name?: string | null; count: number }>
+  status?: { published: number; changes: number; draft: number } | null
+  new_count?: number
+  attention?: { failing: number; stale: number; total: number } | null
+}
+
+/** Agents and owners the page has seen in facets, by id: a selected one keeps its name at count 0. */
+export interface FacetNames {
+  agents: Record<string, FacetAgent>
+  owners: Record<string, string>
+}
+
 export const DEFAULT_STATE: DashboardListState = Object.freeze({
   tab: 'my',
   q: '',
@@ -180,7 +199,7 @@ export function parseListQuery(query: Record<string, unknown>): DashboardListSta
   }
 }
 
-/** The list state as a route query, without the defaults. A custom range is its plain dates. */
+/** The list state as a route query, without the defaults. A custom range is its plain (valid) dates. */
 export function toRouteQuery(state: DashboardListState): Record<string, string> {
   const out: Record<string, string> = {}
   if (state.tab !== DEFAULT_STATE.tab) out.tab = state.tab
@@ -192,8 +211,9 @@ export function toRouteQuery(state: DashboardListState): Record<string, string> 
   for (const key of ['created', 'edited'] as const) {
     const preset = state[key]
     if (preset === 'custom') {
-      const from = state[`${key}From`]
-      const to = state[`${key}To`]
+      // Only a real calendar date: the URL never carries what parseListQuery would drop.
+      const from = validDate(state[`${key}From`])
+      const to = validDate(state[`${key}To`])
       if (from) out[`${key}_from`] = from
       if (to) out[`${key}_to`] = to
     } else if (preset !== 'any') {
@@ -296,7 +316,30 @@ export function presetRange(
   }
 }
 
+/**
+ * Whether the state's API params depend on the time zone: "This year" or a
+ * custom range with a date. Rolling presets ("Last 7 days") do not.
+ */
+export function usesZonedDates(state: DashboardListState): boolean {
+  return (['created', 'edited'] as const).some(key => state[key] === 'year'
+    || (state[key] === 'custom' && !!(state[`${key}From`] || state[`${key}To`])))
+}
+
 // --- API -----------------------------------------------------------------------------
+
+/**
+ * `timeZone` when this runtime's Intl knows it, else undefined (the runtime's
+ * zone): an org zone from a newer tz database must not break the page.
+ */
+function knownTimeZone(timeZone?: string): string | undefined {
+  if (!timeZone) return undefined
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone })
+    return timeZone
+  } catch {
+    return undefined
+  }
+}
 
 /**
  * GET /api/artifacts params for a state. Filters the API ignores on a tab are
@@ -309,6 +352,7 @@ export function toApiParams(
   opts: { view: 'grid' | 'list'; newSince?: string | null; timeZone?: string },
 ): Record<string, string | number | boolean> {
   const shared = state.tab === 'shared'
+  const timeZone = knownTimeZone(opts.timeZone)
   const out: Record<string, string | number | boolean> = {
     filter: state.tab,
     page: state.page,
@@ -325,7 +369,7 @@ export function toApiParams(
     const range = presetRange(state[key], now, {
       from: state[`${key}From`],
       to: state[`${key}To`],
-      timeZone: opts.timeZone,
+      timeZone,
     })
     if (range.from) out[`${key}_from`] = range.from
     if (range.to) out[`${key}_to`] = range.to
@@ -335,6 +379,137 @@ export function toApiParams(
   if (state.attention) out.attention = true
   if (shared && opts.newSince) out.new_since = opts.newSince
   return out
+}
+
+/**
+ * GET /api/artifacts/facets params: the list's filters, without paging or
+ * sort; `new_since` on both tabs, since the Shared tab's "{n} new" shows on
+ * My too.
+ */
+export function toFacetParams(
+  state: DashboardListState,
+  now: Date,
+  opts: { newSince?: string | null; timeZone?: string },
+): Record<string, string | number | boolean> {
+  const { page: _page, limit: _limit, sort: _sort, ...out } = toApiParams(state, now, { view: 'grid', timeZone: opts.timeZone })
+  if (opts.newSince) out.new_since = opts.newSince
+  return out
+}
+
+// --- the page's history (Durable decisions, "History") -------------------------------
+
+/** The route query keys the page owns. Any other key (Excel's `excel`) is left alone. */
+export const ROUTE_KEYS = [
+  'tab', 'q', 'type', 'access', 'agents', 'owners', 'created', 'created_from', 'created_to',
+  'edited', 'edited_from', 'edited_to', 'status', 'starred', 'attention', 'sort', 'page',
+] as const
+
+/** The route query for `state`: the page's keys rewritten, every other key of `current` kept. */
+export function withListQuery(current: Record<string, unknown>, state: DashboardListState): Record<string, unknown> {
+  const own = new Set<string>(ROUTE_KEYS)
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(current)) if (!own.has(key)) out[key] = value
+  return { ...out, ...toRouteQuery(state) }
+}
+
+/**
+ * Whether the page's keys in `query` are exactly what it would write for
+ * them. When not (an unknown or invalid value, a default written out), the
+ * page replaces the URL once on load, so Back never returns to it.
+ */
+export function isNormalQuery(query: Record<string, unknown>): boolean {
+  const expected = toRouteQuery(parseListQuery(query))
+  return ROUTE_KEYS.every(key => (key in query ? query[key] === expected[key] : !(key in expected)))
+}
+
+/**
+ * The page to replace the URL's with when it is past the end (a bookmark
+ * after deletions): no rows came back, yet something matches. Else null --
+ * also when nothing matches at all (the empty state) or the page would not move.
+ */
+export function clampPage(
+  state: DashboardListState,
+  meta: { total: number; total_pages: number },
+  rows: number,
+): number | null {
+  if (rows > 0 || meta.total <= 0 || state.page <= meta.total_pages) return null
+  const last = Math.max(1, meta.total_pages)
+  return last === state.page ? null : last
+}
+
+/** How long a typing burst lasts without a change. */
+export const SEARCH_BURST_MS = 1500
+
+/**
+ * A debounced search change: the first of a typing burst adds a history
+ * entry (push), later ones in the same burst replace it. `burstAt` is the
+ * time of the burst's last change, null after a blur or a Back/Forward.
+ */
+export function searchHistoryMethod(burstAt: number | null, now: number): 'push' | 'replace' {
+  return burstAt !== null && now - burstAt < SEARCH_BURST_MS ? 'replace' : 'push'
+}
+
+/**
+ * The state after switching to `tab`, on page 1. To My: the Shared-only
+ * filters (owners, the access chip, "needs attention") are dropped and
+ * "Recently published" becomes "Recently edited"; to Shared: the status.
+ */
+export function switchTab(state: DashboardListState, tab: DashboardTab): DashboardListState {
+  const next: DashboardListState = { ...state, tab, page: 1 }
+  if (tab === 'my') {
+    next.owners = []
+    next.access = 'all'
+    next.attention = false
+    if (next.sort === 'published') next.sort = 'edited'
+  } else {
+    next.status = 'any'
+  }
+  return next
+}
+
+/** "Clear all": the search, the type, the access chip and every funnel filter. The tab and the sort stay. */
+export function clearAllFilters(state: DashboardListState): DashboardListState {
+  return { ...DEFAULT_STATE, agents: [], owners: [], tab: state.tab, sort: state.sort }
+}
+
+export type FilterChipKind = 'q' | 'agent' | 'owner' | 'created' | 'edited' | 'status' | 'starred' | 'attention'
+export interface FilterChip {
+  id: string
+  kind: FilterChipKind
+  value?: string
+}
+
+/** The active-filters row: one removable chip per value that applies on the state's tab. */
+export function activeFilterChips(state: DashboardListState): FilterChip[] {
+  const shared = state.tab === 'shared'
+  const chips: FilterChip[] = []
+  const q = state.q.trim()
+  if (q) chips.push({ id: 'q', kind: 'q', value: q })
+  for (const id of state.agents) chips.push({ id: `agent:${id}`, kind: 'agent', value: id })
+  if (shared) for (const id of state.owners) chips.push({ id: `owner:${id}`, kind: 'owner', value: id })
+  if (rangeActive(state.created, state.createdFrom, state.createdTo)) chips.push({ id: 'created', kind: 'created', value: state.created })
+  if (rangeActive(state.edited, state.editedFrom, state.editedTo)) chips.push({ id: 'edited', kind: 'edited', value: state.edited })
+  if (!shared && state.status !== 'any') chips.push({ id: 'status', kind: 'status', value: state.status })
+  if (state.starred) chips.push({ id: 'starred', kind: 'starred' })
+  if (state.attention) chips.push({ id: 'attention', kind: 'attention' })
+  return chips
+}
+
+/** The state without one chip's value, on page 1. An unknown chip leaves the state as it is. */
+export function removeFilterChip(state: DashboardListState, id: string): DashboardListState {
+  const [kind, value] = id.includes(':') ? [id.slice(0, id.indexOf(':')), id.slice(id.indexOf(':') + 1)] : [id, '']
+  const next = { ...state, page: 1 }
+  switch (kind) {
+    case 'q': return { ...next, q: '' }
+    case 'agent': return { ...next, agents: state.agents.filter(a => a !== value) }
+    case 'owner': return { ...next, owners: state.owners.filter(o => o !== value) }
+    case 'created': return { ...next, created: 'any', createdFrom: '', createdTo: '' }
+    case 'edited': return { ...next, edited: 'any', editedFrom: '', editedTo: '' }
+    case 'status': return { ...next, status: 'any' }
+    case 'starred': return { ...next, starred: false }
+    case 'attention': return { ...next, attention: false }
+    default: return state
+  }
 }
 
 function rangeActive(preset: DatePreset, from: string, to: string): boolean {
@@ -362,6 +537,12 @@ const REASON_ICON: Record<string, string> = {
   org: 'i-heroicons-building-office',
   public: 'i-heroicons-globe-alt',
 }
+const OTHER_ICON = 'i-heroicons-share'
+
+/** The primary reason's group or project name, or '' when the API gave none. */
+function viaName(card: DashboardCardData): string {
+  return (card.access?.via_name ?? '').trim()
+}
 
 function primaryReason(card: DashboardCardData): string | null {
   const reasons = card.access?.reasons ?? []
@@ -383,9 +564,15 @@ export function accessLabel(
   const primary = primaryReason(card)
   if (!primary) return null
   const reason = shownReason(primary, card)
-  const params: Record<string, string> = {}
-  if (reason === 'group' || reason === 'project') params.name = card.access?.via_name ?? ''
-  return { key: `dashboards.reason.${reason}`, params, icon: REASON_ICON[reason] ?? 'i-heroicons-user' }
+  // A reason this page does not know yet reads "Shared", never a raw key.
+  if (!REASON_ICON[reason]) return { key: 'dashboards.reason.other', params: {}, icon: OTHER_ICON }
+  if (reason === 'group' || reason === 'project') {
+    const name = viaName(card)
+    return name
+      ? { key: `dashboards.reason.${reason}`, params: { name }, icon: REASON_ICON[reason] }
+      : { key: `dashboards.reason.${reason}Any`, params: {}, icon: REASON_ICON[reason] }
+  }
+  return { key: `dashboards.reason.${reason}`, params: {}, icon: REASON_ICON[reason] }
 }
 
 /**
@@ -404,10 +591,11 @@ export function accessTitleParts(card: DashboardCardData): Array<{ key: string; 
       return owner ? { key: 'dashboards.reasonTitle.direct', params: { owner } } : { key: 'dashboards.reason.direct', params: {} }
     }
     if (reason === 'group' || reason === 'project') {
-      return r === primary
-        ? { key: `dashboards.reasonTitle.${reason}`, params: { name: card.access?.via_name ?? '' } }
+      return r === primary && viaName(card)
+        ? { key: `dashboards.reasonTitle.${reason}`, params: { name: viaName(card) } }
         : { key: `dashboards.reasonTitle.${reason}Other`, params: {} }
     }
+    if (!REASON_ICON[reason]) return { key: 'dashboards.reason.other', params: {} }
     return { key: `dashboards.reasonTitle.${reason}`, params: {} }
   })
   const canEdit = card.role === 'owner' || card.role === 'edit'

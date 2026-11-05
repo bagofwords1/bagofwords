@@ -94,12 +94,14 @@ const brokenThumbs = reactive<Record<string, boolean>>({})
 
 const roleOf = (d: any): 'owner' | 'edit' | 'view' => d.role || (d.is_owner ? 'owner' : 'view')
 
-// Mine and shared with me, editable only, newest first, one row each.
+// Mine and shared with me, editable only, newest first, one row each. On
+// Shared the API keeps only those the reader can edit (access=edit), so
+// view-only shares never crowd editable ones out of the first 50.
 async function load() {
     loading.value = true
     try {
         const pages = await Promise.all(['my', 'shared'].map(filter =>
-            useMyFetch('/artifacts', { method: 'GET', query: { page: 1, limit: 50, filter } })))
+            useMyFetch('/artifacts', { method: 'GET', query: { page: 1, limit: 50, filter, ...(filter === 'shared' ? { access: 'edit' } : {}) } })))
         const seen = new Set<string>()
         items.value = pages.flatMap(p => ((p.data.value as any)?.dashboards || []) as any[])
             .filter(d => roleOf(d) !== 'view' && !seen.has(d.id) && seen.add(d.id))
