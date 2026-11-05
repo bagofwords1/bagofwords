@@ -252,6 +252,8 @@ class DataSourceClient(ABC):
         UI can show how big the indexed data was. Default empty."""
         return {}
 
+    unindexed_table_prefix_separator = "/"
+
     def unindexed_table_prefixes(self) -> List[str]:
         """Table-name prefixes the last `get_schemas` call could not read.
 
@@ -261,7 +263,8 @@ class DataSourceClient(ABC):
         Absent from the result is not the same as gone from the source, so the
         schema refresh keeps existing tables under these prefixes (and the
         agents' selection of them) instead of pruning them. Each prefix covers
-        names that start with ``prefix + "/"``. Default: nothing unread.
+        names that start with ``prefix + unindexed_table_prefix_separator``.
+        Default: nothing unread.
         """
         return []
 

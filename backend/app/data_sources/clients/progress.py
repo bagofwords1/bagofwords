@@ -204,3 +204,30 @@ def discovery_summary(phase: str, count: int) -> None:
     if reporter is not None:
         reporter.phase(phase, total=count)
         reporter.done()
+
+
+NOT_FOUND_REASON = "not found"
+SKIPPED_NAME_REASON = "name contains '.'"
+
+
+def format_name_list(names: list[str], limit: int = 5) -> str:
+    more = f" (+{len(names) - limit} more)" if len(names) > limit else ""
+    return ", ".join(names[:limit]) + more
+
+
+def split_unreadable(entries: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
+    not_found = [d for d in entries if d.get("reason") == NOT_FOUND_REASON]
+    skipped = [d for d in entries if d.get("reason") == SKIPPED_NAME_REASON]
+    denied = [d for d in entries if d not in not_found and d not in skipped]
+    return not_found, skipped, denied
+
+
+def unreadable_note(entries: Optional[list]) -> str:
+    if not entries:
+        return ""
+    not_found, skipped, denied = split_unreadable(entries)
+    note = ""
+    for label, group in (("Not found", not_found), ("Skipped", skipped), ("Not readable", denied)):
+        if group:
+            note += f" {label}: {format_name_list([str(d.get('name')) for d in group])}."
+    return note

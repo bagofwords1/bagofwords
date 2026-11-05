@@ -771,7 +771,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "default": AuthVariant(title="AWS Default (IAM Role / Instance Profile)", schema=AWSAthenaDefaultCredentials, scopes=["system", "user"]),
             "key": AuthVariant(title="AWS Access Keys", schema=AWSAthenaCredentials, scopes=["system", "user"]),
         }),
-        client_path=None,
+        client_path="app.data_sources.clients.aws_athena_client.AwsAthenaClient",
         version="beta",
     ),
     "mariadb": DataSourceRegistryEntry(
