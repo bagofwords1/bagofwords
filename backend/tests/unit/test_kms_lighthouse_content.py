@@ -983,6 +983,61 @@ def test_ai_text_that_carries_html_is_read_as_html(kms, monkeypatch, authored, s
     assert "<b>" not in summary and "&quot;" not in summary and "&nbsp;" not in summary
 
 
+@pytest.mark.parametrize("authored", [
+    "Ask the caller for the <code> sent by SMS",
+    "Ask for the <code> and the <account number>",
+    "Set <var> to the branch id, format <YYYY-MM-DD>",
+    "If <a> is larger than <b>, use <a>",
+    "Press <p> to print",
+], ids=["code", "code_and_account", "var_and_date", "a_and_b", "p"])
+def test_ai_text_with_a_tag_shaped_placeholder_is_shown_as_written(kms, monkeypatch, authored):
+    mock = kms["mock"]
+    # A bare known tag name with no closing tag, attribute, comment or character reference is an
+    # author's placeholder, not markup: every <placeholder> in the element stays.
+    _with_ai_summary(mock, monkeypatch, authored)
+    text = client(kms).read_file("item:279")
+    assert "AI links." in text and "Item summary" not in text       # still the ai text
+    assert f"### Summary\n{authored}\n" in _sections(text)["Overview"]
+
+
+@pytest.mark.parametrize("authored,secret", [
+    ("Ask for the <code>: Bearer <b>abc123def456</b>", "abc123def456"),
+    ("Authorization: Bearer</td><td>abc123def456", "abc123def456"),
+    ("api_key:<!-- -->sk_live_51HxABCDEF", "sk_live_51HxABCDEF"),
+    ('Use <span class="k">api_key</span>: sk_live_51HxABCDEF', "sk_live_51HxABCDEF"),
+    ('Use <span class="k">api_key: sk_live_51HxABCDEF', "sk_live_51HxABCDEF"),
+], ids=["placeholder_and_bold", "table_cells", "comment", "attribute", "attribute_only"])
+def test_ai_text_with_markup_evidence_is_read_as_html_and_scrubbed(kms, monkeypatch, authored, secret):
+    mock = kms["mock"]
+    _with_ai_summary(mock, monkeypatch, authored)
+    text = client(kms).read_file("item:279")
+    assert "AI links." in text and "Item summary" not in text
+    summary = _sections(text)["Overview"]
+    assert secret not in text and "[redacted]" in summary
+    assert "<" not in summary              # every tag (and the <code> next to one) went with the markup
+
+
+@pytest.mark.parametrize("authored", ["Step one<br>Step two", "Step one<br/>Step two", "Step one<BR />Step two"])
+def test_ai_text_with_a_line_break_tag_is_read_as_html(kms, monkeypatch, authored):
+    mock = kms["mock"]
+    _with_ai_summary(mock, monkeypatch, authored)
+    text = client(kms).read_file("item:279")
+    assert "AI links." in text and "### Summary\nStep one\nStep two\n" in _sections(text)["Overview"]
+
+
+def test_ai_text_fall_back_logs_a_dropped_element_once(kms, monkeypatch, caplog):
+    mock = kms["mock"]
+    caplog.set_level(logging.DEBUG, logger=kc.logger.name)
+    monkeypatch.setitem(mock.ITEMS["279"]["elements"], "E_ODD", "odd-element-marker-5c13")
+    monkeypatch.setitem(mock.AI_ITEMS["279"], "elements", [
+        {"element_name": "E_RESTRICTED", "element_caption": "Managers only", "tab_caption": "Overview",
+         "element_text": "restricted"}])
+    text = client(kms).read_file("item:279")
+    assert "Item summary: verify the caller first." in text and "restricted" not in text
+    lines = [r.getMessage() for r in caplog.records if r.name == kc.logger.name and "dropped" in r.getMessage()]
+    assert lines == ["kms_lighthouse item dropped: an element is not a record"]
+
+
 @pytest.mark.parametrize("ai_text", [True, False], ids=["ai_text", "item_html"])
 def test_an_item_with_an_empty_element_list_reads_as_no_elements(kms, monkeypatch, ai_text):
     mock = kms["mock"]
@@ -2578,6 +2633,30 @@ def test_search_title_and_description_are_linear_at_full_length(kms, name):
     entry = _by_id(client(kms).search_files("x"))[f"item:{raw_id}"]
     assert time.perf_counter() - started < 3.0, name
     assert entry["name"].startswith("Guide") and entry["snippet"].startswith("Guide")
+
+
+_AI_MARKUP_ADVERSARIAL = {
+    "closing_tag_blanks": _adversarial("</" + " " * 40),
+    "closing_tag_names": _adversarial("</" + "a" * 60),
+    "closing_tag_names_blanks": _adversarial("</ab" + " " * 40),
+    "break_blanks": _adversarial("<br" + " " * 40 + "/"),
+    "attribute_runs": "<span" + _adversarial(" a=b") + "x",
+    "attribute_name_runs": "<span " + _adversarial("a"),
+    "attribute_quote_runs": "<span a=\"" + _adversarial("b"),
+    "attribute_blank_runs": "<a" + _adversarial(" a = b "),
+    "bare_known_tags": _adversarial("<code> "),
+    "comment_openers": _adversarial("<!-"),
+    "open_brackets": _adversarial("<"),
+}
+
+
+@pytest.mark.parametrize("name", sorted(_AI_MARKUP_ADVERSARIAL))
+def test_ai_text_markup_evidence_is_linear_at_full_length(name):
+    # Every ai element is checked for markup evidence before it is scrubbed, at full length.
+    # Measured: well under 0.5 s each, so 3 s is a generous bound.
+    started = time.perf_counter()
+    kc._plain_ai_text(_AI_MARKUP_ADVERSARIAL[name])
+    assert time.perf_counter() - started < 3.0, name
 
 
 def test_search_scrubs_a_title_or_description_at_full_length(kms):

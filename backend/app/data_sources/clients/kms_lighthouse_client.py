@@ -1043,11 +1043,14 @@ _TAG_RE = re.compile(r"<(?=[A-Za-z/!?])[^<>]++>")
 _ENTITY_RE = re.compile(r"&(?:#[0-9]{1,8}+|#[xX][0-9A-Fa-f]{1,8}+|[A-Za-z][A-Za-z0-9]{0,31}+);")
 _BLANKS_RE = re.compile(r"[ \t]++")
 _BLANK_LINES_RE = re.compile(r"\n{3,}+")
-# A tag the HTML rules above know (an inline tag, a line break or a block), written as markup: a bare
-# name or only name="value" attributes. "<account number>", "a<b and c>d" and "<YYYY-MM-DD>" are text.
-_KNOWN_TAG_RE = re.compile(
-    r"(?i)<\s*+/?(?:" + _INLINE_TAG_NAMES + r"|br|p|div|li|tr|h[1-6])"
-    r"(?:\s++[A-Za-z_:][-\w:.]*+\s*+=\s*+(?:\"[^\"<>]*+\"|'[^'<>]*+'|[^\s\"'<>=`]++))*+\s*+/?>")
+# Markup an author's placeholder never carries: a closing tag ("</b>", "</ td >"), a line break
+# ("<br>", "<br/>", "<br />"), a tag the HTML rules above know with at least one name=value attribute,
+# or a comment opener. A bare "<code>", "<a>", "<p>", "<var>", "<account number>" or "<YYYY-MM-DD>"
+# is text. No part crosses a '<', so the search is linear.
+_HTML_EVIDENCE_RE = re.compile(
+    r"(?i)<(?:!--|\s*+/\s*+[A-Za-z][-\w:.]*+\s*+>|\s*+br\s*+/?+\s*+>|\s*+(?:" + _INLINE_TAG_NAMES
+    + r"|br|p|div|li|tr|h[1-6])(?:\s++[A-Za-z_:][-\w:.]*+\s*+=\s*+(?:\"[^\"<>]*+\"|'[^'<>]*+'"
+    r"|[^\s\"'<>=`]++))++\s*+/?>)")
 
 
 def _join_inline_tags(match: re.Match) -> str:
@@ -1103,11 +1106,14 @@ def _plain_ai_text(value) -> str:
     """ai_answers_item text, scrubbed, lines tidied.
 
     It is plain text (API PDF), so nothing is stripped or decoded, unless it
-    carries a tag the HTML rules know or a character reference: then it is
-    the editor's HTML and is read like the item HTML.
+    carries markup evidence (``_HTML_EVIDENCE_RE``) or a character reference:
+    then it is the editor's HTML and is read like the item HTML. A bare
+    tag-shaped placeholder ("<code>") is kept. Text with a character
+    reference loses its "<placeholders>" (``&quot;``-escaped credentials
+    must be decoded, so references stay evidence).
     """
     text = "" if value is None else str(value)
-    if _KNOWN_TAG_RE.search(text) or _ENTITY_RE.search(text):
+    if _HTML_EVIDENCE_RE.search(text) or _ENTITY_RE.search(text):
         return _plain_text(text)
     return _scrub(_tidy_lines(text))
 
@@ -1377,8 +1383,10 @@ def _render_sections(sections: list) -> list:
     return lines
 
 
-def _item_sections(item: dict) -> list:
-    """The /public/item elements by tab (``str(tabId)`` against ``str(tabs[].id)``), in tab order.
+def _item_sections(item: dict, records: dict) -> list:
+    """The /public/item elements (``records``: ``_elements(item)``) by tab, in tab order.
+
+    Tabs match on ``str(tabId)`` against ``str(tabs[].id)``.
 
     The item image is skipped; an element with no tab, a ``null`` or ``-1``
     tabId, or one no tab names goes to an untitled "General" section, first.
@@ -1389,7 +1397,7 @@ def _item_sections(item: dict) -> list:
         if isinstance(tab, dict) and tab.get("id") is not None and _line(tab.get("caption")):
             captions.setdefault(str(tab["id"]), _line(tab.get("caption")))
     by_tab: dict = {}
-    for element in _elements(item).values():
+    for element in records.values():
         if element.get("type") == _IMAGE_FIELD:
             continue
         tab_id = element.get("tabId")
@@ -2205,17 +2213,18 @@ class KmsLighthouseClient(DataSourceClient):
         if elements is not None and elements != [] and not isinstance(elements, dict):
             logger.debug("kms_lighthouse %s refused: %s", "item", "elements is not a record map")
             raise KmsHTTPError(200, "server")
+        records = _elements(item)        # once per read, so a dropped element is logged once
         version, language = _version(item.get("version")), _language(item.get("language"))
-        sections = self._ai_text(digits, version, language, item) if version and language else None
+        sections = self._ai_text(digits, version, language, records) if version and language else None
         if sections is None:
-            sections = _item_sections(item)
+            sections = _item_sections(item, records)
         sub_type = _line(item.get("subType") or item.get("sub_type"))
         kind = f"article ({sub_type})" if sub_type else "article"
         lines = _header(item.get("title"), kind, item, version, language) + _render_sections(sections)
         return DocumentText("\n".join(lines), raw=None, name=_safe_title(item.get("title")) + ".txt",
                             mime="text/plain")
 
-    def _ai_text(self, digits: str, version: str, language: str, item: dict) -> list | None:
+    def _ai_text(self, digits: str, version: str, language: str, records: dict) -> list | None:
         """The ai-ready sections of this read, or None to fall back to the item HTML.
 
         ``/public/item`` has already proved this identity may read the item,
@@ -2242,7 +2251,7 @@ class KmsLighthouseClient(DataSourceClient):
         if not isinstance(payload, dict) or ("item_id" in payload and not _same_id(payload["item_id"], digits)):
             logger.debug("kms_lighthouse %s fell back: %s", "ai_text", "not the item asked for")
             return None
-        visible = {name for name, element in _elements(item).items() if element.get("type") != _IMAGE_FIELD}
+        visible = {name for name, element in records.items() if element.get("type") != _IMAGE_FIELD}
         sections = _ai_sections(payload.get("elements"), visible)
         if sections is None:
             logger.debug("kms_lighthouse %s fell back: %s", "ai_text", "no element the item shows")
