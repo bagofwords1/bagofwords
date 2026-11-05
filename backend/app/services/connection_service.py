@@ -1485,7 +1485,11 @@ class ConnectionService:
             raise AppError.bad_request(ErrorCode.VALIDATION, "Authentication mode is not permitted by this connection")
         try:
             credentials = variant.schema(**(payload.credentials or {})).model_dump()
-        except ValueError:
+        except ValueError as e:
+            if connection.type == "kms_lighthouse":
+                # The KMS schemas hide the input in their errors, so the fixed
+                # format message (for example a token with a space) is safe to show.
+                raise AppError(ErrorCode.VALIDATION, f"Invalid credentials: {redact_error(e)}", status_code=422)
             raise AppError(ErrorCode.VALIDATION, "The required credential fields are missing or invalid", status_code=422)
         row = await get_user_conn_cred_row(db, connection, user)
         if row is None:

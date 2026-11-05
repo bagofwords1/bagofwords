@@ -210,7 +210,10 @@ def test_kms_file_scope_descriptor_tells_the_planner_how_to_browse(render):
     note = kms_xml[kms_xml.index("<note>"):kms_xml.index("</note>")]
     assert "folder_id" in note
     assert "Procedures/Billing" in note
-    assert "50" in note
+    assert f"at most {_KMS_CONFIG['max_results']} articles" in note
+    assert f"after {kc._MAX_FOLDER_CALLS} folder lookups" in note
+    assert "no catalog" in note
+    assert "always 0" in note
     assert "browsing only" in note
     assert kms_xml.index("<usage>") < kms_xml.index("<note>")
     assert "anything else is denied" not in kms_xml
@@ -241,6 +244,78 @@ def test_kms_file_scope_is_built_with_the_note_and_no_enforced_scope():
     assert files_scope.enforces_scope is True
     assert files_scope.note is None
     assert files_scope.base == "/mnt/share"
+
+
+# ConnectForm stores a blank optional number as "", and create_connection does not
+# validate config, so the note must read each value exactly as the client does.
+_BLANKS = [("missing", {}), ("empty", {"root_folder_id": "", "layout_id": ""}),
+           ("none", {"root_folder_id": None, "layout_id": None}),
+           ("zero", {"root_folder_id": 0, "layout_id": 0}),
+           ("ten", {"root_folder_id": 10, "layout_id": 10})]
+
+
+@pytest.mark.parametrize("cfg", [c for _, c in _BLANKS], ids=[n for n, _ in _BLANKS])
+def test_planner_note_reads_root_and_layout_as_the_client_does(cfg):
+    client = kc.KmsLighthouseClient(base_url="https://kms.example.com", username="alice", password="pw", **cfg)
+    note = kc.planner_scope_note(dict(cfg, base_url="https://kms.example.com"))
+    if client.root_folder_id is None:
+        assert "from the top level" in note
+        assert "(id " not in note
+    else:
+        assert f"from the root folder (id {client.root_folder_id})" in note
+    if client.layout_id is None:
+        assert " in layout" not in note
+    else:
+        assert f" in layout {client.layout_id}," in note
+    assert "(id )" not in note
+    assert "layout ," not in note
+
+
+@pytest.mark.parametrize("root,base", [(0, "https://kms.example.com / 0"), (10, "https://kms.example.com / 10"),
+                                       ("", "https://kms.example.com"), (None, "https://kms.example.com")])
+def test_kms_file_scope_base_keeps_root_folder_zero(root, base):
+    from app.ai.context.builders.schema_context_builder import SchemaContextBuilder
+
+    conn = SimpleNamespace(id="k1", name="KMS", type="kms_lighthouse",
+                           config={"base_url": "https://kms.example.com", "root_folder_id": root, "index_mode": "none"},
+                           auth_policy="user_required", allowed_user_auth_modes=["userpass"])
+    builder = SchemaContextBuilder.__new__(SchemaContextBuilder)
+    scopes, _ = builder._build_file_scopes(SimpleNamespace(connections=[conn]), [])
+    assert scopes[0].base == base
+
+
+# ------------------------------------------------------------------ member credential save
+
+
+def _member_save(conn_type, auth_mode, credentials):
+    from app.services.connection_service import ConnectionService
+
+    connection = SimpleNamespace(type=conn_type, auth_policy="user_required", allowed_user_auth_modes=None)
+    payload = SimpleNamespace(auth_mode=auth_mode, credentials=credentials)
+    # Validation fails before any database access, so no db or user is needed.
+    return ConnectionService().save_windows_user_credentials(None, connection, None, payload)
+
+
+@pytest.mark.asyncio
+async def test_member_save_shows_the_kms_token_format_message():
+    from app.errors import AppError
+    from app.schemas.data_sources.configs import KMS_TOKEN_FORMAT_MESSAGE
+
+    with pytest.raises(AppError) as info:
+        await _member_save("kms_lighthouse", "token", {"api_token": "dummy tok3n"})
+    assert info.value.status_code == 422
+    assert KMS_TOKEN_FORMAT_MESSAGE in info.value.message
+    assert "dummy tok3n" not in info.value.message
+
+
+@pytest.mark.asyncio
+async def test_member_save_keeps_the_generic_message_for_other_types():
+    from app.errors import AppError
+
+    with pytest.raises(AppError) as info:
+        await _member_save("documentum", "userpass", {"username": "alice"})
+    assert info.value.status_code == 422
+    assert info.value.message == "The required credential fields are missing or invalid"
 
 
 # ------------------------------------------------------------------ tool schema

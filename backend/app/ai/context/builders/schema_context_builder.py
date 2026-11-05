@@ -1120,7 +1120,8 @@ class SchemaContextBuilder:
             elif c.type == "documentum":
                 base = " / ".join(str(cfg[k]) for k in ("rest_url", "repository", "root_path") if cfg.get(k))
             elif c.type == "kms_lighthouse":
-                base = " / ".join(str(cfg[k]) for k in ("base_url", "root_folder_id") if cfg.get(k))
+                # Folder id 0 is a real id; only a missing or blank value is left out.
+                base = " / ".join(str(cfg[k]) for k in ("base_url", "root_folder_id") if cfg.get(k) not in (None, ""))
             cid = str(c.id)
             ftabs = by_conn.get(cid, [])
             sample = [t.name for t in ftabs[:5] if getattr(t, 'name', None)]

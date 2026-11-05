@@ -1683,11 +1683,15 @@ def planner_scope_note(config: dict) -> str:
     max_results = cfg.get("max_results") or _DEFAULT_MAX_RESULTS
     root = cfg.get("root_folder_id")
     layout = cfg.get("layout_id")
-    origin = f"the root folder (id {root})" if root is not None else "the top level"
-    in_layout = f" in layout {layout}" if layout is not None else ""
+    # Read blanks exactly as the constructor does: the connect form stores "" for an empty number.
+    origin = f"the root folder (id {root})" if root not in (None, "") else "the top level"
+    in_layout = f" in layout {layout}" if layout not in (None, "") else ""
     return (
         f"KMS Lighthouse: list_files with no folder_id returns at most {max_results} articles and scenarios "
-        f"from {origin}, and stops there without saying so (the listing can be incomplete). To open a folder, "
+        f"from {origin}, and stops there without saying so (the listing can be incomplete). Each list_files "
+        f"call also stops after {_MAX_FOLDER_CALLS} folder lookups, so a short listing can be incomplete too; "
+        "open a specific folder by its path or use search_files. There is no catalog: the file count shown is "
+        "always 0, and every listing and read is live. To open a folder, "
         "pass the folder part of an entry's path as folder_id (for example 'Procedures/Billing') with "
         "recursive=true; folder ids are not shown. The root folder limits browsing only: search_files covers "
         f"everything this identity can see{in_layout}, and is the better first step. Read with read_file and "
