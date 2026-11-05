@@ -3926,6 +3926,11 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "Nome della raccolta documenti, oppure * per tutte le raccolte visibili. Il campo vuoto seleziona la raccolta predefinita solo in modalità REST moderno."
     },
+    "athena": {
+      "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
+      "tableExcludeTitle": "Table Exclude Pattern",
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+    },
     "qlikOnPrem": {
       "appFilterTitle": "Filtro applicazioni",
       "appFilterDescription": "Nomi o ID delle applicazioni separati da virgole, nei flussi selezionati. Vuoto include tutte le applicazioni corrispondenti. Usa gli ID per i nomi con virgole.",
@@ -4051,6 +4056,8 @@
     "shell_confirmation.invalid_scope": "Ambito di autorizzazione non valido.",
     "shell_confirmation.report_required": "Le autorizzazioni di sessione richiedono un report.",
     "shell_confirmation.rule_mismatch": "Regola di comando non valida, oppure il pattern non corrisponde a questo comando.",
+    "connection.config_invalid": "Invalid connection configuration: {detail}",
+    "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
     "saml_unavailable": "Configurazione SSO non disponibile. Contatta il tuo amministratore.",
     "saml_login_failed": "Accesso SSO non riuscito. Riprova o contatta il tuo amministratore.",
     "invitation_required": "La registrazione è disabilitata. Chiedi un invito al tuo amministratore.",
