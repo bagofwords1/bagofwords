@@ -3967,14 +3967,8 @@
     },
     "connAlerts": {
       "title": "E-mails de alerta de queda",
-      "hint": "Substitui a configuração da organização para esta conexão. As notificações no app estão sempre ativas.",
-      "label": "Quando esta conexão cai",
-      "inherit": "Usar padrão da org",
-      "always": "Enviar sempre",
-      "never": "Nunca enviar",
-      "mode_inherit": "Padrão da org",
-      "mode_always": "Sempre",
-      "mode_never": "Nunca",
+      "label": "Enviar e-mail aos administradores quando esta conexão cai",
+      "hint": "Substitui o padrão da organização para esta conexão. As notificações no app estão sempre ativas.",
       "saveFailed": "Não foi possível salvar a configuração."
     }
   },

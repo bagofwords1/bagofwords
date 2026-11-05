@@ -4368,14 +4368,8 @@
     },
     "connAlerts": {
       "title": "Down-alert emails",
-      "hint": "Override the org-wide email setting for this connection. In-app notifications are always on.",
-      "label": "When this connection goes down",
-      "inherit": "Use org default",
-      "always": "Always email",
-      "never": "Never email",
-      "mode_inherit": "Org default",
-      "mode_always": "Always",
-      "mode_never": "Never",
+      "label": "Email admins when this connection goes down",
+      "hint": "Overrides the org-wide default for this connection. In-app notifications are always on.",
       "saveFailed": "Couldn't save the alert setting."
     }
   },

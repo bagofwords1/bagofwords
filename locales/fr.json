@@ -3967,14 +3967,8 @@
     },
     "connAlerts": {
       "title": "E-mails d'alerte de panne",
-      "hint": "Remplace le réglage de l'organisation pour cette connexion. Les notifications dans l'application sont toujours actives.",
-      "label": "Quand cette connexion tombe en panne",
-      "inherit": "Utiliser le réglage de l'org",
-      "always": "Toujours envoyer",
-      "never": "Ne jamais envoyer",
-      "mode_inherit": "Réglage de l'org",
-      "mode_always": "Toujours",
-      "mode_never": "Jamais",
+      "label": "Envoyer un e-mail aux administrateurs quand cette connexion tombe en panne",
+      "hint": "Remplace la valeur par défaut de l'organisation pour cette connexion. Les notifications dans l'application sont toujours actives.",
       "saveFailed": "Impossible d'enregistrer le réglage."
     }
   },

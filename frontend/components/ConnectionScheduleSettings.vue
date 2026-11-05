@@ -169,25 +169,21 @@
         </div>
       </div>
 </details>
-<details class="border-t border-gray-100 dark:border-gray-800 pt-3" data-testid="connection-alert-emails"><summary class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer list-none"><UIcon name="heroicons-chevron-right" class="schedule-chevron w-3.5 h-3.5 shrink-0 text-ink-muted" /><span>{{ $t('data.connAlerts.title') }}</span><span class="ms-auto text-xs text-gray-500">{{ $t('data.connAlerts.mode_' + alertMode) }}</span></summary>      <!-- Per-connection override for the down/restored alert EMAIL, layered over
-           the org-wide toggle (Settings → SMTP). The in-app inbox notification
-           is always delivered regardless. Not license-gated. -->
+<details class="border-t border-gray-100 dark:border-gray-800 pt-3" data-testid="connection-alert-emails"><summary class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer list-none"><UIcon name="heroicons-chevron-right" class="schedule-chevron w-3.5 h-3.5 shrink-0 text-ink-muted" /><span>{{ $t('data.connAlerts.title') }}</span><span class="ms-auto text-xs text-gray-500">{{ $t(alertEnabled ? 'scheduledPrompt.scheduleOn' : 'scheduledPrompt.scheduleOff') }}</span></summary>      <!-- Per-connection down/restored alert EMAIL toggle, layered over the
+           org-wide default (Settings → SMTP). The in-app inbox notification is
+           always delivered regardless. Not license-gated. -->
       <div class="py-3 border-t border-gray-100 dark:border-gray-800">
-        <p class="text-2xs text-ink-muted">{{ $t('data.connAlerts.hint') }}</p>
-        <div class="mt-2 flex items-center justify-between">
-          <span class="text-xs text-gray-500 dark:text-gray-400">{{ $t('data.connAlerts.label') }}</span>
-          <select
-            v-model="alertMode"
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('data.connAlerts.label') }}</span>
+          <UToggle
+            :model-value="alertEnabled"
             :disabled="savingAlertMode"
-            data-testid="connection-alert-mode"
-            class="text-xs border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:opacity-50"
-            @change="saveAlertMode"
-          >
-            <option value="inherit">{{ $t('data.connAlerts.inherit') }}</option>
-            <option value="always">{{ $t('data.connAlerts.always') }}</option>
-            <option value="never">{{ $t('data.connAlerts.never') }}</option>
-          </select>
+            size="sm"
+            data-testid="connection-alert-toggle"
+            @update:model-value="onToggleAlert"
+          />
         </div>
+        <p class="text-2xs text-ink-muted mt-1">{{ $t('data.connAlerts.hint') }}</p>
         <p v-if="alertModeError" class="text-2xs text-red-500">{{ alertModeError }}</p>
       </div>
 </details></div></template>
@@ -456,27 +452,42 @@ function onQueryLimitChange() {
   saveQueryLimits()
 }
 
-// ── Per-connection down-alert email override (layered over the org toggle) ───
-const alertMode = ref<'inherit' | 'always' | 'never'>('inherit')
+// ── Per-connection down-alert email toggle (layered over the org default) ────
+// Backed by alert_emails_mode: a flip sets "always"/"never"; an untouched
+// connection stays "inherit" and the toggle shows the org-wide default.
+const alertEnabled = ref(true)
+const orgAlertDefault = ref(true)
 const alertModeError = ref<string | null>(null)
 const savingAlertMode = ref(false)
 
-function applyAlertConfig(d: any) {
-  if (!d || !canManage.value) return
-  alertMode.value = ['inherit', 'always', 'never'].includes(d.alert_emails_mode)
-    ? d.alert_emails_mode : 'inherit'
+async function loadOrgAlertDefault() {
+  try {
+    const { data } = await useMyFetch('/organization/connection-alerts', { method: 'GET' })
+    orgAlertDefault.value = (data.value as any)?.email_enabled ?? true
+  } catch {
+    orgAlertDefault.value = true
+  }
 }
 
-async function saveAlertMode() {
+function applyAlertConfig(d: any) {
+  if (!d || !canManage.value) return
+  const m = d.alert_emails_mode
+  // "always"/"never" are explicit; "inherit" shows the org-wide default.
+  alertEnabled.value = m === 'always' ? true : m === 'never' ? false : orgAlertDefault.value
+}
+
+async function onToggleAlert(val: boolean) {
+  alertEnabled.value = val
   if (!props.connection?.id || savingAlertMode.value) return
   savingAlertMode.value = true
   alertModeError.value = null
   try {
     const { error } = await useMyFetch(`/connections/${props.connection.id}`, {
       method: 'PUT',
-      body: { alert_emails_mode: alertMode.value },
+      body: { alert_emails_mode: val ? 'always' : 'never' },
     })
     if (error.value) {
+      alertEnabled.value = !val  // revert on failure
       alertModeError.value = (error.value as any)?.data?.detail || (error.value as any)?.message || t('data.connAlerts.saveFailed')
       toast.add({ title: t('data.connAlerts.saveFailed'), description: String(alertModeError.value), color: 'red' })
     }
@@ -487,6 +498,7 @@ async function saveAlertMode() {
 
 watch(() => [props.connection?.id, canManage.value], async ([id]) => {
   if (!id || !canManage.value) return
+  await loadOrgAlertDefault()
   const { data } = await useMyFetch(`/connections/${id}`, { method: 'GET' })
   if (props.connection?.id !== id || !data.value) return
   applyAutoReindexConfig(data.value)

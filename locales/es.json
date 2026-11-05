@@ -4306,14 +4306,8 @@
     },
     "connAlerts": {
       "title": "Correos de alerta de caída",
-      "hint": "Anula la configuración de la organización para esta conexión. Las notificaciones en la app siempre están activas.",
-      "label": "Cuando esta conexión se cae",
-      "inherit": "Usar predeterminado de la org",
-      "always": "Enviar siempre",
-      "never": "No enviar nunca",
-      "mode_inherit": "Predeterminado",
-      "mode_always": "Siempre",
-      "mode_never": "Nunca",
+      "label": "Enviar correo a los administradores cuando esta conexión se cae",
+      "hint": "Anula el valor predeterminado de la organización para esta conexión. Las notificaciones en la app siempre están activas.",
       "saveFailed": "No se pudo guardar la configuración."
     }
   },

@@ -3967,14 +3967,8 @@
     },
     "connAlerts": {
       "title": "E-postvarningar vid avbrott",
-      "hint": "Åsidosätter organisationens inställning för den här anslutningen. Aviseringar i appen är alltid på.",
-      "label": "När den här anslutningen går ner",
-      "inherit": "Använd org-standard",
-      "always": "Skicka alltid",
-      "never": "Skicka aldrig",
-      "mode_inherit": "Org-standard",
-      "mode_always": "Alltid",
-      "mode_never": "Aldrig",
+      "label": "Mejla administratörerna när den här anslutningen går ner",
+      "hint": "Åsidosätter organisationens standard för den här anslutningen. Aviseringar i appen är alltid på.",
       "saveFailed": "Det gick inte att spara inställningen."
     }
   },
