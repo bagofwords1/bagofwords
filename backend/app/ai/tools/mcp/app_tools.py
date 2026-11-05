@@ -17,6 +17,7 @@ from app.models.user import User
 from app.models.organization import Organization
 from app.models.visualization import Visualization
 from app.models.query import Query
+from app.models.report import Report
 from app.models.step import Step
 from app.models.artifact import ArtifactVersion
 from app.models.membership import Membership
@@ -86,6 +87,25 @@ async def _release_chart(db: AsyncSession, viz: Visualization, artifact, release
     code_visible = can_view_code(await resolve_permissions(db, str(user.id), str(artifact.organization_id)))
     return {"step": step, "query": query, "rows": (data or {}).get("rows", []),
             "columns": (data or {}).get("columns", []), "hide_code": withheld or not code_visible}
+
+
+async def _report_step_rows(db: AsyncSession, step: Optional[Step], report, user: User) -> Dict[str, Any]:
+    """An in-report step's rows as this reader may see them.
+
+    Step.data is the owner's snapshot; on an identity-scoped or user-scoped
+    report it is one identity's rows. What a reader gets is decided by
+    viewer_data_policy.resolve_step_data, as on /r and in read_query: the
+    snapshot for the owner, the reader's own run, or nothing. A withheld
+    reader gets no code either (the SQL shows the schema, tables and filters).
+    """
+    if step is None:
+        return {"rows": [], "columns": [], "withheld": False, "code": ""}
+    from app.services.viewer_data_policy import resolve_step_data
+
+    resolution = await resolve_step_data(db, step, report, requesting_user=user)
+    data = resolution.data or {}
+    return {"rows": data.get("rows", []), "columns": data.get("columns", []),
+            "withheld": resolution.withheld, "code": "" if resolution.withheld else step.code}
 
 
 class GetVisualizationMCPTool(MCPTool):
@@ -174,16 +194,17 @@ class GetVisualizationMCPTool(MCPTool):
             if not step and viz.query.steps:
                 step = viz.query.steps[-1]
 
+        report = await db.get(Report, str(viz.report_id))
+        resolved = await _report_step_rows(db, step, report, user)
+
         # Build response matching ToolWidgetPreview data shape
         return {
             "id": str(viz.id),
             "title": viz.title or "",
             "view": viz.view or {},
-            "code": step.code if step else "",
-            "data": {
-                "rows": (step.data or {}).get("rows", []) if step else [],
-                "columns": (step.data or {}).get("columns", []) if step else [],
-            },
+            "code": resolved["code"],
+            "data": {"rows": resolved["rows"], "columns": resolved["columns"]},
+            "withheld": resolved["withheld"],
             "data_model": step.data_model if step else {},
             "step_status": step.status if step else None,
         }
@@ -272,17 +293,21 @@ class GetArtifactDataMCPTool(MCPTool):
             if not step and query.steps:
                 step = query.steps[-1]
 
+            resolved = None
             for viz in (query.visualizations or []):
                 # If artifact has viz_ids, only include those
                 if viz_ids and str(viz.id) not in viz_ids:
                     continue
+                if resolved is None:
+                    resolved = await _report_step_rows(db, step, report, user)
 
                 visualizations.append({
                     "id": str(viz.id),
                     "title": viz.title or query.title or "Untitled",
                     "view": viz.view or {},
-                    "rows": (step.data or {}).get("rows", []) if step else [],
-                    "columns": (step.data or {}).get("columns", []) if step else [],
+                    "rows": resolved["rows"],
+                    "columns": resolved["columns"],
+                    "withheld": resolved["withheld"],
                     "dataModel": step.data_model or {} if step else {},
                     "stepStatus": step.status if step else None,
                 })
