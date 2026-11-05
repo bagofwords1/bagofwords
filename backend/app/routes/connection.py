@@ -30,6 +30,7 @@ from app.schemas.connection_schema import (
     ConnectionSchema,
     ConnectionDetailSchema,
     ConnectionTableSchema,
+    ConnectionTablePreviewSchema,
     ConnectionTestOverride,
     ConnectionTestResult,
     ConnectionToolTestRequest,
@@ -57,6 +58,7 @@ from app.schemas.custom_query_schema import (
     CustomQueryTarget,
 )
 from app.services.custom_query_service import custom_query_service, is_accelerable_type
+from app.services.table_preview_service import table_preview_service, is_previewable_table
 from app.errors import AppError
 from app.services.member_attributes import require_attribute_admin
 from app.services.member_identity import (
@@ -1361,7 +1363,8 @@ async def get_connection_tables(
     # Non-managers see only the tables their visible agents have selected:
     # a table deselected on every agent they can use is not theirs to browse.
     selected_ids = None
-    if not await _can_manage_connection(db, organization, current_user, connection):
+    can_manage = await _can_manage_connection(db, organization, current_user, connection)
+    if not can_manage:
         resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
         linked_ids = {str(ds.id) for ds in (connection.data_sources or [])}
         manages_linked_agent = any(
@@ -1397,7 +1400,41 @@ async def get_connection_tables(
             id=str(table.id),
             name=table.name,
             column_count=len(table.columns) if table.columns else 0,
+            preview_supported=can_manage and is_previewable_table(connection.type, table),
         ))
+    return result
+
+
+@router.get(
+    "/{connection_id}/tables/{table_id}/preview",
+    response_model=ConnectionTablePreviewSchema,
+)
+@requires_resource_permission('connection', 'manage_connection')
+async def preview_connection_table(
+    connection_id: str,
+    table_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Sample rows from one introspected table, for connection managers.
+
+    The query is built server-side from the catalog row (quoted for the
+    source's dialect) — the caller only names which table.
+    """
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    table = await table_preview_service.get_table(db, connection, table_id)
+    result = await table_preview_service.preview(db, connection, table, current_user)
+    try:
+        # Reading source rows is data access, not configuration: record it.
+        await audit_service.log(
+            db, organization_id=str(organization.id), user_id=str(current_user.id),
+            action="connection.table.previewed",
+            resource_type="connection", resource_id=str(connection.id),
+            details={"connection": connection.name, "table": table.name},
+        )
+    except Exception:
+        pass
     return result
 
 

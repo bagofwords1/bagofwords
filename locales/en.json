@@ -4473,6 +4473,9 @@
     "access.denied": "Access denied",
     "account.disabled": "Your account has been disabled. Contact your administrator.",
     "connection.not_found": "Connection not found",
+    "connection.table_not_found": "Table not found",
+    "connection.table_preview_unsupported": "Data preview is not available for {type} connections.",
+    "connection.table_preview_failed": "Preview failed: {reason}",
     "data_source.not_found": "Data source not found",
     "file.not_found": "File not found",
     "verification.invalid": "Invalid or expired verification token",
@@ -7176,5 +7179,22 @@
     "enabled": "Enabled",
     "embeddingEmpty": "Embedding is not configured",
     "oauthEmpty": "OAuth is not configured"
+  },
+  "tablePreview": {
+    "open": "Preview data in {name}",
+    "subtitle": "Sample rows from {connection}, read live from the source.",
+    "close": "Close",
+    "loading": "Loading rows…",
+    "failed": "Could not load a preview of this table.",
+    "showing": "Showing {shown} rows",
+    "showingOf": "Showing {shown} of ~{total} rows",
+    "columns": "{count} columns",
+    "empty": "This table has no rows.",
+    "reload": "Reload",
+    "createCustomTable": "Create custom table from this",
+    "sqlLabel": "SQL query",
+    "run": "Run",
+    "resetQuery": "Reset",
+    "runHint": "Ctrl/⌘ + Enter to run. Read-only queries only."
   }
 }

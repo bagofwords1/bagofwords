@@ -517,6 +517,10 @@ const props = defineProps<{
   connections?: Array<{ id: string; name: string; type?: string }>
   cq?: any | null
   activateForDatasourceId?: string
+  // Prefill for a NEW custom table, e.g. from a table's data preview. Ignored
+  // when editing (`cq` set).
+  initialSql?: string
+  initialName?: string
 }>()
 
 const emit = defineEmits<{
@@ -644,9 +648,9 @@ watch(() => props.modelValue, (open) => {
     // preview gate does not apply until the SQL is changed.
     preview.value = { columns: props.cq.columns || [], rows: [], budget_error: null, estimated_rows: props.cq.no_rows }
   } else {
-    form.name = ''
+    form.name = props.initialName || ''
     form.description = ''
-    form.definition_sql = ''
+    form.definition_sql = props.initialSql || ''
     form.refresh_schedule_mode = 'interval'
     form.refresh_interval_minutes = 60
     form.refresh_at_time = '03:00'

@@ -4067,6 +4067,9 @@
     "access.denied": "Доступ запрещён",
     "account.disabled": "Ваша учётная запись отключена. Обратитесь к администратору.",
     "connection.not_found": "Подключение не найдено",
+    "connection.table_not_found": "Таблица не найдена",
+    "connection.table_preview_unsupported": "Предпросмотр данных недоступен для подключений {type}.",
+    "connection.table_preview_failed": "Ошибка предпросмотра: {reason}",
     "data_source.not_found": "Источник данных не найден",
     "file.not_found": "Файл не найден",
     "verification.invalid": "Недействительный или просроченный токен подтверждения",
@@ -6547,5 +6550,22 @@
     "enabled": "Включено",
     "embeddingEmpty": "Embedding is not configured",
     "oauthEmpty": "OAuth is not configured"
+  },
+  "tablePreview": {
+    "open": "Просмотр данных в {name}",
+    "subtitle": "Примеры строк из {connection}, прочитанные напрямую из источника.",
+    "close": "Закрыть",
+    "loading": "Загрузка строк…",
+    "failed": "Не удалось загрузить предпросмотр этой таблицы.",
+    "showing": "Показано строк: {shown}",
+    "showingOf": "Показано {shown} из ~{total} строк",
+    "columns": "Столбцов: {count}",
+    "empty": "В этой таблице нет строк.",
+    "reload": "Обновить",
+    "createCustomTable": "Создать пользовательскую таблицу на основе этой",
+    "sqlLabel": "SQL-запрос",
+    "run": "Выполнить",
+    "resetQuery": "Сбросить",
+    "runHint": "Ctrl/⌘ + Enter для запуска. Только запросы на чтение."
   }
 }
