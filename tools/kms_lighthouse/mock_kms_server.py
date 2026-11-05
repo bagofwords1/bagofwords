@@ -17,7 +17,11 @@ Faithfulness rules enforced on purpose:
     pasted API token (TOKENS); a missing or expired session answers 401, or a
     302 to the login page when STATE["expired_response"] == "302".
   - Each user sees only the tree nodes in their `visible` set, and only the
-    search results whose `visible` set names them.
+    search results whose `visible` set names them. The tree has a nested
+    folder (Procedures/Billing), two sibling folders with one title (Forms),
+    an offline item, a scenario node, hostile folder titles
+    (HOSTILE_FOLDER_TITLES) and a wide folder (WIDE_FOLDER) with more
+    subfolders than the client's folder-call cap.
   - Search does not rank or filter by the query: every query matches every
     result the user may see, paged by `start`/`rows`. There is no length rule
     on `query` (the PDF states none); a 400 with no body is the PDF's
@@ -67,14 +71,48 @@ SESSION_COOKIE = "JSESSIONID"
 # Planted in unexpected response shapes; it must never reach client output.
 ODD_MARKER = "kms-odd-marker-5c1e"
 
-# Content-management tree: node id -> record. "parent" None is the top level.
+# Content-management tree: node id -> record. "parent" None is the top level
+# (asked for with no parentId). "subType" and "updateDate" are sent when set.
 TREE = {
     "78": {"parent": None, "title": "Accounts", "type": "FOLDER", "status": "2"},
-    "90": {"parent": None, "title": "Procedures", "type": "FOLDER", "status": "2"},
-    "95": {"parent": None, "title": "Archive", "type": "FOLDER", "status": "2"},
+    "10": {"parent": None, "title": "Procedures", "type": "FOLDER", "status": "2"},
+    "11": {"parent": None, "title": "Restricted", "type": "FOLDER", "status": "2"},     # alice only
+    "95": {"parent": None, "title": "Archive", "type": "FOLDER", "status": "2"},        # empty
     "279": {"parent": "78", "title": "Reset a customer password", "type": "ITEM", "status": "2"},
-    "301": {"parent": "90", "title": "Billing dispute", "type": "ITEM", "status": "2"},
+    "301": {"parent": "10", "title": "Billing dispute", "type": "ITEM", "status": "2",
+            "subType": "T_PROCEDURE", "updateDate": "10/04/2024"},
+    "305": {"parent": "10", "title": "Policy v2.1 / summary", "type": "ITEM", "status": "2"},
+    "306": {"parent": "10", "title": "Draft refund rules", "type": "ITEM", "status": "1"},   # offline
+    "12": {"parent": "10", "title": "Billing", "type": "FOLDER", "status": "2"},
+    "13": {"parent": "10", "title": "Forms", "type": "FOLDER", "status": "2"},
+    "14": {"parent": "10", "title": "Forms", "type": "FOLDER", "status": "2"},             # same title as 13
+    "302": {"parent": "12", "title": "Refund a payment", "type": "ITEM", "status": "2"},
+    "4401": {"parent": "12", "title": "Card blocked flow", "type": "ITEM", "subType": "T_SCENARIO_FLOW",
+             "status": "2"},
+    "303": {"parent": "13", "title": "Change of address form", "type": "ITEM", "status": "2"},
+    "304": {"parent": "14", "title": "Card replacement form", "type": "ITEM", "status": "2"},
+    "307": {"parent": "11", "title": "Escalation path", "type": "ITEM", "status": "2"},
 }
+# Hostile folder titles, each holding one item: a path segment must still round-trip.
+HOSTILE_FOLDER_TITLES = {
+    "20": "Long " + "x" * 245,
+    "21": "tab\there\nnewline",
+    "22": "..",
+    "23": "folder:7 Archive",
+    "24": "<b>Bold</b> &amp; HTML",
+}
+for _folder_id, _title in HOSTILE_FOLDER_TITLES.items():
+    TREE[_folder_id] = {"parent": None, "title": _title, "type": "FOLDER", "status": "2"}
+    TREE[str(int(_folder_id) + 300)] = {"parent": _folder_id, "title": "Inside " + _folder_id, "type": "ITEM",
+                                        "status": "2"}
+# A wide folder (listed last): more subfolders than the client's folder-call cap.
+WIDE_FOLDER = "30"
+WIDE_CHILDREN = 60
+TREE[WIDE_FOLDER] = {"parent": None, "title": "Wide", "type": "FOLDER", "status": "2"}
+for _n in range(WIDE_CHILDREN):
+    TREE[str(1000 + _n)] = {"parent": WIDE_FOLDER, "title": f"Wide {_n}", "type": "FOLDER", "status": "2"}
+    TREE[str(2000 + _n)] = {"parent": str(1000 + _n), "title": f"Wide item {_n}", "type": "ITEM", "status": "2"}
+_RESTRICTED = {"11", "307"}
 
 # Planted in search titles and descriptions; neither may reach client output.
 # Both are made-up test values (the JWT is a well-formed but unsigned dummy).
@@ -111,11 +149,11 @@ SEARCH_RESULTS = [
 # name on purpose, so a test can tell a reported identity from the typed one.
 USERS = {
     "alice": {"password": "alice-kms-pass", "user_id": 11, "full_name": "Alice Agent",
-              "session_username": "alice.agent", "visible": {"78", "90", "95", "279", "301"}},
+              "session_username": "alice.agent", "visible": set(TREE)},
     "bob": {"password": "bob-kms-pass", "user_id": 12, "full_name": "Bob Billing",
-            "session_username": "bob.billing", "visible": {"90", "301"}},
+            "session_username": "bob.billing", "visible": {"10", "301", "12", "302"}},
     "svc": {"password": "svc-kms-pass", "user_id": 13, "full_name": "BOW Service",
-            "session_username": "bow.service", "visible": {"78", "90", "95", "279", "301"}},
+            "session_username": "bow.service", "visible": set(TREE) - _RESTRICTED},
 }
 
 # Pasted API tokens (the "token" auth variant) -> user.
@@ -362,7 +400,8 @@ class Handler(BaseHTTPRequestHandler):
             data = [
                 {"id": node_id, "language": "en", "title": node["title"], "type": node["type"],
                  "version": "1", "status": node["status"], "state": "ACTIVE",
-                 "sons": str(sum(1 for n in TREE.values() if n["parent"] == node_id))}
+                 "sons": str(sum(1 for n in TREE.values() if n["parent"] == node_id)),
+                 **{key: node[key] for key in ("subType", "updateDate") if key in node}}
                 for node_id, node in TREE.items()
                 if node["parent"] == parent and node_id in visible
             ]

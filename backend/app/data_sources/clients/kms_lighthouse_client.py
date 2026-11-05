@@ -27,7 +27,7 @@ import re
 import threading
 import time
 import unicodedata
-from collections import OrderedDict
+from collections import Counter, OrderedDict, deque
 from html.entities import html5 as _HTML5_ENTITIES
 from datetime import datetime
 from urllib.parse import unquote, urlsplit
@@ -330,8 +330,10 @@ _KIND_PREFIX_RE = re.compile(r"^(item|scenario|folder):", re.IGNORECASE)
 # A JWT is any base64url run that starts like a JWT header ("eyJ"), with up to
 # two dotted parts; whitespace (left by a <br>) may sit next to a dot.
 _JWT_RE = re.compile(r"eyJ[A-Za-z0-9_-]{4,}+(?:\s{0,3}\.\s{0,3}[A-Za-z0-9_-]++){0,2}")
-# A quote may open the token ('--oauth2-bearer "ya29.X"'); it stays with the scheme word.
-_BEARER_RE = re.compile(r"(?i)\b(bearer\s++[\"']?+)([A-Za-z0-9._~+/=-]{8,}+)")
+# A quote may open the token ('--oauth2-bearer "ya29.X"'): an ASCII, backtick or
+# smart opening quote, also escaped ('Bearer \"X\"'); it stays with the scheme word.
+_BEARER_RE = re.compile(r"(?i)\b(bearer\s++(?:\\?+[\"'`" + chr(0x201C) + chr(0x2018) + r"])?+)"
+                        r"([A-Za-z0-9._~+/=-]{8,}+)")
 _BASIC_RE = re.compile(r"(?i)\b(basic\s++)([A-Za-z0-9+/]{12,}+=*+)")
 # Each opening quote of a structured key or value and its closing quote: ASCII
 # quotes and the matched smart pairs (built with chr() so the source stays ASCII).
@@ -453,23 +455,43 @@ def _is_pass_key(name: str) -> bool:
 
 # A documentation placeholder in a credential's place ("<password>", "{secret}",
 # "[api key]", "***", "xxxx", "....", "changeme", "your_password", "YOUR_API_KEY",
-# "MY_SECRET", "TOKEN_HERE", "your_api_key_here", and a variable: "${DB_PASS}",
-# "$DB_PASSWORD", "%API_KEY%"): kept as written.
+# "MY_SECRET", "TOKEN_HERE", "your_api_key_here", "ACCESS_TOKEN", up to three words
+# after "your", "my" or "insert" ("YOUR_CLIENT_SECRET", "your-api-key", "INSERT_KEY_HERE",
+# "YOUR API KEY"), a variable: "${DB_PASS}", "${PG_PASSWORD:-postgres}", "$DB_PASSWORD",
+# "%API_KEY%", and a template expression: "{{ .Values.apiKey }}", "${{ secrets.API_KEY }}"):
+# kept as written.
 _BRACKETED_PLACEHOLDER = r"<[a-z][a-z _-]{0,63}+>|\{[a-z][a-z _-]{0,63}+\}|\[[a-z][a-z _-]{0,63}+\]"
-_BRACKETED_PLACEHOLDER_RE = re.compile("(?i)" + _BRACKETED_PLACEHOLDER)
+_TEMPLATE_PLACEHOLDER = r"\$?+\{\{[^{}\n:=]{1,60}+\}\}"     # no ':' or '=': no key hides inside
+# The placeholders that may hold blanks, so an unquoted value run (it stops at a blank) cannot see them whole.
+_SPACED_PLACEHOLDER_RE = re.compile("(?i)" + _BRACKETED_PLACEHOLDER + "|" + _TEMPLATE_PLACEHOLDER)
 _PLACEHOLDER_RE = re.compile(
-    "(?i)" + _BRACKETED_PLACEHOLDER + r"|\*{3,}+|x{3,}+|\.{3,}+"
+    "(?i)" + _BRACKETED_PLACEHOLDER + "|" + _TEMPLATE_PLACEHOLDER + r"|\*{3,}+|x{3,}+|\.{3,}+"
     r"|(?:your_?)?password|pass|passwd|secret|token|changeme"
-    r"|(?:(?:your|my)_)?(?:api_)?(?:key|token|secret|password|pass|pwd)(?:_here)?"
-    r"|\$\{[a-z_][a-z0-9_]{0,61}+\}|\$[a-z_][a-z0-9_]{0,63}+|%[a-z_][a-z0-9_]{0,63}+%")
+    r"|(?:(?:your|my)_)?(?:(?:api|access)_)?(?:key|token|secret|password|pass|pwd)(?:_here)?"
+    r"|(?:your|my|insert)[_ -][a-z]++(?:[_ -][a-z]++){0,2}"
+    r"|\$\{[a-z_][a-z0-9_]{0,61}+(?::?[-=?+][^{}\s:=]{0,40}+)?\}|\$[a-z_][a-z0-9_]{0,63}+|%[a-z_][a-z0-9_]{0,63}+%")
 _MAX_PLACEHOLDER_CHARS = 66
+# One sentence mark may end a placeholder ("api_key: YOUR_API_KEY.", "(api_key: <your key>)").
+_SENTENCE_MARKS = (".", ")", "!")
 # A value that is a URL ("proxy_pass: http://backend:8080" names an upstream, not a password).
 _URL_VALUE_RE = re.compile(r"(?i)(?:https?|ftp|wss?)://")
 
 
 def _is_placeholder(value: str) -> bool:
-    """A placeholder; an earlier "[redacted]" is none (a scheme word before it still goes with it)."""
-    return value != _REDACTED and _PLACEHOLDER_RE.fullmatch(value) is not None
+    """A placeholder, also with one sentence mark after it; an earlier "[redacted]" is none.
+
+    (A scheme word before an earlier "[redacted]" still goes with it.)
+    """
+    if value == _REDACTED or len(value) > _MAX_PLACEHOLDER_CHARS + 1:
+        return False
+    if _PLACEHOLDER_RE.fullmatch(value) is not None:
+        return True
+    return value.endswith(_SENTENCE_MARKS) and _PLACEHOLDER_RE.fullmatch(value, 0, len(value) - 1) is not None
+
+
+def _is_ending(text: str) -> bool:
+    """Nothing, or one sentence mark: what may follow a placeholder's closing bracket."""
+    return text == "" or text in _SENTENCE_MARKS
 
 
 def _without_controls(text: str) -> str:
@@ -684,24 +706,39 @@ def _redact_structured_values(text: str) -> str:
         start, end, quoted = _value_span(text, value_at, _STRUCTURED_VALUE_RE, _QUOTE_CLOSERS)
         if quoted and escaped and end > start and text[end - 1] == "\\":
             end -= 1                  # the backslash of the closing quote stays with it
-        credential_at = start
+        credential_at, glued = start, False
         if not quoted:
-            # A bracketed placeholder may hold blanks ("api_key: <your api key>"); the match is bounded.
-            bracketed = None if text.startswith(_REDACTED, start) else _BRACKETED_PLACEHOLDER_RE.match(text, start)
-            if bracketed and _STRUCTURED_VALUE_RE.match(text, bracketed.end()).end() == bracketed.end():
-                continue
-            end = _unquoted_value_end(text, start)
-            if text[start:end].lower() in _SCHEME_WORDS:
+            # A bracketed placeholder or a template may hold blanks ("api_key: <your api key>"); the match
+            # is bounded. It is one only when nothing but a sentence mark follows it; glued to a value
+            # ("<your key>Sv1x"), the whole run goes.
+            spaced = None if text.startswith(_REDACTED, start) else _SPACED_PLACEHOLDER_RE.match(text, start)
+            if spaced:
+                end = _unquoted_value_end(text, spaced.end())
+                if _is_ending(text[spaced.end():end]):
+                    pos = end         # a kept placeholder is not scanned again for a key inside it
+                    continue
+                glued = True
+            else:
+                end = _unquoted_value_end(text, start)
+            if not glued and text[start:end].lower() in _SCHEME_WORDS:
                 credential_at = _VALUE_GAP_RE.match(text, end).end()
                 credential_end = _unquoted_value_end(text, credential_at)
                 if credential_end == credential_at:
                     continue          # a scheme word with no credential after it is text ("X-Auth-Token: Bearer")
                 end = credential_end
         # An unquoted "{placeholder" or "${VAR" stops before its '}'; a placeholder is short, so the check
-        # reads a bounded run.
-        braced = text.startswith(("{", "${"), credential_at)
-        closer = "}" if not quoted and braced and text.startswith("}", end) else ""
-        if end - credential_at <= _MAX_PLACEHOLDER_CHARS and _is_placeholder(text[credential_at:end] + closer):
+        # reads a bounded run. A value glued after the '}' ("${DB}Sv1x") makes it no placeholder, and the
+        # whole run goes.
+        closer = ""
+        if not quoted and not glued and text.startswith(("{", "${"), credential_at) and text.startswith("}", end):
+            after = _unquoted_value_end(text, end + 1)
+            if _is_ending(text[end + 1:after]):
+                closer = text[end:after]
+            else:
+                end, glued = after, True
+        if (not glued and end - credential_at <= _MAX_PLACEHOLDER_CHARS
+                and _is_placeholder(text[credential_at:end] + closer)):
+            pos = end + len(closer)   # "${PG_PASSWORD:-x}" holds no key of its own
             continue
         if not listed and _URL_VALUE_RE.match(text, start):
             pos = end                 # a "pass" name whose value is a URL names an upstream ("proxy_pass: http://x")
@@ -724,7 +761,10 @@ def _redact_userinfo(match: re.Match) -> str:
 
 def _redact_bearer(match: re.Match) -> str:
     value = match.group(2)
-    # A token has a digit or one of "_~+/="; a word ("Bearer authentication", "token-based") stays.
+    # A token has a digit or one of "_~+/="; a word ("Bearer authentication", "token-based") and a
+    # documentation placeholder ("Bearer YOUR_ACCESS_TOKEN") stay.
+    if len(value) <= _MAX_PLACEHOLDER_CHARS and _is_placeholder(value):
+        return match.group(0)
     if any(ch.isdigit() or ch in "_~+/=" for ch in value):
         return match.group(1) + "[redacted]"
     return match.group(0)
@@ -798,7 +838,10 @@ def _scrub_at(text: str, depth: int) -> str:
 #     userinfo ("curl -x user:pass@proxy:3128"). A header, a URL password, a
 #     secret parameter or a "--...password=" key inside a command still goes by
 #     its own rule ("curl -H 'Authorization: Bearer X'", "wget --password=X");
-#   * a token-only URL userinfo ("https://TOKEN@host", no ':');
+#   * a token-only URL userinfo ("https://TOKEN@host", no ':'), and a userinfo
+#     whose user name is split from its ':' by a tag ("https://<b>admin</b>:<b>S</b>@host",
+#     "https://admin<b>:S</b>@host" read "https:// admin :S@host" and "https://admin
+#     :S@host", which no longer look like a URL userinfo);
 #   * a label element that closes right after a ':' with the value straight
 #     after it ("<b>https://admin:</b>S@host" reads "https://admin: S@host",
 #     as "<b>Note:</b>Use the portal" must read "Note: Use the portal");
@@ -816,8 +859,12 @@ def _scrub_at(text: str, depth: int) -> str:
 #   * a structured value that is a documentation placeholder ("api_key: <your
 #     api key>", '"password": "<password>"', "DB_PASSWORD=changeme", "api_key:
 #     YOUR_API_KEY", "API_KEY=your_api_key_here", "DB_PASS=${DB_PASS}",
-#     "DB_PASSWORD=$DB_PASSWORD", "set API_KEY=%API_KEY%"); a real value of the
-#     same shape is shown too ("db_password: $ecret1");
+#     "DB_PASSWORD=$DB_PASSWORD", "set API_KEY=%API_KEY%", "Bearer YOUR_ACCESS_TOKEN",
+#     "client_secret: YOUR_CLIENT_SECRET", "api_key: {{ .Values.apiKey }}",
+#     "DB_PASSWORD=${PG_PASSWORD:-postgres}", also with one '.', ')' or '!' after it);
+#     a real value of the same shape is shown too ("db_password: $ecret1",
+#     "api_key: your_secretvalue", the default in "${PG_PASSWORD:-S}"). A placeholder
+#     glued to a value is none ("api_key: <your key>S", "DB_PASS=${DB}S": the run goes);
 #   * shell quoting after an unquoted structured value: "curl -H 'X-Api-Key: S'"
 #     loses the closing quote with the value.
 # Over-redaction accepted: a camel-case word starting "eyJ" ("eyJumpsMonkey"), an
@@ -828,7 +875,9 @@ def _scrub_at(text: str, depth: int) -> str:
 # login" loses "based"; a scheme word with nothing after it on its line stays);
 # bracket debris inside a value ("(api_key=S)" loses the ')', "api_key:
 # Sv1[x9Qk2]abc" leaves "]abc" after the redaction); a stray ']' after a YAML flow
-# list value; "Subscription-Key: found on your account page" loses "found".
+# list value; "Subscription-Key: found on your account page" loses "found"; an
+# unquoted placeholder with blanks and no brackets ("api_key: YOUR API KEY" loses
+# "YOUR"; quoted, it stays).
 # Joined as the page shows them: an inline tag that opens right after ':' or '='
 # ("Note:<b>Read this</b>" reads "Note:Read this"; "Note: <b>Read</b>" keeps its
 # space), and inline tags right before '@' ("Mail <b>me</b>@home" reads "Mail
@@ -979,6 +1028,91 @@ def _make_id(kind: str, raw_id) -> str:
     return f"{kind}:{raw}"
 
 
+_MAX_FOLDER_CALLS = 40        # tree calls per list_files call, path resolution included
+_MAX_PATH_SEGMENTS = 25
+_BAD_ID = ("That is not a KMS Lighthouse id; use an id exactly as listed "
+           "(item:<digits>, scenario:<digits> or folder:<digits>).")
+_NOT_A_FOLDER = "That id is not a folder; pass a folder path from an entry's path, or a folder:<digits> id."
+_BAD_FOLDER_PATH = "That folder path is not valid; use the folder part of an entry's path exactly as listed."
+_FOLDER_NOT_FOUND = "Folder not found; use a folder path exactly as it appears in an entry's path."
+_OUTSIDE_ROOT = "Folder is outside the configured root folder."
+_BAD_LIST_LIMIT = "The list limit must be a whole number."
+# A segment that already ends like a sibling suffix gets one of its own, so a
+# suffixed segment can never equal another folder's plain one.
+_SUFFIX_RE = re.compile(r" \[[0-9]{1,12}\]\Z")
+
+
+def _parse_id(value, default_kind: str = "item") -> tuple[str, str]:
+    """``(kind, digits)`` of a typed id (any case) or of bare digits; anything else is refused before any request."""
+    text = str(value)
+    prefix = _KIND_PREFIX_RE.match(text)
+    kind = prefix.group(1).lower() if prefix else default_kind
+    raw = text[prefix.end():] if prefix else text
+    if not _DIGITS_RE.fullmatch(raw):
+        raise KmsError(_BAD_ID)
+    return kind, raw
+
+
+def _is_path_segment(segment: str) -> bool:
+    """A segment ``_safe_title`` can emit: 1-200 characters, not only dots, no kind prefix, no control character."""
+    return (0 < len(segment) <= _MAX_SEGMENT_CHARS and segment.strip(".") != ""
+            and not _KIND_PREFIX_RE.match(segment)
+            and not any(unicodedata.category(ch)[0] == "C" for ch in segment))
+
+
+def _folder_path_segments(text: str) -> tuple[str, ...]:
+    """The segments of a folder path (ADR-7), checked before any request; a path never reaches a URL."""
+    segments = text.split("/", _MAX_PATH_SEGMENTS)       # bounded: one part more than allowed is enough
+    if len(segments) > _MAX_PATH_SEGMENTS or not all(_is_path_segment(s) for s in segments):
+        raise KmsError(_BAD_FOLDER_PATH)
+    return tuple(segments)
+
+
+def _folder_target(folder_id):
+    """``folder_id`` checked before any request: None (the origin), ``("id", digits)`` or ``("path", segments)``."""
+    if folder_id is None or folder_id == "":
+        return None
+    text = str(folder_id)
+    if _KIND_PREFIX_RE.match(text):
+        kind, digits = _parse_id(text)
+        if kind != "folder":
+            raise KmsError(_NOT_A_FOLDER)
+        return "id", digits
+    return "path", _folder_path_segments(text)
+
+
+def _folder_segments(folders: list) -> dict[str, str]:
+    """Folder id -> path segment for the shown folders of one level.
+
+    The segment is ``_safe_title(title)``, or ``<segment> [<id>]`` (cut so the
+    whole is at most 200 characters) when a sibling has the same segment or
+    the segment already ends like such a suffix, so every segment of a level
+    names one folder.
+    """
+    bases = {str(record["id"]): _safe_title(record.get("title")) for record in folders}
+    counts = Counter(bases.values())
+    segments = {}
+    for folder_id, base in bases.items():
+        if counts[base] > 1 or _SUFFIX_RE.search(base):
+            suffix = f" [{folder_id}]"
+            base = base[:_MAX_SEGMENT_CHARS - len(suffix)].rstrip() + suffix
+        segments[folder_id] = base
+    return segments
+
+
+class _CallBudget:
+    """The tree calls one ``list_files`` call may still make."""
+
+    def __init__(self, calls: int):
+        self.left = calls
+
+    def take(self) -> bool:
+        if self.left <= 0:
+            return False
+        self.left -= 1
+        return True
+
+
 def _normalise_date(value) -> str | None:
     """``dd/mm/yyyy`` (day first), ``yyyy-mm-dd hh:mm:ss[.f]`` or ISO, as ISO-8601; never raises."""
     if not isinstance(value, str) or not value.strip():
@@ -1107,6 +1241,8 @@ class KmsLighthouseClient(DataSourceClient):
         self._entry = (_pool_entry(_pool_key(self._base, prefix, username, password))
                        if self.auth_method == "userpass" else None)
         self._local = threading.local()
+        # Tree levels seen by this instance (one tool call): parent id (None: top level) -> records.
+        self._tree_cache: dict = {}
 
     # ------------------------------------------------------------------ meta
     @property
@@ -1346,7 +1482,7 @@ class KmsLighthouseClient(DataSourceClient):
             raise KmsHTTPError(200, missing)
         return payload
 
-    def _tree_children(self, parent_id: int | None) -> list:
+    def _tree_children(self, parent_id: int | str | None) -> list:
         params = {"parentId": str(parent_id)} if parent_id is not None else None
         payload = self._request("tree", "/cm/tree/branch/view", params=params)
         data = payload.get("data") if isinstance(payload, dict) else None
@@ -1512,6 +1648,134 @@ class KmsLighthouseClient(DataSourceClient):
             "status": None if online is None else ("online" if online else "offline"),
             "snippet": _without_controls(_plain_text(record.get("description")))[:_SNIPPET_CHARS],
             "web_url": None,
+        }
+
+    # ------------------------------------------------------------------ browse
+    @_closed_errors
+    def list_files(self, folder_id=None, recursive=None, limit=None, progress_callback=None):
+        """Browse the folder tree as this identity, breadth first, from the root (or the top level).
+
+        ``folder_id`` is a folder path (the folder part of an entry's path,
+        ADR-7) or ``folder:<digits>``; with ``root_folder_id`` set, a folder id
+        must be the root or lie inside it (``GlobScopeError``). Entry paths are
+        folder segments from the root plus the name; a ``folder:<digits>``
+        listing without a root has paths from that folder down. ``recursive``
+        defaults to True with no folder and to False with one. At most
+        ``min(limit or max_results, max_results)`` entries and
+        ``_MAX_FOLDER_CALLS`` tree calls; past either bound the listing just
+        stops. Offline content is hidden unless ``include_offline``.
+        """
+        target = _folder_target(folder_id)       # refused before any request
+        cap = self._list_cap(limit)
+        if cap <= 0:
+            return []
+        deep = target is None if recursive is None else _flag(recursive)
+        budget = _CallBudget(_MAX_FOLDER_CALLS)
+        start, start_path = self._resolve_folder(target, budget)
+        files, listed = [], set()
+        queue, queued = deque([(start, start_path)]), {start}
+        while queue:
+            parent, parent_path = queue.popleft()
+            level = self._level(parent, budget)
+            if level is None:
+                break                             # the folder-call cap
+            records, segments = level
+            for record in records:
+                kind = _kind_of(record)
+                entry_id = _make_id(kind, record["id"])
+                if entry_id in listed:
+                    continue
+                if kind == "folder":
+                    folder = str(record["id"])
+                    path = (*parent_path, segments[folder])
+                    if deep and folder not in queued:
+                        queued.add(folder)
+                        queue.append((folder, path))
+                else:
+                    path = (*parent_path, _safe_title(record.get("title")) + ".txt")
+                listed.add(entry_id)
+                files.append(self._list_entry(record, entry_id, kind, path))
+                if len(files) >= cap:
+                    return files
+        return files
+
+    def _list_cap(self, limit) -> int:
+        try:
+            wanted = int(limit) if limit else self.max_results
+        except (TypeError, ValueError, OverflowError):
+            wanted = None
+        # Raised outside the except block, so no parser error rides along as context.
+        if wanted is None:
+            raise KmsError(_BAD_LIST_LIMIT)
+        return min(wanted, self.max_results)
+
+    def _hidden(self, record: dict) -> bool:
+        return _is_online(record) is False and not self.include_offline
+
+    def _level(self, parent: str | None, budget: _CallBudget):
+        """``(shown records, folder id -> segment)`` under ``parent`` (None: the top level), or None past the budget.
+
+        Levels are cached per instance; only a real tree call takes from the budget.
+        """
+        data = self._tree_cache.get(parent)
+        if data is None:
+            if not budget.take():
+                return None
+            data = self._tree_cache[parent] = self._tree_children(parent)
+        shown = [record for record in data if not self._hidden(record)]
+        return shown, _folder_segments([record for record in shown if _kind_of(record) == "folder"])
+
+    def _resolve_folder(self, target, budget: _CallBudget) -> tuple[str | None, tuple[str, ...]]:
+        """The folder to list (None: the top level) and its path segments from the root."""
+        origin = None if self.root_folder_id is None else str(self.root_folder_id)
+        if target is None:
+            return origin, ()
+        how, value = target
+        if how == "id":
+            if origin is None or value == origin:
+                return value, ()               # the root, or any folder when no root is set (ancestors unknown)
+            path = self._find_inside_root(value, origin, budget)
+            if path is None:
+                raise GlobScopeError(_OUTSIDE_ROOT)
+            return value, path
+        # A folder path: one level per segment from the root, so it is inside the root by construction.
+        current = origin
+        for segment in value:
+            level = self._level(current, budget)
+            match = None if level is None else next(
+                (folder for folder, seg in level[1].items() if seg == segment), None)
+            if match is None:
+                raise KmsHTTPError(404, "not_found", _FOLDER_NOT_FOUND)
+            current = match
+        return current, value
+
+    def _find_inside_root(self, folder: str, origin: str, budget: _CallBudget) -> tuple[str, ...] | None:
+        """The path of ``folder`` found by a bounded breadth-first walk from the root, or None."""
+        queue, seen = deque([(origin, ())]), {origin}
+        while queue:
+            parent, parent_path = queue.popleft()
+            level = self._level(parent, budget)
+            if level is None:
+                return None
+            for child, segment in level[1].items():
+                if child in seen:
+                    continue
+                if child == folder:
+                    return (*parent_path, segment)
+                seen.add(child)
+                queue.append((child, (*parent_path, segment)))
+        return None
+
+    @staticmethod
+    def _list_entry(record: dict, entry_id: str, kind: str, path: tuple[str, ...]) -> dict:
+        online = _is_online(record)
+        is_folder = kind == "folder"
+        return {
+            "id": entry_id, "name": path[-1], "path": "/".join(path), "size": 0,
+            "modified_at": _normalise_date(record.get("updateDate") or record.get("updatedDate")),
+            "mime_type": None if is_folder else "text/plain", "is_folder": is_folder, "kind": kind,
+            "status": None if online is None else ("online" if online else "offline"),
+            "snippet": None, "web_url": None,
         }
 
     @discovery_progress

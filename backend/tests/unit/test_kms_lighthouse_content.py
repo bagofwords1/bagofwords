@@ -1,4 +1,4 @@
-"""KMS Lighthouse content contract (search; browse and read arrive later) against the mock KMS API.
+"""KMS Lighthouse content contract (search and browse; read arrives later) against the mock KMS API.
 
 Same boundary as test_kms_lighthouse_client.py: a real HTTP server on a real
 socket (tools/kms_lighthouse/mock_kms_server.py), everything on our side real.
@@ -24,8 +24,9 @@ import urllib3
 
 from app.ai.tools.implementations._file_tool_common import _AUTH_ERROR_MARKERS
 from app.data_sources.clients import kms_lighthouse_client as kc
+from app.data_sources.clients._file_source_common import GlobScopeError
 from app.data_sources.clients.base import SearchStopped
-from tests.unit.test_kms_lighthouse_client import client, kms, kms_server, token_client  # noqa: F401
+from tests.unit.test_kms_lighthouse_client import _rows, client, kms, kms_server, token_client  # noqa: F401
 
 _ENTRY_KEYS = {"id", "name", "path", "size", "modified_at", "mime_type", "is_folder", "kind", "status",
                "snippet", "web_url"}
@@ -278,9 +279,168 @@ def test_search_runs_as_the_identity(kms, make):
     assert [row[0] for row in searches] == ["alice", "bob"]
 
 
+# ------------------------------------------------------------------ browse
+_TREE_PATH = "/cm/tree/branch/view"
+_FOLDER_ID = re.compile(r"^folder:[0-9]{1,12}$")
+_HOSTILE_ITEMS = {f"item:{int(folder_id) + 300}" for folder_id in ("20", "21", "22", "23", "24")}
+
+
+def _folder_part(entry):
+    return entry["path"].rsplit("/", 1)[0]
+
+
+def _ids(entries):
+    return {e["id"] for e in entries}
+
+
+@pytest.mark.parametrize("make", [client, token_client])
+def test_list_walks_tree_from_root(kms, make):
+    entries = make(kms).list_files()
+    found = _by_id(entries)
+    assert len(found) == len(entries)
+    for entry in entries:
+        assert set(entry) == _ENTRY_KEYS, entry
+        if entry["is_folder"]:
+            assert _FOLDER_ID.fullmatch(entry["id"]) and entry["kind"] == "folder", entry
+        else:
+            assert _TYPED_ID.fullmatch(entry["id"]), entry
+            assert entry["mime_type"] == "text/plain" and entry["size"] == 0 and entry["web_url"] is None
+    assert found["folder:10"]["path"] == "Procedures" and found["folder:10"]["is_folder"] is True
+    assert found["folder:12"]["path"] == "Procedures/Billing"
+    assert found["item:279"]["path"] == "Accounts/Reset a customer password.txt"
+    assert found["item:302"]["path"] == "Procedures/Billing/Refund a payment.txt"
+    assert found["scenario:4401"]["path"] == "Procedures/Billing/Card blocked flow.txt"
+    assert found["scenario:4401"]["kind"] == "scenario" and found["item:302"]["kind"] == "item"
+    assert found["item:301"]["modified_at"] == "2024-04-10"
+    # With a root, paths start below it and nothing outside it is listed.
+    rooted = _by_id(make(kms, root_folder_id=10).list_files())
+    assert rooted["item:302"]["path"] == "Billing/Refund a payment.txt"
+    assert rooted["item:301"]["path"] == "Billing dispute.txt"
+    assert "item:279" not in rooted and "folder:10" not in rooted
+
+
+def test_entry_name_is_last_path_segment(kms):
+    files = [e for e in client(kms).list_files() if not e["is_folder"]]
+    assert files
+    for entry in files:
+        assert entry["name"] == entry["path"].rsplit("/", 1)[-1], entry
+        assert entry["name"].endswith(".txt"), entry
+    # A '/' in a title does not add a path level.
+    policy = _by_id(files)["item:305"]
+    assert policy["path"].count("/") == 1 and "summary" in policy["name"], policy
+
+
+def test_list_one_folder(kms):
+    one_level = {"item:301", "item:305", "folder:12", "folder:13", "folder:14"}
+    assert _ids(client(kms).list_files(folder_id="folder:10", recursive=False)) == one_level
+    assert _ids(client(kms).list_files(folder_id="folder:10")) == one_level        # a folder lists one level
+    deep = _ids(client(kms).list_files(folder_id="folder:10", recursive=True))
+    assert deep > one_level and {"item:302", "scenario:4401", "item:303", "item:304"} <= deep
+
+
+def test_list_folder_by_path(kms):
+    by_path = client(kms).list_files(folder_id="Procedures/Billing", recursive=True)
+    by_id = client(kms).list_files(folder_id="folder:12", recursive=True)
+    assert _ids(by_path) == _ids(by_id)
+    assert _ids(by_path) == {"item:302", "scenario:4401"}
+    # Paths stay full paths from the root, so they resolve again.
+    assert _by_id(by_path)["item:302"]["path"] == "Procedures/Billing/Refund a payment.txt"
+
+
+@pytest.mark.parametrize("root", [None, 10])
+def test_entry_paths_resolve_back_to_their_folder(kms, root):
+    entries = client(kms, root_folder_id=root).list_files()
+    nested = [e for e in entries if "/" in e["path"]]
+    assert nested
+    if root is None:
+        assert _ids(entries) >= _HOSTILE_ITEMS       # the hostile folder titles are walked
+    by_folder = {}
+    for entry in nested:
+        by_folder.setdefault(_folder_part(entry), set()).add(entry["id"])
+    for folder, ids in by_folder.items():
+        for segment in folder.split("/"):
+            assert segment and len(segment) <= 200 and not _has_control(segment), (folder, segment)
+        listed = client(kms, root_folder_id=root).list_files(folder_id=folder, recursive=True)
+        assert ids <= _ids(listed), (folder, ids - _ids(listed))
+
+
+def test_sibling_folders_with_same_title_get_distinct_paths(kms):
+    found = _by_id(client(kms).list_files())
+    first, second = found["folder:13"]["path"], found["folder:14"]["path"]
+    assert first != second and first.startswith("Procedures/Forms") and second.startswith("Procedures/Forms")
+    for folder, item in (("folder:13", "item:303"), ("folder:14", "item:304")):
+        assert _ids(client(kms).list_files(folder_id=found[folder]["path"])) == {item}
+
+
+@pytest.mark.parametrize("path", ["Nope", "Procedures/Nope", "Procedures/Billing/Refund a payment.txt",
+                                  "procedures", "Forms"])
+def test_unknown_folder_path_is_not_found(kms, path):
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms).list_files(folder_id=path)
+    assert info.value.kind == "not_found"
+    assert path not in str(info.value)
+
+
+def test_list_hides_offline(kms):
+    hidden = _by_id(client(kms).list_files())
+    assert "item:306" not in hidden and "item:301" in hidden
+    shown = _by_id(client(kms, include_offline=True).list_files())
+    assert shown["item:306"]["status"] == "offline" and shown["item:301"]["status"] == "online"
+    assert set(hidden) < set(shown)
+
+
+def test_list_walk_is_bounded(kms):
+    mock = kms["mock"]
+    # The wide folder alone has more subfolders than the cap.
+    entries = client(kms).list_files()
+    assert len(_rows(kms, _TREE_PATH)) == 40 and len(entries) <= 200
+    assert {f"folder:{1000 + n}" for n in range(mock.WIDE_CHILDREN)} <= _ids(entries)
+    assert not {f"item:{2000 + n}" for n in range(mock.WIDE_CHILDREN)} <= _ids(entries)
+    # Resolving a path counts against the same cap.
+    mock.REQUEST_LOG.clear()
+    client(kms).list_files(folder_id="Wide", recursive=True)
+    assert len(_rows(kms, _TREE_PATH)) == 40
+    assert len(client(kms).list_files(limit=7)) == 7
+    assert len(client(kms, max_results=5).list_files(limit=50)) == 5
+
+
+def test_folder_outside_root_is_refused(kms):
+    rooted = client(kms, root_folder_id=10)
+    with pytest.raises(GlobScopeError):
+        rooted.list_files(folder_id="folder:11")
+    assert _ids(client(kms, root_folder_id=10).list_files(folder_id="folder:12")) == {"item:302", "scenario:4401"}
+    assert "item:301" in _ids(client(kms, root_folder_id=10).list_files(folder_id="folder:10"))
+
+
+@pytest.mark.parametrize("make", [client, token_client])
+def test_list_runs_as_the_identity(kms, make):
+    alice = _ids(make(kms, user="alice").list_files())
+    bob = _ids(make(kms, user="bob").list_files())
+    assert {"folder:11", "item:307"} <= alice
+    assert not {"folder:11", "item:307", "item:279"} & bob and {"item:301", "item:302"} <= bob
+    callers = [row[0] for row in _rows(kms, _TREE_PATH)]
+    assert set(callers) == {"alice", "bob"} and callers == sorted(callers)
+
+
+@pytest.mark.parametrize("folder_id", [
+    "folder:../1", "folder:1;x", "item:%2e%2e", "folder:" + "1" * 13, "Procedures/../Restricted",
+    "folder:10\n", "FOLDER:10\n", "item:279\n", "item:279", "scenario:4401", "folder:", "folder:-1",
+    "./Procedures", "Procedures/.", "Procedures//Billing", "/Procedures", "Procedures\tBilling",
+    "Procedures/‮Billing", "x" * 201, "/".join(["a"] * 26), "Procedures/item:7",
+])
+def test_ids_are_validated_before_any_request(kms, folder_id):
+    mock = kms["mock"]
+    with pytest.raises(kc.KmsError) as info:
+        client(kms).list_files(folder_id=folder_id)
+    assert mock.REQUEST_LOG == []
+    assert "%2e" not in str(info.value) and "\n" not in str(info.value) and "Restricted" not in str(info.value)
+    assert info.value.__context__ is None and info.value.__cause__ is None
+
+
 # ------------------------------------------------------------------ closed errors
 _METHODS = {
     "search": lambda c: c.search_files("billing"),
+    "list": lambda c: c.list_files(),
 }
 
 
@@ -299,8 +459,8 @@ def test_odd_shapes_never_echo_provider_text(kms, make, method, shape):
     assert err.__context__ is None and err.__cause__ is None
 
 
-# Every public method that exists so far (P4/P5 extend this list).
-_PUBLIC_METHODS = ("test_connection", "search_files")
+# Every public method that exists so far (P5 extends this list).
+_PUBLIC_METHODS = ("test_connection", "search_files", "list_files")
 
 
 @pytest.mark.parametrize("name", _PUBLIC_METHODS)
@@ -1191,11 +1351,13 @@ _REGRESSION_CORPUS = [
     _keep("r9", "Bearer token-based authentication"),
     _keep("r9", 'Bearer "token-based" authentication'),
     _redact("r9", f'api_key: <span style="color:red">{_SV}</span>', shown="api_key: [redacted]"),
-    _redact("r9", f'api_key:<span style="color:red">{_SV}</span>'),
-    _redact("r9", f'{{"password":<b>"{_SV}"</b>}}'),
+    # These three pass with or without the tag join (blanks after ':' or '=' are allowed, and "?token= S"
+    # is a spaced value); the two userinfo phrases below are the ones that guard the join.
+    _redact("r9-tag-spaced", f'api_key:<span style="color:red">{_SV}</span>'),
+    _redact("r9-tag-spaced", f'{{"password":<b>"{_SV}"</b>}}'),
     _redact("r9", f"https://admin:<b>{_SV}</b>@host/x", shown="https://admin:[redacted]@host"),
     _redact("r9", f"https://admin:<span>{_SV}</span><span>@host</span>/x", shown="https://admin:[redacted]@host"),
-    _redact("r9", _URL + f"?token=<b>{_SV}</b>&lang=en", shown="lang=en"),
+    _redact("r9-tag-spaced", _URL + f"?token=<b>{_SV}</b>&lang=en", shown="lang=en"),
     _keep("r9", "Note:<b>Read this</b>", "Note:Read this"),
     _keep("r9", "Note: <b>Read this</b>", "Note: Read this"),
     _keep("r9", "<b>Note:</b>Use the portal", "Note: Use the portal"),
@@ -1221,6 +1383,43 @@ _REGRESSION_CORPUS = [
     _keep("r9", _URL + "?q=caf%C3%A9&lang=en"),
     _redact("r9", _URL + f"?next=https%3A%2F%2Fkms.example.com%2Fx%3Fid%3D7%26token%3D{_SV}",
             shown="x?id=7"),
+    # r10 (P3 round-9 review and hunt, carried into P4): documentation placeholders after a scheme word
+    # or as a structured value stay; a placeholder glued to a real value does not hide it.
+    _keep("r10", "Authorization: Bearer YOUR_ACCESS_TOKEN"),
+    _keep("r10", "X-Auth-Token: Bearer YOUR_TOKEN"),
+    _keep("r10", 'Authorization: Bearer "YOUR_ACCESS_TOKEN"'),
+    _keep("r10", "Authorization: Bearer ACCESS_TOKEN"),
+    _keep("r10", "client_secret: YOUR_CLIENT_SECRET"),
+    _keep("r10", "auth_token: YOUR_AUTH_TOKEN"),
+    _keep("r10", "api_key: your-api-key"),
+    _keep("r10", "x-api-key: YOUR-API-KEY"),
+    _keep("r10", "API_KEY=INSERT_KEY_HERE"),
+    _keep("r10", "api_key: your-key-here"),
+    _keep("r10", '"api_key": "YOUR API KEY"'),
+    _redact("r10", f"Authorization: Bearer YOUR_{_SV}"),
+    _redact("r10", f"api_key: your-{_SV}"),
+    # A smart, escaped or backtick quote may open a Bearer token.
+    _redact("r10", "curl --oauth2-bearer “ya29.a0AfH6SMBx9Qk2” https://x", "a0AfH6SMBx9Qk2"),
+    _redact("r10", "curl --oauth2-bearer ‘ya29.a0AfH6SMBx9Qk2’ https://x", "a0AfH6SMBx9Qk2"),
+    _redact("r10", 'Authorization: Bearer \\"ya29.a0AfH6SMBx9Qk2\\"', "a0AfH6SMBx9Qk2"),
+    _redact("r10", "Authorization: Bearer `ya29.a0AfH6SMBx9Qk2`", "a0AfH6SMBx9Qk2"),
+    # A placeholder glued to a value is no placeholder.
+    _redact("r10", f"api_key: &lt;your api key&gt;{_SV}"),
+    _redact("r10", f"DB_PASS=${{DB}}{_SV}"),
+    _redact("r10", f"api_key: {{key}}{_SV}"),
+    # One sentence mark after a placeholder still leaves a placeholder.
+    _keep("r10", "Set api_key: &lt;your api key&gt;.", "Set api_key: <your api key>."),
+    _keep("r10", "(api_key: &lt;your api key&gt;)", "(api_key: <your api key>)"),
+    _keep("r10", "api_key: YOUR_API_KEY."),
+    _keep("r10", "(api_key: YOUR_API_KEY)"),
+    _keep("r10", "DB_PASS=${DB_PASS}."),
+    _redact("r10", f"api_key: {_SV}."),
+    # Template expressions as values.
+    _keep("r10", "api_key: ${{ secrets.API_KEY }}"),
+    _keep("r10", "client_secret: {{ .Values.clientSecret }}"),
+    _keep("r10", '"clientSecret": "{{ .Values.clientSecret }}"'),
+    _keep("r10", "DB_PASSWORD=${POSTGRES_PASSWORD:-postgres}"),
+    _redact("r10", f"api_key: ${{{{ secrets.API_KEY }}}}{_SV}"),
 ]
 
 
