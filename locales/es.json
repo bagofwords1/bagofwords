@@ -4679,7 +4679,7 @@
   "dashboards": {
     "title": "Paneles",
     "subtitle": "Explora y administra tus paneles y presentaciones",
-    "searchPlaceholder": "Buscar paneles…",
+    "searchPlaceholder": "Buscar paneles o propietarios…",
     "myDashboards": "Mis paneles",
     "sharedWithMe": "Compartidos conmigo",
     "empty": "No se encontraron paneles",
@@ -4688,7 +4688,136 @@
     "fetchFailed": "No se pudieron cargar los paneles",
     "typeAll": "Todos",
     "typeDashboards": "Paneles",
-    "typeDocs": "Documentos"
+    "typeDocs": "Documentos",
+    "reason": {
+      "direct": "Compartido contigo",
+      "group": "Grupo {name}",
+      "project": "Proyecto {name}",
+      "org": "Organización",
+      "public": "Enlace público",
+      "other": "Compartido",
+      "groupAny": "Tu grupo",
+      "projectAny": "Tu proyecto"
+    },
+    "reasonTitle": {
+      "direct": "{owner} lo compartió contigo",
+      "group": "Compartido con tu grupo {name}",
+      "groupOther": "Compartido con uno de tus grupos",
+      "project": "En el proyecto {name}, del que formas parte",
+      "projectOther": "En un proyecto del que formas parte",
+      "org": "Compartido con toda la organización",
+      "public": "Cualquiera con el enlace",
+      "also": "también: {reason}",
+      "canEdit": "(puedes editar)",
+      "viewOnly": "(solo lectura)"
+    },
+    "card": {
+      "edited": "Editado {time}",
+      "created": "Creado el {date}",
+      "by": "por {name}",
+      "published": "Publicado el {date}",
+      "dataAsOf": "Datos actualizados {time}",
+      "refreshFailing": "Falla la actualización",
+      "lastEdit": "Última edición: {time}",
+      "scheduledRefresh": "Actualización programada"
+    },
+    "pill": {
+      "new": "Nuevo",
+      "published": "Publicado",
+      "changes": "Cambios sin publicar",
+      "org": "Organización",
+      "public": "Público"
+    },
+    "mode": {
+      "page": "Panel",
+      "slides": "Diapositivas",
+      "doc": "Documento"
+    },
+    "list": {
+      "createdShort": "creado el {date}",
+      "directFirst": "primero lo compartido directamente",
+      "dateColumns": "Editado · Creado"
+    },
+    "star": "Destacar",
+    "unstar": "Quitar destacado",
+    "starFailed": "No se pudo actualizar el destacado",
+    "emptyFiltered": "Prueba otra búsqueda o {clear}.",
+    "clearTheFilters": "borra los filtros",
+    "count": "{n} panel | {n} paneles",
+    "tabNew": "{n} nuevo | {n} nuevos",
+    "pagePrevious": "Página anterior",
+    "pageNext": "Página siguiente",
+    "sort": {
+      "label": "Ordenar",
+      "edited": "Editados recientemente",
+      "newest": "Creados recientemente",
+      "oldest": "Creados hace más tiempo",
+      "title": "Título A–Z",
+      "published": "Publicados recientemente"
+    },
+    "view": {
+      "grid": "Cuadrícula",
+      "list": "Lista"
+    },
+    "access": {
+      "all": "Todos",
+      "direct": "Directamente",
+      "group": "Mis grupos",
+      "project": "Proyectos",
+      "org": "Organización",
+      "edit": "Puedo editar"
+    },
+    "presets": {
+      "any": "Cualquier fecha",
+      "last7": "Últimos 7 días",
+      "last30": "Últimos 30 días",
+      "last90": "Últimos 90 días",
+      "year": "Este año",
+      "older90": "Hace más de 90 días",
+      "custom": "Rango personalizado"
+    },
+    "status": {
+      "any": "Cualquier estado",
+      "published": "Publicado",
+      "changes": "Cambios sin publicar",
+      "draft": "Borrador"
+    },
+    "filters": {
+      "button": "Filtros",
+      "agent": "Agente",
+      "created": "Creado",
+      "edited": "Editado",
+      "owner": "Propietario",
+      "status": "Estado",
+      "starredOnly": "Solo destacados",
+      "clearAll": "Borrar todo",
+      "allAgents": "Todos los agentes",
+      "agentsCount": "{n} agente | {n} agentes",
+      "anyone": "Cualquiera",
+      "ownersCount": "{n} persona | {n} personas",
+      "from": "Desde",
+      "to": "a",
+      "toLabel": "Hasta",
+      "customRange": "{from} – {to}",
+      "rangeInvalid": "El inicio debe ser igual o anterior al final",
+      "unknownAgent": "Agente no disponible",
+      "unknownOwner": "Persona desconocida",
+      "resultCount": "{n} de {total}",
+      "remove": "Quitar {name}"
+    },
+    "chips": {
+      "search": "“{q}”",
+      "owner": "Propietario: {name}",
+      "created": "Creado: {range}",
+      "edited": "Editado: {range}",
+      "starred": "Destacados"
+    },
+    "attention": {
+      "title": "Requieren atención",
+      "failing": "{n} con error de actualización | {n} con error de actualización",
+      "stale": "{n} sin editar en 90 días | {n} sin editar en 90 días",
+      "show": "Mostrarlos"
+    }
   },
   "excel": {
     "greeting": "Hola, {name} 👋",

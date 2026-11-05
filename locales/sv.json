@@ -4308,7 +4308,7 @@
   "dashboards": {
     "title": "Instrumentpaneler",
     "subtitle": "Bläddra och hantera dina instrumentpaneler och bilder",
-    "searchPlaceholder": "Sök instrumentpaneler…",
+    "searchPlaceholder": "Sök instrumentpaneler eller ägare…",
     "myDashboards": "Mina instrumentpaneler",
     "sharedWithMe": "Delade med mig",
     "empty": "Inga instrumentpaneler hittades",
@@ -4317,7 +4317,136 @@
     "fetchFailed": "Det gick inte att hämta instrumentpanelerna",
     "typeAll": "Alla",
     "typeDashboards": "Instrumentpaneler",
-    "typeDocs": "Dokument"
+    "typeDocs": "Dokument",
+    "reason": {
+      "direct": "Delad med dig",
+      "group": "Grupp {name}",
+      "project": "Projekt {name}",
+      "org": "Organisation",
+      "public": "Offentlig länk",
+      "other": "Delad",
+      "groupAny": "Din grupp",
+      "projectAny": "Ditt projekt"
+    },
+    "reasonTitle": {
+      "direct": "{owner} delade den med dig",
+      "group": "Delad med din grupp {name}",
+      "groupOther": "Delad med en av dina grupper",
+      "project": "I projektet {name}, som du tillhör",
+      "projectOther": "I ett projekt som du tillhör",
+      "org": "Delad med alla i organisationen",
+      "public": "Alla med länken",
+      "also": "även: {reason}",
+      "canEdit": "(du kan redigera)",
+      "viewOnly": "(endast visning)"
+    },
+    "card": {
+      "edited": "Redigerad {time}",
+      "created": "Skapad {date}",
+      "by": "av {name}",
+      "published": "Publicerad {date}",
+      "dataAsOf": "Data uppdaterad {time}",
+      "refreshFailing": "Uppdateringen misslyckas",
+      "lastEdit": "Senast redigerad: {time}",
+      "scheduledRefresh": "Schemalagd uppdatering"
+    },
+    "pill": {
+      "new": "Ny",
+      "published": "Publicerad",
+      "changes": "Opublicerade ändringar",
+      "org": "Organisation",
+      "public": "Offentlig"
+    },
+    "mode": {
+      "page": "Instrumentpanel",
+      "slides": "Bilder",
+      "doc": "Dokument"
+    },
+    "list": {
+      "createdShort": "skapad {date}",
+      "directFirst": "direkta delningar först",
+      "dateColumns": "Redigerad · Skapad"
+    },
+    "star": "Stjärnmärk",
+    "unstar": "Ta bort stjärnmärkning",
+    "starFailed": "Det gick inte att uppdatera stjärnmärkningen",
+    "emptyFiltered": "Prova en annan sökning eller {clear}.",
+    "clearTheFilters": "rensa filtren",
+    "count": "{n} instrumentpanel | {n} instrumentpaneler",
+    "tabNew": "{n} ny | {n} nya",
+    "pagePrevious": "Föregående sida",
+    "pageNext": "Nästa sida",
+    "sort": {
+      "label": "Sortera",
+      "edited": "Senast redigerade",
+      "newest": "Senast skapade",
+      "oldest": "Först skapade",
+      "title": "Titel A–Ö",
+      "published": "Senast publicerade"
+    },
+    "view": {
+      "grid": "Rutnät",
+      "list": "Lista"
+    },
+    "access": {
+      "all": "Alla",
+      "direct": "Direkt",
+      "group": "Mina grupper",
+      "project": "Projekt",
+      "org": "Organisation",
+      "edit": "Kan redigera"
+    },
+    "presets": {
+      "any": "När som helst",
+      "last7": "Senaste 7 dagarna",
+      "last30": "Senaste 30 dagarna",
+      "last90": "Senaste 90 dagarna",
+      "year": "I år",
+      "older90": "Äldre än 90 dagar",
+      "custom": "Eget intervall"
+    },
+    "status": {
+      "any": "Alla statusar",
+      "published": "Publicerad",
+      "changes": "Opublicerade ändringar",
+      "draft": "Utkast"
+    },
+    "filters": {
+      "button": "Filter",
+      "agent": "Agent",
+      "created": "Skapad",
+      "edited": "Redigerad",
+      "owner": "Ägare",
+      "status": "Status",
+      "starredOnly": "Endast stjärnmärkta",
+      "clearAll": "Rensa allt",
+      "allAgents": "Alla agenter",
+      "agentsCount": "{n} agent | {n} agenter",
+      "anyone": "Vem som helst",
+      "ownersCount": "{n} person | {n} personer",
+      "from": "Från",
+      "to": "till",
+      "toLabel": "Till",
+      "customRange": "{from} – {to}",
+      "rangeInvalid": "Startdatumet får inte vara efter slutdatumet",
+      "unknownAgent": "Otillgänglig agent",
+      "unknownOwner": "Okänd person",
+      "resultCount": "{n} av {total}",
+      "remove": "Ta bort {name}"
+    },
+    "chips": {
+      "search": "”{q}”",
+      "owner": "Ägare: {name}",
+      "created": "Skapad: {range}",
+      "edited": "Redigerad: {range}",
+      "starred": "Stjärnmärkta"
+    },
+    "attention": {
+      "title": "Behöver åtgärdas",
+      "failing": "{n} misslyckas med uppdatering | {n} misslyckas med uppdatering",
+      "stale": "{n} inte redigerad på 90 dagar | {n} inte redigerade på 90 dagar",
+      "show": "Visa dem"
+    }
   },
   "excel": {
     "greeting": "Hej, {name} 👋",

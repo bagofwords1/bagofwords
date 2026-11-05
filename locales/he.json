@@ -4699,7 +4699,7 @@
   "dashboards": {
     "title": "דשבורדים",
     "subtitle": "עיון וניהול של דשבורדים והמצגות שלך",
-    "searchPlaceholder": "חיפוש דשבורדים…",
+    "searchPlaceholder": "חיפוש דשבורדים או בעלים…",
     "myDashboards": "דשבורדים שלי",
     "sharedWithMe": "משותפים איתי",
     "empty": "לא נמצאו דשבורדים",
@@ -4708,7 +4708,136 @@
     "fetchFailed": "טעינת הדשבורדים נכשלה",
     "typeAll": "הכול",
     "typeDashboards": "גלריות",
-    "typeDocs": "מסמכים"
+    "typeDocs": "מסמכים",
+    "reason": {
+      "direct": "שותף איתך",
+      "group": "קבוצה {name}",
+      "project": "פרויקט {name}",
+      "org": "הארגון",
+      "public": "קישור ציבורי",
+      "other": "משותף",
+      "groupAny": "הקבוצה שלך",
+      "projectAny": "הפרויקט שלך"
+    },
+    "reasonTitle": {
+      "direct": "שותף איתך על ידי {owner}",
+      "group": "שותף עם הקבוצה שלך {name}",
+      "groupOther": "שותף עם אחת הקבוצות שלך",
+      "project": "בפרויקט {name} שלך",
+      "projectOther": "באחד הפרויקטים שלך",
+      "org": "שותף עם כל הארגון",
+      "public": "כל מי שיש לו את הקישור",
+      "also": "וגם: {reason}",
+      "canEdit": "(הרשאת עריכה)",
+      "viewOnly": "(צפייה בלבד)"
+    },
+    "card": {
+      "edited": "נערך {time}",
+      "created": "נוצר {date}",
+      "by": "מאת {name}",
+      "published": "פורסם {date}",
+      "dataAsOf": "הנתונים עודכנו {time}",
+      "refreshFailing": "הרענון נכשל",
+      "lastEdit": "עריכה אחרונה: {time}",
+      "scheduledRefresh": "רענון מתוזמן"
+    },
+    "pill": {
+      "new": "חדש",
+      "published": "פורסם",
+      "changes": "שינויים שלא פורסמו",
+      "org": "ארגון",
+      "public": "ציבורי"
+    },
+    "mode": {
+      "page": "גלריה",
+      "slides": "שקופיות",
+      "doc": "מסמך"
+    },
+    "list": {
+      "createdShort": "נוצר {date}",
+      "directFirst": "שיתופים ישירים קודם",
+      "dateColumns": "נערך · נוצר"
+    },
+    "star": "סמן בכוכב",
+    "unstar": "הסר כוכב",
+    "starFailed": "לא ניתן היה לעדכן את הכוכב",
+    "emptyFiltered": "נסו חיפוש אחר, או {clear}.",
+    "clearTheFilters": "נקו את הסינון",
+    "count": "דשבורד אחד | {n} דשבורדים",
+    "tabNew": "{n} חדש | {n} חדשים",
+    "pagePrevious": "העמוד הקודם",
+    "pageNext": "העמוד הבא",
+    "sort": {
+      "label": "מיון",
+      "edited": "נערכו לאחרונה",
+      "newest": "נוצרו לאחרונה",
+      "oldest": "נוצרו ראשונים",
+      "title": "כותרת א–ת",
+      "published": "פורסמו לאחרונה"
+    },
+    "view": {
+      "grid": "רשת",
+      "list": "רשימה"
+    },
+    "access": {
+      "all": "הכול",
+      "direct": "ישירות",
+      "group": "הקבוצות שלי",
+      "project": "פרויקטים",
+      "org": "הארגון",
+      "edit": "הרשאת עריכה"
+    },
+    "presets": {
+      "any": "כל הזמנים",
+      "last7": "7 הימים האחרונים",
+      "last30": "30 הימים האחרונים",
+      "last90": "90 הימים האחרונים",
+      "year": "השנה",
+      "older90": "לפני יותר מ-90 יום",
+      "custom": "טווח מותאם"
+    },
+    "status": {
+      "any": "כל הסטטוסים",
+      "published": "פורסם",
+      "changes": "שינויים שלא פורסמו",
+      "draft": "טיוטה"
+    },
+    "filters": {
+      "button": "מסננים",
+      "agent": "סוכן",
+      "created": "נוצר",
+      "edited": "נערך",
+      "owner": "בעלים",
+      "status": "סטטוס",
+      "starredOnly": "מסומנים בכוכב בלבד",
+      "clearAll": "נקו הכול",
+      "allAgents": "כל הסוכנים",
+      "agentsCount": "סוכן אחד | {n} סוכנים",
+      "anyone": "כולם",
+      "ownersCount": "אדם אחד | {n} אנשים",
+      "from": "מתאריך",
+      "to": "עד",
+      "toLabel": "עד תאריך",
+      "customRange": "{from} – {to}",
+      "rangeInvalid": "תאריך ההתחלה חייב להיות לפני תאריך הסיום או באותו יום",
+      "unknownAgent": "סוכן לא זמין",
+      "unknownOwner": "אדם לא ידוע",
+      "resultCount": "{n} מתוך {total}",
+      "remove": "הסרת {name}"
+    },
+    "chips": {
+      "search": "\"{q}\"",
+      "owner": "בעלים: {name}",
+      "created": "נוצר: {range}",
+      "edited": "נערך: {range}",
+      "starred": "מסומנים בכוכב"
+    },
+    "attention": {
+      "title": "דורשים תשומת לב",
+      "failing": "{n} נכשל ברענון | {n} נכשלים ברענון",
+      "stale": "{n} לא נערך 90 יום | {n} לא נערכו 90 יום",
+      "show": "הציגו אותם"
+    }
   },
   "excel": {
     "greeting": "היי, {name} 👋",
