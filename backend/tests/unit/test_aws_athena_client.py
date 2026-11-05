@@ -160,7 +160,7 @@ def test_single_mode_does_not_refuse_unqualified_references(wrangler):
 @pytest.mark.parametrize("spec,expected", [
     ("*_db, !billing_db", {"acme_db", "globex_db"}),
     ("*_db, analytics_history", {"acme_db", "globex_db", "billing_db", "analytics_history"}),
-    ("a?e_db, engine_*, !engine_x", {"acme_db", "analytics_history"}),
+    ("a?me_db, analytics_*, !analytics_x", {"acme_db", "analytics_history"}),
 ])
 def test_spec_resolves_the_expected_database_set(wrangler, spec, expected):
     client = make_client(spec, FakeGlue(TENANTS))
