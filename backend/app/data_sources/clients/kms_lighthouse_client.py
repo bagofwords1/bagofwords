@@ -409,8 +409,13 @@ _SECRET_KEYS = frozenset(_param_key(name) for name in (
 # capital: DB_PASS, db-pass, dbPass) and a word that names a service; never the
 # word alone ("Pass:"), "bypass", or another word ("boarding_pass", "LastPass").
 _COMPOUND_PASS_RE = re.compile(r"(?:[A-Z]?[a-z0-9]+|[A-Z0-9]+)(?=(?:[_-](?i:pass)|(?<=[a-z0-9])Pass)$)")
-# The services a "pass" key names ("User-Pass" and "Admin-Pass" are labels).
-_PASS_PREFIXES = ("db", "smtp", "ftp", "sftp", "ldap", "mysql", "redis", "proxy", "mail", "imap", "root")
+# The words before "pass" that name a service or an account in a lower-case or
+# camel-case key ("admin_pass", "emailPass"); an upper-case env key needs none.
+_PASS_PREFIXES = ("db", "smtp", "ftp", "sftp", "ldap", "mysql", "redis", "proxy", "mail", "imap", "root",
+                  "postgres", "pg", "mongo", "mongodb", "rabbitmq", "amqp", "email", "ssh", "vpn", "wifi",
+                  "keystore", "database", "sql", "sa", "app", "api", "admin")
+# The words of an upper-case env key before its "_PASS" (ADMIN, DB_ADMIN, LDAP_BIND).
+_UPPER_ENV_WORDS_RE = re.compile(r"[A-Z0-9]++(?:_[A-Z0-9]++)*+")
 # Two words a hyphen may join into a secret key name (auth-token, client-secret, api-key, db-pass).
 _COMPOUND_SECRET_KEYS = frozenset(key for key in _SECRET_KEYS | set(_SECRET_SUFFIXES) if key not in (
     "token", "password", "passwd", "pwd", "secret", "jwt", "jsessionid")) | {word + "pass" for word in _PASS_PREFIXES}
@@ -430,12 +435,34 @@ def _is_secret_name(name: str) -> bool:
     return _is_listed(key, _SECRET_PARAMS) or (key.startswith("amp") and _is_listed(key[3:], _SECRET_PARAMS))
 
 
-def _is_secret_key(name: str) -> bool:
-    """A structured key that names a credential: a listed key, one ending with a secret word, or a compound "...pass"."""
-    if _is_listed(_param_key(name), _SECRET_KEYS):
+def _is_title_label(name: str) -> bool:
+    """A hyphenated name with each part capitalised and not all in capitals ("Root-Pass", "Mail-Pass") is a label."""
+    return "-" in name and name != name.upper() and all(part[:1].isupper() for part in name.split("-"))
+
+
+def _is_pass_key(name: str) -> bool:
+    """A "...pass" key: any upper-case env key ("ADMIN_PASS"), or a service word before "pass" ("db-pass", "smtpPass")."""
+    if name.endswith("_PASS") and _UPPER_ENV_WORDS_RE.fullmatch(name, 0, len(name) - len("_PASS")):
         return True
+    if _is_title_label(name):
+        return False
     word = _COMPOUND_PASS_RE.search(name[-40:])      # bounded: the word before "pass" is short
     return word is not None and word.group(0).lower() in _PASS_PREFIXES
+
+
+# A documentation placeholder in a credential's place ("<password>", "{secret}",
+# "[api key]", "***", "xxxx", "....", "changeme", "your_password"): kept as written.
+_PLACEHOLDER_RE = re.compile(
+    r"(?i)<[a-z][a-z _-]{0,63}+>|\{[a-z][a-z _-]{0,63}+\}|\[[a-z][a-z _-]{0,63}+\]|\*{3,}+|x{3,}+|\.{3,}+"
+    r"|(?:your_?)?password|pass|passwd|secret|token|changeme")
+_MAX_PLACEHOLDER_CHARS = 66
+# A value that is a URL ("proxy_pass: http://backend:8080" names an upstream, not a password).
+_URL_VALUE_RE = re.compile(r"(?i)(?:https?|ftp|wss?)://")
+
+
+def _is_placeholder(value: str) -> bool:
+    """A placeholder; an earlier "[redacted]" is none (a scheme word before it still goes with it)."""
+    return value != _REDACTED and _PLACEHOLDER_RE.fullmatch(value) is not None
 
 
 def _without_controls(text: str) -> str:
@@ -630,7 +657,8 @@ def _redact_structured_values(text: str) -> str:
         pos = match.end()
         opener, quoted_name, closer, bare_name = match.group(1, 2, 3, 4)
         name = quoted_name if quoted_name is not None else bare_name
-        if not _is_secret_key(name):
+        listed = _is_listed(_param_key(name), _SECRET_KEYS)
+        if not (listed or _is_pass_key(name)):
             continue
         shaped = _is_identifier_shaped(text, match.start(2 if quoted_name is not None else 4), name)
         if quoted_name is None and not shaped:
@@ -649,6 +677,7 @@ def _redact_structured_values(text: str) -> str:
         start, end, quoted = _value_span(text, value_at, _STRUCTURED_VALUE_RE, _QUOTE_CLOSERS)
         if quoted and escaped and end > start and text[end - 1] == "\\":
             end -= 1                  # the backslash of the closing quote stays with it
+        credential_at = start
         if not quoted:
             end = _unquoted_value_end(text, start)
             if text[start:end].lower() in _SCHEME_WORDS:
@@ -657,6 +686,13 @@ def _redact_structured_values(text: str) -> str:
                 if credential_end == credential_at:
                     continue          # a scheme word with no credential after it is text ("X-Auth-Token: Bearer")
                 end = credential_end
+        # An unquoted "{placeholder" stops before its '}'; a placeholder is short, so the check reads a bounded run.
+        closer = "}" if not quoted and text.startswith("{", credential_at) and text.startswith("}", end) else ""
+        if end - credential_at <= _MAX_PLACEHOLDER_CHARS and _is_placeholder(text[credential_at:end] + closer):
+            continue
+        if not listed and _URL_VALUE_RE.match(text, start):
+            pos = end                 # a "pass" name whose value is a URL names an upstream ("proxy_pass: http://x")
+            continue
         if end > start:
             pieces.append(text[last:start] + _REDACTED)
             last = pos = end
@@ -699,36 +735,79 @@ def _redact_basic(match: re.Match) -> str:
     return match.group(0)
 
 
-# A command-line "user:password": the flag (-u, -U, -uuser:pass, a bundled -sku,
-# --user, --proxy-user, spaced or with '='), then a user name or key (at most 128
-# characters, so each flag reads a bounded run) and its password. The whole pair
-# may be quoted ('user:pass'); otherwise the password may be quoted on its own
-# (user:'pass', closed within 256 characters on its line) or runs to whitespace
-# or a quote. A password starting with '/', '$', '`' or '%' is a path, a shell
-# substitution or a format ("rsync -u host:/data", "$(id -g)", "date -u +%H:%M").
-_CLI_USER_NAME = r"([A-Za-z0-9_][A-Za-z0-9._@+-]{0,127}+)"
+# A command-line "user:password" (curl's and wget's forms): the flag (group 1:
+# -u, -uuser:pass, --user, spaced or with '='; and, only after "curl" on the same
+# line, -U, --proxy-user and a bundled cluster ending in u or U such as -sku), then
+# a user name or key (Unicode word characters, '.', '@', '+', '-' and '\' for a
+# DOMAIN\user, at most 128, so each flag reads a bounded run; it may be empty
+# before a password, as in "-u :PAT") and its password. The whole pair may be
+# quoted ('user:pass', the password up to the closing quote within 256 characters
+# on its line, spaces included); otherwise the password may be quoted on its own
+# (user:'pass') or runs to whitespace or a quote. A password starting with '/',
+# '$', '`', '%' or '~' is a path, a shell substitution or a format ("rsync -u
+# host:/data", "$(id -g)", "date -u +%H:%M", "host:~/data").
+_CLI_USER_NAME = r"([^\W][\w.@+\\-]{0,127}+|)"
+_CLI_PASSWORD_START = r"(?![/$`%~])"
 _CLI_USER_RE = re.compile(
-    r"(?<![\w-])(?:-[uU][ \t]*+|-[A-Za-z]{1,6}[uU][ \t]++|--(?:proxy-)?user(?:[ \t]++|=))"
-    r"(?:['\"]" + _CLI_USER_NAME + r":((?![/$`%])[^\s'\"]*+)"
-    r"|" + _CLI_USER_NAME + r":(?:'([^'\n]{1,256}+)'|\"([^\"\n]{1,256}+)\"|['\"]?+((?![/$`%])[^\s'\"]++)"
-    r"|(?=[\s'\"]|\Z)))")
+    r"(?<![\w-])(-u[ \t]*+|--user(?:[ \t]++|=)|-U[ \t]*+|--proxy-user(?:[ \t]++|=)|-[A-Za-z]{1,6}[uU][ \t]++)"
+    r"(?:'" + _CLI_USER_NAME + ":" + _CLI_PASSWORD_START + r"([^'\n]{1,256}+)'"
+    r"|\"" + _CLI_USER_NAME + ":" + _CLI_PASSWORD_START + r"([^\"\n]{1,256}+)\""
+    r"|['\"]" + _CLI_USER_NAME + ":(" + _CLI_PASSWORD_START + r"[^\s'\"]*+)"
+    r"|" + _CLI_USER_NAME + r":(?:'([^'\n]{1,256}+)'|\"([^\"\n]{1,256}+)\"|['\"]?+("
+    + _CLI_PASSWORD_START + r"[^\s'\"]++)|(?=[\s'\"]|\Z)))")
+# (user group, password groups, password unquoted) of each form of _CLI_USER_RE.
+_CLI_FORMS = ((2, (3,), False), (4, (5,), False), (6, (7,), True), (8, (9, 10, 11), None))
+_CURL_RE = re.compile(r"(?<![\w-])curl(?![\w-])")
+_CURL_LOOKBACK_CHARS = 512
+# A Maven plugin:goal or an rclone remote:folder ("spring-boot:run", "gdrive:Backups"),
+# and a socat address with a port ("UDP-RECV:5000").
+_CLI_WORD_RE = re.compile(r"[^\W\d_]++(?:-[^\W\d_]++)*+")
+_CLI_ADDRESS_TYPE_RE = re.compile(r"[A-Z][A-Z0-9]*+(?:-[A-Z0-9]++)*+")
+
+
+def _after_curl(text: str, start: int) -> bool:
+    """The word curl comes earlier on the line of ``start`` (a look-back of at most 512 characters)."""
+    window = max(0, start - _CURL_LOOKBACK_CHARS)
+    window = max(window, text.rfind("\n", window, start) + 1)
+    return _CURL_RE.search(text, window, start) is not None
 
 
 def _redact_cli_user(match: re.Match) -> str:
-    user_group = 1 if match.group(1) is not None else 3
+    text = match.string
+    flag = match.group(1)
+    plain = flag.startswith(("-u", "--user"))         # -u and --user are curl's and wget's, and other tools'
+    curl = _after_curl(text, match.start())
+    if not (plain or curl):
+        return match.group(0)        # -U, --proxy-user and "-avu" belong to curl only ("mvn -U", "rsync -avu")
+    user_group, password_groups, unquoted = next(form for form in _CLI_FORMS if match.group(form[0]) is not None)
     user = match.group(user_group)
-    password_group = next((group for group in (2, 4, 5, 6) if match.group(group)), None)
-    if password_group is None:
+    password_group = next((group for group in password_groups if match.group(group)), None)
+    if unquoted is None:
+        unquoted = password_group == 11
+    start, end = match.span(user_group) if password_group is None else match.span(password_group)
+    password = "" if password_group is None else match.group(password_group)
+    if unquoted and password:
+        # A ';' or ',' that ends the password before a blank is the shell's or the sentence's.
+        trimmed = password.rstrip(";,")
+        if trimmed != password and (end == len(text) or text[end].isspace()):
+            end -= len(password) - len(trimmed)
+            password = trimmed
+        if "/" in password:
+            return match.group(0)    # a host path ("server:data/", "user@host:backups/")
+        if _CLI_WORD_RE.fullmatch(user) and _CLI_WORD_RE.fullmatch(password) and not (plain and curl):
+            return match.group(0)    # a Maven goal ("mvn -U spring-boot:run") or an rclone remote
+        if not curl and password.isdigit() and _CLI_ADDRESS_TYPE_RE.fullmatch(user):
+            return match.group(0)    # a socat address and port ("socat -u UDP-RECV:5000")
+    if not password:
         # Key only ("-u KEY:"): the user part is an API key, which has a digit; "nginx:" is prose.
         if user.isdigit() or not any(ch.isdigit() for ch in user):
             return match.group(0)
         start, end = match.span(user_group)
-    else:
-        if user.isdigit() and match.group(password_group).isdigit():
-            return match.group(0)      # a numeric user:group ("docker run -u 1000:1000")
-        start, end = match.span(password_group)
-    text, offset = match.group(0), match.start()
-    return text[:start - offset] + _REDACTED + text[end - offset:]
+    elif (user.isdigit() and password.isdigit()) or _is_placeholder(password):
+        return match.group(0)        # a numeric user:group ("docker run -u 1000:1000") or "username:password"
+    offset = match.start()
+    whole = match.group(0)
+    return whole[:start - offset] + _REDACTED + whole[end - offset:]
 
 
 def _scrub_at(text: str, depth: int) -> str:
@@ -776,19 +855,52 @@ def _scrub_at(text: str, depth: int) -> str:
 #   * a numeric '=' or '&' reference without ';' that a digit (or a hex digit)
 #     follows ("&#x3dab12": HTML reads it as another character);
 #   * a URL scheme longer than 32 characters;
+#   * command-line credential flags of tools other than curl and wget (user
+#     scope line, fix round 8): "mysql -pSECRET", "sqlcmd -P", "mongosh -p",
+#     "docker login -p", "redis-cli -a", "sshpass -p", "keytool -storepass" and
+#     "-keypass", "openssl -passin/-passout pass:", "smbclient -U user%pass",
+#     "http -a" and "--auth", "lftp -u user,pass", "ab -A", "sqlplus user/pass@";
+#     curl's own "-E/--cert file:pass"; and a token-only URL userinfo
+#     ("https://TOKEN@host", no ':');
+#   * curl's "-U", "--proxy-user" and a bundled cluster ("-sku") on a line with
+#     no "curl" before it within 512 characters, as on a continuation line of a
+#     multi-line command ("curl \" then "-U proxy:S" on the next line);
 #   * a command-line user name longer than 128 characters ("-u <user>:<password>")
 #     or holding '%', '/', '$', '(' or ')'; a numeric pair, which is a user:group
-#     ("docker run -u 1000:1000"); a password starting with '/', '$', '`' or '%'
-#     (a path, a shell substitution or a format: "rsync -u host:/data"); a
-#     bundled flag cluster of more than 6 letters before 'u', or one written
-#     against its user ("-suadmin:S"); a key-only "-u KEY:" whose key has no
-#     digit, or only digits ("journalctl -u nginx: ..." is prose); the rest of
-#     a password after a quote inside it ("admin:S3c\"r3t" keeps "r3t");
-#   * a "<word>pass" key unless the word right before "pass" (after '_', '-' or
-#     a lower-to-upper camel boundary) names a service (_PASS_PREFIXES: DB_PASS,
-#     smtp-pass, dbPass, MYSQL_ROOT_PASS); "DB_ADMIN_PASS=X" and "dbUserPass: X"
-#     are shown, as "User-Pass", "Admin-Pass", "boardingPass" and "LastPass" are
-#     labels; an upper-case run before "Pass" ("DBPass") is no camel boundary;
+#     ("docker run -u 1000:1000"); a password starting with '/', '$', '`', '%' or
+#     '~' (a path, a shell substitution or a format: "rsync -u host:/data",
+#     "host:~/data"), or an unquoted one holding a '/' anywhere ("server:data/",
+#     also "admin:pa/ss"); a bundled flag cluster of more than 6 letters before
+#     'u', or one written against its user ("-suadmin:S"); a key-only "-u KEY:"
+#     whose key has no digit, or only digits ("journalctl -u nginx: ..." is
+#     prose); the rest of a password after a quote inside it ("admin:S3c\"r3t"
+#     keeps "r3t"); a password that is a documentation placeholder ("<password>",
+#     "{password}", "[password]", "***", "xxxx", "....", or the word password,
+#     pass, passwd, secret, token, your_password, yourpassword or changeme); a
+#     trailing ';' or ',' before a blank (the shell's or the sentence's);
+#   * a word:word pair (letters and '-' only on both sides) after "-U" or a
+#     bundled cluster ("mvn -U spring-boot:run"; also "curl -su admin:Welcome"),
+#     or after a plain "-u"/"--user" with no "curl" before it on the line
+#     ("rclone copy -u gdrive:Backups", "journalctl -u nginx:main", "-u
+#     app:app", "-update:now"; also a letters-only password on a curl
+#     continuation line); an upper-case address type and a numeric port after a
+#     plain "-u" with no "curl" before it ("socat -u UDP-RECV:5000", also
+#     "-u ADMIN:123456" on a continuation line);
+#   * a "<word>pass" key in lower or camel case unless the word right before
+#     "pass" (after '_', '-' or a lower-to-upper camel boundary) names a service
+#     or an account (_PASS_PREFIXES: db-pass, dbPass, smtp_pass, adminPass,
+#     emailPass); an upper-case env key ending "_PASS" is always one
+#     (ADMIN_PASS, DB_ADMIN_PASS, LDAP_BIND_PASS). Shown as written:
+#     "dbUserPass: X", "boardingPass", "LastPass", an upper-case run before
+#     "Pass" ("DBPass", no camel boundary), and a Title-Hyphen label, each part
+#     capitalised and not all in capitals ("Root-Pass: X", "User-Pass",
+#     "Admin-Pass", also "DB-Pass: X"; "db-pass" and "DB-PASS" stay keys); the
+#     URL value of a "pass" key ("proxy_pass: http://backend:8080"; a password
+#     inside its userinfo still goes);
+#   * a structured value that is a documentation placeholder (the list above:
+#     "api_key: <your-key>", '"password": "<password>"', "DB_PASSWORD=changeme");
+#     a bracketed placeholder with a blank, unquoted ("api_key: [your key]"),
+#     loses its first word;
 #   * shell quoting after an unquoted structured value: "curl -H 'X-Api-Key: S'"
 #     loses the closing quote with the value.
 # Over-redaction accepted: a camel-case word starting "eyJ" ("eyJumpsMonkey"), an
@@ -799,10 +911,11 @@ def _scrub_at(text: str, depth: int) -> str:
 # login" loses "based"; a scheme word with nothing after it on its line stays);
 # bracket debris inside a value ("(api_key=S)" loses the ')', "api_key:
 # Sv1[x9Qk2]abc" leaves "]abc" after the redaction); a stray ']' after a YAML flow
-# list value; a user:group of names after "-u" ("-u app:app" loses the group,
-# "journalctl -u nginx:main" loses "main"); an option word that starts "-u" and
-# holds a ':' ("-update:now" loses "now": "-u" written against its user, as in
-# "-uadmin:S", reads the same).
+# list value; a user:group of names after "-u" on a curl line ("curl ... -u
+# app:app" loses the group); an option word that starts "-u" and holds a ':'
+# with a digit or punctuation after it ("-update:v2" loses "v2": "-u" written
+# against its user, as in "-uadmin:S", reads the same); "Subscription-Key:
+# found on your account page" loses "found".
 # A ZWNJ or ZWJ kept inside a word (a format character) becomes a space in a title
 # or a snippet (``_without_controls``), not in an article body; a variation
 # selector is a mark (Mn), so it stays everywhere.
@@ -829,17 +942,21 @@ def _scrub(text: str) -> str:
     Bearer tokens (with a digit or one of ``_~+/=``) and Basic credentials
     (base64 with a digit, '+', '/' or '=', or letters that decode to
     ``user:password``) are redacted next, then the password of a command-line
-    ``-u``/``-U``/``-sku``/``--user``/``--proxy-user`` ``user:password`` (or
-    the key of a key-only ``-u KEY:``). Last, the value of a structured
-    secret key (JSON, YAML, config or env; its own, shorter name list, plus a
-    compound name ending with "pass" after a separator and a service word) is redacted when the
-    key is identifier-shaped (``api_key=``, ``clientSecret:``, ``APIKey:``,
-    ``db.password=``, ``x-api-key:``, ``DB_PASS=``), or a quoted plain word
-    where a key starts with a quoted value (``{"password": "..."}``); JSON
-    escaped inside a string (a backslash before each quote) and quotes that do
-    not pair around a self-evident or identifier-shaped name count as quotes.
-    A scheme word as the value goes with its credential (alone, it stays), and
-    an earlier "[redacted]" is not redacted again.
+    ``-u``/``--user`` ``user:password`` (anywhere) or ``-U``/``-sku``/
+    ``--proxy-user`` one (after "curl" on the line), or the key of a key-only
+    ``-u KEY:``; a host path, a Maven goal, a socat address and a placeholder
+    are no password. Last, the value of a structured secret key (JSON, YAML,
+    config or env; its own, shorter name list, plus an upper-case env name
+    ending "_PASS" and a compound name ending with "pass" after a separator and
+    a service word) is redacted when the key is identifier-shaped
+    (``api_key=``, ``clientSecret:``, ``APIKey:``, ``db.password=``,
+    ``x-api-key:``, ``DB_PASS=``), or a quoted plain word where a key starts
+    with a quoted value (``{"password": "..."}``); JSON escaped inside a string
+    (a backslash before each quote) and quotes that do not pair around a
+    self-evident or identifier-shaped name count as quotes. A scheme word as
+    the value goes with its credential (alone, it stays), an earlier
+    "[redacted]" is not redacted again, and a placeholder value (or the URL
+    value of a "pass" key) stays.
     """
     return _scrub_at(text, 0)
 
