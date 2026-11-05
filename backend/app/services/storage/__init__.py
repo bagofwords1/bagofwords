@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "StorageError", "ObjectStore", "UPLOADS_ROOT", "key_for",
-    "get_store", "set_store", "reset_store", "enabled", "describe", "check",
+    "get_store", "set_store", "reset_store", "enabled", "describe", "check", "ensure_layout",
     "persist", "persist_tree", "ensure_local", "ensure_local_tree",
     "discard", "discard_tree",
     "apersist", "apersist_tree", "aensure_local", "aensure_local_tree",
@@ -100,6 +100,19 @@ def enabled() -> bool:
 def describe() -> str:
     store = get_store()
     return store.describe() if store else f"local ({UPLOADS_ROOT})"
+
+
+# Folders writers expect to exist. The image pre-creates some of them, but a
+# volume mounted over uploads/ (a Kubernetes emptyDir or PVC, a fresh Docker
+# volume) hides them.
+_LAYOUT = ("files", "thumbnails", "pptx", "pptx_previews", "pdfs", "branding", "avatars",
+           "demo_data", "git_state", "artifact_js", "filecache", "fast")
+
+
+def ensure_layout() -> None:
+    """Create the standard uploads/ sub-folders (idempotent; run at startup)."""
+    for name in _LAYOUT:
+        os.makedirs(os.path.join(str(UPLOADS_ROOT), name), exist_ok=True)
 
 
 def check() -> str:

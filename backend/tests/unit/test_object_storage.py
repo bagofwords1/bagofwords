@@ -333,3 +333,12 @@ def test_assume_role_uses_refreshing_sts_credentials():
         creds = session.get_credentials()
         assert creds.access_key and creds.access_key != "testing"
         assert creds.token
+
+
+def test_layout_is_recreated_on_an_empty_volume(uploads):
+    # A Kubernetes emptyDir/PVC mounted over uploads/ hides the folders the
+    # image created; writers such as write_csv assume uploads/files exists.
+    storage.ensure_layout()
+    storage.ensure_layout()  # idempotent
+    for name in ("files", "thumbnails", "pptx", "pptx_previews", "branding", "avatars"):
+        assert (uploads / name).is_dir()

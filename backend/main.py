@@ -457,6 +457,10 @@ async def startup_event():
     try:
         import asyncio as _asyncio
         from app.services import storage as _storage
+        try:
+            _storage.ensure_layout()
+        except OSError as e:
+            logger.warning(f"Could not create the uploads/ folders: {e}")
         where = await _asyncio.to_thread(_storage.check)
         logger.info(f"File storage: {where}")
     except Exception as e:
