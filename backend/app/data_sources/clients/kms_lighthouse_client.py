@@ -1043,12 +1043,17 @@ _TAG_RE = re.compile(r"<(?=[A-Za-z/!?])[^<>]++>")
 _ENTITY_RE = re.compile(r"&(?:#[0-9]{1,8}+|#[xX][0-9A-Fa-f]{1,8}+|[A-Za-z][A-Za-z0-9]{0,31}+);")
 _BLANKS_RE = re.compile(r"[ \t]++")
 _BLANK_LINES_RE = re.compile(r"\n{3,}+")
-# Markup an author's placeholder never carries: a closing tag ("</b>", "</ td >"), a line break
-# ("<br>", "<br/>", "<br />"), a tag the HTML rules above know with at least one name=value attribute,
-# or a comment opener. A bare "<code>", "<a>", "<p>", "<var>", "<account number>" or "<YYYY-MM-DD>"
-# is text. No part crosses a '<', so the search is linear.
+# Markup an author's placeholder never carries: a closing tag with an HTML element name ("</b>",
+# "</ td >", "</o:p>"), a void tag ("<br>", "<br/>", "<wbr>", "<hr />"), a tag the HTML rules above
+# know with at least one name=value attribute, or a comment opener. A bare "<code>", "<a>", "<p>",
+# "<var>", "<account number>" or "<YYYY-MM-DD>" is text, and so is an XML or config example
+# ("<timeout>30</timeout>", "</appSettings>"); XML that reuses an HTML name ("</code>") reads as
+# HTML. No part crosses a '<', so the search is linear.
+_HTML_CLOSING_TAG_NAMES = (_INLINE_TAG_NAMES + "|p|div|li|tr|td|th|table|thead|tbody|tfoot|ul|ol|pre"
+                           "|blockquote|h[1-6]|center|label|caption|o:p")
 _HTML_EVIDENCE_RE = re.compile(
-    r"(?i)<(?:!--|\s*+/\s*+[A-Za-z][-\w:.]*+\s*+>|\s*+br\s*+/?+\s*+>|\s*+(?:" + _INLINE_TAG_NAMES
+    r"(?i)<(?:!--|\s*+/\s*+(?:" + _HTML_CLOSING_TAG_NAMES + r")\s*+>|\s*+(?:w?br|hr)\s*+/?+\s*+>|\s*+(?:"
+    + _INLINE_TAG_NAMES
     + r"|br|p|div|li|tr|h[1-6])(?:\s++[A-Za-z_:][-\w:.]*+\s*+=\s*+(?:\"[^\"<>]*+\"|'[^'<>]*+'"
     r"|[^\s\"'<>=`]++))++\s*+/?>)")
 

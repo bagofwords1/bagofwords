@@ -1006,7 +1006,11 @@ def test_ai_text_with_a_tag_shaped_placeholder_is_shown_as_written(kms, monkeypa
     ("api_key:<!-- -->sk_live_51HxABCDEF", "sk_live_51HxABCDEF"),
     ('Use <span class="k">api_key</span>: sk_live_51HxABCDEF', "sk_live_51HxABCDEF"),
     ('Use <span class="k">api_key: sk_live_51HxABCDEF', "sk_live_51HxABCDEF"),
-], ids=["placeholder_and_bold", "table_cells", "comment", "attribute", "attribute_only"])
+    ("Note<o:p></o:p> api_key: sk_live_51HxABCDEF", "sk_live_51HxABCDEF"),
+    ("Note</ b > Authorization: Bearer abc123def456", "abc123def456"),
+    ("Rule<hr /> api_key: sk_live_51HxABCDEF", "sk_live_51HxABCDEF"),
+], ids=["placeholder_and_bold", "table_cells", "comment", "attribute", "attribute_only", "office_paragraph",
+        "closing_bold_only", "rule"])
 def test_ai_text_with_markup_evidence_is_read_as_html_and_scrubbed(kms, monkeypatch, authored, secret):
     mock = kms["mock"]
     _with_ai_summary(mock, monkeypatch, authored)
@@ -1023,6 +1027,42 @@ def test_ai_text_with_a_line_break_tag_is_read_as_html(kms, monkeypatch, authore
     _with_ai_summary(mock, monkeypatch, authored)
     text = client(kms).read_file("item:279")
     assert "AI links." in text and "### Summary\nStep one\nStep two\n" in _sections(text)["Overview"]
+
+
+@pytest.mark.parametrize("authored", [
+    "Set <timeout>30</timeout> in web.config",
+    "Send <Request><CustomerId>12345</CustomerId></Request> to the service",
+    "In settings.xml set <password>${MAVEN_PASS}</password>",
+    'Add <add key="Mode" value="1"/> under </appSettings>',
+], ids=["timeout", "request", "maven_password", "app_settings"])
+def test_ai_text_with_an_xml_example_is_shown_as_written(kms, monkeypatch, authored):
+    mock = kms["mock"]
+    # A closing tag is markup evidence only for an HTML element name: an XML or config example in
+    # plain ai text keeps its tags.
+    _with_ai_summary(mock, monkeypatch, authored)
+    text = client(kms).read_file("item:279")
+    assert "AI links." in text and "Item summary" not in text       # still the ai text
+    assert f"### Summary\n{authored}\n" in _sections(text)["Overview"]
+
+
+@pytest.mark.parametrize("authored,secrets,shown", [
+    ("Authorization: Bearer abc123<wbr>def456", ("abc123", "def456"), "Authorization: Bearer [redacted]\n"),
+    # A secret query parameter is dropped whole, as on every path, so the URL shows no "[redacted]".
+    ("https://kms.example.com/contents?token=Sv1x9Qk2ab<wbr>cdEF77gh", ("Sv1x9Qk2ab", "cdEF77gh"),
+     "### Summary\nhttps://kms.example.com/contents\n"),
+    ("eyJhbGci<wbr>OiJub25lIn0.eyJzdWIiOiJjb3JwdXMifQ.Y29ycHVzLXNpZ25lZA",
+     ("OiJub25lIn0", "eyJzdWIiOiJjb3JwdXMifQ", "Y29ycHVzLXNpZ25lZA"), "### Summary\n[redacted]\n"),
+], ids=["bearer", "query_token", "jwt"])
+def test_ai_text_with_a_word_break_tag_is_read_as_html_and_scrubbed(kms, monkeypatch, authored, secrets, shown):
+    mock = kms["mock"]
+    # A bare void tag ("<wbr>") is markup: the token it splits is joined, then scrubbed.
+    _with_ai_summary(mock, monkeypatch, authored)
+    text = client(kms).read_file("item:279")
+    assert "AI links." in text and "Item summary" not in text
+    summary = _sections(text)["Overview"]
+    assert shown in summary and "<wbr>" not in summary
+    for secret in secrets:
+        assert secret not in text, secret
 
 
 def test_ai_text_fall_back_logs_a_dropped_element_once(kms, monkeypatch, caplog):
