@@ -110,14 +110,23 @@ Env overrides `BOW_STORAGE_BACKEND`, `BOW_S3_BUCKET`, etc., matching the
 | Dashboard copy / lifecycle | `services/dashboard_copy.py:50,499,543`, `dashboard_lifecycle.py:299` | — (needs `copy` + `delete_prefix`) |
 | Fast artifacts | `data_sources/fast/artifacts.py:40` | — |
 
-### B. Caches → stay local (node-local cache dir), no S3 needed
+### B. "Caches" — in k8s almost none of these can stay local
 
-Rebuildable from source; fine to lose on restart:
-`ai/tools/implementations/_file_cache.py` (`uploads/filecache`),
-`services/repo_cache.py`, `git_hardening.py` (`git_state`),
-`data_sources/clients/{pbix,powerbi_report_server,qvd}_client.py` caches.
-Only change: point them at `storage.cache.dir` instead of hardcoded
-`uploads/...`.
+A pod's disk is per-replica and lost on restart, so the test is: *does another
+pod, or the same pod after a restart, need this file?*
+
+| Data | Location | Verdict | Why |
+|---|---|---|---|
+| Learned SSH host keys | `services/git_hardening.py:42` (`git_state/known_hosts.learned`) | **Shared — move to DB** | Trust-on-first-use state (`accept-new`). Per-pod or lost on restart means every new pod re-trusts whatever key it sees first, which is a MITM window. Security state, not a cache. |
+| Connector file copies | `_file_tool_common.py:1214`, `file_reference_service.py:63` (`source_kind="connector"`) | **Shared — S3** | `File` rows point at them; another pod has the row but not the bytes. Same treatment as uploads. |
+| PBIX / QVD / PBIRS Parquet | `pbix_client.py:38`, `qvd_client.py:35`, `powerbi_report_server_client.py:32,37` | **Shared — S3** | Conversion takes minutes. Without sharing, the indexing job's output on pod A is useless to a query on pod B, and every restart reconverts. Key by file hash + schema version; `materialize()` before DuckDB reads. |
+| Extracted text / rendered pages | `_file_cache.py:25` (`filecache`) | S3 preferred, local OK | Pure perf, but extraction (OCR/page render) is expensive enough that per-pod misses hurt. |
+| Git clones | `services/repo_cache.py:51` | **Local OK** | Git needs a working tree; re-clone on miss is cheap and already handled (TTL + eviction). |
+| `materialize()` copies (new) | `storage.cache.dir` | **Local OK** | Copies of objects already in S3. |
+
+Local dirs in k8s must be an `emptyDir` with `sizeLimit` (and matching
+`ephemeral-storage` requests). An unbounded cache otherwise gets the pod
+evicted. Enforce `storage.cache.max_bytes` with LRU eviction.
 
 ### C. Consumers that read local paths → call `materialize()`
 
@@ -197,7 +206,8 @@ place until the operator deletes them.
 2. Route all **writes** in group A through it.
 3. Route all **serving** routes (group D) through it.
 4. Add `materialize()` and move group C consumers.
-5. Repoint group B caches at `storage.cache.dir`.
+5. Move SSH host keys to the DB; move connector copies and Parquet caches to
+   storage; repoint git clones at `storage.cache.dir`.
 6. `S3Backend` + moto tests + MinIO compose profile.
 7. Migration script, Helm values, docs.
 
