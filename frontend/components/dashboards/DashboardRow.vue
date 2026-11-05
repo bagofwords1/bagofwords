@@ -79,7 +79,7 @@
                 </template>
                 <template v-if="shared && ownerName">
                     <span class="text-ink-subtle" aria-hidden="true">·</span>
-                    <span v-text-dir>{{ t('dashboards.card.by', { name: ownerName }) }}</span>
+                    <span>{{ t('dashboards.card.by', { name: isolate(ownerName) }) }}</span>
                 </template>
                 <template v-if="failing">
                     <span class="text-ink-subtle" aria-hidden="true">·</span>
@@ -122,7 +122,7 @@
 import DashboardAccessLabel from '~/components/dashboards/DashboardAccessLabel.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ReportStatusDot from '~/components/ReportStatusDot.vue'
-import { statusPill, type DashboardCardData } from '~/utils/dashboardList'
+import { isolate, statusPill, type DashboardCardData } from '~/utils/dashboardList'
 
 const props = defineProps<{
     dashboard: DashboardCardData

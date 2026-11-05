@@ -12,12 +12,13 @@
         data-testid="dashboard-card-role"
     >
         <UIcon :name="label.icon" class="w-3 h-3 shrink-0" aria-hidden="true" />
-        <span v-text-dir class="truncate">{{ $t(label.key, label.params) }}</span>
+        <!-- No v-text-dir: the label follows the page; only the name is isolated. -->
+        <span class="truncate">{{ $t(label.key, isolateParams(label.params)) }}</span>
     </span>
 </template>
 
 <script setup lang="ts">
-import { accessLabel, accessTitleParts, type DashboardCardData } from '~/utils/dashboardList'
+import { accessLabel, accessTitleParts, isolateParams, type DashboardCardData } from '~/utils/dashboardList'
 
 const props = defineProps<{
     dashboard: DashboardCardData
@@ -33,7 +34,7 @@ const title = computed(() => {
     const parts = accessTitleParts(props.dashboard)
     if (!parts.length) return undefined
     const role = parts[parts.length - 1]!
-    const reasons = parts.slice(0, -1).map(p => t(p.key, p.params))
+    const reasons = parts.slice(0, -1).map(p => t(p.key, isolateParams(p.params)))
     const said = [reasons[0], ...reasons.slice(1).map(reason => t('dashboards.reasonTitle.also', { reason }))]
     return `${said.join(' · ')} ${t(role.key, role.params)}`
 })

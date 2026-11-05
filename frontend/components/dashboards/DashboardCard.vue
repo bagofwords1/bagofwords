@@ -60,7 +60,7 @@
                 <p v-if="meta.length" class="text-xs text-ink-muted mt-1 truncate">
                     <template v-for="(part, i) in meta" :key="part">
                         <template v-if="i"> · </template>
-                        <span v-if="part === 'by'" v-text-dir>{{ $t('dashboards.card.by', { name: ownerName }) }}</span>
+                        <span v-if="part === 'by'">{{ $t('dashboards.card.by', { name: isolate(ownerName) }) }}</span>
                         <span v-else-if="part === 'edited'" :title="$t('dashboards.card.lastEdit', { time: formatDateTime(editedAt) })">{{ $t('dashboards.card.edited', { time: relativeTime(editedAt) }) }}</span>
                         <span v-else-if="part === 'created'" :title="formatDateTime(dashboard.created_at)">{{ $t('dashboards.card.created', { date: formatDate(dashboard.created_at) }) }}</span>
                         <span v-else :title="formatDateTime(dashboard.published_at)">{{ $t('dashboards.card.published', { date: formatDate(dashboard.published_at) }) }}</span>
@@ -144,7 +144,7 @@
 import DashboardAccessLabel from '~/components/dashboards/DashboardAccessLabel.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ReportStatusDot from '~/components/ReportStatusDot.vue'
-import { cardMeta, statusPill, type DashboardCardData } from '~/utils/dashboardList'
+import { cardMeta, isolate, statusPill, type DashboardCardData } from '~/utils/dashboardList'
 
 const props = defineProps<{
     dashboard: DashboardCardData

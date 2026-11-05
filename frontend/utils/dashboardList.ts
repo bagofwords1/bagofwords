@@ -658,3 +658,20 @@ export function statusPill(card: DashboardCardData, tab: DashboardTab): { key: s
   if (card.visibility === 'public') return pill('public')
   return pill('published')
 }
+
+/**
+ * Bidi-isolate a name placed inside a translated label (FSI … PDI), so the
+ * label keeps the page's direction and the name keeps its own: "קבוצה Sales Team"
+ * in Hebrew, "by דנה כהן" in English. Use it instead of v-text-dir on such
+ * spans: v-text-dir counts words, and a two-word name flips the whole label.
+ */
+export function isolate(name: string | null | undefined): string {
+  return name ? `⁨${name}⁩` : ''
+}
+
+/** isolate() every string param of a translation; other values pass through. */
+export function isolateParams<T extends Record<string, unknown>>(params: T): T {
+  return Object.fromEntries(
+    Object.entries(params).map(([k, v]) => [k, typeof v === 'string' ? isolate(v) : v]),
+  ) as T
+}

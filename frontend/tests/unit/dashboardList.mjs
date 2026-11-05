@@ -575,4 +575,12 @@ assert.deepEqual(toRouteQuery({ ...DEFAULT_STATE, edited: 'custom', editedFrom: 
 assert.deepEqual(toRouteQuery({ ...DEFAULT_STATE, edited: 'custom', editedFrom: '2024-02-29', editedTo: '2024-03-01' }),
   { edited_from: '2024-02-29', edited_to: '2024-03-01' })
 
+// A name inside a translated label is bidi-isolated (FSI … PDI), so "קבוצה Sales Team"
+// keeps the page's direction and the name keeps its own.
+assert.equal(list.isolate('Sales Team'), '⁨Sales Team⁩')
+assert.equal(list.isolate(''), '')
+assert.equal(list.isolate(null), '')
+assert.deepEqual(list.isolateParams({ name: 'Alice Nguyen', n: 3 }), { name: '⁨Alice Nguyen⁩', n: 3 })
+assert.deepEqual(list.isolateParams({}), {})
+
 console.log('dashboardList: ok')

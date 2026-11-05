@@ -173,7 +173,7 @@
                             :icon-token="names.agents[chip.value!]?.icon_token"
                             class="h-3"
                         />
-                        <span v-text-dir class="truncate max-w-[16rem]">{{ chipLabel(chip) }}</span>
+                        <span class="truncate max-w-[16rem]">{{ chipLabel(chip) }}</span>
                         <UButton
                             color="primary"
                             variant="link"
@@ -388,6 +388,7 @@ import {
     type DashboardType,
     type FacetNames,
     type FilterChip,
+    isolate,
 } from '~/utils/dashboardList'
 
 const { t } = useI18n()
@@ -754,9 +755,10 @@ const rangeLabel = (key: 'created' | 'edited') => {
 }
 const chipLabel = (chip: FilterChip): string => {
     switch (chip.kind) {
-        case 'q': return t('dashboards.chips.search', { q: chip.value ?? '' })
-        case 'agent': return names.agents[chip.value!]?.name || t('dashboards.filters.unknownAgent')
-        case 'owner': return t('dashboards.chips.owner', { name: names.owners[chip.value!] || t('dashboards.filters.unknownOwner') })
+        // User text inside a translated chip is bidi-isolated (see isolate()).
+        case 'q': return t('dashboards.chips.search', { q: isolate(chip.value) })
+        case 'agent': return isolate(names.agents[chip.value!]?.name) || t('dashboards.filters.unknownAgent')
+        case 'owner': return t('dashboards.chips.owner', { name: isolate(names.owners[chip.value!]) || t('dashboards.filters.unknownOwner') })
         case 'created': return t('dashboards.chips.created', { range: rangeLabel('created') })
         case 'edited': return t('dashboards.chips.edited', { range: rangeLabel('edited') })
         case 'status': return t(`dashboards.status.${chip.value}`)
