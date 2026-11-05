@@ -1013,6 +1013,7 @@ async def transfer(db, artifact: Artifact, actor, organization, new_owner_id: st
     previous = str(artifact.owner_id) if artifact.owner_id else None
     if previous == str(target.id):
         return
+    created_at = artifact.created_at
     await db.execute(update(Artifact).where(Artifact.id == str(artifact.id)).values(owner_id=str(target.id)))
     from sqlalchemy import delete
     await db.execute(delete(ArtifactShare).where(ArtifactShare.artifact_id == str(artifact.id),
@@ -1020,7 +1021,10 @@ async def transfer(db, artifact: Artifact, actor, organization, new_owner_id: st
     if previous:
         await db.execute(delete(ArtifactShare).where(ArtifactShare.artifact_id == str(artifact.id),
                                                      ArtifactShare.user_id == previous))
-        db.add(ArtifactShare(artifact_id=str(artifact.id), user_id=previous, role="edit"))
+        # They had the dashboard all along: dated at its creation, the share
+        # is not a new reach (the Shared tab's "new", ADR-4).
+        db.add(ArtifactShare(artifact_id=str(artifact.id), user_id=previous, role="edit",
+                             created_at=created_at))
     # Readers' runs on the owner's credentials ran as the previous owner:
     # whose credentials they run with changes here (#1455 review).
     from app.services.dashboard_settings_service import _drop_viewer_results
