@@ -1,4 +1,4 @@
-# S3 storage backend — design map (not implemented)
+# Object storage backend (S3-compatible + Azure Blob) — design map (not implemented)
 
 Status: **mapping only**. Nothing here is built yet.
 
@@ -40,6 +40,15 @@ downloads into a node-local cache dir on miss.
 
 `backend/app/services/storage/` (new):
 
+| File | Role |
+|---|---|
+| `base.py` | `StorageBackend` protocol (below) + key validation |
+| `local.py` | `LocalBackend` — today's behavior, root `uploads/`. Default. |
+| `s3.py` | `S3Backend` — `boto3` (already a dep, `pyproject.toml:51`). AWS **and any S3-compatible** store via `endpoint_url`: MinIO, Cloudflare R2, Wasabi, Backblaze B2, Ceph RGW, NetApp StorageGRID, GCS (HMAC interop). |
+| `azure_blob.py` | `AzureBlobBackend` — `azure-storage-blob` (**only new dep**; `azure-identity` is already a dep for the Kusto client). Azure Blob is not S3-compatible. |
+| `_cache.py` | node-local LRU cache behind `materialize()` |
+| `__init__.py` | `get_storage()` — picks the backend from config once at startup |
+
 ```python
 class StorageBackend(Protocol):
     async def put(self, key: str, data: bytes | AsyncIterator[bytes], content_type: str | None = None) -> None
@@ -50,50 +59,108 @@ class StorageBackend(Protocol):
     async def delete_prefix(self, prefix: str) -> None              # e.g. release-{id}/
     async def copy(self, src: str, dst: str) -> None                # dashboard copy, thumbnail copy
     async def materialize(self, key: str) -> Path                   # local path (no-op for LocalBackend)
-    async def presigned_url(self, key: str, expires_s: int) -> str | None  # None for local
+    async def signed_url(self, key: str, expires_s: int) -> str | None  # None for local
 ```
 
-- `LocalBackend` — today's behavior; root = `uploads/`. `materialize` returns
-  the real path. Default, zero migration.
-- `S3Backend` — `boto3` is **already a dependency** (`pyproject.toml:51`).
-  Wrap sync calls in `asyncio.to_thread` (or add `aioboto3`). Supports
-  `endpoint_url` for MinIO/R2/GCS-interop.
+- Sync SDK calls wrapped in `asyncio.to_thread`.
 - Keys are the existing relative paths minus the `uploads/` prefix
-  (`files/<uuid>_<name>`, `thumbnails/<id>.png`, …) so the DB `File.path`
-  format barely changes.
+  (`files/<uuid>_<name>`, `thumbnails/<id>.png`, …) so `File.path` barely
+  changes.
 - Path-traversal guards (`safe_join`, `realpath` checks in routes) become key
   validation in one place.
+- Each cloud backend is ~150–250 lines; the real cost is migrating the call
+  sites (below), which is identical regardless of provider. After that, a new
+  provider is one file + its contract tests.
+
+**Rejected alternative:** `obstore` (Rust `object_store`) gives one async API
+for S3/Azure/GCS with workload identity built in, but adds a native wheel and a
+second AWS credential path next to boto3. Native SDKs reuse auth code we
+already ship and are easier to support air-gapped.
+
+### Provider differences (handled inside each backend)
+
+| | S3 | Azure Blob |
+|---|---|---|
+| Signed download | presigned URL | user-delegation SAS (Entra-signed, no account key) |
+| `delete_prefix` | list + `delete_objects` (1000/batch) | list + per-blob delete |
+| Large upload | `upload_fileobj` multipart | `upload_blob` staged blocks |
+| Server-side encryption | SSE-S3 / SSE-KMS (AWS only) | always on; CMK configured on the account |
+| Compat gaps | some S3-compatibles lack checksums/tagging/SSE-KMS — gate per feature, never assume | — |
 
 ## Config
 
-New section in `settings/bow_config.py` + `bow-config.yaml`:
+New `storage` section in `settings/bow_config.py` + `bow-config.yaml`:
 
 ```yaml
 storage:
-  backend: local            # local | s3
+  backend: local              # local | s3 | azure
+  prefix: "bow/"              # optional key prefix inside the bucket/container
+  signed_downloads: false     # redirect downloads to short-lived signed URLs
   local:
     root: uploads
   s3:
     bucket: ""
-    prefix: "bow/"          # optional key prefix
     region: ""
-    endpoint_url: ""        # MinIO / R2 / custom
-    access_key_id: ""       # empty → default AWS chain (IRSA, instance role)
+    endpoint_url: ""          # MinIO / R2 / Wasabi / ...; empty = AWS
+    addressing_style: auto    # auto | path | virtual (MinIO usually needs path)
+    auth: default             # default | static | assume_role
+    access_key_id: ""
     secret_access_key: ""
-    sse: ""                 # "", AES256, aws:kms
+    session_token: ""
+    role_arn: ""
+    external_id: ""
+    sse: ""                   # "" | AES256 | aws:kms
     kms_key_id: ""
-    presign_downloads: false
+  azure:
+    account_url: ""           # https://<account>.blob.core.windows.net
+    container: ""
+    auth: default             # default | service_principal | connection_string | sas
+    tenant_id: ""
+    client_id: ""
+    client_secret: ""
+    connection_string: ""
+    sas_token: ""
   cache:
-    dir: uploads/.cache     # node-local, ephemeral is fine
+    dir: uploads/.cache       # node-local; emptyDir in k8s
     max_bytes: 5GB
 ```
 
-Env overrides `BOW_STORAGE_BACKEND`, `BOW_S3_BUCKET`, etc., matching the
-`BOW_DATABASE_*` pattern.
+Every field has a `BOW_STORAGE_*` env override (matching `BOW_DATABASE_*`);
+secrets are expected from env / k8s Secrets, not the YAML.
+
+### Auth options
+
+| Backend | `auth` | Mechanism | Use for |
+|---|---|---|---|
+| s3 | `default` | boto3 default chain: IRSA / EKS Pod Identity, ECS task role, EC2 instance profile, env vars, `~/.aws` profile | **Recommended on AWS — no stored secrets** |
+| s3 | `static` | access key + secret (+ session token) | MinIO, R2, Wasabi, on-prem |
+| s3 | `assume_role` | STS assume-role (optional `external_id`) on top of default or static creds | cross-account buckets |
+| azure | `default` | `DefaultAzureCredential`: AKS Workload Identity, Managed Identity, env, Azure CLI | **Recommended on Azure — no stored secrets** |
+| azure | `service_principal` | tenant + client id + secret (or cert) | non-AKS Azure, CI |
+| azure | `connection_string` | account key in connection string | dev, Azurite |
+| azure | `sas` | container-scoped SAS token | locked-down tenants |
+
+Reuse, don't re-implement: lift the credential code in
+`data_sources/clients/s3_client.py:21,247` (static / assume-role / default
+chain) into a shared helper used by both the S3 data source and `S3Backend`.
+This mirrors `DatabaseAuth.provider` (`settings/bow_config.py:299`), which
+already plans `aws_iam` / `azure_entra`.
+
+**Minimum permissions** (scoped to the bucket/container + prefix):
+- S3: `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`, `s3:ListBucket`;
+  plus `kms:Encrypt`/`kms:Decrypt`/`kms:GenerateDataKey` if SSE-KMS.
+- Azure: `Storage Blob Data Contributor` on the container; user-delegation SAS
+  also needs `Microsoft.Storage/storageAccounts/blobServices/generateUserDelegationKey/action`
+  (included in Contributor at account scope, or grant
+  `Storage Blob Delegator`).
+
+**Startup health check:** `put`/`get`/`delete` a canary key under the prefix;
+fail fast with a clear message naming the backend, bucket and the missing
+permission.
 
 ## Inventory — what to migrate
 
-### A. Durable user/app data → must go to S3
+### A. Durable user/app data → must go to object storage
 
 | Data | Write site(s) | Read/serve site(s) |
 |---|---|---|
@@ -176,29 +243,44 @@ must be short-lived and only minted after the existing access check
 
 - `Dockerfile:235` — keep `mkdir uploads/...` for local mode; add cache dir.
 - `docker-compose.yaml:75-76`, `deploy/airgap/docker-compose.yaml:35-36` —
-  volumes stay for `local`; add an optional MinIO service profile for testing.
-- `k8s/chart` — add `storage.*` values → render into `bow-config.yaml`; support
-  IRSA/Workload Identity via `serviceAccount.annotations`; add an optional
-  uploads PVC for `local` mode (fixes the data-loss gap above independently of
-  S3).
-- Docs: docs.bagofwords.com self-hosting page (via the `docs-update` skill).
+  volumes stay for `local`; add optional `minio` and `azurite` profiles for
+  testing.
+- `k8s/chart`:
+  - `storage.*` values → rendered into `bow-config.yaml`; secrets via
+    `storage.existingSecret` → `BOW_STORAGE_*` env.
+  - AWS: `serviceAccount.annotations` (`eks.amazonaws.com/role-arn`) for IRSA;
+    nothing extra for Pod Identity.
+  - Azure: `podLabels` (`azure.workload.identity/use: "true"`) +
+    `serviceAccount.annotations` (`azure.workload.identity/client-id`).
+  - `emptyDir` with `sizeLimit` for `storage.cache.dir` and git clones, plus
+    `ephemeral-storage` requests.
+  - Optional uploads PVC for `local` mode (fixes the data-loss gap above
+    independently of object storage).
+- Docs: docs.bagofwords.com self-hosting page, one section per provider with
+  the IAM policy / role assignment (via the `docs-update` skill).
 
 ## Migration for existing installs
 
-`backend/scripts/migrate_uploads_to_s3.py`: walk `uploads/` (category A dirs
+`backend/scripts/migrate_uploads_to_object_storage.py`: walk `uploads/` (category A dirs
 only), `put` each object with the same relative key, verify by size/etag,
-then flip `storage.backend: s3`. Idempotent and resumable. Local files left in
+then flip `storage.backend` to `s3` or `azure`. Works for both via the same
+`StorageBackend` interface. Idempotent and resumable. Local files left in
 place until the operator deletes them.
 
 ## Tests
 
-- Run the existing file/upload/PDF/thumbnail tests against both backends via a
-  fixture param; use `moto` (in-process S3) — no network.
-- New unit tests for `S3Backend` (key validation, prefix, presign, delete_prefix,
-  materialize cache hits/misses/eviction).
-- Sandbox e2e: upload → S3 → coder reads `excel_files[0].path` (use the
-  `sandbox-feedback-loop` skill with a MinIO container).
-- 18 test files hardcode `uploads/` and will need the storage fixture.
+- **Contract suite**: one parametrized test module run against every backend —
+  `local`, `s3` (`moto`, in-process, no network), `azure` (Azurite container in
+  CI). Covers put/get/stream/exists/delete/delete_prefix/copy/signed_url, key
+  validation, prefix handling, `materialize()` cache hit/miss/eviction.
+- Existing file/upload/PDF/thumbnail tests run against `local` and `s3`
+  (moto) via a storage fixture. 18 test files hardcode `uploads/` and need it.
+- Auth: unit tests per `auth` mode with mocked credential providers (no real
+  cloud in CI).
+- Sandbox e2e: upload → bucket → coder reads `excel_files[0].path`, on MinIO
+  and Azurite (`sandbox-feedback-loop` skill).
+- Manual pre-release check on real AWS S3 (IRSA) and real Azure Blob
+  (Workload Identity) — see "Verification" below.
 
 ## Suggested order
 
@@ -208,8 +290,39 @@ place until the operator deletes them.
 4. Add `materialize()` and move group C consumers.
 5. Move SSH host keys to the DB; move connector copies and Parquet caches to
    storage; repoint git clones at `storage.cache.dir`.
-6. `S3Backend` + moto tests + MinIO compose profile.
-7. Migration script, Helm values, docs.
+6. `S3Backend` + shared AWS credential helper + moto contract tests + MinIO
+   profile + Helm IRSA wiring.
+7. `AzureBlobBackend` + Azurite contract tests + Helm Workload Identity wiring.
+8. Migration script, real-cloud verification, docs.
 
-Steps 1–5 are pure refactors that ship safely on local disk; S3 becomes a
-config flip at step 6.
+Steps 1–5 are pure refactors that ship safely on local disk. Each cloud is then
+one backend file + tests + Helm values.
+
+## Verification (needs from the team)
+
+CI covers everything with emulators (moto, MinIO, Azurite). Real-cloud checks
+before release need:
+
+**AWS**
+- A test bucket (versioning off, no public access) in a sandbox account, with
+  a dedicated prefix.
+- An IAM role with the minimum policy above, trusted by: (a) an EKS cluster's
+  OIDC provider for IRSA, and (b) optionally a second account for the
+  `assume_role` test.
+- A KMS key if SSE-KMS must be verified.
+- For `static` mode: a short-lived access key for a user limited to that
+  bucket.
+
+**Azure**
+- A storage account + container in a sandbox subscription.
+- A user-assigned managed identity with `Storage Blob Data Contributor` (+
+  `Storage Blob Delegator` for SAS downloads), federated to an AKS cluster for
+  Workload Identity.
+- For `service_principal` mode: an app registration with a client secret,
+  same role.
+
+**Either**
+- A k8s cluster (EKS / AKS) where the Helm chart can be installed with 2
+  replicas — the multi-pod case is the main thing emulators can't prove.
+- Credentials delivered via the environment's secret store, never pasted into
+  chat or committed.
