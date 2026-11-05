@@ -3536,9 +3536,18 @@ class DataSourceService:
                 conn = data_source_db.connections[0]
                 if conn.auth_policy == "system_only":
                     try:
+                        # Own session: refresh_schema rolls back on failure, which
+                        # would expire this request's objects (data source, org,
+                        # user) and break the reads below with greenlet_spawn.
+                        from app.dependencies import async_session_maker
+                        from app.models.connection import Connection
                         from app.services.connection_service import ConnectionService
-                        conn_svc = ConnectionService()
-                        await conn_svc.refresh_schema(db, conn, current_user)
+                        async with async_session_maker() as refresh_db:
+                            refresh_conn = await refresh_db.get(Connection, conn.id)
+                            if refresh_conn is not None:
+                                await ConnectionService().refresh_schema(
+                                    refresh_db, refresh_conn, current_user
+                                )
                     except Exception:
                         # Non-fatal: tables refresh can fail without blocking update
                         pass
