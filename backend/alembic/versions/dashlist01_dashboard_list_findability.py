@@ -133,5 +133,8 @@ def downgrade() -> None:
     if _has_index("artifacts", EDITED_INDEX):
         op.drop_index(EDITED_INDEX, table_name="artifacts")
     if _has_column("artifacts", "content_updated_at"):
-        with op.batch_alter_table("artifacts") as batch:
-            batch.drop_column("content_updated_at")
+        # A native DROP COLUMN, not batch_alter_table: on SQLite batch mode
+        # rebuilds `artifacts`, and with foreign keys on, dropping the old
+        # table cascades into every child (artifact_host_applications, …).
+        # Its index is gone above, which SQLite's DROP COLUMN requires.
+        op.drop_column("artifacts", "content_updated_at")
