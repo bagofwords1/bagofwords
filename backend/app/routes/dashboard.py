@@ -182,6 +182,8 @@ def dashboard_list_query(
                         description="Why I have it; Shared only"),
     owner_ids: str | None = Query(None, max_length=MAX_LIST_IDS * 40,
                                   description="Comma-separated owner ids, at most 100"),
+    agent_ids: str | None = Query(None, max_length=MAX_LIST_IDS * 40,
+                                  description="Comma-separated agent (data source) ids, at most 100"),
     created_from: datetime | None = Query(None, description="Inclusive"),
     created_to: datetime | None = Query(None, description="Exclusive"),
     edited_from: datetime | None = Query(None, description="Inclusive"),
@@ -199,6 +201,7 @@ def dashboard_list_query(
     _range("edited_from", edited_from, edited_to)
     return ListQuery(
         filter=filter, search=search, mode=mode, access=access, owner_ids=_id_list("owner_ids", owner_ids),
+        agent_ids=_id_list("agent_ids", agent_ids),
         created_from=created_from, created_to=created_to, edited_from=edited_from, edited_to=edited_to,
         status=status, starred=starred, sort=sort, page=page, limit=limit, new_since=new_since)
 

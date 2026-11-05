@@ -240,6 +240,15 @@ class DashboardListAccess(BaseModel):
     via_name: str | None = None
 
 
+class DashboardListAgent(BaseModel):
+    """An agent of a card: one the reader can view, with the icon the agents
+    page shows for it (agent_icon.resolve_agent_icon_token)."""
+    id: str
+    name: str | None = None
+    type: str | None = None
+    icon_token: str | None = None
+
+
 class DashboardListItem(BaseModel):
     """One card of the dashboards page (phase 8). report_id only for its
     editors (the card's pencil)."""
@@ -274,6 +283,9 @@ class DashboardListItem(BaseModel):
     last_run_status: str | None = None
     # When its data last ran, for everyone ("Data as of").
     last_run_at: datetime | None = None
+    # Its agents the reader can view: the live release's if published, else
+    # its conversation's.
+    agents: list[DashboardListAgent] = []
 
 
 class DashboardListMeta(BaseModel):

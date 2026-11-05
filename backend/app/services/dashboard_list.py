@@ -23,6 +23,10 @@ it is new to them, and -- for its editors only -- its schedule, last run
 outcome and unpublished changes. Its fields are loaded for the whole page
 in a fixed number of queries (`_page_extras`); only the editing check and
 the pencil's conversation stay per card, as before.
+
+A card lists its agents (findability P6): a live dashboard's release's, else
+its conversation's -- only those the reader can view, and only those count
+for the agent filter (recommended default 1).
 """
 import logging
 from dataclasses import dataclass
@@ -63,6 +67,8 @@ class ListQuery:
     mode: str | None = None
     access: str = "all"
     owner_ids: tuple[str, ...] = ()
+    # Any of these agents (data sources); only those the reader can view count.
+    agent_ids: tuple[str, ...] = ()
     created_from: datetime | None = None
     created_to: datetime | None = None
     edited_from: datetime | None = None
@@ -104,18 +110,36 @@ def _editing_conversation(report_id=None):
     return or_(own, exists(select(joined.id).where(*other).correlate_except(joined)))
 
 
+def _draft_head(column_of):
+    """A column of the dashboard's draft head (dashboard_data.draft_version,
+    which a publish copies): its newest completed version by number, of the
+    implicit draft, in a live editing conversation when it has any. It
+    correlates everything but its own table, so it can sit inside another
+    subquery (has_agent)."""
+    version = aliased(ArtifactVersion)
+    return select(column_of(version)).where(
+        version.artifact_id == Artifact.id, version.status == "completed", version.deleted_at.is_(None),
+        version.draft_id.is_(None),
+        or_(~_editing_conversation(), _editing_conversation(version.report_id)),
+    ).order_by(version.version.desc()).limit(1).correlate_except(version).scalar_subquery()
+
+
 class ReaderScope:
     """The SQL vocabulary of one reader's list (ADR-2): the list conditions,
     the order and (later) the card columns and facets use these same
     expressions, each built once per request."""
 
     def __init__(self, user_id: str, organization_id: str, groups, project_ids: tuple[str, ...],
-                 seen_at: datetime | None = None):
+                 seen_at: datetime | None = None, visible_agents: frozenset[str] = frozenset()):
         self.user_id = user_id
         self.organization_id = organization_id
         self.groups = groups  # a subquery of my group ids in this organization
         self.project_ids = project_ids  # the projects I can view
         self.seen_at = seen_at  # the Shared tab's watermark (naive UTC), if any
+        # The agents I can view (derived_access.visible_data_source_ids) that
+        # the agents page lists for me (_listed_agents): the only ones a card
+        # names or the agent filter matches (default 1).
+        self.visible_agents = visible_agents
 
     def _share(self, *where):
         return exists(select(ArtifactShare.id).where(ArtifactShare.artifact_id == Artifact.id, *where))
@@ -232,20 +256,57 @@ class ReaderScope:
         live release's (dashboard_publish.publish_status): the newest by
         version number, of the implicit draft, in a live editing conversation
         when the dashboard has any."""
-        version, release = aliased(ArtifactVersion), aliased(ArtifactRelease)
-        newest = select(version.id).where(
-            version.artifact_id == Artifact.id, version.status == "completed", version.deleted_at.is_(None),
-            version.draft_id.is_(None),
-            or_(~_editing_conversation(), _editing_conversation(version.report_id)),
-        ).order_by(version.version.desc()).limit(1).scalar_subquery()
+        release = aliased(ArtifactRelease)
+        newest = _draft_head(lambda version: version.id)
         source = select(release.source_version_id).where(release.id == Artifact.published_release_id).scalar_subquery()
         return and_(Artifact.published_release_id.isnot(None), newest.isnot(None),
                     or_(source.is_(None), newest != source))
+
+    @cached_property
+    def draft_report(self):
+        """The conversation whose agents an unpublished card shows: the one
+        that wrote the draft's newest version -- what a publish copies
+        (dashboard_copy.copy_dashboard takes the version's conversation's
+        data sources) -- else, with no completed version yet, its own."""
+        return func.coalesce(_draft_head(lambda version: version.report_id), Artifact.report_id)
+
+    @cached_property
+    def live(self):
+        """Its release is live (dashboard_access.is_live): the card says
+        published, and its agents are the release's."""
+        release = aliased(ArtifactRelease)
+        return exists(select(release.id).where(
+            release.id == Artifact.published_release_id, release.deleted_at.is_(None), release.status == "ready",
+        ).correlate_except(release))
+
+    def has_agent(self, ids):
+        """It has one of these agents, by the card's rule: a live dashboard
+        its release's, another the agents of the conversation that wrote its
+        draft (`draft_report`). Agents not mine to see (`visible_agents`) do
+        not count, so filtering by them alone lists nothing. Each subquery
+        correlates everything but its own table: a facet may nest this a
+        level deeper (see _live_report)."""
+        from app.models.artifact_release import artifact_release_data_source_association
+        from app.models.report_data_source_association import report_data_source_association
+
+        wanted = sorted(set(ids) & set(self.visible_agents))
+        if not wanted:
+            return false()
+        on_release = artifact_release_data_source_association.alias()
+        on_conversation = report_data_source_association.alias()
+        from_release = exists(select(on_release.c.data_source_id).where(
+            on_release.c.artifact_release_id == Artifact.published_release_id,
+            on_release.c.data_source_id.in_(wanted)).correlate_except(on_release))
+        from_conversation = exists(select(on_conversation.c.data_source_id).where(
+            on_conversation.c.report_id == self.draft_report,
+            on_conversation.c.data_source_id.in_(wanted)).correlate_except(on_conversation))
+        return or_(and_(self.live, from_release), and_(~self.live, from_conversation))
 
 
 async def reader_scope(db, user, organization, *, new_since: datetime | None = None) -> ReaderScope:
     """`new_since` is the watermark New is measured from; else the reader's
     stored visit to Shared in this organization; else there is none."""
+    from app.core.derived_access import visible_data_source_ids
     from app.services.project_service import project_service
     from app.services.report_service import ReportService
 
@@ -257,7 +318,47 @@ async def reader_scope(db, user, organization, *, new_since: datetime | None = N
             select(ArtifactListSeen.shared_seen_at).where(ArtifactListSeen.user_id == str(user.id),
                                                           ArtifactListSeen.organization_id == str(organization.id))
         )).scalar_one_or_none()
-    return ReaderScope(str(user.id), str(organization.id), groups, tuple(str(p) for p in projects), seen_at)
+    agents = await _listed_agents(db, user, organization, await visible_data_source_ids(db, user, organization))
+    return ReaderScope(str(user.id), str(organization.id), groups, tuple(str(p) for p in projects), seen_at,
+                       agents)
+
+
+async def _listed_agents(db, user, organization, visible: set[str]) -> frozenset[str]:
+    """The agents a card may name to this reader: those they can view that
+    the agents page also lists for them (data_source_service.
+    get_data_sources, ~:1526-1559, and get_active_data_sources, ~:1786-1803).
+    A disabled agent is off for everyone; a draft is its managers' (org
+    governance or `manage` on it); a `development` one its agent admins'
+    (_development_hidden); a connected application's session sees only its
+    agents (connected_application_service.agent_ceiling; no ceiling in a
+    plain web session). Closed by default: what the page hides, the card
+    never names. visible_data_source_ids itself is left as it is."""
+    from app.models.data_source import DataSource
+    from app.services.connected_application_service import agent_ceiling
+    from app.services.data_source_service import DataSourceService
+
+    if not visible:
+        return frozenset()
+    is_gov, manage_ids, resolved = await DataSourceService()._publish_visibility(db, user, organization)
+    ceiling = await agent_ceiling(db, organization.id)
+    rows = (await db.execute(
+        select(DataSource.id, DataSource.publish_status, DataSource.reliability_status)
+        .where(DataSource.organization_id == str(organization.id))
+    )).all()
+    listed = set()
+    for ds_id, publish_status, reliability_status in rows:
+        ds_id = str(ds_id)
+        if ds_id not in visible or (ceiling is not None and ds_id not in ceiling):
+            continue
+        publish_status = publish_status or "published"
+        if publish_status == "disabled":
+            continue
+        if publish_status == "draft" and not (is_gov or ds_id in manage_ids):
+            continue
+        if DataSourceService._development_hidden(reliability_status, ds_id, is_gov, resolved):
+            continue
+        listed.add(ds_id)
+    return frozenset(listed)
 
 
 def conditions(scope: ReaderScope, query: ListQuery, *, ignore: str | None = None) -> list:
@@ -293,6 +394,8 @@ def conditions(scope: ReaderScope, query: ListQuery, *, ignore: str | None = Non
                            "org": scope.org, "edit": scope.edit}[query.access]
     if query.owner_ids:
         named["owners"] = Artifact.owner_id.in_(query.owner_ids)
+    if query.agent_ids:
+        named["agents"] = scope.has_agent(query.agent_ids)
     if query.created_from is not None or query.created_to is not None:
         named["created"] = _within(Artifact.created_at, query.created_from, query.created_to)
     if query.edited_from is not None or query.edited_to is not None:
@@ -352,9 +455,10 @@ async def _page_extras(db, scope: ReaderScope, rows, *, shared: bool) -> dict:
     number of queries whatever the page size: the live releases, owners,
     the draft thumbnails, old dashboards' conversation titles, and -- on
     Shared -- my shares (with their groups' names) and the projects' names;
-    the stars; whether public links are on. `rows` are the page's rows: the
-    artifact with its labeled columns (`edited`, `is_new`,
-    `unpublished_changes`, `published_at`)."""
+    the stars; each card's agents the reader may see named (two queries,
+    _page_agents); whether public links are on. `rows` are the page's rows:
+    the artifact with its labeled columns (`edited`, `is_new`,
+    `unpublished_changes`, `published_at`, `draft_report_id`)."""
     from app.models.group import Group
     from app.models.project import Project
     from app.models.report import Report
@@ -364,7 +468,7 @@ async def _page_extras(db, scope: ReaderScope, rows, *, shared: bool) -> dict:
     ids = [str(a.id) for a in artifacts]
     extras = {"user_id": scope.user_id, "shared": shared, "columns": {str(row.Artifact.id): row for row in rows},
               "releases": {}, "owners": {}, "drafts": {}, "legacy_titles": {}, "shares": {}, "projects": {},
-              "starred": set(), "public_links": True}
+              "starred": set(), "agents": {}, "public_links": True}
     if not artifacts:
         return extras
 
@@ -414,11 +518,85 @@ async def _page_extras(db, scope: ReaderScope, rows, *, shared: bool) -> dict:
                 select(Project.id, Project.name).where(Project.id.in_(project_ids)))).all())
 
     extras["starred"] = await _starred_ids(db, scope.user_id, ids)
+    extras["agents"] = await _page_agents(db, scope, artifacts, extras)
     if any(a.visibility == "public" for a in artifacts):
         from app.services.public_sharing_policy import public_sharing_allowed
 
         extras["public_links"] = await public_sharing_allowed(db, scope.organization_id)
     return extras
+
+
+async def _page_agents(db, scope: ReaderScope, artifacts, extras: dict) -> dict:
+    """Each card's agents the reader may see named (`visible_agents`), in two
+    queries for the page: which agents (a live dashboard's release's,
+    another's draft conversation's -- the page's `draft_report_id` column --
+    as ReaderScope.has_agent), then their names and icons (DataSource with
+    its connections in the order its relationship yields them, as
+    agent_icon.resolve_agent_icon_token requires). A card lists them by
+    name ignoring case, then id."""
+    from sqlalchemy import union_all
+
+    from app.models.artifact_release import artifact_release_data_source_association as on_release
+    from app.models.connection import Connection
+    from app.models.data_source import DataSource
+    from app.models.domain_connection import domain_connection
+    from app.models.report_data_source_association import report_data_source_association as on_conversation
+    from app.schemas.agent_icon import resolve_agent_icon_token
+
+    if not scope.visible_agents:
+        return {}
+    by_release, by_conversation = {}, {}  # release id -> card; conversation id -> its cards
+    for artifact in artifacts:
+        release = _live_release(artifact, extras)
+        if release is not None:
+            by_release[str(release.id)] = str(artifact.id)
+        else:
+            draft_report = extras["columns"][str(artifact.id)].draft_report_id
+            if draft_report:
+                by_conversation.setdefault(str(draft_report), []).append(str(artifact.id))
+    parts = []
+    if by_release:
+        parts.append(select(on_release.c.artifact_release_id.label("owner"), on_release.c.data_source_id.label("agent"))
+                     .where(on_release.c.artifact_release_id.in_(list(by_release))))
+    if by_conversation:
+        parts.append(select(on_conversation.c.report_id.label("owner"),
+                            on_conversation.c.data_source_id.label("agent"))
+                     .where(on_conversation.c.report_id.in_(list(by_conversation))))
+    if not parts:
+        return {}
+    mapping = (await db.execute(parts[0] if len(parts) == 1 else union_all(*parts))).all()
+    per_card: dict[str, set[str]] = {}
+    for owner, agent in mapping:
+        agent = str(agent)
+        if agent not in scope.visible_agents:
+            continue  # never named to a reader who cannot view it (default 1)
+        owner = str(owner)
+        for aid in ([by_release[owner]] if owner in by_release else by_conversation.get(owner, [])):
+            per_card.setdefault(aid, set()).add(agent)
+    shown = set().union(*per_card.values()) if per_card else set()
+    if not shown:
+        return {}
+    rows = (await db.execute(
+        select(DataSource.id, DataSource.name, DataSource.icon, Connection.type, Connection.config)
+        .outerjoin(domain_connection, domain_connection.c.data_source_id == DataSource.id)
+        .outerjoin(Connection, Connection.id == domain_connection.c.connection_id)
+        .where(DataSource.id.in_(shown))
+        .order_by(Connection.created_at, Connection.id)
+    )).all()
+    names, icons, connections = {}, {}, {}
+    for ds_id, name, icon, conn_type, conn_config in rows:
+        ds_id = str(ds_id)
+        names.setdefault(ds_id, name)
+        icons.setdefault(ds_id, icon)
+        found = connections.setdefault(ds_id, [])
+        if conn_type is not None:
+            found.append({"type": conn_type, "config": conn_config})
+    agents = {ds_id: {"id": ds_id, "name": names[ds_id],
+                      "type": connections[ds_id][0]["type"] if connections[ds_id] else None,
+                      "icon_token": resolve_agent_icon_token(icons[ds_id], connections[ds_id])}
+              for ds_id in names}
+    return {aid: sorted((agents[a] for a in found if a in agents), key=lambda a: ((a["name"] or "").lower(), a["id"]))
+            for aid, found in per_card.items()}
 
 
 def _live_release(artifact: Artifact, extras: dict):
@@ -501,6 +679,7 @@ def _card(artifact: Artifact, extras: dict, editor: bool, report_id: str | None)
         "cron_schedule": artifact.cron_schedule if for_editors else None,
         "last_run_at": artifact.last_run_at,
         "last_run_status": artifact.last_run_status if for_editors else None,
+        "agents": extras["agents"].get(aid, []),
     }
 
 
@@ -542,7 +721,8 @@ def page_query(scope: ReaderScope, query: ListQuery):
     is_new = scope.is_new if query.filter == "shared" else false()
     return (select(Artifact, scope.edited.label("edited"), is_new.label("is_new"),
                    scope.unpublished_changes.label("unpublished_changes"),
-                   scope.published_at.label("published_at"))
+                   scope.published_at.label("published_at"),
+                   scope.draft_report.label("draft_report_id"))
             .where(*conditions(scope, query)).order_by(*order_by(scope, query))
             .offset((query.page - 1) * query.limit).limit(query.limit))
 
