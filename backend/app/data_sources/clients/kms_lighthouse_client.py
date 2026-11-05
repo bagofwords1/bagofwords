@@ -1475,11 +1475,20 @@ _STEP_INDENT = "  "
 def _scenario_text(value) -> str:
     """Step text, asked for with plainText=true (API PDF: "content without HTML tags"), as written.
 
-    Nothing else tells markup from an author's text, so all of it is plain:
-    lines tidied and scrubbed, nothing stripped or decoded ("Run reset
-    <username> now." stays). Anything but a string is no text.
+    Nothing else tells markup from an author's text, so it is plain: lines
+    tidied and scrubbed, nothing stripped or decoded ("Run reset <username>
+    now." stays). One exception, for a tenant that returns HTML anyway: a
+    line whose HTML-decoded rendering (``_plain_text``) redacts more than
+    the line as written ("Bearer&#32;X") is shown decoded. The text is then
+    scrubbed whole, so a value on the next line stays redacted. Linear: two
+    scrubs per line and one of the whole text. Anything but a string is no
+    text.
     """
-    return _plain_ai_text(value if isinstance(value, str) else "")
+    lines = []
+    for line in _tidy_lines(value if isinstance(value, str) else "").split("\n"):
+        decoded = _plain_text(line)
+        lines.append(decoded if decoded.count(_REDACTED) > _scrub(line).count(_REDACTED) else line)
+    return _scrub("\n".join(lines))
 
 
 def _scenario_line(value) -> str:
@@ -1496,8 +1505,9 @@ def _step_key(value) -> str | None:
 
 
 def _step_branches(step: dict) -> list:
-    """``(label, child id, inline child)`` per decision, then ``(None, id, child)`` per other child.
+    """``(True, label, child id, inline child)`` per decision, then ``(False, None, id, child)`` per other child.
 
+    The label is as KMS gives it (``_scenario_line`` runs when it is shown).
     A decision key is ``<scenario>:<n>:<child stepId>``; its child is the
     inline record ``children[<stepId>]`` when there is one, else None (to be
     fetched). A child no decision names is a continuation step. A child that
@@ -1517,35 +1527,50 @@ def _step_branches(step: dict) -> list:
     for key, label in decisions.items():
         child_id = _step_key(str(key).rpartition(":")[2])
         named.add(child_id)
-        branches.append((_scenario_line(label), child_id, by_id.get(child_id)))
+        branches.append((True, label, child_id, by_id.get(child_id)))
     if None in named:
         logger.debug("kms_lighthouse %s skipped: %s", "step", "decision id is not digits")
-    return branches + [(None, child_id, child) for child_id, child in inline
+    return branches + [(False, None, child_id, child) for child_id, child in inline
                        if child_id is None or child_id not in named]
 
 
-def _prefetch_steps(root: dict, root_id: str | None, fetch_step) -> tuple[dict, set, dict, int]:
-    """Every step the tree needs, breadth first, so the fetch budget reaches each level before the next.
+def _prefetch_steps(root: dict, root_id: str | None, fetch_step) -> tuple[dict, set, dict, set, int]:
+    """The entries and steps the tree shows, breadth first, so both budgets reach each level before the next.
 
-    Returns the steps by id (inline or fetched), the ids whose fetch failed
-    (never fetched again), each step's branches by ``id()`` of its record,
-    and the number of fetches. A child that is not inline is fetched while
-    ``_MAX_STEP_FETCHES`` allows and it is no deeper than
-    ``_MAX_SCENARIO_DEPTH``. Linear: each record is expanded once.
+    The root is one entry; then each queued step's branches, in order, take
+    their option line and their step while ``_MAX_SCENARIO_ENTRIES``
+    allows (``admitted``: ``(id() of the step record, branch index, "line"
+    or "step")``); once it is spent nothing more is expanded. An admitted
+    child that is not inline is fetched while ``_MAX_STEP_FETCHES`` allows
+    and it is no deeper than ``_MAX_SCENARIO_DEPTH``; an inline copy found
+    later clears an earlier failed fetch of the same id. Returns the steps
+    by id (inline or fetched), the ids whose fetch failed (never fetched
+    again), each expanded step's branches by ``id()`` of its record, the
+    admitted entries and the number of fetches. Linear: each record is
+    expanded at most once.
     """
     known = {} if root_id is None else {root_id: root}
-    failed, branches_of, fetches = set(), {}, 0
+    failed, branches_of, admitted, fetches = set(), {}, set(), 0
+    entries = 1                                     # the root step
     queue = deque([(root, 0)])
-    while queue:
+    while queue and entries < _MAX_SCENARIO_ENTRIES:
         step, depth = queue.popleft()
         branches = branches_of[id(step)] = _step_branches(step)
-        for option, child_id, child in branches:
-            if child_id is not None and child_id in known:
+        for index, (decision, _label, child_id, child) in enumerate(branches):
+            if decision:
+                if entries >= _MAX_SCENARIO_ENTRIES:
+                    break
+                entries += 1
+                admitted.add((id(step), index, "line"))
+            if entries >= _MAX_SCENARIO_ENTRIES:
+                break
+            entries += 1
+            admitted.add((id(step), index, "step"))
+            child_depth = depth + 1 if decision else depth
+            if (child_id is not None and child_id in known) or child_depth > _MAX_SCENARIO_DEPTH:
                 continue
-            child_depth = depth if option is None else depth + 1
             if child is None:
-                if (child_id is None or child_id in failed or fetches >= _MAX_STEP_FETCHES
-                        or child_depth > _MAX_SCENARIO_DEPTH):
+                if child_id is None or child_id in failed or fetches >= _MAX_STEP_FETCHES:
                     continue
                 fetches += 1
                 child = fetch_step(child_id)
@@ -1554,8 +1579,9 @@ def _prefetch_steps(root: dict, root_id: str | None, fetch_step) -> tuple[dict, 
                     continue
             if child_id is not None:
                 known[child_id] = child
+                failed.discard(child_id)
             queue.append((child, child_depth))
-    return known, failed, branches_of, fetches
+    return known, failed, branches_of, admitted, fetches
 
 
 def _render_scenario(root: dict, fetch_step) -> list:
@@ -1571,29 +1597,28 @@ def _render_scenario(root: dict, fetch_step) -> list:
     step id seen before renders ``(see step "<name>" above)``; a step whose
     fetch failed renders ``(step not available)`` at each reference. Every
     entry (a step, an option line, a marker) counts toward
-    ``_MAX_SCENARIO_ENTRIES``; past it, past ``_MAX_STEP_FETCHES`` fetches or
+    ``_MAX_SCENARIO_ENTRIES``, admitted level first (``_prefetch_steps``);
+    where an entry was not admitted, past ``_MAX_STEP_FETCHES`` fetches or
     past ``_MAX_SCENARIO_DEPTH`` levels, ``_STEP_CUT`` stands where the step
-    would be and ``_TREE_TRUNCATED`` ends the tree. When steps were fetched
-    and every fetch failed, ``_STEPS_NOT_LOADED`` comes first. Linear: each
-    step is rendered once.
+    (or a step's remaining options) would be and ``_TREE_TRUNCATED`` ends
+    the tree. When steps were fetched and every one still failed, ``_STEPS_NOT_LOADED``
+    comes first. Linear: each step is rendered once.
     """
     root_id = _step_key(root.get("stepId"))
-    known, failed, branches_of, fetches = _prefetch_steps(root, root_id, fetch_step)
+    known, failed, branches_of, admitted, fetches = _prefetch_steps(root, root_id, fetch_step)
     lines, seen, names = [], set(), {}
-    entries = 0
     truncated = False
-    # (kind, record or line text, step id, depth, label that leads to it); kind is "step" or "line".
+    # (kind, record or line text, step id, depth, label that leads to it); kind is "step", "line" or "cut".
     stack = [("step", root, root_id, 0, None)]
     while stack:
         kind, step, step_id, depth, label = stack.pop()
         indent = _STEP_INDENT * depth
-        if entries >= _MAX_SCENARIO_ENTRIES:
-            lines.append(indent + _STEP_CUT)
-            truncated = True
-            break
-        entries += 1
         if kind == "line":
             lines.append(indent + step)
+            continue
+        if kind == "cut":
+            lines.append(indent + _STEP_CUT)
+            truncated = True
             continue
         if step_id is not None and step_id in seen:
             name = names.get(step_id)
@@ -1623,13 +1648,22 @@ def _render_scenario(root: dict, fetch_step) -> list:
         image = _line(step.get("image")) if isinstance(step.get("image"), str) else ""
         if image:
             lines.append(f"{indent}Image: {image}")
+        # A step the prefetch did not expand (past the entry budget) has no admitted branch.
+        branches = branches_of[id(step)] if id(step) in branches_of else _step_branches(step)
         pending = []
-        for option, child_id, child in branches_of[id(step)]:
-            if option is None:
-                pending.append(("step", child, child_id, depth, None))
-            else:
-                pending += [("line", f'- "{option}" ->', None, depth, None),
-                            ("step", child, child_id, depth + 1, option)]
+        for index, (decision, raw_label, child_id, child) in enumerate(branches):
+            option = None
+            if decision:
+                if (id(step), index, "line") not in admitted:
+                    pending.append(("cut", None, None, depth, None))       # the remaining options
+                    break
+                option = _scenario_line(raw_label)
+                pending.append(("line", f'- "{option}" ->', None, depth, None))
+            child_depth = depth + 1 if decision else depth
+            if (id(step), index, "step") not in admitted:
+                pending.append(("cut", None, None, child_depth, None))
+                break
+            pending.append(("step", child, child_id, child_depth, option))
         stack += reversed(pending)
     if truncated:
         lines.append(_TREE_TRUNCATED)

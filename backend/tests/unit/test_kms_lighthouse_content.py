@@ -1525,6 +1525,43 @@ def test_scenario_fetch_budget_reaches_every_top_level_answer_first(kms, monkeyp
     assert text.count(_CUT) == 13 + 25 and text.endswith("\n" + _TRUNCATED)
 
 
+def test_scenario_entry_budget_reaches_every_top_level_answer_first(kms, monkeypatch):
+    mock = kms["mock"]
+    step = mock._step
+    # PDF shape, one level more: 3 fetched products x 25 fetched plans x 4 inline leaves (fix round 2, item 1).
+    root = step(23505, name="Which product?", decisions={f"21302:2:{61000 + a}": f"Product {a}" for a in range(3)})
+    steps, texts = {}, {}
+    for a in range(3):
+        steps[str(61000 + a)] = step(61000 + a, text=f"Product {a} step.",
+                                     decisions={f"21302:2:{62000 + 100 * a + b}": f"Plan {a}.{b}" for b in range(25)})
+        texts[str(61000 + a)] = f"Product {a} step."
+        for b in range(25):
+            leaves = {str(70000 + 1000 * a + 10 * b + c): f"Leaf {a}.{b}.{c}" for c in range(4)}
+            steps[str(62000 + 100 * a + b)] = step(
+                62000 + 100 * a + b, text=f"Plan {a}.{b} step.",
+                decisions={f"21302:2:{leaf}": label for leaf, label in leaves.items()},
+                children={leaf: step(int(leaf), text=f"{label} step.") for leaf, label in leaves.items()})
+            texts[str(62000 + 100 * a + b)] = f"Plan {a}.{b} step."
+    _with_steps(mock, monkeypatch, root, steps)
+    text = client(kms).read_file("scenario:21302")
+    fetched = [row[2].rsplit("/", 1)[-1] for row in _step_rows(kms)]
+    assert len(fetched) == 40
+    # Entries are admitted level first too: every top-level answer keeps its label and its step.
+    for a in range(3):
+        assert f'- "Product {a}" ->\n  Product {a} step.\n' in text
+    # Every step that was fetched is shown.
+    assert all(texts[step_id] in text for step_id in fetched)
+    # Worked out by hand: 1 + 6 + 150 entries for the first three levels leave 243 for the leaves, so
+    # 121 leaves are shown whole (plans 0.0-1.4 and leaf 1.5.0), then the label of leaf 1.5.1.
+    assert '    - "Leaf 1.5.0" ->\n      Leaf 1.5.0 step.\n' in text
+    assert f'    - "Leaf 1.5.1" ->\n      {_CUT}\n  - "Plan 1.6" ->\n    Plan 1.6 step.\n    {_CUT}\n' in text
+    assert "Leaf 1.5.2" not in text and "Leaf 1.6.0" not in text and "Leaf 2." not in text
+    assert f'  - "Plan 1.12" ->\n    {_CUT}\n' in text
+    assert f'- "Product 2" ->\n  Product 2 step.\n  - "Plan 2.0" ->\n    {_CUT}\n' in text
+    # 38 plans past the fetch budget, leaf 1.5.1, and the leaves of plans 1.6-1.11; the marker ends the tree.
+    assert text.count(_CUT) == 38 + 1 + 6 and text.endswith("\n" + _TRUNCATED)
+
+
 def test_every_rendered_line_counts_toward_the_tree_bound(kms, monkeypatch):
     mock = kms["mock"]
     # 200,000 options whose ids cannot be fetched: labels and "not available" lines share the one budget.
@@ -1534,6 +1571,22 @@ def test_every_rendered_line_counts_toward_the_tree_bound(kms, monkeypatch):
     lines = tree.splitlines()
     assert len(lines) <= 405 and lines[-2:] == ["  " + _CUT, _TRUNCATED]
     assert _step_rows(kms) == []
+
+
+def test_a_wide_inline_root_renders_in_linear_time():
+    # 200,000 inline options with credential-shaped labels: only the labels that are shown are scrubbed
+    # (fix round 2, item 4). The other linear guards use 3 s as their generous bound.
+    label = "Send Authorization: Bearer abcDEF123456ghi to the API, then api_key=Xk29abcDEF77 in the file. "
+    root = {"stepId": 1, "stepName": "Pick one",
+            "decisions": {f"9:2:{100000 + n}": f"{label * 2}{n}" for n in range(200_000)},
+            "children": {str(100000 + n): {"stepId": 100000 + n, "text": f"Option {n} step."}
+                         for n in range(200_000)}}
+    fetched = []
+    started = time.perf_counter()
+    lines = kc._render_scenario(root, fetched.append)
+    assert time.perf_counter() - started < 3.0
+    assert len(lines) <= 405 and lines[-1] == _TRUNCATED and fetched == []
+    assert "abcDEF123456ghi" not in "\n".join(lines)
 
 
 def test_a_step_that_failed_is_not_fetched_again(kms, monkeypatch):
@@ -1558,6 +1611,21 @@ def test_a_tree_whose_every_step_fetch_failed_says_so(kms):
     assert f'- "MasterCard" ->\n    {_NOT_AVAILABLE}' in partial and _NOT_LOADED not in partial
     mock.STATE["step_status"] = {}
     assert _NOT_LOADED not in client(kms).read_file("scenario:21400") + client(kms).read_file("scenario:21502")
+
+
+def test_a_failed_step_found_inline_later_is_not_a_load_failure(kms, monkeypatch):
+    mock = kms["mock"]
+    step = mock._step
+    # 23506 is referenced first without an inline copy (its fetch fails), then inline under another step.
+    _with_steps(mock, monkeypatch, step(
+        23505, name="Pick one", decisions={"21302:2:23506": "Online", "21302:2:23515": "Branch"},
+        children={"23515": step(23515, text="Branch step.", decisions={"21302:2:23506": "Again"},
+                                children={"23506": step(23506, text="Inline copy.")})}))
+    mock.STATE["step_status"] = {"23506": 404}
+    tree = _tree(client(kms).read_file("scenario:21302"))
+    assert len(_step_rows(kms)) == 1
+    assert tree == ('## Steps\nPick one\n- "Online" ->\n  Inline copy.\n'
+                    '- "Branch" ->\n  Branch step.\n  - "Again" ->\n    (see step above)')
 
 
 @pytest.mark.parametrize("authored", [
@@ -1589,6 +1657,33 @@ def test_scenario_step_text_still_scrubs_machine_credentials(kms, monkeypatch, a
     tree = _tree(client(kms).read_file("scenario:21302"))
     assert secret not in tree and "eyJzdWIi" not in tree and "token=" not in tree
     assert tree.count(kept) == 4
+
+
+@pytest.mark.parametrize("authored", [
+    "Send Bearer <b>abcDEF123456ghi</b> to the API", "Send Authorization:&nbsp;Bearer&nbsp;abcDEF123456ghi",
+    "Send Bearer&#32;abcDEF123456ghi", "Send Bearer&#160;abcDEF123456ghi",
+], ids=["tags", "nbsp_entity", "space_reference", "nbsp_reference"])
+def test_scenario_text_split_by_markup_still_scrubs_the_credential(kms, monkeypatch, authored):
+    mock = kms["mock"]
+    # A tenant that returns HTML despite plainText=true (fix round 2, item 2): a line whose HTML-decoded
+    # rendering redacts more is shown decoded, in the root's name and text, an option label and a child's text.
+    _with_steps(mock, monkeypatch, mock._step(
+        23505, name=authored, text=authored, decisions={"21302:2:23515": authored},
+        children={"23515": mock._step(23515, text=authored)}))
+    tree = _tree(client(kms).read_file("scenario:21302"))
+    assert "abcDEF123456ghi" not in tree and tree.count("Bearer [redacted]") == 4
+    assert "&nbsp;" not in tree and "&#" not in tree and "<b>" not in tree
+
+
+def test_a_step_text_line_shown_decoded_keeps_the_other_lines_as_written(kms, monkeypatch):
+    mock = kms["mock"]
+    # Each line is chosen on its own, and the text is still scrubbed whole: a credential whose value is on
+    # the next line stays redacted.
+    _with_steps(mock, monkeypatch, mock._step(
+        23505, name="Pick one",
+        text="Run reset <username> now.\nSend Bearer&#32;abcDEF123456ghi\nbearer:\nAbcdef123456ghi"))
+    tree = _tree(client(kms).read_file("scenario:21302"))
+    assert tree == "## Steps\nPick one\nRun reset <username> now.\nSend Bearer [redacted]\nbearer:\n[redacted]"
 
 
 def test_a_scenario_whose_steps_render_nothing_is_header_only(kms, monkeypatch):
