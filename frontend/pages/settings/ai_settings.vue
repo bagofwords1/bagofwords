@@ -18,6 +18,25 @@
 
         <!-- AI Settings content: one collapsible card per section -->
         <div v-if="!loading && !error" class="space-y-3 md:w-2/3">
+            <UInput
+                v-model="query"
+                icon="i-heroicons-magnifying-glass"
+                :placeholder="$t('settings.aiSettingsPage.searchPlaceholder')"
+                color="gray"
+                class="w-full"
+                data-testid="ai-settings-search"
+            >
+                <template v-if="query" #trailing>
+                    <button
+                        type="button"
+                        class="text-ink-muted hover:text-ink"
+                        :aria-label="$t('settings.aiSettingsPage.clearSearch')"
+                        @click="query = ''"
+                    >
+                        <Icon name="heroicons:x-mark" class="w-4 h-4" />
+                    </button>
+                </template>
+            </UInput>
             <div
                 v-for="section in visibleSections"
                 :key="section.id"
@@ -90,7 +109,9 @@
 
             <!-- No settings message -->
             <div v-if="visibleSections.length === 0" class="text-center py-8">
-                <p class="text-gray-500 dark:text-gray-400">{{ $t('settings.aiSettingsPage.noSettings') }}</p>
+                <p class="text-gray-500 dark:text-gray-400">
+                    {{ query ? $t('settings.aiSettingsPage.noSearchResults') : $t('settings.aiSettingsPage.noSettings') }}
+                </p>
             </div>
         </div>
 
@@ -210,6 +231,27 @@ const featureDescription = (key: string, fallback?: string): string => {
 const loading = ref(true)
 const error = ref('')
 
+// Free-text filter over the settings. Matches a setting's translated name or
+// description, or a section's title/description (which shows the whole
+// section). Matching sections are force-expanded while a query is active.
+const query = ref('')
+const q = computed(() => query.value.trim().toLowerCase())
+
+const keyMatches = (key: string): boolean => {
+    if (!q.value) return true
+    const f = configFeatures.value[key]
+    return featureLabel(key, f?.name).toLowerCase().includes(q.value)
+        || featureDescription(key, f?.description).toLowerCase().includes(q.value)
+}
+const sectionMatches = (id: string): boolean => {
+    if (!q.value) return false
+    const titlePath = `settings.aiSettingsPage.sections.${id}.title`
+    const descPath = `settings.aiSettingsPage.sections.${id}.description`
+    const title = te(titlePath) ? t(titlePath) : ''
+    const desc = te(descPath) ? t(descPath) : ''
+    return title.toLowerCase().includes(q.value) || desc.toLowerCase().includes(q.value)
+}
+
 // Confirmation modal state
 const showLlmConfirmModal = ref(false)
 const llmConfirmText = ref('')
@@ -273,15 +315,24 @@ const visibleSections = computed<Section[]>(() => {
     return groups.map(g => {
         const keys: string[] = []
         const all: string[] = []
+        const sMatch = sectionMatches(g.id)
         for (const key of g.keys) {
-            keys.push(key)
-            all.push(key)
+            // Dependents present for this parent, under the current on/off rule.
+            const childKeys: string[] = []
             for (const child in FEATURE_PARENT) {
                 if (FEATURE_PARENT[child] !== key || !cfg[child]) continue
                 all.push(child)
                 // Dependents follow their parent, only while the parent is on.
-                if (cfg[key].value === true) keys.push(child)
+                if (cfg[key].value === true) childKeys.push(child)
             }
+            // When searching: a matching section (or parent) shows all its
+            // settings; otherwise only the settings that match stay.
+            const parentShown = sMatch || keyMatches(key)
+            const shownChildren = childKeys.filter(c => parentShown || keyMatches(c))
+            if (q.value && !parentShown && shownChildren.length === 0) continue
+            keys.push(key)
+            all.push(key)
+            keys.push(...shownChildren)
         }
         // The collapsed-header summary counts the section's own settings;
         // dependents only matter for the lock hint.
@@ -306,7 +357,9 @@ const sectionSummary = (s: Section): string => s.booleans > 0
 // toggle); the choice is a per-browser convenience, so storage is optional.
 const OPEN_STORAGE_KEY = 'bow.aiSettings.openSections'
 const openSections = ref<string[]>(['data'])
-const isOpen = (id: string) => openSections.value.includes(id)
+// A query force-expands every section still showing, so matches are visible
+// without a click; the saved per-browser open state returns once it clears.
+const isOpen = (id: string) => q.value ? true : openSections.value.includes(id)
 const toggleSection = (id: string) => {
     openSections.value = isOpen(id) ? openSections.value.filter(s => s !== id) : [...openSections.value, id]
     try { localStorage.setItem(OPEN_STORAGE_KEY, JSON.stringify(openSections.value)) } catch {}

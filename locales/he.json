@@ -3117,6 +3117,9 @@
       "locked": "הגדרה זו נעולה ולא ניתן לשנותה.",
       "notEditable": "(לא ניתן לעריכה ישירה)",
       "noSettings": "אין הגדרות בינה מלאכותית זמינות.",
+      "noSearchResults": "אין הגדרות שתואמות לחיפוש.",
+      "searchPlaceholder": "חיפוש הגדרות…",
+      "clearSearch": "ניקוי החיפוש",
       "sectionSummary": "{n} הגדרות",
       "sectionSummaryOn": "{n} הגדרות · {on} פעילות",
       "sections": {

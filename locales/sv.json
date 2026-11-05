@@ -2882,6 +2882,9 @@
       "locked": "Den här inställningen är låst och kan inte ändras.",
       "notEditable": "(Inte direkt redigerbar)",
       "noSettings": "Inga AI-inställningar tillgängliga.",
+      "noSearchResults": "Inga inställningar matchar din sökning.",
+      "searchPlaceholder": "Sök inställningar…",
+      "clearSearch": "Rensa sökning",
       "sectionSummary": "{n} inställningar",
       "sectionSummaryOn": "{n} inställningar · {on} på",
       "sections": {

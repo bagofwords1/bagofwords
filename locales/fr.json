@@ -2882,6 +2882,9 @@
       "locked": "Ce paramètre est verrouillé et ne peut pas être modifié.",
       "notEditable": "(Non directement modifiable)",
       "noSettings": "Aucun paramètre IA disponible.",
+      "noSearchResults": "Aucun paramètre ne correspond à votre recherche.",
+      "searchPlaceholder": "Rechercher des paramètres…",
+      "clearSearch": "Effacer la recherche",
       "sectionSummary": "{n} paramètres",
       "sectionSummaryOn": "{n} paramètres · {on} activés",
       "sections": {

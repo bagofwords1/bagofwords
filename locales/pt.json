@@ -2882,6 +2882,9 @@
       "locked": "Esta configuração está bloqueada e não pode ser alterada.",
       "notEditable": "(Não editável diretamente)",
       "noSettings": "Nenhuma configuração de IA disponível.",
+      "noSearchResults": "Nenhuma configuração corresponde à sua pesquisa.",
+      "searchPlaceholder": "Pesquisar configurações…",
+      "clearSearch": "Limpar pesquisa",
       "sectionSummary": "{n} configurações",
       "sectionSummaryOn": "{n} configurações · {on} ativas",
       "sections": {
