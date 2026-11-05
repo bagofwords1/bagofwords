@@ -87,43 +87,23 @@
                 <!-- Cards grid -->
                 <div v-else-if="reports.length > 0">
                     <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
-                        <!-- One card per dashboard (phase 8): it opens the
-                             dashboard's /d page on both tabs. Whoever may edit
-                             it (its owner, its editors -- collab01) does so
-                             through the pencil: their own conversation on it,
-                             or a new one. Shared cards say "Can edit" /
-                             "Can view"; on My dashboards every card is theirs. -->
-                        <div
+                        <!-- One card per dashboard: it opens the dashboard's
+                             /d page on both tabs. Whoever may edit it (its
+                             owner, its editors -- collab01) does so through
+                             the pencil: their own conversation on it, or a
+                             new one. Shared cards say how they reached the
+                             reader. -->
+                        <DashboardCard
                             v-for="dashboard in reports"
                             :key="dashboard.id"
-                            class="group relative"
-                        >
-                            <RecentReportCard
-                                :report="asCard(dashboard)"
-                                view-mode="org"
-                                :to="`/d/${dashboard.slug || dashboard.id}`"
-                                :is-owner="false"
-                            />
-                            <span
-                                v-if="roleLabel(dashboard)"
-                                class="absolute top-2 start-2 px-2 py-0.5 text-[11px] font-medium rounded-full bg-white/90 dark:bg-gray-900/90 text-gray-700 dark:text-gray-200 shadow-sm pointer-events-none"
-                                data-testid="dashboard-card-role"
-                            >{{ roleLabel(dashboard) }}</span>
-                            <button
-                                v-if="canEdit(dashboard)"
-                                type="button"
-                                class="absolute top-2 end-2 p-1.5 bg-white/90 rounded-full hover:bg-white shadow-sm transition-opacity focus:opacity-100 disabled:cursor-wait"
-                                :class="editingId === dashboard.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'"
-                                :disabled="!!editingId"
-                                :aria-label="$t('dashboardCollab.list.edit')"
-                                :title="$t('dashboardCollab.list.edit')"
-                                data-testid="dashboard-card-edit"
-                                @click.prevent.stop="editDashboard(dashboard)"
-                            >
-                                <Spinner v-if="editingId === dashboard.id" class="w-4 h-4 text-gray-600" />
-                                <Icon v-else name="heroicons:pencil-square" class="w-4 h-4 text-gray-600" />
-                            </button>
-                        </div>
+                            :dashboard="dashboard"
+                            :tab="activeFilter"
+                            :editing="editingId === dashboard.id"
+                            :busy="!!editingId"
+                            :star-pending="pendingStars.has(dashboard.id)"
+                            @edit="editDashboard(dashboard)"
+                            @toggle-star="toggleStar(dashboard)"
+                        />
                     </div>
 
                     <!-- Pagination -->
@@ -200,8 +180,8 @@
 
 <script setup lang="ts">
 import GoBackChevron from '@/components/excel/GoBackChevron.vue'
-import RecentReportCard from '~/components/home/RecentReportCard.vue'
-import Spinner from '~/components/Spinner.vue'
+import DashboardCard from '~/components/dashboards/DashboardCard.vue'
+import { mergeStarState } from '~/utils/dashboardList'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -283,8 +263,20 @@ const setTypeFilter = async (tf: 'all' | 'page' | 'doc') => {
     await fetchDashboards(1, activeFilter.value, searchTerm.value)
 }
 
-const fetchDashboards = async (page: number = 1, filter: 'my' | 'shared' = 'my', search: string = '') => {
-    isLoading.value = true
+// Dashboards whose star request is in flight: a second click on one waits.
+const pendingStars = reactive(new Set<string>())
+
+// Only the newest fetch writes the list and clears the skeleton: an older
+// response landing late (a page or tab the reader has left) is dropped.
+let fetchSeq = 0
+// A quiet refetch must not join a GET already in flight (useMyFetch shares
+// identical in-flight GETs): that one may have left before the star landed.
+let freshSeq = 0
+
+// quiet: refresh the cards in place, without the loading skeleton or a toast (after a star).
+const fetchDashboards = async (page: number = 1, filter: 'my' | 'shared' = 'my', search: string = '', quiet = false) => {
+    const seq = ++fetchSeq
+    if (!quiet) isLoading.value = true
     try {
         const response = await useMyFetch('/artifacts', {
             method: 'GET',
@@ -294,51 +286,66 @@ const fetchDashboards = async (page: number = 1, filter: 'my' | 'shared' = 'my',
                 filter,
                 search: search?.trim() || undefined,
                 mode: typeFilter.value === 'all' ? undefined : typeFilter.value,
+                // Ignored by the API; only makes this GET its own call.
+                _fresh: quiet ? `${Date.now()}-${++freshSeq}` : undefined,
             },
         })
+        if (seq !== fetchSeq) return
 
         if (response.status.value === 'success' && response.data.value) {
-            reports.value = (response.data.value as any).dashboards
-            pagination.value = response.data.value.meta
+            const body = response.data.value as any
+            // A star still in flight keeps its local state: this response may predate it.
+            reports.value = mergeStarState(body.dashboards, pendingStars, reports.value)
+            pagination.value = body.meta
         } else {
             throw new Error('Could not fetch dashboards')
         }
     } catch (error) {
+        if (seq !== fetchSeq) return
         console.error('Error fetching dashboards:', error)
-        toast.add({
-            title: t('common.error'),
-            description: t('dashboards.fetchFailed'),
-            color: 'red',
-        })
+        if (!quiet) {
+            toast.add({
+                title: t('common.error'),
+                description: t('dashboards.fetchFailed'),
+                color: 'red',
+            })
+        }
     } finally {
-        isLoading.value = false
+        if (seq === fetchSeq) isLoading.value = false
     }
 }
 
-// The card reads a conversation's fields: give it the dashboard's. Its id is
-// the editing conversation's when there is one, for the activity dot, as
-// the conversation's card had.
-const asCard = (d: any) => ({
-    id: d.report_id || d.id,
-    title: d.title,
-    slug: d.slug || d.id,
-    status: d.published ? 'published' : 'draft',
-    user: d.owner || {},
-    artifact_modes: [d.mode],
-    conversation_share_enabled: false,
-    thumbnail_url: d.thumbnail_url,
-})
+// Every card on the page with this id (looked up again: a refetch may have
+// replaced the object that was clicked).
+const setStar = (id: string, starred: boolean) => {
+    for (const card of reports.value) if (card.id === id) card.is_starred = starred
+}
 
-// What this reader may do with it (collab01). Older answers without `role`
-// fall back to ownership.
-const roleOf = (d: any): 'owner' | 'edit' | 'view' => d.role || (d.is_owner ? 'owner' : 'view')
-const canEdit = (d: any) => roleOf(d) === 'owner' || roleOf(d) === 'edit'
-// Ownership stays implicit (My dashboards lists only one's own).
-const roleLabel = (d: any) => {
-    const role = roleOf(d)
-    if (role === 'edit') return t('dashboardCollab.list.canEdit')
-    if (role === 'view') return t('dashboardCollab.list.canView')
-    return ''
+// The star: shown at once, then -- once no star is in flight -- the page is
+// fetched again (starred cards come first, so the order may change). On
+// failure the star goes back.
+let starsChanged = false
+const toggleStar = async (d: any) => {
+    const id: string = d.id
+    if (pendingStars.has(id)) return
+    pendingStars.add(id)
+    const next = !d.is_starred
+    setStar(id, next)
+    try {
+        const { error } = await useMyFetch(`/artifacts/${encodeURIComponent(id)}/star`, {
+            method: next ? 'POST' : 'DELETE',
+        })
+        if (error.value) throw error.value
+        starsChanged = true
+    } catch (error) {
+        setStar(id, !next)
+        toast.add({ title: t('dashboards.starFailed'), description: getErrorMessage(error), color: 'red' })
+    } finally {
+        pendingStars.delete(id)
+    }
+    if (pendingStars.size || !starsChanged) return
+    starsChanged = false
+    await fetchDashboards(currentPage.value, activeFilter.value, searchTerm.value, true)
 }
 
 // The pencil: the reader's own conversation on the dashboard when they have
@@ -358,6 +365,8 @@ const editDashboard = async (d: any) => {
             return
         }
         await navigateTo(`/reports/${reportId}`)
+    } catch (error) {
+        toast.add({ title: t('dashboardCollab.list.editFailed'), description: getErrorMessage(error), color: 'red' })
     } finally {
         editingId.value = null
     }

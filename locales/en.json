@@ -4768,7 +4768,54 @@
     "fetchFailed": "Failed to fetch dashboards",
     "typeAll": "All",
     "typeDashboards": "Dashboards",
-    "typeDocs": "Docs"
+    "typeDocs": "Docs",
+    "reason": {
+      "direct": "Shared with you",
+      "group": "Group {name}",
+      "project": "Project {name}",
+      "org": "Organization",
+      "public": "Public link"
+    },
+    "reasonTitle": {
+      "direct": "{owner} shared it with you",
+      "group": "Shared with your group {name}",
+      "groupOther": "Shared with one of your groups",
+      "project": "In project {name}, which you belong to",
+      "projectOther": "In a project you belong to",
+      "org": "Shared with everyone in the organization",
+      "public": "Anyone with the link",
+      "also": "also: {reason}",
+      "canEdit": "(you can edit)",
+      "viewOnly": "(view only)"
+    },
+    "card": {
+      "edited": "Edited {time}",
+      "created": "Created {date}",
+      "by": "by {name}",
+      "published": "Published {date}",
+      "dataAsOf": "Data as of {time}",
+      "refreshFailing": "Refresh failing",
+      "lastEdit": "Last edit: {time}",
+      "scheduledRefresh": "Scheduled refresh"
+    },
+    "pill": {
+      "new": "New",
+      "published": "Published",
+      "changes": "Unpublished changes",
+      "org": "Org",
+      "public": "Public"
+    },
+    "mode": {
+      "page": "Dashboard",
+      "slides": "Slides",
+      "doc": "Doc"
+    },
+    "list": {
+      "createdShort": "created {date}"
+    },
+    "star": "Star",
+    "unstar": "Unstar",
+    "starFailed": "Couldn't update the star"
   },
   "excel": {
     "greeting": "Hi, {name} 👋",
