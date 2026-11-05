@@ -385,6 +385,12 @@ class DescribeEntityTool(Tool):
                 view_schema = build_view_from_data_model(
                     data_model, title=entity.title, palette_theme=palette_theme, available_columns=available_columns
                 )
+                # A reused entity keeps its saved line shape. Views saved before
+                # `smooth` was stored were drawn curved, the old default.
+                if view_schema is not None and getattr(view_schema.view, "type", None) in ("line_chart", "area_chart"):
+                    stored_inner = stored_view.get("view") if isinstance(stored_view.get("view"), dict) else stored_view
+                    stored_smooth = stored_inner.get("smooth")
+                    view_schema.view.smooth = stored_smooth if isinstance(stored_smooth, bool) else True
                 view = view_schema.model_dump(exclude_none=True) if view_schema else stored_view
 
                 # Emit progress for step creation

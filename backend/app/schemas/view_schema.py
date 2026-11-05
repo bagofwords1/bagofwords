@@ -161,12 +161,14 @@ class BarChartView(CartesianView):
 
 class LineChartView(CartesianView):
     type: Literal["line_chart"] = "line_chart"
-    smooth: bool = True
+    # Straight by default: a smoothed curve draws values between points that
+    # are not in the data (dips and peaks). Saved views keep their stored value.
+    smooth: bool = False
 
 
 class AreaChartView(CartesianView):
     type: Literal["area_chart"] = "area_chart"
-    smooth: bool = True
+    smooth: bool = False
     area: bool = True
     opacity: float = 0.35
 
