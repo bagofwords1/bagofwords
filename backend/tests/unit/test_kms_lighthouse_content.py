@@ -444,12 +444,27 @@ _SECRET_FORMS = [
     ("curl_user_equals", "curl --user=admin:{s} https://kms.example.com/x"),
     ("curl_u_attached", "curl -uadmin:{s} https://kms.example.com/x"),
     ("curl_u_quoted", "curl -u 'admin:{s}' https://kms.example.com/x"),
-    # A compound name ending with "pass" after a separator, and a subscription key header.
+    ("curl_u_double_quoted", 'curl -u "admin:{s}" https://kms.example.com/x'),
+    ("curl_bundled_su", "curl -su admin:{s} https://kms.example.com/x"),
+    ("curl_bundled_sku", "curl -sku admin:{s} https://kms.example.com/x"),
+    ("curl_bundled_vu", "curl -vu admin:{s} https://kms.example.com/x"),
+    ("curl_key_only", "curl https://api.stripe.com/v1/charges -u sk_test_{s}:"),
+    ("curl_key_only_then_flag", "curl -u K1{s}: -d a=b"),
+    ("curl_password_single_quoted", "curl -u admin:'{s}' https://kms.example.com/x"),
+    ("curl_password_double_quoted", 'curl -u admin:"{s}" https://kms.example.com/x'),
+    ("curl_proxy_u", "curl -U proxy:{s} https://kms.example.com/x"),
+    ("curl_proxy_user_spaced", "curl --proxy-user proxy:{s} https://kms.example.com/x"),
+    ("curl_proxy_user_equals", "curl --proxy-user=proxy:{s} https://kms.example.com/x"),
+    # A compound name ending with "pass" after a listed service word, and a subscription key header.
     ("structured_db_pass", "DB_PASS={s}"),
     ("structured_smtp_pass", "SMTP_PASS: {s}"),
+    ("structured_smtp_pass_equals", "SMTP_PASS={s}"),
     ("structured_hyphen_db_pass", "db-pass: {s}"),
     ("structured_hyphen_smtp_pass", "smtp-pass: {s}"),
     ("structured_camel_db_pass", "dbPass: {s}"),
+    ("structured_camel_smtp_pass", "smtpPass={s}"),
+    ("structured_mysql_root_pass", "MYSQL_ROOT_PASS={s}"),
+    ("structured_redis_pass", "REDIS_PASS={s}"),
     ("structured_subscription_key_header", "Ocp-Apim-Subscription-Key: {s}"),
     ("structured_subscription_key", "subscription-key: {s}"),
 ] + [(f"name_{name}", _URL + f"?id=7&{name}={{s}}&lang=en") for name in _SECRET_NAMES] + [
@@ -564,6 +579,49 @@ def test_search_unclosed_quote_does_not_hide_the_rest(kms, template):
     assert "and the rest of the guide" in entry["snippet"], entry["snippet"]
 
 
+@pytest.mark.parametrize("text,shown", [
+    # The password goes; the flag, the user name and the rest of the command stay.
+    ("curl -u admin:SECRETX1 x", "curl -u admin:[redacted] x"),
+    ("curl --user admin:SECRETX1 x", "curl --user admin:[redacted] x"),
+    ("curl --user=admin:SECRETX1 x", "curl --user=admin:[redacted] x"),
+    ("curl -uadmin:SECRETX1 x", "curl -uadmin:[redacted] x"),
+    ("curl -u 'admin:SECRETX1' x", "curl -u 'admin:[redacted]' x"),
+    ('curl -u "admin:SECRETX1" x', 'curl -u "admin:[redacted]" x'),
+    ("curl -su admin:SECRETX1 x", "curl -su admin:[redacted] x"),
+    ("curl -sku admin:SECRETX1 x", "curl -sku admin:[redacted] x"),
+    ("curl -vu admin:SECRETX1 x", "curl -vu admin:[redacted] x"),
+    ("curl -u admin:'SECRETX1' x", "curl -u admin:'[redacted]' x"),
+    ('curl -u admin:"SECRETX1" x', 'curl -u admin:"[redacted]" x'),
+    # A quoted password goes whole, up to its closing quote, spaces included.
+    ("curl -u admin:'SECRETX1 SECRETX2' x", "curl -u admin:'[redacted]' x"),
+    ('curl -u admin:"SECRETX1 SECRETX2" x', 'curl -u admin:"[redacted]" x'),
+    ("curl -U proxy:SECRETX1 x", "curl -U proxy:[redacted] x"),
+    ("curl --proxy-user proxy:SECRETX1 x", "curl --proxy-user proxy:[redacted] x"),
+    ("curl --proxy-user=proxy:SECRETX1 x", "curl --proxy-user=proxy:[redacted] x"),
+    # Key only ("-u KEY:", no password): the user part is the API key, the ':' stays.
+    ("curl https://api.stripe.com/v1/charges -u sk_demo_4eC39HqLyjWDarjtT1zdp7dc:",
+     "curl https://api.stripe.com/v1/charges -u [redacted]:"),
+    ("curl -u sk_live_X1:", "curl -u [redacted]:"),
+    ("curl -u KEY12345: -d a=b", "curl -u [redacted]: -d a=b"),
+])
+def test_search_redacts_command_line_credentials(kms, text, shown):
+    entry = _search_one(kms, text)
+    for field in ("name", "snippet"):
+        # A file name has each '/' as '-' (one path segment).
+        assert (shown.replace("/", "-") if field == "name" else shown) in entry[field], (field, entry[field])
+        for secret in ("SECRETX1", "SECRETX2", "4eC39HqLyjWDarjtT1zdp7dc", "sk_live_X1", "KEY12345"):
+            assert secret not in entry[field], (field, entry[field])
+
+
+@pytest.mark.parametrize("text", ["rsync -u server:/data ./backup", "rsync -u backup01:/data/ ./data",
+                                  'sqlmap -u "http://target/?id=1"', "ffuf -u https://target/FUZZ"])
+def test_search_keeps_a_command_line_host_path_or_url(kms, text):
+    # "-u" before a "host:/path" or a URL: the part after the ':' is no password.
+    entry = _search_one(kms, text)
+    assert text in entry["snippet"], entry["snippet"]
+    assert text.replace("/", "-") in entry["name"], entry["name"]      # a file name has each '/' as '-'
+
+
 @pytest.mark.parametrize("credential", ["dXNlcjpwYXNz", "cmVhZGVyOmFkbWlu", "dXNlcjpMaWdodGhvdXNl"])
 def test_search_redacts_a_letters_only_basic_credential(kms, credential):
     # Base64 of "user:password" may hold no digit, '+', '/' or '='.
@@ -615,9 +673,22 @@ def test_search_scrub_keeps_harmless_parameters(kms):
                                   # "pass" names a secret only at the end of a compound machine name.
                                   "Pass: the exam", "Boarding-Pass: gate 4", "bypass: see section 2",
                                   "by-pass: see section 2", "BYPASS: see section 2", "PASS: 80 points",
+                                  # A name ending with "pass" after a word that names no service.
+                                  "LastPass: Open the vault", "KeePass: download the app", "PayPass: tap the card",
+                                  "MetroPass: 49 NIS a month", "boarding_pass: gate 4", "boardingPass: gate 4",
+                                  "first_pass: done", "two_pass=true", "isPass: true", "low_pass: 200 Hz",
+                                  "renderPass: shadow", '{"dayPass": "included"}', '{"boardingPass": "BP123"}',
+                                  '{"Boarding-Pass": "Gate 4"}', "User-Pass: valid 30 days", "Admin-Pass: see IT",
                                   # "-u" without a user:password pair, and a numeric user:group pair.
                                   "ls -u", "sort -u file", "pip install --user requests",
-                                  "docker run -u 1000:1000 app",
+                                  "docker run -u 1000:1000 app", "docker run -u 1000:1000",
+                                  "journalctl -u nginx", "systemctl status -u",
+                                  # "-u" before a time format, a host path, a shell substitution or a URL.
+                                  "date -u +%Y-%m-%dT%H:%M:%SZ", "date -u +%H:%M",
+                                  'docker run -u "$(id -u):$(id -g)" app',
+                                  "docker run --user $(id -u):$(id -g) app", "chown -R $(id -u):$(id -g) dir",
+                                  # A unit name and a colon in prose: a key-only "-u KEY:" holds a digit.
+                                  "Run journalctl -u nginx: it shows the log",
                                   # Documented limitation: an all-caps single-word key is shown as written.
                                   "PGPASSWORD=Sv1x9Qk2"])
 def test_search_scrub_keeps_ordinary_prose(kms, text):
@@ -776,6 +847,20 @@ _ADVERSARIAL = {
     "mismatched_plain_names": _adversarial('{“password": "'),
     "mismatched_unclosed_values": _adversarial('“api_key": "' + "a" * 300),
     "compound_pass_names": _adversarial("db-pass: "),
+    # The forms added in fix round 7.
+    "curl_bundled_flags": _adversarial("curl -sku a:b "),
+    "curl_bundled_flag_runs": _adversarial("-abcdefu"),
+    "curl_bundled_blank_runs": _adversarial("-sku" + " " * 50),
+    "curl_key_only": _adversarial("-u K1: "),
+    "curl_key_only_runs": _adversarial("-u K1:"),
+    "curl_quoted_passwords": _adversarial("-u a:'b' "),
+    "curl_unclosed_passwords": _adversarial("-u a:'" + "b" * 300),
+    "curl_double_quoted_users": _adversarial('-u "a:'),
+    "curl_proxy_users": _adversarial("--proxy-user=a:b "),
+    "curl_long_user_names": _adversarial(" -u " + "a" * 140),
+    "camel_pass_names": _adversarial("boardingPass: "),
+    "camel_pass_runs": _adversarial("aPass"),
+    "service_pass_names": _adversarial("smtpPass: x "),
 }
 
 
@@ -791,10 +876,11 @@ def test_scrub_is_linear_on_adversarial_input(name):
 # Pieces a page may put next to each other: every corpus text, every name form, and the characters
 # the rules stop at, split on, or treat as quotes and escapes.
 _EDGES = ("", " ", "\t", "\n", ":", "=", ": ", "= ", "&", ";", ",", "}", "]", "[", "{", '"', "'", "\\", "\\\"",
-          "“", "”", "‘", "’", "@", "?", "#", "%", "-u", "--user=", "-u ", ".", "/", "<br>")
+          "“", "”", "‘", "’", "@", "?", "#", "%", "-u", "--user=", "-u ", ".", "/", "<br>", "-sku ", "-U",
+          "--proxy-user=", "$(", "`", "Pass", "_pass")
 _KEYS = ("api_key: ", "API_TOKEN=", "X-Auth-Token: ", '{"apiToken":', "auth_token:", "x-api-key: ", "db.password=",
          '{\\"password\\":', '\\"api_key\\": ', "“api_key\": ", '{“password": ', "DB_PASS=", "curl -u ",
-         "--user=", "?token=", "https://user:")
+         "--user=", "?token=", "https://user:", "curl -vu ", "--proxy-user ", "smtpPass: ", "MYSQL_ROOT_PASS=")
 _WORDS = ("Bearer", "bearer", "Basic", "Token", "token", "password", "db-pass", "user:pass", "[redacted]",
           "eyJabcdef", "dXNlcjpwYXNz", "Sv1x9Qk2", '"Sv1x9Qk2"', '\\"Sv1x9Qk2\\"', "next", "@h")
 
