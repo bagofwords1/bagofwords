@@ -4053,6 +4053,7 @@
     "tabReport": "التقرير",
     "tabData": "البيانات ({count})",
     "refreshedAt": "تم التحديث {time}",
+    "noDashboard": "لا توجد لوحة تحكم متاحة",
     "madeWith": "صُنع باستخدام {brand}",
     "fork": "إنشاء نسخة"
   },

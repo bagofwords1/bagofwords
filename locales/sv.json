@@ -4037,11 +4037,23 @@
     "close": "Stäng",
     "copyClipboardFailed": "Det gick inte att kopiera till urklipp"
   },
+  "dataGrid": {
+    "page": "Sida",
+    "to": "till",
+    "of": "av",
+    "more": "mer",
+    "pageSizeSelectorLabel": "Sidstorlek:",
+    "firstPage": "Första sidan",
+    "previousPage": "Föregående sida",
+    "nextPage": "Nästa sida",
+    "lastPage": "Sista sidan"
+  },
   "sharedReport": {
     "backToApp": "Tillbaka till appen",
     "tabReport": "Rapport",
     "tabData": "Data ({count})",
     "refreshedAt": "Uppdaterad {time}",
+    "noDashboard": "Ingen instrumentpanel tillgänglig",
     "madeWith": "Skapad med {brand}",
     "fork": "Skapa kopia"
   },

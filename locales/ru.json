@@ -4037,11 +4037,23 @@
     "close": "Закрыть",
     "copyClipboardFailed": "Не удалось скопировать в буфер обмена"
   },
+  "dataGrid": {
+    "page": "Страница",
+    "to": "до",
+    "of": "из",
+    "more": "ещё",
+    "pageSizeSelectorLabel": "Размер страницы:",
+    "firstPage": "Первая страница",
+    "previousPage": "Предыдущая страница",
+    "nextPage": "Следующая страница",
+    "lastPage": "Последняя страница"
+  },
   "sharedReport": {
     "backToApp": "Назад в приложение",
     "tabReport": "Отчёт",
     "tabData": "Данные ({count})",
     "refreshedAt": "Обновлено {time}",
+    "noDashboard": "Нет доступного дашборда",
     "madeWith": "Сделано с помощью {brand}",
     "fork": "Создать копию"
   },

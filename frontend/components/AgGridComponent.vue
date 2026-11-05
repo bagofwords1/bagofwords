@@ -7,8 +7,11 @@
          a filter applied to a result shown in both the chat and the side
          panel) all changes land on the first grid and the second never
          updates. -->
+    <!-- :key — ag-grid reads localeText only at creation, so a language
+         switch builds fresh options and mounts a new grid. -->
     <ag-grid-vue
       ref="gridRef"
+      :key="gridKey"
       :class="[agThemeClass, 'ag-grid']"
       :gridOptions="gridOptions">
     </ag-grid-vue>
@@ -16,7 +19,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, toRaw } from 'vue';
+import { ref, shallowRef, computed, watch, toRaw } from 'vue';
 import { AgGridVue } from 'ag-grid-vue3';
 import CustomHeader from './CustomHeader.vue'; // Import the CustomHeader component
 import CustomLoadingRenderer from './CustomLoadingRenderer.vue'; // Import the CustomLoadingRenderer component
@@ -33,7 +36,7 @@ const agThemeClass = computed(() =>
 );
 
 const isLoading = ref(true);
-const { t } = useI18n();
+const { t, locale } = useI18n();
 
 // A cell whose whole value is an http(s) URL (SharePoint/Outlook web links,
 // monday `item_url`, …) renders as a short "Open ↗" link in a new tab instead
@@ -72,8 +75,13 @@ const PAGE_SIZE = 50;
 const gridRef = ref<any>(null);
 const gridApi = () => gridRef.value?.api;
 
+// The paging footer ("Page Size", "1 to 50 of 236", "Page 1 of 5") in the
+// viewer's language instead of ag-grid's built-in English.
+const PAGER_KEYS = ['page', 'to', 'of', 'more', 'pageSizeSelectorLabel', 'firstPage', 'previousPage', 'nextPage', 'lastPage'];
+const pagerText = () => Object.fromEntries(PAGER_KEYS.map((key) => [key, t(`dataGrid.${key}`)]));
+
 // Read once at mount by ag-grid-vue; later changes go through gridApi().
-const gridOptions = {
+const baseOptions = () => ({
   autoHeaderHeight: false,
   suppressServerSideFullWidthLoadingRow: true,
   defaultColDef: {
@@ -91,13 +99,7 @@ const gridOptions = {
   loadingOverlayComponentParams: { columns: props.columnDefs.length },
   enableCellTextSelection: true,
   paginationPageSize: PAGE_SIZE,
-  // The paging footer ("Page Size", "1 to 50 of 236", "Page 1 of 5") in the
-  // viewer's language instead of ag-grid's built-in English.
-  localeText: Object.fromEntries(
-    ['page', 'to', 'of', 'more', 'pageSizeSelectorLabel', 'firstPage', 'previousPage', 'nextPage', 'lastPage']
-      .map((key) => [key, t(`dataGrid.${key}`)]),
-  ),
-} as Record<string, any>;
+} as Record<string, any>);
 
 // Only paginate when there are actually more rows than a page. A small preview
 // (the common case for a data tool result) otherwise gets ag-grid's paging
@@ -122,9 +124,21 @@ const columnDefs = ref(props.columnDefs.map(col => ({
 
 const rowData = ref(props.rowData);
 
-gridOptions.columnDefs = toRaw(columnDefs.value);
-gridOptions.rowData = toRaw(rowData.value);
-gridOptions.pagination = paginationEnabled.value;
+const buildOptions = () => ({
+  ...baseOptions(),
+  localeText: pagerText(),
+  columnDefs: toRaw(columnDefs.value),
+  rowData: toRaw(rowData.value),
+  pagination: paginationEnabled.value,
+});
+const gridOptions = shallowRef(buildOptions());
+const gridKey = ref(0);
+// A language switch (profile menu, or the org locale arriving after mount):
+// rebuild with the current data and the new pager text, and remount.
+watch(locale, () => {
+  gridOptions.value = buildOptions();
+  gridKey.value++;
+});
 
 watch(() => props.columnDefs, (newVal) => {
   columnDefs.value = newVal.map(col => ({
