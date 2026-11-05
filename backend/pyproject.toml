@@ -130,6 +130,7 @@ dependencies = [
     "compressed-rtf>=1.0.7,<2",
     "smbprotocol>=1.17.0",
     "neo4j>=6.4.1,<6.5",
+    "pyvmomi>=9.1.1,<10",
 ]
 
 [project.optional-dependencies]
