@@ -38,6 +38,8 @@ FILE_SOURCE_TYPES = {
     "documentum",
     "sharepoint", "onedrive", "google_drive", "outlook_mail", "gmail_mail",
     "network_dir", "s3", "onenote",
+    # KMS Lighthouse: live only (no catalog), read with the caller's identity.
+    "kms_lighthouse",
     # Code connections: a cached clone served by a NetworkDirClient subclass.
     "github_repo", "gitlab_repo", "bitbucket_repo",
     # Hybrid connectors (QUERY + file capabilities). ServiceNow serves record

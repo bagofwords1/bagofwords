@@ -4222,6 +4222,7 @@ class DataSourceService:
             "network_dir", "s3", "sharepoint", "sharepoint_onprem", "documentum", "onedrive", "google_drive",
             "outlook_mail", "gmail_mail",
             "github_repo", "gitlab_repo", "bitbucket_repo",
+            "kms_lighthouse",
         ]
         _file_ct_subq = None
         # Per-user file catalogs (OneDrive, Outlook, personal Drive) have no
