@@ -573,13 +573,16 @@ def test_a_hidden_branch_that_fails_to_list_does_not_break_a_lookup(kms, monkeyp
     mock.STATE["tree_status"] = {"40": status}
     rooted = client(kms, root_folder_id=39)
     assert _ids(rooted.list_files(folder_id="folder:43")) == {"item:44"}
-    # The failing hidden branch is unseen: the rest of the walk still runs and decides.
+    # The failing hidden branch is unseen: the rest of the walk still runs and finds 46 under hidden 45.
     with pytest.raises(kc.KmsHTTPError) as info:
         rooted.list_files(folder_id="folder:46")
     assert info.value.kind == "not_found" and str(info.value) == kc._FOLDER_NOT_FOUND
-    with pytest.raises(GlobScopeError) as refused:
+    assert "40" in mock.STATE["tree_status_sent"]          # the injected failure really was answered
+    # A walk that skipped a branch cannot tell "outside the root" from "in the unseen branch": not found.
+    with pytest.raises(kc.KmsHTTPError) as info:
         rooted.list_files(folder_id="folder:38")
-    assert refused.value.__context__ is None and refused.value.__cause__ is None
+    assert info.value.kind == "not_found" and str(info.value) == kc._FOLDER_NOT_FOUND
+    assert info.value.__context__ is None and info.value.__cause__ is None
     with pytest.raises(kc.KmsHTTPError) as info:
         client(kms).list_files(folder_id="folder:99999")
     assert str(info.value) == kc._FOLDER_NOT_FOUND
@@ -593,6 +596,85 @@ def test_a_hidden_branch_that_fails_to_list_does_not_break_a_lookup(kms, monkeyp
     with pytest.raises(kc.KmsHTTPError) as info:
         client(kms, root_folder_id=39).list_files(folder_id="folder:38")
     assert info.value.kind == "auth"
+
+
+_SKIPPED_KIND = {400: "bad_request", 403: "forbidden", 404: "not_found", 500: "server"}
+
+
+@pytest.mark.parametrize("folder", ["folder:46", "folder:600", "folder:38"])
+@pytest.mark.parametrize("status", sorted(_SKIPPED_KIND))
+def test_a_lookup_that_skipped_a_hidden_branch_is_never_outside_root(kms, monkeypatch, caplog, status, folder):
+    mock = kms["mock"]
+    # Both hidden folders under root 39 (40 holds 600, 45 holds 46) fail to list: the walk sees neither
+    # branch, so it cannot know the folder is not in one of them.
+    _archive_tree(mock, monkeypatch, archive_children=3)
+    mock.STATE["tree_status"] = {"40": status, "45": status}
+    caplog.set_level(logging.DEBUG, logger=kc.__name__)
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms, root_folder_id=39).list_files(folder_id=folder)
+    assert info.value.kind == "not_found" and str(info.value) == kc._FOLDER_NOT_FOUND
+    assert info.value.__context__ is None and info.value.__cause__ is None
+    assert sorted(mock.STATE["tree_status_sent"]) == ["40", "45"]
+    # The debug line names the error kind only: no id, no title, no URL.
+    skipped = [r.getMessage() for r in caplog.records if r.name == kc.__name__ and "skipped" in r.getMessage()]
+    assert len(skipped) == 2, skipped
+    for line in skipped:
+        assert line.endswith(": " + _SKIPPED_KIND[status]), line
+        assert not re.search(r"[0-9]|http|parentId|Archive|Retired|Root|Elsewhere", line), line
+    # With nothing failing, the same walk completes and a folder outside the root is refused.
+    mock.STATE["tree_status"] = {}
+    with pytest.raises(GlobScopeError) as refused:
+        client(kms, root_folder_id=39).list_files(folder_id="folder:38")
+    assert refused.value.__context__ is None and refused.value.__cause__ is None
+
+
+@pytest.mark.parametrize("folder", ["folder:46", "folder:600", "folder:38"])
+@pytest.mark.parametrize("make,status,kind", [
+    (client, 429, "throttled"), (token_client, 429, "throttled"), (token_client, 302, "redirect"),
+])
+def test_a_hidden_branch_failure_about_the_service_fails_the_lookup(kms, monkeypatch, folder, make, status, kind):
+    mock = kms["mock"]
+    # Throttling and a redirect say nothing about the branch: the lookup fails at the first one.
+    _archive_tree(mock, monkeypatch, archive_children=3)
+    mock.STATE["tree_status"] = {"40": status, "45": status}
+    with pytest.raises(kc.KmsHTTPError) as info:
+        make(kms, root_folder_id=39).list_files(folder_id=folder)
+    assert info.value.kind == kind
+    assert info.value.__context__ is None and info.value.__cause__ is None
+    assert mock.STATE["tree_status_sent"] == ["40"]
+
+
+@pytest.mark.parametrize("folder", ["folder:46", "folder:600", "folder:38"])
+def test_an_unreachable_hidden_branch_fails_the_lookup_at_once(kms, monkeypatch, folder):
+    _archive_tree(kms["mock"], monkeypatch, archive_children=3)
+    original = requests.Session.request
+    failed = []
+
+    def unreachable(self, method, url, *args, **kwargs):
+        parent = (kwargs.get("params") or {}).get("parentId")
+        if url.endswith(_TREE_PATH) and parent in ("40", "45"):
+            failed.append(parent)
+            raise requests.ConnectionError("refused")
+        return original(self, method, url, *args, **kwargs)
+
+    monkeypatch.setattr(requests.Session, "request", unreachable)
+    with pytest.raises(kc.KmsHTTPError) as info:
+        token_client(kms, root_folder_id=39).list_files(folder_id=folder)
+    assert info.value.kind == "unreachable"
+    assert info.value.__context__ is None and info.value.__cause__ is None
+    assert failed == ["40"]            # raised on the first failed attempt; hidden 45 is never tried
+
+
+@pytest.mark.parametrize("bad", [
+    {40: 403}, {"40": "403"}, {"40": True}, {"40": 99}, {"40": 600}, {"40": 403.0}, {None: 403}, {"4x": 403},
+    {"": 403}, {"40\n": 403}, {"٤٠": 403}, [("40", 403)], None,
+])
+def test_mock_tree_status_takes_only_folder_ids_and_http_statuses(kms, bad):
+    mock = kms["mock"]
+    with pytest.raises(ValueError):
+        mock.STATE["tree_status"] = bad
+    mock.STATE["tree_status"] = {"40": 100, "45": 599}
+    assert mock.STATE["tree_status"] == {"40": 100, "45": 599}
 
 
 def test_a_folder_found_with_no_call_left_to_list_it_says_so(kms):
@@ -1791,6 +1873,13 @@ _REGRESSION_CORPUS = [
     _redact("r13", "Bearer:\tya29.a0AfH6SMBx9Qk2", "a0AfH6SMBx9Qk2"),
     _redact("r13", "auth:\n  bearer:\n    ya29.a0AfH6SMBx9Qk2", "a0AfH6SMBx9Qk2"),
     _redact("r13", "bearer:\r\n  ya29.a0AfH6SMBx9Qk2 next", "a0AfH6SMBx9Qk2", shown="next"),
+    # r14 (P4 round 4, item 2): any blank but a line break is the gap after "Bearer" or "Bearer:", Unicode
+    # spaces (en space, thin space, narrow no-break space, ideographic space, "&ensp;") included.
+    *[_redact("r14", f"Authorization: Bearer{gap}ya29.a0AfH6SMBx9Qk2 next", "a0AfH6SMBx9Qk2", shown="next")
+      for gap in (" ", " ", " ", "　", "&ensp;")],
+    *[_redact("r14", f"bearer:{gap}ya29.a0AfH6SMBx9Qk2 next", "a0AfH6SMBx9Qk2", shown="next")
+      for gap in (" ", " ", " ", "　", "&ensp;")],
+    _keep("r14", "auth:\n  bearer:\n    token_file : /etc/token"),
 ]
 
 
@@ -1931,6 +2020,10 @@ _ADVERSARIAL = {
     # The forms added in P4 round 3.
     "bearer_next_line_values": _adversarial("bearer:\n  Ab1cdefgh "),
     "bearer_next_line_keys": _adversarial("bearer:\n  Ab1cdefgh" + " " * 20 + ":"),
+    # The forms added in P4 round 4: Unicode blanks in the Bearer gap and before a key's ':'.
+    "bearer_unicode_gaps": _adversarial("Bearer　"),
+    "bearer_unicode_next_lines": _adversarial("bearer: \n "),
+    "bearer_unicode_key_blanks": _adversarial("bearer:\n Ab1cdefgh" + " " * 20 + ":"),
 }
 
 

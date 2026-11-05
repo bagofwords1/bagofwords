@@ -50,8 +50,10 @@ Test-only switches and routes (not part of the KMS API):
     JSON body instead (an odd shape a test wants to see handled).
     STATE["hold_search_after_first"] = True: a /search/full call with
     start > 0 waits on HELD before it answers (a slow later page).
-  - Tree: STATE["tree_status"] maps a parentId to an HTTP status; that tree
-    call answers with it and no body (a branch the server fails to list).
+  - Tree: STATE["tree_status"] maps a parentId (a digit string) to an HTTP
+    status (an int, 100-599); that tree call answers with it and no body (a
+    branch the server fails to list), and its parentId is appended to
+    STATE["tree_status_sent"].
   - GET {PREFIX}/_mock/empty              HTTP 200 with an empty body
   - GET {PREFIX}/_mock/oversized          HTTP 200 with a large JSON body (OVERSIZED_BYTES)
 
@@ -64,6 +66,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import secrets
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -214,10 +217,19 @@ _DEFAULTS = {
     "search_body": None,             # None | a JSON value sent as the whole /search/full body
     "odd_shapes": False,             # False | "list" | "error" | "bad_id" | "bad_username"
     "tree_status": {},               # parentId -> HTTP status: that tree call answers it with no body
+    "tree_status_sent": [],          # the parentId of every tree call answered from "tree_status", in order
 }
 _STALE = {"barrier": None}           # the barrier for STATE["hold_stale_401s"]
 # GET {PREFIX}/_mock/held sets "arrived", then waits up to 5 s for "release".
 HELD = {"arrived": threading.Event(), "release": threading.Event()}
+
+
+def _valid_tree_status(value) -> bool:
+    """A dict of ASCII digit-string folder ids to int HTTP statuses (bool is not an int here)."""
+    return type(value) is dict and all(
+        type(key) is str and re.fullmatch(r"[0-9]+", key) is not None
+        and type(status) is int and 100 <= status <= 599
+        for key, status in value.items())
 
 
 class _State(dict):
@@ -230,6 +242,9 @@ class _State(dict):
             raise ValueError(f"STATE[{key!r}] must be one of {allowed!r}, not {value!r}")
         if key in _COUNTERS and (type(value) is not int or value < 0):
             raise ValueError(f"STATE[{key!r}] must be a non-negative int, not {value!r}")
+        if key == "tree_status" and not _valid_tree_status(value):
+            raise ValueError(f"STATE[{key!r}] must map folder ids (digit strings) to HTTP statuses "
+                             f"(ints 100-599), not {value!r}")
         if key == "hold_stale_401s":
             old = _STALE["barrier"]
             if old is not None:
@@ -410,6 +425,8 @@ class Handler(BaseHTTPRequestHandler):
                     {"id": "x-" + ODD_MARKER, "title": ODD_MARKER, "type": "FOLDER", "status": "2"}]})
             parent = (query.get("parentId") or [None])[0]
             if parent in STATE["tree_status"]:
+                with _LOCK:
+                    STATE["tree_status_sent"].append(parent)
                 return self._send_empty(STATE["tree_status"][parent])
             if parent is None and STATE["top_level_requires_parent"]:
                 return self._send_json(200, {"status": "SUCCESS", "data": []})

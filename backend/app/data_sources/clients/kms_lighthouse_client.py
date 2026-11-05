@@ -343,10 +343,11 @@ _BEARER_OPENERS = "\"'`([{" + "".join(chr(code) for code in (
 # The gap after "Bearer" or "Bearer:" stays on its line, so a YAML key on the next
 # line keeps its value; a "bearer:" key may have its token on the next line, indented
 # or not (plain text drops the indent), and ``_redact_bearer`` keeps that value when a
-# ':' follows it (it is a key).
-_BEARER_RE = re.compile(r"(?i)\b(bearer(?::[ \t]*+(?:\r?+\n[ \t]*+)?+|[ \t]++)(?:\\?+["
+# ':' follows it (it is a key). A blank is any whitespace but '\r' and '\n', so a Unicode
+# space ("&ensp;", a thin or an ideographic space) is a gap too.
+_BEARER_RE = re.compile(r"(?i)\b(bearer(?::[^\S\r\n]*+(?:\r?+\n[^\S\r\n]*+)?+|[^\S\r\n]++)(?:\\?+["
                         + re.escape(_BEARER_OPENERS) + r"])?+)([A-Za-z0-9._~+/=-]{8,}+)")
-_KEY_AFTER_RE = re.compile(r"[ \t]*+:")
+_KEY_AFTER_RE = re.compile(r"[^\S\r\n]*+:")
 _BASIC_RE = re.compile(r"(?i)\b(basic\s++)([A-Za-z0-9+/]{12,}+=*+)")
 # Each opening quote of a structured key or value and its closing quote: ASCII
 # quotes and the matched smart pairs (built with chr() so the source stays ASCII).
@@ -1129,6 +1130,10 @@ _BEYOND_BROWSE_LIMIT = ("Folder not found, or beyond the browse limit; pass its 
                         "(the folder part of an entry's path) instead.")
 _FOUND_BEYOND_BROWSE_LIMIT = ("Folder found, but beyond the browse limit; pass its folder path "
                               "(the folder part of an entry's path) instead.")
+# Tree-call failures that answer for that one branch, so a folder lookup may walk on past a hidden
+# folder that fails with one; "auth", "throttled", "unreachable" and "redirect" concern every call.
+_BRANCH_FAILURES = frozenset(("forbidden", "not_found", "bad_request", "no_data", "rejected", "server",
+                              "too_large"))
 _BAD_LIST_LIMIT = "The list limit must be a positive whole number."
 # A segment that already ends like a sibling suffix gets one of its own, so a
 # suffixed segment can never equal another folder's plain one.
@@ -1877,11 +1882,13 @@ class KmsLighthouseClient(DataSourceClient):
         first; then the walk also opens hidden (offline) folders and the folders
         under them, within the same bound, so a folder under one is found: a
         hidden folder, or one under a hidden folder, is ``not_found``. A hidden
-        folder the server fails to list is left unseen (a refused session still
-        raises). A walk that runs out of tree calls is ``not_found`` naming the
-        browse limit; never a false "outside root".
+        folder the server refuses to list for its own sake (``_BRANCH_FAILURES``)
+        is left unseen, and a walk that skipped one ends ``not_found``, since the
+        folder may be in it; any other failure (a refused session, throttling,
+        no connection, a redirect) raises at once. A walk that runs out of tree
+        calls is ``not_found`` naming the browse limit; never a false "outside root".
         """
-        shown, hidden, seen = deque([(origin, ())]), deque(), {origin}
+        shown, hidden, seen, skipped = deque([(origin, ())]), deque(), {origin}, False
         while shown or hidden:
             under_hidden = not shown
             parent, parent_path = hidden.popleft() if under_hidden else shown.popleft()
@@ -1892,8 +1899,10 @@ class KmsLighthouseClient(DataSourceClient):
                 failed = exc
             if failed is not None:
                 # Raised outside the except block, so nothing rides along as context.
-                if not under_hidden or failed.kind == "auth":
+                if not under_hidden or failed.kind not in _BRANCH_FAILURES:
                     raise failed
+                logger.debug("kms_lighthouse folder lookup skipped a hidden branch: %s", failed.kind)
+                skipped = True
                 continue
             if level is None:
                 raise KmsHTTPError(404, "not_found", _BEYOND_BROWSE_LIMIT)
@@ -1912,6 +1921,8 @@ class KmsLighthouseClient(DataSourceClient):
                     hidden.append((child, ()))
                 else:
                     shown.append((child, (*parent_path, segments[child])))
+        if skipped:
+            raise KmsHTTPError(404, "not_found", _FOLDER_NOT_FOUND)
         return None
 
     @staticmethod
