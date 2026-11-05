@@ -485,19 +485,6 @@ def test_duplicate_session_cookies_still_log_in(raw_kms):
     assert "\r\nCookie: JSESSIONID=" in follow_up
 
 
-def test_execute_query_is_unavailable_until_read_exists(kms):
-    c = client(kms)
-    with pytest.raises(kc.KmsError) as info:
-        c.execute_query('{"file_id": "item:279"}')
-    assert "item:279" not in str(info.value)
-    assert kms["mock"].REQUEST_LOG == []
-    assert c.get_schemas() == [] and c.get_schema("anything") is None and c.prompt_schema() == ""
-    events = []
-    assert c.get_schemas(progress_callback=lambda *e: events.append(e)) == []
-    assert events and events[-1][0] == "catalog_ready"
-    assert kms["mock"].REQUEST_LOG == []
-
-
 @pytest.mark.parametrize("root", [None, 4711])
 @pytest.mark.parametrize("max_results", [50, None])
 @pytest.mark.parametrize("layout", [None, 7])

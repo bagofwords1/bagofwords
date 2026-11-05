@@ -9,6 +9,11 @@ Public API Documentation 5.0 and the public username/password login:
   GET  {PREFIX}/sessionInfo                 data.userId, data.userFullName, data.username
   GET  {PREFIX}/cm/tree/branch/view         ?parentId; ids and statuses are strings
   GET  {PREFIX}/search/full                 ?query&start&rows[&layoutId] -> regularSearch.results[]
+  GET  {PREFIX}/public/item/{id}            the article body (ITEMS); HTTP 200 {"status": "ERROR"} for an
+                                            unknown id or one this user may not see
+  GET  {PREFIX}/ai_answers_item             ?itemId&version&language -> the AI-ready text (AI_ITEMS); 404
+                                            for an unknown item, 400 when version or language do not match
+  GET  {PREFIX}/public/scenario/{id}        a scenario (SCENARIOS); HTTP 200 {"status": "ERROR"} when unknown
 
 Faithfulness rules enforced on purpose:
   - A rejected login answers a bare HTTP 400 with no body.
@@ -54,6 +59,18 @@ Test-only switches and routes (not part of the KMS API):
     status (an int, 100-599); that tree call answers with it and no body (a
     branch the server fails to list), and its parentId is appended to
     STATE["tree_status_sent"].
+  - Read: STATE["ai_text_available"] = False makes every /ai_answers_item
+    answer 404; STATE["ai_missing_items"] (item ids) does so for those items
+    only. Every /ai_answers_item call appends its itemId, version and
+    language to STATE["ai_requests"]. Item 279 carries the planted secrets
+    (ARTICLE_SECRETS) in its title, description and HTML, and its AI text
+    adds an element (E_RESTRICTED, RESTRICTED_MARKER) that /public/item does
+    not return. Item 21302 exists only as a scenario.
+  - STATE["login_status"] = N: POST /login answers HTTP N with no body (still
+    counted in "login_count").
+  - STATE["expire_sessions_at"] = "<parentId>" or "ai_answers_item": a tree
+    call for that parentId, or an /ai_answers_item call, first expires every
+    login session (expire_sessions), so it answers 401/302.
   - GET {PREFIX}/_mock/empty              HTTP 200 with an empty body
   - GET {PREFIX}/_mock/oversized          HTTP 200 with a large JSON body (OVERSIZED_BYTES)
 
@@ -161,6 +178,95 @@ SEARCH_RESULTS = [
      "statusCode": "2", "visible": {"alice", "bob", "svc"}},
 ]
 
+# Planted in article reads; none may reach client output. Made-up test values (unsigned dummy JWTs).
+ARTICLE_SECRETS = {
+    "title": "eyJhbGciOiJub25lIn0.eyJzdWIiOiJ0aXRsZSJ9.bW9jay10aXRsZS1zaWc",
+    "description": "eyJhbGciOiJub25lIn0.eyJzdWIiOiJkZXNjcmlwdGlvbiJ9.bW9jay1kZXNjLXNpZw",
+    "body_jwt": "eyJhbGciOiJub25lIn0.eyJzdWIiOiJib2R5In0.bW9jay1ib2R5LXNpZw",
+    "bare_url": "mock-bare-url-token-8d2f61",
+    "entity_url": "mock-entity-url-token-41ac07",
+    "img": "eyJhbGciOiJub25lIn0.eyJzdWIiOiJpbWFnZSJ9.bW9jay1pbWFnZS1zaWc",
+}
+RESTRICTED_MARKER = "kms-restricted-marker-7a90"
+_S = ARTICLE_SECRETS
+_LINKS_TEXT = (f"Form at https://kms.example.com/contents?token={_S['bare_url']} or "
+               f"https://kms.example.com/contents?id=7&amp;token={_S['entity_url']}&amp;lang=en. "
+               f"Signed {_S['body_jwt']}")
+
+# /public/item bodies (PDF shape: integer tabs[].id, string elements.*.tabId, plus a null and a -1).
+ITEMS = {
+    "279": {
+        "id": 279, "type": "DOCUMENT", "subType": "T_PROCEDURE ", "version": 2, "language": "en",
+        "title": f"Reset a customer password {_S['title']}",
+        "description": f"How to reset a password from the agent desk. Ref {_S['description']}",
+        "status": 2, "createDate": "01/02/2024", "updateDate": "10/04/2024", "relatedItems": [],
+        "tabs": [{"id": 1, "caption": "Overview"}, {"id": 3, "caption": "Processes"}],
+        "elements": {
+            "ITEM_IMAGE": {"value": "b144e1e2-2d92-4e09-8d68-f0b2604da35d.gif", "tabId": None,
+                           "title": "Item image", "showTitle": True, "type": "ITEM_IMAGE_FIELD"},
+            "E_SUMMARY": {"value": "<div style=\"font-size: 14px;\">Item summary: verify the caller first.</div>",
+                          "tabId": "1", "title": "Summary", "showTitle": True, "type": "EDITOR_FIELD"},
+            "E_SCREEN": {"value": ("<p>Screen:</p><img src=\"https://kms.example.com/file-service/a.jpg"
+                                   f"/contents?token={_S['img']}\">"),
+                         "tabId": "1", "title": "Screenshot", "showTitle": True, "type": "EDITOR_FIELD"},
+            "E_PROCESS": {"value": "<ol><li>Open the agent desk.</li><li>Choose Reset.</li></ol>",
+                          "tabId": "3", "title": "Steps", "showTitle": True, "type": "EDITOR_FIELD"},
+            "E_LINKS": {"value": f"<p>{_LINKS_TEXT}</p>", "tabId": "3", "title": "Links", "showTitle": True,
+                        "type": "EDITOR_FIELD"},
+            "E_NOTES": {"value": "<p>Untabbed note for every agent.</p>", "tabId": None, "title": "Notes",
+                        "showTitle": True, "type": "EDITOR_FIELD"},
+            "E_LEGACY": {"value": "<p>Legacy note on no tab.</p>", "tabId": -1, "title": "Legacy",
+                         "showTitle": True, "type": "EDITOR_FIELD"},
+        },
+    },
+    "301": {
+        "id": 301, "type": "DOCUMENT", "subType": "T_PROCEDURE", "version": 1, "language": "en",
+        "title": "Billing dispute", "description": "Open a billing dispute.", "status": 2,
+        "updateDate": "10/04/2024", "tabs": [{"id": 1, "caption": "Overview"}],
+        "elements": {"E_SUMMARY": {"value": "<p>Item text for a billing dispute.</p>", "tabId": "1",
+                                   "title": "Summary", "type": "EDITOR_FIELD"}},
+    },
+    "306": {
+        "id": 306, "type": "DOCUMENT", "subType": "T_PROCEDURE", "version": 1, "language": "en",
+        "title": "Draft refund rules", "description": "Not published yet.", "status": 1,
+        "tabs": [{"id": 1, "caption": "Overview"}],
+        "elements": {"E_SUMMARY": {"value": "<p>Draft text.</p>", "tabId": "1", "title": "Summary",
+                                   "type": "EDITOR_FIELD"}},
+    },
+}
+
+
+def _ai_element(name, tab, caption, text):
+    return {"permissions": [], "type": "DOCUMENT", "element_name": name, "element_caption": caption,
+            "element_type": "EDITOR_FIELD", "tab_caption": tab, "element_text": text}
+
+
+# /ai_answers_item bodies (PDF shape). Item 279 adds E_RESTRICTED, which its /public/item does not return.
+AI_ITEMS = {
+    "279": {"title": ITEMS["279"]["title"], "type": "DOCUMENT", "version": 2, "language": "en", "permissions": [1],
+            "item_id": 279, "status": "Online", "status_id": 2, "elements": [
+                _ai_element("E_SUMMARY", "Overview", "Summary", "AI summary: verify the caller, then reset."),
+                _ai_element("E_LINKS", "Processes", "Links", "AI links. " + _LINKS_TEXT),
+                _ai_element("E_RESTRICTED", "Overview", "Managers only", RESTRICTED_MARKER + " escalation codes"),
+            ]},
+    "301": {"title": "Billing dispute", "type": "DOCUMENT", "version": 1, "language": "en", "permissions": [1],
+            "item_id": 301, "status": "Online", "status_id": 2, "elements": [
+                _ai_element("E_SUMMARY", "Overview", "Summary", "AI text for a billing dispute."),
+            ]},
+    "306": {"title": "Draft refund rules", "type": "DOCUMENT", "version": 1, "language": "en", "permissions": [1],
+            "item_id": 306, "status": "Offline", "status_id": 1, "elements": [
+                _ai_element("E_SUMMARY", "Overview", "Summary", "AI draft text."),
+            ]},
+}
+
+# /public/scenario bodies; 21302 has no /public/item (a bare-digit read finds it only through the fallback).
+SCENARIOS = {
+    "21302": {"id": 21302, "title": "How to Register for Advanced Credit Card Security", "notes": "",
+              "description": None, "updatedDate": "2024-05-09 12:57:56.0",
+              "steps": {"text": "", "decisions": {}, "stepName": "Have you registered for advanced security?",
+                        "stepRemark": "", "stepNodeText": "", "stepId": 23505, "image": "", "children": {}}},
+}
+
 # "session_username" is what sessionInfo reports; it differs from the login
 # name on purpose, so a test can tell a reported identity from the typed one.
 USERS = {
@@ -218,10 +324,18 @@ _DEFAULTS = {
     "odd_shapes": False,             # False | "list" | "error" | "bad_id" | "bad_username"
     "tree_status": {},               # parentId -> HTTP status: that tree call answers it with no body
     "tree_status_sent": [],          # the parentId of every tree call answered from "tree_status", in order
+    "ai_missing_items": [],          # item ids whose /ai_answers_item answers 404
+    "ai_requests": [],               # {"itemId", "version", "language"} of every /ai_answers_item call, in order
+    "login_status": None,            # None | an HTTP status (int 100-599): POST /login answers it with no body
+    "expire_sessions_at": None,      # None | a tree parentId (digit string) | "ai_answers_item"
 }
 _STALE = {"barrier": None}           # the barrier for STATE["hold_stale_401s"]
 # GET {PREFIX}/_mock/held sets "arrived", then waits up to 5 s for "release".
 HELD = {"arrived": threading.Event(), "release": threading.Event()}
+
+
+def _is_digits(value) -> bool:
+    return type(value) is str and re.fullmatch(r"[0-9]+", value) is not None
 
 
 def _valid_tree_status(value) -> bool:
@@ -245,6 +359,12 @@ class _State(dict):
         if key == "tree_status" and not _valid_tree_status(value):
             raise ValueError(f"STATE[{key!r}] must map folder ids (digit strings) to HTTP statuses "
                              f"(ints 100-599), not {value!r}")
+        if key == "ai_missing_items" and not (type(value) is list and all(_is_digits(v) for v in value)):
+            raise ValueError(f"STATE[{key!r}] must be a list of item ids (digit strings), not {value!r}")
+        if key == "login_status" and not (value is None or (type(value) is int and 100 <= value <= 599)):
+            raise ValueError(f"STATE[{key!r}] must be None or an HTTP status (int 100-599), not {value!r}")
+        if key == "expire_sessions_at" and not (value is None or value == "ai_answers_item" or _is_digits(value)):
+            raise ValueError(f"STATE[{key!r}] must be None, a parentId or 'ai_answers_item', not {value!r}")
         if key == "hold_stale_401s":
             old = _STALE["barrier"]
             if old is not None:
@@ -374,7 +494,10 @@ class Handler(BaseHTTPRequestHandler):
             REQUEST_LOG.append((username or None, "POST", parts.path))
             STATE["login_count"] += 1
             record = USERS.get(username)
-            if not record or record["password"] != password:
+            forced = STATE["login_status"]
+            if forced is not None:
+                accepted = None
+            elif not record or record["password"] != password:
                 accepted = False
             else:
                 accepted = True
@@ -389,6 +512,8 @@ class Handler(BaseHTTPRequestHandler):
                     token = "lt-" + secrets.token_hex(16)
                     _LOGIN_TOKENS[token] = username
                     data["token"] = token
+        if accepted is None:
+            return self._send_empty(forced)
         if not accepted:
             return self._send_empty(400)
         return self._send_json(200, {"status": "SUCCESS", "data": data}, headers)
@@ -396,6 +521,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parts = urlsplit(self.path)
         query = parse_qs(parts.query)
+        expire_at = STATE["expire_sessions_at"]
+        if expire_at is not None and (
+                parts.path == PREFIX + "/ai_answers_item" if expire_at == "ai_answers_item"
+                else parts.path == PREFIX + "/cm/tree/branch/view" and (query.get("parentId") or [None])[0] == expire_at):
+            expire_sessions()
         user = self._identity()
         REQUEST_LOG.append((user, "GET", parts.path))
         if not parts.path.startswith(PREFIX + "/"):
@@ -442,6 +572,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(200, {"status": "SUCCESS", "data": data})
         if route == "/search/full":
             return self._search(user, query, odd)
+        if route.startswith("/public/item/"):
+            return self._item(user, route[len("/public/item/"):], odd)
+        if route == "/ai_answers_item":
+            return self._ai_text(user, query)
+        if route.startswith("/public/scenario/"):
+            scenario = SCENARIOS.get(route[len("/public/scenario/"):])
+            if scenario is None:
+                return self._send_json(200, {"status": "ERROR", "exception": "Can not find scenario", "data": None})
+            return self._send_json(200, {"status": "SUCCESS", "data": scenario})
         if route.startswith("/_mock/status_error/"):
             item_id = route[len("/_mock/status_error/"):]
             return self._send_json(200, {"status": "ERROR", "exception": f"Item {item_id} was not found",
@@ -457,6 +596,39 @@ class Handler(BaseHTTPRequestHandler):
             filler = "x" * OVERSIZED_BYTES
             return self._send_json(200, {"status": "SUCCESS", "data": filler})
         return self._send_empty(404)
+
+    @staticmethod
+    def _item_visible(user, item_id):
+        """A tree node follows the tree's visibility; an item outside the tree is visible to everyone."""
+        return item_id not in TREE or item_id in USERS[user]["visible"]
+
+    def _item(self, user, item_id, odd):
+        if odd == "list":
+            return self._send_json(200, [ODD_MARKER])
+        if odd == "error":
+            return self._send_json(200, {"status": "ERROR", "exception": ODD_MARKER, "data": None})
+        if odd == "bad_id":
+            return self._send_json(200, {"id": "x-" + ODD_MARKER, "title": ODD_MARKER, "status": 2,
+                                         "elements": {"E_SUMMARY": {"value": ODD_MARKER, "tabId": "1"}}})
+        item = ITEMS.get(item_id)
+        if item is None or not self._item_visible(user, item_id):
+            # The PDF's not-found shape.
+            return self._send_json(200, {"status": "ERROR", "exception": "Cannot get property 'id' on null object",
+                                         "data": None})
+        return self._send_json(200, item)
+
+    def _ai_text(self, user, query):
+        params = {key: (query.get(key) or [None])[0] for key in ("itemId", "version", "language")}
+        with _LOCK:
+            STATE["ai_requests"].append(params)
+        item_id = params["itemId"] or ""
+        body = AI_ITEMS.get(item_id)
+        if (not STATE["ai_text_available"] or item_id in STATE["ai_missing_items"] or body is None
+                or not self._item_visible(user, item_id)):
+            return self._send_empty(404)
+        if params["version"] != str(body["version"]) or params["language"] != body["language"]:
+            return self._send_empty(400)
+        return self._send_json(200, body)
 
     def _search(self, user, query, odd):
         params = {key: (query.get(key) or [None])[0] for key in ("query", "start", "rows", "layoutId")}

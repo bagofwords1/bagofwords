@@ -36,7 +36,7 @@ import requests
 import urllib3
 
 from app.data_sources.clients.base import Capability, DataSourceClient, SearchStopped
-from app.data_sources.clients._file_source_common import FileTooLargeError, GlobScopeError
+from app.data_sources.clients._file_source_common import DocumentText, FileTooLargeError, GlobScopeError
 from app.data_sources.clients.progress import discovery_progress
 from app.schemas.data_sources.configs import KMS_TOKEN_FORMAT_MESSAGE, KMS_TOKEN_RE
 
@@ -246,6 +246,10 @@ class _DeadlineTimeout(KmsHTTPError):
 
     def __init__(self):
         super().__init__(0, "unreachable")
+
+
+class _LoginFailure(KmsHTTPError):
+    """A login that failed (rejected, held, a 5xx, an unusable answer): it concerns every call, never one branch or item."""
 
 
 def _is_timeout(exc: BaseException) -> bool:
@@ -1134,6 +1138,14 @@ _FOUND_BEYOND_BROWSE_LIMIT = ("Folder found, but beyond the browse limit; pass i
 # folder that fails with one; "auth", "throttled", "unreachable" and "redirect" concern every call.
 _BRANCH_FAILURES = frozenset(("forbidden", "not_found", "bad_request", "no_data", "rejected", "server",
                               "too_large"))
+# A gateway answer says the service is down, not that this one branch is refused (a plain 500 still is).
+_GATEWAY_STATUSES = frozenset((502, 503, 504))
+
+
+def _concerns_one_branch(failed: KmsHTTPError) -> bool:
+    """A tree-call failure that answers for that branch alone: a branch kind, no gateway status, not from a login."""
+    return (failed.kind in _BRANCH_FAILURES and failed.status not in _GATEWAY_STATUSES
+            and not isinstance(failed, _LoginFailure))
 _BAD_LIST_LIMIT = "The list limit must be a positive whole number."
 # A segment that already ends like a sibling suffix gets one of its own, so a
 # suffixed segment can never equal another folder's plain one.
@@ -1252,6 +1264,126 @@ def _zero_total(block: dict) -> bool:
 
 def _clean_query(query) -> str:
     return _without_controls("" if query is None else str(query))[:_MAX_QUERY_CHARS].rstrip()
+
+
+# ------------------------------------------------------------------ read helpers (pure)
+_FOLDER_READ = "That id is a folder; use list_files to see its contents."
+_BAD_QUERY = ('A KMS Lighthouse query must be an id, or a JSON object with a file_id, '
+              'such as {"file_id": "item:<digits>"}.')
+_TOO_LARGE_READ = "File exceeds the configured byte limit; increase it explicitly to read this file."
+_SCENARIO_ACCEPT = "application/vnp.kms-api.v2+json"
+_IMAGE_FIELD = "ITEM_IMAGE_FIELD"
+_GENERAL = "General"
+_LANGUAGE_RE = re.compile(r"[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{1,8}){0,2}")     # used with fullmatch only
+
+
+def _line(value) -> str:
+    """A provider title, caption or label as one line of plain, scrubbed text."""
+    return _without_controls(_plain_text(value))
+
+
+def _body(value) -> str:
+    """An element's HTML or text as plain, scrubbed text, at full length (linear)."""
+    return _scrub(_html_to_text("" if value is None else str(value)))
+
+
+def _same_id(value, digits: str) -> bool:
+    """The record's id is the one asked for (compared as numbers)."""
+    raw = "" if value is None or isinstance(value, bool) else str(value)
+    return _DIGITS_RE.fullmatch(raw) is not None and int(raw) == int(digits)
+
+
+def _version(value) -> str | None:
+    raw = "" if value is None or isinstance(value, bool) else str(value).strip()
+    return raw if _DIGITS_RE.fullmatch(raw) else None
+
+
+def _language(value) -> str | None:
+    return value.strip() if isinstance(value, str) and _LANGUAGE_RE.fullmatch(value.strip()) else None
+
+
+def _elements(item: dict) -> dict:
+    """The /public/item ``elements`` dict, records only (anything else is no element)."""
+    elements = item.get("elements")
+    if not isinstance(elements, dict):
+        return {}
+    return {str(name): element for name, element in elements.items() if isinstance(element, dict)}
+
+
+def _header(title, kind: str, record: dict, version: str | None = None, language: str | None = None) -> list:
+    lines = [f"Title: {_line(title) or 'untitled'}", f"Kind: {kind}"]
+    if version:
+        lines.append(f"Version: {version}")
+    if language:
+        lines.append(f"Language: {language}")
+    updated = _normalise_date(record.get("updateDate") or record.get("updatedDate"))
+    if updated:
+        lines.append(f"Updated: {updated}")
+    summary = _line(record.get("description"))
+    if summary:
+        lines.append(f"Summary: {summary}")
+    return lines
+
+
+def _render_sections(sections: list) -> list:
+    """``[(caption, [(element title, text), ...]), ...]`` as "## caption" and "### title" blocks."""
+    lines = []
+    for caption, elements in sections:
+        lines += ["", f"## {caption}"]
+        for index, (title, text) in enumerate(elements):
+            if index:
+                lines.append("")
+            if title:
+                lines.append(f"### {title}")
+            if text:
+                lines.append(text)
+    return lines
+
+
+def _item_sections(item: dict) -> list:
+    """The /public/item elements by tab (``str(tabId)`` against ``str(tabs[].id)``), in tab order.
+
+    The item image is skipped; an element with no tab, a ``null`` or ``-1``
+    tabId, or one no tab names goes to an untitled "General" section, first.
+    """
+    tabs = item.get("tabs") if isinstance(item.get("tabs"), list) else []
+    captions = {}
+    for tab in tabs:
+        if isinstance(tab, dict) and tab.get("id") is not None and _line(tab.get("caption")):
+            captions.setdefault(str(tab["id"]), _line(tab.get("caption")))
+    by_tab: dict = {}
+    for element in _elements(item).values():
+        if element.get("type") == _IMAGE_FIELD:
+            continue
+        tab_id = element.get("tabId")
+        key = str(tab_id) if tab_id is not None and str(tab_id) in captions else None
+        by_tab.setdefault(key, []).append((_line(element.get("title")), _body(element.get("value"))))
+    sections = [(_GENERAL, by_tab[None])] if None in by_tab else []
+    return sections + [(caption, by_tab[key]) for key, caption in captions.items() if key in by_tab]
+
+
+def _visible_ai_elements(elements: list, visible: set) -> list:
+    """The ai elements whose ``element_name`` the same identity's /public/item returned.
+
+    The ai payload carries its own permissions, so it may hold elements
+    /public/item hides from this identity (r4); only the intersection is shown.
+    """
+    return [element for element in elements
+            if isinstance(element, dict) and element.get("element_type") != _IMAGE_FIELD
+            and isinstance(element.get("element_name"), str) and element["element_name"] in visible]
+
+
+def _ai_sections(elements, visible: set) -> list | None:
+    """The ai text by ``tab_caption`` then ``element_caption``; None when no element is left (fall back)."""
+    shown = _visible_ai_elements(elements, visible) if isinstance(elements, list) else []
+    if not shown:
+        return None
+    by_tab: dict = {}
+    for element in shown:
+        by_tab.setdefault(_line(element.get("tab_caption")) or None, []).append(
+            (_line(element.get("element_caption")), _body(element.get("element_text"))))
+    general = by_tab.pop(None, None)
+    return ([(_GENERAL, general)] if general else []) + list(by_tab.items())
 
 
 def planner_scope_note(config: dict) -> str:
@@ -1402,7 +1534,7 @@ class KmsLighthouseClient(DataSourceClient):
             held = _held(entry, _clock())
         if held:
             logger.debug("kms_lighthouse %s refused: %s", "login", "login hold")
-            raise KmsHTTPError(401, "auth", _HELD_AUTH)
+            raise _LoginFailure(401, "auth", _HELD_AUTH)
 
     @staticmethod
     def _is_young(entry: _PoolEntry) -> bool:
@@ -1443,13 +1575,28 @@ class KmsLighthouseClient(DataSourceClient):
         with self._entry.state_lock:
             self._entry.failed_at = _clock()
         logger.info("kms_lighthouse login rejected; holding new logins for %d s", _FAILED_LOGIN_HOLD_S)
-        return KmsHTTPError(401, "auth", _USERPASS_AUTH)
+        return _LoginFailure(401, "auth", _USERPASS_AUTH)
 
     def _login(self, session: requests.Session) -> None:
         """The only place that authenticates (a hash login would plug in here).
 
-        Called with the pool entry's login_lock held.
+        Called with the pool entry's login_lock held. Every failure is a
+        ``_LoginFailure`` (same kind, status and fixed message), so a caller
+        that tolerates one branch's or one item's failure never takes a login
+        outage for one.
         """
+        failed = None
+        try:
+            self._send_login(session)
+        except _LoginFailure:
+            raise
+        except KmsHTTPError as exc:
+            failed = exc
+        # Raised outside the except block, so nothing rides along as context.
+        if failed is not None:
+            raise _LoginFailure(failed.status, failed.kind, str(failed))
+
+    def _send_login(self, session: requests.Session) -> None:
         unsendable = False
         try:
             self._username.encode("utf-8")
@@ -1882,10 +2029,11 @@ class KmsLighthouseClient(DataSourceClient):
         first; then the walk also opens hidden (offline) folders and the folders
         under them, within the same bound, so a folder under one is found: a
         hidden folder, or one under a hidden folder, is ``not_found``. A hidden
-        folder the server refuses to list for its own sake (``_BRANCH_FAILURES``)
+        folder the server refuses to list for its own sake (``_concerns_one_branch``)
         is left unseen, and a walk that skipped one ends ``not_found``, since the
-        folder may be in it; any other failure (a refused session, throttling,
-        no connection, a redirect) raises at once. A walk that runs out of tree
+        folder may be in it; any other failure (a refused session, a failed
+        login, throttling, a gateway 502/503/504, no connection, a redirect)
+        raises at once. A walk that runs out of tree
         calls is ``not_found`` naming the browse limit; never a false "outside root".
         """
         shown, hidden, seen, skipped = deque([(origin, ())]), deque(), {origin}, False
@@ -1899,7 +2047,7 @@ class KmsLighthouseClient(DataSourceClient):
                 failed = exc
             if failed is not None:
                 # Raised outside the except block, so nothing rides along as context.
-                if not under_hidden or failed.kind not in _BRANCH_FAILURES:
+                if not under_hidden or not _concerns_one_branch(failed):
                     raise failed
                 logger.debug("kms_lighthouse folder lookup skipped a hidden branch: %s", failed.kind)
                 skipped = True
@@ -1948,5 +2096,113 @@ class KmsLighthouseClient(DataSourceClient):
     def prompt_schema(self):
         return ""
 
+    # ------------------------------------------------------------------ read
+    @_closed_errors
+    def read_file(self, file_id, sheet=None, max_bytes=None, page_range=None, **_):
+        """An article (``item:<digits>`` or bare digits) or a scenario as scrubbed plain text.
+
+        The id is checked before any request; a ``folder:`` id is refused. An
+        article comes from ``/public/item``: a hidden (offline) one is
+        ``not_found``; its text is the ai-ready text when KMS has it (only the
+        elements ``/public/item`` also returned), else the item HTML. Bare
+        digits that ``/public/item`` does not know are tried once as a
+        scenario, labelled ``scenario:<digits>`` (ADR-5); an explicit
+        ``item:`` id never switches kind. Returns ``DocumentText`` named
+        ``<title>.txt``; ``sheet``, ``max_bytes`` and ``page_range`` do not
+        apply to KMS text.
+        """
+        text = str(file_id)
+        kind, raw = _parse_id(text)
+        if kind == "folder":
+            raise KmsError(_FOLDER_READ)
+        digits, bare = str(int(raw)), _KIND_PREFIX_RE.match(text) is None
+        if kind == "scenario":
+            return self._read_scenario(digits)
+        item, unknown = None, False
+        try:
+            item = self._request("item", f"/public/item/{digits}", missing="not_found")
+        except KmsHTTPError as exc:
+            if not (bare and exc.kind == "not_found" and not isinstance(exc, _LoginFailure)):
+                raise
+            unknown = True
+        if unknown:
+            return self._read_scenario(digits)      # once, for bare digits only (ADR-5)
+        return self._read_article(digits, item)
+
+    @_closed_errors
+    def read_raw_bytes(self, file_id, *, max_bytes=None):
+        """``(utf-8 text, name, "text/plain")`` of ``read_file``; ``FileTooLargeError`` above ``max_bytes``."""
+        text = self.read_file(file_id)
+        data = text.encode("utf-8")
+        if max_bytes and len(data) > max_bytes:
+            raise FileTooLargeError(_TOO_LARGE_READ)
+        return data, text.name, "text/plain"
+
+    @_closed_errors
     def execute_query(self, query=None, table_name=None, **kwargs):
-        raise KmsError("Reading by query is not available yet on this connection.")
+        """Read one entry: a JSON ``{"file_id": ...}`` (as Documentum accepts) or the id itself."""
+        text = "" if query is None else str(query)
+        if not text.lstrip().startswith("{"):
+            return self.read_file(table_name or text or kwargs.get("file_id", ""))
+        params = None
+        try:
+            params = json.loads(text)
+        except (ValueError, RecursionError):
+            params = None
+        # Raised outside the except block, so no parser error (it quotes the query) rides along.
+        if not isinstance(params, dict) or "file_id" not in params:
+            raise KmsError(_BAD_QUERY)
+        return self.read_file(params["file_id"])
+
+    def _read_article(self, digits: str, item) -> DocumentText:
+        if not isinstance(item, dict) or not _same_id(item.get("id"), digits):
+            logger.debug("kms_lighthouse %s refused: %s", "item", "not the item asked for")
+            raise KmsHTTPError(200, "server")
+        if self._hidden(item):
+            raise KmsHTTPError(404, "not_found")
+        version, language = _version(item.get("version")), _language(item.get("language"))
+        sections = self._ai_text(digits, version, language, item) if version and language else None
+        if sections is None:
+            sections = _item_sections(item)
+        sub_type = _line(item.get("subType") or item.get("sub_type"))
+        kind = f"article ({sub_type})" if sub_type else "article"
+        lines = _header(item.get("title"), kind, item, version, language) + _render_sections(sections)
+        return DocumentText("\n".join(lines), raw=None, name=_safe_title(item.get("title")) + ".txt",
+                            mime="text/plain")
+
+    def _ai_text(self, digits: str, version: str, language: str, item: dict) -> list | None:
+        """The ai-ready sections of this read, or None to fall back to the item HTML.
+
+        Only the item's own "not found" (a 404, or an ERROR answer) falls back,
+        for this read alone. Anything else raises: a failed login, a refused
+        session, throttling, a 400 or a 5xx is never hidden behind other text.
+        """
+        payload, unknown = None, False
+        try:
+            payload = self._request("ai_text", "/ai_answers_item", missing="not_found",
+                                    params={"itemId": digits, "version": version, "language": language})
+        except KmsHTTPError as exc:
+            if exc.kind != "not_found" or isinstance(exc, _LoginFailure):
+                raise
+            unknown = True
+        if unknown:
+            logger.debug("kms_lighthouse %s fell back: %s", "ai_text", "not_found")
+            return None
+        if not isinstance(payload, dict) or ("item_id" in payload and not _same_id(payload["item_id"], digits)):
+            return None
+        visible = {name for name, element in _elements(item).items() if element.get("type") != _IMAGE_FIELD}
+        return _ai_sections(payload.get("elements"), visible)
+
+    def _read_scenario(self, digits: str) -> DocumentText:
+        """A scenario's header lines (the decision tree is rendered by a later phase)."""
+        payload = self._request("scenario", f"/public/scenario/{digits}", missing="not_found",
+                                params={"v": "2", "plainText": "true"}, headers={"Accept": _SCENARIO_ACCEPT})
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(data, dict) or not _same_id(data.get("id"), digits):
+            logger.debug("kms_lighthouse %s refused: %s", "scenario", "not the scenario asked for")
+            raise KmsHTTPError(200, "server")
+        if self._hidden(data):
+            raise KmsHTTPError(404, "not_found")
+        lines = _header(data.get("title"), f"scenario (scenario:{digits})", data)
+        return DocumentText("\n".join(lines), raw=None, name=_safe_title(data.get("title")) + ".txt",
+                            mime="text/plain")

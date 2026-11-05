@@ -22,10 +22,10 @@ import pytest
 import requests
 import urllib3
 
-from app.ai.tools.implementations._file_tool_common import _AUTH_ERROR_MARKERS
+from app.ai.tools.implementations._file_tool_common import _AUTH_ERROR_MARKERS, render_file_payload
 from app.data_sources.clients import kms_lighthouse_client as kc
-from app.data_sources.clients._file_source_common import GlobScopeError
-from app.data_sources.clients.base import SearchStopped
+from app.data_sources.clients._file_source_common import FileTooLargeError, GlobScopeError, payload_name
+from app.data_sources.clients.base import DataSourceClient, SearchStopped
 from tests.unit.test_kms_lighthouse_client import _rows, client, kms, kms_server, token_client  # noqa: F401
 
 _ENTRY_KEYS = {"id", "name", "path", "size", "modified_at", "mime_type", "is_folder", "kind", "status",
@@ -665,6 +665,39 @@ def test_an_unreachable_hidden_branch_fails_the_lookup_at_once(kms, monkeypatch,
     assert failed == ["40"]            # raised on the first failed attempt; hidden 45 is never tried
 
 
+@pytest.mark.parametrize("folder", ["folder:46", "folder:600", "folder:38"])
+@pytest.mark.parametrize("status", [502, 503, 504])
+def test_a_hidden_branch_gateway_failure_fails_the_lookup(kms, monkeypatch, folder, status):
+    mock = kms["mock"]
+    # A gateway answer says the service is down, not that the branch is refused: the lookup fails at once
+    # (a plain 500 stays branch-specific: test_a_lookup_that_skipped_a_hidden_branch_is_never_outside_root).
+    _archive_tree(mock, monkeypatch, archive_children=3)
+    mock.STATE["tree_status"] = {"40": status, "45": status}
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms, root_folder_id=39).list_files(folder_id=folder)
+    assert info.value.kind == "server" and info.value.status == status
+    assert info.value.__context__ is None and info.value.__cause__ is None
+    assert mock.STATE["tree_status_sent"] == ["40"]
+
+
+@pytest.mark.parametrize("folder", ["folder:46", "folder:38"])
+@pytest.mark.parametrize("login_status", [500, 503, 200])
+def test_a_login_failure_inside_a_lookup_fails_it_with_one_login(kms, monkeypatch, folder, login_status):
+    mock = kms["mock"]
+    # The session expires at the first hidden branch (40), and the re-login fails: a 5xx, or a 200 whose
+    # body is not JSON. That is a login outage, not a branch the server refused to list.
+    _archive_tree(mock, monkeypatch, archive_children=3)
+    client(kms, root_folder_id=39).list_files(folder_id="folder:43")     # the shown phase; the session is pooled
+    logins = mock.STATE["login_count"]
+    mock.STATE["expire_sessions_at"] = "40"
+    mock.STATE["login_status"] = login_status
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms, root_folder_id=39).list_files(folder_id=folder)
+    assert info.value.kind == "server" and str(info.value) == kc._MESSAGES["server"]
+    assert info.value.__context__ is None and info.value.__cause__ is None
+    assert mock.STATE["login_count"] == logins + 1     # no second password POST for the next hidden branch
+
+
 @pytest.mark.parametrize("bad", [
     {40: 403}, {"40": "403"}, {"40": True}, {"40": 99}, {"40": 600}, {"40": 403.0}, {None: 403}, {"4x": 403},
     {"": 403}, {"40\n": 403}, {"٤٠": 403}, [("40", 403)], None,
@@ -723,10 +756,236 @@ def test_parse_id_accepts_any_ascii_case():
     assert kc._parse_id("279") == ("item", "279")
 
 
+# ------------------------------------------------------------------ read article
+_FOLDER_READ = "That id is a folder; use list_files to see its contents."
+
+
+def _sections(text):
+    """Section heading ("## <tab>") -> the text under it, in order."""
+    sections, current = {}, None
+    for line in text.splitlines():
+        if line.startswith("## "):
+            current = line[3:]
+            sections[current] = ""
+        elif current is not None:
+            sections[current] += line + "\n"
+    return sections
+
+
+def _scenario_rows(kms):
+    return [row for row in kms["mock"].REQUEST_LOG if "/public/scenario/" in row[2]]
+
+
+def test_read_article_prefers_ai_text(kms):
+    mock = kms["mock"]
+    text = client(kms).read_file("item:279")
+    assert mock.STATE["ai_requests"] == [{"itemId": "279", "version": "2", "language": "en"}]
+    lines = text.splitlines()
+    assert lines[0] == "Title: Reset a customer password [redacted]"
+    assert {"Kind: article (T_PROCEDURE)", "Version: 2", "Language: en", "Updated: 2024-04-10"} <= set(lines)
+    assert "Summary: How to reset a password from the agent desk. Ref [redacted]" in lines
+    sections = _sections(text)
+    assert list(sections) == ["Overview", "Processes"]
+    assert "### Summary\nAI summary: verify the caller, then reset." in sections["Overview"]
+    assert "### Links\nAI links." in sections["Processes"]
+    assert "Item summary" not in text and "Open the agent desk." not in text     # the item HTML was not used
+
+
+def test_read_article_falls_back_to_item_html(kms):
+    mock = kms["mock"]
+    mock.STATE["ai_text_available"] = False
+    text = client(kms).read_file("item:279")
+    assert [r["itemId"] for r in mock.STATE["ai_requests"]] == ["279"]       # asked, answered 404
+    assert "AI summary" not in text and "<" not in text
+    assert text.splitlines()[0] == "Title: Reset a customer password [redacted]"
+    sections = _sections(text)
+    # String tabIds matched to the integer tabs[].id; the null and -1 elements go to "General", first.
+    assert list(sections) == ["General", "Overview", "Processes"]
+    assert "### Notes\nUntabbed note for every agent." in sections["General"]
+    assert "### Legacy\nLegacy note on no tab." in sections["General"]
+    assert "### Summary\nItem summary: verify the caller first." in sections["Overview"]
+    assert "Open the agent desk.\nChoose Reset." in sections["Processes"]
+    # The ITEM_IMAGE_FIELD element is skipped.
+    assert "b144e1e2" not in text and "Item image" not in text
+
+
+def test_ai_text_404_affects_only_that_read(kms):
+    mock = kms["mock"]
+    mock.STATE["ai_missing_items"] = ["279"]
+    c = client(kms)
+    first = c.read_file("item:279")
+    assert "Item summary: verify the caller first." in first and "AI summary" not in first
+    second = c.read_file("item:301")
+    assert "AI text for a billing dispute." in second and "Item text" not in second
+    # The 404 is not remembered: the same item asks for ai text again.
+    mock.STATE["ai_missing_items"] = []
+    assert "AI summary" in c.read_file("item:279")
+    assert [r["itemId"] for r in mock.STATE["ai_requests"]] == ["279", "301", "279"]
+
+
+def test_ai_text_only_renders_elements_visible_in_item(kms):
+    mock = kms["mock"]
+    text = client(kms).read_file("item:279")
+    assert "E_RESTRICTED" not in mock.ITEMS["279"]["elements"]                 # the ai text alone has it
+    assert any(e["element_name"] == "E_RESTRICTED" for e in mock.AI_ITEMS["279"]["elements"])
+    assert mock.RESTRICTED_MARKER not in text and "Managers only" not in text
+    assert "AI summary: verify the caller, then reset." in text and "AI links." in text
+
+
+@pytest.mark.parametrize("case", ["version_mismatch", "login_failure"])
+def test_ai_text_failure_other_than_not_found_is_not_hidden(kms, monkeypatch, case):
+    mock = kms["mock"]
+    c = client(kms)
+    c.read_file("item:301")                       # logs in; the session is pooled
+    logins = mock.STATE["login_count"]
+    if case == "version_mismatch":
+        monkeypatch.setitem(mock.AI_ITEMS["279"], "version", 9)       # the ai endpoint answers 400
+        expected = "bad_request"
+    else:
+        mock.STATE["expire_sessions_at"] = "ai_answers_item"
+        mock.STATE["login_status"] = 503
+        expected = "server"
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms).read_file("item:279")
+    assert info.value.kind == expected
+    assert info.value.__context__ is None and info.value.__cause__ is None
+    assert mock.STATE["login_count"] == logins + (case == "login_failure")
+
+
+def test_file_version_is_not_implemented(kms):
+    c = client(kms)
+    assert c.file_version("item:279") is None
+    assert type(c).file_version is DataSourceClient.file_version
+    assert kms["mock"].REQUEST_LOG == []
+
+
+def test_execute_query_delegates_to_read_file(kms):
+    mock = kms["mock"]
+    c = client(kms)
+    assert c.execute_query('{"file_id": "item:279"}') == c.read_file("item:279")
+    assert c.execute_query("item:301") == c.read_file("item:301")
+    mock.REQUEST_LOG.clear()
+    for query in ('{"file_id": ', '{"file_id": "item:279"', '["item:279"]', '{"path": "item:279"}', "item:x"):
+        with pytest.raises(kc.KmsError) as info:
+            client(kms).execute_query(query)
+        assert "279" not in str(info.value), query
+        assert info.value.__context__ is None and info.value.__cause__ is None
+    assert mock.REQUEST_LOG == []
+    # The catalog members make no request either.
+    assert c.get_schemas() == [] and c.get_schema("anything") is None and c.prompt_schema() == ""
+    events = []
+    assert c.get_schemas(progress_callback=lambda *e: events.append(e)) == []
+    assert events and events[-1][0] == "catalog_ready"
+    assert mock.REQUEST_LOG == []
+
+
+@pytest.mark.parametrize("case", ["bare_url", "entity_url", "body_jwt", "title", "description"])
+@pytest.mark.parametrize("ai_text", [True, False], ids=["ai_text", "item_html"])
+def test_article_text_scrubs_token_urls(kms, ai_text, case):
+    mock = kms["mock"]
+    mock.STATE["ai_text_available"] = ai_text
+    text = client(kms).read_file("item:279")
+    assert ("AI links." in text) is ai_text        # the path under test really ran
+    assert mock.ARTICLE_SECRETS[case] not in text
+    assert "eyJ" not in text and "token=" not in text and mock.ARTICLE_SECRETS["img"] not in text
+    # Only the secret parameter goes; the rest of each URL and the words around it stay.
+    assert "Form at https://kms.example.com/contents or https://kms.example.com/contents?id=7&lang=en." in text
+    assert "Signed [redacted]" in text
+
+
+def test_read_offline_item_is_not_found(kms):
+    mock = kms["mock"]
+    for file_id in ("item:306", "306"):
+        with pytest.raises(kc.KmsHTTPError) as info:
+            client(kms).read_file(file_id)
+        assert info.value.kind == "not_found", file_id
+        assert info.value.__context__ is None and info.value.__cause__ is None
+    assert _scenario_rows(kms) == []               # a hidden item is no reason to switch kind
+    assert mock.STATE["ai_requests"] == []         # hidden before any ai text is asked for
+    text = client(kms, include_offline=True).read_file("item:306")
+    assert text.splitlines()[0] == "Title: Draft refund rules" and "AI draft text." in text
+
+
+def test_bare_id_falls_back_to_scenario_once(kms):
+    mock = kms["mock"]
+    text = client(kms).read_file("21302")
+    assert "Kind: scenario (scenario:21302)" in text.splitlines()
+    assert text.splitlines()[0] == "Title: How to Register for Advanced Credit Card Security"
+    assert text.name == "How to Register for Advanced Credit Card Security.txt"
+    assert len(_rows(kms, "/public/item/21302")) == 1 and len(_scenario_rows(kms)) == 1
+    # An explicit item id never switches kind.
+    mock.REQUEST_LOG.clear()
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms).read_file("item:21302")
+    assert info.value.kind == "not_found" and _scenario_rows(kms) == []
+    # Neither an item nor a scenario: exactly one scenario request, then not found.
+    mock.REQUEST_LOG.clear()
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms).read_file("99999")
+    assert info.value.kind == "not_found"
+    assert len(_rows(kms, "/public/item/99999")) == 1 and len(_rows(kms, "/public/scenario/99999")) == 1
+    # A bare id that is an item reads the item.
+    mock.REQUEST_LOG.clear()
+    assert "Kind: article (T_PROCEDURE)" in client(kms).read_file("279").splitlines()
+    assert _scenario_rows(kms) == []
+
+
+@pytest.mark.parametrize("method", ["read_file", "read_raw_bytes"])
+def test_read_folder_id_is_refused(kms, method):
+    with pytest.raises(kc.KmsError) as info:
+        getattr(client(kms), method)("folder:10")
+    assert str(info.value) == _FOLDER_READ
+    assert kms["mock"].REQUEST_LOG == []
+
+
+@pytest.mark.parametrize("file_id", ["item:abc", "../279", "item:279/../1", "279 ", "item:", "x" * 50,
+                                     "scenario:1e3", "item:1234567890123"])
+def test_read_bad_id_is_refused_before_any_request(kms, file_id):
+    with pytest.raises(kc.KmsError) as info:
+        client(kms).read_file(file_id)
+    assert str(info.value) == kc._BAD_ID
+    assert kms["mock"].REQUEST_LOG == []
+
+
+def test_read_result_renders_as_text(kms):
+    payload = client(kms).read_file("item:279")
+    rendered = render_file_payload(name=payload_name(payload, "item:279"), payload=payload, max_rows=50,
+                                   max_chars=20000)
+    assert rendered["content_type"] == "text"
+    assert rendered["file_name"] == "Reset a customer password [redacted].txt"
+    assert rendered["text"] == str(payload) and rendered["truncated"] is False
+
+
+def test_read_raw_bytes_respects_max_bytes(kms):
+    c = client(kms)
+    text = c.read_file("item:279")
+    data, name, mime = c.read_raw_bytes("item:279")
+    assert data == text.encode("utf-8") and name == text.name and mime == "text/plain"
+    assert c.read_raw_bytes("item:279", max_bytes=len(data))[0] == data
+    with pytest.raises(FileTooLargeError) as info:
+        c.read_raw_bytes("item:279", max_bytes=len(data) - 1)
+    assert "279" not in str(info.value)
+    assert info.value.__context__ is None and info.value.__cause__ is None
+
+
+@pytest.mark.parametrize("value,shown", [
+    ("10/04/2024", "2024-04-10"),                    # day first
+    ("2024-05-09 12:57:56.0", "2024-05-09T12:57:56"),
+    ("2024-05-09T12:57:56", "2024-05-09T12:57:56"),
+    ("31/02/2024", None), ("not a date", None),
+])
+def test_dates_are_normalised(kms, monkeypatch, value, shown):
+    monkeypatch.setitem(kms["mock"].ITEMS["279"], "updateDate", value)
+    lines = client(kms).read_file("item:279").splitlines()
+    assert [line for line in lines if line.startswith("Updated:")] == ([f"Updated: {shown}"] if shown else [])
+
+
 # ------------------------------------------------------------------ closed errors
 _METHODS = {
     "search": lambda c: c.search_files("billing"),
     "list": lambda c: c.list_files(),
+    "read": lambda c: c.read_file("item:279"),
+    "read_raw_bytes": lambda c: c.read_raw_bytes("item:279"),
 }
 
 
@@ -745,8 +1004,8 @@ def test_odd_shapes_never_echo_provider_text(kms, make, method, shape):
     assert err.__context__ is None and err.__cause__ is None
 
 
-# Every public method that exists so far (P5 extends this list).
-_PUBLIC_METHODS = ("test_connection", "search_files", "list_files")
+# Every public method that can touch the network.
+_PUBLIC_METHODS = ("test_connection", "search_files", "list_files", "read_file", "read_raw_bytes", "execute_query")
 
 
 @pytest.mark.parametrize("name", _PUBLIC_METHODS)
