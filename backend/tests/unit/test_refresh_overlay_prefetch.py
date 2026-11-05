@@ -79,9 +79,7 @@ async def test_prefetch_keyed_by_connection_skips_live_fetch():
 @pytest.mark.asyncio
 async def test_no_prefetch_falls_back_to_live_fetch():
     svc = DataSourceService()
-    # spec: a bare MagicMock answers every discovery-diagnostics attribute
-    # with a truthy mock, which the completeness check reads as a failure.
-    client = MagicMock(spec=["aget_schemas"])
+    client = MagicMock()
     client.aget_schemas = AsyncMock(return_value=[_table("Live/Table")])
     svc._construct_user_catalog_client = AsyncMock(return_value=client)
     svc._upsert_user_overlay = AsyncMock()
@@ -107,12 +105,9 @@ async def test_empty_prefetch_returns_empty_without_live_fetch():
     svc._upsert_user_overlay = AsyncMock()
 
     ds, _conn = _delegated_ds()
-    # An empty catalog is accepted only when the user had no earlier overlay.
-    db = MagicMock()
-    db.execute = AsyncMock(return_value=MagicMock(first=MagicMock(return_value=None)))
 
     out = await svc.get_user_data_source_schema(
-        db=db, data_source=ds, user=MagicMock(id="u"),
+        db=MagicMock(), data_source=ds, user=MagicMock(id="u"),
         prefetched_tables=[],
     )
     assert out == []
