@@ -1,6 +1,6 @@
 // The ag-grid paging footer ("Page Size", "1 to 50 of 236", "Page 1 of 5") is
 // translated: every localeText key AgGridComponent asks for exists in the
-// fully maintained locales, and Hebrew/Spanish are not English copies.
+// fully maintained locales and both RTL locales, and none is an English copy.
 // Other locales fall back to English (fallbackLocale: 'en').
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -15,9 +15,14 @@ assert.match(component, /t\(`dataGrid\.\$\{key\}`\)/, 'each key is read from the
 
 const locale = code => JSON.parse(fs.readFileSync(new URL(`../locales/${code}.json`, root), 'utf8')).dataGrid || {};
 const en = locale('en');
-for (const code of ['en', 'he', 'es']) {
+// Arabic too: the RTL pager layout (assets/css/rtl.css) would scramble English.
+for (const code of ['en', 'he', 'es', 'ar']) {
   const strings = locale(code);
   for (const key of keys) assert.ok(typeof strings[key] === 'string' && strings[key].trim(), `${code}: dataGrid.${key}`);
   if (code !== 'en') assert.notDeepEqual(keys.map(k => strings[k]), keys.map(k => en[k]), `${code} is translated`);
 }
-console.log(`PASS: ${keys.length} pager strings in en/he/es; AgGridComponent reads them from dataGrid.*`);
+// In RTL locales the translated footer is laid out right to left, or the
+// Hebrew/Arabic words and the numbers come out in a scrambled order.
+const rtlCss = fs.readFileSync(new URL('assets/css/rtl.css', root), 'utf8');
+assert.match(rtlCss, /html\[dir="rtl"\] \.ag-paging-panel \{ direction: rtl; \}/, 'RTL locales lay the paging footer out right to left');
+console.log(`PASS: ${keys.length} pager strings in en/he/es/ar; AgGridComponent reads them from dataGrid.*`);

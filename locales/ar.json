@@ -4037,6 +4037,17 @@
     "close": "إغلاق",
     "copyClipboardFailed": "تعذّر النسخ إلى الحافظة"
   },
+  "dataGrid": {
+    "page": "صفحة",
+    "to": "إلى",
+    "of": "من",
+    "more": "المزيد",
+    "pageSizeSelectorLabel": "حجم الصفحة:",
+    "firstPage": "الصفحة الأولى",
+    "previousPage": "الصفحة السابقة",
+    "nextPage": "الصفحة التالية",
+    "lastPage": "الصفحة الأخيرة"
+  },
   "sharedReport": {
     "backToApp": "العودة إلى التطبيق",
     "tabReport": "التقرير",
