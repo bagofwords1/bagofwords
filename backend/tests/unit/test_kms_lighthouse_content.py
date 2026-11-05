@@ -457,6 +457,38 @@ def test_unknown_folder_id_without_root_is_not_found(kms):
     assert info.value.kind == "not_found" and "99999" not in str(info.value)
 
 
+def test_unknown_folder_id_in_a_small_tree_is_not_found_not_the_browse_limit(kms, monkeypatch):
+    mock = kms["mock"]
+    # A tree the walk lists completely in a few calls: the folder is simply not there.
+    small = {key: mock.TREE[key] for key in ("10", "12", "301", "302")}
+    monkeypatch.setattr(mock, "TREE", small)
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms).list_files(folder_id="folder:99999")
+    assert info.value.kind == "not_found" and str(info.value) == kc._FOLDER_NOT_FOUND
+    assert "browse limit" not in str(info.value)
+    assert len(_rows(kms, _TREE_PATH)) <= 3
+
+
+@pytest.mark.parametrize("root", [None, 10])
+def test_online_folder_under_an_offline_folder_is_not_found_not_outside_root(kms, monkeypatch, root):
+    mock = kms["mock"]
+    # Root 10 -> offline 15 -> online 16: the walk never opens 15, so 16 is unseen, not outside the root.
+    monkeypatch.setitem(mock.TREE, "16", {"parent": mock.OFFLINE_FOLDER, "title": "Current forms",
+                                          "type": "FOLDER", "status": "2"})
+    monkeypatch.setitem(mock.TREE, "309", {"parent": "16", "title": "Current form", "type": "ITEM", "status": "2"})
+    monkeypatch.setitem(mock.USERS["alice"], "visible", mock.USERS["alice"]["visible"] | {"16", "309"})
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms, root_folder_id=root).list_files(folder_id="folder:16")
+    # The walk opens the offline folder too (within the call cap), so it finds 16 there and names it.
+    assert info.value.kind == "not_found" and str(info.value) == kc._FOLDER_NOT_FOUND
+    shown = client(kms, root_folder_id=root, include_offline=True).list_files(folder_id="folder:16")
+    assert _ids(shown) == {"item:309"}
+    # A folder that really is outside the root is still refused.
+    if root is not None:
+        with pytest.raises(GlobScopeError):
+            client(kms, root_folder_id=root).list_files(folder_id="folder:11")
+
+
 @pytest.mark.parametrize("root", [None, 30])
 @pytest.mark.parametrize("folder", ["folder:5001", "folder:5002"])
 def test_folder_found_only_past_the_call_cap_is_named(kms, root, folder):
@@ -465,6 +497,8 @@ def test_folder_found_only_past_the_call_cap_is_named(kms, root, folder):
     with pytest.raises(kc.KmsHTTPError) as info:
         client(kms, root_folder_id=root).list_files(folder_id=folder)
     assert info.value.kind == "not_found" and "browse limit" in str(info.value)
+    # Either cause is named: the walk cannot tell a missing folder from one past the cap.
+    assert "not found, or beyond the browse limit" in str(info.value)
     assert len(_rows(kms, _TREE_PATH)) <= 40
     # Its folder path still lists it, in a few calls.
     mock.REQUEST_LOG.clear()
@@ -489,13 +523,20 @@ def test_folder_id_digits_are_compared_as_numbers(kms):
     assert _ids(rooted.list_files(folder_id="folder:0012")) == {"item:302", "scenario:4401"}
 
 
-@pytest.mark.parametrize("limit", [-5, -1, "abc"])
+# 0 is refused like the shared list_files tool refuses it (limit >= 1), as an int and as text alike;
+# a fractional limit is refused, not truncated.
+@pytest.mark.parametrize("limit", [-5, -1, "abc", 0, "0", 2.5, "2.5", 0.5, True, False])
 def test_bad_list_limit_is_named_before_any_request(kms, limit):
     mock = kms["mock"]
     with pytest.raises(kc.KmsError) as info:
         client(kms).list_files(limit=limit)
     assert "list limit" in str(info.value) and mock.REQUEST_LOG == []
     assert info.value.__context__ is None and info.value.__cause__ is None
+
+
+@pytest.mark.parametrize("limit,count", [(None, 5), (3, 3), ("3", 3), (3.0, 3), (" 4 ", 4), (50, 5)])
+def test_whole_number_list_limits_are_accepted(kms, limit, count):
+    assert len(client(kms, max_results=5).list_files(limit=limit)) == count
 
 
 @pytest.mark.parametrize("value", ["ſcenario:5", "ıtem:5", "İtem:5", "ſcenario:4401", "FOLDER:ſ"])
@@ -1508,7 +1549,9 @@ _REGRESSION_CORPUS = [
     _keep("r11", "client_secret: ${CLIENT_SECRET:=none} until set"),
     _redact("r11", "client_secret: ${CLIENT_SECRET:=Sv1x9Qk2abcd}"),
     _redact("r11", "client_secret: ${CLIENT_SECRET:=Sv1x9Qk2abcd} until set", shown="until set"),
-    _redact("r11", "DB_PASS=${DB_PASS:-my_pass}", "my_pass"),
+    # Rewritten in r12 (router decision H1): a default that is itself a placeholder is kept, as
+    # "DB_PASS=my_pass" is; the '_' twin of a real default is in the r12-default entries below.
+    _keep("r11-rewritten-r12", "DB_PASS=${DB_PASS:-my_pass}"),
     _keep("r11", '"api_key": "{{ .Values.apiKey }}" in values.yaml'),
     _keep("r11", "api_key: {{ secrets.API_KEY }} from the vault"),
     _keep("r11", '"api_key": "{{ apiKey }}" in the body'),
@@ -1571,6 +1614,85 @@ _REGRESSION_CORPUS = [
     *[_redact("r11-quoted", f"curl -H {opener}{key}{_SV}{closer} https://x", shown="https://x")
       for key in ("X-Api-Key: ", "x-api-key: ", "X-Auth-Token: Bearer ", "API_KEY=")
       for opener, closer in (("'", "'"), ('"', '"'), ("`", "`"), ("“", "”"), ("‘", "’"))],
+    # r12 (P4 review round 2 and re-hunt, .cc10x/p4-fixes-2.md): a variable's default is letters and '-'
+    # only, or a placeholder itself (allow-list); each keep has a redact twin for every character class
+    # the old shape still admitted, quoted and unquoted, with text after the value.
+    _redact("r12", '"password": "${DB_PASS:-Ch@ngeMe!}"', ("Ch@ngeMe", "ngeMe")),
+    _redact("r12", '"password": "${DB_PASS:-Ch@ngeMe!}" in compose', ("ngeMe",), shown="in compose"),
+    _redact("r12", '{"password": "${DB_PASS:-Ch@ngeMe!}"} in compose', ("ngeMe",), shown="in compose"),
+    _redact("r12", "POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-Adm!n-Pa$$} in compose", ("Adm!n", "Pa$$"),
+            shown="in compose"),
+    _redact("r12", "client_secret: ${CLIENT_SECRET:=Qx.Lm-Rt@Kp} until set", ("Qx.Lm", "Rt@Kp"),
+            shown="until set"),
+    _redact("r12", "DB_PASSWORD=${DB_PASSWORD:-Kx#mQ!pZ@wRvT}", ("mQ!pZ", "wRvT")),
+    _redact("r12", "DB_PASSWORD=${DB_PASSWORD:-P@ssword!}", ("P@ssword",)),
+    _keep("r12", "DB_PASSWORD=${DB_PASSWORD:-dev-secret} for local dev"),
+    _keep("r12", '{"password": "${DB_PASS:-none}"} in compose'),
+    _keep("r12", '"db_password": "${DB_PASS:-dev-secret}" for dev'),
+    _keep("r12", "OPENAI_API_KEY=${OPENAI_API_KEY:-your_api_key_here} in .env"),
+    _keep("r12", '"api_key": "${OPENAI_API_KEY:-YOUR_API_KEY}" in compose'),
+    _redact("r12", f"OPENAI_API_KEY=${{OPENAI_API_KEY:-your_{_SV}}} in .env", shown="in .env"),
+    *[entry for symbol in "@!#$.~+/=%^*?:|_0" for entry in (
+        _redact("r12-default", f"DB_PASS=${{DB_PASS:-Kx{symbol}mQpZwRv}} for dev", ("mQpZwRv",), shown="for dev"),
+        _redact("r12-default", f'"db_password": "${{DB_PASS:-Kx{symbol}mQpZwRv}}" for dev', ("mQpZwRv",),
+                shown="for dev"),
+    )],
+    # The characters an unquoted value stops at (a documented limitation unquoted) go whole when quoted.
+    *[_redact("r12-default", f'"db_password": "${{DB_PASS:-Kx{symbol}mQpZwRv}}" for dev', ("mQpZwRv",),
+              shown="for dev") for symbol in ",;&]} '"],
+    # A Bearer placeholder in capitals and '_' with no digit is kept whatever its last word; the last-word
+    # rule is for lower or mixed case. Multi-word capital env names ending _TOKEN/_KEY/_SECRET/_PAT are
+    # placeholders (2-20 letters per word, up to four words before the suffix).
+    *[_keep("r12", f"Authorization: Bearer {value} for the call") for value in (
+        "YOUR_PAT", "YOUR_APIKEY", "YOUR_TOKEN_VALUE", "YOUR_CREDENTIALS", "YOUR_SESSION_ID", "SLACK_BOT_TOKEN",
+        "OPENAI_API_KEY", "GITHUB_ACCESS_TOKEN")],
+    _keep("r12", "api_key: STRIPE_SECRET_KEY in the header"),
+    _keep("r12", "auth_token: SLACK_BOT_TOKEN in the header"),
+    _keep("r12", "api_key: GITLAB_PAT in the header"),
+    _redact("r12", "Authorization: Bearer QWERTYUIOPASDFGHJKLZXCVBNM_TOKEN", "QWERTYUIOPASDFGHJKLZXCVBNM"),
+    _redact("r12", "auth_token: QWERTYUIOPASDFGHJKLZXCVBNM_TOKEN in the header", "QWERTYUIOPASDFGHJKLZXCVBNM",
+            shown="in the header"),
+    _redact("r12", "Authorization: Bearer AB_CD_EF_GH_IJ_TOKEN next", "AB_CD_EF_GH_IJ", shown="next"),
+    _redact("r12", "Authorization: Bearer SLACK_B0T_TOKEN next", "SLACK_B0T", shown="next"),
+    _redact("r12", "api_key: STRIPE_S3CRET_KEY in the header", "S3CRET", shown="in the header"),
+    _redact("r12", "Authorization: Bearer slack_bot_token next", "slack_bot_token", shown="next"),
+    _redact("r12", "Authorization: Bearer YOUR_PAT9Qk2 next", "PAT9Qk2", shown="next"),
+    _redact("r12", "Authorization: Bearer Your_Pat_Abcdef next", "Pat_Abcdef", shown="next"),
+    # Helm: a chain of bare filters after the reference.
+    _keep("r12", '"api_key": "{{ .Values.apiKey | quote }}" in values.yaml'),
+    _keep("r12", "api_key: {{ .Values.apiKey | b64enc }} in the secret"),
+    _keep("r12", "api_key: {{ .Values.apiKey | b64enc | quote }} in the secret"),
+    _keep("r12", "client_secret: {{ .Values.clientSecret|quote }}"),
+    _redact("r12", '"api_key": "{{ sk_live_51Hx9Qk2abcd | quote }}"', "51Hx9Qk2abcd"),
+    _redact("r12", "api_key: {{ sk_live_51Hx9Qk2abcd | quote }} in the secret", "51Hx9Qk2abcd",
+            shown="in the secret"),
+    _redact("r12", f"api_key: {{{{ .Values.apiKey | {_SV}abcd }}}} in the secret", shown="in the secret"),
+    _redact("r12", '"api_key": "{{ .Values.apiKey | Kx@mQpZwRv }}"', "mQpZwRv"),
+    _redact("r12", f"api_key: {{{{ .Values.apiKey | quote }}}}{_SV} in the secret", shown="in the secret"),
+    # A dotted template path whose segments hold a digit is a reference only under a known root.
+    _redact("r12", "api_key: {{ sk_live_51Hx9Qk2abcd.x }} in the body", "51Hx9Qk2abcd", shown="in the body"),
+    _redact("r12", '"api_key": "{{ sk_live_51Hx9Qk2abcd.x }}"', "51Hx9Qk2abcd"),
+    _redact("r12", f'"api_key": "{{{{ .a.{_SV}abcd }}}}"'),
+    _keep("r12", "api_key: ${{ steps.login2.outputs.token }} in the job"),
+    _keep("r12", '"api_key": "{{ .Values.apiKey2 }}"'),
+    # More Bearer openers, and "Bearer:" with a colon.
+    *[_redact("r12", f"Authorization: Bearer {opener}ya29.a0AfH6SMBx9Qk2{closer} next", "a0AfH6SMBx9Qk2",
+              shown="next")
+      for opener, closer in (("’", "’"), ("‚", "‘"), ("‹", "›"), ("»", "«"), ("[", "]"), ("{", "}"))],
+    _redact("r12", "Authorization: Bearer: ya29.a0AfH6SMBx9Qk2 next", "a0AfH6SMBx9Qk2", shown="next"),
+    _redact("r12", "Authorization: Bearer:ya29.a0AfH6SMBx9Qk2 next", "a0AfH6SMBx9Qk2", shown="next"),
+    _keep("r12", "Authorization: Bearer: YOUR_ACCESS_TOKEN in the header"),
+    _keep("r12", "Authorization: Bearer [YOUR_TOKEN] in the header"),
+    _keep("r12", "Authorization: Bearer {YOUR_ACCESS_TOKEN} in the header"),
+    _keep("r12", "Token type: Bearer: see the guide"),
+    # A shell line continuation glued to a placeholder ends it like a sentence mark.
+    _keep("r12", 'curl -H "X-Api-Key: YOUR_API_KEY"\\ https://x'),
+    _keep("r12", "curl -H 'X-Api-Key: YOUR_API_KEY'\\\n  https://x"),
+    _keep("r12", "X-Api-Key: YOUR_API_KEY\\ next"),
+    _redact("r12", f'curl -H "X-Api-Key: {_SV}"\\ https://x', shown="https://x"),
+    _redact("r12", f"X-Api-Key: {_SV}\\ next", shown="next"),
+    _redact("r12", f"X-Api-Key: YOUR_API_KEY\\{_SV} next", shown="next"),
+    _redact("r12", "X-Api-Key: YOUR_API_KEY\\9Q next", "\\9Q", shown="next"),
 ]
 
 
@@ -1704,6 +1826,10 @@ _ADVERSARIAL = {
     "env_placeholder_values": _adversarial("DB_PASS=$DB_PASS "),
     "percent_placeholder_runs": _adversarial("API_KEY=%A"),
     "caps_placeholder_values": _adversarial("api_key: YOUR_API_KEY_HERE "),
+    "helm_filter_runs": _adversarial("api_key: {{ .Values.a | quote "),
+    "default_placeholder_runs": _adversarial("DB_PASS=${A:-your_"),
+    "bearer_colon_openers": _adversarial("Bearer: [Ab1cdefgh "),
+    "caps_env_name_runs": _adversarial("auth_token: AB_CD_EF_GH_"),
 }
 
 

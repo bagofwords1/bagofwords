@@ -433,11 +433,17 @@ def test_error_kinds_have_fixed_messages_without_auth_markers():
         assert _no_marker(message) == [], message
 
 
-def test_description_names_one_identity_for_both_variants(kms):
-    userpass, token = client(kms).description, token_client(kms).description
+# The description names the host. The marker check reads the text around it, so a port that holds
+# "401" (the mock binds an ephemeral one) cannot fail the test; the 401-port base URL pins that case.
+@pytest.mark.parametrize("base_url", ["https://kms.example.com", "http://127.0.0.1:40119"])
+def test_description_names_one_identity_for_both_variants(kms, base_url):
+    userpass = client(kms, base_url=base_url).description
+    token = token_client(kms, base_url=base_url).description
     assert userpass == token
     assert "this connection's KMS identity" in userpass
-    assert _no_marker(userpass) == []
+    host = base_url.split("//", 1)[1]
+    assert host in userpass
+    assert _no_marker(userpass.replace(host, "")) == []
 
 
 # An unusable login token is a server error, not a transport one:
