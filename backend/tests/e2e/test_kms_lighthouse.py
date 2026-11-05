@@ -81,6 +81,10 @@ _ROOT_FILES = _BOB_FILES | {"item:305", "scenario:4401", "item:303", "item:304"}
 _OUT_OF_ROOT = {"item:279", "item:307"}
 
 
+class _OwnerFallbackBroken(AssertionError):
+    """The known owner-fallback app bug: a non-admin owner without a row gets connect_required."""
+
+
 def _assert_root_scoped(ids):
     assert not ids & _OUT_OF_ROOT, f"files from outside root 10 leaked: {sorted(ids & _OUT_OF_ROOT)}"
     assert ids == _ROOT_FILES, sorted(ids)
@@ -204,7 +208,7 @@ def test_owner_without_a_row_runs_as_the_connection_identity(
 
 
 @pytest.mark.e2e
-@pytest.mark.xfail(strict=True, reason=(
+@pytest.mark.xfail(strict=True, raises=_OwnerFallbackBroken, reason=(
     "App bug, not fixed in this test-only phase: in resolve_credentials the owner check reads "
     "connection.data_sources, which is not loaded on this path; the async lazy load raises "
     "MissingGreenlet, the bare `except Exception: pass` swallows it, and a non-admin owner gets "
@@ -219,10 +223,20 @@ def test_owner_who_is_not_an_admin_runs_as_the_connection_identity(
     ds_id, conn_id = _user_required_source(kms, test_client, create_data_source, owner_token, org, owner_h)
     demoted = test_client.put(f"/api/organizations/{org}/members/{owner_membership}", json={"role": "member"}, headers=headers)
     assert demoted.status_code == 200 and demoted.json()["role"] == "member", demoted.json()
+    # The demotion took effect, so the owner can no longer pass through the admin branch, which
+    # needs org-level manage_connections. test-params is gated on that org permission alone; the
+    # connection PUT is not a fit, since the creator keeps a per-connection manage grant.
+    probe = test_client.post("/api/connections/test-params", json={"name": "Owner probe", "type": "kms_lighthouse",
+                                                                   "config": _cfg(kms), "credentials": _svc_userpass(kms)},
+                             headers=owner_h)
+    assert probe.status_code == 403, probe.text
     file_endpoint = f"/api/data_sources/{ds_id}/connections/{conn_id}/files"
 
     kms["mock"].REQUEST_LOG.clear()
-    _assert_root_scoped(_file_ids(test_client.get(file_endpoint, headers=owner_h)))
+    browsed = test_client.get(file_endpoint, headers=owner_h)
+    if browsed.status_code == 200 and browsed.json().get("connect_required") is True:
+        raise _OwnerFallbackBroken(f"a non-admin owner without a row got connect_required: {browsed.json()}")
+    _assert_root_scoped(_file_ids(browsed))
     assert _users_seen(kms) == {"svc"}, "the owner must run as the connection identity"
 
 
