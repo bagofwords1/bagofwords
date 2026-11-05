@@ -30,6 +30,13 @@ _MD_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$", re.MULTILINE)
 _MD_TABLE_SEP_RE = re.compile(r"^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?$|^\|\s*:?-{2,}:?\s*\|$")
 # Fenced code block — left untouched (WhatsApp renders ```monospace```).
 _CODE_FENCE_RE = re.compile(r"(```[\s\S]*?```)")
+# Doc-embed placeholders ({{viz:<id>}}, {{image:<id>}}): these embed a live chart
+# or image in a web/PDF document. WhatsApp has nowhere to render them, so the
+# agent occasionally leaks the raw token into a chat reply — strip it (and the
+# whitespace it sat on) so the user never sees "{{viz:...}}".
+_DOC_PLACEHOLDER_RE = re.compile(r"[ \t]*\{\{\s*(?:viz|image)\s*:[^}]*\}\}[ \t]*")
+# 3+ newlines (e.g. left by a removed placeholder on its own line) -> one blank line.
+_EXTRA_BLANKS_RE = re.compile(r"\n{3,}")
 
 
 def _flatten_markdown_tables(text: str) -> str:
@@ -67,12 +74,14 @@ def _flatten_markdown_tables(text: str) -> str:
 
 
 def _convert_prose(text: str) -> str:
+    text = _DOC_PLACEHOLDER_RE.sub("", text)
     text = _MD_LINK_RE.sub(lambda m: f"{m.group(1)}: {m.group(2)}", text)
     text = _flatten_markdown_tables(text)
     text = _MD_HEADING_RE.sub(lambda m: f"*{m.group(1).strip()}*" if m.group(1).strip() else "", text)
     text = _MD_BOLD_ITALIC_RE.sub(r"*_\1_*", text)
     text = _MD_BOLD_RE.sub(r"*\1*", text)
     text = _MD_BOLD_US_RE.sub(r"*\1*", text)
+    text = _EXTRA_BLANKS_RE.sub("\n\n", text)
     return text
 
 
@@ -89,6 +98,7 @@ def markdown_to_whatsapp(text: str) -> str:
       ``# Heading``          -> ``*Heading*``
       ``[label](url)``       -> ``label: url``
       ``| a | b |`` table    -> ``a — b`` lines (divider row dropped)
+      ``{{viz:<id>}}``        -> removed (doc-only embed; nothing to render here)
 
     Text inside ```fenced``` code blocks is never changed. Bullet lines
     (``- item``) are left as-is — WhatsApp renders them fine.
