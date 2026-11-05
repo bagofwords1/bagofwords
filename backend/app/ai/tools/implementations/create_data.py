@@ -2117,8 +2117,10 @@ Do not use generic placeholders like "value" unless that is the actual column na
                     "error_message": _last_err,
                     "data_source_ids": _ds_ids,
                     "tables_requested": _tables,
-                    "executed_queries": _truncate_queries(executed_queries),
+                    "executed_queries": list(executed_queries or []),
                 },
+                outcome="failure",
+                failure_reason="execution_failure",
             )
 
             current_step_id = runtime_ctx.get("current_step_id")
@@ -2191,7 +2193,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
                 "tool": "create_data",
                 "data_source_ids": _ds_ids,
                 "tables_accessed": _tables,
-                "executed_queries": _truncate_queries(executed_queries),
+                "executed_queries": list(executed_queries or []),
                 "row_count": len(exec_df) if exec_df is not None else 0,
             },
         )

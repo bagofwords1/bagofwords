@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, validator, field_validator, ConfigDict, AliasGenerator, model_validator
 from pydantic.alias_generators import to_camel
 import os
@@ -421,6 +421,51 @@ class SecurityConfig(BaseModel):
         default_factory=lambda: (os.getenv("BOW_TLS_STRICT_X509") or "").strip().lower()
         not in ("0", "false", "no", "off")
     )
+    # Peers whose X-Forwarded-For is believed when resolving the client address
+    # recorded in audit events (CIDR list). None = loopback and RFC 1918/ULA
+    # ranges, which covers a reverse proxy on the same host or Docker network.
+    # Set it to exactly your proxy addresses on a shared network, or [] to
+    # record the TCP peer only. Env: BOW_TRUSTED_PROXIES (comma separated).
+    trusted_proxies: Optional[List[str]] = Field(
+        default_factory=lambda: (
+            [p.strip() for p in os.getenv("BOW_TRUSTED_PROXIES").split(",") if p.strip()]
+            if os.getenv("BOW_TRUSTED_PROXIES") is not None else None
+        )
+    )
+
+
+class AuditPlatformStream(BaseModel):
+    """Restricted collector for events that belong to no organization
+    (unknown-account login failures, platform operations). Same destination
+    types and fields as an organization stream; secrets are read from this
+    config (use ${ENV} placeholders), never stored through the API."""
+    enabled: bool = False
+    destination: str = "https"
+    config: Dict[str, Any] = Field(default_factory=dict)
+    secrets: Dict[str, Any] = Field(default_factory=dict)
+    action_filter: Optional[List[str]] = None
+
+
+class AuditConfig(BaseModel):
+    """Audit evidence controls (docs/design/audit-event-contract.md)."""
+    # Bound on one event's details payload; beyond it the payload becomes an
+    # explicit truncation marker. Env: BOW_AUDIT_MAX_DETAILS_BYTES.
+    max_details_bytes: int = Field(default_factory=lambda: int(os.getenv("BOW_AUDIT_MAX_DETAILS_BYTES", "65536")))
+    # Bound on the executed-query payload of one agent/tool event; every query
+    # is kept, the longest are shortened with a marker. Env: BOW_AUDIT_MAX_QUERY_PAYLOAD_BYTES.
+    max_query_payload_bytes: int = Field(default_factory=lambda: int(os.getenv("BOW_AUDIT_MAX_QUERY_PAYLOAD_BYTES", "32768")))
+    # Heartbeat event written for every organization with an active stream so a
+    # collector can tell a silent producer from an idle one. 0 disables.
+    heartbeat_interval_seconds: int = Field(default_factory=lambda: int(os.getenv("BOW_AUDIT_HEARTBEAT_INTERVAL_SECONDS", "300")))
+    # Consecutive retryable delivery failures after which a stream is reported
+    # as degraded (audit event + admin e-mail) while it keeps retrying.
+    degraded_after_failures: int = Field(default_factory=lambda: int(os.getenv("BOW_AUDIT_DEGRADED_AFTER_FAILURES", "5")))
+    # Retention. None/0 = keep forever. Rows older than this are purged by the
+    # daily job unless they are still undelivered to an active stream or a
+    # legal hold is set. Env: BOW_AUDIT_RETENTION_DAYS / BOW_AUDIT_LEGAL_HOLD.
+    retention_days: Optional[int] = Field(default_factory=lambda: int(os.getenv("BOW_AUDIT_RETENTION_DAYS")) if os.getenv("BOW_AUDIT_RETENTION_DAYS") else None)
+    legal_hold: bool = Field(default_factory=lambda: (os.getenv("BOW_AUDIT_LEGAL_HOLD") or "").strip().lower() in ("1", "true", "yes", "on"))
+    platform_stream: AuditPlatformStream = AuditPlatformStream()
 
 
 class BowConfig(BaseModel):
@@ -453,6 +498,7 @@ class BowConfig(BaseModel):
     otel: OTELConfig = OTELConfig()
     i18n: I18nConfig = I18nConfig()
     security: SecurityConfig = SecurityConfig()
+    audit: AuditConfig = AuditConfig()
 
     @model_validator(mode="after")
     def validate_saml_providers(self):

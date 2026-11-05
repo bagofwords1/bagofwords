@@ -1,10 +1,15 @@
-# Tool-level audit logging helper
-# Creates its own DB session to avoid sharing the agent's long-lived session.
-# Calls enqueue audit events and return immediately; audit failures never break
-# tool execution.
+# Durable audit recording: the shared queue, retry, spill and replay path.
+# Licensed under the BOW Enterprise License
+# See backend/app/ee/LICENSE for details
 #
-# Durability contract (docs/design/audit-log-streams.md, WP0): an event with an
-# organization is never silently dropped.
+# Two producers use it: AI tools (``log_tool_audit``: creates its own DB
+# session so the agent's long-lived session is never shared, returns as soon
+# as the event is queued) and ``AuditService.log`` when its own commit fails
+# (``enqueue_row``). Audit failures never break the operation being audited.
+#
+# Durability contract (docs/design/audit-log-streams.md, WP0; event contract
+# in docs/design/audit-event-contract.md): an event with an organization (or
+# a platform event) is never silently dropped.
 #   - The worker drains the queue in batches (one session, one commit), so it
 #     keeps up with bursts that a commit-per-event worker could not.
 #   - A failed batch is retried with backoff, then written event by event so
@@ -13,14 +18,14 @@
 #     its own event inline instead of discarding it.
 #   - Whatever still cannot reach the database (an outage that outlasts the
 #     retries, or a shutdown that times out) is appended to a local JSONL spill
-#     file, replayed into audit_logs on the next start.
+#     file, replayed into audit_logs after the next successful write, by a
+#     periodic job, and on the next start.
 # Event ids are assigned at enqueue time, so a retry or replay of an event that
 # did reach the table is detected and skipped rather than written twice.
-# created_at is stamped when the row is written, not when the event happened:
-# log streams cursor on created_at and only wait a short lag window for late
-# commits, so a row that lands minutes later (backpressure, a replayed spill)
-# with an old created_at would sit behind a cursor that has already moved on.
-# A delayed write keeps the original time in details["occurred_at"].
+# The event time (``occurred_at``) is fixed when the event is built; the row's
+# created_at records the write. Log streams order by visibility
+# (audit_logs.export_seq), so a late write is exported late with its original
+# event time intact.
 
 import asyncio
 import contextlib
@@ -33,18 +38,18 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
+from app.ee.audit import context as audit_context
+from app.ee.audit.content_policy import bounded_queries, sanitize_details, with_queries
+from app.ee.audit.contract import SCHEMA_VERSION, actor_type_for, normalize_outcome
+
 logger = logging.getLogger(__name__)
 
-# Max length for individual query strings stored in audit details
-_MAX_QUERY_LEN = 500
-_MAX_QUERIES = 10
 _QUEUE_MAXSIZE = 1000
 _BATCH_MAX = 200
 _RETRY_DELAYS_SECONDS = (0.5, 1.0, 2.0)
 _ENQUEUE_WAIT_SECONDS = 2.0
 _SHUTDOWN_DRAIN_TIMEOUT_SECONDS = 5.0
 _SLOW_AUDIT_WRITE_MS = 1000.0
-_LATE_WRITE_SECONDS = 5.0
 # A spill left by an outage is replayed while the service keeps running: after
 # the worker's next successful write (at most this often) and by a periodic
 # scheduler job (scheduled_spill_replay), not only on the next start.
@@ -53,7 +58,7 @@ _REPLAY_MIN_INTERVAL_SECONDS = 30.0
 
 @dataclass(frozen=True)
 class ToolAuditEvent:
-    organization_id: str
+    organization_id: Optional[str]
     action: str
     user_id: Optional[str]
     resource_type: Optional[str]
@@ -61,6 +66,14 @@ class ToolAuditEvent:
     details: Optional[dict]
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     occurred_at: datetime = field(default_factory=datetime.utcnow)
+    outcome: Optional[str] = None
+    failure_reason: Optional[str] = None
+    request_id: Optional[str] = None
+    session_id: Optional[str] = None
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    actor_type: Optional[str] = None
+    actor_snapshot: Optional[dict] = None
 
     def to_json(self) -> str:
         d = asdict(self)
@@ -71,7 +84,8 @@ class ToolAuditEvent:
     def from_json(cls, line: str) -> "ToolAuditEvent":
         d = json.loads(line)
         d["occurred_at"] = datetime.fromisoformat(d["occurred_at"])
-        return cls(**d)
+        known = {f for f in cls.__dataclass_fields__}
+        return cls(**{k: v for k, v in d.items() if k in known})
 
 
 _audit_queue: Optional[asyncio.Queue] = None
@@ -85,7 +99,9 @@ _stats = {
     "inline": 0,
     "spilled": 0,
     "replayed": 0,
+    "replay_errors": 0,
     "dropped": 0,
+    "recording_failures": 0,
 }
 
 
@@ -96,13 +112,16 @@ def _reset_stats_for_tests() -> None:
     _last_replay_attempt = 0.0
 
 
+def note_recording_failure() -> None:
+    """Count a failed primary write (AuditService.log) as an operational signal."""
+    _stats["recording_failures"] += 1
+
+
 def _truncate_queries(queries: list) -> list:
-    """Truncate query strings to keep audit detail payload reasonable."""
-    truncated = []
-    for q in (queries or [])[:_MAX_QUERIES]:
-        s = str(q) if q else ""
-        truncated.append(s[:_MAX_QUERY_LEN] + ("..." if len(s) > _MAX_QUERY_LEN else ""))
-    return truncated
+    """Back-compat name: every query is kept, bounded by total size
+    (app.ee.audit.content_policy.bounded_queries). Callers that need the
+    truncation marker use ``with_queries``."""
+    return bounded_queries(queries)[0]
 
 
 def _build_event(
@@ -111,6 +130,8 @@ def _build_event(
     resource_type: Optional[str],
     resource_id: Optional[str],
     details: Optional[dict],
+    outcome: Optional[str] = None,
+    failure_reason: Optional[str] = None,
 ) -> Optional[ToolAuditEvent]:
     user = runtime_ctx.get("user")
     organization = runtime_ctx.get("organization")
@@ -130,14 +151,30 @@ def _build_event(
         enriched.setdefault("agent_execution_id", str(agent_execution_id))
     if mode:
         enriched.setdefault("execution_mode", str(mode))
+    if "executed_queries" in enriched and "executed_queries_truncation" not in enriched:
+        enriched = with_queries(enriched, enriched.get("executed_queries"))
+    enriched = sanitize_details(enriched)
+
+    ctx = audit_context.current()
+    snapshot = None
+    if user is not None:
+        snapshot = {k: v for k, v in {"email": getattr(user, "email", None), "name": getattr(user, "name", None)}.items() if v}
 
     return ToolAuditEvent(
         organization_id=org_id,
         action=action,
         user_id=user_id,
         resource_type=resource_type,
-        resource_id=resource_id,
+        resource_id=str(resource_id) if resource_id else None,
         details=enriched if enriched else None,
+        outcome=normalize_outcome(outcome, action),
+        failure_reason=(failure_reason or None) and str(failure_reason)[:255],
+        request_id=ctx.request_id if ctx else None,
+        session_id=ctx.session_id if ctx else None,
+        ip_address=ctx.ip_address if ctx else None,
+        user_agent=ctx.user_agent if ctx else None,
+        actor_type=actor_type_for(user_id, enriched),
+        actor_snapshot=snapshot or None,
     )
 
 
@@ -170,22 +207,26 @@ async def _write_batch(events: List[ToolAuditEvent]) -> int:
                 action=e.action,
                 resource_type=e.resource_type,
                 resource_id=e.resource_id,
-                details=_with_occurred_at(e, written_at),
+                details=e.details,
+                ip_address=e.ip_address,
+                user_agent=e.user_agent,
                 created_at=written_at,
+                occurred_at=e.occurred_at,
+                outcome=e.outcome,
+                failure_reason=e.failure_reason,
+                request_id=e.request_id,
+                session_id=e.session_id,
+                actor_type=e.actor_type,
+                actor_snapshot=e.actor_snapshot,
+                schema_version=SCHEMA_VERSION,
             )
             for e in fresh
         ])
         await session.commit()
     duration_ms = (_time.monotonic() - started) * 1000.0
     if duration_ms >= _SLOW_AUDIT_WRITE_MS:
-        logger.warning("Tool audit batch write was slow: events=%d duration_ms=%.1f", len(events), duration_ms)
+        logger.warning("Audit batch write was slow: events=%d duration_ms=%.1f", len(events), duration_ms)
     return len(fresh)
-
-
-def _with_occurred_at(e: ToolAuditEvent, written_at: datetime) -> Optional[dict]:
-    if (written_at - e.occurred_at).total_seconds() < _LATE_WRITE_SECONDS:
-        return e.details
-    return {**(e.details or {}), "occurred_at": e.occurred_at.isoformat() + "Z"}
 
 
 async def _persist(events: List[ToolAuditEvent]) -> List[ToolAuditEvent]:
@@ -202,7 +243,7 @@ async def _persist(events: List[ToolAuditEvent]) -> List[ToolAuditEvent]:
         except Exception:
             _stats["failed"] += 1
             logger.warning(
-                "Tool audit batch write failed (attempt %d/%d, events=%d)",
+                "Audit batch write failed (attempt %d/%d, events=%d)",
                 attempt + 1, len(_RETRY_DELAYS_SECONDS) + 1, len(events), exc_info=True,
             )
 
@@ -249,10 +290,28 @@ def _spill(events: List[ToolAuditEvent]) -> None:
             f.flush()
             os.fsync(f.fileno())
         _stats["spilled"] += len(events)
-        logger.warning("Spilled %d tool audit events to %s; they are replayed on next start", len(events), path)
+        logger.warning("Spilled %d audit events to %s; they are replayed when the database is reachable", len(events), path)
     except Exception:
         _stats["dropped"] += len(events)
-        logger.error("Could not spill %d tool audit events (path=%s); they are lost", len(events), path, exc_info=True)
+        logger.error("Could not spill %d audit events (path=%s); they are lost", len(events), path, exc_info=True)
+
+
+def spill_backlog() -> Dict[str, int]:
+    """Spill files and events still waiting on disk (health endpoint)."""
+    d = _spill_dir()
+    files = events = 0
+    try:
+        for n in os.listdir(d):
+            if n.endswith(".jsonl") or n.endswith(".replaying"):
+                files += 1
+                try:
+                    with open(os.path.join(d, n), encoding="utf-8") as f:
+                        events += sum(1 for line in f if line.strip())
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return {"files": files, "events": events}
 
 
 def _has_spill() -> bool:
@@ -311,11 +370,12 @@ async def replay_spilled_tool_audit_events() -> int:
                 _stats["replayed"] += n
             os.remove(claimed)
         except Exception:
+            _stats["replay_errors"] += 1
             logger.warning("Replaying spilled audit file %s failed; will retry", name, exc_info=True)
             with contextlib.suppress(OSError):
                 os.rename(claimed, src)
     if inserted:
-        logger.info("Replayed %d spilled tool audit events", inserted)
+        logger.info("Replayed %d spilled audit events", inserted)
     return inserted
 
 
@@ -341,7 +401,7 @@ async def _audit_worker(queue: asyncio.Queue) -> None:
             _spill(batch)
             raise
         except Exception:
-            logger.warning("Tool audit worker error; spilling batch", exc_info=True)
+            logger.warning("Audit worker error; spilling batch", exc_info=True)
             _spill(batch)
         finally:
             for _ in batch:
@@ -388,7 +448,7 @@ async def stop_tool_audit_worker(
             await asyncio.wait_for(queue.join(), timeout=timeout)
         except asyncio.TimeoutError:
             logger.warning(
-                "Timed out draining tool audit queue after %.1fs; spilling pending_events=%s",
+                "Timed out draining audit queue after %.1fs; spilling pending_events=%s",
                 timeout,
                 queue.qsize(),
             )
@@ -416,40 +476,77 @@ def get_tool_audit_queue_stats() -> dict:
     return {"queued": _audit_queue.qsize() if _audit_queue is not None else 0, **_stats}
 
 
+async def enqueue_event(event: ToolAuditEvent) -> None:
+    """Hand an already built event to the durable path.
+
+    Normally the await only covers enqueue work; under overload it waits
+    briefly for room and, failing that, writes the event itself (and spills
+    it if that fails too) rather than dropping it.
+    """
+    queue = _ensure_worker()
+    try:
+        queue.put_nowait(event)
+        _stats["enqueued"] += 1
+        return
+    except asyncio.QueueFull:
+        pass
+    try:
+        await asyncio.wait_for(queue.put(event), timeout=_ENQUEUE_WAIT_SECONDS)
+        _stats["enqueued"] += 1
+        return
+    except asyncio.TimeoutError:
+        pass
+    _stats["inline"] += 1
+    logger.warning("Audit queue saturated; writing inline: action=%s", event.action)
+    _spill(await _persist([event]))
+
+
+async def enqueue_row(row) -> None:
+    """Durable fallback for an AuditLog row whose own commit failed."""
+    ev = ToolAuditEvent(
+        id=row.id or str(uuid.uuid4()),
+        organization_id=row.organization_id,
+        action=row.action,
+        user_id=row.user_id,
+        resource_type=row.resource_type,
+        resource_id=row.resource_id,
+        details=row.details,
+        occurred_at=row.occurred_at or datetime.utcnow(),
+        outcome=row.outcome,
+        failure_reason=row.failure_reason,
+        request_id=row.request_id,
+        session_id=row.session_id,
+        ip_address=row.ip_address,
+        user_agent=row.user_agent,
+        actor_type=row.actor_type,
+        actor_snapshot=row.actor_snapshot,
+    )
+    try:
+        await enqueue_event(ev)
+    except Exception:
+        logger.warning("Durable fallback failed for %s; spilling", row.action, exc_info=True)
+        _spill([ev])
+
+
 async def log_tool_audit(
     runtime_ctx: Dict[str, Any],
     action: str,
     resource_type: Optional[str] = None,
     resource_id: Optional[str] = None,
     details: Optional[dict] = None,
+    *,
+    outcome: Optional[str] = None,
+    failure_reason: Optional[str] = None,
 ) -> None:
     """Enqueue an audit event from within an AI tool execution.
 
     Extracts user/org/execution metadata from runtime_ctx and places an audit
-    event on a bounded background queue. Normally the await only covers
-    enqueue work; under overload it waits briefly for room and, failing that,
-    writes the event itself rather than dropping it.
+    event on the durable queue (see ``enqueue_event``).
     """
     try:
-        event = _build_event(runtime_ctx, action, resource_type, resource_id, details)
+        event = _build_event(runtime_ctx, action, resource_type, resource_id, details, outcome, failure_reason)
         if event is None:
             return
-
-        queue = _ensure_worker()
-        try:
-            queue.put_nowait(event)
-            _stats["enqueued"] += 1
-            return
-        except asyncio.QueueFull:
-            pass
-        try:
-            await asyncio.wait_for(queue.put(event), timeout=_ENQUEUE_WAIT_SECONDS)
-            _stats["enqueued"] += 1
-            return
-        except asyncio.TimeoutError:
-            pass
-        _stats["inline"] += 1
-        logger.warning("Tool audit queue saturated; writing inline: action=%s", action)
-        _spill(await _persist([event]))
+        await enqueue_event(event)
     except Exception:
         logger.warning("log_tool_audit failed", exc_info=True)
