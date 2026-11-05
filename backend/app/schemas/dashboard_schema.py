@@ -231,6 +231,15 @@ class DashboardListOwner(BaseModel):
     name: str | None = None
 
 
+class DashboardListAccess(BaseModel):
+    """Why a reader has a dashboard of their Shared tab: `reasons` in the
+    order direct, group, project, org; `primary` is the first; `via_name`
+    names the group (for `group`) or the project (for `project`)."""
+    reasons: list[str] = []
+    primary: str | None = None
+    via_name: str | None = None
+
+
 class DashboardListItem(BaseModel):
     """One card of the dashboards page (phase 8). report_id only for its
     editors (the card's pencil)."""
@@ -251,6 +260,20 @@ class DashboardListItem(BaseModel):
     edited_at: datetime | None = None
     # The reader's own star (dashlist01).
     is_starred: bool = False
+    # The live release's publish time.
+    published_at: datetime | None = None
+    # As readers meet it: 'public' reads 'internal' while public links are off.
+    visibility: str | None = None
+    # Why the reader has it (Shared only; None on My).
+    access: DashboardListAccess | None = None
+    # It reached the reader after their last visit to Shared (Shared only).
+    is_new: bool = False
+    # For its editors only (owner or edit); None for a view-only reader.
+    unpublished_changes: bool | None = None
+    cron_schedule: str | None = None
+    last_run_status: str | None = None
+    # When its data last ran, for everyone ("Data as of").
+    last_run_at: datetime | None = None
 
 
 class DashboardListMeta(BaseModel):

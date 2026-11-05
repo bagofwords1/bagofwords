@@ -189,8 +189,10 @@ def dashboard_list_query(
     status: str | None = Query(None, pattern="^(published|changes|draft)$", description="My only"),
     starred: bool = Query(False),
     sort: str = Query("edited", pattern="^(edited|created|-created|title|published)$"),
+    new_since: datetime | None = Query(None, description="The Shared watermark New is measured from"),
 ) -> ListQuery:
     """The dashboards page's query, for the list (and its facets)."""
+    new_since = _naive_utc("new_since", new_since)
     created_from, created_to = _naive_utc("created_from", created_from), _naive_utc("created_to", created_to)
     edited_from, edited_to = _naive_utc("edited_from", edited_from), _naive_utc("edited_to", edited_to)
     _range("created_from", created_from, created_to)
@@ -198,7 +200,7 @@ def dashboard_list_query(
     return ListQuery(
         filter=filter, search=search, mode=mode, access=access, owner_ids=_id_list("owner_ids", owner_ids),
         created_from=created_from, created_to=created_to, edited_from=edited_from, edited_to=edited_to,
-        status=status, starred=starred, sort=sort, page=page, limit=limit)
+        status=status, starred=starred, sort=sort, page=page, limit=limit, new_since=new_since)
 
 
 @router.get("/artifacts", response_model=DashboardListResponse)
