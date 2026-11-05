@@ -303,12 +303,16 @@ async def set_model_pricing(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Set a model's per-million-token USD pricing (input/output). Omitted
-    fields are left unchanged."""
+    """Set a model's per-million-token USD pricing (input/output). An omitted
+    field is left unchanged; a field sent explicitly as null clears the admin
+    override and reverts to the catalog price."""
+    fields_set = body.model_fields_set
     return await llm_service.set_pricing(
         db, organization, current_user, model_id,
         body.input_cost_per_million_tokens_usd,
         body.output_cost_per_million_tokens_usd,
+        input_set="input_cost_per_million_tokens_usd" in fields_set,
+        output_set="output_cost_per_million_tokens_usd" in fields_set,
     )
 
 
