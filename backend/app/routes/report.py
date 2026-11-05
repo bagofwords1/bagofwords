@@ -202,7 +202,16 @@ async def update_report(report_id: str, report: ReportUpdate, current_user: User
 @router.get("/reports/{report_id}", response_model=ReportSchema)
 @requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
 async def get_report(report_id: str, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization)):
-    return await report_service.get_report(db, report_id, current_user, organization)
+    result = await report_service.get_report(db, report_id, current_user, organization)
+    # Data access evidence: the server served the report to this principal.
+    # "served" is the strongest observation available here; client display
+    # is not confirmed by a fetch.
+    await audit_service.log(
+        db=db, organization_id=str(organization.id), action="report.viewed", user_id=str(current_user.id),
+        resource_type="report", resource_id=report_id,
+        details={"title": getattr(result, "title", None), "observation": "served", "access_scope": "member"},
+    )
+    return result
 
 
 @router.delete("/reports/{report_id}", response_model=ReportSchema)
@@ -279,18 +288,10 @@ async def publish_report(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    result = await report_service.publish_report(db, report_id, current_user, organization)
-    await audit_service.log(
-        db=db,
-        organization_id=organization.id,
-        action="report.published",
-        user_id=current_user.id,
-        resource_type="report",
-        resource_id=report_id,
-        details={"title": result.title, "status": result.status},
-        request=request,
-    )
-    return result
+    # report_service.publish_report records report.published / report.unpublished
+    # with the request context from the ambient audit context; a second row
+    # here used to duplicate it without context.
+    return await report_service.publish_report(db, report_id, current_user, organization)
 
 @router.post("/reports/{report_id}/star", response_model=StarResponse)
 @requires_permission('view_reports', model=Report)
@@ -614,6 +615,19 @@ async def get_public_report(
     if report_obj:
         eligibility = await fork_service.check_eligibility(db, report_obj, user)
         result["fork_eligibility"] = eligibility.to_dict()
+        # Public/shared access evidence: served to an anonymous or signed-in
+        # viewer through the public route (access_scope says which). The
+        # report's organization owns the evidence; the viewer may belong to none.
+        try:
+            await audit_service.log(
+                db=db, organization_id=str(report_obj.organization_id), action="report.public_viewed",
+                user_id=str(user.id) if user else None, resource_type="report", resource_id=report_id,
+                details={"title": result.get("title"), "observation": "served",
+                         "access_scope": "member" if user else "anonymous", "route": "public"},
+                actor=user,
+            )
+        except Exception:
+            logger.debug("report.public_viewed audit failed", exc_info=True)
     return result
 
 @router.get("/c/{token}")

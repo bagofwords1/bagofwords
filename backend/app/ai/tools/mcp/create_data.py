@@ -300,7 +300,7 @@ class CreateDataMCPTool(MCPTool):
                         "error_type": "execution_failure",
                         "error_message": error_msg[:300],
                         "tables_requested": _tables,
-                        "executed_queries": _truncate_queries(executed_queries),
+                        "executed_queries": list(executed_queries or []),
                     },
                 )
             except Exception:
@@ -416,7 +416,7 @@ class CreateDataMCPTool(MCPTool):
                     "tool": "mcp.create_data",
                     "data_source_ids": _ds_ids,
                     "tables_accessed": _tables,
-                    "executed_queries": _truncate_queries(executed_queries),
+                    "executed_queries": list(executed_queries or []),
                     "row_count": data_preview.get("total_rows", 0),
                 },
             )

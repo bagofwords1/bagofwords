@@ -1,5 +1,27 @@
 # Release Notes
 
+## Version 0.0.610 (November 5, 2026)
+- Fixed answers ending in a cut-off error when a query hit a table the agent can't use; the agent now explains and continues (#1592)
+- Changed the floating embedded chat to open at 600 × 720 px, matching BOW's preview (#1594) — `width` / `height` options in `BOWEmbed.mount`
+- Added chart images to WhatsApp replies, with brief plain-text answers and a report link for large tables instead of a CSV file (#1589)
+- Added pinning a private CA so the agent can open app previews on self-hosted installs (#1581) — `BOW_ARTIFACT_PREVIEW_CERT_SPKI`
+- Added Starburst Galaxy and Enterprise as a data source, with HTTPS, roles, token login and multiple catalogs per connection (#1596)
+- Changed Trino table names to include the schema (`schema.table`) after the next reindex (#1596)
+- Fixed Teradata connections allowing write statements such as `CT`, `MODIFY USER` and `GIVE` (#1598)
+- Fixed timed-out Teradata queries still running on the warehouse; they're now cancelled on the server (#1598)
+- Fixed Teradata views showing no column types, and tables the user can't read appearing in the catalog (#1598)
+- Added TLS mode, CA certificate and data encryption settings to Teradata connections (#1598) — data encryption is now on by default
+- Added audit events for password sign-in, failed sign-in, sign-out, password change and reset (#1595)
+- Added outcome, event time, request id and session id to every audit event and to streamed/exported envelopes (#1595)
+- Added audit events for report views, public report views, query runs and schema reads (#1595)
+- Fixed streamed audit events showing a renamed or deleted user as "system" or under their new email (#1595)
+- Fixed agent audit events dropping queries past the tenth and cutting each at 500 characters (#1595)
+- Fixed permission-denied audit events missing the client address, user agent and attempted resource (#1595)
+- Fixed the client address being taken from X-Forwarded-For sent by any client — `security.trusted_proxies` / `BOW_TRUSTED_PROXIES` (#1595)
+- Added a platform audit stream for failed sign-ins by unknown accounts — `audit.platform_stream` in bow-config (#1595)
+- Added an audit health endpoint, heartbeat events and a "degraded" alert when a stream keeps failing (#1595)
+- Added audit retention with legal hold — `BOW_AUDIT_RETENTION_DAYS`, `BOW_AUDIT_LEGAL_HOLD` (#1595)
+
 ## Version 0.0.609 (November 4, 2026)
 - Added Neo4j as a read-only graph data source (#1579)
 - Changed connection lists and table selectors to use each connector's own noun, e.g. "forms", "lists", "messages", instead of "tables" or "files" (#1579)

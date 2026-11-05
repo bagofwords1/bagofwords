@@ -16,6 +16,37 @@ from app.services.query_service import QueryService
 
 
 router = APIRouter(prefix="/queries", tags=["queries"])
+
+
+async def _audit_query_execution(db, organization, current_user, query_id, *, mode, code, outcome,
+                                 failure_reason=None, result=None):
+    """Data-access evidence for an executed query (docs/design/audit-event-contract.md).
+
+    Records the code that actually ran (builder/preview) or that the stored
+    step ran (viewer), the outcome, and the quantity served when known. The
+    result set itself is never logged.
+    """
+    try:
+        from app.ee.audit.service import audit_service
+        from app.ee.audit.content_policy import with_queries
+
+        rows = None
+        if isinstance(result, dict):
+            step = result.get("step") if isinstance(result.get("step"), dict) else result
+            data = step.get("data") if isinstance(step, dict) else None
+            if isinstance(data, dict) and isinstance(data.get("rows"), list):
+                rows = len(data["rows"])
+        details = {"mode": mode, "observation": "executed", "row_count": rows}
+        if code:
+            details = with_queries(details, [code])
+        await audit_service.log(
+            db=db, organization_id=str(organization.id) if organization else None, action="query.executed",
+            user_id=str(current_user.id) if current_user else None, resource_type="query", resource_id=str(query_id),
+            details=details, outcome=outcome, failure_reason=failure_reason, actor=current_user,
+        )
+    except Exception:
+        import logging
+        logging.getLogger(__name__).debug("query.executed audit failed", exc_info=True)
 service = QueryService()
 
 
@@ -322,6 +353,8 @@ async def run_query_new_step(
                 organization_id=str(organization.id) if organization else None,
                 user_id=str(current_user.id) if current_user else None,
             )
+            await _audit_query_execution(db, organization, current_user, query_id, mode="viewer", code=None,
+                                         outcome="success", result=result)
             return result
         q_dict, step_obj = await service.run_query_new_step(
             db,
@@ -330,11 +363,17 @@ async def run_query_new_step(
             organization_id=str(organization.id) if organization else None,
             user_id=str(current_user.id) if current_user else None,
         )
+        failed = isinstance(step_obj, dict) and step_obj.get("status") == "error"
+        await _audit_query_execution(db, organization, current_user, query_id, mode="builder", code=payload.code,
+                                     outcome="failure" if failed else "success",
+                                     failure_reason=(step_obj.get("status_reason") if failed else None), result=step_obj)
         # If backend marked the step as error, reflect that in response so UI can show error state
-        if isinstance(step_obj, dict) and step_obj.get("status") == "error":
+        if failed:
             return {"query": q_dict, "step": step_obj, "error": step_obj.get("status_reason")}
         return {"query": q_dict, "step": step_obj}
     except ValueError as e:
+        await _audit_query_execution(db, organization, current_user, query_id, mode=(payload.mode or "builder"),
+                                     code=payload.code, outcome="failure", failure_reason="invalid_request")
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -412,7 +451,11 @@ async def preview_query_code(
             organization_id=str(organization.id) if organization else None,
             user_id=str(current_user.id) if current_user else None,
         )
+        await _audit_query_execution(db, organization, current_user, query_id, mode="preview", code=payload.code,
+                                     outcome="success", result=result)
         return result
     except ValueError as e:
+        await _audit_query_execution(db, organization, current_user, query_id, mode="preview", code=payload.code,
+                                     outcome="failure", failure_reason="invalid_request")
         raise HTTPException(status_code=400, detail=str(e))
 

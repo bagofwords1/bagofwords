@@ -154,6 +154,9 @@ _TABLE_META_KEYS: dict[str, tuple[str, ...]] = {
     # status codes read. The description is the only place that does, and
     # `Table.description` is not persisted with the catalog.
     "mecm": ("description",),
+    # TeradataClient: the primary index is Teradata's distribution key and the
+    # cheapest join path; `kind` says view vs table. Neither is in the name.
+    "teradata": ("kind", "primary_index", "primary_index_unique"),
 }
 
 

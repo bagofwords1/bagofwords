@@ -313,9 +313,9 @@ class TableAccessError(CodeSecurityError):
     """Raised when SQL reads a table that is not activated for the agent, or
     when the tables it reads cannot be verified (see table_scope).
 
-    Terminal: if generated code catches it and carries on, the run still
-    fails (see _raise_if_query_errors_were_swallowed) instead of answering
-    from whatever it fell back to.
+    Terminal for this code attempt: if generated code catches it and carries
+    on, the attempt still fails (see _raise_if_query_errors_were_swallowed).
+    The planner may explain the refusal and continue other permitted work.
     """
     terminal_execution_error = True
 
@@ -334,7 +334,8 @@ class QueryTimeoutError(AppError):
             f"Query exceeded {timeout_seconds}s timeout. "
             f"Run multiple smaller queries instead of one large scan — "
             f"each execute_query call gets its own {timeout_seconds}s budget. "
-            "Use LIMIT, narrower filters, or aggregation."
+            "Limit rows with the source's own syntax (LIMIT, or TOP n on SQL Server "
+            "and Teradata), narrower filters, or aggregation."
         )
         super().__init__(
             ErrorCode.QUERY_TIMEOUT,
@@ -769,6 +770,35 @@ _DB_ERROR_HINTS: List[Tuple[str, str]] = [
         "database charset — e.g. SELECT TO_CHAR(a) ... UNION ALL SELECT TO_CHAR(b) ... "
         "Apply the conversion to EVERY branch of the offending expression, then retry."
     ),
+    (
+        # Trino / Starburst: the catalog or schema was not resolved. Almost
+        # always a name the agent shortened or qualified with the wrong
+        # catalog; the listing shows the exact form to use.
+        "CATALOG_NOT_FOUND",
+        "Hint: Trino could not find that catalog. Use the table names exactly as "
+        "listed in the schema: schema.table for the session catalog, "
+        "catalog.schema.table for any other indexed catalog."
+    ),
+    (
+        "SCHEMA_NOT_FOUND",
+        "Hint: Trino could not find that schema. Qualify the table as schema.table "
+        "(or catalog.schema.table for another catalog) exactly as listed in the schema."
+    ),
+    (
+        "TABLE_NOT_FOUND",
+        "Hint: Trino could not find that table. Use the qualified name exactly as "
+        "listed in the schema (schema.table, or catalog.schema.table for another "
+        "catalog); identifiers are case-insensitive but the catalog and schema must match."
+    ),
+    (
+        # Starburst built-in access control: the login's active role lacks a
+        # grant. The agent cannot fix that, so say so instead of letting it
+        # re-roll the query.
+        "PERMISSION_DENIED",
+        "Hint: the Trino / Starburst role this connection uses has no grant on that "
+        "table. Choose another table from the listing; a missing grant or role must "
+        "be fixed on the connection by an admin, not by rewriting the query."
+    ),
 ]
 
 
@@ -998,6 +1028,8 @@ class QueryCapturingClientWrapper:
                     "sql": capture[:500] if isinstance(capture, str) else None,
                     "error": str(e)[:200],
                     "terminal": bool(getattr(e, "terminal_execution_error", False)),
+                    **({"error_type": "table_access_denied", "error_message": str(e)}
+                       if isinstance(e, TableAccessError) else {}),
                 })
                 span.set_status(StatusCode.ERROR, str(e))
                 span.record_exception(e)

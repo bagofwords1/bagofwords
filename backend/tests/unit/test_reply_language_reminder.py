@@ -55,8 +55,27 @@ def _input(user_message: str, *, tool_results: int = 2, **kw) -> PlannerInput:
     )
 
 
+def _block_text(block) -> str:
+    if not isinstance(block, dict):
+        return str(block)
+    content = block.get("text", block.get("content", ""))
+    if isinstance(content, str):
+        return content
+    return json.dumps(content, ensure_ascii=False, default=str)
+
+
 def _last_message_text(v3) -> str:
-    return json.dumps(v3.messages[-1]["content"], ensure_ascii=False, default=str)
+    """The newest message as the model reads it, in order.
+
+    The legacy path sends a plain string; the transcript path sends a list of
+    content blocks (prompt text, tool results, ...). Render either as text so
+    "the reminder is the very end" is checked against what the model reads,
+    not against JSON punctuation.
+    """
+    content = v3.messages[-1]["content"]
+    if isinstance(content, str):
+        return content
+    return "\n".join(_block_text(b) for b in content)
 
 
 @pytest.fixture(params=["transcript", "legacy"])
@@ -84,7 +103,7 @@ def test_newest_message_names_the_users_language_after_english_tool_results(
     assert "<reply_language>" in tail
     assert f"in {language}" in tail
     # The reminder is the very end of what the model reads before answering.
-    assert tail.rstrip('"').rstrip().endswith("</reply_language>")
+    assert tail.rstrip().endswith("</reply_language>")
 
 
 def test_reminder_stays_out_of_the_cached_system_prompt(planner_path):
