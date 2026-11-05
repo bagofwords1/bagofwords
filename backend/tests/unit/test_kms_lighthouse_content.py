@@ -438,23 +438,15 @@ _SECRET_FORMS = [
     ("smart_open_ascii_close_name", '“api_key": "{s}"'),
     ("ascii_open_smart_close_name", '"api_key”: "{s}"'),
     ("smart_open_plain_name", '{{“password": "{s}"}}'),
-    # Command-line credentials: the user stays, the password goes.
-    ("curl_u", "curl -u admin:{s} https://kms.example.com/x"),
-    ("curl_user_spaced", "curl --user admin:{s} https://kms.example.com/x"),
-    ("curl_user_equals", "curl --user=admin:{s} https://kms.example.com/x"),
-    ("curl_u_attached", "curl -uadmin:{s} https://kms.example.com/x"),
-    ("curl_u_quoted", "curl -u 'admin:{s}' https://kms.example.com/x"),
-    ("curl_u_double_quoted", 'curl -u "admin:{s}" https://kms.example.com/x'),
-    ("curl_bundled_su", "curl -su admin:{s} https://kms.example.com/x"),
-    ("curl_bundled_sku", "curl -sku admin:{s} https://kms.example.com/x"),
-    ("curl_bundled_vu", "curl -vu admin:{s} https://kms.example.com/x"),
-    ("curl_key_only", "curl https://api.stripe.com/v1/charges -u sk_test_{s}:"),
-    ("curl_key_only_then_flag", "curl -u K1{s}: -d a=b"),
-    ("curl_password_single_quoted", "curl -u admin:'{s}' https://kms.example.com/x"),
-    ("curl_password_double_quoted", 'curl -u admin:"{s}" https://kms.example.com/x'),
-    ("curl_proxy_u", "curl -U proxy:{s} https://kms.example.com/x"),
-    ("curl_proxy_user_spaced", "curl --proxy-user proxy:{s} https://kms.example.com/x"),
-    ("curl_proxy_user_equals", "curl --proxy-user=proxy:{s} https://kms.example.com/x"),
+    # Command examples: their "-u"/"--user" flags are authored text (decision A, round 9); a header,
+    # a URL password, a secret parameter or a "--...password=" key in them still goes.
+    ("curl_header_bearer", "curl -H 'Authorization: Bearer {s}' https://kms.example.com/x"),
+    ("curl_header_bearer_double_quoted", 'curl -H "Authorization: Bearer {s}" https://kms.example.com/x'),
+    ("curl_oauth2_bearer_quoted", 'curl --oauth2-bearer "{s}" https://kms.example.com/x'),
+    ("curl_userinfo", "curl https://admin:{s}@kms.example.com/x"),
+    ("curl_data_access_token", "curl -d 'access_token={s}' https://kms.example.com/x"),
+    ("curl_header_api_key", "curl -H 'X-Api-Key: {s}' https://kms.example.com/x"),
+    ("wget_password_equals", "wget --password={s} https://kms.example.com/x"),
     # A compound name ending with "pass" after a listed service word, and a subscription key header.
     ("structured_db_pass", "DB_PASS={s}"),
     ("structured_smtp_pass", "SMTP_PASS: {s}"),
@@ -558,9 +550,9 @@ def test_search_redacts_jwts_split_by_invisible_characters(kms, form, text):
     # An unquoted structured value stops at '&' and ';': the parameters after it stay.
     ("client_secret=Sv1x9Qk2&lang=en done", "Sv1x9Qk2", "&lang=en done"),
     ("api_key: Sv1x9Qk2;lang=en", "Sv1x9Qk2", ";lang=en"),
-    # A command-line credential keeps its user name and the rest of the command.
-    ("curl -u admin:Sv1x9Qk2 https://kms.example.com/x", "Sv1x9Qk2", "curl -u admin:[redacted] https:"),
-    ("curl --user=reader:Sv1x9Qk2 -X GET", "Sv1x9Qk2", "curl --user=reader:[redacted] -X GET"),
+    # A command example keeps the rest of the command when a header or a URL in it holds the secret.
+    ("curl -H 'Authorization: Bearer Sv1x9Qk2' https://kms.example.com/x", "Sv1x9Qk2", "' https:"),
+    ("curl https://reader:Sv1x9Qk2@kms.example.com/x -X GET", "Sv1x9Qk2", "-X GET"),
 ])
 def test_search_keeps_ordinary_words_after_a_redaction(kms, text, secret, kept):
     entry = _search_one(kms, text)
@@ -579,38 +571,41 @@ def test_search_unclosed_quote_does_not_hide_the_rest(kms, template):
     assert "and the rest of the guide" in entry["snippet"], entry["snippet"]
 
 
-@pytest.mark.parametrize("text,shown", [
-    # The password goes; the flag, the user name and the rest of the command stay.
-    ("curl -u admin:SECRETX1 x", "curl -u admin:[redacted] x"),
-    ("curl --user admin:SECRETX1 x", "curl --user admin:[redacted] x"),
-    ("curl --user=admin:SECRETX1 x", "curl --user=admin:[redacted] x"),
-    ("curl -uadmin:SECRETX1 x", "curl -uadmin:[redacted] x"),
-    ("curl -u 'admin:SECRETX1' x", "curl -u 'admin:[redacted]' x"),
-    ('curl -u "admin:SECRETX1" x', 'curl -u "admin:[redacted]" x'),
-    ("curl -su admin:SECRETX1 x", "curl -su admin:[redacted] x"),
-    ("curl -sku admin:SECRETX1 x", "curl -sku admin:[redacted] x"),
-    ("curl -vu admin:SECRETX1 x", "curl -vu admin:[redacted] x"),
-    ("curl -u admin:'SECRETX1' x", "curl -u admin:'[redacted]' x"),
-    ('curl -u admin:"SECRETX1" x', 'curl -u admin:"[redacted]" x'),
-    # A quoted password goes whole, up to its closing quote, spaces included.
-    ("curl -u admin:'SECRETX1 SECRETX2' x", "curl -u admin:'[redacted]' x"),
-    ('curl -u admin:"SECRETX1 SECRETX2" x', 'curl -u admin:"[redacted]" x'),
-    ("curl -U proxy:SECRETX1 x", "curl -U proxy:[redacted] x"),
-    ("curl --proxy-user proxy:SECRETX1 x", "curl --proxy-user proxy:[redacted] x"),
-    ("curl --proxy-user=proxy:SECRETX1 x", "curl --proxy-user=proxy:[redacted] x"),
-    # Key only ("-u KEY:", no password): the user part is the API key, the ':' stays.
-    ("curl https://api.stripe.com/v1/charges -u sk_demo_4eC39HqLyjWDarjtT1zdp7dc:",
-     "curl https://api.stripe.com/v1/charges -u [redacted]:"),
-    ("curl -u sk_live_X1:", "curl -u [redacted]:"),
-    ("curl -u KEY12345: -d a=b", "curl -u [redacted]: -d a=b"),
+@pytest.mark.parametrize("text", [
+    # Decision A (2026-11-05): a credential flag in a command example is authored text, shown as written.
+    "curl -u admin:SECRETX1 x", "curl --user admin:SECRETX1 x", "curl --user=admin:SECRETX1 x",
+    "curl -uadmin:SECRETX1 x", "curl -u 'admin:SECRETX1' x", 'curl -u "admin:SECRETX1" x',
+    "curl -su admin:SECRETX1 x", "curl -sku admin:SECRETX1 x", "curl -vu admin:SECRETX1 x",
+    "curl -u admin:'SECRETX1' x", 'curl -u admin:"SECRETX1" x', "curl -u admin:'SECRETX1 SECRETX2' x",
+    'curl -u admin:"SECRETX1 SECRETX2" x', "curl -U proxy:SECRETX1 x", "curl --proxy-user proxy:SECRETX1 x",
+    "curl --proxy-user=proxy:SECRETX1 x",
+    "curl https://api.stripe.com/v1/charges -u sk_demo_4eC39HqLyjWDarjtT1zdp7dc:",
+    "curl -u sk_live_X1:", "curl -u KEY12345: -d a=b", "wget --password SECRETX1 x",
+    "mysql -u root -pSECRETX1 db", "curl -x user:SECRETX1@proxy:3128 https://x",
 ])
-def test_search_redacts_command_line_credentials(kms, text, shown):
+def test_search_shows_command_line_credentials_as_written(kms, text):
+    entry = _search_one(kms, text)
+    assert text in entry["snippet"], entry["snippet"]
+    assert text.replace("/", "-") in entry["name"], entry["name"]      # a file name has each '/' as '-'
+
+
+@pytest.mark.parametrize("text,secret", [
+    # A command example still loses a secret that a remaining rule finds: a header, a URL password,
+    # a secret parameter, a structured "--...password=" key.
+    ("curl -H 'Authorization: Bearer SECRETX1' https://x", "SECRETX1"),
+    ('curl -H "Authorization: Bearer SECRETX1" https://x', "SECRETX1"),
+    ("curl --oauth2-bearer 'ya29.a0AfH6SMBx9Qk2' https://x", "a0AfH6SMBx9Qk2"),
+    ("curl https://admin:SECRETX1@kms.example.com/x", "SECRETX1"),
+    ("curl -d 'access_token=SECRETX1' https://x", "SECRETX1"),
+    ("curl https://x/api?id=1&api_key=SECRETX1", "SECRETX1"),
+    ("curl -H 'X-Api-Key: SECRETX1' https://x", "SECRETX1"),
+    ("wget --password=SECRETX1 https://x", "SECRETX1"),
+])
+def test_search_redacts_credentials_a_remaining_rule_finds_in_command_examples(kms, text, secret):
     entry = _search_one(kms, text)
     for field in ("name", "snippet"):
-        # A file name has each '/' as '-' (one path segment).
-        assert (shown.replace("/", "-") if field == "name" else shown) in entry[field], (field, entry[field])
-        for secret in ("SECRETX1", "SECRETX2", "4eC39HqLyjWDarjtT1zdp7dc", "sk_live_X1", "KEY12345"):
-            assert secret not in entry[field], (field, entry[field])
+        assert secret not in entry[field], (field, entry[field])
+        assert entry[field].startswith("Guide " + text.split()[0] + " "), (field, entry[field])
 
 
 @pytest.mark.parametrize("text", ["rsync -u server:/data ./backup", "rsync -u backup01:/data/ ./data",
@@ -755,6 +750,11 @@ def test_search_still_decodes_terminated_entities(kms):
     ("<a>Home</a><a>Contact</a>", "Home Contact"),
     ("<b>Step 1</b><i>Open the app</i>", "Step 1 Open the app"),
     ("<b>Note:</b>Use the portal", "Note: Use the portal"),
+    # A tag right after ':' or '=' joins only what the author wrote without a space.
+    ("Note:<b>Read this</b>", "Note:Read this"),
+    ("Note: <b>Read this</b>", "Note: Read this"),
+    ("Step=<i>Open the app</i>", "Step=Open the app"),
+    ("Step = <i>Open the app</i>", "Step = Open the app"),
     # Inline tags inside one word still join it.
     ("Know<wbr>ledge base", "Knowledge base"),
 ])
@@ -801,9 +801,15 @@ def _keep(source, text, shown=None):
     return source, text, (), " ".join(text.split()) if shown is None else shown
 
 
-# Every must-redact and must-keep phrase of fix rounds 1-8, by source: rN = .cc10x/p3-fixes-N.md
+def _cli_dropped(source, text, shown=None):
+    """A former command-line must-redact, now a must-keep: CLI dropped (decision A, 2026-11-05)."""
+    return _keep(source + "-cli-dropped", text, shown)
+
+
+# Every must-redact and must-keep phrase of fix rounds 1-9, by source: rN = .cc10x/p3-fixes-N.md
 # (r1 = p3-fixes.md), rvN = the round-N review file, plus the forms of the existing test corpora.
-# Later user decisions win over earlier phrases: decision A (round 4) made authored prose a keep.
+# Later user decisions win over earlier phrases: decision A (round 4) made authored prose a keep, and
+# decision A of round 9 made credentials in command examples authored text ("-cli-dropped" ids).
 _REGRESSION_CORPUS = [
     # r1: fragments, ';', name spellings, repeated "&amp;", nested URLs, "[]" and an encoded '='.
     _redact("r1", _URL + f"#access_token={_SV}&token_type=bearer"),
@@ -1008,11 +1014,11 @@ _REGRESSION_CORPUS = [
     _redact("r6", f'“api_key": "{_SV}"'),
     _redact("r6", f'"api_key”: "{_SV}"'),
     _redact("r6", f'{{“password": "{_SV}"}}'),
-    _redact("r6", f"curl -u admin:{_SV} x", shown="curl -u admin:[redacted] x"),
-    _redact("r6", f"curl --user admin:{_SV} x", shown="curl --user admin:[redacted] x"),
-    _redact("r6", f"curl --user=admin:{_SV} x", shown="curl --user=admin:[redacted] x"),
-    _redact("r6", f"curl -uadmin:{_SV} x", shown="curl -uadmin:[redacted] x"),
-    _redact("r6", f"curl -u 'admin:{_SV}' x", shown="curl -u 'admin:[redacted]' x"),
+    _cli_dropped("r6", f"curl -u admin:{_SV} x"),
+    _cli_dropped("r6", f"curl --user admin:{_SV} x"),
+    _cli_dropped("r6", f"curl --user=admin:{_SV} x"),
+    _cli_dropped("r6", f"curl -uadmin:{_SV} x"),
+    _cli_dropped("r6", f"curl -u 'admin:{_SV}' x"),
     _keep("r6", "ls -u"),
     _keep("r6", "sort -u file"),
     _redact("r6", f"DB_PASS={_SV}"),
@@ -1033,23 +1039,22 @@ _REGRESSION_CORPUS = [
     _keep("rv6", "rsync -u backup01:/data/ ./data"),
     _keep("rv6", 'sqlmap -u "http://target/?id=1"'),
     _keep("rv6", "ffuf -u https://target/FUZZ"),
-    _redact("rv6", 'curl -u admin:"S3cr3t99" x', "S3cr3t99", shown='curl -u admin:"[redacted]" x'),
+    _cli_dropped("rv6", 'curl -u admin:"S3cr3t99" x'),
     # r7: the curl forms, and the "pass" names that name no service.
-    _redact("r7", f"curl -su admin:{_SV} x", shown="curl -su admin:[redacted] x"),
-    _redact("r7", f"curl -sku admin:{_SV} x", shown="curl -sku admin:[redacted] x"),
-    _redact("r7", f"curl -vu admin:{_SV} x", shown="curl -vu admin:[redacted] x"),
-    _redact("r7", "curl https://api.stripe.com/v1/charges -u sk_demo_4eC39HqLyjWDarjtT1zdp7dc:",
-            "4eC39HqLyjWDarjtT1zdp7dc", shown="-u [redacted]:"),
-    _redact("r7", "curl -u sk_live_X1:", "sk_live_X1", shown="curl -u [redacted]:"),
-    _redact("r7", "curl -u KEY12345: -d a=b", "KEY12345", shown="curl -u [redacted]: -d a=b"),
-    _redact("r7", f"curl -u admin:'{_SV}' x", shown="curl -u admin:'[redacted]' x"),
-    _redact("r7", f'curl -u admin:"{_SV}" x', shown='curl -u admin:"[redacted]" x'),
-    _redact("r7", "curl -u admin:'Sv1x9 Qk2xy' x", ("Sv1x9", "Qk2xy"), shown="curl -u admin:'[redacted]' x"),
-    _redact("r7", f"curl -U proxy:{_SV} x", shown="curl -U proxy:[redacted] x"),
-    _redact("r7", f"curl --proxy-user proxy:{_SV} x", shown="curl --proxy-user proxy:[redacted] x"),
-    _redact("r7", f"curl --proxy-user=proxy:{_SV} x", shown="curl --proxy-user=proxy:[redacted] x"),
-    _redact("r7", f'curl -u "admin:{_SV}" x', shown='curl -u "admin:[redacted]" x'),
-    _redact("r7", f"curl --user=reader:{_SV} -X GET", shown="curl --user=reader:[redacted] -X GET"),
+    _cli_dropped("r7", f"curl -su admin:{_SV} x"),
+    _cli_dropped("r7", f"curl -sku admin:{_SV} x"),
+    _cli_dropped("r7", f"curl -vu admin:{_SV} x"),
+    _cli_dropped("r7", "curl https://api.stripe.com/v1/charges -u sk_demo_4eC39HqLyjWDarjtT1zdp7dc:"),
+    _cli_dropped("r7", "curl -u sk_live_X1:"),
+    _cli_dropped("r7", "curl -u KEY12345: -d a=b"),
+    _cli_dropped("r7", f"curl -u admin:'{_SV}' x"),
+    _cli_dropped("r7", f'curl -u admin:"{_SV}" x'),
+    _cli_dropped("r7", "curl -u admin:'Sv1x9 Qk2xy' x"),
+    _cli_dropped("r7", f"curl -U proxy:{_SV} x"),
+    _cli_dropped("r7", f"curl --proxy-user proxy:{_SV} x"),
+    _cli_dropped("r7", f"curl --proxy-user=proxy:{_SV} x"),
+    _cli_dropped("r7", f'curl -u "admin:{_SV}" x'),
+    _cli_dropped("r7", f"curl --user=reader:{_SV} -X GET"),
     _redact("r7", f"SMTP_PASS={_SV}"),
     _redact("r7", f"smtpPass={_SV}"),
     _redact("r7", f"smtp-pass: {_SV}"),
@@ -1090,11 +1095,10 @@ _REGRESSION_CORPUS = [
     _redact("rv7", f"adminPass: {_SV}"),
     _redact("rv7", f'{{"adminPass": "{_SV}"}}'),
     _redact("rv7", f"emailPass={_SV}"),
-    _redact("rv7", "curl --ntlm -u 'CORP\\jdoe:Winter2026!' https://sp.example/x", "Winter2026",
-            shown="'CORP\\jdoe:[redacted]'"),
-    _redact("rv7", f"curl -u CORP\\\\jdoe:{_SV} x", shown="CORP\\\\jdoe:[redacted]"),
-    _redact("rv7", f'curl --user "CORP\\\\jdoe:{_SV}" x', shown='"CORP\\\\jdoe:[redacted]"'),
-    _redact("rv7", "curl -u josé:Winter2026 x", "Winter2026", shown="josé:[redacted]"),
+    _cli_dropped("rv7", "curl --ntlm -u 'CORP\\jdoe:Winter2026!' https://sp.example/x"),
+    _cli_dropped("rv7", f"curl -u CORP\\\\jdoe:{_SV} x"),
+    _cli_dropped("rv7", f'curl --user "CORP\\\\jdoe:{_SV}" x'),
+    _cli_dropped("rv7", "curl -u josé:Winter2026 x"),
     # r8 item 1: any upper-case env "..._PASS" key; lower-case names need a service word.
     *[_redact("r8", f"{name}={_SV}") for name in _UPPER_PASS_NAMES],
     _redact("r8", f"postgresPass: {_SV}"),
@@ -1104,14 +1108,14 @@ _REGRESSION_CORPUS = [
     _redact("r8", f"apiPass: {_SV}"),
     _redact("r8", f'{{"emailPass": "{_SV}"}}'),
     # r8 item 2: Windows and accented user names, an empty user, a quoted pair with a space.
-    _redact("r8", "curl --ntlm --user CORP\\\\jdoe:SECRETX1 x", "SECRETX1", shown="CORP\\\\jdoe:[redacted]"),
-    _redact("r8", 'curl -u "DOMAIN\\\\user:SECRETX1" x', "SECRETX1", shown='"DOMAIN\\\\user:[redacted]"'),
-    _redact("r8", "curl -u :SECRETPAT1 https://dev.azure.com/org/_apis", "SECRETPAT1", shown="-u :[redacted]"),
-    _redact("r8", 'curl -u ":SECRETPAT1" x', "SECRETPAT1", shown='-u ":[redacted]" x'),
-    _redact("r8", 'curl --user ":SECRETPAT1" x', "SECRETPAT1", shown='--user ":[redacted]" x'),
+    _cli_dropped("r8", "curl --ntlm --user CORP\\\\jdoe:SECRETX1 x"),
+    _cli_dropped("r8", 'curl -u "DOMAIN\\\\user:SECRETX1" x'),
+    _cli_dropped("r8", "curl -u :SECRETPAT1 https://dev.azure.com/org/_apis"),
+    _cli_dropped("r8", 'curl -u ":SECRETPAT1" x'),
+    _cli_dropped("r8", 'curl --user ":SECRETPAT1" x'),
     _keep("r8", "curl -u : https://x"),
     _keep("r8", "curl --user : https://x"),
-    _redact("r8", "curl -u 'admin:Pa ss' x", "Pa ss", shown="curl -u 'admin:[redacted]' x"),
+    _cli_dropped("r8", "curl -u 'admin:Pa ss' x"),
     # r8 item 3: "-U" and bundled clusters belong to curl; host paths, Maven goals and times are no pair.
     _keep("r8", "mvn -U spring-boot:run"),
     _keep("r8", "mvn -U dependency:tree"),
@@ -1150,13 +1154,73 @@ _REGRESSION_CORPUS = [
     _keep("r8", "Proxy-Pass: required"),
     _redact("r8", f"DB-PASS: {_SV}"),
     # r8 item 5: a ';' or ',' after an unquoted password is the shell's or the sentence's.
-    _redact("r8", f"curl -u admin:{_SV}; echo done", shown="curl -u admin:[redacted]; echo done"),
-    _redact("r8", f"curl -u admin:{_SV}, then run it", shown="curl -u admin:[redacted], then run it"),
-    # wget (in scope with curl): its password flags are structured "--...password=" keys.
+    _cli_dropped("r8", f"curl -u admin:{_SV}; echo done"),
+    _cli_dropped("r8", f"curl -u admin:{_SV}, then run it"),
+    # wget: its "--...password=" flags are structured keys, a remaining family, so they still go.
     _redact("r8", f"wget --user=admin --password={_SV} x", shown="wget --user=admin --password=[redacted] x"),
     _redact("r8", f"wget --http-user=a --http-password={_SV} x"),
     _redact("r8", f"wget --proxy-password={_SV} x"),
     _redact("r8", f"wget ftp://admin:{_SV}@host/x"),
+    # rv8 (round-8 review): the shape-varied command examples, now shown as written (decision A, round 9).
+    _cli_dropped("rv8", "curl -su admin:admin x"),
+    _cli_dropped("rv8", "curl -su admin:Welcome x"),
+    _cli_dropped("rv8", "curl -U proxy:Winter x"),
+    _cli_dropped("rv8", "curl -U proxyuser:Summer-Time x"),
+    _cli_dropped("rv8", "curl -u AKIAIOSFODNN7EXAMPLE:wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY https://x"),
+    _cli_dropped("rv8", "curl -u admin:Xk9+aB3/q2 x"),
+    _cli_dropped("rv8", "curl -X POST \\\n-u admin:Welcome \\\nhttps://x"),
+    _cli_dropped("rv8", "curl \\<br>-U proxy:Pr0xy2026 https://x", "curl \\ -U proxy:Pr0xy2026 https://x"),
+    _cli_dropped("rv8", "curl \\\n-u ADMIN:123456 https://x"),
+    _cli_dropped("rv8", "curl -u jane@example.com:YOUR_API_TOKEN https://x"),
+    _keep("rv8", "X-Auth-Token: Bearer\nnext"),                # round 6: a scheme word at a line end (once a crash)
+    # r9 item 1: the remaining shapes of the fix list, shown as written, and the families that still apply.
+    _cli_dropped("r9", f"wget --password {_SV} x"),
+    _cli_dropped("r9", f"wget --user admin --password {_SV} https://x"),
+    _cli_dropped("r9", f"curl --user admin:{_SV} --proxy-user proxy:{_SV} https://x"),
+    _cli_dropped("r9", f"mysql -u root -p{_SV} db"),
+    _cli_dropped("r9", f"curl -x user:{_SV}@proxy:3128 https://x"),
+    _redact("r9", f"curl -H 'Authorization: Bearer {_SV}' https://x", shown="Authorization: Bearer [redacted]"),
+    _redact("r9", f"curl https://user:{_SV}@kms.example.com/x", shown="curl https://user:[redacted]@kms"),
+    _redact("r9", f"curl -d 'access_token={_SV}' https://x", shown="curl -d 'access_token=[redacted]"),
+    _redact("r9", f'curl -H "X-Api-Key: {_SV}" https://x'),
+    # r9 item 2: a quoted Bearer token; an inline tag between a separator and its value.
+    _redact("r9", 'curl --oauth2-bearer "ya29.a0AfH6SMBx9Qk2" https://x', "a0AfH6SMBx9Qk2",
+            shown='--oauth2-bearer "[redacted]" https:'),
+    _redact("r9", f"curl --oauth2-bearer '{_SV}' https://x", shown="--oauth2-bearer '[redacted]' https:"),
+    _redact("r9", f'Authorization: "Bearer {_SV}abcd"', shown='Authorization: "Bearer [redacted]"'),
+    _keep("r9", "Bearer token-based authentication"),
+    _keep("r9", 'Bearer "token-based" authentication'),
+    _redact("r9", f'api_key: <span style="color:red">{_SV}</span>', shown="api_key: [redacted]"),
+    _redact("r9", f'api_key:<span style="color:red">{_SV}</span>'),
+    _redact("r9", f'{{"password":<b>"{_SV}"</b>}}'),
+    _redact("r9", f"https://admin:<b>{_SV}</b>@host/x", shown="https://admin:[redacted]@host"),
+    _redact("r9", f"https://admin:<span>{_SV}</span><span>@host</span>/x", shown="https://admin:[redacted]@host"),
+    _redact("r9", _URL + f"?token=<b>{_SV}</b>&lang=en", shown="lang=en"),
+    _keep("r9", "Note:<b>Read this</b>", "Note:Read this"),
+    _keep("r9", "Note: <b>Read this</b>", "Note: Read this"),
+    _keep("r9", "<b>Note:</b>Use the portal", "Note: Use the portal"),
+    _keep("r9", "Mail <b>me</b>@home", "Mail me@home"),     # read as the page shows it
+    # r9 item 3: placeholder shapes in a structured value.
+    _keep("r9", "api_key: YOUR_API_KEY"),
+    _keep("r9", '"apiKey": "YOUR_API_KEY"'),
+    _keep("r9", "API_KEY=your_api_key_here"),
+    _keep("r9", "api_key: &lt;your api key&gt;", "api_key: <your api key>"),
+    _keep("r9", "api_key: [your api key]"),
+    _keep("r9", "api_key: {your api key}"),
+    _keep("r9", "DB_PASS=${DB_PASS}"),
+    _keep("r9", "DB_PASSWORD=$DB_PASSWORD"),
+    _keep("r9", "set API_KEY=%API_KEY%"),
+    _keep("r9", "client_secret: MY_SECRET"),
+    _keep("r9", "auth_token=TOKEN_HERE"),
+    _keep("r9", "db_password: PASSWORD"),
+    _redact("r9", f"api_key: &lt;{_SV}", shown="api_key: [redacted]"),
+    _redact("r9", f"api_key: [{_SV} x]", ("Sv1x9Qk2",)),
+    _redact("r9", f"DB_PASS=$({_SV})"),
+    _redact("r9", f"api_key: YOUR_{_SV}"),
+    # r9 item 4: guards the depth of nested decoding (both fail with _MAX_SCRUB_DEPTH = 0).
+    _keep("r9", _URL + "?q=caf%C3%A9&lang=en"),
+    _redact("r9", _URL + f"?next=https%3A%2F%2Fkms.example.com%2Fx%3Fid%3D7%26token%3D{_SV}",
+            shown="x?id=7"),
 ]
 
 
@@ -1281,6 +1345,15 @@ _ADVERSARIAL = {
     "curl_unicode_users": _adversarial("-u josé:b "),
     "curl_trailing_punctuation": _adversarial("-u a:b; "),
     "curl_maven_goals": _adversarial("mvn -U a:b "),
+    # The forms added in fix round 9.
+    "quoted_bearer_words": _adversarial('Bearer "'),
+    "quoted_bearer_tokens": _adversarial("Bearer 'Ab1cdefgh' "),
+    "bracketed_placeholder_runs": _adversarial("api_key: <your api key "),
+    "bracketed_placeholder_opens": _adversarial("api_key: [a "),
+    "env_placeholder_runs": _adversarial("DB_PASS=${A"),
+    "env_placeholder_values": _adversarial("DB_PASS=$DB_PASS "),
+    "percent_placeholder_runs": _adversarial("API_KEY=%A"),
+    "caps_placeholder_values": _adversarial("api_key: YOUR_API_KEY_HERE "),
 }
 
 
@@ -1304,7 +1377,9 @@ _KEYS = ("api_key: ", "API_TOKEN=", "X-Auth-Token: ", '{"apiToken":', "auth_toke
          "ADMIN_PASS=", "Root-Pass: ", "proxy_pass: ", "curl -u :", "curl -U ", "mvn -U ", "-u 'CORP\\", "-u ")
 _WORDS = ("Bearer", "bearer", "Basic", "Token", "token", "password", "db-pass", "user:pass", "[redacted]",
           "eyJabcdef", "dXNlcjpwYXNz", "Sv1x9Qk2", '"Sv1x9Qk2"', '\\"Sv1x9Qk2\\"', "next", "@h",
-          "<password>", "{password}", "changeme", "xxxx", "Pa ss", "josé", "spring-boot:run", ";", ", x")
+          "<password>", "{password}", "changeme", "xxxx", "Pa ss", "josé", "spring-boot:run", ";", ", x",
+          "YOUR_API_KEY", "${DB_PASS}", "${", "$DB_PASS", "%API_KEY%", "<your api key>", "[your key]", 'Bearer "',
+          "Bearer '")
 
 
 def _fragment_pools():
@@ -1349,6 +1424,9 @@ _HTML_ADVERSARIAL = {
     "comparisons": _adversarial("a <= b "),
     "legacy_entities": _adversarial("&sect"),
     "long_entity_names": _adversarial("&" + "a" * 40),
+    "tags_after_separators": _adversarial(":<b>a"),
+    "tags_before_ats": _adversarial("a</b>@"),
+    "tag_runs_after_equals": "=" + _adversarial("<i></i>") + "x",
 }
 
 
