@@ -49,5 +49,8 @@ async def test_password_login_writes_naive_utc_last_login(monkeypatch):
     from app.core.auth import UserManager
 
     params = _capture(monkeypatch)
-    await UserManager.on_after_login(object.__new__(UserManager), type("U", (), {"id": "u1"})())
+    # on_after_login also records the password sign-in audit event, which
+    # reads the user's email, so the stand-in needs one like a real User.
+    user = type("U", (), {"id": "u1", "email": "user@example.com"})()
+    await UserManager.on_after_login(object.__new__(UserManager), user)
     _assert_naive_now(params)
