@@ -1165,17 +1165,19 @@ def _concerns_one_branch(failed: KmsHTTPError) -> bool:
             and not isinstance(failed, _LoginFailure))
 
 
-# ai_answers_item failures that answer for that one item (/public/item already proved access, so a
-# tenant without the AI module may refuse every ai call with a 403); "auth", "throttled", "unreachable"
-# and "redirect" concern every call.
+# ai_answers_item and scenario step failures that answer for that one item or step (/public/item, or
+# the scenario, already proved access, so a tenant without the AI module may refuse every ai call with
+# a 403); "auth", "throttled", "unreachable" and "redirect" concern every call.
 _AI_ITEM_FAILURES = frozenset(("not_found", "bad_request", "server", "no_data", "rejected", "forbidden",
                                "too_large"))
 
 
-def _ai_text_falls_back(failed: KmsHTTPError) -> bool:
-    """An ai text failure that answers for that item alone: an item kind, no gateway status, not from a login."""
+def _concerns_one_item(failed: KmsHTTPError) -> bool:
+    """An ai text or step failure about that item or step alone: an item kind, no gateway status, not a login."""
     return (failed.kind in _AI_ITEM_FAILURES and failed.status not in _GATEWAY_STATUSES
             and not isinstance(failed, _LoginFailure))
+
+
 _BAD_LIST_LIMIT = "The list limit must be a positive whole number."
 # A segment that already ends like a sibling suffix gets one of its own, so a
 # suffixed segment can never equal another folder's plain one.
@@ -1397,28 +1399,34 @@ def _visible_ai_elements(elements: list, visible: set) -> list:
 
     The ai payload carries its own permissions, so it may hold elements
     /public/item hides from this identity (r4); only the intersection is shown.
-    A repeated name is shown once, so it never renders its item HTML twice.
+    A repeated name is shown once, so it never renders its item HTML twice
+    (one debug line per read, the reason only, when any is skipped).
     """
-    shown, seen = [], set()
+    shown, seen, repeated = [], set(), False
     for element in elements:
         if (isinstance(element, dict) and element.get("element_type") != _IMAGE_FIELD
-                and isinstance(element.get("element_name"), str) and element["element_name"] in visible
-                and element["element_name"] not in seen):
+                and isinstance(element.get("element_name"), str) and element["element_name"] in visible):
+            if element["element_name"] in seen:
+                repeated = True
+                continue
             seen.add(element["element_name"])
             shown.append(element)
+    if repeated:
+        logger.debug("kms_lighthouse %s skipped: %s", "ai_text", "a repeated element name")
     return shown
 
 
 def _ai_element_text(element: dict, records: dict) -> str | None:
-    """One shown ai element's text; None when it is ambiguous and its item has no HTML for it (drop it).
+    """One shown ai element's text; None when its item has no HTML to render it from (drop it).
 
     Plain ai text is shown as written (scrubbed). Text with anything
     tag-shaped or a character reference (``_AMBIGUOUS_AI_TEXT_RE``) renders
     from the same item's /public/item HTML for that element instead, where
-    markup and an escaped "<placeholder>" are told apart.
+    markup and an escaped "<placeholder>" are told apart; so does a null or
+    blank text, which would leave a heading with nothing under it.
     """
     text = "" if element.get("element_text") is None else str(element["element_text"])
-    if _AMBIGUOUS_AI_TEXT_RE.search(text) is None:
+    if _AMBIGUOUS_AI_TEXT_RE.search(text) is None and _tidy_lines(text):
         return _plain_ai_text(text)
     value = records[element["element_name"]].get("value")
     if value is None:
@@ -1432,10 +1440,12 @@ def _ai_sections(elements, records: dict) -> list | None:
 
     ``records`` is ``_elements(item)`` of the same read: only its non-image
     names are shown, and an ambiguous element renders from its HTML there.
+    A fall back is logged with its reason only.
     """
     visible = {name for name, element in records.items() if element.get("type") != _IMAGE_FIELD}
     shown = _visible_ai_elements(elements, visible) if isinstance(elements, list) else []
     if not shown:
+        logger.debug("kms_lighthouse %s fell back: %s", "ai_text", "no element the item shows")
         return None
     by_tab: dict = {}
     for element in shown:
@@ -1444,9 +1454,138 @@ def _ai_sections(elements, records: dict) -> list | None:
             by_tab.setdefault(_line(element.get("tab_caption")) or None, []).append(
                 (_line(element.get("element_caption")), text))
     if not by_tab:
+        logger.debug("kms_lighthouse %s fell back: %s", "ai_text", "every shown element was dropped")
         return None
     general = by_tab.pop(None, None)
     return ([(_GENERAL, general)] if general else []) + list(by_tab.items())
+
+
+# A scenario (decision tree) read is bounded: steps rendered, step fetches and nesting depth.
+_MAX_SCENARIO_STEPS = 400
+_MAX_STEP_FETCHES = 40
+_MAX_SCENARIO_DEPTH = 25
+_SCENARIO_PARAMS = {"v": "2", "plainText": "true"}
+_TREE_TRUNCATED = "[tree truncated: some steps not shown]"
+_STEP_UNAVAILABLE = "(step not available)"
+_STEP_INDENT = "  "
+
+
+def _scenario_text(value) -> str:
+    """Step text or a label, asked for with plainText=true: plain text is shown as written (scrubbed).
+
+    Text with anything tag-shaped or a character reference
+    (``_AMBIGUOUS_AI_TEXT_RE``) is read as HTML, in case KMS ignored
+    plainText; anything but a string is no text.
+    """
+    text = value if isinstance(value, str) else ""
+    if _AMBIGUOUS_AI_TEXT_RE.search(text) is None:
+        return _plain_ai_text(text)
+    return _plain_text(text)
+
+
+def _scenario_line(value) -> str:
+    return _without_controls(_scenario_text(value))
+
+
+def _step_key(value) -> str | None:
+    """A step id as compared and sent (digits, no leading zeros), or None."""
+    raw = "" if value is None or isinstance(value, bool) else str(value)
+    return str(int(raw)) if _DIGITS_RE.fullmatch(raw) else None
+
+
+def _step_branches(step: dict) -> list:
+    """``(label, child id, inline child)`` per decision, then ``(None, id, child)`` per other child.
+
+    A decision key is ``<scenario>:<n>:<child stepId>``; its child is the
+    inline record ``children[<stepId>]`` when there is one, else None (to be
+    fetched). A child no decision names is a continuation step.
+    """
+    children = step.get("children") if isinstance(step.get("children"), dict) else {}
+    inline = [(_step_key(key), child) for key, child in children.items() if isinstance(child, dict)]
+    by_id = {}
+    for child_id, child in inline:
+        if child_id is not None:
+            by_id.setdefault(child_id, child)
+    decisions = step.get("decisions") if isinstance(step.get("decisions"), dict) else {}
+    branches, named = [], set()
+    for key, label in decisions.items():
+        child_id = _step_key(str(key).rpartition(":")[2])
+        named.add(child_id)
+        branches.append((_scenario_line(label), child_id, by_id.get(child_id)))
+    return branches + [(None, child_id, child) for child_id, child in inline
+                       if child_id is None or child_id not in named]
+
+
+def _render_scenario(root: dict, fetch_step) -> list:
+    """``data.steps`` as indented lines, depth first, in the order KMS gives.
+
+    A step shows its ``stepName`` (else ``stepNodeText``, unless that only
+    repeats the option label that leads to it), its ``text`` and
+    ``stepRemark``, and ``Image: <url>`` with the token parameters removed.
+    Each decision is ``- "<label>" ->`` with its child one level in; a
+    continuation child stays at its parent's level. A child that is not
+    inline comes from ``fetch_step(step id)`` (a record, or None when it is
+    not available). A step id seen before renders ``(see step "<name>"
+    above)`` and is never fetched again. Past ``_MAX_SCENARIO_STEPS`` steps,
+    ``_MAX_STEP_FETCHES`` fetches or ``_MAX_SCENARIO_DEPTH`` levels the tree
+    is cut and ``_TREE_TRUNCATED`` ends it. Linear: each step is rendered once.
+    """
+    lines, seen, names = [], set(), {}
+    rendered = fetches = 0
+    truncated = False
+    # ("line", text) or ("step", record or None to fetch, step id, depth, label that leads to it).
+    stack = [("step", root, _step_key(root.get("stepId")), 0, None)]
+    while stack:
+        entry = stack.pop()
+        if entry[0] == "line":
+            lines.append(entry[1])
+            continue
+        _, step, step_id, depth, label = entry
+        indent = _STEP_INDENT * depth
+        if step_id is not None and step_id in seen:
+            name = names.get(step_id)
+            lines.append(indent + (f'(see step "{name}" above)' if name else "(see step above)"))
+            continue
+        if rendered >= _MAX_SCENARIO_STEPS:
+            truncated = True
+            break
+        if depth > _MAX_SCENARIO_DEPTH:
+            truncated = True
+            continue
+        if step is None:
+            if step_id is None:
+                lines.append(indent + _STEP_UNAVAILABLE)
+                continue
+            if fetches >= _MAX_STEP_FETCHES:
+                truncated = True
+                continue
+            fetches += 1
+            step = fetch_step(step_id)
+            if step is None:
+                lines.append(indent + _STEP_UNAVAILABLE)
+                continue
+        rendered += 1
+        name = _scenario_line(step.get("stepName")) or _scenario_line(step.get("stepNodeText"))
+        if step_id is not None:
+            seen.add(step_id)
+            names[step_id] = name
+        if name and name != label:
+            lines.append(indent + name)
+        for field in ("text", "stepRemark"):
+            lines += [indent + line if line else "" for line in _scenario_text(step.get(field)).splitlines()]
+        image = _line(step.get("image")) if isinstance(step.get("image"), str) else ""
+        if image:
+            lines.append(f"{indent}Image: {image}")
+        pending = []
+        for option, child_id, child in _step_branches(step):
+            if option is None:
+                pending.append(("step", child, child_id, depth, None))
+            else:
+                pending += [("line", f'{indent}- "{option}" ->'), ("step", child, child_id, depth + 1, option)]
+        stack += reversed(pending)
+    if truncated:
+        lines.append(_TREE_TRUNCATED)
+    return lines
 
 
 def planner_scope_note(config: dict) -> str:
@@ -2246,7 +2385,7 @@ class KmsLighthouseClient(DataSourceClient):
         """The ai-ready sections of this read, or None to fall back to the item HTML.
 
         ``/public/item`` has already proved this identity may read the item,
-        so a failure about this one item (``_ai_text_falls_back``: a 4xx, a
+        so a failure about this one item (``_concerns_one_item``: a 4xx, a
         plain 500, an empty, non-JSON or ERROR answer) falls back, for this
         read alone. Anything that concerns every call raises: a failed login,
         a refused session, throttling, a redirect, an unreachable KMS or a
@@ -2262,28 +2401,63 @@ class KmsLighthouseClient(DataSourceClient):
             failed = exc
         # Raised outside the except block, so nothing rides along as context.
         if failed is not None:
-            if not _ai_text_falls_back(failed):
+            if not _concerns_one_item(failed):
                 raise failed
             logger.debug("kms_lighthouse %s fell back: %s", "ai_text", failed.kind)
             return None
         if not isinstance(payload, dict) or ("item_id" in payload and not _same_id(payload["item_id"], digits)):
             logger.debug("kms_lighthouse %s fell back: %s", "ai_text", "not the item asked for")
             return None
-        sections = _ai_sections(payload.get("elements"), records)
-        if sections is None:
-            logger.debug("kms_lighthouse %s fell back: %s", "ai_text", "no element the item shows")
-        return sections
+        return _ai_sections(payload.get("elements"), records)
 
     def _read_scenario(self, digits: str) -> DocumentText:
-        """A scenario's header lines (the decision tree is rendered by a later phase)."""
+        """A scenario: its header lines, then its decision tree (``_render_scenario``) under "## Steps".
+
+        No steps (absent, null, ``{}`` or ``[]``) is the header alone; any
+        other shape that is not a record fails closed.
+        """
         payload = self._request("scenario", f"/public/scenario/{digits}", missing="not_found",
-                                params={"v": "2", "plainText": "true"}, headers={"Accept": _SCENARIO_ACCEPT})
+                                params=_SCENARIO_PARAMS, headers={"Accept": _SCENARIO_ACCEPT})
         data = payload.get("data") if isinstance(payload, dict) else None
         if not isinstance(data, dict) or not _same_id(data.get("id"), digits):
             logger.debug("kms_lighthouse %s refused: %s", "scenario", "not the scenario asked for")
             raise KmsHTTPError(200, "server")
         if self._hidden(data):
             raise KmsHTTPError(404, "not_found")
+        steps = data.get("steps")
+        if steps is not None and steps != [] and not isinstance(steps, dict):
+            logger.debug("kms_lighthouse %s refused: %s", "scenario", "steps is not a record")
+            raise KmsHTTPError(200, "server")
         lines = _header(data.get("title"), f"scenario (scenario:{digits})", data)
+        if steps:
+            lines += ["", "## Steps"] + _render_scenario(steps, functools.partial(self._fetch_step, digits))
         return DocumentText("\n".join(lines), raw=None, name=_safe_title(data.get("title")) + ".txt",
                             mime="text/plain")
+
+    def _fetch_step(self, digits: str, step_id: str) -> dict | None:
+        """One step of scenario ``digits`` from the step endpoint, or None when it is not available.
+
+        The scenario itself was read, so a failure about this one step
+        (``_concerns_one_item``) or an answer for another scenario or step is
+        None, logged with its kind or reason only; anything that concerns
+        every call raises.
+        """
+        payload, failed = None, None
+        try:
+            payload = self._request("step", f"/public/scenario/{digits}/step/{step_id}", missing="not_found",
+                                    params=_SCENARIO_PARAMS, headers={"Accept": _SCENARIO_ACCEPT})
+        except KmsHTTPError as exc:
+            failed = exc
+        # Raised outside the except block, so nothing rides along as context.
+        if failed is not None:
+            if not _concerns_one_item(failed):
+                raise failed
+            logger.debug("kms_lighthouse %s dropped: %s", "step", failed.kind)
+            return None
+        data = payload.get("data") if isinstance(payload, dict) else None
+        step = data.get("steps") if isinstance(data, dict) else None
+        if (not isinstance(step, dict) or not _same_id(data.get("id"), digits)
+                or _step_key(step.get("stepId")) != step_id):
+            logger.debug("kms_lighthouse %s dropped: %s", "step", "not the step asked for")
+            return None
+        return step

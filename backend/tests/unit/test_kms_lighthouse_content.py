@@ -997,7 +997,7 @@ def test_every_ambiguous_ai_element_dropped_falls_back_to_item_html(kms, monkeyp
     assert "Open the agent desk." in _sections(text)["Processes"]
     assert "dropped-marker-3e71" not in text and "AI draft" not in text
     lines = [r.getMessage() for r in caplog.records if r.name == kc.logger.name and "fell back" in r.getMessage()]
-    assert lines == ["kms_lighthouse ai_text fell back: no element the item shows"]
+    assert lines == ["kms_lighthouse ai_text fell back: every shown element was dropped"]
 
 
 def test_a_repeated_ai_element_name_is_shown_once(kms, monkeypatch):
@@ -1009,6 +1009,50 @@ def test_a_repeated_ai_element_name_is_shown_once(kms, monkeypatch):
     text = client(kms).read_file("item:279")
     assert text.count("### Summary") == 1 and "repeat-marker-8a41" not in text
     assert "### Summary\nAI summary: verify the caller, then reset.\n" in _sections(text)["Overview"]
+
+
+def test_a_skipped_repeated_ai_element_name_is_logged_by_reason_only(kms, monkeypatch, caplog):
+    mock = kms["mock"]
+    caplog.set_level(logging.DEBUG, logger=kc.logger.name)
+    elements = mock.AI_ITEMS["279"]["elements"]
+    repeats = [dict(elements[0], element_text=f"Copy {n} repeat-marker-8a41") for n in range(2)]
+    monkeypatch.setitem(mock.AI_ITEMS["279"], "elements", [elements[0], *repeats, *elements[1:]])
+    text = client(kms).read_file("item:279")
+    assert "repeat-marker-8a41" not in text and "AI summary: verify the caller, then reset." in text
+    messages = [r.getMessage() for r in caplog.records if r.name == kc.logger.name]
+    # One line per read, the reason only: no element name, no text.
+    assert [m for m in messages if "repeated" in m] == ["kms_lighthouse ai_text skipped: a repeated element name"]
+    assert not [m for m in messages if "E_SUMMARY" in m or "repeat-marker" in m]
+
+
+@pytest.mark.parametrize("missing", [None, "", "  \n\t  "], ids=["null", "empty", "blank"])
+def test_an_ai_element_with_no_text_renders_from_its_item_html(kms, monkeypatch, missing):
+    mock = kms["mock"]
+    # No ai text is no reason to show a heading with nothing under it: the element renders from its item
+    # HTML, as an ambiguous one does; the other element keeps its ai text.
+    elements = [dict(e, element_text=missing) if e["element_name"] == "E_SUMMARY" else e
+                for e in mock.AI_ITEMS["279"]["elements"]]
+    monkeypatch.setitem(mock.AI_ITEMS["279"], "elements", elements)
+    sections = _sections(client(kms).read_file("item:279"))
+    assert "### Summary\nItem summary: verify the caller first.\n" in sections["Overview"]
+    assert "### Links\nAI links." in sections["Processes"]
+
+
+@pytest.mark.parametrize("missing", [None, "", "  \n\t  "], ids=["null", "empty", "blank"])
+def test_ai_elements_with_no_text_and_no_item_html_fall_back_to_item_html(kms, monkeypatch, caplog, missing):
+    mock = kms["mock"]
+    caplog.set_level(logging.DEBUG, logger=kc.logger.name)
+    # Every shown element has no ai text and no item value: nothing is left of the ai answer, so the read
+    # falls back to the item HTML instead of showing headings with no text.
+    monkeypatch.setitem(mock.AI_ITEMS["279"], "elements", [
+        dict(e, element_text=missing) for e in mock.AI_ITEMS["279"]["elements"]])
+    for name in ("E_SUMMARY", "E_LINKS"):
+        element = {k: v for k, v in mock.ITEMS["279"]["elements"][name].items() if k != "value"}
+        monkeypatch.setitem(mock.ITEMS["279"]["elements"], name, element)
+    text = client(kms).read_file("item:279")
+    assert "Open the agent desk." in _sections(text)["Processes"]
+    lines = [r.getMessage() for r in caplog.records if r.name == kc.logger.name and "fell back" in r.getMessage()]
+    assert lines == ["kms_lighthouse ai_text fell back: every shown element was dropped"]
 
 
 # A no-break space (U+00A0, "&nbsp;" in HTML) between a structured key and its value. Made-up values.
@@ -1327,7 +1371,9 @@ def test_bare_id_falls_back_to_scenario_once(kms):
     assert "Kind: scenario (scenario:21302)" in text.splitlines()
     assert text.splitlines()[0] == "Title: How to Register for Advanced Credit Card Security"
     assert text.name == "How to Register for Advanced Credit Card Security.txt"
-    assert len(_rows(kms, "/public/item/21302")) == 1 and len(_scenario_rows(kms)) == 1
+    assert '- "Yes" ->' in text.splitlines()              # rendered as a scenario, tree and all
+    # One scenario request (its step fetches are scenario rows too, so count the scenario path alone).
+    assert len(_rows(kms, "/public/item/21302")) == 1 and len(_rows(kms, "/public/scenario/21302")) == 1
     # An explicit item id never switches kind.
     mock.REQUEST_LOG.clear()
     with pytest.raises(kc.KmsHTTPError) as info:
@@ -1343,6 +1389,194 @@ def test_bare_id_falls_back_to_scenario_once(kms):
     mock.REQUEST_LOG.clear()
     assert "Kind: article (T_PROCEDURE)" in client(kms).read_file("279").splitlines()
     assert _scenario_rows(kms) == []
+
+
+# ------------------------------------------------------------------ read scenario
+_V2_ACCEPT = "application/vnp.kms-api.v2+json"
+_TRUNCATED = "[tree truncated: some steps not shown]"
+_NOT_AVAILABLE = "(step not available)"
+# Scenario 21302 as an agent reads it, worked out by hand from the mock (PDF shape): "Yes" (23506) and
+# "MasterCard" (23498) come from step fetches, "No" and "Visa" are inline; an option step whose name is
+# its label shows no name line; images keep their path; the "No" step's HTML text becomes plain lines
+# and its bare URL loses only the token.
+_SCENARIO_21302_TREE = """\
+## Steps
+Have you registered for advanced security?
+Image: https://kms.example.com/file-service/archive/file/47fe1d9f.jpg/contents
+- "Yes" ->
+  Which type of card do you have?
+  Image: https://kms.example.com/file-service/archive/file/a506b7e1.jpg/contents
+  - "Visa" ->
+    Register the Visa card in the card portal.
+  - "MasterCard" ->
+    Call the MasterCard desk to register.
+- "No" ->
+  Call the bank on 1-800-555-0100 to register.
+  Form: https://kms.example.com/contents?id=7"""
+
+
+def _step_rows(kms):
+    return [row for row in kms["mock"].REQUEST_LOG if "/step/" in row[2]]
+
+
+def _tree(text):
+    """The rendered decision tree: from the "## Steps" line to the end."""
+    return text[text.index("## Steps"):]
+
+
+@pytest.mark.parametrize("make", [client, token_client])
+def test_read_scenario_renders_decision_tree(kms, make):
+    text = make(kms).read_file("scenario:21302")
+    lines = text.splitlines()
+    assert lines[0] == "Title: How to Register for Advanced Credit Card Security"
+    assert {"Kind: scenario (scenario:21302)", "Updated: 2024-05-09T12:57:56"} <= set(lines)
+    assert text.name == "How to Register for Advanced Credit Card Security.txt"
+    # Every option label and child step, nested by indentation, after one blank line under the header.
+    assert text.endswith("\n\n" + _SCENARIO_21302_TREE)
+    assert "<" not in text and "&amp;" not in text
+
+
+def test_scenario_child_steps_are_fetched_when_not_inline(kms):
+    mock = kms["mock"]
+    text = client(kms).read_file("scenario:21302")
+    steps = [r for r in mock.STATE["scenario_requests"] if "/step/" in r["path"]]
+    # Only the children that are not inline are fetched, once each, from this scenario.
+    assert sorted(r["path"] for r in steps) == [mock.PREFIX + "/public/scenario/21302/step/23498",
+                                                mock.PREFIX + "/public/scenario/21302/step/23506"]
+    assert len(mock.STATE["scenario_requests"]) == 3
+    assert all((r["v"], r["plainText"]) == ("2", "true") for r in mock.STATE["scenario_requests"])
+    assert "Which type of card do you have?" in text and "Call the MasterCard desk to register." in text
+
+
+def test_scenario_image_tokens_are_stripped(kms):
+    mock = kms["mock"]
+    text = client(kms).read_file("scenario:21302")
+    # The image paths stay (the root step's and one inside a fetched step); only the token goes.
+    assert "Image: https://kms.example.com/file-service/archive/file/47fe1d9f.jpg/contents\n" in text
+    assert "Image: https://kms.example.com/file-service/archive/file/a506b7e1.jpg/contents\n" in text
+    assert text.endswith("Form: https://kms.example.com/contents?id=7")     # the bare URL in step text
+    for secret in mock.SCENARIO_SECRETS.values():
+        assert secret not in text
+    assert "token=" not in text and "eyJ" not in text
+
+
+def test_scenario_caps_and_cycles(kms):
+    mock = kms["mock"]
+    c = client(kms)
+    # A step that comes back (inline, or inside a fetched step) is named, not rendered again or fetched.
+    cycle = c.read_file("scenario:21400")
+    assert '(see step "Is the card blocked?" above)' in cycle and '(see step "Unblock the card" above)' in cycle
+    assert cycle.count("Unblock the card") == 2 and _TRUNCATED not in cycle
+    assert [row[2].rsplit("/", 1)[-1] for row in _step_rows(kms)] == ["30003"]
+    # A tree deeper than 25 levels stops there, with the marker last.
+    mock.REQUEST_LOG.clear()
+    deep = c.read_file("scenario:21500")
+    assert "\n" + "  " * 25 + "Level 25 question\n" in deep and "Level 26 question" not in deep
+    assert deep.endswith("\n" + _TRUNCATED)
+    assert _rows(kms, "/public/scenario/21500") and _step_rows(kms) == []      # all inline: no fetch
+    # Children that all need a fetch: at most 40 step fetches per read, then the marker.
+    mock.REQUEST_LOG.clear()
+    wide = c.read_file("scenario:21501")
+    assert len(_step_rows(kms)) == 40
+    assert "Branch 0 step." in wide and "Branch 39 step." in wide and "Branch 40 step." not in wide
+    assert wide.endswith("\n" + _TRUNCATED)
+
+
+def test_scenario_node_cap_truncates(kms):
+    text = client(kms).read_file("scenario:21502")
+    shown = [line for line in text.splitlines() if re.fullmatch(r" *Option [0-9]+ step\.", line)]
+    assert len(shown) == 399                     # 400 steps, the root one included
+    assert text.endswith("\n" + _TRUNCATED) and _step_rows(kms) == []
+
+
+@pytest.mark.parametrize("path", ["/public/scenario/21302", "/public/scenario/21302/step/23506"])
+def test_scenario_request_sends_v2_accept_header(kms, path):
+    mock = kms["mock"]
+    url = kms["base_url"] + mock.PREFIX + path
+    auth = {"Authorization": "Bearer " + next(t for t, u in mock.TOKENS.items() if u == "alice")}
+    params = {"v": "2", "plainText": "true"}
+    # The mock is faithful to the PDF: both scenario endpoints refuse any other Accept header.
+    for accept in (None, "application/json", "*/*"):
+        headers = dict(auth, **({"Accept": accept} if accept else {}))
+        assert requests.get(url, params=params, headers=headers, timeout=5).status_code == 406, accept
+    assert requests.get(url, params=params, headers=dict(auth, Accept=_V2_ACCEPT), timeout=5).status_code == 200
+    # The client sends it on the scenario request and on every step fetch.
+    before = len(mock.STATE["scenario_requests"])
+    assert "Which type of card do you have?" in client(kms).read_file("scenario:21302")
+    sent = mock.STATE["scenario_requests"][before:]
+    assert len(sent) == 3 and {r["accept"] for r in sent} == {_V2_ACCEPT}
+
+
+@pytest.mark.parametrize("answer,kind", [(404, "not_found"), (403, "forbidden"), (400, "bad_request"),
+                                         (500, "server"), ("error", "not_found"),
+                                         ("wrong_step", "not the step asked for")])
+def test_a_scenario_step_that_fails_for_itself_is_not_available(kms, caplog, answer, kind):
+    mock = kms["mock"]
+    caplog.set_level(logging.DEBUG, logger=kc.logger.name)
+    # The scenario itself was read, so a failure about this one step is shown in its place.
+    mock.STATE["step_status"] = {"23506": answer}
+    tree = _tree(client(kms).read_file("scenario:21302"))
+    assert f'- "Yes" ->\n  {_NOT_AVAILABLE}\n- "No" ->\n  Call the bank on 1-800-555-0100 to register.' in tree
+    assert "Which type of card" not in tree
+    lines = [r.getMessage() for r in caplog.records if r.name == kc.logger.name and "step dropped" in r.getMessage()]
+    assert lines == [f"kms_lighthouse step dropped: {kind}"]          # the kind or reason only
+
+
+@pytest.mark.parametrize("make,answer,status,kind", [
+    (client, 429, 429, "throttled"), (client, 502, 502, "server"), (client, 503, 503, "server"),
+    (client, 504, 504, "server"), (token_client, 401, 401, "auth"), (token_client, 302, 302, "redirect"),
+    (client, 401, 401, "auth"), (client, "login_500", 500, "server"),
+], ids=["429", "502", "503", "504", "token_401", "token_302", "session_refused_401", "login_500"])
+def test_a_scenario_step_failure_about_the_service_fails_the_read(kms, make, answer, status, kind):
+    mock = kms["mock"]
+    make(kms).read_file("item:301")               # logs in (userpass); the session is pooled
+    if answer == "login_500":
+        # The session expires at the step fetch and the re-login fails: a login outage, not this step.
+        mock.STATE["expire_sessions_at"] = "scenario_step"
+        mock.STATE["login_status"] = 500
+    else:
+        mock.STATE["step_status"] = {"23506": answer}
+    with pytest.raises(kc.KmsHTTPError) as info:
+        make(kms).read_file("scenario:21302")
+    assert (info.value.status, info.value.kind) == (status, kind)
+    assert info.value.__context__ is None and info.value.__cause__ is None
+
+
+@pytest.mark.parametrize("steps", [None, {}, []], ids=["null", "empty_map", "empty_list"])
+def test_a_scenario_without_steps_is_header_only(kms, monkeypatch, steps):
+    mock = kms["mock"]
+    monkeypatch.setitem(mock.SCENARIOS["21302"], "steps", steps)
+    text = client(kms).read_file("scenario:21302")
+    assert text.splitlines()[0] == "Title: How to Register for Advanced Credit Card Security"
+    assert "## Steps" not in text and "Kind: scenario (scenario:21302)" in text.splitlines()
+    assert _step_rows(kms) == []
+
+
+@pytest.mark.parametrize("steps", ["odd", ["odd"], 7])
+def test_a_scenario_whose_steps_are_not_a_record_fails_closed(kms, monkeypatch, steps):
+    mock = kms["mock"]
+    monkeypatch.setitem(mock.SCENARIOS["21302"], "steps", steps)
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms).read_file("scenario:21302")
+    assert (info.value.status, info.value.kind) == (200, "server")
+    assert "odd" not in str(info.value) and info.value.__context__ is None
+
+
+def test_odd_scenario_step_shapes_never_fail_the_read(kms, monkeypatch):
+    mock = kms["mock"]
+    # Odd values inside the tree are skipped, and an option whose step id is not digits is never fetched;
+    # a child that is not a record is not inline, so it is fetched (the mock does not know it).
+    monkeypatch.setitem(mock.SCENARIOS["21302"], "steps", {
+        "stepId": "x1", "stepName": ["odd"], "text": 7, "image": {"odd": 1}, "stepRemark": None,
+        "decisions": {"21302:2:abc": "Bad id", "21302:2:23515": None, "21302:2:23516": "Odd child"},
+        "children": {"23515": {"stepNodeText": "No", "text": "Inline answer."}, "23516": "not a record",
+                     "zz": None}})
+    tree = _tree(client(kms).read_file("scenario:21302"))
+    assert tree == ("## Steps\n"
+                    f'- "Bad id" ->\n  {_NOT_AVAILABLE}\n'
+                    '- "" ->\n  No\n  Inline answer.\n'
+                    f'- "Odd child" ->\n  {_NOT_AVAILABLE}')
+    assert [row[2] for row in _step_rows(kms)] == [mock.PREFIX + "/public/scenario/21302/step/23516"]
 
 
 @pytest.mark.parametrize("method", ["read_file", "read_raw_bytes"])
@@ -1381,6 +1615,15 @@ def test_read_raw_bytes_respects_max_bytes(kms):
         c.read_raw_bytes("item:279", max_bytes=len(data) - 1)
     assert "279" not in str(info.value)
     assert info.value.__context__ is None and info.value.__cause__ is None
+
+
+@pytest.mark.parametrize("max_bytes", [None, 0])
+def test_read_raw_bytes_without_a_byte_limit_returns_the_whole_text(kms, max_bytes):
+    # The shared convention (the Google Drive and Graph clients: `if max_bytes and ...`): 0 sets no limit.
+    c = client(kms)
+    data, name, _ = c.read_raw_bytes("item:279", max_bytes=max_bytes)
+    assert data and data == c.read_file("item:279").encode("utf-8")
+    assert name == "Reset a customer password [redacted].txt"
 
 
 @pytest.mark.parametrize("value,shown", [

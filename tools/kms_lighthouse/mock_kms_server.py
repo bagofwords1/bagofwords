@@ -14,6 +14,11 @@ Public API Documentation 5.0 and the public username/password login:
   GET  {PREFIX}/ai_answers_item             ?itemId&version&language -> the AI-ready text (AI_ITEMS); 404
                                             for an unknown item, 400 when version or language do not match
   GET  {PREFIX}/public/scenario/{id}        a scenario (SCENARIOS); HTTP 200 {"status": "ERROR"} when unknown
+  GET  {PREFIX}/public/scenario/{id}/step/{stepId}
+                                            one step of a scenario as data.steps (SCENARIO_STEPS), its own
+                                            children inline; HTTP 200 {"status": "ERROR"} when unknown
+                                            Both scenario routes answer 406 unless the request sends
+                                            "Accept: application/vnp.kms-api.v2+json" (the PDF's header).
 
 Faithfulness rules enforced on purpose:
   - A rejected login answers a bare HTTP 400 with no body.
@@ -70,13 +75,24 @@ Test-only switches and routes (not part of the KMS API):
     the same links as plain text, with a raw '&'), and its AI text
     adds an element (E_RESTRICTED, RESTRICTED_MARKER) that /public/item does
     not return. Item 21302 exists only as a scenario.
+  - Scenarios: every request to a scenario route appends its path, v, plainText
+    and Accept header to STATE["scenario_requests"] (also one answered 406).
+    STATE["step_status"] maps a stepId (a digit string) to an HTTP status (an
+    int, 200-599, answered with no body), "error" (a 200 {"status": "ERROR"})
+    or "wrong_step" (the answer for another step). Scenario 21302 is shaped
+    like the PDF (its "Yes" and "MasterCard" children need a step fetch, "No"
+    and "Visa" are inline; image URLs and one step's HTML text carry tokens,
+    SCENARIO_SECRETS); 21400 comes back to its own steps (a cycle); 21500 is
+    60 levels deep, all inline; 21501 has 60 children that all need a fetch;
+    21502 has 450 inline children.
   - STATE["odd_shapes"] = "bad_elements": /public/item answers item 279 with
     an `elements` value that is a list, not a map of records.
   - STATE["login_status"] = N (an int, 200-599): POST /login answers HTTP N
     with no body (still counted in "login_count").
-  - STATE["expire_sessions_at"] = "<parentId>" or "ai_answers_item": while it
-    is set, every tree call for that parentId, or every /ai_answers_item
-    call (a client's retry after a re-login too), first expires every
+  - STATE["expire_sessions_at"] = "<parentId>", "ai_answers_item" or
+    "scenario_step": while it is set, every tree call for that parentId, every
+    /ai_answers_item call or every scenario step call (a client's retry after
+    a re-login too), first expires every
     session /login opened (expire_sessions; pasted API tokens stay valid),
     so a userpass client's call answers 401, or 302 with expired_response.
   - GET {PREFIX}/_mock/empty              HTTP 200 with an empty body
@@ -269,13 +285,78 @@ AI_ITEMS = {
             ]},
 }
 
+# Planted in scenario image URLs and step text; none may reach client output. Made-up test values.
+SCENARIO_SECRETS = {
+    "root_image": "eyJhbGciOiJub25lIn0.eyJzdWIiOiJzY2VuYXJpby1yb290In0.bW9jay1yb290LWltYWdlLXNpZw",
+    "step_image": "eyJhbGciOiJub25lIn0.eyJzdWIiOiJzY2VuYXJpby1zdGVwIn0.bW9jay1zdGVwLWltYWdlLXNpZw",
+    "step_url": "mock-step-url-token-6e2a90",
+}
+
+
+def _step(step_id, name="", node="", text="", image="", decisions=None, children=None):
+    """One scenario step (PDF shape); ``decisions`` keys are "<scenario>:2:<child stepId>"."""
+    return {"text": text, "decisions": decisions or {}, "stepName": name, "stepRemark": "", "stepNodeText": node,
+            "stepId": step_id, "image": image, "imageSvg": "", "selected": None, "selectCause": None,
+            "links": {}, "children": children or {}}
+
+
+def _image(name, token):
+    return f"https://kms.example.com/file-service/archive/file/{name}.jpg/contents?token={token}"
+
+
+def _scenario(scenario_id, title, steps):
+    return {"id": scenario_id, "title": title, "notes": "", "description": None, "updatedBy": "290",
+            "updatedDate": "2024-05-09 12:57:56.0", "steps": steps, "relatedItems": [], "choiceDisplay": "buttons"}
+
+
+_NO_STEP_HTML = ("<p>Call the bank on <b>1-800-555-0100</b> to register.</p>"
+                 f"<p>Form: https://kms.example.com/contents?id=7&amp;token={SCENARIO_SECRETS['step_url']}</p>")
+
+
+def _deep_chain(levels):
+    """Scenario 21500: one inline child per level, ``levels`` levels deep (built from the bottom up)."""
+    step = _step(50000 + levels - 1, name=f"Level {levels - 1} question")
+    for level in range(levels - 2, -1, -1):
+        step = _step(50000 + level, name=f"Level {level} question",
+                     decisions={f"21500:2:{50000 + level + 1}": f"Go deeper {level + 1}"},
+                     children={str(50000 + level + 1): step})
+    return step
+
+
 # /public/scenario bodies; 21302 has no /public/item (a bare-digit read finds it only through the fallback).
 SCENARIOS = {
-    "21302": {"id": 21302, "title": "How to Register for Advanced Credit Card Security", "notes": "",
-              "description": None, "updatedDate": "2024-05-09 12:57:56.0",
-              "steps": {"text": "", "decisions": {}, "stepName": "Have you registered for advanced security?",
-                        "stepRemark": "", "stepNodeText": "", "stepId": 23505, "image": "", "children": {}}},
+    "21302": _scenario(21302, "How to Register for Advanced Credit Card Security", _step(
+        23505, name="Have you registered for advanced security?",
+        image=_image("47fe1d9f", SCENARIO_SECRETS["root_image"]),
+        decisions={"21302:2:23506": "Yes", "21302:2:23515": "No"},
+        children={"23515": _step(23515, node="No", text=_NO_STEP_HTML)})),
+    "21400": _scenario(21400, "Blocked card check", _step(
+        30001, name="Is the card blocked?",
+        decisions={"21400:2:30002": "Yes", "21400:2:30003": "Not sure", "21400:2:30001": "Start again"},
+        children={"30002": _step(30002, name="Unblock the card", node="Yes",
+                                 decisions={"21400:2:30001": "Back to the start"})})),
+    "21500": _scenario(21500, "Deep scenario", _deep_chain(60)),
+    "21501": _scenario(21501, "Wide fetched scenario", _step(
+        51099, name="Pick a branch", decisions={f"21501:2:{51000 + n}": f"Branch {n}" for n in range(60)})),
+    "21502": _scenario(21502, "Wide inline scenario", _step(
+        52999, name="Pick an option", decisions={f"21502:2:{52000 + n}": f"Option {n}" for n in range(450)},
+        children={str(52000 + n): _step(52000 + n, node=f"Option {n}", text=f"Option {n} step.")
+                  for n in range(450)})),
 }
+# /public/scenario/{id}/step/{stepId} steps: scenario id -> stepId -> the step (its children inline).
+SCENARIO_STEPS = {
+    "21302": {
+        "23506": _step(23506, node="Yes", children={"23496": _step(
+            23496, name="Which type of card do you have?", image=_image("a506b7e1", SCENARIO_SECRETS["step_image"]),
+            decisions={"21302:2:23497": "Visa", "21302:2:23498": "MasterCard"},
+            children={"23497": _step(23497, node="Visa", text="Register the Visa card in the card portal.")})}),
+        "23498": _step(23498, node="MasterCard", text="Call the MasterCard desk to register."),
+    },
+    "21400": {"30003": _step(30003, name="Check the card status", node="Not sure",
+                             children={"30002": _step(30002, name="Unblock the card")})},
+    "21501": {str(51000 + n): _step(51000 + n, node=f"Branch {n}", text=f"Branch {n} step.") for n in range(60)},
+}
+_SCENARIO_ACCEPT = "application/vnp.kms-api.v2+json"
 
 # "session_username" is what sessionInfo reports; it differs from the login
 # name on purpose, so a test can tell a reported identity from the typed one.
@@ -340,8 +421,11 @@ _DEFAULTS = {
     "ai_requests": [],               # {"itemId", "version", "language"} of every /ai_answers_item call, in order
     "ai_status": None,               # None | an HTTP status (int 200-599) | "empty" | "not_json" | "error"
     "login_status": None,            # None | an HTTP status (int 200-599): POST /login answers it with no body
-    "expire_sessions_at": None,      # None | a tree parentId (digit string) | "ai_answers_item"
+    "expire_sessions_at": None,      # None | a tree parentId (digit string) | "ai_answers_item" | "scenario_step"
+    "scenario_requests": [],         # {"path", "v", "plainText", "accept"} of every scenario route call, in order
+    "step_status": {},               # stepId -> HTTP status | "error" | "wrong_step": that step call answers it
 }
+_STEP_ANSWERS = ("error", "wrong_step")
 _STALE = {"barrier": None}           # the barrier for STATE["hold_stale_401s"]
 # GET {PREFIX}/_mock/held sets "arrived", then waits up to 5 s for "release".
 HELD = {"arrived": threading.Event(), "release": threading.Event()}
@@ -383,8 +467,14 @@ class _State(dict):
         if key == "ai_status" and not (value is None or _is_status(value) or value in _AI_ANSWERS):
             raise ValueError(f"STATE[{key!r}] must be None, an HTTP status (int 200-599) or one of "
                              f"{_AI_ANSWERS!r}, not {value!r}")
-        if key == "expire_sessions_at" and not (value is None or value == "ai_answers_item" or _is_digits(value)):
-            raise ValueError(f"STATE[{key!r}] must be None, a parentId or 'ai_answers_item', not {value!r}")
+        if key == "expire_sessions_at" and not (value is None or value in ("ai_answers_item", "scenario_step")
+                                                or _is_digits(value)):
+            raise ValueError(f"STATE[{key!r}] must be None, a parentId, 'ai_answers_item' or 'scenario_step', "
+                             f"not {value!r}")
+        if key == "step_status" and not (type(value) is dict and all(
+                _is_digits(k) and (_is_status(v) or v in _STEP_ANSWERS) for k, v in value.items())):
+            raise ValueError(f"STATE[{key!r}] must map step ids (digit strings) to HTTP statuses (ints 200-599) "
+                             f"or one of {_STEP_ANSWERS!r}, not {value!r}")
         if key == "hold_stale_401s":
             old = _STALE["barrier"]
             if old is not None:
@@ -542,9 +632,14 @@ class Handler(BaseHTTPRequestHandler):
         parts = urlsplit(self.path)
         query = parse_qs(parts.query)
         expire_at = STATE["expire_sessions_at"]
-        if expire_at is not None and (
-                parts.path == PREFIX + "/ai_answers_item" if expire_at == "ai_answers_item"
-                else parts.path == PREFIX + "/cm/tree/branch/view" and (query.get("parentId") or [None])[0] == expire_at):
+        if expire_at == "ai_answers_item":
+            expiring = parts.path == PREFIX + "/ai_answers_item"
+        elif expire_at == "scenario_step":
+            expiring = parts.path.startswith(PREFIX + "/public/scenario/") and "/step/" in parts.path
+        else:
+            expiring = (expire_at is not None and parts.path == PREFIX + "/cm/tree/branch/view"
+                        and (query.get("parentId") or [None])[0] == expire_at)
+        if expiring:
             expire_sessions()
         user = self._identity()
         REQUEST_LOG.append((user, "GET", parts.path))
@@ -597,10 +692,7 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/ai_answers_item":
             return self._ai_text(user, query)
         if route.startswith("/public/scenario/"):
-            scenario = SCENARIOS.get(route[len("/public/scenario/"):])
-            if scenario is None:
-                return self._send_json(200, {"status": "ERROR", "exception": "Can not find scenario", "data": None})
-            return self._send_json(200, {"status": "SUCCESS", "data": scenario})
+            return self._scenario(parts.path, route[len("/public/scenario/"):], query)
         if route.startswith("/_mock/status_error/"):
             item_id = route[len("/_mock/status_error/"):]
             return self._send_json(200, {"status": "ERROR", "exception": f"Item {item_id} was not found",
@@ -638,6 +730,31 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(200, {"status": "ERROR", "exception": "Cannot get property 'id' on null object",
                                          "data": None})
         return self._send_json(200, item)
+
+    def _scenario(self, path, rest, query):
+        """``rest`` is "<id>" (the scenario) or "<id>/step/<stepId>" (one step, as data.steps)."""
+        accept = self.headers.get("Accept")
+        with _LOCK:
+            STATE["scenario_requests"].append({"path": path, "v": (query.get("v") or [None])[0],
+                                               "plainText": (query.get("plainText") or [None])[0], "accept": accept})
+        if accept != _SCENARIO_ACCEPT:
+            return self._send_empty(406)
+        scenario_id, _, step_id = rest.partition("/step/")
+        scenario = SCENARIOS.get(scenario_id)
+        missing = {"status": "ERROR", "exception": "Can not find scenario", "data": None}
+        if not step_id:
+            return self._send_json(200, missing if scenario is None else {"status": "SUCCESS", "data": scenario})
+        forced = STATE["step_status"].get(step_id)
+        if forced == "error":
+            return self._send_json(200, missing)
+        if forced is not None and forced != "wrong_step":
+            return self._send_empty(forced)
+        step = SCENARIO_STEPS.get(scenario_id, {}).get(step_id)
+        if scenario is None or step is None:
+            return self._send_json(200, missing)
+        if forced == "wrong_step":
+            step = _step(int(step_id) + 1, name=ODD_MARKER, text=ODD_MARKER)
+        return self._send_json(200, {"status": "SUCCESS", "data": {**scenario, "steps": step}})
 
     def _ai_text(self, user, query):
         params = {key: (query.get(key) or [None])[0] for key in ("itemId", "version", "language")}
