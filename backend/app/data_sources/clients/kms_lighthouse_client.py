@@ -1043,10 +1043,10 @@ _TAG_RE = re.compile(r"<(?=[A-Za-z/!?])[^<>]++>")
 _ENTITY_RE = re.compile(r"&(?:#[0-9]{1,8}+|#[xX][0-9A-Fa-f]{1,8}+|[A-Za-z][A-Za-z0-9]{0,31}+);")
 _BLANKS_RE = re.compile(r"[ \t]++")
 _BLANK_LINES_RE = re.compile(r"\n{3,}+")
-# An ai element is ambiguous when its text holds anything tag-shaped ('<' before a letter, '/' or
-# '!') or a character reference: it may be the editor's markup or an author's placeholder, and
-# only the item HTML tells them apart. One search; each match is at most 34 characters long.
-_AMBIGUOUS_AI_TEXT_RE = re.compile(r"<[A-Za-z/!]|" + _ENTITY_RE.pattern)
+# An ai element is ambiguous when its text holds anything tag-shaped ('<' before a letter, '/', '!'
+# or '?', as _TAG_RE strips) or a character reference: it may be the editor's markup or an author's
+# placeholder, and only the item HTML tells them apart. One search; each match is at most 34 characters.
+_AMBIGUOUS_AI_TEXT_RE = re.compile(r"<[A-Za-z/!?]|" + _ENTITY_RE.pattern)
 
 
 def _join_inline_tags(match: re.Match) -> str:
@@ -1393,14 +1393,20 @@ def _item_sections(item: dict, records: dict) -> list:
 
 
 def _visible_ai_elements(elements: list, visible: set) -> list:
-    """The ai elements whose ``element_name`` the same identity's /public/item returned.
+    """The ai elements whose ``element_name`` the same identity's /public/item returned, first of each name.
 
     The ai payload carries its own permissions, so it may hold elements
     /public/item hides from this identity (r4); only the intersection is shown.
+    A repeated name is shown once, so it never renders its item HTML twice.
     """
-    return [element for element in elements
-            if isinstance(element, dict) and element.get("element_type") != _IMAGE_FIELD
-            and isinstance(element.get("element_name"), str) and element["element_name"] in visible]
+    shown, seen = [], set()
+    for element in elements:
+        if (isinstance(element, dict) and element.get("element_type") != _IMAGE_FIELD
+                and isinstance(element.get("element_name"), str) and element["element_name"] in visible
+                and element["element_name"] not in seen):
+            seen.add(element["element_name"])
+            shown.append(element)
+    return shown
 
 
 def _ai_element_text(element: dict, records: dict) -> str | None:
@@ -1437,6 +1443,8 @@ def _ai_sections(elements, records: dict) -> list | None:
         if text is not None:
             by_tab.setdefault(_line(element.get("tab_caption")) or None, []).append(
                 (_line(element.get("element_caption")), text))
+    if not by_tab:
+        return None
     general = by_tab.pop(None, None)
     return ([(_GENERAL, general)] if general else []) + list(by_tab.items())
 

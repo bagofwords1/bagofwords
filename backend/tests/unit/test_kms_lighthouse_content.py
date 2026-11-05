@@ -931,8 +931,9 @@ def test_ai_text_is_plain_text_shown_as_written(kms, monkeypatch, authored):
     # A tag-shaped '<' makes the element ambiguous, so it renders from its item HTML, where the
     # editor saved the placeholder escaped: it is shown as written.
     _with_ai_summary(mock, monkeypatch, authored)
-    sections = _sections(client(kms).read_file("item:279"))
-    assert f"### Summary\n{authored}\n" in sections["Overview"]
+    text = client(kms).read_file("item:279")
+    assert "AI links." in text and "Item summary" not in text       # the ai answer, not the fallback
+    assert f"### Summary\n{authored}\n" in _sections(text)["Overview"]
 
 
 def test_a_plain_ai_element_is_shown_from_its_ai_text(kms, monkeypatch):
@@ -977,8 +978,37 @@ def test_an_ambiguous_ai_element_with_no_item_html_is_dropped(kms, monkeypatch, 
 def test_ai_text_lines_and_blanks_are_normalised(kms, monkeypatch):
     mock = kms["mock"]
     _with_ai_summary(mock, monkeypatch, "  Step one:\t  open   the desk  \n\n\n\n  Step two \r\n")
-    sections = _sections(client(kms).read_file("item:279"))
-    assert "### Summary\nStep one: open the desk\n\nStep two\n" in sections["Overview"]
+    text = client(kms).read_file("item:279")
+    assert "AI links." in text and "Item summary" not in text       # the ai answer, not the fallback
+    assert "### Summary\nStep one: open the desk\n\nStep two\n" in _sections(text)["Overview"]
+
+
+def test_every_ambiguous_ai_element_dropped_falls_back_to_item_html(kms, monkeypatch, caplog):
+    mock = kms["mock"]
+    caplog.set_level(logging.DEBUG, logger=kc.logger.name)
+    # Both shown elements are ambiguous and their item HTML has no value: nothing of the ai answer is
+    # left, so the read falls back to the item HTML rather than show a header-only article.
+    monkeypatch.setitem(mock.AI_ITEMS["279"], "elements", [
+        dict(e, element_text="AI draft <b>dropped-marker-3e71</b>") for e in mock.AI_ITEMS["279"]["elements"]])
+    for name in ("E_SUMMARY", "E_LINKS"):
+        element = {k: v for k, v in mock.ITEMS["279"]["elements"][name].items() if k != "value"}
+        monkeypatch.setitem(mock.ITEMS["279"]["elements"], name, element)
+    text = client(kms).read_file("item:279")
+    assert "Open the agent desk." in _sections(text)["Processes"]
+    assert "dropped-marker-3e71" not in text and "AI draft" not in text
+    lines = [r.getMessage() for r in caplog.records if r.name == kc.logger.name and "fell back" in r.getMessage()]
+    assert lines == ["kms_lighthouse ai_text fell back: no element the item shows"]
+
+
+def test_a_repeated_ai_element_name_is_shown_once(kms, monkeypatch):
+    mock = kms["mock"]
+    # Two ai elements with one element_name: only the first is shown, so a name never renders twice.
+    elements = mock.AI_ITEMS["279"]["elements"]
+    repeat = dict(elements[0], element_text="Second copy repeat-marker-8a41")
+    monkeypatch.setitem(mock.AI_ITEMS["279"], "elements", [elements[0], repeat] + elements[1:])
+    text = client(kms).read_file("item:279")
+    assert text.count("### Summary") == 1 and "repeat-marker-8a41" not in text
+    assert "### Summary\nAI summary: verify the caller, then reset.\n" in _sections(text)["Overview"]
 
 
 # A no-break space (U+00A0, "&nbsp;" in HTML) between a structured key and its value. Made-up values.
@@ -1041,7 +1071,8 @@ def test_ai_text_that_carries_html_is_read_as_html(kms, monkeypatch, authored, s
     "Press <p> to print",
     "Escalate to <HR> before closing",
     "Ask <hr> to sign, then <HR> files it",
-], ids=["code", "code_and_account", "var_and_date", "a_and_b", "p", "hr_upper", "hr_both"])
+    "Type <?> to list commands",
+], ids=["code", "code_and_account", "var_and_date", "a_and_b", "p", "hr_upper", "hr_both", "question_mark"])
 def test_ai_text_with_a_tag_shaped_placeholder_is_shown_as_written(kms, monkeypatch, authored):
     mock = kms["mock"]
     # A tag-shaped placeholder makes the element ambiguous: it renders from its item HTML, where the
@@ -1086,7 +1117,9 @@ def test_ai_text_with_markup_evidence_is_read_as_html_and_scrubbed(kms, monkeypa
     ("{&quot;api_key&quot;: &quot;sk_live_51HxABCDEF&quot;}", "sk_live_51HxABCDEF"),
     ("api_key:<!-- -->sk_live_51HxABCDEF", "sk_live_51HxABCDEF"),
     ("Authorization: Bearer</td><td>abc123def456", "abc123def456"),
-], ids=["dt_dd", "bdo_dir", "nobr", "figcaption", "wbr", "quot_json", "comment", "table_cells"])
+    ("Authorization: Bearer<?php ?>abc123def456", "abc123def456"),
+], ids=["dt_dd", "bdo_dir", "nobr", "figcaption", "wbr", "quot_json", "comment", "table_cells",
+        "processing_instruction"])
 def test_an_ambiguous_ai_element_never_shows_a_secret(kms, monkeypatch, authored, secret):
     mock = kms["mock"]
     # Whatever the tag name: an element that holds markup renders from its item HTML, so no tag the
@@ -2774,14 +2807,20 @@ _AI_MARKUP_ADVERSARIAL = {
 }
 
 
-@pytest.mark.parametrize("name", sorted(_AI_MARKUP_ADVERSARIAL))
+@pytest.mark.parametrize("name", sorted(_AI_MARKUP_ADVERSARIAL) + ["duplicate_names"])
 def test_ai_element_check_is_linear_at_full_length(name):
     # Every ai element is checked (tag-shaped '<' or character reference) and rendered from its ai
     # text or its item HTML, at full length. Measured: well under 0.5 s each, so 3 s is a generous bound.
-    text = _AI_MARKUP_ADVERSARIAL[name]
+    # 200 ambiguous ai elements with one element_name render that name's full-length item HTML once.
+    if name == "duplicate_names":
+        text, value, copies = "AI draft <b>bold</b>", "<p>" + _adversarial("plain words ") + "</p>", 200
+    else:
+        text = value = _AI_MARKUP_ADVERSARIAL[name]
+        copies = 1
+    elements = [{"element_name": "E", "element_caption": "C", "tab_caption": "T", "element_text": text}
+                for _ in range(copies)]
     started = time.perf_counter()
-    kc._ai_sections([{"element_name": "E", "element_caption": "C", "tab_caption": "T", "element_text": text}],
-                    {"E": {"value": text, "type": "EDITOR_FIELD"}})
+    kc._ai_sections(elements, {"E": {"value": value, "type": "EDITOR_FIELD"}})
     assert time.perf_counter() - started < 3.0, name
 
 
