@@ -247,3 +247,48 @@ unstamped rows left 0 · both streams active, cursor 23099 = delivered 23099 · 
   line, result unchecked", not as a delivered or bounced message.
 - Both intakes ran on plain HTTP on loopback; TLS and syslog destinations were
   not part of this run (they are covered by the existing destination tests).
+
+---
+
+# After — the same scenarios against the implemented contract (PR #1595)
+
+The fixes are described in `docs/design/audit-event-contract.md`. The same
+harness ran against the implemented code in the same sandbox, with the backend
+started without the reloader (`uvicorn main:app`), the platform stream and a
+30 s heartbeat configured through a bow-config copy, and a fresh collector
+state so dedupe counts start at zero. `11_after.py` adds the checks that had
+no "before".
+
+| Plan row | Before | After (observed at the collector) |
+|---|---|---|
+| Event contract | no outcome, no correlation | every new envelope: `outcome`, `failure_reason`, `category`, `schema_version: 2`, `legacy: false`, `recorded_at`, `correlation.request_id` (the client's `X-Request-ID` echoed back) and `correlation.session_id` (opaque, not in the token); 23,101 older rows export as `legacy: true` with the inferred outcome |
+| Authentication, org-less events | stored, never exported, not pending | an unknown-account failure arrives at the **platform** intake only (`organization.id: null`, `actor.type: unknown`, `failure_reason: invalid_credentials`, client IP present) and at no organization intake; the two older org-less rows were delivered on the first tick |
+| Session lifecycle | zero rows | `auth.login` (method password), `auth.login_failed` (known account routed to its organization, `account_known: true`), `auth.logout`, `auth.password_changed`, `auth.password_reset_requested`, all with IP, user agent, request id, session id and actor snapshot; the credential never appears |
+| Authorization | null IP/UA/target | all four denials carry IP, user agent, `reason: missing_permission`; `delete_data_source` names the data source as target |
+| Query evidence | 10 of 12, cut at 503 | 12 of 12, full length (1,047 to 1,109 chars); the marker appears only when the byte budget is exceeded (e2e test) |
+| Event timing | envelope = write time | B: envelope `occurred_at 22:28:34.391` = the real time, `created_at 22:28:42.396` = the write, 8 s later; the exporter late-write test asserts `occurred_at < recorded_at` |
+| Historical identity | rename rewrote, delete → "system" | rename: old email preserved in the envelope; delete: `actor.type: user`, email and name preserved, `id: null` |
+| Access coverage | 9 read paths silent | `report.viewed`, `data_source.schema_viewed` (11 tables), `query.executed` ×3 (builder with the SQL, viewer, preview) with `observation`; `report.published`/`unpublished` once, with request context |
+| Health | idle = broken, no alert on 503 | `audit.heartbeat` every 30 s per streamed organization and for the platform stream; after 2 consecutive 503s each stream wrote `audit_stream.degraded` and the backend logged `admin alert (degraded) was NOT delivered: SMTP is not configured` as an ERROR; recovery wrote `audit_stream.recovered`; `GET /api/enterprise/audit/health` reports queue, spill backlog, recording failures, unstamped rows, legacy count and per-stream lag |
+
+Unchanged and still true: 12 of 12 events produced during a two-minute
+collector outage arrived after recovery, once per intake; the secret scan
+over every delivered byte stayed clean; the public report read returned 404
+in this run because the publish call toggled the report back to draft (the
+e2e test covers `report.public_viewed`).
+
+Collector note: the harness's own schema check marks platform events
+"missing organization.id"; that is the collector's rule from before the
+platform stream existed, not a defect, and the count is reported as such.
+
+Tests added or adapted: `backend/tests/unit/test_audit_contract_policy.py`
+(43 cases: redaction, bounded queries, outcome inference, request id,
+session id, trusted-proxy resolution), `test_audit_stream_envelope.py`
+(legacy golden unchanged on the v1 keys, contract golden, snapshot wins),
+`backend/tests/e2e/audit/test_audit_event_contract.py` (14 end-to-end
+scenarios: session lifecycle, unknown-account routing, correlation and
+spoofed `X-Forwarded-For`, denial context, read paths, tool query evidence,
+rename, platform stream, heartbeat, retention with legal hold, health
+endpoint, degraded/recovered). The dashboard corpus fixture replays
+schema-only migrations unstamped, so `auditcontract01` is idempotent and
+listed there.
