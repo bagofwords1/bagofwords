@@ -27,14 +27,19 @@ the pencil's conversation stay per card, as before.
 A card lists its agents (findability P6): a live dashboard's release's, else
 its conversation's -- only those the reader can view, and only those count
 for the agent filter (recommended default 1).
+
+The page's counts (findability P7, `list_facets`) use the same conditions,
+each leaving its own filter out; "needs attention" (failing or stale) is the
+org admin's alone (recommended default 3).
 """
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import replace
+from datetime import datetime, timedelta
 from functools import cached_property
 
 from fastapi import HTTPException
-from sqlalchemy import and_, case, delete, exists, false, func, or_, select, true
+from sqlalchemy import and_, case, delete, exists, false, func, or_, select, true, union_all
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 
@@ -48,6 +53,7 @@ from app.models.artifact_star import ArtifactStar
 logger = logging.getLogger(__name__)
 
 BLANKS = " \t\r\n"  # what a blank title is made of (trim(x, chars): SQLite and Postgres alike)
+STALE_AFTER = timedelta(days=90)  # not edited for this long: needs attention
 
 
 def _like(text: str, *, prefix: bool = False) -> str:
@@ -75,6 +81,9 @@ class ListQuery:
     edited_to: datetime | None = None
     status: str | None = None
     starred: bool = False
+    # Needs attention (org admins only): the last refresh failed, or not
+    # edited in STALE_AFTER.
+    attention: bool = False
     sort: str = "edited"
     page: int = 1
     limit: int = 15
@@ -130,8 +139,11 @@ class ReaderScope:
     expressions, each built once per request."""
 
     def __init__(self, user_id: str, organization_id: str, groups, project_ids: tuple[str, ...],
-                 seen_at: datetime | None = None, visible_agents: frozenset[str] = frozenset()):
+                 seen_at: datetime | None = None, visible_agents: frozenset[str] = frozenset(),
+                 *, is_admin: bool = False):
         self.user_id = user_id
+        self.is_admin = is_admin  # the organization's FULL_ADMIN: "needs attention" is theirs
+        self.now = datetime.utcnow()  # naive UTC, once per request: what "stale" is measured from
         self.organization_id = organization_id
         self.groups = groups  # a subquery of my group ids in this organization
         self.project_ids = project_ids  # the projects I can view
@@ -202,6 +214,20 @@ class ReaderScope:
         return func.coalesce(Artifact.content_updated_at, Artifact.created_at)
 
     @cached_property
+    def failing(self):
+        return Artifact.last_run_status == "failed"
+
+    @cached_property
+    def stale(self):
+        return self.edited < self.now - STALE_AFTER
+
+    @cached_property
+    def attention(self):
+        """Needs attention (the org admin's line): the last refresh failed, or
+        not edited in STALE_AFTER."""
+        return or_(self.failing, self.stale)
+
+    @cached_property
     def published_at(self):
         release = aliased(ArtifactRelease)
         return select(release.published_at).where(release.id == Artifact.published_release_id).scalar_subquery()
@@ -263,6 +289,16 @@ class ReaderScope:
                     or_(source.is_(None), newest != source))
 
     @cached_property
+    def statuses(self) -> dict:
+        """The `status` values (My only), mutually exclusive and covering
+        every card: never published; published with unpublished changes;
+        published as it is."""
+        published = Artifact.published_release_id.isnot(None)
+        return {"draft": Artifact.published_release_id.is_(None),
+                "changes": and_(published, self.unpublished_changes),
+                "published": and_(published, ~self.unpublished_changes)}
+
+    @cached_property
     def draft_report(self):
         """The conversation whose agents an unpublished card shows: the one
         that wrote the draft's newest version -- what a publish copies
@@ -307,6 +343,7 @@ async def reader_scope(db, user, organization, *, new_since: datetime | None = N
     """`new_since` is the watermark New is measured from; else the reader's
     stored visit to Shared in this organization; else there is none."""
     from app.core.derived_access import visible_data_source_ids
+    from app.core.permission_resolver import FULL_ADMIN, resolve_permissions
     from app.services.project_service import project_service
     from app.services.report_service import ReportService
 
@@ -319,8 +356,16 @@ async def reader_scope(db, user, organization, *, new_since: datetime | None = N
                                                           ArtifactListSeen.organization_id == str(organization.id))
         )).scalar_one_or_none()
     agents = await _listed_agents(db, user, organization, await visible_data_source_ids(db, user, organization))
+    is_admin = FULL_ADMIN in (await resolve_permissions(db, str(user.id), str(organization.id))).org_permissions
     return ReaderScope(str(user.id), str(organization.id), groups, tuple(str(p) for p in projects), seen_at,
-                       agents)
+                       agents, is_admin=is_admin)
+
+
+def _admit_attention(scope: ReaderScope, query: ListQuery) -> None:
+    """`attention` is the org admin's (recommended default 3): anyone else
+    asking for it is refused, on the list and on the facets alike."""
+    if query.attention and not scope.is_admin:
+        raise AppError.forbidden(ErrorCode.ACCESS_DENIED, "Needs attention is for the organization's admins")
 
 
 async def _listed_agents(db, user, organization, visible: set[str]) -> frozenset[str]:
@@ -402,12 +447,12 @@ def conditions(scope: ReaderScope, query: ListQuery, *, ignore: str | None = Non
         named["edited"] = _within(scope.edited, query.edited_from, query.edited_to)
     if query.filter == "my" and query.status is not None:
         # My only: unpublished changes are for the dashboard's editors.
-        published = Artifact.published_release_id.isnot(None)
-        named["status"] = {"draft": Artifact.published_release_id.is_(None),
-                           "changes": and_(published, scope.unpublished_changes),
-                           "published": and_(published, ~scope.unpublished_changes)}[query.status]
+        named["status"] = scope.statuses[query.status]
     if query.starred:
         named["starred"] = scope.starred
+    if query.attention:
+        # Closed by default: the routes refuse it to anyone else first.
+        named["attention"] = scope.attention if scope.is_admin else false()
     return where + [term for name, term in named.items() if name != ignore]
 
 
@@ -530,18 +575,10 @@ async def _page_agents(db, scope: ReaderScope, artifacts, extras: dict) -> dict:
     """Each card's agents the reader may see named (`visible_agents`), in two
     queries for the page: which agents (a live dashboard's release's,
     another's draft conversation's -- the page's `draft_report_id` column --
-    as ReaderScope.has_agent), then their names and icons (DataSource with
-    its connections in the order its relationship yields them, as
-    agent_icon.resolve_agent_icon_token requires). A card lists them by
-    name ignoring case, then id."""
-    from sqlalchemy import union_all
-
+    as ReaderScope.has_agent), then their names and icons (_agent_details).
+    A card lists them by name ignoring case, then id."""
     from app.models.artifact_release import artifact_release_data_source_association as on_release
-    from app.models.connection import Connection
-    from app.models.data_source import DataSource
-    from app.models.domain_connection import domain_connection
     from app.models.report_data_source_association import report_data_source_association as on_conversation
-    from app.schemas.agent_icon import resolve_agent_icon_token
 
     if not scope.visible_agents:
         return {}
@@ -576,11 +613,29 @@ async def _page_agents(db, scope: ReaderScope, artifacts, extras: dict) -> dict:
     shown = set().union(*per_card.values()) if per_card else set()
     if not shown:
         return {}
+    agents = await _agent_details(db, shown)
+    return {aid: sorted((agents[a] for a in found if a in agents), key=_agent_order)
+            for aid, found in per_card.items()}
+
+
+def _agent_order(agent: dict):
+    return (agent["name"] or "").lower(), agent["id"]
+
+
+async def _agent_details(db, ids) -> dict:
+    """Agents by id, as a card names them: name, connection type and icon
+    (DataSource with its connections in the order its relationship yields
+    them, as agent_icon.resolve_agent_icon_token requires)."""
+    from app.models.connection import Connection
+    from app.models.data_source import DataSource
+    from app.models.domain_connection import domain_connection
+    from app.schemas.agent_icon import resolve_agent_icon_token
+
     rows = (await db.execute(
         select(DataSource.id, DataSource.name, DataSource.icon, Connection.type, Connection.config)
         .outerjoin(domain_connection, domain_connection.c.data_source_id == DataSource.id)
         .outerjoin(Connection, Connection.id == domain_connection.c.connection_id)
-        .where(DataSource.id.in_(shown))
+        .where(DataSource.id.in_(list(ids)))
         .order_by(Connection.created_at, Connection.id)
     )).all()
     names, icons, connections = {}, {}, {}
@@ -591,12 +646,10 @@ async def _page_agents(db, scope: ReaderScope, artifacts, extras: dict) -> dict:
         found = connections.setdefault(ds_id, [])
         if conn_type is not None:
             found.append({"type": conn_type, "config": conn_config})
-    agents = {ds_id: {"id": ds_id, "name": names[ds_id],
-                      "type": connections[ds_id][0]["type"] if connections[ds_id] else None,
-                      "icon_token": resolve_agent_icon_token(icons[ds_id], connections[ds_id])}
-              for ds_id in names}
-    return {aid: sorted((agents[a] for a in found if a in agents), key=lambda a: ((a["name"] or "").lower(), a["id"]))
-            for aid, found in per_card.items()}
+    return {ds_id: {"id": ds_id, "name": names[ds_id],
+                    "type": connections[ds_id][0]["type"] if connections[ds_id] else None,
+                    "icon_token": resolve_agent_icon_token(icons[ds_id], connections[ds_id])}
+            for ds_id in names}
 
 
 def _live_release(artifact: Artifact, extras: dict):
@@ -736,6 +789,7 @@ async def list_dashboards(db, user, organization, query: ListQuery) -> dict:
     from app.services.dashboard_collab import my_conversation
 
     scope = await reader_scope(db, user, organization, new_since=query.new_since)
+    _admit_attention(scope, query)
     where = conditions(scope, query)
     page, limit = query.page, query.limit
     # The SQL narrows to what admit_reader can let in, counts and pages; the
@@ -769,6 +823,133 @@ async def list_dashboards(db, user, organization, query: ListQuery) -> dict:
         "meta": {"total": total, "page": page, "limit": limit, "total_pages": total_pages,
                  "has_next": page < total_pages, "has_prev": page > 1},
     }
+
+
+# ── facets (findability P7) ─────────────────────────────────────────────
+
+ACCESS_CHIPS = ("direct", "group", "project", "org", "edit")
+STATUSES = ("published", "changes", "draft")
+
+
+def _counts(where, terms: dict):
+    """One query: how many rows `where` admits, and how many of them each
+    term holds for."""
+    columns = [func.count().label("all")] + [
+        func.coalesce(func.sum(case((term, 1), else_=0)), 0).label(name) for name, term in terms.items()]
+    return select(*columns).select_from(Artifact).where(*where)
+
+
+def facet_queries(scope: ReaderScope, query: ListQuery) -> dict:
+    """The facets' queries for one request of the page, by facet. Each count
+    is over `conditions` with its own filter left out (`ignore`), so it is the
+    list's meta.total with that value applied; a facet the tab has no use
+    for (access and owners on My, status on Shared) is absent, as is
+    `attention` for anyone but an org admin and `agents` when the reader may
+    see none."""
+    from app.models.artifact_release import artifact_release_data_source_association
+    from app.models.report_data_source_association import report_data_source_association
+    from app.models.user import User
+
+    shared = query.filter == "shared"
+    queries = {
+        # The tab alone: no filter moves them.
+        "tabs_my": select(func.count()).select_from(Artifact).where(*conditions(scope, ListQuery(filter="my"))),
+        "tabs_shared": select(func.count()).select_from(Artifact).where(
+            *conditions(scope, ListQuery(filter="shared"))),
+        # The Shared tab's New cards, no filter applied.
+        "new_count": select(func.count()).select_from(Artifact).where(
+            *conditions(scope, ListQuery(filter="shared")), scope.is_new),
+    }
+    if shared:
+        queries["access"] = _counts(conditions(scope, query, ignore="access"),
+                                    {chip: getattr(scope, chip) for chip in ACCESS_CHIPS})
+        # An aliased owner: the search's own owner subquery must not correlate to it.
+        owner = aliased(User)
+        queries["owners"] = (
+            select(owner.id, owner.name, owner.email, func.count(Artifact.id).label("count"))
+            .select_from(Artifact).join(owner, owner.id == Artifact.owner_id)
+            .where(*conditions(scope, query, ignore="owners"))
+            .group_by(owner.id, owner.name, owner.email))
+    else:
+        queries["status"] = _counts(conditions(scope, query, ignore="status"), scope.statuses)
+    if scope.visible_agents:
+        # Each (dashboard, agent) pair by the card's rule (ReaderScope.has_agent):
+        # a live dashboard's release's agents, another's draft conversation's.
+        # Every agent is counted; list_facets keeps only `visible_agents`
+        # (no per-agent bind parameters).
+        where = conditions(scope, query, ignore="agents")
+        on_release = artifact_release_data_source_association.alias()
+        on_conversation = report_data_source_association.alias()
+        pairs = union_all(
+            select(Artifact.id.label("artifact_id"), on_release.c.data_source_id.label("agent"))
+            .join(on_release, on_release.c.artifact_release_id == Artifact.published_release_id)
+            .where(*where, scope.live),
+            select(Artifact.id.label("artifact_id"), on_conversation.c.data_source_id.label("agent"))
+            .join(on_conversation, on_conversation.c.report_id == scope.draft_report)
+            .where(*where, ~scope.live),
+        ).subquery()
+        queries["agents"] = (select(pairs.c.agent, func.count(pairs.c.artifact_id.distinct()).label("count"))
+                             .group_by(pairs.c.agent))
+    if scope.is_admin:
+        # The organization's dashboards on Shared, with the other filters.
+        org = replace(query, filter="shared", access="org")
+        queries["attention"] = _counts(conditions(scope, org, ignore="attention"),
+                                       {"failing": scope.failing, "stale": scope.stale, "total": scope.attention})
+    return queries
+
+
+async def list_facets(db, user, organization, query: ListQuery) -> dict:
+    """How many dashboards each filter value of the page would list: the
+    tabs, the access chips (Shared), the agents, the owners (Shared), the
+    status (My), New (Shared, unfiltered) and -- for org admins only, else
+    null -- "needs attention" (Shared, access=org: failing, stale).
+
+    Each count leaves its own filter out and keeps the others, so it equals
+    the list's meta.total with that value applied (behavior contract 4).
+
+    Known limitation 3, plainly: these counts and meta.total are upper
+    bounds. Both count the SQL candidates; admit_reader runs only on the
+    page shown, so a candidate it later refuses -- mostly a monitoring
+    dashboard whose access lineage the reader cannot read, or a release not
+    ready yet -- is counted here and never listed. The response itself never
+    carries a dashboard's title or id; the owners facet names owners (name,
+    else email), and only owners of dashboards the SQL admits. But a refused
+    candidate is still counted, so by probing -- narrowing the search, the
+    dates or the owner until a count moves -- a reader can infer such a
+    dashboard's title words, its created and edited dates and its owner. The
+    SQL does not restrict it (ADR-3: no second visibility gate)."""
+    scope = await reader_scope(db, user, organization, new_since=query.new_since)
+    _admit_attention(scope, query)
+    queries = facet_queries(scope, query)
+
+    async def one(name):
+        return (await db.execute(queries[name])).one()
+
+    facets = {
+        "tabs": {"my": (await one("tabs_my"))[0], "shared": (await one("tabs_shared"))[0]},
+        "new_count": (await one("new_count"))[0],
+        "access": None, "agents": [], "owners": [], "status": None, "attention": None,
+    }
+    if "access" in queries:
+        row = (await one("access"))._mapping
+        facets["access"] = {name: int(row[name]) for name in ("all",) + ACCESS_CHIPS}
+    if "owners" in queries:
+        rows = (await db.execute(queries["owners"])).all()
+        owners = [{"id": str(uid), "name": name or email, "count": count} for uid, name, email, count in rows]
+        facets["owners"] = sorted(owners, key=lambda o: ((o["name"] or "").lower(), o["id"]))
+    if "status" in queries:
+        row = (await one("status"))._mapping
+        facets["status"] = {name: int(row[name]) for name in STATUSES}
+    if "agents" in queries:
+        counts = {str(agent): count for agent, count in (await db.execute(queries["agents"])).all()
+                  if str(agent) in scope.visible_agents}  # never named to a reader who may not see it (default 1)
+        details = await _agent_details(db, counts) if counts else {}
+        facets["agents"] = sorted(({**details[a], "count": n} for a, n in counts.items() if a in details),
+                                  key=_agent_order)
+    if "attention" in queries:
+        row = (await one("attention"))._mapping
+        facets["attention"] = {name: int(row[name]) for name in ("failing", "stale", "total")}
+    return facets
 
 
 # ── stars and the Shared tab's watermark (dashlist01) ───────────────────

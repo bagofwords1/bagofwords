@@ -302,6 +302,59 @@ class DashboardListResponse(BaseModel):
     meta: DashboardListMeta
 
 
+class DashboardTabCounts(BaseModel):
+    my: int
+    shared: int
+
+
+class DashboardAccessCounts(BaseModel):
+    """Shared only: each reason chip's count (`all` is every reason)."""
+    all: int
+    direct: int
+    group: int
+    project: int
+    org: int
+    edit: int
+
+
+class DashboardAgentCount(DashboardListAgent):
+    count: int
+
+
+class DashboardOwnerCount(BaseModel):
+    """Shared only: an owner by name, else email; never a dashboard's title or id."""
+    id: str
+    name: str | None = None
+    count: int
+
+
+class DashboardStatusCounts(BaseModel):
+    """My only."""
+    published: int
+    changes: int
+    draft: int
+
+
+class DashboardAttentionCounts(BaseModel):
+    """The org admin's "needs attention" (Shared, access=org): the last refresh
+    failed; not edited in 90 days; `total`: either (each dashboard once)."""
+    failing: int
+    stale: int
+    total: int
+
+
+class DashboardListFacets(BaseModel):
+    """How many dashboards each filter value would list, each with its own
+    filter left out: upper bounds, as the list's meta.total is."""
+    tabs: DashboardTabCounts
+    access: DashboardAccessCounts | None = None
+    agents: list[DashboardAgentCount] = []
+    owners: list[DashboardOwnerCount] = []
+    status: DashboardStatusCounts | None = None
+    new_count: int = 0
+    attention: DashboardAttentionCounts | None = None
+
+
 class DashboardStarResponse(BaseModel):
     id: str
     is_starred: bool

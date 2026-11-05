@@ -28,6 +28,7 @@ from app.models.user import User
 from app.schemas.dashboard_schema import (
     DashboardConnectionKind,
     DashboardForkRequest,
+    DashboardListFacets,
     DashboardListResponse,
     DashboardNotifyRequest,
     DashboardPublishRequest,
@@ -190,6 +191,7 @@ def dashboard_list_query(
     edited_to: datetime | None = Query(None, description="Exclusive"),
     status: str | None = Query(None, pattern="^(published|changes|draft)$", description="My only"),
     starred: bool = Query(False),
+    attention: bool = Query(False, description="Needs attention; org admins only, else 403"),
     sort: str = Query("edited", pattern="^(edited|created|-created|title|published)$"),
     new_since: datetime | None = Query(None, description="The Shared watermark New is measured from"),
 ) -> ListQuery:
@@ -203,7 +205,7 @@ def dashboard_list_query(
         filter=filter, search=search, mode=mode, access=access, owner_ids=_id_list("owner_ids", owner_ids),
         agent_ids=_id_list("agent_ids", agent_ids),
         created_from=created_from, created_to=created_to, edited_from=edited_from, edited_to=edited_to,
-        status=status, starred=starred, sort=sort, page=page, limit=limit, new_since=new_since)
+        status=status, starred=starred, attention=attention, sort=sort, page=page, limit=limit, new_since=new_since)
 
 
 @router.get("/artifacts", response_model=DashboardListResponse)
@@ -219,6 +221,23 @@ async def list_dashboards(
     from app.services.dashboard_list import list_dashboards as list_for
 
     return await list_for(db, current_user, organization, query)
+
+
+# Before every /artifacts/{id} route: "facets" is never taken for an id. That
+# includes artifact.py's GET /artifacts/{artifact_id}, whose router main.py
+# mounts after this one.
+@router.get("/artifacts/facets", response_model=DashboardListFacets)
+@requires_permission("view_reports")
+async def dashboard_list_facets(
+    query: ListQuery = Depends(dashboard_list_query),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """How many dashboards each filter value of the page would list (P7)."""
+    from app.services.dashboard_list import list_facets
+
+    return await list_facets(db, current_user, organization, query)
 
 
 @router.post("/artifacts/shared/seen", response_model=DashboardSeenResponse)
