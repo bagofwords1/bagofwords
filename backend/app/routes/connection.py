@@ -524,6 +524,7 @@ async def get_connection(
     from app.services.connection_identity import management_requires_user_auth
     personal_management = management_requires_user_auth(connection)
     query_limits = await _query_limit_fields(db, organization, config if can_manage else {})
+    from app.services.connection_alerts import org_email_enabled
     return ConnectionDetailSchema(
         id=str(connection.id),
         name=connection.name,
@@ -560,6 +561,8 @@ async def get_connection(
         rate_limit_per_minute=connection.rate_limit_per_minute,
         rate_limit_per_hour=connection.rate_limit_per_hour,
         rate_limit_per_day=connection.rate_limit_per_day,
+        alert_emails_enabled=connection.alert_emails_enabled is not False,
+        org_alert_emails_enabled=await org_email_enabled(db, str(organization.id)),
         **query_limits,
         data_shape=data_shape_for(connection.type),
         catalog_nouns=catalog_nouns_override(connection.type),

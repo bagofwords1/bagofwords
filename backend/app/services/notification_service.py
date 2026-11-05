@@ -748,16 +748,17 @@ class NotificationService:
         link: str,
         organization_id: Optional[str] = None,
         locale: Optional[str] = None,
-    ) -> None:
+    ) -> bool:
         """Email a shared connection's admins that it went down (or recovered).
 
         ``status`` is ``"down"`` or ``"up"``. No-ops without recipients or a
         configured transport — the in-app notification is the durable record
         and email is the nudge. Best-effort; a send failure is logged, never
-        raised, so the triggering probe is unaffected.
+        raised, so the triggering probe is unaffected. Returns True only when
+        the mail actually went out.
         """
         if not recipient_emails or status not in ("down", "up"):
-            return
+            return False
 
         subject, html = render_connection_status_email(
             _valid_locale(locale),
@@ -768,17 +769,25 @@ class NotificationService:
         try:
             from app.dependencies import async_session_maker
             async with async_session_maker() as send_db:
-                await self._resolved_send(
+                outcome = await self._resolved_send(
                     recipient_emails, subject, html, subtype="html",
                     db=send_db, organization_id=organization_id, purpose="system",
                     retries=1, timeout=20,
                 )
-            logger.info(
-                "Connection %s email sent to %s for '%s'",
-                status, recipient_emails, connection_name,
-            )
         except Exception as e:
             logger.error("Failed to send connection %s email: %s", status, e)
+            return False
+        if not outcome.ok:
+            logger.warning(
+                "Connection %s email not sent for '%s' (%s): %s",
+                status, connection_name, outcome.source, outcome.error,
+            )
+            return False
+        logger.info(
+            "Connection %s email sent to %s for '%s' via %s",
+            status, recipient_emails, connection_name, outcome.source,
+        )
+        return True
 
     async def send_scheduled_prompt_results(
         self,

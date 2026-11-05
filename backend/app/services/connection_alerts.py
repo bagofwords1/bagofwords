@@ -11,11 +11,16 @@ the first success. This module turns that *edge* into a notification:
     source (agent) that relies on the connection. A shared connection going
     down is an org/admin event, so the audience is the people who can fix it or
     whose agents just went blind, never the end users.
-  * **How** — an in-app inbox row always (deduped to one live row per
-    connection via ``group_key``), plus an email when the org has not switched
-    connection-alert email off and, for a *down* alert, the per-connection
-    email cooldown has elapsed. Email degrades to inbox-only when no SMTP is
-    configured.
+  * **When** — off ``Connection.health_alert_state`` (what admins were last
+    told), not the probe that flipped ``is_active``: a connection that is
+    inactive but not yet announced is announced as down, and one that is
+    active again after an announced outage is announced as restored. So a
+    manual "Test connection" that flips the flag can't swallow the alert.
+  * **How** — an in-app inbox row always (one live row per connection; the
+    opposite-direction row is cleared), plus an email when both the org and
+    the connection allow it. A down email is paced by a per-connection
+    cooldown; a restored email goes out only when that outage's down email
+    did, so a flapping source can't send a stream of "back online" mails.
 
 Modeled on ``automation_alerts.notify_owner_of_failure``: best-effort
 throughout. The probe that triggered this has already committed; an alert that
@@ -26,9 +31,9 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timedelta
-from typing import List
+from typing import Dict, List, Optional
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -42,17 +47,9 @@ _DEFAULT_COOLDOWN_MINUTES = 60
 # off for the whole org. The in-app inbox row is unaffected. Default on.
 EMAIL_ENABLED_KEY = "connection_alerts_email"
 
-
-def _email_should_send(org_enabled: bool, connection_enabled: bool) -> bool:
-    """Resolve the two-tier email decision: the org toggle is the master gate,
-    the per-connection switch can only mute under it.
-
-        effective = org toggle AND per-connection switch
-
-    So a connection cannot be opted back in while the org toggle is off. The
-    in-app inbox notification is never gated by this — it is always delivered.
-    """
-    return bool(org_enabled) and bool(connection_enabled)
+# Where a recipient who manages none of the connection's agents is sent: the
+# agents list, where connections are managed.
+_FALLBACK_LINK = "/agents"
 
 
 def _cooldown() -> timedelta:
@@ -64,61 +61,65 @@ def _cooldown() -> timedelta:
     return timedelta(minutes=minutes)
 
 
-async def _recipient_user_ids(db: AsyncSession, connection) -> List[str]:
-    """Union of the connection's admins and the managers of the data sources
-    that use it. Deduped; order is not meaningful."""
-    from app.core.permission_resolver import (
-        get_user_ids_with_permission,
-        resolve_permissions,
-    )
+HEALTH_DOWN = "down"
+HEALTH_DOWN_EMAILED = "down_emailed"
+_ANNOUNCED_DOWN = (HEALTH_DOWN, HEALTH_DOWN_EMAILED)
+
+
+def pending_transition(connection) -> Optional[str]:
+    """The alert this connection still owes: ``"down"`` when it is inactive but
+    no outage has been announced, ``"up"`` when it is active again after an
+    announced outage, else ``None``."""
+    announced_down = getattr(connection, "health_alert_state", None) in _ANNOUNCED_DOWN
+    if not connection.is_active and not announced_down:
+        return "down"
+    if connection.is_active and announced_down:
+        return "up"
+    return None
+
+
+async def _recipient_links(db: AsyncSession, connection) -> Dict[str, str]:
+    """Who to alert, and where each recipient's link should point.
+
+    Recipients are the connection's admins (org ``manage_connections`` or a
+    per-connection ``manage_connection`` grant) and the managers of the agents
+    that use it. Each link goes to an agent that recipient can manage, else to
+    the agents list where connections are managed — never to an agent the
+    recipient can't open. One permission resolution per member (the helpers in
+    ``permission_resolver`` would each re-scan every member)."""
+    from app.core.permission_resolver import resolve_permissions
     from app.models.membership import Membership
 
     org_id = str(connection.organization_id)
     conn_id = str(connection.id)
-    recipients: set[str] = set()
+    ds_ids = [str(ds.id) for ds in (connection.data_sources or [])]
 
-    # Org-wide connection admins (manage_connections) + full admins.
-    try:
-        recipients.update(
-            await get_user_ids_with_permission(db, org_id, "manage_connections", None)
-        )
-    except Exception:  # noqa: BLE001
-        logger.warning("connection alert: resolving org connection admins failed", exc_info=True)
+    rows = (await db.execute(
+        select(Membership.user_id).where(and_(
+            Membership.organization_id == org_id,
+            Membership.user_id.isnot(None),
+            Membership.deleted_at.is_(None),
+        ))
+    )).all()
 
-    # Managers of each data source (agent) that relies on this connection.
-    for ds in (connection.data_sources or []):
+    out: Dict[str, str] = {}
+    for uid in {str(u) for (u,) in rows}:
         try:
-            recipients.update(
-                await get_user_ids_with_permission(db, org_id, "manage", str(ds.id))
-            )
-        except Exception:  # noqa: BLE001
-            logger.warning("connection alert: resolving managers of %s failed", getattr(ds, "id", "?"), exc_info=True)
-
-    # Per-connection `manage_connection` grants are connection-scoped resources,
-    # which the data-source-scoped helpers above don't see. Scan members once
-    # and pick up anyone holding that grant on *this* connection.
-    try:
-        rows = (await db.execute(
-            select(Membership.user_id).where(and_(
-                Membership.organization_id == org_id,
-                Membership.user_id.isnot(None),
-                Membership.deleted_at.is_(None),
-            ))
-        )).all()
-        for (uid,) in rows:
-            uid = str(uid)
-            if uid in recipients:
-                continue
             resolved = await resolve_permissions(db, uid, org_id)
-            if resolved.has_resource_permission("connection", conn_id, "manage_connection"):
-                recipients.add(uid)
-    except Exception:  # noqa: BLE001
-        logger.warning("connection alert: scanning per-connection grants failed", exc_info=True)
+        except Exception:  # noqa: BLE001
+            logger.warning("connection alert: resolving permissions for %s failed", uid, exc_info=True)
+            continue
+        managed = [d for d in ds_ids if resolved.has_resource_permission("data_source", d, "manage")]
+        if (
+            managed
+            or resolved.has_org_permission("manage_connections")
+            or resolved.has_resource_permission("connection", conn_id, "manage_connection")
+        ):
+            out[uid] = f"/agents/{managed[0]}" if managed else _FALLBACK_LINK
+    return out
 
-    return list(recipients)
 
-
-async def _email_enabled(db: AsyncSession, org_id: str) -> bool:
+async def org_email_enabled(db: AsyncSession, org_id: str) -> bool:
     """Whether the org wants connection-alert emails (default True)."""
     from app.models.organization_settings import OrganizationSettings
     try:
@@ -135,14 +136,33 @@ async def _email_enabled(db: AsyncSession, org_id: str) -> bool:
         return True
 
 
-async def notify_connection_health(db: AsyncSession, connection, transition: str) -> None:
-    """Deliver a down/restored alert for one shared connection.
+async def _clear_opposite_rows(db: AsyncSession, conn_id: str, ntype: str) -> None:
+    """Retire the other direction's inbox rows for this connection, so a
+    recovery doesn't leave a live "is down" error behind (and a new outage
+    doesn't leave a stale "back online")."""
+    from app.models.notification import Notification, SOURCE_CONNECTION
 
-    ``transition`` is ``"down"`` (just deactivated) or ``"up"`` (just
-    recovered). Inbox always; email when enabled for the org and — for a down
-    alert — not inside the per-connection cooldown.
+    other = "connection_restored" if ntype == "connection_down" else "connection_down"
+    await db.execute(
+        update(Notification)
+        .where(and_(
+            Notification.source == SOURCE_CONNECTION,
+            Notification.group_key == f"{other}:{conn_id}",
+            Notification.deleted_at.is_(None),
+        ))
+        .values(deleted_at=datetime.utcnow())
+    )
+    await db.commit()
+
+
+async def notify_connection_health(db: AsyncSession, connection) -> None:
+    """Send whatever down/restored alert this shared connection still owes.
+
+    Call after an automated probe has committed. Inbox always; email when the
+    org and the connection allow it, paced as described in the module doc.
     """
-    if transition not in ("down", "up"):
+    transition = pending_transition(connection)
+    if transition is None:
         return
 
     from app.models.notification import (
@@ -153,11 +173,15 @@ async def notify_connection_health(db: AsyncSession, connection, transition: str
     org_id = str(connection.organization_id)
     conn_id = str(connection.id)
     name = connection.name or "Connection"
-    data_sources = list(connection.data_sources or [])
-    link = f"/agents/{data_sources[0].id}" if data_sources else None
+    previous_state = getattr(connection, "health_alert_state", None)
 
-    user_ids = await _recipient_user_ids(db, connection)
-    if not user_ids:
+    # Record the announcement first: if delivery fails part-way, the next probe
+    # must not announce the same outage again.
+    connection.health_alert_state = HEALTH_DOWN if transition == "down" else None
+    await db.commit()
+
+    links = await _recipient_links(db, connection)
+    if not links:
         logger.info("connection alert: no recipients for connection %s", conn_id)
         return
 
@@ -176,39 +200,34 @@ async def notify_connection_health(db: AsyncSession, connection, transition: str
         title = f'Connection "{name}" is back online'
         body = f'The shared connection "{name}" reconnected and is active again.'
 
-    # Inbox — always. One live row per connection (dedup via group_key); a
-    # restored alert refreshes the same row rather than stacking.
+    # Inbox — always. One live row per connection per direction; the other
+    # direction's row is retired. ``resurface_after_hours=0`` so a user who
+    # dismissed an earlier outage's row still hears about the next one.
     try:
-        await inbox_service.notify_users(
-            db,
-            organization_id=org_id,
-            user_ids=user_ids,
-            source=SOURCE_CONNECTION,
-            type=ntype,
-            title=title,
-            body=body,
-            severity=severity,
-            link=link,
-            subject={"kind": "connection", "connection_id": conn_id,
-                     "i18n": {"name": name}},
-            # Per-type key: a refresh never rewrites a row's ``type`` or
-            # downgrades its severity, so down and restored must be separate
-            # rows — otherwise a recovery would silently re-surface the old
-            # "is down" row still flagged as an error. A repeat of the SAME
-            # transition re-surfaces its own row (one live row per connection
-            # per direction).
-            group_key=f"{ntype}:{conn_id}",
-        )
+        await _clear_opposite_rows(db, conn_id, ntype)
+        for link, user_ids in _group_by_link(links).items():
+            await inbox_service.notify_users(
+                db,
+                organization_id=org_id,
+                user_ids=user_ids,
+                source=SOURCE_CONNECTION,
+                type=ntype,
+                title=title,
+                body=body,
+                severity=severity,
+                link=link,
+                subject={"kind": "connection", "connection_id": conn_id,
+                         "i18n": {"name": name}},
+                group_key=f"{ntype}:{conn_id}",
+                resurface_after_hours=0,
+            )
     except Exception:  # noqa: BLE001
         logger.warning("connection alert: inbox delivery failed for %s", conn_id, exc_info=True)
 
-    # Email — two layers: the org toggle is the master gate, the per-connection
-    # switch can only mute under it (effective = org AND connection).
-    org_enabled = await _email_enabled(db, org_id)
+    # Email — the org toggle is the master gate, the per-connection switch can
+    # only mute under it (effective = org AND connection).
     connection_enabled = getattr(connection, "alert_emails_enabled", True)
-    if connection_enabled is None:
-        connection_enabled = True
-    if not _email_should_send(org_enabled, connection_enabled):
+    if not (await org_email_enabled(db, org_id) and connection_enabled is not False):
         return
 
     now = datetime.utcnow()
@@ -217,19 +236,33 @@ async def notify_connection_health(db: AsyncSession, connection, transition: str
         if last is not None and last > now - _cooldown():
             logger.info("connection alert: down-email for %s within cooldown, inbox only", conn_id)
             return
+    elif previous_state != HEALTH_DOWN_EMAILED:
+        # Admins were never emailed about this outage; don't email the recovery.
+        return
+
+    sent = await _email_recipients(db, connection, links, transition, name)
+    if sent and transition == "down":
+        # Stamp only after a send went out, so a failed or unconfigured send
+        # doesn't silence the next outage's email.
         connection.last_down_alert_at = now
+        connection.health_alert_state = HEALTH_DOWN_EMAILED
         try:
             await db.commit()
         except Exception:  # noqa: BLE001
-            logger.warning("connection alert: stamping cooldown failed for %s", conn_id, exc_info=True)
+            logger.warning("connection alert: stamping email state failed for %s", conn_id, exc_info=True)
 
-    await _email_recipients(db, connection, user_ids, transition, name, link)
+
+def _group_by_link(links: Dict[str, str]) -> Dict[str, List[str]]:
+    grouped: Dict[str, List[str]] = {}
+    for uid, link in links.items():
+        grouped.setdefault(link, []).append(uid)
+    return grouped
 
 
 async def _email_recipients(
-    db: AsyncSession, connection, user_ids: List[str], transition: str,
-    name: str, link: str | None,
-) -> None:
+    db: AsyncSession, connection, links: Dict[str, str], transition: str, name: str,
+) -> bool:
+    """Email each recipient (grouped by their link). True if any send went out."""
     from app.dependencies import _locale_from_org
     from app.models.user import User
     from app.services.notification_service import notification_service
@@ -238,23 +271,22 @@ async def _email_recipients(
     org_id = str(connection.organization_id)
 
     try:
-        emails = [
-            e for (e,) in (await db.execute(
-                select(User.email).where(User.id.in_([str(u) for u in user_ids]))
+        email_by_uid = {
+            str(uid): e for (uid, e) in (await db.execute(
+                select(User.id, User.email).where(User.id.in_(list(links)))
             )).all() if e
-        ]
+        }
     except Exception:  # noqa: BLE001
         logger.warning("connection alert: resolving recipient emails failed", exc_info=True)
-        return
-    if not emails:
-        return
+        return False
+    if not email_by_uid:
+        return False
 
     base_url = "http://localhost:3000"
     try:
         base_url = getattr(settings.bow_config, "base_url", base_url) or base_url
     except Exception:  # noqa: BLE001
         pass
-    full_link = f"{base_url.rstrip('/')}{link}" if link else base_url
 
     locale = None
     try:
@@ -265,14 +297,21 @@ async def _email_recipients(
     except Exception:  # noqa: BLE001
         locale = None
 
-    try:
-        await notification_service.send_connection_status(
-            recipient_emails=emails,
-            status=transition,
-            connection_name=name,
-            link=full_link,
-            organization_id=org_id,
-            locale=locale,
-        )
-    except Exception:  # noqa: BLE001
-        logger.warning("connection alert: email send failed for %s", getattr(connection, "id", "?"), exc_info=True)
+    sent = False
+    for link, user_ids in _group_by_link(links).items():
+        emails = [email_by_uid[u] for u in user_ids if u in email_by_uid]
+        if not emails:
+            continue
+        try:
+            ok = await notification_service.send_connection_status(
+                recipient_emails=emails,
+                status=transition,
+                connection_name=name,
+                link=f"{base_url.rstrip('/')}{link}",
+                organization_id=org_id,
+                locale=locale,
+            )
+            sent = sent or bool(ok)
+        except Exception:  # noqa: BLE001
+            logger.warning("connection alert: email send failed for %s", getattr(connection, "id", "?"), exc_info=True)
+    return sent

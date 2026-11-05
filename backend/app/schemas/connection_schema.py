@@ -192,6 +192,9 @@ class ConnectionDetailSchema(BaseModel):
     # Per-connection on/off switch for down/restored alert emails, gated under
     # the org toggle (effective = org AND this). Default True.
     alert_emails_enabled: bool = True
+    # The org-wide master toggle the per-connection switch sits under, so the
+    # connection panel can show it without needing manage_settings.
+    org_alert_emails_enabled: bool = True
     # Per-connection query limits (null = inherits the org default, shown
     # alongside so the form can say what "default" currently means).
     query_timeout_seconds: Optional[int] = None

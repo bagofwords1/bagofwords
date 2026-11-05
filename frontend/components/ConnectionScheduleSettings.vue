@@ -461,18 +461,12 @@ const orgAlertDefault = ref(true)    // the org-wide master toggle
 const alertModeError = ref<string | null>(null)
 const savingAlertMode = ref(false)
 
-async function loadOrgAlertDefault() {
-  try {
-    const { data } = await useMyFetch('/organization/connection-alerts', { method: 'GET' })
-    orgAlertDefault.value = (data.value as any)?.email_enabled ?? true
-  } catch {
-    orgAlertDefault.value = true
-  }
-}
-
 function applyAlertConfig(d: any) {
   if (!d || !canManage.value) return
   alertEnabled.value = d.alert_emails_enabled !== false
+  // The org toggle rides on the connection detail, so connection managers
+  // without manage_settings still see whether it is on.
+  orgAlertDefault.value = d.org_alert_emails_enabled !== false
 }
 
 async function onToggleAlert(val: boolean) {
@@ -499,7 +493,6 @@ async function onToggleAlert(val: boolean) {
 
 watch(() => [props.connection?.id, canManage.value], async ([id]) => {
   if (!id || !canManage.value) return
-  await loadOrgAlertDefault()
   const { data } = await useMyFetch(`/connections/${id}`, { method: 'GET' })
   if (props.connection?.id !== id || !data.value) return
   applyAutoReindexConfig(data.value)

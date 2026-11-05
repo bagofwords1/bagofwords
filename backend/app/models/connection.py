@@ -50,6 +50,14 @@ class Connection(BaseSchema):
     # connection back in). Default True = send when the org toggle is on.
     # The in-app inbox notification is unaffected — it is always delivered.
     alert_emails_enabled = Column(Boolean, nullable=False, default=True, server_default=true())
+    # The health state last ANNOUNCED for this shared connection, so alerts
+    # follow what admins were told rather than the probe that flipped
+    # ``is_active``: NULL = nothing outstanding, "down" = a down alert went out
+    # (inbox only), "down_emailed" = a down alert went out with an email. A
+    # manual "Test connection" can flip ``is_active`` but never announces, so
+    # the next automated probe still owes (and sends) the alert. A recovery
+    # emails only when the outage's down alert was emailed.
+    health_alert_state = Column(String(16), nullable=True, default=None)
 
     # Authentication policy
     auth_policy = Column(String, nullable=False, default="system_only")  # system_only, user_required
