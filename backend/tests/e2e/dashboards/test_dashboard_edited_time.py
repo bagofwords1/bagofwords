@@ -1,7 +1,9 @@
 """A dashboard's "Edited" time (dashboards list findability, P2).
 
 Each card says when the dashboard was created and when its content last
-changed (`edited_at` = `content_updated_at`, else `created_at`). Edited moves
+changed: for its editors `edited_at` = `content_updated_at`, else
+`created_at`; for a reader who may only view it, the live release's publish
+time (review #1). Edited moves
 on a completed version, a rename, a publish, a restore, and a Bring that puts
 other content than the draft's newest version on top of the draft (a revert).
 It does not move on a data refresh (which moves `updated_at`), on an editor
@@ -157,6 +159,96 @@ def test_a_card_says_when_it_was_created_and_last_edited(corpus, corpus_rows, te
     _date_long_ago(corpus_rows, aid)
     card = _card(test_client, corpus, aid)
     assert _when(card["edited_at"]) == LONG_AGO and _when(card["created_at"]) == _when(row["created_at"])
+
+
+def _shared_card(test_client, corpus, aid, person) -> dict:
+    resp = test_client.get("/api/artifacts", params={"filter": "shared", "limit": 100}, headers=as_(corpus, person))
+    assert resp.status_code == 200, resp.text
+    return next(d for d in resp.json()["dashboards"] if d["id"] == aid)
+
+
+@pytest.mark.e2e
+def test_a_view_only_readers_edited_moves_only_when_published(corpus, corpus_rows, test_client, spawned):
+    """Its editors see when the content last changed; a reader who may only
+    view it sees when its live release was published (review #1). A draft
+    edit moves Edited for the owner and an editor, not for the reader; a
+    republish moves it for the reader."""
+    aid = own(corpus_rows, corpus, DASH)
+    assert _publish_api(test_client, corpus, aid).status_code == 202
+    _finish(spawned)
+    resp = test_client.put(f"/api/artifacts/{aid}/sharing", headers=as_(corpus, "owner"), json={
+        "visibility": "shared", "user_ids": [corpus.cast.id("direct_share")], "group_ids": [],
+        "editor_user_ids": [corpus.cast.id("member")], "editor_group_ids": []})
+    assert resp.status_code == 200, resp.text
+    # Written directly: no route back-dates an edit or a publish. As the
+    # publish switch leaves them (dashboard_publish.py), the content time is
+    # the publish time; a known time far in the past makes every move visible.
+    published = datetime(2026, 2, 1)
+    corpus_rows.update("artifacts", aid, content_updated_at=published)
+    corpus_rows.update("artifact_releases", _live(test_client, corpus, aid), published_at=published)
+
+    def seen_by(person):
+        card = _card(test_client, corpus, aid) if person == "owner" else _shared_card(test_client, corpus, aid, person)
+        return card["role"], _when(card["edited_at"])
+
+    assert seen_by("owner") == ("owner", published)
+    assert seen_by("member") == ("edit", published)
+    assert seen_by("direct_share") == ("view", published)
+
+    # A draft edit, not published: its editors see it, the reader does not.
+    asyncio.run(_new_version(aid, corpus.reports[CONV], corpus.cast.id("owner")))
+    assert seen_by("owner")[1] > published
+    assert seen_by("member")[1] > published
+    assert seen_by("direct_share") == ("view", published)
+    # Nor does any other time on the reader's card say it: `updated_at` (moved
+    # by agent edits and data refreshes) is the editors' alone, like default 8.
+    assert _shared_card(test_client, corpus, aid, "direct_share")["updated_at"] is None
+    assert _shared_card(test_client, corpus, aid, "member")["updated_at"] is not None
+
+    # The republish: now the reader's Edited is the new release's publish time.
+    assert _publish_api(test_client, corpus, aid).status_code == 202
+    _finish(spawned)
+    live = test_client.get(f"/api/artifacts/{aid}/publish", headers=as_(corpus, "owner")).json()["published"]
+    assert _when(live["published_at"]) > published
+    assert seen_by("direct_share") == ("view", _when(live["published_at"]))
+
+
+@pytest.mark.e2e
+def test_a_legacy_releases_view_only_reader_sees_its_content_time(corpus, corpus_rows, test_client, spawned):
+    """The data migration (dashfc08) published every existing dashboard at
+    the migration's own time, later than its content. A reader who may only
+    view such a dashboard sees the earlier of its content time and its
+    publish time -- its own content time, not one Edited shared by every
+    migrated dashboard. A later draft edit never shows them the draft's time:
+    at most their Edited becomes the release's publish time."""
+    sales, stock = own(corpus_rows, corpus, DASH), own(corpus_rows, corpus, f"{CONV}/dash_stock")
+    for aid in (sales, stock):
+        assert _publish_api(test_client, corpus, aid).status_code == 202
+        _finish(spawned)
+        assert share(test_client, corpus, aid, "shared", users=["direct_share"]).status_code == 200
+    # Written directly: no route back-dates an edit or a publish. One
+    # migration time for both releases, as dashfc08 stamped them; each
+    # dashboard keeps its own, earlier, content time.
+    migrated = datetime(2026, 3, 1)
+    content = {sales: datetime(2025, 6, 1), stock: datetime(2025, 9, 1)}
+    for aid in (sales, stock):
+        corpus_rows.update("artifacts", aid, content_updated_at=content[aid])
+        corpus_rows.update("artifact_releases", _live(test_client, corpus, aid), published_at=migrated)
+
+    def reader_sees(aid):
+        card = _shared_card(test_client, corpus, aid, "direct_share")
+        return card["role"], _when(card["edited_at"])
+
+    assert reader_sees(sales) == ("view", content[sales])
+    assert reader_sees(stock) == ("view", content[stock])
+    assert _edited(test_client, corpus, sales) == content[sales]  # the owner: the content time
+
+    # A draft edit, not published: the owner sees it; the reader never sees
+    # its time -- their Edited stops at the release's publish time.
+    asyncio.run(_new_version(sales, corpus.reports[CONV], corpus.cast.id("owner")))
+    assert _edited(test_client, corpus, sales) > migrated
+    assert reader_sees(sales) == ("view", migrated)
+    assert reader_sees(stock) == ("view", content[stock])
 
 
 # ── what moves Edited ──────────────────────────────────────────────────────

@@ -39,7 +39,7 @@ from datetime import datetime, timedelta
 from functools import cached_property
 
 from fastapi import HTTPException
-from sqlalchemy import and_, case, delete, exists, false, func, or_, select, true, union_all
+from sqlalchemy import and_, case, delete, exists, false, func, or_, select, text, true, union_all
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 
@@ -210,8 +210,34 @@ class ReaderScope:
                                                     ArtifactStar.user_id == self.user_id))
 
     @cached_property
-    def edited(self):
+    def can_edit(self):
+        """dashboard_access.can_edit in SQL: the owner, an edit grant, or the project."""
+        return or_(Artifact.owner_id == self.user_id, self.edit)
+
+    @cached_property
+    def content_edited(self):
+        """When the content last changed (its editors' Edited)."""
         return func.coalesce(Artifact.content_updated_at, Artifact.created_at)
+
+    @cached_property
+    def edited(self):
+        """The reader's Edited -- the card's, the Recently edited sort's and
+        the Edited filter's (review #1): for whoever may edit the dashboard
+        its content edit; for a reader who may only view it, the earlier of
+        that and its live release's publish time (without one: its creation
+        time), so neither the card nor the order hints at unpublished edits.
+
+        Every publish sets the content time with the publish time
+        (dashboard_publish._go_live.switch), so for a release published
+        here the earlier one is the publish time, and a draft edit only
+        raises the content side. The data migration (dashfc08) stamped
+        every existing dashboard's release with the migration's time,
+        later than its content: the earlier one keeps each its own content
+        time, not one Edited for them all. A draft edit on such a dashboard
+        moves a view-only reader's Edited once, up to that publish time,
+        never to the draft's time."""
+        content, published = self.content_edited, func.coalesce(self.published_at, Artifact.created_at)
+        return case((self.can_edit, content), (content < published, content), else_=published)
 
     @cached_property
     def failing(self):
@@ -219,7 +245,9 @@ class ReaderScope:
 
     @cached_property
     def stale(self):
-        return self.edited < self.now - STALE_AFTER
+        """Not edited in STALE_AFTER: the content edit, whoever the reader
+        (the org admin's maintenance line, not a card's date)."""
+        return self.content_edited < self.now - STALE_AFTER
 
     @cached_property
     def attention(self):
@@ -721,7 +749,9 @@ def _card(artifact: Artifact, extras: dict, editor: bool, report_id: str | None)
         "mode": artifact.mode,
         "published": published, "is_owner": mine, "report_id": report_id, "role": role,
         "owner": {"id": str(owner.id), "name": owner.name or owner.email} if owner else None,
-        "thumbnail_url": _thumbnail_url(thumbnail), "updated_at": artifact.updated_at,
+        # updated_at moves on agent edits and data refreshes: the editors'
+        # alone, so a view-only reader's card shows no draft activity (#1).
+        "thumbnail_url": _thumbnail_url(thumbnail), "updated_at": artifact.updated_at if for_editors else None,
         "created_at": artifact.created_at, "edited_at": columns.edited,
         "is_starred": aid in extras["starred"],
         "published_at": columns.published_at if published else None,
@@ -780,6 +810,19 @@ def page_query(scope: ReaderScope, query: ListQuery):
             .offset((query.page - 1) * query.limit).limit(query.limit))
 
 
+async def _without_jit(db) -> None:
+    """Postgres only: no JIT compilation for the rest of this transaction.
+    On a synthetic 20,000-dashboard organization (P12 hunt, Postgres 15,
+    JIT on as by default) compiling these wide OR / EXISTS plans cost far
+    more than running them: the Shared list 4390 -> 273 ms and the Shared
+    facets 5517 -> 247 ms with JIT off (main's list before this work: 2281
+    -> 282 ms). SET LOCAL ends with the transaction, so it holds only while
+    nothing commits mid-call: list_dashboards and list_facets never commit,
+    and their routes call them straight after their dependencies."""
+    if db.bind.dialect.name == "postgresql":
+        await db.execute(text("SET LOCAL jit = off"))
+
+
 async def list_dashboards(db, user, organization, query: ListQuery) -> dict:
     """One tab of the dashboards page. `meta.total` is an upper bound: it
     counts the SQL narrowing, and admit_reader can still leave a card out of
@@ -788,6 +831,7 @@ async def list_dashboards(db, user, organization, query: ListQuery) -> dict:
     from app.services import dashboard_access
     from app.services.dashboard_collab import my_conversation
 
+    await _without_jit(db)
     scope = await reader_scope(db, user, organization, new_since=query.new_since)
     _admit_attention(scope, query)
     where = conditions(scope, query)
@@ -918,6 +962,7 @@ async def list_facets(db, user, organization, query: ListQuery) -> dict:
     dates or the owner until a count moves -- a reader can infer such a
     dashboard's title words, its created and edited dates and its owner. The
     SQL does not restrict it (ADR-3: no second visibility gate)."""
+    await _without_jit(db)
     scope = await reader_scope(db, user, organization, new_since=query.new_since)
     _admit_attention(scope, query)
     queries = facet_queries(scope, query)

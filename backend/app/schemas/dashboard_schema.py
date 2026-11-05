@@ -265,7 +265,8 @@ class DashboardListItem(BaseModel):
     thumbnail_url: str | None = None
     updated_at: datetime | None = None
     created_at: datetime | None = None
-    # When its content last changed (dashlist01); never a data refresh.
+    # Editors: when its content last changed (dashlist01), never a data
+    # refresh. A view-only reader: the live release's publish time (review #1).
     edited_at: datetime | None = None
     # The reader's own star (dashlist01).
     is_starred: bool = False

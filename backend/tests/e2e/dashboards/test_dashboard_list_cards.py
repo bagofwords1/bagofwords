@@ -534,7 +534,12 @@ def test_per_card_statements_do_not_grow(migrated_corpus, corpus_rows, test_clie
     for aid in ids[N:]:
         visibility = test_client.get(f"/api/artifacts/{aid}/sharing", headers=as_(c, "owner")).json()["visibility"]
         _sharing(test_client, c, aid, visibility, editor_groups=["analysts"])
-    slope, at_n, at_2n, large = _slope(test_client, c, "proj_group", filter="shared")
+    # Only the cards proj_group may edit (access=edit): a page that mixed in
+    # view-only cards, which skip the pencil's lookups, would measure the mix,
+    # not a card. Since review #1 a view-only card's Edited is its publish
+    # time, so such a card can sort among these.
+    slope, at_n, at_2n, large = _slope(test_client, c, "proj_group", filter="shared", access="edit")
+    assert {card["role"] for card in large["dashboards"]} == {"edit"}
     assert slope <= SHARED_SLOPE_AFTER, (at_n, at_2n, slope)
     assert slope <= SHARED_SLOPE_BEFORE, (at_n, at_2n, slope)
     reasons = {r for card in large["dashboards"] for r in card["access"]["reasons"]}

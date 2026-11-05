@@ -57,13 +57,14 @@ def _ids(test_client, corpus, person, **params) -> list[str]:
     return [d["id"] for d in body["dashboards"]]
 
 
-def _sharing(test_client, corpus, aid, visibility, *, users=(), groups=(), editors=(), by="owner"):
+def _sharing(test_client, corpus, aid, visibility, *, users=(), groups=(), editors=(), editor_groups=(),
+             by="owner"):
     resp = test_client.put(f"/api/artifacts/{aid}/sharing", headers=as_(corpus, by), json={
         "visibility": visibility,
         "user_ids": [corpus.cast.id(u) for u in users],
         "group_ids": [corpus.cast.groups[g] for g in groups],
         "editor_user_ids": [corpus.cast.id(u) for u in editors],
-        "editor_group_ids": [],
+        "editor_group_ids": [corpus.cast.groups[g] for g in editor_groups],
     })
     assert resp.status_code == 200, resp.text
 
@@ -154,20 +155,30 @@ def test_shared_all_lists_direct_then_group_and_project_then_org_each_in_the_cho
     deck = own(corpus_rows, corpus, DECK, project="private")
     one, page = own(corpus_rows, corpus, ONE), own(corpus_rows, corpus, PAGE_DASH)
     for aid in (sales, stock, one, page):
-        publish(aid)
+        publish(aid)  # released 2026-04-01, after every content time below
     _sharing(test_client, corpus, sales, "shared", users=["proj_group"])  # direct
     _sharing(test_client, corpus, stock, "shared", groups=["analysts"])  # group
+    _sharing(test_client, corpus, deck, "none")  # its project's alone
     _sharing(test_client, corpus, one, "internal")  # org
     _sharing(test_client, corpus, page, "internal")  # org
     # The newer the edit, the lower the reason: only the rank puts them in order.
+    # proj_group may only view the others: their Edited is the earlier of the
+    # content and publish times -- here the content time (review #1).
     _date(corpus_rows, sales, edited=datetime(2026, 1, 1), created=datetime(2026, 2, 5))
     _date(corpus_rows, deck, edited=datetime(2026, 1, 2), created=datetime(2026, 2, 2))
     _date(corpus_rows, stock, edited=datetime(2026, 1, 3), created=datetime(2026, 2, 1))
     _date(corpus_rows, page, edited=datetime(2026, 1, 4), created=datetime(2026, 2, 3))
     _date(corpus_rows, one, edited=datetime(2026, 1, 5), created=datetime(2026, 2, 4))
+    # proj_group may edit `deck` (its project): Edited is its content time,
+    # even with a release from before that edit (a direct write: no route
+    # back-dates a publish).
+    corpus_rows.update("artifact_releases", publish(deck), published_at=datetime(2025, 12, 15))
 
     def order(**params):
         return _ids(test_client, corpus, "proj_group", filter="shared", **params)
+
+    (card,) = [c for c in _cards(test_client, corpus, "proj_group", filter="shared") if c["id"] == deck]
+    assert (card["role"], datetime.fromisoformat(card["edited_at"])) == ("edit", datetime(2026, 1, 2))
 
     assert order() == [sales, stock, deck, one, page]  # default: Edited, newest first
     assert order(access="all", sort="edited") == [sales, stock, deck, one, page]
@@ -175,6 +186,90 @@ def test_shared_all_lists_direct_then_group_and_project_then_org_each_in_the_cho
     assert order(sort="created") == [sales, deck, stock, one, page]  # newest first
     # A single reason has no rank: the sort alone.
     assert order(access="org", sort="-created") == [page, one]
+
+
+@pytest.mark.e2e
+def test_a_view_only_readers_edited_sort_and_filter_use_the_publish_time(corpus, corpus_rows, test_client):
+    """Edited is per reader (review #1): for its editors the content edit, for
+    a reader who may only view it the live release's publish time -- on the
+    card, in the Recently edited sort, in the Edited filter and in the
+    counts alike, so the order never hints at unpublished edits."""
+    drafted, republished = own(corpus_rows, corpus, SALES), own(corpus_rows, corpus, STOCK)
+    releases = {aid: publish(aid) for aid in (drafted, republished)}
+    for aid in (drafted, republished):
+        _sharing(test_client, corpus, aid, "shared", users=["direct_share"], editors=["member"])
+    # Direct writes: no route back-dates an edit or a publish. `drafted` was
+    # published long ago and edited since; `republished` published since, its
+    # content time its publish time (as the publish switch leaves them).
+    _date(corpus_rows, drafted, edited=datetime(2026, 6, 1))
+    corpus_rows.update("artifact_releases", releases[drafted], published_at=datetime(2026, 2, 1))
+    _date(corpus_rows, republished, edited=datetime(2026, 3, 1))
+    corpus_rows.update("artifact_releases", releases[republished], published_at=datetime(2026, 3, 1))
+
+    def shared(person, **params):
+        return _ids(test_client, corpus, person, filter="shared", **params)
+
+    def edited_at(person):
+        return {c["id"]: (c["role"], datetime.fromisoformat(c["edited_at"]))
+                for c in _cards(test_client, corpus, person, filter="shared")}
+
+    assert edited_at("member") == {drafted: ("edit", datetime(2026, 6, 1)), republished: ("edit", datetime(2026, 3, 1))}
+    assert edited_at("direct_share") == {drafted: ("view", datetime(2026, 2, 1)),
+                                         republished: ("view", datetime(2026, 3, 1))}
+    assert shared("member", sort="edited") == [drafted, republished]
+    assert shared("direct_share", sort="edited") == [republished, drafted]
+    assert shared("direct_share") == [republished, drafted]  # the default sort
+
+    since_april = {"edited_from": "2026-04-01T00:00:00Z"}
+    assert shared("member", **since_april) == [drafted]
+    assert shared("direct_share", **since_april) == []
+    assert shared("direct_share", edited_from="2026-02-15T00:00:00Z") == [republished]
+    assert shared("direct_share", edited_to="2026-02-15T00:00:00Z") == [drafted]
+    for person, expected in (("member", 1), ("direct_share", 0)):
+        resp = test_client.get("/api/artifacts/facets", params={"filter": "shared", **since_april},
+                               headers=as_(corpus, person))
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["access"]["all"] == expected, (person, resp.json()["access"])
+
+
+@pytest.mark.e2e
+def test_on_shared_the_readers_role_decides_which_time_edited_is(corpus, corpus_rows, test_client):
+    """On Shared, whoever may edit a dashboard -- by name or through a group
+    -- sees its content time; a reader who may only view it sees the earlier
+    of its content and publish times (review #1). `drafted` was edited after
+    its publish, `republished` published at its last edit, and `migrated`
+    carries a publish time later than its content, as the data migration
+    (dashfc08) left every existing dashboard."""
+    drafted, republished = own(corpus_rows, corpus, SALES), own(corpus_rows, corpus, STOCK)
+    migrated = own(corpus_rows, corpus, ONE)
+    releases = {aid: publish(aid) for aid in (drafted, republished, migrated)}
+    for aid in releases:
+        _sharing(test_client, corpus, aid, "shared", users=["direct_share"], editors=["member"],
+                 editor_groups=["analysts"])
+    # Direct writes: no route back-dates an edit or a publish.
+    for aid, edited, published in ((drafted, datetime(2026, 6, 1), datetime(2026, 2, 1)),
+                                   (republished, datetime(2026, 3, 1), datetime(2026, 3, 1)),
+                                   (migrated, datetime(2025, 8, 1), datetime(2026, 4, 1))):
+        _date(corpus_rows, aid, edited=edited)
+        corpus_rows.update("artifact_releases", releases[aid], published_at=published)
+    content = {drafted: datetime(2026, 6, 1), republished: datetime(2026, 3, 1), migrated: datetime(2025, 8, 1)}
+    earlier = {drafted: datetime(2026, 2, 1), republished: datetime(2026, 3, 1), migrated: datetime(2025, 8, 1)}
+
+    roles = {}
+    # member: an edit grant by name; group_share: one through the analysts group.
+    for person in ("member", "group_share", "direct_share"):
+        cards = [c for c in _cards(test_client, corpus, person, filter="shared") if c["id"] in content]
+        assert {c["id"] for c in cards} == set(content), person
+        for c in cards:
+            roles[person, c["id"]] = c["role"]
+            expected = content if c["role"] in ("owner", "edit") else earlier
+            assert datetime.fromisoformat(c["edited_at"]) == expected[c["id"]], (person, c["role"], c["id"])
+    assert {roles["member", a] for a in content} == {roles["group_share", a] for a in content} == {"edit"}
+    assert {roles["direct_share", a] for a in content} == {"view"}
+    in_order = [a for a in _ids(test_client, corpus, "group_share", filter="shared", sort="edited") if a in content]
+    assert in_order == [drafted, republished, migrated]
+    in_order = [a for a in _ids(test_client, corpus, "direct_share", filter="shared", sort="edited") if a in content]
+    assert in_order == [republished, drafted, migrated]
 
 
 @pytest.mark.e2e
