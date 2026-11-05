@@ -113,6 +113,7 @@ class MariadbClient(DataSourceClient):
         except IndexingCancelled:
             raise
         except Exception as e:
+            self.mark_discovery_incomplete("mariadb catalog")
             print(f"Error retrieving tables: {e}")
             return []
 
