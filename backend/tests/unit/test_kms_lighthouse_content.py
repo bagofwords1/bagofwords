@@ -1395,9 +1395,11 @@ def test_bare_id_falls_back_to_scenario_once(kms):
 _V2_ACCEPT = "application/vnp.kms-api.v2+json"
 _TRUNCATED = "[tree truncated: some steps not shown]"
 _NOT_AVAILABLE = "(step not available)"
+_CUT = "(not shown: tree truncated)"
+_NOT_LOADED = "(some steps could not be loaded)"
 # Scenario 21302 as an agent reads it, worked out by hand from the mock (PDF shape): "Yes" (23506) and
 # "MasterCard" (23498) come from step fetches, "No" and "Visa" are inline; an option step whose name is
-# its label shows no name line; images keep their path; the "No" step's HTML text becomes plain lines
+# its label shows no name line; images keep their path; the "No" step's plain text keeps its lines
 # and its bare URL loses only the token.
 _SCENARIO_21302_TREE = """\
 ## Steps
@@ -1433,7 +1435,6 @@ def test_read_scenario_renders_decision_tree(kms, make):
     assert text.name == "How to Register for Advanced Credit Card Security.txt"
     # Every option label and child step, nested by indentation, after one blank line under the header.
     assert text.endswith("\n\n" + _SCENARIO_21302_TREE)
-    assert "<" not in text and "&amp;" not in text
 
 
 def test_scenario_child_steps_are_fetched_when_not_inline(kms):
@@ -1472,6 +1473,8 @@ def test_scenario_caps_and_cycles(kms):
     mock.REQUEST_LOG.clear()
     deep = c.read_file("scenario:21500")
     assert "\n" + "  " * 25 + "Level 25 question\n" in deep and "Level 26 question" not in deep
+    # The cut is marked where the step would be, and the marker ends the tree.
+    assert '- "Go deeper 26" ->\n' + "  " * 26 + _CUT + "\n" + _TRUNCATED in deep
     assert deep.endswith("\n" + _TRUNCATED)
     assert _rows(kms, "/public/scenario/21500") and _step_rows(kms) == []      # all inline: no fetch
     # Children that all need a fetch: at most 40 step fetches per read, then the marker.
@@ -1479,14 +1482,159 @@ def test_scenario_caps_and_cycles(kms):
     wide = c.read_file("scenario:21501")
     assert len(_step_rows(kms)) == 40
     assert "Branch 0 step." in wide and "Branch 39 step." in wide and "Branch 40 step." not in wide
-    assert wide.endswith("\n" + _TRUNCATED)
+    # Every option past the cap is still listed, with the cut marked where its step would be.
+    assert all(f'- "Branch {n}" ->\n  {_CUT}\n' in wide for n in range(40, 60))
+    assert wide.count(_CUT) == 20 and wide.endswith("\n" + _TRUNCATED)
 
 
 def test_scenario_node_cap_truncates(kms):
     text = client(kms).read_file("scenario:21502")
     shown = [line for line in text.splitlines() if re.fullmatch(r" *Option [0-9]+ step\.", line)]
-    assert len(shown) == 399                     # 400 steps, the root one included
+    # One budget of 400 entries: the root step, then a label line and a step per option.
+    assert len(shown) == 199
+    assert f'- "Option 199" ->\n  {_CUT}\n{_TRUNCATED}' in text
     assert text.endswith("\n" + _TRUNCATED) and _step_rows(kms) == []
+
+
+def _with_steps(mock, monkeypatch, root, steps=None):
+    """Scenario 21302 served with ``root`` as its data.steps and ``steps`` (stepId -> step) as its step answers."""
+    monkeypatch.setitem(mock.SCENARIOS["21302"], "steps", root)
+    if steps is not None:
+        monkeypatch.setitem(mock.SCENARIO_STEPS, "21302", steps)
+
+
+def test_scenario_fetch_budget_reaches_every_top_level_answer_first(kms, monkeypatch):
+    mock = kms["mock"]
+    step = mock._step
+    # PDF shape: a root with 3 options, each a fetched step with 25 fetched sub-options (78 fetches needed).
+    root = step(23505, name="Which product?", decisions={f"21302:2:{61000 + a}": f"Product {a}" for a in range(3)})
+    steps = {}
+    for a in range(3):
+        steps[str(61000 + a)] = step(61000 + a, text=f"Product {a} step.",
+                                     decisions={f"21302:2:{62000 + 100 * a + b}": f"Plan {a}.{b}" for b in range(25)})
+        steps.update({str(62000 + 100 * a + b): step(62000 + 100 * a + b, text=f"Plan {a}.{b} step.")
+                      for b in range(25)})
+    _with_steps(mock, monkeypatch, root, steps)
+    text = client(kms).read_file("scenario:21302")
+    assert len(_step_rows(kms)) == 40
+    # Level first: every top-level answer has its step, then the deeper ones as far as the budget goes.
+    for a in range(3):
+        assert f'- "Product {a}" ->\n  Product {a} step.\n' in text
+    assert "Plan 0.24 step." in text and "Plan 1.11 step." in text and "Plan 1.12 step." not in text
+    assert f'  - "Plan 1.12" ->\n    {_CUT}\n' in text and f'  - "Plan 2.0" ->\n    {_CUT}\n' in text
+    assert text.count(_CUT) == 13 + 25 and text.endswith("\n" + _TRUNCATED)
+
+
+def test_every_rendered_line_counts_toward_the_tree_bound(kms, monkeypatch):
+    mock = kms["mock"]
+    # 200,000 options whose ids cannot be fetched: labels and "not available" lines share the one budget.
+    _with_steps(mock, monkeypatch, mock._step(
+        23505, name="Pick one", decisions={f"21302:2:x{n}": f"Option {n}" for n in range(200_000)}))
+    tree = _tree(client(kms).read_file("scenario:21302"))
+    lines = tree.splitlines()
+    assert len(lines) <= 405 and lines[-2:] == ["  " + _CUT, _TRUNCATED]
+    assert _step_rows(kms) == []
+
+
+def test_a_step_that_failed_is_not_fetched_again(kms, monkeypatch):
+    mock = kms["mock"]
+    _with_steps(mock, monkeypatch, mock._step(
+        23505, name="Pick one", decisions={f"21302:{n}:23506": f"Way {n}" for n in range(45)}))
+    mock.STATE["step_status"] = {"23506": 403}
+    tree = _tree(client(kms).read_file("scenario:21302"))
+    assert len(_step_rows(kms)) == 1
+    assert tree.count(f"\n  {_NOT_AVAILABLE}") == 45 and _TRUNCATED not in tree and _CUT not in tree
+
+
+def test_a_tree_whose_every_step_fetch_failed_says_so(kms):
+    mock = kms["mock"]
+    mock.STATE["step_status"] = {"23506": 404}
+    tree = _tree(client(kms).read_file("scenario:21302"))
+    assert tree.startswith(f'## Steps\n{_NOT_LOADED}\nHave you registered for advanced security?\n')
+    assert f'- "Yes" ->\n  {_NOT_AVAILABLE}\n' in tree
+    # One fetch failing among others that worked, or no fetch at all, is a normal tree.
+    mock.STATE["step_status"] = {"23498": 404}
+    partial = client(kms).read_file("scenario:21302")
+    assert f'- "MasterCard" ->\n    {_NOT_AVAILABLE}' in partial and _NOT_LOADED not in partial
+    mock.STATE["step_status"] = {}
+    assert _NOT_LOADED not in client(kms).read_file("scenario:21400") + client(kms).read_file("scenario:21502")
+
+
+@pytest.mark.parametrize("authored", [
+    "Run reset <username> now.", "Enter <customer id> in the field.", "if x<y and y>z stop",
+    "Send <config><user>admin</user></config> to the gateway.", "Type &amp; between the names.",
+])
+def test_scenario_step_text_labels_and_names_are_shown_as_written(kms, monkeypatch, authored):
+    mock = kms["mock"]
+    # Steps are asked for with plainText=true and nothing else tells markup from text: all of it is plain.
+    _with_steps(mock, monkeypatch, mock._step(
+        23505, name="Name: " + authored, text=authored, decisions={"21302:2:23515": "Label: " + authored},
+        children={"23515": mock._step(23515, node="Node: " + authored, text="Done.")}))
+    tree = _tree(client(kms).read_file("scenario:21302"))
+    assert tree == f'## Steps\nName: {authored}\n{authored}\n- "Label: {authored}" ->\n  Node: {authored}\n  Done.'
+
+
+@pytest.mark.parametrize("authored,secret,kept", [
+    ("Form: https://kms.example.com/contents?id=7&token=Sv1x9Qk2abc", "Sv1x9Qk2abc", "contents?id=7"),
+    ("Paste eyJhbGciOiJub25lIn0.eyJzdWIiOiJzdGVwIn0.c3RlcC1zaWduZWQ here", "eyJzdWIiOiJzdGVwIn0", " here"),
+    ("Send Authorization: Bearer abcDEF123456ghi to the API", "abcDEF123456ghi", " to the API"),
+    ("Set api_key=Xk29abcDEF77 in the file", "Xk29abcDEF77", " in the file"),
+], ids=["token_url", "jwt", "bearer", "api_key"])
+def test_scenario_step_text_still_scrubs_machine_credentials(kms, monkeypatch, authored, secret, kept):
+    mock = kms["mock"]
+    # Plain text is still scrubbed: in the root's name and text, an option label and a child's text.
+    _with_steps(mock, monkeypatch, mock._step(
+        23505, name=authored, text=authored, decisions={"21302:2:23515": authored},
+        children={"23515": mock._step(23515, text=authored)}))
+    tree = _tree(client(kms).read_file("scenario:21302"))
+    assert secret not in tree and "eyJzdWIi" not in tree and "token=" not in tree
+    assert tree.count(kept) == 4
+
+
+def test_a_scenario_whose_steps_render_nothing_is_header_only(kms, monkeypatch):
+    mock = kms["mock"]
+    _with_steps(mock, monkeypatch, {"stepId": 23505, "stepName": "", "text": " \n\t ", "decisions": {}})
+    text = client(kms).read_file("scenario:21302")
+    assert "## Steps" not in text and text.splitlines()[-1].startswith("Updated: ")
+
+
+def test_skipped_scenario_branches_are_logged_by_reason_only(kms, monkeypatch, caplog):
+    mock = kms["mock"]
+    caplog.set_level(logging.DEBUG, logger=kc.logger.name)
+    _with_steps(mock, monkeypatch, mock._step(
+        23505, name="Pick one", decisions={"21302:2:abc77": "Bad id", "21302:3:abc78": "Bad too"},
+        children={"23515": "not a record 77", "23516": ["odd"]}))
+    client(kms).read_file("scenario:21302")
+    logged = [r.getMessage() for r in caplog.records if r.name == kc.logger.name and "skipped" in r.getMessage()]
+    assert sorted(set(logged)) == ["kms_lighthouse step skipped: child is not a record",
+                                   "kms_lighthouse step skipped: decision id is not digits"]
+    assert not any("77" in line or "abc" in line for line in logged)
+
+
+def test_number_labels_and_names_are_shown(kms, monkeypatch):
+    mock = kms["mock"]
+    _with_steps(mock, monkeypatch, {
+        "stepId": 23505, "stepName": 12, "decisions": {"21302:2:23515": 7, "21302:2:23516": True},
+        "children": {"23515": {"stepId": 23515, "stepName": 2.5, "text": "Done."},
+                     "23516": {"stepId": 23516, "stepName": False, "stepNodeText": 0, "text": "Other."}}})
+    tree = _tree(client(kms).read_file("scenario:21302"))
+    assert tree == '## Steps\n12\n- "7" ->\n  2.5\n  Done.\n- "" ->\n  0\n  Other.'
+
+
+def test_a_step_id_with_leading_zeros_is_fetched_as_its_number(kms, monkeypatch):
+    mock = kms["mock"]
+    _with_steps(mock, monkeypatch, mock._step(23505, name="Pick one", decisions={"21302:2:0023498": "Card"}))
+    tree = _tree(client(kms).read_file("scenario:21302"))
+    assert [row[2] for row in _step_rows(kms)] == [mock.PREFIX + "/public/scenario/21302/step/23498"]
+    assert '- "Card" ->\n  MasterCard\n  Call the MasterCard desk to register.' in tree
+
+
+def test_mock_step_route_without_a_step_id_is_not_found(kms):
+    mock = kms["mock"]
+    auth = {"Authorization": "Bearer " + next(t for t, u in mock.TOKENS.items() if u == "alice"),
+            "Accept": _V2_ACCEPT}
+    url = kms["base_url"] + mock.PREFIX + "/public/scenario/21302/step/"
+    assert requests.get(url, params={"v": "2", "plainText": "true"}, headers=auth, timeout=5).status_code == 404
 
 
 @pytest.mark.parametrize("path", ["/public/scenario/21302", "/public/scenario/21302/step/23506"])
@@ -1572,7 +1720,8 @@ def test_odd_scenario_step_shapes_never_fail_the_read(kms, monkeypatch):
         "children": {"23515": {"stepNodeText": "No", "text": "Inline answer."}, "23516": "not a record",
                      "zz": None}})
     tree = _tree(client(kms).read_file("scenario:21302"))
-    assert tree == ("## Steps\n"
+    # Its one fetch (23516) failed, so the tree opens with the not-loaded note (fix round 1, item 6).
+    assert tree == (f"## Steps\n{_NOT_LOADED}\n"
                     f'- "Bad id" ->\n  {_NOT_AVAILABLE}\n'
                     '- "" ->\n  No\n  Inline answer.\n'
                     f'- "Odd child" ->\n  {_NOT_AVAILABLE}')

@@ -16,7 +16,8 @@ Public API Documentation 5.0 and the public username/password login:
   GET  {PREFIX}/public/scenario/{id}        a scenario (SCENARIOS); HTTP 200 {"status": "ERROR"} when unknown
   GET  {PREFIX}/public/scenario/{id}/step/{stepId}
                                             one step of a scenario as data.steps (SCENARIO_STEPS), its own
-                                            children inline; HTTP 200 {"status": "ERROR"} when unknown
+                                            children inline; HTTP 200 {"status": "ERROR"} when unknown,
+                                            HTTP 404 when the stepId is empty
                                             Both scenario routes answer 406 unless the request sends
                                             "Accept: application/vnp.kms-api.v2+json" (the PDF's header).
 
@@ -81,7 +82,7 @@ Test-only switches and routes (not part of the KMS API):
     int, 200-599, answered with no body), "error" (a 200 {"status": "ERROR"})
     or "wrong_step" (the answer for another step). Scenario 21302 is shaped
     like the PDF (its "Yes" and "MasterCard" children need a step fetch, "No"
-    and "Visa" are inline; image URLs and one step's HTML text carry tokens,
+    and "Visa" are inline; image URLs and one step's plain text carry tokens,
     SCENARIO_SECRETS); 21400 comes back to its own steps (a cycle); 21500 is
     60 levels deep, all inline; 21501 has 60 children that all need a fetch;
     21502 has 450 inline children.
@@ -309,8 +310,9 @@ def _scenario(scenario_id, title, steps):
             "updatedDate": "2024-05-09 12:57:56.0", "steps": steps, "relatedItems": [], "choiceDisplay": "buttons"}
 
 
-_NO_STEP_HTML = ("<p>Call the bank on <b>1-800-555-0100</b> to register.</p>"
-                 f"<p>Form: https://kms.example.com/contents?id=7&amp;token={SCENARIO_SECRETS['step_url']}</p>")
+# Asked for with plainText=true (PDF: "content without HTML tags"), so step text is plain.
+_NO_STEP_TEXT = ("Call the bank on 1-800-555-0100 to register.\n"
+                 f"Form: https://kms.example.com/contents?id=7&token={SCENARIO_SECRETS['step_url']}")
 
 
 def _deep_chain(levels):
@@ -329,7 +331,7 @@ SCENARIOS = {
         23505, name="Have you registered for advanced security?",
         image=_image("47fe1d9f", SCENARIO_SECRETS["root_image"]),
         decisions={"21302:2:23506": "Yes", "21302:2:23515": "No"},
-        children={"23515": _step(23515, node="No", text=_NO_STEP_HTML)})),
+        children={"23515": _step(23515, node="No", text=_NO_STEP_TEXT)})),
     "21400": _scenario(21400, "Blocked card check", _step(
         30001, name="Is the card blocked?",
         decisions={"21400:2:30002": "Yes", "21400:2:30003": "Not sure", "21400:2:30001": "Start again"},
@@ -739,7 +741,9 @@ class Handler(BaseHTTPRequestHandler):
                                                "plainText": (query.get("plainText") or [None])[0], "accept": accept})
         if accept != _SCENARIO_ACCEPT:
             return self._send_empty(406)
-        scenario_id, _, step_id = rest.partition("/step/")
+        scenario_id, step_route, step_id = rest.partition("/step/")
+        if step_route and not step_id:
+            return self._send_empty(404)
         scenario = SCENARIOS.get(scenario_id)
         missing = {"status": "ERROR", "exception": "Can not find scenario", "data": None}
         if not step_id:

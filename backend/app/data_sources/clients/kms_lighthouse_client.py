@@ -1460,30 +1460,32 @@ def _ai_sections(elements, records: dict) -> list | None:
     return ([(_GENERAL, general)] if general else []) + list(by_tab.items())
 
 
-# A scenario (decision tree) read is bounded: steps rendered, step fetches and nesting depth.
-_MAX_SCENARIO_STEPS = 400
+# A scenario (decision tree) read is bounded: entries rendered, step fetches and nesting depth.
+_MAX_SCENARIO_ENTRIES = 400
 _MAX_STEP_FETCHES = 40
 _MAX_SCENARIO_DEPTH = 25
 _SCENARIO_PARAMS = {"v": "2", "plainText": "true"}
 _TREE_TRUNCATED = "[tree truncated: some steps not shown]"
+_STEP_CUT = "(not shown: tree truncated)"
 _STEP_UNAVAILABLE = "(step not available)"
+_STEPS_NOT_LOADED = "(some steps could not be loaded)"
 _STEP_INDENT = "  "
 
 
 def _scenario_text(value) -> str:
-    """Step text or a label, asked for with plainText=true: plain text is shown as written (scrubbed).
+    """Step text, asked for with plainText=true (API PDF: "content without HTML tags"), as written.
 
-    Text with anything tag-shaped or a character reference
-    (``_AMBIGUOUS_AI_TEXT_RE``) is read as HTML, in case KMS ignored
-    plainText; anything but a string is no text.
+    Nothing else tells markup from an author's text, so all of it is plain:
+    lines tidied and scrubbed, nothing stripped or decoded ("Run reset
+    <username> now." stays). Anything but a string is no text.
     """
-    text = value if isinstance(value, str) else ""
-    if _AMBIGUOUS_AI_TEXT_RE.search(text) is None:
-        return _plain_ai_text(text)
-    return _plain_text(text)
+    return _plain_ai_text(value if isinstance(value, str) else "")
 
 
 def _scenario_line(value) -> str:
+    """A label or a step name as one plain, scrubbed line (a number as written), like ``_line``."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        value = str(value)
     return _without_controls(_scenario_text(value))
 
 
@@ -1498,10 +1500,14 @@ def _step_branches(step: dict) -> list:
 
     A decision key is ``<scenario>:<n>:<child stepId>``; its child is the
     inline record ``children[<stepId>]`` when there is one, else None (to be
-    fetched). A child no decision names is a continuation step.
+    fetched). A child no decision names is a continuation step. A child that
+    is not a record and a decision whose step id is not digits are each
+    logged once per step, by reason only.
     """
     children = step.get("children") if isinstance(step.get("children"), dict) else {}
     inline = [(_step_key(key), child) for key, child in children.items() if isinstance(child, dict)]
+    if len(inline) < len(children):
+        logger.debug("kms_lighthouse %s skipped: %s", "step", "child is not a record")
     by_id = {}
     for child_id, child in inline:
         if child_id is not None:
@@ -1512,8 +1518,44 @@ def _step_branches(step: dict) -> list:
         child_id = _step_key(str(key).rpartition(":")[2])
         named.add(child_id)
         branches.append((_scenario_line(label), child_id, by_id.get(child_id)))
+    if None in named:
+        logger.debug("kms_lighthouse %s skipped: %s", "step", "decision id is not digits")
     return branches + [(None, child_id, child) for child_id, child in inline
                        if child_id is None or child_id not in named]
+
+
+def _prefetch_steps(root: dict, root_id: str | None, fetch_step) -> tuple[dict, set, dict, int]:
+    """Every step the tree needs, breadth first, so the fetch budget reaches each level before the next.
+
+    Returns the steps by id (inline or fetched), the ids whose fetch failed
+    (never fetched again), each step's branches by ``id()`` of its record,
+    and the number of fetches. A child that is not inline is fetched while
+    ``_MAX_STEP_FETCHES`` allows and it is no deeper than
+    ``_MAX_SCENARIO_DEPTH``. Linear: each record is expanded once.
+    """
+    known = {} if root_id is None else {root_id: root}
+    failed, branches_of, fetches = set(), {}, 0
+    queue = deque([(root, 0)])
+    while queue:
+        step, depth = queue.popleft()
+        branches = branches_of[id(step)] = _step_branches(step)
+        for option, child_id, child in branches:
+            if child_id is not None and child_id in known:
+                continue
+            child_depth = depth if option is None else depth + 1
+            if child is None:
+                if (child_id is None or child_id in failed or fetches >= _MAX_STEP_FETCHES
+                        or child_depth > _MAX_SCENARIO_DEPTH):
+                    continue
+                fetches += 1
+                child = fetch_step(child_id)
+                if child is None:
+                    failed.add(child_id)
+                    continue
+            if child_id is not None:
+                known[child_id] = child
+            queue.append((child, child_depth))
+    return known, failed, branches_of, fetches
 
 
 def _render_scenario(root: dict, fetch_step) -> list:
@@ -1525,46 +1567,51 @@ def _render_scenario(root: dict, fetch_step) -> list:
     Each decision is ``- "<label>" ->`` with its child one level in; a
     continuation child stays at its parent's level. A child that is not
     inline comes from ``fetch_step(step id)`` (a record, or None when it is
-    not available). A step id seen before renders ``(see step "<name>"
-    above)`` and is never fetched again. Past ``_MAX_SCENARIO_STEPS`` steps,
-    ``_MAX_STEP_FETCHES`` fetches or ``_MAX_SCENARIO_DEPTH`` levels the tree
-    is cut and ``_TREE_TRUNCATED`` ends it. Linear: each step is rendered once.
+    not available), fetched first, breadth first (``_prefetch_steps``). A
+    step id seen before renders ``(see step "<name>" above)``; a step whose
+    fetch failed renders ``(step not available)`` at each reference. Every
+    entry (a step, an option line, a marker) counts toward
+    ``_MAX_SCENARIO_ENTRIES``; past it, past ``_MAX_STEP_FETCHES`` fetches or
+    past ``_MAX_SCENARIO_DEPTH`` levels, ``_STEP_CUT`` stands where the step
+    would be and ``_TREE_TRUNCATED`` ends the tree. When steps were fetched
+    and every fetch failed, ``_STEPS_NOT_LOADED`` comes first. Linear: each
+    step is rendered once.
     """
+    root_id = _step_key(root.get("stepId"))
+    known, failed, branches_of, fetches = _prefetch_steps(root, root_id, fetch_step)
     lines, seen, names = [], set(), {}
-    rendered = fetches = 0
+    entries = 0
     truncated = False
-    # ("line", text) or ("step", record or None to fetch, step id, depth, label that leads to it).
-    stack = [("step", root, _step_key(root.get("stepId")), 0, None)]
+    # (kind, record or line text, step id, depth, label that leads to it); kind is "step" or "line".
+    stack = [("step", root, root_id, 0, None)]
     while stack:
-        entry = stack.pop()
-        if entry[0] == "line":
-            lines.append(entry[1])
-            continue
-        _, step, step_id, depth, label = entry
+        kind, step, step_id, depth, label = stack.pop()
         indent = _STEP_INDENT * depth
+        if entries >= _MAX_SCENARIO_ENTRIES:
+            lines.append(indent + _STEP_CUT)
+            truncated = True
+            break
+        entries += 1
+        if kind == "line":
+            lines.append(indent + step)
+            continue
         if step_id is not None and step_id in seen:
             name = names.get(step_id)
             lines.append(indent + (f'(see step "{name}" above)' if name else "(see step above)"))
             continue
-        if rendered >= _MAX_SCENARIO_STEPS:
-            truncated = True
-            break
         if depth > _MAX_SCENARIO_DEPTH:
+            lines.append(indent + _STEP_CUT)
             truncated = True
             continue
+        if step_id is not None:
+            step = known.get(step_id)
         if step is None:
-            if step_id is None:
+            if step_id is None or step_id in failed:
                 lines.append(indent + _STEP_UNAVAILABLE)
-                continue
-            if fetches >= _MAX_STEP_FETCHES:
+            else:                                   # the fetch budget was spent before this step
+                lines.append(indent + _STEP_CUT)
                 truncated = True
-                continue
-            fetches += 1
-            step = fetch_step(step_id)
-            if step is None:
-                lines.append(indent + _STEP_UNAVAILABLE)
-                continue
-        rendered += 1
+            continue
         name = _scenario_line(step.get("stepName")) or _scenario_line(step.get("stepNodeText"))
         if step_id is not None:
             seen.add(step_id)
@@ -1577,14 +1624,17 @@ def _render_scenario(root: dict, fetch_step) -> list:
         if image:
             lines.append(f"{indent}Image: {image}")
         pending = []
-        for option, child_id, child in _step_branches(step):
+        for option, child_id, child in branches_of[id(step)]:
             if option is None:
                 pending.append(("step", child, child_id, depth, None))
             else:
-                pending += [("line", f'{indent}- "{option}" ->'), ("step", child, child_id, depth + 1, option)]
+                pending += [("line", f'- "{option}" ->', None, depth, None),
+                            ("step", child, child_id, depth + 1, option)]
         stack += reversed(pending)
     if truncated:
         lines.append(_TREE_TRUNCATED)
+    if lines and fetches and len(failed) == fetches:
+        lines.insert(0, _STEPS_NOT_LOADED)
     return lines
 
 
@@ -2413,8 +2463,9 @@ class KmsLighthouseClient(DataSourceClient):
     def _read_scenario(self, digits: str) -> DocumentText:
         """A scenario: its header lines, then its decision tree (``_render_scenario``) under "## Steps".
 
-        No steps (absent, null, ``{}`` or ``[]``) is the header alone; any
-        other shape that is not a record fails closed.
+        No steps (absent, null, ``{}`` or ``[]``), or steps that render no
+        line, is the header alone; any other shape that is not a record
+        fails closed.
         """
         payload = self._request("scenario", f"/public/scenario/{digits}", missing="not_found",
                                 params=_SCENARIO_PARAMS, headers={"Accept": _SCENARIO_ACCEPT})
@@ -2429,8 +2480,9 @@ class KmsLighthouseClient(DataSourceClient):
             logger.debug("kms_lighthouse %s refused: %s", "scenario", "steps is not a record")
             raise KmsHTTPError(200, "server")
         lines = _header(data.get("title"), f"scenario (scenario:{digits})", data)
-        if steps:
-            lines += ["", "## Steps"] + _render_scenario(steps, functools.partial(self._fetch_step, digits))
+        tree = _render_scenario(steps, functools.partial(self._fetch_step, digits)) if steps else []
+        if tree:
+            lines += ["", "## Steps"] + tree
         return DocumentText("\n".join(lines), raw=None, name=_safe_title(data.get("title")) + ".txt",
                             mime="text/plain")
 
