@@ -19,9 +19,10 @@ Faithfulness rules enforced on purpose:
   - Each user sees only the tree nodes in their `visible` set, and only the
     search results whose `visible` set names them. The tree has a nested
     folder (Procedures/Billing), two sibling folders with one title (Forms),
-    an offline item, a scenario node, hostile folder titles
-    (HOSTILE_FOLDER_TITLES) and a wide folder (WIDE_FOLDER) with more
-    subfolders than the client's folder-call cap.
+    an offline item, an offline folder (OFFLINE_FOLDER), a scenario node,
+    hostile folder titles (HOSTILE_FOLDER_TITLES) and a wide folder
+    (WIDE_FOLDER) with more subfolders than the client's folder-call cap, two
+    of them holding a deeper folder (DEEP_AT_CAP, DEEP_PAST_CAP).
   - Search does not rank or filter by the query: every query matches every
     result the user may see, paged by `start`/`rows`. There is no length rule
     on `query` (the PDF states none); a 400 with no body is the PDF's
@@ -112,6 +113,16 @@ TREE[WIDE_FOLDER] = {"parent": None, "title": "Wide", "type": "FOLDER", "status"
 for _n in range(WIDE_CHILDREN):
     TREE[str(1000 + _n)] = {"parent": WIDE_FOLDER, "title": f"Wide {_n}", "type": "FOLDER", "status": "2"}
     TREE[str(2000 + _n)] = {"parent": str(1000 + _n), "title": f"Wide item {_n}", "type": "ITEM", "status": "2"}
+# An offline folder (with one item) under Procedures.
+OFFLINE_FOLDER = "15"
+TREE[OFFLINE_FOLDER] = {"parent": "10", "title": "Old forms", "type": "FOLDER", "status": "1"}
+TREE["308"] = {"parent": OFFLINE_FOLDER, "title": "Old address form", "type": "ITEM", "status": "2"}
+# Folders deep in the wide folder: from the root "30", finding DEEP_AT_CAP takes the whole folder-call
+# cap (the root level and 39 wide children), and DEEP_PAST_CAP one call more.
+DEEP_AT_CAP, DEEP_PAST_CAP = "5001", "5002"
+for _deep_id, _wide_parent in ((DEEP_AT_CAP, "1038"), (DEEP_PAST_CAP, "1039")):
+    TREE[_deep_id] = {"parent": _wide_parent, "title": "Deep " + _deep_id, "type": "FOLDER", "status": "2"}
+    TREE[str(int(_deep_id) + 100)] = {"parent": _deep_id, "title": "Deep item", "type": "ITEM", "status": "2"}
 _RESTRICTED = {"11", "307"}
 
 # Planted in search titles and descriptions; neither may reach client output.

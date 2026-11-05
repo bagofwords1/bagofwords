@@ -323,17 +323,20 @@ _MAX_SEARCH_PAGES = 20
 _SNIPPET_CHARS = 300
 _MAX_SEGMENT_CHARS = 200
 _KINDS = ("item", "scenario", "folder")
-_KIND_PREFIX_RE = re.compile(r"^(item|scenario|folder):", re.IGNORECASE)
+# ASCII case only: a prefix that matches only by a Unicode case fold (a long s U+017F for 's',
+# a dotless i U+0131 or a dotted capital I U+0130 for 'i') names no kind.
+_KIND_PREFIX_RE = re.compile(r"^(item|scenario|folder):", re.IGNORECASE | re.ASCII)
 # Every pattern below is linear: possessive runs never backtrack, and every
 # Python scan is bounded. Titles and descriptions are scrubbed at full length
 # (a cut before the scrub could split a secret), and so are article bodies.
 # A JWT is any base64url run that starts like a JWT header ("eyJ"), with up to
 # two dotted parts; whitespace (left by a <br>) may sit next to a dot.
 _JWT_RE = re.compile(r"eyJ[A-Za-z0-9_-]{4,}+(?:\s{0,3}\.\s{0,3}[A-Za-z0-9_-]++){0,2}")
-# A quote may open the token ('--oauth2-bearer "ya29.X"'): an ASCII, backtick or
-# smart opening quote, also escaped ('Bearer \"X\"'); it stays with the scheme word.
-_BEARER_RE = re.compile(r"(?i)\b(bearer\s++(?:\\?+[\"'`" + chr(0x201C) + chr(0x2018) + r"])?+)"
-                        r"([A-Za-z0-9._~+/=-]{8,}+)")
+# A quote may open the token ('--oauth2-bearer "ya29.X"'): an ASCII, backtick, smart
+# (also a closing one used as an opener, and the low-9 one), or guillemet quote, also
+# escaped ('Bearer \"X\"'), or a '('; it stays with the scheme word.
+_BEARER_RE = re.compile(r"(?i)\b(bearer\s++(?:\\?+[\"'`(" + chr(0x201C) + chr(0x2018) + chr(0x201D)
+                        + chr(0x201E) + chr(0x00AB) + r"])?+)([A-Za-z0-9._~+/=-]{8,}+)")
 _BASIC_RE = re.compile(r"(?i)\b(basic\s++)([A-Za-z0-9+/]{12,}+=*+)")
 # Each opening quote of a structured key or value and its closing quote: ASCII
 # quotes and the matched smart pairs (built with chr() so the source stays ASCII).
@@ -455,43 +458,56 @@ def _is_pass_key(name: str) -> bool:
 
 # A documentation placeholder in a credential's place ("<password>", "{secret}",
 # "[api key]", "***", "xxxx", "....", "changeme", "your_password", "YOUR_API_KEY",
-# "MY_SECRET", "TOKEN_HERE", "your_api_key_here", "ACCESS_TOKEN", up to three words
-# after "your", "my" or "insert" ("YOUR_CLIENT_SECRET", "your-api-key", "INSERT_KEY_HERE",
-# "YOUR API KEY"), a variable: "${DB_PASS}", "${PG_PASSWORD:-postgres}", "$DB_PASSWORD",
-# "%API_KEY%", and a template expression: "{{ .Values.apiKey }}", "${{ secrets.API_KEY }}"):
-# kept as written.
+# "MY_SECRET", "TOKEN_HERE", "your_api_key_here", "YOUR_API_KEY_GOES_HERE", "ACCESS_TOKEN",
+# an upper-case "<WORD>_TOKEN" with no digit ("AUTH_TOKEN", "ID_TOKEN"), up to three words
+# after "your", "my", "insert" or "replace with" ("YOUR_CLIENT_SECRET", "your-api-key",
+# "INSERT_KEY_HERE", "REPLACE_WITH_TOKEN", "YOUR API KEY"), a variable: "${DB_PASS}",
+# "${PG_PASSWORD:-postgres}" (a default with no digit and none of "_~+/="), "$DB_PASSWORD",
+# "%API_KEY%", and a template that is a reference: a dotted path ("{{ .Values.apiKey }}",
+# "${{ secrets.API_KEY }}") or one identifier with no digit ("{{apiKey}}")): kept as written.
 _BRACKETED_PLACEHOLDER = r"<[a-z][a-z _-]{0,63}+>|\{[a-z][a-z _-]{0,63}+\}|\[[a-z][a-z _-]{0,63}+\]"
-_TEMPLATE_PLACEHOLDER = r"\$?+\{\{[^{}\n:=]{1,60}+\}\}"     # no ':' or '=': no key hides inside
-# The placeholders that may hold blanks, so an unquoted value run (it stops at a blank) cannot see them whole.
-_SPACED_PLACEHOLDER_RE = re.compile("(?i)" + _BRACKETED_PLACEHOLDER + "|" + _TEMPLATE_PLACEHOLDER)
+# How far an unquoted "{{ ... }}" reaches (it may hold blanks); no ':' or '=', so no key hides inside.
+_TEMPLATE_SPAN = r"\$?+\{\{[^{}\n:=]{1,60}+\}\}"
+_TEMPLATE_PLACEHOLDER = r"\$?+\{\{[ \t]*+(?:\.?+[a-z_][a-z0-9_]*+(?:\.[a-z_][a-z0-9_]*+)++|[a-z_]++)[ \t]*+\}\}"
+# The spans that may hold blanks, so an unquoted value run (it stops at a blank) cannot see them whole.
+_SPACED_PLACEHOLDER_RE = re.compile("(?i)" + _BRACKETED_PLACEHOLDER + "|" + _TEMPLATE_SPAN)
 _PLACEHOLDER_RE = re.compile(
     "(?i)" + _BRACKETED_PLACEHOLDER + "|" + _TEMPLATE_PLACEHOLDER + r"|\*{3,}+|x{3,}+|\.{3,}+"
     r"|(?:your_?)?password|pass|passwd|secret|token|changeme"
-    r"|(?:(?:your|my)_)?(?:(?:api|access)_)?(?:key|token|secret|password|pass|pwd)(?:_here)?"
-    r"|(?:your|my|insert)[_ -][a-z]++(?:[_ -][a-z]++){0,2}"
-    r"|\$\{[a-z_][a-z0-9_]{0,61}+(?::?[-=?+][^{}\s:=]{0,40}+)?\}|\$[a-z_][a-z0-9_]{0,63}+|%[a-z_][a-z0-9_]{0,63}+%")
+    r"|(?:(?:your|my)_)?(?:(?:api|access)_)?(?:key|token|secret|password|pass|pwd)(?:(?:_goes)?_here)?"
+    r"|(?:your|my|insert|replace[_ -]with)[_ -][a-z]++(?:[_ -][a-z]++){0,2}|(?-i:[A-Z]++_TOKEN)"
+    r"|\$\{[a-z_][a-z0-9_]{0,61}+(?::?[-=?+][^{}\s:=0-9_~+/]{0,40}+)?\}|\$[a-z_][a-z0-9_]{0,63}+"
+    r"|%[a-z_][a-z0-9_]{0,63}+%")
 _MAX_PLACEHOLDER_CHARS = 66
-# One sentence mark may end a placeholder ("api_key: YOUR_API_KEY.", "(api_key: <your key>)").
-_SENTENCE_MARKS = (".", ")", "!")
+# What may end a placeholder: up to two sentence marks ("api_key: YOUR_API_KEY.)"), or, when the
+# value did not open with a quote, one closing quote with a mark before or after it
+# ("curl -H 'X-Api-Key: YOUR_API_KEY'", "Send `API_KEY=your_api_key_here`.").
+_MAX_ENDING_CHARS = 3
+_CLOSING_QUOTES = "\"'`" + chr(0x201D) + chr(0x2019)
+_ENDING_RE = re.compile(r"[.)!]{0,2}+")
+_QUOTED_ENDING_RE = re.compile(r"[.)!]?+[" + re.escape(_CLOSING_QUOTES) + r"][.)!]?+")
 # A value that is a URL ("proxy_pass: http://backend:8080" names an upstream, not a password).
 _URL_VALUE_RE = re.compile(r"(?i)(?:https?|ftp|wss?)://")
 
 
-def _is_placeholder(value: str) -> bool:
-    """A placeholder, also with one sentence mark after it; an earlier "[redacted]" is none.
+def _is_ending(text: str, quote: bool = False) -> bool:
+    """What may follow a placeholder: nothing, one or two sentence marks, or (``quote``) a closing quote."""
+    return _ENDING_RE.fullmatch(text) is not None or (quote and _QUOTED_ENDING_RE.fullmatch(text) is not None)
 
-    (A scheme word before an earlier "[redacted]" still goes with it.)
+
+def _is_placeholder(value: str, quote: bool = False) -> bool:
+    """A placeholder, also with an ending after it (``_is_ending``); an earlier "[redacted]" is none.
+
+    (A scheme word before an earlier "[redacted]" still goes with it.) Bounded:
+    at most four full matches over at most 69 characters.
     """
-    if value == _REDACTED or len(value) > _MAX_PLACEHOLDER_CHARS + 1:
+    if value == _REDACTED or len(value) > _MAX_PLACEHOLDER_CHARS + _MAX_ENDING_CHARS:
         return False
-    if _PLACEHOLDER_RE.fullmatch(value) is not None:
-        return True
-    return value.endswith(_SENTENCE_MARKS) and _PLACEHOLDER_RE.fullmatch(value, 0, len(value) - 1) is not None
-
-
-def _is_ending(text: str) -> bool:
-    """Nothing, or one sentence mark: what may follow a placeholder's closing bracket."""
-    return text == "" or text in _SENTENCE_MARKS
+    for cut in range(min(_MAX_ENDING_CHARS, len(value) - 1) + 1):
+        end = len(value) - cut
+        if _is_ending(value[end:], quote) and _PLACEHOLDER_RE.fullmatch(value, 0, end) is not None:
+            return True
+    return False
 
 
 def _without_controls(text: str) -> str:
@@ -707,14 +723,18 @@ def _redact_structured_values(text: str) -> str:
         if quoted and escaped and end > start and text[end - 1] == "\\":
             end -= 1                  # the backslash of the closing quote stays with it
         credential_at, glued = start, False
+        # A closing quote may end an unquoted placeholder ("curl -H 'X-Api-Key: YOUR_API_KEY'"), unless
+        # the value itself opened with a quote that did not close.
+        quote_tail = not quoted and start == value_at
         if not quoted:
             # A bracketed placeholder or a template may hold blanks ("api_key: <your api key>"); the match
-            # is bounded. It is one only when nothing but a sentence mark follows it; glued to a value
-            # ("<your key>Sv1x"), the whole run goes.
+            # is bounded. It is one only when nothing but an ending follows it; glued to a value
+            # ("<your key>Sv1x"), or a template that is no reference ("{{ sk_live_51Hx }}"), the whole
+            # run goes.
             spaced = None if text.startswith(_REDACTED, start) else _SPACED_PLACEHOLDER_RE.match(text, start)
             if spaced:
                 end = _unquoted_value_end(text, spaced.end())
-                if _is_ending(text[spaced.end():end]):
+                if _is_ending(text[spaced.end():end], quote_tail) and _is_placeholder(spaced.group(0)):
                     pos = end         # a kept placeholder is not scanned again for a key inside it
                     continue
                 glued = True
@@ -732,14 +752,16 @@ def _redact_structured_values(text: str) -> str:
         closer = ""
         if not quoted and not glued and text.startswith(("{", "${"), credential_at) and text.startswith("}", end):
             after = _unquoted_value_end(text, end + 1)
-            if _is_ending(text[end + 1:after]):
+            if _is_ending(text[end + 1:after], quote_tail):
                 closer = text[end:after]
             else:
                 end, glued = after, True
-        if (not glued and end - credential_at <= _MAX_PLACEHOLDER_CHARS
-                and _is_placeholder(text[credential_at:end] + closer)):
+        if (not glued and end - credential_at <= _MAX_PLACEHOLDER_CHARS + _MAX_ENDING_CHARS
+                and _is_placeholder(text[credential_at:end] + closer, quote_tail)):
             pos = end + len(closer)   # "${PG_PASSWORD:-x}" holds no key of its own
             continue
+        if closer:
+            end += 1                  # "${PG_PASSWORD:-Xk29}" is no placeholder: its '}' goes with it
         if not listed and _URL_VALUE_RE.match(text, start):
             pos = end                 # a "pass" name whose value is a URL names an upstream ("proxy_pass: http://x")
             continue
@@ -759,15 +781,21 @@ def _redact_userinfo(match: re.Match) -> str:
     return match.group(0)[:match.start(1) - match.start()] + "[redacted]" + authority[at:]
 
 
+# The last word of a Bearer placeholder names what goes there ("YOUR_ACCESS_TOKEN", "TOKEN_GOES_HERE").
+_BEARER_PLACEHOLDER_ENDS = tuple(sep + word for sep in "_-" for word in ("token", "key", "secret", "jwt", "here"))
+
+
 def _redact_bearer(match: re.Match) -> str:
     value = match.group(2)
-    # A token has a digit or one of "_~+/="; a word ("Bearer authentication", "token-based") and a
-    # documentation placeholder ("Bearer YOUR_ACCESS_TOKEN") stay.
-    if len(value) <= _MAX_PLACEHOLDER_CHARS and _is_placeholder(value):
+    # A token has a digit or one of "_~+/="; a word ("Bearer authentication", "token-based") stays, and
+    # so does a documentation placeholder with no digit whose last word names what goes there ("Bearer
+    # YOUR_ACCESS_TOKEN", "Bearer AUTH_TOKEN"; "Bearer my_token_abcdef" is a token).
+    if not any(ch.isdigit() or ch in "_~+/=" for ch in value):
         return match.group(0)
-    if any(ch.isdigit() or ch in "_~+/=" for ch in value):
-        return match.group(1) + "[redacted]"
-    return match.group(0)
+    if (not any(ch.isdigit() for ch in value) and _is_placeholder(value)
+            and value.rstrip(".").lower().endswith(_BEARER_PLACEHOLDER_ENDS)):
+        return match.group(0)
+    return match.group(1) + "[redacted]"
 
 
 def _is_userpass_base64(value: str) -> bool:
@@ -861,10 +889,16 @@ def _scrub_at(text: str, depth: int) -> str:
 #     YOUR_API_KEY", "API_KEY=your_api_key_here", "DB_PASS=${DB_PASS}",
 #     "DB_PASSWORD=$DB_PASSWORD", "set API_KEY=%API_KEY%", "Bearer YOUR_ACCESS_TOKEN",
 #     "client_secret: YOUR_CLIENT_SECRET", "api_key: {{ .Values.apiKey }}",
-#     "DB_PASSWORD=${PG_PASSWORD:-postgres}", also with one '.', ')' or '!' after it);
-#     a real value of the same shape is shown too ("db_password: $ecret1",
-#     "api_key: your_secretvalue", the default in "${PG_PASSWORD:-S}"). A placeholder
-#     glued to a value is none ("api_key: <your key>S", "DB_PASS=${DB}S": the run goes);
+#     "DB_PASSWORD=${PG_PASSWORD:-postgres}", also with one or two of '.', ')' or '!'
+#     after it, and, unless the value opened with a quote, a closing quote: "curl -H
+#     'X-Api-Key: YOUR_API_KEY'"); a real value of the same shape is shown too
+#     ("db_password: $ecret1", "api_key: your_secretvalue", a letters-only default
+#     "${PG_PASSWORD:-hunter}", a dotted template path "{{ a.Secretvalue }}"). A
+#     default with a digit or one of "_~+/=" ("${PG_PASSWORD:-Xk29}"), a template that
+#     is no reference ("{{ sk_live_51Hx }}", "{{ .Values.apiKey | b64enc }}"), and a
+#     placeholder glued to a value ("api_key: <your key>S", "DB_PASS=${DB}S") are none:
+#     the run goes;
+#   * a Bearer token opened by '<' (as an entity, "Bearer &lt;S": an HTML tag otherwise);
 #   * shell quoting after an unquoted structured value: "curl -H 'X-Api-Key: S'"
 #     loses the closing quote with the value.
 # Over-redaction accepted: a camel-case word starting "eyJ" ("eyJumpsMonkey"), an
@@ -1036,7 +1070,9 @@ _NOT_A_FOLDER = "That id is not a folder; pass a folder path from an entry's pat
 _BAD_FOLDER_PATH = "That folder path is not valid; use the folder part of an entry's path exactly as listed."
 _FOLDER_NOT_FOUND = "Folder not found; use a folder path exactly as it appears in an entry's path."
 _OUTSIDE_ROOT = "Folder is outside the configured root folder."
-_BAD_LIST_LIMIT = "The list limit must be a whole number."
+_BEYOND_BROWSE_LIMIT = ("Folder not found within the browse limit; pass its folder path "
+                        "(the folder part of an entry's path) instead.")
+_BAD_LIST_LIMIT = "The list limit must be a positive whole number."
 # A segment that already ends like a sibling suffix gets one of its own, so a
 # suffixed segment can never equal another folder's plain one.
 _SUFFIX_RE = re.compile(r" \[[0-9]{1,12}\]\Z")
@@ -1048,7 +1084,7 @@ def _parse_id(value, default_kind: str = "item") -> tuple[str, str]:
     prefix = _KIND_PREFIX_RE.match(text)
     kind = prefix.group(1).lower() if prefix else default_kind
     raw = text[prefix.end():] if prefix else text
-    if not _DIGITS_RE.fullmatch(raw):
+    if kind not in _KINDS or not _DIGITS_RE.fullmatch(raw):
         raise KmsError(_BAD_ID)
     return kind, raw
 
@@ -1077,7 +1113,7 @@ def _folder_target(folder_id):
         kind, digits = _parse_id(text)
         if kind != "folder":
             raise KmsError(_NOT_A_FOLDER)
-        return "id", digits
+        return "id", str(int(digits))            # compared as a number: "folder:010" is folder 10
     return "path", _folder_path_segments(text)
 
 
@@ -1098,6 +1134,11 @@ def _folder_segments(folders: list) -> dict[str, str]:
             base = base[:_MAX_SEGMENT_CHARS - len(suffix)].rstrip() + suffix
         segments[folder_id] = base
     return segments
+
+
+def _entry_path(parent_segments: tuple[str, ...], record: dict) -> tuple[str, ...]:
+    """An item's or a scenario's path: its folder's segments, then ``<title>.txt`` (search: no folder)."""
+    return (*parent_segments, _safe_title(record.get("title")) + ".txt")
 
 
 class _CallBudget:
@@ -1640,7 +1681,7 @@ class KmsLighthouseClient(DataSourceClient):
         online = _is_online(record)
         if kind == "folder" or (online is False and not self.include_offline):
             return None   # search lists no folders (path == name); offline content is hidden
-        name = _safe_title(record.get("title")) + ".txt"
+        name = _entry_path((), record)[-1]
         return {
             "id": entry_id, "name": name, "path": name, "size": 0,
             "modified_at": _normalise_date(record.get("updateDate") or record.get("updatedDate")),
@@ -1658,10 +1699,13 @@ class KmsLighthouseClient(DataSourceClient):
         ``folder_id`` is a folder path (the folder part of an entry's path,
         ADR-7) or ``folder:<digits>``; with ``root_folder_id`` set, a folder id
         must be the root or lie inside it (``GlobScopeError``). Entry paths are
-        folder segments from the root plus the name; a ``folder:<digits>``
-        listing without a root has paths from that folder down. ``recursive``
-        defaults to True with no folder and to False with one. At most
-        ``min(limit or max_results, max_results)`` entries and
+        folder segments from the root (or the top level) plus the name, also
+        for a ``folder:<digits>`` listing, whose folder is found by a bounded
+        walk; a folder id not found is ``not_found`` (also an offline folder,
+        unless ``include_offline``), and one the walk cannot reach, or cannot
+        list, within the call bound is ``not_found`` naming the browse limit.
+        ``recursive`` defaults to True with no folder and to False with one. At
+        most ``min(limit or max_results, max_results)`` entries and
         ``_MAX_FOLDER_CALLS`` tree calls; past either bound the listing just
         stops. Offline content is hidden unless ``include_offline``.
         """
@@ -1678,6 +1722,8 @@ class KmsLighthouseClient(DataSourceClient):
             parent, parent_path = queue.popleft()
             level = self._level(parent, budget)
             if level is None:
+                if (parent, parent_path) == (start, start_path):
+                    raise KmsHTTPError(404, "not_found", _BEYOND_BROWSE_LIMIT)   # found, but no call left to list it
                 break                             # the folder-call cap
             records, segments = level
             for record in records:
@@ -1692,7 +1738,7 @@ class KmsLighthouseClient(DataSourceClient):
                         queued.add(folder)
                         queue.append((folder, path))
                 else:
-                    path = (*parent_path, _safe_title(record.get("title")) + ".txt")
+                    path = _entry_path(parent_path, record)
                 listed.add(entry_id)
                 files.append(self._list_entry(record, entry_id, kind, path))
                 if len(files) >= cap:
@@ -1705,7 +1751,7 @@ class KmsLighthouseClient(DataSourceClient):
         except (TypeError, ValueError, OverflowError):
             wanted = None
         # Raised outside the except block, so no parser error rides along as context.
-        if wanted is None:
+        if wanted is None or wanted < 0:
             raise KmsError(_BAD_LIST_LIMIT)
         return min(wanted, self.max_results)
 
@@ -1726,37 +1772,46 @@ class KmsLighthouseClient(DataSourceClient):
         return shown, _folder_segments([record for record in shown if _kind_of(record) == "folder"])
 
     def _resolve_folder(self, target, budget: _CallBudget) -> tuple[str | None, tuple[str, ...]]:
-        """The folder to list (None: the top level) and its path segments from the root."""
+        """The folder to list (None: the top level) and its path segments from the root (or the top level)."""
         origin = None if self.root_folder_id is None else str(self.root_folder_id)
         if target is None:
             return origin, ()
         how, value = target
         if how == "id":
-            if origin is None or value == origin:
-                return value, ()               # the root, or any folder when no root is set (ancestors unknown)
+            if value == origin:
+                return value, ()
+            # Found from the root (or the top level), so its entries get paths that resolve back.
             path = self._find_inside_root(value, origin, budget)
             if path is None:
+                if origin is None:
+                    raise KmsHTTPError(404, "not_found", _FOLDER_NOT_FOUND)
                 raise GlobScopeError(_OUTSIDE_ROOT)
             return value, path
         # A folder path: one level per segment from the root, so it is inside the root by construction.
         current = origin
         for segment in value:
             level = self._level(current, budget)
-            match = None if level is None else next(
-                (folder for folder, seg in level[1].items() if seg == segment), None)
+            if level is None:
+                raise KmsHTTPError(404, "not_found", _BEYOND_BROWSE_LIMIT)
+            match = next((folder for folder, seg in level[1].items() if seg == segment), None)
             if match is None:
                 raise KmsHTTPError(404, "not_found", _FOLDER_NOT_FOUND)
             current = match
         return current, value
 
-    def _find_inside_root(self, folder: str, origin: str, budget: _CallBudget) -> tuple[str, ...] | None:
-        """The path of ``folder`` found by a bounded breadth-first walk from the root, or None."""
+    def _find_inside_root(self, folder: str, origin: str | None, budget: _CallBudget) -> tuple[str, ...] | None:
+        """The path of ``folder`` by a bounded breadth-first walk from ``origin`` (None: the top level).
+
+        None when the whole walk ends without it. A hidden (offline) folder is
+        ``not_found``, and a walk that runs out of tree calls is ``not_found``
+        naming the browse limit, never a false "outside root".
+        """
         queue, seen = deque([(origin, ())]), {origin}
         while queue:
             parent, parent_path = queue.popleft()
             level = self._level(parent, budget)
             if level is None:
-                return None
+                raise KmsHTTPError(404, "not_found", _BEYOND_BROWSE_LIMIT)
             for child, segment in level[1].items():
                 if child in seen:
                     continue
@@ -1764,6 +1819,8 @@ class KmsLighthouseClient(DataSourceClient):
                     return (*parent_path, segment)
                 seen.add(child)
                 queue.append((child, (*parent_path, segment)))
+            if any(str(record["id"]) == folder and _kind_of(record) == "folder" for record in self._tree_cache[parent]):
+                raise KmsHTTPError(404, "not_found", _FOLDER_NOT_FOUND)     # listed here, but hidden
         return None
 
     @staticmethod

@@ -386,7 +386,10 @@ def test_list_hides_offline(kms):
     assert "item:306" not in hidden and "item:301" in hidden
     shown = _by_id(client(kms, include_offline=True).list_files())
     assert shown["item:306"]["status"] == "offline" and shown["item:301"]["status"] == "online"
-    assert set(hidden) < set(shown)
+    # Compared on Procedures: the full walk is capped, and the offline folder takes one of its calls.
+    hidden_here = _ids(client(kms).list_files(folder_id="folder:10", recursive=True))
+    shown_here = _ids(client(kms, include_offline=True).list_files(folder_id="folder:10", recursive=True))
+    assert hidden_here < shown_here and shown_here - hidden_here == {"item:306", "folder:15", "item:308"}
 
 
 def test_list_walk_is_bounded(kms):
@@ -435,6 +438,78 @@ def test_ids_are_validated_before_any_request(kms, folder_id):
     assert mock.REQUEST_LOG == []
     assert "%2e" not in str(info.value) and "\n" not in str(info.value) and "Restricted" not in str(info.value)
     assert info.value.__context__ is None and info.value.__cause__ is None
+
+
+def test_folder_id_without_root_has_paths_from_the_top_that_resolve_back(kms):
+    entries = client(kms).list_files(folder_id="folder:10", recursive=True)
+    found = _by_id(entries)
+    assert found["folder:12"]["path"] == "Procedures/Billing"
+    assert found["item:302"]["path"] == "Procedures/Billing/Refund a payment.txt"
+    assert found["item:301"]["path"] == "Procedures/Billing dispute.txt"
+    for entry in entries:
+        listed = client(kms).list_files(folder_id=_folder_part(entry), recursive=True)
+        assert entry["id"] in _ids(listed), entry
+
+
+def test_unknown_folder_id_without_root_is_not_found(kms):
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms).list_files(folder_id="folder:99999")
+    assert info.value.kind == "not_found" and "99999" not in str(info.value)
+
+
+@pytest.mark.parametrize("root", [None, 30])
+@pytest.mark.parametrize("folder", ["folder:5001", "folder:5002"])
+def test_folder_found_only_past_the_call_cap_is_named(kms, root, folder):
+    mock = kms["mock"]
+    # From the root "30", finding 5001 takes all 40 calls (none is left to list it); 5002 needs one more.
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms, root_folder_id=root).list_files(folder_id=folder)
+    assert info.value.kind == "not_found" and "browse limit" in str(info.value)
+    assert len(_rows(kms, _TREE_PATH)) <= 40
+    # Its folder path still lists it, in a few calls.
+    mock.REQUEST_LOG.clear()
+    deep = mock.DEEP_AT_CAP if folder.endswith(mock.DEEP_AT_CAP) else mock.DEEP_PAST_CAP
+    wide = "Wide 38" if deep == mock.DEEP_AT_CAP else "Wide 39"
+    path = f"{wide}/Deep {deep}" if root == 30 else f"Wide/{wide}/Deep {deep}"
+    assert _ids(client(kms, root_folder_id=root).list_files(folder_id=path)) == {f"item:{int(deep) + 100}"}
+
+
+@pytest.mark.parametrize("root", [None, 10])
+def test_offline_folder_by_id_is_not_found(kms, root):
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms, root_folder_id=root).list_files(folder_id="folder:15")
+    assert info.value.kind == "not_found"
+    shown = client(kms, root_folder_id=root, include_offline=True).list_files(folder_id="folder:15")
+    assert _ids(shown) == {"item:308"}
+
+
+def test_folder_id_digits_are_compared_as_numbers(kms):
+    rooted = client(kms, root_folder_id=10)
+    assert _ids(rooted.list_files(folder_id="folder:010")) == _ids(rooted.list_files(folder_id="folder:10"))
+    assert _ids(rooted.list_files(folder_id="folder:0012")) == {"item:302", "scenario:4401"}
+
+
+@pytest.mark.parametrize("limit", [-5, -1, "abc"])
+def test_bad_list_limit_is_named_before_any_request(kms, limit):
+    mock = kms["mock"]
+    with pytest.raises(kc.KmsError) as info:
+        client(kms).list_files(limit=limit)
+    assert "list limit" in str(info.value) and mock.REQUEST_LOG == []
+    assert info.value.__context__ is None and info.value.__cause__ is None
+
+
+@pytest.mark.parametrize("value", ["ſcenario:5", "ıtem:5", "İtem:5", "ſcenario:4401", "FOLDER:ſ"])
+def test_parse_id_refuses_unicode_case_folded_prefixes(value):
+    # P5 reads by these ids: a kind outside item/scenario/folder must never come back.
+    with pytest.raises(kc.KmsError) as info:
+        kc._parse_id(value)
+    assert str(info.value) == kc._BAD_ID
+
+
+def test_parse_id_accepts_any_ascii_case():
+    assert kc._parse_id("SCENARIO:5") == ("scenario", "5")
+    assert kc._parse_id("Folder:7") == ("folder", "7")
+    assert kc._parse_id("279") == ("item", "279")
 
 
 # ------------------------------------------------------------------ closed errors
@@ -1420,6 +1495,82 @@ _REGRESSION_CORPUS = [
     _keep("r10", '"clientSecret": "{{ .Values.clientSecret }}"'),
     _keep("r10", "DB_PASSWORD=${POSTGRES_PASSWORD:-postgres}"),
     _redact("r10", f"api_key: ${{{{ secrets.API_KEY }}}}{_SV}"),
+    # r11 (P4 review C1): a variable's default and a template body that hold a credential are no placeholder;
+    # each keep below has its real-value twin next to it, and most phrases go on after the value.
+    _keep("r11", "DB_PASSWORD=${POSTGRES_PASSWORD:-postgres} for local dev"),
+    _redact("r11", "DB_PASSWORD=${POSTGRES_PASSWORD:-Xk29pqLm7Rt}", "Xk29pqLm7Rt"),
+    _redact("r11", "DB_PASSWORD=${POSTGRES_PASSWORD:-Xk29pqLm7Rt} for local dev", "Xk29pqLm7Rt",
+            shown="for local dev"),
+    _keep("r11", '{"password": "${DB_PASS:-changeme}"} in compose'),
+    _redact("r11", '{"password": "${DB_PASS:-Sv1x9Qk2abcd}"} in compose', shown="in compose"),
+    _redact("r11", '"password": "${DB_PASS:-Sv1x9Qk2abcd}"'),
+    _redact("r11", '"password": "${DB_PASS:-Sv1x9Qk2abcd}" in compose', shown="in compose"),
+    _keep("r11", "client_secret: ${CLIENT_SECRET:=none} until set"),
+    _redact("r11", "client_secret: ${CLIENT_SECRET:=Sv1x9Qk2abcd}"),
+    _redact("r11", "client_secret: ${CLIENT_SECRET:=Sv1x9Qk2abcd} until set", shown="until set"),
+    _redact("r11", "DB_PASS=${DB_PASS:-my_pass}", "my_pass"),
+    _keep("r11", '"api_key": "{{ .Values.apiKey }}" in values.yaml'),
+    _keep("r11", "api_key: {{ secrets.API_KEY }} from the vault"),
+    _keep("r11", '"api_key": "{{ apiKey }}" in the body'),
+    _redact("r11", '"api_key": "{{ sk_live_51Hx9Qk2abcd }}"', "51Hx9Qk2abcd"),
+    _redact("r11", '"api_key": "{{ sk_live_51Hx9Qk2abcd }}" in the body', "51Hx9Qk2abcd", shown="in the body"),
+    _redact("r11", "api_key: {{ sk_live_51Hx9Qk2abcd }} in the body", "51Hx9Qk2abcd", shown="in the body"),
+    _keep("r11", "api_key: {{apiKey}} per request"),
+    _redact("r11", "api_key: {{Sv1x9Qk2abcdEf}}"),
+    _redact("r11", "api_key: {{Sv1x9Qk2abcdEf}} per request", shown="per request"),
+    _redact("r11", "api_key: {{ .Values.9Qk2abcd }} per request", "9Qk2abcd", shown="per request"),
+    # r11 (P4 hunt H1): a placeholder before a closing quote, wrapped in quotes with text after it (below).
+    _keep("r11", "api_key: YOUR_API_KEY.) and more"),
+    _redact("r11", f"api_key: {_SV}.) and more", shown="and more"),
+    _keep("r11", "Use `API_KEY=your_api_key_here` in .env"),
+    _redact("r11", f"Use `API_KEY={_SV}` in .env", shown="in .env"),
+    # r11 (P4 review, deferred list): Bearer placeholders name what goes there; a word that names nothing
+    # ("my_token_abcdef") is a token.
+    _keep("r11", "Authorization: Bearer AUTH_TOKEN for the call"),
+    _keep("r11", "Authorization: Bearer ID_TOKEN"),
+    _keep("r11", "Authorization: Bearer BEARER_TOKEN"),
+    _keep("r11", "Authorization: Bearer TOKEN_GOES_HERE"),
+    _keep("r11", "Authorization: Bearer REPLACE_WITH_TOKEN and send"),
+    _keep("r11", "Authorization: Bearer my_token_here"),
+    _keep("r11", "Authorization: Bearer YOUR_ACCESS_TOKEN and then call"),
+    _redact("r11", "Authorization: Bearer my_token_abcdef", "my_token_abcdef"),
+    _redact("r11", "Authorization: Bearer my_token_abcdef and then call", "my_token_abcdef",
+            shown="and then call"),
+    _redact("r11", f"Authorization: Bearer AUTH_TOKEN{_SV}"),
+    _redact("r11", f"Authorization: Bearer REPLACE_WITH_{_SV} and send", shown="and send"),
+    _redact("r11", f"Authorization: Bearer TOKEN_GOES_HERE_{_SV}"),
+    _keep("r11", "api_key: YOUR_API_KEY_GOES_HERE in the header"),
+    _redact("r11", f"api_key: YOUR_API_KEY_GOES_HERE_{_SV} in the header", shown="in the header"),
+    _keep("r11", "auth_token: AUTH_TOKEN in the header"),
+    _redact("r11", "auth_token: live_token in the header", "live_token", shown="in the header"),
+    _keep("r11", "api_key: &lt;your api key&gt; in the header", "api_key: <your api key> in the header"),
+    _redact("r11", f"api_key: {_SV} in the header", shown="in the header"),
+    # r11 (P4 hunt L1): more opening quotes and '(' before a Bearer token.
+    _redact("r11", "Authorization: Bearer ”ya29.a0AfH6SMBx9Qk2” next", "a0AfH6SMBx9Qk2", shown="next"),
+    _redact("r11", "Authorization: Bearer „ya29.a0AfH6SMBx9Qk2“ next", "a0AfH6SMBx9Qk2", shown="next"),
+    _redact("r11", "Authorization: Bearer «ya29.a0AfH6SMBx9Qk2» next", "a0AfH6SMBx9Qk2", shown="next"),
+    _redact("r11", "Authorization: Bearer (ya29.a0AfH6SMBx9Qk2) next", "a0AfH6SMBx9Qk2", shown="next"),
+    _keep("r11", "Authorization: Bearer (YOUR_TOKEN) in the header"),
+    *[entry for shape, shown in (
+        ("X-Api-Key: YOUR_API_KEY", None),
+        ("X-Api-Key: &lt;your-api-key&gt;", "X-Api-Key: <your-api-key>"),
+        ("x-api-key: ${API_KEY}", None),
+        ("X-Api-Key: $API_KEY", None),
+        ("X-Api-Key: ***", None),
+        ("x-api-key: {{apiKey}}", None),
+        ("X-Auth-Token: Bearer YOUR_TOKEN", None),
+        ("API_KEY=your_api_key_here", None),
+    ) for opener, closer in (("'", "'"), ('"', '"'), ("`", "`"), ("“", "”"), ("‘", "’")) for entry in (
+        _keep("r11-quoted", f"curl -H {opener}{shape}{closer} https://x",
+              f"curl -H {opener}{shown or shape}{closer} https://x"),
+        _keep("r11-quoted", f"Send {opener}{shape}{closer}. Then call",
+              f"Send {opener}{shown or shape}{closer}. Then call"),
+        # The payload twin: a value glued after the closing quote leaves no placeholder.
+        _redact("r11-quoted", f"curl -H {opener}{shape}{closer}{_SV} https://x", shown="https://x"),
+    )],
+    *[_redact("r11-quoted", f"curl -H {opener}{key}{_SV}{closer} https://x", shown="https://x")
+      for key in ("X-Api-Key: ", "x-api-key: ", "X-Auth-Token: Bearer ", "API_KEY=")
+      for opener, closer in (("'", "'"), ('"', '"'), ("`", "`"), ("“", "”"), ("‘", "’"))],
 ]
 
 
@@ -1427,7 +1578,7 @@ _REGRESSION_CORPUS = [
                          ids=[f"{i:03d}-{entry[0]}" for i, entry in enumerate(_REGRESSION_CORPUS)])
 def test_search_regression_corpus(kms, source, text, secrets, shown):
     # Every phrase of every fix round, through the public search: a secret never shows, a keep shows as written.
-    # The phrase ends the title and the description, so no word after it can pass for a credential.
+    # The phrase ends the title and the description, or (r11) goes on after the value.
     raw_id = str(uuid.uuid4().int)[:9]
     kms["mock"].STATE["extra_results"] = [_record(raw_id, "Guide " + text, description="Guide " + text)]
     entry = _by_id(client(kms).search_files("x"))[f"item:{raw_id}"]
