@@ -50,6 +50,8 @@ Test-only switches and routes (not part of the KMS API):
     JSON body instead (an odd shape a test wants to see handled).
     STATE["hold_search_after_first"] = True: a /search/full call with
     start > 0 waits on HELD before it answers (a slow later page).
+  - Tree: STATE["tree_status"] maps a parentId to an HTTP status; that tree
+    call answers with it and no body (a branch the server fails to list).
   - GET {PREFIX}/_mock/empty              HTTP 200 with an empty body
   - GET {PREFIX}/_mock/oversized          HTTP 200 with a large JSON body (OVERSIZED_BYTES)
 
@@ -211,6 +213,7 @@ _DEFAULTS = {
     "extra_results": [],
     "search_body": None,             # None | a JSON value sent as the whole /search/full body
     "odd_shapes": False,             # False | "list" | "error" | "bad_id" | "bad_username"
+    "tree_status": {},               # parentId -> HTTP status: that tree call answers it with no body
 }
 _STALE = {"barrier": None}           # the barrier for STATE["hold_stale_401s"]
 # GET {PREFIX}/_mock/held sets "arrived", then waits up to 5 s for "release".
@@ -255,7 +258,8 @@ def reset():
     """Restore the default state; called before every test."""
     with _LOCK:
         STATE.clear()
-        STATE.update({key: (list(value) if isinstance(value, list) else value) for key, value in _DEFAULTS.items()})
+        STATE.update({key: (type(value)(value) if isinstance(value, (list, dict)) else value)
+                      for key, value in _DEFAULTS.items()})
         REQUEST_LOG.clear()
         _SESSIONS.clear()
         _LOGIN_TOKENS.clear()
@@ -405,6 +409,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, {"status": "SUCCESS", "data": [
                     {"id": "x-" + ODD_MARKER, "title": ODD_MARKER, "type": "FOLDER", "status": "2"}]})
             parent = (query.get("parentId") or [None])[0]
+            if parent in STATE["tree_status"]:
+                return self._send_empty(STATE["tree_status"][parent])
             if parent is None and STATE["top_level_requires_parent"]:
                 return self._send_json(200, {"status": "SUCCESS", "data": []})
             visible = USERS[user]["visible"]

@@ -472,15 +472,18 @@ def test_unknown_folder_id_in_a_small_tree_is_not_found_not_the_browse_limit(kms
 @pytest.mark.parametrize("root", [None, 10])
 def test_online_folder_under_an_offline_folder_is_not_found_not_outside_root(kms, monkeypatch, root):
     mock = kms["mock"]
-    # Root 10 -> offline 15 -> online 16: the walk never opens 15, so 16 is unseen, not outside the root.
+    # Root 10 -> offline 15 -> online 16: 16 is inside the root, only under a hidden folder.
     monkeypatch.setitem(mock.TREE, "16", {"parent": mock.OFFLINE_FOLDER, "title": "Current forms",
                                           "type": "FOLDER", "status": "2"})
     monkeypatch.setitem(mock.TREE, "309", {"parent": "16", "title": "Current form", "type": "ITEM", "status": "2"})
     monkeypatch.setitem(mock.USERS["alice"], "visible", mock.USERS["alice"]["visible"] | {"16", "309"})
     with pytest.raises(kc.KmsHTTPError) as info:
         client(kms, root_folder_id=root).list_files(folder_id="folder:16")
-    # The walk opens the offline folder too (within the call cap), so it finds 16 there and names it.
-    assert info.value.kind == "not_found" and str(info.value) == kc._FOLDER_NOT_FOUND
+    # The walk opens the offline folder too, after the shown ones and within the call cap, so from the root
+    # it finds 16 there and names it. From the top level, the shown folders (the wide one among them) use
+    # up the cap first: the browse limit, still not found and never "outside the root".
+    assert info.value.kind == "not_found"
+    assert str(info.value) == (kc._FOLDER_NOT_FOUND if root is not None else kc._BEYOND_BROWSE_LIMIT)
     shown = client(kms, root_folder_id=root, include_offline=True).list_files(folder_id="folder:16")
     assert _ids(shown) == {"item:309"}
     # A folder that really is outside the root is still refused.
@@ -494,11 +497,16 @@ def test_online_folder_under_an_offline_folder_is_not_found_not_outside_root(kms
 def test_folder_found_only_past_the_call_cap_is_named(kms, root, folder):
     mock = kms["mock"]
     # From the root "30", finding 5001 takes all 40 calls (none is left to list it); 5002 needs one more.
+    # From the top level, neither is reached within the cap.
     with pytest.raises(kc.KmsHTTPError) as info:
         client(kms, root_folder_id=root).list_files(folder_id=folder)
     assert info.value.kind == "not_found" and "browse limit" in str(info.value)
-    # Either cause is named: the walk cannot tell a missing folder from one past the cap.
-    assert "not found, or beyond the browse limit" in str(info.value)
+    if root == 30 and folder == "folder:5001":
+        # Found with all 40 calls used: no call is left to list it.
+        assert str(info.value).startswith("Folder found, but beyond the browse limit")
+    else:
+        # Not reached: the walk cannot tell a missing folder from one past the cap, so either cause is named.
+        assert "not found, or beyond the browse limit" in str(info.value)
     assert len(_rows(kms, _TREE_PATH)) <= 40
     # Its folder path still lists it, in a few calls.
     mock.REQUEST_LOG.clear()
@@ -515,6 +523,86 @@ def test_offline_folder_by_id_is_not_found(kms, root):
     assert info.value.kind == "not_found"
     shown = client(kms, root_folder_id=root, include_offline=True).list_files(folder_id="folder:15")
     assert _ids(shown) == {"item:308"}
+
+
+def _archive_tree(mock, monkeypatch, archive_children=45):
+    """Folder 39 holds, in this order: offline "Archive" (40) with ``archive_children`` subfolders, online
+    "Docs" (41) -> "Team" (42) -> "Target" (43, one item), and offline "Retired" (45) -> "Retired forms" (46).
+    Folder 38 sits next to 39 at the top level."""
+    def node(parent, title, kind="FOLDER", status="2"):
+        return {"parent": parent, "title": title, "type": kind, "status": status}
+    tree = {"38": node(None, "Elsewhere"), "39": node(None, "Root"),
+            "40": node("39", "Archive", status="1"), "41": node("39", "Docs"), "42": node("41", "Team"),
+            "43": node("42", "Target"), "44": node("43", "Target page", "ITEM"),
+            "45": node("39", "Retired", status="1"), "46": node("45", "Retired forms")}
+    for n in range(archive_children):
+        tree[str(600 + n)] = node("40", f"Old {n}")
+    monkeypatch.setattr(mock, "TREE", tree)
+    monkeypatch.setitem(mock.USERS["alice"], "visible", set(tree))
+
+
+def test_folder_id_lookup_opens_shown_folders_before_hidden_ones(kms, monkeypatch):
+    mock = kms["mock"]
+    # A hidden (offline) folder listed first, with more subfolders than the call cap, does not use up the
+    # calls the target's shown ancestors need: the root level, Docs, Team, then Target itself.
+    _archive_tree(mock, monkeypatch)
+    listed = client(kms, root_folder_id=39).list_files(folder_id="folder:43")
+    assert _ids(listed) == {"item:44"} and listed[0]["path"] == "Docs/Team/Target/Target page.txt"
+    assert len(_rows(kms, _TREE_PATH)) == 4
+    # A folder under a hidden one is still found (after the shown ones) and named not found.
+    mock.REQUEST_LOG.clear()
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms, root_folder_id=39).list_files(folder_id="folder:600")
+    assert info.value.kind == "not_found" and str(info.value) == kc._FOLDER_NOT_FOUND
+    assert len(_rows(kms, _TREE_PATH)) == 5           # 39, 41, 42, 43, then 40
+    assert _ids(client(kms, root_folder_id=39, include_offline=True).list_files(folder_id="folder:600")) == set()
+    # Out of calls among the hidden folders: the browse limit, never "outside the root".
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms, root_folder_id=39).list_files(folder_id="folder:38")
+    assert info.value.kind == "not_found" and str(info.value) == kc._BEYOND_BROWSE_LIMIT
+    # A walk that completes without it is still "outside the root".
+    _archive_tree(mock, monkeypatch, archive_children=3)
+    with pytest.raises(GlobScopeError):
+        client(kms, root_folder_id=39).list_files(folder_id="folder:38")
+
+
+@pytest.mark.parametrize("status", [403, 500])
+def test_a_hidden_branch_that_fails_to_list_does_not_break_a_lookup(kms, monkeypatch, status):
+    mock = kms["mock"]
+    _archive_tree(mock, monkeypatch, archive_children=3)
+    mock.STATE["tree_status"] = {"40": status}
+    rooted = client(kms, root_folder_id=39)
+    assert _ids(rooted.list_files(folder_id="folder:43")) == {"item:44"}
+    # The failing hidden branch is unseen: the rest of the walk still runs and decides.
+    with pytest.raises(kc.KmsHTTPError) as info:
+        rooted.list_files(folder_id="folder:46")
+    assert info.value.kind == "not_found" and str(info.value) == kc._FOLDER_NOT_FOUND
+    with pytest.raises(GlobScopeError) as refused:
+        rooted.list_files(folder_id="folder:38")
+    assert refused.value.__context__ is None and refused.value.__cause__ is None
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms).list_files(folder_id="folder:99999")
+    assert str(info.value) == kc._FOLDER_NOT_FOUND
+    assert info.value.__context__ is None and info.value.__cause__ is None
+    # A shown folder that fails to list still fails the lookup, and so does a refused session anywhere.
+    mock.STATE["tree_status"] = {"42": status}
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms, root_folder_id=39).list_files(folder_id="folder:43")
+    assert info.value.kind != "not_found"
+    mock.STATE["tree_status"] = {"40": 401}
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms, root_folder_id=39).list_files(folder_id="folder:38")
+    assert info.value.kind == "auth"
+
+
+def test_a_folder_found_with_no_call_left_to_list_it_says_so(kms):
+    # From the root "30", finding 5001 takes all 40 calls, so none is left to list it.
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms, root_folder_id=30).list_files(folder_id="folder:5001")
+    assert info.value.kind == "not_found"
+    assert str(info.value) == ("Folder found, but beyond the browse limit; pass its folder path "
+                               "(the folder part of an entry's path) instead.")
+    assert len(_rows(kms, _TREE_PATH)) == 40
 
 
 def test_folder_id_digits_are_compared_as_numbers(kms):
@@ -1693,6 +1781,16 @@ _REGRESSION_CORPUS = [
     _redact("r12", f"X-Api-Key: {_SV}\\ next", shown="next"),
     _redact("r12", f"X-Api-Key: YOUR_API_KEY\\{_SV} next", shown="next"),
     _redact("r12", "X-Api-Key: YOUR_API_KEY\\9Q next", "\\9Q", shown="next"),
+    # r13 (P4 round 3, item 2): the gap after "Bearer" or "Bearer:" stays on its line, so a YAML key on the
+    # next line keeps its value; a "bearer:" key with its token indented on the next line still goes.
+    _keep("r13", "auth:\n  bearer:\n    token_file: /etc/token"),
+    _keep("r13", "authorization:\n  type: Bearer\n  credentials_file: /etc/prom/token"),
+    _keep("r13", "auth:\n  bearer:\n    token_file:/etc/token"),
+    _redact("r13", "Authorization: Bearer ya29.a0AfH6SMBx9Qk2 next", "a0AfH6SMBx9Qk2", shown="next"),
+    _redact("r13", "bearer: ya29.a0AfH6SMBx9Qk2", "a0AfH6SMBx9Qk2", shown="bearer: [redacted]"),
+    _redact("r13", "Bearer:\tya29.a0AfH6SMBx9Qk2", "a0AfH6SMBx9Qk2"),
+    _redact("r13", "auth:\n  bearer:\n    ya29.a0AfH6SMBx9Qk2", "a0AfH6SMBx9Qk2"),
+    _redact("r13", "bearer:\r\n  ya29.a0AfH6SMBx9Qk2 next", "a0AfH6SMBx9Qk2", shown="next"),
 ]
 
 
@@ -1830,6 +1928,9 @@ _ADVERSARIAL = {
     "default_placeholder_runs": _adversarial("DB_PASS=${A:-your_"),
     "bearer_colon_openers": _adversarial("Bearer: [Ab1cdefgh "),
     "caps_env_name_runs": _adversarial("auth_token: AB_CD_EF_GH_"),
+    # The forms added in P4 round 3.
+    "bearer_next_line_values": _adversarial("bearer:\n  Ab1cdefgh "),
+    "bearer_next_line_keys": _adversarial("bearer:\n  Ab1cdefgh" + " " * 20 + ":"),
 }
 
 

@@ -340,8 +340,13 @@ _JWT_RE = re.compile(r"eyJ[A-Za-z0-9_-]{4,}+(?:\s{0,3}\.\s{0,3}[A-Za-z0-9_-]++){
 # corner bracket and '*'.
 _BEARER_OPENERS = "\"'`([{" + "".join(chr(code) for code in (
     0x201C, 0x201D, 0x201E, 0x2018, 0x2019, 0x201A, 0x00AB, 0x00BB, 0x2039, 0x203A))
-_BEARER_RE = re.compile(r"(?i)\b(bearer(?::\s*+|\s++)(?:\\?+[" + re.escape(_BEARER_OPENERS) + r"])?+)"
-                        r"([A-Za-z0-9._~+/=-]{8,}+)")
+# The gap after "Bearer" or "Bearer:" stays on its line, so a YAML key on the next
+# line keeps its value; a "bearer:" key may have its token on the next line, indented
+# or not (plain text drops the indent), and ``_redact_bearer`` keeps that value when a
+# ':' follows it (it is a key).
+_BEARER_RE = re.compile(r"(?i)\b(bearer(?::[ \t]*+(?:\r?+\n[ \t]*+)?+|[ \t]++)(?:\\?+["
+                        + re.escape(_BEARER_OPENERS) + r"])?+)([A-Za-z0-9._~+/=-]{8,}+)")
+_KEY_AFTER_RE = re.compile(r"[ \t]*+:")
 _BASIC_RE = re.compile(r"(?i)\b(basic\s++)([A-Za-z0-9+/]{12,}+=*+)")
 # Each opening quote of a structured key or value and its closing quote: ASCII
 # quotes and the matched smart pairs (built with chr() so the source stays ASCII).
@@ -812,6 +817,8 @@ _CAPS_WORDS_RE = re.compile(r"[A-Z_]++")
 
 def _redact_bearer(match: re.Match) -> str:
     value = match.group(2)
+    if "\n" in match.group(1) and _KEY_AFTER_RE.match(match.string, match.end()):
+        return match.group(0)             # "bearer:" then, on the next line, a key ("token_file: /etc/token")
     # A token has a digit or one of "_~+/="; a word ("Bearer authentication", "token-based") stays, and
     # so does a documentation placeholder with no digit that is written in capitals and '_' ("Bearer
     # YOUR_PAT", "Bearer SLACK_BOT_TOKEN") or, in lower or mixed case, whose last word names what goes
@@ -936,7 +943,19 @@ def _scrub_at(text: str, depth: int) -> str:
 #     "password": "${DB_PASS:-none}"', not at a key start) reads the variable's
 #     own name as a key, so its default goes (over-redaction, crafted);
 #   * shell quoting after an unquoted structured value: "curl -H 'X-Api-Key: S'"
-#     loses the closing quote with the value.
+#     loses the closing quote with the value;
+#   * a Bearer token on the line after a "Bearer" with no ':' ("Bearer" then a
+#     line break, then the token), and a "bearer:" key whose next-line value has
+#     a ':' after it (read as a YAML key: "bearer:\n  token_file: /etc/token");
+#   * a path under a known template root, kept even when a segment is shaped
+#     like a key ("{{ secrets.sk_live_51Hx }}");
+#   * a letters-only placeholder keep has no bound on its total length;
+#   * a doubled opener or a spaced colon after the scheme word ("Bearer ((S))",
+#     "Bearer : S");
+#   * a value glued right after a closing quote ('"YOUR_API_KEY"S');
+#   * (not a scrub rule; listed for the P10 docs) ``_list_cap`` reads a few
+#     limits unlike pydantic would (True, Unicode digits); no impact, since the
+#     shared list_files tool never passes a limit.
 # Over-redaction accepted: a camel-case word starting "eyJ" ("eyJumpsMonkey"), an
 # identifier-shaped quoted key in prose ('the "api_key": field'), parameter names
 # that end with a secret word ("nextPageToken", "showPassword"), and these
@@ -1108,6 +1127,8 @@ _FOLDER_NOT_FOUND = "Folder not found; use a folder path exactly as it appears i
 _OUTSIDE_ROOT = "Folder is outside the configured root folder."
 _BEYOND_BROWSE_LIMIT = ("Folder not found, or beyond the browse limit; pass its folder path "
                         "(the folder part of an entry's path) instead.")
+_FOUND_BEYOND_BROWSE_LIMIT = ("Folder found, but beyond the browse limit; pass its folder path "
+                              "(the folder part of an entry's path) instead.")
 _BAD_LIST_LIMIT = "The list limit must be a positive whole number."
 # A segment that already ends like a sibling suffix gets one of its own, so a
 # suffixed segment can never equal another folder's plain one.
@@ -1738,8 +1759,9 @@ class KmsLighthouseClient(DataSourceClient):
         folder segments from the root (or the top level) plus the name, also
         for a ``folder:<digits>`` listing, whose folder is found by a bounded
         walk; a folder id not found is ``not_found`` (also an offline folder,
-        unless ``include_offline``), and one the walk cannot reach, or cannot
-        list, within the call bound is ``not_found`` naming the browse limit.
+        unless ``include_offline``), one the walk cannot reach within the call
+        bound is ``not_found`` naming the browse limit, and one found with no
+        call left to list it is ``not_found`` saying it was found.
         ``recursive`` defaults to True with no folder and to False with one. At
         most ``min(limit, max_results)`` entries (None: ``max_results``; 0 or a
         limit that is not a whole number is refused, ``_list_cap``) and
@@ -1748,8 +1770,6 @@ class KmsLighthouseClient(DataSourceClient):
         """
         target = _folder_target(folder_id)       # refused before any request
         cap = self._list_cap(limit)
-        if cap <= 0:
-            return []
         deep = target is None if recursive is None else _flag(recursive)
         budget = _CallBudget(_MAX_FOLDER_CALLS)
         start, start_path = self._resolve_folder(target, budget)
@@ -1760,7 +1780,7 @@ class KmsLighthouseClient(DataSourceClient):
             level = self._level(parent, budget)
             if level is None:
                 if (parent, parent_path) == (start, start_path):
-                    raise KmsHTTPError(404, "not_found", _BEYOND_BROWSE_LIMIT)   # found, but no call left to list it
+                    raise KmsHTTPError(404, "not_found", _FOUND_BEYOND_BROWSE_LIMIT)   # no call left to list it
                 break                             # the folder-call cap
             records, segments = level
             for record in records:
@@ -1853,16 +1873,28 @@ class KmsLighthouseClient(DataSourceClient):
     def _find_inside_root(self, folder: str, origin: str | None, budget: _CallBudget) -> tuple[str, ...] | None:
         """The path of ``folder`` by a bounded breadth-first walk from ``origin`` (None: the top level).
 
-        None when the whole walk ends without it. The walk also opens hidden
-        (offline) folders, within the same bound, so a folder under one is
-        found: a hidden folder, or one under a hidden folder, is ``not_found``;
-        a walk that runs out of tree calls is ``not_found`` naming the browse
-        limit; never a false "outside root".
+        None when the whole walk ends without it. Shown folders are opened
+        first; then the walk also opens hidden (offline) folders and the folders
+        under them, within the same bound, so a folder under one is found: a
+        hidden folder, or one under a hidden folder, is ``not_found``. A hidden
+        folder the server fails to list is left unseen (a refused session still
+        raises). A walk that runs out of tree calls is ``not_found`` naming the
+        browse limit; never a false "outside root".
         """
-        queue, seen = deque([(origin, (), False)]), {origin}
-        while queue:
-            parent, parent_path, under_hidden = queue.popleft()
-            level = self._level(parent, budget)
+        shown, hidden, seen = deque([(origin, ())]), deque(), {origin}
+        while shown or hidden:
+            under_hidden = not shown
+            parent, parent_path = hidden.popleft() if under_hidden else shown.popleft()
+            level, failed = None, None
+            try:
+                level = self._level(parent, budget)
+            except KmsHTTPError as exc:
+                failed = exc
+            if failed is not None:
+                # Raised outside the except block, so nothing rides along as context.
+                if not under_hidden or failed.kind == "auth":
+                    raise failed
+                continue
             if level is None:
                 raise KmsHTTPError(404, "not_found", _BEYOND_BROWSE_LIMIT)
             segments = level[1]
@@ -1870,13 +1902,16 @@ class KmsLighthouseClient(DataSourceClient):
                 child = str(record["id"])
                 if _kind_of(record) != "folder" or child in seen:
                     continue
-                hidden = under_hidden or child not in segments
+                child_hidden = under_hidden or child not in segments
                 if child == folder:
-                    if hidden:
+                    if child_hidden:
                         raise KmsHTTPError(404, "not_found", _FOLDER_NOT_FOUND)
                     return (*parent_path, segments[child])
                 seen.add(child)
-                queue.append((child, () if hidden else (*parent_path, segments[child]), hidden))
+                if child_hidden:
+                    hidden.append((child, ()))
+                else:
+                    shown.append((child, (*parent_path, segments[child])))
         return None
 
     @staticmethod
