@@ -66,7 +66,8 @@ Test-only switches and routes (not part of the KMS API):
     200-599) makes every /ai_answers_item call answer HTTP N with no body;
     "empty" is a 200 with an empty body, "not_json" a 200 whose body is not
     JSON, and "error" a 200 {"status": "ERROR"}. Item 279 carries the planted secrets
-    (ARTICLE_SECRETS) in its title, description and HTML, and its AI text
+    (ARTICLE_SECRETS) in its title, description and HTML (its AI text holds
+    the same links as plain text, with a raw '&'), and its AI text
     adds an element (E_RESTRICTED, RESTRICTED_MARKER) that /public/item does
     not return. Item 21302 exists only as a scenario.
   - STATE["odd_shapes"] = "bad_elements": /public/item answers item 279 with
@@ -199,6 +200,8 @@ _S = ARTICLE_SECRETS
 _LINKS_TEXT = (f"Form at https://kms.example.com/contents?token={_S['bare_url']} or "
                f"https://kms.example.com/contents?id=7&amp;token={_S['entity_url']}&amp;lang=en. "
                f"Signed {_S['body_jwt']}")
+# The same words as ai element_text, which is plain text (API PDF): a raw '&', no character reference.
+_AI_LINKS_TEXT = _LINKS_TEXT.replace("&amp;", "&")
 
 # /public/item bodies (PDF shape: integer tabs[].id, string elements.*.tabId, plus a null and a -1).
 ITEMS = {
@@ -253,7 +256,7 @@ AI_ITEMS = {
     "279": {"title": ITEMS["279"]["title"], "type": "DOCUMENT", "version": 2, "language": "en", "permissions": [1],
             "item_id": 279, "status": "Online", "status_id": 2, "elements": [
                 _ai_element("E_SUMMARY", "Overview", "Summary", "AI summary: verify the caller, then reset."),
-                _ai_element("E_LINKS", "Processes", "Links", "AI links. " + _LINKS_TEXT),
+                _ai_element("E_LINKS", "Processes", "Links", "AI links. " + _AI_LINKS_TEXT),
                 _ai_element("E_RESTRICTED", "Overview", "Managers only", RESTRICTED_MARKER + " escalation codes"),
             ]},
     "301": {"title": "Billing dispute", "type": "DOCUMENT", "version": 1, "language": "en", "permissions": [1],

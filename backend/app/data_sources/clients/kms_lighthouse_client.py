@@ -1043,19 +1043,10 @@ _TAG_RE = re.compile(r"<(?=[A-Za-z/!?])[^<>]++>")
 _ENTITY_RE = re.compile(r"&(?:#[0-9]{1,8}+|#[xX][0-9A-Fa-f]{1,8}+|[A-Za-z][A-Za-z0-9]{0,31}+);")
 _BLANKS_RE = re.compile(r"[ \t]++")
 _BLANK_LINES_RE = re.compile(r"\n{3,}+")
-# Markup an author's placeholder never carries: a closing tag with an HTML element name ("</b>",
-# "</ td >", "</o:p>"), a void tag ("<br>", "<br/>", "<wbr>", "<hr />"), a tag the HTML rules above
-# know with at least one name=value attribute, or a comment opener. A bare "<code>", "<a>", "<p>",
-# "<var>", "<account number>" or "<YYYY-MM-DD>" is text, and so is an XML or config example
-# ("<timeout>30</timeout>", "</appSettings>"); XML that reuses an HTML name ("</code>") reads as
-# HTML. No part crosses a '<', so the search is linear.
-_HTML_CLOSING_TAG_NAMES = (_INLINE_TAG_NAMES + "|p|div|li|tr|td|th|table|thead|tbody|tfoot|ul|ol|pre"
-                           "|blockquote|h[1-6]|center|label|caption|o:p")
-_HTML_EVIDENCE_RE = re.compile(
-    r"(?i)<(?:!--|\s*+/\s*+(?:" + _HTML_CLOSING_TAG_NAMES + r")\s*+>|\s*+(?:w?br|hr)\s*+/?+\s*+>|\s*+(?:"
-    + _INLINE_TAG_NAMES
-    + r"|br|p|div|li|tr|h[1-6])(?:\s++[A-Za-z_:][-\w:.]*+\s*+=\s*+(?:\"[^\"<>]*+\"|'[^'<>]*+'"
-    r"|[^\s\"'<>=`]++))++\s*+/?>)")
+# An ai element is ambiguous when its text holds anything tag-shaped ('<' before a letter, '/' or
+# '!') or a character reference: it may be the editor's markup or an author's placeholder, and
+# only the item HTML tells them apart. One search; each match is at most 34 characters long.
+_AMBIGUOUS_AI_TEXT_RE = re.compile(r"<[A-Za-z/!]|" + _ENTITY_RE.pattern)
 
 
 def _join_inline_tags(match: re.Match) -> str:
@@ -1107,19 +1098,8 @@ def _plain_text(value) -> str:
     return _scrub(_html_to_text("" if value is None else str(value)))
 
 
-def _plain_ai_text(value) -> str:
-    """ai_answers_item text, scrubbed, lines tidied.
-
-    It is plain text (API PDF), so nothing is stripped or decoded, unless it
-    carries markup evidence (``_HTML_EVIDENCE_RE``) or a character reference:
-    then it is the editor's HTML and is read like the item HTML. A bare
-    tag-shaped placeholder ("<code>") is kept. Text with a character
-    reference loses its "<placeholders>" (``&quot;``-escaped credentials
-    must be decoded, so references stay evidence).
-    """
-    text = "" if value is None else str(value)
-    if _HTML_EVIDENCE_RE.search(text) or _ENTITY_RE.search(text):
-        return _plain_text(text)
+def _plain_ai_text(text: str) -> str:
+    """Plain ai_answers_item text (API PDF), scrubbed, lines tidied; nothing is stripped or decoded."""
     return _scrub(_tidy_lines(text))
 
 
@@ -1423,15 +1403,40 @@ def _visible_ai_elements(elements: list, visible: set) -> list:
             and isinstance(element.get("element_name"), str) and element["element_name"] in visible]
 
 
-def _ai_sections(elements, visible: set) -> list | None:
-    """The ai text by ``tab_caption`` then ``element_caption``; None when no element is left (fall back)."""
+def _ai_element_text(element: dict, records: dict) -> str | None:
+    """One shown ai element's text; None when it is ambiguous and its item has no HTML for it (drop it).
+
+    Plain ai text is shown as written (scrubbed). Text with anything
+    tag-shaped or a character reference (``_AMBIGUOUS_AI_TEXT_RE``) renders
+    from the same item's /public/item HTML for that element instead, where
+    markup and an escaped "<placeholder>" are told apart.
+    """
+    text = "" if element.get("element_text") is None else str(element["element_text"])
+    if _AMBIGUOUS_AI_TEXT_RE.search(text) is None:
+        return _plain_ai_text(text)
+    value = records[element["element_name"]].get("value")
+    if value is None:
+        logger.debug("kms_lighthouse %s dropped: %s", "ai_text", "an element has no item HTML")
+        return None
+    return _plain_text(value)
+
+
+def _ai_sections(elements, records: dict) -> list | None:
+    """The ai text by ``tab_caption`` then ``element_caption``; None when no element is left (fall back).
+
+    ``records`` is ``_elements(item)`` of the same read: only its non-image
+    names are shown, and an ambiguous element renders from its HTML there.
+    """
+    visible = {name for name, element in records.items() if element.get("type") != _IMAGE_FIELD}
     shown = _visible_ai_elements(elements, visible) if isinstance(elements, list) else []
     if not shown:
         return None
     by_tab: dict = {}
     for element in shown:
-        by_tab.setdefault(_line(element.get("tab_caption")) or None, []).append(
-            (_line(element.get("element_caption")), _plain_ai_text(element.get("element_text"))))
+        text = _ai_element_text(element, records)
+        if text is not None:
+            by_tab.setdefault(_line(element.get("tab_caption")) or None, []).append(
+                (_line(element.get("element_caption")), text))
     general = by_tab.pop(None, None)
     return ([(_GENERAL, general)] if general else []) + list(by_tab.items())
 
@@ -2256,8 +2261,7 @@ class KmsLighthouseClient(DataSourceClient):
         if not isinstance(payload, dict) or ("item_id" in payload and not _same_id(payload["item_id"], digits)):
             logger.debug("kms_lighthouse %s fell back: %s", "ai_text", "not the item asked for")
             return None
-        visible = {name for name, element in records.items() if element.get("type") != _IMAGE_FIELD}
-        sections = _ai_sections(payload.get("elements"), visible)
+        sections = _ai_sections(payload.get("elements"), records)
         if sections is None:
             logger.debug("kms_lighthouse %s fell back: %s", "ai_text", "no element the item shows")
         return sections

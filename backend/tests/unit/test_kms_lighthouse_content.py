@@ -8,6 +8,7 @@ Behaviour is asserted on the public methods' output only.
 # parameters named after them look like redefinitions to the linter.
 # ruff: noqa: F811
 import ast
+import html
 import logging
 import random
 import re
@@ -909,20 +910,68 @@ def test_ai_text_global_failure_is_not_hidden(kms, make, case, kind, logins_adde
     assert mock.STATE["login_count"] == logins + logins_added
 
 
-def _with_ai_summary(mock, monkeypatch, text):
+def _with_ai_summary(mock, monkeypatch, text, item_html=None):
+    """Item 279's E_SUMMARY as ai ``text`` and, in /public/item, as ``item_html``.
+
+    The default ``item_html`` is what the editor saves for ``text`` typed as
+    words: the same text with '&', '<' and '>' escaped. Pass ``item_html`` when
+    the text is the editor's markup itself.
+    """
     elements = [dict(e, element_text=text) if e["element_name"] == "E_SUMMARY" else e
                 for e in mock.AI_ITEMS["279"]["elements"]]
     monkeypatch.setitem(mock.AI_ITEMS["279"], "elements", elements)
+    value = html.escape(text, quote=False) if item_html is None else item_html
+    _with_item_summary(mock, monkeypatch, value)
 
 
 @pytest.mark.parametrize("authored", ["Enter <account number> in the field", "if a<b and c>d",
                                       "Use format <YYYY-MM-DD>"])
 def test_ai_text_is_plain_text_shown_as_written(kms, monkeypatch, authored):
     mock = kms["mock"]
-    # ai element_text is plain text (API PDF): nothing in it is markup to strip.
+    # A tag-shaped '<' makes the element ambiguous, so it renders from its item HTML, where the
+    # editor saved the placeholder escaped: it is shown as written.
     _with_ai_summary(mock, monkeypatch, authored)
     sections = _sections(client(kms).read_file("item:279"))
     assert f"### Summary\n{authored}\n" in sections["Overview"]
+
+
+def test_a_plain_ai_element_is_shown_from_its_ai_text(kms, monkeypatch):
+    mock = kms["mock"]
+    # No tag-shaped '<' and no character reference: the ai text is used, not the item HTML.
+    _with_ai_summary(mock, monkeypatch, "AI words: if a < b and c > d, press 5", item_html="<p>Editor words</p>")
+    summary = _sections(client(kms).read_file("item:279"))["Overview"]
+    assert "### Summary\nAI words: if a < b and c > d, press 5\n" in summary and "Editor words" not in summary
+
+
+@pytest.mark.parametrize("ai,item_html,shown", [
+    ("AI draft with <b>bold</b> words", "<p>Editor words with <b>bold</b></p>", "Editor words with bold"),
+    ("AI draft Q&amp;A", "<p>Editor Q&amp;A</p>", "Editor Q&A"),
+    ("AI draft</p>", "<p>Editor paragraph</p>", "Editor paragraph"),
+    ("AI draft<!-- note -->", "<p>Editor note<!-- note --></p>", "Editor note"),
+], ids=["tag", "entity", "closing_tag", "comment"])
+def test_an_ambiguous_ai_element_renders_from_its_item_html(kms, monkeypatch, ai, item_html, shown):
+    mock = kms["mock"]
+    # One ambiguous element (a tag-shaped '<' or a character reference) shows its item-HTML rendering;
+    # the other element of the same item is plain and still shows its ai text.
+    _with_ai_summary(mock, monkeypatch, ai, item_html=item_html)
+    sections = _sections(client(kms).read_file("item:279"))
+    assert f"### Summary\n{shown}\n" in sections["Overview"] and "AI draft" not in sections["Overview"]
+    assert "### Links\nAI links." in sections["Processes"]
+
+
+@pytest.mark.parametrize("element", [{"tabId": "1", "title": "Summary", "type": "EDITOR_FIELD"},
+                                     {"value": None, "tabId": "1", "title": "Summary", "type": "EDITOR_FIELD"}],
+                         ids=["no_value", "null_value"])
+def test_an_ambiguous_ai_element_with_no_item_html_is_dropped(kms, monkeypatch, caplog, element):
+    mock = kms["mock"]
+    caplog.set_level(logging.DEBUG, logger=kc.logger.name)
+    _with_ai_summary(mock, monkeypatch, "AI draft <b>dropped-marker-3e71</b>")
+    monkeypatch.setitem(mock.ITEMS["279"]["elements"], "E_SUMMARY", element)
+    text = client(kms).read_file("item:279")
+    assert "dropped-marker-3e71" not in text and "AI draft" not in text and "### Summary" not in text
+    assert "### Links\nAI links." in _sections(text)["Processes"]       # the other element stays
+    lines = [r.getMessage() for r in caplog.records if r.name == kc.logger.name and "dropped" in r.getMessage()]
+    assert lines == ["kms_lighthouse ai_text dropped: an element has no item HTML"]
 
 
 def test_ai_text_lines_and_blanks_are_normalised(kms, monkeypatch):
@@ -973,11 +1022,12 @@ def test_a_no_break_space_never_shields_a_secret(kms, monkeypatch, ai_text, temp
 ], ids=["entity_json", "bold_bearer", "nbsp_bearer", "entity_userinfo", "bold_key"])
 def test_ai_text_that_carries_html_is_read_as_html(kms, monkeypatch, authored, secret, shown):
     mock = kms["mock"]
-    # The API PDF says element_text is plain, but a tenant may hand back the editor's HTML: a known tag
-    # or a character reference means markup, which is rendered (and then scrubbed) like the item HTML.
-    _with_ai_summary(mock, monkeypatch, authored)
+    # The API PDF says element_text is plain, but a tenant may hand back the editor's HTML: a tag-shaped
+    # '<' or a character reference makes the element ambiguous, and it renders (scrubbed) from its item
+    # HTML, which here is that same markup.
+    _with_ai_summary(mock, monkeypatch, authored, item_html=authored)
     text = client(kms).read_file("item:279")
-    assert "AI links." in text and "Item summary" not in text       # still the ai text
+    assert "AI links." in text and "Item summary" not in text       # the ai answer, not the fallback
     summary = _sections(text)["Overview"]
     assert secret not in text and shown in summary
     assert "<b>" not in summary and "&quot;" not in summary and "&nbsp;" not in summary
@@ -989,42 +1039,69 @@ def test_ai_text_that_carries_html_is_read_as_html(kms, monkeypatch, authored, s
     "Set <var> to the branch id, format <YYYY-MM-DD>",
     "If <a> is larger than <b>, use <a>",
     "Press <p> to print",
-], ids=["code", "code_and_account", "var_and_date", "a_and_b", "p"])
+    "Escalate to <HR> before closing",
+    "Ask <hr> to sign, then <HR> files it",
+], ids=["code", "code_and_account", "var_and_date", "a_and_b", "p", "hr_upper", "hr_both"])
 def test_ai_text_with_a_tag_shaped_placeholder_is_shown_as_written(kms, monkeypatch, authored):
     mock = kms["mock"]
-    # A bare known tag name with no closing tag, attribute, comment or character reference is an
-    # author's placeholder, not markup: every <placeholder> in the element stays.
+    # A tag-shaped placeholder makes the element ambiguous: it renders from its item HTML, where the
+    # editor saved it escaped, so every <placeholder> in the element stays, whatever its name.
     _with_ai_summary(mock, monkeypatch, authored)
     text = client(kms).read_file("item:279")
-    assert "AI links." in text and "Item summary" not in text       # still the ai text
+    assert "AI links." in text and "Item summary" not in text       # the ai answer, not the fallback
     assert f"### Summary\n{authored}\n" in _sections(text)["Overview"]
 
 
-@pytest.mark.parametrize("authored,secret", [
-    ("Ask for the <code>: Bearer <b>abc123def456</b>", "abc123def456"),
-    ("Authorization: Bearer</td><td>abc123def456", "abc123def456"),
-    ("api_key:<!-- -->sk_live_51HxABCDEF", "sk_live_51HxABCDEF"),
-    ('Use <span class="k">api_key</span>: sk_live_51HxABCDEF', "sk_live_51HxABCDEF"),
-    ('Use <span class="k">api_key: sk_live_51HxABCDEF', "sk_live_51HxABCDEF"),
-    ("Note<o:p></o:p> api_key: sk_live_51HxABCDEF", "sk_live_51HxABCDEF"),
-    ("Note</ b > Authorization: Bearer abc123def456", "abc123def456"),
-    ("Rule<hr /> api_key: sk_live_51HxABCDEF", "sk_live_51HxABCDEF"),
+@pytest.mark.parametrize("authored,item_html,secret,shown", [
+    ("Ask for the <code>: Bearer <b>abc123def456</b>", "Ask for the &lt;code&gt;: Bearer <b>abc123def456</b>",
+     "abc123def456", "Ask for the <code>: Bearer [redacted]"),
+    ("Authorization: Bearer</td><td>abc123def456", None, "abc123def456", "Authorization: Bearer [redacted]"),
+    ("api_key:<!-- -->sk_live_51HxABCDEF", None, "sk_live_51HxABCDEF", "api_key: [redacted]"),
+    # The item HTML renderer turns a closing tag before ':' into a space, as on the item path.
+    ('Use <span class="k">api_key</span>: sk_live_51HxABCDEF', None, "sk_live_51HxABCDEF",
+     "Use api_key : [redacted]"),
+    ('Use <span class="k">api_key: sk_live_51HxABCDEF', None, "sk_live_51HxABCDEF", "Use api_key: [redacted]"),
+    ("Note<o:p></o:p> api_key: sk_live_51HxABCDEF", None, "sk_live_51HxABCDEF", "Note api_key: [redacted]"),
+    ("Note</ b > Authorization: Bearer abc123def456", None, "abc123def456", "Note Authorization: Bearer [redacted]"),
+    ("Rule<hr /> api_key: sk_live_51HxABCDEF", None, "sk_live_51HxABCDEF", "Rule api_key: [redacted]"),
 ], ids=["placeholder_and_bold", "table_cells", "comment", "attribute", "attribute_only", "office_paragraph",
         "closing_bold_only", "rule"])
-def test_ai_text_with_markup_evidence_is_read_as_html_and_scrubbed(kms, monkeypatch, authored, secret):
+def test_ai_text_with_markup_evidence_is_read_as_html_and_scrubbed(kms, monkeypatch, authored, item_html,
+                                                                     secret, shown):
     mock = kms["mock"]
-    _with_ai_summary(mock, monkeypatch, authored)
+    # The item HTML is the markup itself (None) or, next to a placeholder, the editor's escaped form.
+    _with_ai_summary(mock, monkeypatch, authored, item_html=authored if item_html is None else item_html)
     text = client(kms).read_file("item:279")
     assert "AI links." in text and "Item summary" not in text
     summary = _sections(text)["Overview"]
-    assert secret not in text and "[redacted]" in summary
-    assert "<" not in summary              # every tag (and the <code> next to one) went with the markup
+    assert secret not in text and f"### Summary\n{shown}\n" in summary
+
+
+@pytest.mark.parametrize("authored,secret", [
+    ("Authorization: Bearer<dt></dt><dd>abc123def456</dd>", "abc123def456"),
+    ('api_key:<bdo dir="ltr">sk_live_51HxABCDEF</bdo>', "sk_live_51HxABCDEF"),
+    ("Authorization: Bearer <nobr>abc123def456</nobr>", "abc123def456"),
+    ("Authorization: Bearer<figcaption>abc123def456</figcaption>", "abc123def456"),
+    ("Authorization: Bearer abc123<wbr>def456", "def456"),
+    ("{&quot;api_key&quot;: &quot;sk_live_51HxABCDEF&quot;}", "sk_live_51HxABCDEF"),
+    ("api_key:<!-- -->sk_live_51HxABCDEF", "sk_live_51HxABCDEF"),
+    ("Authorization: Bearer</td><td>abc123def456", "abc123def456"),
+], ids=["dt_dd", "bdo_dir", "nobr", "figcaption", "wbr", "quot_json", "comment", "table_cells"])
+def test_an_ambiguous_ai_element_never_shows_a_secret(kms, monkeypatch, authored, secret):
+    mock = kms["mock"]
+    # Whatever the tag name: an element that holds markup renders from its item HTML, so no tag the
+    # renderer does not list can sit between a key and its value.
+    _with_ai_summary(mock, monkeypatch, authored, item_html=authored)
+    text = client(kms).read_file("item:279")
+    assert "AI links." in text and "Item summary" not in text       # the ai answer, not the fallback
+    summary = _sections(text)["Overview"]
+    assert secret not in text and "[redacted]" in summary and "<" not in summary
 
 
 @pytest.mark.parametrize("authored", ["Step one<br>Step two", "Step one<br/>Step two", "Step one<BR />Step two"])
 def test_ai_text_with_a_line_break_tag_is_read_as_html(kms, monkeypatch, authored):
     mock = kms["mock"]
-    _with_ai_summary(mock, monkeypatch, authored)
+    _with_ai_summary(mock, monkeypatch, authored, item_html=authored)
     text = client(kms).read_file("item:279")
     assert "AI links." in text and "### Summary\nStep one\nStep two\n" in _sections(text)["Overview"]
 
@@ -1034,14 +1111,15 @@ def test_ai_text_with_a_line_break_tag_is_read_as_html(kms, monkeypatch, authore
     "Send <Request><CustomerId>12345</CustomerId></Request> to the service",
     "In settings.xml set <password>${MAVEN_PASS}</password>",
     'Add <add key="Mode" value="1"/> under </appSettings>',
-], ids=["timeout", "request", "maven_password", "app_settings"])
+    "The bucket answers <Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>",
+], ids=["timeout", "request", "maven_password", "app_settings", "cloud_error"])
 def test_ai_text_with_an_xml_example_is_shown_as_written(kms, monkeypatch, authored):
     mock = kms["mock"]
-    # A closing tag is markup evidence only for an HTML element name: an XML or config example in
-    # plain ai text keeps its tags.
+    # An XML or config example makes the element ambiguous: it renders from its item HTML, where the
+    # editor saved the example escaped, so it keeps its tags, whatever their names.
     _with_ai_summary(mock, monkeypatch, authored)
     text = client(kms).read_file("item:279")
-    assert "AI links." in text and "Item summary" not in text       # still the ai text
+    assert "AI links." in text and "Item summary" not in text       # the ai answer, not the fallback
     assert f"### Summary\n{authored}\n" in _sections(text)["Overview"]
 
 
@@ -1055,8 +1133,9 @@ def test_ai_text_with_an_xml_example_is_shown_as_written(kms, monkeypatch, autho
 ], ids=["bearer", "query_token", "jwt"])
 def test_ai_text_with_a_word_break_tag_is_read_as_html_and_scrubbed(kms, monkeypatch, authored, secrets, shown):
     mock = kms["mock"]
-    # A bare void tag ("<wbr>") is markup: the token it splits is joined, then scrubbed.
-    _with_ai_summary(mock, monkeypatch, authored)
+    # A bare void tag ("<wbr>") is markup: the element renders from its item HTML (that same markup),
+    # where the token it splits is joined, then scrubbed.
+    _with_ai_summary(mock, monkeypatch, authored, item_html=authored)
     text = client(kms).read_file("item:279")
     assert "AI links." in text and "Item summary" not in text
     summary = _sections(text)["Overview"]
@@ -1190,8 +1269,8 @@ def test_article_text_scrubs_token_urls(kms, ai_text, case):
     assert ("AI links." in text) is ai_text        # the path under test really ran
     assert mock.ARTICLE_SECRETS[case] not in text
     assert "eyJ" not in text and "token=" not in text and mock.ARTICLE_SECRETS["img"] not in text
-    # Only the secret parameter goes; the rest of each URL and the words around it stay. The ai text
-    # carries "&amp;", so it is read as HTML: the entity is decoded on both paths.
+    # Only the secret parameter goes; the rest of each URL and the words around it stay. The item HTML
+    # carries "&amp;" (decoded), the plain ai text a raw '&'.
     assert "Form at https://kms.example.com/contents or https://kms.example.com/contents?id=7&lang=en." in text
     assert "Signed [redacted]" in text
 
@@ -2687,15 +2766,22 @@ _AI_MARKUP_ADVERSARIAL = {
     "bare_known_tags": _adversarial("<code> "),
     "comment_openers": _adversarial("<!-"),
     "open_brackets": _adversarial("<"),
+    "open_brackets_blanks": _adversarial("< "),
+    "ampersands": _adversarial("&"),
+    "entity_digits": _adversarial("&#" + "1" * 12),
+    "entity_names": _adversarial("&" + "a" * 40),
+    "plain_words": _adversarial("plain words "),
 }
 
 
 @pytest.mark.parametrize("name", sorted(_AI_MARKUP_ADVERSARIAL))
-def test_ai_text_markup_evidence_is_linear_at_full_length(name):
-    # Every ai element is checked for markup evidence before it is scrubbed, at full length.
-    # Measured: well under 0.5 s each, so 3 s is a generous bound.
+def test_ai_element_check_is_linear_at_full_length(name):
+    # Every ai element is checked (tag-shaped '<' or character reference) and rendered from its ai
+    # text or its item HTML, at full length. Measured: well under 0.5 s each, so 3 s is a generous bound.
+    text = _AI_MARKUP_ADVERSARIAL[name]
     started = time.perf_counter()
-    kc._plain_ai_text(_AI_MARKUP_ADVERSARIAL[name])
+    kc._ai_sections([{"element_name": "E", "element_caption": "C", "tab_caption": "T", "element_text": text}],
+                    {"E": {"value": text, "type": "EDITOR_FIELD"}})
     assert time.perf_counter() - started < 3.0, name
 
 
