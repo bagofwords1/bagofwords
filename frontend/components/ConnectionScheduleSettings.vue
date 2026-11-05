@@ -168,6 +168,28 @@
           <p v-if="queryLimitsError" class="text-2xs text-red-500">{{ queryLimitsError }}</p>
         </div>
       </div>
+</details>
+<details class="border-t border-gray-100 dark:border-gray-800 pt-3" data-testid="connection-alert-emails"><summary class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer list-none"><UIcon name="heroicons-chevron-right" class="schedule-chevron w-3.5 h-3.5 shrink-0 text-ink-muted" /><span>{{ $t('data.connAlerts.title') }}</span><span class="ms-auto text-xs text-gray-500">{{ $t('data.connAlerts.mode_' + alertMode) }}</span></summary>      <!-- Per-connection override for the down/restored alert EMAIL, layered over
+           the org-wide toggle (Settings → SMTP). The in-app inbox notification
+           is always delivered regardless. Not license-gated. -->
+      <div class="py-3 border-t border-gray-100 dark:border-gray-800">
+        <p class="text-2xs text-ink-muted">{{ $t('data.connAlerts.hint') }}</p>
+        <div class="mt-2 flex items-center justify-between">
+          <span class="text-xs text-gray-500 dark:text-gray-400">{{ $t('data.connAlerts.label') }}</span>
+          <select
+            v-model="alertMode"
+            :disabled="savingAlertMode"
+            data-testid="connection-alert-mode"
+            class="text-xs border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:opacity-50"
+            @change="saveAlertMode"
+          >
+            <option value="inherit">{{ $t('data.connAlerts.inherit') }}</option>
+            <option value="always">{{ $t('data.connAlerts.always') }}</option>
+            <option value="never">{{ $t('data.connAlerts.never') }}</option>
+          </select>
+        </div>
+        <p v-if="alertModeError" class="text-2xs text-red-500">{{ alertModeError }}</p>
+      </div>
 </details></div></template>
 <script setup lang="ts">
 import { sameConnectionDiagnostic } from '~/utils/connectionDiagnostics'
@@ -434,6 +456,35 @@ function onQueryLimitChange() {
   saveQueryLimits()
 }
 
+// ── Per-connection down-alert email override (layered over the org toggle) ───
+const alertMode = ref<'inherit' | 'always' | 'never'>('inherit')
+const alertModeError = ref<string | null>(null)
+const savingAlertMode = ref(false)
+
+function applyAlertConfig(d: any) {
+  if (!d || !canManage.value) return
+  alertMode.value = ['inherit', 'always', 'never'].includes(d.alert_emails_mode)
+    ? d.alert_emails_mode : 'inherit'
+}
+
+async function saveAlertMode() {
+  if (!props.connection?.id || savingAlertMode.value) return
+  savingAlertMode.value = true
+  alertModeError.value = null
+  try {
+    const { error } = await useMyFetch(`/connections/${props.connection.id}`, {
+      method: 'PUT',
+      body: { alert_emails_mode: alertMode.value },
+    })
+    if (error.value) {
+      alertModeError.value = (error.value as any)?.data?.detail || (error.value as any)?.message || t('data.connAlerts.saveFailed')
+      toast.add({ title: t('data.connAlerts.saveFailed'), description: String(alertModeError.value), color: 'red' })
+    }
+  } finally {
+    savingAlertMode.value = false
+  }
+}
+
 watch(() => [props.connection?.id, canManage.value], async ([id]) => {
   if (!id || !canManage.value) return
   const { data } = await useMyFetch(`/connections/${id}`, { method: 'GET' })
@@ -441,6 +492,7 @@ watch(() => [props.connection?.id, canManage.value], async ([id]) => {
   applyAutoReindexConfig(data.value)
   applyRateLimitConfig(data.value)
   applyQueryLimitConfig(data.value)
+  applyAlertConfig(data.value)
 }, { immediate: true })
 </script>
 <style scoped>

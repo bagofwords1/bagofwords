@@ -3964,6 +3964,18 @@
       "uploadInvalid": "Wählen Sie eine private SSH-Schlüsseldatei unter 64 KB. Öffentliche Schlüssel und andere Dateien werden nicht akzeptiert.",
       "keyRequired": "Prüfen Sie den SSH-Serverschlüssel oder geben Sie unter Erweitert einen vertrauenswürdigen Schlüssel ein.",
       "required": "Füllen Sie die Pflichtfelder aus: {fields}."
+    },
+    "connAlerts": {
+      "title": "Ausfall-Warnungs-E-Mails",
+      "hint": "Überschreibt die Organisationseinstellung für diese Verbindung. In-App-Benachrichtigungen sind immer aktiv.",
+      "label": "Wenn diese Verbindung ausfällt",
+      "inherit": "Org-Standard verwenden",
+      "always": "Immer senden",
+      "never": "Nie senden",
+      "mode_inherit": "Org-Standard",
+      "mode_always": "Immer",
+      "mode_never": "Nie",
+      "saveFailed": "Einstellung konnte nicht gespeichert werden."
     }
   },
   "share": {

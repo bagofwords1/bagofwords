@@ -3964,6 +3964,18 @@
       "uploadInvalid": "Choisissez une clé SSH privée de moins de 64 Ko. Les clés publiques et autres fichiers sont refusés.",
       "keyRequired": "Vérifiez la clé SSH du serveur pour continuer ou saisissez une clé fiable dans les paramètres avancés.",
       "required": "Remplissez les champs obligatoires : {fields}."
+    },
+    "connAlerts": {
+      "title": "E-mails d'alerte de panne",
+      "hint": "Remplace le réglage de l'organisation pour cette connexion. Les notifications dans l'application sont toujours actives.",
+      "label": "Quand cette connexion tombe en panne",
+      "inherit": "Utiliser le réglage de l'org",
+      "always": "Toujours envoyer",
+      "never": "Ne jamais envoyer",
+      "mode_inherit": "Réglage de l'org",
+      "mode_always": "Toujours",
+      "mode_never": "Jamais",
+      "saveFailed": "Impossible d'enregistrer le réglage."
     }
   },
   "share": {

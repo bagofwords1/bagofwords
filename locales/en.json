@@ -4365,6 +4365,18 @@
       "uploadInvalid": "Choose an SSH private-key file smaller than 64 KB. Public keys and other files are not accepted.",
       "keyRequired": "Verify the server’s SSH key to continue, or enter a trusted key under Advanced.",
       "required": "Complete the required fields: {fields}."
+    },
+    "connAlerts": {
+      "title": "Down-alert emails",
+      "hint": "Override the org-wide email setting for this connection. In-app notifications are always on.",
+      "label": "When this connection goes down",
+      "inherit": "Use org default",
+      "always": "Always email",
+      "never": "Never email",
+      "mode_inherit": "Org default",
+      "mode_always": "Always",
+      "mode_never": "Never",
+      "saveFailed": "Couldn't save the alert setting."
     }
   },
   "share": {

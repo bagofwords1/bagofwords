@@ -52,6 +52,15 @@ class ConnectionUpdate(BaseModel):
     # `config`; 0 (or null) clears the override so the org default applies.
     query_timeout_seconds: Optional[int] = None
     max_concurrent_queries: Optional[int] = None
+    # Per-connection override for down/restored alert emails, layered over the
+    # org toggle: "inherit" | "always" | "never".
+    alert_emails_mode: Optional[str] = None
+
+    @validator("alert_emails_mode")
+    def _validate_alert_mode(cls, v):
+        if v is not None and v not in ("inherit", "always", "never"):
+            raise ValueError("alert_emails_mode must be 'inherit', 'always' or 'never'")
+        return v
 
     @validator("query_timeout_seconds")
     def _validate_query_timeout(cls, v):
@@ -186,6 +195,9 @@ class ConnectionDetailSchema(BaseModel):
     rate_limit_per_minute: Optional[int] = None
     rate_limit_per_hour: Optional[int] = None
     rate_limit_per_day: Optional[int] = None
+    # Per-connection override for down/restored alert emails, layered over the
+    # org toggle: "inherit" (follow org) | "always" | "never".
+    alert_emails_mode: str = "inherit"
     # Per-connection query limits (null = inherits the org default, shown
     # alongside so the form can say what "default" currently means).
     query_timeout_seconds: Optional[int] = None

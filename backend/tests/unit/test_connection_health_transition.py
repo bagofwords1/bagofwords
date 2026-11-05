@@ -77,3 +77,28 @@ def test_threshold_is_configurable(monkeypatch):
     # One failure is enough when the threshold is 1.
     assert _record(c, False) == "down"
     assert c.is_active is False
+
+
+# ── Two-tier email decision: per-connection override layered over the org ─────
+
+from app.services.connection_alerts import _email_should_send
+
+
+def test_inherit_follows_the_org_toggle():
+    # The default mode defers entirely to the org-wide switch.
+    assert _email_should_send("inherit", True) is True
+    assert _email_should_send("inherit", False) is False
+
+
+def test_always_sends_even_when_org_is_off():
+    # A connection marked "always" emails no matter the org toggle — this is the
+    # "org off, but alert me for this one critical source" case.
+    assert _email_should_send("always", False) is True
+    assert _email_should_send("always", True) is True
+
+
+def test_never_mutes_even_when_org_is_on():
+    # A connection marked "never" is silent no matter the org toggle — the noisy
+    # source you want to mute without turning the whole org off.
+    assert _email_should_send("never", True) is False
+    assert _email_should_send("never", False) is False

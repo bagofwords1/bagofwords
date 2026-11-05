@@ -3964,6 +3964,18 @@
       "uploadInvalid": "Escolha uma chave SSH privada menor que 64 KB. Chaves públicas e outros arquivos não são aceitos.",
       "keyRequired": "Verifique a chave SSH do servidor para continuar ou insira uma chave confiável nas configurações avançadas.",
       "required": "Preencha os campos obrigatórios: {fields}."
+    },
+    "connAlerts": {
+      "title": "E-mails de alerta de queda",
+      "hint": "Substitui a configuração da organização para esta conexão. As notificações no app estão sempre ativas.",
+      "label": "Quando esta conexão cai",
+      "inherit": "Usar padrão da org",
+      "always": "Enviar sempre",
+      "never": "Nunca enviar",
+      "mode_inherit": "Padrão da org",
+      "mode_always": "Sempre",
+      "mode_never": "Nunca",
+      "saveFailed": "Não foi possível salvar a configuração."
     }
   },
   "share": {

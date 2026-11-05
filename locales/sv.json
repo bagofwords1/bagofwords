@@ -3964,6 +3964,18 @@
       "uploadInvalid": "Välj en privat SSH-nyckelfil mindre än 64 KB. Publika nycklar och andra filer godtas inte.",
       "keyRequired": "Verifiera serverns SSH-nyckel för att fortsätta eller ange en betrodd nyckel under Avancerat.",
       "required": "Fyll i de obligatoriska fälten: {fields}."
+    },
+    "connAlerts": {
+      "title": "E-postvarningar vid avbrott",
+      "hint": "Åsidosätter organisationens inställning för den här anslutningen. Aviseringar i appen är alltid på.",
+      "label": "När den här anslutningen går ner",
+      "inherit": "Använd org-standard",
+      "always": "Skicka alltid",
+      "never": "Skicka aldrig",
+      "mode_inherit": "Org-standard",
+      "mode_always": "Alltid",
+      "mode_never": "Aldrig",
+      "saveFailed": "Det gick inte att spara inställningen."
     }
   },
   "share": {

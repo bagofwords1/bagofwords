@@ -43,6 +43,13 @@ class Connection(BaseSchema):
     # one per cooldown window (BOW_CONN_DOWN_ALERT_COOLDOWN_MINUTES, default 60)
     # so a flapping connection cannot spam admins. NULL = never alerted.
     last_down_alert_at = Column(DateTime, nullable=True, default=None)
+    # Per-connection override for the down/restored alert EMAIL, layered over the
+    # org-wide toggle (OrganizationSettings.config["connection_alerts_email"]):
+    #   "inherit" (default) — follow the org setting
+    #   "always"            — email for this connection even if the org toggle is off
+    #   "never"             — never email for this connection even if the org toggle is on
+    # The in-app inbox notification is unaffected — it is always delivered.
+    alert_emails_mode = Column(String, nullable=False, default="inherit", server_default="inherit")
 
     # Authentication policy
     auth_policy = Column(String, nullable=False, default="system_only")  # system_only, user_required

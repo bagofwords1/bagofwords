@@ -4303,6 +4303,18 @@
       "uploadInvalid": "Elija una clave SSH privada de menos de 64 KB. No se aceptan claves públicas ni otros archivos.",
       "keyRequired": "Verifique la clave SSH del servidor para continuar o introduzca una clave fiable en Avanzado.",
       "required": "Complete los campos obligatorios: {fields}."
+    },
+    "connAlerts": {
+      "title": "Correos de alerta de caída",
+      "hint": "Anula la configuración de la organización para esta conexión. Las notificaciones en la app siempre están activas.",
+      "label": "Cuando esta conexión se cae",
+      "inherit": "Usar predeterminado de la org",
+      "always": "Enviar siempre",
+      "never": "No enviar nunca",
+      "mode_inherit": "Predeterminado",
+      "mode_always": "Siempre",
+      "mode_never": "Nunca",
+      "saveFailed": "No se pudo guardar la configuración."
     }
   },
   "share": {

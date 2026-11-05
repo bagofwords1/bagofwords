@@ -43,6 +43,23 @@ _DEFAULT_COOLDOWN_MINUTES = 60
 EMAIL_ENABLED_KEY = "connection_alerts_email"
 
 
+def _email_should_send(mode: str, org_enabled: bool | None) -> bool:
+    """Resolve the two-tier email decision for one connection.
+
+    ``mode`` is the per-connection override; ``org_enabled`` the org-wide toggle
+    (only consulted for ``"inherit"``). The in-app inbox notification is never
+    gated by this — it is always delivered.
+        never   → False (muted even if the org toggle is on)
+        always  → True  (sent even if the org toggle is off)
+        inherit → follow the org toggle
+    """
+    if mode == "never":
+        return False
+    if mode == "always":
+        return True
+    return bool(org_enabled)
+
+
 def _cooldown() -> timedelta:
     try:
         minutes = max(0, int(os.environ.get("BOW_CONN_DOWN_ALERT_COOLDOWN_MINUTES",
@@ -190,8 +207,12 @@ async def notify_connection_health(db: AsyncSession, connection, transition: str
     except Exception:  # noqa: BLE001
         logger.warning("connection alert: inbox delivery failed for %s", conn_id, exc_info=True)
 
-    # Email — gated by the org toggle, and (down only) the cooldown.
-    if not await _email_enabled(db, org_id):
+    # Email — two layers: the per-connection override decides first, and only
+    # "inherit" falls through to the org toggle (which we don't bother querying
+    # for an "always"/"never" connection).
+    mode = getattr(connection, "alert_emails_mode", "inherit") or "inherit"
+    org_enabled = await _email_enabled(db, org_id) if mode == "inherit" else None
+    if not _email_should_send(mode, org_enabled):
         return
 
     now = datetime.utcnow()

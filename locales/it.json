@@ -3964,6 +3964,18 @@
       "uploadInvalid": "Scegli una chiave SSH privata inferiore a 64 KB. Chiavi pubbliche e altri file non sono accettati.",
       "keyRequired": "Verifica la chiave SSH del server per continuare o inserisci una chiave attendibile nelle impostazioni avanzate.",
       "required": "Compila i campi obbligatori: {fields}."
+    },
+    "connAlerts": {
+      "title": "E-mail di avviso guasto",
+      "hint": "Sovrascrive l'impostazione dell'organizzazione per questa connessione. Le notifiche in-app sono sempre attive.",
+      "label": "Quando questa connessione si interrompe",
+      "inherit": "Usa predefinito org",
+      "always": "Invia sempre",
+      "never": "Non inviare mai",
+      "mode_inherit": "Predefinito org",
+      "mode_always": "Sempre",
+      "mode_never": "Mai",
+      "saveFailed": "Impossibile salvare l'impostazione."
     }
   },
   "share": {
