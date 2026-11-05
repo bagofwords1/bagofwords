@@ -1490,9 +1490,10 @@ def test_scenario_caps_and_cycles(kms):
 def test_scenario_node_cap_truncates(kms):
     text = client(kms).read_file("scenario:21502")
     shown = [line for line in text.splitlines() if re.fullmatch(r" *Option [0-9]+ step\.", line)]
-    # One budget of 400 entries: the root step, then a label line and a step per option.
+    # One budget of 400 entries: the root step and its reserved cut marker, then a label line and a
+    # step per option; the marker stands where the remaining options would be (fix round 3, item 2).
     assert len(shown) == 199
-    assert f'- "Option 199" ->\n  {_CUT}\n{_TRUNCATED}' in text
+    assert f'- "Option 198" ->\n  Option 198 step.\n{_CUT}\n{_TRUNCATED}' in text and '"Option 199"' not in text
     assert text.endswith("\n" + _TRUNCATED) and _step_rows(kms) == []
 
 
@@ -1551,15 +1552,20 @@ def test_scenario_entry_budget_reaches_every_top_level_answer_first(kms, monkeyp
         assert f'- "Product {a}" ->\n  Product {a} step.\n' in text
     # Every step that was fetched is shown.
     assert all(texts[step_id] in text for step_id in fetched)
-    # Worked out by hand: 1 + 6 + 150 entries for the first three levels leave 243 for the leaves, so
-    # 121 leaves are shown whole (plans 0.0-1.4 and leaf 1.5.0), then the label of leaf 1.5.1.
-    assert '    - "Leaf 1.5.0" ->\n      Leaf 1.5.0 step.\n' in text
-    assert f'    - "Leaf 1.5.1" ->\n      {_CUT}\n  - "Plan 1.6" ->\n    Plan 1.6 step.\n    {_CUT}\n' in text
-    assert "Leaf 1.5.2" not in text and "Leaf 1.6.0" not in text and "Leaf 2." not in text
+    # Worked out by hand (fix round 3, item 2): a step that has options reserves one entry for its cut
+    # marker until all its options are admitted. The root, products and plans take 1 + 6 + 150 entries,
+    # plus 37 reserves for the fetched plans, leaving 206 for the leaves at 7 per plan (its leaves'
+    # 8 entries less its released reserve): 116 leaves of plans 0.0-1.3 whole, leaf 1.4.0, then the
+    # label of leaf 1.4.1.
+    assert '    - "Leaf 1.4.0" ->\n      Leaf 1.4.0 step.\n' in text
+    assert f'    - "Leaf 1.4.1" ->\n      {_CUT}\n  - "Plan 1.5" ->\n    Plan 1.5 step.\n    {_CUT}\n' in text
+    assert "Leaf 1.4.2" not in text and "Leaf 1.5.0" not in text and "Leaf 2." not in text
     assert f'  - "Plan 1.12" ->\n    {_CUT}\n' in text
     assert f'- "Product 2" ->\n  Product 2 step.\n  - "Plan 2.0" ->\n    {_CUT}\n' in text
-    # 38 plans past the fetch budget, leaf 1.5.1, and the leaves of plans 1.6-1.11; the marker ends the tree.
-    assert text.count(_CUT) == 38 + 1 + 6 and text.endswith("\n" + _TRUNCATED)
+    # 38 plans past the fetch budget, leaf 1.4.1, and the leaves of plans 1.5-1.11; the marker ends the tree.
+    assert text.count(_CUT) == 38 + 1 + 7 and text.endswith("\n" + _TRUNCATED)
+    # Every reserve is used: "## Steps", exactly 400 entries (each one line here), the end marker.
+    assert len(_tree(text).splitlines()) == 1 + kc._MAX_SCENARIO_ENTRIES + 1
 
 
 def test_every_rendered_line_counts_toward_the_tree_bound(kms, monkeypatch):
@@ -1569,8 +1575,24 @@ def test_every_rendered_line_counts_toward_the_tree_bound(kms, monkeypatch):
         23505, name="Pick one", decisions={f"21302:2:x{n}": f"Option {n}" for n in range(200_000)}))
     tree = _tree(client(kms).read_file("scenario:21302"))
     lines = tree.splitlines()
-    assert len(lines) <= 405 and lines[-2:] == ["  " + _CUT, _TRUNCATED]
+    # The "## Steps" line, at most 400 entries (the cut marker included), then the end marker.
+    assert len(lines) <= kc._MAX_SCENARIO_ENTRIES + 2 and lines[-2:] == [_CUT, _TRUNCATED]
     assert _step_rows(kms) == []
+
+
+def test_cut_markers_count_toward_the_tree_bound():
+    # 300 inline options whose steps each have an option of their own: past the budget, every such step
+    # writes a cut marker where its options would be; each marker has its entry reserved (fix round 3, item 2).
+    root = {"stepId": 1, "stepName": "Pick one",
+            "decisions": {f"9:2:{1000 + n}": f"Option {n}" for n in range(300)},
+            "children": {str(1000 + n): {"stepId": 1000 + n, "stepName": f"Step {n}",
+                                         "decisions": {f"9:2:{5000 + n}": f"Next {n}"},
+                                         "children": {str(5000 + n): {"stepId": 5000 + n, "text": f"Leaf {n}."}}}
+                         for n in range(300)}}
+    lines = kc._render_scenario(root, lambda step_id: None)
+    assert len(lines) <= kc._MAX_SCENARIO_ENTRIES + 1 and lines[-1] == _TRUNCATED
+    # Level first: the root's options come before any of their own options.
+    assert lines[:3] == ["Pick one", '- "Option 0" ->', "  Step 0"]
 
 
 def test_a_wide_inline_root_renders_in_linear_time():
@@ -1631,6 +1653,9 @@ def test_a_failed_step_found_inline_later_is_not_a_load_failure(kms, monkeypatch
 @pytest.mark.parametrize("authored", [
     "Run reset <username> now.", "Enter <customer id> in the field.", "if x<y and y>z stop",
     "Send <config><user>admin</user></config> to the gateway.", "Type &amp; between the names.",
+    # A placeholder after a credential name is the author's text, not a value to redact (fix round 3, item 1).
+    "Use header X-Api-Key: <key> on every call", "Set DB_PASS=<password> in the file",
+    "client_secret = <secret> for the app", "api_key: <key> (from the portal)",
 ])
 def test_scenario_step_text_labels_and_names_are_shown_as_written(kms, monkeypatch, authored):
     mock = kms["mock"]
@@ -1657,33 +1682,6 @@ def test_scenario_step_text_still_scrubs_machine_credentials(kms, monkeypatch, a
     tree = _tree(client(kms).read_file("scenario:21302"))
     assert secret not in tree and "eyJzdWIi" not in tree and "token=" not in tree
     assert tree.count(kept) == 4
-
-
-@pytest.mark.parametrize("authored", [
-    "Send Bearer <b>abcDEF123456ghi</b> to the API", "Send Authorization:&nbsp;Bearer&nbsp;abcDEF123456ghi",
-    "Send Bearer&#32;abcDEF123456ghi", "Send Bearer&#160;abcDEF123456ghi",
-], ids=["tags", "nbsp_entity", "space_reference", "nbsp_reference"])
-def test_scenario_text_split_by_markup_still_scrubs_the_credential(kms, monkeypatch, authored):
-    mock = kms["mock"]
-    # A tenant that returns HTML despite plainText=true (fix round 2, item 2): a line whose HTML-decoded
-    # rendering redacts more is shown decoded, in the root's name and text, an option label and a child's text.
-    _with_steps(mock, monkeypatch, mock._step(
-        23505, name=authored, text=authored, decisions={"21302:2:23515": authored},
-        children={"23515": mock._step(23515, text=authored)}))
-    tree = _tree(client(kms).read_file("scenario:21302"))
-    assert "abcDEF123456ghi" not in tree and tree.count("Bearer [redacted]") == 4
-    assert "&nbsp;" not in tree and "&#" not in tree and "<b>" not in tree
-
-
-def test_a_step_text_line_shown_decoded_keeps_the_other_lines_as_written(kms, monkeypatch):
-    mock = kms["mock"]
-    # Each line is chosen on its own, and the text is still scrubbed whole: a credential whose value is on
-    # the next line stays redacted.
-    _with_steps(mock, monkeypatch, mock._step(
-        23505, name="Pick one",
-        text="Run reset <username> now.\nSend Bearer&#32;abcDEF123456ghi\nbearer:\nAbcdef123456ghi"))
-    tree = _tree(client(kms).read_file("scenario:21302"))
-    assert tree == "## Steps\nPick one\nRun reset <username> now.\nSend Bearer [redacted]\nbearer:\n[redacted]"
 
 
 def test_a_scenario_whose_steps_render_nothing_is_header_only(kms, monkeypatch):

@@ -1475,20 +1475,12 @@ _STEP_INDENT = "  "
 def _scenario_text(value) -> str:
     """Step text, asked for with plainText=true (API PDF: "content without HTML tags"), as written.
 
-    Nothing else tells markup from an author's text, so it is plain: lines
-    tidied and scrubbed, nothing stripped or decoded ("Run reset <username>
-    now." stays). One exception, for a tenant that returns HTML anyway: a
-    line whose HTML-decoded rendering (``_plain_text``) redacts more than
-    the line as written ("Bearer&#32;X") is shown decoded. The text is then
-    scrubbed whole, so a value on the next line stays redacted. Linear: two
-    scrubs per line and one of the whole text. Anything but a string is no
-    text.
+    Nothing else tells markup from an author's text, so all of it is plain:
+    lines tidied and scrubbed, nothing stripped or decoded ("Run reset
+    <username> now." and "X-Api-Key: <key>" stay). Anything but a string is
+    no text.
     """
-    lines = []
-    for line in _tidy_lines(value if isinstance(value, str) else "").split("\n"):
-        decoded = _plain_text(line)
-        lines.append(decoded if decoded.count(_REDACTED) > _scrub(line).count(_REDACTED) else line)
-    return _scrub("\n".join(lines))
+    return _plain_ai_text(value if isinstance(value, str) else "")
 
 
 def _scenario_line(value) -> str:
@@ -1540,47 +1532,60 @@ def _prefetch_steps(root: dict, root_id: str | None, fetch_step) -> tuple[dict, 
     The root is one entry; then each queued step's branches, in order, take
     their option line and their step while ``_MAX_SCENARIO_ENTRIES``
     allows (``admitted``: ``(id() of the step record, branch index, "line"
-    or "step")``); once it is spent nothing more is expanded. An admitted
-    child that is not inline is fetched while ``_MAX_STEP_FETCHES`` allows
-    and it is no deeper than ``_MAX_SCENARIO_DEPTH``; an inline copy found
-    later clears an earlier failed fetch of the same id. Returns the steps
-    by id (inline or fetched), the ids whose fetch failed (never fetched
-    again), each expanded step's branches by ``id()`` of its record, the
-    admitted entries and the number of fetches. Linear: each record is
-    expanded at most once.
+    or "step")``); once it is spent nothing more is expanded. A queued step
+    that has branches also holds one entry for the cut marker it renders
+    when not all of them are admitted, released once they are (a step to be
+    fetched holds it until its record shows none), so markers stay within
+    the bound. An admitted child that is not inline is fetched while
+    ``_MAX_STEP_FETCHES`` allows and it is no deeper than
+    ``_MAX_SCENARIO_DEPTH``; an inline copy found later clears an earlier
+    failed fetch of the same id. Returns the steps by id (inline or
+    fetched), the ids whose fetch failed (never fetched again), each queued
+    step's branches by ``id()`` of its record, the admitted entries and the
+    number of fetches. Linear: each record's branches are listed once.
     """
     known = {} if root_id is None else {root_id: root}
-    failed, branches_of, admitted, fetches = set(), {}, set(), 0
-    entries = 1                                     # the root step
+    failed, admitted, fetches = set(), set(), 0
+    branches_of = {id(root): _step_branches(root)}
+    entries = 1 + bool(branches_of[id(root)])       # the root step and its reserved cut marker
     queue = deque([(root, 0)])
     while queue and entries < _MAX_SCENARIO_ENTRIES:
         step, depth = queue.popleft()
-        branches = branches_of[id(step)] = _step_branches(step)
+        branches = branches_of[id(step)]
         for index, (decision, _label, child_id, child) in enumerate(branches):
             if decision:
                 if entries >= _MAX_SCENARIO_ENTRIES:
                     break
                 entries += 1
                 admitted.add((id(step), index, "line"))
-            if entries >= _MAX_SCENARIO_ENTRIES:
-                break
-            entries += 1
-            admitted.add((id(step), index, "step"))
             child_depth = depth + 1 if decision else depth
-            if (child_id is not None and child_id in known) or child_depth > _MAX_SCENARIO_DEPTH:
+            queued = not ((child_id is not None and child_id in known) or child_depth > _MAX_SCENARIO_DEPTH
+                          or (child is None and (child_id is None or child_id in failed
+                                                 or fetches >= _MAX_STEP_FETCHES)))
+            child_branches = _step_branches(child) if queued and child is not None else None
+            reserve = queued and (child is None or bool(child_branches))
+            if entries + 1 + reserve > _MAX_SCENARIO_ENTRIES:
+                break
+            entries += 1 + reserve
+            admitted.add((id(step), index, "step"))
+            if not queued:
                 continue
             if child is None:
-                if child_id is None or child_id in failed or fetches >= _MAX_STEP_FETCHES:
-                    continue
                 fetches += 1
                 child = fetch_step(child_id)
                 if child is None:
                     failed.add(child_id)
+                    entries -= 1                    # an unavailable step renders no cut marker
                     continue
+                child_branches = _step_branches(child)
+                entries -= not child_branches       # a fetched step without branches needs no reserve
+            branches_of[id(child)] = child_branches
             if child_id is not None:
                 known[child_id] = child
                 failed.discard(child_id)
             queue.append((child, child_depth))
+        else:
+            entries -= bool(branches)               # every branch admitted: no cut marker
     return known, failed, branches_of, admitted, fetches
 
 
@@ -1596,7 +1601,7 @@ def _render_scenario(root: dict, fetch_step) -> list:
     not available), fetched first, breadth first (``_prefetch_steps``). A
     step id seen before renders ``(see step "<name>" above)``; a step whose
     fetch failed renders ``(step not available)`` at each reference. Every
-    entry (a step, an option line, a marker) counts toward
+    entry (a step, an option line, a marker, a cut marker) counts toward
     ``_MAX_SCENARIO_ENTRIES``, admitted level first (``_prefetch_steps``);
     where an entry was not admitted, past ``_MAX_STEP_FETCHES`` fetches or
     past ``_MAX_SCENARIO_DEPTH`` levels, ``_STEP_CUT`` stands where the step
@@ -1648,7 +1653,7 @@ def _render_scenario(root: dict, fetch_step) -> list:
         image = _line(step.get("image")) if isinstance(step.get("image"), str) else ""
         if image:
             lines.append(f"{indent}Image: {image}")
-        # A step the prefetch did not expand (past the entry budget) has no admitted branch.
+        # A step the prefetch queued but did not expand (past the entry budget) has no admitted branch.
         branches = branches_of[id(step)] if id(step) in branches_of else _step_branches(step)
         pending = []
         for index, (decision, raw_label, child_id, child) in enumerate(branches):
