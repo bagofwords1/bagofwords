@@ -395,12 +395,12 @@ def test_list_files_kms_client_error_comes_before_catalog_cursor_and_persist_che
 _INACTIVE_TEXT = ("is inactive after failed connection tests", "ask an admin to test")
 
 
-def _inactive_ctx(conn_type, *, conn_active=False, ds_active=True):
+def _inactive_ctx(conn_type, *, conn_active=False, ds_active=True, name="KMS"):
     """A run scope whose only file connection (or its data source) was turned off by failed tests.
 
     The real resolvers run: the allow-list drops the inactive connection, so resolve_file_client
     answers with its selection error and the catalog resolver still finds the data source."""
-    conn = SimpleNamespace(id="CONN-K", type=conn_type, name="KMS", is_active=conn_active,
+    conn = SimpleNamespace(id="CONN-K", type=conn_type, name=name, is_active=conn_active,
                            auth_policy="system_only")
     ds = SimpleNamespace(id="DS-K", name="Support Agent", is_active=ds_active, connections=[conn])
     return {"db": object(), "organization": SimpleNamespace(id="ORG"),
@@ -419,18 +419,40 @@ def _run_tool(tool, tool_input, ctx):
     return asyncio.run(run())[-1].payload
 
 
+_AGENT_OFF_TEXT = ("The agent that holds the KMS Lighthouse connection 'KMS' was turned off because one of its "
+                   "connections failed its tests. Do NOT retry: tell the user to ask an admin to test that "
+                   "agent's connections, then continue with the remaining sources.")
+
+
 @pytest.mark.parametrize("selection", ["CONN-K", "DS-K", "support agent", "KMS", "no-such-id"])
-@pytest.mark.parametrize("flags", [{"conn_active": False}, {"conn_active": True, "ds_active": False}],
-                         ids=["connection-off", "agent-off"])
+@pytest.mark.parametrize("flags", [{"conn_active": False}, {"conn_active": True, "ds_active": False},
+                                   {"conn_active": False, "ds_active": False}],
+                         ids=["connection-off", "agent-off", "both-off"])
 def test_list_files_says_an_inactive_kms_connection_is_inactive(selection, flags):
     from app.ai.tools.implementations.list_files import ListFilesTool
 
     payload = _run_tool(ListFilesTool(), {"connection_id": selection}, _inactive_ctx("kms_lighthouse", **flags))
     out = payload["output"]
     assert out["success"] is False, out
-    assert all(t in out["error"] for t in _INACTIVE_TEXT), out
-    assert out["error"] == kc.INACTIVE_CONNECTION_MESSAGE.format(name="KMS")
+    if flags["conn_active"]:
+        # Only the agent is off: the connection itself is not blamed.
+        assert out["error"] == _AGENT_OFF_TEXT, out
+        assert "after failed connection tests" not in out["error"], out
+    else:
+        assert all(t in out["error"] for t in _INACTIVE_TEXT), out
+        assert out["error"] == kc.INACTIVE_CONNECTION_MESSAGE.format(name="KMS")
     assert "Catalog is empty" not in str(payload) and "still connected" not in out["error"]
+
+
+@pytest.mark.parametrize("name", ["", None], ids=["empty", "none"])
+def test_inactive_text_names_this_source_when_the_connection_has_no_name(name):
+    from app.ai.tools.implementations.list_files import ListFilesTool
+
+    out = _run_tool(ListFilesTool(), {"connection_id": "CONN-K"}, _inactive_ctx("kms_lighthouse", name=name))["output"]
+    assert out["success"] is False, out
+    assert out["error"] == ("The KMS Lighthouse connection 'this source' is inactive after failed connection "
+                            "tests. Do NOT retry: tell the user to ask an admin to test the connection, then "
+                            "continue with the remaining sources."), out
 
 
 def test_list_files_inactive_connection_is_unchanged_for_other_types():
@@ -454,6 +476,122 @@ def test_search_and_read_say_an_inactive_kms_connection_is_inactive():
         # Another type keeps the resolver's own selection error.
         other = _run_tool(tool, tool_input, _inactive_ctx("onedrive"))["output"]
         assert other["success"] is False and other["error"].startswith("Invalid file-source selection"), other
+
+
+# ------------------------------------------------------------------ the connection the resolver picked
+# Multi-connection scopes where an inactive entry matches the selection before the active one the
+# shared resolver (resolve_file_client) actually uses. The real resolver runs; only the client build
+# fails, so the text must follow the connection the resolver picked.
+
+_OUTAGE = kc._MESSAGES["unreachable"]
+_CREDENTIALS = "403: User credentials required for this connection"
+
+
+def _conn(cid, conn_type, name, active=True):
+    return SimpleNamespace(id=cid, type=conn_type, name=name, is_active=active, auth_policy="system_only")
+
+
+def _agent(did, name, conns, active=True):
+    return SimpleNamespace(id=did, name=name, is_active=active, connections=conns)
+
+
+class _NoRowsDb:
+    """A db session whose every query finds nothing (search_files' index lookup on a multi-connection agent)."""
+
+    async def execute(self, _stmt):
+        return SimpleNamespace(scalar_one_or_none=lambda: None)
+
+
+def _scope(*agents):
+    return {"db": _NoRowsDb(), "organization": SimpleNamespace(id="ORG"),
+            "report": SimpleNamespace(data_sources=list(agents))}
+
+
+def _with_build_error(tool, tool_input, ctx, build_error):
+    """Run `tool` through the real resolver; the selected connection's client build raises build_error.
+
+    Returns the tool output and the connections the resolver tried to build."""
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    built = []
+
+    async def construct(_self, _db, conn, _user):
+        built.append(conn)
+        raise Exception(build_error)
+
+    async def run():
+        with patch("app.services.connection_service.ConnectionService.construct_client", new=construct), \
+             patch("app.services.data_source_service.DataSourceService.get_data_source_schema",
+                   new=AsyncMock(return_value=[])):
+            return [e async for e in tool.run_stream(tool_input, ctx)]
+
+    return asyncio.run(run())[-1].payload, built
+
+
+def _three_tools(selection):
+    from app.ai.tools.implementations.list_files import ListFilesTool
+    from app.ai.tools.implementations.read_file import ReadFileTool
+    from app.ai.tools.implementations.search_files import SearchFilesTool
+
+    return [("list_files", ListFilesTool(), {"connection_id": selection}),
+            ("search_files", SearchFilesTool(), {"connection_id": selection, "query": "billing"}),
+            ("read_file", ReadFileTool(), {"connection_id": selection, "file_id": "item:301"})]
+
+
+def test_p1_an_inactive_kms_entry_does_not_relabel_the_active_onedrive_error():
+    # P1: one agent [KMS inactive, OneDrive active], selected by agent id: the resolver uses OneDrive.
+    onedrive = _conn("CONN-O", "onedrive", "Drive")
+    agent = _agent("DS-1", "Support Agent", [_conn("CONN-K", "kms_lighthouse", "KMS", active=False), onedrive])
+    for op, tool, tool_input in _three_tools("DS-1"):
+        payload, built = _with_build_error(tool, tool_input, _scope(agent), "boom")
+        out = payload["output"]
+        assert built and all(c is onedrive for c in built), (op, built)
+        assert "inactive" not in str(payload) and "KMS" not in str(out.get("error")), (op, out)
+        if op == "list_files":
+            # OneDrive without a client falls through to the cache path, exactly as before.
+            assert out["success"] is True and "Catalog is empty" in payload["observation"]["summary"], (op, out)
+        else:
+            assert out["success"] is False and out["error"] == "Failed to construct client: boom", (op, out)
+
+
+def test_p2_an_inactive_onedrive_entry_does_not_hide_the_kms_connect_prompt():
+    # P2: one agent [OneDrive inactive, KMS active], selected by agent id: the resolver uses KMS.
+    kms_conn = _conn("CONN-K", "kms_lighthouse", "KMS")
+    agent = _agent("DS-1", "Support Agent", [_conn("CONN-O", "onedrive", "Drive", active=False), kms_conn])
+    for op, tool, tool_input in _three_tools("DS-1"):
+        payload, built = _with_build_error(tool, tool_input, _scope(agent), _CREDENTIALS)
+        out = payload["output"]
+        assert built and all(c is kms_conn for c in built), (op, built)
+        assert out["success"] is False, (op, out)
+        assert "tell the user to Connect 'KMS' from the agent selector" in out["error"], (op, out)
+        assert "inactive" not in out["error"], (op, out)
+
+
+def test_p3_a_kms_connection_shared_with_an_inactive_agent_gets_the_connect_prompt():
+    # P3: one KMS connection on agent A (inactive) and agent B (active), selected by connection id.
+    shared = _conn("CONN-K", "kms_lighthouse", "KMS")
+    scope = _scope(_agent("DS-A", "Old Agent", [shared], active=False), _agent("DS-B", "Support Agent", [shared]))
+    for op, tool, tool_input in _three_tools("CONN-K"):
+        payload, built = _with_build_error(tool, tool_input, scope, _CREDENTIALS)
+        out = payload["output"]
+        assert built and all(c is shared for c in built), (op, built)
+        assert out["success"] is False, (op, out)
+        assert "tell the user to Connect 'KMS' from the agent selector" in out["error"], (op, out)
+        assert "inactive" not in out["error"] and "turned off" not in out["error"], (op, out)
+
+
+def test_p5_two_kms_connections_named_alike_report_the_active_ones_outage():
+    # P5: two KMS connections both named "KMS", the first inactive, selected by name.
+    active = _conn("CONN-K2", "kms_lighthouse", "KMS")
+    agent = _agent("DS-1", "Support Agent", [_conn("CONN-K1", "kms_lighthouse", "KMS", active=False), active])
+    for op, tool, tool_input in _three_tools("KMS"):
+        payload, built = _with_build_error(tool, tool_input, _scope(agent), _OUTAGE)
+        out = payload["output"]
+        assert built and all(c is active for c in built), (op, built)
+        assert out["success"] is False, (op, out)
+        assert out["error"] == f"{op} failed: Failed to construct client: KMS Lighthouse could not be reached.", \
+            (op, out)
 
 
 # ------------------------------------------------------------------ search_files / read_file without a client

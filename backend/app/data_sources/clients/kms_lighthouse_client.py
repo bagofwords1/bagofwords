@@ -115,6 +115,12 @@ INACTIVE_CONNECTION_MESSAGE = (
     "The KMS Lighthouse connection '{name}' is inactive after failed connection tests. Do NOT retry: "
     "tell the user to ask an admin to test the connection, then continue with the remaining sources."
 )
+# The same, when only the agent (data source) was turned off and the KMS connection itself is active.
+INACTIVE_AGENT_MESSAGE = (
+    "The agent that holds the KMS Lighthouse connection '{name}' was turned off because one of its "
+    "connections failed its tests. Do NOT retry: tell the user to ask an admin to test that agent's "
+    "connections, then continue with the remaining sources."
+)
 _TOP_LEVEL_HINT = (
     "Connected to KMS Lighthouse, but the top level of the folder tree came back empty. Set Root folder ID "
     "to a folder this account can open, or check the account's KMS permissions."
