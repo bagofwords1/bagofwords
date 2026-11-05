@@ -932,6 +932,91 @@ def test_ai_text_lines_and_blanks_are_normalised(kms, monkeypatch):
     assert "### Summary\nStep one: open the desk\n\nStep two\n" in sections["Overview"]
 
 
+# A no-break space (U+00A0, "&nbsp;" in HTML) between a structured key and its value. Made-up values.
+_NBSP_SECRETS = [
+    ("client_secret:{nb}Xk29abcDEF", "Xk29abcDEF"),
+    ('{{"client_secret":{nb}"Xk29abcDEF"}}', "Xk29abcDEF"),
+    ("X-Api-Key:{nb}Zq81mnbVCX77", "Zq81mnbVCX77"),
+    ("DB_PASSWORD={nb}Pw9xYz12QQ", "Pw9xYz12QQ"),
+    ("api_key:{nb} sk_live_51HxABCDEF", "sk_live_51HxABCDEF"),
+]
+
+
+def _with_item_summary(mock, monkeypatch, html):
+    monkeypatch.setitem(mock.ITEMS["279"]["elements"], "E_SUMMARY",
+                        dict(mock.ITEMS["279"]["elements"]["E_SUMMARY"], value=html))
+
+
+@pytest.mark.parametrize("template,secret", _NBSP_SECRETS, ids=[
+    "client_secret", "json_client_secret", "x_api_key", "db_password", "api_key_sk_live"])
+@pytest.mark.parametrize("ai_text", [True, False], ids=["ai_text", "item_html"])
+def test_a_no_break_space_never_shields_a_secret(kms, monkeypatch, ai_text, template, secret):
+    mock = kms["mock"]
+    if ai_text:
+        _with_ai_summary(mock, monkeypatch, template.format(nb=" "))
+    else:
+        mock.STATE["ai_text_available"] = False
+        _with_item_summary(mock, monkeypatch, "<p>" + template.format(nb="&nbsp;") + "</p>")
+    text = client(kms).read_file("item:279")
+    assert ("AI links." in text) is ai_text        # the path under test really ran
+    summary = _sections(text)["Overview"]
+    assert secret not in text and "[redacted]" in summary
+    assert " " not in text and "&nbsp;" not in text
+
+
+@pytest.mark.parametrize("authored,secret,shown", [
+    ("{&quot;api_key&quot;: &quot;sk_live_51HxABCDEF&quot;}", "sk_live_51HxABCDEF", '{"api_key": "[redacted]"}'),
+    ("Authorization: Bearer <b>abc123def456</b>", "abc123def456", "Authorization: Bearer [redacted]"),
+    ("Authorization: Bearer&nbsp;abc123def456", "abc123def456", "Authorization: Bearer [redacted]"),
+    ("https://admin&#58;S3cretPw@host/x", "S3cretPw", "https://admin:[redacted]@host/x"),
+    ("Use <b>api_key</b>: sk_live_51HxABCDEF", "sk_live_51HxABCDEF", "[redacted]"),
+], ids=["entity_json", "bold_bearer", "nbsp_bearer", "entity_userinfo", "bold_key"])
+def test_ai_text_that_carries_html_is_read_as_html(kms, monkeypatch, authored, secret, shown):
+    mock = kms["mock"]
+    # The API PDF says element_text is plain, but a tenant may hand back the editor's HTML: a known tag
+    # or a character reference means markup, which is rendered (and then scrubbed) like the item HTML.
+    _with_ai_summary(mock, monkeypatch, authored)
+    text = client(kms).read_file("item:279")
+    assert "AI links." in text and "Item summary" not in text       # still the ai text
+    summary = _sections(text)["Overview"]
+    assert secret not in text and shown in summary
+    assert "<b>" not in summary and "&quot;" not in summary and "&nbsp;" not in summary
+
+
+@pytest.mark.parametrize("ai_text", [True, False], ids=["ai_text", "item_html"])
+def test_an_item_with_an_empty_element_list_reads_as_no_elements(kms, monkeypatch, ai_text):
+    mock = kms["mock"]
+    mock.STATE["ai_text_available"] = ai_text
+    monkeypatch.setitem(mock.ITEMS["279"], "elements", [])        # an empty list is no elements, like {}
+    text = client(kms).read_file("item:279")
+    assert text.splitlines()[0] == "Title: Reset a customer password [redacted]"
+    assert not [line for line in text.splitlines() if line.startswith("## ")]
+    assert "AI summary" not in text and "Item summary" not in text
+
+
+@pytest.mark.parametrize("elements", [[], ["odd"], "odd", 7])
+def test_an_offline_item_is_not_found_whatever_its_elements(kms, monkeypatch, elements):
+    mock = kms["mock"]
+    monkeypatch.setitem(mock.ITEMS["306"], "elements", elements)
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms).read_file("item:306")
+    assert (info.value.status, info.value.kind) == (404, "not_found")
+    assert info.value.__context__ is None and mock.STATE["ai_requests"] == []
+
+
+def test_an_element_that_is_not_a_record_is_dropped_and_logged(kms, monkeypatch, caplog):
+    mock = kms["mock"]
+    caplog.set_level(logging.DEBUG, logger=kc.logger.name)
+    mock.STATE["ai_text_available"] = False
+    marker = "odd-element-marker-5c13"
+    monkeypatch.setitem(mock.ITEMS["279"]["elements"], "E_ODD", marker)
+    text = client(kms).read_file("item:279")
+    assert "Item summary: verify the caller first." in text and marker not in text
+    lines = [r.getMessage() for r in caplog.records if r.name == kc.logger.name and "dropped" in r.getMessage()]
+    assert lines and set(lines) == {"kms_lighthouse item dropped: an element is not a record"}
+    assert all(marker not in r.getMessage() and "E_ODD" not in r.getMessage() for r in caplog.records)
+
+
 @pytest.mark.parametrize("change,reason", [
     ({"item_id": 280}, "not the item asked for"),
     ({"elements": [{"element_name": "E_RESTRICTED", "element_caption": "Managers only",
@@ -1010,14 +1095,10 @@ def test_article_text_scrubs_token_urls(kms, ai_text, case):
     assert ("AI links." in text) is ai_text        # the path under test really ran
     assert mock.ARTICLE_SECRETS[case] not in text
     assert "eyJ" not in text and "token=" not in text and mock.ARTICLE_SECRETS["img"] not in text
-    # Only the secret parameter goes; the rest of each URL and the words around it stay. The ai text is
-    # plain text, so its "&amp;" is shown as written (no entity is decoded there).
-    if ai_text:
-        assert "Form at https://kms.example.com/contents or https://kms.example.com/contents?id=7&amp" in text
-        assert "lang=en. Signed [redacted]" in text
-    else:
-        assert "Form at https://kms.example.com/contents or https://kms.example.com/contents?id=7&lang=en." in text
-        assert "Signed [redacted]" in text
+    # Only the secret parameter goes; the rest of each URL and the words around it stay. The ai text
+    # carries "&amp;", so it is read as HTML: the entity is decoded on both paths.
+    assert "Form at https://kms.example.com/contents or https://kms.example.com/contents?id=7&lang=en." in text
+    assert "Signed [redacted]" in text
 
 
 def test_read_offline_item_is_not_found(kms):

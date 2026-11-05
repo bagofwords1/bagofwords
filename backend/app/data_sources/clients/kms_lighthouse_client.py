@@ -1029,9 +1029,9 @@ def _scrub(text: str) -> str:
 # else it becomes a space, so words stay apart. A run that opens an element
 # right after ':' or '=', or ends right before '@', is removed too, so a
 # structured value or a URL userinfo reads as one ("api_key:<b>S</b>").
-_INLINE_TAG_RUN_RE = re.compile(
-    r"(?i)(?:</?(?:wbr|span|b|i|u|em|strong|font|a|small|sup|sub|mark|code|s|del|ins|kbd|abbr|q|cite"
-    r"|var|samp|tt)\b[^<>]*+>)++")
+_INLINE_TAG_NAMES = ("wbr|span|b|i|u|em|strong|font|a|small|sup|sub|mark|code|s|del|ins|kbd|abbr|q|cite"
+                     "|var|samp|tt")
+_INLINE_TAG_RUN_RE = re.compile(r"(?i)(?:</?(?:" + _INLINE_TAG_NAMES + r")\b[^<>]*+>)++")
 _OPENING_TAG_RE = re.compile(r"<(?!/)")
 _BASE64URL_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-")
 # strip_html's rules, linear: its tag pattern backtracks on a run of '<'.
@@ -1043,6 +1043,11 @@ _TAG_RE = re.compile(r"<(?=[A-Za-z/!?])[^<>]++>")
 _ENTITY_RE = re.compile(r"&(?:#[0-9]{1,8}+|#[xX][0-9A-Fa-f]{1,8}+|[A-Za-z][A-Za-z0-9]{0,31}+);")
 _BLANKS_RE = re.compile(r"[ \t]++")
 _BLANK_LINES_RE = re.compile(r"\n{3,}+")
+# A tag the HTML rules above know (an inline tag, a line break or a block), written as markup: a bare
+# name or only name="value" attributes. "<account number>", "a<b and c>d" and "<YYYY-MM-DD>" are text.
+_KNOWN_TAG_RE = re.compile(
+    r"(?i)<\s*+/?(?:" + _INLINE_TAG_NAMES + r"|br|p|div|li|tr|h[1-6])"
+    r"(?:\s++[A-Za-z_:][-\w:.]*+\s*+=\s*+(?:\"[^\"<>]*+\"|'[^'<>]*+'|[^\s\"'<>=`]++))*+\s*+/?>")
 
 
 def _join_inline_tags(match: re.Match) -> str:
@@ -1080,8 +1085,12 @@ def _html_to_text(value: str) -> str:
     text = _INLINE_TAG_RUN_RE.sub(_join_inline_tags, value)
     text = _BREAK_TAG_RE.sub("\n", text)
     text = _TAG_RE.sub(" ", text)
-    text = _ENTITY_RE.sub(_unescape_entity, text).replace("\xa0", " ")
-    lines = [_BLANKS_RE.sub(" ", line).strip() for line in text.splitlines()]
+    return _tidy_lines(_ENTITY_RE.sub(_unescape_entity, text))
+
+
+def _tidy_lines(text: str) -> str:
+    """No-break spaces as spaces, blanks collapsed and stripped on each line, no run of blank lines."""
+    lines = [_BLANKS_RE.sub(" ", line).strip() for line in text.replace("\xa0", " ").splitlines()]
     return _BLANK_LINES_RE.sub("\n\n", "\n".join(lines)).strip()
 
 
@@ -1091,9 +1100,16 @@ def _plain_text(value) -> str:
 
 
 def _plain_ai_text(value) -> str:
-    """ai_answers_item text (already plain: no markup is stripped, no entity decoded), scrubbed, lines tidied."""
-    lines = [_BLANKS_RE.sub(" ", line).strip() for line in ("" if value is None else str(value)).splitlines()]
-    return _scrub(_BLANK_LINES_RE.sub("\n\n", "\n".join(lines)).strip())
+    """ai_answers_item text, scrubbed, lines tidied.
+
+    It is plain text (API PDF), so nothing is stripped or decoded, unless it
+    carries a tag the HTML rules know or a character reference: then it is
+    the editor's HTML and is read like the item HTML.
+    """
+    text = "" if value is None else str(value)
+    if _KNOWN_TAG_RE.search(text) or _ENTITY_RE.search(text):
+        return _plain_text(text)
+    return _scrub(_tidy_lines(text))
 
 
 def _safe_title(title) -> str:
@@ -1325,7 +1341,10 @@ def _elements(item: dict) -> dict:
     elements = item.get("elements")
     if not isinstance(elements, dict):
         return {}
-    return {str(name): element for name, element in elements.items() if isinstance(element, dict)}
+    records = {str(name): element for name, element in elements.items() if isinstance(element, dict)}
+    if len(records) != len(elements):
+        logger.debug("kms_lighthouse %s dropped: %s", "item", "an element is not a record")
+    return records
 
 
 def _header(title, kind: str, record: dict, version: str | None = None, language: str | None = None) -> list:
@@ -2179,11 +2198,13 @@ class KmsLighthouseClient(DataSourceClient):
         if not isinstance(item, dict) or not _same_id(item.get("id"), digits):
             logger.debug("kms_lighthouse %s refused: %s", "item", "not the item asked for")
             raise KmsHTTPError(200, "server")
-        if item.get("elements") is not None and not isinstance(item["elements"], dict):
-            logger.debug("kms_lighthouse %s refused: %s", "item", "elements is not a record map")
-            raise KmsHTTPError(200, "server")
         if self._hidden(item):
             raise KmsHTTPError(404, "not_found")
+        # No elements: absent, null, {} or []. Any other shape that is not a record map fails closed.
+        elements = item.get("elements")
+        if elements is not None and elements != [] and not isinstance(elements, dict):
+            logger.debug("kms_lighthouse %s refused: %s", "item", "elements is not a record map")
+            raise KmsHTTPError(200, "server")
         version, language = _version(item.get("version")), _language(item.get("language"))
         sections = self._ai_text(digits, version, language, item) if version and language else None
         if sections is None:
