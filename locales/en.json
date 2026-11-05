@@ -4369,7 +4369,8 @@
     "connAlerts": {
       "title": "Down-alert emails",
       "label": "Email admins when this connection goes down",
-      "hint": "Overrides the org-wide default for this connection. In-app notifications are always on.",
+      "hint": "Email the admins when this connection goes down. In-app notifications are always on.",
+      "orgOffNote": "Org-wide alert emails are off (Settings → SMTP). Turn them on to control this per connection.",
       "saveFailed": "Couldn't save the alert setting."
     }
   },

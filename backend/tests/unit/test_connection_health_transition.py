@@ -79,26 +79,22 @@ def test_threshold_is_configurable(monkeypatch):
     assert c.is_active is False
 
 
-# ── Two-tier email decision: per-connection override layered over the org ─────
+# ── Two-tier email decision: org toggle is the master gate (effective = AND) ──
 
 from app.services.connection_alerts import _email_should_send
 
 
-def test_inherit_follows_the_org_toggle():
-    # The default mode defers entirely to the org-wide switch.
-    assert _email_should_send("inherit", True) is True
-    assert _email_should_send("inherit", False) is False
+def test_org_off_blocks_everything_even_if_the_connection_is_on():
+    # The org toggle is a hard master gate: a single connection cannot opt back
+    # in while the org is off.
+    assert _email_should_send(False, True) is False
+    assert _email_should_send(False, False) is False
 
 
-def test_always_sends_even_when_org_is_off():
-    # A connection marked "always" emails no matter the org toggle — this is the
-    # "org off, but alert me for this one critical source" case.
-    assert _email_should_send("always", False) is True
-    assert _email_should_send("always", True) is True
+def test_connection_off_mutes_only_that_connection_when_org_is_on():
+    # With the org on, the per-connection switch is what mutes a noisy source.
+    assert _email_should_send(True, False) is False
 
 
-def test_never_mutes_even_when_org_is_on():
-    # A connection marked "never" is silent no matter the org toggle — the noisy
-    # source you want to mute without turning the whole org off.
-    assert _email_should_send("never", True) is False
-    assert _email_should_send("never", False) is False
+def test_both_on_sends():
+    assert _email_should_send(True, True) is True

@@ -3968,7 +3968,8 @@
     "connAlerts": {
       "title": "E-postvarningar vid avbrott",
       "label": "Mejla administratörerna när den här anslutningen går ner",
-      "hint": "Åsidosätter organisationens standard för den här anslutningen. Aviseringar i appen är alltid på.",
+      "hint": "Mejlar administratörerna när den här anslutningen går ner. Aviseringar i appen är alltid på.",
+      "orgOffNote": "Organisationens varnings-e-post är av (Inställningar → SMTP). Slå på den för att styra detta per anslutning.",
       "saveFailed": "Det gick inte att spara inställningen."
     }
   },

@@ -4307,7 +4307,8 @@
     "connAlerts": {
       "title": "Correos de alerta de caída",
       "label": "Enviar correo a los administradores cuando esta conexión se cae",
-      "hint": "Anula el valor predeterminado de la organización para esta conexión. Las notificaciones en la app siempre están activas.",
+      "hint": "Envía un correo a los administradores cuando esta conexión se cae. Las notificaciones en la app siempre están activas.",
+      "orgOffNote": "Los correos de alerta de la organización están desactivados (Configuración → SMTP). Actívalos para controlarlo por conexión.",
       "saveFailed": "No se pudo guardar la configuración."
     }
   },

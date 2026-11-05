@@ -3968,7 +3968,8 @@
     "connAlerts": {
       "title": "E-mails d'alerte de panne",
       "label": "Envoyer un e-mail aux administrateurs quand cette connexion tombe en panne",
-      "hint": "Remplace la valeur par défaut de l'organisation pour cette connexion. Les notifications dans l'application sont toujours actives.",
+      "hint": "Envoie un e-mail aux administrateurs quand cette connexion tombe en panne. Les notifications dans l'application sont toujours actives.",
+      "orgOffNote": "Les e-mails d'alerte de l'organisation sont désactivés (Paramètres → SMTP). Activez-les pour le gérer par connexion.",
       "saveFailed": "Impossible d'enregistrer le réglage."
     }
   },

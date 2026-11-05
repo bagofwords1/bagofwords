@@ -1,5 +1,5 @@
 from app.data_sources.client_parameters import merge_client_credentials, filter_client_parameters
-from sqlalchemy import Column, String, Boolean, JSON, DateTime, Text, Integer, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, String, Boolean, JSON, DateTime, Text, Integer, ForeignKey, UniqueConstraint, true
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
 from cryptography.fernet import Fernet
@@ -43,13 +43,13 @@ class Connection(BaseSchema):
     # one per cooldown window (BOW_CONN_DOWN_ALERT_COOLDOWN_MINUTES, default 60)
     # so a flapping connection cannot spam admins. NULL = never alerted.
     last_down_alert_at = Column(DateTime, nullable=True, default=None)
-    # Per-connection override for the down/restored alert EMAIL, layered over the
-    # org-wide toggle (OrganizationSettings.config["connection_alerts_email"]):
-    #   "inherit" (default) — follow the org setting
-    #   "always"            — email for this connection even if the org toggle is off
-    #   "never"             — never email for this connection even if the org toggle is on
+    # Per-connection on/off switch for the down/restored alert EMAIL, gated UNDER
+    # the org-wide toggle (OrganizationSettings.config["connection_alerts_email"]):
+    # the effective send = org toggle AND this switch. When the org toggle is off,
+    # nothing sends and this switch is disabled in the UI (you can't opt a single
+    # connection back in). Default True = send when the org toggle is on.
     # The in-app inbox notification is unaffected — it is always delivered.
-    alert_emails_mode = Column(String, nullable=False, default="inherit", server_default="inherit")
+    alert_emails_enabled = Column(Boolean, nullable=False, default=True, server_default=true())
 
     # Authentication policy
     auth_policy = Column(String, nullable=False, default="system_only")  # system_only, user_required

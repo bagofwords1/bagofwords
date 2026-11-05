@@ -3968,7 +3968,8 @@
     "connAlerts": {
       "title": "E-mails de alerta de queda",
       "label": "Enviar e-mail aos administradores quando esta conexão cai",
-      "hint": "Substitui o padrão da organização para esta conexão. As notificações no app estão sempre ativas.",
+      "hint": "Envia e-mail aos administradores quando esta conexão cai. As notificações no app estão sempre ativas.",
+      "orgOffNote": "Os e-mails de alerta da organização estão desativados (Configurações → SMTP). Ative-os para controlar isso por conexão.",
       "saveFailed": "Não foi possível salvar a configuração."
     }
   },

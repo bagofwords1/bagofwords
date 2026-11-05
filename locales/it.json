@@ -3968,7 +3968,8 @@
     "connAlerts": {
       "title": "E-mail di avviso guasto",
       "label": "Invia e-mail agli amministratori quando questa connessione si interrompe",
-      "hint": "Sovrascrive l'impostazione predefinita dell'organizzazione per questa connessione. Le notifiche in-app sono sempre attive.",
+      "hint": "Invia un'e-mail agli amministratori quando questa connessione si interrompe. Le notifiche in-app sono sempre attive.",
+      "orgOffNote": "Le e-mail di avviso a livello di organizzazione sono disattivate (Impostazioni → SMTP). Attivale per gestirlo per connessione.",
       "saveFailed": "Impossibile salvare l'impostazione."
     }
   },

@@ -3968,7 +3968,8 @@
     "connAlerts": {
       "title": "Ausfall-Warnungs-E-Mails",
       "label": "Administratoren benachrichtigen, wenn diese Verbindung ausfällt",
-      "hint": "Überschreibt den Organisationsstandard für diese Verbindung. In-App-Benachrichtigungen sind immer aktiv.",
+      "hint": "Benachrichtigt die Administratoren per E-Mail, wenn diese Verbindung ausfällt. In-App-Benachrichtigungen sind immer aktiv.",
+      "orgOffNote": "Organisationsweite Warnungs-E-Mails sind aus (Einstellungen → SMTP). Aktivieren Sie sie, um dies pro Verbindung zu steuern.",
       "saveFailed": "Einstellung konnte nicht gespeichert werden."
     }
   },

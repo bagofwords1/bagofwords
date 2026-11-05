@@ -169,21 +169,22 @@
         </div>
       </div>
 </details>
-<details class="border-t border-gray-100 dark:border-gray-800 pt-3" data-testid="connection-alert-emails"><summary class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer list-none"><UIcon name="heroicons-chevron-right" class="schedule-chevron w-3.5 h-3.5 shrink-0 text-ink-muted" /><span>{{ $t('data.connAlerts.title') }}</span><span class="ms-auto text-xs text-gray-500">{{ $t(alertEnabled ? 'scheduledPrompt.scheduleOn' : 'scheduledPrompt.scheduleOff') }}</span></summary>      <!-- Per-connection down/restored alert EMAIL toggle, layered over the
-           org-wide default (Settings → SMTP). The in-app inbox notification is
-           always delivered regardless. Not license-gated. -->
+<details class="border-t border-gray-100 dark:border-gray-800 pt-3" data-testid="connection-alert-emails"><summary class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer list-none"><UIcon name="heroicons-chevron-right" class="schedule-chevron w-3.5 h-3.5 shrink-0 text-ink-muted" /><span>{{ $t('data.connAlerts.title') }}</span><span class="ms-auto text-xs text-gray-500">{{ $t((orgAlertDefault && alertEnabled) ? 'scheduledPrompt.scheduleOn' : 'scheduledPrompt.scheduleOff') }}</span></summary>      <!-- Per-connection down/restored alert EMAIL switch, gated UNDER the
+           org-wide toggle (Settings → SMTP): effective = org AND this. When the
+           org toggle is off, nothing sends and this switch is disabled. The
+           in-app inbox notification is always delivered. Not license-gated. -->
       <div class="py-3 border-t border-gray-100 dark:border-gray-800">
         <div class="flex items-center justify-between">
-          <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('data.connAlerts.label') }}</span>
+          <span class="text-xs font-medium text-gray-700 dark:text-gray-300" :class="{ 'opacity-50': !orgAlertDefault }">{{ $t('data.connAlerts.label') }}</span>
           <UToggle
-            :model-value="alertEnabled"
-            :disabled="savingAlertMode"
+            :model-value="orgAlertDefault && alertEnabled"
+            :disabled="savingAlertMode || !orgAlertDefault"
             size="sm"
             data-testid="connection-alert-toggle"
             @update:model-value="onToggleAlert"
           />
         </div>
-        <p class="text-2xs text-ink-muted mt-1">{{ $t('data.connAlerts.hint') }}</p>
+        <p class="text-2xs text-ink-muted mt-1">{{ orgAlertDefault ? $t('data.connAlerts.hint') : $t('data.connAlerts.orgOffNote') }}</p>
         <p v-if="alertModeError" class="text-2xs text-red-500">{{ alertModeError }}</p>
       </div>
 </details></div></template>
@@ -452,11 +453,11 @@ function onQueryLimitChange() {
   saveQueryLimits()
 }
 
-// ── Per-connection down-alert email toggle (layered over the org default) ────
-// Backed by alert_emails_mode: a flip sets "always"/"never"; an untouched
-// connection stays "inherit" and the toggle shows the org-wide default.
-const alertEnabled = ref(true)
-const orgAlertDefault = ref(true)
+// ── Per-connection down-alert email switch (gated UNDER the org toggle) ───────
+// effective = org toggle AND this switch. When the org toggle is off the switch
+// is disabled — a single connection can't opt back in.
+const alertEnabled = ref(true)       // the stored per-connection switch
+const orgAlertDefault = ref(true)    // the org-wide master toggle
 const alertModeError = ref<string | null>(null)
 const savingAlertMode = ref(false)
 
@@ -471,12 +472,12 @@ async function loadOrgAlertDefault() {
 
 function applyAlertConfig(d: any) {
   if (!d || !canManage.value) return
-  const m = d.alert_emails_mode
-  // "always"/"never" are explicit; "inherit" shows the org-wide default.
-  alertEnabled.value = m === 'always' ? true : m === 'never' ? false : orgAlertDefault.value
+  alertEnabled.value = d.alert_emails_enabled !== false
 }
 
 async function onToggleAlert(val: boolean) {
+  // Disabled when the org toggle is off; ignore any stray event.
+  if (!orgAlertDefault.value) return
   alertEnabled.value = val
   if (!props.connection?.id || savingAlertMode.value) return
   savingAlertMode.value = true
@@ -484,7 +485,7 @@ async function onToggleAlert(val: boolean) {
   try {
     const { error } = await useMyFetch(`/connections/${props.connection.id}`, {
       method: 'PUT',
-      body: { alert_emails_mode: val ? 'always' : 'never' },
+      body: { alert_emails_enabled: val },
     })
     if (error.value) {
       alertEnabled.value = !val  // revert on failure
