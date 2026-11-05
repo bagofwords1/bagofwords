@@ -337,7 +337,7 @@ _CLIENT_ERR = "Failed to construct client: 403: User credentials required for th
 _EGRESS_ERR = "Failed to construct client: Outbound access to that address is not allowed."
 
 
-def _list_files_without_a_client(conn_type, client_err=_CLIENT_ERR):
+def _list_files_without_a_client(conn_type, client_err=_CLIENT_ERR, **tool_input):
     """ListFilesTool when the connection's client could not be built (no catalog rows either)."""
     import asyncio
     from unittest.mock import AsyncMock, patch
@@ -355,7 +355,7 @@ def _list_files_without_a_client(conn_type, client_err=_CLIENT_ERR):
                    new=AsyncMock(return_value=(ds, None))), \
              patch("app.services.data_source_service.DataSourceService.get_data_source_schema",
                    new=AsyncMock(return_value=[])):
-            return [e async for e in ListFilesTool().run_stream({"connection_id": "CONN-K"}, ctx)]
+            return [e async for e in ListFilesTool().run_stream({"connection_id": "CONN-K", **tool_input}, ctx)]
 
     return asyncio.run(run())[-1].payload
 
@@ -378,3 +378,128 @@ def test_list_files_without_a_client_is_unchanged_for_other_types():
     payload = _list_files_without_a_client("onedrive")
     assert payload["output"]["success"] is True
     assert "Catalog is empty" in payload["observation"]["summary"]
+
+
+@pytest.mark.parametrize("tool_input", [{"source": "catalog"}, {"cursor": "abc"}, {"persist": True}],
+                         ids=["catalog", "cursor", "persist"])
+def test_list_files_kms_client_error_comes_before_catalog_cursor_and_persist_checks(tool_input):
+    # Without a client there is no catalog either: the client's own error is the answer, never "...: None.".
+    out = _list_files_without_a_client("kms_lighthouse", **tool_input)["output"]
+    assert out["success"] is False, out
+    assert "tell the user to Connect 'KMS' from the agent selector" in out["error"], out
+    assert "None." not in out["error"] and "cursor" not in out["error"], out
+
+
+# ------------------------------------------------------------------ an inactive connection
+
+_INACTIVE_TEXT = ("is inactive after failed connection tests", "ask an admin to test")
+
+
+def _inactive_ctx(conn_type, *, conn_active=False, ds_active=True):
+    """A run scope whose only file connection (or its data source) was turned off by failed tests.
+
+    The real resolvers run: the allow-list drops the inactive connection, so resolve_file_client
+    answers with its selection error and the catalog resolver still finds the data source."""
+    conn = SimpleNamespace(id="CONN-K", type=conn_type, name="KMS", is_active=conn_active,
+                           auth_policy="system_only")
+    ds = SimpleNamespace(id="DS-K", name="Support Agent", is_active=ds_active, connections=[conn])
+    return {"db": object(), "organization": SimpleNamespace(id="ORG"),
+            "report": SimpleNamespace(data_sources=[ds])}
+
+
+def _run_tool(tool, tool_input, ctx):
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    async def run():
+        with patch("app.services.data_source_service.DataSourceService.get_data_source_schema",
+                   new=AsyncMock(return_value=[])):
+            return [e async for e in tool.run_stream(tool_input, ctx)]
+
+    return asyncio.run(run())[-1].payload
+
+
+@pytest.mark.parametrize("selection", ["CONN-K", "DS-K", "support agent", "KMS", "no-such-id"])
+@pytest.mark.parametrize("flags", [{"conn_active": False}, {"conn_active": True, "ds_active": False}],
+                         ids=["connection-off", "agent-off"])
+def test_list_files_says_an_inactive_kms_connection_is_inactive(selection, flags):
+    from app.ai.tools.implementations.list_files import ListFilesTool
+
+    payload = _run_tool(ListFilesTool(), {"connection_id": selection}, _inactive_ctx("kms_lighthouse", **flags))
+    out = payload["output"]
+    assert out["success"] is False, out
+    assert all(t in out["error"] for t in _INACTIVE_TEXT), out
+    assert out["error"] == kc.INACTIVE_CONNECTION_MESSAGE.format(name="KMS")
+    assert "Catalog is empty" not in str(payload) and "still connected" not in out["error"]
+
+
+def test_list_files_inactive_connection_is_unchanged_for_other_types():
+    from app.ai.tools.implementations.list_files import ListFilesTool
+
+    payload = _run_tool(ListFilesTool(), {"connection_id": "CONN-K"}, _inactive_ctx("onedrive"))
+    assert payload["output"]["success"] is True, payload["output"]
+    assert "Catalog is empty" in payload["observation"]["summary"]
+
+
+def test_search_and_read_say_an_inactive_kms_connection_is_inactive():
+    from app.ai.tools.implementations.read_file import ReadFileTool
+    from app.ai.tools.implementations.search_files import SearchFilesTool
+
+    for tool, tool_input in ((SearchFilesTool(), {"connection_id": "CONN-K", "query": "billing"}),
+                             (ReadFileTool(), {"connection_id": "CONN-K", "file_id": "item:301"})):
+        out = _run_tool(tool, tool_input, _inactive_ctx("kms_lighthouse"))["output"]
+        assert out["success"] is False, out
+        assert all(t in out["error"] for t in _INACTIVE_TEXT), out
+        assert out["error"] == kc.INACTIVE_CONNECTION_MESSAGE.format(name="KMS"), out
+        # Another type keeps the resolver's own selection error.
+        other = _run_tool(tool, tool_input, _inactive_ctx("onedrive"))["output"]
+        assert other["success"] is False and other["error"].startswith("Invalid file-source selection"), other
+
+
+# ------------------------------------------------------------------ search_files / read_file without a client
+
+def _without_a_client(module, tool, tool_input, conn_type, client_err=_CLIENT_ERR):
+    """`tool` when the connection's client could not be built."""
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    conn = SimpleNamespace(id="CONN-K", type=conn_type, name="KMS", is_active=True)
+    ds = SimpleNamespace(id="DS-K", name="Support Agent", is_active=True, connections=[conn])
+    ctx = {"report": SimpleNamespace(data_sources=[ds])}
+
+    async def run():
+        with patch(f"app.ai.tools.implementations.{module}.resolve_file_client",
+                   new=AsyncMock(return_value=(None, client_err))):
+            return [e async for e in tool.run_stream(tool_input, ctx)]
+
+    return asyncio.run(run())[-1].payload["output"]
+
+
+def _search_and_read_inputs():
+    from app.ai.tools.implementations.read_file import ReadFileTool
+    from app.ai.tools.implementations.search_files import SearchFilesTool
+
+    return [
+        ("search_files", SearchFilesTool(), {"connection_id": "CONN-K", "query": "billing"}),
+        ("read_file", ReadFileTool(), {"connection_id": "CONN-K", "file_id": "item:301"}),
+        # No connection named: read_file falls back to the agent's only file connection.
+        ("read_file", ReadFileTool(), {"file_id": "item:301"}),
+    ]
+
+
+def test_search_and_read_tell_a_member_without_credentials_to_connect():
+    for module, tool, tool_input in _search_and_read_inputs():
+        out = _without_a_client(module, tool, tool_input, "kms_lighthouse")
+        assert out["success"] is False, (module, out)
+        assert "tell the user to Connect 'KMS' from the agent selector" in out["error"], (module, out)
+        assert "User credentials required" not in out["error"], (module, out)
+        # Any other client failure keeps its own text.
+        out = _without_a_client(module, tool, tool_input, "kms_lighthouse", _EGRESS_ERR)
+        assert out["success"] is False and _EGRESS_ERR in out["error"], (module, out)
+        assert "Connect" not in out["error"], (module, out)
+
+
+def test_search_and_read_client_errors_are_unchanged_for_other_types():
+    for module, tool, tool_input in _search_and_read_inputs():
+        out = _without_a_client(module, tool, tool_input, "onedrive")
+        assert out["success"] is False and out["error"] == _CLIENT_ERR, (module, out)

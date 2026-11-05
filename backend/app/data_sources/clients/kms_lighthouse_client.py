@@ -110,6 +110,11 @@ _SEARCH_REJECTED = (
     "or the Layout ID setting may be wrong."
 )
 _BAD_LIMIT = "The search limit must be a whole number."
+# What the file tools say when the selected KMS connection, or its agent, was turned off.
+INACTIVE_CONNECTION_MESSAGE = (
+    "The KMS Lighthouse connection '{name}' is inactive after failed connection tests. Do NOT retry: "
+    "tell the user to ask an admin to test the connection, then continue with the remaining sources."
+)
 _TOP_LEVEL_HINT = (
     "Connected to KMS Lighthouse, but the top level of the folder tree came back empty. Set Root folder ID "
     "to a folder this account can open, or check the account's KMS permissions."

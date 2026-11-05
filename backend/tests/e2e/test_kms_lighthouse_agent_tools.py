@@ -162,17 +162,28 @@ async def _agent_run(ds_id, conn_id, report_id, kms, monkeypatch):
         return out
 
 
-def _member_list_files(ds_id, conn_id, report_id):
-    """ListFilesTool with no folder, run as the report's user (the member)."""
+def _member_file_tools(ds_id, conn_id, report_id):
+    """list_files (no folder), search_files and read_file, each run as the report's user (the member)."""
     from app.ai.tools.implementations.list_files import ListFilesTool
+    from app.ai.tools.implementations.read_file import ReadFileTool
+    from app.ai.tools.implementations.search_files import SearchFilesTool
     from app.dependencies import async_session_maker
 
+    calls = {
+        "list_files": (ListFilesTool(), {"connection_id": conn_id}),
+        "search_files": (SearchFilesTool(), {"connection_id": conn_id, "query": "billing"}),
+        "read_file": (ReadFileTool(), {"connection_id": conn_id, "file_id": "item:301"}),
+    }
+
     async def run():
+        out = {}
         async with async_session_maker() as db:
             _, org, user, report = await _loaded(db, ds_id, report_id)
             ctx = {"db": db, "organization": org, "user": user, "report": report}
-            events = [e async for e in ListFilesTool().run_stream({"connection_id": conn_id}, ctx)]
-            return events[-1].payload
+            for name, (tool, tool_input) in calls.items():
+                events = [e async for e in tool.run_stream(tool_input, ctx)]
+                out[name] = events[-1].payload
+        return out
 
     return asyncio.run(run())
 
@@ -231,7 +242,7 @@ def test_agent_browses_a_folder_by_path_then_reads(
     assert out["held_log"] == []
 
 
-def test_member_without_credentials_is_told_to_connect_by_list_files(
+def test_member_without_credentials_is_told_to_connect_by_every_file_tool(
     kms, test_client, create_user, login_user, whoami, create_data_source, create_report,
 ):
     admin = create_user()
@@ -269,12 +280,16 @@ def test_member_without_credentials_is_told_to_connect_by_list_files(
     assert removed.status_code in (200, 204), removed.text
     kms["mock"].REQUEST_LOG.clear()
 
-    payload = _member_list_files(ds_id, conn_id, report["id"])
+    payloads = _member_file_tools(ds_id, conn_id, report["id"])
 
-    out = payload["output"]
-    assert out["success"] is False, out
-    # The client build's credentials-required refusal, as the Connect call to action the other file tools give.
+    # The client build's credentials-required refusal reaches each tool as the same Connect call to
+    # action (friendly_tool_error), never as the raw refusal or, for list_files, an empty catalog.
     conn_name = connections[0]["name"]
-    assert f"tell the user to Connect '{conn_name}' from the agent selector" in out["error"], out
-    assert "Catalog is empty" not in str(payload)
+    assert list(payloads) == ["list_files", "search_files", "read_file"]
+    for tool, payload in payloads.items():
+        out = payload["output"]
+        assert out["success"] is False, (tool, out)
+        assert f"tell the user to Connect '{conn_name}' from the agent selector" in out["error"], (tool, out)
+        assert "User credentials required" not in out["error"], (tool, out)
+        assert "Catalog is empty" not in str(payload), tool
     assert kms["mock"].REQUEST_LOG == [], "no KMS call may run before the member connects"
