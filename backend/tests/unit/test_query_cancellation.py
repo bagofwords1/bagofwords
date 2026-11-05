@@ -114,7 +114,7 @@ def _cancel_in_place(conn):
         return qc.cancel_thread(client, threading.get_ident())
 
 
-@pytest.mark.parametrize("dialect", ["postgresql", "oracle"])
+@pytest.mark.parametrize("dialect", ["postgresql", "oracle", "teradata"])
 def test_drivers_with_a_native_cancel_use_it(dialect):
     raw = FakeRaw()
     outcome = _cancel_in_place(FakeConn(dialect, raw=raw))

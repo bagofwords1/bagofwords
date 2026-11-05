@@ -1523,7 +1523,7 @@ class TeradataCredentials(BaseModel):
 
 class TeradataConfig(BaseModel):
     host: str = Field(..., title="Host", description="Teradata system hostname or IP (e.g. the TPA/COP name)", json_schema_extra={"ui:type": "string"})
-    port: int = Field(1025, ge=1, le=65535, title="Port", description="Teradata listener port (default 1025)", json_schema_extra={"ui:type": "number"})
+    port: int = Field(1025, ge=1, le=65535, title="Port", description="Teradata listener port (default 1025). TLS connections use port 443 unless https_port is set under additional parameters.", json_schema_extra={"ui:type": "number"})
     database: str = Field(
         ...,
         title="Database",
@@ -1533,8 +1533,32 @@ class TeradataConfig(BaseModel):
     logmech: str = Field(
         "TD2",
         title="Logon Mechanism",
-        description="Authentication mechanism. TD2 (default) for native users; LDAP/KRB5/TDNEGO for directory-based logon (common on-prem).",
-        json_schema_extra={"ui:type": "select", "ui:options": ["TD2", "LDAP", "KRB5", "TDNEGO"]},
+        description="TD2 (default) for database users; LDAP for directory users.",
+        json_schema_extra={"ui:type": "select", "ui:options": ["TD2", "LDAP"]},
+    )
+    sslmode: str = Field(
+        "PREFER",
+        title="SSL Mode",
+        description="PREFER uses TLS when the server offers it, without checking the certificate. REQUIRE always uses TLS. VERIFY-CA also checks the certificate is trusted; VERIFY-FULL also checks it matches the host name.",
+        json_schema_extra={"ui:type": "select", "ui:options": ["DISABLE", "ALLOW", "PREFER", "REQUIRE", "VERIFY-CA", "VERIFY-FULL"]},
+    )
+    ssl_ca: Optional[str] = Field(
+        None,
+        title="CA Certificate (PEM)",
+        description="Certificate authority to trust for VERIFY-CA / VERIFY-FULL, pasted as PEM text. Leave empty to use the system trust store.",
+        json_schema_extra={"ui:type": "textarea"},
+    )
+    encryptdata: bool = Field(
+        True,
+        title="Encrypt data",
+        description="Encrypt data on non-TLS connections. TLS connections are always encrypted.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    additional_params: Optional[dict] = Field(
+        default_factory=dict,
+        title="Additional Connection Parameters",
+        description="Extra teradatasql driver parameters, e.g. cop=false or coplast=true when DNS is slow, account, charset, tmode. Credentials, TLS and encryption settings cannot be set here.",
+        json_schema_extra={"ui:type": "keyvalue"},
     )
 
 

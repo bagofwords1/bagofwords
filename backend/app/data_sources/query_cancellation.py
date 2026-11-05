@@ -28,6 +28,9 @@ So on timeout we also ask the source to stop. What "ask" means is per driver:
     connection and not per query.
   * Trino / Starburst — the client keeps its driver cursor on the connection
     and `cursor.cancel()` is a cross-thread-safe HTTP DELETE.
+  * **Teradata** (teradatasql) — `connection.cancel()`, documented as callable
+    from another thread while the owning thread blocks in execute(). The
+    request aborts, the session survives.
   * Everything else (Snowflake, …) — reported as unsupported.
     We deliberately do NOT close the connection out from under the driver: for
     the C-extension drivers that is a segfault risk, and the orphan thread ends
@@ -128,6 +131,12 @@ def _cancel(sa_conn: Any, client: Any = None) -> str:
         # the owning thread blocks in execute().
         raw.cancel()
         return f"cancelled ({dialect} cancel)"
+
+    if dialect == "teradata":
+        # teradatasql documents cancel() as callable from a thread other than
+        # the one blocked in execute(); the request aborts, the session stays.
+        raw.cancel()
+        return "cancelled (teradata cancel)"
 
     if dialect in ("mysql", "mariadb"):
         thread_id = _pymysql_thread_id(raw)
