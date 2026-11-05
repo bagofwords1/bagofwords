@@ -91,6 +91,12 @@ const gridOptions = {
   loadingOverlayComponentParams: { columns: props.columnDefs.length },
   enableCellTextSelection: true,
   paginationPageSize: PAGE_SIZE,
+  // The paging footer ("Page Size", "1 to 50 of 236", "Page 1 of 5") in the
+  // viewer's language instead of ag-grid's built-in English.
+  localeText: Object.fromEntries(
+    ['page', 'to', 'of', 'more', 'pageSizeSelectorLabel', 'firstPage', 'previousPage', 'nextPage', 'lastPage']
+      .map((key) => [key, t(`dataGrid.${key}`)]),
+  ),
 } as Record<string, any>;
 
 // Only paginate when there are actually more rows than a page. A small preview
