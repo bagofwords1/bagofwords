@@ -62,7 +62,7 @@ def test_mcp_withholds_a_user_scoped_snapshot_in_viewer_identity_mode(
     _run(_attach_source_with_connection(report["id"], "user_required"))
     enable_mcp(user_token=admin["token"], org_id=admin["org_id"])
     keys = {who["token"]: create_api_key(user_token=who["token"], org_id=admin["org_id"])["key"]
-            for who in (owner, viewer)}
+            for who in (owner, viewer, admin)}
     viz_id = seeded["viz_ids"][0]
     artifact_id = _run(_artifact_version_of(report["id"]))
 
@@ -74,23 +74,29 @@ def test_mcp_withholds_a_user_scoped_snapshot_in_viewer_identity_mode(
 
     viz, art = fetch(owner)
     assert {r["month"] for r in viz["data"]["rows"]} == {"stale"}
-    assert viz["withheld"] is False
+    assert viz["code"] == GOOD_CODE
+    assert not viz.get("withheld")
     assert [{r["month"] for r in v["rows"]} for v in art["visualizations"]] == [{"stale"}]
 
-    viz, art = fetch(viewer)
-    assert viz["data"] == {"rows": [], "columns": []}
-    assert viz["withheld"] is True
-    # The step has code (GOOD_CODE); the SQL behind a withheld chart must not
-    # reach the viewer, as on /r and in read_query.
-    assert GOOD_CODE and not viz["code"]
-    assert art["visualizations"]
-    assert all(v["rows"] == [] and v["columns"] == [] and v["withheld"] is True
-               for v in art["visualizations"])
+    # A plain member, and an org admin: running the org does not make the
+    # owner's credential view theirs.
+    for reader in (viewer, admin):
+        viz, art = fetch(reader)
+        assert viz["data"] == {"rows": [], "columns": []}, "a reader got the owner's rows"
+        assert art["visualizations"]
+        assert all(v["rows"] == [] and v["columns"] == [] for v in art["visualizations"])
+        # The step has code (GOOD_CODE); the SQL behind a withheld chart must
+        # not reach the reader, as on /r and in read_query.
+        assert GOOD_CODE and not viz["code"]
+        assert viz.get("withheld") is True
+        assert all(v.get("withheld") is True for v in art["visualizations"])
 
-    # Creator mode: the same viewer, with no run of their own, is served the
-    # snapshot again.
+    # Creator mode: the same readers, with no run of their own, are served
+    # the snapshot again.
     _set_artifact_visibility(test_client, report["id"], owner, "internal", run_identity="creator")
-    viz, art = fetch(viewer)
-    assert {r["month"] for r in viz["data"]["rows"]} == {"stale"}
-    assert viz["withheld"] is False and viz["code"] == GOOD_CODE
-    assert all(v["withheld"] is False for v in art["visualizations"])
+    for reader in (viewer, admin):
+        viz, art = fetch(reader)
+        assert {r["month"] for r in viz["data"]["rows"]} == {"stale"}
+        assert viz["code"] == GOOD_CODE
+        assert not viz.get("withheld")
+        assert not any(v.get("withheld") for v in art["visualizations"])
