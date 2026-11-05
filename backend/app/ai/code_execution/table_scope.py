@@ -159,8 +159,14 @@ def _display(ref: Name) -> str:
     return ".".join(p.upper() for p in ref)
 
 
-def check_table_scope(sql: str, dialect: str, scope: TableScope) -> None:
-    """Raise TableScopeViolation unless every table `sql` reads is active."""
+def check_table_scope(
+    sql: str, dialect: str, scope: TableScope, exact_catalogs: tuple[str, ...] | None = None,
+) -> None:
+    """Raise TableScopeViolation unless every table `sql` reads is active.
+
+    With `exact_catalogs`, a table must be `<db>.<table>`, optionally behind one of
+    those catalogs, and equal an active name part for part (no suffix matching).
+    """
     from app.ai.code_execution.sql_parser import parse_guard_sql
     from sqlglot import exp
     from sqlglot.errors import SqlglotError
@@ -209,7 +215,15 @@ def check_table_scope(sql: str, dialect: str, scope: TableScope) -> None:
                 ref = tuple(p.lower() for p in (t.catalog, t.db, t.name) if p)
                 if len(ref) == 1 and _resolves_to_cte(t):
                     continue
-                if not is_allowed(ref, scope):
+                if exact_catalogs is not None:
+                    allowed = (
+                        (not t.catalog or t.catalog.lower() in exact_catalogs)
+                        and len(ref) == (3 if t.catalog else 2)
+                        and ref[-2:] in scope.active
+                    )
+                else:
+                    allowed = is_allowed(ref, scope)
+                if not allowed:
                     shown = _display(ref)
                     if shown not in denied:
                         denied.append(shown)
@@ -236,6 +250,39 @@ def check_table_scope(sql: str, dialect: str, scope: TableScope) -> None:
         )
 
 
+def one_part_table_refs(sql: str, dialect: str) -> list[str]:
+    """Tables read without a database part; unreadable SQL and SHOW/DESCRIBE/USE raise, never `[]`."""
+    from app.ai.code_execution.sql_parser import parse_guard_sql
+    from sqlglot import exp
+    from sqlglot.errors import SqlglotError
+
+    try:
+        statements = [s for s in parse_guard_sql(sql, dialect)
+                      if s is not None and not isinstance(s, exp.Semicolon)]
+    except SqlglotError as e:
+        raise TableScopeViolation(
+            "Could not verify which tables this query reads, so it was not run. "
+            "Rewrite it as a plain SELECT over <database>.<table> names."
+        ) from e
+
+    refs: list[str] = []
+    for stmt in statements:
+        if isinstance(stmt, (exp.Command, exp.Describe, exp.Use)) or type(stmt).__name__ == "Show":
+            raise TableScopeViolation(
+                "SHOW, DESCRIBE and similar statements are not allowed here. "
+                "Read the enabled tables with a SELECT over <database>.<table> names."
+            )
+        for t in stmt.find_all(exp.Table):
+            if not isinstance(t.this, exp.Identifier) or t.db or t.catalog:
+                continue
+            if _resolves_to_cte(t):
+                continue
+            name = str(t.name)
+            if name not in refs:
+                refs.append(name)
+    return refs
+
+
 def enforce_table_scope(client, query) -> None:
     """Check `query` against the scope attached to `client`, if any."""
     scope: TableScope | None = getattr(client, TABLE_SCOPE_ATTR, None)
@@ -244,4 +291,4 @@ def enforce_table_scope(client, query) -> None:
     dialect = dialect_for_client(client)
     if not dialect:
         return
-    check_table_scope(query, dialect, scope)
+    check_table_scope(query, dialect, scope, getattr(client, "exact_table_scope_catalogs", None))
