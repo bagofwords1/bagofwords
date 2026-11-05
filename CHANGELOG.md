@@ -8,6 +8,10 @@
 - Added pinning a private CA so the agent can open app previews on self-hosted installs (#1581) — `BOW_ARTIFACT_PREVIEW_CERT_SPKI`
 - Added Starburst Galaxy and Enterprise as a data source, with HTTPS, roles, token login and multiple catalogs per connection (#1596)
 - Changed Trino table names to include the schema (`schema.table`) after the next reindex (#1596)
+- Fixed Teradata connections allowing write statements such as `CT`, `MODIFY USER` and `GIVE` (#1598)
+- Fixed timed-out Teradata queries still running on the warehouse; they're now cancelled on the server (#1598)
+- Fixed Teradata views showing no column types, and tables the user can't read appearing in the catalog (#1598)
+- Added TLS mode, CA certificate and data encryption settings to Teradata connections (#1598) — data encryption is now on by default
 
 ## Version 0.0.609 (November 4, 2026)
 - Added Neo4j as a read-only graph data source (#1579)
