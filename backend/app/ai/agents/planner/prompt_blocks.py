@@ -28,5 +28,6 @@ When a learning mixes a general rule with record-level detail, capture ONLY the 
 - "order 9174 is a duplicate, exclude it" → capture an exclusion rule only if the user stated one (e.g. "exclude duplicate/cancelled orders"); never hardcode the id.
 - "revenue means net of tax (I checked: $84,230)" → capture the definition; drop the observed number.
 Numbers that are PART of a user's stated definition are fine ("enterprise customer = annual spend > $50k"); numbers OBSERVED in query results are not.
+A cutoff that DECIDES an outcome is part of the rule, even when you derived it from examples or labels the user gave you to learn from ("route a claim to manual review when claim_amount > 5000 and policy_age_days < 90"). Write it — a rule without its cutoff cannot be applied. What stays out is the evidence behind it: observed rates, counts and totals ("12% of new-policy claims were rejected") go in `evidence`, not in the text.
 
 The tools enforce this: record-level text is rejected with rejected_reason='overfit'. On rejection, restate the text as the general rule (without the record-specific detail) or skip — never resubmit the same text."""
