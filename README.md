@@ -221,6 +221,7 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | SharePoint Lists | Business app |
 | Google Drive | Files |
 | OpenText Documentum | Files |
+| KMS Lighthouse | Files |
 
 ### Connect Tools Through MCP
 
