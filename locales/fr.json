@@ -4345,16 +4345,146 @@
   "dashboards": {
     "title": "Tableaux de bord",
     "subtitle": "Parcourez et gérez vos tableaux de bord et diapositives",
-    "searchPlaceholder": "Rechercher des tableaux de bord…",
+    "searchPlaceholder": "Rechercher des tableaux de bord ou des propriétaires…",
     "myDashboards": "Mes tableaux de bord",
     "sharedWithMe": "Partagés avec moi",
     "empty": "Aucun tableau de bord trouvé",
-    "emptyDescription": "Essayez d'ajuster votre terme de recherche ou créez un rapport avec un tableau de bord.",
+    "emptyMy": "Créez un rapport avec un tableau de bord et il apparaîtra ici.",
+    "emptyShared": "Rien n'a encore été partagé avec vous.",
     "showingRange": "Affichage de {start} à {end} sur {total} tableaux de bord",
     "fetchFailed": "Échec du chargement des tableaux de bord",
     "typeAll": "Tous",
     "typeDashboards": "Tableaux de bord",
-    "typeDocs": "Documents"
+    "typeDocs": "Documents",
+    "reason": {
+      "direct": "Partagé avec vous",
+      "group": "Groupe {name}",
+      "project": "Projet {name}",
+      "org": "Organisation",
+      "public": "Lien public",
+      "other": "Partagé",
+      "groupAny": "Votre groupe",
+      "projectAny": "Votre projet"
+    },
+    "reasonTitle": {
+      "direct": "{owner} l’a partagé avec vous",
+      "group": "Partagé avec votre groupe {name}",
+      "groupOther": "Partagé avec l’un de vos groupes",
+      "project": "Dans le projet {name}, dont vous êtes membre",
+      "projectOther": "Dans un projet dont vous êtes membre",
+      "org": "Partagé avec toute l’organisation",
+      "public": "Toute personne disposant du lien",
+      "also": "aussi : {reason}",
+      "canEdit": "(vous pouvez modifier)",
+      "viewOnly": "(lecture seule)"
+    },
+    "card": {
+      "edited": "Modifié {time}",
+      "created": "Créé le {date}",
+      "by": "par {name}",
+      "published": "Publié le {date}",
+      "dataAsOf": "Données actualisées {time}",
+      "refreshFailing": "Échec de l’actualisation",
+      "lastEdit": "Dernière modification : {time}",
+      "scheduledRefresh": "Actualisation planifiée"
+    },
+    "pill": {
+      "new": "Nouveau",
+      "published": "Publié",
+      "changes": "Modifications non publiées",
+      "org": "Organisation",
+      "public": "Public"
+    },
+    "mode": {
+      "page": "Tableau de bord",
+      "slides": "Diapositives",
+      "doc": "Document"
+    },
+    "list": {
+      "createdShort": "créé le {date}",
+      "directFirst": "partages directs en premier",
+      "dateColumns": "Modifié · Créé"
+    },
+    "star": "Mettre en favori",
+    "unstar": "Retirer des favoris",
+    "starFailed": "Impossible de mettre à jour le favori",
+    "emptyFiltered": "Essayez une autre recherche ou {clear}.",
+    "clearTheFilters": "effacez les filtres",
+    "count": "{n} tableau de bord | {n} tableaux de bord",
+    "tabNew": "{n} nouveau | {n} nouveaux",
+    "pagePrevious": "Page précédente",
+    "pageNext": "Page suivante",
+    "sort": {
+      "label": "Trier",
+      "edited": "Modifiés récemment",
+      "newest": "Créés récemment",
+      "oldest": "Créés il y a longtemps",
+      "title": "Titre A–Z",
+      "published": "Publiés récemment"
+    },
+    "view": {
+      "grid": "Grille",
+      "list": "Liste"
+    },
+    "access": {
+      "all": "Tous",
+      "direct": "Directement",
+      "group": "Mes groupes",
+      "project": "Projets",
+      "org": "Organisation",
+      "edit": "Modifiables"
+    },
+    "presets": {
+      "any": "Toute la période",
+      "last7": "7 derniers jours",
+      "last30": "30 derniers jours",
+      "last90": "90 derniers jours",
+      "year": "Cette année",
+      "older90": "Il y a plus de 90 jours",
+      "custom": "Période personnalisée"
+    },
+    "status": {
+      "any": "Tous les statuts",
+      "published": "Publié",
+      "changes": "Modifications non publiées",
+      "draft": "Brouillon"
+    },
+    "filters": {
+      "button": "Filtres",
+      "agent": "Agent",
+      "created": "Créé",
+      "edited": "Modifié",
+      "owner": "Propriétaire",
+      "status": "Statut",
+      "starredOnly": "Favoris uniquement",
+      "clearAll": "Tout effacer",
+      "allAgents": "Tous les agents",
+      "agentsCount": "{n} agent | {n} agents",
+      "anyone": "Tout le monde",
+      "ownersCount": "{n} personne | {n} personnes",
+      "from": "Du",
+      "to": "au",
+      "toLabel": "Au",
+      "customRange": "{from} – {to}",
+      "rangeInvalid": "Le début doit être antérieur ou égal à la fin",
+      "unknownAgent": "Agent indisponible",
+      "unknownOwner": "Personne inconnue",
+      "resultCount": "{n} sur {total}",
+      "remove": "Retirer {name}"
+    },
+    "chips": {
+      "search": "« {q} »",
+      "owner": "Propriétaire : {name}",
+      "created": "Créé : {range}",
+      "edited": "Modifié : {range}",
+      "starred": "Favoris"
+    },
+    "attention": {
+      "title": "À surveiller",
+      "failing": "{n} en échec d’actualisation | {n} en échec d’actualisation",
+      "stale": "{n} non modifié depuis 90 jours | {n} non modifiés depuis 90 jours",
+      "show": "Les afficher"
+    }
   },
   "excel": {
     "greeting": "Bonjour, {name} 👋",

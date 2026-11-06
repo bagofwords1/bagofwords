@@ -4345,16 +4345,146 @@
   "dashboards": {
     "title": "لوحات التحكم",
     "subtitle": "تصفّح وأدِر لوحات التحكم والشرائح",
-    "searchPlaceholder": "ابحث في لوحات التحكم…",
+    "searchPlaceholder": "ابحث في لوحات التحكم أو المالكين…",
     "myDashboards": "لوحات التحكم الخاصة بي",
     "sharedWithMe": "تمت مشاركتها معي",
     "empty": "لا توجد لوحات تحكم",
-    "emptyDescription": "حاول تعديل مصطلح البحث، أو أنشئ تقريرًا بلوحة تحكم.",
+    "emptyMy": "أنشئ تقريرًا بلوحة تحكم وستظهر هنا.",
+    "emptyShared": "لم تتم مشاركة أي شيء معك بعد.",
     "showingRange": "عرض {start} إلى {end} من إجمالي {total} لوحة تحكم",
     "fetchFailed": "تعذّر جلب لوحات التحكم",
     "typeAll": "الكل",
     "typeDashboards": "لوحات المعلومات",
-    "typeDocs": "المستندات"
+    "typeDocs": "المستندات",
+    "reason": {
+      "direct": "تمت مشاركتها معك",
+      "group": "المجموعة {name}",
+      "project": "المشروع {name}",
+      "org": "المؤسسة",
+      "public": "رابط عام",
+      "other": "مشتركة",
+      "groupAny": "مجموعتك",
+      "projectAny": "مشروعك"
+    },
+    "reasonTitle": {
+      "direct": "شاركها {owner} معك",
+      "group": "تمت مشاركتها مع مجموعتك {name}",
+      "groupOther": "تمت مشاركتها مع إحدى مجموعاتك",
+      "project": "ضمن المشروع {name} الذي تنتمي إليه",
+      "projectOther": "ضمن مشروع تنتمي إليه",
+      "org": "تمت مشاركتها مع الجميع في المؤسسة",
+      "public": "أي شخص لديه الرابط",
+      "also": "أيضًا: {reason}",
+      "canEdit": "(يمكنك التعديل)",
+      "viewOnly": "(عرض فقط)"
+    },
+    "card": {
+      "edited": "عُدّلت {time}",
+      "created": "أُنشئت {date}",
+      "by": "بواسطة {name}",
+      "published": "نُشرت {date}",
+      "dataAsOf": "حُدّثت البيانات {time}",
+      "refreshFailing": "فشل التحديث",
+      "lastEdit": "آخر تعديل: {time}",
+      "scheduledRefresh": "تحديث مُجدوَل"
+    },
+    "pill": {
+      "new": "جديدة",
+      "published": "منشورة",
+      "changes": "تغييرات غير منشورة",
+      "org": "المؤسسة",
+      "public": "عامة"
+    },
+    "mode": {
+      "page": "لوحة معلومات",
+      "slides": "شرائح",
+      "doc": "مستند"
+    },
+    "list": {
+      "createdShort": "أُنشئت {date}",
+      "directFirst": "المشاركات المباشرة أولًا",
+      "dateColumns": "التعديل · الإنشاء"
+    },
+    "star": "تمييز بنجمة",
+    "unstar": "إزالة النجمة",
+    "starFailed": "تعذّر تحديث النجمة",
+    "emptyFiltered": "جرّب بحثًا آخر، أو {clear}.",
+    "clearTheFilters": "امسح عوامل التصفية",
+    "count": "لوحات التحكم: {n}",
+    "tabNew": "جديدة: {n}",
+    "pagePrevious": "الصفحة السابقة",
+    "pageNext": "الصفحة التالية",
+    "sort": {
+      "label": "الترتيب",
+      "edited": "المعدّلة مؤخرًا",
+      "newest": "الأحدث إنشاءً",
+      "oldest": "الأقدم إنشاءً",
+      "title": "العنوان أ–ي",
+      "published": "المنشورة مؤخرًا"
+    },
+    "view": {
+      "grid": "شبكة",
+      "list": "قائمة"
+    },
+    "access": {
+      "all": "الكل",
+      "direct": "مباشرةً",
+      "group": "مجموعاتي",
+      "project": "المشاريع",
+      "org": "المؤسسة",
+      "edit": "يمكنني التعديل"
+    },
+    "presets": {
+      "any": "أي وقت",
+      "last7": "آخر 7 أيام",
+      "last30": "آخر 30 يومًا",
+      "last90": "آخر 90 يومًا",
+      "year": "هذا العام",
+      "older90": "أقدم من 90 يومًا",
+      "custom": "نطاق مخصص"
+    },
+    "status": {
+      "any": "أي حالة",
+      "published": "منشورة",
+      "changes": "تغييرات غير منشورة",
+      "draft": "مسودة"
+    },
+    "filters": {
+      "button": "عوامل التصفية",
+      "agent": "الوكيل",
+      "created": "الإنشاء",
+      "edited": "التعديل",
+      "owner": "المالك",
+      "status": "الحالة",
+      "starredOnly": "المميّزة بنجمة فقط",
+      "clearAll": "مسح الكل",
+      "allAgents": "كل الوكلاء",
+      "agentsCount": "الوكلاء: {n}",
+      "anyone": "أي شخص",
+      "ownersCount": "الأشخاص: {n}",
+      "from": "من",
+      "to": "إلى",
+      "toLabel": "إلى",
+      "customRange": "{from} – {to}",
+      "rangeInvalid": "يجب أن تكون البداية في تاريخ النهاية أو قبله",
+      "unknownAgent": "وكيل غير متاح",
+      "unknownOwner": "شخص غير معروف",
+      "resultCount": "{n} من {total}",
+      "remove": "إزالة {name}"
+    },
+    "chips": {
+      "search": "\"{q}\"",
+      "owner": "المالك: {name}",
+      "created": "الإنشاء: {range}",
+      "edited": "التعديل: {range}",
+      "starred": "المميّزة بنجمة"
+    },
+    "attention": {
+      "title": "تحتاج إلى انتباه",
+      "failing": "فشل التحديث: {n}",
+      "stale": "بلا تعديل منذ 90 يومًا: {n}",
+      "show": "اعرضها"
+    }
   },
   "excel": {
     "greeting": "مرحبًا، {name} 👋",

@@ -362,7 +362,8 @@ async def edit_dashboard(db, artifact: Artifact, owner, organization) -> dict:
         version = await new_version(db, source, content=content, user_id=str(owner.id), report_id=str(report.id),
                                     status="completed", base_version_id=(
                                         str(release.source_version_id) if release.source_version_id else None),
-                                    draft_id=None, **({"pptx_path": deck} if deck else {}))
+                                    draft_id=None, content_changed=False,  # a copy of the live content
+                                    **({"pptx_path": deck} if deck else {}))
         thumbnail = _copy_thumbnail(release, str(version.id), previews) if own_rows else None
         if thumbnail:
             version.thumbnail_path = thumbnail
