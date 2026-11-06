@@ -2066,6 +2066,12 @@
       "override": "These rules apply only to you. Connection-wide Always allow or Always deny takes precedence.",
       "save": "Save rules",
       "failed": "Could not load or save rules. Check the JSON and try again."
+    },
+    "readReport": {
+      "window": "messages {start}–{end} / {total}",
+      "charWindow": "message {index} · chars {start}–{end} / {total}",
+      "emptyWindow": "no messages at {offset} / {total}",
+      "messageTruncated": "truncated · {shown} / {total} chars"
     }
   },
   "entityCreate": {

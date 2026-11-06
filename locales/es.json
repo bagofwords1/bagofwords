@@ -2040,6 +2040,12 @@
       "override": "Estas reglas solo se aplican a ti. Permitir siempre o Denegar siempre de la conexión tiene prioridad.",
       "save": "Guardar reglas",
       "failed": "No se pudieron cargar o guardar las reglas. Revisa el JSON e inténtalo de nuevo."
+    },
+    "readReport": {
+      "window": "mensajes {start}–{end} / {total}",
+      "charWindow": "mensaje {index} · caracteres {start}–{end} / {total}",
+      "emptyWindow": "sin mensajes en {offset} / {total}",
+      "messageTruncated": "truncado · {shown} / {total} caracteres"
     }
   },
   "entityCreate": {

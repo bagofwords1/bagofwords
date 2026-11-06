@@ -2040,6 +2040,12 @@
       "override": "הכללים חלים רק עליך. להגדרות לאפשר תמיד או לחסום תמיד של החיבור יש עדיפות.",
       "save": "שמירת כללים",
       "failed": "לא ניתן לטעון או לשמור כללים. יש לבדוק את ה־JSON ולנסות שוב."
+    },
+    "readReport": {
+      "window": "הודעות {start}–{end} / {total}",
+      "charWindow": "הודעה {index} · תווים {start}–{end} / {total}",
+      "emptyWindow": "אין הודעות במיקום {offset} / {total}",
+      "messageTruncated": "נחתך · {shown} / {total} תווים"
     }
   },
   "entityCreate": {
