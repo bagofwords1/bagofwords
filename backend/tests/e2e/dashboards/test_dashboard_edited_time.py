@@ -33,8 +33,10 @@ def drawn(monkeypatch):
     from app.services.thumbnail_service import ThumbnailService
     from tests.fixtures.dashboard_corpus.kinds import TINY_PNG
 
-    monkeypatch.setattr(ThumbnailService, "_build_thumbnail_html", lambda self, **kw: "")
+    # The vendored libraries are not there in a test run; the page is built for real.
+    monkeypatch.setattr("app.services.thumbnail_service.get_inline_scripts", lambda mode: "")
 
+    # The only seam around Chromium: generate_thumbnail launches it.
     async def draw(self, artifact_id, html_content, mode="page"):
         (self.UPLOADS_DIR / f"{artifact_id}.png").write_bytes(TINY_PNG)
         return f"thumbnails/{artifact_id}.png"

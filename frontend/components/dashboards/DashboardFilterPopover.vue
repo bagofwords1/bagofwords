@@ -4,10 +4,13 @@
          partial list state; the page puts it in the URL. -->
     <div ref="rootRef" class="relative shrink-0">
         <UTooltip :text="t('dashboards.filters.button')">
-            <button
+            <UButton
                 ref="buttonRef"
-                type="button"
-                class="relative inline-flex items-center justify-center w-8 h-8 rounded-lg border transition-colors"
+                color="gray"
+                variant="ghost"
+                :padded="false"
+                :ui="CHIP_BUTTON_UI"
+                class="relative justify-center w-8 h-8 rounded-lg border transition-colors"
                 :class="open || count > 0
                     ? 'border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300'
                     : 'border-gray-200 dark:border-gray-700 text-ink-muted hover:bg-gray-50 dark:hover:bg-gray-800'"
@@ -23,7 +26,7 @@
                     class="absolute -top-1 -end-1 inline-flex items-center justify-center min-w-[15px] h-[15px] px-1 text-2xs font-semibold rounded-full bg-blue-600 text-white nums"
                     data-testid="dashboard-filters-count"
                 >{{ count }}</span>
-            </button>
+            </UButton>
         </UTooltip>
 
         <div
@@ -215,6 +218,7 @@
 <script setup lang="ts">
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import {
+    CHIP_BUTTON_UI,
     PRESETS,
     STATUSES,
     activeFilterCount,
@@ -261,7 +265,8 @@ const STATUS_LABEL: Record<DashboardStatus, string> = {
 
 const open = ref(false)
 const rootRef = ref<HTMLElement | null>(null)
-const buttonRef = ref<HTMLButtonElement | null>(null)
+// A UButton: the component instance, whose element is $el.
+const buttonRef = ref<{ $el?: HTMLElement } | null>(null)
 const panelRef = ref<HTMLElement | null>(null)
 const panelId = useId()
 const count = computed(() => activeFilterCount(props.state))
@@ -409,7 +414,7 @@ function onKeydown(e: KeyboardEvent) {
     if (e.key !== 'Escape' || !open.value || e.defaultPrevented) return
     const focusInside = !!panelRef.value?.contains(document.activeElement)
     open.value = false
-    if (focusInside) buttonRef.value?.focus()
+    if (focusInside) buttonRef.value?.$el?.focus()
 }
 onMounted(() => {
     document.addEventListener('click', onDocumentClick)

@@ -217,3 +217,116 @@ def test_the_watermark_never_moves_back(corpus, corpus_rows, test_client):
     assert body["seen_at"] == later.isoformat()
     rows = _seen_rows(corpus_rows, uid, oid)
     assert len(rows) == 1 and str(rows[0]).startswith("2100-01-01")
+
+
+@pytest.mark.e2e
+def test_a_later_visit_committed_just_before_this_ones_write_is_kept(corpus, corpus_rows, test_client):
+    """Two visits at once: this one read the stored time, then another visit
+    commits a later one just before this one writes. The later time stays.
+    The other visit is played by a separate connection at the moment this
+    request sends its UPDATE (no route can be paused there)."""
+    from datetime import datetime
+
+    from sqlalchemy import event, text
+    from sqlalchemy.engine import Engine
+
+    uid, oid = corpus.cast.id("member"), corpus.cast.org_id
+    first = _seen(test_client, as_(corpus, "member"))
+    later = datetime(2100, 1, 1)
+    raced = []
+
+    def the_later_visit_commits_first(conn, cursor, statement, parameters, context, executemany):
+        if not raced and statement.lstrip().upper().startswith("UPDATE ARTIFACT_LIST_SEEN"):
+            raced.append(True)
+            with corpus_rows.engine.begin() as other:
+                other.execute(text("UPDATE artifact_list_seen SET shared_seen_at = :t "
+                                   "WHERE user_id = :u AND organization_id = :o"), {"t": later, "u": uid, "o": oid})
+
+    event.listen(Engine, "before_cursor_execute", the_later_visit_commits_first)
+    try:
+        body = _seen(test_client, as_(corpus, "member"))
+    finally:
+        event.remove(Engine, "before_cursor_execute", the_later_visit_commits_first)
+    assert raced == [True]  # the race did happen
+    assert body["previous_seen_at"] == first["seen_at"]  # what this visit read before the other one committed
+    rows = _seen_rows(corpus_rows, uid, oid)
+    assert len(rows) == 1 and str(rows[0]).startswith("2100-01-01")
+
+
+@pytest.mark.e2e
+def test_a_visit_moves_the_rows_updated_at(corpus, corpus_rows, test_client):
+    from datetime import datetime
+
+    from sqlalchemy import text
+
+    uid, oid = corpus.cast.id("member"), corpus.cast.org_id
+    mine = {"u": uid, "o": oid}
+    where = "WHERE user_id = :u AND organization_id = :o"
+    _seen(test_client, as_(corpus, "member"))
+    # Long ago, written directly: the API only ever stamps now.
+    with corpus_rows.engine.begin() as conn:
+        conn.execute(text(f"UPDATE artifact_list_seen SET updated_at = :t {where}"), {"t": datetime(2001, 1, 1), **mine})
+    _seen(test_client, as_(corpus, "member"))
+    with corpus_rows.engine.connect() as conn:
+        moved = conn.execute(text(f"SELECT updated_at FROM artifact_list_seen {where}"), mine).scalar_one()
+    assert not str(moved).startswith("2001-")
+
+
+@pytest.fixture
+def break_at_flush():
+    """Force a real NOT NULL failure: `break_at_flush(Model, column)` clears
+    that column of the new row as its request flushes it (no route sends such
+    a row). The list it returns holds one entry per row it broke."""
+    from sqlalchemy import event
+    from sqlalchemy.orm import Session
+
+    listeners = []
+
+    def arm(model, column):
+        broken = []
+
+        def clear_the_column(session, flush_context, instances):
+            for row in session.new:
+                if isinstance(row, model):
+                    setattr(row, column, None)
+                    broken.append(row)
+
+        event.listen(Session, "before_flush", clear_the_column)
+        listeners.append(clear_the_column)
+        return broken
+
+    yield arm
+    for listener in listeners:
+        event.remove(Session, "before_flush", listener)
+
+
+@pytest.mark.e2e
+def test_a_star_that_fails_for_another_reason_is_not_taken_for_a_repeat(corpus, corpus_rows, test_client,
+                                                                        break_at_flush):
+    """Only the star's own unique pair means "already starred": any other
+    integrity failure reaches the reader as a failure, and nothing is stored."""
+    from app.models.artifact_star import ArtifactStar
+
+    sales = own(corpus_rows, corpus, f"{CONV}/dash_sales")
+    broken = break_at_flush(ArtifactStar, "user_id")
+    resp = _star(test_client, corpus, "owner", sales)
+    assert broken  # the failure did happen
+    assert resp.status_code == 500, resp.text
+    assert resp.json()["error_code"] == "generic"  # ErrorCode.INTERNAL
+    assert _starred(test_client, corpus, "owner", sales, "my") is False
+
+
+@pytest.mark.e2e
+def test_a_first_visit_that_fails_for_another_reason_is_not_taken_for_a_race(corpus, corpus_rows, test_client,
+                                                                             break_at_flush):
+    """Only the watermark's own unique pair means "the other visit wrote it":
+    any other integrity failure reaches the reader as a failure, and nothing
+    is stored."""
+    from app.models.artifact_list_seen import ArtifactListSeen
+
+    broken = break_at_flush(ArtifactListSeen, "organization_id")
+    resp = test_client.post("/api/artifacts/shared/seen", headers=as_(corpus, "member"))
+    assert broken  # the failure did happen
+    assert resp.status_code == 500, resp.text
+    assert resp.json()["error_code"] == "generic"  # ErrorCode.INTERNAL
+    assert _seen_rows(corpus_rows, corpus.cast.id("member"), corpus.cast.org_id) == []
