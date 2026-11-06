@@ -20,7 +20,7 @@ from app.data_sources.clients import kms_lighthouse_diagnostics as kd
 from tests.unit.test_kms_lighthouse_client import client, kms, kms_server, raw_kms, token_client  # noqa: F401
 
 _REPORT_KEYS = {"report_version", "generated_at", "bow_version", "host", "api_prefix", "auth_method", "root_folder_set",
-                "overall", "failed_stage", "calls_made", "duration_ms", "checks"}
+                "overall", "failed_stage", "manual_checks", "calls_made", "duration_ms", "checks"}
 _STATUSES = {"pass", "warn", "fail", "info", "skipped"}
 _STAGES = {"network", "tls", "login", "browse", "search", "read"}
 # Every Live-probe checklist item has a row.
@@ -72,7 +72,7 @@ def _scenario_hit(scenario_id):
 def test_a_healthy_tenant_answers_every_checklist_item(kms):
     report = client(kms, "alice", root_folder_id=10).diagnostics()
     _assert_plain_report(report)
-    assert report["overall"] == "warn", "item 12 cannot pass from one account"
+    assert report["overall"] == "warn", "the mock's search matches every query and holds ids with no body"
     assert report["failed_stage"] is None
     assert report["host"] == kms["base_url"].split("//")[1]
     assert report["api_prefix"] == kms["mock"].PREFIX
@@ -81,6 +81,55 @@ def test_a_healthy_tenant_answers_every_checklist_item(kms):
     assert report["calls_made"] == len(kms["mock"].REQUEST_LOG) and report["duration_ms"] >= 0
     assert {item for row in report["checks"] for item in row["checklist"]} == _CHECKLIST
     assert not [row for row in report["checks"] if row["status"] == "fail"]
+
+
+def _clean_tenant(kms, monkeypatch):
+    """Every automatic check has something to find and finds nothing wrong."""
+    mock = kms["mock"]
+    monkeypatch.setattr(mock, "SEARCH_RESULTS", [
+        {"id": "279", "subType": "T_PROCEDURE", "title": "t", "description": "", "statusCode": "2"}])
+    mock.STATE["extra_results"] = [_scenario_hit("21302")]
+    mock.STATE["no_hit_text"] = kd._NO_HIT_QUERY
+
+
+def test_a_clean_automatic_run_passes_with_one_manual_check_left(kms, monkeypatch):
+    _clean_tenant(kms, monkeypatch)
+    report = client(kms, "svc", root_folder_id=95).diagnostics()
+    rows = _rows(report)
+    assert report["overall"] == "pass", [(row["id"], row["status"]) for row in report["checks"]
+                                         if row["status"] not in ("pass", "info")]
+    assert report["failed_stage"] is None and report["manual_checks"] == ["ai_elements"]
+    assert rows["ai_elements"]["status"] == "warn", "item 12 still cannot pass from one account"
+    assert rows["tls"]["status"] == "skipped" and rows["concurrent_sessions"]["status"] == "skipped"
+
+
+def test_a_warning_other_than_the_manual_check_lowers_overall(kms, monkeypatch):
+    _clean_tenant(kms, monkeypatch)
+    kms["mock"].STATE["search_max_rows"] = 1
+    report = client(kms, "svc", root_folder_id=95).diagnostics()
+    assert _rows(report)["page_rows"]["status"] == "warn" and report["overall"] == "warn"
+
+
+@pytest.mark.parametrize("variant,skipped", [
+    ({"extra_results": []}, "scenario_text"),
+    ({"ai_status": "error"}, None),
+])
+def test_a_skipped_automatic_check_lowers_overall(kms, monkeypatch, variant, skipped):
+    _clean_tenant(kms, monkeypatch)
+    kms["mock"].STATE.update(variant)
+    report = client(kms, "svc", root_folder_id=95).diagnostics()
+    assert report["overall"] == "warn"
+    if skipped:
+        assert _rows(report)[skipped]["status"] == "skipped"
+
+
+def test_ai_elements_skipped_lowers_overall(kms, monkeypatch):
+    _clean_tenant(kms, monkeypatch)
+    unversioned = {key: value for key, value in kms["mock"].ITEMS["279"].items() if key != "version"}
+    monkeypatch.setitem(kms["mock"].ITEMS, "279", unversioned)
+    report = client(kms, "svc", root_folder_id=95).diagnostics()
+    assert _rows(report)["ai_elements"]["status"] == "skipped"
+    assert report["overall"] == "warn" and report["manual_checks"] == []
 
 
 def test_ten_and_thirteen_are_skipped_with_a_reason_to_ask_the_admin(kms):
@@ -482,12 +531,68 @@ def test_an_empty_top_level_with_a_root_folder_still_samples_the_root(kms):
     assert rows["field_types"]["observed"]["items_read"] > 0
 
 
+@pytest.mark.parametrize("record,reason", [
+    ({"id": "not-a-number", "type": "FOLDER", "title": "t"}, "non_numeric_id"),
+    ({"type": "ITEM", "title": "no id"}, "non_numeric_id"),
+    ("a string, not a record", "not_records"),
+])
+def test_a_tree_the_connector_would_refuse_fails_top_level(kms, monkeypatch, record, reason):
+    mock = kms["mock"]
+    good = {"id": "78", "type": "FOLDER", "title": "t"}
+    real_send_json = mock.Handler._send_json
+
+    def tree_with_a_bad_record(self, status, body, headers=None):
+        if "/cm/tree/branch/view" in self.path:
+            body = {"status": "SUCCESS", "data": [good, record]}
+        return real_send_json(self, status, body, headers)
+
+    monkeypatch.setattr(mock.Handler, "_send_json", tree_with_a_bad_record)
+    report = client(kms, "alice").diagnostics()
+    row = _rows(report)["top_level"]
+    assert row["status"] == "fail" and row["observed"]["reason"] == reason
+    assert report["failed_stage"] == "browse"
+
+
+@pytest.mark.parametrize("results,reason", [
+    ([{"id": "x-1", "title": "t"}], "non_numeric_id"),
+    ([{"id": "279", "title": "t"}, "a string"], "not_records"),
+])
+def test_a_search_answer_the_connector_would_refuse_fails_search_layout(kms, results, reason):
+    kms["mock"].STATE["search_body"] = {"regularSearch": {"results": results}}
+    row = _rows(client(kms, "alice").diagnostics())["search_layout"]
+    assert row["status"] == "fail" and row["observed"]["reason"] == reason
+
+
+def test_a_folder_that_cannot_be_opened_warns(kms):
+    kms["mock"].STATE["tree_status"] = {"78": 500}
+    row = _rows(client(kms, "alice").diagnostics())["top_level"]
+    assert row["status"] == "warn"
+    assert row["observed"]["folder_statuses"]["http_500"] == 1 and row["observed"]["folder_statuses"]["http_200"] > 0
+
+
+def test_no_folder_that_can_be_opened_fails(kms):
+    mock = kms["mock"]
+    mock.STATE["tree_status"] = {node_id: 503 for node_id, node in mock.TREE.items() if node["parent"] is None}
+    report = client(kms, "alice").diagnostics()
+    row = _rows(report)["top_level"]
+    assert row["status"] == "fail" and report["failed_stage"] == "browse"
+    assert set(row["observed"]["folder_statuses"]) == {"http_503"}
+
+
 # ------------------------------------------------------------------ items 5, 6: types and id overlap
 def test_type_and_subtype_counts_come_from_tree_and_search(kms):
     observed = _rows(client(kms, "alice").diagnostics())["types"]["observed"]
     assert observed["tree_types"]["FOLDER"] > 0
     assert observed["search_sub_types"]["T_PROCEDURE"] >= 2
     assert observed["search_sub_types"]["T_SCENARIO_FLOW"] == 1
+
+
+def test_id_overlap_is_skipped_when_the_sample_holds_no_id(kms):
+    mock = kms["mock"]
+    mock.STATE["no_hit_text"] = ""
+    mock.STATE["top_level_requires_parent"] = True
+    row = _rows(client(kms, "alice").diagnostics())["id_overlap"]
+    assert row["status"] == "skipped"
 
 
 def test_a_shared_id_between_item_and_scenario_is_counted(kms):
@@ -544,6 +649,43 @@ def test_a_search_with_no_hits_warns_after_a_few_fixed_queries(kms):
     assert row["observed"]["queries_tried"] == len(kd._SAMPLE_QUERIES) <= 3
 
 
+@pytest.mark.parametrize("total_key", ["total", "totalResults", "numFound"])
+def test_a_stated_zero_total_is_no_hits_not_a_failed_search(kms, total_key):
+    kms["mock"].STATE["search_body"] = {"regularSearch": {total_key: 0}}
+    row = _rows(client(kms, "alice").diagnostics())["search_layout"]
+    assert row["status"] == "warn" and row["observed"]["without_layout_rows"] == 0
+    assert row["observed"]["queries_tried"] == len(kd._SAMPLE_QUERIES), "every fixed query is still tried"
+
+
+def test_a_search_answer_with_no_results_and_no_total_is_a_failure(kms):
+    kms["mock"].STATE["search_body"] = {"regularSearch": {"query": "x"}}
+    assert _rows(client(kms, "alice").diagnostics())["search_layout"]["status"] == "fail"
+
+
+def test_layout_required_needs_a_usable_answer_with_the_layout_and_a_refusal_without_it(kms):
+    kms["mock"].STATE["search_requires_layout"] = "error"
+    row = _rows(client(kms, "alice", layout_id=7).diagnostics())["search_layout"]
+    assert row["observed"]["without_layout_status"] == 200, "a 200 ERROR is a refusal too"
+    assert row["observed"]["layout_required"] is True
+
+
+def test_an_error_answer_with_the_layout_is_not_proof_the_layout_is_required(kms, monkeypatch):
+    mock = kms["mock"]
+    real_send_json = mock.Handler._send_json
+
+    def error_with_a_layout_and_500_without(self, status, body, headers=None):
+        if "/search/full" in self.path and "layoutId=" in self.path:
+            body = {"status": "ERROR"}
+        elif "/search/full" in self.path:
+            return self._send_empty(500)
+        return real_send_json(self, status, body, headers)
+
+    monkeypatch.setattr(mock.Handler, "_send_json", error_with_a_layout_and_500_without)
+    row = _rows(client(kms, "alice", layout_id=7).diagnostics())["search_layout"]
+    assert row["observed"]["with_layout_status"] == 200 and row["observed"]["without_layout_status"] == 500
+    assert row["observed"]["layout_required"] is False
+
+
 # ------------------------------------------------------------------ item 9: longest query
 @pytest.mark.parametrize("limit,accepted,status", [(10_000, 1000, "pass"), (700, 500, "pass"), (300, 200, "pass"),
                                                    (150, 100, "warn"), (60, 50, "warn"), (20, None, "warn")])
@@ -553,6 +695,26 @@ def test_longest_query_takes_at_most_three_calls(kms, limit, accepted, status):
     assert row["status"] == status and row["observed"]["longest_accepted"] == accepted
     assert row["observed"]["connector_limit"] == kc._MAX_QUERY_CHARS
     assert row["observed"]["calls"] <= 3
+
+
+@pytest.mark.parametrize("rejection", [400, 413, 414])
+def test_each_rejection_status_counts_as_rejected(kms, rejection):
+    kms["mock"].STATE.update({"search_max_query": 100, "search_too_long": rejection})
+    row = _rows(client(kms, "alice").diagnostics())["query_length"]
+    assert row["status"] == "warn" and row["observed"]["inconclusive"] is False
+    assert row["observed"]["longest_accepted"] == 100 and row["observed"]["shortest_rejected"] == 200
+
+
+@pytest.mark.parametrize("answer,status_key", [(500, "http_500"), (503, "http_503"), (403, "http_403"),
+                                               ("error", "http_200")])
+@pytest.mark.parametrize("over", [100, 300])
+def test_any_other_answer_to_a_long_query_is_inconclusive_not_accepted_or_rejected(kms, over, answer, status_key):
+    kms["mock"].STATE.update({"search_max_query": over, "search_too_long": answer})
+    row = _rows(client(kms, "alice").diagnostics())["query_length"]
+    assert row["observed"]["shortest_rejected"] is None and row["status"] == "warn"
+    assert row["observed"]["inconclusive"] is True
+    assert row["observed"]["statuses"][status_key] >= 1
+    assert row["observed"]["longest_accepted"] == (None if over < kc._MAX_QUERY_CHARS else kc._MAX_QUERY_CHARS)
 
 
 # ------------------------------------------------------------------ item 17: zero hits
@@ -584,6 +746,13 @@ def test_a_server_side_row_cap_is_found(kms):
     assert row["observed"] == {"rows_requested": 50, "rows_returned": 3, "next_page_rows": 3, "server_cap": True}
 
 
+def test_a_failed_next_page_warns_with_its_status(kms):
+    kms["mock"].STATE["search_page_status"] = 502
+    row = _rows(client(kms, "alice").diagnostics())["page_rows"]
+    assert row["status"] == "warn"
+    assert row["observed"]["next_page_status"] == 502 and row["observed"]["server_cap"] is None
+
+
 def test_a_short_last_page_is_no_cap(kms):
     row = _rows(client(kms, "alice").diagnostics())["page_rows"]
     assert row["status"] == "pass" and row["observed"]["server_cap"] is False
@@ -602,6 +771,33 @@ def test_python_type_names_of_tab_ids(kms):
     assert observed["tabs_id_types"] == {"int": 3}, "two tabs on item 279, one on 301"
     assert observed["element_tab_id_types"]["str"] > 0
     assert observed["element_tab_id_types"]["NoneType"] > 0 and observed["element_tab_id_types"]["int"] > 0
+
+
+def test_an_item_that_could_not_be_read_warns(kms):
+    """The mock's search holds ids with no /public/item body."""
+    row = _rows(client(kms, "alice").diagnostics())["field_types"]
+    assert row["observed"]["items_read"] < row["observed"]["items_tried"]
+    assert row["status"] == "warn"
+
+
+def _only_item(mock, monkeypatch, **fields):
+    monkeypatch.setattr(mock, "SEARCH_RESULTS", [
+        {"id": "279", "subType": "T_PROCEDURE", "title": "t", "description": "", "statusCode": "2"}])
+    monkeypatch.setitem(mock.ITEMS, "279", {**mock.ITEMS["279"], **fields})
+
+
+def test_items_with_no_tab_ids_warn(kms, monkeypatch):
+    _only_item(kms["mock"], monkeypatch, tabs=[], elements={})
+    row = _rows(client(kms, "svc", root_folder_id=95).diagnostics())["field_types"]
+    assert row["observed"]["items_read"] == row["observed"]["items_tried"] == 1
+    assert row["observed"]["tabs_id_types"] == {} and row["observed"]["element_tab_id_types"] == {}
+    assert row["status"] == "warn"
+
+
+def test_every_item_read_with_tab_ids_passes(kms, monkeypatch):
+    _only_item(kms["mock"], monkeypatch)
+    row = _rows(client(kms, "svc", root_folder_id=95).diagnostics())["field_types"]
+    assert row["status"] == "pass"
 
 
 def test_no_readable_item_fails_the_read_stage(kms, monkeypatch):
@@ -662,6 +858,34 @@ def test_plain_ai_text_passes(kms):
     assert _rows(client(kms, "alice").diagnostics())["ai_text"]["status"] == "pass"
 
 
+def _ai_elements(mock, monkeypatch, element):
+    for item in ("301", "279"):
+        monkeypatch.setitem(mock.AI_ITEMS, item, {**mock.AI_ITEMS[item], "elements": [element]})
+
+
+@pytest.mark.parametrize("element", [
+    {"element_name": "E_SUMMARY", "element_text": ""},
+    {"element_name": "E_SUMMARY", "element_text": None},
+    {"element_name": "E_SUMMARY", "body": "words"},
+    {"caption": "c", "text": "words"},
+])
+def test_ai_text_with_nothing_plain_never_passes(kms, monkeypatch, element):
+    _ai_elements(kms["mock"], monkeypatch, element)
+    row = _rows(client(kms, "alice").diagnostics())["ai_text"]
+    assert row["status"] == "warn" and row["observed"]["plain"] == 0
+
+
+def test_ai_elements_with_no_text_key_report_their_key_names(kms, monkeypatch):
+    _ai_elements(kms["mock"], monkeypatch, {"name": "E_SUMMARY", "text": "words", "a key with spaces": 1})
+    row = _rows(client(kms, "alice").diagnostics())["ai_text"]
+    assert row["status"] == "warn"
+    assert row["observed"]["element_keys"] == ["name", "text"] and row["observed"]["unlisted_names"] == 1
+
+
+def test_ai_elements_with_their_keys_report_no_key_names(kms):
+    assert "element_keys" not in _rows(client(kms, "alice").diagnostics())["ai_text"]["observed"]
+
+
 # ------------------------------------------------------------------ items 15, 16: scenarios
 def test_scenario_text_counts_tags_and_entities(kms, monkeypatch):
     mock = kms["mock"]
@@ -679,6 +903,29 @@ def _only_scenario(kms):
     mock = kms["mock"]
     mock.STATE["extra_results"] = [_scenario_hit("21302")]
     return client(kms, "svc", root_folder_id=78)
+
+
+def test_scenario_steps_with_no_text_warn_and_name_their_keys(kms, monkeypatch):
+    mock = kms["mock"]
+    monkeypatch.setattr(mock, "SEARCH_RESULTS", [])
+    monkeypatch.setitem(mock.SCENARIOS, "21302", mock._scenario(21302, "t", {"caption": "words", "nextNode": 1}))
+    row = _rows(_only_scenario(kms).diagnostics())["scenario_text"]
+    assert row["status"] == "warn"
+    assert row["observed"]["strings"] == 0 and row["observed"]["scenarios_read"] == 1
+    assert row["observed"]["step_keys"] == ["caption", "nextNode"]
+
+
+def test_plain_scenario_text_names_no_step_keys(kms, monkeypatch):
+    monkeypatch.setattr(kms["mock"], "SEARCH_RESULTS", [])
+    assert "step_keys" not in _rows(_only_scenario(kms).diagnostics())["scenario_text"]["observed"]
+
+
+def test_no_scenario_read_skips_the_step_check(kms):
+    """The mock's search holds a scenario id with no body, so one is sampled and none is read."""
+    rows = _rows(client(kms, "alice").diagnostics())
+    assert rows["scenario_text"]["observed"]["scenarios_tried"] > 0
+    assert rows["scenario_text"]["observed"]["scenarios_read"] == 0
+    assert rows["scenario_steps"]["status"] == "skipped"
 
 
 def test_plain_scenario_text_passes(kms, monkeypatch):
@@ -719,7 +966,13 @@ def test_step_fetches_are_bounded(kms, monkeypatch):
 # ------------------------------------------------------------------ a report without a client
 @pytest.mark.parametrize("config,host", [
     ({"base_url": "https://kms.example.com/kms/lh/api", "auth_type": "token", "root_folder_id": 4}, "kms.example.com"),
-    ({"base_url": "https://user:secret@kms.example.com"}, "kms.example.com"),
+    ({"base_url": "https://kms.example.com:8443"}, "kms.example.com:8443"),
+    ({"base_url": "https://[::1]:8443"}, "[::1]:8443"),
+    ({"base_url": "https://user:secret@kms.example.com"}, ""),
+    ({"base_url": "https://svc:secret/ss@kms.example.com"}, ""),
+    ({"base_url": "https://svc:secret?cd@kms.example.com"}, ""),
+    ({"base_url": "https://svc:secret"}, ""),
+    ({"base_url": "https://secret@"}, ""),
     ({"base_url": 12}, ""),
     ({}, ""),
 ])
@@ -732,6 +985,21 @@ def test_a_failure_report_has_the_same_shape_and_no_secret(config, host):
     assert rows["login"]["observed"] == {"reason": "credentials_unavailable", "error_type": "CredentialsRequiredError"}
     assert {item for row in report["checks"] for item in row["checklist"]} == _CHECKLIST
     assert {row["status"] for row in report["checks"]} == {"fail", "skipped"}
+
+
+@pytest.mark.parametrize("prefix", ["https://svc:secret@kms.example.com/api", "/kms/secret value", "/kms?token=secret",
+                                    "secret", 12])
+def test_a_failure_report_never_copies_an_api_prefix_that_is_not_a_plain_path(prefix):
+    report = kd.failure_report({"base_url": "https://kms.example.com", "api_prefix": prefix}, stage="login",
+                               reason="credentials_unavailable", error_type="CredentialsRequiredError")
+    assert report["api_prefix"] == kc._DEFAULT_PREFIX
+    assert "secret" not in json.dumps(report)
+
+
+@pytest.mark.parametrize("prefix", ["https://svc:secret@kms.example.com/api", "/kms/secret value", "/kms?token=secret"])
+def test_a_client_is_never_built_with_an_api_prefix_that_is_not_a_plain_path(prefix):
+    with pytest.raises(kc.KmsError):
+        kc.KmsLighthouseClient(base_url="https://kms.example.com", api_prefix=prefix, username="u", password="p")
 
 
 def test_a_blocked_destination_is_a_network_failure_report():

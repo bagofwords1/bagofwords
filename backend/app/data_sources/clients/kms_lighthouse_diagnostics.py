@@ -53,7 +53,10 @@ _SAMPLE_QUERIES = ("a", "*", "ה")
 _NO_HIT_QUERY = "zqxbowdiagnosticsnohit"
 _LONGER_QUERIES = (500, 1000)
 _SHORTER_QUERIES = (100, 50)
+_QUERY_REJECTIONS = (400, 413, 414)   # the only answers that mean "too long"
 _ALT_PREFIXES = {"kms_lh_api": "/kms/lh/api", "api": "/api"}
+_MANUAL_CHECKS = ("ai_elements",)                 # always warns: only a second, restricted account can settle it
+_ADMIN_CHECKS = ("concurrent_sessions", "logout") # always skipped: a question for the KMS admin
 _TREE = "/cm/tree/branch/view"
 _SEARCH = "/search/full"
 _ROWS = 50
@@ -154,18 +157,40 @@ def _is_transport(reply: _Reply) -> bool:
     return reply.status == 0 and reply.failure is not None
 
 
-def _search_rows(reply: _Reply) -> list | None:
-    """The result records of a search answer, or None when it holds no list of them."""
-    if not reply.ok or not isinstance(reply.payload, dict):
-        return None
-    block = reply.payload.get("regularSearch")
+def _record_fault(records) -> str | None:
+    """Why the connector would refuse these records (``_tree_children``), or None when it would not."""
+    if not isinstance(records, list) or not all(isinstance(record, dict) for record in records):
+        return "not_records"
+    if not all(kc._DIGITS_RE.fullmatch(str(record.get("id", ""))) for record in records):
+        return "non_numeric_id"
+    return None
+
+
+def _search_records(reply: _Reply):
+    """What a usable search answer holds as its records; a stated total of zero is no hits."""
+    block = reply.payload.get("regularSearch") if reply.ok and isinstance(reply.payload, dict) else None
     results = block.get("results") if isinstance(block, dict) else None
-    return [row for row in results if isinstance(row, dict)] if isinstance(results, list) else None
+    return [] if results is None and isinstance(block, dict) and kc._zero_total(block) else results
+
+
+def _tree_records(reply: _Reply):
+    return reply.payload.get("data") if reply.ok and isinstance(reply.payload, dict) else None
+
+
+def _search_rows(reply: _Reply) -> list | None:
+    """The result records of a search answer, or None when the connector could not use them."""
+    records = _search_records(reply)
+    return None if _record_fault(records) else records
 
 
 def _tree_rows(reply: _Reply) -> list | None:
-    data = reply.payload.get("data") if reply.ok and isinstance(reply.payload, dict) else None
-    return [row for row in data if isinstance(row, dict)] if isinstance(data, list) else None
+    records = _tree_records(reply)
+    return None if _record_fault(records) else records
+
+
+def _reason(reply: _Reply, records) -> dict:
+    """``{"reason": ...}`` when a usable answer held records the connector would refuse."""
+    return {"reason": _record_fault(records)} if reply.ok else {}
 
 
 class _Run:
@@ -185,6 +210,7 @@ class _Run:
         self.items: list = []                # (digits, payload) of the items read
         self.ai_records: list = []           # the element records of each AI text answer
         self.ai_statuses: dict | None = None # None: no AI text was asked for
+        self.scenarios_read = 0
         self.step_fetches: list = []         # (scenario digits, step id) that need their own call
 
     # ------------------------------------------------------------ the budget and the one way out
@@ -231,7 +257,7 @@ class _Run:
 
     def check_tls(self):
         if not self.client._base.startswith("https://"):
-            return "skipped", "Skipped: the connection uses plain HTTP.", {}
+            return "skipped", "Skipped: the connection uses plain HTTP.", {"plain_http": True}
         failure = self.reach.failure if _is_transport(self.reach) else None
         if failure in _TLS_FAILURES:
             return "fail", _FAILURE_SUMMARIES[failure], {"failure": failure}
@@ -322,15 +348,14 @@ class _Run:
         kinds = Counter(kc._kind_of(record) for record in self.tree_records)
         return kinds["item"] >= _MAX_ITEMS and kinds["scenario"] >= _MAX_SCENARIOS
 
-    def _walk(self, rows: list) -> int:
-        """Open a few folders from ``rows`` to find items and scenarios."""
-        folders, walked = [row for row in rows if kc._kind_of(row) == "folder"], 0
-        while folders and walked < _TREE_WALK_CALLS and not self._enough_samples():
-            folder = folders.pop(0)
-            if kc._DIGITS_RE.fullmatch(str(folder.get("id", ""))):
-                walked += 1
-                folders += [row for row in self._level(folder["id"])[1] if kc._kind_of(row) == "folder"]
-        return walked
+    def _walk(self, rows: list) -> list:
+        """Open a few folders from ``rows`` to find items and scenarios; returns the answers."""
+        folders, replies = [row for row in rows if kc._kind_of(row) == "folder"], []
+        while folders and len(replies) < _TREE_WALK_CALLS and not self._enough_samples():
+            reply, found = self._level(folders.pop(0)["id"])
+            replies.append(reply)
+            folders += [row for row in found if kc._kind_of(row) == "folder"]
+        return replies
 
     def check_top_level(self):
         root = self.client.root_folder_id
@@ -341,11 +366,19 @@ class _Run:
         if root is not None:
             start, start_rows = self._level(root)
             observed.update(root_status=start.status, root_records=len(start_rows))
-        observed["folders_opened"] = self._walk(start_rows)
-        if _tree_rows(start) is None:
-            return "fail", "The folder tree could not be read.", observed
+        opened = self._walk(start_rows)
+        failed = sum(1 for reply in opened if _tree_rows(reply) is None)
+        observed.update(folders_opened=len(opened), folders_failed=failed, folder_statuses=_status_counts(opened))
+        for reply in (top, start):
+            if _tree_rows(reply) is None:
+                return "fail", "The folder tree could not be read.", {
+                    **observed, **_reason(reply, _tree_records(reply))}
+        if opened and failed == len(opened):
+            return "fail", "No folder could be opened.", observed
         if not top_rows:
             return "warn", "The tree call with no parent came back empty. Set Root folder ID.", observed
+        if failed:
+            return "warn", "Some folders could not be opened.", observed
         return "pass", "The tree call with no parent returns the top level.", observed
 
     def check_types(self):
@@ -368,6 +401,8 @@ class _Run:
 
     def check_id_overlap(self):
         items, scenarios = set(self._ids_of("item")), set(self._ids_of("scenario"))
+        if not items and not scenarios:
+            return "skipped", "Skipped: the sample holds no item and no scenario.", {}
         observed = {"item_ids": len(items), "scenario_ids": len(scenarios), "shared_ids": len(items & scenarios)}
         if items & scenarios:
             return "warn", "An item and a scenario share an id in the sample.", observed
@@ -393,38 +428,37 @@ class _Run:
             bare = self._search(self.search_query or _SAMPLE_QUERIES[0], layout=False)
             bare_rows = _search_rows(bare)
             observed.update(without_layout_status=bare.status, without_layout_rows=len(bare_rows or ()),
-                            layout_required=reply.status == 200 and bare.status != 200)
+                            layout_required=reply.ok and not bare.ok)
         else:
             observed.update(without_layout_status=reply.status, without_layout_rows=len(rows or ()))
         if rows is None:
-            return "fail", "The search call failed.", {**observed, "failure": reply.failure}
+            return "fail", "The search call failed.", {**observed, "failure": reply.failure,
+                                                       **_reason(reply, _search_records(reply))}
         if not rows:
             return "warn", "The search call worked but none of the fixed queries found anything.", observed
         return "pass", "The search call returned results.", observed
 
-    def _accepted(self, length: int) -> bool:
-        return self._search("a" * length).status == 200
-
     def check_query_length(self):
         limit = kc._MAX_QUERY_CHARS
-        calls, longest, rejected = 1, None, None
-        if self._accepted(limit):
-            longest = limit
-            for length in _LONGER_QUERIES:
-                calls += 1
-                if not self._accepted(length):
-                    rejected = length
-                    break
-                longest = length
-        else:
-            rejected = limit
-            for length in _SHORTER_QUERIES:
-                calls += 1
-                if self._accepted(length):
-                    longest = length
-                    break
-                rejected = length
-        observed = {"connector_limit": limit, "longest_accepted": longest, "shortest_rejected": rejected, "calls": calls}
+        replies, found = [], {}             # outcome -> the length that last gave it
+
+        def attempt(length: int) -> str:
+            replies.append(self._search("a" * length))
+            answer = replies[-1]
+            outcome = "accepted" if answer.ok else "rejected" if answer.status in _QUERY_REJECTIONS else "inconclusive"
+            found[outcome] = length
+            return outcome
+
+        first = attempt(limit)
+        # Up from the limit while KMS accepts, down from it while KMS rejects, until the answer changes.
+        for length in {"accepted": _LONGER_QUERIES, "rejected": _SHORTER_QUERIES}.get(first, ()):
+            if attempt(length) != first:
+                break
+        longest, inconclusive = found.get("accepted"), "inconclusive" in found
+        observed = {"connector_limit": limit, "longest_accepted": longest, "shortest_rejected": found.get("rejected"),
+                    "calls": len(replies), "inconclusive": inconclusive, "statuses": _status_counts(replies)}
+        if inconclusive:
+            return "warn", "KMS gave an answer to a long query that neither accepts nor rejects it.", observed
         if longest is not None and longest >= limit:
             return "pass", "KMS accepts every query length the connector sends.", observed
         return "warn", "KMS rejected a query the connector could send. Tell the BOW engineers.", observed
@@ -453,7 +487,11 @@ class _Run:
         if returned >= _ROWS:
             return "pass", "KMS returned every row asked for.", {**observed, "server_cap": False}
         # A short page: the end of the results, or a cap? The next page tells.
-        following = _search_rows(self._search(self.search_query, start=returned)) or []
+        reply = self._search(self.search_query, start=returned)
+        following = _search_rows(reply)
+        if following is None:
+            observed.update(next_page_status=reply.status, server_cap=None)
+            return "warn", "The next page of results could not be read, so a server-side cap cannot be ruled out.", observed
         observed.update(next_page_rows=len(following), server_cap=bool(following))
         if following:
             return "warn", "KMS caps rows per page below what the connector asks for, so paging stops early.", observed
@@ -480,6 +518,10 @@ class _Run:
                     "tabs_id_types": _type_counts(tabs), "element_tab_id_types": _type_counts(tab_ids)}
         if not self.items:
             return "fail", "No sampled item could be read.", observed
+        if len(self.items) < len(ids):
+            return "warn", "Some sampled items could not be read. See the status codes.", observed
+        if not tabs and not tab_ids:
+            return "warn", "The sampled items hold no tabs[].id and no elements.*.tabId.", observed
         return "pass", "Python type names of tabs[].id and elements.*.tabId in the sampled items.", observed
 
     def check_dates(self):
@@ -531,9 +573,11 @@ class _Run:
     def check_ai_text(self):
         if self.ai_statuses is None:
             return "skipped", "Skipped: no AI text was asked for.", {}
-        plain, ambiguous, blank = 0, 0, 0
+        plain, ambiguous, blank, odd_keys = 0, 0, 0, set()
         for records in self.ai_records:
             for element in records:
+                if "element_text" not in element or "element_name" not in element:
+                    odd_keys |= set(element)
                 text = element.get("element_text")
                 text = "" if text is None else str(text)
                 if not kc._tidy_lines(text):
@@ -543,10 +587,15 @@ class _Run:
                 else:
                     plain += 1
         observed = {"statuses": self.ai_statuses, "plain": plain, "ambiguous": ambiguous, "blank": blank}
+        if odd_keys:
+            keys, left_out = _plain_names(odd_keys)
+            observed.update(element_keys=keys, unlisted_names=left_out)
         if not self.ai_records:
             return "warn", "No AI text came back. See the status codes; the connector falls back to the item.", observed
         if ambiguous:
             return "warn", "Some AI text looks like HTML. The connector renders those elements from the item.", observed
+        if not plain:
+            return "warn", "The AI answers held no plain text. The connector falls back to the item.", observed
         return "pass", "The sampled AI text is plain text.", observed
 
     # ------------------------------------------------------------ read, items 15, 16
@@ -554,7 +603,7 @@ class _Run:
         ids = self._ids_of("scenario")[:_MAX_SCENARIOS]
         if not ids:
             return "skipped", "Skipped: no scenario in the sample.", {}
-        replies, read, strings, tags, entities = [], 0, 0, 0, 0
+        replies, read, strings, tags, entities, step_keys = [], 0, 0, 0, 0, set()
         for digits in ids:
             reply = self.get("diagnostics_scenario", f"/public/scenario/{digits}", params=kc._SCENARIO_PARAMS,
                              headers={"Accept": kc._SCENARIO_ACCEPT})
@@ -564,14 +613,20 @@ class _Run:
             if not isinstance(steps, dict):
                 continue
             read += 1
+            step_keys |= set(steps)
             for text in self._scenario_strings(digits, steps):
                 strings += 1
                 tags += 1 if _TAG_RE.search(text) else 0
                 entities += 1 if kc._ENTITY_RE.search(text) else 0
+        self.scenarios_read = read
         observed = {"scenarios_tried": len(ids), "scenarios_read": read, "statuses": _status_counts(replies),
                     "strings": strings, "with_tags": tags, "with_entities": entities}
         if not read:
             return "warn", "No sampled scenario could be read.", observed
+        if not strings:
+            keys, left_out = _plain_names(step_keys)
+            return "warn", "The sampled scenarios held no text the connector knows. See the step key names.", {
+                **observed, "step_keys": keys, "unlisted_names": left_out}
         if tags or entities:
             return "warn", "Scenario text has tags or entities although plainText=true was sent.", observed
         return "pass", "The sampled scenario text is plain text.", observed
@@ -596,6 +651,8 @@ class _Run:
     def check_scenario_steps(self):
         if not self._ids_of("scenario"):
             return "skipped", "Skipped: no scenario in the sample.", {}
+        if not self.scenarios_read:
+            return "skipped", "Skipped: no sampled scenario could be read.", {}
         if not self.step_fetches:
             return "info", "No sampled step needed its own call.", {"statuses": {}}
         replies = [self.get("diagnostics_step", f"/public/scenario/{digits}/step/{step_id}", params=kc._SCENARIO_PARAMS,
@@ -679,11 +736,20 @@ def _run_check(run: _Run, check_id: str, checklist: list, stage: str, method) ->
     return _row(check_id, checklist, moved[0] if moved else stage, status, summary, observed)
 
 
+def _lowers_overall(row: dict) -> bool:
+    """A warning or a skip, unless it says nothing about this run: only a person can answer those."""
+    if row["status"] == "warn":
+        return row["id"] not in _MANUAL_CHECKS
+    if row["status"] == "skipped":
+        return row["id"] not in _ADMIN_CHECKS and not row["observed"].get("plain_http")
+    return False
+
+
 def _overall(rows: list, ended: str | None) -> tuple[str, str | None]:
     failed = next((row["stage"] for row in rows if row["status"] == "fail"), None)
     if failed is not None:
         return "fail", failed
-    if ended is not None or any(row["status"] == "warn" for row in rows):
+    if ended is not None or any(_lowers_overall(row) for row in rows):
         return "warn", None
     return "pass", None
 
@@ -694,8 +760,9 @@ def _report(host: str, api_prefix: str, auth_method: str, root_folder_set: bool,
     return {
         "report_version": _REPORT_VERSION, "generated_at": datetime.now(timezone.utc).isoformat(),
         "bow_version": settings.PROJECT_VERSION, "host": host, "api_prefix": api_prefix, "auth_method": auth_method,
-        "root_folder_set": root_folder_set, "overall": overall, "failed_stage": failed_stage, "calls_made": calls,
-        "duration_ms": duration_ms, "checks": rows,
+        "root_folder_set": root_folder_set, "overall": overall, "failed_stage": failed_stage,
+        "manual_checks": [row["id"] for row in rows if row["id"] in _MANUAL_CHECKS and row["status"] == "warn"],
+        "calls_made": calls, "duration_ms": duration_ms, "checks": rows,
     }
 
 
@@ -714,17 +781,20 @@ def run_diagnostics(client, deadline=None) -> dict:
 
 def _host_of(base_url) -> str:
     """The host of a config that may not have built a client; never a user name or password."""
-    if not isinstance(base_url, str):
+    # A password holding "/" or "?" ends the netloc early, so only the raw string shows the "@".
+    if not isinstance(base_url, str) or "@" in base_url:
         return ""
-    bad = False
+    bad, host, port = False, None, None
     try:
-        netloc = urlsplit(base_url.strip()).netloc
+        parts = urlsplit(base_url.strip())
+        host, port = parts.hostname, parts.port     # ``port`` raises when it is not a number
     except ValueError:
         bad = True
-    if bad:
+    if bad or not host:
         return ""
-    host = netloc.rpartition("@")[2].lower()
-    return host if _HOST_RE.fullmatch(host) else ""
+    host = f"[{host}]" if ":" in host else host
+    shown = host.lower() if port is None else f"{host.lower()}:{port}"
+    return shown if _HOST_RE.fullmatch(shown) else ""
 
 
 def build_failure_report(config, exc: Exception) -> dict:

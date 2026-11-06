@@ -103,7 +103,11 @@ Test-only switches and routes (not part of the KMS API):
     STATE["alt_prefix"] = "/api": GET requests are served under that prefix too; a login is not.
     STATE["search_max_rows"] = N: /search/full returns at most N rows per page, whatever is asked.
     STATE["search_max_query"] = N: a query longer than N characters answers 400 with no body.
-    STATE["search_requires_layout"] = True: /search/full without layoutId answers 400 with no body.
+    STATE["search_too_long"] = N or "error": what a too-long query answers instead (an HTTP status
+    with no body, or a 200 {"status": "ERROR"}).
+    STATE["search_requires_layout"] = True: /search/full without layoutId answers 400 with no body;
+    "error" makes that a 200 {"status": "ERROR"}.
+    STATE["search_page_status"] = N: /search/full past the first page answers HTTP N with no body.
     STATE["no_hit_text"] = "x": a query holding "x" matches nothing; its body is
     STATE["no_hit_body"], or an empty results list when that is None.
   - GET {PREFIX}/_mock/empty              HTTP 200 with an empty body
@@ -410,7 +414,7 @@ _SWITCHES = {
     "search_400": (True, False),
     "hold_search_after_first": (True, False),
     "plant_sentinels": (True, False),
-    "search_requires_layout": (True, False),
+    "search_requires_layout": (True, False, "error"),
 }
 # The odd 200 answers STATE["ai_status"] can name besides an HTTP status.
 _AI_ANSWERS = ("empty", "not_json", "error")
@@ -448,7 +452,9 @@ _DEFAULTS = {
     "alt_prefix": None,              # None | a second prefix that GET requests are served under
     "search_max_rows": None,         # None | a server-side cap on rows per /search/full page
     "search_max_query": None,        # None | the longest query /search/full accepts
-    "search_requires_layout": False, # True: /search/full without layoutId answers 400 with no body
+    "search_too_long": 400,          # what a query over search_max_query answers: a status | "error"
+    "search_requires_layout": False, # True | "error": /search/full without layoutId answers 400 | a 200 ERROR
+    "search_page_status": None,      # None | an HTTP status: /search/full past the first page answers it
     "no_hit_text": None,             # None | a query holding this text matches nothing
     "no_hit_body": None,             # None | the whole JSON body of a query that matches nothing
 }
@@ -837,8 +843,17 @@ class Handler(BaseHTTPRequestHandler):
             STATE["search_count"] += 1
             STATE["last_search_params"] = params
         too_long = STATE["search_max_query"] is not None and len(params["query"] or "") > STATE["search_max_query"]
-        if STATE["search_400"] or too_long or (STATE["search_requires_layout"] and params["layoutId"] is None):
+        if too_long and STATE["search_too_long"] == "error":
+            return self._send_json(200, {"status": "ERROR"})
+        if too_long:
+            return self._send_empty(STATE["search_too_long"])
+        no_layout = STATE["search_requires_layout"] if params["layoutId"] is None else False
+        if no_layout == "error":
+            return self._send_json(200, {"status": "ERROR"})
+        if STATE["search_400"] or no_layout:
             return self._send_empty(400)
+        if STATE["search_page_status"] is not None and params["start"] not in (None, "0"):
+            return self._send_empty(STATE["search_page_status"])
         if STATE["no_hit_text"] is not None and STATE["no_hit_text"] in (params["query"] or ""):
             return self._send_json(200, STATE["no_hit_body"] if STATE["no_hit_body"] is not None else {
                 "regularSearch": {"query": params["query"], "results": []}})
