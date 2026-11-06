@@ -2890,6 +2890,9 @@
       "locked": "Questa impostazione è bloccata e non può essere modificata.",
       "notEditable": "(Non modificabile direttamente)",
       "noSettings": "Nessuna impostazione IA disponibile.",
+      "noSearchResults": "Nessuna impostazione corrisponde alla ricerca.",
+      "searchPlaceholder": "Cerca impostazioni…",
+      "clearSearch": "Cancella ricerca",
       "sectionSummary": "{n} impostazioni",
       "sectionSummaryOn": "{n} impostazioni · {on} attive",
       "sections": {

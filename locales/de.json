@@ -2890,6 +2890,9 @@
       "locked": "Diese Einstellung ist gesperrt und kann nicht geändert werden.",
       "notEditable": "(Nicht direkt bearbeitbar)",
       "noSettings": "Keine KI-Einstellungen verfügbar.",
+      "noSearchResults": "Keine Einstellungen entsprechen deiner Suche.",
+      "searchPlaceholder": "Einstellungen suchen…",
+      "clearSearch": "Suche löschen",
       "sectionSummary": "{n} Einstellungen",
       "sectionSummaryOn": "{n} Einstellungen · {on} aktiv",
       "sections": {

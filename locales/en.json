@@ -3211,6 +3211,9 @@
       "locked": "This setting is locked and cannot be changed.",
       "notEditable": "(Not directly editable)",
       "noSettings": "No AI settings available.",
+      "noSearchResults": "No settings match your search.",
+      "searchPlaceholder": "Search settings…",
+      "clearSearch": "Clear search",
       "sectionSummary": "{n} settings",
       "sectionSummaryOn": "{n} settings · {on} on",
       "sections": {

@@ -2890,6 +2890,9 @@
       "locked": "هذا الإعداد مقفل ولا يمكن تغييره.",
       "notEditable": "(لا يمكن تعديله مباشرة)",
       "noSettings": "لا توجد إعدادات للذكاء الاصطناعي.",
+      "noSearchResults": "لا توجد إعدادات تطابق بحثك.",
+      "searchPlaceholder": "البحث في الإعدادات…",
+      "clearSearch": "مسح البحث",
       "sectionSummary": "{n} إعدادات",
       "sectionSummaryOn": "{n} إعدادات · {on} مفعّلة",
       "sections": {

@@ -3125,6 +3125,9 @@
       "locked": "Este ajuste está bloqueado y no se puede cambiar.",
       "notEditable": "(No es editable directamente)",
       "noSettings": "No hay ajustes de IA disponibles.",
+      "noSearchResults": "Ningún ajuste coincide con tu búsqueda.",
+      "searchPlaceholder": "Buscar ajustes…",
+      "clearSearch": "Borrar búsqueda",
       "sectionSummary": "{n} ajustes",
       "sectionSummaryOn": "{n} ajustes · {on} activos",
       "sections": {
