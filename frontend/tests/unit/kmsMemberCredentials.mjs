@@ -15,7 +15,7 @@ import { catalogMessage } from '../../composables/useErrorMessage.ts'
 // Other connection types keep their behaviour.
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
-const scriptOf = (sfc) => sfc.match(/<script setup[^>]*>([\s\S]*?)<\/script>/)[1]
+const scriptOf = (sfc) => sfc.match(/<script[^>]*\bsetup\b[^>]*>([\s\S]*?)<\/script>/)[1]
 const declarations = (script) => {
   const ast = ts.createSourceFile('c.ts', script, ts.ScriptTarget.Latest, true)
   const out = new Map()
