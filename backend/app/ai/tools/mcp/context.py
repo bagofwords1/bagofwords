@@ -320,14 +320,17 @@ async def _select_tables_with_llm(
     
     # Format tables for the prompt
     tables_text = _format_tables_for_selection(all_tables)
-    
+
+    # Instructions go in whole: a rule naming the table to use ("revenue
+    # lives in fct_orders") counts wherever it sits, and the coder step sends
+    # the same text to the same model anyway.
     selection_prompt = f"""You are a data analyst assistant. Given a user's query and available database tables, select ONLY the tables needed to answer the query.
 
 USER QUERY:
 {prompt}
 
 ORGANIZATION INSTRUCTIONS:
-{instructions_text[:2000] if instructions_text else "No specific instructions."}
+{instructions_text or "No specific instructions."}
 
 AVAILABLE TABLES:
 {tables_text}

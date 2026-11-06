@@ -11,11 +11,13 @@ Instructions are organizational knowledge that guide AI behavior when generating
 and analyzing data.
 """
 
-from typing import Dict, Any
+import re
+from typing import Dict, Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.tools.mcp.base import MCPTool
+from app.ai.tools.implementations._instruction_window import read_window
 from app.models.user import User
 from app.models.organization import Organization
 from app.core.permission_resolver import resolve_permissions
@@ -97,15 +99,23 @@ async def _can(check) -> bool:
         return False
 
 
+# list_instructions shows each instruction's opening chars only (it can return
+# up to 100 of them); every item says when its text is shortened, and
+# read_instruction returns the rest.
+LIST_TEXT_PREVIEW_CHARS = 500
+
+
 def _pending(schema) -> bool:
     return getattr(schema, "current_build_status", None) == "pending_approval"
 
 
-def _detail(schema, *, can_edit: bool) -> MCPInstructionDetail:
+def _detail(schema, *, can_edit: bool, window: Optional[Dict[str, Any]] = None) -> MCPInstructionDetail:
+    """The instruction as MCP returns it. ``window`` (from read_window) replaces
+    the text with the part that was read and adds where it sits in the whole."""
     return MCPInstructionDetail(
         id=str(schema.id),
         title=getattr(schema, "title", None),
-        text=getattr(schema, "text", "") or "",
+        text=window["text"] if window is not None else (getattr(schema, "text", "") or ""),
         category=getattr(schema, "category", None),
         status=getattr(schema, "status", None),
         load_mode=getattr(schema, "load_mode", None),
@@ -117,6 +127,7 @@ def _detail(schema, *, can_edit: bool) -> MCPInstructionDetail:
         ],
         pending_review=_pending(schema),
         can_edit=can_edit,
+        **(window["fields"] if window is not None else {}),
     )
 
 
@@ -133,7 +144,10 @@ class ListInstructionsMCPTool(MCPTool):
         "List instructions from the current live build. "
         "Instructions are organizational knowledge that guide AI behavior. "
         "Returns instructions visible to the user based on their permissions. "
-        "Supports filtering by status, category, and text search."
+        "Supports filtering by status, category, and text search. "
+        f"Each item's text is cut to its first {LIST_TEXT_PREVIEW_CHARS} chars when longer "
+        "(text_truncated: true, text_length = full length) — call read_instruction for the "
+        "full text before quoting, following or editing an instruction."
     )
     
     @property
@@ -171,18 +185,20 @@ class ListInstructionsMCPTool(MCPTool):
         )
         
         # Map to output schema
-        instructions = [
-            MCPInstructionItem(
+        instructions = []
+        for item in result.get("items", []):
+            text = item.text or ""
+            instructions.append(MCPInstructionItem(
                 id=str(item.id),
                 title=item.title,
-                text=item.text[:500] if item.text else "",  # Truncate for response size
+                text=text[:LIST_TEXT_PREVIEW_CHARS],
+                text_truncated=len(text) > LIST_TEXT_PREVIEW_CHARS,
+                text_length=len(text),
                 category=item.category or "general",
                 status=item.status or "published",
                 load_mode=item.load_mode or "always",
                 source_type=item.source_type or "user",
-            )
-            for item in result.get("items", [])
-        ]
+            ))
         
         logger.info(f"list_instructions: returned {len(instructions)} instructions for user {user.id}")
         
@@ -200,7 +216,11 @@ class ReadInstructionMCPTool(MCPTool):
     description = (
         "Read one instruction in full: text, category, load mode, the agents it applies to "
         "(empty = global), whether a change is pending admin review, and whether you can edit it. "
-        "list_instructions truncates text — read the full text here before editing."
+        "list_instructions truncates text — read the full text here before editing. "
+        "A very long instruction comes back as its opening lines plus an outline, with "
+        "truncated: true and next_offset — read on with offset (and limit; plus col_offset when "
+        "next_col_offset is set), or pull the lines you need with grep_pattern. Range and grep "
+        "text is verbatim."
     )
 
     @property
@@ -216,7 +236,28 @@ class ReadInstructionMCPTool(MCPTool):
         if schema is None or not await svc.user_can_view_instruction(db, schema, user, organization):
             return MCPReadInstructionOutput(success=False, error_message="Instruction not found").model_dump()
         can_edit = await _can(require_instruction_authority(db, user, organization, schema, allow_owner=True))
-        return MCPReadInstructionOutput(success=True, instruction=_detail(schema, can_edit=can_edit)).model_dump()
+        try:
+            window = read_window(
+                getattr(schema, "text", "") or "",
+                getattr(schema, "title", None) or str(schema.id)[:8],
+                offset=data.offset,
+                col_offset=data.col_offset,
+                limit=data.limit,
+                grep_pattern=data.grep_pattern,
+                ignore_case=data.ignore_case,
+                before=data.before,
+                after=data.after,
+                max_matches=data.max_matches,
+            )
+        except re.error as e:
+            return MCPReadInstructionOutput(
+                success=False, error_message=f"Invalid grep_pattern: {e}",
+            ).model_dump()
+        return MCPReadInstructionOutput(
+            success=True,
+            instruction=_detail(schema, can_edit=can_edit, window=window),
+            message=window["summary"],
+        ).model_dump()
 
 
 class CreateInstructionMCPTool(MCPTool):

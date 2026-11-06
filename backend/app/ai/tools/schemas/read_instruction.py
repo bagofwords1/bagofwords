@@ -31,6 +31,15 @@ class ReadInstructionInput(BaseModel):
             "`truncated: true`). The slice is VERBATIM — safe to anchor edit_instruction on."
         ),
     )
+    col_offset: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description=(
+            "RANGE READ: continue a line too long for one read — pass the `next_col_offset` "
+            "a read returned, with `offset` set to that line. The text it returns continues "
+            "the previous piece directly (no line break between them)."
+        ),
+    )
     limit: Optional[int] = Field(
         default=None,
         ge=1,
@@ -111,6 +120,15 @@ class ReadInstructionOutput(BaseModel):
     outline: Optional[str] = Field(
         None,
         description="Line-numbered outline (headings / keys / list entries) of a long body, for picking a range or a grep pattern.",
+    )
+    clipped_line: Optional[int] = Field(
+        None,
+        description="Set when one line was too long for a single read: its number. `text` holds one piece of it — read on with next_offset + next_col_offset.",
+    )
+    clipped_line_length: Optional[int] = Field(None, description="Full length of `clipped_line`, in chars")
+    start_col: Optional[int] = Field(None, description="Set when `text` starts mid-line (a col_offset read): the char it starts at")
+    next_col_offset: Optional[int] = Field(
+        None, description="Set when a line was too long for one read: pass as `col_offset` (with offset=`next_offset`) to read on",
     )
     matches: Optional[List[Any]] = Field(None, description="GREP READ: matching lines with context")
     grep_total_matches: Optional[int] = Field(None, description="GREP READ: total matches found")
