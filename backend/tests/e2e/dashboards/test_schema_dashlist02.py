@@ -77,6 +77,12 @@ def test_the_index_matches_the_model():
     assert not declared[INDEX].unique
 
 
+def _below_dashlist02(revisions: tuple[str, ...]) -> bool:
+    """Back at dashlist01. Sibling heads merged in beside dashlist02 (for
+    example a release's merge revision) stay applied, so they may be listed too."""
+    return PREVIOUS in revisions and "dashlist02" not in revisions
+
+
 @pytest.mark.e2e
 def test_round_trip_keeps_every_link(corpus, corpus_rows):
     url = sync_test_url()
@@ -85,7 +91,7 @@ def test_round_trip_keeps_every_link(corpus, corpus_rows):
     links = _links(url)
     assert links > 0, "the corpus has conversations with agents"
     _alembic(url, "downgrade", PREVIOUS)
-    assert current_revisions(url) == (PREVIOUS,)
+    assert _below_dashlist02(current_revisions(url))
     assert INDEX not in _indexes(url)
     # A native DROP INDEX: on SQLite a batch rebuild could lose rows.
     assert _links(url) == links
@@ -104,7 +110,7 @@ def test_upgrade_and_downgrade_are_idempotent():
     assert INDEX in _indexes(url)
     _alembic(url, "downgrade", PREVIOUS)
     _run_module(url, "downgrade", "downgrade")
-    assert current_revisions(url) == (PREVIOUS,)
+    assert _below_dashlist02(current_revisions(url))
     assert INDEX not in _indexes(url)
     _alembic(url, "upgrade", "head")
     assert INDEX in _indexes(url)
