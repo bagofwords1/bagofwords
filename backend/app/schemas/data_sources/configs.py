@@ -1157,6 +1157,53 @@ class AriaOperationsConfig(BaseModel):
     )
 
 
+
+# VMware vCenter Server / ESXi — vSphere Web Services API (SOAP vim25) + Automation REST (tags)
+class VCenterUserPassCredentials(BaseModel):
+    username: str = Field(
+        ...,
+        title="Username",
+        description="A vCenter SSO or Active Directory user, e.g. svc-bow@vsphere.local. Grant it the built-in Read-only role on the vCenter root with 'Propagate to children'.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
+
+
+class VCenterConfig(BaseModel):
+    host: str = Field(
+        ...,
+        title="vCenter Server",
+        description="Host name or URL of the vCenter Server (or a standalone ESXi host), e.g. vcenter.acme.local. HTTPS only.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    port: int = Field(443, ge=1, le=65535, title="Port", description="HTTPS port (443 unless your vCenter uses another).",
+                      json_schema_extra={"ui:type": "number"})
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the vCenter certificate. vCenter usually presents a certificate from its own VMCA: paste the VMCA root below rather than turning this off.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    ca_certificate: Optional[str] = Field(
+        None,
+        title="CA certificate (optional)",
+        description="PEM certificate of the CA that signed the vCenter certificate (the VMCA root, from https://<vcenter>/certs/download.zip).",
+        json_schema_extra={"ui:type": "textarea"},
+    )
+    include_tags: bool = Field(
+        True,
+        title="Include vSphere tags",
+        description="Read tags and categories through the vSphere Automation REST API (vCenter 7.0 U2 or later).",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    default_lookback_hours: int = Field(
+        24, ge=1, le=720, title="Default lookback (hours)",
+        description="Window for events and tasks when a question gives no explicit time range.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    timeout: int = Field(60, ge=5, le=300, title="Request timeout (seconds)", json_schema_extra={"ui:type": "number"})
+
+
 # DX NetOps Spectrum (Broadcom / CA Spectrum) — OneClick Web Services API
 class SpectrumUserPassCredentials(BaseModel):
     username: str = Field(

@@ -68,6 +68,8 @@ from app.schemas.data_sources.configs import (
     AppDynamicsUserPassCredentials,
     AriaOperationsConfig,
     AriaOperationsUserPassCredentials,
+    VCenterConfig,
+    VCenterUserPassCredentials,
     SpectrumConfig,
     SpectrumUserPassCredentials,
     SpectrumTokenCredentials,
@@ -1031,6 +1033,22 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         # Explicit path: dynamic resolution would derive "AriaOperationsClient"
         # correctly today, but the explicit path is the contract.
         client_path="app.data_sources.clients.aria_operations_client.AriaOperationsClient",
+        version="beta",
+        requires_license="enterprise",
+    ),
+    "vcenter": DataSourceRegistryEntry(
+        type="vcenter",
+        category="infra",
+        title="VMware vCenter",
+        description="VMware vCenter Server or ESXi (vSphere 7–9). Query VMs, disks, snapshots, hosts, clusters, datastores, networks, resource pools and tags, plus performance metrics, the event log, tasks and triggered alarms — for capacity questions and infrastructure RCA.",
+        config_schema=VCenterConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            # vCenter has no API keys: an SSO / AD user logs in and gets a session
+            # (one per query, logged out afterwards). Per-user scope = each
+            # analyst's own vCenter login, so vCenter permissions apply.
+            "userpass": AuthVariant(title="Username + Password", schema=VCenterUserPassCredentials, scopes=["system", "user"]),
+        }),
+        client_path="app.data_sources.clients.vcenter_client.VCenterClient",
         version="beta",
         requires_license="enterprise",
     ),

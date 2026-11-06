@@ -131,6 +131,7 @@ dependencies = [
     "smbprotocol>=1.17.0",
     "neo4j>=6.4.1,<6.5",
     "azure-storage-blob>=12.31.1,<12.32",
+    "pyvmomi>=9.1.1,<10",
 ]
 
 [project.optional-dependencies]
