@@ -454,6 +454,14 @@
       "automation_failed": {
         "title": "\"{name}\" ist fehlgeschlagen"
       },
+      "connection_down": {
+        "title": "Verbindung „{name}“ ist ausgefallen",
+        "body": "„{name}“ hat die Statusprüfungen nicht bestanden und wurde als offline markiert. Agenten, die darauf angewiesen sind, können sie erst nach der Wiederherstellung abfragen."
+      },
+      "connection_restored": {
+        "title": "Verbindung „{name}“ ist wieder online",
+        "body": "„{name}“ hat sich wieder verbunden und ist wieder aktiv."
+      },
       "trigger_run": {
         "title": "⚡ \"{name}\" wurde ausgelöst — {summary}",
         "body": "Die Untersuchung ist abgeschlossen — öffnen Sie die Sitzung für die Ergebnisse."
@@ -3381,6 +3389,12 @@
         "saturday": "Samstag"
       }
     },
+    "connectionAlerts": {
+      "heading": "Warnungs-E-Mails",
+      "label": "E-Mail-Warnungen bei Verbindungsausfall",
+      "description": "Die Administratoren der Verbindung per E-Mail benachrichtigen, wenn eine gemeinsame Verbindung ausfällt oder wiederhergestellt wird. In-App-Benachrichtigungen sind immer aktiv.",
+      "saveError": "Die Einstellung für Verbindungswarnungen konnte nicht gespeichert werden."
+    },
     "smtpTab": "SMTP",
     "timezone": {
       "description": "Wird verwendet, um geplante Jobs (z. B. Neuindexierungszeiten) zu interpretieren und Zeitstempel anzuzeigen. Daten werden immer in UTC gespeichert.",
@@ -3951,6 +3965,13 @@
       "uploadInvalid": "Wählen Sie eine private SSH-Schlüsseldatei unter 64 KB. Öffentliche Schlüssel und andere Dateien werden nicht akzeptiert.",
       "keyRequired": "Prüfen Sie den SSH-Serverschlüssel oder geben Sie unter Erweitert einen vertrauenswürdigen Schlüssel ein.",
       "required": "Füllen Sie die Pflichtfelder aus: {fields}."
+    },
+    "connAlerts": {
+      "title": "Ausfall-Warnungs-E-Mails",
+      "label": "Administratoren benachrichtigen, wenn diese Verbindung ausfällt",
+      "hint": "Benachrichtigt die Administratoren per E-Mail, wenn diese Verbindung ausfällt. In-App-Benachrichtigungen sind immer aktiv.",
+      "orgOffNote": "Organisationsweite Warnungs-E-Mails sind aus (Einstellungen → SMTP). Aktivieren Sie sie, um dies pro Verbindung zu steuern.",
+      "saveFailed": "Einstellung konnte nicht gespeichert werden."
     }
   },
   "share": {

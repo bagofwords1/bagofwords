@@ -454,6 +454,14 @@
       "automation_failed": {
         "title": "« {name} » a échoué"
       },
+      "connection_down": {
+        "title": "La connexion « {name} » est hors service",
+        "body": "« {name} » a échoué à ses vérifications d'état et a été marquée hors ligne. Les agents qui en dépendent ne peuvent plus l'interroger jusqu'à son rétablissement."
+      },
+      "connection_restored": {
+        "title": "La connexion « {name} » est de nouveau en ligne",
+        "body": "« {name} » s'est reconnectée et est de nouveau active."
+      },
       "trigger_run": {
         "title": "⚡ « {name} » s'est déclenché — {summary}",
         "body": "L'enquête est terminée — ouvrez la session pour voir les résultats."
@@ -3381,6 +3389,12 @@
         "saturday": "Samedi"
       }
     },
+    "connectionAlerts": {
+      "heading": "E-mails d'alerte",
+      "label": "E-mails d'alerte de connexion hors service",
+      "description": "Envoyer un e-mail aux administrateurs de la connexion lorsqu'une connexion partagée tombe en panne ou se rétablit. Les notifications dans l'application sont toujours actives.",
+      "saveError": "Impossible d'enregistrer le paramètre d'alerte de connexion."
+    },
     "smtpTab": "SMTP",
     "timezone": {
       "description": "Utilisé pour interpréter les tâches planifiées (p. ex. les heures de réindexation) et pour afficher les horodatages. Les données sont toujours stockées en UTC.",
@@ -3951,6 +3965,13 @@
       "uploadInvalid": "Choisissez une clé SSH privée de moins de 64 Ko. Les clés publiques et autres fichiers sont refusés.",
       "keyRequired": "Vérifiez la clé SSH du serveur pour continuer ou saisissez une clé fiable dans les paramètres avancés.",
       "required": "Remplissez les champs obligatoires : {fields}."
+    },
+    "connAlerts": {
+      "title": "E-mails d'alerte de panne",
+      "label": "Envoyer un e-mail aux administrateurs quand cette connexion tombe en panne",
+      "hint": "Envoie un e-mail aux administrateurs quand cette connexion tombe en panne. Les notifications dans l'application sont toujours actives.",
+      "orgOffNote": "Les e-mails d'alerte de l'organisation sont désactivés (Paramètres → SMTP). Activez-les pour le gérer par connexion.",
+      "saveFailed": "Impossible d'enregistrer le réglage."
     }
   },
   "share": {

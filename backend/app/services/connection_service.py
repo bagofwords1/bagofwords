@@ -1328,6 +1328,7 @@ class ConnectionService:
                 self._record_probe_outcome(connection, success)
 
             await db.commit()
+            await self._alert_on_health_transition(db, connection, current_user)
             return self._finish_status(connection_status, t0)
 
         except Exception as e:
@@ -1340,6 +1341,7 @@ class ConnectionService:
                     self._record_probe_outcome(connection, False)
 
                 await db.commit()
+                await self._alert_on_health_transition(db, connection, current_user)
             return {
                 "success": False,
                 "message": str(e),
@@ -1370,6 +1372,37 @@ class ConnectionService:
             threshold = 3
         if failures >= threshold and connection.is_active:
             connection.is_active = False
+
+    @staticmethod
+    async def _alert_on_health_transition(
+        db: AsyncSession,
+        connection: Connection,
+        current_user: User = None,
+    ) -> None:
+        """Send any down/restored alert a shared connection still owes.
+
+        Only automated probes (``current_user is None``) alert: a human clicking
+        "Test connection" is diagnosing and must not spray the admins with
+        mail. Alerts follow what was last *announced*
+        (``Connection.health_alert_state``), not this probe's edge, so an
+        outage a manual test flipped is still announced by the next sweep.
+        Best-effort — a failed alert can never break the probe that triggered
+        it, which has already committed.
+        """
+        if current_user is not None or connection.auth_policy != "system_only":
+            return
+        try:
+            from app.services.connection_alerts import notify_connection_health
+            await notify_connection_health(db, connection)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "connection health alert failed for %s", getattr(connection, "id", "?"),
+                exc_info=True,
+            )
+            try:
+                await db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
 
     @staticmethod
     def _finish_status(connection_status, t0):

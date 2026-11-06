@@ -473,6 +473,14 @@
       "automation_failed": {
         "title": "\"{name}\" falló"
       },
+      "connection_down": {
+        "title": "La conexión «{name}» está caída",
+        "body": "«{name}» no superó las comprobaciones de estado y se marcó como desconectada. Los agentes que dependen de ella no pueden consultarla hasta que se recupere."
+      },
+      "connection_restored": {
+        "title": "La conexión «{name}» vuelve a estar en línea",
+        "body": "«{name}» se reconectó y vuelve a estar activa."
+      },
       "trigger_run": {
         "title": "⚡ \"{name}\" se activó — {summary}",
         "body": "La investigación terminó — abre la sesión para ver los hallazgos."
@@ -3702,6 +3710,12 @@
         "saturday": "Sábado"
       }
     },
+    "connectionAlerts": {
+      "heading": "Correos de alerta",
+      "label": "Correos de alerta de conexión caída",
+      "description": "Enviar un correo a los administradores de la conexión cuando una conexión compartida se cae o se recupera. Las notificaciones en la app siempre están activas.",
+      "saveError": "No se pudo guardar la configuración de alertas de conexión."
+    },
     "smtpTab": "SMTP",
     "timezone": {
       "label": "Zona horaria de la organización",
@@ -4290,6 +4304,13 @@
       "uploadInvalid": "Elija una clave SSH privada de menos de 64 KB. No se aceptan claves públicas ni otros archivos.",
       "keyRequired": "Verifique la clave SSH del servidor para continuar o introduzca una clave fiable en Avanzado.",
       "required": "Complete los campos obligatorios: {fields}."
+    },
+    "connAlerts": {
+      "title": "Correos de alerta de caída",
+      "label": "Enviar correo a los administradores cuando esta conexión se cae",
+      "hint": "Envía un correo a los administradores cuando esta conexión se cae. Las notificaciones en la app siempre están activas.",
+      "orgOffNote": "Los correos de alerta de la organización están desactivados (Configuración → SMTP). Actívalos para controlarlo por conexión.",
+      "saveFailed": "No se pudo guardar la configuración."
     }
   },
   "share": {

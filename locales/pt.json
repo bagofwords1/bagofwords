@@ -454,6 +454,14 @@
       "automation_failed": {
         "title": "\"{name}\" falhou"
       },
+      "connection_down": {
+        "title": "A conexão «{name}» está fora do ar",
+        "body": "«{name}» falhou nas verificações de integridade e foi marcada como offline. Os agentes que dependem dela não podem consultá-la até que se recupere."
+      },
+      "connection_restored": {
+        "title": "A conexão «{name}» está online novamente",
+        "body": "«{name}» reconectou-se e está ativa novamente."
+      },
       "trigger_run": {
         "title": "⚡ \"{name}\" foi acionado — {summary}",
         "body": "A investigação foi concluída — abra a sessão para ver os resultados."
@@ -3381,6 +3389,12 @@
         "saturday": "Sábado"
       }
     },
+    "connectionAlerts": {
+      "heading": "E-mails de alerta",
+      "label": "E-mails de alerta de conexão fora do ar",
+      "description": "Enviar e-mail aos administradores da conexão quando uma conexão compartilhada cai ou volta. As notificações no app estão sempre ativas.",
+      "saveError": "Não foi possível salvar a configuração de alertas de conexão."
+    },
     "smtpTab": "SMTP",
     "timezone": {
       "description": "Usado para interpretar tarefas agendadas (ex.: horários de reindexação) e exibir os carimbos de data/hora. Os dados são sempre armazenados em UTC.",
@@ -3951,6 +3965,13 @@
       "uploadInvalid": "Escolha uma chave SSH privada menor que 64 KB. Chaves públicas e outros arquivos não são aceitos.",
       "keyRequired": "Verifique a chave SSH do servidor para continuar ou insira uma chave confiável nas configurações avançadas.",
       "required": "Preencha os campos obrigatórios: {fields}."
+    },
+    "connAlerts": {
+      "title": "E-mails de alerta de queda",
+      "label": "Enviar e-mail aos administradores quando esta conexão cai",
+      "hint": "Envia e-mail aos administradores quando esta conexão cai. As notificações no app estão sempre ativas.",
+      "orgOffNote": "Os e-mails de alerta da organização estão desativados (Configurações → SMTP). Ative-os para controlar isso por conexão.",
+      "saveFailed": "Não foi possível salvar a configuração."
     }
   },
   "share": {

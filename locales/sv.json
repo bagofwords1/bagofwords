@@ -454,6 +454,14 @@
       "automation_failed": {
         "title": "\"{name}\" misslyckades"
       },
+      "connection_down": {
+        "title": "Anslutningen ”{name}” är nere",
+        "body": "”{name}” klarade inte sina hälsokontroller och markerades som offline. Agenter som förlitar sig på den kan inte köra frågor mot den förrän den återställs."
+      },
+      "connection_restored": {
+        "title": "Anslutningen ”{name}” är online igen",
+        "body": "”{name}” återanslöts och är aktiv igen."
+      },
       "trigger_run": {
         "title": "⚡ \"{name}\" utlöstes — {summary}",
         "body": "Utredningen är klar — öppna sessionen för att se resultaten."
@@ -3381,6 +3389,12 @@
         "saturday": "Lördag"
       }
     },
+    "connectionAlerts": {
+      "heading": "Varnings-e-post",
+      "label": "E-postvarningar för nedkopplad anslutning",
+      "description": "Mejla anslutningens administratörer när en delad anslutning går ner eller återställs. Aviseringar i appen är alltid på.",
+      "saveError": "Det gick inte att spara inställningen för anslutningsvarningar."
+    },
     "smtpTab": "SMTP",
     "timezone": {
       "description": "Används för att tolka schemalagda jobb (t.ex. tider för omindexering) och för att visa tidsstämplar. Data lagras alltid i UTC.",
@@ -3951,6 +3965,13 @@
       "uploadInvalid": "Välj en privat SSH-nyckelfil mindre än 64 KB. Publika nycklar och andra filer godtas inte.",
       "keyRequired": "Verifiera serverns SSH-nyckel för att fortsätta eller ange en betrodd nyckel under Avancerat.",
       "required": "Fyll i de obligatoriska fälten: {fields}."
+    },
+    "connAlerts": {
+      "title": "E-postvarningar vid avbrott",
+      "label": "Mejla administratörerna när den här anslutningen går ner",
+      "hint": "Mejlar administratörerna när den här anslutningen går ner. Aviseringar i appen är alltid på.",
+      "orgOffNote": "Organisationens varnings-e-post är av (Inställningar → SMTP). Slå på den för att styra detta per anslutning.",
+      "saveFailed": "Det gick inte att spara inställningen."
     }
   },
   "share": {

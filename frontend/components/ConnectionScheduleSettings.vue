@@ -168,6 +168,25 @@
           <p v-if="queryLimitsError" class="text-2xs text-red-500">{{ queryLimitsError }}</p>
         </div>
       </div>
+</details>
+<details class="border-t border-gray-100 dark:border-gray-800 pt-3" data-testid="connection-alert-emails"><summary class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer list-none"><UIcon name="heroicons-chevron-right" class="schedule-chevron w-3.5 h-3.5 shrink-0 text-ink-muted" /><span>{{ $t('data.connAlerts.title') }}</span><span class="ms-auto text-xs text-gray-500">{{ $t((orgAlertDefault && alertEnabled) ? 'scheduledPrompt.scheduleOn' : 'scheduledPrompt.scheduleOff') }}</span></summary>      <!-- Per-connection down/restored alert EMAIL switch, gated UNDER the
+           org-wide toggle (Settings → SMTP): effective = org AND this. When the
+           org toggle is off, nothing sends and this switch is disabled. The
+           in-app inbox notification is always delivered. Not license-gated. -->
+      <div class="py-3 border-t border-gray-100 dark:border-gray-800">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-medium text-gray-700 dark:text-gray-300" :class="{ 'opacity-50': !orgAlertDefault }">{{ $t('data.connAlerts.label') }}</span>
+          <UToggle
+            :model-value="orgAlertDefault && alertEnabled"
+            :disabled="savingAlertMode || !orgAlertDefault"
+            size="sm"
+            data-testid="connection-alert-toggle"
+            @update:model-value="onToggleAlert"
+          />
+        </div>
+        <p class="text-2xs text-ink-muted mt-1">{{ orgAlertDefault ? $t('data.connAlerts.hint') : $t('data.connAlerts.orgOffNote') }}</p>
+        <p v-if="alertModeError" class="text-2xs text-red-500">{{ alertModeError }}</p>
+      </div>
 </details></div></template>
 <script setup lang="ts">
 import { sameConnectionDiagnostic } from '~/utils/connectionDiagnostics'
@@ -434,6 +453,44 @@ function onQueryLimitChange() {
   saveQueryLimits()
 }
 
+// ── Per-connection down-alert email switch (gated UNDER the org toggle) ───────
+// effective = org toggle AND this switch. When the org toggle is off the switch
+// is disabled — a single connection can't opt back in.
+const alertEnabled = ref(true)       // the stored per-connection switch
+const orgAlertDefault = ref(true)    // the org-wide master toggle
+const alertModeError = ref<string | null>(null)
+const savingAlertMode = ref(false)
+
+function applyAlertConfig(d: any) {
+  if (!d || !canManage.value) return
+  alertEnabled.value = d.alert_emails_enabled !== false
+  // The org toggle rides on the connection detail, so connection managers
+  // without manage_settings still see whether it is on.
+  orgAlertDefault.value = d.org_alert_emails_enabled !== false
+}
+
+async function onToggleAlert(val: boolean) {
+  // Disabled when the org toggle is off; ignore any stray event.
+  if (!orgAlertDefault.value) return
+  alertEnabled.value = val
+  if (!props.connection?.id || savingAlertMode.value) return
+  savingAlertMode.value = true
+  alertModeError.value = null
+  try {
+    const { error } = await useMyFetch(`/connections/${props.connection.id}`, {
+      method: 'PUT',
+      body: { alert_emails_enabled: val },
+    })
+    if (error.value) {
+      alertEnabled.value = !val  // revert on failure
+      alertModeError.value = (error.value as any)?.data?.detail || (error.value as any)?.message || t('data.connAlerts.saveFailed')
+      toast.add({ title: t('data.connAlerts.saveFailed'), description: String(alertModeError.value), color: 'red' })
+    }
+  } finally {
+    savingAlertMode.value = false
+  }
+}
+
 watch(() => [props.connection?.id, canManage.value], async ([id]) => {
   if (!id || !canManage.value) return
   const { data } = await useMyFetch(`/connections/${id}`, { method: 'GET' })
@@ -441,6 +498,7 @@ watch(() => [props.connection?.id, canManage.value], async ([id]) => {
   applyAutoReindexConfig(data.value)
   applyRateLimitConfig(data.value)
   applyQueryLimitConfig(data.value)
+  applyAlertConfig(data.value)
 }, { immediate: true })
 </script>
 <style scoped>
