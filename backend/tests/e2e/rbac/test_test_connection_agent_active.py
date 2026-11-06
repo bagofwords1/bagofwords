@@ -1,10 +1,10 @@
 """A failed connection test turns an agent off only when its connection is shared.
 
 ``GET /data_sources/{id}/test_connection`` run by someone who manages the
-agent records the outcome: a failed probe marks the agent inactive (hidden
-from every agent list) and a passing one turns it back on. That is meant for
-shared (``system_only``) connections, where one account serves everybody, so
-a failure means the agent is broken for everybody.
+agent records the outcome: repeated failed probes mark the agent inactive
+(hidden from every agent list) and a passing one turns it back on. That is
+meant for shared (``system_only``) connections, where one account serves
+everybody, so a lasting failure means the agent is broken for everybody.
 
 On a per-user connection (``user_required``) each person signs in with their
 own account. A failed probe says something about the caller only -- typically
@@ -99,6 +99,12 @@ def test_a_failed_test_of_a_shared_connection_still_turns_the_agent_off(test_cli
     # The shared account's database stops answering (mocked at the driver).
     monkeypatch.setattr(SqliteClient, "test_connection",
                         lambda self: {"success": False, "message": "unreachable"})
+    # One failure is not enough: since #1508 a shared connection goes down only
+    # after BOW_CONN_DEACTIVATE_AFTER_FAILURES (default 3) failures in a row.
+    monkeypatch.delenv("BOW_CONN_DEACTIVATE_AFTER_FAILURES", raising=False)
+    for _ in range(2):
+        assert _test(test_client, w, "admin").get("success") is False
+        assert _run(_agent_active(w["ds"]["id"])) is True, "a single bad moment took the agent away"
     assert _test(test_client, w, "admin").get("success") is False
     assert _run(_agent_active(w["ds"]["id"])) is False
     monkeypatch.undo()
