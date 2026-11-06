@@ -4468,6 +4468,9 @@
     "access.denied": "Acceso denegado",
     "account.disabled": "Tu cuenta ha sido deshabilitada. Ponte en contacto con tu administrador.",
     "connection.not_found": "Conexión no encontrada",
+    "connection.table_not_found": "Tabla no encontrada",
+    "connection.table_preview_unsupported": "La vista previa de datos no está disponible para conexiones {type}.",
+    "connection.table_preview_failed": "Error en la vista previa: {reason}",
     "data_source.not_found": "Fuente de datos no encontrada",
     "file.not_found": "Archivo no encontrado",
     "verification.invalid": "Token de verificación no válido o expirado",
@@ -7335,5 +7338,22 @@
     "enabled": "Activada",
     "embeddingEmpty": "La integración web no está configurada",
     "oauthEmpty": "OAuth no está configurado"
+  },
+  "tablePreview": {
+    "open": "Vista previa de datos de {name}",
+    "subtitle": "Filas de ejemplo de {connection}, leídas en vivo desde el origen.",
+    "close": "Cerrar",
+    "loading": "Cargando filas…",
+    "failed": "No se pudo cargar una vista previa de esta tabla.",
+    "showing": "Mostrando {shown} filas",
+    "showingOf": "Mostrando {shown} de ~{total} filas",
+    "columns": "{count} columnas",
+    "empty": "Esta tabla no tiene filas.",
+    "reload": "Recargar",
+    "createCustomTable": "Crear tabla personalizada a partir de esta",
+    "sqlLabel": "Consulta SQL",
+    "run": "Ejecutar",
+    "resetQuery": "Restablecer",
+    "runHint": "Ctrl/⌘ + Enter para ejecutar. Solo consultas de lectura."
   }
 }

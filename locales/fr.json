@@ -4118,6 +4118,9 @@
     "access.denied": "Accès refusé",
     "account.disabled": "Votre compte a été désactivé. Contactez votre administrateur.",
     "connection.not_found": "Connexion introuvable",
+    "connection.table_not_found": "Table introuvable",
+    "connection.table_preview_unsupported": "L'aperçu des données n'est pas disponible pour les connexions {type}.",
+    "connection.table_preview_failed": "Échec de l'aperçu : {reason}",
     "data_source.not_found": "Source de données introuvable",
     "file.not_found": "Fichier introuvable",
     "verification.invalid": "Jeton de vérification invalide ou expiré",
@@ -6729,5 +6732,22 @@
     "enabled": "Activée",
     "embeddingEmpty": "Embedding is not configured",
     "oauthEmpty": "OAuth is not configured"
+  },
+  "tablePreview": {
+    "open": "Aperçu des données de {name}",
+    "subtitle": "Lignes d'exemple de {connection}, lues en direct depuis la source.",
+    "close": "Fermer",
+    "loading": "Chargement des lignes…",
+    "failed": "Impossible de charger un aperçu de cette table.",
+    "showing": "{shown} lignes affichées",
+    "showingOf": "{shown} lignes affichées sur ~{total}",
+    "columns": "{count} colonnes",
+    "empty": "Cette table ne contient aucune ligne.",
+    "reload": "Recharger",
+    "createCustomTable": "Créer une table personnalisée à partir de celle-ci",
+    "sqlLabel": "Requête SQL",
+    "run": "Exécuter",
+    "resetQuery": "Réinitialiser",
+    "runHint": "Ctrl/⌘ + Entrée pour exécuter. Requêtes en lecture seule."
   }
 }

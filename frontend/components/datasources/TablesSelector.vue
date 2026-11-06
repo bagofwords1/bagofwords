@@ -83,9 +83,21 @@
       :connection-type="cqModalConnection?.type || ''"
       :connections="manageableConnections"
       :cq="cqEditing"
+      :initial-sql="cqInitialSql"
+      :initial-name="cqInitialName"
       :activate-for-datasource-id="props.dsId"
       @saved="onCustomQuerySaved"
       @deleted="onCustomQuerySaved"
+    />
+
+    <TablePreviewModal
+      v-model="previewOpen"
+      :connection-id="previewTarget?.connection_id || ''"
+      :connection-name="previewTarget?.connection_name || ''"
+      :table-id="previewTarget?.connection_table_id || ''"
+      :table-name="previewTarget?.name || ''"
+      :can-create-custom-table="canCreateCustomTableFrom(previewTarget)"
+      @create-custom-table="onCreateCustomTableFromPreview"
     />
 
     <!-- Search and filters row -->
@@ -455,6 +467,18 @@
                     </UTooltip>
                   </span>
                 </button>
+                <UButton
+                  v-if="canPreviewTable(table)"
+                  color="gray"
+                  variant="ghost"
+                  size="2xs"
+                  icon="i-heroicons-eye"
+                  class="ms-2 shrink-0"
+                  :aria-label="t('tablePreview.open', { name: table.name })"
+                  :title="t('tablePreview.open', { name: table.name })"
+                  :data-testid="`table-preview-${table.name}`"
+                  @click="openTablePreview(table)"
+                />
                 <button v-if="table.custom_query_id && editableQueryIds.has(table.custom_query_id)" type="button" @click="editQueryTable(table.custom_query_id)"
                   :aria-label="t('tableErd.editQuery', { name: table.name })" class="ms-2 shrink-0 text-ink-muted hover:text-gray-700 dark:hover:text-gray-200">
                   <UIcon name="i-heroicons-pencil-square" class="w-3.5 h-3.5" />
@@ -696,6 +720,7 @@ import { tableId, matchesTable } from '~/utils/tableGraph'
 import { isRoutine, routineKind, routineMeta, ROUTINE_ICON } from '~/utils/routines'
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
 import CustomQueryModal from '@/components/datasources/CustomQueryModal.vue'
+import TablePreviewModal from '@/components/datasources/TablePreviewModal.vue'
 import { useConnectionSignIn } from '~/composables/useConnectionSignIn'
 
 type Column = { name: string; dtype?: string; type?: string }
@@ -715,6 +740,10 @@ type Table = {
   fks?: ForeignKey[];
   last_used_at?: string;
   custom_query_id?: string;
+  // Catalog row behind an introspected table, and whether its source can
+  // serve sample rows (see GET /connections/{id}/tables/{tid}/preview).
+  connection_table_id?: string;
+  preview_supported?: boolean;
   last_refreshed_at?: string;
   last_refresh_status?: string;
   rls_enabled?: boolean;
@@ -845,7 +874,7 @@ function restoreAppSurface() {
 }
 const bodyLocked = useScrollLock(typeof document === 'undefined' ? null : document.body)
 function onEmbeddedEscape(event: KeyboardEvent) {
-  if (!props.fullscreenInPlace || !fullscreen.value || cqModalOpen.value) return
+  if (!props.fullscreenInPlace || !fullscreen.value || cqModalOpen.value || previewOpen.value) return
   if (selectorElement.value?.querySelector('[aria-expanded="true"]')) return
   event.preventDefault()
   event.stopPropagation()
@@ -873,13 +902,13 @@ function toggleFullscreen() {
 }
 useEventListener('keydown', (event: KeyboardEvent) => {
   if (props.fullscreenInPlace) return
-  if (event.key === 'Tab' && fullscreen.value && !props.fullscreenInPlace && !cqModalOpen.value) {
+  if (event.key === 'Tab' && fullscreen.value && !props.fullscreenInPlace && !cqModalOpen.value && !previewOpen.value) {
     const controls = [...selectorElement.value?.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], summary, [tabindex="0"]') || []].filter(element => !element.hasAttribute('disabled') && element.getClientRects().length)
     const first = controls[0], last = controls[controls.length - 1]
     if (event.shiftKey && (document.activeElement === first || document.activeElement === selectorElement.value)) { event.preventDefault(); last?.focus() }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
   }
-  if (event.key === 'Escape' && fullscreen.value && !cqModalOpen.value && !event.defaultPrevented) {
+  if (event.key === 'Escape' && fullscreen.value && !cqModalOpen.value && !previewOpen.value && !event.defaultPrevented) {
     event.preventDefault()
     toggleFullscreen()
   }
@@ -980,6 +1009,8 @@ const customQueries = ref<any[]>([])
 const cqModalOpen = ref(false)
 const cqEditing = ref<any>(null)
 const cqModalConnection = ref<any>(null)
+const cqInitialSql = ref('')
+const cqInitialName = ref('')
 
 const accelerableConnections = computed(() =>
   authConnections.value.filter((c: any) => c?.custom_queries_supported)
@@ -1033,6 +1064,8 @@ async function editQueryTable(id: string) {
 async function openNewCustomQuery() {
   cqModalConnection.value = manageableConnections.value[0] || null
   cqEditing.value = null
+  cqInitialSql.value = ''
+  cqInitialName.value = ''
   if (!cqModalConnection.value) return
   await nextTick()
   cqModalOpen.value = true
@@ -1041,6 +1074,53 @@ async function openNewCustomQuery() {
 async function openEditCustomQuery(cq: any) {
   cqModalConnection.value = cq._connection
   cqEditing.value = cq
+  cqInitialSql.value = ''
+  cqInitialName.value = ''
+  await nextTick()
+  cqModalOpen.value = true
+}
+
+// ---------------------------------------------------------------------------
+// Data preview: sample rows from an introspected table. Reading source rows
+// with the connection's credential is a connection-manager act, the same
+// right the backend route requires (`manage_connection`).
+// ---------------------------------------------------------------------------
+const previewOpen = ref(false)
+const previewTarget = ref<Table | null>(null)
+
+function canPreviewTable(table: Table): boolean {
+  return !!table.preview_supported
+    && !!table.connection_table_id
+    && !!table.connection_id
+    && useCan('manage_connection', { type: 'connection', id: String(table.connection_id) })
+}
+
+async function openTablePreview(table: Table) {
+  previewTarget.value = table
+  await nextTick()
+  previewOpen.value = true
+}
+
+function canCreateCustomTableFrom(table: Table | null): boolean {
+  if (!table?.connection_id || !customQueriesEnabled.value) return false
+  return manageableConnections.value.some((c: any) => String(c.id) === String(table.connection_id))
+}
+
+// Custom table names follow the backend rule ^[A-Za-z_][A-Za-z0-9_]{0,62}$
+// and must not collide with the source table itself.
+function customTableNameFor(tableName: string): string {
+  const base = (tableName.split('.').pop() || 'table').replace(/[^A-Za-z0-9_]/g, '_')
+  const safe = /^[A-Za-z_]/.test(base) ? base : `t_${base}`
+  return `${safe}_custom`.slice(0, 63)
+}
+
+async function onCreateCustomTableFromPreview(payload: { connectionId: string; tableName: string; sql: string }) {
+  const conn = manageableConnections.value.find((c: any) => String(c.id) === String(payload.connectionId))
+  if (!conn) return
+  cqModalConnection.value = conn
+  cqEditing.value = null
+  cqInitialSql.value = payload.sql
+  cqInitialName.value = customTableNameFor(payload.tableName)
   await nextTick()
   cqModalOpen.value = true
 }

@@ -4468,6 +4468,9 @@
     "access.denied": "הגישה נדחתה",
     "account.disabled": "החשבון שלך הושבת. פנה למנהל המערכת.",
     "connection.not_found": "החיבור לא נמצא",
+    "connection.table_not_found": "הטבלה לא נמצאה",
+    "connection.table_preview_unsupported": "תצוגה מקדימה של נתונים אינה זמינה לחיבורי {type}.",
+    "connection.table_preview_failed": "התצוגה המקדימה נכשלה: {reason}",
     "data_source.not_found": "מקור הנתונים לא נמצא",
     "file.not_found": "הקובץ לא נמצא",
     "verification.invalid": "אסימון האימות אינו תקף או שפג תוקפו",
@@ -7355,5 +7358,22 @@
     "enabled": "פעיל",
     "embeddingEmpty": "לא הוגדרה הטמעה",
     "oauthEmpty": "לא הוגדר OAuth"
+  },
+  "tablePreview": {
+    "open": "תצוגה מקדימה של הנתונים ב-{name}",
+    "subtitle": "שורות לדוגמה מ-{connection}, נקראות ישירות מהמקור.",
+    "close": "סגירה",
+    "loading": "טוען שורות…",
+    "failed": "לא ניתן לטעון תצוגה מקדימה של הטבלה.",
+    "showing": "מוצגות {shown} שורות",
+    "showingOf": "מוצגות {shown} מתוך כ-{total} שורות",
+    "columns": "{count} עמודות",
+    "empty": "אין שורות בטבלה הזו.",
+    "reload": "טעינה מחדש",
+    "createCustomTable": "יצירת טבלה מותאמת",
+    "sqlLabel": "שאילתת SQL",
+    "run": "הרצה",
+    "resetQuery": "איפוס",
+    "runHint": "Ctrl/⌘ + Enter להרצה. שאילתות קריאה בלבד."
   }
 }

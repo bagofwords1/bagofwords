@@ -4118,6 +4118,9 @@
     "access.denied": "Zugriff verweigert",
     "account.disabled": "Ihr Konto wurde deaktiviert. Wenden Sie sich an Ihren Administrator.",
     "connection.not_found": "Verbindung nicht gefunden",
+    "connection.table_not_found": "Tabelle nicht gefunden",
+    "connection.table_preview_unsupported": "Die Datenvorschau ist für {type}-Verbindungen nicht verfügbar.",
+    "connection.table_preview_failed": "Vorschau fehlgeschlagen: {reason}",
     "data_source.not_found": "Datenquelle nicht gefunden",
     "file.not_found": "Datei nicht gefunden",
     "verification.invalid": "Ungültiges oder abgelaufenes Bestätigungs-Token",
@@ -6729,5 +6732,22 @@
     "enabled": "Aktiviert",
     "embeddingEmpty": "Embedding is not configured",
     "oauthEmpty": "OAuth is not configured"
+  },
+  "tablePreview": {
+    "open": "Datenvorschau für {name}",
+    "subtitle": "Beispielzeilen aus {connection}, live aus der Quelle gelesen.",
+    "close": "Schließen",
+    "loading": "Zeilen werden geladen…",
+    "failed": "Vorschau dieser Tabelle konnte nicht geladen werden.",
+    "showing": "{shown} Zeilen angezeigt",
+    "showingOf": "{shown} von ~{total} Zeilen angezeigt",
+    "columns": "{count} Spalten",
+    "empty": "Diese Tabelle enthält keine Zeilen.",
+    "reload": "Neu laden",
+    "createCustomTable": "Benutzerdefinierte Tabelle daraus erstellen",
+    "sqlLabel": "SQL-Abfrage",
+    "run": "Ausführen",
+    "resetQuery": "Zurücksetzen",
+    "runHint": "Strg/⌘ + Enter zum Ausführen. Nur lesende Abfragen."
   }
 }

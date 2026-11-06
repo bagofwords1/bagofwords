@@ -214,9 +214,28 @@ class ConnectionTableSchema(BaseModel):
     id: str
     name: str
     column_count: int = 0
-    
+    # Whether GET /connections/{id}/tables/{table_id}/preview can serve this
+    # table. Only meaningful to connection managers — nobody else may call it.
+    preview_supported: bool = False
+
     class Config:
         from_attributes = True
+
+
+class ConnectionTablePreviewSchema(BaseModel):
+    """Sample rows from one introspected table."""
+    table_id: str
+    table_name: str
+    # The exact query that ran, its row bound written in the source's syntax.
+    sql: str
+    # The same query without the bound — the starting point for a custom table.
+    base_sql: str
+    columns: List[dict] = []
+    rows: List[List[Any]] = []
+    row_limit: int
+    truncated: bool = False
+    # Row count recorded at indexing time, when the source reported one.
+    total_rows: Optional[int] = None
 
 
 class ConnectionTestOverride(BaseModel):

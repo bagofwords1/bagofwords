@@ -4118,6 +4118,9 @@
     "access.denied": "Accesso negato",
     "account.disabled": "Il tuo account è stato disattivato. Contatta il tuo amministratore.",
     "connection.not_found": "Connessione non trovata",
+    "connection.table_not_found": "Tabella non trovata",
+    "connection.table_preview_unsupported": "L'anteprima dei dati non è disponibile per le connessioni {type}.",
+    "connection.table_preview_failed": "Anteprima non riuscita: {reason}",
     "data_source.not_found": "Origine dati non trovata",
     "file.not_found": "File non trovato",
     "verification.invalid": "Token di verifica non valido o scaduto",
@@ -6729,5 +6732,22 @@
     "enabled": "Abilitata",
     "embeddingEmpty": "Embedding is not configured",
     "oauthEmpty": "OAuth is not configured"
+  },
+  "tablePreview": {
+    "open": "Anteprima dati di {name}",
+    "subtitle": "Righe di esempio da {connection}, lette in tempo reale dalla sorgente.",
+    "close": "Chiudi",
+    "loading": "Caricamento righe…",
+    "failed": "Impossibile caricare un'anteprima di questa tabella.",
+    "showing": "{shown} righe mostrate",
+    "showingOf": "{shown} di ~{total} righe mostrate",
+    "columns": "{count} colonne",
+    "empty": "Questa tabella non contiene righe.",
+    "reload": "Ricarica",
+    "createCustomTable": "Crea tabella personalizzata da questa",
+    "sqlLabel": "Query SQL",
+    "run": "Esegui",
+    "resetQuery": "Ripristina",
+    "runHint": "Ctrl/⌘ + Invio per eseguire. Solo query di lettura."
   }
 }

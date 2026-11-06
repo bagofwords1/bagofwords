@@ -120,6 +120,7 @@ from app.models.eval import TestSuite
 from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import selectinload, lazyload
 from app.services.instruction_service import InstructionService
+from app.services.table_preview_service import is_previewable_table
 from app.schemas.instruction_schema import InstructionCreate
 from app.core.telemetry import telemetry
 from app.ee.audit.service import audit_service
@@ -4595,6 +4596,8 @@ class DataSourceService:
                 connection_name=conn_name,
                 connection_type=conn_type,
                 custom_query_id=str(table.connection_table.id) if table.connection_table and table.connection_table.kind == "bow" else None,
+                connection_table_id=str(table.connection_table.id) if table.connection_table and table.connection_table.kind == "table" else None,
+                preview_supported=bool(table.connection_table) and is_previewable_table(conn_type, table.connection_table),
                 last_refreshed_at=table.connection_table.last_refreshed_at if table.connection_table and table.connection_table.kind == "bow" else None,
                 last_refresh_status=table.connection_table.last_refresh_status if table.connection_table and table.connection_table.kind == "bow" else None,
                 rls_enabled=bool(table.connection_table.rls_enabled) if table.connection_table and table.connection_table.kind == "bow" else False,

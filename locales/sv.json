@@ -4118,6 +4118,9 @@
     "access.denied": "Åtkomst nekad",
     "account.disabled": "Ditt konto har inaktiverats. Kontakta din administratör.",
     "connection.not_found": "Anslutningen hittades inte",
+    "connection.table_not_found": "Tabellen hittades inte",
+    "connection.table_preview_unsupported": "Förhandsgranskning av data är inte tillgänglig för {type}-anslutningar.",
+    "connection.table_preview_failed": "Förhandsgranskningen misslyckades: {reason}",
     "data_source.not_found": "Datakällan hittades inte",
     "file.not_found": "Filen hittades inte",
     "verification.invalid": "Ogiltig eller utgången verifieringstoken",
@@ -6729,5 +6732,22 @@
     "enabled": "Aktiverad",
     "embeddingEmpty": "Embedding is not configured",
     "oauthEmpty": "OAuth is not configured"
+  },
+  "tablePreview": {
+    "open": "Förhandsgranska data i {name}",
+    "subtitle": "Exempelrader från {connection}, lästa direkt från källan.",
+    "close": "Stäng",
+    "loading": "Läser in rader…",
+    "failed": "Det gick inte att läsa in en förhandsgranskning av tabellen.",
+    "showing": "Visar {shown} rader",
+    "showingOf": "Visar {shown} av ~{total} rader",
+    "columns": "{count} kolumner",
+    "empty": "Tabellen har inga rader.",
+    "reload": "Läs in igen",
+    "createCustomTable": "Skapa anpassad tabell från denna",
+    "sqlLabel": "SQL-fråga",
+    "run": "Kör",
+    "resetQuery": "Återställ",
+    "runHint": "Ctrl/⌘ + Enter för att köra. Endast läsfrågor."
   }
 }
