@@ -4395,6 +4395,7 @@
     "shell_confirmation.invalid_scope": "Alcance de permiso no válido.",
     "shell_confirmation.report_required": "Los permisos de sesión requieren un informe.",
     "shell_confirmation.rule_mismatch": "Regla de comando no válida, o el patrón no coincide con este comando.",
+    "catalog_discovery_incomplete": "La actualización del catálogo falló porque la detección quedó incompleta. Se conservaron el catálogo anterior y las selecciones de tablas.",
     "saml_unavailable": "La configuración de SSO no está disponible. Contacta con tu administrador.",
     "saml_login_failed": "Error al iniciar sesión con SSO. Inténtalo de nuevo o contacta con tu administrador.",
     "invitation_required": "El registro está deshabilitado. Pide una invitación a tu administrador.",

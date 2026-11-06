@@ -17,6 +17,7 @@ import io
 import json
 import logging
 import os
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -28,6 +29,7 @@ import httpx
 import pandas as pd
 
 from app.ai.prompt_formatters import Table, TableColumn
+from app.data_sources.clients.progress import IndexingCancelled
 from app.data_sources.clients.base import Capability, DataSourceClient
 from app.data_sources.clients._sharepoint_listing import SharepointBoundedListing
 from app.data_sources.clients._document_text import (
@@ -106,6 +108,14 @@ PROBE_PAGE_SIZE = 5
 # bytes/text. Order matters only for human-readable docs.
 TABULAR_EXTS = {"csv", "tsv", "xlsx", "xls"}
 TEXT_EXTS = {"txt", "md", "json", "html", "htm", "log", "yaml", "yml"}
+
+
+def _is_not_found(exc: Exception) -> bool:
+    """Graph confirmed the item is absent (404 / itemNotFound), as opposed to
+    a permission, server or transport failure. ``_get`` raises ValueError with
+    the status code and Graph's error body in the message."""
+    msg = str(exc)
+    return "itemNotFound" in msg or re.search(r"\b404\b", msg) is not None
 
 
 def _ext(name: str) -> str:
@@ -1008,10 +1018,17 @@ class GraphDriveClient(DataSourceClient):
                         break
                     try:
                         root = self._resolve_root_item_id(did)
+                    except IndexingCancelled:
+                        raise
                     except Exception as e:
                         # folder_path need not exist in every library, and a
                         # library can be inaccessible to this identity. Skip it
-                        # rather than failing the whole listing.
+                        # rather than failing the whole listing. A confirmed
+                        # missing folder is a complete answer for that library;
+                        # anything else (403, 5xx, network) may hide content,
+                        # so it marks discovery incomplete.
+                        if not (self.folder_path and _is_not_found(e)):
+                            self.mark_discovery_incomplete("graph_drive catalog")
                         logger.info(
                             "graph_drive: skipping library %r — %s", lib, str(e)[:200]
                         )

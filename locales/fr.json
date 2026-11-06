@@ -4051,6 +4051,7 @@
     "shell_confirmation.invalid_scope": "Portée d'autorisation non valide.",
     "shell_confirmation.report_required": "Les autorisations de session nécessitent un rapport.",
     "shell_confirmation.rule_mismatch": "Règle de commande non valide, ou le motif ne correspond pas à cette commande.",
+    "catalog_discovery_incomplete": "L’actualisation du catalogue a échoué car la découverte était incomplète. Le catalogue précédent et les sélections de tables ont été conservés.",
     "saml_unavailable": "La configuration SSO est indisponible. Contactez votre administrateur.",
     "saml_login_failed": "La connexion SSO a échoué. Réessayez ou contactez votre administrateur.",
     "invitation_required": "L'inscription est désactivée. Demandez une invitation à votre administrateur.",

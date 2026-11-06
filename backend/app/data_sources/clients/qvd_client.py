@@ -695,7 +695,10 @@ class QVDClient(DataSourceClient):
                         )
                 for fname, ftype in fields:
                     cols.append(TableColumn(name=fname, dtype=ftype))
+            except IndexingCancelled:
+                raise
             except Exception as exc:
+                self.mark_discovery_incomplete("qvd catalog")
                 logger.warning(
                     "qvd.schema.file.error",
                     extra={"qvd_file": filepath, "qvd_error": str(exc)},

@@ -508,6 +508,7 @@ class AriaOperationsClient(DataSourceClient):
                     except IndexingCancelled:
                         raise
                     except Exception:
+                        self.mark_discovery_incomplete("Aria dynamic metric tables")
                         n = 0
                     if n > 0:
                         populated.append((ak_key, rk.get("key"), rk.get("name") or rk.get("key"), n))
@@ -529,6 +530,7 @@ class AriaOperationsClient(DataSourceClient):
                 except IndexingCancelled:
                     raise
                 except Exception:
+                    self.mark_discovery_incomplete("Aria dynamic metric tables")
                     continue
                 if not stats:
                     continue
@@ -536,6 +538,7 @@ class AriaOperationsClient(DataSourceClient):
         except IndexingCancelled:
             raise
         except Exception:
+            self.mark_discovery_incomplete("Aria dynamic metric tables")
             pass
         return tables
 
