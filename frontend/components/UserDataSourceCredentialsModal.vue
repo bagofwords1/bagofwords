@@ -137,6 +137,7 @@ const catalogOwnership = ref<string>('shared')
 watch(authMode, (v) => {
   form.value.auth_mode = v || ''
   form.value.credentials = {}
+  saveError.value = null
 })
 
 const isOAuthMode = computed(() => authMode.value === 'oauth')
@@ -203,7 +204,9 @@ async function onTest() {
     if (error.value) throw error.value
     testResult.value = data.value as any
   } catch (e: any) {
-    testResult.value = { success: false, message: e?.message || t('data.failed') }
+    // KMS: the backend's localized reason (e.g. the token format), not the fetch status line.
+    const message = connectionType.value === 'kms_lighthouse' ? getErrorMessage(e, t('data.failed')) : (e?.message || t('data.failed'))
+    testResult.value = { success: false, message }
   } finally {
     testing.value = false
   }

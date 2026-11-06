@@ -132,6 +132,47 @@ async def test_the_legacy_store_still_saves_other_types():
         await _legacy_upsert("documentum", "userpass", {"username": "bob", "password": "pw-7f3a-dummy"})
 
 
+# ------------------------------------------------------------------ legacy credential test (modal Test button)
+
+
+def _legacy_test(conn_type, auth_mode, credentials):
+    from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
+
+    payload = SimpleNamespace(auth_mode=auth_mode, credentials=credentials)
+    # Validation fails before any client is built, so no db or user is needed.
+    return UserDataSourceCredentialsService().test_my_credentials(
+        None, data_source=_legacy_source(conn_type), user=SimpleNamespace(id="U-1"), payload=payload)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("token", ["dummy tok3n", "dummy\ttoken", "dummý-token"],
+                         ids=["space", "tab", "non-ascii"])
+async def test_the_credential_test_reports_a_bad_kms_token_format_with_its_own_code(token):
+    from app.errors import AppError
+
+    with pytest.raises(AppError) as info:
+        await _legacy_test("kms_lighthouse", "token", {"api_token": token})
+    assert info.value.status_code == 422
+    assert info.value.error_code == _TOKEN_CODE
+    assert token not in info.value.message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("conn_type,auth_mode,credentials,field", [
+    ("kms_lighthouse", "userpass", {"username": "kms-login-7f3a", "password": ""}, "password"),
+    ("kms_lighthouse", "token", {}, "api_token"),
+    ("documentum", "userpass", {"username": "alice"}, "password"),
+], ids=["kms-empty-password", "kms-missing-token", "documentum"])
+async def test_other_credential_test_errors_keep_the_field_level_422(conn_type, auth_mode, credentials, field):
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as info:
+        await _legacy_test(conn_type, auth_mode, credentials)
+    assert info.value.status_code == 422
+    assert info.value.detail.startswith("Invalid credentials: "), info.value.detail
+    assert field in info.value.detail, info.value.detail
+
+
 # ------------------------------------------------------------------ catalogs
 
 
@@ -164,8 +205,11 @@ def test_the_kms_error_codes_have_messages_in_every_maintained_catalog(locale):
     ({"max_results": {"n": 5}}, "from the top level", None, kc._DEFAULT_MAX_RESULTS),
     ({"max_results": "7"}, "from the top level", None, 7),
     ({"max_results": ""}, "from the top level", None, kc._DEFAULT_MAX_RESULTS),
+    ({"root_folder_id": float("inf")}, "from the top level", None, kc._DEFAULT_MAX_RESULTS),
+    ({"layout_id": float("-inf")}, "from the top level", None, kc._DEFAULT_MAX_RESULTS),
+    ({"max_results": float("inf")}, "from the top level", None, kc._DEFAULT_MAX_RESULTS),
 ], ids=["root-word", "root-injection", "root-list", "root-digits", "layout-word", "layout-digits",
-        "max-word", "max-dict", "max-digits", "max-blank"])
+        "max-word", "max-dict", "max-digits", "max-blank", "root-inf", "layout-minus-inf", "max-inf"])
 def test_planner_note_lets_only_whole_numbers_into_the_prompt(cfg, origin, layout, cap):
     note = kc.planner_scope_note(dict(cfg, base_url="https://kms.example.com"))
     assert origin in note, note

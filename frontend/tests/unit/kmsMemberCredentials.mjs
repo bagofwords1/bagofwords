@@ -74,16 +74,49 @@ r = await save('postgresql', tokenFormat)
 assert.deepEqual(r.calls, [['/data_sources/ds-1/my-credentials', 'POST']], 'other types keep the legacy endpoint')
 assert.equal(r.saveError, null, 'other types keep their save behaviour')
 
+// The Test button: KMS shows the backend's localized reason, never ofetch's status line.
+async function testCreds(type, failure) {
+  const scope = {
+    testing: ref(false), testResult: ref(null),
+    connectionType: ref(type), ds: ref({ id: 'ds-1' }),
+    form: ref({ auth_mode: 'token', credentials: { api_token: 'dummy tok3n' } }), t,
+    getErrorMessage: (e, fallback) => catalogMessage(e.data, t, te) ?? e.data?.detail ?? fallback,
+    useMyFetch: async () => ({ data: ref(null), error: ref(failure) }),
+  }
+  const run = new Function(...Object.keys(scope), `${js([modalFns.get('onTest')])}\nreturn onTest`)(...Object.values(scope))
+  await run()
+  return scope.testResult.value
+}
+
+const ofetchLine = '[POST] "/api/data_sources/ds-1/my-credentials/test": 422 Unprocessable Entity'
+r = await testCreds('kms_lighthouse', { ...tokenFormat, message: ofetchLine })
+assert.deepEqual(r, { success: false, message: en.errors['connection.kms_token_format'] },
+  'a KMS Test shows the localized token-format line')
+r = await testCreds('kms_lighthouse', { message: ofetchLine, data: { detail: 'Invalid credentials: password: required' } })
+assert.equal(r.message, 'Invalid credentials: password: required', 'other KMS 422s show the server detail')
+r = await testCreds('postgresql', { ...tokenFormat, message: ofetchLine })
+assert.equal(r.message, ofetchLine, 'other types keep their Test message')
+
+// Switching the auth mode clears a stale save error.
+const authWatch = scriptOf(modal).match(/watch\(authMode, \(v\) => \{([\s\S]*?)\n\}\)/)
+assert.ok(authWatch, 'the modal watches authMode')
+assert.match(authWatch[1], /saveError\.value = null/, 'an auth-mode change clears the save error')
+
 // ---------------------------------------------------------------- integration page Disconnect
 const page = read('../../pages/integrations/[id]/connection.vue')
 const pageFns = declarations(scriptOf(page))
 
-async function disconnect(type) {
+const toasts = []
+async function disconnect(type, failure = null) {
   const calls = []
+  toasts.length = 0
   const scope = {
-    dsId: ref('ds-1'), connectionId: ref('conn-1'), connectionType: ref(type),
+    dsId: ref('ds-1'), connectionId: ref('conn-1'), connectionType: ref(type), t,
+    toast: { add: (n) => toasts.push(n) },
+    getErrorMessage: (e, fallback) => catalogMessage(e.data, t, te) ?? e.data?.detail ?? fallback,
     fetchIntegration: async () => {},
-    useMyFetch: async (url, opts) => { calls.push([url, opts.method]); return { error: ref(null) } },
+    // useMyFetch never throws: a failed request comes back as { error }.
+    useMyFetch: async (url, opts) => { calls.push([url, opts.method]); return { error: ref(failure) } },
   }
   const run = new Function(...Object.keys(scope),
     `${js([pageFns.get('disconnectUserCredentials')])}\nreturn disconnectUserCredentials`)(...Object.values(scope))
@@ -93,8 +126,19 @@ async function disconnect(type) {
 
 assert.deepEqual(await disconnect('kms_lighthouse'), [['/connections/conn-1/my-credentials', 'DELETE']],
   'KMS Disconnect clears the connection row')
+assert.deepEqual(toasts, [], 'a good Disconnect shows no error')
 assert.deepEqual(await disconnect('postgresql'), [['/data_sources/ds-1/my-credentials', 'DELETE']],
   'other types keep the legacy Disconnect')
+
+const deleteFailed = { statusCode: 404, data: { error_code: 'connection.not_found', detail: 'Connection not found' } }
+await disconnect('kms_lighthouse', deleteFailed)
+assert.equal(toasts.length, 1, 'a failed KMS Disconnect shows one error toast')
+assert.equal(toasts[0].color, 'red')
+assert.equal(toasts[0].title, en.errors['connection.not_found'], 'the toast carries the localized reason')
+await disconnect('kms_lighthouse', { statusCode: 500, data: {} })
+assert.equal(toasts[0].title, en.data.failed, 'with no reason the toast says the action failed')
+await disconnect('postgresql', deleteFailed)
+assert.deepEqual(toasts, [], 'other types keep the silent Disconnect')
 
 // ---------------------------------------------------------------- file-scope card
 const scope = read('../../components/datasources/FileSourceScope.vue')

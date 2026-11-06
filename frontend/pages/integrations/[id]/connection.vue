@@ -143,6 +143,8 @@ const { data: currentUser } = useAuth()
 const { organization } = useOrganization()
 
 const { t } = useI18n()
+const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 
 // The data source (agent) this connection belongs to. GET /data_sources/{id}
 // omits connection config for view-only members, so `config` is only ever
@@ -295,7 +297,11 @@ async function disconnectUserCredentials() {
     const endpoint = connectionType.value === 'kms_lighthouse' && connectionId.value
       ? `/connections/${connectionId.value}/my-credentials`
       : `/data_sources/${dsId.value}/my-credentials`
-    await useMyFetch(endpoint, { method: 'DELETE' })
+    const { error } = await useMyFetch(endpoint, { method: 'DELETE' })
+    // KMS: a failed DELETE says so instead of leaving "Connected" unexplained.
+    if (error.value && connectionType.value === 'kms_lighthouse') {
+      toast.add({ title: getErrorMessage(error.value, t('data.failed')), color: 'red' })
+    }
     await fetchIntegration()
   } catch (e) {
     // no-op

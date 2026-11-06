@@ -1702,7 +1702,7 @@ def _note_number(read, value, fallback):
     """``read(value)`` for the planner note, or ``fallback`` when the value is not a number."""
     try:
         return read(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return fallback
 
 

@@ -408,6 +408,13 @@ class UserDataSourceCredentialsService:
             if ds_type.lower() in ("mssql", "kms_lighthouse"):
                 payload.credentials = validated.model_dump()
         except Exception as e:
+            if ds_type == "kms_lighthouse":
+                # The token-format rule gets its typed, localized code (as on save).
+                from app.errors import ErrorCode
+                from app.services.connection_service import ConnectionService
+                kms_error = ConnectionService._kms_credentials_error(e)
+                if kms_error.error_code == ErrorCode.CONNECTION_KMS_TOKEN_FORMAT.value:
+                    raise kms_error
             raise HTTPException(status_code=422, detail=f"Invalid credentials: {redact_error(e)}")
 
         # Build client with provided creds without persisting. For an overlay
