@@ -350,7 +350,8 @@ class PowerBIReportServerClient(DataSourceClient):
         so a subsequent schema refresh is a cheap JSON read.
         """
         cache_file = _pbix_cache_path(report_id, modified_date)
-        if use_cache and cache_file.exists():
+        from app.services import storage
+        if use_cache and storage.ensure_local(cache_file, fresh=False):
             try:
                 with cache_file.open("r", encoding="utf-8") as f:
                     return json.load(f)
@@ -443,6 +444,8 @@ class PowerBIReportServerClient(DataSourceClient):
                 _PBIX_SCHEMA_CACHE_DIR.mkdir(parents=True, exist_ok=True)
                 with cache_file.open("w", encoding="utf-8") as f:
                     json.dump(result, f)
+                from app.services import storage
+                storage.persist(cache_file)
             except Exception as e:
                 logger.debug(f"pbix cache write failed for {report_id}: {e}")
 
@@ -474,6 +477,10 @@ class PowerBIReportServerClient(DataSourceClient):
         """
         cache_dir = _pbix_data_cache_dir(report_id, modified_date)
         manifest_path = cache_dir / "manifest.json"
+        from app.services import storage
+        if storage.enabled() and not manifest_path.exists():
+            # Another pod may have materialized this report already.
+            storage.ensure_local_tree(cache_dir)
         if manifest_path.exists():
             try:
                 with manifest_path.open("r", encoding="utf-8") as f:
@@ -561,6 +568,13 @@ class PowerBIReportServerClient(DataSourceClient):
 
             with manifest_path.open("w", encoding="utf-8") as f:
                 json.dump(manifest, f)
+            try:
+                # manifest.json last: it marks the dir complete for other pods.
+                for rel in manifest.values():
+                    storage.persist(cache_dir / rel)
+                storage.persist(manifest_path)
+            except storage.StorageError as e:
+                logger.warning("pbirs: parquet cache not uploaded to object storage: %s", e)
 
             return {t: cache_dir / rel for t, rel in manifest.items()}
         finally:

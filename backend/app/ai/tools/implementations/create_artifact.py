@@ -248,6 +248,8 @@ class CreateArtifactTool(Tool):
                 if not f.path:
                     continue
                 try:
+                    from app.services import storage
+                    await storage.aensure_local(f.path)
                     async with aiofiles.open(f.path, 'rb') as file:
                         content = await file.read()
                     images.append(ImageInput(
@@ -593,6 +595,8 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         import base64
 
         path = Path(__file__).parent.parent.parent.parent.parent / "uploads" / preview_images[0]
+        from app.services import storage
+        storage.ensure_local(path)
         try:
             return base64.b64encode(path.read_bytes()).decode("ascii")
         except OSError:
@@ -692,6 +696,8 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     output_path.unlink()
             except OSError:
                 pass
+            from app.services import storage
+            storage.discard(output_path)
             yield {
                 "code": original_code,
                 "ok": False,

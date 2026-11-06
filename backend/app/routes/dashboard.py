@@ -461,7 +461,8 @@ async def _release_pdf(db, artifact, release, user) -> str | None:
         render.pptx_path = None
         try:
             deck = safe_join(ReportPdfService.PPTX_DIR, os.path.basename(release.pptx_path or ""))
-            render.pptx_path = str(deck) if release.pptx_path and deck.is_file() else None
+            from app.services import storage
+            render.pptx_path = str(deck) if release.pptx_path and await storage.aensure_local(deck) else None
         except UnsafePathError:
             pass
     service = ReportPdfService()
@@ -710,7 +711,8 @@ async def get_published_preview(
         path = safe_join(own_dir, name)
     except UnsafePathError:
         raise dashboard_data.not_found()
-    if not path.is_file():
+    from app.services import storage
+    if not await storage.aensure_local(path):
         raise dashboard_data.not_found()
     return FileResponse(path=str(path), media_type="image/png")
 
@@ -759,7 +761,8 @@ async def export_published_dashboard(
             deck = safe_join(ReportPdfService.PPTX_DIR, os.path.basename(release.pptx_path or ""))
         except UnsafePathError:
             deck = None
-        if deck is None or not release.pptx_path or not deck.is_file():
+        from app.services import storage
+        if deck is None or not release.pptx_path or not await storage.aensure_local(deck):
             raise AppError.conflict(ErrorCode.DASHBOARD_EXPORT_UNAVAILABLE,
                                     "PowerPoint export is not available for this dashboard")
         await _audit_export(db, artifact, user, fmt, request)

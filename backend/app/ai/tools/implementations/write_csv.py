@@ -335,6 +335,8 @@ Arguments:
         unique_name = f"{uuid4()}_write_csv_output.csv"
         dest_path = os.path.join("uploads", "files", unique_name)
         os.rename(csv_path, dest_path)
+        from app.services import storage
+        await storage.apersist(dest_path, "text/csv")
 
         # Read full CSV for widget data (off the event loop: a large file
         # parsed inline stalls every other stream/tool in the process).

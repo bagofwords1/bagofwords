@@ -541,6 +541,8 @@ class OrganizationSettingsService:
             buf = BytesIO()
             image.save(buf, format="PNG")
             f.write(buf.getvalue())
+        from app.services import storage
+        await storage.apersist(file_path, "image/png")
 
         # update settings
         general = dict(settings.config.get("general", {}))
@@ -589,6 +591,8 @@ class OrganizationSettingsService:
                     os.remove(file_path)
                 except Exception:
                     pass
+            from app.services import storage
+            await storage.adiscard(file_path)
         general["icon_key"] = None
         general["icon_url"] = None
         settings.config["general"] = general

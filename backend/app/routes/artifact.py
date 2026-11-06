@@ -509,7 +509,8 @@ async def export_artifact_pptx(
     if artifact.pptx_path and ".." not in artifact.pptx_path:
         upload_base = _os.path.realpath(_os.path.join(_os.getcwd(), "uploads"))
         resolved_pptx = _os.path.realpath(artifact.pptx_path)
-        if resolved_pptx.startswith(upload_base + _os.sep) and _os.path.isfile(resolved_pptx):
+        from app.services import storage
+        if resolved_pptx.startswith(upload_base + _os.sep) and await storage.aensure_local(resolved_pptx):
             return FileResponse(
                 path=resolved_pptx,
                 media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -802,7 +803,8 @@ async def get_slide_preview(
     except UnsafePathError:
         raise HTTPException(status_code=404, detail="Preview image not found")
 
-    if not image_path.is_file():
+    from app.services import storage
+    if not await storage.aensure_local(image_path):
         raise HTTPException(status_code=404, detail="Preview image not found")
 
     return FileResponse(

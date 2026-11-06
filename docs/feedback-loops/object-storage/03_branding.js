@@ -1,0 +1,24 @@
+const { launch, shot, BASE, DIR } = require('./common');
+(async () => {
+  const { browser, page } = await launch();
+  await page.goto(`${BASE}/settings/general`, { timeout: 120000 });
+  const icon = page.locator('input[type="file"][accept="image/*"]').first();
+  await icon.waitFor({ state: 'attached', timeout: 120000 });
+  const up = page.waitForResponse(r => r.url().includes('/organization/general/icon') && r.request().method() === 'POST', { timeout: 60000 });
+  await icon.setInputFiles(`${__dirname}/logo.png`);
+  await page.waitForTimeout(800);
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  console.log('icon upload', (await up).status());
+  await page.waitForTimeout(2500);
+  await shot(page, 'org_logo');
+  await page.getByText('Agent Admin').last().click();
+  await page.getByText('Account Settings').first().click();
+  const av = page.locator('input[type="file"][accept="image/*"]').last();
+  await av.waitFor({ state: 'attached', timeout: 30000 });
+  const up2 = page.waitForResponse(r => r.url().includes('/users/me/avatar') && r.request().method() === 'POST', { timeout: 60000 });
+  await av.setInputFiles(`${__dirname}/avatar.png`);
+  console.log('avatar upload', (await up2).status());
+  await page.waitForTimeout(2500);
+  await shot(page, 'avatar');
+  await browser.close();
+})().catch(e => { console.error(e); process.exit(1); });

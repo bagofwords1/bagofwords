@@ -208,6 +208,8 @@ async def save_text_artifact(runtime_ctx: dict, filename: str, text: str, *, con
     path = _upload_path(f"{uuid4()}_{filename}")
     with open(path, "w", encoding="utf-8") as f:
         f.write(text)
+    from app.services import storage
+    await storage.apersist(path, content_type)
 
     file = File(
         filename=filename,
@@ -1572,6 +1574,8 @@ Do not use when:
 
         with open(path, "w") as f:
             json.dump(data, f, default=str)
+        from app.services import storage
+        await storage.apersist(path, "application/json")
 
         file = File(
             filename=f"{safe_name}.json",

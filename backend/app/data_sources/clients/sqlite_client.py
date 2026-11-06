@@ -41,6 +41,12 @@ class SqliteClient(DataSourceClient):
 
     def __init__(self, database: str = ":memory:"):
         self.database = database
+        if database and database != ":memory:":
+            # A generated demo dataset lives under uploads/; with object
+            # storage another pod may hold it. No-op for any other path.
+            from app.services import storage
+            if storage.enabled() and storage.key_for(database):
+                storage.ensure_local(database, fresh=False)
 
     @cached_property
     def sqlite_uri(self) -> str:
