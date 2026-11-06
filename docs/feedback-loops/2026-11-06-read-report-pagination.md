@@ -68,6 +68,28 @@ observation, model stops — `STUB REACHED THE START without finding: ['codename
 
 Re-run after restoring the fix: same result.
 
+## UI: paging position on the card (like read_file)
+
+`frontend/components/tools/ReadReportTool.vue` now mirrors `ReadFileTool`:
+
+- Blue position badge in the card header: `messages 30–49 / 90`, or for a
+  read into one message `message 41 · chars 2000–8650 / 8650`
+  (`no messages at N / total` for an empty page).
+- Yellow `truncated` badge when any returned message was cut.
+- Expanded: each message shows its `#index`, and cut messages show
+  `truncated · 2000 / 8650 chars`.
+- The shared collapsible **Parameters** block (`ToolCallParams`) shows the
+  `offset` / `limit` / `content_offset` the agent asked for.
+- New strings live under `tools.readReport.*` in `locales/{en,es,he}.json`.
+  Like read_file, they follow the response language (`useResponseI18n`).
+- Executions from before pagination (no `page` in the result) render as before,
+  with no badge.
+
+![badges](assets/read-report-pagination/ui-badges.png)
+![expanded](assets/read-report-pagination/ui-expanded.png)
+![hebrew layout](assets/read-report-pagination/ui-badges-he.png)
+![pre-pagination execution](assets/read-report-pagination/ui-legacy-execution.png)
+
 ## Tests
 
 `backend/tests/e2e/test_report_research_tools.py` — two new tests, both fail on
