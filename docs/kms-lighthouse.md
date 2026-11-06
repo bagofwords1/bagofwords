@@ -353,6 +353,67 @@ regression corpus in `backend/tests/unit/test_kms_lighthouse_content.py`.
 - A double quote inside an option label is not escaped; continuation steps of a
   step that also has decisions render after its options.
 
+## On-site diagnostics
+
+**When to run it.** No KMS account exists before an install, and the client
+network is unknown until then. Run it once the connection is saved: first as the
+installer, and again after any failure is fixed. Run it a second time as a
+restricted KMS user if a restricted account is available (item 12 below).
+
+**How.** On the connection page of the agent, press **Run diagnostics**. It is
+shown for KMS connections to people who can manage the connection (`manage_connection`).
+A run takes up to 90 s. The API call is
+`POST /api/connections/{connection_id}/kms-diagnostics`. Credentials come from
+the normal resolution: the caller's own KMS row, or the admin fallback on a
+per-user connection. **Copy report** or **Download JSON** gives the report to
+send to the BOW engineers. Copying needs a secure context, so on a plain `http`
+install use the download.
+
+**What it sends.** The same calls the connector makes, through the same code, so
+the egress check, the TLS verification and the refusal of redirects all apply:
+
+- One request with no session and no credential, for the network, TLS and expiry
+  answers.
+- At most one login. A rejected login is never retried, and the login hold is
+  respected: a hold or a rejection ends the run and sends nothing else.
+- Read-only GETs: the tree, `/search/full`, `/public/item`, `/ai_answers_item`,
+  the scenario and step routes, and, with a token, `/sessionInfo`.
+- After a successful login only, one authenticated GET to each other known
+  prefix (`/kms/lh/api`, `/api`). A login is never sent to another prefix.
+
+The search calls use fixed text (`a`, `*`, one Hebrew letter, a nonsense word for
+the zero-hit check, and runs of the letter `a` for the length check).
+
+**Limits.** At most 60 calls and 90 s; each call gets at most 20 s. Hitting a
+limit marks the remaining checks `skipped`. At most 5 items and 2 scenarios are
+sampled, with at most 3 step calls per scenario. A server that keeps sending
+bytes slowly inside the socket timeout can still overrun the 90 s.
+
+**What the report holds.** Key names, type names, counts, status codes and
+booleans, plus the host, the API prefix, the auth method and the BOW version. It
+holds no document title or body, folder name, search hit text, username, full
+name, password, token, cookie value, tenant response text or exception text.
+Anything that is not a plain identifier is counted, or shown as `other`, and an
+element or key name is reported only when it is a plain identifier. The text
+stays in English on purpose: it is a report for engineers.
+
+`overall` is the worst status of the checks. A clean run ends in `warn`, not
+`pass`, because one account cannot prove item 12: `ai_elements` always warns and
+asks for a repeat as a restricted user. Items 10 and 13 are always `skipped`:
+failed logins are never sent on purpose, so ask the KMS admin for the
+concurrent-session limit, the lockout threshold and whether a logout exists.
+
+**What to do per failed stage.**
+
+| `failed_stage` | Meaning | What to do |
+|---|---|---|
+| `network` | DNS failure, refused, timeout, or `egress_blocked` | Check the URL, DNS and the firewall from this server. `egress_blocked`: the host is refused by `security.block_private_outbound`. A proxy is not supported (see Known limitations). |
+| `tls` | `untrusted_certificate` or `tls_failed` | Add the CA to `REQUESTS_CA_BUNDLE`. A device that intercepts TLS needs its CA added. |
+| `login` | Rejected, held, `credentials_unavailable`, or no session in the answer | Check the username and password or the token. After a rejection wait five minutes, because of the login hold, before running it again. |
+| `browse` | The tree could not be read | Check the API prefix and the account's KMS permissions, and try Root folder ID. |
+| `search` | `/search/full` failed | Check Layout ID: see `search_layout` for the answer with and without it. |
+| `read` | No sampled item could be read | Check the account's KMS permissions. Send the report to the BOW engineers. |
+
 ## Known limitations and follow-ups
 
 Platform findings that are not KMS-specific are analysed in
@@ -371,6 +432,10 @@ here so they are not lost:
 
 KMS-specific follow-ups:
 
+- **No proxy support.** KMS calls ignore `HTTPS_PROXY` and the other proxy
+  variables (`trust_env=False`). A site that reaches the internet only through a
+  proxy cannot use this connector; the diagnostics show that as a `network`
+  failure.
 - The listing cap and the 40-call bound are silent in the tool output (stated in
   the planner note); search reports "may be incomplete" also when the cap fills
   exactly on a full last page.

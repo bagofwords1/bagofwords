@@ -4489,6 +4489,7 @@
     "connection.not_found": "Connection not found",
     "connection.kms_token_format": "The KMS API token can contain only plain letters, digits and punctuation, with no spaces. Copy it again from KMS Lighthouse and paste it as plain text.",
     "connection.kms_use_connection_credentials": "KMS Lighthouse sign-ins are saved on the connection. Open the connection and connect from there.",
+    "connection.kms_only": "Diagnostics apply to KMS Lighthouse connections only.",
     "data_source.not_found": "Data source not found",
     "file.not_found": "File not found",
     "verification.invalid": "Invalid or expired verification token",
@@ -6666,6 +6667,37 @@
     "notFound": "This connection could not be found.",
     "forbidden": "You don't have access to this connection.",
     "loadFailed": "Failed to load the connection. Try again later."
+  },
+  "kmsDiagnostics": {
+    "run": "Run diagnostics",
+    "running": "Running diagnostics. This can take up to 90 seconds.",
+    "description": "Read-only checks of the network, certificate, login and KMS behaviour. Sends one login at most.",
+    "overallPass": "All checks passed",
+    "overallWarn": "Finished with warnings",
+    "overallFail": "Finished with a failure",
+    "failedStage": "Failed at: {stage}",
+    "calls": "{calls} calls in {seconds} s",
+    "copy": "Copy report",
+    "copied": "Report copied",
+    "copyFailed": "Could not copy the report. Use Download JSON.",
+    "download": "Download JSON",
+    "reportNote": "The report stays in English so it can be sent to the BOW engineers. It holds no content, names or passwords.",
+    "failed": "Diagnostics could not run.",
+    "status": {
+      "pass": "Pass",
+      "warn": "Warning",
+      "fail": "Fail",
+      "info": "Info",
+      "skipped": "Skipped"
+    },
+    "stage": {
+      "network": "network",
+      "tls": "TLS",
+      "login": "login",
+      "browse": "browse",
+      "search": "search",
+      "read": "read"
+    }
   },
   "dashboardCollab": {
     "presence": {

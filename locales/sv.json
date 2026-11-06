@@ -4083,6 +4083,7 @@
     "connection.not_found": "Anslutningen hittades inte",
     "connection.kms_token_format": "KMS-API-token får bara innehålla vanliga bokstäver, siffror och skiljetecken, utan mellanslag. Kopiera den igen från KMS Lighthouse och klistra in den som oformaterad text.",
     "connection.kms_use_connection_credentials": "Inloggningar för KMS Lighthouse sparas på anslutningen. Öppna anslutningen och anslut därifrån.",
+    "connection.kms_only": "Diagnostiken gäller endast KMS Lighthouse-anslutningar.",
     "data_source.not_found": "Datakällan hittades inte",
     "file.not_found": "Filen hittades inte",
     "verification.invalid": "Ogiltig eller utgången verifieringstoken",
@@ -6132,6 +6133,37 @@
     "notFound": "Anslutningen kunde inte hittas.",
     "forbidden": "Du har inte åtkomst till den här anslutningen.",
     "loadFailed": "Det gick inte att läsa in anslutningen. Försök igen senare."
+  },
+  "kmsDiagnostics": {
+    "run": "Kör diagnostik",
+    "running": "Diagnostiken körs. Det kan ta upp till 90 sekunder.",
+    "description": "Skrivskyddade kontroller av nätverk, certifikat, inloggning och KMS beteende. Skickar högst en inloggning.",
+    "overallPass": "Alla kontroller godkändes",
+    "overallWarn": "Klar med varningar",
+    "overallFail": "Klar med ett fel",
+    "failedStage": "Misslyckades vid: {stage}",
+    "calls": "{calls} anrop på {seconds} s",
+    "copy": "Kopiera rapporten",
+    "copied": "Rapporten har kopierats",
+    "copyFailed": "Det gick inte att kopiera rapporten. Använd Ladda ned JSON.",
+    "download": "Ladda ned JSON",
+    "reportNote": "Rapporten förblir på engelska så att den kan skickas till BOW-teknikerna. Den innehåller inget innehåll, inga namn och inga lösenord.",
+    "failed": "Diagnostiken kunde inte köras.",
+    "status": {
+      "pass": "Godkänd",
+      "warn": "Varning",
+      "fail": "Fel",
+      "info": "Info",
+      "skipped": "Hoppades över"
+    },
+    "stage": {
+      "network": "nätverk",
+      "tls": "TLS",
+      "login": "inloggning",
+      "browse": "bläddring",
+      "search": "sökning",
+      "read": "läsning"
+    }
   },
   "trackedChanges": {
     "noChanges": "Inga ändringar"

@@ -4083,6 +4083,7 @@
     "connection.not_found": "Verbindung nicht gefunden",
     "connection.kms_token_format": "Das KMS-API-Token darf nur einfache Buchstaben, Ziffern und Satzzeichen enthalten, ohne Leerzeichen. Kopieren Sie es erneut aus KMS Lighthouse und fügen Sie es als reinen Text ein.",
     "connection.kms_use_connection_credentials": "KMS-Lighthouse-Anmeldungen werden in der Verbindung gespeichert. Öffnen Sie die Verbindung und verbinden Sie sich dort.",
+    "connection.kms_only": "Die Diagnose gilt nur für KMS Lighthouse-Verbindungen.",
     "data_source.not_found": "Datenquelle nicht gefunden",
     "file.not_found": "Datei nicht gefunden",
     "verification.invalid": "Ungültiges oder abgelaufenes Bestätigungs-Token",
@@ -6132,6 +6133,37 @@
     "notFound": "Diese Verbindung wurde nicht gefunden.",
     "forbidden": "Sie haben keinen Zugriff auf diese Verbindung.",
     "loadFailed": "Die Verbindung konnte nicht geladen werden. Versuchen Sie es später erneut."
+  },
+  "kmsDiagnostics": {
+    "run": "Diagnose ausführen",
+    "running": "Diagnose läuft. Das kann bis zu 90 Sekunden dauern.",
+    "description": "Schreibgeschützte Prüfungen von Netzwerk, Zertifikat, Anmeldung und KMS-Verhalten. Sendet höchstens eine Anmeldung.",
+    "overallPass": "Alle Prüfungen bestanden",
+    "overallWarn": "Mit Warnungen abgeschlossen",
+    "overallFail": "Mit einem Fehler abgeschlossen",
+    "failedStage": "Fehlgeschlagen bei: {stage}",
+    "calls": "{calls} Aufrufe in {seconds} s",
+    "copy": "Bericht kopieren",
+    "copied": "Bericht kopiert",
+    "copyFailed": "Der Bericht konnte nicht kopiert werden. Verwenden Sie JSON herunterladen.",
+    "download": "JSON herunterladen",
+    "reportNote": "Der Bericht bleibt auf Englisch, damit er an die BOW-Techniker gesendet werden kann. Er enthält keine Inhalte, Namen oder Passwörter.",
+    "failed": "Die Diagnose konnte nicht ausgeführt werden.",
+    "status": {
+      "pass": "Bestanden",
+      "warn": "Warnung",
+      "fail": "Fehler",
+      "info": "Info",
+      "skipped": "Übersprungen"
+    },
+    "stage": {
+      "network": "Netzwerk",
+      "tls": "TLS",
+      "login": "Anmeldung",
+      "browse": "Durchsuchen",
+      "search": "Suche",
+      "read": "Lesen"
+    }
   },
   "trackedChanges": {
     "noChanges": "Keine Änderungen"

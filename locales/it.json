@@ -4083,6 +4083,7 @@
     "connection.not_found": "Connessione non trovata",
     "connection.kms_token_format": "Il token API di KMS può contenere solo lettere, cifre e segni di punteggiatura semplici, senza spazi. Copialo di nuovo da KMS Lighthouse e incollalo come testo semplice.",
     "connection.kms_use_connection_credentials": "Gli accessi a KMS Lighthouse vengono salvati nella connessione. Apri la connessione e connettiti da lì.",
+    "connection.kms_only": "La diagnostica si applica solo alle connessioni KMS Lighthouse.",
     "data_source.not_found": "Origine dati non trovata",
     "file.not_found": "File non trovato",
     "verification.invalid": "Token di verifica non valido o scaduto",
@@ -6132,6 +6133,37 @@
     "notFound": "Impossibile trovare questa connessione.",
     "forbidden": "Non hai accesso a questa connessione.",
     "loadFailed": "Impossibile caricare la connessione. Riprova più tardi."
+  },
+  "kmsDiagnostics": {
+    "run": "Esegui diagnostica",
+    "running": "Diagnostica in corso. Può richiedere fino a 90 secondi.",
+    "description": "Controlli di sola lettura su rete, certificato, accesso e comportamento di KMS. Invia al massimo un accesso.",
+    "overallPass": "Tutti i controlli superati",
+    "overallWarn": "Terminato con avvisi",
+    "overallFail": "Terminato con un errore",
+    "failedStage": "Non riuscito in: {stage}",
+    "calls": "{calls} chiamate in {seconds} s",
+    "copy": "Copia report",
+    "copied": "Report copiato",
+    "copyFailed": "Impossibile copiare il report. Usa Scarica JSON.",
+    "download": "Scarica JSON",
+    "reportNote": "Il report resta in inglese per poterlo inviare ai tecnici BOW. Non contiene contenuti, nomi o password.",
+    "failed": "Impossibile eseguire la diagnostica.",
+    "status": {
+      "pass": "Superato",
+      "warn": "Avviso",
+      "fail": "Errore",
+      "info": "Info",
+      "skipped": "Saltato"
+    },
+    "stage": {
+      "network": "rete",
+      "tls": "TLS",
+      "login": "accesso",
+      "browse": "navigazione",
+      "search": "ricerca",
+      "read": "lettura"
+    }
   },
   "trackedChanges": {
     "noChanges": "Nessuna modifica"

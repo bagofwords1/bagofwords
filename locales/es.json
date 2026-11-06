@@ -4427,6 +4427,7 @@
     "connection.not_found": "Conexión no encontrada",
     "connection.kms_token_format": "El token de API de KMS solo puede contener letras, dígitos y signos de puntuación simples, sin espacios. Cópialo de nuevo desde KMS Lighthouse y pégalo como texto sin formato.",
     "connection.kms_use_connection_credentials": "Los inicios de sesión de KMS Lighthouse se guardan en la conexión. Abre la conexión y conéctate desde allí.",
+    "connection.kms_only": "El diagnóstico solo se aplica a las conexiones de KMS Lighthouse.",
     "data_source.not_found": "Fuente de datos no encontrada",
     "file.not_found": "Archivo no encontrado",
     "verification.invalid": "Token de verificación no válido o expirado",
@@ -6637,6 +6638,37 @@
     "notFound": "No se encontró esta conexión.",
     "forbidden": "No tienes acceso a esta conexión.",
     "loadFailed": "No se pudo cargar la conexión. Inténtalo de nuevo más tarde."
+  },
+  "kmsDiagnostics": {
+    "run": "Ejecutar diagnóstico",
+    "running": "Ejecutando el diagnóstico. Puede tardar hasta 90 segundos.",
+    "description": "Comprobaciones de solo lectura de la red, el certificado, el inicio de sesión y el comportamiento de KMS. Envía como máximo un inicio de sesión.",
+    "overallPass": "Todas las comprobaciones se superaron",
+    "overallWarn": "Finalizado con advertencias",
+    "overallFail": "Finalizado con un error",
+    "failedStage": "Falló en: {stage}",
+    "calls": "{calls} llamadas en {seconds} s",
+    "copy": "Copiar informe",
+    "copied": "Informe copiado",
+    "copyFailed": "No se pudo copiar el informe. Usa Descargar JSON.",
+    "download": "Descargar JSON",
+    "reportNote": "El informe se mantiene en inglés para poder enviarlo a los ingenieros de BOW. No contiene contenido, nombres ni contraseñas.",
+    "failed": "No se pudo ejecutar el diagnóstico.",
+    "status": {
+      "pass": "Correcto",
+      "warn": "Advertencia",
+      "fail": "Error",
+      "info": "Información",
+      "skipped": "Omitido"
+    },
+    "stage": {
+      "network": "red",
+      "tls": "TLS",
+      "login": "inicio de sesión",
+      "browse": "navegación",
+      "search": "búsqueda",
+      "read": "lectura"
+    }
   },
   "dashboardCollab": {
     "presence": {

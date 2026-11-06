@@ -96,6 +96,16 @@ Test-only switches and routes (not part of the KMS API):
     a re-login too), first expires every
     session /login opened (expire_sessions; pasted API tokens stay valid),
     so a userpass client's call answers 401, or 302 with expired_response.
+  - Tenant variants for the on-site diagnostics (P12):
+    STATE["plant_sentinels"] = True: every JSON answer carries SENTINEL in every string value
+    a client could copy (structural values such as ids and "SUCCESS" stay usable) and an extra
+    SENTINEL_KEY key in every object, so a test can prove none of it leaves in a report.
+    STATE["alt_prefix"] = "/api": GET requests are served under that prefix too; a login is not.
+    STATE["search_max_rows"] = N: /search/full returns at most N rows per page, whatever is asked.
+    STATE["search_max_query"] = N: a query longer than N characters answers 400 with no body.
+    STATE["search_requires_layout"] = True: /search/full without layoutId answers 400 with no body.
+    STATE["no_hit_text"] = "x": a query holding "x" matches nothing; its body is
+    STATE["no_hit_body"], or an empty results list when that is None.
   - GET {PREFIX}/_mock/empty              HTTP 200 with an empty body
   - GET {PREFIX}/_mock/oversized          HTTP 200 with a large JSON body (OVERSIZED_BYTES)
 
@@ -118,6 +128,12 @@ PREFIX = "/kms/lh/api"
 SESSION_COOKIE = "JSESSIONID"
 # Planted in unexpected response shapes; it must never reach client output.
 ODD_MARKER = "kms-odd-marker-5c1e"
+# Planted by STATE["plant_sentinels"]; none of it may reach a diagnostics report.
+SENTINEL = "kms-sentinel 7f3a"
+SENTINEL_KEY = "kms sentinel key 7f3a"
+# Values a client needs to keep working while everything else carries SENTINEL.
+_STRUCTURAL_KEYS = ("id", "status", "statusCode", "status_id", "stepId", "version", "language", "item_id", "token",
+                    "start", "rows")
 
 # Content-management tree: node id -> record. "parent" None is the top level
 # (asked for with no parentId). "subType" and "updateDate" are sent when set.
@@ -393,6 +409,8 @@ _SWITCHES = {
     "hold_stale_session": (True, False),
     "search_400": (True, False),
     "hold_search_after_first": (True, False),
+    "plant_sentinels": (True, False),
+    "search_requires_layout": (True, False),
 }
 # The odd 200 answers STATE["ai_status"] can name besides an HTTP status.
 _AI_ANSWERS = ("empty", "not_json", "error")
@@ -426,11 +444,29 @@ _DEFAULTS = {
     "expire_sessions_at": None,      # None | a tree parentId (digit string) | "ai_answers_item" | "scenario_step"
     "scenario_requests": [],         # {"path", "v", "plainText", "accept"} of every scenario route call, in order
     "step_status": {},               # stepId -> HTTP status | "error" | "wrong_step": that step call answers it
+    "plant_sentinels": False,        # True: every JSON answer carries SENTINEL and SENTINEL_KEY
+    "alt_prefix": None,              # None | a second prefix that GET requests are served under
+    "search_max_rows": None,         # None | a server-side cap on rows per /search/full page
+    "search_max_query": None,        # None | the longest query /search/full accepts
+    "search_requires_layout": False, # True: /search/full without layoutId answers 400 with no body
+    "no_hit_text": None,             # None | a query holding this text matches nothing
+    "no_hit_body": None,             # None | the whole JSON body of a query that matches nothing
 }
 _STEP_ANSWERS = ("error", "wrong_step")
 _STALE = {"barrier": None}           # the barrier for STATE["hold_stale_401s"]
 # GET {PREFIX}/_mock/held sets "arrived", then waits up to 5 s for "release".
 HELD = {"arrived": threading.Event(), "release": threading.Event()}
+
+
+def _planted(value, key=None):
+    """``value`` with SENTINEL in every string a client could copy and SENTINEL_KEY in every object."""
+    if isinstance(value, dict):
+        return {**{k: _planted(v, k) for k, v in value.items()}, SENTINEL_KEY: SENTINEL}
+    if isinstance(value, list):
+        return [_planted(entry, key) for entry in value]
+    if isinstance(value, str) and key not in _STRUCTURAL_KEYS and not (key == "type" and value == "FOLDER"):
+        return f"{value} {SENTINEL}"
+    return value
 
 
 def _is_digits(value) -> bool:
@@ -532,6 +568,8 @@ class Handler(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------ plumbing
     def _send_json(self, status, body, headers=None):
+        if STATE["plant_sentinels"]:
+            body = _planted(body)
         raw = json.dumps(body).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -645,11 +683,16 @@ class Handler(BaseHTTPRequestHandler):
             expire_sessions()
         user = self._identity()
         REQUEST_LOG.append((user, "GET", parts.path))
-        if not parts.path.startswith(PREFIX + "/"):
+        alt_prefix = STATE["alt_prefix"]
+        if alt_prefix is not None and parts.path.startswith(alt_prefix + "/"):
+            prefix = alt_prefix
+        elif parts.path.startswith(PREFIX + "/"):
+            prefix = PREFIX
+        else:
             return self._send_empty(404)
         if user is None:
             return self._unauthenticated()
-        route = parts.path[len(PREFIX):]
+        route = parts.path[len(prefix):]
         odd = STATE["odd_shapes"]
         if route == "/sessionInfo":
             if odd == "list":
@@ -793,8 +836,12 @@ class Handler(BaseHTTPRequestHandler):
         with _LOCK:
             STATE["search_count"] += 1
             STATE["last_search_params"] = params
-        if STATE["search_400"]:
+        too_long = STATE["search_max_query"] is not None and len(params["query"] or "") > STATE["search_max_query"]
+        if STATE["search_400"] or too_long or (STATE["search_requires_layout"] and params["layoutId"] is None):
             return self._send_empty(400)
+        if STATE["no_hit_text"] is not None and STATE["no_hit_text"] in (params["query"] or ""):
+            return self._send_json(200, STATE["no_hit_body"] if STATE["no_hit_body"] is not None else {
+                "regularSearch": {"query": params["query"], "results": []}})
         if STATE["hold_search_after_first"] and params["start"] not in (None, "0"):
             HELD["arrived"].set()
             if not HELD["release"].wait(5):
@@ -818,6 +865,8 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             return self._send_empty(400)
         visible = [r for r in SEARCH_RESULTS + list(STATE["extra_results"]) if user in r.get("visible", (user,))]
+        if STATE["search_max_rows"] is not None:
+            rows = min(rows, STATE["search_max_rows"])
         page = [{k: v for k, v in r.items() if k != "visible"} for r in visible[start:start + rows]]
         return self._send_json(200, {"regularSearch": {
             "query": params["query"], "suggestedQueryAlternative": None, "results": page}})

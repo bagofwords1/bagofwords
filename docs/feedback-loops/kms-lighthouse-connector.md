@@ -25,6 +25,10 @@ lists what a tenant must confirm.
   (`backend/app/errors/codes.py`) with catalog entries in every maintained
   locale.
 - Frontend: file-type lists, the member credential flow and a placeholder icon.
+- On-site diagnostics (P12): `backend/app/data_sources/clients/kms_lighthouse_diagnostics.py`,
+  `KmsLighthouseClient.diagnostics`, `POST /api/connections/{id}/kms-diagnostics`,
+  `frontend/components/datasources/KmsDiagnosticsPanel.vue`, the error code
+  `connection.kms_only` and the `kmsDiagnostics` strings in all 10 catalogs.
 - Tests: `backend/tests/unit/test_kms_lighthouse_{client,content,wiring,credentials}.py`,
   `backend/tests/e2e/test_kms_lighthouse{,_agent_tools,_credentials}.py`,
   `test_contract_kms_lighthouse` in `backend/tests/e2e/test_connection_file_browse.py`,
@@ -76,8 +80,13 @@ existed), and from P7 on also `test_egress_package_b.py -k kms`.
 | P8 | API flow end to end (desktop) | rsync to the desktop mirror, then `TESTING=true .venv/bin/python -m pytest tests/e2e/test_kms_lighthouse.py -m e2e --db=sqlite -q -p no:cacheprovider`; KMS gate on the laptop | PASS at `b1f03c45b`; the non-admin owner test was a strict xfail until the owner fallback was removed (below) |
 | P8b | Agent tools and the file browser end to end (desktop) | `TESTING=true .venv/bin/python -m pytest tests/e2e/test_kms_lighthouse_agent_tools.py tests/e2e/test_connection_file_browse.py -k kms -m e2e --db=sqlite -q -p no:cacheprovider`; KMS gate on the laptop | PASS at `5b8649624` |
 | P9 | Frontend lists, icon, member credential flow | grep of the five frontend lists for `'kms_lighthouse'`; `git diff --quiet -- frontend/components/datasources/AgentFilesPanel.vue`; `file frontend/public/data_sources_icons/kms_lighthouse.png` (PNG, RGBA); `tests/unit/test_kms_lighthouse_credentials.py` and `tests/e2e/test_kms_lighthouse_credentials.py`; KMS gate | PASS 19/19 at `b536c8e8b`; the frontend `.mjs` test was not run (no `node_modules`) |
+| P12 | On-site diagnostics: report, safety rules, route, panel wiring, docs | `uv run pytest tests/unit/test_kms_lighthouse_diagnostics.py -q` (with `BOW_DATABASE_URL` and `TESTING=true` when no `.env` exists); on the desktop mirror `TESTING=true .venv/bin/python -m pytest tests/e2e/test_kms_lighthouse_diagnostics.py -m e2e --db=sqlite -q -p no:cacheprovider`; KMS gate | PASS: diagnostics 98 unit tests, 9 e2e tests; gate 2096 (1998 before this phase); egress 10; 21 KMS e2e on the desktop; 8 safety mutants and the route permission mutant caught; the two SFCs compile with `@vue/compiler-sfc`. The panel has not been run in a browser (no stack: P11) |
 
-**Current gate (P10, re-run once on the laptop at `b536c8e8b` plus this docs
+**P12 gate (laptop, with `BOW_DATABASE_URL=sqlite:///./db/test_kms.db TESTING=true`):
+`tests/unit/test_kms_lighthouse_*.py` 2096 passed in 143 s, exit 0;
+`tests/unit/test_egress_package_b.py -k kms` 10 passed, exit 0.**
+
+**Gate before P12 (P10, re-run once on the laptop at `b536c8e8b` plus this docs
 change, which touches no code):**
 
 | Command | Result |
@@ -277,6 +286,35 @@ here; each answer either confirms a default or changes one constant or setting.
     client accepts `total`, `totalResults` or `numFound` equal to 0).
 18. Whether `/search/full` caps rows per page on the server side (a short page
     ends paging).
+
+## Checklist items and diagnostics checks
+
+The on-site diagnostics (P12) answer the checklist above as far as one account
+and one safe read-only call can. Each `id` is a row of the report's `checks`.
+Run it at the install, then record the answers here.
+
+| Item | Check | What it reports |
+|---|---|---|
+| 1 | `prefix` | One authenticated GET per other known prefix; status and whether it served (`ai_answers_item` when an item was read, else the tree) |
+| 2 | `login` | Login status, cookie count and plain names, whether `data.token` exists, top-level key names. One run cannot measure the session lifetime |
+| 3 | `expiry` | The status of a request with no session, and whether it redirected |
+| 4 | `top_level` | Records at the top level, and at the root folder when one is set |
+| 5 | `types` | Counts of `type` and `subType` in the tree and in search |
+| 6 | `id_overlap` | Item ids, scenario ids and shared ids in the sample |
+| 7 | `dates` | Whether any first or second date field goes over 12 |
+| 8 | `search_layout` | Status and rows with and without `layoutId` when one is set |
+| 9 | `query_length` | The longest accepted of three sizes, up or down from the connector's limit |
+| 10 | `concurrent_sessions` | Always skipped: ask the KMS admin. Failed logins are never sent on purpose |
+| 11 | `field_types` | Python type names of `tabs[].id` and `elements.*.tabId` |
+| 12 | `ai_elements` | Element names only in the AI text or only in the item, and the common count. Always `warn`: repeat as a restricted user |
+| 13 | `logout` | Always skipped: ask the KMS admin |
+| 14 | `ai_text` | Plain, ambiguous and blank counts; the status codes when the module is absent |
+| 15 | `scenario_text` | Scenario strings with a tag or an entity |
+| 16 | `scenario_steps` | Status codes seen on step fetches |
+| 17 | `zero_hit` | Status, top-level and search-block key names, whether the connector can read it |
+| 18 | `page_rows` | Rows returned against rows requested, and the next page after a short one |
+| - | `network` | Whether this server reached KMS; else `dns`, `refused`, `timeout` or `connection_failed` (`egress_blocked` when the check runs before any call) |
+| - | `tls` | Whether the certificate is trusted; else `untrusted_certificate` or `tls_failed` |
 
 ## Scrub decisions
 

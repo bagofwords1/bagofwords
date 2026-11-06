@@ -82,6 +82,13 @@
                         </template>
                     </div>
                 </div>
+
+                <!-- KMS on-site diagnostics: same permission as Edit -->
+                <KmsDiagnosticsPanel
+                    v-if="canManageConnections && connectionType === 'kms_lighthouse'"
+                    :key="connectionId"
+                    :connection-id="connectionId"
+                />
             </div>
         </div>
     </div>
@@ -127,6 +134,7 @@
 // data from was renamed away in 6f352fbdb, so the page loads its own data.
 definePageMeta({ auth: true })
 import ConnectForm from '~/components/datasources/ConnectForm.vue'
+import KmsDiagnosticsPanel from '~/components/datasources/KmsDiagnosticsPanel.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import Spinner from '~/components/Spinner.vue'
 import { useCan } from '~/composables/usePermissions'

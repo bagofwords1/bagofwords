@@ -2,6 +2,8 @@
 Connection Routes - Admin-only CRUD for database connections.
 Connections are the underlying database connections that Domains (DataSources) link to.
 """
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -805,6 +807,29 @@ async def test_connection(
         timings=result.get("timings"),
         details=result.get("details"),
     )
+
+
+@router.post("/{connection_id}/kms-diagnostics")
+@requires_resource_permission('connection', 'manage_connection')
+async def run_kms_diagnostics(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """On-site diagnostics of a KMS Lighthouse connection: a report, also when the run fails."""
+    from app.data_sources.clients.kms_lighthouse_diagnostics import build_failure_report
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    if connection.type != "kms_lighthouse":
+        raise AppError.bad_request(ErrorCode.CONNECTION_KMS_ONLY, "Diagnostics apply to KMS Lighthouse connections only.")
+    config = connection.config
+    try:
+        client = await connection_service.construct_client(db, connection, current_user)
+    except Exception as exc:
+        return build_failure_report(config, exc)
+    # The run may take 90 s against a remote host: it must not hold a pooled DB connection.
+    await release_request_db(db)
+    return await asyncio.to_thread(client.diagnostics)
 
 
 class MemberIdentityPreviewRequest(BaseModel):
