@@ -499,6 +499,7 @@ from app.services.instruction_usage_service import InstructionUsageService
 from app.ai.llm.types import ImageInput
 from app.ai.llm.image_utils import normalize_image_input
 from app.ai.llm.usage_attribution import set_usage_attribution, reset_usage_attribution, get_usage_attribution
+from app.ai.agents.planner.run_efficiency import RunEfficiency, enabled as run_efficiency_enabled
 from app.ai.llm.header_injection import (
     QuestionAgents,
     agent_ids_from_tool_input,
@@ -940,6 +941,8 @@ class AgentV2:
         # Streaming text state per block_id
         self._block_text_cache: dict[str, dict[str, str]] = {}
         self._last_planner_prompt_tokens: int | None = None
+        # Running tally behind the planner's <run_efficiency> line.
+        self._run_efficiency = RunEfficiency()
 
         # Initialize ContextHub for centralized context management
         self.context_hub = ContextHub(
@@ -6829,6 +6832,10 @@ class AgentV2:
                                     if verification_state["repairs"] > 2:
                                         return await _refuse_before_dispatch({"summary": "Verification repair budget reached. Report the unresolved behavior.", "success": False})
 
+                                try:
+                                    self._run_efficiency.add_tool_call(tool_name, tool_input)
+                                except Exception:
+                                    pass
                                 async with self._tool_db_lock:
                                     # Start tool execution tracking
                                     if tool_execution is None:
@@ -8290,6 +8297,8 @@ class AgentV2:
                     else (" — finish NOW with finish_subtask" if used >= step_limit - 1 else "")
                 )
             return
+        if run_efficiency_enabled():
+            planner_input.run_efficiency = self._run_efficiency.render(int(loop_index)) or None
         planner_input.sub_agents_enabled = bool(getattr(self, "_sub_agents_enabled", False))
         planner_input.sub_agent_posture = sub_agent_posture(self.organization_settings)
         if planner_input.sub_agents_enabled and self.report is not None:
@@ -8517,6 +8526,10 @@ class AgentV2:
             metrics = getattr(decision, "metrics", None)
             token_usage = getattr(metrics, "token_usage", None) if metrics else None
             prompt_tokens = getattr(token_usage, "prompt_tokens", None) if token_usage else None
+            self._run_efficiency.add_planner_usage(
+                token_usage,
+                provider=getattr(getattr(self.model, "provider", None), "provider_type", None),
+            )
             if token_usage is not None and self._is_sub_agent:
                 # Running total for the sub-agent token cap (sub_agent_max_tokens).
                 _total = getattr(token_usage, "total_tokens", None)
