@@ -81,10 +81,6 @@ _ROOT_FILES = _BOB_FILES | {"item:305", "scenario:4401", "item:303", "item:304"}
 _OUT_OF_ROOT = {"item:279", "item:307"}
 
 
-class _OwnerFallbackBroken(AssertionError):
-    """The known owner-fallback app bug: a non-admin owner without a row gets connect_required."""
-
-
 def _assert_root_scoped(ids):
     assert not ids & _OUT_OF_ROOT, f"files from outside root 10 leaked: {sorted(ids & _OUT_OF_ROOT)}"
     assert ids == _ROOT_FILES, sorted(ids)
@@ -190,9 +186,8 @@ def test_user_required_members_read_as_themselves(
 def test_owner_without_a_row_runs_as_the_connection_identity(
     kms, test_client, create_user, login_user, whoami, create_data_source,
 ):
-    """Owner/admin fallback (A6): the data-source owner, with no saved row, runs as the system
-    credentials. This owner is also the org admin who created it, so the admin branch alone could
-    pass it; the owner branch on its own is the strict xfail below (it needs an app fix)."""
+    """Admin fallback (A6): an org admin who owns the data source, with no saved row, runs as the
+    system credentials, because they are an admin. Ownership alone grants nothing (next test)."""
     token, org, headers = _admin(create_user, login_user, whoami)
     ds_id, conn_id = _user_required_source(kms, test_client, create_data_source, token, org, headers)
     file_endpoint = f"/api/data_sources/{ds_id}/connections/{conn_id}/files"
@@ -208,16 +203,12 @@ def test_owner_without_a_row_runs_as_the_connection_identity(
 
 
 @pytest.mark.e2e
-@pytest.mark.xfail(strict=True, raises=_OwnerFallbackBroken, reason=(
-    "App bug, not fixed in this test-only phase: in resolve_credentials the owner check reads "
-    "connection.data_sources, which is not loaded on this path; the async lazy load raises "
-    "MissingGreenlet, the bare `except Exception: pass` swallows it, and a non-admin owner gets "
-    "connect_required. Remove this mark when the app fix lands."))
-def test_owner_who_is_not_an_admin_runs_as_the_connection_identity(
+def test_owner_who_is_not_an_admin_connects_with_their_own_login(
     kms, test_client, create_user, login_user, whoami, create_data_source,
 ):
-    """Owner branch of the A6 fallback on its own. A member needs create_data_source to own one,
-    which only an admin holds, so the owner builds the data source as an admin and is then demoted."""
+    """Owning a data source never unlocks the shared account. A member needs create_data_source to
+    own one, which only an admin holds, so the owner builds the data source as an admin and is then
+    demoted."""
     _, org, headers = _admin(create_user, login_user, whoami)
     owner_token, owner_h, owner_membership = _invite(test_client, create_user, login_user, org, headers, "owner", role="admin")
     ds_id, conn_id = _user_required_source(kms, test_client, create_data_source, owner_token, org, owner_h)
@@ -233,11 +224,26 @@ def test_owner_who_is_not_an_admin_runs_as_the_connection_identity(
     file_endpoint = f"/api/data_sources/{ds_id}/connections/{conn_id}/files"
 
     kms["mock"].REQUEST_LOG.clear()
-    browsed = test_client.get(file_endpoint, headers=owner_h)
-    if browsed.status_code == 200 and browsed.json().get("connect_required") is True:
-        raise _OwnerFallbackBroken(f"a non-admin owner without a row got connect_required: {browsed.json()}")
-    _assert_root_scoped(_file_ids(browsed))
-    assert _users_seen(kms) == {"svc"}, "the owner must run as the connection identity"
+    _assert_connect_required(test_client.get(file_endpoint, headers=owner_h))
+    # These two load the connection fresh, the case where ownership used to unlock the shared login.
+    test_client.post(f"/api/connections/{conn_id}/test-my-credentials", headers=owner_h)
+    test_client.get(f"/api/data_sources/{ds_id}/test_connection", headers=owner_h)
+    assert kms["mock"].REQUEST_LOG == [], "the owner must not reach KMS before connecting"
+
+    # The status has to say so too: the UI shows Connect only when it is not "system".
+    source = test_client.get(f"/api/data_sources/{ds_id}", headers=owner_h)
+    assert source.status_code == 200, source.text
+    status = source.json()["connections"][0]["user_status"]
+    assert status["effective_auth"] == "none", status
+    assert status["uses_fallback"] is False, status
+
+    bob_pass = kms["mock"].USERS["bob"]["password"]
+    saved = test_client.post(f"/api/connections/{conn_id}/my-credentials",
+                             json={"auth_mode": "userpass", "credentials": {"username": "bob", "password": bob_pass}}, headers=owner_h)
+    assert saved.status_code == 200, saved.text
+    kms["mock"].REQUEST_LOG.clear()
+    assert _file_ids(test_client.get(file_endpoint, headers=owner_h)) == _BOB_FILES
+    assert _users_seen(kms) == {"bob"}, "once connected, every call runs as the owner's own login"
 
 
 @pytest.mark.e2e

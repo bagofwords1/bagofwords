@@ -97,19 +97,16 @@ KMS.
 | Each user signs in | a member with saved credentials | that member's own KMS login or token |
 | Each user signs in | a member without saved credentials | nobody: the file tools and the Files tab ask the member to connect, and no KMS call is made |
 | Each user signs in | an org admin without saved credentials | the connection's system credentials |
-| Each user signs in | the data-source owner without saved credentials | intended: the connection's system credentials (see the owner bug below) |
+| Each user signs in | a data-source owner who is not an admin, without saved credentials | nobody: the same as a member |
 
-The owner/admin fallback is existing platform behaviour for every connector
+The admin fallback is existing platform behaviour for every connector
 (`ConnectionService.resolve_credentials`), not something this connector adds.
-On a per-user connection it means that an org admin, or the data-source owner,
-who has not saved their own login reads with the connection's account, not with
-their own KMS permissions. Save your own login to read as yourself.
+On a per-user connection it means that an org admin who has not saved their own
+login reads with the connection's account, not with their own KMS permissions.
+Save your own login to read as yourself.
 
-**Owner bug (pre-existing, every connector).** For an owner who is **not** an
-org admin, the owner branch of that fallback does not fire today, so such an
-owner gets the Connect prompt instead. The test that pins the intended
-behaviour is marked as a strict `xfail` until a platform fix is decided. See
-"Known limitations and follow-ups" below.
+Owning a data source does not unlock the connection's account. The status shown
+in the UI follows the same rule, so a non-admin owner gets the Connect prompt.
 
 When a KMS connection, or the agent that holds it, has been turned off after
 failed connection tests, the file tools say so by name and tell the user to ask
@@ -362,11 +359,9 @@ Platform findings that are not KMS-specific are analysed in
 `onboarding/pr-kms/pr-highlights.md` ("Platform observation"); they are listed
 here so they are not lost:
 
-- **Owner fallback bug** (every connector): a data-source owner who is not an
-  org admin does not get the owner fallback on per-user connections. Pinned by
-  `test_owner_who_is_not_an_admin_runs_as_the_connection_identity` (strict
-  `xfail`); awaiting a decision. When the fix lands, remove the mark and confirm
-  a real pass (a strict xfail cannot tell a setup failure from the bug).
+- **Owner query identity** (OAuth connections only, so not KMS): `is_admin_or_owner`
+  still lets a data-source owner pick the service account on delegated
+  connections. The owner fallback was removed from the legacy path only.
 - **Credential-store split** for Documentum and on-prem SharePoint is unchanged
   (fixed here for KMS only).
 - **Creator per-connection grant:** a creator later demoted to member keeps a

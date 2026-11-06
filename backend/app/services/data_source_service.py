@@ -2730,7 +2730,7 @@ class DataSourceService:
         if not row:
             # No data-source-level creds — delegate to the connection-level resolver,
             # the single source of truth for delegated/OBO tokens, the admin
-            # query-identity toggle, OAuth refresh, the legacy owner/admin system
+            # query-identity toggle, OAuth refresh, the legacy admin system
             # fallback, and the "connect required" 403.
             from app.services.connection_service import ConnectionService
             return await ConnectionService().resolve_credentials(db, conn, current_user)
@@ -3381,7 +3381,7 @@ class DataSourceService:
             # Connection-level resolution. ConnectionService.resolve_credentials is the
             # single source of truth: it handles delegated/OBO tokens, the admin
             # query-identity toggle (service account vs self), OAuth refresh, the legacy
-            # owner/admin system fallback for non-delegated connections, and the
+            # admin system fallback for non-delegated connections, and the
             # "connect required" 403 for a self-identity user with no token.
             from app.services.connection_service import ConnectionService
             return await ConnectionService().resolve_credentials(db, connection, current_user)
@@ -3874,11 +3874,11 @@ class DataSourceService:
 
         Returns one of:
           'user'   — the user has their own active credentials (use their overlay)
-          'system' — owner/admin using the service-account fallback (full catalog)
+          'system' — admin using the service-account fallback (full catalog)
           'none'   — no proven access (use nothing)
 
         Fails closed to 'none' so a stale overlay can't keep serving tables after
-        access is lost. Owner/admin reliably classify as 'system', so the closed
+        access is lost. Admins reliably classify as 'system', so the closed
         default never hides the canonical catalog from them.
         """
         try:
