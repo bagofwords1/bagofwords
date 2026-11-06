@@ -382,7 +382,9 @@ def test_connection_tables_are_limited_to_the_callers_selected_tables(test_clien
     seen = test_client.get(url, headers=v['viewer_h'])
     assert seen.status_code == 200, seen.text
     assert {t['name'] for t in seen.json()} == set(visible)
-    assert set(seen.json()[0]) == {'id', 'name', 'column_count'}
+    assert set(seen.json()[0]) == {'id', 'name', 'column_count', 'preview_supported'}
+    # A viewer who can't manage the connection is never offered a data preview.
+    assert not any(t['preview_supported'] for t in seen.json())
 
     # Managers keep the whole catalog (they pick tables from it).
     for token in (w['admin']['token'], w['manager']['token']):
