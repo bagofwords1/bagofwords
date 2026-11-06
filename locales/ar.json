@@ -4081,6 +4081,8 @@
     "access.denied": "تم رفض الوصول",
     "account.disabled": "تم تعطيل حسابك. يرجى التواصل مع المسؤول.",
     "connection.not_found": "الاتصال غير موجود",
+    "connection.kms_token_format": "يمكن أن يحتوي رمز API الخاص بـ KMS على أحرف وأرقام وعلامات ترقيم عادية فقط، بدون مسافات. انسخه مرة أخرى من KMS Lighthouse والصقه كنص عادي.",
+    "connection.kms_use_connection_credentials": "يتم حفظ بيانات تسجيل الدخول إلى KMS Lighthouse في الاتصال. افتح الاتصال واتصل من هناك.",
     "data_source.not_found": "مصدر البيانات غير موجود",
     "file.not_found": "الملف غير موجود",
     "verification.invalid": "رمز التحقق غير صالح أو منتهي الصلاحية",

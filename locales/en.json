@@ -4487,6 +4487,8 @@
     "access.denied": "Access denied",
     "account.disabled": "Your account has been disabled. Contact your administrator.",
     "connection.not_found": "Connection not found",
+    "connection.kms_token_format": "The KMS API token can contain only plain letters, digits and punctuation, with no spaces. Copy it again from KMS Lighthouse and paste it as plain text.",
+    "connection.kms_use_connection_credentials": "KMS Lighthouse sign-ins are saved on the connection. Open the connection and connect from there.",
     "data_source.not_found": "Data source not found",
     "file.not_found": "File not found",
     "verification.invalid": "Invalid or expired verification token",

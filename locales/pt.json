@@ -4081,6 +4081,8 @@
     "access.denied": "Acesso negado",
     "account.disabled": "Sua conta foi desativada. Entre em contato com seu administrador.",
     "connection.not_found": "Conexão não encontrada",
+    "connection.kms_token_format": "O token de API do KMS só pode conter letras, dígitos e sinais de pontuação simples, sem espaços. Copie-o novamente do KMS Lighthouse e cole-o como texto simples.",
+    "connection.kms_use_connection_credentials": "Os logins do KMS Lighthouse são salvos na conexão. Abra a conexão e conecte-se a partir dela.",
     "data_source.not_found": "Fonte de dados não encontrada",
     "file.not_found": "Arquivo não encontrado",
     "verification.invalid": "Token de verificação inválido ou expirado",

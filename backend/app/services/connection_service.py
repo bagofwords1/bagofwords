@@ -1455,6 +1455,24 @@ class ConnectionService:
                     pass
             return {"success": False, "message": str(e)}
 
+    @staticmethod
+    def _kms_credentials_error(exc: ValueError):
+        """The 422 for a rejected KMS Lighthouse member login: the token-format rule
+        gets its own code; anything else lists `field: message` pairs. Only field
+        names and fixed rule messages are used (the KMS schemas hide the input,
+        and include_url=False drops the documentation link)."""
+        from app.errors import AppError, ErrorCode
+        from app.schemas.data_sources.configs import KMS_TOKEN_FORMAT_MESSAGE
+        errors = exc.errors(include_url=False) if callable(getattr(exc, "errors", None)) else []
+        messages = [str(err.get("msg", "")).removeprefix("Value error, ") for err in errors]
+        if KMS_TOKEN_FORMAT_MESSAGE in messages:
+            return AppError(ErrorCode.CONNECTION_KMS_TOKEN_FORMAT, KMS_TOKEN_FORMAT_MESSAGE, status_code=422)
+        reasons = "; ".join(f"{'.'.join(str(p) for p in err.get('loc', ()))}: {msg}"
+                            for err, msg in zip(errors, messages))
+        if not reasons:
+            return AppError(ErrorCode.VALIDATION, "The required credential fields are missing or invalid", status_code=422)
+        return AppError(ErrorCode.VALIDATION, f"Invalid credentials: {redact_error(reasons)}", status_code=422)
+
     async def save_windows_user_credentials(self, db, connection, user, payload) -> dict:
         """Canonical per-user credential storage for user-required connections
         whose members supply their own identity (SharePoint Server NTLM,
@@ -1487,9 +1505,7 @@ class ConnectionService:
             credentials = variant.schema(**(payload.credentials or {})).model_dump()
         except ValueError as e:
             if connection.type == "kms_lighthouse":
-                # The KMS schemas hide the input in their errors, so the fixed
-                # format message (for example a token with a space) is safe to show.
-                raise AppError(ErrorCode.VALIDATION, f"Invalid credentials: {redact_error(e)}", status_code=422)
+                raise self._kms_credentials_error(e)
             raise AppError(ErrorCode.VALIDATION, "The required credential fields are missing or invalid", status_code=422)
         row = await get_user_conn_cred_row(db, connection, user)
         if row is None:

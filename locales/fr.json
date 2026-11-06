@@ -4081,6 +4081,8 @@
     "access.denied": "Accès refusé",
     "account.disabled": "Votre compte a été désactivé. Contactez votre administrateur.",
     "connection.not_found": "Connexion introuvable",
+    "connection.kms_token_format": "Le jeton d'API KMS ne peut contenir que des lettres, des chiffres et des signes de ponctuation simples, sans espaces. Copiez-le à nouveau depuis KMS Lighthouse et collez-le en texte brut.",
+    "connection.kms_use_connection_credentials": "Les identifiants KMS Lighthouse sont enregistrés sur la connexion. Ouvrez la connexion et connectez-vous depuis celle-ci.",
     "data_source.not_found": "Source de données introuvable",
     "file.not_found": "Fichier introuvable",
     "verification.invalid": "Jeton de vérification invalide ou expiré",

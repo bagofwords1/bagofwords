@@ -105,7 +105,15 @@ async def delete_my_credentials(
     organization: Organization = Depends(get_current_organization),
 ):
     ds = await _load_datasource(db, organization, data_source_id)
+    conn = ds.connections[0] if ds.connections else None
+    kms_connection_id = str(conn.id) if conn is not None and conn.type == "kms_lighthouse" else None
     await svc.delete_my_credentials(db=db, data_source=ds, user=current_user)
+    if kms_connection_id:
+        # KMS reads a member's login from the connection-level row only: clear it too,
+        # as the connection Disconnect does, so this Disconnect really disconnects.
+        from app.services.connection_service import ConnectionService
+        await ConnectionService().delete_user_credentials(
+            db=db, connection_id=kms_connection_id, organization=organization, current_user=current_user)
     try:
         await audit_service.log(
             db=db,

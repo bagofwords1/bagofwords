@@ -1688,15 +1688,33 @@ def _render_scenario(root: dict, fetch_step) -> list:
     return lines
 
 
+def _optional_int(value) -> int | None:
+    """A config number as the client reads it: None when missing or blank (the connect form stores "")."""
+    return int(value) if value not in (None, "") else None
+
+
+def _max_results_of(value) -> int:
+    """The max_results config value as the client reads it (blank or 0 is the default)."""
+    return int(value or _DEFAULT_MAX_RESULTS)
+
+
+def _note_number(read, value, fallback):
+    """``read(value)`` for the planner note, or ``fallback`` when the value is not a number."""
+    try:
+        return read(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
 def planner_scope_note(config: dict) -> str:
     """The planner-facing browse note for a KMS connection (pure, no I/O)."""
     cfg = config or {}
-    max_results = cfg.get("max_results") or _DEFAULT_MAX_RESULTS
-    root = cfg.get("root_folder_id")
-    layout = cfg.get("layout_id")
-    # Read blanks exactly as the constructor does: the connect form stores "" for an empty number.
-    origin = f"the root folder (id {root})" if root not in (None, "") else "the top level"
-    in_layout = f" in layout {layout}" if layout not in (None, "") else ""
+    # Read each number exactly as the constructor does, so only whole numbers reach the prompt.
+    max_results = _note_number(_max_results_of, cfg.get("max_results"), _DEFAULT_MAX_RESULTS)
+    root = _note_number(_optional_int, cfg.get("root_folder_id"), None)
+    layout = _note_number(_optional_int, cfg.get("layout_id"), None)
+    origin = f"the root folder (id {root})" if root is not None else "the top level"
+    in_layout = f" in layout {layout}" if layout is not None else ""
     return (
         f"KMS Lighthouse: list_files with no folder_id returns at most {max_results} articles and scenarios "
         f"from {origin}, and stops there without saying so (the listing can be incomplete). Each list_files "
@@ -1748,10 +1766,10 @@ class KmsLighthouseClient(DataSourceClient):
         self.host = parsed.netloc.lower()
         self._base = f"{parsed.scheme.lower()}://{self.host}"
         self.api_prefix = prefix
-        self.layout_id = int(layout_id) if layout_id not in (None, "") else None
-        self.root_folder_id = int(root_folder_id) if root_folder_id not in (None, "") else None
+        self.layout_id = _optional_int(layout_id)
+        self.root_folder_id = _optional_int(root_folder_id)
         self.include_offline = _flag(include_offline)
-        self.max_results = int(max_results or _DEFAULT_MAX_RESULTS)
+        self.max_results = _max_results_of(max_results)
         self.index_mode = "none"
 
         # A copied login name may carry stray spaces; a password is used exactly as typed.

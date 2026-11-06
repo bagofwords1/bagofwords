@@ -290,7 +290,12 @@ function openAddCredentials() {
 async function disconnectUserCredentials() {
   if (!dsId.value) return
   try {
-    await useMyFetch(`/data_sources/${dsId.value}/my-credentials`, { method: 'DELETE' })
+    // KMS keeps a member's login on the connection row that runtime reads, so
+    // Disconnect clears it there (as ConnectionDetailModal does).
+    const endpoint = connectionType.value === 'kms_lighthouse' && connectionId.value
+      ? `/connections/${connectionId.value}/my-credentials`
+      : `/data_sources/${dsId.value}/my-credentials`
+    await useMyFetch(endpoint, { method: 'DELETE' })
     await fetchIntegration()
   } catch (e) {
     // no-op

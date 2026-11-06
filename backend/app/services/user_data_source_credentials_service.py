@@ -445,7 +445,16 @@ class UserDataSourceCredentialsService:
         
         if not ds_type:
             raise HTTPException(status_code=400, detail="Data source has no connection")
-        
+
+        # KMS reads a member's login from the connection-level row only, so a row
+        # saved here would show "Connected" while every browse asks to connect.
+        if ds_type == "kms_lighthouse":
+            from app.errors import AppError, ErrorCode
+            raise AppError.bad_request(
+                ErrorCode.CONNECTION_KMS_USE_CONNECTION_CREDENTIALS,
+                f"KMS Lighthouse credentials are saved on the connection: use POST /api/connections/{connection.id}/my-credentials",
+            )
+
         # Policy: auth_mode must be a user-scope mode the connection allows
         variant = self._user_auth_variant(ds_type, allowed_user_auth_modes, payload.auth_mode)
 
