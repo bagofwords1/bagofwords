@@ -4467,11 +4467,23 @@
     "close": "Close",
     "copyClipboardFailed": "Failed to copy to clipboard"
   },
+  "dataGrid": {
+    "page": "Page",
+    "to": "to",
+    "of": "of",
+    "more": "more",
+    "pageSizeSelectorLabel": "Page Size:",
+    "firstPage": "First page",
+    "previousPage": "Previous page",
+    "nextPage": "Next page",
+    "lastPage": "Last page"
+  },
   "sharedReport": {
     "backToApp": "Back to app",
     "tabReport": "Report",
     "tabData": "Data ({count})",
     "refreshedAt": "Refreshed {time}",
+    "noDashboard": "No dashboard available",
     "madeWith": "Made with {brand}",
     "fork": "Fork"
   },

@@ -4061,11 +4061,23 @@
     "close": "إغلاق",
     "copyClipboardFailed": "تعذّر النسخ إلى الحافظة"
   },
+  "dataGrid": {
+    "page": "صفحة",
+    "to": "إلى",
+    "of": "من",
+    "more": "المزيد",
+    "pageSizeSelectorLabel": "حجم الصفحة:",
+    "firstPage": "الصفحة الأولى",
+    "previousPage": "الصفحة السابقة",
+    "nextPage": "الصفحة التالية",
+    "lastPage": "الصفحة الأخيرة"
+  },
   "sharedReport": {
     "backToApp": "العودة إلى التطبيق",
     "tabReport": "التقرير",
     "tabData": "البيانات ({count})",
     "refreshedAt": "تم التحديث {time}",
+    "noDashboard": "لا توجد لوحة تحكم متاحة",
     "madeWith": "صُنع باستخدام {brand}",
     "fork": "إنشاء نسخة"
   },

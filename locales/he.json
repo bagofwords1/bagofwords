@@ -4405,11 +4405,23 @@
     "close": "סגירה",
     "copyClipboardFailed": "לא ניתן להעתיק ללוח"
   },
+  "dataGrid": {
+    "page": "עמוד",
+    "to": "עד",
+    "of": "מתוך",
+    "more": "עוד",
+    "pageSizeSelectorLabel": "גודל עמוד:",
+    "firstPage": "עמוד ראשון",
+    "previousPage": "עמוד קודם",
+    "nextPage": "עמוד הבא",
+    "lastPage": "עמוד אחרון"
+  },
   "sharedReport": {
     "backToApp": "חזרה לאפליקציה",
     "tabReport": "דוח",
     "tabData": "נתונים ({count})",
     "refreshedAt": "רוענן {time}",
+    "noDashboard": "אין דשבורד זמין",
     "madeWith": "נוצר באמצעות {brand}",
     "fork": "יצירת עותק"
   },

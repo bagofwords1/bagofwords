@@ -4061,11 +4061,23 @@
     "close": "Fechar",
     "copyClipboardFailed": "Falha ao copiar para a área de transferência"
   },
+  "dataGrid": {
+    "page": "Página",
+    "to": "a",
+    "of": "de",
+    "more": "mais",
+    "pageSizeSelectorLabel": "Tamanho da página:",
+    "firstPage": "Primeira página",
+    "previousPage": "Página anterior",
+    "nextPage": "Próxima página",
+    "lastPage": "Última página"
+  },
   "sharedReport": {
     "backToApp": "Voltar ao app",
     "tabReport": "Relatório",
     "tabData": "Dados ({count})",
     "refreshedAt": "Atualizado {time}",
+    "noDashboard": "Nenhum painel disponível",
     "madeWith": "Feito com {brand}",
     "fork": "Criar cópia"
   },
