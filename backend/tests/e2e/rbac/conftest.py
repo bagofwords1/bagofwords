@@ -31,18 +31,12 @@ CHINOOK_PATH = (Path(__file__).resolve().parents[2] / "config" / "chinook.sqlite
 
 
 @pytest.fixture(autouse=True)
-def _rbac_relaxed_signup_flags():
+def _rbac_relaxed_signup_flags(monkeypatch):
+    # On monkeypatch's undo stack, so a test's own patch of these flags
+    # unwinds in order instead of restoring this fixture's value.
     flags = bow_settings.bow_config.features
-    saved = (
-        flags.allow_uninvited_signups,
-        flags.allow_multiple_organizations,
-    )
-    flags.allow_uninvited_signups = True
-    flags.allow_multiple_organizations = True
-    try:
-        yield
-    finally:
-        flags.allow_uninvited_signups, flags.allow_multiple_organizations = saved
+    monkeypatch.setattr(flags, "allow_uninvited_signups", True)
+    monkeypatch.setattr(flags, "allow_multiple_organizations", True)
 
 
 def _headers(token: str, org_id: str) -> dict:
