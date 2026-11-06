@@ -447,6 +447,8 @@ def test_description_names_one_identity_for_both_variants(kms, base_url):
     # The folder example is root-relative, as the listing's paths are.
     assert "folder_id='Folder/Subfolder'" in userpass and "Procedures" not in userpass
     assert "paths start below the root folder when one is set" in userpass
+    # Folders count toward the listing cap (default 200).
+    assert "no folder lists up to 200 entries (folders included) from the" in userpass
 
 
 # An unusable login token is a server error, not a transport one:
@@ -504,7 +506,9 @@ def test_planner_scope_note_states_handle_cap_and_scope(root, max_results, layou
     # A root-relative example: under a root folder, paths start below it (the root's name is not in them).
     assert "(for example 'Folder/Subfolder')" in note and "Procedures" not in note
     assert "paths start below the configured root folder when one is set" in note
-    assert str(max_results or 200) in note
+    # Folders count toward the listing cap, so the note says entries, not articles and scenarios.
+    assert f"returns at most {max_results or 200} entries (folders included)" in note
+    assert "articles and scenarios from" not in note
     assert "browsing only" in note
     assert ("4711" in note) is (root is not None)
     assert ("layout 7" in note) is (layout is not None)

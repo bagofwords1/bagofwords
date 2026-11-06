@@ -217,7 +217,7 @@ def test_planner_note_lets_only_whole_numbers_into_the_prompt(cfg, origin, layou
         assert " in layout" not in note, note
     else:
         assert f" in layout {layout}," in note, note
-    assert f"returns at most {cap} articles" in note, note
+    assert f"returns at most {cap} entries (folders included)" in note, note
     for value in cfg.values():
         text = str(value)
         if text and not text.strip().isdigit():

@@ -41,8 +41,11 @@ that BOW does not support (see [Not supported](#not-supported)).
 (it never reuses a pooled session), then reads the session identity (optional)
 and the first level of the folder tree (the root folder, or the top level). On
 success the connection dialog shows the platform's "Connected successfully.
-Found N documents." N counts the entries (folders included) of one listing, at
-most 200; the count is a floor when it reaches 200. When no root folder is set
+Found N documents." N counts the articles and scenarios (not folders) of one
+recursive listing from the root folder or the top level. That listing stops at
+200 entries (folders included; Max results when that is lower) or after 40
+folder calls, whichever comes first; when it is cut, N is a floor, even well
+below 200. When no root folder is set
 and the top level comes back empty or is refused, the test fails with a hint to
 set Root folder ID or check the account's KMS permissions. With a root folder
 set, an empty folder is a pass.

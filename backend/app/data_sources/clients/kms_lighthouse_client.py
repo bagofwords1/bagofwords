@@ -1716,7 +1716,7 @@ def planner_scope_note(config: dict) -> str:
     origin = f"the root folder (id {root})" if root is not None else "the top level"
     in_layout = f" in layout {layout}" if layout is not None else ""
     return (
-        f"KMS Lighthouse: list_files with no folder_id returns at most {max_results} articles and scenarios "
+        f"KMS Lighthouse: list_files with no folder_id returns at most {max_results} entries (folders included) "
         f"from {origin}, and stops there without saying so (the listing can be incomplete). Each list_files "
         f"call also stops after {_MAX_FOLDER_CALLS} folder lookups, so a short listing can be incomplete too; "
         "open a specific folder by its path or use search_files. There is no catalog: the file count shown is "
@@ -1817,7 +1817,7 @@ class KmsLighthouseClient(DataSourceClient):
         return (
             f"Read-only KMS Lighthouse knowledge base at {self.host} (articles and decision-tree scenarios), "
             f"accessed as {who}; KMS permissions apply. Use search_files to find procedures. list_files with "
-            f"no folder lists up to {self.max_results} articles and scenarios from the {origin}, each with a "
+            f"no folder lists up to {self.max_results} entries (folders included) from the {origin}, each with a "
             "path of folder names; to open one folder, pass the folder part of a path as folder_id (for example "
             "folder_id='Folder/Subfolder'; paths start below the root folder when one is set) and set "
             "recursive=true to include its subfolders. Read with "

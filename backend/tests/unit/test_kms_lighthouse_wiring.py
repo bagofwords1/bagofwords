@@ -211,7 +211,7 @@ def test_kms_file_scope_descriptor_tells_the_planner_how_to_browse(render):
     assert "folder_id" in note
     assert "(for example 'Folder/Subfolder')" in note and "Procedures" not in note
     assert "paths start below the configured root folder when one is set" in note
-    assert f"at most {_KMS_CONFIG['max_results']} articles" in note
+    assert f"at most {_KMS_CONFIG['max_results']} entries (folders included)" in note
     assert f"after {kc._MAX_FOLDER_CALLS} folder lookups" in note
     assert "no catalog" in note
     assert "always 0" in note
