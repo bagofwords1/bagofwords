@@ -33,23 +33,46 @@ def _roots() -> list[str]:
     return roots
 
 
+# Durable folders an operator may place outside uploads/, by env var, and the
+# area they map to in the object store: the same keys as their default place
+# under uploads/ (uploads/artifact_files, uploads/git_state), so moving one
+# never orphans what is already in the bucket.
+MAPPED_ROOT_ENV = {"BOW_ARTIFACT_STORAGE": "artifact_files", "BOW_GIT_STATE_DIR": "git_state"}
+
+
+def _mapped_roots() -> list[tuple[str, str]]:
+    out = []
+    for env, area in MAPPED_ROOT_ENV.items():
+        value = os.environ.get(env)
+        if value:
+            out.append((os.path.normpath(os.path.realpath(value)), area))
+    return out
+
+
+def _clean(parts: list[str]) -> bool:
+    return bool(parts) and ".." not in parts and not any(part.startswith(".") for part in parts)
+
+
 def key_for(path: PathLike) -> str | None:
     """The object key for a local path, or None when the path is not managed.
 
-    Unmanaged: outside uploads/, the uploads root itself, a local-only area,
-    or a transient name (dot-files such as in-flight ``.part`` downloads).
+    Unmanaged: outside uploads/ (and the mapped folders), the uploads root
+    itself, a local-only area, or a transient name (dot-files such as in-flight
+    ``.part`` downloads).
     """
     if path is None or str(path) == "":
         return None
     p = os.path.normpath(os.path.abspath(os.fspath(path)))
+    for root, area in _mapped_roots():
+        real = os.path.normpath(os.path.realpath(p))
+        if real != root and real.startswith(root + os.sep):
+            parts = os.path.relpath(real, root).split(os.sep)
+            return "/".join([area, *parts]) if _clean(parts) else None
     for root in _roots():
         if p == root or not p.startswith(root + os.sep):
             continue
-        rel = os.path.relpath(p, root)
-        parts = rel.split(os.sep)
-        if not parts or ".." in parts or parts[0] in LOCAL_ONLY_AREAS:
-            return None
-        if any(part.startswith(".") for part in parts):
+        parts = os.path.relpath(p, root).split(os.sep)
+        if not _clean(parts) or parts[0] in LOCAL_ONLY_AREAS:
             return None
         return "/".join(parts)
     return None

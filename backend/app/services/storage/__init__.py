@@ -39,7 +39,7 @@ __all__ = [
     "StorageError", "ObjectStore", "UPLOADS_ROOT", "key_for",
     "get_store", "set_store", "reset_store", "enabled", "describe", "check", "ensure_layout",
     "persist", "persist_tree", "ensure_local", "ensure_local_tree",
-    "discard", "discard_tree",
+    "discard", "discard_tree", "remote_entries",
     "apersist", "apersist_tree", "aensure_local", "aensure_local_tree",
     "adiscard", "adiscard_tree",
 ]
@@ -256,6 +256,27 @@ def ensure_local_tree(directory: PathLike) -> bool:
     if not os.path.isdir(d):
         return False
     return any(any(not f.startswith(".") for f in files) for _root, _dirs, files in os.walk(d))
+
+
+def remote_entries(directory: PathLike) -> list[tuple[str, float | None]]:
+    """(local path, last-modified epoch) of every object stored under a
+    directory, whether or not this pod holds a copy. For garbage collection
+    that must also see files only other pods wrote. Empty on local storage."""
+    store = get_store()
+    prefix = prefix_for(directory) if store else None
+    if store is None or prefix is None:
+        return []
+    d = os.fspath(directory)
+    out = []
+    for key, modified in store.list_detailed(prefix):
+        rel = key[len(prefix):]
+        if rel and _clean_rel(rel):
+            out.append((os.path.join(d, *rel.split("/")), modified))
+    return out
+
+
+def _clean_rel(rel: str) -> bool:
+    return not any(part in ("", ".", "..") or part.startswith(".") for part in rel.split("/"))
 
 
 def discard(path: PathLike) -> None:

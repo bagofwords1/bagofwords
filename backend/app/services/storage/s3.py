@@ -180,6 +180,19 @@ class S3Store(ObjectStore):
         except (ClientError, BotoCoreError) as e:
             raise StorageError(f"S3 list of {prefix!r} failed: {e}") from e
 
+    def list_detailed(self, prefix):
+        from botocore.exceptions import BotoCoreError, ClientError
+        try:
+            pages = self._client.get_paginator("list_objects_v2").paginate(
+                Bucket=self.bucket, Prefix=self._k(prefix)
+            )
+            for page in pages:
+                for obj in page.get("Contents", []) or []:
+                    modified = obj.get("LastModified")
+                    yield self._strip(obj["Key"]), modified.timestamp() if modified else None
+        except (ClientError, BotoCoreError) as e:
+            raise StorageError(f"S3 list of {prefix!r} failed: {e}") from e
+
     def delete_prefix(self, prefix) -> int:
         from botocore.exceptions import BotoCoreError, ClientError
         keys = list(self.list(prefix))
