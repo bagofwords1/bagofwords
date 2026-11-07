@@ -2,7 +2,6 @@
 
 import io
 import json
-import sys
 import threading
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -600,11 +599,15 @@ def generate_df(ds_clients, excel_files):
 def simulator(monkeypatch):
     monkeypatch.setenv("F5_USERNAME", "reader")
     monkeypatch.setenv("F5_PASSWORD", "sim-secret-1")
-    sys.path.insert(0, str(Path(__file__).parents[3] / "tools/f5_bigip"))
-    try:
-        import simulated_api as sim
-    finally:
-        sys.path.pop(0)
+    # Load under a unique module name: sibling connector suites ship their own
+    # tools/<vendor>/simulated_api.py and must not collide in sys.modules.
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "f5_bigip_simulated_api", Path(__file__).parents[3] / "tools/f5_bigip/simulated_api.py"
+    )
+    sim = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sim)
     sim.STATE["tokens"].clear()
     server = ThreadingHTTPServer(("127.0.0.1", 0), sim.Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)

@@ -295,7 +295,6 @@ class Estate:
 
     # -- inventory / telemetry ---------------------------------------------
     def build_inventory(self):
-        rng = self.rng
         self.inventory = {}
         self.hwlogs = {}
         self.power = {}

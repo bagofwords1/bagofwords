@@ -3,7 +3,6 @@
 import io
 import json
 import re
-import sys
 import threading
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
@@ -87,7 +86,7 @@ def test_registry_resolves_client_and_catalog_exposes_minimum_tables(http):
     cls = resolve_client_class("dell_ome")
     client = cls(url="https://ome.example", username="reader", password="test-only")
     tables = {t.name: t for t in client.get_tables()}
-    assert MINIMUM_TABLES <= tables.keys()
+    assert tables.keys() >= MINIMUM_TABLES
     assert not gets(http)
     meta = tables["firmware_compliance_reports"].metadata_json["dell_ome"]
     assert meta["parents"] == ["BaselineId"] and meta["endpoint"].startswith("/api/UpdateService/Baselines(")
@@ -483,7 +482,7 @@ def test_invalid_value_types_are_typed_errors_not_coerced(client, http):
 def test_every_catalog_table_builds_a_bounded_allow_listed_request(client, http):
     for table in client.get_tables():
         meta = table.metadata_json["dell_ome"]
-        parents = {k: 7 for k in meta["parents"]}
+        parents = dict.fromkeys(meta["parents"], 7)
         http["queue"].append((200, collection([]) if meta["collection"] else {}))
         frame = client.execute_query({"table": table.name, "parent": parents} if parents else {"table": table.name})
         request = gets(http)[-1]
@@ -547,8 +546,14 @@ def generate_df(ds_clients, excel_files):
 
 
 def test_real_client_against_in_process_simulator():
-    sys.path.insert(0, str(Path(__file__).parents[3] / "tools/dell_ome"))
-    import simulated_api as sim
+    # Unique module name: sibling connector suites ship their own simulated_api.py.
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "dell_ome_simulated_api", Path(__file__).parents[3] / "tools/dell_ome/simulated_api.py"
+    )
+    sim = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sim)
 
     server = sim.build_server(0, "svc-bow", "synthetic-only", max_sessions=3)
     port = server.server_address[1]
