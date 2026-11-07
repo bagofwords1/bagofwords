@@ -1,12 +1,15 @@
 <template>
-  <div class="min-w-0" data-testid="remote-shell-tool">
-    <UButton variant="ghost" color="gray" class="no-press !p-0 w-full justify-start gap-1.5 text-chat-2 font-normal text-ink-muted" :aria-expanded="expanded" @click="expanded = !expanded">
-      <Icon name="heroicons-command-line" class="w-3.5 h-3.5 shrink-0" data-testid="shell-icon" />
-      <span dir="ltr" class="truncate font-mono text-start min-w-0" :title="args.command">{{ args.command || t('tools.shell.command') }}</span>
-      <span class="shrink-0" :class="{ 'text-amber-600 dark:text-amber-500': ['failed', 'execution_timed_out'].includes(outcome) }">{{ t(`tools.shell.${outcome}`) }}</span>
-      <span v-if="duration" class="shrink-0 nums">· {{ duration }}</span>
-      <Spinner v-if="outcome === 'running'" class="w-3 h-3 shrink-0" />
-      <Icon :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 shrink-0 rtl-flip" />
+  <div class="min-w-0 text-chat-2" data-testid="remote-shell-tool">
+    <UButton variant="ghost" color="gray" size="sm" :padded="false" :ui="headerUi"
+      class="no-press flex w-full min-w-0 justify-start text-start" :aria-expanded="expanded" @click="expanded = !expanded">
+      <span class="flex min-w-0 items-center gap-1 text-gray-600 dark:text-gray-400">
+        <Icon name="heroicons-command-line" class="w-3 h-3 me-1 shrink-0 text-ink-muted" data-testid="shell-icon" />
+        <span dir="ltr" class="truncate text-start min-w-0" :title="args.command">{{ args.command || t('tools.shell.command') }}</span>
+        <span class="ms-1 shrink-0" :class="{ 'text-amber-600 dark:text-amber-500': ['failed', 'execution_timed_out'].includes(outcome) }">{{ t(`tools.shell.${outcome}`) }}</span>
+        <span v-if="duration" class="ms-1 shrink-0 nums text-ink-muted">{{ duration }}</span>
+        <Spinner v-if="outcome === 'running'" class="w-3 h-3 ms-1 shrink-0 text-ink-muted" />
+        <Icon :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 shrink-0 text-ink-muted rtl-flip" />
+      </span>
     </UButton>
     <div v-if="expanded" class="mt-2 space-y-2 rounded-lg border border-line bg-surface-subtle p-3 text-chat-2" data-testid="shell-details">
       <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-ink-muted">
@@ -47,6 +50,17 @@ const props = defineProps<{
   approvalLabel?: string
   confirmationTarget?: Record<string, any>
 }>()
+// Inherit the wrapper's chat typography, just like the data-tool headers.
+// Keep its custom token outside UButton's class merger, which treats it as a
+// text color and drops it when the button also specifies a text color.
+const headerUi = {
+  strategy: 'override' as const,
+  font: 'font-normal',
+  rounded: '',
+  size: { sm: '' },
+  gap: { sm: '' },
+  color: { gray: { ghost: 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500 dark:focus-visible:ring-primary-400' } },
+}
 const { t } = useResponseI18n()
 const expanded = ref(false)
 const outcome = computed(() => toolOutcome(props.result, props.status, props.progressStage, props.runStatus))
