@@ -15,6 +15,8 @@ import uuid
 
 import pytest
 
+from app.services.table_preview_service import MAX_CELL_CHARS, PREVIEW_ROW_LIMIT
+
 
 def _headers(token, org_id):
     return {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
@@ -41,7 +43,7 @@ def _make_sqlite_db(path, *, big_rows: int):
 @pytest.fixture
 def sqlite_connection(tmp_path, create_user, login_user, whoami, create_connection,
                       wait_for_connection_indexing, get_connection_tables):
-    def _make(*, big_rows: int = 120):
+    def _make(*, big_rows: int = PREVIEW_ROW_LIMIT + 20):
         admin = create_user()
         token = login_user(admin["email"], admin["password"])
         org_id = whoami(token)["organizations"][0]["id"]
@@ -88,7 +90,7 @@ def test_manager_sees_real_columns_and_rows(test_client, sqlite_connection):
 
 
 @pytest.mark.e2e
-@pytest.mark.parametrize("big_rows", [51, 300])
+@pytest.mark.parametrize("big_rows", [PREVIEW_ROW_LIMIT + 1, PREVIEW_ROW_LIMIT * 3])
 def test_rows_are_bounded_by_row_limit(test_client, sqlite_connection, big_rows):
     ctx = sqlite_connection(big_rows=big_rows)
     res = _preview(test_client, ctx, ctx["tables"]["events"]["id"])
@@ -213,3 +215,71 @@ def test_edited_query_from_the_preview_runs_read_only(
     con = sqlite3.connect(str(ctx["db_path"]))
     assert con.execute("SELECT COUNT(*) FROM customers").fetchone()[0] == 3
     con.close()
+
+
+@pytest.mark.e2e
+def test_preview_names_the_catalog_columns_and_survives_a_stale_catalog(test_client, sqlite_connection):
+    ctx = sqlite_connection()
+    table = ctx["tables"]["customers"]
+
+    res = _preview(test_client, ctx, table["id"])
+    assert res.status_code == 200, res.text
+    assert "*" not in res.json()["sql"]
+
+    # The source changes after indexing: a catalog column no longer exists.
+    # The preview still shows the table's rows, as they are now.
+    con = sqlite3.connect(str(ctx["db_path"]))
+    con.execute("ALTER TABLE customers RENAME COLUMN name TO full_name")
+    con.commit()
+    con.close()
+
+    res = _preview(test_client, ctx, table["id"])
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert "full_name" in [c["name"] for c in body["columns"]]
+    assert len(body["rows"]) == 3
+
+
+@pytest.mark.e2e
+def test_long_values_are_cut_to_a_readable_length(test_client, sqlite_connection):
+    ctx = sqlite_connection()
+    con = sqlite3.connect(str(ctx["db_path"]))
+    con.execute("UPDATE customers SET name = ? WHERE id = 1", ("x" * (MAX_CELL_CHARS * 4),))
+    con.commit()
+    con.close()
+
+    res = _preview(test_client, ctx, ctx["tables"]["customers"]["id"])
+    assert res.status_code == 200, res.text
+    names = [r[1] for r in res.json()["rows"] if r[0] == 1]
+    assert names and MAX_CELL_CHARS <= len(names[0]) <= MAX_CELL_CHARS + 1
+
+
+def _completions(test_client, ctx, *, token=None):
+    return test_client.get(
+        f"/api/connections/{ctx['conn']['id']}/completions",
+        headers=_headers(token or ctx["token"], ctx["org_id"]),
+    )
+
+
+@pytest.mark.e2e
+def test_editor_completions_list_tables_and_columns_with_insert_text(test_client, sqlite_connection):
+    ctx = sqlite_connection()
+    res = _completions(test_client, ctx)
+    assert res.status_code == 200, res.text
+    body = res.json()
+    by_name = {t["name"]: t for t in body["tables"]}
+
+    assert set(by_name) >= {"customers", "order", "events"}
+    assert [c["name"] for c in by_name["customers"]["columns"]] == ["id", "name", "balance"]
+    # Inserted text means the same name when typed: plain names stay bare,
+    # a reserved word is quoted.
+    assert by_name["customers"]["insert"] == "customers"
+    assert by_name["order"]["insert"] != "order"
+    assert "order" in by_name["order"]["insert"]
+
+
+@pytest.mark.e2e
+def test_editor_completions_need_manage_connection(test_client, sqlite_connection, invite_user_to_org):
+    ctx = sqlite_connection()
+    member = invite_user_to_org(org_id=ctx["org_id"], admin_token=ctx["token"])
+    assert _completions(test_client, ctx, token=member["token"]).status_code == 403

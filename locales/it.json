@@ -6552,20 +6552,25 @@
     "oauthEmpty": "OAuth is not configured"
   },
   "tablePreview": {
-    "open": "Anteprima dati di {name}",
-    "subtitle": "Righe di esempio da {connection}, lette in tempo reale dalla sorgente.",
-    "close": "Chiudi",
     "loading": "Caricamento righe…",
     "failed": "Impossibile caricare un'anteprima di questa tabella.",
     "showing": "{shown} righe mostrate",
-    "showingOf": "{shown} di ~{total} righe mostrate",
     "columns": "{count} colonne",
     "empty": "Questa tabella non contiene righe.",
     "reload": "Ricarica",
     "createCustomTable": "Crea tabella personalizzata da questa",
-    "sqlLabel": "Query SQL",
     "run": "Esegui",
     "resetQuery": "Ripristina",
-    "runHint": "Ctrl/⌘ + Invio per eseguire. Solo query di lettura."
+    "runHint": "Ctrl/⌘ + Invio per eseguire. Solo query di lettura.",
+    "ofTotal": "~{total} righe nella tabella",
+    "retry": "Riprova",
+    "readOnlyHint": "Per modificare la query, questa connessione deve supportare le tabelle personalizzate.",
+    "storageNote": "Letto direttamente dallo storage della tabella, quindi questa anteprima non ha costi di query.",
+    "signInRequired": "Questa connessione usa le tue credenziali. Accedi per vederne le righe.",
+    "signIn": "Accedi",
+    "open": "Anteprima dati di {name}",
+    "subtitle": "Righe di esempio da {connection}, lette in tempo reale dalla sorgente.",
+    "close": "Chiudi",
+    "button": "Anteprima"
   }
 }

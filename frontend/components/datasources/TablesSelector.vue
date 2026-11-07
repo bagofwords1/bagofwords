@@ -89,15 +89,21 @@
       @saved="onCustomQuerySaved"
       @deleted="onCustomQuerySaved"
     />
-
     <TablePreviewModal
+      ref="previewModalRef"
       v-model="previewOpen"
-      :connection-id="previewTarget?.connection_id || ''"
+      :connection-id="previewTarget ? String(previewTarget.connection_id) : ''"
       :connection-name="previewTarget?.connection_name || ''"
-      :table-id="previewTarget?.connection_table_id || ''"
+      :table-id="previewTarget ? String(previewTarget.connection_table_id) : ''"
       :table-name="previewTarget?.name || ''"
       :can-create-custom-table="canCreateCustomTableFrom(previewTarget)"
       @create-custom-table="onCreateCustomTableFromPreview"
+      @sign-in="onPreviewSignIn"
+    />
+    <UserDataSourceCredentialsModal
+      v-model="previewCredentialsOpen"
+      :data-source="previewCredentialsSource"
+      @saved="onPreviewCredentialsSaved"
     />
 
     <!-- Search and filters row -->
@@ -346,7 +352,7 @@
         <p class="text-xs text-ink-muted">Connect your account to see the {{ props.itemNoun.plural }} you can access.</p>
         <button
           type="button"
-          @click="onConnectAccount"
+          @click="onConnectAccount()"
           :disabled="signingIn"
           class="mt-2 inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
         >
@@ -376,7 +382,7 @@
           </span>
           <button
             type="button"
-            @click="onConnectAccount"
+            @click="onConnectAccount()"
             :disabled="signingIn"
             class="shrink-0 inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400"
           >
@@ -386,7 +392,7 @@
         </div>
         <div class="flex-1 overflow-y-auto min-h-0 mt-2" :style="fill ? undefined : { maxHeight }">
           <ul class="divide-y divide-gray-100 dark:divide-gray-800">
-            <li v-for="table in tables" :key="tableKey(table)" class="py-2 px-2" :data-testid="table.custom_query_id ? `cq-row-${table.name}` : undefined">
+            <li v-for="table in tables" :key="tableKey(table)" class="group py-2 px-2" :data-testid="table.custom_query_id ? `cq-row-${table.name}` : undefined">
               <div class="flex items-center">
                 <UCheckbox
                   v-if="canUpdate"
@@ -467,18 +473,20 @@
                     </UTooltip>
                   </span>
                 </button>
-                <UButton
+                <!-- Look at the rows: a labelled button (an eye here would read
+                     as show/hide, which the columns panel already uses). Shown
+                     on hover or focus on wide screens, always on touch. -->
+                <button
                   v-if="canPreviewTable(table)"
-                  color="gray"
-                  variant="ghost"
-                  size="2xs"
-                  icon="i-heroicons-eye"
-                  class="ms-2 shrink-0"
+                  type="button"
+                  class="ms-2 shrink-0 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-2xs font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
                   :aria-label="t('tablePreview.open', { name: table.name })"
-                  :title="t('tablePreview.open', { name: table.name })"
                   :data-testid="`table-preview-${table.name}`"
                   @click="openTablePreview(table)"
-                />
+                >
+                  <UIcon name="i-heroicons-table-cells" class="w-3.5 h-3.5" />
+                  {{ t('tablePreview.button') }}
+                </button>
                 <button v-if="table.custom_query_id && editableQueryIds.has(table.custom_query_id)" type="button" @click="editQueryTable(table.custom_query_id)"
                   :aria-label="t('tableErd.editQuery', { name: table.name })" class="ms-2 shrink-0 text-ink-muted hover:text-gray-700 dark:hover:text-gray-200">
                   <UIcon name="i-heroicons-pencil-square" class="w-3.5 h-3.5" />
@@ -721,6 +729,7 @@ import { isRoutine, routineKind, routineMeta, ROUTINE_ICON } from '~/utils/routi
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
 import CustomQueryModal from '@/components/datasources/CustomQueryModal.vue'
 import TablePreviewModal from '@/components/datasources/TablePreviewModal.vue'
+import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import { useConnectionSignIn } from '~/composables/useConnectionSignIn'
 
 type Column = { name: string; dtype?: string; type?: string }
@@ -874,7 +883,7 @@ function restoreAppSurface() {
 }
 const bodyLocked = useScrollLock(typeof document === 'undefined' ? null : document.body)
 function onEmbeddedEscape(event: KeyboardEvent) {
-  if (!props.fullscreenInPlace || !fullscreen.value || cqModalOpen.value || previewOpen.value) return
+  if (!props.fullscreenInPlace || !fullscreen.value || cqModalOpen.value || previewOpen.value || previewCredentialsOpen.value) return
   if (selectorElement.value?.querySelector('[aria-expanded="true"]')) return
   event.preventDefault()
   event.stopPropagation()
@@ -916,7 +925,7 @@ useEventListener('keydown', (event: KeyboardEvent) => {
 onBeforeUnmount(() => { bodyLocked.value = false; restoreAppSurface() })
 const toast = useToast()
 const route = useRoute()
-const { triggerUserSignIn } = useConnectionSignIn()
+const { triggerUserSignIn, isOAuthOnly } = useConnectionSignIn()
 
 // Loading states
 const loading = ref(false)
@@ -1087,18 +1096,18 @@ async function openEditCustomQuery(cq: any) {
 // ---------------------------------------------------------------------------
 const previewOpen = ref(false)
 const previewTarget = ref<Table | null>(null)
+const previewModalRef = ref<any>(null)
+
+function openTablePreview(table: Table) {
+  previewTarget.value = table
+  previewOpen.value = true
+}
 
 function canPreviewTable(table: Table): boolean {
   return !!table.preview_supported
     && !!table.connection_table_id
     && !!table.connection_id
     && useCan('manage_connection', { type: 'connection', id: String(table.connection_id) })
-}
-
-async function openTablePreview(table: Table) {
-  previewTarget.value = table
-  await nextTick()
-  previewOpen.value = true
 }
 
 function canCreateCustomTableFrom(table: Table | null): boolean {
@@ -1131,8 +1140,38 @@ async function onCustomQuerySaved() {
   await reloadKnownCatalog()
 }
 
-async function onConnectAccount() {
-  const conn = connectRequiredConn.value
+// A per-user connection the manager has not signed in to: the preview asks
+// for their own sign-in rather than reading rows with someone else's login.
+// OAuth-only connections redirect to the provider; the rest take credentials
+// in the same modal the connection page uses, then the preview reloads.
+const previewCredentialsOpen = ref(false)
+const previewCredentialsConn = ref<any>(null)
+const previewCredentialsSource = computed(() =>
+  previewCredentialsConn.value ? { ...previewCredentialsConn.value, connections: [previewCredentialsConn.value] } : null)
+function onPreviewSignIn(connectionId: string) {
+  const conn = authConnections.value.find((c: any) => String(c.id) === String(connectionId))
+  if (!conn) return
+  if (isOAuthOnly(conn)) {
+    onConnectAccount(conn)
+    return
+  }
+  // One modal at a time: the preview steps aside for the credentials form and
+  // comes back with fresh rows once they are saved.
+  previewOpen.value = false
+  previewCredentialsConn.value = conn
+  previewCredentialsOpen.value = true
+}
+async function onPreviewCredentialsSaved() {
+  previewCredentialsOpen.value = false
+  await loadAuthConnections()
+  if (!previewTarget.value) return
+  previewOpen.value = true
+  await nextTick()
+  previewModalRef.value?.reload()
+}
+
+async function onConnectAccount(target?: any) {
+  const conn = target || connectRequiredConn.value
   if (!conn || signingIn.value) return
   signingIn.value = true
   try {

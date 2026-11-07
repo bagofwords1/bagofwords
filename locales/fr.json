@@ -6552,20 +6552,25 @@
     "oauthEmpty": "OAuth is not configured"
   },
   "tablePreview": {
-    "open": "Aperçu des données de {name}",
-    "subtitle": "Lignes d'exemple de {connection}, lues en direct depuis la source.",
-    "close": "Fermer",
     "loading": "Chargement des lignes…",
     "failed": "Impossible de charger un aperçu de cette table.",
     "showing": "{shown} lignes affichées",
-    "showingOf": "{shown} lignes affichées sur ~{total}",
     "columns": "{count} colonnes",
     "empty": "Cette table ne contient aucune ligne.",
     "reload": "Recharger",
     "createCustomTable": "Créer une table personnalisée à partir de celle-ci",
-    "sqlLabel": "Requête SQL",
     "run": "Exécuter",
     "resetQuery": "Réinitialiser",
-    "runHint": "Ctrl/⌘ + Entrée pour exécuter. Requêtes en lecture seule."
+    "runHint": "Ctrl/⌘ + Entrée pour exécuter. Requêtes en lecture seule.",
+    "ofTotal": "~{total} lignes dans la table",
+    "retry": "Réessayer",
+    "readOnlyHint": "Pour modifier la requête, cette connexion doit prendre en charge les tables personnalisées.",
+    "storageNote": "Lu directement depuis le stockage de la table : cet aperçu n'a aucun coût de requête.",
+    "signInRequired": "Cette connexion utilise vos propres identifiants. Connectez-vous pour voir ses lignes.",
+    "signIn": "Se connecter",
+    "open": "Aperçu des données de {name}",
+    "subtitle": "Lignes d'exemple de {connection}, lues en direct depuis la source.",
+    "close": "Fermer",
+    "button": "Aperçu"
   }
 }

@@ -7152,20 +7152,25 @@
     "oauthEmpty": "OAuth no está configurado"
   },
   "tablePreview": {
-    "open": "Vista previa de datos de {name}",
-    "subtitle": "Filas de ejemplo de {connection}, leídas en vivo desde el origen.",
-    "close": "Cerrar",
     "loading": "Cargando filas…",
     "failed": "No se pudo cargar una vista previa de esta tabla.",
     "showing": "Mostrando {shown} filas",
-    "showingOf": "Mostrando {shown} de ~{total} filas",
     "columns": "{count} columnas",
     "empty": "Esta tabla no tiene filas.",
     "reload": "Recargar",
     "createCustomTable": "Crear tabla personalizada a partir de esta",
-    "sqlLabel": "Consulta SQL",
     "run": "Ejecutar",
     "resetQuery": "Restablecer",
-    "runHint": "Ctrl/⌘ + Enter para ejecutar. Solo consultas de lectura."
+    "runHint": "Ctrl/⌘ + Enter para ejecutar. Solo consultas de lectura.",
+    "ofTotal": "~{total} filas en la tabla",
+    "retry": "Reintentar",
+    "readOnlyHint": "Para editar la consulta, esta conexión necesita tablas personalizadas.",
+    "storageNote": "Leído directamente del almacenamiento de la tabla, así que esta vista previa no tiene coste de consulta.",
+    "signInRequired": "Esta conexión usa tus propias credenciales. Inicia sesión para ver sus filas.",
+    "signIn": "Iniciar sesión",
+    "open": "Vista previa de datos de {name}",
+    "subtitle": "Filas de ejemplo de {connection}, leídas en vivo desde el origen.",
+    "close": "Cerrar",
+    "button": "Vista previa"
   }
 }

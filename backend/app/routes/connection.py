@@ -1405,6 +1405,24 @@ async def get_connection_tables(
     return result
 
 
+@router.get("/{connection_id}/completions")
+@requires_resource_permission('connection', 'manage_connection')
+async def get_connection_completions(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Table and column names for the query editor's suggestions.
+
+    Gated like the editors that use it (table preview, custom tables): only a
+    connection manager writes queries against the source here. Each name comes
+    with the text to insert, quoted only where the dialect needs it.
+    """
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    return await table_preview_service.completions(db, connection)
+
+
 @router.get(
     "/{connection_id}/tables/{table_id}/preview",
     response_model=ConnectionTablePreviewSchema,

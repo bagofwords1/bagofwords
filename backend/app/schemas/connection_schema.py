@@ -217,10 +217,15 @@ class ConnectionTablePreviewSchema(BaseModel):
     """Sample rows from one introspected table."""
     table_id: str
     table_name: str
-    # The exact query that ran, its row bound written in the source's syntax.
+    # What `sql` is written in: "sql", "dax" (Power BI) or "hogql" (PostHog).
+    language: str = "sql"
+    # The query for these rows, its row bound written in the source's syntax.
     sql: str
     # The same query without the bound — the starting point for a custom table.
     base_sql: str
+    # "query" when `sql` ran; "storage" when the rows were read straight from
+    # table storage instead (BigQuery, where that read is free).
+    sampled_from: str = "query"
     columns: List[dict] = []
     rows: List[List[Any]] = []
     row_limit: int
