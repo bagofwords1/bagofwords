@@ -1879,6 +1879,22 @@
       "override": "Queste regole valgono solo per te. Consenti sempre o Nega sempre della connessione ha priorità.",
       "save": "Salva regole",
       "failed": "Impossibile caricare o salvare le regole. Controlla il JSON e riprova."
+    },
+    "shell": {
+      "command": "Comando shell",
+      "server": "Server",
+      "directory": "Directory",
+      "cancelled": "Annullato",
+      "denied": "Negato",
+      "approval_expired": "Approvazione scaduta",
+      "execution_timed_out": "Tempo scaduto",
+      "failed": "Non riuscito",
+      "success": "Completato",
+      "running": "In esecuzione",
+      "awaitingApproval": "In attesa di approvazione",
+      "unknownState": "Il processo remoto potrebbe essere ancora in esecuzione. Verifica il suo stato prima di riprovare.",
+      "exitCode": "Codice di uscita: {code}",
+      "cancelledBeforeExecution": "Annullato prima dell’esecuzione."
     }
   },
   "entityCreate": {

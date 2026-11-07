@@ -2046,6 +2046,22 @@
       "charWindow": "הודעה {index} · תווים {start}–{end} / {total}",
       "emptyWindow": "אין הודעות במיקום {offset} / {total}",
       "messageTruncated": "נחתך · {shown} / {total} תווים"
+    },
+    "shell": {
+      "command": "פקודת מעטפת",
+      "server": "שרת",
+      "directory": "תיקייה",
+      "cancelled": "בוטל",
+      "denied": "נדחה",
+      "approval_expired": "תוקף האישור פג",
+      "execution_timed_out": "תם הזמן",
+      "failed": "נכשל",
+      "success": "הושלם",
+      "running": "בביצוע",
+      "awaitingApproval": "ממתין לאישור",
+      "unknownState": "ייתכן שהתהליך המרוחק עדיין פועל. יש לבדוק את מצבו לפני ניסיון חוזר.",
+      "exitCode": "קוד יציאה: {code}",
+      "cancelledBeforeExecution": "בוטל לפני הביצוע."
     }
   },
   "entityCreate": {

@@ -2072,6 +2072,22 @@
       "charWindow": "message {index} · chars {start}–{end} / {total}",
       "emptyWindow": "no messages at {offset} / {total}",
       "messageTruncated": "truncated · {shown} / {total} chars"
+    },
+    "shell": {
+      "command": "Shell command",
+      "server": "Server",
+      "directory": "Directory",
+      "cancelled": "Cancelled",
+      "denied": "Denied",
+      "approval_expired": "Approval expired",
+      "execution_timed_out": "Timed out",
+      "failed": "Failed",
+      "success": "Completed",
+      "running": "Running",
+      "awaitingApproval": "Awaiting approval",
+      "unknownState": "The remote process may still be running. Check its state before retrying.",
+      "exitCode": "Exit code: {code}",
+      "cancelledBeforeExecution": "Cancelled before execution."
     }
   },
   "entityCreate": {

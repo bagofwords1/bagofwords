@@ -1879,6 +1879,22 @@
       "override": "Diese Regeln gelten nur für Sie. Immer erlauben oder Immer verweigern für die Verbindung hat Vorrang.",
       "save": "Regeln speichern",
       "failed": "Regeln konnten nicht geladen oder gespeichert werden. Prüfen Sie das JSON."
+    },
+    "shell": {
+      "command": "Shell-Befehl",
+      "server": "Server",
+      "directory": "Verzeichnis",
+      "cancelled": "Abgebrochen",
+      "denied": "Abgelehnt",
+      "approval_expired": "Genehmigung abgelaufen",
+      "execution_timed_out": "Zeitüberschreitung",
+      "failed": "Fehlgeschlagen",
+      "success": "Abgeschlossen",
+      "running": "Wird ausgeführt",
+      "awaitingApproval": "Genehmigung ausstehend",
+      "unknownState": "Der entfernte Prozess läuft möglicherweise noch. Prüfen Sie seinen Status vor einem erneuten Versuch.",
+      "exitCode": "Exit-Code: {code}",
+      "cancelledBeforeExecution": "Vor der Ausführung abgebrochen."
     }
   },
   "entityCreate": {

@@ -2046,6 +2046,22 @@
       "charWindow": "mensaje {index} · caracteres {start}–{end} / {total}",
       "emptyWindow": "sin mensajes en {offset} / {total}",
       "messageTruncated": "truncado · {shown} / {total} caracteres"
+    },
+    "shell": {
+      "command": "Comando de shell",
+      "server": "Servidor",
+      "directory": "Directorio",
+      "cancelled": "Cancelado",
+      "denied": "Denegado",
+      "approval_expired": "La aprobación caducó",
+      "execution_timed_out": "Tiempo agotado",
+      "failed": "Falló",
+      "success": "Completado",
+      "running": "En ejecución",
+      "awaitingApproval": "Esperando aprobación",
+      "unknownState": "El proceso remoto puede seguir ejecutándose. Comprueba su estado antes de reintentarlo.",
+      "exitCode": "Código de salida: {code}",
+      "cancelledBeforeExecution": "Cancelado antes de ejecutarse."
     }
   },
   "entityCreate": {
