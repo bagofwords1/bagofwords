@@ -150,6 +150,13 @@ _RAW_BODIES = {
 }
 
 
+def test_the_password_variant_says_what_it_relies_on_and_what_it_sends():
+    variant = REGISTRY["kms_lighthouse"].credentials_auth.by_auth["userpass"]
+    password_help = variant.schema.model_json_schema()["properties"]["password"].get("description", "")
+    for shown in (variant.title, password_help):
+        assert "undocumented" in shown.lower() and "password" in shown.lower() and "URL" in shown, shown
+
+
 def test_registry_contract():
     entry = REGISTRY["kms_lighthouse"]
     assert entry.type == "kms_lighthouse"
@@ -159,7 +166,7 @@ def test_registry_contract():
     assert entry.requires_license == "enterprise"
     variants = entry.credentials_auth.by_auth
     assert set(variants) == {"userpass", "token"}
-    assert entry.credentials_auth.default == "userpass"
+    assert entry.credentials_auth.default == "token", "the password login is undocumented: never the default"
     for name, variant in variants.items():
         assert variant.scopes == ["system", "user"]
         assert not is_overlay_auth("kms_lighthouse", name)

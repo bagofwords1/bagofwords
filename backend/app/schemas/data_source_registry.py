@@ -1846,10 +1846,13 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         config_schema=KmsLighthouseConfig,
         credentials_auth=AuthOptions(
-            default="userpass",
+            default="token",
             by_auth={
-                "userpass": AuthVariant(title="Username / Password", schema=KmsLighthouseUserPassCredentials, scopes=["system", "user"]),
                 "token": AuthVariant(title="API token (Bearer)", schema=KmsLighthouseTokenCredentials, scopes=["system", "user"]),
+                "userpass": AuthVariant(
+                    title="Username / Password (undocumented login; the password goes in the URL)",
+                    schema=KmsLighthouseUserPassCredentials, scopes=["system", "user"],
+                ),
             },
         ),
         client_path="app.data_sources.clients.kms_lighthouse_client.KmsLighthouseClient",

@@ -59,11 +59,19 @@ Two variants, both available for system and per-user connections:
 
 | Variant | Fields | What the connector does |
 |---|---|---|
-| Username / Password (`userpass`, default) | `username`, `password` | `POST {prefix}/login` with the username and password as query parameters (a call found outside the PDF). The session is whatever the answer carries: its cookies and, when the body holds one, a token sent as `Authorization: Bearer`. The username is trimmed; the password is used exactly as typed. |
-| API token (Bearer) (`token`) | `api_token` | The pasted token is sent as `Authorization: Bearer` on every call. It never logs in and cannot be renewed: a 401 means the token is wrong or no longer valid. The token may contain only visible ASCII characters (letters, digits, punctuation, no spaces); surrounding blanks are trimmed. |
+| API token (Bearer) (`token`, default, recommended) | `api_token` | The pasted token is sent as `Authorization: Bearer` on every call. It never logs in and cannot be renewed: a 401 means the token is wrong or no longer valid. The token may contain only visible ASCII characters (letters, digits, punctuation, no spaces); surrounding blanks are trimmed. |
+| Username / Password (`userpass`) | `username`, `password` | `POST {prefix}/login` with the username and password as query parameters (a call found outside the PDF). The session is whatever the answer carries: its cookies and, when the body holds one, a token sent as `Authorization: Bearer`. The username is trimmed; the password is used exactly as typed. |
+
+**Use the API token when you can.** The username and password login relies on
+an undocumented KMS call that sends the password in the URL, so KMS, a web
+application firewall or a TLS-inspecting proxy can write it to a log. BOW never
+logs it, but it cannot stop those systems from doing so. The documented
+alternative, the hash login, stays blocked until KMS publishes its formula (see
+[Not supported](#not-supported)).
 
 When `auth_type` names a variant whose fields are present, that variant is
-used; otherwise a present token wins, then a username and password.
+used; otherwise a present token wins, then a username and password. A form or an
+API call with no `auth_type` is validated as a token.
 
 Failure messages are fixed texts that never carry a URL, a query string, a KMS
 response body or a credential. They name what to do for both kinds of
@@ -540,8 +548,8 @@ KMS-specific follow-ups:
 
 ## Not supported
 
-- The hash or secret-key login (`/freshdesk/login`): its algorithm is not
-  published. The connector has one place where a login variant plugs in.
+- The hash or secret-key login (`/freshdesk/login`): blocked until KMS publishes
+  the formula. The connector has one place where a login variant plugs in.
 - KMS AI answers (`/ai_answers`), suggest, categories and global filters.
 - Glossary terms, related items, attachments, and fetching images.
 - A catalog or content index: no sample names in the agent prompt, no

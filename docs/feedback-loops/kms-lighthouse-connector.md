@@ -286,6 +286,12 @@ here; each answer either confirms a default or changes one constant or setting.
     client accepts `total`, `totalResults` or `numFound` equal to 0).
 18. Whether `/search/full` caps rows per page on the server side (a short page
     ends paging).
+19. Whether `/login` accepts the credentials in the request body (`data=`)
+    instead of the query string (`params=`). If it does, the password can leave
+    the URL with a one-line change.
+20. The real path of `ai_answers_item`: the API doc's endpoint section gives
+    `/api/ai_answers_item`, its overview table lists it under the shared prefix.
+    Item 1's `prefix` check covers it as far as one call can.
 
 ## Checklist items and diagnostics checks
 

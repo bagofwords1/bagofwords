@@ -2796,7 +2796,10 @@ class KmsLighthouseUserPassCredentials(BaseModel):
 
     username: str = Field(..., min_length=1, title="Username",
         description="KMS Lighthouse login name.", json_schema_extra={"ui:type": "string"})
-    password: str = Field(..., min_length=1, title="Password", json_schema_extra={"ui:type": "password"})
+    password: str = Field(..., min_length=1, title="Password",
+        description=("This login relies on an undocumented KMS call that sends the password in the URL, where "
+                     "KMS, a firewall or a proxy can log it. Use an API token when you can."),
+        json_schema_extra={"ui:type": "password"})
 
     @field_validator("username", "password")
     @classmethod
