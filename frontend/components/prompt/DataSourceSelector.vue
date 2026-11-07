@@ -521,7 +521,7 @@ async function getDataSources(opts: { force?: boolean } = {}) {
             const status = ds.user_status
             if (status?.has_user_credentials) return true
             // effective_auth === 'system' means the user can run via system/service-
-            // principal creds — including the admin fallback (uses_fallback).
+            // principal creds — including the owner/admin fallback (uses_fallback).
             // Treat that as usable so admins aren't forced through "Connect" for a
             // source they can already query.
             return status?.effective_auth === 'system'

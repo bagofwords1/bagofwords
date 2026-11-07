@@ -139,9 +139,10 @@ class UserDataSourceCredentialsService:
 
         row = await self.get_primary_active_row(db, data_source, user)
         if not row:
-            # Admin fallback possible; an admin can use system creds or empty creds (e.g., SQLite).
-            # Owning the data source grants nothing: this must match resolve_credentials.
-            # Admin-level access: full_admin or manage_connections
+            # Owner/admin fallback possible; owner/admin can use system creds or empty creds (e.g., SQLite)
+            is_owner = str(getattr(data_source, "owner_user_id", "")) == str(getattr(user, "id", ""))
+            
+            # Admin-level access: full_admin or per-DS `manage` grant
             has_update_perm = False
             try:
                 from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
@@ -150,13 +151,13 @@ class UserDataSourceCredentialsService:
                 )
                 has_update_perm = (
                     FULL_ADMIN in resolved.org_permissions
-                    or resolved.has_org_permission("manage_connections")
+                    or resolved.has_resource_permission("data_source", str(data_source.id), "manage")
                 )
             except Exception:
                 has_update_perm = False
             
-            # An admin can use the connection even without stored credentials (e.g., SQLite)
-            if has_update_perm:
+            # Owner/admin can use the connection even without stored credentials (e.g., SQLite)
+            if is_owner or has_update_perm:
                 conn = "unknown"
                 last_checked = None
                 if live_test:
@@ -326,12 +327,26 @@ class UserDataSourceCredentialsService:
                 )
 
         if not row:
-            # Admin fallback: an admin can use system creds (e.g., SQLite). Owning a
-            # data source grants nothing: this must match resolve_credentials.
+            # Owner/admin fallback: owner/admin can use system creds (e.g., SQLite)
+            is_owner = False
             has_update_perm = False
 
-            # Admin-level access: org-wide full_admin / manage_connections. A per-DS
-            # `manage` grant does not count: resolve_credentials refuses it.
+            # Ownership: the given data_source, or — when only a connection is in
+            # scope (the /connections list) — any data source linked to it.
+            try:
+                if data_source is not None:
+                    owner_candidates = [data_source]
+                else:
+                    owner_candidates = list(getattr(connection, "data_sources", []) or [])
+            except Exception:
+                owner_candidates = [data_source] if data_source is not None else []
+            for ds in owner_candidates:
+                if ds is not None and str(getattr(ds, "owner_user_id", "")) == str(getattr(user, "id", "")):
+                    is_owner = True
+                    break
+
+            # Admin-level access: org-wide full_admin / manage_connections (no
+            # data_source needed) or a per-DS `manage` grant.
             try:
                 from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
                 org_id = getattr(data_source, "organization_id", None) or getattr(connection, "organization_id", None)
@@ -339,11 +354,12 @@ class UserDataSourceCredentialsService:
                 has_update_perm = (
                     FULL_ADMIN in resolved.org_permissions
                     or resolved.has_org_permission("manage_connections")
+                    or (data_source is not None and resolved.has_resource_permission("data_source", str(data_source.id), "manage"))
                 )
             except Exception:
                 has_update_perm = False
 
-            if has_update_perm:
+            if is_owner or has_update_perm:
                 return DataSourceUserStatus(
                     has_user_credentials=False,
                     connection=get_cached_status(),

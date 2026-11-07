@@ -2449,24 +2449,33 @@ class ConnectionService:
 
         # --- Legacy path: non-delegated user_required connections (e.g. user/pass) ---
         if not row:
-            # Admin fallback: only an org-level admin may use system creds. Owning
-            # a data source grants nothing here: a non-admin owner connects with
-            # their own login, like any member.
+            # Owner/admin fallback: allow owner or admin to use system creds
+            is_owner = False
             has_update_perm = False
             try:
-                from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
-                resolved = await resolve_permissions(
-                    db, str(current_user.id), str(connection.organization_id)
-                )
-                # Admin-level system credential access: full_admin or manage_connections
-                has_update_perm = (
-                    FULL_ADMIN in resolved.org_permissions
-                    or resolved.has_org_permission("manage_connections")
-                )
+                # Check ownership via any linked data source
+                for ds in (connection.data_sources or []):
+                    if str(getattr(ds, "owner_user_id", "")) == str(current_user.id):
+                        is_owner = True
+                        break
             except Exception:
                 pass
 
-            if has_update_perm:
+            if not is_owner:
+                try:
+                    from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
+                    resolved = await resolve_permissions(
+                        db, str(current_user.id), str(connection.organization_id)
+                    )
+                    # Admin-level system credential access: full_admin or manage_connections
+                    has_update_perm = (
+                        FULL_ADMIN in resolved.org_permissions
+                        or resolved.has_org_permission("manage_connections")
+                    )
+                except Exception:
+                    pass
+
+            if is_owner or has_update_perm:
                 if connection.credentials:
                     try:
                         return connection.decrypt_credentials() or {}

@@ -1637,7 +1637,7 @@ class ReportService:
                     logger.info(f"Rerunning step {step_id} (report {report_id})")
                     # Run as the report run's user (interactive caller, or the
                     # schedule creator for scheduled runs) so user_required
-                    # connections resolve their creds / admin fallback.
+                    # connections resolve their creds / owner-admin fallback.
                     await self.widget_service.step_service.rerun_step(
                         db, step_id, current_user=current_user,
                         report=report, db_clients=db_clients,
