@@ -38,5 +38,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    with op.batch_alter_table("data_sources") as batch:
-        batch.drop_column("kind")
+    # Idempotent both ways: the dashboard test corpus replays this unstamped.
+    cols = {c["name"] for c in sa.inspect(op.get_bind()).get_columns("data_sources")}
+    if "kind" in cols:
+        with op.batch_alter_table("data_sources") as batch:
+            batch.drop_column("kind")
