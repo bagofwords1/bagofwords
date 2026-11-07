@@ -48,8 +48,8 @@ def corpus(test_client, create_user, login_user, whoami, sqlite_data_source,  # 
     try:
         yield built
     finally:
-        _remove_migrated_release_files(corpus_rows)
-        remove_corpus_files(built)
+        _remove_migrated_release_files(corpus_rows, keep=corpus_store.kept_release_ids())
+        remove_corpus_files(built, keep=corpus_store.kept_files())
 
 
 @pytest.fixture
@@ -68,11 +68,11 @@ def migrated_corpus(test_client, create_user, login_user, whoami, sqlite_data_so
     try:
         yield built
     finally:
-        _remove_migrated_release_files(corpus_rows)
-        remove_corpus_files(built)
+        _remove_migrated_release_files(corpus_rows, keep=corpus_store.kept_release_ids())
+        remove_corpus_files(built, keep=corpus_store.kept_files())
 
 
-def _remove_migrated_release_files(corpus_rows) -> None:
+def _remove_migrated_release_files(corpus_rows, keep: set[str]) -> None:
     """The files of every release in the corpus database -- the data
     migration's copies among them (a test upgrading a `corpus` itself makes
     some too): uploads/ is shared by every test run."""
@@ -87,7 +87,7 @@ def _remove_migrated_release_files(corpus_rows) -> None:
             ids = [str(r[0]) for r in conn.execute(text("SELECT id FROM artifact_releases"))]
     except Exception:  # the database is already gone: nothing to read
         return
-    remove_release_files(ids)
+    remove_release_files(set(ids) - keep)
 
 
 @pytest.fixture(autouse=True)

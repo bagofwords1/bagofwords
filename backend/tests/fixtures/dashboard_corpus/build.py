@@ -79,5 +79,5 @@ def _remove(paths: list[str]) -> None:
             os.remove(path)
 
 
-def remove_corpus_files(corpus: Corpus) -> None:
-    _remove(corpus.thumbnail_files)
+def remove_corpus_files(corpus: Corpus, keep: set[str] = frozenset()) -> None:
+    _remove([path for path in corpus.thumbnail_files if path not in keep])

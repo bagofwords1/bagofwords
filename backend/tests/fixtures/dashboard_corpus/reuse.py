@@ -14,7 +14,9 @@ What a copy has to bring back, besides the database:
 - The seeder's clock and row names. `Rows` keeps using them after the build:
   rows a test adds through `corpus_rows` get fixed timestamps and stable names.
 - Thumbnails and release files. They live on disk, under ids the copy shares
-  with the saved database, and every test's teardown removes them.
+  with the saved database. They stay there until the session ends, and a test
+  that changed one gets it back: writing them per test would make names appear
+  in uploads/, which is shared, under a test comparing that folder in parallel.
 - Nothing cached in this process. Ids now repeat from test to test, so a cache
   keyed by organization would serve one test's answer to the next.
 
@@ -46,12 +48,17 @@ def _release_files(release_id: str) -> list[Path]:
     return single + (sorted(previews.rglob("*")) if previews.is_dir() else [])
 
 
-def _files_on_disk(rows: Rows, corpus: Corpus) -> dict[str, bytes]:
-    paths = [Path(p) for p in corpus.thumbnail_files]
+def _release_ids(rows: Rows) -> list[str]:
     with rows.engine.connect() as conn:
-        if "artifact_releases" in inspect(conn).get_table_names():
-            for (release_id,) in conn.execute(text("SELECT id FROM artifact_releases")).fetchall():
-                paths += _release_files(str(release_id))
+        if "artifact_releases" not in inspect(conn).get_table_names():
+            return []
+        return [str(r[0]) for r in conn.execute(text("SELECT id FROM artifact_releases")).fetchall()]
+
+
+def _files_on_disk(corpus: Corpus, release_ids: list[str]) -> dict[str, bytes]:
+    paths = [Path(p) for p in corpus.thumbnail_files]
+    for release_id in release_ids:
+        paths += _release_files(release_id)
     return {str(p): p.read_bytes() for p in paths if p.is_file()}
 
 
@@ -76,11 +83,22 @@ def _forget_cached_rows() -> None:
 
 
 class _SqliteCopy:
+    """Each restore is a new file behind a symlink at the test database's path.
+
+    A connection the previous test left closing, on its own thread, deletes
+    `<its path>-wal` when it goes, and in WAL mode that name is derived from
+    the real file. At one shared path it hit the next test's log, a moment
+    after the restore: "disk I/O error" on a read, which the permission check
+    turns into a 403. (With a build per test the next test was seconds away.)
+    """
+
     def __init__(self, alembic_config, name: str):
         from tests.conftest import _sqlite_db_file
 
         self.db_file = _sqlite_db_file(alembic_config)
         self.saved = f"{self.db_file}.{name}"
+        self.restores = 0
+        self.live = None
 
     def save(self) -> None:
         # The backup API, so a write-ahead log still open is included.
@@ -94,13 +112,21 @@ class _SqliteCopy:
     def restore(self) -> None:
         from tests.conftest import _remove_sqlite_files
 
+        self.restores += 1
+        live = f"{self.saved}.{self.restores}"
+        shutil.copyfile(self.saved, live)
         _remove_sqlite_files(self.db_file)
-        shutil.copyfile(self.saved, self.db_file)
+        os.symlink(os.path.basename(live), self.db_file)
+        if self.live:
+            _remove_sqlite_files(self.live)
+        self.live = live
 
     def close(self) -> None:
         from tests.conftest import _remove_sqlite_files
 
         _remove_sqlite_files(self.saved)
+        if self.live:
+            _remove_sqlite_files(self.live)
 
 
 class _PostgresCopy:
@@ -152,8 +178,8 @@ class _PostgresCopy:
 
 
 class _Saved:
-    def __init__(self, copy, seeder: bytes, files: dict[str, bytes]):
-        self.copy, self.seeder, self.files = copy, seeder, files
+    def __init__(self, copy, seeder: bytes, files: dict[str, bytes], release_ids: list[str]):
+        self.copy, self.seeder, self.files, self.release_ids = copy, seeder, files, release_ids
 
 
 class CorpusStore:
@@ -183,7 +209,8 @@ class CorpusStore:
         name = "corpus_migrated" if migrate else "corpus"
         corpus = build()
         seeder = rows.clock.__self__
-        files = _files_on_disk(rows, corpus)
+        release_ids = _release_ids(rows)
+        files = _files_on_disk(corpus, release_ids)
         rows.close()
         _dispose_async_engine()
         if self.backend == "sqlite":
@@ -191,7 +218,7 @@ class CorpusStore:
         else:
             copy = _PostgresCopy(self.alembic_config, self.db_template, name)
         copy.save()
-        return _Saved(copy, pickle.dumps(seeder), files)
+        return _Saved(copy, pickle.dumps(seeder), files, release_ids)
 
     def _restore(self, saved: _Saved, rows: Rows) -> Corpus:
         from tests.conftest import _dispose_async_engine
@@ -201,14 +228,27 @@ class CorpusStore:
         saved.copy.restore()
         rows.forget_schema()
         for path, content in saved.files.items():
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            Path(path).write_bytes(content)
+            file = Path(path)
+            if not file.is_file() or file.read_bytes() != content:
+                os.makedirs(file.parent, exist_ok=True)
+                file.write_bytes(content)
         seeder: Seeder = pickle.loads(saved.seeder)
         seeder.attach(rows)
         return seeder.corpus
+
+    def kept_release_ids(self) -> set[str]:
+        return {rid for saved in self._saved.values() for rid in saved.release_ids}
+
+    def kept_files(self) -> set[str]:
+        return {path for saved in self._saved.values() for path in saved.files}
 
     def close(self) -> None:
         for saved in self._saved.values():
             with contextlib.suppress(Exception):
                 saved.copy.close()
+            for path in saved.files:
+                Path(path).unlink(missing_ok=True)
+            for release_id in saved.release_ids:
+                shutil.rmtree(Path(THUMBNAILS_DIR).parent / "pptx_previews" / f"release-{release_id}",
+                              ignore_errors=True)
         self._saved.clear()
