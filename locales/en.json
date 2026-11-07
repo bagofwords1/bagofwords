@@ -7191,14 +7191,15 @@
     "run": "Run",
     "resetQuery": "Reset",
     "runHint": "Ctrl/⌘ + Enter to run. Read-only queries only.",
-    "tabColumns": "Columns ({count})",
-    "tabData": "Data",
-    "query": "Query",
     "ofTotal": "~{total} rows in table",
     "retry": "Try again",
     "readOnlyHint": "Editing the query needs custom tables on this connection.",
     "storageNote": "Read straight from table storage, so this preview has no query cost.",
     "signInRequired": "This connection runs with your own credentials. Sign in to see its rows.",
-    "signIn": "Sign in"
+    "signIn": "Sign in",
+    "open": "Preview data in {name}",
+    "subtitle": "Sample rows from {connection}, read live from the source.",
+    "close": "Close",
+    "button": "Preview"
   }
 }

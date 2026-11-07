@@ -6562,14 +6562,15 @@
     "run": "Executar",
     "resetQuery": "Redefinir",
     "runHint": "Ctrl/⌘ + Enter para executar. Somente consultas de leitura.",
-    "tabColumns": "Colunas ({count})",
-    "tabData": "Dados",
-    "query": "Consulta",
     "ofTotal": "~{total} linhas na tabela",
     "retry": "Tentar novamente",
     "readOnlyHint": "Para editar a consulta, esta conexão precisa de tabelas personalizadas.",
     "storageNote": "Lido diretamente do armazenamento da tabela, por isso esta pré-visualização não tem custo de consulta.",
     "signInRequired": "Esta conexão usa as suas próprias credenciais. Inicie sessão para ver as linhas.",
-    "signIn": "Iniciar sessão"
+    "signIn": "Iniciar sessão",
+    "open": "Pré-visualizar dados de {name}",
+    "subtitle": "Linhas de exemplo de {connection}, lidas ao vivo da origem.",
+    "close": "Fechar",
+    "button": "Pré-visualizar"
   }
 }

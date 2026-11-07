@@ -252,3 +252,34 @@ def test_long_values_are_cut_to_a_readable_length(test_client, sqlite_connection
     assert res.status_code == 200, res.text
     names = [r[1] for r in res.json()["rows"] if r[0] == 1]
     assert names and MAX_CELL_CHARS <= len(names[0]) <= MAX_CELL_CHARS + 1
+
+
+def _completions(test_client, ctx, *, token=None):
+    return test_client.get(
+        f"/api/connections/{ctx['conn']['id']}/completions",
+        headers=_headers(token or ctx["token"], ctx["org_id"]),
+    )
+
+
+@pytest.mark.e2e
+def test_editor_completions_list_tables_and_columns_with_insert_text(test_client, sqlite_connection):
+    ctx = sqlite_connection()
+    res = _completions(test_client, ctx)
+    assert res.status_code == 200, res.text
+    body = res.json()
+    by_name = {t["name"]: t for t in body["tables"]}
+
+    assert set(by_name) >= {"customers", "order", "events"}
+    assert [c["name"] for c in by_name["customers"]["columns"]] == ["id", "name", "balance"]
+    # Inserted text means the same name when typed: plain names stay bare,
+    # a reserved word is quoted.
+    assert by_name["customers"]["insert"] == "customers"
+    assert by_name["order"]["insert"] != "order"
+    assert "order" in by_name["order"]["insert"]
+
+
+@pytest.mark.e2e
+def test_editor_completions_need_manage_connection(test_client, sqlite_connection, invite_user_to_org):
+    ctx = sqlite_connection()
+    member = invite_user_to_org(org_id=ctx["org_id"], admin_token=ctx["token"])
+    assert _completions(test_client, ctx, token=member["token"]).status_code == 403

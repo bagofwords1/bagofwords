@@ -152,3 +152,41 @@ def test_posthog_samples_with_bounded_hogql():
 def test_removed_catalog_rows_are_not_previewable():
     gone = _table("public.o", {"schema": "public"}, deleted_at="2026-01-01")
     assert not is_previewable_table("postgresql", gone)
+
+
+@pytest.mark.parametrize(
+    "conn_type, name, expected",
+    [
+        # Bare when typing it bare means the same name.
+        ("postgresql", "orders", "orders"),
+        ("snowflake", "ORDERS", "ORDERS"),
+        ("mysql", "OrderLines", "OrderLines"),
+        # Quoted when the dialect would fold its case...
+        ("postgresql", "TrackId", '"TrackId"'),
+        ("snowflake", "orders", '"orders"'),
+        ("oracledb", "Emp", '"Emp"'),
+        # ...read it as a keyword, or stop at an odd character.
+        ("mysql", "order", "`order`"),
+        ("mssql", "user", "[user]"),
+        ("postgresql", "line items", '"line items"'),
+        ("bigquery", "2024_sales", "`2024_sales`"),
+    ],
+)
+def test_suggestions_are_quoted_only_when_the_dialect_needs_it(conn_type, name, expected):
+    from app.services.table_preview_service import insert_ident, spec_for
+
+    assert insert_ident(spec_for(conn_type), name) == expected
+
+
+def test_completion_catalog_inserts_qualified_table_names_and_skips_dax():
+    from app.services.table_preview_service import completion_catalog
+
+    t = _table("Sales.Order Lines", {"schema": "Sales"}, columns=_cols("Id", "qty"))
+    cat = completion_catalog("postgresql", [t, _table("x", kind=KIND_BOW)])
+    assert cat["language"] == "sql"
+    assert [x["name"] for x in cat["tables"]] == ["Sales.Order Lines"]
+    assert cat["tables"][0]["insert"] == '"Sales"."Order Lines"'
+    assert [c["insert"] for c in cat["tables"][0]["columns"]] == ['"Id"', "qty"]
+
+    pbi = _table("M/T", {"powerbi": {"datasetId": "d"}}, columns=_cols("a"))
+    assert completion_catalog("powerbi", [pbi])["tables"] == []

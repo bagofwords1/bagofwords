@@ -77,18 +77,22 @@ class PreviewSpec:
     # qualify them so the query does not depend on the session's search path.
     qualify_bare_name: bool = False
     name_columns: bool = True
+    # How the source folds an unquoted identifier: "lower" (Postgres family),
+    # "upper" (Oracle, Snowflake) or None (kept as written / case-insensitive).
+    # Decides when an editor suggestion must be quoted to mean the same name.
+    case_fold: str | None = None
 
 
 # Keyed by the stored `Connection.type`, lower-cased (SQL Server is "MSSQL").
 SPECS: dict[str, PreviewSpec] = {
     # Cacheable sources (custom tables are supported on these too).
-    "postgresql": PreviewSpec(),
-    "oracledb": PreviewSpec(bound="rownum"),
+    "postgresql": PreviewSpec(case_fold="lower"),
+    "oracledb": PreviewSpec(bound="rownum", case_fold="upper"),
     # Not "…": SQLite reads a double-quoted name that resolves to nothing as a
     # string literal, so a stale catalog column would show its own name as
     # every value instead of failing. Backticks are always identifiers.
     "sqlite": PreviewSpec(quotes=_BACKTICK),
-    "snowflake": PreviewSpec(),
+    "snowflake": PreviewSpec(case_fold="upper"),
     "mysql": PreviewSpec(quotes=_BACKTICK),
     "mariadb": PreviewSpec(quotes=_BACKTICK),
     "clickhouse": PreviewSpec(quotes=_BACKTICK),
@@ -100,18 +104,18 @@ SPECS: dict[str, PreviewSpec] = {
     "powerbi": PreviewSpec(language="dax", bound="none", name_columns=False),
     "posthog": PreviewSpec(language="hogql", quotes=_BACKTICK, name_columns=False),
     # Preview-only SQL sources.
-    "aws_redshift": PreviewSpec(qualify_bare_name=True),
-    "aws_athena": PreviewSpec(),
-    "trino": PreviewSpec(),
-    "starburst": PreviewSpec(),
+    "aws_redshift": PreviewSpec(qualify_bare_name=True, case_fold="lower"),
+    "aws_athena": PreviewSpec(case_fold="lower"),
+    "trino": PreviewSpec(case_fold="lower"),
+    "starburst": PreviewSpec(case_fold="lower"),
     "databricks_sql": PreviewSpec(quotes=_BACKTICK),
     "spark_connect": PreviewSpec(quotes=_BACKTICK),
-    "duckdb": PreviewSpec(),
-    "vertica": PreviewSpec(qualify_bare_name=True),
+    "duckdb": PreviewSpec(case_fold="lower"),
+    "vertica": PreviewSpec(qualify_bare_name=True, case_fold="lower"),
     "teradata": PreviewSpec(bound="top"),
     "druid": PreviewSpec(),
     "pinot": PreviewSpec(),
-    "sap_hana": PreviewSpec(),
+    "sap_hana": PreviewSpec(case_fold="upper"),
 }
 
 # Namespace chains a client can record in metadata_json, longest first, so a
@@ -378,6 +382,98 @@ class TablePreviewService:
             "truncated": len(rows) >= PREVIEW_ROW_LIMIT,
             "total_rows": table.no_rows or None,
         }
+
+    async def completions(self, db: AsyncSession, connection: Connection) -> dict:
+        """The editor's suggestion catalog for `connection`.
+
+        Loads only the four fields a suggestion needs, bounded: the catalog
+        can be tens of thousands of rows, each carrying pks/fks JSON.
+        """
+        from sqlalchemy.orm import load_only
+
+        rows = (
+            await db.execute(
+                select(ConnectionTable)
+                .options(load_only(
+                    ConnectionTable.name, ConnectionTable.kind, ConnectionTable.columns,
+                    ConnectionTable.metadata_json, ConnectionTable.deleted_at,
+                ))
+                .where(
+                    ConnectionTable.connection_id == str(connection.id),
+                    ConnectionTable.kind == KIND_TABLE,
+                    ConnectionTable.deleted_at.is_(None),
+                )
+                .order_by(ConnectionTable.name)
+                .limit(MAX_COMPLETION_TABLES)
+            )
+        ).scalars().all()
+        return completion_catalog(connection.type, rows)
+
+
+
+# ---------------------------------------------------------------------------
+# Editor completions: the connection's tables and columns, each with the text
+# to insert so it means that exact name in the source's dialect.
+# ---------------------------------------------------------------------------
+
+MAX_COMPLETION_TABLES = 5000
+MAX_COMPLETION_COLUMNS = 500
+
+_SIMPLE_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+# Words that are reserved in most SQL dialects. A name that is one of them is
+# quoted on insert; quoting a non-reserved word is harmless, missing a reserved
+# one is a syntax error, so this list errs toward quoting.
+_RESERVED = frozenset(["all", "alter", "and", "any", "as", "asc", "between", "by", "case", "cast", "check", "column", "constraint", "create", "cross", "current", "current_date", "current_time", "current_timestamp", "current_user", "date", "default", "delete", "desc", "distinct", "drop", "else", "end", "except", "exists", "false", "fetch", "for", "foreign", "from", "full", "grant", "group", "having", "in", "index", "inner", "insert", "intersect", "interval", "into", "is", "join", "key", "left", "like", "limit", "natural", "not", "null", "of", "offset", "on", "or", "order", "outer", "over", "partition", "primary", "references", "right", "row", "rows", "select", "session_user", "set", "some", "table", "then", "time", "timestamp", "to", "top", "true", "union", "unique", "update", "user", "using", "values", "view", "when", "where", "window", "with"])
+
+
+def insert_ident(spec: PreviewSpec, part: str) -> str:
+    """`part` as it must be typed to mean exactly that name — bare when it can
+    be, quoted when the dialect would otherwise fold its case, read it as a
+    keyword, or stop at an odd character."""
+    bare_ok = (
+        bool(_SIMPLE_IDENT.match(part))
+        and part.lower() not in _RESERVED
+        and (
+            spec.case_fold is None
+            or (spec.case_fold == "lower" and part == part.lower())
+            or (spec.case_fold == "upper" and part == part.upper())
+        )
+    )
+    return part if bare_ok else _quote_ident(part, spec.quotes)
+
+
+def completion_catalog(conn_type: str | None, tables) -> dict:
+    """Tables and columns for the query editor's suggestions.
+
+    Empty for sources whose query language the editor does not complete
+    (DAX), and for types with no spec.
+    """
+    spec = spec_for(conn_type)
+    if spec is None or spec.language == "dax":
+        return {"language": spec.language if spec else "sql", "tables": []}
+    out = []
+    for t in tables:
+        if t.kind != KIND_TABLE or getattr(t, "deleted_at", None) is not None:
+            continue
+        parts = name_parts(spec, t)
+        cols = []
+        for c in (t.columns or [])[:MAX_COMPLETION_COLUMNS]:
+            name = c.get("name") if isinstance(c, dict) else None
+            if isinstance(name, str) and name:
+                cols.append({
+                    "name": name,
+                    "insert": insert_ident(spec, name),
+                    "dtype": c.get("dtype"),
+                })
+        out.append({
+            "name": t.name,
+            "insert": ".".join(insert_ident(spec, p) for p in parts),
+            "columns": cols,
+        })
+        if len(out) >= MAX_COMPLETION_TABLES:
+            break
+    return {"language": spec.language, "tables": out}
 
 
 table_preview_service = TablePreviewService()

@@ -7162,14 +7162,15 @@
     "run": "Ejecutar",
     "resetQuery": "Restablecer",
     "runHint": "Ctrl/⌘ + Enter para ejecutar. Solo consultas de lectura.",
-    "tabColumns": "Columnas ({count})",
-    "tabData": "Datos",
-    "query": "Consulta",
     "ofTotal": "~{total} filas en la tabla",
     "retry": "Reintentar",
     "readOnlyHint": "Para editar la consulta, esta conexión necesita tablas personalizadas.",
     "storageNote": "Leído directamente del almacenamiento de la tabla, así que esta vista previa no tiene coste de consulta.",
     "signInRequired": "Esta conexión usa tus propias credenciales. Inicia sesión para ver sus filas.",
-    "signIn": "Iniciar sesión"
+    "signIn": "Iniciar sesión",
+    "open": "Vista previa de datos de {name}",
+    "subtitle": "Filas de ejemplo de {connection}, leídas en vivo desde el origen.",
+    "close": "Cerrar",
+    "button": "Vista previa"
   }
 }

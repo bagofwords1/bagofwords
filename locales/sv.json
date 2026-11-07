@@ -6562,14 +6562,15 @@
     "run": "Kör",
     "resetQuery": "Återställ",
     "runHint": "Ctrl/⌘ + Enter för att köra. Endast läsfrågor.",
-    "tabColumns": "Kolumner ({count})",
-    "tabData": "Data",
-    "query": "Fråga",
     "ofTotal": "~{total} rader i tabellen",
     "retry": "Försök igen",
     "readOnlyHint": "För att redigera frågan behöver anslutningen stöd för anpassade tabeller.",
     "storageNote": "Läst direkt från tabellens lagring, så den här förhandsvisningen kostar ingen fråga.",
     "signInRequired": "Den här anslutningen använder dina egna inloggningsuppgifter. Logga in för att se raderna.",
-    "signIn": "Logga in"
+    "signIn": "Logga in",
+    "open": "Förhandsgranska data i {name}",
+    "subtitle": "Exempelrader från {connection}, lästa direkt från källan.",
+    "close": "Stäng",
+    "button": "Förhandsgranska"
   }
 }

@@ -147,7 +147,9 @@
         <SqlEditor
           v-model="form.definition_sql"
           :language="isDax ? 'dax' : (String(activeConnectionType).toLowerCase() === 'posthog' ? 'hogql' : 'sql')"
-          height="180px"
+          :connection-id="activeConnection?.id"
+          :min-height="120"
+          :max-height="360"
           testid="cq-sql"
           @run="runPreview"
         />

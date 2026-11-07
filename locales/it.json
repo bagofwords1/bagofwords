@@ -6562,14 +6562,15 @@
     "run": "Esegui",
     "resetQuery": "Ripristina",
     "runHint": "Ctrl/⌘ + Invio per eseguire. Solo query di lettura.",
-    "tabColumns": "Colonne ({count})",
-    "tabData": "Dati",
-    "query": "Query",
     "ofTotal": "~{total} righe nella tabella",
     "retry": "Riprova",
     "readOnlyHint": "Per modificare la query, questa connessione deve supportare le tabelle personalizzate.",
     "storageNote": "Letto direttamente dallo storage della tabella, quindi questa anteprima non ha costi di query.",
     "signInRequired": "Questa connessione usa le tue credenziali. Accedi per vederne le righe.",
-    "signIn": "Accedi"
+    "signIn": "Accedi",
+    "open": "Anteprima dati di {name}",
+    "subtitle": "Righe di esempio da {connection}, lette in tempo reale dalla sorgente.",
+    "close": "Chiudi",
+    "button": "Anteprima"
   }
 }

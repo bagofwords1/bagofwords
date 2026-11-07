@@ -6562,14 +6562,15 @@
     "run": "Exécuter",
     "resetQuery": "Réinitialiser",
     "runHint": "Ctrl/⌘ + Entrée pour exécuter. Requêtes en lecture seule.",
-    "tabColumns": "Colonnes ({count})",
-    "tabData": "Données",
-    "query": "Requête",
     "ofTotal": "~{total} lignes dans la table",
     "retry": "Réessayer",
     "readOnlyHint": "Pour modifier la requête, cette connexion doit prendre en charge les tables personnalisées.",
     "storageNote": "Lu directement depuis le stockage de la table : cet aperçu n'a aucun coût de requête.",
     "signInRequired": "Cette connexion utilise vos propres identifiants. Connectez-vous pour voir ses lignes.",
-    "signIn": "Se connecter"
+    "signIn": "Se connecter",
+    "open": "Aperçu des données de {name}",
+    "subtitle": "Lignes d'exemple de {connection}, lues en direct depuis la source.",
+    "close": "Fermer",
+    "button": "Aperçu"
   }
 }
