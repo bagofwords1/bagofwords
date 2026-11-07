@@ -357,7 +357,7 @@ class StepService:
         if db_clients is None:
             # Build db_clients using construct_clients for multi-connection support.
             # Run as the user who triggered the rerun so user_required connections use
-            # their credentials (or owner/admin → system-cred fallback). Background
+            # their credentials (or admin → system-cred fallback). Background
             # callers that pass no user still get None here (handled in case B).
             from app.services.data_source_service import DataSourceService
             ds_service = DataSourceService()

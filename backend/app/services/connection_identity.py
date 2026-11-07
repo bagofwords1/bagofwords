@@ -277,6 +277,36 @@ async def build_token_identity_status(
     )
 
 
+def takes_no_login(connection: Connection) -> bool:
+    """True for a credential-less type (SQLite, DuckDB, QVD) with no stored secret:
+    nobody can connect to it and there is no shared credential to protect. DuckDB
+    with shared cloud keys is not this; it is an ordinary shared source."""
+    from app.schemas.data_source_registry import requires_no_credentials
+
+    if not requires_no_credentials(connection.type):
+        return False
+    try:
+        return not connection.decrypt_credentials()
+    except Exception:
+        return False
+
+
+async def can_use_system_credentials(db: AsyncSession, user, organization_id) -> bool:
+    """True if a user with no login of their own may fall back to a user_required
+    connection's system credentials: org-level full_admin or manage_connections.
+    Fails closed. The resolver and both status builders must share this rule, or
+    the UI shows "system" to someone the resolver refuses and hides Connect."""
+    try:
+        from app.core.permission_resolver import FULL_ADMIN, resolve_permissions
+        resolved = await resolve_permissions(db, str(user.id), str(organization_id))
+        return (
+            FULL_ADMIN in resolved.org_permissions
+            or resolved.has_org_permission("manage_connections")
+        )
+    except Exception:
+        return False
+
+
 async def is_admin_or_owner(db: AsyncSession, connection: Connection, user) -> bool:
     """True if the user may switch identity: org admin/manage_connections, or owner of
     any data source linked to the connection."""

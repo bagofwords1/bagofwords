@@ -924,17 +924,17 @@ def test_domain_user_required_owner_status_not_offline(
     # Connection status should NOT be offline for owner
     user_status = our_domain.get("user_status") or {}
 
-    # Status should NOT be offline (owner can use system fallback)
+    # Status should NOT be offline (this owner is the org admin, so the admin fallback applies)
     assert user_status.get("connection") != "offline", \
         f"Expected non-offline status for owner, got: {user_status.get('connection')}"
 
-    # effective_auth should be 'system' (using fallback)
+    # effective_auth should be 'system' (using the admin fallback)
     assert user_status.get("effective_auth") == "system", \
-        f"Expected effective_auth='system' for owner fallback, got: {user_status.get('effective_auth')}"
+        f"Expected effective_auth='system' for admin fallback, got: {user_status.get('effective_auth')}"
 
     # uses_fallback should be True
     assert user_status.get("uses_fallback") is True, \
-        f"Expected uses_fallback=True for owner, got: {user_status.get('uses_fallback')}"
+        f"Expected uses_fallback=True for admin, got: {user_status.get('uses_fallback')}"
 
     # Cleanup
     delete_data_source(

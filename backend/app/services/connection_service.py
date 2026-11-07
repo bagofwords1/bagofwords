@@ -1851,13 +1851,13 @@ class ConnectionService:
             # don't 403 out of resolve_credentials.
             #
             # Credential-less sources (SQLite/DuckDB/QVD — registry default auth
-            # "none") are exempt: their catalog is indexed from `config` (the DB
-            # path / file location), so they need no creds even under
-            # user_required. Without this exemption an owner/admin refresh of a
+            # "none") are exempt from the skip: their catalog is indexed from
+            # `config` (the DB path / file location), so they need no creds even
+            # under user_required. Without this exemption a refresh of a
             # user_required SQLite domain would skip indexing and return zero
             # tables, since both `credentials` and per-user creds are empty.
             index_user = current_user
-            if connection.auth_policy == "user_required" and not requires_no_credentials(connection.type):
+            if connection.auth_policy == "user_required":
                 from app.models.user_connection_credentials import UserConnectionCredentials
                 from sqlalchemy import select as _select
 
@@ -1873,21 +1873,24 @@ class ConnectionService:
                     has_creds = row is not None
 
                 has_system_creds = bool(connection.credentials)
-                if not has_creds and not has_system_creds:
+                if not has_creds and not has_system_creds and not requires_no_credentials(connection.type):
                     logger.info(
                         f"refresh_schema: connection {connection.id} is user_required and "
                         "no user or admin credentials are available yet — skipping schema indexing."
                     )
                     return []
 
-                if not has_creds:
+                from app.services.connection_identity import takes_no_login
+                if not has_creds and (not requires_no_credentials(connection.type) or takes_no_login(connection)):
                     # Caller has no per-user token, but the connection has
                     # admin/system creds. Index the SHARED canonical catalog with
                     # the same identity the background indexer uses
                     # (current_user=None → system-creds fallback) instead of
                     # letting resolve_credentials 403 on "Connect required" —
                     # a manual Reload before first sign-in must behave like the
-                    # create-time indexing it re-runs.
+                    # create-time indexing it re-runs. A credential-less type
+                    # with a stored secret stays with the caller: the resolver
+                    # decides, as it always has for those types.
                     logger.info(
                         f"refresh_schema: connection {connection.id} — caller has no "
                         "per-user credentials; indexing with the connection's system creds."
@@ -2454,6 +2457,9 @@ class ConnectionService:
                     return connection.decrypt_credentials() or {}
                 except Exception:
                     pass
+            from app.schemas.data_source_registry import requires_no_credentials
+            if requires_no_credentials(connection.type):
+                return {}
             from app.services.access_errors import CredentialsRequiredError
 
             raise CredentialsRequiredError("User credentials required")
@@ -2549,33 +2555,11 @@ class ConnectionService:
 
         # --- Legacy path: non-delegated user_required connections (e.g. user/pass) ---
         if not row:
-            # Owner/admin fallback: allow owner or admin to use system creds
-            is_owner = False
-            has_update_perm = False
-            try:
-                # Check ownership via any linked data source
-                for ds in (connection.data_sources or []):
-                    if str(getattr(ds, "owner_user_id", "")) == str(current_user.id):
-                        is_owner = True
-                        break
-            except Exception:
-                pass
-
-            if not is_owner:
-                try:
-                    from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
-                    resolved = await resolve_permissions(
-                        db, str(current_user.id), str(connection.organization_id)
-                    )
-                    # Admin-level system credential access: full_admin or manage_connections
-                    has_update_perm = (
-                        FULL_ADMIN in resolved.org_permissions
-                        or resolved.has_org_permission("manage_connections")
-                    )
-                except Exception:
-                    pass
-
-            if is_owner or has_update_perm:
+            # Admin fallback: only an org-level admin may use system creds. Owning
+            # a data source grants nothing here: a non-admin owner connects with
+            # their own login, like any member.
+            from app.services.connection_identity import can_use_system_credentials
+            if await can_use_system_credentials(db, current_user, connection.organization_id):
                 if connection.credentials:
                     try:
                         return connection.decrypt_credentials() or {}
