@@ -16,7 +16,6 @@ import pytest
 from app.ai.code_execution.code_execution import QueryCapturingClientWrapper, UnsafeSQLError
 from app.ai.code_execution.query_params import verify_identity_binds_in_queries
 from app.ai.code_execution.sql_guard import ReadOnlyViolation, ensure_read_only
-from app.data_sources.clients import neo4j_client
 from app.data_sources.clients.cypher_guard import CypherNotAllowed, check_cypher
 from app.data_sources.clients.neo4j_client import MAX_ROWS, Neo4jClient, to_plain, validate_uri
 from app.schemas.data_source_registry import catalog_nouns_for, catalog_nouns_override, data_shape_for
@@ -158,9 +157,11 @@ class FakeNeo4j:
         self.answers = answers or {}
         self.fail = fail
         self.uris, self.sessions, self.statements, self.timeouts = [], [], [], []
+        self.auths = []
 
     def driver(self, uri, auth=None, **kwargs):
         self.uris.append(uri)
+        self.auths.append(auth)
         server = self
 
         class Session:
@@ -205,8 +206,10 @@ def server(monkeypatch):
     return make
 
 
-def _client(uri="bolt://db.example.com:7687"):
-    return Neo4jClient(uri=uri, username="reader", password="s3cret-pass")
+def _client(uri="bolt://db.example.com:7687", **kw):
+    kw.setdefault("username", "reader")
+    kw.setdefault("password", "s3cret-pass")
+    return Neo4jClient(uri=uri, **kw)
 
 
 def test_every_query_runs_in_a_read_session(server):
@@ -303,10 +306,9 @@ def test_an_identity_value_that_does_not_filter_fails_the_check(server, query):
     assert _identity_check(query, {"owner": "a@x.com"}, "a@x.com") is not None
 
 
-def test_a_capped_result_tells_the_agent(server, monkeypatch):
-    monkeypatch.setattr(neo4j_client, "MAX_ROWS", 3)
+def test_a_capped_result_tells_the_agent(server):
     server({"RETURN x": (["x"], [[i] for i in range(10)])})
-    df = _client().execute_query("UNWIND range(1, 10) AS x RETURN x")
+    df = _client(max_rows=3).execute_query("UNWIND range(1, 10) AS x RETURN x")
     assert len(df) == 3 and "first 3 rows" in df.attrs["bow_notice"]
     assert "bow_notice" not in _client().execute_query("MATCH (n) RETURN n.name AS name").attrs
 

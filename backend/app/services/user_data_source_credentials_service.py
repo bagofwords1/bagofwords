@@ -403,7 +403,7 @@ class UserDataSourceCredentialsService:
         schema_cls = variant.schema
         try:
             validated = schema_cls(**(payload.credentials or {}))
-            if ds_type.lower() == "mssql":
+            if ds_type.lower() in ("mssql", "neo4j"):
                 payload.credentials = validated.model_dump()
         except Exception as e:
             raise HTTPException(status_code=422, detail=f"Invalid credentials: {redact_error(e)}")
@@ -451,7 +451,7 @@ class UserDataSourceCredentialsService:
         schema_cls = variant.schema
         try:
             validated = schema_cls(**(payload.credentials or {}))
-            if ds_type.lower() == "mssql":
+            if ds_type.lower() in ("mssql", "neo4j"):
                 payload.credentials = validated.model_dump()
         except Exception as e:
             raise HTTPException(status_code=422, detail=f"Invalid credentials: {redact_error(e)}")

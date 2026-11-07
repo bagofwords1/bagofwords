@@ -53,10 +53,10 @@ def server(request):
     container.stop()
 
 
-def _client(server, scheme="bolt"):
+def _client(server, scheme="bolt", **kw):
     host = server.get_container_host_ip()
     port = server.get_exposed_port(7687)
-    return Neo4jClient(uri=f"{scheme}://{host}:{port}", username="neo4j", password=PASSWORD)
+    return Neo4jClient(uri=f"{scheme}://{host}:{port}", username="neo4j", password=PASSWORD, **kw)
 
 
 def test_connection_reports_the_server(server):
@@ -96,7 +96,7 @@ def test_params_go_through_the_executor_to_the_server(server):
 def test_the_server_refuses_a_write_even_without_our_guard(server, monkeypatch):
     from neo4j.exceptions import ClientError
 
-    monkeypatch.setattr(neo4j_client, "check_cypher", lambda q: None)
+    monkeypatch.setattr(neo4j_client, "check_cypher", lambda q, **kw: None)
     with pytest.raises(ClientError):
         _client(server).execute_query("CREATE (:Intruder {at: datetime()})")
     with server.get_driver() as driver, driver.session() as s:
@@ -117,9 +117,8 @@ def test_a_long_query_is_stopped_by_the_server(server):
         client.execute_query("UNWIND range(1, 2000000000) AS x RETURN sum(x) AS s")
 
 
-def test_the_row_cap_is_enforced_while_reading(server, monkeypatch):
-    monkeypatch.setattr(neo4j_client, "MAX_ROWS", 3)
-    df = _client(server).execute_query("UNWIND range(1, 1000) AS x RETURN x")
+def test_the_row_cap_is_enforced_while_reading(server):
+    df = _client(server, max_rows=3).execute_query("UNWIND range(1, 1000) AS x RETURN x")
     assert len(df) == 3 and "first 3 rows" in df.attrs["bow_notice"]
 
 
@@ -132,3 +131,54 @@ def test_a_routing_uri_connects_directly_to_the_server(server):
     assert res["success"], res["message"]
     df = _client(server, scheme="neo4j").execute_query("MATCH (m:Movie) RETURN count(m) AS c")
     assert df.iloc[0]["c"] == 2  # the seeded movies
+
+
+# ── Enterprise: impersonation ───────────────────────────────────────────────
+# Impersonation needs Neo4j Enterprise (evaluation license in the container).
+
+ENTERPRISE_IMAGE = "neo4j:5.26-enterprise"
+
+
+@pytest.fixture(scope="module")
+def enterprise():
+    try:
+        container = testcontainers_neo4j.Neo4jContainer(ENTERPRISE_IMAGE, password=PASSWORD) \
+            .with_env("NEO4J_ACCEPT_LICENSE_AGREEMENT", "eval")
+        container.start()
+    except Exception as e:  # no Docker here
+        pytest.skip(f"Docker / Neo4j Enterprise container unavailable: {e}")
+    with container.get_driver() as driver:
+        driver.execute_query(SEED + " SET keanu.salary = 1000, carrie.salary = 2000")
+        for q in (
+            "CREATE USER svc SET PASSWORD 'svc-password-1' CHANGE NOT REQUIRED",
+            "CREATE USER ann SET PASSWORD 'ann-password-1' CHANGE NOT REQUIRED",
+            "CREATE USER bob SET PASSWORD 'bob-password-1' CHANGE NOT REQUIRED",
+            "CREATE ROLE bow_service", "GRANT ROLE reader TO svc", "GRANT ROLE bow_service TO svc",
+            "GRANT IMPERSONATE (ann) ON DBMS TO bow_service",
+            "CREATE ROLE analyst AS COPY OF reader",
+            "DENY READ {salary} ON GRAPH neo4j NODES Person TO analyst",
+            "GRANT ROLE analyst TO ann", "GRANT ROLE reader TO bob",
+        ):
+            driver.execute_query(q, database_="system")
+    yield container
+    container.stop()
+
+
+def _service_client(server, **kw):
+    host, port = server.get_container_host_ip(), server.get_exposed_port(7687)
+    return Neo4jClient(uri=f"bolt://{host}:{port}", username="svc", password="svc-password-1", **kw)
+
+
+def test_impersonation_reads_with_the_impersonated_users_privileges(enterprise):
+    q = "MATCH (p:Person) WHERE p.salary IS NOT NULL RETURN count(p) AS c"
+    assert _service_client(enterprise).execute_query(q).iloc[0]["c"] == 2  # svc: a plain reader
+    as_ann = _service_client(enterprise, impersonated_user="ann")
+    assert as_ann.execute_query(q).iloc[0]["c"] == 0  # ann's role cannot read salary
+    person = next(t for t in as_ann.get_schemas() if t.name == "(:Person)")
+    assert "salary" not in {c.name for c in person.columns}
+    assert as_ann.test_connection()["success"]
+
+
+def test_impersonating_a_user_not_granted_is_refused_by_the_server(enterprise):
+    result = _service_client(enterprise, impersonated_user="bob").test_connection()
+    assert result["success"] is False

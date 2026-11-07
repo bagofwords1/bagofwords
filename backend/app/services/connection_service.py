@@ -360,7 +360,7 @@ def default_user_auth_modes(conn_type: str, config: dict, credentials: dict) -> 
         # users may still bring their own credentials (password, keypair, or
         # service-account JSON).
         return ["oauth"]
-    if conn_type == "MSSQL" and (config or {}).get("auth_type") == "kerberos":
+    if conn_type in ("MSSQL", "neo4j") and (config or {}).get("auth_type") == "kerberos":
         # System auth is Kerberos → per-user auth means Kerberos SSO via
         # constrained delegation (no per-user secret; UPN derived at query
         # time from the login identity).
