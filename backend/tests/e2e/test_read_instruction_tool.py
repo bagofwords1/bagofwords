@@ -548,3 +548,50 @@ async def test_windowed_reads_keep_report_scope(
 
     allowed = await _run(tool_input, user_id=uid, org_id=org_id, scope_ds_ids=[ds_a["id"]])
     assert allowed["success"] is True, allowed
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+@pytest.mark.parametrize("line_chars", [60_000, 150_000])
+@pytest.mark.parametrize("wrap", [False, True])
+async def test_a_line_too_long_for_one_read_is_returned_whole_in_pieces(
+    create_user, login_user, whoami, test_client, line_chars, wrap
+):
+    """A single line bigger than one read can't be paged by line. It comes in
+    pieces — each says which line it cut and where to continue (col_offset) —
+    that rebuild the body exactly, and each piece reaches the model uncut."""
+    token, uid, org_id = _new_admin(create_user, login_user, whoami)
+    tail = f"TAIL-{uuid.uuid4().hex[:8]} use fct_orders"
+    giant = "{" + "\"k\": 1, " * (line_chars // 8) + "}" + tail
+    full = ("# Mapping\n" + giant + "\nend") if wrap else giant
+    instr = _create_instruction(test_client, token, org_id, text=full, title="Blob")
+
+    tool_input = {"id": instr["id"][:8]}
+    payload = await _run_payload(tool_input, user_id=uid, org_id=org_id)
+    out = payload["output"]
+    text = out["text"]
+    seen_cut = False
+    for _ in range(200):
+        assert out["success"] is True, out
+        _assert_reaches_model_uncut(tool_input, payload["observation"])
+        if out.get("clipped_line"):
+            seen_cut = True
+            assert out["clipped_line_length"] == len(giant)
+            assert payload["observation"]["next_col_offset"] == out["next_col_offset"]
+        if not out["truncated"]:
+            break
+        tool_input = {"id": instr["id"][:8], "offset": out["next_offset"]}
+        if out.get("next_col_offset") is not None:
+            tool_input["col_offset"] = out["next_col_offset"]
+        payload = await _run_payload(tool_input, user_id=uid, org_id=org_id)
+        out = payload["output"]
+        text += out["text"] if out.get("start_col") else "\n" + out["text"]
+    else:
+        raise AssertionError("paging did not terminate")
+
+    assert seen_cut
+    assert text == full
+
+    grep = (await _run_payload({"id": instr["id"][:8], "grep_pattern": "TAIL-"},
+                               user_id=uid, org_id=org_id))["output"]
+    assert any(tail in m["line"] for m in grep["matches"])
