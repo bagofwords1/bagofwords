@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from collections import Counter
 from datetime import datetime, timezone
@@ -73,6 +74,7 @@ _UNREACHABLE_ENDED = "Skipped: KMS could not be reached, so nothing else was sen
 _BUDGET_ENDED = "Skipped: the run used up its budget of calls or time."
 _CLIENT_ENDED = "Skipped: the run could not start."
 _NO_REPLY = "Skipped: the first call got no reply to judge."
+_CA_BUNDLE_ENDED = "Skipped: the CA bundle cannot be read, so nothing was sent."
 _FAILURE_SUMMARIES = {
     "dns": "The KMS host name did not resolve. Check the URL and this server's DNS.",
     "refused": "The KMS host refused the connection. Check the URL, the port and the firewall.",
@@ -80,6 +82,13 @@ _FAILURE_SUMMARIES = {
     "untrusted_certificate": "The KMS certificate is not trusted here. Add the CA to REQUESTS_CA_BUNDLE.",
     "tls_failed": "The TLS handshake with KMS failed. Check for a device that intercepts TLS.",
     "connection_failed": "The connection to KMS failed. Note that a proxy is not supported.",
+    "blocked_route": "There is no open route to KMS from this server. Check the firewall and the routing.",
+    "ca_bundle_unreadable": "The file named by REQUESTS_CA_BUNDLE cannot be read. Check its path and permissions.",
+}
+# OpenSSL's verify codes that need a different action from "add the CA".
+_CERTIFICATE_SUMMARIES = {
+    10: "The KMS certificate has expired. Ask the KMS administrator to renew it.",
+    62: "The KMS certificate does not match the host name. Check the URL, and any device that intercepts TLS.",
 }
 
 
@@ -138,10 +147,11 @@ class _Stop(Exception):
 class _Reply:
     """One answer: its status, its JSON when there is any, and a fixed word when it failed."""
 
-    def __init__(self, status: int, payload=None, failure: str | None = None):
+    def __init__(self, status: int, payload=None, failure: str | None = None, verify_code: int | None = None):
         self.status = status
         self.payload = payload
         self.failure = failure
+        self.verify_code = verify_code
 
     @property
     def ok(self) -> bool:
@@ -151,7 +161,8 @@ class _Reply:
         return not (isinstance(self.payload, dict) and str(self.payload.get("status", "")).upper() == "ERROR")
 
     def observed(self) -> dict:
-        return {"http_status": self.status, **({"failure": self.failure} if self.failure else {})}
+        return {"http_status": self.status, **({"failure": self.failure} if self.failure else {}),
+                **({"verify_code": self.verify_code} if self.verify_code is not None else {})}
 
 
 def _is_transport(reply: _Reply) -> bool:
@@ -160,6 +171,10 @@ def _is_transport(reply: _Reply) -> bool:
 
 def _transport_stage(failure: str) -> str:
     return "tls" if failure in _TLS_FAILURES else "network"
+
+
+def _failure_summary(failure: str, verify_code: int | None) -> str:
+    return _CERTIFICATE_SUMMARIES.get(verify_code) or _FAILURE_SUMMARIES[failure]
 
 
 def _record_fault(records) -> str | None:
@@ -209,6 +224,7 @@ class _Run:
         self.calls = 0
         self.ended: str | None = None        # why every later check is skipped
         self.reach: _Reply | None = None     # None until a call came back
+        self.ca_unreadable = False
         self.tree_records: list = []
         self.search_records: list = []
         self.search_query: str | None = None  # a query that returned rows
@@ -243,7 +259,7 @@ class _Run:
             status, body = client._send(session or client._session(), op, "GET", path, params=params, headers=headers,
                                         deadline=deadline, prefix=prefix)
         except kc.KmsHTTPError as exc:
-            failed = _Reply(exc.status, None, exc.transport or exc.kind)
+            failed = _Reply(exc.answered or exc.status, None, exc.transport or exc.kind, exc.verify_code)
         if failed is not None:
             return failed
         if status != 200 or not body.strip():
@@ -260,7 +276,14 @@ class _Run:
         return self.get("diagnostics_search", _SEARCH, params=params)
 
     # ------------------------------------------------------------ network, TLS, item 3
+    def _ca_bundle_unreadable(self) -> bool:
+        bundle = os.environ.get("REQUESTS_CA_BUNDLE")
+        return self.client._base.startswith("https://") and bool(bundle) and not os.access(bundle, os.R_OK)
+
     def check_network(self):
+        if self._ca_bundle_unreadable():
+            self.ca_unreadable = True
+            return "skipped", "Skipped: nothing is sent until the CA bundle can be read.", {}
         # The first call carries no session and no credential (a new session has neither).
         self.reach = self.get("diagnostics_reach", _TREE, session=self.client._new_session(), connector_timeout=True)
         failure = self.reach.failure if _is_transport(self.reach) else None
@@ -269,13 +292,17 @@ class _Run:
         return "fail", _FAILURE_SUMMARIES[failure], {"reached": False, "failure": failure}
 
     def check_tls(self):
+        if self.ca_unreadable:
+            self.ended = _CA_BUNDLE_ENDED
+            return "fail", _FAILURE_SUMMARIES["ca_bundle_unreadable"], {"failure": "ca_bundle_unreadable"}
         if not self.client._base.startswith("https://"):
             return "skipped", "Skipped: the connection uses plain HTTP.", {"plain_http": True}
         if self.reach is None:
             return "skipped", _NO_REPLY, {}
         failure = self.reach.failure if _is_transport(self.reach) else None
         if failure in _TLS_FAILURES:
-            return "fail", _FAILURE_SUMMARIES[failure], {"failure": failure}
+            return "fail", _failure_summary(failure, self.reach.verify_code), {
+                "failure": failure, "verify_code": self.reach.verify_code}
         if failure is not None:
             return "skipped", "Skipped: KMS was not reached.", {}
         return "pass", "The KMS certificate is trusted.", {"verified": True}
@@ -332,10 +359,14 @@ class _Run:
                 "unlisted_names": left_out + cookies_left_out}
 
     def _login_failed(self, failure: kc.KmsHTTPError, observed: dict):
+        if failure.transport is not None and failure.answered:
+            return "fail", "KMS answered the login, but the answer could not be read.", {
+                **observed, "http_status": failure.answered, "reason": failure.transport}
         if failure.transport is not None:
             self.ended = _UNREACHABLE_ENDED
-            summary = _FAILURE_SUMMARIES[failure.transport]
-            return "fail", summary, {**observed, "failure": failure.transport}, _transport_stage(failure.transport)
+            summary = _failure_summary(failure.transport, failure.verify_code)
+            return "fail", summary, {**observed, "failure": failure.transport, "verify_code": failure.verify_code}, (
+                _transport_stage(failure.transport))
         if failure.kind == "auth":
             return "fail", ("KMS rejected the login. Check the username and password. If they are right, a device in "
                             "front of KMS may have answered, or the login has an unexpected shape."), {
@@ -345,7 +376,8 @@ class _Run:
 
     def _unreachable(self, reply: _Reply):
         self.ended = _UNREACHABLE_ENDED
-        return "fail", _FAILURE_SUMMARIES[reply.failure], reply.observed(), _transport_stage(reply.failure)
+        return ("fail", _failure_summary(reply.failure, reply.verify_code), reply.observed(),
+                _transport_stage(reply.failure))
 
     def _check_token(self):
         reply = self.get("diagnostics_session", "/sessionInfo")
@@ -413,7 +445,8 @@ class _Run:
         observed.update(folders_opened=len(opened), folders_failed=failed, folder_statuses=_status_counts(opened))
         for reply in (top, start):
             if _is_transport(reply):
-                return "fail", _FAILURE_SUMMARIES[reply.failure], observed, _transport_stage(reply.failure)
+                return ("fail", _failure_summary(reply.failure, reply.verify_code), observed,
+                        _transport_stage(reply.failure))
             if _tree_rows(reply) is None:
                 return "fail", "The folder tree could not be read.", {
                     **observed, **_reason(reply, _tree_records(reply))}

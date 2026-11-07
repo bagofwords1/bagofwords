@@ -20,6 +20,7 @@ import hashlib
 import hmac
 import html
 import http.client
+import errno
 import json
 import logging
 import os
@@ -137,6 +138,8 @@ _CHUNK_BYTES = 64 * 1024
 # value) and CookieConflictError (a RuntimeError).
 _TRANSPORT_ERRORS = (requests.RequestException, urllib3.exceptions.HTTPError, http.client.HTTPException,
                      OSError, UnicodeError, requests.cookies.CookieConflictError)
+# A firewall or a missing route, whatever urllib3 calls it.
+_BLOCKED_ROUTE_ERRNOS = (errno.EHOSTUNREACH, errno.ENETUNREACH, errno.EACCES)
 _URL_MESSAGE = ("KMS Lighthouse URL must be an HTTP(S) URL such as https://example.lighthouse-cloud.com, "
                 "without a user name or password in the URL, a query, or a fragment.")
 
@@ -247,6 +250,8 @@ class KmsError(ValueError):
 
 class KmsHTTPError(KmsError):
     transport: str | None = None     # how an unreachable KMS failed (``_transport_failure``): a fixed word
+    answered: int = 0                # the HTTP status, when the failure came after it was read
+    verify_code: int | None = None   # OpenSSL's code, when a certificate failed verification
 
     def __init__(self, status: int, kind: str, message: str | None = None):
         if kind not in _MESSAGES:
@@ -274,7 +279,13 @@ _CONTENT_KINDS = frozenset(("not_found", "forbidden", "bad_request", "no_data", 
 def _is_timeout(exc: BaseException) -> bool:
     """A connect or read timeout, also when requests wraps urllib3's (a read timeout while streaming)."""
     timeouts = (requests.Timeout, urllib3.exceptions.TimeoutError, TimeoutError)
-    return isinstance(exc, timeouts) or any(isinstance(arg, timeouts) for arg in exc.args)
+
+    def timed_out(link) -> bool:
+        # NewConnectionError subclasses urllib3's timeout but only says the connect failed.
+        # requests excludes it too; a real timeout shows in its cause.
+        return isinstance(link, timeouts) and not isinstance(link, urllib3.exceptions.NewConnectionError)
+
+    return timed_out(exc) or any(timed_out(arg) for arg in exc.args)
 
 
 def _exception_chain(exc: BaseException) -> list:
@@ -301,9 +312,25 @@ def _transport_failure(exc: BaseException) -> str:
         return "dns"
     if any(isinstance(link, ConnectionRefusedError) for link in chain):
         return "refused"
+    if any(isinstance(link, OSError) and link.errno in _BLOCKED_ROUTE_ERRNOS for link in chain):
+        return "blocked_route"
     if any(_is_timeout(link) for link in chain):
         return "timeout"
     return "connection_failed"
+
+
+def _body_failure(exc: BaseException) -> str:
+    """A fixed word for a failure after the status was read: KMS answered, but its body broke."""
+    undecodable = (requests.exceptions.ContentDecodingError, urllib3.exceptions.DecodeError)
+    return "bad_encoding" if any(isinstance(link, undecodable) for link in _exception_chain(exc)) else "bad_body"
+
+
+def _verify_code(exc: BaseException) -> int | None:
+    """OpenSSL's integer code of a failed certificate verification, or None."""
+    for link in _exception_chain(exc):
+        if isinstance(link, ssl.SSLCertVerificationError) and isinstance(getattr(link, "verify_code", None), int):
+            return link.verify_code
+    return None
 
 
 # Errors whose messages are already fixed and secret-free; anything else is closed.
@@ -1968,7 +1995,8 @@ class KmsLighthouseClient(DataSourceClient):
             if failed.kind in _CONTENT_KINDS:
                 raise _LoginFailure(failed.status, "server")
             login_failure = _LoginFailure(failed.status, failed.kind, str(failed))
-            login_failure.transport = failed.transport
+            login_failure.transport, login_failure.answered = failed.transport, failed.answered
+            login_failure.verify_code = failed.verify_code
             raise login_failure
 
     def _send_login(self, session: requests.Session, deadline=None, observe: dict | None = None) -> None:
@@ -2039,7 +2067,7 @@ class KmsLighthouseClient(DataSourceClient):
         if deadline is not None:
             left = max(_MIN_TIMEOUT_S, deadline - started)
             timeout = (min(_DEFAULT_TIMEOUT[0], left), min(_DEFAULT_TIMEOUT[1], left))
-        status, body, failed, cause, timed_out, transport = 0, b"", None, None, False, None
+        status, body, failed, cause, timed_out, transport, verify_code = 0, b"", None, None, False, None, None
         _IN_KMS_REQUEST.active = True   # urllib3 would log the URL with its query (ADR-2)
         try:
             with session.request(method, url, params=params, headers=headers, timeout=timeout,
@@ -2059,7 +2087,8 @@ class KmsLighthouseClient(DataSourceClient):
         except _TRANSPORT_ERRORS as exc:
             failed, cause = "unreachable", type(exc).__name__
             timed_out = _is_timeout(exc)
-            transport = _transport_failure(exc)
+            transport = _body_failure(exc) if status and not timed_out else _transport_failure(exc)
+            verify_code = _verify_code(exc)
         finally:
             _IN_KMS_REQUEST.active = False
         # Raised outside the except block, so no exception chain carries the URL.
@@ -2069,7 +2098,7 @@ class KmsLighthouseClient(DataSourceClient):
             error = (_DeadlineTimeout()     # the deadline cut this timeout: the caller's time is up
                      if timed_out and deadline is not None and deadline - time.monotonic() < _MIN_TIMEOUT_S
                      else KmsHTTPError(status if failed == "too_large" else 0, failed))
-            error.transport = transport
+            error.transport, error.answered, error.verify_code = transport, status, verify_code
             raise error
         logger.debug("kms_lighthouse %s -> %s in %d ms", op, status, int((time.monotonic() - started) * 1000))
         return status, body

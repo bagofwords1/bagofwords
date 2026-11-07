@@ -103,6 +103,8 @@ Test-only switches and routes (not part of the KMS API):
     STATE["alt_prefix"] = "/api": GET requests are served under that prefix too; a login is not.
     STATE["search_max_rows"] = N: /search/full returns at most N rows per page, whatever is asked.
     STATE["search_max_query"] = N: a query longer than N characters answers 400 with no body.
+    STATE["body_fault"] = {"route": "/search/full" or "/login", "fault": "truncated" or "bad_gzip"}:
+    that route sends its 200 and headers, then a body cut short, or one that is not the gzip it claims.
     STATE["session_info_status"] = N, "error", "not_json" or "empty": GET /sessionInfo answers that.
     STATE["no_session_answer"] = "html" or "empty": a request with no session gets a 200 HTML page
     or a 200 with no body instead of its 401/302 (a device that answers for KMS).
@@ -456,6 +458,7 @@ _DEFAULTS = {
     "alt_prefix": None,              # None | a second prefix that GET requests are served under
     "search_max_rows": None,         # None | a server-side cap on rows per /search/full page
     "search_max_query": None,        # None | the longest query /search/full accepts
+    "body_fault": None,              # None | {"route", "fault"}: that route's body breaks after its status
     "session_info_status": None,     # None | an HTTP status | "error" | "not_json" | "empty"
     "no_session_answer": None,       # None | "html" | "empty": what a request with no session gets instead
     "hold_no_session": False,        # True: a request with no session waits on HELD
@@ -599,6 +602,25 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header(key, value)
         self.end_headers()
 
+    def _body_fault(self, route):
+        """Send a 200 whose body breaks, when STATE["body_fault"] names ``route``; True when it did."""
+        planned = STATE["body_fault"]
+        if planned is None or planned["route"] != route:
+            return False
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        if planned["fault"] == "bad_gzip":
+            self.send_header("Content-Encoding", "gzip")
+            self.send_header("Content-Length", "9")
+            self.end_headers()
+            self.wfile.write(b"not gzip!")
+        else:
+            self.send_header("Content-Length", "1000")
+            self.end_headers()
+            self.wfile.write(b'{"status"')
+            self.close_connection = True
+        return True
+
     def _send_html(self):
         raw = b"<html>not json</html>"
         self.send_response(200)
@@ -695,6 +717,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_empty(forced)
         if not accepted:
             return self._send_empty(400)
+        if self._body_fault("/login"):
+            return None
         return self._send_json(200, {"status": "SUCCESS", "data": data}, headers)
 
     def do_GET(self):
@@ -767,6 +791,8 @@ class Handler(BaseHTTPRequestHandler):
             ]
             return self._send_json(200, {"status": "SUCCESS", "data": data})
         if route == "/search/full":
+            if self._body_fault(route):
+                return None
             return self._search(user, query, odd)
         if route.startswith("/public/item/"):
             return self._item(user, route[len("/public/item/"):], odd)

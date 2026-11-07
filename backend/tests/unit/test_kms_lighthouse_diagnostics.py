@@ -4,6 +4,7 @@ The mock is the remote boundary: a real HTTP server on a real socket. Only the
 HTTP client (requests) and the clock are ever replaced, and only to reach a
 failure the socket cannot produce. Each Safety rule of the brief has a test.
 """
+import errno
 import io
 import json
 import re
@@ -388,7 +389,112 @@ def test_a_name_that_does_not_resolve_is_a_dns_failure(monkeypatch):
     assert _rows(report)["network"]["observed"]["failure"] == "dns"
 
 
-def test_a_silent_server_is_a_timeout_and_the_clock_budget_holds():
+@pytest.mark.parametrize("code,word", [(errno.EHOSTUNREACH, "blocked_route"), (errno.ENETUNREACH, "blocked_route"),
+                                       (errno.EACCES, "blocked_route"), (errno.ETIMEDOUT, "timeout"),
+                                       (errno.ECONNREFUSED, "refused"), (errno.ECONNRESET, "connection_failed")])
+def test_a_failed_connect_is_named_by_its_errno(monkeypatch, code, word):
+    def no_route(self, address):
+        raise OSError(code, "kms-exception-text-e5")
+
+    monkeypatch.setattr(socket.socket, "connect", no_route)
+    report = kc.KmsLighthouseClient(base_url="http://10.0.0.1", allow_http=True, username="u",
+                                    password="p").diagnostics()
+    assert _rows(report)["network"]["observed"]["failure"] == word
+    assert report["failed_stage"] == "network" and "kms-exception-text-e5" not in json.dumps(report)
+
+
+def test_a_connector_message_is_the_same_for_a_blocked_route(monkeypatch):
+    def no_route(self, address):
+        raise OSError(errno.EHOSTUNREACH, "kms-exception-text-e6")
+
+    monkeypatch.setattr(socket.socket, "connect", no_route)
+    outcome = kc.KmsLighthouseClient(base_url="http://10.0.0.1", allow_http=True, api_token="t").test_connection()
+    assert outcome == {"success": False, "message": kc._MESSAGES["unreachable"]}
+
+
+def _bad_tls(code):
+    failure = ssl.SSLCertVerificationError("kms-exception-text-e7")
+    failure.verify_code = code
+    return requests.exceptions.SSLError(failure)
+
+
+@pytest.mark.parametrize("code,word", [(10, "expired"), (62, "host name"), (19, "not trusted"), (20, "not trusted")])
+def test_a_certificate_failure_carries_its_verify_code_and_says_what_is_wrong(monkeypatch, code, word):
+    def refused(self, method, url, **kwargs):
+        raise _bad_tls(code)
+
+    monkeypatch.setattr(requests.Session, "request", refused)
+    report = kc.KmsLighthouseClient(base_url="https://kms.example.com", username="u", password="p").diagnostics()
+    row = _rows(report)["tls"]
+    assert row["status"] == "fail" and row["observed"]["failure"] == "untrusted_certificate"
+    assert row["observed"]["verify_code"] == code
+    assert word in row["summary"].lower()
+    assert _rows(report)["login"]["observed"]["verify_code"] == code
+    assert "kms-exception-text-e7" not in json.dumps(report)
+
+
+def test_a_certificate_failure_at_the_login_says_what_is_wrong(kms, monkeypatch):
+    real = requests.Session.request
+
+    def login_refused(self, method, url, **kwargs):
+        if method == "POST":
+            raise _bad_tls(10)
+        return real(self, method, url, **kwargs)
+
+    monkeypatch.setattr(requests.Session, "request", login_refused)
+    report = client(kms, "alice").diagnostics()
+    row = _rows(report)["login"]
+    assert row["stage"] == "tls" and row["observed"]["verify_code"] == 10 and "expired" in row["summary"].lower()
+
+
+@pytest.mark.parametrize("fault,word", [("truncated", "bad_body"), ("bad_gzip", "bad_encoding")])
+def test_a_body_that_breaks_after_the_status_keeps_the_status_and_the_run_goes_on(kms, fault, word):
+    kms["mock"].STATE["body_fault"] = {"route": "/search/full", "fault": fault}
+    report = client(kms, "alice").diagnostics()
+    rows = _rows(report)
+    assert rows["search_layout"]["status"] == "fail" and rows["search_layout"]["observed"]["failure"] == word
+    assert rows["search_layout"]["observed"]["without_layout_status"] == 200
+    assert report["failed_stage"] == "search"
+    assert rows["field_types"]["status"] != "skipped", "KMS answered, so the run is not over"
+
+
+@pytest.mark.parametrize("fault,word", [("truncated", "bad_body"), ("bad_gzip", "bad_encoding")])
+def test_a_login_answer_that_breaks_is_a_login_failure_with_its_status(kms, fault, word):
+    kms["mock"].STATE["body_fault"] = {"route": "/login", "fault": fault}
+    report = client(kms, "alice").diagnostics()
+    row = _rows(report)["login"]
+    assert report["failed_stage"] == "login" and row["stage"] == "login"
+    assert row["observed"]["reason"] == word and row["observed"]["http_status"] == 200
+    assert _logins(kms) == 1
+    _assert_rest_skipped(report)
+
+
+@pytest.mark.parametrize("fault", ["truncated", "bad_gzip"])
+def test_a_connector_message_is_the_same_for_a_broken_body(kms, fault):
+    kms["mock"].STATE["body_fault"] = {"route": "/search/full", "fault": fault}
+    with pytest.raises(kc.KmsHTTPError) as caught:
+        client(kms, "alice").search_files("anything")
+    assert (caught.value.status, caught.value.kind, str(caught.value)) == (0, "unreachable", kc._MESSAGES["unreachable"])
+
+
+def test_an_unreadable_ca_bundle_is_a_tls_failure_and_nothing_is_sent(monkeypatch, tmp_path):
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", str(tmp_path / "secret-name-no-such-bundle.pem"))
+    sent = []
+    monkeypatch.setattr(requests.Session, "request", lambda self, *args, **kwargs: sent.append(args))
+    report = kc.KmsLighthouseClient(base_url="https://kms.example.com", username="u", password="p").diagnostics()
+    rows = _rows(report)
+    assert rows["tls"]["status"] == "fail" and rows["tls"]["observed"]["failure"] == "ca_bundle_unreadable"
+    assert report["failed_stage"] == "tls" and report["overall"] == "fail"
+    assert sent == [] and report["calls_made"] == 0
+    assert "secret-name-no-such-bundle" not in json.dumps(report)
+
+
+def test_a_ca_bundle_is_not_consulted_over_plain_http(kms, monkeypatch, tmp_path):
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", str(tmp_path / "no-such-bundle.pem"))
+    assert _rows(client(kms, "alice").diagnostics())["login"]["status"] == "pass"
+
+
+def test_a_silent_server_is_a_timeout():
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     listener.listen(8)
@@ -448,6 +554,7 @@ def test_an_untrusted_certificate_is_a_tls_failure_and_no_password_leaves(self_s
     rows = _rows(report)
     assert rows["network"]["status"] == "pass"
     assert rows["tls"]["status"] == "fail" and rows["tls"]["observed"]["failure"] == "untrusted_certificate"
+    assert type(rows["tls"]["observed"]["verify_code"]) is int and rows["tls"]["observed"]["verify_code"] > 0
     assert rows["login"]["stage"] == "tls"
     _assert_rest_skipped(report)
     assert self_signed_kms["received"] == [], "no request may finish a handshake with an untrusted server"
