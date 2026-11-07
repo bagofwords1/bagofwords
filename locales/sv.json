@@ -1871,6 +1871,22 @@
       "override": "Dessa regler gäller bara dig. Anslutningens Tillåt alltid eller Neka alltid har företräde.",
       "save": "Spara regler",
       "failed": "Kunde inte läsa eller spara regler. Kontrollera JSON och försök igen."
+    },
+    "shell": {
+      "command": "Skalkommando",
+      "server": "Server",
+      "directory": "Katalog",
+      "cancelled": "Avbrutet",
+      "denied": "Nekat",
+      "approval_expired": "Godkännandet har gått ut",
+      "execution_timed_out": "Tidsgränsen överskreds",
+      "failed": "Misslyckades",
+      "success": "Slutfört",
+      "running": "Körs",
+      "awaitingApproval": "Väntar på godkännande",
+      "unknownState": "Fjärrprocessen kan fortfarande köras. Kontrollera dess status innan du försöker igen.",
+      "exitCode": "Avslutningskod: {code}",
+      "cancelledBeforeExecution": "Avbrutet före körning."
     }
   },
   "entityCreate": {

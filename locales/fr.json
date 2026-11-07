@@ -1871,6 +1871,22 @@
       "override": "Ces règles ne concernent que vous. Toujours autoriser ou Toujours refuser au niveau de la connexion est prioritaire.",
       "save": "Enregistrer les règles",
       "failed": "Impossible de charger ou enregistrer les règles. Vérifiez le JSON et réessayez."
+    },
+    "shell": {
+      "command": "Commande shell",
+      "server": "Serveur",
+      "directory": "Répertoire",
+      "cancelled": "Annulé",
+      "denied": "Refusé",
+      "approval_expired": "Approbation expirée",
+      "execution_timed_out": "Délai dépassé",
+      "failed": "Échec",
+      "success": "Terminé",
+      "running": "En cours",
+      "awaitingApproval": "En attente d’approbation",
+      "unknownState": "Le processus distant peut encore être en cours. Vérifiez son état avant de réessayer.",
+      "exitCode": "Code de sortie : {code}",
+      "cancelledBeforeExecution": "Annulé avant l’exécution."
     }
   },
   "entityCreate": {

@@ -2032,6 +2032,22 @@
       "override": "הכללים חלים רק עליך. להגדרות לאפשר תמיד או לחסום תמיד של החיבור יש עדיפות.",
       "save": "שמירת כללים",
       "failed": "לא ניתן לטעון או לשמור כללים. יש לבדוק את ה־JSON ולנסות שוב."
+    },
+    "shell": {
+      "command": "פקודת מעטפת",
+      "server": "שרת",
+      "directory": "תיקייה",
+      "cancelled": "בוטל",
+      "denied": "נדחה",
+      "approval_expired": "תוקף האישור פג",
+      "execution_timed_out": "תם הזמן",
+      "failed": "נכשל",
+      "success": "הושלם",
+      "running": "בביצוע",
+      "awaitingApproval": "ממתין לאישור",
+      "unknownState": "ייתכן שהתהליך המרוחק עדיין פועל. יש לבדוק את מצבו לפני ניסיון חוזר.",
+      "exitCode": "קוד יציאה: {code}",
+      "cancelledBeforeExecution": "בוטל לפני הביצוע."
     }
   },
   "entityCreate": {

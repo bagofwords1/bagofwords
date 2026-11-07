@@ -2058,6 +2058,22 @@
       "override": "These rules apply only to you. Connection-wide Always allow or Always deny takes precedence.",
       "save": "Save rules",
       "failed": "Could not load or save rules. Check the JSON and try again."
+    },
+    "shell": {
+      "command": "Shell command",
+      "server": "Server",
+      "directory": "Directory",
+      "cancelled": "Cancelled",
+      "denied": "Denied",
+      "approval_expired": "Approval expired",
+      "execution_timed_out": "Timed out",
+      "failed": "Failed",
+      "success": "Completed",
+      "running": "Running",
+      "awaitingApproval": "Awaiting approval",
+      "unknownState": "The remote process may still be running. Check its state before retrying.",
+      "exitCode": "Exit code: {code}",
+      "cancelledBeforeExecution": "Cancelled before execution."
     }
   },
   "entityCreate": {

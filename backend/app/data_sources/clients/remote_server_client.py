@@ -181,7 +181,8 @@ class RemoteServerClient(ToolProviderClient):
             for key, value in self.credentials.items():
                 if key not in ("username", "principal") and value:
                     message = message.replace(value, "[redacted]")
-            return {"success": False, "error": message[:1000], "content_type": "text"}
+            return {"success": False, "error": message[:1000], "content_type": "text",
+                    "error_code": "execution_timed_out" if isinstance(exc, TimeoutError) else "failed"}
 
     async def acall_authorized(self, tool_name, arguments):
         # Internal execution API. No HTTP/model argument can set this grant.

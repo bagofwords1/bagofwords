@@ -2032,6 +2032,22 @@
       "override": "Estas reglas solo se aplican a ti. Permitir siempre o Denegar siempre de la conexión tiene prioridad.",
       "save": "Guardar reglas",
       "failed": "No se pudieron cargar o guardar las reglas. Revisa el JSON e inténtalo de nuevo."
+    },
+    "shell": {
+      "command": "Comando de shell",
+      "server": "Servidor",
+      "directory": "Directorio",
+      "cancelled": "Cancelado",
+      "denied": "Denegado",
+      "approval_expired": "La aprobación caducó",
+      "execution_timed_out": "Tiempo agotado",
+      "failed": "Falló",
+      "success": "Completado",
+      "running": "En ejecución",
+      "awaitingApproval": "Esperando aprobación",
+      "unknownState": "El proceso remoto puede seguir ejecutándose. Comprueba su estado antes de reintentarlo.",
+      "exitCode": "Código de salida: {code}",
+      "cancelledBeforeExecution": "Cancelado antes de ejecutarse."
     }
   },
   "entityCreate": {
