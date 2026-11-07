@@ -11,7 +11,7 @@ from app.models.user import User
 from app.models.organization import Organization
 from app.models.data_source import DataSource
 from app.models.user_data_source_credentials import UserDataSourceCredentials
-from app.errors.redact import redact_error
+from app.errors.redact import credentials_error_detail, redact_error
 from app.schemas.user_data_source_credentials_schema import (
     UserDataSourceCredentialsCreate,
     UserDataSourceCredentialsUpdate,
@@ -415,7 +415,7 @@ class UserDataSourceCredentialsService:
                 kms_error = ConnectionService._kms_credentials_error(e)
                 if kms_error.error_code == ErrorCode.CONNECTION_KMS_TOKEN_FORMAT.value:
                     raise kms_error
-            raise HTTPException(status_code=422, detail=f"Invalid credentials: {redact_error(e)}")
+            raise HTTPException(status_code=422, detail=credentials_error_detail(e))
 
         # Build client with provided creds without persisting. For an overlay
         # variant the user's payload is only their identity fields, so the
@@ -472,7 +472,7 @@ class UserDataSourceCredentialsService:
             if ds_type.lower() == "mssql":
                 payload.credentials = validated.model_dump()
         except Exception as e:
-            raise HTTPException(status_code=422, detail=f"Invalid credentials: {redact_error(e)}")
+            raise HTTPException(status_code=422, detail=credentials_error_detail(e))
 
         # Kerberos SSO rows persist an explicit UPN: fill a blank principal from
         # the login identity at save time so resolvers never see an empty one.
@@ -570,7 +570,7 @@ class UserDataSourceCredentialsService:
             try:
                 schema_cls(**(payload.credentials or {}))
             except Exception as e:
-                raise HTTPException(status_code=422, detail=f"Invalid credentials: {redact_error(e)}")
+                raise HTTPException(status_code=422, detail=credentials_error_detail(e))
             row.auth_mode = payload.auth_mode
             row.encrypt_credentials(payload.credentials or {})
 
@@ -584,7 +584,7 @@ class UserDataSourceCredentialsService:
             try:
                 schema_cls(**payload.credentials)
             except Exception as e:
-                raise HTTPException(status_code=422, detail=f"Invalid credentials: {redact_error(e)}")
+                raise HTTPException(status_code=422, detail=credentials_error_detail(e))
             row.encrypt_credentials(payload.credentials)
 
         if payload.is_active is not None:
