@@ -173,22 +173,19 @@ async def resolve_run_agents(db, organization: Any, user: Any, report: Any,
     # would hand a shared-dashboard chat far more than the owner shared.
     if not attached and getattr(report, "report_type", "regular") == "artifact_chat":
         return []
-    from app.services.data_source_kind import is_connector
-    # A pin on a connector (an old report that selected an MCP "agent", an
-    # @mention) is not an agent selection: only pinned AGENTS end Auto.
-    pinned_agents = [ds for ds in attached if not is_connector(ds)]
-    if pinned_agents:
-        # A pinned selection scopes the AGENTS. Connectors (each person's own
-        # accounts/tools) are not part of that choice: the ones this user can
-        # reach ride along on every run, the same as under Auto. A personal
-        # connector the user never signed into gets no client and AgentV2 drops
-        # it, so only connected ones reach the context.
-        pinned = {str(ds.id) for ds in pinned_agents}
-        connectors = [
+    if attached:
+        # A pinned selection is used as pinned, MCP tools included, so pinning
+        # still narrows what a run offers. The person's OWN connectors (mail,
+        # Teams, personal Drive, per-user MCP) join it anyway: they are that
+        # person's data, never part of an agent choice. One the user never
+        # signed into gets no client and AgentV2 drops it. Shared-key
+        # connectors (an org-wide MCP) follow the selection like any agent.
+        chosen = {str(ds.id) for ds in attached}
+        personal = [
             ds for ds in await accessible_agents(db, organization, user)
-            if str(ds.id) not in pinned and is_connector(ds)
+            if str(ds.id) not in chosen and _is_personal_connector(ds)
         ]
-        agents = pinned_agents + connectors
+        agents = attached + personal
     else:
         agents = await accessible_agents(db, organization, user)
     if exclude_personal_connectors:

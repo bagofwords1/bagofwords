@@ -111,10 +111,12 @@ non-MCP connector type on `system_only` auth (e.g. Drive with a service account)
 is an agent. Migration `dskind01` adds the column and keeps curated MCP data
 sources (those with instructions) as agents.
 
-**Run scope** (`resolve_run_agents`): pinned agents (or Auto) plus every
-connector the user can reach. A pin on only a connector keeps Auto. A
-scheduled run whose notifications reach anyone but its owner drops personal
-connectors.
+**Run scope** (`resolve_run_agents`): Auto runs every agent and connector
+the user can reach. A pinned selection is used as pinned (so pinning still
+narrows the MCP tools a run offers) plus the user's OWN connectors (per-user
+sign-in: mail, Teams, personal Drive, per-user MCP). Shared-key connectors
+follow the selection like any agent. A scheduled run whose notifications reach
+anyone but its owner drops personal connectors.
 
 **LLM context**: connectors render in their own `<connectors>` block, never in
 `<agents>`. The roster, focus and `set_report_agents`/`search_agents` ignore

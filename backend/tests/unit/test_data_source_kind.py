@@ -4,8 +4,9 @@
   connectors; things the org curates for analysis (databases, BI, shared file
   catalogs, browser, custom APIs, a Drive service account) are agents.
 * An explicit kind (create flow / admin) always wins; NULL derives it.
-* A run keeps its AGENT scope (pinned or Auto) and adds the connectors the user
-  can reach; a pin on a connector never ends Auto.
+* A run keeps its AGENT scope (pinned or Auto). Auto adds every connector the
+  user can reach; a pinned selection adds only the user's OWN connectors (plus
+  any connector pinned on the report). A pinned selection is used as pinned.
 * A scheduled run whose output reaches other people never reads the owner's
   personal connectors.
 * Connectors render as their own <connectors> block, never inside <agents>.
@@ -88,19 +89,38 @@ NOTION_SHARED = _ds(_conn("mcp", "system_only"), id_="notion", name="Notion")
 
 
 @pytest.mark.asyncio
-async def test_a_pinned_agent_selection_still_gets_the_users_connectors(monkeypatch):
+async def test_a_pinned_agent_selection_still_gets_the_users_own_connectors(monkeypatch):
     afc = _patch_scope(monkeypatch, [SNOWFLAKE, BI, TEAMS, NOTION_SHARED])
     report = SimpleNamespace(data_sources=[SNOWFLAKE], report_type="regular")
     ids = [d.id for d in await afc.resolve_run_agents(None, SimpleNamespace(id="o"), None, report)]
-    assert ids[0] == "snow" and set(ids) == {"snow", "teams", "notion"}   # BI is not pinned
+    # BI is not pinned; a shared-key MCP follows the selection, so pinning
+    # still narrows the tools a run offers.
+    assert ids[0] == "snow" and set(ids) == {"snow", "teams"}
 
 
 @pytest.mark.asyncio
-async def test_a_pin_on_a_connector_alone_keeps_auto(monkeypatch):
-    afc = _patch_scope(monkeypatch, [SNOWFLAKE, BI, TEAMS])
-    report = SimpleNamespace(data_sources=[TEAMS], report_type="regular")
+async def test_a_shared_connector_pinned_beside_an_agent_stays(monkeypatch):
+    afc = _patch_scope(monkeypatch, [SNOWFLAKE, BI, TEAMS, NOTION_SHARED])
+    report = SimpleNamespace(data_sources=[SNOWFLAKE, NOTION_SHARED], report_type="regular")
     ids = {d.id for d in await afc.resolve_run_agents(None, SimpleNamespace(id="o"), None, report)}
-    assert ids == {"snow", "bi", "teams"}
+    assert ids == {"snow", "notion", "teams"}
+
+
+@pytest.mark.asyncio
+async def test_auto_keeps_shared_connectors(monkeypatch):
+    afc = _patch_scope(monkeypatch, [SNOWFLAKE, TEAMS, NOTION_SHARED])
+    report = SimpleNamespace(data_sources=[], report_type="regular")
+    ids = {d.id for d in await afc.resolve_run_agents(None, SimpleNamespace(id="o"), None, report)}
+    assert ids == {"snow", "teams", "notion"}
+
+
+@pytest.mark.asyncio
+async def test_a_pin_on_a_shared_connector_scopes_the_run_like_any_pin(monkeypatch):
+    # An old report that selected an MCP "agent" keeps that narrow tool set.
+    afc = _patch_scope(monkeypatch, [SNOWFLAKE, BI, TEAMS, NOTION_SHARED])
+    report = SimpleNamespace(data_sources=[NOTION_SHARED], report_type="regular")
+    ids = {d.id for d in await afc.resolve_run_agents(None, SimpleNamespace(id="o"), None, report)}
+    assert ids == {"notion", "teams"}
 
 
 @pytest.mark.asyncio
