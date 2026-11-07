@@ -29,17 +29,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v7
-    
-    - name: Set up Python
-      uses: actions/setup-python@v6
-      with:
-        python-version: '3.13'
-        
-    - name: Install dependencies
-      working-directory: ./backend
-      run: |
-        pip install uv
-        uv sync --frozen --extra dev
+
+    - uses: ./.github/actions/setup-backend
 
     - name: Check for AI file changes
       id: changes
@@ -119,16 +110,7 @@ jobs:
     steps:
     - uses: actions/checkout@v7
 
-    - name: Set up Python
-      uses: actions/setup-python@v6
-      with:
-        python-version: '3.13'
-
-    - name: Install dependencies
-      working-directory: ./backend
-      run: |
-        pip install uv
-        uv sync --frozen --extra dev
+    - uses: ./.github/actions/setup-backend
 
     - name: Run unit tests
       working-directory: ./backend
@@ -150,16 +132,7 @@ jobs:
     steps:
     - uses: actions/checkout@v7
 
-    - name: Set up Python
-      uses: actions/setup-python@v6
-      with:
-        python-version: '3.13'
-
-    - name: Install backend dependencies
-      working-directory: ./backend
-      run: |
-        pip install uv
-        uv sync --frozen --extra dev
+    - uses: ./.github/actions/setup-backend
 
     - name: Set up Node.js
       uses: actions/setup-node@v4
@@ -253,16 +226,7 @@ jobs:
     steps:
     - uses: actions/checkout@v7
 
-    - name: Set up Python
-      uses: actions/setup-python@v6
-      with:
-        python-version: '3.13'
-
-    - name: Install dependencies
-      working-directory: ./backend
-      run: |
-        pip install uv
-        uv sync --frozen --extra dev
+    - uses: ./.github/actions/setup-backend
 
     - name: Restore integrations credentials
       run: |
@@ -295,18 +259,8 @@ jobs:
             - 'backend/app/ai/**'
             - 'backend/app/models/llm*'
 
-    - name: Set up Python
+    - uses: ./.github/actions/setup-backend
       if: steps.changes.outputs.llm_files == 'true'
-      uses: actions/setup-python@v6
-      with:
-        python-version: '3.13'
-
-    - name: Install dependencies
-      if: steps.changes.outputs.llm_files == 'true'
-      working-directory: ./backend
-      run: |
-        pip install uv
-        uv sync --frozen --extra dev
 
     - name: Restore integrations credentials
       if: steps.changes.outputs.llm_files == 'true'
