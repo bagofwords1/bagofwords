@@ -34,9 +34,10 @@ def _roots() -> list[str]:
 
 
 # Durable folders an operator may place outside uploads/, by env var, and the
-# area they map to in the object store. Data-app file resources default to
-# uploads/artifact_files, so a custom BOW_ARTIFACT_STORAGE maps to the same keys.
-MAPPED_ROOT_ENV = {"BOW_ARTIFACT_STORAGE": "artifact_files"}
+# area they map to in the object store: the same keys as their default place
+# under uploads/ (uploads/artifact_files, uploads/git_state), so moving one
+# never orphans what is already in the bucket.
+MAPPED_ROOT_ENV = {"BOW_ARTIFACT_STORAGE": "artifact_files", "BOW_GIT_STATE_DIR": "git_state"}
 
 
 def _mapped_roots() -> list[tuple[str, str]]:

@@ -255,6 +255,18 @@ def test_a_custom_artifact_root_maps_to_the_same_keys_as_the_default(uploads, tm
     assert storage.key_for(custom / "x.blob") is None
 
 
+def test_learned_host_keys_sync_from_a_custom_git_state_dir(uploads, object_store, tmp_path, monkeypatch):
+    from app.services import git_hardening
+
+    custom = tmp_path / "git-state"
+    monkeypatch.setenv("BOW_GIT_STATE_DIR", str(custom))
+    monkeypatch.setattr(git_hardening, "_STATE_DIR", custom)
+    git_hardening.ssh_command("/tmp/key")
+    (custom / "known_hosts.learned").write_text("h.example ssh-ed25519 AAAA-h\n")
+    git_hardening.persist_learned_hosts()
+    assert "git_state/known_hosts.learned" in set(object_store.list("git_state/"))
+
+
 def test_migration_refuses_to_run_on_local_storage(uploads, monkeypatch):
     storage.set_store(None)
     try:
