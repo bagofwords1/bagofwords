@@ -28,7 +28,6 @@ from app.ai.prompt_formatters import ForeignKey, Table, TableColumn
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.progress import discovery_items, discovery_progress
 
-
 _LIMIT_MSG = "Result exceeds limit, which is a complete-result ceiling rather than a preview: raise limit (up to max_rows) or narrow filters, then preview with pandas .head(n). Nothing was truncated."
 
 class OneViewQueryError(ValueError):
@@ -485,6 +484,30 @@ Simulator-verified contract; customer appliance validation (release, permissions
             raise OneViewQueryError("InvalidQuery", "Filter values cannot contain quotes, backslashes or control characters.")
         return "'" + value + "'"
 
+    @classmethod
+    def _local_match(cls, actual, spec):
+        """Client-side equivalent of the server-side filter vocabulary."""
+        if isinstance(spec, dict):
+            op, value = spec["op"], spec["value"]
+        else:
+            op, value = "eq", spec
+        if op == "in":
+            return any(cls._local_match(actual, x) for x in value)
+        if actual is None:
+            return False
+        if op == "eq":
+            return str(actual) == str(value) or actual == value
+        if op == "ne":
+            return not (str(actual) == str(value) or actual == value)
+        if op == "like":
+            pattern = "^" + ".*".join(re.escape(part) for part in str(value).split("%")) + "$"
+            return re.match(pattern, str(actual), re.IGNORECASE) is not None
+        try:
+            left, right = float(actual), float(value)
+        except (TypeError, ValueError):
+            left, right = str(actual), str(value)
+        return {"gt": left > right, "ge": left >= right, "lt": left < right, "le": left <= right}[op]
+
     def _filter_terms(self, field, value):
         """Return the list of OneView filter expressions for one field (several for `in`)."""
         if not isinstance(value, dict):
@@ -594,11 +617,21 @@ Simulator-verified contract; customer appliance validation (release, permissions
             raise OneViewQueryError("InvalidQuery", "filter must be an object.")
         if filters and singleton:
             raise OneViewQueryError("InvalidQuery", "This query shape does not support server-side filters.")
+        local_filters = {}
         for k, v in filters.items():
-            if k not in resource["filters"]:
-                raise OneViewQueryError("InvalidQuery", f"Unknown or excluded filter: {k}.")
-            for term in self._filter_terms(k, v):
-                params.append(("filter", '"' + term + '"'))
+            if k in resource["filters"]:
+                for term in self._filter_terms(k, v):
+                    params.append(("filter", '"' + term + '"'))
+            elif k in resource["fields"]:
+                # OneView only filters server-side on indexed attributes; any other
+                # catalogued column (uri, interconnectUri, ...) is filtered here after
+                # the complete fetch, with the same comparison vocabulary.
+                self._filter_terms(k, v)  # validates the value shape before any I/O
+                local_filters[k] = v
+            else:
+                raise OneViewQueryError(
+                    "InvalidQuery", f"Unknown or excluded filter: {k}. Use get_schema(table) for the documented columns."
+                )
 
         now = datetime.now(UTC)
         for control in ("lookback", "start_time", "end_time"):
@@ -688,6 +721,11 @@ Simulator-verified contract; customer appliance validation (release, permissions
                 raise
         if kind == "collection_flatten" or (kind == "collection_flatten" and singleton):
             records = self._flatten(records, resource)
+        if local_filters:
+            records = [
+                r for r in records
+                if all(self._local_match(self._extract(r, k), v) for k, v in local_filters.items())
+            ]
         if len(records) > limit:
             raise OneViewQueryError("ResultLimitExceeded", _LIMIT_MSG)
         rows = []

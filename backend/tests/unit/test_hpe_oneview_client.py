@@ -302,7 +302,7 @@ def test_transient_errors_retry_then_return_complete_data(client, http, monkeypa
         {"table": "server_hardware", "path": "/rest/users"},
         {"table": "server_hardware", "fields": ["password"]},
         {"table": "server_hardware", "fields": []},
-        {"table": "server_hardware", "filter": {"uri": "/rest/x"}},
+        {"table": "server_hardware", "filter": {"not_a_column": "/rest/x"}},
         {"table": "server_hardware", "filter": {"name": "it's"}},
         {"table": "server_hardware", "filter": {"name": {"op": "regex", "value": "x"}}},
         {"table": "server_hardware", "filter": {"name": {"op": "in", "value": []}}},
@@ -679,3 +679,18 @@ def test_form_shaped_api_version_values_are_accepted(value):
 def test_out_of_range_api_version_still_fails_fast():
     with pytest.raises(OneViewQueryError):
         HpeOneViewClient(url="https://oneview.example", username="reader", password="x", api_version="99999")
+
+
+def test_non_indexed_catalog_columns_filter_client_side(client, http):
+    """OneView indexes only some attributes for filter=; planners still filter on uri/interconnectUri."""
+    queue, seen = http
+    queue.append((200, page([
+        {"uri": "/rest/server-profile-templates/a", "name": "SPT-ESXi-Prod", "status": "OK"},
+        {"uri": "/rest/server-profile-templates/b", "name": "SPT-RHEL-Prod", "status": "OK"},
+    ])))
+    df = client.execute_query({"table": "server_profile_templates", "filter": {"uri": {"op": "in", "value": ["/rest/server-profile-templates/b"]}}, "fields": ["uri", "name"]})
+    assert list(df["name"]) == ["SPT-RHEL-Prod"]
+    # The non-indexed column was NOT pushed to the appliance; indexed ones still are.
+    assert "filter=" not in data_requests(seen)[-1].url
+    with pytest.raises(OneViewQueryError):
+        client.execute_query({"table": "server_profile_templates", "filter": {"nope": "x"}})
