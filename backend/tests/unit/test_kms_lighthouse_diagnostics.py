@@ -2472,6 +2472,19 @@ def test_the_item_sample_holds_a_search_hit_and_a_tree_entry(kms, monkeypatch):
     assert read[0] == "301" and "7100" in read and len(read) <= kd._MAX_ITEMS
 
 
+def test_what_the_connector_read_counts_towards_the_sample(kms, monkeypatch):
+    """The listed item sits behind five folders, so the records alone would fill the sample with five search hits."""
+    mock = kms["mock"]
+    folders = {str(8100 + n): {"parent": "78", "title": "f", "type": "FOLDER", "status": "2"} for n in range(5)}
+    tree = {"78": mock.TREE["78"], **folders, "7100": {"parent": "78", "title": "i", "type": "ITEM", "status": "2"}}
+    monkeypatch.setattr(mock, "TREE", tree)
+    monkeypatch.setitem(mock.USERS, "svc", {**mock.USERS["svc"], "visible": set(tree)})
+    monkeypatch.setattr(mock, "SEARCH_RESULTS", [_hit(str(7000 + n)) for n in range(9)])
+    _clean_client(kms).diagnostics()
+    read = set(_item_read_order(mock))
+    assert "7100" in read and len(read) <= kd._MAX_ITEMS
+
+
 def test_a_browse_with_folders_only_does_not_pass(kms, monkeypatch):
     _chain_of_folders(kms, monkeypatch, 3)
     row = _rows(client(kms, "alice").diagnostics())["connector_browse"]
@@ -2512,6 +2525,16 @@ def test_a_refused_next_page_after_a_full_page_fails_as_the_connector_does(kms):
     report = client(kms, "alice").diagnostics()
     row = _rows(report)["page_rows"]
     assert row["status"] == "fail" and row["observed"]["next_page_status"] == "http_502" and report["failed_stage"] == "search"
+
+
+def test_no_answer_on_the_next_page_after_a_full_page_ends_the_run(kms, monkeypatch):
+    """The connector makes this call, so it counts like any other of its calls."""
+    kms["mock"].STATE["extra_results"] = [_hit(str(7000 + n)) for n in range(60)]
+    picked = _inject(monkeypatch, lambda url, params, _h, _s: "/search/full" in url and params.get("start") == "50", _LOST_LINE)
+    report = client(kms, "alice").diagnostics()
+    row = _rows(report)["page_rows"]
+    assert picked and row["stage"] == "network" and report["failed_stage"] == "network"
+    assert _rows(report)["field_types"]["status"] == "skipped"
 
 
 def test_the_call_after_a_short_page_is_an_observation_the_connector_never_makes(kms, monkeypatch):
