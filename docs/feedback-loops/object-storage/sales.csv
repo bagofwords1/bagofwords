@@ -1,0 +1,9 @@
+region,product,units,unit_price
+North,Widget,120,9.5
+North,Gadget,40,24
+South,Widget,75,9.5
+South,Gadget,90,24
+East,Widget,60,9.5
+East,Gadget,15,24
+West,Widget,200,9.5
+West,Gadget,5,24

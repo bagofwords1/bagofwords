@@ -157,6 +157,7 @@ class EditArtifactMCPTool(MCPTool):
             organization=organization,
             report=report,
             prompt=input_data.edit_instruction,
+            instruction_ids=input_data.instruction_ids,
         )
 
         if not rich_ctx.model:

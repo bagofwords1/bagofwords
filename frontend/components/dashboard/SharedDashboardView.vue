@@ -159,7 +159,7 @@
                 <div v-else class="absolute inset-0 flex items-center justify-center text-ink-muted">
                     <div class="text-center">
                         <Icon name="heroicons:document-chart-bar" class="w-12 h-12 mx-auto mb-3 opacity-50" />
-                        <p>No dashboard available</p>
+                        <p>{{ $t('sharedReport.noDashboard') }}</p>
                     </div>
                 </div>
             </template>

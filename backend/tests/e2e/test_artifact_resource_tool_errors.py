@@ -162,3 +162,66 @@ def test_rejected_rebuild_definition_keeps_the_turn_alive(report_ctx, clean_rend
     assert refused["output"] == {"success": False} and refused["observation"]["error"]
     assert "error" not in recovered["observation"]
     assert asyncio.run(_live_names(artifact_id)) == {name, later}
+
+
+async def _parent_edited(version_id):
+    """The dashboard's Edited time and its newest version's status, read
+    from the DB: this seam has no API token (an observation only)."""
+    from app.models.artifact import Artifact, ArtifactVersion
+    async with async_session_maker() as db:
+        parent = await db.get(Artifact, str((await db.get(ArtifactVersion, version_id)).artifact_id))
+        newest = await db.scalar(select(ArtifactVersion).where(ArtifactVersion.artifact_id == parent.id)
+                                 .order_by(ArtifactVersion.version.desc()).limit(1))
+        return parent.content_updated_at, newest.status
+
+
+@pytest.mark.e2e
+def test_a_completed_tool_build_moves_edited(report_ctx, clean_render):
+    from app.ai.tools.implementations.create_artifact import CreateArtifactTool
+
+    ids, _, _ = report_ctx
+    code = '<script type="text/babel">function App() { return null }</script>'
+    built = asyncio.run(_turn(ids, [(CreateArtifactTool(), {"prompt": "sales", "mode": "page", "code": code,
+                                                             "title": "Sales"})]))[0]
+    assert "error" not in built["observation"], built
+    edited, status = asyncio.run(_parent_edited(built["output"]["artifact_id"]))
+    assert status == "completed"
+    # Created pending (no Edited yet); completing it writes one.
+    assert edited is not None
+
+
+@pytest.mark.e2e
+def test_a_failed_resources_rebuild_does_not_move_edited(report_ctx, clean_render):
+    """The resources savepoint fails after the version was built, and the
+    tool commits that version as failed: no Edited write goes with it."""
+    from datetime import datetime
+    from app.ai.tools.implementations.create_artifact import CreateArtifactTool
+    from app.models.artifact import Artifact, ArtifactVersion
+
+    ids, _, _ = report_ctx
+    name = f"tasks_{uuid.uuid4().hex[:6]}"
+    code = '<script type="text/babel">function App() { return null }</script>'
+    build = {"prompt": "tracker", "mode": "page", "code": code, "title": "Tracker",
+             "resources": [_definition(name)]}
+    first = asyncio.run(_turn(ids, [(CreateArtifactTool(), build)]))[0]
+    assert "error" not in first["observation"], first
+    version_id = first["output"]["artifact_id"]
+    long_ago = datetime(2026, 1, 1)
+
+    async def date_long_ago():
+        # Written directly: no route sets a past Edited time, and a time far
+        # in the past makes any move visible whatever the clock's resolution.
+        async with async_session_maker() as db:
+            parent = await db.get(Artifact, str((await db.get(ArtifactVersion, version_id)).artifact_id))
+            parent.content_updated_at = long_ago
+            await db.commit()
+    asyncio.run(date_long_ago())
+
+    # Same title (no rename), a silently changed resource schema: refused.
+    changed = {**build, "replaces_artifact_id": version_id,
+               "resources": [_definition(name, title={"type": "string"}, hours={"type": "number"})]}
+    refused = asyncio.run(_turn(ids, [(CreateArtifactTool(), changed)]))[0]
+    assert refused["output"] == {"success": False} and refused["observation"]["error"]
+    edited, status = asyncio.run(_parent_edited(version_id))
+    assert status == "failed"
+    assert edited == long_ago

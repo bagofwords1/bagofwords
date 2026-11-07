@@ -8,11 +8,18 @@ function that isn't on its allow-list).
 The catalog has one entry per node label, ``(:Person)``, and one per
 relationship type, ``[:ACTED_IN]``, whose description names the patterns it
 connects (``(:Person)-[:ACTED_IN]->(:Movie)``).
+
+Auth follows the driver's options: username / password (native or LDAP), an
+SSO bearer token, a service user that impersonates another Neo4j user, Kerberos
+(BOW's own identity, or per-user constrained delegation as for SQL Server), or
+none.
 """
 from __future__ import annotations
 
+import base64
 import math
 import threading
+import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
@@ -27,17 +34,71 @@ from app.data_sources.clients.progress import discovery_items, discovery_progres
 
 ALLOWED_SCHEMES = ("bolt", "bolt+s", "bolt+ssc", "neo4j", "neo4j+s", "neo4j+ssc")
 
-# Hard cap on the rows one query returns: the client runs in the API process,
-# so `MATCH (n) RETURN n` must not load a whole graph into memory.
+# Default cap on the rows one query returns (admins can change it per
+# connection): the client runs in the API process, so `MATCH (n) RETURN n`
+# must not load a whole graph into memory.
 MAX_ROWS = 10_000
+MAX_ROWS_LIMIT = 100_000
 # Budget for queries that don't come through the code executor (schema
 # discovery, the connection test) and the default before apply_query_timeout.
 DEFAULT_TIMEOUT_SECONDS = 60.0
 SAMPLE_SIZE = 100
 
 
-def _max_rows() -> int:
-    return MAX_ROWS
+_SECURITY_RETRY_CODES = ("Neo.ClientError.Security.Unauthorized", "Neo.ClientError.Security.TokenExpired")
+
+
+def _bounded_int(value: Any, default: int, low: int, high: int) -> int:
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return default
+    return min(max(n, low), high)
+
+
+def kerberos_token(service: str, host: str, ccache: str | None) -> tuple[str, int | None]:
+    """(base64 GSS-API initial token for ``service@host``, its lifetime in
+    seconds), from the credential cache the ticket manager chose: BOW's own
+    identity, or a user's delegated credential (MIT krb5 does S4U2Proxy)."""
+    from app.data_sources.kerberos import _import_gssapi, get_ticket_manager
+
+    gssapi = _import_gssapi()
+    with get_ticket_manager().activate(ccache):
+        creds = gssapi.Credentials(usage="initiate")
+        target = gssapi.Name(f"{service}@{host}", gssapi.NameType.hostbased_service)
+        token = gssapi.SecurityContext(name=target, creds=creds, usage="initiate").step()
+        lifetime = getattr(creds, "lifetime", None)
+    return base64.b64encode(token).decode("ascii"), lifetime
+
+
+def _kerberos_auth_manager(make_token):
+    """An AuthManager that mints a Kerberos token when it has none or the last
+    is near expiry, and once more when the server rejects it."""
+    from neo4j import kerberos_auth
+    from neo4j.auth_management import AuthManager
+
+    class KerberosAuthManager(AuthManager):
+        def __init__(self):
+            self._lock = threading.Lock()
+            self._auth = None
+            self._renew_at = 0.0
+
+        def get_auth(self):
+            with self._lock:
+                if self._auth is None or time.monotonic() >= self._renew_at:
+                    token, lifetime = make_token()
+                    self._auth = kerberos_auth(token)
+                    seconds = lifetime if isinstance(lifetime, (int, float)) and lifetime > 0 else 600
+                    self._renew_at = time.monotonic() + max(30.0, min(float(seconds), 3600.0) - 60.0)
+                return self._auth
+
+        def handle_security_exception(self, auth, error) -> bool:
+            with self._lock:
+                if auth is self._auth:
+                    self._auth = None
+            return getattr(error, "code", None) in _SECURITY_RETRY_CODES
+
+    return KerberosAuthManager()
 
 _TYPE_NAMES = {
     "String": "string", "Long": "integer", "Integer": "integer", "Double": "number", "Float": "number",
@@ -124,12 +185,33 @@ class Neo4jClient(DataSourceClient):
     )
 
     def __init__(self, uri: str, database: str = "neo4j", username: str | None = None,
-                 password: str | None = None):
+                 password: str | None = None, token: str | None = None,
+                 impersonated_user: str | None = None,
+                 use_kerberos: bool = False, kerberos_principal: str | None = None,
+                 kerberos_impersonate: str | None = None, kerberos_expected_sid: str | None = None,
+                 kerberos_service: str = "neo4j",
+                 max_rows: int = MAX_ROWS, schema_sample_size: int = SAMPLE_SIZE,
+                 allow_gds: bool = False):
         super().__init__()
         self.uri = validate_uri(uri)
         self.database = (database or "neo4j").strip()
         self.username = username
         self.password = password
+        self.token = (token or "").strip() or None
+        self.impersonated_user = (impersonated_user or "").strip() or None
+        # Kerberos: BOW's own identity (default cache or kerberos_principal),
+        # or per-user constrained delegation (kerberos_impersonate, set only
+        # by the server from a verified directory identity).
+        self.use_kerberos = bool(use_kerberos)
+        self.kerberos_principal = (kerberos_principal or "").strip() or None
+        self.kerberos_impersonate = (kerberos_impersonate or "").strip() or None
+        self.kerberos_expected_sid = kerberos_expected_sid
+        self.kerberos_service = (kerberos_service or "neo4j").strip() or "neo4j"
+        if self.kerberos_impersonate and not self.use_kerberos:
+            raise ValueError("Kerberos delegation needs use_kerberos.")
+        self.max_rows = _bounded_int(max_rows, MAX_ROWS, 1, MAX_ROWS_LIMIT)
+        self.schema_sample_size = _bounded_int(schema_sample_size, SAMPLE_SIZE, 1, 10_000)
+        self.allow_gds = bool(allow_gds)
         self._query_budget = DEFAULT_TIMEOUT_SECONDS
         self._driver = None
         self._driver_lock = threading.Lock()
@@ -147,7 +229,35 @@ class Neo4jClient(DataSourceClient):
         if isinstance(seconds, (int, float)) and seconds > 0:
             self._query_budget = float(max(5.0, seconds - max(3.0, seconds * 0.1)))
 
+    @property
+    def auth_method(self) -> str:
+        if self.use_kerberos:
+            return "kerberos"
+        if self.token:
+            return "bearer"
+        return "basic" if self.username else "none"
+
+    def _kerberos_ccache(self) -> str | None:
+        from app.data_sources.kerberos import get_ticket_manager
+
+        manager = get_ticket_manager()
+        if self.kerberos_impersonate:
+            if not self.kerberos_expected_sid:
+                raise RuntimeError("Delegation requires a verified directory SID")
+            return manager.delegated_ccache(self.kerberos_impersonate)
+        return manager.service_ccache(self.kerberos_principal)
+
     def _auth(self):
+        """What the driver signs in with. Kerberos tokens are short-lived and
+        bound to one identity, so they come from an AuthManager that mints
+        them on demand; one driver (and pool) per client keeps identities apart."""
+        if self.use_kerberos:
+            return _kerberos_auth_manager(
+                lambda: kerberos_token(self.kerberos_service, self.host, self._kerberos_ccache()))
+        if self.token:
+            from neo4j import bearer_auth
+
+            return bearer_auth(self.token)
         return (self.username, self.password or "") if self.username else None
 
     def _get_driver(self):
@@ -171,8 +281,11 @@ class Neo4jClient(DataSourceClient):
     def connect(self) -> Generator:
         # One session per call: sessions are not thread-safe, and the
         # executor may run several queries at once.
+        # impersonated_user: Neo4j runs the session as that user and checks
+        # that user's roles (the signed-in service user needs IMPERSONATE).
         with self._get_driver().session(database=self.database, default_access_mode="READ",
-                                        fetch_size=1000) as session:
+                                        fetch_size=1000,
+                                        impersonated_user=self.impersonated_user) as session:
             yield session
 
     def _read(self, cypher: str, params: dict | None = None, *, limit: int | None = None,
@@ -180,7 +293,7 @@ class Neo4jClient(DataSourceClient):
         """(columns, rows, truncated) for a read transaction."""
         from neo4j import unit_of_work
 
-        limit = _max_rows() if limit is None else limit
+        limit = self.max_rows if limit is None else limit
 
         @unit_of_work(timeout=timeout or self._query_budget)
         def work(tx):
@@ -206,12 +319,12 @@ class Neo4jClient(DataSourceClient):
             raise ValueError("execute_query takes a Cypher string, e.g. 'MATCH (n:Person) RETURN n.name LIMIT 10'.")
         if params is not None and not isinstance(params, dict):
             raise ValueError("params must be a dict of $name values.")
-        check_cypher(query)
+        check_cypher(query, allow_gds=self.allow_gds)
         keys, rows, truncated = self._read(query, params)
         df = pd.DataFrame(rows, columns=keys)
         if truncated:
             df.attrs["bow_notice"] = (
-                f"Neo4j: only the first {_max_rows():,} rows were returned. "
+                f"Neo4j: only the first {self.max_rows:,} rows were returned. "
                 "Aggregate in Cypher (count, sum, collect) or add a LIMIT."
             )
         return df
@@ -281,12 +394,12 @@ class Neo4jClient(DataSourceClient):
                                  timeout=DEFAULT_TIMEOUT_SECONDS)
         nodes: dict[str, list[TableColumn]] = {}
         for (label,) in discovery_items(labels, "labels", label=lambda r: r[0]):
-            q = f"MATCH (n:`{label.replace('`', '``')}`) WITH n LIMIT {SAMPLE_SIZE} UNWIND keys(n) AS k RETURN DISTINCT k"
+            q = f"MATCH (n:`{label.replace('`', '``')}`) WITH n LIMIT {self.schema_sample_size} UNWIND keys(n) AS k RETURN DISTINCT k"
             _, keys, _ = self._read(q, timeout=DEFAULT_TIMEOUT_SECONDS)
             nodes[label] = [TableColumn(name=k, dtype="object") for (k,) in keys]
         rels: dict[str, list[TableColumn]] = {}
         for (rel,) in discovery_items(types, "relationship types", label=lambda r: r[0]):
-            q = f"MATCH ()-[r:`{rel.replace('`', '``')}`]->() WITH r LIMIT {SAMPLE_SIZE} UNWIND keys(r) AS k RETURN DISTINCT k"
+            q = f"MATCH ()-[r:`{rel.replace('`', '``')}`]->() WITH r LIMIT {self.schema_sample_size} UNWIND keys(r) AS k RETURN DISTINCT k"
             _, keys, _ = self._read(q, timeout=DEFAULT_TIMEOUT_SECONDS)
             rels[rel] = [TableColumn(name=k, dtype="object") for (k,) in keys]
         return self._tables(nodes, rels, {})
@@ -334,10 +447,25 @@ class Neo4jClient(DataSourceClient):
                                     "RETURN name, versions, edition", timeout=30)
             name, versions, edition = rows[0] if rows else ("Neo4j", [], "")
             version = ", ".join(versions or [])
+            who = f", as {self.impersonated_user}" if self.impersonated_user else ""
             return {"success": True,
-                    "message": f"Connected to {name} {version} ({edition}), database {self.database}".strip()}
+                    "message": f"Connected to {name} {version} ({edition}), database {self.database}{who}".strip()}
         except Exception as e:
-            return {"success": False, "message": redact_error(e, secrets=[self.password] if self.password else None)}
+            secrets = [s for s in (self.password, self.token) if s]
+            return {"success": False, "message": redact_error(e, secrets=secrets or None)}
+
+    @property
+    def _gds_rule(self) -> str:
+        if not self.allow_gds:
+            return ""
+        return """
+   Graph Data Science is allowed in stream / stats mode. Project, run, then drop the projection in its
+   own execute_query calls, with a unique graph name:
+     CALL gds.graph.project('g_pr_1', 'Person', 'KNOWS')
+     CALL gds.pageRank.stream('g_pr_1') YIELD nodeId, score
+       RETURN gds.util.asNode(nodeId).name AS name, score ORDER BY score DESC LIMIT 20
+     CALL gds.graph.drop('g_pr_1')
+   CALL gds.list() YIELD name lists the algorithms installed. write / mutate modes are refused."""
 
     @property
     def description(self) -> str:
@@ -350,9 +478,9 @@ a relationship's description names the patterns it connects, e.g. (:Person)-[:AC
 RULES:
 1. Read-only: MATCH / OPTIONAL MATCH / WITH / UNWIND / RETURN / ORDER BY / LIMIT, CALL {{ subquery }}.
    CREATE, MERGE, SET, DELETE, REMOVE, LOAD CSV, USE and SHOW are refused, and so is every procedure and
-   namespaced function except the schema procedures and Cypher's own date / duration / point functions (no APOC).
+   namespaced function except the schema procedures and Cypher's own date / duration / point functions (no APOC).{self._gds_rule}
 2. Return scalar properties with aliases (RETURN p.name AS name), not whole nodes, so the result is a table.
-3. At most {_max_rows():,} rows come back. Aggregate in Cypher (count, sum, avg, collect) and use LIMIT.
+3. At most {self.max_rows:,} rows come back. Aggregate in Cypher (count, sum, avg, collect) and use LIMIT.
 4. Pass values as parameters: execute_query(cypher, params={{"title": "..."}}) with $title in the query.
 5. Use only labels, relationship types and properties that exist in the schema.
 

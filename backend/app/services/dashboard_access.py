@@ -54,13 +54,16 @@ async def resolve(db, ref: str) -> Artifact:
     return artifact
 
 
+def is_live(release: ArtifactRelease | None) -> bool:
+    """A release readers can open: there, not deleted and ready."""
+    return release is not None and release.deleted_at is None and release.status == "ready"
+
+
 async def published_release(db, artifact: Artifact) -> ArtifactRelease | None:
     if not artifact.published_release_id:
         return None
     release = await db.get(ArtifactRelease, str(artifact.published_release_id))
-    if release is None or release.deleted_at is not None or release.status != "ready":
-        return None
-    return release
+    return release if is_live(release) else None
 
 
 def is_owner(artifact: Artifact, user) -> bool:

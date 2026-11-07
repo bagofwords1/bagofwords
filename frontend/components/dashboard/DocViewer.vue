@@ -239,6 +239,12 @@ const docDir = computed(() => detectDocDir(props.markdown))
 </script>
 
 <style scoped>
+/* Dark overrides are written `.dark .bow-doc… :deep(el)`: `.dark` (on <html>)
+   is just an ancestor and the scope attribute lands on the component class,
+   so each one outranks its light rule. Never `:global(.dark) .x`: Vue drops
+   everything after the :global() and the rule becomes a bare `.dark {…}`
+   that styles <html> instead (tests/unit/darkSelectorsScoped.mjs). Each is
+   screen-only: a Ctrl+P of a dark-mode doc prints the light colours on paper. */
 .bow-doc {
   max-width: 46rem;
   margin: 0 auto;
@@ -248,7 +254,7 @@ const docDir = computed(() => detectDocDir(props.markdown))
   color: rgb(55 65 81); /* gray-700 */
 }
 .bow-doc--compact { padding: 1.5rem 1rem 3rem; }
-:global(.dark) .bow-doc { color: rgb(209 213 219); } /* gray-300 */
+@media screen { .dark .bow-doc { color: rgb(209 213 219); } /* gray-300 */ }
 
 .doc-columns {
   display: grid;
@@ -291,18 +297,22 @@ const docDir = computed(() => detectDocDir(props.markdown))
   color: rgb(31 41 55);
   margin: 1.5rem 0 0.375rem;
 }
-:global(.dark) .bow-doc-md :deep(h1),
-:global(.dark) .bow-doc-md :deep(h2) { color: rgb(243 244 246); border-color: rgb(31 41 55); }
-:global(.dark) .bow-doc-md :deep(h3),
-:global(.dark) .bow-doc-md :deep(h4) { color: rgb(229 231 235); }
+@media screen {
+  .dark .bow-doc-md :deep(h1),
+  .dark .bow-doc-md :deep(h2) { color: rgb(243 244 246); border-color: rgb(31 41 55); }
+}
+@media screen {
+  .dark .bow-doc-md :deep(h3),
+  .dark .bow-doc-md :deep(h4) { color: rgb(229 231 235); }
+}
 
 .bow-doc-md :deep(p) { margin: 0.75rem 0; }
 .bow-doc-md :deep(a) { color: rgb(37 99 235); text-decoration: none; border-bottom: 1px solid rgb(191 219 254); }
 .bow-doc-md :deep(a:hover) { border-color: rgb(37 99 235); }
-:global(.dark) .bow-doc-md :deep(a) { color: rgb(96 165 250); border-color: rgb(30 58 138); }
+@media screen { .dark .bow-doc-md :deep(a) { color: rgb(96 165 250); border-color: rgb(30 58 138); } }
 
 .bow-doc-md :deep(strong) { font-weight: 600; color: rgb(17 24 39); }
-:global(.dark) .bow-doc-md :deep(strong) { color: rgb(243 244 246); }
+@media screen { .dark .bow-doc-md :deep(strong) { color: rgb(243 244 246); } }
 
 .bow-doc-md :deep(ul), .bow-doc-md :deep(ol) { margin: 0.75rem 0; padding-inline-start: 1.5rem; }
 .bow-doc-md :deep(ul) { list-style: disc; }
@@ -319,10 +329,10 @@ const docDir = computed(() => detectDocDir(props.markdown))
   color: rgb(107 114 128);
   font-style: italic;
 }
-:global(.dark) .bow-doc-md :deep(blockquote) { border-color: rgb(55 65 81); color: rgb(156 163 175); }
+@media screen { .dark .bow-doc-md :deep(blockquote) { border-color: rgb(55 65 81); color: rgb(156 163 175); } }
 
 .bow-doc-md :deep(hr) { margin: 2.5rem auto; border: 0; border-top: 1px solid rgb(229 231 235); width: 100%; }
-:global(.dark) .bow-doc-md :deep(hr) { border-color: rgb(55 65 81); }
+@media screen { .dark .bow-doc-md :deep(hr) { border-color: rgb(55 65 81); } }
 
 /* Inline code */
 .bow-doc-md :deep(code) {
@@ -333,7 +343,7 @@ const docDir = computed(() => detectDocDir(props.markdown))
   border-radius: 0.25rem;
   padding: 0.125rem 0.375rem;
 }
-:global(.dark) .bow-doc-md :deep(code) { background: rgb(31 41 55); color: rgb(229 231 235); }
+@media screen { .dark .bow-doc-md :deep(code) { background: rgb(31 41 55); color: rgb(229 231 235); } }
 
 /* Code blocks */
 .bow-doc-md :deep(pre) {
@@ -345,7 +355,9 @@ const docDir = computed(() => detectDocDir(props.markdown))
   overflow-x: auto;
 }
 .bow-doc-md :deep(pre code) { background: transparent; padding: 0; font-size: 0.8125rem; line-height: 1.6; }
-:global(.dark) .bow-doc-md :deep(pre) { background: rgb(17 24 39); border-color: rgb(31 41 55); }
+@media screen { .dark .bow-doc-md :deep(pre) { background: rgb(17 24 39); border-color: rgb(31 41 55); } }
+/* The dark inline-code rule above outranks `pre code`; keep block code flat. */
+@media screen { .dark .bow-doc-md :deep(pre code) { background: transparent; } }
 
 /* Tables */
 .bow-doc-md :deep(table) {
@@ -368,8 +380,8 @@ const docDir = computed(() => detectDocDir(props.markdown))
   vertical-align: top;
 }
 .bow-doc-md :deep(tr:last-child td) { border-bottom: none; }
-:global(.dark) .bow-doc-md :deep(th) { color: rgb(209 213 219); border-color: rgb(55 65 81); }
-:global(.dark) .bow-doc-md :deep(td) { border-color: rgb(31 41 55); }
+@media screen { .dark .bow-doc-md :deep(th) { color: rgb(209 213 219); border-color: rgb(55 65 81); } }
+@media screen { .dark .bow-doc-md :deep(td) { border-color: rgb(31 41 55); } }
 
 /* A plain Ctrl+P of whatever page is showing the document. The PDF export
    does not come through here — it renders pages/print/doc.vue, which is a

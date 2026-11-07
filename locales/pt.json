@@ -464,6 +464,14 @@
       "automation_failed": {
         "title": "\"{name}\" falhou"
       },
+      "connection_down": {
+        "title": "A conexão «{name}» está fora do ar",
+        "body": "«{name}» falhou nas verificações de integridade e foi marcada como offline. Os agentes que dependem dela não podem consultá-la até que se recupere."
+      },
+      "connection_restored": {
+        "title": "A conexão «{name}» está online novamente",
+        "body": "«{name}» reconectou-se e está ativa novamente."
+      },
       "trigger_run": {
         "title": "⚡ \"{name}\" foi acionado — {summary}",
         "body": "A investigação foi concluída — abra a sessão para ver os resultados."
@@ -1881,6 +1889,22 @@
       "override": "Estas regras aplicam-se apenas a você. Sempre permitir ou Sempre negar da conexão tem prioridade.",
       "save": "Salvar regras",
       "failed": "Não foi possível carregar ou salvar as regras. Verifique o JSON e tente novamente."
+    },
+    "shell": {
+      "command": "Comando shell",
+      "server": "Servidor",
+      "directory": "Diretório",
+      "cancelled": "Cancelado",
+      "denied": "Negado",
+      "approval_expired": "A aprovação expirou",
+      "execution_timed_out": "Tempo esgotado",
+      "failed": "Falhou",
+      "success": "Concluído",
+      "running": "Em execução",
+      "awaitingApproval": "Aguardando aprovação",
+      "unknownState": "O processo remoto pode ainda estar em execução. Verifique seu estado antes de tentar novamente.",
+      "exitCode": "Código de saída: {code}",
+      "cancelledBeforeExecution": "Cancelado antes da execução."
     }
   },
   "entityCreate": {
@@ -2893,6 +2917,9 @@
       "locked": "Esta configuração está bloqueada e não pode ser alterada.",
       "notEditable": "(Não editável diretamente)",
       "noSettings": "Nenhuma configuração de IA disponível.",
+      "noSearchResults": "Nenhuma configuração corresponde à sua pesquisa.",
+      "searchPlaceholder": "Pesquisar configurações…",
+      "clearSearch": "Limpar pesquisa",
       "sectionSummary": "{n} configurações",
       "sectionSummaryOn": "{n} configurações · {on} ativas",
       "sections": {
@@ -3391,6 +3418,12 @@
         "monday": "Segunda-feira",
         "saturday": "Sábado"
       }
+    },
+    "connectionAlerts": {
+      "heading": "E-mails de alerta",
+      "label": "E-mails de alerta de conexão fora do ar",
+      "description": "Enviar e-mail aos administradores da conexão quando uma conexão compartilhada cai ou volta. As notificações no app estão sempre ativas.",
+      "saveError": "Não foi possível salvar a configuração de alertas de conexão."
     },
     "smtpTab": "SMTP",
     "timezone": {
@@ -3962,6 +3995,13 @@
       "uploadInvalid": "Escolha uma chave SSH privada menor que 64 KB. Chaves públicas e outros arquivos não são aceitos.",
       "keyRequired": "Verifique a chave SSH do servidor para continuar ou insira uma chave confiável nas configurações avançadas.",
       "required": "Preencha os campos obrigatórios: {fields}."
+    },
+    "connAlerts": {
+      "title": "E-mails de alerta de queda",
+      "label": "Enviar e-mail aos administradores quando esta conexão cai",
+      "hint": "Envia e-mail aos administradores quando esta conexão cai. As notificações no app estão sempre ativas.",
+      "orgOffNote": "Os e-mails de alerta da organização estão desativados (Configurações → SMTP). Ative-os para controlar isso por conexão.",
+      "saveFailed": "Não foi possível salvar a configuração."
     }
   },
   "share": {
@@ -4048,11 +4088,23 @@
     "close": "Fechar",
     "copyClipboardFailed": "Falha ao copiar para a área de transferência"
   },
+  "dataGrid": {
+    "page": "Página",
+    "to": "a",
+    "of": "de",
+    "more": "mais",
+    "pageSizeSelectorLabel": "Tamanho da página:",
+    "firstPage": "Primeira página",
+    "previousPage": "Página anterior",
+    "nextPage": "Próxima página",
+    "lastPage": "Última página"
+  },
   "sharedReport": {
     "backToApp": "Voltar ao app",
     "tabReport": "Relatório",
     "tabData": "Dados ({count})",
     "refreshedAt": "Atualizado {time}",
+    "noDashboard": "Nenhum painel disponível",
     "madeWith": "Feito com {brand}",
     "fork": "Criar cópia"
   },
@@ -4062,6 +4114,7 @@
     "shell_confirmation.invalid_scope": "Escopo de permissão inválido.",
     "shell_confirmation.report_required": "As permissões de sessão exigem um relatório.",
     "shell_confirmation.rule_mismatch": "Regra de comando inválida, ou o padrão não corresponde a este comando.",
+    "catalog_discovery_incomplete": "A atualização do catálogo falhou porque a descoberta ficou incompleta. O catálogo anterior e as seleções de tabelas foram mantidos.",
     "saml_unavailable": "Configuração de SSO indisponível. Contate seu administrador.",
     "saml_login_failed": "Falha no login SSO. Tente novamente ou contate seu administrador.",
     "invitation_required": "O cadastro está desativado. Peça um convite ao seu administrador.",
@@ -4092,6 +4145,9 @@
     "access.denied": "Acesso negado",
     "account.disabled": "Sua conta foi desativada. Entre em contato com seu administrador.",
     "connection.not_found": "Conexão não encontrada",
+    "connection.table_not_found": "Tabela não encontrada",
+    "connection.table_preview_unsupported": "A pré-visualização de dados não está disponível para conexões {type}.",
+    "connection.table_preview_failed": "Falha na pré-visualização: {reason}",
     "data_source.not_found": "Fonte de dados não encontrada",
     "file.not_found": "Arquivo não encontrado",
     "verification.invalid": "Token de verificação inválido ou expirado",
@@ -4319,16 +4375,146 @@
   "dashboards": {
     "title": "Painéis",
     "subtitle": "Navegue e gerencie seus painéis e slides",
-    "searchPlaceholder": "Buscar painéis…",
+    "searchPlaceholder": "Buscar painéis ou proprietários…",
     "myDashboards": "Meus painéis",
     "sharedWithMe": "Compartilhados comigo",
     "empty": "Nenhum painel encontrado",
-    "emptyDescription": "Tente ajustar seu termo de busca ou criar um relatório com um painel.",
+    "emptyMy": "Crie um relatório com um painel e ele aparecerá aqui.",
+    "emptyShared": "Nada foi compartilhado com você ainda.",
     "showingRange": "Mostrando de {start} a {end} de {total} painéis",
     "fetchFailed": "Falha ao carregar painéis",
     "typeAll": "Todos",
     "typeDashboards": "Painéis",
-    "typeDocs": "Documentos"
+    "typeDocs": "Documentos",
+    "reason": {
+      "direct": "Compartilhado com você",
+      "group": "Grupo {name}",
+      "project": "Projeto {name}",
+      "org": "Organização",
+      "public": "Link público",
+      "other": "Compartilhado",
+      "groupAny": "Seu grupo",
+      "projectAny": "Seu projeto"
+    },
+    "reasonTitle": {
+      "direct": "{owner} compartilhou com você",
+      "group": "Compartilhado com seu grupo {name}",
+      "groupOther": "Compartilhado com um dos seus grupos",
+      "project": "No projeto {name}, do qual você faz parte",
+      "projectOther": "Em um projeto do qual você faz parte",
+      "org": "Compartilhado com toda a organização",
+      "public": "Qualquer pessoa com o link",
+      "also": "também: {reason}",
+      "canEdit": "(você pode editar)",
+      "viewOnly": "(somente leitura)"
+    },
+    "card": {
+      "edited": "Editado {time}",
+      "created": "Criado em {date}",
+      "by": "por {name}",
+      "published": "Publicado em {date}",
+      "dataAsOf": "Dados atualizados {time}",
+      "refreshFailing": "Falha na atualização",
+      "lastEdit": "Última edição: {time}",
+      "scheduledRefresh": "Atualização agendada"
+    },
+    "pill": {
+      "new": "Novo",
+      "published": "Publicado",
+      "changes": "Alterações não publicadas",
+      "org": "Organização",
+      "public": "Público"
+    },
+    "mode": {
+      "page": "Painel",
+      "slides": "Slides",
+      "doc": "Documento"
+    },
+    "list": {
+      "createdShort": "criado em {date}",
+      "directFirst": "compartilhamentos diretos primeiro",
+      "dateColumns": "Editado · Criado"
+    },
+    "star": "Marcar com estrela",
+    "unstar": "Remover estrela",
+    "starFailed": "Não foi possível atualizar a estrela",
+    "emptyFiltered": "Tente outra busca ou {clear}.",
+    "clearTheFilters": "limpe os filtros",
+    "count": "{n} painel | {n} painéis",
+    "tabNew": "{n} novo | {n} novos",
+    "pagePrevious": "Página anterior",
+    "pageNext": "Próxima página",
+    "sort": {
+      "label": "Ordenar",
+      "edited": "Editados recentemente",
+      "newest": "Criados mais recentemente",
+      "oldest": "Criados há mais tempo",
+      "title": "Título A–Z",
+      "published": "Publicados recentemente"
+    },
+    "view": {
+      "grid": "Grade",
+      "list": "Lista"
+    },
+    "access": {
+      "all": "Todos",
+      "direct": "Diretamente",
+      "group": "Meus grupos",
+      "project": "Projetos",
+      "org": "Organização",
+      "edit": "Posso editar"
+    },
+    "presets": {
+      "any": "Qualquer data",
+      "last7": "Últimos 7 dias",
+      "last30": "Últimos 30 dias",
+      "last90": "Últimos 90 dias",
+      "year": "Este ano",
+      "older90": "Há mais de 90 dias",
+      "custom": "Período personalizado"
+    },
+    "status": {
+      "any": "Qualquer status",
+      "published": "Publicado",
+      "changes": "Alterações não publicadas",
+      "draft": "Rascunho"
+    },
+    "filters": {
+      "button": "Filtros",
+      "agent": "Agente",
+      "created": "Criado",
+      "edited": "Editado",
+      "owner": "Proprietário",
+      "status": "Status",
+      "starredOnly": "Somente com estrela",
+      "clearAll": "Limpar tudo",
+      "allAgents": "Todos os agentes",
+      "agentsCount": "{n} agente | {n} agentes",
+      "anyone": "Qualquer pessoa",
+      "ownersCount": "{n} pessoa | {n} pessoas",
+      "from": "De",
+      "to": "até",
+      "toLabel": "Até",
+      "customRange": "{from} – {to}",
+      "rangeInvalid": "O início deve ser igual ou anterior ao fim",
+      "unknownAgent": "Agente indisponível",
+      "unknownOwner": "Pessoa desconhecida",
+      "resultCount": "{n} de {total}",
+      "remove": "Remover {name}"
+    },
+    "chips": {
+      "search": "“{q}”",
+      "owner": "Proprietário: {name}",
+      "created": "Criado: {range}",
+      "edited": "Editado: {range}",
+      "starred": "Com estrela"
+    },
+    "attention": {
+      "title": "Precisam de atenção",
+      "failing": "{n} com falha na atualização | {n} com falha na atualização",
+      "stale": "{n} sem edição há 90 dias | {n} sem edição há 90 dias",
+      "show": "Mostrar"
+    }
   },
   "excel": {
     "greeting": "Olá, {name} 👋",
@@ -6602,5 +6788,27 @@
     "shareToggleHint": "Adiciona “{name}” aos conectores de todos. Cada pessoa entra com a própria conta — ninguém vê os dados dos outros.",
     "useAsAgent": "Usar como agente",
     "movedToAgents": "{name} agora é um agente"
+  },
+  "tablePreview": {
+    "loading": "Carregando linhas…",
+    "failed": "Não foi possível carregar uma pré-visualização desta tabela.",
+    "showing": "Mostrando {shown} linhas",
+    "columns": "{count} colunas",
+    "empty": "Esta tabela não tem linhas.",
+    "reload": "Recarregar",
+    "createCustomTable": "Criar tabela personalizada a partir desta",
+    "run": "Executar",
+    "resetQuery": "Redefinir",
+    "runHint": "Ctrl/⌘ + Enter para executar. Somente consultas de leitura.",
+    "ofTotal": "~{total} linhas na tabela",
+    "retry": "Tentar novamente",
+    "readOnlyHint": "Para editar a consulta, esta conexão precisa de tabelas personalizadas.",
+    "storageNote": "Lido diretamente do armazenamento da tabela, por isso esta pré-visualização não tem custo de consulta.",
+    "signInRequired": "Esta conexão usa as suas próprias credenciais. Inicie sessão para ver as linhas.",
+    "signIn": "Iniciar sessão",
+    "open": "Pré-visualizar dados de {name}",
+    "subtitle": "Linhas de exemplo de {connection}, lidas ao vivo da origem.",
+    "close": "Fechar",
+    "button": "Pré-visualizar"
   }
 }

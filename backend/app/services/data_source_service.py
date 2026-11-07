@@ -123,6 +123,7 @@ from app.models.eval import TestSuite
 from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import selectinload, lazyload
 from app.services.instruction_service import InstructionService
+from app.services.table_preview_service import is_previewable_table
 from app.schemas.instruction_schema import InstructionCreate
 from app.core.telemetry import telemetry
 from app.ee.audit.service import audit_service
@@ -3553,9 +3554,18 @@ class DataSourceService:
                 conn = data_source_db.connections[0]
                 if conn.auth_policy == "system_only":
                     try:
+                        # Own session: refresh_schema rolls back on failure, which
+                        # would expire this request's objects (data source, org,
+                        # user) and break the reads below with greenlet_spawn.
+                        from app.dependencies import async_session_maker
+                        from app.models.connection import Connection
                         from app.services.connection_service import ConnectionService
-                        conn_svc = ConnectionService()
-                        await conn_svc.refresh_schema(db, conn, current_user)
+                        async with async_session_maker() as refresh_db:
+                            refresh_conn = await refresh_db.get(Connection, conn.id)
+                            if refresh_conn is not None:
+                                await ConnectionService().refresh_schema(
+                                    refresh_db, refresh_conn, current_user
+                                )
                     except Exception:
                         # Non-fatal: tables refresh can fail without blocking update
                         pass
@@ -4603,6 +4613,8 @@ class DataSourceService:
                 connection_name=conn_name,
                 connection_type=conn_type,
                 custom_query_id=str(table.connection_table.id) if table.connection_table and table.connection_table.kind == "bow" else None,
+                connection_table_id=str(table.connection_table.id) if table.connection_table and table.connection_table.kind == "table" else None,
+                preview_supported=bool(table.connection_table) and is_previewable_table(conn_type, table.connection_table),
                 last_refreshed_at=table.connection_table.last_refreshed_at if table.connection_table and table.connection_table.kind == "bow" else None,
                 last_refresh_status=table.connection_table.last_refresh_status if table.connection_table and table.connection_table.kind == "bow" else None,
                 rls_enabled=bool(table.connection_table.rls_enabled) if table.connection_table and table.connection_table.kind == "bow" else False,
@@ -5141,6 +5153,9 @@ class DataSourceService:
                 force_refresh=force_refresh,
             )
 
+        log_connection_ids = {id(conn): str(conn.id) for conn in conns}
+        log_data_source_id, log_user_id = str(data_source.id), str(user.id)
+
         def _note_failure(conn, e):
             nonlocal failed, last_error
             # One unreachable connection must not cost the user the catalogs
@@ -5149,7 +5164,7 @@ class DataSourceService:
             last_error = e
             logger.warning(
                 "Per-user overlay sync failed for connection %s (data source %s, user %s)",
-                getattr(conn, "id", None), data_source.id, getattr(user, "id", None),
+                log_connection_ids[id(conn)], log_data_source_id, log_user_id,
                 exc_info=True,
             )
 
@@ -5217,7 +5232,65 @@ class DataSourceService:
             raise last_error
         return tables
 
+    async def refresh_user_connection_catalog(self, db, connection, user,
+                                              progress_callback=None, force_refresh=True):
+        """Discover once, then publish this user's connection overlays atomically.
+
+        Other connections on the same agents are outside this refresh's scope.
+        """
+        from app.models.domain_connection import domain_connection
+        connection_id = str(connection.id)
+        agents = (await db.execute(
+            select(DataSource).join(domain_connection,
+                domain_connection.c.data_source_id == DataSource.id).where(
+                domain_connection.c.connection_id == connection_id,
+                DataSource.deleted_at.is_(None),
+            ).order_by(DataSource.id)
+        )).scalars().all()
+        self.last_discovery_diagnostics = []
+        tables = None
+        count = 0
+        try:
+            from app.data_sources.clients.discovery import ValidatedDiscovery
+            self._last_overlay_explicit_complete = False
+            for agent in agents:
+                result = await self._sync_user_overlay_for_connection(
+                    db, agent, user, connection, prefetched_tables=tables,
+                    progress_callback=progress_callback, force_refresh=force_refresh,
+                    commit=False,
+                )
+                if tables is None:
+                    # Reuse the first discovery for the other agents, keeping
+                    # whether it explicitly confirmed an empty catalog.
+                    tables = ValidatedDiscovery(
+                        result, explicit_complete=self._last_overlay_explicit_complete)
+                count += 1
+            if progress_callback:
+                progress_callback("saving", None, None, None)
+            await db.commit()
+        except BaseException:
+            await db.rollback()
+            raise
+        return tables or [], count
+
     async def _sync_user_overlay_for_connection(
+        self, db, data_source, user, connection, prefetched_tables=None,
+        progress_callback=None, force_refresh=False, commit=True,
+    ):
+        # Discovery failures have no catalog writes to revert. Avoid rolling
+        # back/expiring unrelated caller state in that read-only phase.
+        write_state = []
+        try:
+            return await self._write_user_overlay_for_connection(
+                db, data_source, user, connection, prefetched_tables,
+                progress_callback, force_refresh, commit, write_state,
+            )
+        except BaseException:
+            if commit and write_state:
+                await db.rollback()
+            raise
+
+    async def _write_user_overlay_for_connection(
         self,
         db: AsyncSession,
         data_source: DataSource,
@@ -5226,6 +5299,8 @@ class DataSourceService:
         prefetched_tables: Optional[list] = None,
         progress_callback=None,
         force_refresh: bool = False,
+        commit: bool = True,
+        write_state: list | None = None,
     ):
         """Fetch live schema with user creds, persist overlay rows, and return a user-scoped Table list.
 
@@ -5339,13 +5414,29 @@ class DataSourceService:
             ):
                 kwargs["progress_callback"] = progress_callback
             fresh = await client.aget_schemas(**kwargs)
+            # Record diagnostics first: an incomplete discovery raises below.
             self.last_discovery_diagnostics.extend(
                 getattr(client, "discovery_diagnostics", []) or []
             )
+            from app.data_sources.clients.discovery import require_complete_discovery
+            fresh = require_complete_discovery(client, fresh)
+            self._last_overlay_explicit_complete = getattr(fresh, "explicit_complete", False)
         if fresh is None:
             # No snapshot is not an authoritative empty snapshot. A successful
             # empty list must still reconcile and revoke the previous overlay.
             raise ValueError("Schema discovery returned no snapshot")
+
+        if not fresh:
+            from app.data_sources.clients.discovery import reject_unconfirmed_empty
+            prior_overlay = (await db.execute(
+                select(UserOverlayTable.id).where(
+                    UserOverlayTable.data_source_id == str(data_source.id),
+                    UserOverlayTable.user_id == str(user.id),
+                    UserOverlayTable.connection_id == str(connection.id),
+                    UserOverlayTable.is_accessible.is_(True),
+                ).limit(1)
+            )).first()
+            reject_unconfirmed_empty(fresh, has_existing=prior_overlay is not None)
 
         # Normalize
         from app.schemas.datasource_table_schema import normalize_indexed_columns as normalize_columns
@@ -5374,9 +5465,11 @@ class DataSourceService:
                 }
 
         # Persist overlays
+        if write_state is not None:
+            write_state.append(True)
         await self._upsert_user_overlay(
             db=db, data_source=data_source, user=user, normalized=normalized,
-            connection=connection,
+            connection=connection, commit=commit,
         )
 
         # Build Table models compatible with prompt formatters
@@ -5408,6 +5501,7 @@ class DataSourceService:
         user: User,
         normalized: dict[str, dict],
         connection=None,
+        commit: bool = True,
     ):
         """Upsert per-user table/column overlay based on normalized schema.
 
@@ -5748,7 +5842,10 @@ class DataSourceService:
                     c.is_accessible = False
                     db.add(c)
 
-        await db.commit()
+        if commit:
+            await db.commit()
+        else:
+            await db.flush()
     
     async def update_table_status_in_schema(self, db: AsyncSession, data_source_id: str, tables: list[DataSourceTableSchema], organization: Organization):
         data_source = await self.get_data_source(db=db, data_source_id=data_source_id, organization=organization)
@@ -5905,7 +6002,7 @@ class DataSourceService:
         schemas = await data_source.get_schemas(db=db, include_inactive=True)
         return schemas
 
-    async def _select_active_tables_sql(self, db: AsyncSession, datasource_id: str, max_active: int):
+    async def _select_active_tables_sql(self, db: AsyncSession, datasource_id: str, max_active: int, *, commit: bool = True):
         """
         Select top tables based on:
         1. Schema distribution (spread across schemas proportionally)
@@ -6002,7 +6099,10 @@ class DataSourceService:
                 params
             )
         
-        await db.commit()
+        if commit:
+            await db.commit()
+        else:
+            await db.flush()
         
     
     #: How many of an agent's connections a single Reload crawls at once.
@@ -6035,6 +6135,8 @@ class DataSourceService:
         prefetched_by_conn: dict = {}
         sem = asyncio.Semaphore(self._RELOAD_CONCURRENCY)
         timeouts: list = []
+        # Connections whose refresh_schema already synced every linked agent.
+        self._published_conn_ids = set()
 
         async def _one(conn_id: str, auth_policy: str) -> None:
             async with sem:
@@ -6063,6 +6165,8 @@ class DataSourceService:
                         introspection="full",
                     )
                     await conn_db.commit()
+                    if getattr(svc, "_catalog_discovery_complete", False):
+                        self._published_conn_ids.add(conn_id)
                     fetched = getattr(svc, "last_refresh_fresh_tables", None)
                     fetched_as = getattr(svc, "last_refresh_identity_user_id", None)
                     if fetched is not None and fetched_as is not None and fetched_as == caller_id:
@@ -6173,7 +6277,11 @@ class DataSourceService:
 
                 # Sync ConnectionTable -> DataSourceTable (linked). Reconciles/heals
                 # any legacy unlinked orphan rows; keep existing is_active state.
+                # refresh_schema already synced this agent for connections it
+                # published; only sync the rest (failed or skipped refreshes).
                 for conn in shared_conns:
+                    if str(conn.id) in self._published_conn_ids:
+                        continue
                     await self.sync_domain_tables_from_connection(
                         db, data_source, conn, max_auto_select=None
                     )
@@ -6214,6 +6322,8 @@ class DataSourceService:
         Returning just one of those two is what made a multi-connection agent
         come back from a Reload looking single-connection.
         """
+        from app.services.access_errors import CredentialsRequiredError
+
         if current_user is not None and self._per_user_catalog_connections(data_source):
             try:
                 await self.get_user_data_source_schema(
@@ -6221,7 +6331,9 @@ class DataSourceService:
                     prefetched_tables=prefetched_tables,
                     force_refresh=True,
                 )
-            except Exception:
+            except CredentialsRequiredError:
+                # A tokenless caller can still use the system catalog. Other
+                # discovery/publication failures must propagate, not look successful.
                 # Degrading here is deliberate (a live fetch against the user's
                 # token can fail for reasons we can't fix), but stay loud: a
                 # swallowed error reads downstream as an empty overlay, which is
@@ -6870,6 +6982,7 @@ class DataSourceService:
         data_source: DataSource,
         connection,
         max_auto_select: int | None = None,
+        *, commit: bool = True, after_commit: list | None = None,
     ):
         """
         Create DataSourceTable (DomainTable) entries from ConnectionTable entries.
@@ -6878,7 +6991,7 @@ class DataSourceService:
         Args:
             max_auto_select: Maximum tables to auto-select.
                 - None: No auto-selection, all tables start inactive (for new domains from existing connections)
-                - int: Auto-select up to this many tables (for onboarding, use ONBOARDING_MAX_TABLES=20)
+                - int: Explicit auto-selection cap; zero leaves newly discovered tables inactive.
         """
         from app.models.connection_table import ConnectionTable
 
@@ -7128,45 +7241,55 @@ class DataSourceService:
                     .values(is_active=False)
                 )
 
-        await db.commit()
+        if commit:
+            await db.commit()
+        else:
+            await db.flush()
 
         # If too many tables for auto-select, use smart selection algorithm
         if needs_smart_selection and max_auto_select:
-            await self._select_active_tables_sql(db, str(data_source.id), max_auto_select)
+            await self._select_active_tables_sql(db, str(data_source.id), max_auto_select, commit=commit)
 
         # Detect a structural change vs. the pre-refresh snapshot and fire the
         # agent-reliability loop (debounced to one schedule per sync). Skipped on
         # the initial population (empty pre-snapshot) so onboarding doesn't storm
         # the loop. Best-effort: never let trigger wiring break a schema sync.
-        try:
-            post_rows = (await db.execute(
-                select(DataSourceTable).where(
-                    DataSourceTable.datasource_id == data_source.id,
-                    DataSourceTable.is_active == True,  # noqa: E712
-                )
-            )).scalars().all()
-            post_schema_sig = {t.name: self._column_signature(t.columns) for t in post_rows}
-            if pre_schema_sig:
-                changed = sorted({
-                    name for name in (set(pre_schema_sig) | set(post_schema_sig))
-                    if pre_schema_sig.get(name) != post_schema_sig.get(name)
-                })
-                if changed:
-                    from app.services.agent_reliability_service import AgentReliabilityService
-                    from app.models.agent_automation_run import TRIGGER_TABLE_CHANGE
-                    hint = "Table/column structure changed: " + ", ".join(changed[:8])
-                    AgentReliabilityService().schedule(
-                        organization_id=str(data_source.organization_id),
-                        data_source_id=str(data_source.id),
-                        trigger=TRIGGER_TABLE_CHANGE,
-                        changed_hint=hint,
+        async def notify_schema_change():
+            try:
+                post_rows = (await db.execute(
+                    select(DataSourceTable).where(
+                        DataSourceTable.datasource_id == data_source.id,
+                        DataSourceTable.is_active == True,  # noqa: E712
                     )
-                    from app.services.review_producers import emit_schema_changed
-                    await emit_schema_changed(
-                        db, str(data_source.organization_id), str(data_source.id), summary=hint,
-                    )
-        except Exception:
-            logger.debug("sync_domain_tables: reliability trigger skipped", exc_info=True)
+                )).scalars().all()
+                post_schema_sig = {t.name: self._column_signature(t.columns) for t in post_rows}
+                if pre_schema_sig:
+                    changed = sorted({
+                        name for name in (set(pre_schema_sig) | set(post_schema_sig))
+                        if pre_schema_sig.get(name) != post_schema_sig.get(name)
+                    })
+                    if changed:
+                        from app.services.agent_reliability_service import AgentReliabilityService
+                        from app.models.agent_automation_run import TRIGGER_TABLE_CHANGE
+                        hint = "Table/column structure changed: " + ", ".join(changed[:8])
+                        AgentReliabilityService().schedule(
+                            organization_id=str(data_source.organization_id),
+                            data_source_id=str(data_source.id),
+                            trigger=TRIGGER_TABLE_CHANGE,
+                            changed_hint=hint,
+                        )
+                        from app.services.review_producers import emit_schema_changed
+                        await emit_schema_changed(
+                            db, str(data_source.organization_id), str(data_source.id), summary=hint,
+                        )
+            except Exception:
+                logger.debug("sync_domain_tables: reliability trigger skipped", exc_info=True)
+
+
+        if commit:
+            await notify_schema_change()
+        elif after_commit is not None:
+            after_commit.append(notify_schema_change)
 
     @staticmethod
     def _column_signature(columns) -> tuple:

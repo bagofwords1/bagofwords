@@ -3,6 +3,7 @@ Message Context Builder - Ports proven logic from agent._build_messages_context(
 """
 import json
 from app.ai.context.artifact_digest import ARTIFACT_DIGEST_TOOLS, digest_artifact
+from app.ai.context.hidden_data import hide_data_for_replay
 from types import SimpleNamespace
 from typing import Optional, List, Dict, Any
 
@@ -90,12 +91,13 @@ def _json_value(value: Any) -> Any:
     return value
 
 
-def _compaction_observation_text(tool_execution: Any) -> str:
+def _compaction_observation_text(tool_execution: Any, allow_llm_see_data: bool = True) -> str:
     """Bound the exact observation for the background rolling summarizer.
 
     Only new, explicitly tagged snapshots qualify. Historical result
     projections and row-heavy specialized summaries keep their existing
     digest paths, so this cannot rehydrate raw canonical result payloads.
+    Observations captured while data was visible are hidden once it is not.
     """
     summary = getattr(tool_execution, "context_summary_json", None)
     if not (
@@ -107,6 +109,8 @@ def _compaction_observation_text(tool_execution: Any) -> str:
     observation = tool_context_for_replay(summary)
     if not isinstance(observation, dict):
         return ""
+    if not allow_llm_see_data:
+        observation = hide_data_for_replay(observation, getattr(tool_execution, "tool_name", None))
     try:
         rendered = json.dumps(
             observation,
@@ -1939,7 +1943,7 @@ class MessageContextBuilder:
                                         digest_parts.append(f"columns: {cols}")
                                     # Include a data sample from execution log
                                     exec_log = rj.get('execution_log') or ''
-                                    if exec_log:
+                                    if exec_log and allow_llm_see_data:
                                         sample_lines = exec_log.strip().split('\n')[:8]
                                         digest_parts.append(f"sample:\n" + "\n".join(sample_lines))
                                     if obs.get('success') is False:
@@ -2318,7 +2322,7 @@ class MessageContextBuilder:
                     )
                     tool_execution = tool_exec_by_id.get(execution_id)
                     rendered = (
-                        _compaction_observation_text(tool_execution)
+                        _compaction_observation_text(tool_execution, allow_llm_see_data)
                         if tool_execution is not None
                         else ""
                     )
@@ -2646,7 +2650,7 @@ class MessageContextBuilder:
                                     digest_parts.append(f"columns: {cols}")
                                 # Include a data sample from execution log
                                 exec_log = rj.get('execution_log') or ''
-                                if exec_log:
+                                if exec_log and allow_llm_see_data:
                                     sample_lines = exec_log.strip().split('\n')[:8]
                                     digest_parts.append(f"sample:\n" + "\n".join(sample_lines))
                                 if obs.get('success') is False:

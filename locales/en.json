@@ -500,6 +500,14 @@
       "automation_failed": {
         "title": "\"{name}\" failed"
       },
+      "connection_down": {
+        "title": "Connection \"{name}\" is down",
+        "body": "\"{name}\" failed its health checks and was marked offline. Agents that rely on it can't query it until it recovers."
+      },
+      "connection_restored": {
+        "title": "Connection \"{name}\" is back online",
+        "body": "\"{name}\" reconnected and is active again."
+      },
       "trigger_run": {
         "title": "⚡ \"{name}\" fired — {summary}",
         "body": "The investigation completed — open the session for the findings."
@@ -1167,6 +1175,11 @@
     "steeringApplied": "Steering applied",
     "steerQueuedFallback": "The run just finished — your message was queued instead",
     "jumpToLatest": "Jump to latest",
+    "turnNavigator": {
+      "label": "Conversation map",
+      "jumpTo": "Jump to message {n} of {total}: {text}",
+      "noResponse": "No response yet"
+    },
     "steerFailed": "Failed to steer the running completion",
     "instructionUnavailableTitle": "Instruction unavailable",
     "instructionUnavailableBody": "It may have been deleted, or you may not have access to it.",
@@ -2068,6 +2081,28 @@
       "override": "These rules apply only to you. Connection-wide Always allow or Always deny takes precedence.",
       "save": "Save rules",
       "failed": "Could not load or save rules. Check the JSON and try again."
+    },
+    "readReport": {
+      "window": "messages {start}–{end} / {total}",
+      "charWindow": "message {index} · chars {start}–{end} / {total}",
+      "emptyWindow": "no messages at {offset} / {total}",
+      "messageTruncated": "truncated · {shown} / {total} chars"
+    },
+    "shell": {
+      "command": "Shell command",
+      "server": "Server",
+      "directory": "Directory",
+      "cancelled": "Cancelled",
+      "denied": "Denied",
+      "approval_expired": "Approval expired",
+      "execution_timed_out": "Timed out",
+      "failed": "Failed",
+      "success": "Completed",
+      "running": "Running",
+      "awaitingApproval": "Awaiting approval",
+      "unknownState": "The remote process may still be running. Check its state before retrying.",
+      "exitCode": "Exit code: {code}",
+      "cancelledBeforeExecution": "Cancelled before execution."
     }
   },
   "entityCreate": {
@@ -2973,6 +3008,12 @@
         "saturday": "Saturday"
       }
     },
+    "connectionAlerts": {
+      "heading": "Alert emails",
+      "label": "Connection down alert emails",
+      "description": "Email connection admins when a shared connection goes down or comes back. In-app notifications are always on.",
+      "saveError": "Couldn't save the connection-alert setting."
+    },
     "workspacePlaceholder": "Workspace name",
     "changeIcon": "Change Icon",
     "uploadIconButton": "Upload Icon",
@@ -3208,6 +3249,9 @@
       "locked": "This setting is locked and cannot be changed.",
       "notEditable": "(Not directly editable)",
       "noSettings": "No AI settings available.",
+      "noSearchResults": "No settings match your search.",
+      "searchPlaceholder": "Search settings…",
+      "clearSearch": "Clear search",
       "sectionSummary": "{n} settings",
       "sectionSummaryOn": "{n} settings · {on} on",
       "sections": {
@@ -4363,6 +4407,13 @@
       "uploadInvalid": "Choose an SSH private-key file smaller than 64 KB. Public keys and other files are not accepted.",
       "keyRequired": "Verify the server’s SSH key to continue, or enter a trusted key under Advanced.",
       "required": "Complete the required fields: {fields}."
+    },
+    "connAlerts": {
+      "title": "Down-alert emails",
+      "label": "Email admins when this connection goes down",
+      "hint": "Email the admins when this connection goes down. In-app notifications are always on.",
+      "orgOffNote": "Org-wide alert emails are off (Settings → SMTP). Turn them on to control this per connection.",
+      "saveFailed": "Couldn't save the alert setting."
     }
   },
   "share": {
@@ -4454,11 +4505,23 @@
     "close": "Close",
     "copyClipboardFailed": "Failed to copy to clipboard"
   },
+  "dataGrid": {
+    "page": "Page",
+    "to": "to",
+    "of": "of",
+    "more": "more",
+    "pageSizeSelectorLabel": "Page Size:",
+    "firstPage": "First page",
+    "previousPage": "Previous page",
+    "nextPage": "Next page",
+    "lastPage": "Last page"
+  },
   "sharedReport": {
     "backToApp": "Back to app",
     "tabReport": "Report",
     "tabData": "Data ({count})",
     "refreshedAt": "Refreshed {time}",
+    "noDashboard": "No dashboard available",
     "madeWith": "Made with {brand}",
     "fork": "Fork"
   },
@@ -4468,6 +4531,7 @@
     "shell_confirmation.invalid_scope": "Invalid permission scope.",
     "shell_confirmation.report_required": "Session permissions require a report.",
     "shell_confirmation.rule_mismatch": "Invalid command rule, or the pattern does not match this command.",
+    "catalog_discovery_incomplete": "Catalog refresh failed because discovery was incomplete. The previous catalog and table selections were retained.",
     "saml_unavailable": "SSO configuration is unavailable. Contact your administrator.",
     "saml_login_failed": "SSO sign-in failed. Try again or contact your administrator.",
     "invitation_required": "Sign-up is disabled. Ask your admin for an invite.",
@@ -4498,6 +4562,9 @@
     "access.denied": "Access denied",
     "account.disabled": "Your account has been disabled. Contact your administrator.",
     "connection.not_found": "Connection not found",
+    "connection.table_not_found": "Table not found",
+    "connection.table_preview_unsupported": "Data preview is not available for {type} connections.",
+    "connection.table_preview_failed": "Preview failed: {reason}",
     "data_source.not_found": "Data source not found",
     "file.not_found": "File not found",
     "verification.invalid": "Invalid or expired verification token",
@@ -4770,16 +4837,146 @@
   "dashboards": {
     "title": "Dashboards",
     "subtitle": "Browse and manage your dashboards and slides",
-    "searchPlaceholder": "Search dashboards…",
+    "searchPlaceholder": "Search dashboards or owners…",
     "myDashboards": "My dashboards",
     "sharedWithMe": "Shared with me",
     "empty": "No dashboards found",
-    "emptyDescription": "Try adjusting your search term, or create a report with a dashboard.",
+    "emptyMy": "Create a report with a dashboard and it will appear here.",
+    "emptyShared": "Nothing has been shared with you yet.",
     "showingRange": "Showing {start} to {end} of {total} dashboards",
     "fetchFailed": "Failed to fetch dashboards",
     "typeAll": "All",
     "typeDashboards": "Dashboards",
-    "typeDocs": "Docs"
+    "typeDocs": "Docs",
+    "reason": {
+      "direct": "Shared with you",
+      "group": "Group {name}",
+      "project": "Project {name}",
+      "org": "Organization",
+      "public": "Public link",
+      "other": "Shared",
+      "groupAny": "Your group",
+      "projectAny": "Your project"
+    },
+    "reasonTitle": {
+      "direct": "{owner} shared it with you",
+      "group": "Shared with your group {name}",
+      "groupOther": "Shared with one of your groups",
+      "project": "In project {name}, which you belong to",
+      "projectOther": "In a project you belong to",
+      "org": "Shared with everyone in the organization",
+      "public": "Anyone with the link",
+      "also": "also: {reason}",
+      "canEdit": "(you can edit)",
+      "viewOnly": "(view only)"
+    },
+    "card": {
+      "edited": "Edited {time}",
+      "created": "Created {date}",
+      "by": "by {name}",
+      "published": "Published {date}",
+      "dataAsOf": "Data as of {time}",
+      "refreshFailing": "Refresh failing",
+      "lastEdit": "Last edit: {time}",
+      "scheduledRefresh": "Scheduled refresh"
+    },
+    "pill": {
+      "new": "New",
+      "published": "Published",
+      "changes": "Unpublished changes",
+      "org": "Org",
+      "public": "Public"
+    },
+    "mode": {
+      "page": "Dashboard",
+      "slides": "Slides",
+      "doc": "Doc"
+    },
+    "list": {
+      "createdShort": "created {date}",
+      "directFirst": "direct shares first",
+      "dateColumns": "Edited · Created"
+    },
+    "star": "Star",
+    "unstar": "Unstar",
+    "starFailed": "Couldn't update the star",
+    "emptyFiltered": "Try another search, or {clear}.",
+    "clearTheFilters": "clear the filters",
+    "count": "{n} dashboard | {n} dashboards",
+    "tabNew": "{n} new | {n} new",
+    "pagePrevious": "Previous page",
+    "pageNext": "Next page",
+    "sort": {
+      "label": "Sort",
+      "edited": "Recently edited",
+      "newest": "Newest created",
+      "oldest": "Oldest created",
+      "title": "Title A–Z",
+      "published": "Recently published"
+    },
+    "view": {
+      "grid": "Grid",
+      "list": "List"
+    },
+    "access": {
+      "all": "All",
+      "direct": "Directly",
+      "group": "My groups",
+      "project": "Projects",
+      "org": "Organization",
+      "edit": "Can edit"
+    },
+    "presets": {
+      "any": "Any time",
+      "last7": "Last 7 days",
+      "last30": "Last 30 days",
+      "last90": "Last 90 days",
+      "year": "This year",
+      "older90": "Older than 90 days",
+      "custom": "Custom range"
+    },
+    "status": {
+      "any": "Any status",
+      "published": "Published",
+      "changes": "Unpublished changes",
+      "draft": "Draft"
+    },
+    "filters": {
+      "button": "Filters",
+      "agent": "Agent",
+      "created": "Created",
+      "edited": "Edited",
+      "owner": "Owner",
+      "status": "Status",
+      "starredOnly": "Starred only",
+      "clearAll": "Clear all",
+      "allAgents": "All agents",
+      "agentsCount": "{n} agent | {n} agents",
+      "anyone": "Anyone",
+      "ownersCount": "{n} person | {n} people",
+      "from": "From",
+      "to": "to",
+      "toLabel": "To",
+      "customRange": "{from} – {to}",
+      "rangeInvalid": "Start must be on or before end",
+      "unknownAgent": "Unavailable agent",
+      "unknownOwner": "Unknown person",
+      "resultCount": "{n} of {total}",
+      "remove": "Remove {name}"
+    },
+    "chips": {
+      "search": "“{q}”",
+      "owner": "Owner: {name}",
+      "created": "Created: {range}",
+      "edited": "Edited: {range}",
+      "starred": "Starred"
+    },
+    "attention": {
+      "title": "Needs attention",
+      "failing": "{n} failing to refresh | {n} failing to refresh",
+      "stale": "{n} not edited in 90 days | {n} not edited in 90 days",
+      "show": "Show them"
+    }
   },
   "excel": {
     "greeting": "Hi, {name} 👋",
@@ -7231,5 +7428,27 @@
     "shareToggleHint": "Adds “{name}” to everyone's connectors. Each person signs in with their own account — nobody sees anyone else's data.",
     "useAsAgent": "Use as agent",
     "movedToAgents": "{name} is now an agent"
+  },
+  "tablePreview": {
+    "loading": "Loading rows…",
+    "failed": "Could not load a preview of this table.",
+    "showing": "Showing {shown} rows",
+    "columns": "{count} columns",
+    "empty": "This table has no rows.",
+    "reload": "Reload",
+    "createCustomTable": "Create custom table from this",
+    "run": "Run",
+    "resetQuery": "Reset",
+    "runHint": "Ctrl/⌘ + Enter to run. Read-only queries only.",
+    "ofTotal": "~{total} rows in table",
+    "retry": "Try again",
+    "readOnlyHint": "Editing the query needs custom tables on this connection.",
+    "storageNote": "Read straight from table storage, so this preview has no query cost.",
+    "signInRequired": "This connection runs with your own credentials. Sign in to see its rows.",
+    "signIn": "Sign in",
+    "open": "Preview data in {name}",
+    "subtitle": "Sample rows from {connection}, read live from the source.",
+    "close": "Close",
+    "button": "Preview"
   }
 }

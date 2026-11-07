@@ -379,6 +379,17 @@ class DemoDataSourceService:
                 connection=connection,
                 max_auto_select=9999,  # Activate all tables for demos
             )
+            # refresh_schema already synced this agent's tables (inactive, as for
+            # any existing agent), so the sync above saw existing rows and kept
+            # them off. A demo is useful only with every table on.
+            from sqlalchemy import update
+            from app.models.datasource_table import DataSourceTable
+            await db.execute(
+                update(DataSourceTable)
+                .where(DataSourceTable.datasource_id == data_source.id)
+                .values(is_active=True)
+            )
+            await db.commit()
             logger.info(f"Loaded tables for demo data source: {data_source.name}")
         except Exception as e:
             # Log but don't fail - the data source is still created

@@ -1,0 +1,26 @@
+list_instructions description mentions read_instruction: True
+read_instruction accepts: ['after', 'before', 'col_offset', 'grep_pattern', 'ignore_case', 'instruction_id', 'limit', 'max_matches', 'offset']
+
+== list_instructions ==
+  giant  full= 120048 shown= 500 text_truncated=True text_length=120048
+  long   full= 160079 shown= 500 text_truncated=True text_length=160079
+  medium full=   3099 shown= 500 text_truncated=True text_length=3099
+
+== read_instruction medium (3,099 chars, 78 lines) ==
+  response size: 3,836 chars   whole text in one call: True
+  read_mode=None truncated=None next_offset=None clipped_line=None outline=no
+  message: Read instruction 'd452e74b'
+
+== read_instruction long (160,079 chars, 3,865 lines) ==
+  response size: 21,774 chars   whole text in one call: False
+  read_mode=head truncated=True next_offset=388 clipped_line=None outline=yes
+  message: Instruction '296649c6' is too long to return whole (160,079 chars, 3,865 lines): showing lines 1-387 plus an outline. Do NOT treat this as the complete text. Use grep_pattern to pull the entries you need, or read on as b
+  paged in 10 calls (largest 21,774 chars): rebuilt == original: True
+  grep 'LAST LINE': ['LAST LINE OF THE CATALOGUE']
+
+== read_instruction giant (120,048 chars, 3 lines) ==
+  response size: 1,089 chars   whole text in one call: False
+  read_mode=head truncated=True next_offset=2 clipped_line=None outline=yes
+  message: Instruction 'd8b8828d' is too long to return whole (120,048 chars, 3 lines): showing lines 1-1 plus an outline. Do NOT treat this as the complete text. Use grep_pattern to pull the entries you need, or read on as below. 
+  paged in 5 calls (largest 40,872 chars): rebuilt == original: True
+  grep 'TAIL use': ['1, "k": 1, "k": 1, } TAIL use fct_orders']

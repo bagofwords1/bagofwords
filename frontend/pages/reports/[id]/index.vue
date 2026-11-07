@@ -106,9 +106,13 @@
 			:report-id="report.id"
 		/>
 
+		<!-- Quick jump between prompts: a rail of ticks pinned over the
+		     inline-start edge of the scroller (outside it, so it never scrolls) -->
+		<TurnNavigator :turns="navTurns" :container="scrollContainer" :content="transcriptContent" @jump="jumpToTurn" />
+
 		<!-- Messages -->
 		<div class="flex-1 overflow-y-auto mt-4 pb-4 chat-messages" :class="{ 'compact-messages': isExcel }" ref="scrollContainer" @scroll.passive="onScroll" @wheel.passive="onFollowWheel" @touchstart.passive="endPinHold">
-			<div ref="transcriptContent" data-testid="transcript" class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-chat w-full mx-auto" :style="pinMinHeightPx ? { minHeight: pinMinHeightPx + 'px' } : undefined">
+			<div ref="transcriptContent" data-testid="transcript" class="ps-3 pe-3 sm:px-4 pb-[3px] max-w-chat w-full mx-auto" :style="pinMinHeightPx ? { minHeight: pinMinHeightPx + 'px' } : undefined">
 
 				<!-- Forked queries panel (shown for forked reports) — fetched
 				     once, so it too waits until hydration has filled the steps -->
@@ -450,6 +454,7 @@
 													:is="getToolComponent(block.tool_execution.tool_name)"
 													:key="block.id"
 													:tool-execution="block.tool_execution"
+                                                    :run-status="m.status"
 													:edit-group-count="editRunInfo(m, block)?.count"
 													:edit-group-last-new-text="editRunInfo(m, block)?.lastNewText"
 													:edit-group-last-version="editRunInfo(m, block)?.lastVersion"
@@ -1193,6 +1198,7 @@ import ReportHeader from '~/components/report/ReportHeader.vue'
 import ReportAgentPanel from '~/components/report/ReportAgentPanel.vue'
 import ReportEmptyState from '~/components/report/ReportEmptyState.vue'
 import ChatSummary from '~/components/report/ChatSummary.vue'
+import TurnNavigator, { type NavTurn } from '~/components/report/TurnNavigator.vue'
 import ForkBanner from '~/components/ForkBanner.vue'
 import ContinuedFromCard from '~/components/dashboard/conversation/ContinuedFromCard.vue'
 import ForkedQueriesPanel from '~/components/ForkedQueriesPanel.vue'
@@ -1708,6 +1714,34 @@ const visibleMessages = computed(() => {
 	}
 	return out
 })
+// One entry per user prompt for the turn navigator: the prompt text and the
+// answer of the completion that follows it (until the next prompt).
+const navTurns = computed<NavTurn[]>(() => {
+	const out: NavTurn[] = []
+	let current: NavTurn | null = null
+	for (const m of visibleMessages.value) {
+		if (m.role === 'user' && m.message_type !== 'steering' && (m.prompt?.content || '').trim()) {
+			current = { id: String(m.id), prompt: m.prompt!.content!, answer: '' }
+			out.push(current)
+		} else if (m.role === 'system' && current && !current.answer) {
+			current.answer = responseText(m)
+		}
+	}
+	return out
+})
+
+// Jump from the turn navigator: bring the prompt to the top of the view.
+function jumpToTurn(messageId: string) {
+	const container = scrollContainer.value
+	if (!container) return
+	const el = container.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`) as HTMLElement | null
+	if (!el) return
+	endPinHold()
+	isFollowing.value = false
+	const top = el.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop - 16
+	container.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+}
+
 const copiedMessageId = ref<string | null>(null)
 let currentController: AbortController | null = null
 const scrollContainer = ref<HTMLElement | null>(null)
@@ -2358,6 +2392,10 @@ const EVENT_UI_VISIBLE = new Set<string>([
 	'instruction_rejected',
 ])
 function isEventUiVisible(m: any): boolean {
+    // The stopped completion already has its own indicator. Retain the event
+    // for history, but don't create another transcript row (and two gaps).
+    if (m?.message_type === 'run_stopped' && messages.value.some((c: any) =>
+        c.id === m.prompt?.meta?.completion_id && c.status === 'stopped')) return false
 	return EVENT_UI_VISIBLE.has((m?.message_type as string) || '')
 }
 
@@ -4039,7 +4077,11 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						// Capture connection_name for execute_mcp when resolved
 						if (payload.tool_name === 'execute_mcp' && payload.payload.stage === 'connection_resolved' && payload.payload.connection_name) {
 							lastBlock.tool_execution.result_json = lastBlock.tool_execution.result_json || {}
-							;(lastBlock.tool_execution.result_json as any).connection_name = payload.payload.connection_name
+                            Object.assign(lastBlock.tool_execution.result_json, {
+                                connection_name: payload.payload.connection_name,
+                                connection_type: payload.payload.connection_type,
+                                execution_target: payload.payload.execution_target,
+                            })
 						}
 						// Capture the 'auto' policy verdict for execute_mcp so MCPTool can show it.
 						// Stored on the tool_execution (not result_json) so the final
@@ -6379,10 +6421,6 @@ onMounted(async () => {
     display: flex;
     flex-direction: column;
     gap: 8px;
-}
-.response-block-body > .block-content:not(:first-child),
-.response-block-body > .block-content + * {
-    margin-block-start: 8px;
 }
 .response-block:has(> [data-testid="block-group-header"], > .block-content, > .response-block-body:not([style*="display: none"]) > :is(.thinking-box, .block-content, .tool-execution-container, .tool-preview))
 ~ .response-block:has(> [data-testid="block-group-header"], > .block-content, > .response-block-body:not([style*="display: none"]) > :is(.thinking-box, .block-content, .tool-execution-container, .tool-preview)) {

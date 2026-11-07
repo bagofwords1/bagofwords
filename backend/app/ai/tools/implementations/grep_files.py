@@ -76,6 +76,8 @@ async def _grep_session_files(data, runtime_ctx: Dict[str, Any]):
         entry = {"id": fid, "path": name}
         try:
             import os as _os
+            from app.services import storage
+            await storage.aensure_local(f.path)
             entry["size"] = _os.path.getsize(f.path)
         except Exception:
             pass

@@ -113,6 +113,7 @@ class InstructionContextBuilder:
         self.application_id = str(application_id) if application_id else None
         # Resolved per build() from the org setting (see smart_instructions_on_demand).
         self._on_demand = False
+        self._catalog_limit = self.CATALOG_LIMIT
 
     async def resolve_on_demand(self) -> bool:
         """Read the org's smart_instructions_on_demand setting, from the settings
@@ -556,6 +557,8 @@ class InstructionContextBuilder:
         categories: Optional[List[str]] = None,
         intelligent_limit: int = 10,
         build_id: Optional[str] = None,
+        on_demand: Optional[bool] = None,
+        catalog_limit: Optional[int] = None,
     ) -> InstructionsSection:
         """
         Build instructions context with proper load tracking.
@@ -583,6 +586,12 @@ class InstructionContextBuilder:
             If provided, load instructions from this specific build.
             If None, defaults to the main build (is_main=True) if one exists,
             otherwise falls back to legacy behavior (direct instruction query).
+        on_demand : bool | None, optional
+            Overrides the org's smart_instructions_on_demand setting for this
+            build. MCP get_context passes True so every smart instruction is
+            listed (never inlined): the external client reads what it needs.
+        catalog_limit : int | None, optional
+            Overrides CATALOG_LIMIT for this build.
 
         Returns
         -------
@@ -590,7 +599,8 @@ class InstructionContextBuilder:
             Instructions section with proper load_mode and load_reason tracking.
         """
         max_instructions = self._get_max_instructions()
-        self._on_demand = await self.resolve_on_demand()
+        self._on_demand = on_demand if on_demand is not None else await self.resolve_on_demand()
+        self._catalog_limit = catalog_limit or self.CATALOG_LIMIT
         # Use explicitly passed data_source_ids, or fall back to builder default
         effective_ds_ids = data_source_ids if data_source_ids is not None else self.data_source_ids
 
@@ -1080,7 +1090,7 @@ class InstructionContextBuilder:
             )
             for it, _, version in catalog_order
             if it.id not in loaded_intelligent_ids
-        ][: self.CATALOG_LIMIT]
+        ][: self._catalog_limit]
 
         items = always_items + intelligent_items
 
@@ -1134,7 +1144,7 @@ class InstructionContextBuilder:
         keywords = self._extract_keywords(query) if query else set()
         intelligent_ranked: List[Tuple[Instruction, float]] = await self.search_instructions(
             query or "",
-            limit=remaining_slots + self.CATALOG_LIMIT,
+            limit=remaining_slots + self._catalog_limit,
             data_source_ids=data_source_ids,
             category=category,
             categories=categories,

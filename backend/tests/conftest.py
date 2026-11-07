@@ -221,6 +221,7 @@ def no_default_skills(request, monkeypatch):
     yield
 
 from tests.fixtures.client import test_client
+from tests.fixtures.object_storage import object_store
 from tests.fixtures.user import create_user
 from tests.fixtures.auth import login_user, whoami
 from tests.fixtures.organization import create_organization, add_organization_member, get_organization_members, update_organization_member, remove_organization_member, get_user_organizations, backdate_organization

@@ -464,6 +464,14 @@
       "automation_failed": {
         "title": "« {name} » a échoué"
       },
+      "connection_down": {
+        "title": "La connexion « {name} » est hors service",
+        "body": "« {name} » a échoué à ses vérifications d'état et a été marquée hors ligne. Les agents qui en dépendent ne peuvent plus l'interroger jusqu'à son rétablissement."
+      },
+      "connection_restored": {
+        "title": "La connexion « {name} » est de nouveau en ligne",
+        "body": "« {name} » s'est reconnectée et est de nouveau active."
+      },
       "trigger_run": {
         "title": "⚡ « {name} » s'est déclenché — {summary}",
         "body": "L'enquête est terminée — ouvrez la session pour voir les résultats."
@@ -1881,6 +1889,22 @@
       "override": "Ces règles ne concernent que vous. Toujours autoriser ou Toujours refuser au niveau de la connexion est prioritaire.",
       "save": "Enregistrer les règles",
       "failed": "Impossible de charger ou enregistrer les règles. Vérifiez le JSON et réessayez."
+    },
+    "shell": {
+      "command": "Commande shell",
+      "server": "Serveur",
+      "directory": "Répertoire",
+      "cancelled": "Annulé",
+      "denied": "Refusé",
+      "approval_expired": "Approbation expirée",
+      "execution_timed_out": "Délai dépassé",
+      "failed": "Échec",
+      "success": "Terminé",
+      "running": "En cours",
+      "awaitingApproval": "En attente d’approbation",
+      "unknownState": "Le processus distant peut encore être en cours. Vérifiez son état avant de réessayer.",
+      "exitCode": "Code de sortie : {code}",
+      "cancelledBeforeExecution": "Annulé avant l’exécution."
     }
   },
   "entityCreate": {
@@ -2893,6 +2917,9 @@
       "locked": "Ce paramètre est verrouillé et ne peut pas être modifié.",
       "notEditable": "(Non directement modifiable)",
       "noSettings": "Aucun paramètre IA disponible.",
+      "noSearchResults": "Aucun paramètre ne correspond à votre recherche.",
+      "searchPlaceholder": "Rechercher des paramètres…",
+      "clearSearch": "Effacer la recherche",
       "sectionSummary": "{n} paramètres",
       "sectionSummaryOn": "{n} paramètres · {on} activés",
       "sections": {
@@ -3391,6 +3418,12 @@
         "monday": "Lundi",
         "saturday": "Samedi"
       }
+    },
+    "connectionAlerts": {
+      "heading": "E-mails d'alerte",
+      "label": "E-mails d'alerte de connexion hors service",
+      "description": "Envoyer un e-mail aux administrateurs de la connexion lorsqu'une connexion partagée tombe en panne ou se rétablit. Les notifications dans l'application sont toujours actives.",
+      "saveError": "Impossible d'enregistrer le paramètre d'alerte de connexion."
     },
     "smtpTab": "SMTP",
     "timezone": {
@@ -3962,6 +3995,13 @@
       "uploadInvalid": "Choisissez une clé SSH privée de moins de 64 Ko. Les clés publiques et autres fichiers sont refusés.",
       "keyRequired": "Vérifiez la clé SSH du serveur pour continuer ou saisissez une clé fiable dans les paramètres avancés.",
       "required": "Remplissez les champs obligatoires : {fields}."
+    },
+    "connAlerts": {
+      "title": "E-mails d'alerte de panne",
+      "label": "Envoyer un e-mail aux administrateurs quand cette connexion tombe en panne",
+      "hint": "Envoie un e-mail aux administrateurs quand cette connexion tombe en panne. Les notifications dans l'application sont toujours actives.",
+      "orgOffNote": "Les e-mails d'alerte de l'organisation sont désactivés (Paramètres → SMTP). Activez-les pour le gérer par connexion.",
+      "saveFailed": "Impossible d'enregistrer le réglage."
     }
   },
   "share": {
@@ -4048,11 +4088,23 @@
     "close": "Fermer",
     "copyClipboardFailed": "Échec de la copie dans le presse-papiers"
   },
+  "dataGrid": {
+    "page": "Page",
+    "to": "à",
+    "of": "sur",
+    "more": "plus",
+    "pageSizeSelectorLabel": "Taille de la page :",
+    "firstPage": "Première page",
+    "previousPage": "Page précédente",
+    "nextPage": "Page suivante",
+    "lastPage": "Dernière page"
+  },
   "sharedReport": {
     "backToApp": "Retour à l’app",
     "tabReport": "Rapport",
     "tabData": "Données ({count})",
     "refreshedAt": "Actualisé {time}",
+    "noDashboard": "Aucun tableau de bord disponible",
     "madeWith": "Créé avec {brand}",
     "fork": "Créer une copie"
   },
@@ -4062,6 +4114,7 @@
     "shell_confirmation.invalid_scope": "Portée d'autorisation non valide.",
     "shell_confirmation.report_required": "Les autorisations de session nécessitent un rapport.",
     "shell_confirmation.rule_mismatch": "Règle de commande non valide, ou le motif ne correspond pas à cette commande.",
+    "catalog_discovery_incomplete": "L’actualisation du catalogue a échoué car la découverte était incomplète. Le catalogue précédent et les sélections de tables ont été conservés.",
     "saml_unavailable": "La configuration SSO est indisponible. Contactez votre administrateur.",
     "saml_login_failed": "La connexion SSO a échoué. Réessayez ou contactez votre administrateur.",
     "invitation_required": "L'inscription est désactivée. Demandez une invitation à votre administrateur.",
@@ -4092,6 +4145,9 @@
     "access.denied": "Accès refusé",
     "account.disabled": "Votre compte a été désactivé. Contactez votre administrateur.",
     "connection.not_found": "Connexion introuvable",
+    "connection.table_not_found": "Table introuvable",
+    "connection.table_preview_unsupported": "L'aperçu des données n'est pas disponible pour les connexions {type}.",
+    "connection.table_preview_failed": "Échec de l'aperçu : {reason}",
     "data_source.not_found": "Source de données introuvable",
     "file.not_found": "Fichier introuvable",
     "verification.invalid": "Jeton de vérification invalide ou expiré",
@@ -4319,16 +4375,146 @@
   "dashboards": {
     "title": "Tableaux de bord",
     "subtitle": "Parcourez et gérez vos tableaux de bord et diapositives",
-    "searchPlaceholder": "Rechercher des tableaux de bord…",
+    "searchPlaceholder": "Rechercher des tableaux de bord ou des propriétaires…",
     "myDashboards": "Mes tableaux de bord",
     "sharedWithMe": "Partagés avec moi",
     "empty": "Aucun tableau de bord trouvé",
-    "emptyDescription": "Essayez d'ajuster votre terme de recherche ou créez un rapport avec un tableau de bord.",
+    "emptyMy": "Créez un rapport avec un tableau de bord et il apparaîtra ici.",
+    "emptyShared": "Rien n'a encore été partagé avec vous.",
     "showingRange": "Affichage de {start} à {end} sur {total} tableaux de bord",
     "fetchFailed": "Échec du chargement des tableaux de bord",
     "typeAll": "Tous",
     "typeDashboards": "Tableaux de bord",
-    "typeDocs": "Documents"
+    "typeDocs": "Documents",
+    "reason": {
+      "direct": "Partagé avec vous",
+      "group": "Groupe {name}",
+      "project": "Projet {name}",
+      "org": "Organisation",
+      "public": "Lien public",
+      "other": "Partagé",
+      "groupAny": "Votre groupe",
+      "projectAny": "Votre projet"
+    },
+    "reasonTitle": {
+      "direct": "{owner} l’a partagé avec vous",
+      "group": "Partagé avec votre groupe {name}",
+      "groupOther": "Partagé avec l’un de vos groupes",
+      "project": "Dans le projet {name}, dont vous êtes membre",
+      "projectOther": "Dans un projet dont vous êtes membre",
+      "org": "Partagé avec toute l’organisation",
+      "public": "Toute personne disposant du lien",
+      "also": "aussi : {reason}",
+      "canEdit": "(vous pouvez modifier)",
+      "viewOnly": "(lecture seule)"
+    },
+    "card": {
+      "edited": "Modifié {time}",
+      "created": "Créé le {date}",
+      "by": "par {name}",
+      "published": "Publié le {date}",
+      "dataAsOf": "Données actualisées {time}",
+      "refreshFailing": "Échec de l’actualisation",
+      "lastEdit": "Dernière modification : {time}",
+      "scheduledRefresh": "Actualisation planifiée"
+    },
+    "pill": {
+      "new": "Nouveau",
+      "published": "Publié",
+      "changes": "Modifications non publiées",
+      "org": "Organisation",
+      "public": "Public"
+    },
+    "mode": {
+      "page": "Tableau de bord",
+      "slides": "Diapositives",
+      "doc": "Document"
+    },
+    "list": {
+      "createdShort": "créé le {date}",
+      "directFirst": "partages directs en premier",
+      "dateColumns": "Modifié · Créé"
+    },
+    "star": "Mettre en favori",
+    "unstar": "Retirer des favoris",
+    "starFailed": "Impossible de mettre à jour le favori",
+    "emptyFiltered": "Essayez une autre recherche ou {clear}.",
+    "clearTheFilters": "effacez les filtres",
+    "count": "{n} tableau de bord | {n} tableaux de bord",
+    "tabNew": "{n} nouveau | {n} nouveaux",
+    "pagePrevious": "Page précédente",
+    "pageNext": "Page suivante",
+    "sort": {
+      "label": "Trier",
+      "edited": "Modifiés récemment",
+      "newest": "Créés récemment",
+      "oldest": "Créés il y a longtemps",
+      "title": "Titre A–Z",
+      "published": "Publiés récemment"
+    },
+    "view": {
+      "grid": "Grille",
+      "list": "Liste"
+    },
+    "access": {
+      "all": "Tous",
+      "direct": "Directement",
+      "group": "Mes groupes",
+      "project": "Projets",
+      "org": "Organisation",
+      "edit": "Modifiables"
+    },
+    "presets": {
+      "any": "Toute la période",
+      "last7": "7 derniers jours",
+      "last30": "30 derniers jours",
+      "last90": "90 derniers jours",
+      "year": "Cette année",
+      "older90": "Il y a plus de 90 jours",
+      "custom": "Période personnalisée"
+    },
+    "status": {
+      "any": "Tous les statuts",
+      "published": "Publié",
+      "changes": "Modifications non publiées",
+      "draft": "Brouillon"
+    },
+    "filters": {
+      "button": "Filtres",
+      "agent": "Agent",
+      "created": "Créé",
+      "edited": "Modifié",
+      "owner": "Propriétaire",
+      "status": "Statut",
+      "starredOnly": "Favoris uniquement",
+      "clearAll": "Tout effacer",
+      "allAgents": "Tous les agents",
+      "agentsCount": "{n} agent | {n} agents",
+      "anyone": "Tout le monde",
+      "ownersCount": "{n} personne | {n} personnes",
+      "from": "Du",
+      "to": "au",
+      "toLabel": "Au",
+      "customRange": "{from} – {to}",
+      "rangeInvalid": "Le début doit être antérieur ou égal à la fin",
+      "unknownAgent": "Agent indisponible",
+      "unknownOwner": "Personne inconnue",
+      "resultCount": "{n} sur {total}",
+      "remove": "Retirer {name}"
+    },
+    "chips": {
+      "search": "« {q} »",
+      "owner": "Propriétaire : {name}",
+      "created": "Créé : {range}",
+      "edited": "Modifié : {range}",
+      "starred": "Favoris"
+    },
+    "attention": {
+      "title": "À surveiller",
+      "failing": "{n} en échec d’actualisation | {n} en échec d’actualisation",
+      "stale": "{n} non modifié depuis 90 jours | {n} non modifiés depuis 90 jours",
+      "show": "Les afficher"
+    }
   },
   "excel": {
     "greeting": "Bonjour, {name} 👋",
@@ -6602,5 +6788,27 @@
     "shareToggleHint": "Ajoute « {name} » aux connecteurs de chacun. Chacun se connecte avec son propre compte — personne ne voit les données des autres.",
     "useAsAgent": "Utiliser comme agent",
     "movedToAgents": "{name} est désormais un agent"
+  },
+  "tablePreview": {
+    "loading": "Chargement des lignes…",
+    "failed": "Impossible de charger un aperçu de cette table.",
+    "showing": "{shown} lignes affichées",
+    "columns": "{count} colonnes",
+    "empty": "Cette table ne contient aucune ligne.",
+    "reload": "Recharger",
+    "createCustomTable": "Créer une table personnalisée à partir de celle-ci",
+    "run": "Exécuter",
+    "resetQuery": "Réinitialiser",
+    "runHint": "Ctrl/⌘ + Entrée pour exécuter. Requêtes en lecture seule.",
+    "ofTotal": "~{total} lignes dans la table",
+    "retry": "Réessayer",
+    "readOnlyHint": "Pour modifier la requête, cette connexion doit prendre en charge les tables personnalisées.",
+    "storageNote": "Lu directement depuis le stockage de la table : cet aperçu n'a aucun coût de requête.",
+    "signInRequired": "Cette connexion utilise vos propres identifiants. Connectez-vous pour voir ses lignes.",
+    "signIn": "Se connecter",
+    "open": "Aperçu des données de {name}",
+    "subtitle": "Lignes d'exemple de {connection}, lues en direct depuis la source.",
+    "close": "Fermer",
+    "button": "Aperçu"
   }
 }

@@ -374,3 +374,37 @@ def test_decrypted_legacy_create_data_projection_keeps_its_first_row():
     legacy = {"success": True, "data": {"columns": _COLUMNS, "rows": rows}}
 
     assert _project_create_data_result(legacy)["data_preview"]["rows"] == [rows[0]]
+
+
+# --- shapes other than data previews (see test_privacy_hidden_data.py) -------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("report_type", REPORT_TYPES)
+async def test_native_replay_hides_file_text_read_while_data_was_visible(db, report_type):
+    scenario = await _seed(
+        db,
+        report_type=report_type,
+        tool_name="read_file",
+        result_json={"success": True, "file_name": "people.csv", "row_count": 1,
+                     "csv": f"name,ssn\nJane,{SSN}\n", "text": f"Jane {SSN}"},
+    )
+    assert SSN in (await _native(db, scenario, allow_llm_see_data=True))[0]
+    hidden = (await _native(db, scenario, allow_llm_see_data=False))[0]
+    assert SSN not in hidden and "people.csv" in hidden
+    assert SSN in json.dumps(await _stored_summary(scenario)), "the stored summary the UI renders is unchanged"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("report_type", REPORT_TYPES)
+async def test_text_history_hides_a_legacy_csv_log_sample(db, report_type):
+    scenario = await _seed(
+        db,
+        report_type=report_type,
+        tool_name="write_csv",
+        result_json={"success": True, "file_id": "f1", "row_count": 1, "columns": ["name", "ssn"],
+                     "execution_log": f"   name          ssn\n0  Jane  {SSN}"},
+        legacy=True,
+    )
+    assert SSN in await _text_history(db, scenario, allow_llm_see_data=True)
+    assert SSN not in await _text_history(db, scenario, allow_llm_see_data=False)

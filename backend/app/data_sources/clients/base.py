@@ -6,6 +6,7 @@ from enum import Enum
 from typing import Any, List, Optional
 
 from app.data_sources.clients.progress import CancelCheck, ProgressCallback
+from app.data_sources.clients.discovery import DiscoveryClient, require_complete_discovery
 
 
 class Capability(str, Enum):
@@ -111,7 +112,7 @@ class SearchStopped(Exception):
         self.files = list(files or [])
 
 
-class DataSourceClient(ABC):
+class DataSourceClient(DiscoveryClient, ABC):
 
     # Capabilities this client supports. Subclasses override.
     # Defaults to {QUERY} since the historic base contract is execute_query +
@@ -216,6 +217,7 @@ class DataSourceClient(ABC):
         from inside `get_schemas` (e.g. a bug in a client) should surface,
         not be silently retried without progress.
         """
+        self.reset_discovery()
         kwargs = {}
         if force_refresh and _accepts_kwarg(self.get_schemas, "force_refresh"):
             kwargs["force_refresh"] = True
@@ -225,9 +227,8 @@ class DataSourceClient(ABC):
             kwargs["prior_catalog"] = prior_catalog
         if prior_tables and _accepts_kwarg(self.get_schemas, "prior_tables"):
             kwargs["prior_tables"] = prior_tables
-        if not kwargs:
-            return await asyncio.to_thread(self.get_schemas)
-        return await asyncio.to_thread(self.get_schemas, **kwargs)
+        result = await asyncio.to_thread(self.get_schemas, **kwargs)
+        return require_complete_discovery(self, result)
 
     async def aget_schema(self, table_name):
         return await asyncio.to_thread(self.get_schema, table_name)

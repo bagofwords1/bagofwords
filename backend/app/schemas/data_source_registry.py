@@ -68,6 +68,8 @@ from app.schemas.data_sources.configs import (
     AppDynamicsUserPassCredentials,
     AriaOperationsConfig,
     AriaOperationsUserPassCredentials,
+    VCenterConfig,
+    VCenterUserPassCredentials,
     SpectrumConfig,
     SpectrumUserPassCredentials,
     SpectrumTokenCredentials,
@@ -244,6 +246,11 @@ from app.schemas.data_sources.configs import (
     ServiceNowCredentials,
     MongoDBCredentials,
     Neo4jCredentials,
+    Neo4jBearerCredentials,
+    Neo4jNoAuthCredentials,
+    Neo4jImpersonationCredentials,
+    Neo4jKerberosCredentials,
+    Neo4jKerberosDelegatedCredentials,
     PostHogCredentials,
     # MCP
     MCPConfig,
@@ -1035,6 +1042,22 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         version="beta",
         requires_license="enterprise",
     ),
+    "vcenter": DataSourceRegistryEntry(
+        type="vcenter",
+        category="infra",
+        title="VMware vCenter",
+        description="VMware vCenter Server or ESXi (vSphere 7–9). Query VMs, disks, snapshots, hosts, clusters, datastores, networks, resource pools and tags, plus performance metrics, the event log, tasks and triggered alarms — for capacity questions and infrastructure RCA.",
+        config_schema=VCenterConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            # vCenter has no API keys: an SSO / AD user logs in and gets a session
+            # (one per query, logged out afterwards). Per-user scope = each
+            # analyst's own vCenter login, so vCenter permissions apply.
+            "userpass": AuthVariant(title="Username + Password", schema=VCenterUserPassCredentials, scopes=["system", "user"]),
+        }),
+        client_path="app.data_sources.clients.vcenter_client.VCenterClient",
+        version="beta",
+        requires_license="enterprise",
+    ),
     "spectrum": DataSourceRegistryEntry(
         type="spectrum",
         category="infra",
@@ -1359,11 +1382,43 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         credentials_auth=AuthOptions(
             default="userpass",
             by_auth={
+                # Native or LDAP users (LDAP is checked by the server).
                 "userpass": AuthVariant(
                     title="Username / Password",
                     schema=Neo4jCredentials,
                     scopes=["system", "user"]
-                )
+                ),
+                # A token from the IdP Neo4j's OIDC SSO trusts.
+                "bearer": AuthVariant(
+                    title="SSO access token (OIDC)",
+                    schema=Neo4jBearerCredentials,
+                    scopes=["system", "user"],
+                ),
+                # A service user that runs queries as another Neo4j user. Under
+                # "Require user authentication" the impersonated user is bound
+                # to a member attribute (member_mapped), never typed by members.
+                "impersonation": AuthVariant(
+                    title="Impersonation",
+                    schema=Neo4jImpersonationCredentials,
+                    scopes=["system"],
+                ),
+                # BOW's own Kerberos identity; system scope only.
+                "kerberos": AuthVariant(
+                    title="Kerberos",
+                    schema=Neo4jKerberosCredentials,
+                    scopes=["system"],
+                ),
+                # Per-user Kerberos SSO via constrained delegation, as for SQL Server.
+                "kerberos_delegated": AuthVariant(
+                    title="Kerberos SSO (per-user delegation)",
+                    schema=Neo4jKerberosDelegatedCredentials,
+                    scopes=["user"],
+                ),
+                "none": AuthVariant(
+                    title="No Authentication",
+                    schema=Neo4jNoAuthCredentials,
+                    scopes=["system"],
+                ),
             }
         ),
         client_path="app.data_sources.clients.neo4j_client.Neo4jClient",

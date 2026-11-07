@@ -954,7 +954,8 @@ async def export_agent_instructions(
     current_user: User = Depends(current_user),
 ):
     """Download this agent as a portable zip bundle: instructions (markdown),
-    agent.yaml (the manifest), and evals/*.yaml (test suites scoped to the agent).
+    agent.yaml (the manifest), evals/*.yaml (test suites scoped to the agent),
+    and queries/*.yaml (saved queries scoped to the agent).
 
     Gated on per-agent ``manage`` (full admins pass via the wildcard). ``manage``
     implies ``manage_instructions`` and ``manage_evals``, so it authorizes every

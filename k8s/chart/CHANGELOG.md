@@ -1,5 +1,64 @@
 # Changelog
 
+## 3.2.0
+
+### File storage: S3, Azure Blob, or a persistent volume (`storage.*`)
+
+Until now uploaded files, thumbnails, slide decks, logos and avatars lived in
+the pod's own filesystem: replacing the pod lost them (the database rows that
+point at them survived), and a second replica could not see the first one's
+files. Three options now, all opt-in — **the default is unchanged**:
+
+```yaml
+# AWS S3 with IRSA (no stored secret)
+storage:
+  backend: s3
+  s3:
+    bucket: my-bow-files
+    region: eu-west-1
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/bow-files
+```
+
+```yaml
+# Azure Blob with AKS Workload Identity
+storage:
+  backend: azure
+  azure:
+    accountUrl: https://myaccount.blob.core.windows.net
+    container: bow-files
+    clientId: <managed identity client id>
+serviceAccount:
+  annotations:
+    azure.workload.identity/client-id: <managed identity client id>
+podLabels:
+  azure.workload.identity/use: "true"
+```
+
+```yaml
+# Keep local disk, but on a PVC that survives pod replacement
+storage:
+  local:
+    persistence:
+      enabled: true
+      size: 50Gi
+```
+
+S3-compatible stores (MinIO, R2, Wasabi, Ceph) use `storage.s3.endpointUrl`
+(and usually `addressingStyle: path`). Static keys, Azure service principals,
+connection strings and SAS tokens go in the `config.secretRef` Secret as
+`BOW_STORAGE_*` keys — see the values table. With `s3`/`azure` the chart mounts
+a size-limited emptyDir (`storage.cache.sizeLimit`) over
+`/app/backend/uploads` as each pod's cache, and the app refuses to start if it
+cannot read, write and delete in the bucket.
+
+**Moving an existing install to object storage:** with the old uploads volume
+still mounted, run `uv run python scripts/migrate_uploads_to_object_storage.py`
+in the backend container (configured for the target backend) before switching.
+
+`podLabels` is new too: labels added to every app pod.
+
 ## 3.1.0
 
 ### Upgrades now stop the old pods first (`strategy: Recreate`)

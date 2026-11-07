@@ -665,8 +665,10 @@ class ConnectionIndexingService:
                     f"Indexing started (worker pid {os.getpid()}, {_rss_note()})",
                 )
 
+                # Rollback expires ORM objects; error reporting must use a plain ID.
+                run_connection_id = str(row.connection_id)
                 conn_result = await db.execute(
-                    select(Connection).where(Connection.id == row.connection_id)
+                    select(Connection).where(Connection.id == run_connection_id)
                 )
                 connection = conn_result.scalar_one_or_none()
                 if connection is None:
@@ -863,7 +865,7 @@ class ConnectionIndexingService:
                                 db=db,
                                 new_session=_new_session,
                                 indexing_id=indexing_id,
-                                connection_id=str(row.connection_id),
+                                connection_id=run_connection_id,
                                 user_id=str(row.user_id),
                                 progress_cb=progress_cb,
                                 flush=_flush,
@@ -1019,16 +1021,15 @@ class ConnectionIndexingService:
                             fresh.status = ConnectionIndexingStatus.FAILED.value
                             fresh.error = str(exc)[:4000]
                             fresh.finished_at = datetime.utcnow()
-                            await err_db.commit()
                         # Record the failure on the connection for the scheduled
                         # auto-reindex sweeper's diagnostics. next_retry_at was
                         # already stamped by the sweeper before kicking, so the
                         # connection won't be re-kicked until its interval elapses
                         # (user_required catalogs heal on user login meanwhile).
-                        conn_row = await err_db.get(Connection, row.connection_id)
+                        conn_row = await err_db.get(Connection, run_connection_id)
                         if conn_row is not None:
                             conn_row.last_reindex_error = str(exc)[:4000]
-                            await err_db.commit()
+                        await err_db.commit()
                     await _append_event("error", _state_snapshot()["phase"], f"Indexing failed: {exc}")
                     return
 
@@ -1095,16 +1096,9 @@ class ConnectionIndexingService:
                     )
                     return
 
-                synced_domains = 0
-                if not is_tool_provider:
-                    _stage("syncing_agents")
-                    await _flush(force=True)
-                    # Fan schema out to every DataSource linked to this connection so
-                    # the domain-level view (DataSourceTable) reflects the new schema.
-                    synced_domains = await self._sync_linked_data_sources(
-                        db, connection_id=row.connection_id,
-                        session_factory=session_factory,
-                    )
+                # Catalog and all agent selections were published together by
+                # refresh_schema. Never fan out again in separate transactions.
+                synced_domains = getattr(svc, "last_synced_domains", 0)
 
                 # Re-read: the identity map still holds the row as this runner
                 # last wrote it. Another process may have reaped it (`failed`)
@@ -1244,11 +1238,9 @@ class ConnectionIndexingService:
     ) -> None:
         """Build ONE user's catalog for this connection, in the background.
 
-        Runs the per-user overlay sync (`get_user_data_source_schema`) for every
-        data source linked to the connection, using that user's credentials. Each
-        data source gets its own session so one failure can't poison the others,
-        and progress flows through the same callback the shared run uses — so a
-        signing-in user sees "listing folders 34/120" instead of a blank wait.
+        Discovers once with the user's credentials and publishes overlays for
+        every linked agent in one transaction. Progress is written independently
+        from the catalog so failures retain both the prior catalog and diagnostics.
 
         Never raises: the outcome lands on the indexing row.
         """
@@ -1283,30 +1275,17 @@ class ConnectionIndexingService:
         unreadable = []
         synced = 0
         try:
-            for ds_id in ds_ids:
-                async with new_session() as per_db:
-                    ds = (await per_db.execute(
-                        select(DataSource).where(
-                            DataSource.id == ds_id,
-                            DataSource.deleted_at.is_(None),
-                        )
-                    )).scalar_one_or_none()
-                    if ds is None:
-                        continue
-                    user = await per_db.get(User, user_id)
-                    if user is None:
-                        break
-                    tables = await ds_service.get_user_data_source_schema(
-                        db=per_db,
-                        data_source=ds,
-                        user=user,
-                        progress_callback=progress_cb,
-                        force_refresh=force_refresh,
-                    )
-                    unreadable.extend(getattr(ds_service, "last_discovery_diagnostics", []) or [])
-                    await per_db.commit()
-                    item_count += len(tables or [])
-                    synced += 1
+            async with new_session() as per_db:
+                conn = await per_db.get(Connection, connection_id)
+                user = await per_db.get(User, user_id)
+                if conn is None or user is None:
+                    raise ValueError("Connection or user no longer exists")
+                tables, synced = await ds_service.refresh_user_connection_catalog(
+                    per_db, conn, user, progress_callback=progress_cb,
+                    force_refresh=force_refresh,
+                )
+                unreadable = ds_service.last_discovery_diagnostics
+                item_count = len(tables)
         except IndexingCancelled:
             await self._finalize_cancelled(new_session, indexing_id, append_event, state_snapshot)
             return
@@ -1405,99 +1384,3 @@ class ConnectionIndexingService:
         except Exception:
             pass
         logger.info("indexing.cancelled", extra={"indexing_id": indexing_id})
-
-    async def _sync_linked_data_sources(
-        self,
-        db: AsyncSession,
-        *,
-        connection_id: str,
-        session_factory,
-    ) -> int:
-        """After a successful refresh_schema, mirror the new ConnectionTable set
-        onto every DataSource that links this connection.
-
-        Each per-DS sync runs in its own session/transaction so that:
-          - a data source deleted mid-flight (concurrent test or user delete)
-            doesn't FK-violate the whole runner — we re-check existence per DS
-            and skip if gone, and catch any leftover IntegrityError on commit;
-          - one corrupt DS doesn't abort the sync for its peers.
-
-        Returns the number of data sources synced successfully.
-        """
-        from sqlalchemy.exc import IntegrityError
-        from sqlalchemy.orm import selectinload
-
-        from app.models.data_source import DataSource
-        from app.services.data_source_service import DataSourceService
-
-        # Snapshot the connection's linked DS IDs from the runner's session,
-        # then close that scope — per-DS work happens in its own session.
-        # `populate_existing`: the runner's session has held this connection
-        # since the run started and never expires it, so without a re-read a
-        # data source linked during the run is missing from the list and
-        # never receives the catalog.
-        result = await db.execute(
-            select(Connection)
-            .options(selectinload(Connection.data_sources))
-            .where(Connection.id == str(connection_id))
-            .execution_options(populate_existing=True)
-        )
-        connection_snapshot = result.scalar_one_or_none()
-        if connection_snapshot is None or not connection_snapshot.data_sources:
-            return 0
-        ds_ids = [str(ds.id) for ds in connection_snapshot.data_sources]
-
-        ds_service = DataSourceService()
-        synced = 0
-        for ds_id in ds_ids:
-            try:
-                async with session_factory() as per_db:
-                    # Re-fetch the DS in the per-DS session. If it was deleted
-                    # (hard or soft) between snapshot and now, skip cleanly.
-                    ds_row = await per_db.execute(
-                        select(DataSource).where(
-                            DataSource.id == ds_id,
-                            DataSource.deleted_at.is_(None),
-                        )
-                    )
-                    ds = ds_row.scalar_one_or_none()
-                    if ds is None:
-                        continue
-                    # Same for the connection — guard against a delete here too.
-                    conn_row = await per_db.execute(
-                        select(Connection).where(
-                            Connection.id == str(connection_id),
-                            Connection.deleted_at.is_(None),
-                        )
-                    )
-                    connection = conn_row.scalar_one_or_none()
-                    if connection is None:
-                        continue
-                    try:
-                        await ds_service.sync_domain_tables_from_connection(
-                            per_db,
-                            ds,
-                            connection,
-                            max_auto_select=ds_service.ONBOARDING_MAX_TABLES,
-                        )
-                        await per_db.commit()
-                        synced += 1
-                    except IntegrityError:
-                        # Most likely cause: the DS was deleted between our
-                        # existence check and the INSERT (FK violation on
-                        # datasource_tables.datasource_id). Roll back this
-                        # DS and move on.
-                        await per_db.rollback()
-                        logger.info(
-                            "indexing.sync_domain_skipped_fk",
-                            extra={
-                                "connection_id": str(connection_id),
-                                "data_source_id": ds_id,
-                            },
-                        )
-            except Exception:
-                logger.exception(
-                    "indexing.sync_domain_failed",
-                    extra={"connection_id": str(connection_id), "data_source_id": ds_id},
-                )
-        return synced

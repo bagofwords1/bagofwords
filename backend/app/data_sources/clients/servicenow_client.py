@@ -510,9 +510,11 @@ class ServiceNowClient(DataSourceClient):
             try:
                 rows = self._sample_rows(session, target)
             except RuntimeError as e:
+                self.mark_discovery_incomplete("servicenow catalog")
                 failures.append(f"{target}: {e}")
                 continue
             if not rows:
+                self.mark_discovery_incomplete("servicenow table columns")
                 failures.append(
                     f"{target}: no rows returned, so no columns could be inferred "
                     "(the table may be empty or fully filtered by ACLs)"

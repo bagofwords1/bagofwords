@@ -56,6 +56,8 @@ def generate_file_preview(file) -> Dict[str, Any]:
     content_type = file.content_type
     path = file.path
     filename = file.filename
+    from app.services import storage
+    storage.ensure_local(path, fresh=False)
     
     try:
         if content_type in EXCEL_TYPES:

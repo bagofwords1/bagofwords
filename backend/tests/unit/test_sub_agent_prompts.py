@@ -79,6 +79,12 @@ def test_proactive_reminder_rides_in_the_turn_head_until_a_wave_exists(empty_con
         _parent(sub_agents_enabled=False),
     ):
         assert "<delegation" not in PromptBuilderV3._build_turn_head(pi)
+    # Training turns curate the agent; they keep `delegate` but are not pushed to fan out.
+    training = PlannerInput(
+        user_message="learn the rules", organization_name="Acme", organization_ai_analyst_name="Bow",
+        mode="training", sub_agents_enabled=True, sub_agent_posture="proactive",
+    )
+    assert "<delegation" not in PromptBuilderV3._build_turn_head(training)
     child = PlannerInput(
         user_message="GOAL", organization_name="Acme", organization_ai_analyst_name="Bow", mode="subagent",
         sub_agents_enabled=False, sub_agent_budget="sub-agent step 1 of 40",
