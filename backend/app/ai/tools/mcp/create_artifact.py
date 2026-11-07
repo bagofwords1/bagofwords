@@ -93,6 +93,7 @@ class CreateArtifactMCPTool(MCPTool):
             organization=organization,
             report=report,
             prompt=input_data.prompt,
+            instruction_ids=input_data.instruction_ids,
         )
 
         # Check if we have a model

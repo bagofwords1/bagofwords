@@ -11,6 +11,7 @@ Instructions are organizational knowledge that guide AI behavior when generating
 and analyzing data.
 """
 
+import json
 import re
 from typing import Dict, Any, Optional
 
@@ -18,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.tools.mcp.base import MCPTool
 from app.ai.tools.implementations._instruction_window import read_window
+from app.ai.tools.mcp.instruction_scope import in_scope, report_data_sources
 from app.models.user import User
 from app.models.organization import Organization
 from app.core.permission_resolver import resolve_permissions
@@ -208,15 +210,22 @@ class ListInstructionsMCPTool(MCPTool):
         ).model_dump()
 
 
+# One instruction_ids read returns at most this many chars (JSON-encoded) of
+# instruction details; the ids past it come back in not_read_ids.
+BATCH_READ_BUDGET = 100_000
+
+
 class ReadInstructionMCPTool(MCPTool):
-    """Read one instruction in full, with its agent scope and review state."""
+    """Read instructions in full, with their agent scope and review state."""
 
     name = "read_instruction"
     read_only_hint = True
     description = (
-        "Read one instruction in full: text, category, load mode, the agents it applies to "
+        "Read an instruction in full: text, category, load mode, the agents it applies to "
         "(empty = global), whether a change is pending admin review, and whether you can edit it. "
-        "list_instructions truncates text — read the full text here before editing. "
+        "Use it for the entries get_context lists without text (pass report_id; instruction_ids "
+        "reads several at once). list_instructions truncates text — read the full text here "
+        "before editing. "
         "A very long instruction comes back as its opening lines plus an outline, with "
         "truncated: true and next_offset — read on with offset (and limit; plus col_offset when "
         "next_col_offset is set), or pull the lines you need with grep_pattern. Range and grep "
@@ -227,37 +236,136 @@ class ReadInstructionMCPTool(MCPTool):
     def input_schema(self) -> Dict[str, Any]:
         return MCPReadInstructionInput.model_json_schema()
 
+    @staticmethod
+    def _fail(message: str) -> Dict[str, Any]:
+        return MCPReadInstructionOutput(success=False, error_message=message).model_dump()
+
     async def execute(self, args, db, user, organization):
         data = MCPReadInstructionInput(**args)
-        svc = InstructionService()
-        schema = await svc.get_instruction(db, data.instruction_id, organization, user)
-        # Same visibility as GET /instructions/{id}: rows on agents the caller
-        # can't see stay hidden, even for admins who aren't members.
-        if schema is None or not await svc.user_can_view_instruction(db, schema, user, organization):
-            return MCPReadInstructionOutput(success=False, error_message="Instruction not found").model_dump()
-        can_edit = await _can(require_instruction_authority(db, user, organization, schema, allow_owner=True))
-        try:
-            window = read_window(
-                getattr(schema, "text", "") or "",
-                getattr(schema, "title", None) or str(schema.id)[:8],
-                offset=data.offset,
-                col_offset=data.col_offset,
-                limit=data.limit,
-                grep_pattern=data.grep_pattern,
-                ignore_case=data.ignore_case,
-                before=data.before,
-                after=data.after,
-                max_matches=data.max_matches,
+        if bool(data.instruction_id) == bool(data.instruction_ids):
+            return self._fail("Give instruction_id or instruction_ids (one of them).")
+        windowed = any(v is not None for v in (data.offset, data.col_offset, data.limit, data.grep_pattern))
+        if data.instruction_ids and windowed:
+            return self._fail(
+                "offset / col_offset / limit / grep_pattern work on one instruction: "
+                "use instruction_id with them."
             )
-        except re.error as e:
+
+        report, scope_ids = None, None
+        if data.report_id:
+            try:
+                report = await self._load_report(db, data.report_id, user, organization)
+            except HTTPException:
+                return self._fail("Report not found")
+            scope_ids = [str(ds.id) for ds in await report_data_sources(db, report, user, organization)]
+
+        svc = InstructionService()
+
+        async def _open(inst_id: str):
+            schema = await svc.get_instruction(db, inst_id, organization, user)
+            # Same visibility as GET /instructions/{id}: rows on agents the caller
+            # can't see stay hidden, even for admins who aren't members.
+            if schema is None or not await svc.user_can_view_instruction(db, schema, user, organization):
+                return None
+            agents = [ds.id for ds in (getattr(schema, "data_sources", None) or [])]
+            if scope_ids is not None and not in_scope(agents, scope_ids):
+                return None
+            return schema
+
+        if data.instruction_id:
+            schema = await _open(data.instruction_id)
+            if schema is None:
+                return self._fail("Instruction not found" + (" in this report" if report else ""))
+            try:
+                window = read_window(
+                    getattr(schema, "text", "") or "",
+                    getattr(schema, "title", None) or str(schema.id)[:8],
+                    offset=data.offset,
+                    col_offset=data.col_offset,
+                    limit=data.limit,
+                    grep_pattern=data.grep_pattern,
+                    ignore_case=data.ignore_case,
+                    before=data.before,
+                    after=data.after,
+                    max_matches=data.max_matches,
+                )
+            except re.error as e:
+                return self._fail(f"Invalid grep_pattern: {e}")
+            await self._record_read(db, organization, user, report, schema)
+            can_edit = await _can(require_instruction_authority(db, user, organization, schema, allow_owner=True))
             return MCPReadInstructionOutput(
-                success=False, error_message=f"Invalid grep_pattern: {e}",
+                success=True,
+                instruction=_detail(schema, can_edit=can_edit, window=window),
+                message=window["summary"],
             ).model_dump()
+
+        details, not_read, not_found, used = [], [], [], 2
+        for inst_id in dict.fromkeys(data.instruction_ids):
+            if details and used >= BATCH_READ_BUDGET:
+                not_read.append(inst_id)
+                continue
+            schema = await _open(inst_id)
+            if schema is None:
+                not_found.append(inst_id)
+                continue
+            window = read_window(
+                getattr(schema, "text", "") or "", getattr(schema, "title", None) or str(schema.id)[:8],
+            )
+            can_edit = await _can(require_instruction_authority(db, user, organization, schema, allow_owner=True))
+            detail = _detail(schema, can_edit=can_edit, window=window)
+            cost = len(json.dumps(detail.model_dump(), default=str)) + 2
+            if details and used + cost > BATCH_READ_BUDGET:
+                not_read.append(inst_id)
+                continue
+            used += cost
+            details.append(detail)
+            await self._record_read(db, organization, user, report, schema)
+
+        parts = [f"Read {len(details)} instruction(s)."]
+        if any(d.truncated for d in details):
+            parts.append("Some are too long to return whole (truncated: true) — read on with instruction_id + offset.")
+        if not_read:
+            parts.append(f"{len(not_read)} not read to stay within the size budget — read not_read_ids in another call.")
+        if not_found:
+            parts.append(
+                f"{len(not_found)} not found" + (" in this report" if report else "") + " (not_found_ids)."
+            )
         return MCPReadInstructionOutput(
-            success=True,
-            instruction=_detail(schema, can_edit=can_edit, window=window),
-            message=window["summary"],
+            success=bool(details),
+            instructions=details,
+            not_read_ids=not_read or None,
+            not_found_ids=not_found or None,
+            message=" ".join(parts),
+            error_message=None if details else "No instruction could be read.",
         ).model_dump()
+
+    @staticmethod
+    async def _record_read(db, organization, user, report, schema) -> None:
+        """Record an on-demand read for the report (best-effort), like the in-app
+        tool: read instructions climb the usage ranking, and with smart
+        instructions on, the report's data tools hand them to their coder."""
+        if report is None:
+            return
+        try:
+            from app.services.instruction_usage_service import InstructionUsageService
+            from app.schemas.instruction_usage_schema import InstructionUsageEventCreate
+
+            await InstructionUsageService().record_usage_event(
+                db,
+                InstructionUsageEventCreate(
+                    org_id=str(organization.id),
+                    report_id=str(report.id),
+                    instruction_id=str(schema.id),
+                    user_id=str(user.id),
+                    load_mode=getattr(schema, "load_mode", None) or "intelligent",
+                    load_reason="on_demand",
+                    source_type=getattr(schema, "source_type", None),
+                    category=getattr(schema, "category", None),
+                    title=getattr(schema, "title", None),
+                ),
+            )
+        except Exception:
+            logger.debug("read_instruction: usage event failed", exc_info=True)
 
 
 class CreateInstructionMCPTool(MCPTool):

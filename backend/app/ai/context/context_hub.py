@@ -961,6 +961,16 @@ class ContextHub:
         self.read_instruction_items[str(item.id)] = item
         self._attach_read_instructions()
 
+    def add_instructions_for_coder(self, items) -> None:
+        """Hand instructions to the tool-less consumers (coder, chart step) in
+        full, whatever the smart-instructions setting. The MCP data tools use it
+        for the ids the external client read and passed in; the in-app planner
+        goes through record_instruction_read instead."""
+        for item in items or []:
+            if getattr(item, "id", None):
+                self.read_instruction_items[str(item.id)] = item
+        self._attach_read_instructions()
+
     def _attach_read_instructions(self) -> None:
         section = self._static_cache.get("instructions")
         if section is not None:

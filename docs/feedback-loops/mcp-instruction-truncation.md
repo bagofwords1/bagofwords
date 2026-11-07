@@ -111,3 +111,44 @@ Full output: [`probe-before.txt`](mcp-instruction-truncation/probe-before.txt),
   SharePoint, OBO-login, Sybase, Fabric and discovery-progress tests. The same
   files give the identical 199 failed / 1 error with this change stashed (this
   sandbox lacks `libodbc.so.2` and similar), so they are unrelated.
+
+## Part 2: the instructions in scope, listed by `get_context`
+
+Follow-up in the same PR. Before this, `get_context` returned no instructions at
+all. An MCP client (which plans the work itself) learned the org's rules only
+if it went looking through `list_instructions`, a management tool that covers
+the whole org instead of the report's agents and cuts text at 500 characters.
+
+| Piece | Behavior |
+|---|---|
+| `get_context` → `instructions` | Every instruction in the report's scope: global ones plus those on the report's agents, filtered by status, mode/channel and the user's table access. Built with the in-app `InstructionContextBuilder` (`build(on_demand=True)`), so scoping matches the agent. `always` instructions come with their text, most-used first, up to `INLINE_INSTRUCTIONS_BUDGET` = 100,000 encoded chars. Past it they are listed as `required: true` with no text. Smart instructions and skills are listed without text (`title`, `description`, `tables`, `references`, `tokens`). Optional entries are capped at 100, with `instructions_total` and `instructions_truncated`. Required entries are never dropped. |
+| `read_instruction` | `instruction_ids` reads up to 20 at once, within a 100,000-char budget; the rest come back in `not_read_ids`, unknown or out-of-scope ones in `not_found_ids`. Window inputs work only with a single `instruction_id`. `report_id` limits reads to that report's scope and records an `on_demand` usage event for the report (so reads count toward ranking, and with smart instructions on, `ContextHub._load_prior_instruction_reads` hands them to the coder). |
+| `create_data` / `inspect_data` / `create_artifact` / `edit_artifact` | `instruction_ids`: the instructions the client read go to the code writer in full (`ContextHub.add_instructions_for_coder`), scoped to the report by `load_instructions_by_ids`. With smart instructions off they are added to the keyword-matched ones. With smart instructions on they are the smart instructions the coder gets, which fixes the gap where the MCP coder got none. |
+| Shared scope | `backend/app/ai/tools/mcp/instruction_scope.py`: one builder and scope check used by all three paths. |
+
+**Loop A:** `uv run pytest tests/e2e/test_mcp_instruction_catalog.py -n 4`. All
+14 fail before the change (no `instructions` field, no batch input, no
+`instruction_ids`, no usage event) and pass after. Related suites (57 e2e +
+22 unit modules on MCP, instructions, skills, smart instructions and the
+context hub): 834 passed, 0 failed.
+
+**Loop B (live, official `mcp` client):** `catalog_live.py` seeds two agents
+(sales in the report, hr out of it) and six instructions, including a
+111k-char `always` catalogue. Output in `catalog-live-output.txt`:
+`get_context` is 3,617 chars and lists 9 entries. The 111k catalogue is
+`required` without text (over budget), `hr_smart` is not listed, and a batch
+read of all 7 text-less entries is 57,201 chars. A scoped read of `hr_smart`
+is refused ("not found in this report"); without `report_id` it is readable,
+as before.
+
+**Notes**
+- 100k chars of inline `always` text is about 25k tokens, the same as Claude
+  Code's default per-result limit for MCP tools (`MAX_MCP_OUTPUT_TOKENS`).
+  An org that fills the budget, on a report with many tables, can push
+  `get_context` past what that client keeps. The constant is
+  `INLINE_INSTRUCTIONS_BUDGET` in `backend/app/ai/tools/mcp/get_context.py`.
+- MCP instructions resolve as channel `app`, because the MCP data tools'
+  `ContextHub` has no head completion. An instruction scoped only to the `mcp`
+  channel applies to neither. `get_context` follows the same rule
+  (`MCP_INSTRUCTION_CHANNEL`) so it lists what the tools apply. Moving both to
+  `mcp` is a separate change.
