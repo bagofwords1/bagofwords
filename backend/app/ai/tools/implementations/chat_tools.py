@@ -325,6 +325,8 @@ class ReadChatThreadTool(ReadFileTool):
     _required_capability = Capability.READ_CHAT_THREAD
     _start_noun = "thread"
     _operation_name = "read_chat_thread"
+    # Read live, shown to the agent, never kept as a report file (see ReadFileTool).
+    _keep_session_copy = False
 
     @property
     def metadata(self) -> ToolMetadata:

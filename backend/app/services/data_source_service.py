@@ -21,12 +21,15 @@ from app.schemas.data_source_registry import (
 
 
 def _ds_is_connector(d) -> bool:
-    """True when every connection on a data source is a tool provider
-    (mcp / custom_api, data_shape="tools"). Such a data source is a
-    "connector": a lightweight, tools-only source surfaced in /agents."""
-    tps = tool_provider_types()
-    conns = getattr(d, "connections", None) or []
-    return bool(conns) and all(getattr(c, "type", None) in tps for c in conns)
+    """True when the data source is a connector (each person's own account or
+    tools), not an agent — see app/services/data_source_kind.py."""
+    from app.services.data_source_kind import is_connector
+    return is_connector(d)
+
+
+def _ds_kind(d) -> str:
+    from app.services.data_source_kind import data_source_kind
+    return data_source_kind(d)
 
 
 def _conn_connector_key(conn):
@@ -673,6 +676,7 @@ class DataSourceService:
         is_public = data_source_dict.pop("is_public", False)
         use_llm_sync = data_source_dict.pop("use_llm_sync", False)
         channel_availability = data_source_dict.pop("channel_availability", None)
+        kind = data_source_dict.pop("kind", None)
         member_user_ids = data_source_dict.pop("member_user_ids", [])
         member_bindings = data_source_dict.pop("member_bindings", None)
         auth_policy = data_source_dict.get("auth_policy", "system_only")
@@ -830,7 +834,8 @@ class DataSourceService:
             "is_public": is_public,
             "use_llm_sync": use_llm_sync,
             "channel_availability": channel_availability,
-            "owner_user_id": current_user.id
+            "owner_user_id": current_user.id,
+            "kind": kind,
         }
         
         # Create the data source instance
@@ -1586,6 +1591,8 @@ class DataSourceService:
                 connections=connections_list,
                 cached_tables=cached_by_ds.get(str(d.id), []),
                 is_connector=_ds_is_connector(d),
+                kind=_ds_kind(d),
+                kind_explicit=getattr(d, "kind", None),
                 connector_key=_ds_connector_key(d),
                 # Legacy fields from first connection for backward compatibility
                 type=conn.type if conn else None,
@@ -1837,6 +1844,8 @@ class DataSourceService:
                 connections=connections_list,
                 cached_tables=cached_by_ds.get(str(d.id), []),
                 is_connector=_ds_is_connector(d),
+                kind=_ds_kind(d),
+                kind_explicit=getattr(d, "kind", None),
                 connector_key=_ds_connector_key(d),
                 # Legacy fields from first connection for backward compatibility
                 type=conn.type if conn else None,
@@ -1954,6 +1963,8 @@ class DataSourceService:
                 connections=connections_list,
                 cached_tables=cached_by_ds.get(str(d.id), []),
                 is_connector=_ds_is_connector(d),
+                kind=_ds_kind(d),
+                kind_explicit=getattr(d, "kind", None),
                 connector_key=_ds_connector_key(d),
                 type=conn.type if conn else None,
                 auth_policy=auth_policy,
@@ -3489,6 +3500,12 @@ class DataSourceService:
         # Handle primary_instruction_id explicitly (allow None to clear it)
         if 'primary_instruction_id' in update_data:
             data_source_db.primary_instruction_id = update_data.pop('primary_instruction_id')
+
+        # Agent/connector: "auto" clears the explicit choice (derived again).
+        if 'kind' in update_data:
+            _kind = update_data.pop('kind')
+            if _kind is not None:
+                data_source_db.kind = None if _kind == "auto" else _kind
 
         # Handle icon explicitly so an explicit null clears the custom-icon
         # override (the generic loop below skips None values).

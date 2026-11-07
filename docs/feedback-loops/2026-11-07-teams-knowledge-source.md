@@ -100,3 +100,36 @@ against `tools/agent/boot_stack.sh`:
 - Slack, the same tool family on a second client: the Real-time Search API, or
   the Slack MCP preset.
 - Meeting transcripts, which are a separate Graph surface.
+
+## Follow-up: agents vs connectors (Phase 0–3)
+
+**Rule** (`backend/app/services/data_source_kind.py`): `data_sources.kind` is
+`agent | connector | NULL`. An explicit value wins. NULL derives it: a data
+source is a connector iff every connection is a connector type (MCP, or a
+per-user integration: Outlook/Gmail mail, Teams, OneDrive, personal Drive). A
+non-MCP connector type on `system_only` auth (e.g. Drive with a service account)
+is an agent. Migration `dskind01` adds the column and keeps curated MCP data
+sources (those with instructions) as agents.
+
+**Run scope** (`resolve_run_agents`): pinned agents (or Auto) plus every
+connector the user can reach. A pin on only a connector keeps Auto. A
+scheduled run whose notifications reach anyone but its owner drops personal
+connectors.
+
+**LLM context**: connectors render in their own `<connectors>` block, never in
+`<agents>`. The roster, focus and `set_report_agents`/`search_agents` ignore
+them, and connector instructions are always in scope. Message/email reads no
+longer leave a session file copy on the report.
+
+**UI**: the prompt box has a puzzle-piece connectors menu (status dot or Sign
+in, with "Browse connectors" at the bottom). The Browse modal handles search,
+sign in, sign out, "Use as agent" (managers) and remove. Connectors are hidden
+from the agent picker and the Knowledge Explorer, and have their own category
+in the @-mention menu.
+
+**Verified live** (Haiku 5.5, bow14 tenant): a Teams-only question, Music
+Store + Teams in one turn, and Music Store pinned with a Teams question were
+all answered correctly, with source attribution. Sign out → Not connected →
+Microsoft sign-in → Connected round-trip. Tests: `tests/unit/test_data_source_kind.py`
+(29), plus additions to the Teams e2e tests (kind round-trip, create flow,
+422 on an invalid kind).

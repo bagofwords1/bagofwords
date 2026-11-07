@@ -3588,6 +3588,10 @@ const fetchAgents = async () => {
     if (showAllAgents.value) query.show_all = true
     const { data } = await useMyFetch<any[]>('/data_sources/active', { method: 'GET', query })
     agents.value = (data.value || [])
+      // Connectors (each person's own accounts/tools — mail, Teams, MCP apps)
+      // are not agents: they live in the prompt box's connectors menu and the
+      // Browse connectors modal, not in the knowledge tree.
+      .filter((d: any) => d?.kind !== 'connector')
       .map((d: any) => ({ id: d.id, name: d.name, type: d.type, icon: d.icon, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, connector_key: d.connector_key, status: d.status, publish_status: d.publish_status, reliability_status: d.reliability_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
       // Alphabetical by name. The server returns no explicit order, so sort
       // here; pass the app's i18n locale (not the browser default) so the

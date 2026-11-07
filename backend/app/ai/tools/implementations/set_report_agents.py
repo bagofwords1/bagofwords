@@ -173,6 +173,25 @@ class SetReportAgentsTool(Tool):
                                     "observation": {"summary": msg, "success": False, "artifacts": []}})
                 return
 
+            # Connectors (each person's own accounts/tools) are never focused or
+            # attached as agents — they are already available whenever the user
+            # is connected. Drop them so the focus stays an agent choice.
+            from app.services.data_source_kind import is_connector
+            _conn = [ds for ds, _ in valid if is_connector(ds)]
+            if _conn:
+                valid = [(ds, na) for ds, na in valid if not is_connector(ds)]
+                rejected.extend([str(ds.id) for ds in _conn])
+                if not valid:
+                    msg = (
+                        f"{', '.join(getattr(ds, 'name', str(ds.id)) for ds in _conn)} "
+                        "is a connector, not an agent: its tools are already available "
+                        "whenever the user is connected — call them directly."
+                    )
+                    out = SetReportAgentsOutput(success=False, rejected_ids=rejected, message=msg)
+                    yield ToolEndEvent(type="tool.end", payload={"output": out.model_dump(),
+                                        "observation": {"summary": msg, "success": False, "artifacts": []}})
+                    return
+
             # Sign-in gate: an agent the user hasn't connected yet (user_required
             # auth, e.g. PowerBI OBO) would fail every query — don't focus it;
             # point the model at the user's Connect flow instead.

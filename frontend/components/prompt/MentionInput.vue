@@ -88,6 +88,7 @@
                    cube for every agent made this the one agent list that didn't
                    show which agent you were picking. Cube stays as the fallback
                    for an agent with no resolvable icon. -->
+              <DataSourceIcon v-else-if="category.name === 'connectors'" :type="item.icon_type" :connector-key="item.connector_key" :icon-token="item.icon_token" class="h-3.5 w-3.5 flex-shrink-0" />
               <DataSourceIcon v-else-if="category.name === 'data_sources' && item.icon_token" :icon-token="item.icon_token" class="h-3.5 w-3.5 flex-shrink-0" />
               <Icon v-else-if="category.name === 'data_sources'" name="heroicons-cube" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
               <Icon v-else-if="category.name === 'files'" name="heroicons-document" class="w-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
@@ -256,6 +257,7 @@ interface MentionItem {
   icon?: string | null
   // Backend-resolved agent icon; preferred over icon_type/icon.
   icon_token?: string | null
+  connector_key?: string | null
   entity_type?: string
   description?: string
   columns?: string[]
@@ -303,7 +305,7 @@ const props = defineProps({
   },
   categories: {
     type: Array as () => string[],
-    default: () => ['data_sources', 'instructions', 'prompts', 'files', 'entities']
+    default: () => ['data_sources', 'connectors', 'instructions', 'prompts', 'files', 'entities']
   },
   selectedDataSourceIds: {
     type: Array as () => string[],
@@ -526,6 +528,7 @@ const showCategoryList = computed(() =>
 function categoryIcon(name: string): string {
   switch (name) {
     case 'data_sources': return 'heroicons-cube'
+    case 'connectors': return 'heroicons-puzzle-piece'
     case 'instructions': return 'heroicons-document-text'
     case 'prompts': return 'heroicons-book-open'
     case 'files': return 'heroicons-document'
@@ -1464,6 +1467,8 @@ const fileCategoryItems = ref<MentionItem[]>([])
 const entityCategoryItems = ref<MentionItem[]>([])
 // Saved prompts are a separate API (GET /prompts) mapped into the 'prompts'
 // category. Selecting one substitutes its text into the box.
+// Connectors (kind === 'connector'): the user's own accounts/tools.
+const connectorCategoryItems = ref<MentionItem[]>([])
 const promptCategoryItems = ref<MentionItem[]>([])
 
 // Assemble the top-level mention categories in display order:
@@ -1472,6 +1477,7 @@ const promptCategoryItems = ref<MentionItem[]>([])
 function rebuildCategories() {
   allCategories.value = [
     { name: 'data_sources', label: t('mentionInput.categories.dataSources'), items: agentCategoryItems.value },
+    { name: 'connectors', label: t('mentionInput.categories.connectors'), items: connectorCategoryItems.value },
     { name: 'instructions', label: t('mentionInput.categories.instructions'), items: instructionCategoryItems.value },
     { name: 'prompts', label: t('mentionInput.categories.prompts'), items: promptCategoryItems.value },
     { name: 'files', label: t('mentionInput.categories.files'), items: fileCategoryItems.value },
@@ -1501,7 +1507,7 @@ async function fetchAvailableMentions() {
         // the same list was requested two or three times per page load.
         const activeAgents = await fetchActiveAgents()
         if (Array.isArray(activeAgents)) {
-          agentCategoryItems.value = (activeAgents as any[]).map((ds: any) => ({
+          const toItem = (ds: any) => ({
             id: String(ds.id),
             type: 'data_source' as const,
             name: ds.name,
@@ -1510,10 +1516,14 @@ async function fetchAvailableMentions() {
             icon_type: ds.type,
             icon: ds.icon,
             icon_token: ds.icon_token,
+            connector_key: ds.connector_key,
             // Per-agent connect state — mirrors DataSourceSelector's needs-connect logic.
             needs_connect: needsUserConnection(ds),
             raw: ds,
-          }))
+          })
+          // Connectors (the user's own accounts/tools) get their own section.
+          connectorCategoryItems.value = (activeAgents as any[]).filter((ds: any) => ds?.kind === 'connector').map(toItem)
+          agentCategoryItems.value = (activeAgents as any[]).filter((ds: any) => ds?.kind !== 'connector').map(toItem)
         }
       } catch { /* keep prior items */ }
     })(),

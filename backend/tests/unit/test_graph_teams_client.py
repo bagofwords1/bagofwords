@@ -569,3 +569,43 @@ async def test_read_chat_thread_names_the_read_after_its_conversation(monkeypatc
     assert out["success"], out
     assert out["file_name"] == out["path"] == "Finance › Month-end close"
     assert reply["body"]["content"] in out["text"]
+
+
+@pytest.mark.asyncio
+async def test_message_reads_leave_no_copy_with_the_report(monkeypatch):
+    """A thread read with the user's own token must not be saved as a report
+    file — anyone the report is shared with could open the copy. The same read
+    path still keeps a session copy for ordinary files (the control)."""
+    from app.ai.tools.implementations import _file_tool_common, read_file
+    from app.ai.tools.implementations.chat_tools import ReadChatThreadTool
+    from app.ai.tools.implementations.email_tools import ReadEmailTool
+
+    assert ReadChatThreadTool._keep_session_copy is False
+    assert ReadEmailTool._keep_session_copy is False
+    assert read_file.ReadFileTool._keep_session_copy is True
+
+    fake = FakeTeams(n_threads=2, replies_per_thread=1)
+    client = _client(fake)
+    persisted = []
+
+    async def _persist(runtime_ctx, **kw):
+        persisted.append(kw)
+        return "file-123"
+    monkeypatch.setattr(read_file, "_persist_session_file", _persist)
+
+    async def _resolve(runtime_ctx, connection_id, capability):
+        return client, None
+    monkeypatch.setattr(_file_tool_common, "resolve_file_client", _resolve)
+    monkeypatch.setattr(read_file, "resolve_file_client", _resolve, raising=False)
+
+    file_id = f"chat:chat-grp/{fake.chat_msgs['chat-grp'][2]['id']}"
+    ctx = {"db": None, "organization": None}
+    events = [e async for e in ReadChatThreadTool().run_stream({"connection_id": "c1", "file_id": file_id}, ctx)]
+    out = events[-1].payload["output"]
+    assert out["success"] and out.get("session_file_id") is None
+    assert persisted == []
+
+    class _FileTool(ReadChatThreadTool):
+        _keep_session_copy = True
+    events = [e async for e in _FileTool().run_stream({"connection_id": "c1", "file_id": file_id}, ctx)]
+    assert persisted, "the control read must still persist a session copy"

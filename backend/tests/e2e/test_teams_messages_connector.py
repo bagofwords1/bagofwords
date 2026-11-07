@@ -104,3 +104,42 @@ def test_browse_lists_messages_grouped_by_conversation_once_signed_in(test_clien
     # A message has no original bytes to preview.
     assert body["preview_supported"] is False
     assert all(f["web_url"] for f in body["files"])
+
+
+def _kind_of(test_client, headers, ds_id):
+    rows = test_client.get("/api/data_sources/active", headers=headers, params={"include_unconnected": True}).json()
+    row = next(r for r in rows if r["id"] == ds_id)
+    return row["kind"], row.get("kind_explicit"), row["is_connector"]
+
+
+@pytest.mark.e2e
+def test_a_teams_source_is_a_connector_and_an_admin_can_turn_it_into_an_agent(test_client, org):
+    _, ds = _teams_agent(test_client, org["headers"])
+    # Derived: each person's own Teams → a connector.
+    assert _kind_of(test_client, org["headers"], ds["id"]) == ("connector", None, True)
+
+    r = test_client.put(f"/api/data_sources/{ds['id']}", headers=org["headers"], json={"kind": "agent"})
+    assert r.status_code == 200, r.text
+    assert _kind_of(test_client, org["headers"], ds["id"]) == ("agent", "agent", False)
+
+    r = test_client.put(f"/api/data_sources/{ds['id']}", headers=org["headers"], json={"kind": "auto"})
+    assert r.status_code == 200, r.text
+    assert _kind_of(test_client, org["headers"], ds["id"]) == ("connector", None, True)
+
+
+@pytest.mark.e2e
+def test_the_create_flow_records_the_kind_it_was_created_as(test_client, org):
+    conn = test_client.post("/api/connections", headers=org["headers"], json={
+        "name": "Teams for analysis", "type": "teams_messages", "credentials": ENTRA_APP,
+        "config": {}, "auth_policy": "user_required", "allowed_user_auth_modes": ["oauth"],
+    }).json()
+    ds = test_client.post("/api/data_sources", headers=org["headers"], json={
+        "name": "Teams analysis agent", "type": "teams_messages", "connection_ids": [conn["id"]],
+        "is_public": True, "kind": "agent",
+    })
+    assert ds.status_code == 200, ds.text
+    assert _kind_of(test_client, org["headers"], ds.json()["id"])[0] == "agent"
+    bad = test_client.post("/api/data_sources", headers=org["headers"], json={
+        "name": "x", "type": "teams_messages", "connection_ids": [conn["id"]], "kind": "robot",
+    })
+    assert bad.status_code == 422

@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -112,7 +112,40 @@ def report_selection_is_auto(report: Any) -> bool:
     return not list(getattr(report, "data_sources", None) or [])
 
 
-async def resolve_run_agents(db, organization: Any, user: Any, report: Any) -> List[Any]:
+def _is_personal_connector(ds: Any) -> bool:
+    """A connector that reads with each person's OWN credentials (mail, Teams,
+    personal Drive, per-user MCP) — as opposed to a shared-key connector."""
+    from app.services.data_source_kind import is_connector
+    if not is_connector(ds):
+        return False
+    return any(getattr(c, "auth_policy", None) == "user_required" for c in (getattr(ds, "connections", None) or []))
+
+
+async def scheduled_run_reaches_others(db, scheduled_prompt_id: Optional[str], owner_id: Optional[str]) -> bool:
+    """True when a scheduled prompt delivers its results to anyone other than
+    its owner. Such a run must not read the owner's personal connectors: their
+    mail or chats would land in other people's inboxes."""
+    if not scheduled_prompt_id:
+        return False
+    try:
+        from app.models.scheduled_prompt import ScheduledPrompt
+        sp = await db.get(ScheduledPrompt, str(scheduled_prompt_id))
+    except Exception:
+        logger.warning("scheduled prompt %s unreadable; treating its output as shared", scheduled_prompt_id, exc_info=True)
+        return True
+    if sp is None:
+        return False
+    for sub in (getattr(sp, "notification_subscribers", None) or []):
+        if not isinstance(sub, dict):
+            return True
+        if (sub.get("type") or "user") == "user" and str(sub.get("id") or "") == str(owner_id or sp.user_id):
+            continue
+        return True
+    return False
+
+
+async def resolve_run_agents(db, organization: Any, user: Any, report: Any,
+                             exclude_personal_connectors: bool = False) -> List[Any]:
     """The agents a run actually executes against — the working set.
 
     Auto is a MODE, not a set: "every agent I can access", resolved here at run
@@ -140,14 +173,34 @@ async def resolve_run_agents(db, organization: Any, user: Any, report: Any) -> L
     # would hand a shared-dashboard chat far more than the owner shared.
     if not attached and getattr(report, "report_type", "regular") == "artifact_chat":
         return []
-    agents = attached if attached else await accessible_agents(db, organization, user)
+    from app.services.data_source_kind import is_connector
+    # A pin on a connector (an old report that selected an MCP "agent", an
+    # @mention) is not an agent selection: only pinned AGENTS end Auto.
+    pinned_agents = [ds for ds in attached if not is_connector(ds)]
+    if pinned_agents:
+        # A pinned selection scopes the AGENTS. Connectors (each person's own
+        # accounts/tools) are not part of that choice: the ones this user can
+        # reach ride along on every run, the same as under Auto. A personal
+        # connector the user never signed into gets no client and AgentV2 drops
+        # it, so only connected ones reach the context.
+        pinned = {str(ds.id) for ds in pinned_agents}
+        connectors = [
+            ds for ds in await accessible_agents(db, organization, user)
+            if str(ds.id) not in pinned and is_connector(ds)
+        ]
+        agents = pinned_agents + connectors
+    else:
+        agents = await accessible_agents(db, organization, user)
+    if exclude_personal_connectors:
+        agents = [ds for ds in agents if not _is_personal_connector(ds)]
     from app.services.connected_application_service import filter_agents
     agents = await filter_agents(db, agents, organization.id)
     return [ds for ds in agents if DataSourceService.is_execution_live(ds)]
 
 
 async def prepare_run_agents(db, organization: Any, user: Any, report: Any,
-                             data_source_service: Any = None) -> Tuple[List[Any], Dict[str, Any]]:
+                             data_source_service: Any = None,
+                             exclude_personal_connectors: bool = False) -> Tuple[List[Any], Dict[str, Any]]:
     """``(agents, clients)`` for a run — the working set and its query clients.
 
     An agent the user cannot reach 403s inside ``construct_clients``; it is
@@ -158,7 +211,8 @@ async def prepare_run_agents(db, organization: Any, user: Any, report: Any,
     from fastapi import HTTPException
 
     svc = data_source_service or DataSourceService()
-    agents = await resolve_run_agents(db, organization, user, report)
+    agents = await resolve_run_agents(db, organization, user, report,
+                                      exclude_personal_connectors=exclude_personal_connectors)
     clients: Dict[str, Any] = {}
     for ds in agents:
         try:

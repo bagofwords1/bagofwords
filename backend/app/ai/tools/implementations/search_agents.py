@@ -207,6 +207,10 @@ class SearchAgentsTool(Tool):
                 return
 
             candidates, scope, attached_ids = await resolve_candidate_agents(db, organization, user, report, mode)
+            # Connectors are not searched for: the connected ones are already in
+            # the <connectors> block with their tools.
+            from app.services.data_source_kind import is_connector
+            candidates = [c for c in candidates if not is_connector(c)]
             if not candidates:
                 out = SearchAgentsOutput(success=True, agents=[], total=0,
                                          message=f"No {scope} agents available to search in {mode} mode.")

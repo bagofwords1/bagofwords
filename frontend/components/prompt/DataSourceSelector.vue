@@ -513,7 +513,9 @@ watch(isAutoMode, (val) => {
 async function getDataSources(opts: { force?: boolean } = {}) {
     try {
         // Shared with the mention menu — see composables/useActiveAgents.ts.
-        const allSources = await fetchActiveAgents(opts)
+        // Connectors (the user's own accounts/tools) live in the connectors
+        // menu, never in the agent picker.
+        const allSources = (await fetchActiveAgents(opts)).filter((ds: any) => ds?.kind !== 'connector')
         // A source is usable (selectable) when it doesn't require per-user
         // credentials, or the user already has them / falls back to system auth.
         const isUsable = (ds: any) => {

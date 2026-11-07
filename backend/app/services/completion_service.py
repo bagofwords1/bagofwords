@@ -774,6 +774,13 @@ class CompletionService:
                 from app.core.permission_resolver import assert_principal_belongs_to_org
                 await assert_principal_belongs_to_org(db, current_user, organization.id)
 
+            # A scheduled prompt whose results go to other people must not read
+            # the owner's personal connectors (mail, Teams, personal Drive).
+            from app.ai.tools.implementations.agent_focus_common import scheduled_run_reaches_others
+            _exclude_personal_connectors = await scheduled_run_reaches_others(
+                db, scheduled_prompt_id, getattr(current_user, "id", None)
+            )
+
             # Validate report exists
             result = await db.execute(select(Report).filter(Report.id == report_id))
             report = result.scalar_one_or_none()
@@ -988,6 +995,7 @@ class CompletionService:
                             run_agents, clients = await prepare_run_agents(
                                 session, organization_obj, user_obj, report_obj,
                                 self.data_source_service,
+                                exclude_personal_connectors=_exclude_personal_connectors,
                             )
                             # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
                             _ = report_obj.files
@@ -1084,7 +1092,8 @@ class CompletionService:
                     # Foreground execution (wait and return final v2)
                     with tracer.start_as_current_span("completion.construct_clients") as clients_span:
                         run_agents, clients = await prepare_run_agents(
-                            db, organization, current_user, report, self.data_source_service
+                            db, organization, current_user, report, self.data_source_service,
+                            exclude_personal_connectors=_exclude_personal_connectors,
                         )
                         clients_span.set_attribute("data_sources.count", len(run_agents))
                     # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
