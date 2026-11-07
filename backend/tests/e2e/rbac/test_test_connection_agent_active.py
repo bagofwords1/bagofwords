@@ -97,9 +97,15 @@ def test_a_failed_test_of_a_shared_connection_still_turns_the_agent_off(test_cli
 
     w = world
     # The shared account's database stops answering (mocked at the driver).
+    # A shared connection is deactivated only after several failures in a row
+    # (BOW_CONN_DEACTIVATE_AFTER_FAILURES), so one blip leaves the agent up.
+    monkeypatch.setenv("BOW_CONN_DEACTIVATE_AFTER_FAILURES", "3")
     monkeypatch.setattr(SqliteClient, "test_connection",
                         lambda self: {"success": False, "message": "unreachable"})
     assert _test(test_client, w, "admin").get("success") is False
+    assert _run(_agent_active(w["ds"]["id"])) is True
+    for _ in range(2):
+        assert _test(test_client, w, "admin").get("success") is False
     assert _run(_agent_active(w["ds"]["id"])) is False
     monkeypatch.undo()
     # And a passing test turns it back on.
