@@ -151,6 +151,11 @@ _TOP_LEVEL_HINT = (
     "Connected to KMS Lighthouse, but the top level of the folder tree came back empty. Set Root folder ID "
     "to a folder this account can open, or check the account's KMS permissions."
 )
+_EMPTY_ROOT = (
+    "Connected to KMS Lighthouse, but root folder {root} came back empty. KMS answers the same way for a folder "
+    "id that is not valid, so check Root folder ID and that this account can open that folder."
+)
+_BAD_LAYOUT = "Connected to KMS Lighthouse, but KMS refused layout {layout}. Check Layout ID."
 _MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 _DEFAULT_TIMEOUT = (10, 60)    # (connect, read) seconds
 _MIN_TIMEOUT_S = 1
@@ -1316,7 +1321,8 @@ def _folder_target(folder_id):
         if kind != "folder":
             raise KmsError(_NOT_A_FOLDER)
         return "id", str(int(digits))            # compared as a number: "folder:010" is folder 10
-    return "path", _folder_path_segments(text)
+    path = text.strip("/")                       # "/Folder" and "Folder/Sub/" work; "/" is the origin
+    return ("path", _folder_path_segments(path)) if path else None
 
 
 def _folder_segments(folders: list) -> dict[str, str]:
@@ -1801,8 +1807,8 @@ def planner_scope_note(config: dict) -> str:
     origin = f"the root folder (id {root})" if root is not None else "the top level"
     in_layout = f" in layout {layout}" if layout is not None else ""
     return (
-        f"KMS Lighthouse: list_files with no folder_id returns at most {max_results} entries (folders included) "
-        f"from {origin}, and stops there without saying so (the listing can be incomplete). Each list_files "
+        f"KMS Lighthouse: list_files with no folder_id returns at most {max_results} articles and scenarios (folders "
+        f"do not count) from {origin}, and stops there without saying so (the listing can be incomplete). Each list_files "
         f"call also stops after {_MAX_FOLDER_CALLS} folder lookups, so a short listing can be incomplete too; "
         "open a specific folder by its path or use search_files. There is no catalog: the file count shown is "
         "always 0, and every listing and read is live. To open a folder, "
@@ -1902,8 +1908,8 @@ class KmsLighthouseClient(DataSourceClient):
         return (
             f"Read-only KMS Lighthouse knowledge base at {self.host} (articles and decision-tree scenarios), "
             f"accessed as {who}; KMS permissions apply. Use search_files to find procedures. list_files with "
-            f"no folder lists up to {self.max_results} entries (folders included) from the {origin}, each with a "
-            "path of folder names; to open one folder, pass the folder part of a path as folder_id (for example "
+            f"no folder lists up to {self.max_results} articles and scenarios (folders do not count) from the "
+            f"{origin}, each with a path of folder names; to open one folder, pass the folder part of a path as folder_id (for example "
             "folder_id='Folder/Subfolder'; paths start below the root folder when one is set) and set "
             "recursive=true to include its subfolders. Read with "
             f"read_file and the entry's id (item:<id> or scenario:<id>). {shown}. The root folder limits browsing only; search covers everything the identity can see"
@@ -2225,11 +2231,15 @@ class KmsLighthouseClient(DataSourceClient):
                 raise
             if self.root_folder_id is None and not children:
                 return {"success": False, "message": _TOP_LEVEL_HINT}
+            # ``reachable``: KMS answered, so these two keep the connection savable, for an admin to fix.
+            if not children:
+                return {"success": False, "reachable": True, "message": _EMPTY_ROOT.format(root=self.root_folder_id)}
+            if self._layout_refused():
+                return {"success": False, "reachable": True, "message": _BAD_LAYOUT.format(layout=self.layout_id)}
             identity = identity or (self._username if self.auth_method == "userpass" else "the API token's account")
-            note = " The root folder came back empty." if not children else ""
             return {
                 "success": True,
-                "message": f"Connected to KMS Lighthouse at {self.host} as {identity}.{note}",
+                "message": f"Connected to KMS Lighthouse at {self.host} as {identity}.",
                 "details": {"host": self.host, "identity": identity, "auth_method": self.auth_method,
                             "root_folder_id": self.root_folder_id},
             }
@@ -2240,6 +2250,23 @@ class KmsLighthouseClient(DataSourceClient):
             # The class name only: the exception text may hold a URL or a secret.
             logger.warning("kms_lighthouse test_connection failed unexpectedly: %s", type(exc).__name__)
             return {"success": False, "message": "KMS connection test failed."}
+
+    def _layout_refused(self) -> bool:
+        """Whether KMS answers 400 for the configured layout (the API doc's answer to a layout that is not valid).
+
+        One plain GET through ``_send``, with no re-login: a tenant that refuses
+        this call for another reason must not cost a login on every status sweep,
+        and the search itself is what matters, so any other outcome is ignored.
+        """
+        if self.layout_id is None:
+            return False
+        try:
+            status, _ = self._send(self._session(), "layout_filters", "GET", "/search/global/filters",
+                                   params={"layoutId": str(self.layout_id)})
+        except KmsHTTPError as exc:
+            logger.debug("kms_lighthouse layout_filters ignored: %s", exc.kind)
+            return False
+        return status == 400
 
     def diagnostics(self, deadline=None) -> dict:
         """The on-site diagnostics report: a plain dict that never holds content.
@@ -2368,7 +2395,7 @@ class KmsLighthouseClient(DataSourceClient):
 
     # ------------------------------------------------------------------ browse
     @_closed_errors
-    def list_files(self, folder_id=None, recursive=None, limit=None, progress_callback=None):
+    def list_files(self, folder_id=None, recursive=None, limit=None, progress_callback=None, folder_calls=None):
         """Browse the folder tree as this identity, breadth first, from the root (or the top level).
 
         ``folder_id`` is a folder path (the folder part of an entry's path,
@@ -2381,17 +2408,22 @@ class KmsLighthouseClient(DataSourceClient):
         bound is ``not_found`` naming the browse limit, and one found with no
         call left to list it is ``not_found`` saying it was found.
         ``recursive`` defaults to True with no folder and to False with one. At
-        most ``min(limit, max_results)`` entries (None: ``max_results``; 0 or a
-        limit that is not a whole number is refused, ``_list_cap``) and
-        ``_MAX_FOLDER_CALLS`` tree calls; past either bound the listing just
-        stops. Offline content is hidden unless ``include_offline``.
+        most ``min(limit, max_results)`` articles and scenarios (None:
+        ``max_results``; 0 or a limit that is not a whole number is refused,
+        ``_list_cap``) and ``_MAX_FOLDER_CALLS`` tree calls; past either bound
+        the listing just stops. Folders do not count against ``limit``, because
+        the shared list_files tool drops them and a tree full of them would read
+        as empty; the tree-call bound keeps them bounded, and ``folder_calls``
+        may only lower it. Offline content is hidden unless ``include_offline``.
         """
         target = _folder_target(folder_id)       # refused before any request
         cap = self._list_cap(limit)
-        deep = target is None if recursive is None else _flag(recursive)
-        budget = _CallBudget(_MAX_FOLDER_CALLS)
+        # "/" names the origin, as a blank folder does; the shared tool sends recursive=False with any folder_id.
+        slash = target is None and folder_id not in (None, "")
+        deep = slash or (target is None if recursive is None else _flag(recursive))
+        budget = _CallBudget(min(folder_calls or _MAX_FOLDER_CALLS, _MAX_FOLDER_CALLS))
         start, start_path = self._resolve_folder(target, budget)
-        files, listed = [], set()
+        files, listed, content = [], set(), 0
         queue, queued = deque([(start, start_path)]), {start}
         while queue:
             parent, parent_path = queue.popleft()
@@ -2414,9 +2446,10 @@ class KmsLighthouseClient(DataSourceClient):
                         queue.append((folder, path))
                 else:
                     path = _entry_path(parent_path, record)
+                    content += 1
                 listed.add(entry_id)
                 files.append(self._list_entry(record, entry_id, kind, path))
-                if len(files) >= cap:
+                if content >= cap:
                     return files
         return files
 

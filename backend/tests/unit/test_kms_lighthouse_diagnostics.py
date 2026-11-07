@@ -656,7 +656,7 @@ def test_a_session_read_with_an_odd_answer_warns_and_the_run_goes_on(kms, monkey
 
 
 def _fail_tree_call(monkeypatch, nth, error):
-    """The ``nth`` tree call raises ``error``: 1 is the reach, 2 the session check, 3 connector_browse, 4 top_level."""
+    """The ``nth`` tree call raises ``error``: 1 is the reach, 2 the session check, then connector_browse, then top_level."""
     real = requests.Session.request
     seen = []
 
@@ -688,7 +688,7 @@ def test_a_transport_failure_at_the_session_check_reports_its_stage_and_ends_the
 def test_a_transport_failure_at_the_tree_is_not_a_browse_failure(kms, monkeypatch, error, stage, nth, row_id):
     _clean_tenant(kms, monkeypatch)
     _fail_tree_call(monkeypatch, nth, error)
-    report = client(kms, "alice").diagnostics()
+    report = _clean_client(kms).diagnostics()     # a root with no subfolder: one tree call for connector_browse
     assert report["failed_stage"] == stage and _rows(report)[row_id]["stage"] == stage
     assert _logins(kms) == 1
 
@@ -2501,6 +2501,34 @@ def test_a_listing_cut_by_the_cap_passes_and_says_only_part_was_proved(kms, monk
     assert row["status"] == "pass" and row["observed"]["capped"] is True
     assert "part of the tree" in row["summary"]
     assert row["observed"]["calls"] == 1, "no descent to find more"
+
+
+def _root_of_folders(kms, monkeypatch, folders, items=0):
+    mock = kms["mock"]
+    tree = {"9000": {"parent": None, "title": "root", "type": "FOLDER", "status": "2"},
+            **{str(9001 + n): {"parent": "9000", "title": f"f{n}", "type": "FOLDER", "status": "2"}
+               for n in range(folders)},
+            **{str(9500 + n): {"parent": "9000", "title": "i", "type": "ITEM", "status": "2"} for n in range(items)}}
+    monkeypatch.setattr(mock, "TREE", tree)
+    monkeypatch.setitem(mock.USERS, "alice", {**mock.USERS["alice"], "visible": set(tree)})
+
+
+def test_a_wide_tree_of_folders_leaves_the_connector_rows_their_share(kms, monkeypatch):
+    """Folders do not use up the listing cap, so the browse row bounds its own tree calls."""
+    _root_of_folders(kms, monkeypatch, kd._PROOF_CALLS + 10)
+    report = client(kms, "alice", root_folder_id=9000).diagnostics()
+    rows = _rows(report)
+    assert rows["connector_browse"]["observed"]["calls"] == kd._PROOF_ENTRIES
+    assert rows["connector_browse"]["observed"]["capped"] is True
+    assert "part of the tree" in rows["connector_browse"]["summary"]
+    assert rows["connector_search"]["status"] != "skipped" and rows["connector_read"]["status"] != "skipped"
+
+
+def test_many_folders_read_to_the_end_are_not_capped(kms, monkeypatch):
+    _root_of_folders(kms, monkeypatch, kd._PROOF_ENTRIES - 1, items=3)
+    row = _rows(client(kms, "alice", root_folder_id=9000).diagnostics())["connector_browse"]
+    assert row["observed"]["entries"] >= kd._PROOF_ENTRIES and row["observed"]["capped"] is False
+    assert "part of the tree" not in row["summary"]
 
 
 def test_a_listing_inside_the_cap_is_not_capped(kms, monkeypatch):

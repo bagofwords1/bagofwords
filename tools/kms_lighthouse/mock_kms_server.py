@@ -9,6 +9,8 @@ Public API Documentation 5.0 and the public username/password login:
   GET  {PREFIX}/sessionInfo                 data.userId, data.userFullName, data.username
   GET  {PREFIX}/cm/tree/branch/view         ?parentId; ids and statuses are strings
   GET  {PREFIX}/search/full                 ?query&start&rows[&layoutId] -> regularSearch.results[]
+  GET  {PREFIX}/search/global/filters       ?layoutId -> a bare JSON array of filters (the PDF's shape);
+                                            400 with no body without a layoutId or by STATE["layout_status"]
   GET  {PREFIX}/public/item/{id}            the article body (ITEMS); HTTP 200 {"status": "ERROR"} for an
                                             unknown id or one this user may not see
   GET  {PREFIX}/ai_answers_item             ?itemId&version&language -> the AI-ready text (AI_ITEMS); 404
@@ -117,6 +119,8 @@ Test-only switches and routes (not part of the KMS API):
     STATE["no_hit_text"] = "x": a query holding "x" matches nothing; its body is
     STATE["no_hit_body"], or an empty results list when that is None.
     STATE["top_level_status"] = N: the tree call with no parentId answers HTTP N with no body.
+    STATE["layout_status"] = N: /search/global/filters answers HTTP N with no body (the PDF's answer
+    to a layout id that is not valid is 400).
   - GET {PREFIX}/_mock/empty              HTTP 200 with an empty body
   - GET {PREFIX}/_mock/oversized          HTTP 200 with a large JSON body (OVERSIZED_BYTES)
 
@@ -469,6 +473,8 @@ _DEFAULTS = {
     "no_hit_text": None,             # None | a query holding this text matches nothing
     "no_hit_body": None,             # None | the whole JSON body of a query that matches nothing
     "top_level_status": None,        # None | an HTTP status: the tree call with no parentId answers it
+    "layout_status": None,           # None | an HTTP status: /search/global/filters answers it, no body
+    "last_filters_layout": None,     # the layoutId of the last /search/global/filters call
 }
 _STEP_ANSWERS = ("error", "wrong_step")
 _STALE = {"barrier": None}           # the barrier for STATE["hold_stale_401s"]
@@ -518,7 +524,7 @@ class _State(dict):
                              f"(ints 200-599), not {value!r}")
         if key == "ai_missing_items" and not (type(value) is list and all(_is_digits(v) for v in value)):
             raise ValueError(f"STATE[{key!r}] must be a list of item ids (digit strings), not {value!r}")
-        if key == "login_status" and not (value is None or _is_status(value)):
+        if key in ("login_status", "layout_status") and not (value is None or _is_status(value)):
             raise ValueError(f"STATE[{key!r}] must be None or an HTTP status (int 200-599), not {value!r}")
         if key == "ai_status" and not (value is None or _is_status(value) or value in _AI_ANSWERS):
             raise ValueError(f"STATE[{key!r}] must be None, an HTTP status (int 200-599) or one of "
@@ -798,6 +804,18 @@ class Handler(BaseHTTPRequestHandler):
             if self._body_fault(route):
                 return None
             return self._search(user, query, odd)
+        if route == "/search/global/filters":
+            with _LOCK:
+                STATE["last_filters_layout"] = (query.get("layoutId") or [None])[0]
+            if self._body_fault(route):
+                return None
+            if STATE["layout_status"] is not None:
+                return self._send_empty(STATE["layout_status"])
+            if not query.get("layoutId"):
+                return self._send_empty(400)
+            return self._send_json(200, [{"name": "GF_REGION_dfs", "caption": "Region", "multiSelect": False,
+                                          "values": [{"id": None, "name": "Center", "internalId": 5}],
+                                          "domainType": "TEXT", "childDomains": []}])
         if route.startswith("/public/item/"):
             return self._item(user, route[len("/public/item/"):], odd)
         if route == "/ai_answers_item":

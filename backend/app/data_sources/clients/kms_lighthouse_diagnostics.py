@@ -65,7 +65,7 @@ _MAX_SCENARIO_NODES = 400
 _MAX_NAMES = 40
 _PROOF_CHECKS = ("connector_browse", "connector_search", "connector_read")
 _PROOF_CALLS = 21             # 60 less the 39 the other checks can need at most
-_PROOF_ENTRIES = 10           # one tree call per listed folder at most, so at most 11 calls
+_PROOF_ENTRIES = 10           # articles and scenarios listed, and the tree calls the listing may make
 _PROOF_HITS = 5
 _PROOF_ITEMS = 2
 _PROOF_SCENARIOS = 1
@@ -588,14 +588,17 @@ class _Run:
     # ------------------------------------------------------------ the connector's own proof
     def check_connector_browse(self):
         before = self.calls
-        found, kind = self._connector(self.client.list_files, limit=_PROOF_ENTRIES)
+        # Folders do not use up ``limit``, so a tree of folders is bounded by the tree calls alone.
+        found, kind = self._connector(self.client.list_files, limit=_PROOF_ENTRIES, folder_calls=_PROOF_ENTRIES)
         observed = {"calls": self.calls - before}
         if kind:
             return "fail", "The connector could not list the folder tree.", {**observed, "kind": kind}
         self.proof_listed = [entry for entry in found if entry["kind"] != "folder"]
         words = (_TITLE_WORD_RE.search(entry["name"]) for entry in self.proof_listed + found)
         self.title_word = next((word.group() for word in words if word), None)
-        capped = len(found) >= _PROOF_ENTRIES
+        # One call for the start, one per listed folder: fewer means a folder was left unopened.
+        unopened = observed["calls"] < 1 + len(found) - len(self.proof_listed)
+        capped = unopened or len(self.proof_listed) >= _PROOF_ENTRIES
         observed.update(entries=len(found), content_entries=len(self.proof_listed), capped=capped)
         cut = " The listing reached this run's limit, so only part of the tree was proved." if capped else ""
         if not found:

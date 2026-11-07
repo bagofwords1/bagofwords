@@ -454,8 +454,8 @@ def test_description_names_one_identity_for_both_variants(kms, base_url):
     # The folder example is root-relative, as the listing's paths are.
     assert "folder_id='Folder/Subfolder'" in userpass and "Procedures" not in userpass
     assert "paths start below the root folder when one is set" in userpass
-    # Folders count toward the listing cap (default 200).
-    assert "no folder lists up to 200 entries (folders included) from the" in userpass
+    # Only articles and scenarios count toward the listing cap (default 200).
+    assert "no folder lists up to 200 articles and scenarios (folders do not count) from the" in userpass
 
 
 # An unusable login token is a server error, not a transport one:
@@ -513,9 +513,8 @@ def test_planner_scope_note_states_handle_cap_and_scope(root, max_results, layou
     # A root-relative example: under a root folder, paths start below it (the root's name is not in them).
     assert "(for example 'Folder/Subfolder')" in note and "Procedures" not in note
     assert "paths start below the configured root folder when one is set" in note
-    # Folders count toward the listing cap, so the note says entries, not articles and scenarios.
-    assert f"returns at most {max_results or 200} entries (folders included)" in note
-    assert "articles and scenarios from" not in note
+    # Only articles and scenarios count toward the listing cap.
+    assert f"returns at most {max_results or 200} articles and scenarios (folders do not count)" in note
     assert "browsing only" in note
     assert ("4711" in note) is (root is not None)
     assert ("layout 7" in note) is (layout is not None)
@@ -545,12 +544,61 @@ def test_top_level_rejection_hints_root_folder(kms):
     result = client(kms).test_connection()
     assert result["success"] is False
     assert "Root folder ID" in result["message"] and _no_marker(result["message"]) == []
-    # Folder 95 exists and is empty: with a root set, an empty folder is a pass.
-    rooted = client(kms, root_folder_id=95).test_connection()
-    assert rooted["success"] is True, rooted
-    assert rooted["details"]["root_folder_id"] == 95
-    assert "root folder came back empty" in rooted["message"]
     assert "empty" not in client(kms, root_folder_id=78).test_connection()["message"]
+
+
+@pytest.mark.parametrize("make", [client, token_client])
+@pytest.mark.parametrize("root", [95, 0, 999999], ids=["empty_folder", "zero", "unknown_folder"])
+def test_a_configured_root_that_comes_back_empty_fails_the_test(kms, make, root):
+    """KMS answers 200 SUCCESS with no records for a parentId that is not valid, as for an empty folder."""
+    result = make(kms, root_folder_id=root).test_connection()
+    assert result["success"] is False, result
+    assert result["reachable"] is True, "a save is blocked only when the host is unreachable"
+    assert str(root) in result["message"] and "Root folder ID" in result["message"]
+    assert _no_marker(result["message"]) == []
+
+
+def test_a_layout_kms_answers_for_passes_with_one_filters_call(kms):
+    assert client(kms, layout_id=7).test_connection()["success"] is True
+    assert len(_rows(kms, "/search/global/filters")) == 1
+    assert kms["mock"].STATE["last_filters_layout"] == "7"
+
+
+def test_no_layout_makes_no_filters_call(kms):
+    assert client(kms).test_connection()["success"] is True
+    assert _rows(kms, "/search/global/filters") == []
+
+
+@pytest.mark.parametrize("make", [client, token_client])
+def test_a_layout_kms_refuses_fails_the_test(kms, make):
+    kms["mock"].STATE["layout_status"] = 400
+    result = make(kms, layout_id=7).test_connection()
+    assert result["success"] is False, result
+    assert result["reachable"] is True, "a save is blocked only when the host is unreachable"
+    assert "Layout ID" in result["message"] and "7" in result["message"]
+    assert _no_marker(result["message"]) == []
+
+
+@pytest.mark.parametrize("make", [client, token_client])
+@pytest.mark.parametrize("status", [401, 302, 403, 404, 429, 500, 503])
+def test_any_other_filters_failure_leaves_the_test_to_the_search(kms, make, status):
+    """One GET and nothing after it: a tenant that refuses this call must not cost a login on every sweep."""
+    kms["mock"].STATE["layout_status"] = status
+    kms["mock"].STATE["login_count"] = 0
+    probe = make(kms, layout_id=7)
+    logins = kms["mock"].STATE["login_count"]
+    result = probe.test_connection()
+    assert result["success"] is True, result
+    assert "Layout" not in result["message"]
+    assert len(_rows(kms, "/search/global/filters")) == 1
+    assert kms["mock"].STATE["login_count"] - logins == (1 if make is client else 0)
+
+
+def test_a_filters_call_that_breaks_leaves_the_test_to_the_search(kms):
+    kms["mock"].STATE["body_fault"] = {"route": "/search/global/filters", "fault": "truncated"}
+    result = client(kms, layout_id=7).test_connection()
+    assert result["success"] is True, result
+    assert len(_rows(kms, "/search/global/filters")) == 1
 
 
 # ------------------------------------------------------------------ P2: transport hardening

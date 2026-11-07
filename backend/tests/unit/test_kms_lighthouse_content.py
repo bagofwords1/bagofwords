@@ -342,6 +342,10 @@ def _ids(entries):
     return {e["id"] for e in entries}
 
 
+def _content(entries):
+    return [e for e in entries if not e["is_folder"]]
+
+
 @pytest.mark.parametrize("make", [client, token_client])
 def test_list_walks_tree_from_root(kms, make):
     entries = make(kms).list_files()
@@ -445,15 +449,66 @@ def test_list_walk_is_bounded(kms):
     mock = kms["mock"]
     # The wide folder alone has more subfolders than the cap.
     entries = client(kms).list_files()
-    assert len(_rows(kms, _TREE_PATH)) == 40 and len(entries) <= 200
+    assert len(_rows(kms, _TREE_PATH)) == 40 and len(_content(entries)) <= 200
     assert {f"folder:{1000 + n}" for n in range(mock.WIDE_CHILDREN)} <= _ids(entries)
     assert not {f"item:{2000 + n}" for n in range(mock.WIDE_CHILDREN)} <= _ids(entries)
     # Resolving a path counts against the same cap.
     mock.REQUEST_LOG.clear()
     client(kms).list_files(folder_id="Wide", recursive=True)
     assert len(_rows(kms, _TREE_PATH)) == 40
-    assert len(client(kms).list_files(limit=7)) == 7
-    assert len(client(kms, max_results=5).list_files(limit=50)) == 5
+    assert len(_content(client(kms).list_files(limit=7))) == 7
+    assert len(_content(client(kms, max_results=5).list_files(limit=50))) == 5
+
+
+def _folders_then_one_item(kms, monkeypatch, folders):
+    """A root that holds only folders, and one item under the last of them."""
+    mock = kms["mock"]
+    tree = {"9000": {"parent": None, "title": "Root", "type": "FOLDER", "status": "2"},
+            **{str(9001 + n): {"parent": "9000", "title": f"Folder {n}", "type": "FOLDER", "status": "2"}
+               for n in range(folders)},
+            "9900": {"parent": str(9000 + folders), "title": "Deep item", "type": "ITEM", "status": "2"}}
+    monkeypatch.setattr(mock, "TREE", tree)
+    monkeypatch.setitem(mock.USERS, "alice", {**mock.USERS["alice"], "visible": set(tree)})
+
+
+@pytest.mark.parametrize("cap", [1, 3, 12])
+def test_folders_never_use_up_the_listing_cap(kms, monkeypatch, cap):
+    """The shared list_files tool drops folders, so a tree full of them must not read as empty."""
+    _folders_then_one_item(kms, monkeypatch, 12)
+    entries = client(kms, root_folder_id=9000, max_results=cap).list_files()
+    assert _ids(_content(entries)) == {"item:9900"}
+    assert sum(1 for entry in entries if entry["is_folder"]) == 12, "folder entries stay in the listing"
+
+
+def test_the_cap_counts_items_and_scenarios_only_and_stops_at_them(kms, monkeypatch):
+    mock = kms["mock"]
+    tree = {"9000": {"parent": None, "title": "Root", "type": "FOLDER", "status": "2"},
+            "9001": {"parent": "9000", "title": "Folder", "type": "FOLDER", "status": "2"},
+            "9002": {"parent": "9001", "title": "Under the folder", "type": "ITEM", "status": "2"},
+            "9003": {"parent": "9000", "title": "One", "type": "ITEM", "status": "2"},
+            "9004": {"parent": "9000", "title": "Two", "type": "ITEM", "subType": "T_SCENARIO_FLOW", "status": "2"}}
+    monkeypatch.setattr(mock, "TREE", tree)
+    monkeypatch.setitem(mock.USERS, "alice", {**mock.USERS["alice"], "visible": set(tree)})
+    entries = client(kms, root_folder_id=9000, max_results=2).list_files()
+    assert len(_content(entries)) == 2
+    assert len(_rows(kms, _TREE_PATH)) == 1, "the cap was reached: no call to open the folder"
+
+
+def test_a_tree_of_folders_stays_inside_the_tree_call_bound(kms, monkeypatch):
+    _folders_then_one_item(kms, monkeypatch, kc._MAX_FOLDER_CALLS + 20)
+    entries = client(kms, root_folder_id=9000, max_results=5).list_files()
+    assert len(_rows(kms, _TREE_PATH)) == kc._MAX_FOLDER_CALLS
+    assert _content(entries) == [], "past the call bound the listing just stops"
+
+
+def test_a_caller_can_only_lower_the_tree_call_bound(kms, monkeypatch):
+    _folders_then_one_item(kms, monkeypatch, 12)
+    client(kms, root_folder_id=9000).list_files(folder_calls=4)
+    assert len(_rows(kms, _TREE_PATH)) == 4
+    kms["mock"].REQUEST_LOG.clear()
+    _folders_then_one_item(kms, monkeypatch, kc._MAX_FOLDER_CALLS + 20)
+    client(kms, root_folder_id=9000).list_files(folder_calls=kc._MAX_FOLDER_CALLS + 10)
+    assert len(_rows(kms, _TREE_PATH)) == kc._MAX_FOLDER_CALLS
 
 
 def test_folder_outside_root_is_refused(kms):
@@ -474,10 +529,25 @@ def test_list_runs_as_the_identity(kms, make):
     assert set(callers) == {"alice", "bob"} and callers == sorted(callers)
 
 
+@pytest.mark.parametrize("path", ["/Procedures", "Procedures/", "/Procedures/", "//Procedures//"])
+def test_a_folder_path_may_start_or_end_with_a_slash(kms, path):
+    plain = client(kms).list_files(folder_id="Procedures", recursive=True)
+    assert plain and _ids(client(kms).list_files(folder_id=path, recursive=True)) == _ids(plain)
+
+
+@pytest.mark.parametrize("path", ["/", "//", "///"])
+@pytest.mark.parametrize("config", [{}, {"root_folder_id": 10}], ids=["top_level", "root"])
+def test_a_bare_slash_is_the_origin_as_a_blank_folder_is(kms, path, config):
+    blank = client(kms, **config).list_files(folder_id="")
+    assert blank and _ids(client(kms, **config).list_files(folder_id=path)) == _ids(blank)
+    # The shared list_files tool sends recursive=False with any folder_id and lists a blank one recursively.
+    assert _ids(client(kms, **config).list_files(folder_id=path, recursive=False)) == _ids(blank)
+
+
 @pytest.mark.parametrize("folder_id", [
     "folder:../1", "folder:1;x", "item:%2e%2e", "folder:" + "1" * 13, "Procedures/../Restricted",
     "folder:10\n", "FOLDER:10\n", "item:279\n", "item:279", "scenario:4401", "folder:", "folder:-1",
-    "./Procedures", "Procedures/.", "Procedures//Billing", "/Procedures", "Procedures\tBilling",
+    "./Procedures", "Procedures/.", "Procedures//Billing", "/Procedures//Billing/", "Procedures\tBilling",
     "Procedures/‮Billing", "x" * 201, "/".join(["a"] * 26), "Procedures/item:7",
 ])
 def test_ids_are_validated_before_any_request(kms, folder_id):
@@ -806,7 +876,7 @@ def test_bad_list_limit_is_named_before_any_request(kms, limit):
 
 @pytest.mark.parametrize("limit,count", [(None, 5), (3, 3), ("3", 3), (3.0, 3), (" 4 ", 4), (50, 5)])
 def test_whole_number_list_limits_are_accepted(kms, limit, count):
-    assert len(client(kms, max_results=5).list_files(limit=limit)) == count
+    assert len(_content(client(kms, max_results=5).list_files(limit=limit))) == count
 
 
 @pytest.mark.parametrize("value", ["ſcenario:5", "ıtem:5", "İtem:5", "ſcenario:4401", "FOLDER:ſ"])

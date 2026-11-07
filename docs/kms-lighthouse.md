@@ -23,7 +23,7 @@ Create a connection of type **KMS Lighthouse** and fill in:
 | Layout ID | `layout_id` | blank | Optional. When set, search sends it as `layoutId`, so search is limited to that layout. Browsing and reads ignore it. |
 | Root folder ID | `root_folder_id` | blank | Optional. The KMS folder that browsing starts from. It limits **browsing only** (see [Scope](#scope)). Folder id 0 is a valid value. |
 | Include offline content | `include_offline` | off | Also show content that is not Online (drafts, offline). |
-| Max results | `max_results` | 200 | 1 to 1000. Upper bound on entries returned by one search or one listing. |
+| Max results | `max_results` | 200 | 1 to 1000. Upper bound on articles and scenarios returned by one search or one listing. Folders do not count. |
 | Allow HTTP (test labs only) | `allow_http` | off | Allows plain HTTP for an isolated lab. Use HTTPS with a trusted certificate for customer deployments. |
 
 A hidden `index_mode` field accepts only `none` (live only). The base URL goes
@@ -43,12 +43,22 @@ and the first level of the folder tree (the root folder, or the top level). On
 success the connection dialog shows the platform's "Connected successfully.
 Found N documents." N counts the articles and scenarios (not folders) of one
 recursive listing from the root folder or the top level. That listing stops at
-200 entries (folders included; Max results when that is lower) or after 40
-folder calls, whichever comes first; when it is cut, N is a floor, even well
-below 200. When no root folder is set
+200 articles and scenarios (folders do not count; Max results when that is
+lower) or after 40 folder calls, whichever comes first; when it is cut, N is a
+floor, even well below 200. When no root folder is set
 and the top level comes back empty or is refused, the test fails with a hint to
 set Root folder ID or check the account's KMS permissions. With a root folder
-set, an empty folder is a pass.
+set, an empty answer fails the test too: KMS answers `SUCCESS` with no records
+for a `parentId` that is not valid, so an empty folder and a wrong id look the
+same. The connection can still be saved, so you can fix the id.
+
+When Layout ID is set, the test also calls
+`GET /search/global/filters?layoutId=`. A 400, the API doc's answer to a layout
+that is not valid, fails the test with a message naming the layout, and the
+connection can still be saved. Any other failure of that call is ignored,
+because the search itself is what matters. It is one call with no re-login, so
+the status sweep, which re-tests system connections every 300 s, makes one call
+more per test when a layout is set.
 
 **Indexing.** The registry declares `catalog_ownership="none"`, so a new KMS
 connection skips the indexing step and the file count shown for it is always 0.
@@ -149,7 +159,9 @@ folder rows), so the agent drills into a folder by its **path**:
   top level), then `<title>.txt`. Example: `Folder/Subfolder/Reset a password.txt`.
 - To open a folder, pass the folder part of an entry's path as `folder_id`
   (`folder_id='Folder/Subfolder'`), with `recursive=true` to include subfolders.
-  Paths start below the configured root folder when one is set.
+  Paths start below the configured root folder when one is set. A leading or
+  trailing `/` is ignored, and `/` alone means the origin, as a blank folder does;
+  an empty segment such as `a//b` is refused.
 - `folder:<digits>` is also accepted (direct callers, and the folder entries the
   Files tab receives).
 - `list_files` with no folder is recursive by default; with a folder it lists
@@ -458,9 +470,11 @@ for a read), `warn` when it came back empty, and `fail` when it raised, with the
 kind of the error or its type name. Their `observed` holds counts and lengths only.
 
 - `connector_browse` passes only with at least one entry that is not a folder. It
-  stops at 10 entries; when it reaches them, `capped` is true and the summary says
-  only part of the tree was proved, and the run spends no more calls going deeper. A
-  tenant whose first 10 entries are all folders warns, however good the rest is.
+  stops at 10 articles and scenarios or 10 tree calls; folders do not count toward
+  the 10 entries. When either bound cut the listing, `capped` is true and the summary
+  says only part of the tree was proved, and the run spends no more calls going
+  deeper. A tenant with nothing to read in the first 10 folders it opens warns,
+  however good the rest is.
 - `connector_search` tries the next sample query after a refused one. It warns,
   with `queries_refused`, if another query worked, and fails only if every query was
   refused. `search_layout` does the same.
@@ -550,7 +564,8 @@ KMS-specific follow-ups:
 
 - The hash or secret-key login (`/freshdesk/login`): blocked until KMS publishes
   the formula. The connector has one place where a login variant plugs in.
-- KMS AI answers (`/ai_answers`), suggest, categories and global filters.
+- KMS AI answers (`/ai_answers`), suggest, categories, and global filters as a
+  search option (Test connection only uses that call to check Layout ID).
 - Glossary terms, related items, attachments, and fetching images.
 - A catalog or content index: no sample names in the agent prompt, no
   `group_by='folder'`, a file count of 0, and no entry in the integrations

@@ -116,6 +116,27 @@ def test_connection_lifecycle_and_secrets(
 
 
 @pytest.mark.e2e
+@pytest.mark.parametrize("bad,good", [({"root_folder_id": 95}, {"root_folder_id": 10}), ({"layout_id": 7}, {})],
+                         ids=["root", "layout"])
+def test_a_wrong_root_or_layout_fails_the_test_but_stays_savable_to_fix(
+    kms, test_client, create_user, login_user, whoami, create_connection, test_connection_connectivity, bad, good,
+):
+    token, org, headers = _admin(create_user, login_user, whoami)
+    if "layout_id" in bad:
+        kms["mock"].STATE["layout_status"] = 400
+    conn = create_connection(name="KMS to fix", type="kms_lighthouse", config=_cfg(kms, **bad),
+                             credentials=_svc_userpass(kms), user_token=token, org_id=org)
+    probe = test_connection_connectivity(connection_id=conn["id"], user_token=token, org_id=org)
+    assert probe["success"] is False, probe
+
+    kms["mock"].STATE["layout_status"] = None
+    fixed = test_client.put(f"/api/connections/{conn['id']}", json={"config": _cfg(kms, **good)}, headers=headers)
+    assert fixed.status_code == 200, fixed.text
+    probe = test_connection_connectivity(connection_id=conn["id"], user_token=token, org_id=org)
+    assert probe["success"] is True, probe
+
+
+@pytest.mark.e2e
 def test_switching_auth_variant_uses_the_new_one(
     kms, test_client, create_user, login_user, whoami, create_connection, test_connection_connectivity,
 ):

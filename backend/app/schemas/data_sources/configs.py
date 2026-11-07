@@ -2772,7 +2772,7 @@ class KmsLighthouseConfig(BaseModel):
     )
     max_results: int = Field(
         200, ge=1, le=1000, title="Max results",
-        description="Upper bound on entries returned by one search or listing.",
+        description="Upper bound on articles and scenarios returned by one search or listing.",
         json_schema_extra={"ui:type": "number"},
     )
     allow_http: bool = Field(False, title="Allow HTTP (test labs only)",
