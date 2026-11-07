@@ -329,7 +329,9 @@ class SearchFilesTool(Tool):
                     yield self._done(data, entries, used_index, runtime_ctx=runtime_ctx, indexed_at=indexed_at,
                                      catalog_names=catalog_names, catalog_total=catalog_total)
                     return
-                yield _fail(err)
+                # KMS Lighthouse only: the same text list_files gives (Connect, or inactive).
+                from .list_files import kms_client_error
+                yield _fail(kms_client_error(runtime_ctx, data.connection_id, self._operation_name, err) or err)
                 return
             # The tool must answer before the runner's timeout: a timed-out
             # tool leaves the UI spinning and the runner retries it, starting

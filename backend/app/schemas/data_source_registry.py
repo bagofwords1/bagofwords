@@ -23,6 +23,9 @@ from app.schemas.data_sources.configs import (
     DocumentumOtdsClientCredentials,
     DocumentumImpersonationCredentials,
     OAuthDelegatedCredentials as _DocumentumOAuthCredentials,
+    KmsLighthouseConfig,
+    KmsLighthouseUserPassCredentials,
+    KmsLighthouseTokenCredentials,
     SharePointOnpremKerberosCredentials,
     SQLiteConfig,
     OracleConfig,
@@ -1925,6 +1928,34 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         is_document_based=True,
         data_shape="files",
         catalog_ownership="shared",
+        requires_license="enterprise",
+        version="beta",
+    ),
+    "kms_lighthouse": DataSourceRegistryEntry(
+        type="kms_lighthouse",
+        category="files",
+        title="KMS Lighthouse",
+        description=(
+            "Search and read KMS Lighthouse knowledge articles and decision-tree scenarios (read-only, live). "
+            "KMS permissions apply to every call; per-user access with each person's own KMS login or token."
+        ),
+        config_schema=KmsLighthouseConfig,
+        credentials_auth=AuthOptions(
+            default="token",
+            by_auth={
+                "token": AuthVariant(title="API token (Bearer)", schema=KmsLighthouseTokenCredentials, scopes=["system", "user"]),
+                "userpass": AuthVariant(
+                    title="Username / Password (undocumented login; the password goes in the URL)",
+                    schema=KmsLighthouseUserPassCredentials, scopes=["system", "user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.kms_lighthouse_client.KmsLighthouseClient",
+        is_document_based=True,
+        data_shape="files",
+        # No catalog (ADR-1): search and browse are live, per identity.
+        catalog_ownership="none",
+        catalog_nouns=("document", "documents"),
         requires_license="enterprise",
         version="beta",
     ),

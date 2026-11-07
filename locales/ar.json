@@ -4219,7 +4219,11 @@
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
-    "ssh.key_discovery_failed": "تعذر جلب المفتاح. تحقق من اسم الخادم والمنفذ والشبكة، أو أدخل مفتاحًا موثوقًا في الإعدادات المتقدمة."
+    "ssh.key_discovery_failed": "تعذر جلب المفتاح. تحقق من اسم الخادم والمنفذ والشبكة، أو أدخل مفتاحًا موثوقًا في الإعدادات المتقدمة.",
+    "connection.kms_token_format": "يمكن أن يحتوي رمز API الخاص بـ KMS على أحرف وأرقام وعلامات ترقيم عادية فقط، بدون مسافات. انسخه مرة أخرى من KMS Lighthouse والصقه كنص عادي.",
+    "connection.kms_use_connection_credentials": "يتم حفظ بيانات تسجيل الدخول إلى KMS Lighthouse في الاتصال. افتح الاتصال واتصل من هناك.",
+    "connection.kms_only": "ينطبق التشخيص على اتصالات KMS Lighthouse فقط.",
+    "connection.kms_diagnostics_running": "التشخيص قيد التشغيل بالفعل لهذا الاتصال. انتظر حتى ينتهي ثم حاول مرة أخرى."
   },
   "email": {
     "dashboardShare": {
@@ -6770,5 +6774,38 @@
     "subtitle": "صفوف نموذجية من {connection}، تُقرأ مباشرة من المصدر.",
     "close": "إغلاق",
     "button": "معاينة"
+  },
+  "kmsDiagnostics": {
+    "run": "تشغيل التشخيص",
+    "running": "جارٍ تشغيل التشخيص. قد يستغرق ذلك حتى 90 ثانية.",
+    "description": "فحوصات للقراءة فقط للشبكة والشهادة وتسجيل الدخول وسلوك KMS. يرسل تسجيل دخول واحدًا كحد أقصى.",
+    "overallPass": "نجحت الفحوصات التلقائية",
+    "overallWarn": "انتهى مع تحذيرات",
+    "overallFail": "انتهى مع فشل",
+    "manualCheck": "يتبقى فحص يدوي واحد: أعد التشغيل كمستخدم KMS مقيّد وقارن أسماء العناصر.",
+    "failedStage": "فشل في: {stage}",
+    "calls": "{calls} استدعاء في {seconds} ث",
+    "callsUnknown": "توقف بعد {seconds} ث. عدد الاستدعاءات غير معروف.",
+    "copy": "نسخ التقرير",
+    "copied": "تم نسخ التقرير",
+    "copyFailed": "تعذر نسخ التقرير. استخدم تنزيل JSON.",
+    "download": "تنزيل JSON",
+    "reportNote": "يبقى التقرير باللغة الإنجليزية ليمكن إرساله إلى مهندسي BOW. لا يحتوي على محتوى أو أسماء أو كلمات مرور.",
+    "failed": "تعذر تشغيل التشخيص.",
+    "status": {
+      "pass": "نجح",
+      "warn": "تحذير",
+      "fail": "فشل",
+      "info": "معلومات",
+      "skipped": "تم التخطي"
+    },
+    "stage": {
+      "network": "الشبكة",
+      "tls": "TLS",
+      "login": "تسجيل الدخول",
+      "browse": "التصفح",
+      "search": "البحث",
+      "read": "القراءة"
+    }
   }
 }

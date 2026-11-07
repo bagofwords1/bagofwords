@@ -59,6 +59,7 @@
         </span>
         <span v-if="testResult.message" class="text-gray-500 dark:text-gray-400"> - {{ testResult.message }}</span>
       </div>
+      <p v-if="saveError" class="mt-3 text-xs text-red-600" role="alert">{{ saveError }}</p>
     </div>
   </UModal>
 
@@ -73,6 +74,7 @@ const props = defineProps<{ modelValue: boolean, dataSource: any }>()
 const emit = defineEmits(['update:modelValue', 'saved'])
 
 const { t } = useI18n()
+const { getErrorMessage } = useErrorMessage()
 
 const open = computed({
   get: () => props.modelValue,
@@ -105,6 +107,7 @@ const credentialFields = computed(() => {
 })
 
 watch(open, async (val) => {
+  if (val) saveError.value = null
   if (val && connectionType.value) {
     await loadFields()
   }
@@ -134,6 +137,7 @@ const catalogOwnership = ref<string>('shared')
 watch(authMode, (v) => {
   form.value.auth_mode = v || ''
   form.value.credentials = {}
+  saveError.value = null
 })
 
 const isOAuthMode = computed(() => authMode.value === 'oauth')
@@ -168,14 +172,17 @@ async function onOAuthSignIn() {
 const saving = ref(false)
 const testing = ref(false)
 const testResult = ref<{ success: boolean, message?: string } | null>(null)
+// A failed save's message: the backend's reason, localized when it has a code.
+const saveError = ref<string | null>(null)
 
 async function onSave() {
   try {
     saving.value = true
+    saveError.value = null
     // Manual-identity file connectors store per-user credentials on the
     // connection row that runtime resolution reads (see
     // ConnectionService.save_windows_user_credentials).
-    const endpoint = ['sharepoint_onprem', 'documentum'].includes(connectionType.value) && connectionId.value
+    const endpoint = ['sharepoint_onprem', 'documentum', 'kms_lighthouse'].includes(connectionType.value) && connectionId.value
       ? `/connections/${connectionId.value}/my-credentials`
       : `/data_sources/${ds.value.id}/my-credentials`
     const { error } = await useMyFetch(endpoint, { method: 'POST', body: form.value })
@@ -183,7 +190,7 @@ async function onSave() {
     emit('saved')
     emit('update:modelValue', false)
   } catch (e) {
-    // optionally toast
+    saveError.value = getErrorMessage(e, t('data.failed'))
   } finally {
     saving.value = false
   }
@@ -196,7 +203,8 @@ async function onTest() {
     if (error.value) throw error.value
     testResult.value = data.value as any
   } catch (e: any) {
-    testResult.value = { success: false, message: e?.message || t('data.failed') }
+    // The backend's reason, not the fetch status line.
+    testResult.value = { success: false, message: getErrorMessage(e, t('data.failed')) }
   } finally {
     testing.value = false
   }

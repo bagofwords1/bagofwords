@@ -4652,7 +4652,11 @@
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
-    "ssh.key_discovery_failed": "Could not fetch the server key. Check the hostname, port and network access, or enter a trusted key under Advanced."
+    "ssh.key_discovery_failed": "Could not fetch the server key. Check the hostname, port and network access, or enter a trusted key under Advanced.",
+    "connection.kms_token_format": "The KMS API token can contain only plain letters, digits and punctuation, with no spaces. Copy it again from KMS Lighthouse and paste it as plain text.",
+    "connection.kms_use_connection_credentials": "KMS Lighthouse sign-ins are saved on the connection. Open the connection and connect from there.",
+    "connection.kms_only": "Diagnostics apply to KMS Lighthouse connections only.",
+    "connection.kms_diagnostics_running": "Diagnostics are already running for this connection. Wait for them to finish, then try again."
   },
   "email": {
     "dashboardShare": {
@@ -7410,5 +7414,38 @@
     "subtitle": "Sample rows from {connection}, read live from the source.",
     "close": "Close",
     "button": "Preview"
+  },
+  "kmsDiagnostics": {
+    "run": "Run diagnostics",
+    "running": "Running diagnostics. This can take up to 90 seconds.",
+    "description": "Read-only checks of the network, certificate, login and KMS behaviour. Sends one login at most.",
+    "overallPass": "Automatic checks passed",
+    "overallWarn": "Finished with warnings",
+    "overallFail": "Finished with a failure",
+    "manualCheck": "One manual check remains: run this again as a restricted KMS user and compare the element names.",
+    "failedStage": "Failed at: {stage}",
+    "calls": "{calls} calls in {seconds} s",
+    "callsUnknown": "Cut off after {seconds} s. The number of calls is unknown.",
+    "copy": "Copy report",
+    "copied": "Report copied",
+    "copyFailed": "Could not copy the report. Use Download JSON.",
+    "download": "Download JSON",
+    "reportNote": "The report stays in English so it can be sent to the BOW engineers. It holds no content, names or passwords.",
+    "failed": "Diagnostics could not run.",
+    "status": {
+      "pass": "Pass",
+      "warn": "Warning",
+      "fail": "Fail",
+      "info": "Info",
+      "skipped": "Skipped"
+    },
+    "stage": {
+      "network": "network",
+      "tls": "TLS",
+      "login": "login",
+      "browse": "browse",
+      "search": "search",
+      "read": "read"
+    }
   }
 }

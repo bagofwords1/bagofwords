@@ -4219,7 +4219,11 @@
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
-    "ssh.key_discovery_failed": "Не удалось получить ключ. Проверьте адрес, порт и сеть или введите доверенный ключ в дополнительных настройках."
+    "ssh.key_discovery_failed": "Не удалось получить ключ. Проверьте адрес, порт и сеть или введите доверенный ключ в дополнительных настройках.",
+    "connection.kms_token_format": "Токен API KMS может содержать только обычные буквы, цифры и знаки препинания, без пробелов. Скопируйте его ещё раз из KMS Lighthouse и вставьте как обычный текст.",
+    "connection.kms_use_connection_credentials": "Данные для входа в KMS Lighthouse сохраняются в подключении. Откройте подключение и подключитесь оттуда.",
+    "connection.kms_only": "Диагностика применима только к подключениям KMS Lighthouse.",
+    "connection.kms_diagnostics_running": "Диагностика этого подключения уже выполняется. Дождитесь её завершения и повторите попытку."
   },
   "email": {
     "dashboardShare": {
@@ -6770,5 +6774,38 @@
     "subtitle": "Примеры строк из {connection}, прочитанные напрямую из источника.",
     "close": "Закрыть",
     "button": "Просмотр"
+  },
+  "kmsDiagnostics": {
+    "run": "Запустить диагностику",
+    "running": "Выполняется диагностика. Это может занять до 90 секунд.",
+    "description": "Проверки только для чтения: сеть, сертификат, вход и поведение KMS. Отправляется не более одного входа.",
+    "overallPass": "Автоматические проверки пройдены",
+    "overallWarn": "Завершено с предупреждениями",
+    "overallFail": "Завершено с ошибкой",
+    "manualCheck": "Осталась одна ручная проверка: запустите снова от имени пользователя KMS с ограниченными правами и сравните имена элементов.",
+    "failedStage": "Сбой на этапе: {stage}",
+    "calls": "Вызовов: {calls}, время: {seconds} с",
+    "callsUnknown": "Прервано через {seconds} с. Число вызовов неизвестно.",
+    "copy": "Копировать отчёт",
+    "copied": "Отчёт скопирован",
+    "copyFailed": "Не удалось скопировать отчёт. Используйте скачивание JSON.",
+    "download": "Скачать JSON",
+    "reportNote": "Отчёт остаётся на английском, чтобы его можно было отправить инженерам BOW. В нём нет содержимого, имён и паролей.",
+    "failed": "Не удалось запустить диагностику.",
+    "status": {
+      "pass": "Пройдено",
+      "warn": "Предупреждение",
+      "fail": "Сбой",
+      "info": "Сведения",
+      "skipped": "Пропущено"
+    },
+    "stage": {
+      "network": "сеть",
+      "tls": "TLS",
+      "login": "вход",
+      "browse": "просмотр",
+      "search": "поиск",
+      "read": "чтение"
+    }
   }
 }

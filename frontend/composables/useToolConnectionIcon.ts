@@ -17,7 +17,7 @@ import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 // the file tools so a mixed (DB + file) agent doesn't misattribute.
 export const FILE_SOURCE_TYPES = [
   'sharepoint', 'sharepoint_onprem', 'documentum', 'onedrive', 'google_drive', 'outlook_mail', 'network_dir', 's3',
-  'onenote',
+  'onenote', 'kms_lighthouse',
 ]
 
 // The file tools back three vocabularies — files, mail and notes — so the same

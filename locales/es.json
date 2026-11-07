@@ -4592,7 +4592,11 @@
     "INSTRUCTION_APPLICATIONS_INVALID": "Selecciona aplicaciones existentes en esta organización",
     "APPLICATION_AGENT_FORBIDDEN": "La aplicación no tiene acceso a este agente",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Administra las aplicaciones directamente en BOW",
-    "ssh.key_discovery_failed": "No se pudo obtener la clave. Compruebe el servidor, puerto y red, o introduzca una clave fiable en Avanzado."
+    "ssh.key_discovery_failed": "No se pudo obtener la clave. Compruebe el servidor, puerto y red, o introduzca una clave fiable en Avanzado.",
+    "connection.kms_token_format": "El token de API de KMS solo puede contener letras, dígitos y signos de puntuación simples, sin espacios. Cópialo de nuevo desde KMS Lighthouse y pégalo como texto sin formato.",
+    "connection.kms_use_connection_credentials": "Los inicios de sesión de KMS Lighthouse se guardan en la conexión. Abre la conexión y conéctate desde allí.",
+    "connection.kms_only": "El diagnóstico solo se aplica a las conexiones de KMS Lighthouse.",
+    "connection.kms_diagnostics_running": "El diagnóstico ya se está ejecutando para esta conexión. Espere a que termine e inténtelo de nuevo."
   },
   "email": {
     "dashboardShare": {
@@ -7381,5 +7385,38 @@
     "subtitle": "Filas de ejemplo de {connection}, leídas en vivo desde el origen.",
     "close": "Cerrar",
     "button": "Vista previa"
+  },
+  "kmsDiagnostics": {
+    "run": "Ejecutar diagnóstico",
+    "running": "Ejecutando el diagnóstico. Puede tardar hasta 90 segundos.",
+    "description": "Comprobaciones de solo lectura de la red, el certificado, el inicio de sesión y el comportamiento de KMS. Envía como máximo un inicio de sesión.",
+    "overallPass": "Las comprobaciones automáticas se superaron",
+    "overallWarn": "Finalizado con advertencias",
+    "overallFail": "Finalizado con un error",
+    "manualCheck": "Queda una comprobación manual: vuelva a ejecutarlo como usuario de KMS restringido y compare los nombres de los elementos.",
+    "failedStage": "Falló en: {stage}",
+    "calls": "{calls} llamadas en {seconds} s",
+    "callsUnknown": "Interrumpido tras {seconds} s. Se desconoce el número de llamadas.",
+    "copy": "Copiar informe",
+    "copied": "Informe copiado",
+    "copyFailed": "No se pudo copiar el informe. Usa Descargar JSON.",
+    "download": "Descargar JSON",
+    "reportNote": "El informe se mantiene en inglés para poder enviarlo a los ingenieros de BOW. No contiene contenido, nombres ni contraseñas.",
+    "failed": "No se pudo ejecutar el diagnóstico.",
+    "status": {
+      "pass": "Correcto",
+      "warn": "Advertencia",
+      "fail": "Error",
+      "info": "Información",
+      "skipped": "Omitido"
+    },
+    "stage": {
+      "network": "red",
+      "tls": "TLS",
+      "login": "inicio de sesión",
+      "browse": "navegación",
+      "search": "búsqueda",
+      "read": "lectura"
+    }
   }
 }

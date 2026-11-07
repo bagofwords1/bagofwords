@@ -86,6 +86,11 @@ const baseOf = (c: any) => {
   const g = cfg(c)
   if (c.type === 'sharepoint_onprem') return [g.site_url, g.drive_name, g.folder_path].filter(Boolean).join(' / ')
   if (c.type === 'documentum') return [g.rest_url, g.repository, g.root_path].filter(Boolean).join(' / ')
+  // Root folder 0 is a real folder id: test for blank, not truthiness (as the backend builder does).
+  if (c.type === 'kms_lighthouse') {
+    const root = g.root_folder_id != null && g.root_folder_id !== '' ? 'folder ' + g.root_folder_id : ''
+    return [g.base_url, root].filter(Boolean).join(' / ')
+  }
   if (g.bucket) return `s3://${g.bucket}/${g.prefix || ''}`
   return g.root_path || ''
 }

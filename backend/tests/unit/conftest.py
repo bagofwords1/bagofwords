@@ -15,6 +15,7 @@ with no database work at all. A test that forgets the marker fails loudly with
 without it.
 """
 import asyncio
+import logging
 
 import pytest
 import pytest_asyncio
@@ -37,6 +38,37 @@ def run_migrations(request):
         request.getfixturevalue("_fresh_test_database")
     yield
 
+
+_KMS_LOGGERS = (
+    "app.data_sources.clients.kms_lighthouse_client",
+    "app.data_sources.clients.kms_lighthouse_diagnostics",
+    "urllib3",
+    "urllib3.connectionpool",
+    "urllib3.connection",
+    "urllib3.util.retry",
+)
+
+
+@pytest.fixture(autouse=True)
+def _kms_loggers_enabled(request):
+    """KMS unit tests assert on logs, and earlier tests in the worker can silence them.
+
+    alembic's ``fileConfig`` disables every logger that exists when it runs, and a
+    level set on ``urllib3`` hides its debug records, so these tests passed or failed
+    by which test came first in the worker.
+    """
+    if not request.node.path.name.startswith("test_kms_lighthouse_"):
+        yield
+        return
+    loggers = [logging.getLogger(name) for name in _KMS_LOGGERS]
+    saved = [(logger.disabled, logger.level) for logger in loggers]
+    for logger in loggers:
+        logger.disabled = False
+        logger.setLevel(logging.NOTSET)
+    yield
+    for logger, (disabled, level) in zip(loggers, saved):
+        logger.disabled = disabled
+        logger.setLevel(level)
 
 @pytest_asyncio.fixture
 async def finish_spawned_tasks():

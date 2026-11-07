@@ -1039,6 +1039,7 @@ class SchemaContextBuilder:
         "network_dir", "s3", "sharepoint", "onedrive", "google_drive",
         "outlook_mail", "gmail_mail", "onenote",
         "github_repo", "gitlab_repo", "bitbucket_repo",
+        "kms_lighthouse",
     }
     _NATIVE_SEARCH_TYPES = {
         "sharepoint_onprem",
@@ -1048,6 +1049,7 @@ class SchemaContextBuilder:
         # call, but it is still a first-class search the agent should prefer
         # over paging the whole catalog.
         "onenote",
+        "kms_lighthouse",
     }
     # Token-scoped sources: no admin-side path/glob boundary — the user's OAuth
     # account IS the scope. Everything else enforces a path/glob scope.
@@ -1117,6 +1119,9 @@ class SchemaContextBuilder:
                 base = " / ".join(str(cfg[k]) for k in ("site_url", "drive_name", "folder_path") if cfg.get(k))
             elif c.type == "documentum":
                 base = " / ".join(str(cfg[k]) for k in ("rest_url", "repository", "root_path") if cfg.get(k))
+            elif c.type == "kms_lighthouse":
+                # Folder id 0 is a real id; only a missing or blank value is left out.
+                base = " / ".join(str(cfg[k]) for k in ("base_url", "root_folder_id") if cfg.get(k) not in (None, ""))
             cid = str(c.id)
             ftabs = by_conn.get(cid, [])
             sample = [t.name for t in ftabs[:5] if getattr(t, 'name', None)]
@@ -1140,6 +1145,13 @@ class SchemaContextBuilder:
             per_user = (getattr(c, "auth_policy", None) == "user_required"
                         and "oauth" in (getattr(c, "allowed_user_auth_modes", None) or []))
             enforces_scope = c.type not in self._TOKEN_SCOPED_TYPES
+            note = None
+            if c.type == "kms_lighthouse":
+                # The root folder limits browsing only (search covers the whole
+                # identity), so no "else denied" scope; the note says how to browse.
+                from app.data_sources.clients.kms_lighthouse_client import planner_scope_note
+                enforces_scope = False
+                note = planner_scope_note(cfg)
             try:
                 cap = int(cfg.get("max_catalog_objects") or 0)
             except (TypeError, ValueError):
@@ -1149,7 +1161,7 @@ class SchemaContextBuilder:
                 globs=globs, index_mode=index_mode, file_count=len(ftabs),
                 capped=bool(cap and len(ftabs) >= cap), sample=sample, topics=topics,
                 supports_search=supports_search, writable=bool(cfg.get("writable")),
-                per_user=bool(per_user), enforces_scope=enforces_scope,
+                per_user=bool(per_user), enforces_scope=enforces_scope, note=note,
             ))
         return scopes, remaining
 
