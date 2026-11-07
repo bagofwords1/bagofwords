@@ -117,8 +117,16 @@ user-disabled, db02 forced-down (`06-rca-report.png`, `07-rca-report-full.png`).
    message now explains that `limit` is a complete-result ceiling and to
    preview with pandas `.head(n)`.
 
-Each has a regression test in `test_f5_bigip_client.py`. The remaining
-failures in the transcript (`SyntaxError: unterminated string literal`,
+Each has a regression test in `test_f5_bigip_client.py`. A follow-up prompt
+after the fix ("show availability state, status reason and client-side
+connection counters from `virtual_server_stats` for the listeners on
+web_pool/ssl_pool, and whether legacy-api.crt is bound to a client-ssl
+profile — include `_bow_retrieved_at`") completed in one turn: both listeners
+available with their counters and snapshot time, and `/Common/legacy-api.crt`
+bound to `/Common/legacy_clientssl` (`08-followup-report.png`,
+`09-followup-report-full.png`). It also showed the planner writing
+`{"op":"in"}` filters as on the sibling connectors, which F5 now accepts. The
+remaining failures in the transcript (`SyntaxError: unterminated string literal`,
 `invalid character '≤'`) are the platform's code generator, not the connector.
 
 ## Faithfulness limits (see `tools/f5_bigip/SOURCES.md`)

@@ -55,6 +55,7 @@ _META = {
 _TYPES = {"integer": "int", "number": "float", "boolean": "bool", "string": "str", "array": "json", "object": "json"}
 _PAGE_SIZE = 500
 _OPEN_KINDS = {"stats", "nested"}
+_FILTER_OPS = {"eq", "ne", "in", "like", "gt", "ge", "lt", "le"}
 _LIMIT_MSG = "Result exceeds limit, which is a complete-result ceiling rather than a preview: raise limit (up to max_rows) or narrow filters, then preview with pandas .head(n). Nothing was truncated."
 
 
@@ -329,12 +330,20 @@ No SQL, raw URLs, tmsh/bash, transactions or mutations: the client cannot send a
                 t["kind"] in _OPEN_KINDS and re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", k)
             ):
                 raise F5BigIpError("InvalidQuery", f"Unknown or excluded filter: {k}. Use get_schema(table) for the documented columns.")
+            if isinstance(v, dict):
+                # Same comparison shape as the sibling connectors: {"op": "in", "value": [...]}.
+                if set(v) != {"op", "value"} or v["op"] not in _FILTER_OPS:
+                    raise F5BigIpError("InvalidQuery", "Comparison filters use {\"op\": eq|ne|in|like|gt|ge|lt|le, \"value\": ...}.")
+                v = v["value"]
+                filters[k] = {"op": filters[k]["op"], "value": v}
             values = v if isinstance(v, list) else [v]
             if not values or any(
                 isinstance(x, (dict, list)) or (isinstance(x, float) and not math.isfinite(x)) for x in values
             ):
-                raise F5BigIpError("InvalidQuery", "Filter values must be scalars or a list of scalars.")
+                raise F5BigIpError("InvalidQuery", "Filter values must be scalars, a list of scalars, or an op/value comparison.")
         partition = filters.get("partition")
+        if isinstance(partition, dict):
+            raise F5BigIpError("InvalidQuery", "partition takes a plain partition name, not a comparison.")
         if partition is not None and (not isinstance(partition, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,255}", partition)):
             raise F5BigIpError("InvalidQuery", "partition must be a partition name such as Common.")
         parents = spec.get("parent", {})
@@ -373,8 +382,7 @@ No SQL, raw URLs, tmsh/bash, transactions or mutations: the client cannot send a
             for k, v in filters.items():
                 if k == "partition" and t["kind"] == "collection" and not (t["parents"] and not parents):
                     continue  # already applied server-side via $filter
-                wanted = v if isinstance(v, list) else [v]
-                keep = keep and any(self._same(flat.get(k), w) for w in wanted)
+                keep = keep and self._matches(flat.get(k), v)
             if keep:
                 rows.append(flat)
         if len(rows) > limit:
@@ -440,6 +448,33 @@ No SQL, raw URLs, tmsh/bash, transactions or mutations: the client cannot send a
         if isinstance(v, str) and v.lower() in {"true", "false", "yes", "no", "enabled", "disabled"}:
             return v.lower() in {"true", "yes", "enabled"}
         raise ValueError(v)
+
+    def _matches(self, actual, spec):
+        if not isinstance(spec, dict):
+            wanted = spec if isinstance(spec, list) else [spec]
+            return any(self._same(actual, w) for w in wanted)
+        op, value = spec["op"], spec["value"]
+        if op == "in":
+            return any(self._same(actual, w) for w in (value if isinstance(value, list) else [value]))
+        if op == "eq":
+            return self._same(actual, value)
+        if op == "ne":
+            return actual is not None and not self._same(actual, value)
+        if op == "like":
+            if actual is None or not isinstance(value, str):
+                return False
+            pattern = "^" + ".*".join(re.escape(part) for part in value.split("%")) + "$"
+            return re.match(pattern, str(actual), re.IGNORECASE) is not None
+        if actual is None:
+            return False
+        try:
+            left = float(actual) if not isinstance(actual, bool) else None
+            right = float(value) if not isinstance(value, bool) else None
+        except (TypeError, ValueError):
+            left = right = None
+        if left is None or right is None:
+            left, right = str(actual), str(value)
+        return {"gt": left > right, "ge": left >= right, "lt": left < right, "le": left <= right}[op]
 
     @staticmethod
     def _same(actual, wanted):

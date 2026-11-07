@@ -715,3 +715,30 @@ def test_limit_error_explains_ceiling_semantics(client, http):
         client.execute_query({"table": "pools", "limit": 2})
     assert e.value.code == "ResultLimitExceeded"
     assert "head(" in str(e.value) and "ceiling" in str(e.value)
+
+
+@pytest.mark.parametrize(
+    "flt,expected",
+    [
+        ({"pool": {"op": "in", "value": ["/Common/web_pool", "/Common/ssl_pool"]}}, {"vs1", "vs2"}),
+        ({"pool": {"op": "eq", "value": "/Common/web_pool"}}, {"vs1"}),
+        ({"pool": {"op": "ne", "value": "/Common/web_pool"}}, {"vs2", "vs3"}),
+        ({"pool": {"op": "like", "value": "/Common/%_pool"}}, {"vs1", "vs2"}),
+        ({"connectionLimit": {"op": "gt", "value": 100}}, {"vs2"}),
+    ],
+)
+def test_comparison_filters_match_sibling_connectors(client, http, flt, expected):
+    """Planners write {"op": "in", "value": [...]} as they do on every other connector."""
+    http["queue"].append((200, _collection([
+        {"name": "vs1", "partition": "Common", "fullPath": "/Common/vs1", "pool": "/Common/web_pool", "connectionLimit": 0},
+        {"name": "vs2", "partition": "Common", "fullPath": "/Common/vs2", "pool": "/Common/ssl_pool", "connectionLimit": 500},
+        {"name": "vs3", "partition": "Common", "fullPath": "/Common/vs3", "pool": "/App1/app1_pool", "connectionLimit": 10},
+    ])))
+    df = client.execute_query({"table": "virtual_servers", "filter": flt, "fields": ["name", "pool", "connectionLimit"]})
+    assert set(df["name"]) == expected
+
+
+def test_unknown_comparison_operator_makes_no_request(client, http):
+    with pytest.raises(F5BigIpError) as e:
+        client.execute_query({"table": "virtual_servers", "filter": {"pool": {"op": "regex", "value": "x"}}})
+    assert e.value.code == "InvalidQuery" and not http["gets"]()
