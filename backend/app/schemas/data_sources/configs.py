@@ -3079,6 +3079,13 @@ class OutlookMailConfig(BaseModel):
     pass
 
 
+class TeamsMessagesConfig(BaseModel):
+    """Microsoft Teams needs no admin-side scope: each user's Microsoft sign-in
+    decides which channels and chats are visible, and messages are always
+    searched live (nothing is copied into Bag of Words)."""
+    pass
+
+
 # Google Drive
 class GoogleDriveCredentials(BaseModel):
     oauth_client_id: str = Field(

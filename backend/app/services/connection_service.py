@@ -196,8 +196,9 @@ async def _acount_files_for_validation(client, limit: int | None = None) -> int 
     and the connection test only uses len() of the result (real indexing
     re-runs on save anyway). A plain listing proves connectivity and access
     just as well. Mail clients use the same normalized inventory payload and
-    intentionally expose no schema, so LIST_EMAILS follows this path too.
-    Gated on LIST_FILES/LIST_EMAILS-without-QUERY so a hybrid client that also
+    intentionally expose no schema, so LIST_EMAILS follows this path too, as
+    does LIST_CHAT_MESSAGES (Teams). Gated on LIST_FILES/LIST_EMAILS/
+    LIST_CHAT_MESSAGES-without-QUERY so a hybrid client that also
     exposes a tabular schema still gets full schema validation.
 
     `limit` bounds the listing for clients whose `list_files` accepts it (the
@@ -210,7 +211,9 @@ async def _acount_files_for_validation(client, limit: int | None = None) -> int 
 
     caps = getattr(client, "capabilities", None) or set()
     has_inventory = bool(
-        Capability.LIST_FILES in caps or Capability.LIST_EMAILS in caps
+        Capability.LIST_FILES in caps
+        or Capability.LIST_EMAILS in caps
+        or Capability.LIST_CHAT_MESSAGES in caps
     )
     if not has_inventory or Capability.QUERY in caps:
         return None

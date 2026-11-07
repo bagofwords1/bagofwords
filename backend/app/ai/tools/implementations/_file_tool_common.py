@@ -37,7 +37,7 @@ FILE_SOURCE_TYPES = {
     "sharepoint_onprem",
     "documentum",
     "sharepoint", "onedrive", "google_drive", "outlook_mail", "gmail_mail",
-    "network_dir", "s3", "onenote",
+    "network_dir", "s3", "onenote", "teams_messages",
     # Code connections: a cached clone served by a NetworkDirClient subclass.
     "github_repo", "gitlab_repo", "bitbucket_repo",
     # Hybrid connectors (QUERY + file capabilities). ServiceNow serves record

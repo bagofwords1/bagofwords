@@ -91,6 +91,7 @@ class ObservationContextBuilder:
             elif prev_obs["tool_name"] in (
                 "read_file", "grep_files", "list_files", "search_files",
                 "read_email", "list_emails", "search_email",
+                "read_chat_thread", "list_chat_messages", "search_chat_messages",
             ):
                 # File/email content / match excerpts / listing inventories: full
                 # for the LATEST call, a length marker once superseded —

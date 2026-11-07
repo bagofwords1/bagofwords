@@ -762,6 +762,36 @@ class TablesSchemaContext(ContextSection):
             # Per-user OAuth sources: the sample/count above (if any) reflect the
             # querying user's own account, and discovery is always live — so tell
             # the model not to treat an empty scope as "no files".
+            if fs.type == "teams_messages":
+                # Chat vocabulary, never file tools: a Teams connection backs
+                # only search_chat_messages / list_chat_messages /
+                # read_chat_thread (see GraphTeamsClient.capabilities).
+                inner.append(xml_tag(
+                    "auth",
+                    "per-user — searched live as the signed-in user; they see only "
+                    "the channels and chats they belong to. Nothing is indexed, so "
+                    "an empty count here does NOT mean no messages."
+                ))
+                inner.append(xml_tag(
+                    "holds",
+                    "the team's conversations — decisions, reported numbers, metric "
+                    "definitions, data-quality warnings and corrections. When the user "
+                    "asks about a number, a dashboard, a definition, a decision or what "
+                    "someone said, search here BEFORE concluding the answer is unavailable."
+                ))
+                inner.append(xml_tag(
+                    "usage",
+                    "search_chat_messages with 1-3 distinctive keywords (not the whole "
+                    "question; try other wording if nothing comes back) to find what was "
+                    "said across every channel and chat · read_chat_thread on a hit to "
+                    "read the WHOLE thread before answering · list_chat_messages to "
+                    "browse one conversation or a time window (list_conversations=true "
+                    "lists the channels and chats). Cite the Link: URL of the thread you used."
+                ))
+                attrs = {"name": fs.name, "type": fs.type, "kind": "messages"}
+                if fs.connection_id:
+                    attrs["id"] = fs.connection_id
+                return xml_tag("connection", "\n".join(inner), attrs)
             if fs.per_user:
                 inner.append(xml_tag(
                     "auth",

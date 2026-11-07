@@ -334,6 +334,7 @@ class SearchAgentsTool(Tool):
             listing = "\n".join(
                 f"- {it.name} (id={it.id}, {it.status or 'published'}"
                 + (", EMAIL agent — use search_email/read_email/list_emails, not file tools" if surface_by_id.get(it.id) == "email" else "")
+                + (", CHAT agent — use search_chat_messages/read_chat_thread/list_chat_messages, not file tools" if surface_by_id.get(it.id) == "chat" else "")
                 + (", matched on table names only" if strength.get(it.id) == "weak" else "")
                 + (", focused" if it.focused else "")
                 + ("" if it.attached else ", not attached to this report yet")

@@ -264,7 +264,7 @@
                   </div>
                   <div v-if="fc.globs.length === 0" class="flex items-center gap-2 h-8 text-sm text-ink-muted italic min-w-0" style="padding-inline-start:48px">
                     <DataSourceIcon :type="fc.type" :connector-key="fc.connector_key" class="w-3.5 h-3.5 shrink-0" />
-                    <span class="truncate">{{ fc.name }} · whole path</span>
+                    <span class="truncate">{{ fc.name }} · {{ LIVE_FILE_TYPES.has(fc.type) ? $t('agentsPage.liveBadge') : 'whole path' }}</span>
                   </div>
                 </template>
                 <div
@@ -1379,7 +1379,9 @@ const agentTools = ref<Record<string, any[]>>({})
 const agentFiles = ref<Record<string, any[]>>({})
 // File-source connections per agent, with their include-glob rules — shown in
 // the Files tree next to uploads.
-const FILE_CONN_TYPES = new Set(['network_dir', 's3', 'sharepoint', 'sharepoint_onprem', 'documentum', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail'])
+// Live per-user sources: no path scope to show — they read with the user's own access.
+const LIVE_FILE_TYPES = new Set(['outlook_mail', 'gmail_mail', 'teams_messages'])
+const FILE_CONN_TYPES = new Set(['network_dir', 's3', 'sharepoint', 'sharepoint_onprem', 'documentum', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail', 'teams_messages'])
 const agentFileConns = ref<Record<string, any[]>>({})
 const agentLoaded = ref<Set<string>>(new Set())
 
