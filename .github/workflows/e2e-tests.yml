@@ -266,7 +266,9 @@ jobs:
         uv run pytest tests/unit -n 4 --db=sqlite --disable-warnings --timeout=600 --timeout-method=thread
 
   playwright-tests:
-    runs-on: ubuntu-latest
+    # Pinned: Playwright 1.56.0 can't install chromium on ubuntu-26.04, which
+    # ubuntu-latest is moving to. Unpin after upgrading Playwright.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     
     steps:
