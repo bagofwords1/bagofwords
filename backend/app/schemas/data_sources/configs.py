@@ -4443,7 +4443,7 @@ class CheckPointApiKeyCredentials(BaseModel):
 
 
 class CheckPointConfig(BaseModel):
-    url: str = Field(..., title="Management URL", description="Security Management Server origin (https://mgmt.example:443) or the Smart-1 Cloud Web-API URL (https://<tenant>.maas.checkpoint.com/<context>/web_api).")
+    url: str = Field(..., title="Management URL", description="Security Management Server origin (https://mgmt.example:443, optionally ending in /web_api) or the Smart-1 Cloud Web-API URL (https://<tenant>.maas.checkpoint.com/<context>/web_api).")
     domain: Optional[str] = Field(None, title="Domain", description="Multi-Domain Server domain name to log in to. Leave empty for a single-domain Security Management Server.")
     api_version: Optional[str] = Field(None, title="API version", description="Optional Management API version to pin, for example 1.9.1. Empty uses the server default.")
     ca_certificate: Optional[str] = Field(None, title="Trusted CA certificate", description="Optional PEM CA certificate for the management server. Certificate verification is always enabled.", json_schema_extra={"ui:type": "textarea"})
@@ -4473,7 +4473,7 @@ class HpeOneViewCredentials(BaseModel):
 class HpeOneViewConfig(BaseModel):
     url: str = Field(..., title="Appliance URL", description="OneView or Synergy Composer origin, for example https://oneview.example:443.")
     auth_login_domain: str = Field("local", title="Authentication directory", description="authLoginDomain sent at login: local for appliance accounts, or the configured directory name.")
-    api_version: Optional[int] = Field(None, title="X-API-Version", description="Optional API version to pin. Empty negotiates the appliance's current version from GET /rest/version.")
+    api_version: Optional[int] = Field(None, title="X-API-Version", description="Optional API version to pin. Empty negotiates the appliance's current version from GET /rest/version (clamped to the connector's supported range 1200–7200).")
     ca_certificate: Optional[str] = Field(None, title="Trusted CA certificate", description="Optional PEM CA certificate for the appliance. Certificate verification is always enabled.", json_schema_extra={"ui:type": "textarea"})
     timeout: int = Field(30, ge=1, le=120, title="Request timeout (seconds)")
     max_rows: int = Field(10000, ge=1, le=100000, title="Maximum complete result rows", description="Queries exceeding this ceiling fail explicitly; they never return silently truncated evidence.")
