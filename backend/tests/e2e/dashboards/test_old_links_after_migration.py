@@ -314,23 +314,31 @@ def _cards(test_client, c, reader, **params):
 
 
 @pytest.mark.e2e
-def test_an_old_dashboards_card_keeps_its_conversations_name(migrated_corpus, corpus_rows, test_client):
-    """Main's Dashboards page listed conversations, by their names: the
-    dashboard an old link leads to keeps that name on its card. Its other
-    dashboards, and every dashboard made since, show their own."""
+def test_an_old_dashboards_card_shows_its_own_name_or_else_its_conversations(
+        migrated_corpus, corpus_rows, test_client):
+    """A dashboard is named by its own title, so renaming it leaves the
+    conversation alone (#1502, reversing phase 9's "keep the conversation's
+    name"). An old dashboard with no title of its own still reads as main's
+    page did, by its conversation's name, and either name finds it."""
     c = migrated_corpus
     corpus_rows.update("reports", c.reports["conv_three_dash"], title="השיחה של שלושת הלוחות")
     shown = _did(test_client, c, "conv_three_dash")         # the one the old link leads to
     sales = c.ids["conv_three_dash/dash_sales"]
     cards = _cards(test_client, c, "owner")
-    assert cards[shown]["title"] == "השיחה של שלושת הלוחות"
+    assert cards[shown]["title"] == "לוח מלאי"
     assert cards[sales]["title"] == "לוח מכירות"
 
     # Found by either name.
     assert shown in _cards(test_client, c, "owner", search="שלושת הלוחות")
     assert shown in _cards(test_client, c, "owner", search="לוח מלאי")
     # A reader it is shared with sees the same name.
+    assert _cards(test_client, c, "member", filter="shared")[shown]["title"] == "לוח מלאי"
+
+    # With no title of its own, the card falls back to the conversation's name.
+    corpus_rows.update("artifacts", shown, title="")
+    assert _cards(test_client, c, "owner")[shown]["title"] == "השיחה של שלושת הלוחות"
     assert _cards(test_client, c, "member", filter="shared")[shown]["title"] == "השיחה של שלושת הלוחות"
+    assert _cards(test_client, c, "owner")[sales]["title"] == "לוח מכירות"
 
 
 # ── deleting an old conversation ─────────────────────────────────────────

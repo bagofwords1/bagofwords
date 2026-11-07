@@ -175,6 +175,11 @@ def test_every_reader_lists_the_same_conversations(migrated_corpus, corpus_rows,
                 # dashboard (phase 4), so it gets none of their pictures.
                 if field == "thumbnail_url" and reader == "service_account" and new is None and key[2] in internal:
                     continue
+                # Added to every card after main's record, for the share dialog
+                # (#1455): the org's setting, on by default as the corpus has
+                # it. A display flag: public links are gated elsewhere.
+                if field == "public_sharing_allowed" and old is None and new is True:
+                    continue
                 if old != new:
                     problems.append(f"{reader}: {key[0]} {key[1]}: {field} {old!r} -> {new!r}")
     assert not problems, "\n".join(problems[:40])
