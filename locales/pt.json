@@ -6552,20 +6552,24 @@
     "oauthEmpty": "OAuth is not configured"
   },
   "tablePreview": {
-    "open": "Pré-visualizar dados de {name}",
-    "subtitle": "Linhas de exemplo de {connection}, lidas ao vivo da origem.",
-    "close": "Fechar",
     "loading": "Carregando linhas…",
     "failed": "Não foi possível carregar uma pré-visualização desta tabela.",
     "showing": "Mostrando {shown} linhas",
-    "showingOf": "Mostrando {shown} de ~{total} linhas",
     "columns": "{count} colunas",
     "empty": "Esta tabela não tem linhas.",
     "reload": "Recarregar",
     "createCustomTable": "Criar tabela personalizada a partir desta",
-    "sqlLabel": "Consulta SQL",
     "run": "Executar",
     "resetQuery": "Redefinir",
-    "runHint": "Ctrl/⌘ + Enter para executar. Somente consultas de leitura."
+    "runHint": "Ctrl/⌘ + Enter para executar. Somente consultas de leitura.",
+    "tabColumns": "Colunas ({count})",
+    "tabData": "Dados",
+    "query": "Consulta",
+    "ofTotal": "~{total} linhas na tabela",
+    "retry": "Tentar novamente",
+    "readOnlyHint": "Para editar a consulta, esta conexão precisa de tabelas personalizadas.",
+    "storageNote": "Lido diretamente do armazenamento da tabela, por isso esta pré-visualização não tem custo de consulta.",
+    "signInRequired": "Esta conexão usa as suas próprias credenciais. Inicie sessão para ver as linhas.",
+    "signIn": "Iniciar sessão"
   }
 }

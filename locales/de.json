@@ -6552,20 +6552,24 @@
     "oauthEmpty": "OAuth is not configured"
   },
   "tablePreview": {
-    "open": "Datenvorschau für {name}",
-    "subtitle": "Beispielzeilen aus {connection}, live aus der Quelle gelesen.",
-    "close": "Schließen",
     "loading": "Zeilen werden geladen…",
     "failed": "Vorschau dieser Tabelle konnte nicht geladen werden.",
     "showing": "{shown} Zeilen angezeigt",
-    "showingOf": "{shown} von ~{total} Zeilen angezeigt",
     "columns": "{count} Spalten",
     "empty": "Diese Tabelle enthält keine Zeilen.",
     "reload": "Neu laden",
     "createCustomTable": "Benutzerdefinierte Tabelle daraus erstellen",
-    "sqlLabel": "SQL-Abfrage",
     "run": "Ausführen",
     "resetQuery": "Zurücksetzen",
-    "runHint": "Strg/⌘ + Enter zum Ausführen. Nur lesende Abfragen."
+    "runHint": "Strg/⌘ + Enter zum Ausführen. Nur lesende Abfragen.",
+    "tabColumns": "Spalten ({count})",
+    "tabData": "Daten",
+    "query": "Abfrage",
+    "ofTotal": "~{total} Zeilen in der Tabelle",
+    "retry": "Erneut versuchen",
+    "readOnlyHint": "Zum Bearbeiten der Abfrage braucht diese Verbindung benutzerdefinierte Tabellen.",
+    "storageNote": "Direkt aus dem Tabellenspeicher gelesen, daher verursacht diese Vorschau keine Abfragekosten.",
+    "signInRequired": "Diese Verbindung nutzt deine eigenen Anmeldedaten. Melde dich an, um ihre Zeilen zu sehen.",
+    "signIn": "Anmelden"
   }
 }

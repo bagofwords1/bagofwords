@@ -89,15 +89,10 @@
       @saved="onCustomQuerySaved"
       @deleted="onCustomQuerySaved"
     />
-
-    <TablePreviewModal
-      v-model="previewOpen"
-      :connection-id="previewTarget?.connection_id || ''"
-      :connection-name="previewTarget?.connection_name || ''"
-      :table-id="previewTarget?.connection_table_id || ''"
-      :table-name="previewTarget?.name || ''"
-      :can-create-custom-table="canCreateCustomTableFrom(previewTarget)"
-      @create-custom-table="onCreateCustomTableFromPreview"
+    <UserDataSourceCredentialsModal
+      v-model="previewCredentialsOpen"
+      :data-source="previewCredentialsSource"
+      @saved="onPreviewCredentialsSaved"
     />
 
     <!-- Search and filters row -->
@@ -346,7 +341,7 @@
         <p class="text-xs text-ink-muted">Connect your account to see the {{ props.itemNoun.plural }} you can access.</p>
         <button
           type="button"
-          @click="onConnectAccount"
+          @click="onConnectAccount()"
           :disabled="signingIn"
           class="mt-2 inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
         >
@@ -376,7 +371,7 @@
           </span>
           <button
             type="button"
-            @click="onConnectAccount"
+            @click="onConnectAccount()"
             :disabled="signingIn"
             class="shrink-0 inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400"
           >
@@ -467,27 +462,50 @@
                     </UTooltip>
                   </span>
                 </button>
-                <UButton
-                  v-if="canPreviewTable(table)"
-                  color="gray"
-                  variant="ghost"
-                  size="2xs"
-                  icon="i-heroicons-eye"
-                  class="ms-2 shrink-0"
-                  :aria-label="t('tablePreview.open', { name: table.name })"
-                  :title="t('tablePreview.open', { name: table.name })"
-                  :data-testid="`table-preview-${table.name}`"
-                  @click="openTablePreview(table)"
-                />
                 <button v-if="table.custom_query_id && editableQueryIds.has(table.custom_query_id)" type="button" @click="editQueryTable(table.custom_query_id)"
                   :aria-label="t('tableErd.editQuery', { name: table.name })" class="ms-2 shrink-0 text-ink-muted hover:text-gray-700 dark:hover:text-gray-200">
                   <UIcon name="i-heroicons-pencil-square" class="w-3.5 h-3.5" />
                 </button>
               </div>
               <div v-if="expandedTables[table.name]" class="mt-2 ms-7">
+                <!-- Columns | Data: looking at a table's rows is part of
+                     looking at the table, so it lives where the columns do. -->
+                <div
+                  v-if="canPreviewTable(table) && !isRoutine(table)"
+                  role="tablist"
+                  class="inline-flex items-center gap-0.5 mb-1.5 p-0.5 rounded-md bg-gray-100 dark:bg-gray-800 text-xs"
+                  :data-testid="`table-tabs-${table.name}`"
+                >
+                  <button
+                    v-for="tab in (['columns', 'data'] as const)"
+                    :key="tab"
+                    type="button"
+                    role="tab"
+                    :aria-selected="panelTab(table) === tab"
+                    :data-testid="`table-tab-${tab}-${table.name}`"
+                    class="inline-flex items-center gap-1 px-2 py-0.5 rounded"
+                    :class="panelTab(table) === tab
+                      ? 'bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100 shadow-sm'
+                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'"
+                    @click="tablePanelTab[tableKey(table)] = tab"
+                  >
+                    <UIcon :name="tab === 'columns' ? 'i-heroicons-view-columns' : 'i-heroicons-table-cells'" class="w-3.5 h-3.5" />
+                    {{ tab === 'columns' ? t('tablePreview.tabColumns', { count: table.columns?.length || 0 }) : t('tablePreview.tabData') }}
+                  </button>
+                </div>
+                <TableDataPreview
+                  v-if="panelTab(table) === 'data'"
+                  :key="`${tableKey(table)}:${previewReloadKey}`"
+                  :connection-id="String(table.connection_id)"
+                  :table-id="String(table.connection_table_id)"
+                  :table-name="table.name"
+                  :can-create-custom-table="canCreateCustomTableFrom(table)"
+                  @create-custom-table="onCreateCustomTableFromPreview"
+                  @sign-in="onPreviewSignIn"
+                />
                 <!-- Stored procedure / function: signature, parameters, source.
                      No column-visibility toggles: parameters are not columns. -->
-                <div v-if="isRoutine(table)" class="border border-gray-100 dark:border-gray-800 rounded" :data-testid="`routine-panel-${table.name}`">
+                <div v-else-if="isRoutine(table)" class="border border-gray-100 dark:border-gray-800 rounded" :data-testid="`routine-panel-${table.name}`">
                   <div class="flex items-center gap-1 text-2xs text-gray-500 dark:text-gray-400 px-2 py-1.5 border-b border-gray-100 dark:border-gray-800">
                     <UIcon name="heroicons-information-circle" class="w-3.5 h-3.5 shrink-0" />
                     {{ t('tableErd.routineHint') }}
@@ -555,7 +573,7 @@
                 </div>
 
                 <!-- Relationships -->
-                <div v-if="table.fks?.length" class="mt-2 border border-gray-100 dark:border-gray-800 rounded">
+                <div v-if="table.fks?.length && panelTab(table) === 'columns'" class="mt-2 border border-gray-100 dark:border-gray-800 rounded">
                   <div class="text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 px-2 py-1 rounded-t">Relationships</div>
                   <div class="divide-y divide-gray-100 dark:divide-gray-800">
                     <div v-for="(fk, idx) in table.fks" :key="idx" class="text-xs px-2 py-1 text-gray-600 dark:text-gray-400">
@@ -720,7 +738,8 @@ import { tableId, matchesTable } from '~/utils/tableGraph'
 import { isRoutine, routineKind, routineMeta, ROUTINE_ICON } from '~/utils/routines'
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
 import CustomQueryModal from '@/components/datasources/CustomQueryModal.vue'
-import TablePreviewModal from '@/components/datasources/TablePreviewModal.vue'
+import TableDataPreview from '@/components/datasources/TableDataPreview.vue'
+import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import { useConnectionSignIn } from '~/composables/useConnectionSignIn'
 
 type Column = { name: string; dtype?: string; type?: string }
@@ -874,7 +893,7 @@ function restoreAppSurface() {
 }
 const bodyLocked = useScrollLock(typeof document === 'undefined' ? null : document.body)
 function onEmbeddedEscape(event: KeyboardEvent) {
-  if (!props.fullscreenInPlace || !fullscreen.value || cqModalOpen.value || previewOpen.value) return
+  if (!props.fullscreenInPlace || !fullscreen.value || cqModalOpen.value) return
   if (selectorElement.value?.querySelector('[aria-expanded="true"]')) return
   event.preventDefault()
   event.stopPropagation()
@@ -902,13 +921,13 @@ function toggleFullscreen() {
 }
 useEventListener('keydown', (event: KeyboardEvent) => {
   if (props.fullscreenInPlace) return
-  if (event.key === 'Tab' && fullscreen.value && !props.fullscreenInPlace && !cqModalOpen.value && !previewOpen.value) {
+  if (event.key === 'Tab' && fullscreen.value && !props.fullscreenInPlace && !cqModalOpen.value) {
     const controls = [...selectorElement.value?.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], summary, [tabindex="0"]') || []].filter(element => !element.hasAttribute('disabled') && element.getClientRects().length)
     const first = controls[0], last = controls[controls.length - 1]
     if (event.shiftKey && (document.activeElement === first || document.activeElement === selectorElement.value)) { event.preventDefault(); last?.focus() }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
   }
-  if (event.key === 'Escape' && fullscreen.value && !cqModalOpen.value && !previewOpen.value && !event.defaultPrevented) {
+  if (event.key === 'Escape' && fullscreen.value && !cqModalOpen.value && !event.defaultPrevented) {
     event.preventDefault()
     toggleFullscreen()
   }
@@ -916,7 +935,7 @@ useEventListener('keydown', (event: KeyboardEvent) => {
 onBeforeUnmount(() => { bodyLocked.value = false; restoreAppSurface() })
 const toast = useToast()
 const route = useRoute()
-const { triggerUserSignIn } = useConnectionSignIn()
+const { triggerUserSignIn, isOAuthOnly } = useConnectionSignIn()
 
 // Loading states
 const loading = ref(false)
@@ -1085,20 +1104,18 @@ async function openEditCustomQuery(cq: any) {
 // with the connection's credential is a connection-manager act, the same
 // right the backend route requires (`manage_connection`).
 // ---------------------------------------------------------------------------
-const previewOpen = ref(false)
-const previewTarget = ref<Table | null>(null)
+// Which view each expanded table shows. Columns is the default: it is what
+// a manager edits here; Data is looked at on demand.
+const tablePanelTab = ref<Record<string, 'columns' | 'data'>>({})
+function panelTab(table: Table): 'columns' | 'data' {
+  return canPreviewTable(table) && !isRoutine(table) ? (tablePanelTab.value[tableKey(table)] || 'columns') : 'columns'
+}
 
 function canPreviewTable(table: Table): boolean {
   return !!table.preview_supported
     && !!table.connection_table_id
     && !!table.connection_id
     && useCan('manage_connection', { type: 'connection', id: String(table.connection_id) })
-}
-
-async function openTablePreview(table: Table) {
-  previewTarget.value = table
-  await nextTick()
-  previewOpen.value = true
 }
 
 function canCreateCustomTableFrom(table: Table | null): boolean {
@@ -1131,8 +1148,33 @@ async function onCustomQuerySaved() {
   await reloadKnownCatalog()
 }
 
-async function onConnectAccount() {
-  const conn = connectRequiredConn.value
+// A per-user connection the manager has not signed in to: the preview asks
+// for their own sign-in rather than reading rows with someone else's login.
+// OAuth-only connections redirect to the provider; the rest take credentials
+// in the same modal the connection page uses, then the preview reloads.
+const previewCredentialsOpen = ref(false)
+const previewCredentialsConn = ref<any>(null)
+const previewReloadKey = ref(0)
+const previewCredentialsSource = computed(() =>
+  previewCredentialsConn.value ? { ...previewCredentialsConn.value, connections: [previewCredentialsConn.value] } : null)
+function onPreviewSignIn(connectionId: string) {
+  const conn = authConnections.value.find((c: any) => String(c.id) === String(connectionId))
+  if (!conn) return
+  if (isOAuthOnly(conn)) {
+    onConnectAccount(conn)
+    return
+  }
+  previewCredentialsConn.value = conn
+  previewCredentialsOpen.value = true
+}
+async function onPreviewCredentialsSaved() {
+  previewCredentialsOpen.value = false
+  await loadAuthConnections()
+  previewReloadKey.value++
+}
+
+async function onConnectAccount(target?: any) {
+  const conn = target || connectRequiredConn.value
   if (!conn || signingIn.value) return
   signingIn.value = true
   try {
