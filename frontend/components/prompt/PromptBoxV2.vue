@@ -1,5 +1,5 @@
 <template>
-    <div ref="rootRef" class="flex-shrink-0 bg-white dark:bg-gray-900" :class="props.flush ? 'p-0' : 'p-3 pb-3 sm:p-4 sm:pb-8'">
+    <div ref="rootRef" class="flex-shrink-0 bg-white dark:bg-gray-900" :class="props.flush ? 'p-0' : props.docked ? 'px-3 pt-2 pb-2 sm:px-4 sm:pb-3' : 'p-3 pb-3 sm:p-4 sm:pb-8'">
         <!-- Thinking indicator (visible while a completion is running).
              While running, Enter queues the typed prompt; steering happens
              from a queued chip's "send now" action. Report pages only: the
@@ -188,7 +188,7 @@
             </div>
 
             <!-- Input area -->
-            <div :class="props.compact ? 'px-3 pt-2 pb-1' : 'px-4 pt-3 pb-3'">
+            <div :class="props.compact ? 'px-3 pt-2 pb-1' : props.docked ? 'px-4 pt-2.5 pb-1' : 'px-4 pt-3 pb-3'">
                 <!-- Instructions -->
                 <button
                 class="hidden"
@@ -213,7 +213,7 @@
                     @update:mentions="handleMentionsUpdate"
                     @submit="submit"
                     :placeholder="placeholder"
-                    :rows="props.rows || (props.compact ? 1 : 2)"
+                    :rows="props.rows || (props.compact || props.docked ? 1 : 2)"
                     :compact="props.compact"
                     :selectedDataSourceIds="selectedDataSources.map(ds => ds.id)"
                 />
@@ -297,7 +297,7 @@
 
             <!-- Bottom controls -->
             <div
-                :class="[props.compact ? 'px-3 pb-2 pt-1' : 'px-4 pb-3', 'flex items-center justify-between', { 'opacity-50 pointer-events-none': isHydratingDataSources }]"
+                :class="[props.compact ? 'px-3 pb-2 pt-1' : props.docked ? 'px-3 pb-1.5' : 'px-4 pb-3', 'flex items-center justify-between', { 'opacity-50 pointer-events-none': isHydratingDataSources }]"
             >
                 <div class="flex items-center space-x-1 relative">
                     <!-- Data source selector -->
@@ -715,6 +715,9 @@ const props = defineProps({
     // else 2); the automation modals ask for a taller box because a standing
     // task is written once and read back later, not dashed off like a chat.
     rows: { type: Number, default: 0 },
+    // Pinned to the bottom of the chat view: a one-line editor with tight
+    // padding, so the box sits low and leaves the room to the conversation.
+    docked: { type: Boolean, default: false },
     // Show the project chip without a report behind it: the pick is held in the
     // component and read back with getProject() instead of moving a report.
     projectSelectable: { type: Boolean, default: false },
