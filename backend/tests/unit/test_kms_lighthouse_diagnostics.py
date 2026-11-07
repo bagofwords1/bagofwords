@@ -19,6 +19,7 @@ import requests
 
 from app.data_sources.clients import kms_lighthouse_client as kc
 from app.data_sources.clients import kms_lighthouse_diagnostics as kd
+from app.data_sources.clients.base import SearchStopped
 from tests.unit.test_kms_lighthouse_client import client, kms, kms_server, raw_kms, token_client  # noqa: F401
 
 _REPORT_KEYS = {"report_version", "generated_at", "bow_version", "host", "api_prefix", "auth_method", "root_folder_set",
@@ -2551,6 +2552,52 @@ def test_the_call_after_a_short_page_is_an_observation_the_connector_never_makes
     assert report["failed_stage"] is None and _rows(report)["field_types"]["status"] != "skipped"
 
 
+def _past_the_first_page(url, params, _headers, _session):
+    return "/search/full" in url and params.get("start", "0") != "0"
+
+
+def _tenant_with_a_full_page(kms, monkeypatch):
+    """A clean tenant with more usable hits than one page, so only the next page can spoil a run."""
+    _clean_tenant(kms, monkeypatch)
+    mock = kms["mock"]
+    for entry_id in (str(7000 + n) for n in range(60)):
+        monkeypatch.setitem(mock.ITEMS, entry_id, {**mock.ITEMS["279"], "id": int(entry_id)})
+        monkeypatch.setitem(mock.AI_ITEMS, entry_id, mock.AI_ITEMS["279"])
+    mock.STATE["extra_results"] += [_hit(str(7000 + n)) for n in range(60)]
+
+
+@pytest.mark.parametrize("what", [502, _LOST_LINE], ids=["refused", "lost_line"])
+@pytest.mark.parametrize("max_results", [20, 50])
+def test_the_next_page_is_an_observation_when_max_results_stops_the_connector_first(kms, monkeypatch, max_results, what):
+    _tenant_with_a_full_page(kms, monkeypatch)
+    picked = _inject(monkeypatch, _past_the_first_page, what)
+    probe = client(kms, "svc", root_folder_id=_CLEAN_ROOT, max_results=max_results)
+    report = probe.diagnostics()
+    rows = _rows(report)
+    assert picked, "the call went out"
+    assert report["overall"] == "pass" and report["failed_stage"] is None, [
+        (row["id"], row["status"]) for row in report["checks"] if row["status"] not in ("pass", "info")]
+    assert rows["page_rows"]["observed"]["rows_returned"] == 50, "the connector asked for a full page and got one"
+    assert rows["page_rows"]["observed"]["server_cap"] is False and rows["field_types"]["status"] != "skipped"
+
+    picked.clear()
+    with pytest.raises(SearchStopped) as stopped:
+        probe.search_files("a")
+    assert len(stopped.value.files) == max_results and stopped.value.stop_reason == "max_results"
+    assert picked == [], "the same client never asks for that page"
+
+
+def test_one_row_more_than_a_page_makes_the_next_page_a_call_the_connector_needs(kms, monkeypatch):
+    _tenant_with_a_full_page(kms, monkeypatch)
+    picked = _inject(monkeypatch, _past_the_first_page, 502)
+    probe = client(kms, "svc", root_folder_id=_CLEAN_ROOT, max_results=kd._ROWS + 1)
+    with pytest.raises(kc.KmsHTTPError):
+        probe.search_files("a")
+    assert picked, "the connector made the call"
+    report = probe.diagnostics()
+    assert _rows(report)["page_rows"]["status"] == "fail" and report["failed_stage"] == "search"
+
+
 def _first_query_refused(monkeypatch, status=400):
     return _inject(monkeypatch, lambda url, params, _h, _s: "/search/full" in url and params.get("query") == "a", status)
 
@@ -2775,6 +2822,40 @@ def test_the_guide_states_what_can_fail_or_end_a_run():
     assert "/sessionInfo" in section and not re.search(r"401 or a redirect\) ends the run there", section)
     assert not re.search(r"a\s+403 there ends the run", section), "a 403 on the tree read warns"
     assert f"{kd._PROOF_CALLS} of the 60 calls" in section, "the share in the guide is the share in the code"
+
+
+@pytest.mark.parametrize("error,network,tls", [(_LOST_LINE, "warn", "skipped"), (_TLS_LOST, "pass", "warn")],
+                         ids=["no_answer", "tls_failure"])
+def test_a_no_session_request_lost_alone_leaves_item_3_unanswered_as_the_guide_says(kms, monkeypatch, error, network, tls):
+    """An https connection, so the tls row judges the call: every other call reaches the mock."""
+    _clean_tenant(kms, monkeypatch)
+    public, real, picked = "https://kms.example.com", requests.Session.request, []
+
+    def only_the_no_session_call_fails(self, method, url, **kwargs):
+        if _no_session(url, kwargs.get("params") or {}, kwargs.get("headers") or {}, self):
+            picked.append(url)
+            raise error
+        return real(self, method, url.replace(public, kms["base_url"]), **kwargs)
+
+    monkeypatch.setattr(requests.Session, "request", only_the_no_session_call_fails)
+    report = client(kms, "svc", root_folder_id=_CLEAN_ROOT, base_url=public).diagnostics()
+    rows = _rows(report)
+    assert picked and report["overall"] == "pass" and report["failed_stage"] is None
+    assert (rows["network"]["status"], rows["tls"]["status"], rows["expiry"]["status"]) == (network, tls, "skipped")
+    assert all(rows[row_id]["observed"]["observation_failed"] is True for row_id in ("network", "tls", "expiry"))
+    assert "no answer" in rows["expiry"]["summary"], "the row says why item 3 is unanswered"
+
+
+def test_the_guide_says_a_pass_can_leave_the_session_expiry_item_unanswered():
+    section = " ".join(_guide_section().split())
+    assert not re.search(r"`network` and `tls` are `warn`", section), "tls is skipped unless that call failed on TLS"
+    assert "`expiry` is `skipped`" in section and "`tls` is `warn` only" in section
+    assert "`pass` can leave item 3 unanswered" in section
+    assert "session expiry does not decide whether users can read documents" in section
+
+
+def test_the_guide_says_when_the_next_page_is_an_observation():
+    assert "`max_results` of 50 or less" in " ".join(_guide_section().split())
 
 
 def test_the_guide_sends_the_installer_to_layout_id_only_when_one_is_set():

@@ -846,14 +846,19 @@ class _Run:
         returned = len(self.search_records)
         observed = {"rows_requested": _ROWS, "rows_returned": returned}
         full = returned >= _ROWS
-        # After a full page the connector asks for the next one. After a short page it stops
-        # (``search_files``), so that call is an observation: the end of the results, or a cap?
-        reply = self._search(self.search_query, start=_ROWS if full else returned, observation=not full)
+        # After a full page the connector asks for the next one, unless ``max_results`` already stopped
+        # it there. After a short page it stops too (``search_files``). In both those cases the call is
+        # an observation: the end of the results, or a cap?
+        real = full and self.client.max_results > _ROWS
+        reply = self._search(self.search_query, start=_ROWS if full else returned, observation=not real)
         following = _search_rows(reply)
         if following is None:
             observed.update(next_page_status=_status_key(reply), server_cap=False if full else None)
-            if full:
+            if real:
                 return "fail", "KMS refused the next page of results, which the connector asks for.", observed
+            if full:
+                return "info", ("A full page came back, so no cap was seen. The next page, which this connection "
+                                "never asks for, could not be read."), observed
             return "warn", "The next page of results could not be read, so a server-side cap cannot be ruled out.", observed
         observed.update(next_page_rows=len(following), server_cap=bool(following) and not full)
         if following and not full:

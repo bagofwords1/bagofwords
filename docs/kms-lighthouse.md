@@ -402,10 +402,17 @@ Only a call the connector really makes with this configuration can fail a run or
 end it. Every other call is an observation: the request with no session, the
 other prefixes, query lengths above the connector's 200 characters, the search
 with no `layoutId` when a layout is set, the tree call with no parent when a root is
-set, and the page after a short page, where the connector stops. Observations count
-against the budgets, and a failed one is `warn` or `info` with its status word. When
-the request with no session got no answer but a later call reached KMS, `network`
-and `tls` are `warn` with `observation_failed` true, and they do not lower `overall`.
+set, and the page after a short page or, with `max_results` of 50 or less, after a
+full one: the connector stops at both. Observations count against the budgets, and
+a failed one is `warn` or `info` with its status word.
+
+When the request with no session got no answer but later calls reach KMS, `network`
+is `warn`, `tls` is `warn` only for a TLS failure on that call and is otherwise
+`skipped`, and `expiry` is `skipped`. All three carry `observation_failed` true and
+none of them lowers `overall`. After a TLS failure on that call `network` stays
+`pass`, because this server did reach the host. So a `pass` can leave item 3
+unanswered. That is intended: session expiry does not decide whether users can read
+documents, and the `expiry` row says the question got no answer.
 
 **Limits.** At most 60 calls and 90 s. The first call and the login keep the
 connector's own read timeout, 60 s, inside the 90 s; every other call gets at most
@@ -459,7 +466,8 @@ check passed. Items 10 and 13 are always `skipped`: failed logins are never sent
 purpose, so ask the KMS admin for the concurrent-session limit, the lockout
 threshold and whether a logout exists. Any other warning, or any other skipped
 check (including `ai_elements`, and `tls` unless the connection is plain HTTP),
-makes `overall` `warn`. A failed check makes it `fail`.
+makes `overall` `warn`, except a row with `observation_failed` true, which leaves
+`overall` alone. A failed check makes it `fail`.
 
 A check whose last call got no answer ends the run at stage `network` or `tls`, also
 when the status arrived and the body then stalled. An earlier call of the check that
@@ -481,7 +489,7 @@ the connector's own 10 s.
 | `tls` | `untrusted_certificate` (with OpenSSL's `verify_code`), `tls_failed` or `ca_bundle_unreadable` | Add the CA to `REQUESTS_CA_BUNDLE`. A device that intercepts TLS needs its CA added. An expired certificate or a host name mismatch has its own summary. `ca_bundle_unreadable`: the file `REQUESTS_CA_BUNDLE` names cannot be read, so nothing was sent. |
 | `login` | Rejected, held, `credentials_unavailable`, no session in the answer, `session_refused`, or `server` for a token | Check the username and password or the token. A rejection can also come from a device in front of KMS, or from a login with an unexpected shape. After a rejection wait five minutes, because of the login hold, before running it again. `session_refused`: KMS accepted the login but refused its session on the next call; ask the KMS admin whether the account may use the API. |
 | `browse` | The connector could not list the tree (`connector_browse` names the kind, `forbidden` or `bad_request` for a 403 or a 400), or the tree could not be read | Check the API prefix and the account's KMS permissions. With no Root folder ID, try setting one. |
-| `search` | The connector could not search, every sample query failed on `/search/full`, the page after a full page was refused, or the connector would refuse the answer (`not_records`, or `non_numeric_id` when no record has a numeric id) | If a Layout ID is set, see `search_layout` for the answer with and without it. Records with no numeric id beside usable ones are not a failure: the connector skips them, so the check warns and counts them in `unusable_records`. `bad_body` or `bad_encoding` on any check means KMS answered but its body broke after the status; a device in front of KMS is the first thing to check. |
+| `search` | The connector could not search, every sample query failed on `/search/full`, the page after a full page was refused when the connector asks for it, or the connector would refuse the answer (`not_records`, or `non_numeric_id` when no record has a numeric id) | If a Layout ID is set, see `search_layout` for the answer with and without it. Records with no numeric id beside usable ones are not a failure: the connector skips them, so the check warns and counts them in `unusable_records`. `bad_body` or `bad_encoding` on any check means KMS answered but its body broke after the status; a device in front of KMS is the first thing to check. |
 | `read` | The connector could not read any entry it listed (`connector_read` names the kinds), or no sampled item could be read | Check the account's KMS permissions. Send the report to the BOW engineers. |
 
 ## Known limitations and follow-ups
