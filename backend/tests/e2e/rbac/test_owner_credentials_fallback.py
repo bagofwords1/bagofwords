@@ -4,21 +4,26 @@ On a ``user_required`` connection a user with no saved login of their own is
 either an org-level admin (``full_admin`` or ``manage_connections``), who runs
 with the connection's shared credentials, or someone who must connect first.
 Owning the data source and holding a per-agent ``manage`` grant unlock nothing.
+The rule covers ownership, not an explicit ``manage_connection`` grant on the
+connection, which is a separate decision. The connection-manager routes are out
+of scope here.
 
 Invariants under test:
-- A non-admin owner with no login reaches the shared login on no path: neither
-  connection Test route, query runs, a report rerun, or a scheduled run.
+- A non-admin owner with no login does not reach the shared login through
+  test-my-credentials, the data source test route, query runs, a report rerun,
+  or a scheduled run.
 - Every status the UI reads says the same thing as the resolver: a refused user
   sees ``effective_auth`` "none", because the frontend hides Connect when it
   says "system".
 - An org admin who does not own the source, and a holder of
   ``manage_connections``, keep the fallback.
 - Once the owner saves their own login, runs use that login.
+- A source that takes no login can still be reloaded by its non-admin owner.
 
 PostgreSQL stands in for every user/password connector. Only its engine is
 stubbed, so the whole client runs and each login that reaches the driver is
-recorded. A non-admin cannot create a data source, so the owner builds it as an
-admin and is then demoted.
+recorded. The default member role cannot create a data source, so the owner
+builds it as an admin and is then demoted.
 """
 import asyncio
 import uuid
@@ -86,6 +91,9 @@ def world(logins, test_client, bootstrap_admin, invite_user_to_org, create_data_
     _demote(test_client, admin, owner)
 
     report = create_report(title="Owner report", user_token=owner["token"], org_id=org_id, data_sources=[ds["id"]])
+    # Direct DB writes: a rerun needs an artifact dashboard, and only the agent flow builds that graph
+    # (artifact, visualization, query, step); no public route does. Its seeded step ignores data
+    # sources, so its saved code is set here to call this one.
     seeded = _run(_seed_artifact_graph(report["id"]))
     _run(_set_step_code(seeded["step_ids"][0], _query_code(ds_name)))
 
@@ -104,7 +112,7 @@ def _query_code(ds_name: str) -> str:
 
 
 def _test_routes(test_client, world, headers):
-    """Both connection Test routes. They load the connection fresh, unlike a run."""
+    """test-my-credentials and the data source test route. They load the connection fresh, unlike a run."""
     return [
         test_client.post(f"/api/connections/{world['conn_id']}/test-my-credentials", headers=headers),
         test_client.get(f"/api/data_sources/{world['ds_id']}/test_connection", headers=headers),
@@ -311,7 +319,7 @@ def test_owner_who_saves_their_own_login_runs_as_themselves(world, logins, test_
     # The connection list has no data source in scope, so it cannot see this login: never "system".
     assert statuses["connection list"]["effective_auth"] != "system", statuses["connection list"]
 
-    # Both Test routes read connection-level logins only, which this save does not write. Whatever
+    # These two routes read connection-level logins only, which this save does not write. Whatever
     # they answer, they must not log in as the shared account (asserted below).
     _test_routes(test_client, world, world["owner_h"])
 
