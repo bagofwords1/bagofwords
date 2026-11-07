@@ -473,11 +473,14 @@ Pitfalls: gateways_and_servers.version vs the management version shows upgrade m
             if seconds > 366 * 86400:
                 raise CheckPointError("InvalidQuery", "lookback cannot exceed one year.")
             return now - timedelta(seconds=seconds), now
-        if "start_time" not in spec or "end_time" not in spec:
-            raise CheckPointError("InvalidQuery", "Supply both start_time and end_time.")
-        start, end = self._date(spec["start_time"]), self._date(spec["end_time"])
-        if start >= end or end > now + timedelta(seconds=30):
-            raise CheckPointError("InvalidQuery", "Time range must be ordered and cannot extend into the future.")
+        if "start_time" not in spec:
+            raise CheckPointError("InvalidQuery", "start_time is required with end_time (end_time alone is ambiguous).")
+        start = self._date(spec["start_time"])
+        # An omitted or future end_time means "up to now": planners routinely
+        # write open-ended windows such as start_time=yesterday, end_time=tomorrow.
+        end = min(self._date(spec["end_time"]), now) if "end_time" in spec else now
+        if start >= end:
+            raise CheckPointError("InvalidQuery", "Time range must be ordered and start before now.")
         return start, end
 
     def _validate_fields(self, table, requested):

@@ -281,7 +281,8 @@ def test_read_write_session_is_refused(monkeypatch, client):
         {"table": "logs", "lookback": "yesterday"},
         {"table": "logs", "lookback": "24h", "time_frame": "today"},
         {"table": "logs", "time_frame": "last-year"},
-        {"table": "logs", "start_time": "2026-01-01T00:00:00Z"},
+        {"table": "logs", "end_time": "2026-01-01T00:00:00Z"},
+        {"table": "logs", "start_time": "2999-01-01T00:00:00Z"},
         {"table": "logs", "fields": ["_bow_secret"]},
         {"table": "hosts", "order_by": ["ipv4-address asc"]},
         {"table": "tasks", "status": "done"},
@@ -751,3 +752,20 @@ def test_limit_error_explains_ceiling_semantics(client, http):
         client.execute_query({"table": "hosts", "limit": 2})
     assert e.value.code == "ResultLimitExceeded"
     assert "head(" in str(e.value) and "ceiling" in str(e.value)
+
+
+def test_open_ended_and_future_windows_are_clamped_to_now(client, http):
+    """Planners write start_time=yesterday with no end, or end_time=tomorrow; both mean "up to now"."""
+    queue, seen = http
+    for spec in (
+        {"table": "audit_logs", "start_time": "2026-11-06T00:00:00Z"},
+        {"table": "audit_logs", "start_time": "2026-11-06T00:00:00Z", "end_time": "2999-01-01T00:00:00Z"},
+    ):
+        queue.append((200, {"query-id": "q1", "logs": [{"time": "2026-11-06T01:00:00Z", "operation": "x"}], "logs-count": "1"}))
+        queue.append((200, {"query-id": "q1", "logs": [], "logs-count": "0"}))
+        before = len(seen)
+        df = client.execute_query(spec)
+        assert len(df) == 1
+        first = next(r for r in seen[before:] if urlsplit(r.url).path.endswith("show-logs"))
+        end = body_of(first)["new-query"]["custom-end"]
+        assert not end.startswith("2999")

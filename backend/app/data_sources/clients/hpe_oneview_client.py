@@ -144,6 +144,10 @@ class HpeOneViewClient(DataSourceClient):
         if not isinstance(auth_login_domain, str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", auth_login_domain):
             raise OneViewQueryError("InvalidConfiguration", "authLoginDomain must be a directory name such as local.")
         contract = _catalog()["contract"]
+        # The connect form stores an empty optional field as "" — treat it (and a
+        # numeric string) like "negotiate from GET /rest/version".
+        if isinstance(api_version, str):
+            api_version = int(api_version) if re.fullmatch(r"\s*[0-9]{1,6}\s*", api_version) else None if not api_version.strip() else api_version
         if api_version is not None:
             api_version = self._integer(api_version, "api_version", contract["min_api_version"], contract["max_api_version"])
         self.url = url
@@ -532,9 +536,10 @@ Simulator-verified contract; customer appliance validation (release, permissions
             if "start_time" not in spec:
                 raise OneViewQueryError("InvalidQuery", "start_time is required with end_time.")
             start = self._date(spec["start_time"])
-            end = self._date(spec["end_time"]) if "end_time" in spec else now
-        if start >= end or end > now + timedelta(seconds=30):
-            raise OneViewQueryError("InvalidQuery", "Time range must be ordered and cannot extend into the future.")
+            # A future end_time is clamped to now: planners write open-ended windows.
+            end = min(self._date(spec["end_time"]), now) if "end_time" in spec else now
+        if start >= end:
+            raise OneViewQueryError("InvalidQuery", "Time range must be ordered and start before now.")
         return start, end
 
     @staticmethod

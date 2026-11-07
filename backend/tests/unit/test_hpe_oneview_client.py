@@ -659,3 +659,23 @@ def test_limit_error_explains_ceiling_semantics(client, http):
         client.execute_query({"table": "server_hardware", "limit": 2})
     assert e.value.code == "ResultLimitExceeded"
     assert "head(" in str(e.value) and "ceiling" in str(e.value)
+
+
+def test_future_end_time_is_clamped_to_now(client, http):
+    queue, seen = http
+    queue.append((200, page([{"uri": "/rest/alerts/1", "severity": "Critical", "alertState": "Active", "created": "2026-11-07T00:00:00Z"}])))
+    df = client.execute_query({"table": "alerts", "start_time": "2026-11-01T00:00:00Z", "end_time": "2999-01-01T00:00:00Z"})
+    assert len(df) == 1
+    assert "2999" not in data_requests(seen)[-1].url
+
+
+@pytest.mark.parametrize("value", ["", " ", "6800", 6800, None])
+def test_form_shaped_api_version_values_are_accepted(value):
+    """The connect form stores an empty optional field as ""; it must mean "negotiate", not a construction error."""
+    c = HpeOneViewClient(url="https://oneview.example", username="reader", password="x", api_version=value)
+    c.close()
+
+
+def test_out_of_range_api_version_still_fails_fast():
+    with pytest.raises(OneViewQueryError):
+        HpeOneViewClient(url="https://oneview.example", username="reader", password="x", api_version="99999")
