@@ -199,7 +199,7 @@ and each entry carries `status` `online` or `offline`.
 
 | Limit | Value | What happens past it |
 |---|---|---|
-| Entries per search or listing | `max_results` (default 200, 1-1000), lowered by the tool's own `limit` | Search returns what it found and marks the result **incomplete** (`stop_reason` `max_results`). A listing **stops silently**: neither the `list_files` tool nor the Files tab says it was cut. |
+| Articles and scenarios per search or listing (folders do not count) | `max_results` (default 200, 1-1000), lowered by the tool's own `limit` | Search returns what it found and marks the result **incomplete** (`stop_reason` `max_results`). A listing **stops silently**: neither the `list_files` tool nor the Files tab says it was cut. |
 | Search paging | pages of 50, at most 20 pages | More results may exist; the search is marked incomplete. |
 | Search query | 200 characters (control characters removed) | The rest is cut, not refused. A 400 from KMS says the query may be too long or the Layout ID wrong. |
 | Tree calls per `list_files` call | 40 folder calls, path resolution included | The listing stops silently; a folder that cannot be reached within the bound answers "Folder not found, or beyond the browse limit". |

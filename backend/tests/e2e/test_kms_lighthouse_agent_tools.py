@@ -103,7 +103,7 @@ def test_planner_context_carries_the_kms_browse_note(
     notes = re.findall(r"<note>\n(.*?)\n</note>", element, re.S)
     assert len(notes) == 1, element
     note = notes[0]
-    assert f"returns at most {_MAX_RESULTS} entries (folders included) from the root folder (id {_ROOT})" in note
+    assert f"returns at most {_MAX_RESULTS} articles and scenarios (folders do not count) from the root folder (id {_ROOT})" in note
     assert f"stops after {kc._MAX_FOLDER_CALLS} folder lookups" in note
     # A root-relative example: under the root folder, paths start below it ("Billing/...", not "Procedures/...").
     assert "pass the folder part of an entry's path as folder_id (for example 'Folder/Subfolder')" in note
