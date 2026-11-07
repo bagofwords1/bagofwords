@@ -35,6 +35,11 @@ that.
   worker owns its own database on one shared Postgres container; a pre-set
   `TEST_DATABASE_URL` with `--db=postgres` reuses that server instead of
   starting a container. Set `TESTING=true` when running anything by hand.
+- The dashboards `corpus` and `migrated_corpus` fixtures really build once per
+  worker, then every test starts from a restored copy of that database, its
+  files and its `Corpus` object (`tests/fixtures/dashboard_corpus/reuse.py`).
+  A test may change anything, schema included. Ids repeat from test to test,
+  so a new process-wide cache keyed by a row id must be cleared there.
 - Per-test overhead is what makes this suite slow, not the tests: don't add
   `sleep`s, don't start background loops you don't drain, and never leak a
   pooled connection across the test boundary. On Postgres the app engine pools
