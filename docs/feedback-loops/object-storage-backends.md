@@ -92,6 +92,13 @@ file needs `libodbc`, missing here).
 
 ## Found along the way
 
+- Data-app file resources were missed by the first pass: they live under
+  `BOW_ARTIFACT_STORAGE`, outside `uploads/`. Now mirrored as
+  `artifact_files/`; `test_data_app_files_follow_object_storage_to_any_pod`
+  and the bucket-only orphan cleanup test cover them on every backend
+  (53 e2e passed with real S3 and Azure, 0 skipped; the new test fails with
+  the read-side change removed).
+
 - Images attached to a chat message are read from disk to send to the LLM
   (`app/ai/agent_v2.py`, `create_artifact.py`). A grep sweep missed them at
   first; on pod B the read failed, was logged as a warning, and the message went

@@ -47,6 +47,11 @@ class ObjectStore(abc.ABC):
     def list(self, prefix: str) -> Iterator[str]:
         """Yield every key (relative, without the configured prefix) under ``prefix``."""
 
+    def list_detailed(self, prefix: str) -> Iterator[tuple[str, float | None]]:
+        """Like ``list`` with each object's last-modified time (epoch seconds)."""
+        for key in self.list(prefix):
+            yield key, None
+
     def delete_prefix(self, prefix: str) -> int:
         n = 0
         for key in list(self.list(prefix)):

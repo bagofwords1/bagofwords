@@ -26,6 +26,11 @@ value changed and no migration of rows is needed.
 `thumbnails`, `pptx`, `pptx_previews`, `branding`, `avatars`, `demo_data`,
 `fast`, `git_state` (learned SSH host keys, merged across pods),
 `pbix_file_cache`, `pbix_data_cache`, `pbirs_schema_cache`, `qvd_cache`.
+Data-app file resources (`artifact_file_service.py`) are mirrored under
+`artifact_files/`: with object storage `BOW_ARTIFACT_STORAGE` is optional
+(default `uploads/artifact_files`); when set, it maps to the same keys
+(`keys.MAPPED_ROOT_ENV`). Orphan cleanup (`artifact_maintenance.py`) also
+lists the bucket, so blobs only another pod wrote are collected too.
 
 **Per-pod only** (`keys.LOCAL_ONLY_AREAS`): `repo_cache` (git mirrors),
 `pdfs` (rendered and served in the same request), `artifact_js`

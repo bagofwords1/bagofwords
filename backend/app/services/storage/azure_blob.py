@@ -115,3 +115,12 @@ class AzureBlobStore(ObjectStore):
                 yield self._strip(blob.name)
         except AzureError as e:
             raise StorageError(f"Azure list of {prefix!r} failed: {e}") from e
+
+    def list_detailed(self, prefix):
+        AzureError, _ = self._errors()
+        try:
+            for blob in self._cc.list_blobs(name_starts_with=self._k(prefix)):
+                modified = blob.last_modified
+                yield self._strip(blob.name), modified.timestamp() if modified else None
+        except AzureError as e:
+            raise StorageError(f"Azure list of {prefix!r} failed: {e}") from e

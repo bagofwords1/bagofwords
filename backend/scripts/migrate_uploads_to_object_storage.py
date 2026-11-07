@@ -7,7 +7,8 @@
 Run it once, before (or right after) switching ``storage.backend`` from
 ``local`` to ``s3`` / ``azure``, on a host that still has the old uploads/
 volume mounted. Every file the app mirrors is uploaded under the same key the
-app uses (``files/<uuid>_name``, ``thumbnails/<id>.png``, ...). Local-only
+app uses (``files/<uuid>_name``, ``thumbnails/<id>.png``, ...), and so is
+every data-app file blob in ``BOW_ARTIFACT_STORAGE`` when that is set. Local-only
 areas (git clones, PDF renders, compile caches) are skipped.
 
 Idempotent and resumable: an object that already exists is left alone unless
@@ -42,32 +43,45 @@ def main() -> int:
         print(f"No uploads directory at {root}")
         return 2
 
+    # uploads/ plus folders kept outside it by env var (BOW_ARTIFACT_STORAGE
+    # for data-app files), each mapped to keys exactly as the app maps it.
+    from app.services.storage.keys import MAPPED_ROOT_ENV
+
+    walks = [(root, str(storage.UPLOADS_ROOT))]
+    for env in MAPPED_ROOT_ENV:
+        extra = os.environ.get(env)
+        if extra and os.path.isdir(extra):
+            walks.append((Path(extra), extra))
+
+    def candidates():
+        for walk_root, key_base in walks:
+            for dirpath, dirs, files in os.walk(walk_root):
+                dirs[:] = [d for d in dirs if not d.startswith(".")]
+                for name in files:
+                    path = os.path.join(dirpath, name)
+                    yield path, storage.key_for(os.path.join(key_base, os.path.relpath(path, walk_root)))
+
     uploaded = skipped = existing = failed = 0
     total_bytes = 0
     started = time.monotonic()
-    for dirpath, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if not d.startswith(".")]
-        for name in files:
-            path = os.path.join(dirpath, name)
-            rel = os.path.relpath(path, root).replace(os.sep, "/")
-            key = storage.key_for(os.path.join(str(storage.UPLOADS_ROOT), rel))
-            if key is None:
-                skipped += 1
+    for path, key in candidates():
+        if key is None:
+            skipped += 1
+            continue
+        try:
+            if not args.force and store.etag(key) is not None:
+                existing += 1
                 continue
-            try:
-                if not args.force and store.etag(key) is not None:
-                    existing += 1
-                    continue
-                size = os.path.getsize(path)
-                if args.dry_run:
-                    print(f"would upload {key} ({size} bytes)")
-                else:
-                    store.upload(key, path)
-                uploaded += 1
-                total_bytes += size
-            except (OSError, storage.StorageError) as e:
-                failed += 1
-                print(f"FAILED {key}: {e}", file=sys.stderr)
+            size = os.path.getsize(path)
+            if args.dry_run:
+                print(f"would upload {key} ({size} bytes)")
+            else:
+                store.upload(key, path)
+            uploaded += 1
+            total_bytes += size
+        except (OSError, storage.StorageError) as e:
+            failed += 1
+            print(f"FAILED {key}: {e}", file=sys.stderr)
 
     verb = "would upload" if args.dry_run else "uploaded"
     print(
