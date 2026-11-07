@@ -638,3 +638,24 @@ def test_real_client_against_simulator_over_http(simulator):
     assert len(ports) == 20 and set(ports["interconnectName"]) == {"Frame-2, interconnect 6"}
     assert "REDACTED" not in c.execute_query({"table": "storage_systems", "fields": "*"}).to_json()
     assert "public-ro" not in c.execute_query({"table": "interconnects", "fields": ["snmpConfiguration"]}).to_json()
+
+
+# ----------------------------------------------------------------------------- LLM-usability regressions (live Haiku run)
+def test_provenance_columns_may_be_requested_in_fields(client, http):
+    queue, seen = http
+    queue.append((200, page([{"uri": "/rest/server-hardware/1", "name": "bay1", "status": "OK"}])))
+    df = client.execute_query({"table": "server_hardware", "fields": ["uri", "name", "_bow_retrieved_at", "_bow_appliance"]})
+    assert list(df["name"]) == ["bay1"] and "_bow_retrieved_at" in df.columns
+    with pytest.raises(OneViewQueryError) as e:
+        client.execute_query({"table": "server_hardware", "fields": ["name", "_bow_secret"]})
+    assert e.value.code == "InvalidQuery"
+    assert len(data_requests(seen)) == 1
+
+
+def test_limit_error_explains_ceiling_semantics(client, http):
+    queue, seen = http
+    queue.append((200, page([{"uri": f"/rest/server-hardware/{i}", "name": f"b{i}", "status": "OK"} for i in range(3)])))
+    with pytest.raises(OneViewQueryError) as e:
+        client.execute_query({"table": "server_hardware", "limit": 2})
+    assert e.value.code == "ResultLimitExceeded"
+    assert "head(" in str(e.value) and "ceiling" in str(e.value)

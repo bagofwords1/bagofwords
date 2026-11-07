@@ -55,6 +55,7 @@ _META = {
 _TYPES = {"integer": "int", "number": "float", "boolean": "bool", "string": "str", "array": "json", "object": "json"}
 _PAGE_SIZE = 500
 _OPEN_KINDS = {"stats", "nested"}
+_LIMIT_MSG = "Result exceeds limit, which is a complete-result ceiling rather than a preview: raise limit (up to max_rows) or narrow filters, then preview with pandas .head(n). Nothing was truncated."
 
 
 @lru_cache(maxsize=1)
@@ -310,16 +311,24 @@ No SQL, raw URLs, tmsh/bash, transactions or mutations: the client cannot send a
         if fields is not None:
             if not isinstance(fields, list) or not fields or not all(isinstance(x, str) for x in fields):
                 raise F5BigIpError("InvalidQuery", "fields must be a nonempty list of catalogued field names.")
+            # Provenance columns are always appended; asking for them is harmless.
+            fields = [f for f in fields if f not in _META]
             unknown = [f for f in fields if f not in t["fields"] and f not in t["parents"]]
+            if t["kind"] in _OPEN_KINDS:
+                # /stats and nested tables return whatever keys the device has; an
+                # undocumented key becomes a null column instead of a rejection.
+                unknown = [f for f in unknown if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", f)]
             if unknown:
-                raise F5BigIpError("InvalidQuery", f"Unknown or excluded field: {unknown[0]}.")
-            fields = list(dict.fromkeys(fields))
+                raise F5BigIpError("InvalidQuery", f"Unknown or excluded field: {unknown[0]}. Use get_schema(table) for the documented columns.")
+            fields = list(dict.fromkeys(fields)) or None
         filters = spec.get("filter", {})
         if not isinstance(filters, dict):
             raise F5BigIpError("InvalidQuery", "filter must be an object of field: value.")
         for k, v in filters.items():
-            if k != "partition" and k not in t["fields"] and k not in t["parents"]:
-                raise F5BigIpError("InvalidQuery", f"Unknown or excluded filter: {k}.")
+            if k != "partition" and k not in t["fields"] and k not in t["parents"] and not (
+                t["kind"] in _OPEN_KINDS and re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", k)
+            ):
+                raise F5BigIpError("InvalidQuery", f"Unknown or excluded filter: {k}. Use get_schema(table) for the documented columns.")
             values = v if isinstance(v, list) else [v]
             if not values or any(
                 isinstance(x, (dict, list)) or (isinstance(x, float) and not math.isfinite(x)) for x in values
@@ -369,7 +378,7 @@ No SQL, raw URLs, tmsh/bash, transactions or mutations: the client cannot send a
             if keep:
                 rows.append(flat)
         if len(rows) > limit:
-            raise F5BigIpError("ResultLimitExceeded", "Narrow filters or increase the complete-result limit.")
+            raise F5BigIpError("ResultLimitExceeded", _LIMIT_MSG)
 
         declared = list(t["fields"])
         columns = fields or declared
@@ -472,7 +481,7 @@ No SQL, raw URLs, tmsh/bash, transactions or mutations: the client cannot send a
                     raise F5BigIpError("InvalidResponse", "Expanded subcollection is not a list of objects.")
                 records.extend({**i, "pool": parent.get("fullPath")} for i in items)
                 if len(records) > limit:
-                    raise F5BigIpError("ResultLimitExceeded", "Narrow filters or increase the complete-result limit.")
+                    raise F5BigIpError("ResultLimitExceeded", _LIMIT_MSG)
             return records
         if partition:
             params["$filter"] = f"partition eq {partition}"
@@ -496,7 +505,7 @@ No SQL, raw URLs, tmsh/bash, transactions or mutations: the client cannot send a
                 body = self._get(session, sub, {}, deadline)
                 records.extend({**r, t["parents"][0]: full} for r in self._stats_rows(body))
                 if len(records) > limit:
-                    raise F5BigIpError("ResultLimitExceeded", "Narrow filters or increase the complete-result limit.")
+                    raise F5BigIpError("ResultLimitExceeded", _LIMIT_MSG)
             return records
         if name_path:
             base = path[: -len("/stats")]
@@ -504,7 +513,7 @@ No SQL, raw URLs, tmsh/bash, transactions or mutations: the client cannot send a
         body = self._get(session, path, {}, deadline)
         records = [{**r, **parent_values} for r in self._stats_rows(body)]
         if len(records) > limit:
-            raise F5BigIpError("ResultLimitExceeded", "Narrow filters or increase the complete-result limit.")
+            raise F5BigIpError("ResultLimitExceeded", _LIMIT_MSG)
         return records
 
     def _nested(self, session, t, deadline):
@@ -770,7 +779,7 @@ No SQL, raw URLs, tmsh/bash, transactions or mutations: the client cannot send a
                 raise F5BigIpError("InvalidResponse", "Expected a collection of objects.")
             records.extend(items)
             if len(records) > limit:
-                raise F5BigIpError("ResultLimitExceeded", "Narrow filters or increase the complete-result limit.")
+                raise F5BigIpError("ResultLimitExceeded", _LIMIT_MSG)
             nxt = body.get("nextLink")
             if nxt is None or not items:
                 return records

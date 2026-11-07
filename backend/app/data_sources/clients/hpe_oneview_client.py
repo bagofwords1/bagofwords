@@ -29,6 +29,8 @@ from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.progress import discovery_items, discovery_progress
 
 
+_LIMIT_MSG = "Result exceeds limit, which is a complete-result ceiling rather than a preview: raise limit (up to max_rows) or narrow filters, then preview with pandas .head(n). Nothing was truncated."
+
 class OneViewQueryError(ValueError):
     """Stable machine code plus a safe explanation; never echoes bodies or credentials."""
 
@@ -458,6 +460,8 @@ Simulator-verified contract; customer appliance validation (release, permissions
             raise OneViewQueryError("InvalidQuery", 'fields must be a nonempty list of documented field names or "*".')
         expanded = []
         for name in requested:
+            if name in _META:
+                continue  # provenance columns are always appended
             matches = [k for k in resource["fields"] if k == name or k.startswith(name + ".")]
             if not matches:
                 raise OneViewQueryError("InvalidQuery", f"Unknown or excluded field: {name}.")
@@ -680,7 +684,7 @@ Simulator-verified contract; customer appliance validation (release, permissions
         if kind == "collection_flatten" or (kind == "collection_flatten" and singleton):
             records = self._flatten(records, resource)
         if len(records) > limit:
-            raise OneViewQueryError("ResultLimitExceeded", "Narrow filters or increase the complete-result limit.")
+            raise OneViewQueryError("ResultLimitExceeded", _LIMIT_MSG)
         rows = []
         for record in records:
             row = {k: self._extract(record, k) for k in fields}
@@ -817,11 +821,11 @@ Simulator-verified contract; customer appliance validation (release, permissions
             total = body.get("total")
             if isinstance(total, int) and not isinstance(total, bool) and total > limit:
                 raise OneViewQueryError(
-                    "ResultLimitExceeded", f"The appliance reports {total} matching rows; narrow filters or raise limit."
+                    "ResultLimitExceeded", f"The appliance reports {total} matching rows. " + _LIMIT_MSG
                 )
             records.extend(batch)
             if len(records) > limit:
-                raise OneViewQueryError("ResultLimitExceeded", "Narrow filters or increase the complete-result limit.")
+                raise OneViewQueryError("ResultLimitExceeded", _LIMIT_MSG)
             nxt = body.get("nextPageUri")
             if nxt is None or nxt == body.get("uri") or not batch:
                 return records

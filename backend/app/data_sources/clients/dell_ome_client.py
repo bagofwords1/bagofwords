@@ -30,6 +30,8 @@ from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.progress import discovery_items, discovery_progress
 
 
+_LIMIT_MSG = "Result exceeds limit, which is a complete-result ceiling rather than a preview: raise limit (up to max_rows) or narrow filters, then preview with pandas .head(n). Nothing was truncated."
+
 class DellOmeError(ValueError):
     """Stable machine code plus a safe explanation; never echoes bodies or credentials."""
 
@@ -477,6 +479,8 @@ No SQL, raw URLs, actions or mutations exist; the account only needs the Viewer 
             raise DellOmeError("InvalidQuery", "fields must be a nonempty list of documented field names.")
         expanded = []
         for name in fields:
+            if name in _META:
+                continue  # provenance columns are always appended
             matches = [k for k in resource["fields"] if k == name or k.startswith(name + ".")]
             if not matches:
                 raise DellOmeError("InvalidQuery", f"Unknown or excluded field: {name}.")
@@ -535,7 +539,7 @@ No SQL, raw URLs, actions or mutations exist; the account only needs the Viewer 
                 raise
         records = self._explode(records, resource["explode"])
         if len(records) > limit:
-            raise DellOmeError("ResultLimitExceeded", "Narrow filters or increase the complete-result limit; nothing was truncated.")
+            raise DellOmeError("ResultLimitExceeded", _LIMIT_MSG)
         rows = []
         for record in records:
             row = {k: self._extract(record, k) for k in fields}
@@ -637,10 +641,10 @@ No SQL, raw URLs, actions or mutations exist; the account only needs the Viewer 
             if count is not None and (isinstance(count, bool) or not isinstance(count, int) or count < 0):
                 raise DellOmeError("InvalidResponse", "Invalid @odata.count.")
             if count is not None and count > limit:
-                raise DellOmeError("ResultLimitExceeded", "Narrow filters or increase the complete-result limit; nothing was truncated.")
+                raise DellOmeError("ResultLimitExceeded", _LIMIT_MSG)
             records.extend(batch)
             if len(records) > limit:
-                raise DellOmeError("ResultLimitExceeded", "Narrow filters or increase the complete-result limit; nothing was truncated.")
+                raise DellOmeError("ResultLimitExceeded", _LIMIT_MSG)
             nxt = body.get("@odata.nextLink")
             if nxt is None or nxt == "":
                 return records

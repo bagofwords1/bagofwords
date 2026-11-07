@@ -731,3 +731,23 @@ def test_simulator_enforces_the_documented_auth_and_read_only_contract(simulator
 
 
 
+
+
+# ----------------------------------------------------------------------------- LLM-usability regressions (live Haiku run)
+def test_provenance_columns_may_be_requested_in_fields(client, http):
+    queue, seen = http
+    queue.append((200, {"objects": [{"uid": "u1", "name": "h1", "type": "host", "ipv4-address": "10.0.0.1"}], "from": 1, "to": 1, "total": 1}))
+    df = client.execute_query({"table": "hosts", "fields": ["name", "_bow_retrieved_at", "_bow_management"]})
+    assert list(df["name"]) == ["h1"] and "_bow_retrieved_at" in df.columns
+    with pytest.raises(CheckPointError) as e:
+        client.execute_query({"table": "hosts", "fields": ["name", "_bow_secret"]})
+    assert e.value.code == "InvalidQuery"
+
+
+def test_limit_error_explains_ceiling_semantics(client, http):
+    queue, seen = http
+    queue.append((200, {"objects": [{"uid": f"u{i}", "name": f"h{i}", "type": "host"} for i in range(3)], "from": 1, "to": 3, "total": 3}))
+    with pytest.raises(CheckPointError) as e:
+        client.execute_query({"table": "hosts", "limit": 2})
+    assert e.value.code == "ResultLimitExceeded"
+    assert "head(" in str(e.value) and "ceiling" in str(e.value)

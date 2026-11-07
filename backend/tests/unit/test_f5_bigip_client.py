@@ -7,6 +7,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+import pandas as pd
 import pytest
 import requests
 
@@ -676,3 +677,41 @@ def test_simulator_token_expiry_mid_query_is_recovered_by_relogin(simulator):
     assert len(frame) == 15 and frame["pool"].nunique() == 6
     assert calls["logins"] == 2
     assert not sim.STATE["tokens"]
+
+
+# ----------------------------------------------------------------------------- LLM-usability regressions (live Haiku run)
+def test_provenance_columns_may_be_requested_in_fields(client, http):
+    """Planners copy `_bow_retrieved_at` from get_schema into `fields`; that must not be an error."""
+    http["queue"].append((200, _collection([{"name": "p1", "partition": "Common", "fullPath": "/Common/p1"}])))
+    df = client.execute_query({"table": "pools", "fields": ["fullPath", "_bow_retrieved_at", "_bow_device"]})
+    assert list(df["fullPath"]) == ["/Common/p1"]
+    assert "_bow_retrieved_at" in df.columns and "_bow_device" in df.columns
+    # Only real provenance columns get this treatment; an unknown _bow_ name is still rejected before I/O.
+    with pytest.raises(F5BigIpError) as e:
+        client.execute_query({"table": "pools", "fields": ["fullPath", "_bow_secret"]})
+    assert e.value.code == "InvalidQuery"
+    assert len(http["gets"]()) == 1
+
+
+def test_stats_tables_accept_undocumented_device_keys(client, http):
+    """/stats answers carry whatever counters the TMOS build has; an undocumented key is a null column, not a refusal."""
+    http["queue"].append(
+        (200, _stats("/mgmt/tm/ltm/virtual", ["/Common/vs1"], lambda o: {"status.availabilityState": {"description": "available"}, "serverside.totConns": {"value": 7}}))
+    )
+    df = client.execute_query(
+        {"table": "virtual_server_stats", "fields": ["_object", "status.availabilityState", "serverside.totConns", "futureCounter"],
+         "filter": {"serverside.totConns": 7}}
+    )
+    assert len(df) == 1 and int(df.iloc[0]["serverside.totConns"]) == 7
+    assert df.iloc[0]["futureCounter"] is None or pd.isna(df.iloc[0]["futureCounter"])
+    # Config tables stay strict: their columns are a frozen contract.
+    with pytest.raises(F5BigIpError):
+        client.execute_query({"table": "pools", "fields": ["futureCounter"]})
+
+
+def test_limit_error_explains_ceiling_semantics(client, http):
+    http["queue"].append((200, _collection([{"name": f"p{i}", "partition": "Common", "fullPath": f"/Common/p{i}"} for i in range(3)])))
+    with pytest.raises(F5BigIpError) as e:
+        client.execute_query({"table": "pools", "limit": 2})
+    assert e.value.code == "ResultLimitExceeded"
+    assert "head(" in str(e.value) and "ceiling" in str(e.value)

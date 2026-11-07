@@ -597,3 +597,22 @@ def test_real_client_against_in_process_simulator():
     finally:
         server.shutdown()
         server.server_close()
+
+
+# ----------------------------------------------------------------------------- LLM-usability regressions (live Haiku run)
+def test_provenance_columns_may_be_requested_in_fields(client, http):
+    http["queue"].append((200, collection([{"Id": 1, "DeviceName": "r650-01", "Status": 1000}])))
+    df = client.execute_query({"table": "devices", "fields": ["Id", "DeviceName", "_bow_retrieved_at", "_bow_appliance"]})
+    assert list(df["DeviceName"]) == ["r650-01"] and "_bow_retrieved_at" in df.columns
+    with pytest.raises(DellOmeError) as e:
+        client.execute_query({"table": "devices", "fields": ["Id", "_bow_secret"]})
+    assert e.value.code == "InvalidQuery"
+    assert len(gets(http)) == 1
+
+
+def test_limit_error_explains_ceiling_semantics(client, http):
+    http["queue"].append((200, collection([{"Id": i, "DeviceName": f"d{i}", "Status": 1000} for i in range(3)])))
+    with pytest.raises(DellOmeError) as e:
+        client.execute_query({"table": "devices", "limit": 2})
+    assert e.value.code == "ResultLimitExceeded"
+    assert "head(" in str(e.value) and "ceiling" in str(e.value)

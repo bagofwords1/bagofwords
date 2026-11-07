@@ -32,6 +32,8 @@ from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.progress import discovery_items, discovery_progress
 
 
+_LIMIT_MSG = "Result exceeds limit, which is a complete-result ceiling rather than a preview: raise limit (up to max_rows) or narrow filters, then preview with pandas .head(n). Nothing was truncated."
+
 class CheckPointError(ValueError):
     """Stable machine code plus a safe explanation; never echoes bodies or credentials."""
 
@@ -487,6 +489,8 @@ Pitfalls: gateways_and_servers.version vs the management version shows upgrade m
         for name in requested:
             if name in table["fields"]:
                 out.append(name)
+            elif name in _META:
+                continue  # provenance columns are always appended
             elif table.get("dynamic_fields") and _DYNAMIC_FIELD.fullmatch(name) and not name.startswith("_bow"):
                 out.append(name)
             else:
@@ -619,7 +623,7 @@ Pitfalls: gateways_and_servers.version vs the management version shows upgrade m
             items, env = self._page_envelope(page, container)
             if env["total"] > hard_cap or len(records) + len(items) > hard_cap:
                 raise CheckPointError(
-                    "ResultLimitExceeded", "The collection exceeds the complete-result ceiling; narrow with search or parent."
+                    "ResultLimitExceeded", _LIMIT_MSG
                 )
             records.extend(items)
             if env["to"] >= env["total"] or env["total"] == 0:
@@ -663,7 +667,7 @@ Pitfalls: gateways_and_servers.version vs the management version shows upgrade m
                     rules.append((None, item))
                     count += 1
             if len(rules) > self.max_rows:
-                raise CheckPointError("ResultLimitExceeded", "The rulebase exceeds the complete-result ceiling.")
+                raise CheckPointError("ResultLimitExceeded", _LIMIT_MSG)
             if env["to"] >= env["total"] or env["total"] == 0:
                 break
             if count == 0 or env["to"] <= offset:
@@ -757,7 +761,7 @@ Pitfalls: gateways_and_servers.version vs the management version shows upgrade m
             query_id = qid
             records.extend(logs)
             if len(records) > self.max_rows:
-                raise CheckPointError("ResultLimitExceeded", "Log result exceeds the complete-result ceiling; narrow the search or window.")
+                raise CheckPointError("ResultLimitExceeded", _LIMIT_MSG)
             status = page.get("query-status")
             if not logs or (isinstance(status, str) and status.lower() in {"done", "complete", "completed"}):
                 return records
@@ -1005,7 +1009,7 @@ Pitfalls: gateways_and_servers.version vs the management version shows upgrade m
                 rows.append(row)
         if len(rows) > plan["limit"]:
             raise CheckPointError(
-                "ResultLimitExceeded", "Result exceeds limit; narrow the query. No rows were silently truncated."
+                "ResultLimitExceeded", _LIMIT_MSG
             )
         columns = list(dict.fromkeys(fields + list(plan["parent"]) + list(_META)))
         frame = pd.DataFrame({k: pd.Series([row.get(k) for row in rows], dtype="object") for k in columns})
