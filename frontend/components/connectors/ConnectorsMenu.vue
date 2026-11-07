@@ -9,7 +9,7 @@
           data-testid="connectors-trigger"
           :aria-label="$t('connectors.title')"
         >
-          <Icon name="heroicons-puzzle-piece" class="h-4 w-4" />
+          <PlugIcon class="h-4 w-4" />
           <span v-if="connectedCount" class="ms-1 text-xs tabular-nums" data-testid="connectors-count">{{ connectedCount }}</span>
           <span
             v-if="needsSignInCount"
@@ -71,6 +71,7 @@
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import Spinner from '~/components/Spinner.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
+import PlugIcon from '~/components/icons/PlugIcon.vue'
 import BrowseConnectorsModal from '~/components/connectors/BrowseConnectorsModal.vue'
 
 const { t } = useI18n()
