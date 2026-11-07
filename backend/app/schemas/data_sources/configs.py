@@ -1811,6 +1811,43 @@ class Neo4jConfig(BaseModel):
         description="Database name (default: neo4j)",
         json_schema_extra={"ui:type": "string"},
     )
+    max_rows: int = Field(
+        10_000,
+        ge=1,
+        le=100_000,
+        title="Row limit",
+        description="Most rows one query returns. Larger results are cut off and the agent is told to aggregate.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    schema_sample_size: int = Field(
+        100,
+        ge=1,
+        le=10_000,
+        title="Schema sample size",
+        description=(
+            "Nodes or relationships sampled per label to find properties, used only when the "
+            "database's schema procedures are restricted for this user."
+        ),
+        json_schema_extra={"ui:type": "number"},
+    )
+    allow_gds: bool = Field(
+        False,
+        title="Allow graph algorithms (GDS)",
+        description=(
+            "Let the agent run Graph Data Science algorithms in stream / stats mode (PageRank, "
+            "community detection, similarity, paths). Needs the GDS plugin. Write and mutate modes stay blocked."
+        ),
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    kerberos_service: str = Field(
+        "neo4j",
+        title="Kerberos service name",
+        description=(
+            "Only for Kerberos: the service part of Neo4j's Kerberos principal "
+            "(neo4j for neo4j/host@REALM)."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
 
     @field_validator("uri")
     @classmethod
@@ -1819,12 +1856,20 @@ class Neo4jConfig(BaseModel):
 
         return validate_uri(v)
 
+    @field_validator("kerberos_service")
+    @classmethod
+    def _service_is_one_name(cls, v: str) -> str:
+        v = (v or "neo4j").strip()
+        if not v or any(c in v for c in "/@ "):
+            raise ValueError("Enter only the service name, e.g. neo4j (no host or realm).")
+        return v
+
 
 class Neo4jCredentials(BaseModel):
     username: str = Field(
         ...,
         title="Username",
-        description="A Neo4j user. A user with a reader role is enough.",
+        description="A Neo4j user. A user with a reader role is enough. LDAP users sign in here too.",
         json_schema_extra={"ui:type": "string"},
     )
     password: str = Field(
@@ -1832,6 +1877,106 @@ class Neo4jCredentials(BaseModel):
         title="Password",
         json_schema_extra={"ui:type": "password"},
     )
+
+
+class Neo4jBearerCredentials(BaseModel):
+    """A token from the identity provider Neo4j's SSO (OIDC) is set up with."""
+    token: str = Field(
+        ...,
+        min_length=1,
+        title="Access token",
+        description=(
+            "An OIDC access or ID token that Neo4j's SSO accepts (the JWT itself, without "
+            "\"Bearer\"). Tokens expire: replace it when the connection test fails."
+        ),
+        json_schema_extra={"ui:type": "password"},
+    )
+
+    @field_validator("token")
+    @classmethod
+    def _strip_bearer(cls, v: str) -> str:
+        v = (v or "").strip()
+        if v.lower() == "bearer" or v.lower().startswith(("bearer ", "bearer\t")):
+            v = v[6:].strip()
+        if not v:
+            raise ValueError("The token is empty.")
+        return v
+
+
+class Neo4jNoAuthCredentials(BaseModel):
+    """A server with authentication disabled (dbms.security.auth_enabled=false)."""
+    pass
+
+
+class Neo4jImpersonationCredentials(BaseModel):
+    """A service user that runs each query as another Neo4j user.
+
+    Neo4j checks the impersonated user's own roles on every query. The service
+    user needs the IMPERSONATE privilege (Neo4j Enterprise or Aura Enterprise).
+    """
+    username: str = Field(
+        ...,
+        title="Service username",
+        description="A Neo4j user granted IMPERSONATE on the users BOW should act as.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(
+        ...,
+        title="Service password",
+        json_schema_extra={"ui:type": "password"},
+    )
+    impersonated_user: str | None = Field(
+        None,
+        title="Run queries as",
+        description=(
+            "The Neo4j user queries run as. Under \"Require user authentication\", map it to a "
+            "member attribute so each member runs as their own Neo4j user."
+        ),
+        json_schema_extra={"ui:type": "string", "ui:memberBindable": True},
+    )
+
+
+class Neo4jKerberosCredentials(BaseModel):
+    """BOW's own Kerberos identity (keytab or default credential cache).
+
+    Needs Neo4j Enterprise with the Kerberos add-on, and krb5 configured on
+    the BOW server.
+    """
+    use_kerberos: bool = Field(
+        True,
+        title="Use Kerberos",
+        description="Sign in with the BOW server's Kerberos identity. Needs krb5 on the BOW server (keytab + krb5.conf).",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    kerberos_principal: str | None = Field(
+        None,
+        title="Service principal (optional)",
+        description="Client principal to sign in as, e.g. svc-bow@CORP.EXAMPLE.COM. Needs a matching keytab entry. Leave blank for the default credential cache.",
+        json_schema_extra={"ui:type": "string"},
+    )
+
+    @model_validator(mode="after")
+    def _kerberos_stays_on(self) -> Neo4jKerberosCredentials:
+        if not self.use_kerberos:
+            raise ValueError("Kerberos must remain enabled for this authentication method.")
+        return self
+
+
+class Neo4jKerberosDelegatedCredentials(BaseModel):
+    """Per-user Kerberos SSO via constrained delegation (S4U2Self + S4U2Proxy),
+    the same flow as SQL Server's."""
+    use_kerberos: bool = Field(
+        True,
+        title="Use Kerberos SSO",
+        description="Queries run under your own Active Directory identity via Kerberos Constrained Delegation.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+
+    @model_validator(mode="after")
+    def _kerberos_stays_on(self) -> Neo4jKerberosDelegatedCredentials:
+        if not self.use_kerberos:
+            raise ValueError("Kerberos must remain enabled for this authentication method.")
+        return self
 
 # OpenSearch
 class OpenSearchCredentials(BaseModel):

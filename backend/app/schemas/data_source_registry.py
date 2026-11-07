@@ -248,6 +248,11 @@ from app.schemas.data_sources.configs import (
     ServiceNowCredentials,
     MongoDBCredentials,
     Neo4jCredentials,
+    Neo4jBearerCredentials,
+    Neo4jNoAuthCredentials,
+    Neo4jImpersonationCredentials,
+    Neo4jKerberosCredentials,
+    Neo4jKerberosDelegatedCredentials,
     PostHogCredentials,
     # MCP
     MCPConfig,
@@ -1379,11 +1384,43 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         credentials_auth=AuthOptions(
             default="userpass",
             by_auth={
+                # Native or LDAP users (LDAP is checked by the server).
                 "userpass": AuthVariant(
                     title="Username / Password",
                     schema=Neo4jCredentials,
                     scopes=["system", "user"]
-                )
+                ),
+                # A token from the IdP Neo4j's OIDC SSO trusts.
+                "bearer": AuthVariant(
+                    title="SSO access token (OIDC)",
+                    schema=Neo4jBearerCredentials,
+                    scopes=["system", "user"],
+                ),
+                # A service user that runs queries as another Neo4j user. Under
+                # "Require user authentication" the impersonated user is bound
+                # to a member attribute (member_mapped), never typed by members.
+                "impersonation": AuthVariant(
+                    title="Impersonation",
+                    schema=Neo4jImpersonationCredentials,
+                    scopes=["system"],
+                ),
+                # BOW's own Kerberos identity; system scope only.
+                "kerberos": AuthVariant(
+                    title="Kerberos",
+                    schema=Neo4jKerberosCredentials,
+                    scopes=["system"],
+                ),
+                # Per-user Kerberos SSO via constrained delegation, as for SQL Server.
+                "kerberos_delegated": AuthVariant(
+                    title="Kerberos SSO (per-user delegation)",
+                    schema=Neo4jKerberosDelegatedCredentials,
+                    scopes=["user"],
+                ),
+                "none": AuthVariant(
+                    title="No Authentication",
+                    schema=Neo4jNoAuthCredentials,
+                    scopes=["system"],
+                ),
             }
         ),
         client_path="app.data_sources.clients.neo4j_client.Neo4jClient",

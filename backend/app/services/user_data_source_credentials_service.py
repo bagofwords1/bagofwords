@@ -405,7 +405,7 @@ class UserDataSourceCredentialsService:
             validated = schema_cls(**(payload.credentials or {}))
             # KMS: only the validated fields reach the client, so a member's
             # extra keys cannot override the connection's config (e.g. base_url).
-            if ds_type.lower() in ("mssql", "kms_lighthouse"):
+            if ds_type.lower() in ("mssql", "neo4j", "kms_lighthouse"):
                 payload.credentials = validated.model_dump()
         except Exception as e:
             if ds_type == "kms_lighthouse":
@@ -469,7 +469,7 @@ class UserDataSourceCredentialsService:
         schema_cls = variant.schema
         try:
             validated = schema_cls(**(payload.credentials or {}))
-            if ds_type.lower() == "mssql":
+            if ds_type.lower() in ("mssql", "neo4j"):
                 payload.credentials = validated.model_dump()
         except Exception as e:
             raise HTTPException(status_code=422, detail=credentials_error_detail(e))
