@@ -213,6 +213,13 @@ def test_a_clean_tenant_is_proved_by_the_connector_itself(kms, monkeypatch):
     assert rows["connector_read"]["observed"]["reads"] == rows["connector_read"]["observed"]["usable"] == 2
 
 
+def test_overall_needs_all_three_proof_rows_to_pass():
+    rows = [{"id": row_id, "status": "pass", "stage": "read", "observed": {}} for row_id in _PROOF_ROWS]
+    assert kd._overall(rows, None) == ("pass", None)
+    assert kd._overall([{**rows[0], "status": "info"}, *rows[1:]], None) == ("warn", None)
+    assert kd._overall(rows[1:], None) == ("warn", None)
+
+
 def test_the_connector_rows_come_right_after_the_session_check(kms):
     ids = [row["id"] for row in client(kms, "alice").diagnostics()["checks"]]
     assert ids[ids.index("session") + 1:ids.index("session") + 4] == list(_PROOF_ROWS)
@@ -410,12 +417,16 @@ def test_the_connector_rows_read_text_and_hold_none_of_it(kms, monkeypatch):
         assert all(isinstance(value, (int, dict)) for value in _rows(report)[row_id]["observed"].values()), row_id
 
 
-def test_the_connector_rows_do_not_widen_the_sample(kms):
-    """Everything they read counts as sampled, so rule 6 holds across the whole run."""
+def test_the_connector_rows_do_not_widen_the_sample(kms, monkeypatch):
+    """Everything they read counts as sampled, so rule 6 holds across the whole run.
+
+    Ten top-level folders fill the browse limit, so the rows read search hits, and the tree walk finds four other items.
+    """
     mock = kms["mock"]
-    mock.STATE["extra_results"] = [_scenario_hit(str(6000 + n)) for n in range(4)] + [
-        {"id": str(7000 + n), "subType": "T_PROCEDURE", "title": "x", "description": "", "statusCode": "2"} for n in range(9)]
-    client(kms, "alice", root_folder_id=10).diagnostics()
+    monkeypatch.setattr(mock, "SEARCH_RESULTS", [
+        {"id": str(7000 + n), "subType": "T_PROCEDURE", "title": "x", "description": "", "statusCode": "2"} for n in range(9)])
+    mock.STATE["extra_results"] = [_scenario_hit(str(6000 + n)) for n in range(4)]
+    client(kms, "alice").diagnostics()
     items = {row[2] for row in mock.REQUEST_LOG if row[2].startswith(mock.PREFIX + "/public/item/")}
     scenarios = {req["path"] for req in mock.STATE["scenario_requests"] if "/step/" not in req["path"]}
     assert 0 < len(items) <= 5 and 0 < len(scenarios) <= 2
