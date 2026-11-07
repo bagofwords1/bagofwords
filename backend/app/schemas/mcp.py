@@ -119,12 +119,43 @@ class GetContextInput(BaseModel):
     patterns: Optional[List[str]] = Field(default=None, description="Regex patterns to filter tables/resources.")
 
 
+class ContextInstructionInfo(BaseModel):
+    """One instruction in the report's scope, as get_context lists it."""
+    id: str
+    title: Optional[str] = None
+    kind: str = Field(default="instruction", description="'instruction' or 'skill' (a procedure to follow when it fits the request)")
+    load_mode: str = Field(..., description="'always' (applies to every request) or 'intelligent' (applies when relevant)")
+    required: bool = Field(..., description="True for 'always' instructions: they apply to every request in this report")
+    text: Optional[str] = Field(
+        default=None,
+        description="Full text, for 'always' instructions that fit the inline budget. Unset: call read_instruction for it.",
+    )
+    description: Optional[str] = Field(default=None, description="One line on what it covers (unset when text is given)")
+    tables: List[str] = Field(default_factory=list, description="Tables it is about")
+    references: List[str] = Field(default_factory=list, description="Other objects it references, as 'kind:name'")
+    tokens: Optional[int] = Field(default=None, description="Approximate size of the full text, in tokens")
+
+
 class GetContextOutput(BaseModel):
     """Output for get_context MCP tool."""
     report_id: str
     data_sources: List[DataSourceInfo]
     resources: List[ResourceInfo]
     entities: List[EntityInfo] = Field(default_factory=list, description="Published saved queries available on these agents.")
+    instructions: List[ContextInstructionInfo] = Field(
+        default_factory=list,
+        description=(
+            "The organization's instructions that apply in this report: 'always' ones with their "
+            "text (or required: true when too long to inline), the rest as entries to open with "
+            "read_instruction."
+        ),
+    )
+    instructions_total: int = Field(default=0, description="How many instructions are in scope")
+    instructions_truncated: bool = Field(
+        default=False,
+        description="True when the list was capped: search the rest with list_instructions(search=...)",
+    )
+    instructions_hint: Optional[str] = Field(default=None, description="How to use the instructions list.")
     tools_hint: Optional[str] = Field(default=None, description="Set when agents expose tools: how to get their full input schemas.")
     entities_hint: Optional[str] = Field(default=None, description="Set when saved queries exist: use them instead of writing a definition from scratch.")
 
@@ -185,6 +216,15 @@ class MCPInspectDataInput(BaseModel):
     report_id: str = Field(..., description="Session ID from create_report. Required.")
     prompt: str = Field(..., description="What to inspect.")
     tables: Optional[List[TablesBySource]] = Field(default=None, description="Explicit tables. Auto-discovered if not provided.")
+    instruction_ids: Optional[List[str]] = Field(
+        default=None,
+        max_length=50,
+        description=(
+            "Ids of instructions you read (from get_context / read_instruction) that apply "
+            "to this request. Their full text is given to the code writer in addition to the "
+            "rules it loads itself. Ids outside this report's scope are ignored."
+        ),
+    )
 
 
 class MCPInspectDataOutput(BaseInspectDataOutput):
@@ -222,6 +262,15 @@ class MCPCreateDataInput(BaseModel):
             "were left out."
         ),
     )
+    instruction_ids: Optional[List[str]] = Field(
+        default=None,
+        max_length=50,
+        description=(
+            "Ids of instructions you read (from get_context / read_instruction) that apply "
+            "to this request. Their full text is given to the code writer in addition to the "
+            "rules it loads itself. Ids outside this report's scope are ignored."
+        ),
+    )
 
 
 class MCPCreateDataOutput(BaseModel):
@@ -249,7 +298,12 @@ class MCPInstructionItem(BaseModel):
     """Single instruction item in list response."""
     id: str
     title: Optional[str] = None
-    text: str
+    text: str = Field(..., description="The instruction text — only its opening chars when text_truncated is true")
+    text_truncated: bool = Field(
+        default=False,
+        description="True when `text` is shortened. Call read_instruction for the full text.",
+    )
+    text_length: int = Field(default=0, description="Length of the full instruction text, in chars")
     category: str
     status: str
     load_mode: str
@@ -298,8 +352,69 @@ class MCPDeleteInstructionOutput(BaseModel):
 # === read_instruction / edit_instruction ===
 
 class MCPReadInstructionInput(BaseModel):
-    """Input for read_instruction MCP tool."""
-    instruction_id: str = Field(..., description="ID of the instruction (from list_instructions)")
+    """Input for read_instruction MCP tool.
+
+    Long bodies are read in windows, like the in-app agent's read_instruction:
+    a line range (offset/limit) or a line-level grep (grep_pattern + context).
+    """
+    instruction_id: Optional[str] = Field(
+        default=None,
+        description="ID of the instruction (from get_context or list_instructions). Give this or instruction_ids.",
+    )
+    instruction_ids: Optional[List[str]] = Field(
+        default=None,
+        min_length=1,
+        max_length=20,
+        description=(
+            "Several instruction ids to read in one call (plain reads; a long one comes back as "
+            "its opening lines). Ids that don't fit the size budget are returned in not_read_ids — "
+            "read them in another call. Not combinable with offset / col_offset / limit / grep_pattern."
+        ),
+    )
+    report_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "The report you're working in (from create_report). When set, only instructions in "
+            "that report's scope (global, or on its agents) can be read, and the read is recorded "
+            "for the report so its data tools apply what you read."
+        ),
+    )
+    offset: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description=(
+            "RANGE READ: 1-based line to start from. Use it to read on from `next_offset` when "
+            "a read came back with `truncated: true`. The lines are verbatim — safe to anchor "
+            "edit_instruction on."
+        ),
+    )
+    col_offset: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description=(
+            "RANGE READ: continue a line too long for one read — pass the `next_col_offset` "
+            "a read returned, with `offset` set to that line. The text it returns continues "
+            "the previous piece directly (no line break between them)."
+        ),
+    )
+    limit: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=2000,
+        description="RANGE READ: number of lines from `offset` (default 400). Long lines can end the window earlier — continue from `next_offset`.",
+    )
+    grep_pattern: Optional[str] = Field(
+        default=None,
+        description=(
+            "GREP READ: Python regex matched against each line, e.g. 'revenue|refund'. Returns "
+            "matching lines (verbatim, 1-based line numbers) with before/after context. "
+            "Takes precedence over offset/limit."
+        ),
+    )
+    ignore_case: bool = Field(default=True, description="GREP READ: case-insensitive matching")
+    before: int = Field(default=0, ge=0, le=20, description="GREP READ: context lines before each match")
+    after: int = Field(default=0, ge=0, le=20, description="GREP READ: context lines after each match")
+    max_matches: int = Field(default=50, ge=1, le=200, description="GREP READ: cap on returned matches")
 
 
 class MCPInstructionAgentRef(BaseModel):
@@ -322,10 +437,48 @@ class MCPInstructionDetail(BaseModel):
     pending_review: bool = Field(default=False, description="True while a change waits for admin review")
     can_edit: bool = Field(default=False, description="Whether the caller may edit or delete it")
 
+    # Window metadata — set only when `text` is not the whole instruction
+    # (a long body's opening lines, a range read, or a grep read).
+    read_mode: Optional[str] = Field(
+        default=None,
+        description="Unset = `text` is the whole instruction. 'head' (too long to return whole: opening lines + outline), 'range', or 'grep'",
+    )
+    total_chars: Optional[int] = Field(default=None, description="Length of the whole instruction text")
+    total_lines: Optional[int] = Field(default=None, description="Line count of the whole instruction text")
+    start_line: Optional[int] = Field(default=None, description="First line returned in `text`")
+    end_line: Optional[int] = Field(default=None, description="Last line returned in `text`")
+    truncated: Optional[bool] = Field(
+        default=None,
+        description="True when lines after `end_line` were not returned — read on with offset=`next_offset`",
+    )
+    next_offset: Optional[int] = Field(default=None, description="Pass as `offset` to continue reading")
+    outline: Optional[str] = Field(default=None, description="Line-numbered outline of a long instruction, for picking a range or grep pattern")
+    clipped_line: Optional[int] = Field(
+        default=None,
+        description="A line too long for one read: `text` holds one piece of it — read on with next_offset + next_col_offset",
+    )
+    clipped_line_length: Optional[int] = Field(default=None, description="Full length of `clipped_line`")
+    start_col: Optional[int] = Field(default=None, description="Set when `text` starts mid-line (a col_offset read): the char it starts at")
+    next_col_offset: Optional[int] = Field(
+        default=None,
+        description="Set when a line was too long for one read: pass as `col_offset` (with offset=`next_offset`) to read on",
+    )
+    matches: Optional[List[Any]] = Field(default=None, description="GREP READ: matching lines with context")
+    grep_total_matches: Optional[int] = Field(default=None, description="GREP READ: total matches found")
+    grep_truncated: Optional[bool] = Field(default=None, description="GREP READ: more matches exist than were returned")
+
 
 class MCPReadInstructionOutput(BaseModel):
     success: bool
     instruction: Optional[MCPInstructionDetail] = None
+    instructions: Optional[List[MCPInstructionDetail]] = Field(default=None, description="Set for an instruction_ids read")
+    not_read_ids: Optional[List[str]] = Field(
+        default=None, description="instruction_ids left out to stay within the size budget: read them in another call",
+    )
+    not_found_ids: Optional[List[str]] = Field(
+        default=None, description="instruction_ids that don't exist, aren't visible to you, or are outside the report's scope",
+    )
+    message: Optional[str] = Field(default=None, description="What was read, and how to read on when it is partial")
     error_message: Optional[str] = None
 
 
@@ -469,6 +622,15 @@ class MCPCreateArtifactInput(BaseModel):
     prompt: str = Field(..., description="Goal for the dashboard/presentation. Describe what insights to highlight, layout preferences, or specific visualizations to feature.")
     title: Optional[str] = Field(default=None, description="Title for the artifact. If not provided, one will be generated.")
     mode: str = Field(default="page", description="Artifact mode: 'page' for interactive dashboards, 'slides' for presentation decks (exportable to PPTX).")
+    instruction_ids: Optional[List[str]] = Field(
+        default=None,
+        max_length=50,
+        description=(
+            "Ids of instructions you read (from get_context / read_instruction) that apply "
+            "to this request. Their full text is given to the code writer in addition to the "
+            "rules it loads itself. Ids outside this report's scope are ignored."
+        ),
+    )
 
 
 class MCPCreateArtifactOutput(BaseModel):
@@ -499,6 +661,15 @@ class MCPEditArtifactInput(BaseModel):
     edit_instruction: str = Field(default='', description="Natural language description of the change. E.g., 'Remove the filter bar', 'Make the revenue chart blue'.")
     visualization_ids: Optional[List[str]] = Field(default=None, description="Optional list of NEW visualization IDs to add. Existing ones are kept automatically.")
     title: Optional[str] = Field(default=None, description="Updated title. If not provided, existing title is kept.")
+    instruction_ids: Optional[List[str]] = Field(
+        default=None,
+        max_length=50,
+        description=(
+            "Ids of instructions you read (from get_context / read_instruction) that apply "
+            "to this request. Their full text is given to the code writer in addition to the "
+            "rules it loads itself. Ids outside this report's scope are ignored."
+        ),
+    )
 
 
 class MCPEditArtifactOutput(BaseModel):

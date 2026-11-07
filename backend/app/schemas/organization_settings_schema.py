@@ -476,6 +476,11 @@ class OrgSmtpSchema(BaseModel):
     global_configured: bool = False
 
 
+class ConnectionAlertsUpdate(BaseModel):
+    """Body for ``PUT /organization/connection-alerts``."""
+    email_enabled: bool
+
+
 class OrgSmtpTestRequest(BaseModel):
     """Optional body for the SMTP test. ``to`` defaults to the caller's address.
 

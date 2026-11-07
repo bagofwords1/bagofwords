@@ -20,6 +20,8 @@ class DocAgent:
     def get_content(self):
 
         file_path = self.pdf_file.path
+        from app.services import storage
+        storage.ensure_local(file_path)
 
         html_content = '<html><body>'
 

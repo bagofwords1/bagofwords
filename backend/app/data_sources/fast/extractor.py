@@ -325,6 +325,9 @@ def extract_to_artifact(
         con.close()
         con = None
         tmp_path.replace(final_path)
+        # Object storage: every pod serves this extract, not just this one.
+        from app.services import storage
+        storage.persist(final_path)
 
         return ExtractResult(
             row_count=row_count,

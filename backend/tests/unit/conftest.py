@@ -14,7 +14,10 @@ with no database work at all. A test that forgets the marker fails loudly with
 "no such table" rather than silently sharing state, because no schema exists
 without it.
 """
+import asyncio
+
 import pytest
+import pytest_asyncio
 
 
 def pytest_configure(config):
@@ -33,3 +36,26 @@ def run_migrations(request):
         # session-scoped template; its teardown is chained after ours.
         request.getfixturevalue("_fresh_test_database")
     yield
+
+
+@pytest_asyncio.fixture
+async def finish_spawned_tasks():
+    """Finish fire-and-forget tasks inside the test that spawned them.
+
+    Saving a finished CompletionBlock or Step spawns a chat-platform hook that
+    opens the app's own database, even from a test on an in-memory one. Left
+    running when the test ends, it has done two kinds of damage:
+
+    - a swap of the test's database file under it: its switch to WAL shares the
+      ``-journal`` path with the next test's, and one deletes the other's
+      journal (SQLITE_IOERR_DELETE_NOENT, issue #1573);
+    - a loop closed under it: as the process-wide engine's first connection it
+      keeps a lock, and the next test to connect waits forever.
+
+    Use it in a test that seeds such rows and doesn't wait for the hook.
+    """
+    yield
+    from app.core.fire_and_forget import _pending_tasks
+
+    loop = asyncio.get_running_loop()
+    await asyncio.gather(*(t for t in _pending_tasks if t.get_loop() is loop), return_exceptions=True)

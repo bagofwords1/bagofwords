@@ -264,7 +264,8 @@ class SapDatasphereClient(DataSourceClient):
                 }},
             ))
 
-        self._schemas_cache = tables
+        if not getattr(self, "_discovery_failures", None):
+            self._schemas_cache = tables
         return tables
 
     def _parse_metadata_columns(self, meta_url: str) -> List[TableColumn]:
@@ -278,11 +279,13 @@ class SapDatasphereClient(DataSourceClient):
         try:
             resp = self._get(meta_url, accept_xml=True)
             if resp.status_code >= 300:
+                self.mark_discovery_incomplete("SAP Datasphere columns")
                 return []
             root = ET.fromstring(resp.content)
         except IndexingCancelled:
             raise
         except Exception:
+            self.mark_discovery_incomplete("SAP Datasphere columns")
             return []
 
         # Find the first EntityType (the consumption entity).
@@ -292,6 +295,7 @@ class SapDatasphereClient(DataSourceClient):
                 entity_type = el
                 break
         if entity_type is None:
+            self.mark_discovery_incomplete("SAP Datasphere entity schema")
             return []
 
         columns: List[TableColumn] = []

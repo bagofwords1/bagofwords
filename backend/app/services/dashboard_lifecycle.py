@@ -291,7 +291,10 @@ def _remove_edit_files(stem: str, deck: str | None, thumbnail: str | None) -> No
 
     from app.services.dashboard_copy import _UPLOADS
 
+    from app.services import storage
+
     shutil.rmtree(_UPLOADS / "pptx_previews" / stem, ignore_errors=True)
+    storage.discard_tree(_UPLOADS / "pptx_previews" / stem)
     for path in (deck, thumbnail):
         if not path or "pptx_previews/" in str(path):
             continue  # a deck's thumbnail is one of its previews, gone with the folder
@@ -299,6 +302,7 @@ def _remove_edit_files(stem: str, deck: str | None, thumbnail: str | None) -> No
             target = Path(path) if Path(path).is_absolute() else _UPLOADS / str(path)
             target.resolve().relative_to(_UPLOADS.resolve())  # never outside uploads/
             target.unlink(missing_ok=True)
+            storage.discard(target)
         except (ValueError, OSError):
             logger.warning("Edit: copied file %s not removed", path)
 
@@ -358,7 +362,8 @@ async def edit_dashboard(db, artifact: Artifact, owner, organization) -> dict:
         version = await new_version(db, source, content=content, user_id=str(owner.id), report_id=str(report.id),
                                     status="completed", base_version_id=(
                                         str(release.source_version_id) if release.source_version_id else None),
-                                    draft_id=None, **({"pptx_path": deck} if deck else {}))
+                                    draft_id=None, content_changed=False,  # a copy of the live content
+                                    **({"pptx_path": deck} if deck else {}))
         thumbnail = _copy_thumbnail(release, str(version.id), previews) if own_rows else None
         if thumbnail:
             version.thumbnail_path = thumbnail

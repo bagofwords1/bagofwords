@@ -249,6 +249,12 @@ class PlannerInput(BaseModel):
     sub_agent_profile_addendum: Optional[str] = None
     sub_agent_budget: Optional[str] = None
 
+    # In-run efficiency readout (planner/run_efficiency.py): tokens so far,
+    # cache share and identical repeated calls, rendered in the per-turn head.
+    # Empty until the run is long enough or a call repeats; off unless
+    # BOW_RUN_EFFICIENCY is set.
+    run_efficiency: Optional[str] = None
+
     # Native transcript path (opt-in, see planner/transcript_bridge.py). When
     # on, prior steps replay as real assistant(tool_use) / user(tool_result)
     # turns instead of being re-serialized into <past_observations>. Same

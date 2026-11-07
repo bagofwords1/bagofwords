@@ -107,6 +107,11 @@ NEWLY_NULLABLE = [("artifacts", "report_id"), ("visualizations", "report_id"), (
                   ("queries", "widget_id")]  # the last one by dashfc02
 NEW_TABLES = ["artifact_releases", "artifact_release_data_source_association",
               "artifact_release_file_association", "artifact_shares"]
+# What releases after this branch changed in tables main had, on purpose:
+# auditcontract01 opens audit_log_streams to the org-less platform stream;
+# connapps01 moves the OAuth clients into connected_applications.
+LATER_NULLABLE = [("audit_log_streams", "organization_id")]
+LATER_REPLACED_TABLES = ["oauth_mcp_clients"]
 
 
 def _bool_default(raw):
@@ -389,10 +394,14 @@ def test_downgrade_restores_main_exactly_and_upgrade_again_keeps_every_row(corpu
     # (defaults, ON DELETE, uniques, indexes -- SQLite batch mode copies them),
     # except the planned NOT NULL relaxations.
     expected = copy.deepcopy(main_schema)
-    for table, column in NEWLY_NULLABLE:
+    for table, column in [*NEWLY_NULLABLE, *LATER_NULLABLE]:
         typ, _nullable, default = expected[table]["columns"][column]
         expected[table]["columns"][column] = (typ, True, default)
-    assert _restricted_to(head_schema, main_schema) == expected
+    restricted = _restricted_to(head_schema, main_schema)
+    for table in LATER_REPLACED_TABLES:
+        assert table not in head_schema, f"{table} should have been replaced"
+        del expected[table], restricted[table]
+    assert restricted == expected
 
     remove_schema_only_revisions(url)  # applied unstamped with the corpus (alembic_at)
     with alembic_pointed_at(url) as cfg:
@@ -400,7 +409,8 @@ def test_downgrade_restores_main_exactly_and_upgrade_again_keeps_every_row(corpu
     assert current_revisions(url) == (MAIN_BASE_REVISION,)
     assert _schema(url) == main_schema
     down_counts = _counts(url)
-    assert {t: n for t, n in head_counts.items() if t in down_counts} == down_counts
+    assert ({t: n for t, n in head_counts.items() if t in down_counts}
+            == {t: n for t, n in down_counts.items() if t not in LATER_REPLACED_TABLES})
 
     # Back to where the corpus stands (before the data migration, dashfc08).
     with alembic_pointed_at(url) as cfg:

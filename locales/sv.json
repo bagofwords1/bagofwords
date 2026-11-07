@@ -454,6 +454,14 @@
       "automation_failed": {
         "title": "\"{name}\" misslyckades"
       },
+      "connection_down": {
+        "title": "Anslutningen ”{name}” är nere",
+        "body": "”{name}” klarade inte sina hälsokontroller och markerades som offline. Agenter som förlitar sig på den kan inte köra frågor mot den förrän den återställs."
+      },
+      "connection_restored": {
+        "title": "Anslutningen ”{name}” är online igen",
+        "body": "”{name}” återanslöts och är aktiv igen."
+      },
       "trigger_run": {
         "title": "⚡ \"{name}\" utlöstes — {summary}",
         "body": "Utredningen är klar — öppna sessionen för att se resultaten."
@@ -1871,6 +1879,22 @@
       "override": "Dessa regler gäller bara dig. Anslutningens Tillåt alltid eller Neka alltid har företräde.",
       "save": "Spara regler",
       "failed": "Kunde inte läsa eller spara regler. Kontrollera JSON och försök igen."
+    },
+    "shell": {
+      "command": "Skalkommando",
+      "server": "Server",
+      "directory": "Katalog",
+      "cancelled": "Avbrutet",
+      "denied": "Nekat",
+      "approval_expired": "Godkännandet har gått ut",
+      "execution_timed_out": "Tidsgränsen överskreds",
+      "failed": "Misslyckades",
+      "success": "Slutfört",
+      "running": "Körs",
+      "awaitingApproval": "Väntar på godkännande",
+      "unknownState": "Fjärrprocessen kan fortfarande köras. Kontrollera dess status innan du försöker igen.",
+      "exitCode": "Avslutningskod: {code}",
+      "cancelledBeforeExecution": "Avbrutet före körning."
     }
   },
   "entityCreate": {
@@ -2882,6 +2906,9 @@
       "locked": "Den här inställningen är låst och kan inte ändras.",
       "notEditable": "(Inte direkt redigerbar)",
       "noSettings": "Inga AI-inställningar tillgängliga.",
+      "noSearchResults": "Inga inställningar matchar din sökning.",
+      "searchPlaceholder": "Sök inställningar…",
+      "clearSearch": "Rensa sökning",
       "sectionSummary": "{n} inställningar",
       "sectionSummaryOn": "{n} inställningar · {on} på",
       "sections": {
@@ -3380,6 +3407,12 @@
         "monday": "Måndag",
         "saturday": "Lördag"
       }
+    },
+    "connectionAlerts": {
+      "heading": "Varnings-e-post",
+      "label": "E-postvarningar för nedkopplad anslutning",
+      "description": "Mejla anslutningens administratörer när en delad anslutning går ner eller återställs. Aviseringar i appen är alltid på.",
+      "saveError": "Det gick inte att spara inställningen för anslutningsvarningar."
     },
     "smtpTab": "SMTP",
     "timezone": {
@@ -3951,6 +3984,13 @@
       "uploadInvalid": "Välj en privat SSH-nyckelfil mindre än 64 KB. Publika nycklar och andra filer godtas inte.",
       "keyRequired": "Verifiera serverns SSH-nyckel för att fortsätta eller ange en betrodd nyckel under Avancerat.",
       "required": "Fyll i de obligatoriska fälten: {fields}."
+    },
+    "connAlerts": {
+      "title": "E-postvarningar vid avbrott",
+      "label": "Mejla administratörerna när den här anslutningen går ner",
+      "hint": "Mejlar administratörerna när den här anslutningen går ner. Aviseringar i appen är alltid på.",
+      "orgOffNote": "Organisationens varnings-e-post är av (Inställningar → SMTP). Slå på den för att styra detta per anslutning.",
+      "saveFailed": "Det gick inte att spara inställningen."
     }
   },
   "share": {
@@ -4037,11 +4077,23 @@
     "close": "Stäng",
     "copyClipboardFailed": "Det gick inte att kopiera till urklipp"
   },
+  "dataGrid": {
+    "page": "Sida",
+    "to": "till",
+    "of": "av",
+    "more": "mer",
+    "pageSizeSelectorLabel": "Sidstorlek:",
+    "firstPage": "Första sidan",
+    "previousPage": "Föregående sida",
+    "nextPage": "Nästa sida",
+    "lastPage": "Sista sidan"
+  },
   "sharedReport": {
     "backToApp": "Tillbaka till appen",
     "tabReport": "Rapport",
     "tabData": "Data ({count})",
     "refreshedAt": "Uppdaterad {time}",
+    "noDashboard": "Ingen instrumentpanel tillgänglig",
     "madeWith": "Skapad med {brand}",
     "fork": "Skapa kopia"
   },
@@ -4051,6 +4103,7 @@
     "shell_confirmation.invalid_scope": "Ogiltig behörighetsomfattning.",
     "shell_confirmation.report_required": "Sessionsbehörigheter kräver en rapport.",
     "shell_confirmation.rule_mismatch": "Ogiltig kommandoregel, eller mönstret matchar inte det här kommandot.",
+    "catalog_discovery_incomplete": "Kataloguppdateringen misslyckades eftersom identifieringen var ofullständig. Den tidigare katalogen och tabellvalen behölls.",
     "saml_unavailable": "SSO-konfigurationen är inte tillgänglig. Kontakta administratören.",
     "saml_login_failed": "SSO-inloggningen misslyckades. Försök igen eller kontakta administratören.",
     "invitation_required": "Registrering är inaktiverad. Be din administratör om en inbjudan.",
@@ -4081,6 +4134,9 @@
     "access.denied": "Åtkomst nekad",
     "account.disabled": "Ditt konto har inaktiverats. Kontakta din administratör.",
     "connection.not_found": "Anslutningen hittades inte",
+    "connection.table_not_found": "Tabellen hittades inte",
+    "connection.table_preview_unsupported": "Förhandsgranskning av data är inte tillgänglig för {type}-anslutningar.",
+    "connection.table_preview_failed": "Förhandsgranskningen misslyckades: {reason}",
     "data_source.not_found": "Datakällan hittades inte",
     "file.not_found": "Filen hittades inte",
     "verification.invalid": "Ogiltig eller utgången verifieringstoken",
@@ -4308,16 +4364,146 @@
   "dashboards": {
     "title": "Instrumentpaneler",
     "subtitle": "Bläddra och hantera dina instrumentpaneler och bilder",
-    "searchPlaceholder": "Sök instrumentpaneler…",
+    "searchPlaceholder": "Sök instrumentpaneler eller ägare…",
     "myDashboards": "Mina instrumentpaneler",
     "sharedWithMe": "Delade med mig",
     "empty": "Inga instrumentpaneler hittades",
-    "emptyDescription": "Försök att justera söktermen, eller skapa en rapport med en instrumentpanel.",
+    "emptyMy": "Skapa en rapport med en instrumentpanel så visas den här.",
+    "emptyShared": "Inget har delats med dig än.",
     "showingRange": "Visar {start} till {end} av {total} instrumentpaneler",
     "fetchFailed": "Det gick inte att hämta instrumentpanelerna",
     "typeAll": "Alla",
     "typeDashboards": "Instrumentpaneler",
-    "typeDocs": "Dokument"
+    "typeDocs": "Dokument",
+    "reason": {
+      "direct": "Delad med dig",
+      "group": "Grupp {name}",
+      "project": "Projekt {name}",
+      "org": "Organisation",
+      "public": "Offentlig länk",
+      "other": "Delad",
+      "groupAny": "Din grupp",
+      "projectAny": "Ditt projekt"
+    },
+    "reasonTitle": {
+      "direct": "{owner} delade den med dig",
+      "group": "Delad med din grupp {name}",
+      "groupOther": "Delad med en av dina grupper",
+      "project": "I projektet {name}, som du tillhör",
+      "projectOther": "I ett projekt som du tillhör",
+      "org": "Delad med alla i organisationen",
+      "public": "Alla med länken",
+      "also": "även: {reason}",
+      "canEdit": "(du kan redigera)",
+      "viewOnly": "(endast visning)"
+    },
+    "card": {
+      "edited": "Redigerad {time}",
+      "created": "Skapad {date}",
+      "by": "av {name}",
+      "published": "Publicerad {date}",
+      "dataAsOf": "Data uppdaterad {time}",
+      "refreshFailing": "Uppdateringen misslyckas",
+      "lastEdit": "Senast redigerad: {time}",
+      "scheduledRefresh": "Schemalagd uppdatering"
+    },
+    "pill": {
+      "new": "Ny",
+      "published": "Publicerad",
+      "changes": "Opublicerade ändringar",
+      "org": "Organisation",
+      "public": "Offentlig"
+    },
+    "mode": {
+      "page": "Instrumentpanel",
+      "slides": "Bilder",
+      "doc": "Dokument"
+    },
+    "list": {
+      "createdShort": "skapad {date}",
+      "directFirst": "direkta delningar först",
+      "dateColumns": "Redigerad · Skapad"
+    },
+    "star": "Stjärnmärk",
+    "unstar": "Ta bort stjärnmärkning",
+    "starFailed": "Det gick inte att uppdatera stjärnmärkningen",
+    "emptyFiltered": "Prova en annan sökning eller {clear}.",
+    "clearTheFilters": "rensa filtren",
+    "count": "{n} instrumentpanel | {n} instrumentpaneler",
+    "tabNew": "{n} ny | {n} nya",
+    "pagePrevious": "Föregående sida",
+    "pageNext": "Nästa sida",
+    "sort": {
+      "label": "Sortera",
+      "edited": "Senast redigerade",
+      "newest": "Senast skapade",
+      "oldest": "Först skapade",
+      "title": "Titel A–Ö",
+      "published": "Senast publicerade"
+    },
+    "view": {
+      "grid": "Rutnät",
+      "list": "Lista"
+    },
+    "access": {
+      "all": "Alla",
+      "direct": "Direkt",
+      "group": "Mina grupper",
+      "project": "Projekt",
+      "org": "Organisation",
+      "edit": "Kan redigera"
+    },
+    "presets": {
+      "any": "När som helst",
+      "last7": "Senaste 7 dagarna",
+      "last30": "Senaste 30 dagarna",
+      "last90": "Senaste 90 dagarna",
+      "year": "I år",
+      "older90": "Äldre än 90 dagar",
+      "custom": "Eget intervall"
+    },
+    "status": {
+      "any": "Alla statusar",
+      "published": "Publicerad",
+      "changes": "Opublicerade ändringar",
+      "draft": "Utkast"
+    },
+    "filters": {
+      "button": "Filter",
+      "agent": "Agent",
+      "created": "Skapad",
+      "edited": "Redigerad",
+      "owner": "Ägare",
+      "status": "Status",
+      "starredOnly": "Endast stjärnmärkta",
+      "clearAll": "Rensa allt",
+      "allAgents": "Alla agenter",
+      "agentsCount": "{n} agent | {n} agenter",
+      "anyone": "Vem som helst",
+      "ownersCount": "{n} person | {n} personer",
+      "from": "Från",
+      "to": "till",
+      "toLabel": "Till",
+      "customRange": "{from} – {to}",
+      "rangeInvalid": "Startdatumet får inte vara efter slutdatumet",
+      "unknownAgent": "Otillgänglig agent",
+      "unknownOwner": "Okänd person",
+      "resultCount": "{n} av {total}",
+      "remove": "Ta bort {name}"
+    },
+    "chips": {
+      "search": "”{q}”",
+      "owner": "Ägare: {name}",
+      "created": "Skapad: {range}",
+      "edited": "Redigerad: {range}",
+      "starred": "Stjärnmärkta"
+    },
+    "attention": {
+      "title": "Behöver åtgärdas",
+      "failing": "{n} misslyckas med uppdatering | {n} misslyckas med uppdatering",
+      "stale": "{n} inte redigerad på 90 dagar | {n} inte redigerade på 90 dagar",
+      "show": "Visa dem"
+    }
   },
   "excel": {
     "greeting": "Hej, {name} 👋",
@@ -6562,5 +6748,27 @@
     "enabled": "Aktiverad",
     "embeddingEmpty": "Embedding is not configured",
     "oauthEmpty": "OAuth is not configured"
+  },
+  "tablePreview": {
+    "loading": "Läser in rader…",
+    "failed": "Det gick inte att läsa in en förhandsgranskning av tabellen.",
+    "showing": "Visar {shown} rader",
+    "columns": "{count} kolumner",
+    "empty": "Tabellen har inga rader.",
+    "reload": "Läs in igen",
+    "createCustomTable": "Skapa anpassad tabell från denna",
+    "run": "Kör",
+    "resetQuery": "Återställ",
+    "runHint": "Ctrl/⌘ + Enter för att köra. Endast läsfrågor.",
+    "ofTotal": "~{total} rader i tabellen",
+    "retry": "Försök igen",
+    "readOnlyHint": "För att redigera frågan behöver anslutningen stöd för anpassade tabeller.",
+    "storageNote": "Läst direkt från tabellens lagring, så den här förhandsvisningen kostar ingen fråga.",
+    "signInRequired": "Den här anslutningen använder dina egna inloggningsuppgifter. Logga in för att se raderna.",
+    "signIn": "Logga in",
+    "open": "Förhandsgranska data i {name}",
+    "subtitle": "Exempelrader från {connection}, lästa direkt från källan.",
+    "close": "Stäng",
+    "button": "Förhandsgranska"
   }
 }

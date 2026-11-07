@@ -130,6 +130,8 @@ dependencies = [
     "compressed-rtf>=1.0.7,<2",
     "smbprotocol>=1.17.0",
     "neo4j>=6.4.1,<6.5",
+    "azure-storage-blob>=12.31.1,<12.32",
+    "pyvmomi>=9.1.1,<10",
 ]
 
 [project.optional-dependencies]
@@ -148,6 +150,7 @@ dev = [
     "aiosmtpd>=1.4.6,<1.5",
     "ruff>=0.15.18,<0.16",
     "ty>=0.0.51,<0.1",
+    "moto[s3]>=5.2.5,<5.3",
 ]
 
 [tool.uv]

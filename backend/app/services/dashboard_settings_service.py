@@ -16,7 +16,7 @@ Saving registers the dashboard's job (dashboard_refresh).
 """
 import logging
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.errors import AppError, ErrorCode
@@ -141,6 +141,54 @@ async def _check_groups(db, organization, group_ids: list[str]) -> None:
         raise AppError.bad_request(ErrorCode.GROUP_NOT_FOUND)
 
 
+async def _apply_grants(db, aid: str, visibility: str, user_ids, group_ids,
+                        editor_user_ids, editor_group_ids) -> None:
+    """Bring the dashboard's share rows to the saved grants as a diff.
+
+    A row's `created_at` is when the dashboard reached that person or group
+    (the Shared tab's "new", ADR-4), so a principal that keeps a grant keeps
+    its row; a role change edits the row in place. Only principals that lose
+    every grant lose their row, and only new ones get one.
+
+    The grants themselves are as before: someone in both lists is an editor;
+    view grants count while the visibility is 'shared' (leaving it drops
+    them); edit grants stand whatever the visibility; a list left out (None)
+    keeps that kind of grant as it is."""
+    rows = {(("user", r.user_id) if r.user_id else ("group", r.group_id)): r
+            for r in (await db.execute(select(ArtifactShare).where(ArtifactShare.artifact_id == aid))).scalars()}
+    desired = {key: row.role or "view" for key, row in rows.items()}
+
+    def drop(kind, role):
+        for key in [k for k, r in desired.items() if k[0] == kind and r == role]:
+            del desired[key]
+
+    for kind, viewers, editors in (("user", user_ids, editor_user_ids), ("group", group_ids, editor_group_ids)):
+        # Editors first: someone in both lists is an editor, never twice.
+        if editors is not None:
+            drop(kind, "edit")
+            desired.update({(kind, i): "edit" for i in editors})
+        if visibility != "shared":
+            drop(kind, "view")
+        elif viewers is not None:
+            drop(kind, "view")
+            desired.update({(kind, i): "view" for i in viewers if desired.get((kind, i)) != "edit"})
+
+    for key, row in rows.items():
+        if key not in desired:
+            await db.delete(row)
+    for (kind, principal), role in desired.items():
+        if (kind, principal) not in rows:
+            db.add(ArtifactShare(artifact_id=aid, role=role, **{f"{kind}_id": principal}))
+    await db.flush()
+    # A role change by id, not through the loaded row: a row another save (or
+    # a group's deletion) removed since the read is skipped, not a stale-row
+    # error; the row that is still there keeps its id and created_at.
+    for key, row in rows.items():
+        if key in desired and row.role != desired[key]:
+            await db.execute(update(ArtifactShare).where(ArtifactShare.id == row.id)
+                             .values(role=desired[key]).execution_options(synchronize_session=False))
+
+
 async def set_sharing(db, artifact, *, visibility: str, user_ids: list[str] | None,
                       group_ids: list[str] | None, current_user: User, organization,
                       before_publish: bool = False, editor_user_ids: list[str] | None = None,
@@ -192,36 +240,7 @@ async def set_sharing(db, artifact, *, visibility: str, user_ids: list[str] | No
     old_groups = set(old["view"][1]) | set(old["edit"][1])
     previous = artifact.visibility
     artifact.visibility = visibility
-    aid = str(artifact.id)
-
-    async def replace(column, role, ids):
-        await db.execute(delete(ArtifactShare).where(ArtifactShare.artifact_id == aid, column.isnot(None),
-                                                     ArtifactShare.role == role))
-        for i in ids:
-            db.add(ArtifactShare(artifact_id=aid, role=role, **{column.key: i}))
-
-    # Editors first: someone in both lists is an editor, never twice.
-    if editor_user_ids is not None:
-        await db.execute(delete(ArtifactShare).where(ArtifactShare.artifact_id == aid,
-                                                     ArtifactShare.user_id.in_(editor_user_ids)))
-        await replace(ArtifactShare.user_id, "edit", editor_user_ids)
-    if editor_group_ids is not None:
-        await db.execute(delete(ArtifactShare).where(ArtifactShare.artifact_id == aid,
-                                                     ArtifactShare.group_id.in_(editor_group_ids)))
-        await replace(ArtifactShare.group_id, "edit", editor_group_ids)
-    await db.flush()
-    editors_now = await _grants(db, artifact) if (editor_user_ids is None or editor_group_ids is None) else None
-    edit_users = set(editor_user_ids if editor_user_ids is not None else editors_now["edit"][0])
-    edit_groups = set(editor_group_ids if editor_group_ids is not None else editors_now["edit"][1])
-    if visibility == "shared":
-        # A list left out keeps that kind of grant as it is.
-        if user_ids is not None:
-            await replace(ArtifactShare.user_id, "view", [u for u in user_ids if u not in edit_users])
-        if group_ids is not None:
-            await replace(ArtifactShare.group_id, "view", [g for g in group_ids if g not in edit_groups])
-    else:
-        await db.execute(delete(ArtifactShare).where(ArtifactShare.artifact_id == aid,
-                                                     ArtifactShare.role == "view"))
+    await _apply_grants(db, str(artifact.id), visibility, user_ids, group_ids, editor_user_ids, editor_group_ids)
     await db.commit()
     await db.refresh(artifact)
 

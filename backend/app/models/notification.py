@@ -13,7 +13,9 @@ SOURCE_SHARE = "share"             # someone shared a dashboard/conversation wit
 SOURCE_REPORT_TOOL = "report_tool"  # emitted by a tool from inside a report run
 SOURCE_SCHEDULE = "schedule"        # a scheduled report/prompt produced results
 SOURCE_CHECKIN = "checkin"          # the agent's own follow-up (agent check-ins)
-SOURCES = {SOURCE_REVIEW, SOURCE_SHARE, SOURCE_REPORT_TOOL, SOURCE_SCHEDULE, SOURCE_CHECKIN}
+SOURCE_CONNECTION = "connection"    # a shared connection's health changed (down / restored)
+SOURCES = {SOURCE_REVIEW, SOURCE_SHARE, SOURCE_REPORT_TOOL, SOURCE_SCHEDULE,
+           SOURCE_CHECKIN, SOURCE_CONNECTION}
 
 # ── Severity (drives sort + accent; mirrors review_item) ────────────────────────
 SEVERITY_INFO = "info"

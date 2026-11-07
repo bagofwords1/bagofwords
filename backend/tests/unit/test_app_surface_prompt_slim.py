@@ -61,10 +61,8 @@ def test_an_app_conversation_keeps_what_an_answering_agent_needs(v3_path):
         "create_data",
         "LANGUAGE",                                             # global language rule
         "Revenue is net of refunds.",                           # instructions
-        "<data_visibility>Data privacy mode is ON",             # data-visibility gate (legacy path)
+        "<data_visibility>Data privacy mode is ON",             # data-visibility gate (both paths)
     ):
-        if kept.startswith("<data_visibility>") and v3_path == "1":
-            continue  # the transcript path carries no data_visibility block at HEAD either
         assert kept in prompt, kept
 
 

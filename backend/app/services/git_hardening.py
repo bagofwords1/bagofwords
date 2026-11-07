@@ -18,6 +18,7 @@ Two layers:
 from __future__ import annotations
 
 import base64
+import logging
 import os
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -42,6 +43,49 @@ bitbucket.org ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDQeJzhupRu0u0cdegZIa8e86EG2q
 _STATE_DIR = Path(os.environ.get("BOW_GIT_STATE_DIR", "uploads/git_state"))
 
 
+_log = logging.getLogger(__name__)
+
+
+def _merge_learned_hosts(learned: Path, *, push: bool) -> None:
+    """Union this pod's learned host keys with the object store's copy.
+
+    A host key learned on one replica must bind every replica — otherwise each
+    new or restarted pod trusts whatever key it sees first. Merging (rather than
+    overwriting) means two pods learning different hosts never drop each
+    other's entries. No-op on local storage; never raises.
+    """
+    try:
+        from app.services import storage
+        store = storage.get_store()
+        key = storage.key_for(learned)
+        if store is None or key is None:
+            return
+        part = learned.parent / f".{learned.name}.{os.getpid()}.remote"
+        try:
+            remote = store.download(key, str(part)) is not None
+            remote_lines = part.read_text().splitlines() if remote else []
+        finally:
+            try:
+                part.unlink()
+            except OSError:
+                pass
+        local_lines = learned.read_text().splitlines() if learned.exists() else []
+        seen = set(local_lines)
+        merged = local_lines + [ln for ln in remote_lines if ln and ln not in seen]
+        if merged != local_lines:
+            learned.write_text("\n".join(merged) + "\n")
+            os.chmod(learned, 0o600)
+        if push and {ln for ln in merged if ln} != {ln for ln in remote_lines if ln}:
+            storage.persist(learned)
+    except Exception as e:  # noqa: BLE001 - trust store sync must not break git
+        _log.warning("git: could not sync learned SSH host keys with object storage: %s", e)
+
+
+def persist_learned_hosts() -> None:
+    """Publish host keys learned by the last ssh run (call after each one)."""
+    _merge_learned_hosts(_STATE_DIR / "known_hosts.learned", push=True)
+
+
 def _known_hosts_files() -> Tuple[Path, Path]:
     """(learned, pinned) known_hosts files, created on first use, 0600."""
     _STATE_DIR.mkdir(parents=True, exist_ok=True)
@@ -56,6 +100,7 @@ def _known_hosts_files() -> Tuple[Path, Path]:
     learned = _STATE_DIR / "known_hosts.learned"
     if not learned.exists():
         learned.touch(mode=0o600)
+    _merge_learned_hosts(learned, push=False)
     return learned, pinned
 
 

@@ -1,6 +1,6 @@
 # bagofwords
 
-![Version: 3.1.0](https://img.shields.io/badge/Version-3.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.0.1](https://img.shields.io/badge/AppVersion-1.0.1-informational?style=flat-square)
+![Version: 3.2.0](https://img.shields.io/badge/Version-3.2.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.0.1](https://img.shields.io/badge/AppVersion-1.0.1-informational?style=flat-square)
 
 Bag of words - a new ai data tool
 
@@ -114,6 +114,7 @@ Bag of words - a new ai data tool
 | podAnnotations | object | `{}` | Annotations added to every pod (not the Deployment metadata). |
 | podDisruptionBudget.enabled | bool | `false` |  |
 | podDisruptionBudget.minAvailable | string | `"50%"` |  |
+| podLabels | object | `{}` | Labels added to every pod (e.g. `azure.workload.identity/use: "true"`). |
 | podSecurityContext | object | `{}` | Security context for the pod (fsGroup, runAsUser, etc.). |
 | postgresql | object | see the `postgresql.*` rows | Bundled single-instance PostgreSQL, run from the official `postgres` image. Intended for evaluation and small installs; for production point the app at a managed or operator-run database (`postgresql.enabled: false` plus `database.*`, or a Secret supplying `BOW_DATABASE_URL`). Not deployed when `database.auth.provider` is not `password`. |
 | postgresql.auth.database | string | `""` | Application database name. |
@@ -156,6 +157,31 @@ Bag of words - a new ai data tool
 | serviceAccount.imagePullSecret | string | `""` | Name of an existing image pull secret to attach to the ServiceAccount. |
 | serviceAccount.name | string | `"bowapp"` | Name of the ServiceAccount to create and use for the app pod. |
 | startupProbe | object | `{"failureThreshold":30,"httpGet":{"path":"/health","port":3000},"initialDelaySeconds":30,"periodSeconds":10}` | Startup probe. Kubernetes will not route traffic or count the pod ready until this passes. |
+| storage | object | `{"azure":{"accountUrl":"","auth":"default","clientId":"","container":"","tenantId":""},"backend":"local","cache":{"sizeLimit":"10Gi"},"local":{"persistence":{"accessModes":["ReadWriteOnce"],"enabled":false,"existingClaim":"","size":"20Gi","storageClass":""}},"prefix":"","s3":{"addressingStyle":"auto","auth":"default","bucket":"","endpointUrl":"","externalId":"","kmsKeyId":"","region":"","roleArn":"","sse":""}}` | Where durable files live: uploads, tool outputs, thumbnails, slide decks, logos, avatars, demo datasets, Parquet/extract caches. |
+| storage.azure.accountUrl | string | `""` | `https://<account>.blob.core.windows.net` (required unless `auth: connection_string`). |
+| storage.azure.auth | string | `"default"` | `default`: DefaultAzureCredential — use AKS Workload Identity (`serviceAccount.annotations` `azure.workload.identity/client-id` + `podLabels` `azure.workload.identity/use: "true"`). `service_principal`: `BOW_STORAGE_AZURE_CLIENT_SECRET` from `config.secretRef`. `connection_string` / `sas`: `BOW_STORAGE_AZURE_CONNECTION_STRING` / `BOW_STORAGE_AZURE_SAS_TOKEN` from `config.secretRef`. |
+| storage.azure.clientId | string | `""` | Client id: the service principal's, or a user-assigned managed identity's. |
+| storage.azure.container | string | `""` | Container name (required for `azure`). |
+| storage.azure.tenantId | string | `""` | Entra tenant id (`service_principal`). |
+| storage.backend | string | `"local"` | `local` (default) keeps them on the pod's disk under /app/backend/uploads: they are lost when the pod is replaced unless `storage.local.persistence` is enabled, and one ReadWriteOnce volume limits you to one replica. `s3` (AWS or any S3-compatible store) or `azure` (Blob Storage) make the bucket the source of truth; every replica fills its own cache on demand. |
+| storage.cache | object | `{"sizeLimit":"10Gi"}` | Per-pod cache for /app/backend/uploads when `backend` is `s3` or `azure` (an emptyDir). Also holds git clones and render scratch. |
+| storage.cache.sizeLimit | string | `"10Gi"` | emptyDir size limit; size it for your largest working set of files and git clones. |
+| storage.local.persistence | object | `{"accessModes":["ReadWriteOnce"],"enabled":false,"existingClaim":"","size":"20Gi","storageClass":""}` | Persist /app/backend/uploads in a PersistentVolumeClaim (`backend: local` only). |
+| storage.local.persistence.accessModes | list | `["ReadWriteOnce"]` | Use `ReadWriteMany` (EFS, Azure Files, NFS) to run more than one replica on local storage. |
+| storage.local.persistence.enabled | bool | `false` | Create (or use `existingClaim`) and mount the claim. |
+| storage.local.persistence.existingClaim | string | `""` | Use an existing claim instead of creating one. |
+| storage.local.persistence.size | string | `"20Gi"` | Requested size of the claim. |
+| storage.local.persistence.storageClass | string | `""` | StorageClass; empty uses the cluster default. |
+| storage.prefix | string | `""` | Key prefix inside the bucket/container (e.g. `bow/prod/`). |
+| storage.s3.addressingStyle | string | `"auto"` | `auto`, `path` (MinIO usually needs this) or `virtual`. |
+| storage.s3.auth | string | `"default"` | `default`: boto3 chain — use IRSA / EKS Pod Identity via `serviceAccount.annotations` (no stored secret). `static`: keys from `config.secretRef` (`BOW_STORAGE_S3_ACCESS_KEY_ID`, `BOW_STORAGE_S3_SECRET_ACCESS_KEY`, optional `BOW_STORAGE_S3_SESSION_TOKEN`). `assume_role`: STS assume-role of `roleArn` on top of either. |
+| storage.s3.bucket | string | `""` | Bucket name (required for `s3`). |
+| storage.s3.endpointUrl | string | `""` | Custom endpoint for S3-compatible stores (MinIO, R2, Wasabi, Ceph...). Empty = AWS. |
+| storage.s3.externalId | string | `""` | External ID for the assume-role call, if the role's trust policy requires one. |
+| storage.s3.kmsKeyId | string | `""` | KMS key id/ARN when `sse: aws:kms`. |
+| storage.s3.region | string | `""` | Bucket region, e.g. `us-east-1`. |
+| storage.s3.roleArn | string | `""` | Role to assume (`assume_role` only). |
+| storage.s3.sse | string | `""` | Server-side encryption: "" (bucket default), `AES256` or `aws:kms`. |
 | strategy | object | `{"type":"Recreate"}` | Deployment strategy. `Recreate` stops every old pod before the new ones start, because each new pod runs the database migrations on startup (`start.sh`) and they take exclusive table locks in one transaction: with old pods still serving, their queries deadlock the migration, and old code can break once the new schema commits. The cost is a short outage on each upgrade (pod startup plus migrations). `RollingUpdate` avoids the outage but is only safe for releases whose migrations the previous version tolerates. |
 | terminationGracePeriodSeconds | int | `30` | Seconds to wait for in-flight requests to drain on pod shutdown. |
 | tolerations | list | `[]` | Tolerations for the app pod. |

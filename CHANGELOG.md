@@ -1,5 +1,23 @@
 # Release Notes
 
+## Version 0.0.611 (November 6, 2026)
+- Added a Dashboards page that finds any dashboard: created/edited dates, filters by agent, date, owner and status, sort, list view, stars and a Shared-with-me tab (#1608)
+- Added data preview to the agent's table selector: sample 50 rows, edit the query, and save it as a cached custom table (#1609)
+- Added in-app and email alerts to admins when a shared connection goes down or recovers (#1602) — email on/off in the SMTP settings, with a per-connection toggle
+- Added VMware vCenter / ESXi as a data source: VMs, hosts, clusters, datastores, performance metrics, events, tasks and alarms (#1610)
+- Added S3 and Azure Blob storage for uploaded files (#1607) — `storage.backend` (`local` default, `s3`, `azure`) in bow-config or `BOW_STORAGE_BACKEND`
+- Added a training skill that learns instructions from labelled examples (#1613)
+- Added a search box to Settings → AI Settings (#1604)
+- Added paging to `read_report` so the agent can read long conversations in full (#1612)
+- Added a prompt rail beside the report transcript: hover a tick to preview a prompt, click to jump to it (#1620)
+- Fixed agent downloads missing drafts, archived instructions, folders and saved queries (#1600)
+- Fixed agents losing their selected tables when a scheduled catalog refresh fails partway (#1599)
+- Fixed clearing a model's price override having no effect (#1603)
+- Fixed MCP `get_visualization` and `get_artifact_data` returning the owner's rows and code instead of the reader's (#1605)
+- Fixed document headings disappearing in dark mode, and new line charts smoothing over the data (#1606)
+- Fixed letter-spaced Hebrew labels and untranslated viewer strings in agent-built apps (#1606)
+- Fixed a stopped SSH command showing as "Approval expired"; shell commands now show as expandable terminal rows (#1619)
+
 ## Version 0.0.610 (November 5, 2026)
 - Changed per-user password connections so data source owners connect their own login; only admins and manage_connections holders use the shared one
 - Fixed answers ending in a cut-off error when a query hit a table the agent can't use; the agent now explains and continues (#1592)

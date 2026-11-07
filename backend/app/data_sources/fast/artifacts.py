@@ -96,6 +96,8 @@ def delete_artifact(path: Optional[str]) -> None:
     """Best-effort removal of an artifact file."""
     if not path:
         return
+    from app.services import storage
+    storage.discard(path)
     for candidate in (path, str(path) + ".wal"):
         try:
             os.unlink(candidate)

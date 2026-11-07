@@ -541,6 +541,8 @@ class OrganizationSettingsService:
             buf = BytesIO()
             image.save(buf, format="PNG")
             f.write(buf.getvalue())
+        from app.services import storage
+        await storage.apersist(file_path, "image/png")
 
         # update settings
         general = dict(settings.config.get("general", {}))
@@ -589,6 +591,8 @@ class OrganizationSettingsService:
                     os.remove(file_path)
                 except Exception:
                     pass
+            from app.services import storage
+            await storage.adiscard(file_path)
         general["icon_key"] = None
         general["icon_url"] = None
         settings.config["general"] = general
@@ -1295,6 +1299,55 @@ class OrganizationSettingsService:
             "enabled_locales": list(i18n.enabled_locales),
             "effective_locale": new_locale or i18n.default_locale,
         }
+
+    async def get_connection_alerts(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+    ) -> dict:
+        """Whether this org sends 'connection is down/back' alert emails.
+
+        The in-app inbox notification is always delivered; this governs only
+        the email nudge layered on top. Default on."""
+        from app.services.connection_alerts import EMAIL_ENABLED_KEY
+        settings = await self.get_settings(db, organization, current_user)
+        raw = (settings.config or {}).get(EMAIL_ENABLED_KEY)
+        return {"email_enabled": True if raw is None else bool(raw)}
+
+    async def update_connection_alerts(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        email_enabled: bool,
+    ) -> dict:
+        """Turn connection-alert emails on/off for the whole org."""
+        from app.services.connection_alerts import EMAIL_ENABLED_KEY
+        value = bool(email_enabled)
+        settings = await self.get_settings(db, organization, current_user)
+        current_config = dict(settings.config or {})
+        if current_config.get(EMAIL_ENABLED_KEY) != value:
+            current_config[EMAIL_ENABLED_KEY] = value
+            settings.config = current_config
+            settings.updated_at = datetime.utcnow()
+            flag_modified(settings, "config")
+            db.add(settings)
+            await db.commit()
+            await db.refresh(settings)
+            try:
+                await audit_service.log(
+                    db=db,
+                    organization_id=str(organization.id),
+                    action="settings.connection_alerts_updated",
+                    user_id=str(current_user.id),
+                    resource_type="organization_settings",
+                    resource_id=str(settings.id),
+                    details={"email_enabled": value},
+                )
+            except Exception:
+                pass
+        return {"email_enabled": value}
 
     async def get_timezone(
         self,

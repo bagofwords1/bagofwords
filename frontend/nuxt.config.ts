@@ -229,8 +229,14 @@ export default defineNuxtConfig({
         sameSiteAttribute: 'lax',
         secureCookieAttribute: false
       },
-      sessionDataType: { id: 'integer', name: 'string', email: 'string', is_superuser: 'boolean',
-        organizations: '{ name: string, description: string | null, id: string, role: string, roles?: string[], permissions?: string[], resource_permissions?: Record<string, string[]>, is_enterprise?: boolean, usage_quota?: any }[]'
+      session: {
+        dataType: {
+          id: 'string',
+          name: 'string',
+          email: 'string',
+          is_superuser: 'boolean',
+          organizations: '{ name: string, description: string | null, id: string, role: string, roles?: string[], permissions?: string[], resource_permissions?: Record<string, string[]>, is_enterprise?: boolean, usage_quota?: any }[]'
+        }
       },
     },
     session: {

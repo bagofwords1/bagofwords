@@ -106,6 +106,7 @@ class TimbrClient(DataSourceClient):
         except IndexingCancelled:
             raise
         except Exception:
+            self.mark_discovery_incomplete("timbr catalog")
             return []
 
     # ------------------------------------------------------------------
@@ -239,6 +240,7 @@ class TimbrClient(DataSourceClient):
                 except IndexingCancelled:
                     raise
                 except Exception as e:
+                    self.mark_discovery_incomplete("timbr catalog")
                     logger.warning(f"Failed to describe concept '{name}': {e}")
                     tables.append(Table(
                         name=f"{concept_schema}.{name}",
@@ -437,6 +439,7 @@ class TimbrClient(DataSourceClient):
             except IndexingCancelled:
                 raise
             except Exception as e:
+                self.mark_discovery_incomplete("timbr catalog")
                 logger.warning(f"Failed to parse view '{name}': {e}")
                 tables.append(Table(
                     name=f"vtimbr.{name}",

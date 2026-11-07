@@ -35,12 +35,16 @@ ACCEPT (verdict "general") when the instruction is a reusable rule, e.g.:
 - formatting, visualization, or agent-behavior rules
 A rule may reference numbers or thresholds when they are part of a definition the user gave \
 ("high-value customer means total spend over $500").
+A decision threshold is part of a rule too, including one learned from labelled examples \
+("route a claim to manual review when the claim exceeds 5,000 and the policy is under 90 days old", \
+"a lead is hot when it requested a demo and the company has more than 200 employees").
 
 REJECT (verdict "overfit") when the instruction's substance is a fact about a specific record, \
 person, or observed value, e.g.:
 - an attribute of one person/customer/entity ("customer John Doe lives in Berlin", "Maria's last name is Novak")
 - a hardcoded reference to one specific row or id ("exclude order 9174", "invoice 55 is a duplicate")
 - an observed data value or count stated as fact ("there are 41 suppliers", "Q2 revenue was $87,300")
+- an observed rate or distribution stated as fact ("12% of new-policy claims were rejected")
 Such facts belong in the data, go stale as data changes, and do not guide any future query beyond \
 that one record. If the instruction mixes a general rule with a record-level fact, judge the text \
 as written: if a record-level fact is part of the instruction text, reject it so it can be \
