@@ -56,15 +56,23 @@ def _files_on_disk(rows: Rows, corpus: Corpus) -> dict[str, bytes]:
 
 
 def _forget_cached_rows() -> None:
-    """Process-wide caches keyed by ids a restored database brings back."""
+    """Process-wide state keyed by ids a restored database brings back. A run
+    of the dashboards folder that logged every module-level container in app/
+    showed these filling up; the rest it showed hold no row ids."""
     from app.ai.context.context_hub import invalidate_instructions_cache, invalidate_schema_cache
     from app.ai.llm.pii.loader import invalidate as invalidate_redactors
     from app.ai.tools.mcp_tool_registry import clear_usage_cache
+    from app.routes import dashboard_collab
+    from app.services import artifact_activity, mcp_cooldown, obo_recovery_service
 
     invalidate_schema_cache()
     invalidate_instructions_cache()
     invalidate_redactors()
     clear_usage_cache()
+    dashboard_collab._bring_locks.clear()
+    artifact_activity._WITHHELD_SESSIONS.clear()
+    mcp_cooldown._deadlines.clear()
+    obo_recovery_service._attempts.clear()
 
 
 class _SqliteCopy:
