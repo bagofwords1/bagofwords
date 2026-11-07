@@ -42,6 +42,7 @@ def run_migrations(request):
 _KMS_LOGGERS = (
     "app.data_sources.clients.kms_lighthouse_client",
     "app.data_sources.clients.kms_lighthouse_diagnostics",
+    "urllib3",
     "urllib3.connectionpool",
     "urllib3.connection",
     "urllib3.util.retry",
@@ -50,21 +51,24 @@ _KMS_LOGGERS = (
 
 @pytest.fixture(autouse=True)
 def _kms_loggers_enabled(request):
-    """KMS unit tests assert on logs, and a migration earlier in the worker disables them.
+    """KMS unit tests assert on logs, and earlier tests in the worker can silence them.
 
-    alembic's ``fileConfig`` disables every logger that exists when it runs, so
-    these tests passed or failed by which test came first in the worker.
+    alembic's ``fileConfig`` disables every logger that exists when it runs, and a
+    level set on ``urllib3`` hides its debug records, so these tests passed or failed
+    by which test came first in the worker.
     """
     if not request.node.path.name.startswith("test_kms_lighthouse_"):
         yield
         return
     loggers = [logging.getLogger(name) for name in _KMS_LOGGERS]
-    was_disabled = [logger.disabled for logger in loggers]
+    saved = [(logger.disabled, logger.level) for logger in loggers]
     for logger in loggers:
         logger.disabled = False
+        logger.setLevel(logging.NOTSET)
     yield
-    for logger, disabled in zip(loggers, was_disabled):
+    for logger, (disabled, level) in zip(loggers, saved):
         logger.disabled = disabled
+        logger.setLevel(level)
 
 @pytest_asyncio.fixture
 async def finish_spawned_tasks():
