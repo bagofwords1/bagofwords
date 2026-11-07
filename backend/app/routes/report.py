@@ -388,6 +388,8 @@ async def get_artifact_chat_agents(
         ds = by_id.get(aid) or await db.get(DataSource, aid)
         if ds is not None and ds.deleted_at is None:
             agents.append({"id": str(ds.id), "name": ds.name})
+    # The roster has no order of its own, and ids are random: keep the picker stable.
+    agents.sort(key=lambda agent: (agent["name"], agent["id"]))
     return {"agents": agents}
 
 
