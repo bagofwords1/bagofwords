@@ -706,16 +706,19 @@ def test_stdout_router_install_is_idempotent():
 async def test_code_executions_overlap_without_global_lock():
     """Two executions whose generate_df blocks on I/O must overlap.
 
-    Under the old _STDOUT_REDIRECT_LOCK this took ~2x the sleep; with the
-    per-thread router it takes ~1x. This is THE unlock for running
+    Each query waits for the other to be in flight, so under the old
+    _STDOUT_REDIRECT_LOCK the first would wait for a second that can't start,
+    and the barrier breaks. This is THE unlock for running
     create_data/inspect_data against several data sources at once.
     """
     from app.ai.code_execution.code_execution import StreamingCodeExecutor
 
-    class SleepyClient:
+    both_in_flight = threading.Barrier(2, timeout=30)
+
+    class MeetingClient:
         def execute_query(self, sql):
             import pandas as pd
-            time.sleep(0.4)  # simulates an I/O-bound warehouse query
+            both_in_flight.wait()  # an I/O-bound warehouse query
             return pd.DataFrame({"a": [1]})
 
     code = (
@@ -730,34 +733,13 @@ async def test_code_executions_overlap_without_global_lock():
 
     async def one():
         return await executor.execute_code_async(
-            code=code, ds_clients={"src": SleepyClient()}, excel_files=[],
+            code=code, ds_clients={"src": MeetingClient()}, excel_files=[],
         )
 
-    # Warm-up: generated code runs in sandbox children forked from a
-    # per-process fork server; the very first execution pays that server's
-    # start. This test measures overlap, not cold start.
-    await asyncio.gather(one(), one())
-
-    # Baseline: one execution on its own. It carries the 0.4s query plus
-    # the per-execution sandbox cost (fork, confinement, Arrow round trip),
-    # which varies with how loaded the machine is, so the overlap bound
-    # below is relative to it rather than a fixed number of seconds.
-    started = time.monotonic()
-    await one()
-    single = time.monotonic() - started
-
-    started = time.monotonic()
     (df1, log1, _), (df2, log2, _) = await asyncio.gather(one(), one())
-    wall = time.monotonic() - started
 
     assert len(df1) == 1 and len(df2) == 1
     # stdout captured per execution, no cross-talk, both got both lines
     for log in (log1, log2):
         assert log.count("starting query") == 1
         assert log.count("query done") == 1
-    # Overlap: serialized executions take ~2x a single one; overlapping
-    # ones take ~1x. Anything under 1.5x can only be overlap.
-    print(f"single={single:.2f}s pair={wall:.2f}s")
-    assert wall < 1.5 * single, (
-        f"executions serialized: pair wall={wall:.2f}s vs single={single:.2f}s"
-    )
