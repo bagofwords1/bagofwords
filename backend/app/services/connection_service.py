@@ -1728,13 +1728,13 @@ class ConnectionService:
             # don't 403 out of resolve_credentials.
             #
             # Credential-less sources (SQLite/DuckDB/QVD — registry default auth
-            # "none") are exempt: their catalog is indexed from `config` (the DB
-            # path / file location), so they need no creds even under
-            # user_required. Without this exemption an admin refresh of a
+            # "none") are exempt from the skip: their catalog is indexed from
+            # `config` (the DB path / file location), so they need no creds even
+            # under user_required. Without this exemption a refresh of a
             # user_required SQLite domain would skip indexing and return zero
             # tables, since both `credentials` and per-user creds are empty.
             index_user = current_user
-            if connection.auth_policy == "user_required" and not requires_no_credentials(connection.type):
+            if connection.auth_policy == "user_required":
                 from app.models.user_connection_credentials import UserConnectionCredentials
                 from sqlalchemy import select as _select
 
@@ -1750,7 +1750,7 @@ class ConnectionService:
                     has_creds = row is not None
 
                 has_system_creds = bool(connection.credentials)
-                if not has_creds and not has_system_creds:
+                if not has_creds and not has_system_creds and not requires_no_credentials(connection.type):
                     logger.info(
                         f"refresh_schema: connection {connection.id} is user_required and "
                         "no user or admin credentials are available yet — skipping schema indexing."
@@ -2334,6 +2334,9 @@ class ConnectionService:
                     return connection.decrypt_credentials() or {}
                 except Exception:
                     pass
+            from app.schemas.data_source_registry import requires_no_credentials
+            if requires_no_credentials(connection.type):
+                return {}
             from app.services.access_errors import CredentialsRequiredError
 
             raise CredentialsRequiredError("User credentials required")

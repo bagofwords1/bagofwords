@@ -22,8 +22,10 @@ admin and is then demoted.
 """
 import asyncio
 import uuid
+from pathlib import Path
 from unittest.mock import patch
 
+import duckdb
 import pytest
 import sqlalchemy
 from sqlalchemy.engine import make_url
@@ -39,6 +41,7 @@ from tests.e2e.rbac.test_viewer_run_shared_artifacts import (
 
 SHARED_LOGIN = "shared_service_account"
 OWN_LOGIN = "owner_personal_login"
+CHINOOK_PATH = (Path(__file__).resolve().parents[2] / "config" / "chinook.sqlite").resolve()
 
 
 def _run(coro):
@@ -58,11 +61,17 @@ def logins(monkeypatch):
     return seen
 
 
+def _demote(test_client, admin, owner):
+    demoted = test_client.put(f"/api/organizations/{admin['org_id']}/members/{owner['membership_id']}",
+                              json={"role": "member"}, headers=_headers(admin["token"], admin["org_id"]))
+    assert demoted.status_code == 200 and demoted.json()["role"] == "member", demoted.json()
+
+
 @pytest.fixture
 def world(logins, test_client, bootstrap_admin, invite_user_to_org, create_data_source, create_report):
     """A public per-user Postgres source, its now non-admin owner, and the owner's report."""
     admin = bootstrap_admin()
-    org_id, admin_h = admin["org_id"], _headers(admin["token"], admin["org_id"])
+    org_id = admin["org_id"]
     owner = invite_user_to_org(org_id=org_id, admin_token=admin["token"], role="admin")
     owner_h = _headers(owner["token"], org_id)
     ds_name = f"Warehouse {uuid.uuid4().hex[:8]}"
@@ -74,10 +83,7 @@ def world(logins, test_client, bootstrap_admin, invite_user_to_org, create_data_
     )
     assert test_client.put(f"/api/data_sources/{ds['id']}", json={"is_public": True}, headers=owner_h).status_code == 200
     connections = test_client.get(f"/api/data_sources/{ds['id']}/connections", headers=owner_h).json()
-
-    demoted = test_client.put(f"/api/organizations/{org_id}/members/{owner['membership_id']}",
-                              json={"role": "member"}, headers=admin_h)
-    assert demoted.status_code == 200 and demoted.json()["role"] == "member", demoted.json()
+    _demote(test_client, admin, owner)
 
     report = create_report(title="Owner report", user_token=owner["token"], org_id=org_id, data_sources=[ds["id"]])
     seeded = _run(_seed_artifact_graph(report["id"]))
@@ -257,6 +263,38 @@ def test_per_agent_manage_grant_does_not_unlock_the_shared_login(world, logins, 
     for response in _test_routes(test_client, world, headers):
         assert response.json()["success"] is False, response.json()
     assert logins == []
+
+
+def _sqlite_source(_tmp_path):
+    return "sqlite", {"database": str(CHINOOK_PATH)}
+
+
+def _duckdb_source(tmp_path):
+    path = str(tmp_path / "local.duckdb")
+    database = duckdb.connect(path)
+    database.execute("CREATE TABLE orders (id INTEGER)")
+    database.close()
+    return "duckdb", {"uris": path}
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("source", [_sqlite_source, _duckdb_source], ids=["sqlite", "duckdb"])
+def test_non_admin_owner_can_reload_a_source_that_takes_no_login(
+    source, tmp_path, test_client, bootstrap_admin, invite_user_to_org, create_data_source,
+):
+    """These types have nothing to connect, so Reload is the owner's only way to refresh the catalog."""
+    ds_type, config = source(tmp_path)
+    admin = bootstrap_admin()
+    org_id = admin["org_id"]
+    owner = invite_user_to_org(org_id=org_id, admin_token=admin["token"], role="admin")
+    ds = create_data_source(name=f"Local {uuid.uuid4().hex[:8]}", type=ds_type, config=config, credentials={},
+                            auth_policy="user_required", user_token=owner["token"], org_id=org_id)
+    _demote(test_client, admin, owner)
+
+    reloaded = test_client.get(f"/api/data_sources/{ds['id']}/refresh_schema", headers=_headers(owner["token"], org_id))
+
+    assert reloaded.status_code == 200, reloaded.text
+    assert len(reloaded.json()) > 0, "Reload found no tables for a source that needs no credentials"
 
 
 @pytest.mark.e2e
