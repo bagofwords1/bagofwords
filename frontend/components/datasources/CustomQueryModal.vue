@@ -144,10 +144,14 @@
           <template v-if="isDax">DAX <span class="text-ink-muted">— one EVALUATE against a Power BI semantic model</span></template>
           <template v-else>SQL <span class="text-ink-muted">— in {{ activeConnectionType }} dialect</span></template>
         </label>
-        <textarea
-          v-model="form.definition_sql" data-testid="cq-sql" rows="8" spellcheck="false"
-          :placeholder="isDax ? 'EVALUATE SUMMARIZECOLUMNS(Sales[Region], &quot;Revenue&quot;, SUM(Sales[Revenue]))' : 'SELECT ...'"
-          class="w-full text-xs font-mono border border-gray-300 dark:border-gray-700 rounded-md px-2.5 py-2 dark:bg-gray-900 dark:text-white"
+        <SqlEditor
+          v-model="form.definition_sql"
+          :language="isDax ? 'dax' : (String(activeConnectionType).toLowerCase() === 'posthog' ? 'hogql' : 'sql')"
+          :connection-id="activeConnection?.id"
+          :min-height="120"
+          :max-height="360"
+          testid="cq-sql"
+          @run="runPreview"
         />
 
         <div class="flex items-center gap-2 mt-2">
@@ -822,6 +826,9 @@ function humanBytes(b: number) {
 }
 
 async function runPreview() {
+  // Also reached by the editor's Ctrl/⌘ + Enter, which the button's own
+  // disabled state does not guard.
+  if (previewing.value || !form.definition_sql.trim()) return
   previewing.value = true
   previewError.value = ''
   preview.value = null

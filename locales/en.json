@@ -7390,20 +7390,25 @@
     "oauthEmpty": "OAuth is not configured"
   },
   "tablePreview": {
-    "open": "Preview data in {name}",
-    "subtitle": "Sample rows from {connection}, read live from the source.",
-    "close": "Close",
     "loading": "Loading rows…",
     "failed": "Could not load a preview of this table.",
     "showing": "Showing {shown} rows",
-    "showingOf": "Showing {shown} of ~{total} rows",
     "columns": "{count} columns",
     "empty": "This table has no rows.",
     "reload": "Reload",
     "createCustomTable": "Create custom table from this",
-    "sqlLabel": "SQL query",
     "run": "Run",
     "resetQuery": "Reset",
-    "runHint": "Ctrl/⌘ + Enter to run. Read-only queries only."
+    "runHint": "Ctrl/⌘ + Enter to run. Read-only queries only.",
+    "ofTotal": "~{total} rows in table",
+    "retry": "Try again",
+    "readOnlyHint": "Editing the query needs custom tables on this connection.",
+    "storageNote": "Read straight from table storage, so this preview has no query cost.",
+    "signInRequired": "This connection runs with your own credentials. Sign in to see its rows.",
+    "signIn": "Sign in",
+    "open": "Preview data in {name}",
+    "subtitle": "Sample rows from {connection}, read live from the source.",
+    "close": "Close",
+    "button": "Preview"
   }
 }
