@@ -114,6 +114,7 @@ class ErrorCode(str, Enum):
     CONNECTION_KMS_TOKEN_FORMAT = "connection.kms_token_format"
     CONNECTION_KMS_USE_CONNECTION_CREDENTIALS = "connection.kms_use_connection_credentials"
     CONNECTION_KMS_ONLY = "connection.kms_only"
+    CONNECTION_KMS_DIAGNOSTICS_RUNNING = "connection.kms_diagnostics_running"
     USER_NOT_FOUND = "user.not_found"
     MEMBERSHIP_NOT_FOUND = "membership.not_found"
     ROLE_NOT_FOUND = "role.not_found"

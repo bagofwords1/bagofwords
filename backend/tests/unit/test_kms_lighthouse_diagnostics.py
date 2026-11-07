@@ -5,6 +5,7 @@ HTTP client (requests) and the clock are ever replaced, and only to reach a
 failure the socket cannot produce. Each Safety rule of the brief has a test.
 """
 import errno
+import asyncio
 import io
 import json
 import re
@@ -12,6 +13,7 @@ import socket
 import ssl
 import subprocess
 import threading
+import uuid
 from pathlib import Path
 
 import pytest
@@ -683,7 +685,7 @@ def test_a_transport_failure_at_the_session_check_reports_its_stage_and_ends_the
     _assert_rest_skipped(report, keep=("session",))
 
 
-@pytest.mark.parametrize("nth,row_id", [(3, "connector_browse"), (4, "top_level")])
+@pytest.mark.parametrize("nth,row_id", [(3, "connector_browse"), (5, "top_level")])   # 4 is the no-parent observation
 @pytest.mark.parametrize("error,stage", [(_LOST_LINE, "network"), (_TLS_LOST, "tls")])
 def test_a_transport_failure_at_the_tree_is_not_a_browse_failure(kms, monkeypatch, error, stage, nth, row_id):
     _clean_tenant(kms, monkeypatch)
@@ -2531,6 +2533,44 @@ def test_many_folders_read_to_the_end_are_not_capped(kms, monkeypatch):
     assert "part of the tree" not in row["summary"]
 
 
+@pytest.mark.asyncio
+async def test_the_guard_ends_with_the_thread_not_with_the_wait():
+    class Run:
+        def __init__(self):
+            self.release = threading.Event()
+
+        def diagnostics(self, deadline):
+            self.release.wait(10)
+            return {"overall": "pass"}
+
+    connection, slow = str(uuid.uuid4()), Run()
+    run = kd.start_run(connection, slow)
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(asyncio.shield(run), 0.01)
+    assert kd.start_run(connection, Run()) is None, "the thread is still running"
+    slow.release.set()
+    assert await run == {"overall": "pass"}
+    again = Run()
+    again.release.set()
+    assert await kd.start_run(connection, again) == {"overall": "pass"}
+
+
+@pytest.mark.asyncio
+async def test_a_run_that_raises_releases_the_guard():
+    class Broken:
+        def diagnostics(self, deadline):
+            raise RuntimeError("boom")
+
+    class Fine:
+        def diagnostics(self, deadline):
+            return {}
+
+    connection = str(uuid.uuid4())
+    with pytest.raises(RuntimeError):
+        await kd.start_run(connection, Broken())
+    assert await kd.start_run(connection, Fine()) == {}
+
+
 def test_a_listing_inside_the_cap_is_not_capped(kms, monkeypatch):
     _clean_tenant(kms, monkeypatch)
     row = _rows(_clean_client(kms).diagnostics())["connector_browse"]
@@ -2736,6 +2776,7 @@ def test_all_ten_catalogs_hold_the_same_diagnostics_strings():
         for key, value in english.items():
             assert set(re.findall(r"\{\w+\}", strings[key])) == set(re.findall(r"\{\w+\}", value)), (path.name, key)
         assert catalog["errors"]["connection.kms_only"].strip(), path.name
+        assert catalog["errors"]["connection.kms_diagnostics_running"].strip(), path.name
         if path.stem != "en":
             assert strings["run"] != english["run"], f"{path.name} is not translated"
 

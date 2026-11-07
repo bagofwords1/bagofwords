@@ -27,8 +27,9 @@ lists what a tenant must confirm.
 - Frontend: file-type lists, the member credential flow and a placeholder icon.
 - On-site diagnostics (P12): `backend/app/data_sources/clients/kms_lighthouse_diagnostics.py`,
   `KmsLighthouseClient.diagnostics`, `POST /api/connections/{id}/kms-diagnostics`,
-  `frontend/components/datasources/KmsDiagnosticsPanel.vue`, the error code
-  `connection.kms_only` and the `kmsDiagnostics` strings in all 10 catalogs.
+  `frontend/components/datasources/KmsDiagnosticsPanel.vue`, the error codes
+  `connection.kms_only` and `connection.kms_diagnostics_running` and the
+  `kmsDiagnostics` strings in all 10 catalogs.
 - Tests: `backend/tests/unit/test_kms_lighthouse_{client,content,wiring,credentials}.py`,
   `backend/tests/e2e/test_kms_lighthouse{,_agent_tools,_credentials}.py`,
   `test_contract_kms_lighthouse` in `backend/tests/e2e/test_connection_file_browse.py`,

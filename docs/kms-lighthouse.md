@@ -391,6 +391,12 @@ per-user connection. **Copy report** or **Download JSON** gives the report to
 send to the BOW engineers. Copying needs a secure context, so on a plain `http`
 install use the download.
 
+A connection runs one diagnostics at a time: a second run while one is active
+gets a 409 (`connection.kms_diagnostics_running`), shown in the panel. The guard
+holds until the run's thread really ends, also when the page stopped waiting for
+it. The guard is per process, so on an install with several workers two runs of
+one connection can still overlap when they land on different workers.
+
 **What it sends.** The same calls the connector makes, through the same code, so
 the egress check, the TLS verification and the refusal of redirects all apply:
 

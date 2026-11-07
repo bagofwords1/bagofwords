@@ -4084,6 +4084,7 @@
     "connection.kms_token_format": "Il token API di KMS può contenere solo lettere, cifre e segni di punteggiatura semplici, senza spazi. Copialo di nuovo da KMS Lighthouse e incollalo come testo semplice.",
     "connection.kms_use_connection_credentials": "Gli accessi a KMS Lighthouse vengono salvati nella connessione. Apri la connessione e connettiti da lì.",
     "connection.kms_only": "La diagnostica si applica solo alle connessioni KMS Lighthouse.",
+    "connection.kms_diagnostics_running": "La diagnostica è già in esecuzione per questa connessione. Attendi che termini, quindi riprova.",
     "data_source.not_found": "Origine dati non trovata",
     "file.not_found": "File non trovato",
     "verification.invalid": "Token di verifica non valido o scaduto",

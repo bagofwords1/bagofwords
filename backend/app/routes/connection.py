@@ -819,20 +819,24 @@ async def run_kms_diagnostics(
 ):
     """On-site diagnostics of a KMS Lighthouse connection: a report, also when the run fails."""
     from app.data_sources.clients.kms_lighthouse_diagnostics import (
-        build_failure_report, route_seconds, run_deadline, timed_out_report,
+        build_failure_report, route_seconds, start_run, timed_out_report,
     )
     connection = await connection_service.get_connection(db, connection_id, organization)
     if connection.type != "kms_lighthouse":
         raise AppError.bad_request(ErrorCode.CONNECTION_KMS_ONLY, "Diagnostics apply to KMS Lighthouse connections only.")
-    config = connection.config
+    config, run_key = connection.config, str(connection.id)
     try:
         client = await connection_service.construct_client(db, connection, current_user)
     except Exception as exc:
         return build_failure_report(config, exc)
     # The run may take 90 s against a remote host: it must not hold a pooled DB connection.
     await release_request_db(db)
+    run = start_run(run_key, client)
+    if run is None:
+        raise AppError.conflict(ErrorCode.CONNECTION_KMS_DIAGNOSTICS_RUNNING,
+                                "Diagnostics are already running for this connection.")
     try:
-        return await asyncio.wait_for(asyncio.to_thread(client.diagnostics, run_deadline()), route_seconds())
+        return await asyncio.wait_for(asyncio.shield(run), route_seconds())
     except asyncio.TimeoutError:
         return timed_out_report(config)
 

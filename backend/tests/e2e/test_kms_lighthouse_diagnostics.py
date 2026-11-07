@@ -208,6 +208,75 @@ def test_a_run_that_starts_after_the_route_gave_up_sends_nothing(
 
 
 @pytest.mark.e2e
+def test_a_second_run_of_a_connection_gets_a_typed_409_while_the_first_is_active(
+    kms, test_client, create_user, login_user, whoami, create_connection, monkeypatch,
+):
+    token, org, headers = _admin(create_user, login_user, whoami)
+    conn = _kms_connection(kms, create_connection, token, org)
+    _readable_search(kms, monkeypatch)
+    mock = kms["mock"]
+    mock.STATE["hold_no_session"] = True      # the run's no-session call waits on HELD at the KMS boundary
+    answers = []
+    first = threading.Thread(target=lambda: answers.append(test_client.post(_url(conn["id"]), headers=headers)))
+    first.start()
+    try:
+        assert mock.HELD["arrived"].wait(10), "the first run never reached KMS"
+        logins = mock.STATE["login_count"]
+        second = test_client.post(_url(conn["id"]), headers=headers)
+        assert mock.STATE["login_count"] == logins, "the refused run sent nothing"
+    finally:
+        mock.HELD["release"].set()
+        first.join(30)
+    assert second.status_code == 409, second.text
+    assert second.json()["error_code"] == "connection.kms_diagnostics_running"
+    assert answers and answers[0].status_code == 200, answers
+    mock.STATE["hold_no_session"] = False
+    assert test_client.post(_url(conn["id"]), headers=headers).status_code == 200, "the first run released the guard"
+
+
+@pytest.mark.e2e
+def test_the_guard_holds_past_the_route_timeout_until_the_thread_ends_and_is_per_connection(
+    kms, test_client, create_user, login_user, whoami, create_connection, monkeypatch,
+):
+    token, org, headers = _admin(create_user, login_user, whoami)
+    slow = _kms_connection(kms, create_connection, token, org)
+    other = _kms_connection(kms, create_connection, token, org, root_folder_id=10)
+    monkeypatch.setattr(kd, "_MAX_SECONDS", 0.2)
+    monkeypatch.setattr(kd, "_ROUTE_GRACE_SECONDS", 0)
+    gate, gave_up = threading.Event(), threading.Event()
+    real, real_report = kc.KmsLighthouseClient.diagnostics, kd.timed_out_report
+
+    def held_by_the_gate(self, *args, **kwargs):
+        if self.root_folder_id is None:
+            gate.wait(20)
+        return real(self, *args, **kwargs)
+
+    def route_gave_up(config):
+        gave_up.set()
+        return real_report(config)
+
+    monkeypatch.setattr(kc.KmsLighthouseClient, "diagnostics", held_by_the_gate)
+    monkeypatch.setattr(kd, "timed_out_report", route_gave_up)
+    # TestClient closes each request's event loop and waits for its threads, so the first
+    # request only comes back once the thread ended: it needs a thread of its own here.
+    answers = []
+    first = threading.Thread(target=lambda: answers.append(test_client.post(_url(slow["id"]), headers=headers)))
+    first.start()
+    try:
+        assert gave_up.wait(10), "the route never gave up"
+        refused = test_client.post(_url(slow["id"]), headers=headers)
+        free = test_client.post(_url(other["id"]), headers=headers)
+    finally:
+        gate.set()
+        first.join(30)
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["error_code"] == "connection.kms_diagnostics_running"
+    assert free.status_code == 200, "another connection is free"
+    assert _rows(answers[0].json())["network"]["observed"]["reason"] == "run_timed_out"
+    assert test_client.post(_url(slow["id"]), headers=headers).status_code == 200, "the ended thread released it"
+
+
+@pytest.mark.e2e
 def test_the_run_changes_no_connection_state(
     kms, test_client, create_user, login_user, whoami, create_connection, get_connection,
 ):

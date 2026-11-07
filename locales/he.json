@@ -4428,6 +4428,7 @@
     "connection.kms_token_format": "אסימון ה-API של KMS יכול להכיל רק אותיות, ספרות וסימני פיסוק רגילים, ללא רווחים. העתיקו אותו שוב מ-KMS Lighthouse והדביקו אותו כטקסט רגיל.",
     "connection.kms_use_connection_credentials": "פרטי ההתחברות ל-KMS Lighthouse נשמרים בחיבור. פתחו את החיבור והתחברו משם.",
     "connection.kms_only": "האבחון חל רק על חיבורי KMS Lighthouse.",
+    "connection.kms_diagnostics_running": "האבחון כבר פועל עבור החיבור הזה. המתינו לסיומו ונסו שוב.",
     "data_source.not_found": "מקור הנתונים לא נמצא",
     "file.not_found": "הקובץ לא נמצא",
     "verification.invalid": "אסימון האימות אינו תקף או שפג תוקפו",

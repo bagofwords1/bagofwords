@@ -4490,6 +4490,7 @@
     "connection.kms_token_format": "The KMS API token can contain only plain letters, digits and punctuation, with no spaces. Copy it again from KMS Lighthouse and paste it as plain text.",
     "connection.kms_use_connection_credentials": "KMS Lighthouse sign-ins are saved on the connection. Open the connection and connect from there.",
     "connection.kms_only": "Diagnostics apply to KMS Lighthouse connections only.",
+    "connection.kms_diagnostics_running": "Diagnostics are already running for this connection. Wait for them to finish, then try again.",
     "data_source.not_found": "Data source not found",
     "file.not_found": "File not found",
     "verification.invalid": "Invalid or expired verification token",

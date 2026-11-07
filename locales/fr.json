@@ -4084,6 +4084,7 @@
     "connection.kms_token_format": "Le jeton d'API KMS ne peut contenir que des lettres, des chiffres et des signes de ponctuation simples, sans espaces. Copiez-le à nouveau depuis KMS Lighthouse et collez-le en texte brut.",
     "connection.kms_use_connection_credentials": "Les identifiants KMS Lighthouse sont enregistrés sur la connexion. Ouvrez la connexion et connectez-vous depuis celle-ci.",
     "connection.kms_only": "Le diagnostic s'applique uniquement aux connexions KMS Lighthouse.",
+    "connection.kms_diagnostics_running": "Un diagnostic est déjà en cours pour cette connexion. Attendez qu'il se termine, puis réessayez.",
     "data_source.not_found": "Source de données introuvable",
     "file.not_found": "Fichier introuvable",
     "verification.invalid": "Jeton de vérification invalide ou expiré",

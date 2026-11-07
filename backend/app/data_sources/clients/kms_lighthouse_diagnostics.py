@@ -35,11 +35,13 @@ and whatever it gets back is a word in its row.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import re
 import ssl
+import threading
 from collections import Counter
 from datetime import datetime, timezone
 from itertools import zip_longest
@@ -56,6 +58,9 @@ _REPORT_VERSION = 1
 _MAX_CALLS = 60
 _MAX_SECONDS = 90
 _ROUTE_GRACE_SECONDS = 5
+# The connections with a run in progress, in this process only: each worker has its own.
+_ACTIVE: set[str] = set()
+_ACTIVE_LOCK = threading.Lock()
 _CALL_SECONDS = 20            # one slow endpoint must not use up the whole run
 _MAX_ITEMS = 5
 _MAX_SCENARIOS = 2
@@ -1223,6 +1228,33 @@ def build_failure_report(config, exc: Exception) -> dict:
 def run_deadline() -> float:
     """A run's deadline, read when the request arrives: a thread that starts late cannot outlive the route."""
     return kc._clock() + _MAX_SECONDS
+
+
+def start_run(connection_id: str, client):
+    """Start a run in a worker thread, or None when this connection already has one in this process.
+
+    The claim ends when the thread ends, not when the route stops waiting: a
+    thread cannot be cancelled, so a run the route gave up on may still be
+    calling KMS. The route waits through ``asyncio.shield``, because cancelling
+    a thread that is still queued would mean it never starts and never releases.
+    """
+    with _ACTIVE_LOCK:
+        if connection_id in _ACTIVE:
+            return None
+        _ACTIVE.add(connection_id)
+    deadline = run_deadline()
+
+    def work():
+        try:
+            return client.diagnostics(deadline)
+        finally:
+            with _ACTIVE_LOCK:
+                _ACTIVE.discard(connection_id)
+
+    run = asyncio.ensure_future(asyncio.to_thread(work))
+    # Nobody awaits a run the route gave up on; this marks its exception as seen.
+    run.add_done_callback(lambda done: done.cancelled() or done.exception())
+    return run
 
 
 def route_seconds() -> float:

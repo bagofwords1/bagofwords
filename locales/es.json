@@ -4428,6 +4428,7 @@
     "connection.kms_token_format": "El token de API de KMS solo puede contener letras, dígitos y signos de puntuación simples, sin espacios. Cópialo de nuevo desde KMS Lighthouse y pégalo como texto sin formato.",
     "connection.kms_use_connection_credentials": "Los inicios de sesión de KMS Lighthouse se guardan en la conexión. Abre la conexión y conéctate desde allí.",
     "connection.kms_only": "El diagnóstico solo se aplica a las conexiones de KMS Lighthouse.",
+    "connection.kms_diagnostics_running": "El diagnóstico ya se está ejecutando para esta conexión. Espere a que termine e inténtelo de nuevo.",
     "data_source.not_found": "Fuente de datos no encontrada",
     "file.not_found": "Archivo no encontrado",
     "verification.invalid": "Token de verificación no válido o expirado",

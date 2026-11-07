@@ -4084,6 +4084,7 @@
     "connection.kms_token_format": "Das KMS-API-Token darf nur einfache Buchstaben, Ziffern und Satzzeichen enthalten, ohne Leerzeichen. Kopieren Sie es erneut aus KMS Lighthouse und fügen Sie es als reinen Text ein.",
     "connection.kms_use_connection_credentials": "KMS-Lighthouse-Anmeldungen werden in der Verbindung gespeichert. Öffnen Sie die Verbindung und verbinden Sie sich dort.",
     "connection.kms_only": "Die Diagnose gilt nur für KMS Lighthouse-Verbindungen.",
+    "connection.kms_diagnostics_running": "Für diese Verbindung läuft bereits eine Diagnose. Warten Sie, bis sie abgeschlossen ist, und versuchen Sie es dann erneut.",
     "data_source.not_found": "Datenquelle nicht gefunden",
     "file.not_found": "Datei nicht gefunden",
     "verification.invalid": "Ungültiges oder abgelaufenes Bestätigungs-Token",
