@@ -141,22 +141,9 @@ class UserDataSourceCredentialsService:
         if not row:
             # Admin fallback possible; an admin can use system creds or empty creds (e.g., SQLite).
             # Owning the data source grants nothing: this must match resolve_credentials.
-            # Admin-level access: full_admin or manage_connections
-            has_update_perm = False
-            try:
-                from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
-                resolved = await resolve_permissions(
-                    db, str(user.id), str(getattr(data_source, "organization_id", ""))
-                )
-                has_update_perm = (
-                    FULL_ADMIN in resolved.org_permissions
-                    or resolved.has_org_permission("manage_connections")
-                )
-            except Exception:
-                has_update_perm = False
-            
+            from app.services.connection_identity import can_use_system_credentials
             # An admin can use the connection even without stored credentials (e.g., SQLite)
-            if has_update_perm:
+            if await can_use_system_credentials(db, user, getattr(data_source, "organization_id", "")):
                 conn = "unknown"
                 last_checked = None
                 if live_test:
@@ -327,23 +314,11 @@ class UserDataSourceCredentialsService:
 
         if not row:
             # Admin fallback: an admin can use system creds (e.g., SQLite). Owning a
-            # data source grants nothing: this must match resolve_credentials.
-            has_update_perm = False
-
-            # Admin-level access: org-wide full_admin / manage_connections. A per-DS
-            # `manage` grant does not count: resolve_credentials refuses it.
-            try:
-                from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
-                org_id = getattr(data_source, "organization_id", None) or getattr(connection, "organization_id", None)
-                resolved = await resolve_permissions(db, str(user.id), str(org_id))
-                has_update_perm = (
-                    FULL_ADMIN in resolved.org_permissions
-                    or resolved.has_org_permission("manage_connections")
-                )
-            except Exception:
-                has_update_perm = False
-
-            if has_update_perm:
+            # data source grants nothing: this must match resolve_credentials. A per-DS
+            # `manage` grant does not count either: resolve_credentials refuses it.
+            from app.services.connection_identity import can_use_system_credentials
+            org_id = getattr(data_source, "organization_id", None) or getattr(connection, "organization_id", None)
+            if await can_use_system_credentials(db, user, org_id):
                 return DataSourceUserStatus(
                     has_user_credentials=False,
                     connection=get_cached_status(),

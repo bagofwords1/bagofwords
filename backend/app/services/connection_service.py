@@ -2435,21 +2435,8 @@ class ConnectionService:
             # Admin fallback: only an org-level admin may use system creds. Owning
             # a data source grants nothing here: a non-admin owner connects with
             # their own login, like any member.
-            has_update_perm = False
-            try:
-                from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
-                resolved = await resolve_permissions(
-                    db, str(current_user.id), str(connection.organization_id)
-                )
-                # Admin-level system credential access: full_admin or manage_connections
-                has_update_perm = (
-                    FULL_ADMIN in resolved.org_permissions
-                    or resolved.has_org_permission("manage_connections")
-                )
-            except Exception:
-                pass
-
-            if has_update_perm:
+            from app.services.connection_identity import can_use_system_credentials
+            if await can_use_system_credentials(db, current_user, connection.organization_id):
                 if connection.credentials:
                     try:
                         return connection.decrypt_credentials() or {}
