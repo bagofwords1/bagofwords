@@ -306,6 +306,42 @@ def test_non_admin_owner_can_reload_a_source_that_takes_no_login(
 
 
 @pytest.mark.e2e
+def test_reload_keeps_a_stored_secret_of_a_loginless_type_from_a_non_admin_owner(
+    tmp_path, monkeypatch, test_client, bootstrap_admin, invite_user_to_org, create_data_source,
+):
+    """DuckDB can run with no login or with shared cloud keys. With keys it is an ordinary shared source."""
+    from app.data_sources.clients.duckdb_client import DuckDBClient
+
+    keys_used = []
+    real_init = DuckDBClient.__init__
+
+    def recording_init(self, *args, **kwargs):
+        keys_used.append(kwargs.get("access_key"))
+        real_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(DuckDBClient, "__init__", recording_init)
+    monkeypatch.setattr(DuckDBClient, "_configure_httpfs", lambda self, con: None)
+
+    _, config = _duckdb_source(tmp_path)
+    admin = bootstrap_admin()
+    org_id = admin["org_id"]
+    owner = invite_user_to_org(org_id=org_id, admin_token=admin["token"], role="admin")
+    ds = create_data_source(name=f"Keys {uuid.uuid4().hex[:8]}", type="duckdb", config=config,
+                            credentials={"access_key": "shared-key", "secret_key": "not-a-real-secret"},
+                            auth_policy="user_required", user_token=owner["token"], org_id=org_id)
+    admin_reload = test_client.get(f"/api/data_sources/{ds['id']}/refresh_schema", headers=_headers(admin["token"], org_id))
+    assert admin_reload.status_code == 200, admin_reload.text
+    assert "shared-key" in keys_used, "the stored keys must reach the client for an admin, or this test proves nothing"
+    _demote(test_client, admin, owner)
+    keys_used.clear()
+
+    reloaded = test_client.get(f"/api/data_sources/{ds['id']}/refresh_schema", headers=_headers(owner["token"], org_id))
+
+    assert reloaded.status_code == 403, reloaded.text
+    assert "shared-key" not in keys_used, "a non-admin Reload reached the stored keys"
+
+
+@pytest.mark.e2e
 def test_owner_who_saves_their_own_login_runs_as_themselves(world, logins, test_client):
     saved = test_client.post(f"/api/data_sources/{world['ds_id']}/my-credentials",
                              json={"auth_mode": "userpass", "credentials": {"user": OWN_LOGIN, "password": "own-password"}},

@@ -6307,16 +6307,24 @@ class DataSourceService:
         """
         from app.services.access_errors import CredentialsRequiredError
 
-        if current_user is not None and self._per_user_catalog_connections(data_source):
+        per_user_connections = self._per_user_catalog_connections(data_source)
+        if current_user is not None and per_user_connections:
             try:
                 await self.get_user_data_source_schema(
                     db=db, data_source=data_source, user=current_user,
                     prefetched_tables=prefetched_tables,
                     force_refresh=True,
                 )
-            except CredentialsRequiredError:
-                # A tokenless caller can still use the system catalog. Other
-                # discovery/publication failures must propagate, not look successful.
+            except HTTPException as e:
+                # A tokenless caller can still use the system catalog, and so can a
+                # refused caller when nothing here takes a login: there is nothing to
+                # connect. Other discovery/publication failures must propagate, not
+                # look successful.
+                from app.services.connection_identity import takes_no_login
+                if not isinstance(e, CredentialsRequiredError) and not (
+                    e.status_code == 403 and all(takes_no_login(c) for c in per_user_connections)
+                ):
+                    raise
                 # Degrading here is deliberate (a live fetch against the user's
                 # token can fail for reasons we can't fix), but stay loud: a
                 # swallowed error reads downstream as an empty overlay, which is

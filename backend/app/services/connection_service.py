@@ -1880,14 +1880,17 @@ class ConnectionService:
                     )
                     return []
 
-                if not has_creds:
+                from app.services.connection_identity import takes_no_login
+                if not has_creds and (not requires_no_credentials(connection.type) or takes_no_login(connection)):
                     # Caller has no per-user token, but the connection has
                     # admin/system creds. Index the SHARED canonical catalog with
                     # the same identity the background indexer uses
                     # (current_user=None → system-creds fallback) instead of
                     # letting resolve_credentials 403 on "Connect required" —
                     # a manual Reload before first sign-in must behave like the
-                    # create-time indexing it re-runs.
+                    # create-time indexing it re-runs. A credential-less type
+                    # with a stored secret stays with the caller: the resolver
+                    # decides, as it always has for those types.
                     logger.info(
                         f"refresh_schema: connection {connection.id} — caller has no "
                         "per-user credentials; indexing with the connection's system creds."

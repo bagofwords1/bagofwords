@@ -277,6 +277,20 @@ async def build_token_identity_status(
     )
 
 
+def takes_no_login(connection: Connection) -> bool:
+    """True for a credential-less type (SQLite, DuckDB, QVD) with no stored secret:
+    nobody can connect to it and there is no shared credential to protect. DuckDB
+    with shared cloud keys is not this; it is an ordinary shared source."""
+    from app.schemas.data_source_registry import requires_no_credentials
+
+    if not requires_no_credentials(connection.type):
+        return False
+    try:
+        return not connection.decrypt_credentials()
+    except Exception:
+        return False
+
+
 async def can_use_system_credentials(db: AsyncSession, user, organization_id) -> bool:
     """True if a user with no login of their own may fall back to a user_required
     connection's system credentials: org-level full_admin or manage_connections.
