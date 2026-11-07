@@ -9,7 +9,7 @@ Only the KMS Lighthouse API is simulated (tools/kms_lighthouse mock, in process)
 import pytest
 
 from tests.e2e.test_kms_lighthouse import (
-    _BOB_FILES, _admin, _assert_connect_required, _file_ids, _member, _user_required_source,
+    _BOB_FILES, _admin, _assert_connect_required, _cfg, _file_ids, _member, _svc_userpass, _user_required_source,
 )
 from tests.unit.test_kms_lighthouse_client import kms, kms_server  # noqa: F401
 
@@ -51,6 +51,39 @@ def test_legacy_save_refuses_kms_and_stores_nothing(
     assert _status(test_client, ds_id, bob_h) == before
     _assert_connect_required(test_client.get(file_endpoint, headers=bob_h))
     assert kms["mock"].REQUEST_LOG == [], "a refused save makes no KMS call"
+
+
+@pytest.mark.e2e
+def test_legacy_disconnect_clears_every_kms_connection_of_the_data_source_when_kms_is_not_first(
+    kms, tmp_path, test_client, create_user, login_user, whoami, create_connection, create_domain_from_connections,
+):
+    """The data source's connections are ordered by creation, so the network folder comes first."""
+    token, org, headers = _admin(create_user, login_user, whoami)
+    first = create_connection(name="Shared drive", type="network_dir", config={"root_path": str(tmp_path)},
+                              credentials={}, user_token=token, org_id=org)
+    kms_ids = [create_connection(name=f"KMS {n}", type="kms_lighthouse", config=_cfg(kms, root_folder_id=10),
+                                 credentials=_svc_userpass(kms), auth_policy="user_required",
+                                 allowed_user_auth_modes=["userpass"], user_token=token, org_id=org)["id"]
+               for n in range(2)]
+    ds = create_domain_from_connections(name="Mixed", connection_ids=[first["id"], *kms_ids], user_token=token, org_id=org)
+    linked = test_client.get(f"/api/data_sources/{ds['id']}/connections", headers=headers).json()
+    assert linked[0]["type"] != "kms_lighthouse", linked
+    bob_h = _member(test_client, create_user, login_user, org, headers, "bob")
+    login = {"auth_mode": "userpass", "credentials": {"username": "bob", "password": kms["mock"].USERS["bob"]["password"]}}
+    for conn_id in kms_ids:
+        saved = test_client.post(f"/api/connections/{conn_id}/my-credentials", json=login, headers=bob_h)
+        assert saved.status_code == 200, saved.text
+    files = [f"/api/data_sources/{ds['id']}/connections/{conn_id}/files" for conn_id in kms_ids]
+    for endpoint in files:
+        assert _file_ids(test_client.get(endpoint, headers=bob_h)) == _BOB_FILES
+
+    r = test_client.delete(f"/api/data_sources/{ds['id']}/my-credentials", headers=bob_h)
+    assert r.status_code == 204, r.text
+
+    kms["mock"].REQUEST_LOG.clear()
+    for endpoint in files:
+        _assert_connect_required(test_client.get(endpoint, headers=bob_h))
+    assert kms["mock"].REQUEST_LOG == [], "a disconnected member makes no KMS call"
 
 
 @pytest.mark.e2e
