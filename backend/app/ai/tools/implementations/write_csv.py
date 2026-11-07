@@ -19,9 +19,20 @@ from app.ai.tools.schemas import (
     ToolEndEvent,
 )
 from app.ee.audit.tool_audit import log_tool_audit
+from app.ai.data_preview import gate_stats_for_privacy
+from app.ai.data_visibility import allow_llm_see_data
 from app.dependencies import async_session_maker
 
 logger = logging.getLogger(__name__)
+
+
+def _model_data_fields(data_preview: str, info: Dict[str, Any], organization_settings) -> tuple:
+    """The preview text and stats the model sees: the file's head and full
+    stats only when the organization allows it; otherwise no rows and stats
+    without raw cells. The tool output (UI, stored summary) keeps both."""
+    if allow_llm_see_data(organization_settings):
+        return data_preview, info
+    return "", gate_stats_for_privacy(info)
 
 # Fallback display name when no usable title is provided.
 _DEFAULT_CSV_FILENAME = "write_csv_output.csv"
@@ -433,13 +444,14 @@ Arguments:
 
         current_step_id = runtime_ctx.get("current_step_id")
 
+        model_preview, model_stats = _model_data_fields(data_preview, info, organization_settings)
         observation = {
             "summary": f"Wrote CSV: {total_rows} rows, {len(full_df.columns)} columns",
             "file_id": str(file.id),
             "row_count": total_rows,
             "columns": list(full_df.columns),
-            "data_preview": data_preview,
-            "stats": info,
+            "data_preview": model_preview,
+            "stats": model_stats,
             "data_model": final_dm,
             "view": view_payload,
             "success": True,

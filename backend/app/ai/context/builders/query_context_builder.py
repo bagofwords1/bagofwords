@@ -12,7 +12,7 @@ from app.ee.encryption import envelope_marker_sql
 from app.models.step import Step
 from app.models.visualization import Visualization
 from app.ai.context.sections.queries_section import QueriesSection, QueryObservation, QueryVisualizationSummary
-from app.ai.data_preview import MAX_CELL_CHARS, clamp_scalar, clamp_stats
+from app.ai.data_preview import MAX_CELL_CHARS, clamp_scalar, clamp_stats, gate_stats_for_privacy
 from app.ai.context.summary_write_through import persist_step_context_projections
 
 from app.settings.logging_config import get_logger
@@ -429,7 +429,7 @@ class QueryContextBuilder:
                 if isinstance(info, dict):
                     # describe()-derived top/min/max are verbatim cells — for a
                     # wide column that reproduces the payload the preview clamps.
-                    obs.stats = clamp_stats(info)
+                    obs.stats = clamp_stats(info if include_data_preview else gate_stats_for_privacy(info))
                     try:
                         obs.row_count = int(info.get("total_rows") or 0)
                     except Exception:

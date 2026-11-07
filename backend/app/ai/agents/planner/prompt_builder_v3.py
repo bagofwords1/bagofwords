@@ -872,8 +872,30 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         disabled = PromptBuilderV3._format_disabled_tools(planner_input)
         if disabled:
             parts.append(f"  {disabled}")
+        visibility = PromptBuilderV3._data_visibility_block(planner_input)
+        if visibility:
+            parts.append(f"  {visibility}")
         parts.append("</context>")
         return "\n".join(parts)
+
+    @staticmethod
+    def _data_visibility_block(planner_input: PlannerInput) -> str:
+        """Tells the model the organization hides data from it, on both the
+        legacy and the transcript path (they once drifted: the transcript path
+        never said it)."""
+        if getattr(planner_input, "allow_llm_see_data", True):
+            return ""
+        return (
+            "<data_visibility>Data privacy mode is ON for this organization "
+            "(allow_llm_see_data is off). Data tools (create_data, read_query) "
+            "return only columns, row_count and aggregate stats (counts, "
+            "mean/std/sum, date ranges) — never raw rows; file contents are not "
+            "shown and inspect_data is disabled. Earlier results in this "
+            "conversation are shown the same way. This is expected, not an error: "
+            "do not retry to \"see\" the data or attempt to retrieve individual "
+            "values. Reason from the structure and aggregates provided, and answer "
+            "without quoting raw rows.</data_visibility>"
+        )
 
     @staticmethod
     def _reuse_hint(planner_input: PlannerInput) -> str:
@@ -1106,17 +1128,9 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             parts.append(f"  {planner_input.project_context}")
         if planner_input.instructions:
             parts.append(f"  {planner_input.instructions}")
-        if not getattr(planner_input, "allow_llm_see_data", True):
-            parts.append(
-                "  <data_visibility>Data privacy mode is ON for this organization "
-                "(allow_llm_see_data is off). Data tools (create_data, read_query) "
-                "return only columns, row_count and aggregate stats (counts, "
-                "mean/std/sum, date ranges) — never raw rows; inspect_data is "
-                "disabled. This is expected, not an error: do not retry to \"see\" "
-                "the data or attempt to retrieve individual values. Reason from the "
-                "structure and aggregates provided, and answer without quoting raw "
-                "rows.</data_visibility>"
-            )
+        visibility = PromptBuilderV3._data_visibility_block(planner_input)
+        if visibility:
+            parts.append(f"  {visibility}")
         # Agent roster (thin index of ALL attached agents) is rendered just
         # before the schema block. When present, schemas_combined holds full
         # schema only for the focused agents; the roster tells the model which
