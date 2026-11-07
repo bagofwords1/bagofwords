@@ -8,7 +8,7 @@ on:
   workflow_dispatch:  # Allows manual trigger
 
 # A new push to the same PR supersedes the run in flight — there is no point
-# finishing a 40-minute suite against a commit nobody will merge. Pushes to
+# finishing a two-hour suite against a commit nobody will merge. Pushes to
 # main are never cancelled: dispatch-build hangs off that run.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -79,10 +79,9 @@ jobs:
     # !cancelled(): if `changes` itself fails, run the suite rather than skip it.
     if: ${{ !cancelled() && needs.changes.outputs.skip_backend_e2e != 'true' }}
     runs-on: ubuntu-latest
-    # The suite outgrew the old 60- then 90-minute caps (it was being cancelled
-    # mid-run). It now runs under pytest-xdist (see the E2E step), which cuts
-    # wall time several-fold; 120 leaves generous headroom while still bounding
-    # runaway hangs.
+    # The suite outgrew the old 60- then 90-minute caps. 120 is no longer
+    # generous: the Postgres job reaches it in about 41% of runs, 93-96% done.
+    # Raising it again only postpones that; the cost is test setup, not this cap.
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -226,16 +225,16 @@ jobs:
   # sat red for two months before anyone noticed. It is pure logic (no HTTP, no
   # containers), so it runs once on sqlite rather than across the db matrix.
   #
-  # Non-blocking (continue-on-error): the suite outgrew the old serial run and
-  # was hitting the job timeout mid-run on every push, cancelling with zero
-  # failing tests — a gate that never passes gates nothing. It still runs (in
-  # parallel, see the step) so real failures stay visible in the checks list,
-  # but it no longer blocks or cancels anything; dispatch-build never depended
-  # on it.
+  # Non-blocking (continue-on-error). This began when the serial suite hit the
+  # job timeout on every push; that is long gone. It stays for now because the
+  # job has too short a green record: main has passed only since 5 Nov, and a
+  # timing test still fails now and then (test_connection_indexing_liveness.py).
+  # Real failures stay visible in the checks list. dispatch-build has never
+  # depended on this job.
   unit-tests:
     runs-on: ubuntu-latest
-    # The suite takes ~60 minutes at -n 4 on a hosted runner; sandboxed
-    # generated-code tests add child process and Arrow round-trip overhead.
+    # The suite takes about 7 minutes at -n 4 on a hosted runner. The limit is
+    # far above that and only bounds a hang.
     timeout-minutes: 120
     continue-on-error: true
 
@@ -253,7 +252,7 @@ jobs:
       # Unit tests are pure logic; the per-test fresh database is opt-in here
       # (@pytest.mark.db, see tests/unit/conftest.py) so the ~90% of tests that
       # never open a session no longer pay ~1s of engine-dispose + file-swap
-      # overhead each — that overhead was most of the hour this job took.
+      # overhead each — that overhead was most of the hour this job once took.
       run: |
         uv run pytest tests/unit -n 4 --db=sqlite --disable-warnings --timeout=600 --timeout-method=thread
 
