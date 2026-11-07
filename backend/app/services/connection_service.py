@@ -1730,7 +1730,7 @@ class ConnectionService:
             # Credential-less sources (SQLite/DuckDB/QVD — registry default auth
             # "none") are exempt: their catalog is indexed from `config` (the DB
             # path / file location), so they need no creds even under
-            # user_required. Without this exemption an owner/admin refresh of a
+            # user_required. Without this exemption an admin refresh of a
             # user_required SQLite domain would skip indexing and return zero
             # tables, since both `credentials` and per-user creds are empty.
             index_user = current_user
@@ -2429,33 +2429,24 @@ class ConnectionService:
 
         # --- Legacy path: non-delegated user_required connections (e.g. user/pass) ---
         if not row:
-            # Owner/admin fallback: allow owner or admin to use system creds
-            is_owner = False
+            # Admin fallback: only an org-level admin may use system creds. Owning
+            # a data source grants nothing here: a non-admin owner connects with
+            # their own login, like any member.
             has_update_perm = False
             try:
-                # Check ownership via any linked data source
-                for ds in (connection.data_sources or []):
-                    if str(getattr(ds, "owner_user_id", "")) == str(current_user.id):
-                        is_owner = True
-                        break
+                from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
+                resolved = await resolve_permissions(
+                    db, str(current_user.id), str(connection.organization_id)
+                )
+                # Admin-level system credential access: full_admin or manage_connections
+                has_update_perm = (
+                    FULL_ADMIN in resolved.org_permissions
+                    or resolved.has_org_permission("manage_connections")
+                )
             except Exception:
                 pass
 
-            if not is_owner:
-                try:
-                    from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
-                    resolved = await resolve_permissions(
-                        db, str(current_user.id), str(connection.organization_id)
-                    )
-                    # Admin-level system credential access: full_admin or manage_connections
-                    has_update_perm = (
-                        FULL_ADMIN in resolved.org_permissions
-                        or resolved.has_org_permission("manage_connections")
-                    )
-                except Exception:
-                    pass
-
-            if is_owner or has_update_perm:
+            if has_update_perm:
                 if connection.credentials:
                     try:
                         return connection.decrypt_credentials() or {}

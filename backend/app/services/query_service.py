@@ -617,7 +617,7 @@ class QueryService:
 
         # Build ds_clients using construct_clients for multi-connection support.
         # Run as the user who triggered the run so user_required connections use
-        # their credentials (or owner/admin → system-cred fallback).
+        # their credentials (or admin → system-cred fallback).
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
         run_user = await db.get(User, user_id) if user_id else None
@@ -1220,7 +1220,7 @@ class QueryService:
 
         # Build ds_clients using construct_clients for multi-connection support.
         # Run as the user who triggered the preview so user_required connections
-        # use their credentials (or owner/admin → system-cred fallback).
+        # use their credentials (or admin → system-cred fallback).
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
         run_user = await db.get(User, user_id) if user_id else None
