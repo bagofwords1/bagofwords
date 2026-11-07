@@ -513,9 +513,18 @@ def order_by(scope: ReaderScope, query: ListQuery) -> list:
     return keys + [Artifact.id]
 
 
-def _thumbnail_url(path: str | None) -> str | None:
+def _thumbnail_url(path: str | None, *, artifact_id: str, version_id: str | None = None) -> str | None:
+    """The card's image URL. A page's thumbnail is a file under
+    uploads/thumbnails; a deck's is its first slide preview (under
+    uploads/pptx_previews), served by the preview routes, which check the
+    reader: the published one's for a live release (`version_id` None), the
+    draft version's otherwise."""
     if not path:
         return None
+    if path.startswith("pptx_previews/"):
+        if version_id is None:
+            return f"/d/{artifact_id}/previews/0"
+        return f"/artifacts/{version_id}/preview/0"
     return f"/thumbnails/{path.split('/')[-1]}"
 
 
@@ -562,9 +571,9 @@ async def _page_extras(db, scope: ReaderScope, rows, *, shared: bool) -> dict:
         newest = select(newer.id).where(
             newer.artifact_id == version.artifact_id, newer.deleted_at.is_(None), newer.status == "completed",
         ).order_by(newer.version.desc()).limit(1).correlate_except(newer).scalar_subquery()
-        extras["drafts"] = dict((await db.execute(
-            select(version.artifact_id, version.thumbnail_path).where(version.artifact_id.in_(not_live),
-                                                                      version.id == newest))).all())
+        extras["drafts"] = {str(artifact_id): (str(version_id), path) for artifact_id, version_id, path in (await db.execute(
+            select(version.artifact_id, version.id, version.thumbnail_path).where(version.artifact_id.in_(not_live),
+                                                                                  version.id == newest))).all()}
 
     legacy = {str(a.legacy_report_id) for a in artifacts
               if a.legacy_report_id and not (a.title and a.title.strip())}
@@ -736,7 +745,13 @@ def _card(artifact: Artifact, extras: dict, editor: bool, report_id: str | None)
     role = "owner" if mine else ("edit" if editor else "view")
     release = _live_release(artifact, extras)
     published = release is not None
-    thumbnail = release.thumbnail_path if published else (extras["drafts"].get(aid) if editor else None)
+    if published:
+        thumbnail_url = _thumbnail_url(release.thumbnail_path, artifact_id=aid)
+    elif editor and aid in extras["drafts"]:
+        draft_version_id, draft_path = extras["drafts"][aid]
+        thumbnail_url = _thumbnail_url(draft_path, artifact_id=aid, version_id=draft_version_id)
+    else:
+        thumbnail_url = None
     owner = extras["owners"].get(str(artifact.owner_id)) if artifact.owner_id else None
     visibility = artifact.visibility
     if visibility == "public" and not extras["public_links"]:
@@ -751,7 +766,7 @@ def _card(artifact: Artifact, extras: dict, editor: bool, report_id: str | None)
         "owner": {"id": str(owner.id), "name": owner.name or owner.email} if owner else None,
         # updated_at moves on agent edits and data refreshes: the editors'
         # alone, so a view-only reader's card shows no draft activity (#1).
-        "thumbnail_url": _thumbnail_url(thumbnail), "updated_at": artifact.updated_at if for_editors else None,
+        "thumbnail_url": thumbnail_url, "updated_at": artifact.updated_at if for_editors else None,
         "created_at": artifact.created_at, "edited_at": columns.edited,
         "is_starred": aid in extras["starred"],
         "published_at": columns.published_at if published else None,

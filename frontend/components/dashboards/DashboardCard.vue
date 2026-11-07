@@ -6,9 +6,9 @@
             class="block bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden hover:shadow-lg hover:border-blue-300 transition"
         >
             <div class="aspect-[4/3] relative overflow-hidden" :class="showThumbnail ? '' : modeStyle.cardBg">
-                <img
+                <DashboardThumbnail
                     v-if="showThumbnail"
-                    :src="thumbnailUrl!"
+                    :url="dashboard.thumbnail_url!"
                     :alt="title"
                     class="w-full h-full object-cover group-hover:scale-105 transition-transform"
                     @error="imageError = true"
@@ -144,6 +144,7 @@
 
 <script setup lang="ts">
 import DashboardAccessLabel from '~/components/dashboards/DashboardAccessLabel.vue'
+import DashboardThumbnail from '~/components/dashboards/DashboardThumbnail.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ReportStatusDot from '~/components/ReportStatusDot.vue'
 import { cardMeta, isolate, refreshLine, statusPill, type DashboardCardData } from '~/utils/dashboardList'
@@ -191,9 +192,7 @@ const PILL_TONES: Record<string, { cls: string; icon?: string }> = {
     public: { cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-200', icon: 'i-heroicons-globe-alt' },
 }
 
-const config = useRuntimeConfig()
 const imageError = ref(false)
-const thumbnailUrl = computed(() => props.dashboard.thumbnail_url ? `${config.public.baseURL}${props.dashboard.thumbnail_url}` : null)
-const showThumbnail = computed(() => !!thumbnailUrl.value && !imageError.value)
+const showThumbnail = computed(() => !!props.dashboard.thumbnail_url && !imageError.value)
 watch(() => props.dashboard.thumbnail_url, () => { imageError.value = false })
 </script>
