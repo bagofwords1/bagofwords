@@ -225,7 +225,7 @@ def test_owner_without_a_row_runs_as_the_connection_identity(
 
 @pytest.mark.e2e
 @pytest.mark.xfail(strict=False, reason=(
-    "The rule lands with the owner credentials PR: until then a non-admin owner can still reach the "
+    "The rule lands with the owner credentials PR (#1622): until then a non-admin owner can still reach the "
     "shared account on some paths. Remove this mark after that PR merges."))
 def test_owner_who_is_not_an_admin_connects_with_their_own_login(
     kms, test_client, create_user, login_user, whoami, create_data_source,

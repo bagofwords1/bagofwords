@@ -117,7 +117,7 @@ KMS.
 | Each user signs in | a member with saved credentials | that member's own KMS login or token |
 | Each user signs in | a member without saved credentials | nobody: the file tools and the Files tab ask the member to connect, and no KMS call is made |
 | Each user signs in | an org admin without saved credentials | the connection's system credentials |
-| Each user signs in | a data-source owner who is not an admin, without saved credentials | nobody, the same as a member, once the owner credentials PR lands (see below) |
+| Each user signs in | a data-source owner who is not an admin, without saved credentials | nobody, the same as a member, once the owner credentials PR (#1622) lands (see below) |
 
 The admin fallback is existing platform behaviour for every connector
 (`ConnectionService.resolve_credentials`), not something this connector adds.
@@ -125,7 +125,7 @@ On a per-user connection it means that an org admin who has not saved their own
 login reads with the connection's account, not with their own KMS permissions.
 Save your own login to read as yourself.
 
-The owner rule lands with the owner credentials PR, which is separate from this
+The owner rule lands with the owner credentials PR (#1622), which is separate from this
 connector and covers every connector: owning a data source will not unlock the
 connection's account, and the status shown in the UI will follow the same rule,
 so a non-admin owner gets the Connect prompt. Until it lands, a non-admin owner
@@ -531,7 +531,7 @@ the connector's own 10 s.
 Platform findings that are not KMS-specific are listed here so they are not lost:
 
 - **Owner credentials** (every connector): the rule that owning a data source
-  does not unlock the connection's account lands with the owner credentials PR.
+  does not unlock the connection's account lands with the owner credentials PR (#1622).
   `test_owner_who_is_not_an_admin_connects_with_their_own_login` pins it and is
   marked as a non-strict `xfail`; remove the mark after that PR merges.
 - **Owner query identity** (OAuth connections only, so not KMS): `is_admin_or_owner`
