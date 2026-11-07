@@ -4,6 +4,7 @@ The mock is the remote boundary: a real HTTP server on a real socket. Only the
 HTTP client (requests) and the clock are ever replaced, and only to reach a
 failure the socket cannot produce. Each Safety rule of the brief has a test.
 """
+import io
 import json
 import re
 import socket
@@ -178,14 +179,82 @@ def test_a_login_hold_sends_no_login_and_ends_the_run(kms):
     _assert_rest_skipped(report)
 
 
-def test_an_expired_session_never_causes_a_second_login(kms):
-    """The session dies on arrival: every read answers 401, and the run must not log in again."""
-    kms["mock"].STATE["session_expiry"] = "immediate"
+@pytest.mark.parametrize("expired", ["401", "302"])
+def test_a_session_refused_after_login_ends_the_run_with_no_second_login(kms, expired):
+    """The session dies on arrival: the first read is refused, and the run must not log in again."""
+    kms["mock"].STATE.update({"session_expiry": "immediate", "expired_response": expired})
     report = client(kms, "alice", root_folder_id=10).diagnostics()
     assert _logins(kms) == 1
-    assert _rows(report)["top_level"]["status"] == "fail"
-    assert report["failed_stage"] == "browse"
+    row = _rows(report)["session"]
+    assert row["status"] == "fail" and row["observed"]["reason"] == "session_refused"
+    assert report["failed_stage"] == "login" and report["overall"] == "fail"
+    _assert_rest_skipped(report, keep=("session",))
     assert report["calls_made"] == len(kms["mock"].REQUEST_LOG)
+
+
+def test_the_session_check_is_one_authenticated_get(kms):
+    report = client(kms, "alice").diagnostics()
+    assert _rows(report)["session"]["status"] == "pass"
+    assert kms["mock"].REQUEST_LOG[2][:2] == ("alice", "GET"), "the first call after the login"
+
+
+def test_an_api_token_has_no_session_check_to_skip(kms):
+    row = _rows(token_client(kms, "alice").diagnostics())["session"]
+    assert row["status"] == "info"
+
+
+def test_a_session_read_with_an_odd_answer_warns_and_the_run_goes_on(kms, monkeypatch):
+    real = requests.Session.request
+    calls = []
+
+    def second_tree_call_fails(self, method, url, **kwargs):
+        calls.append(url)
+        if len([seen for seen in calls if "/cm/tree/" in seen]) == 2:
+            response = requests.Response()
+            response.status_code, response.raw = 503, io.BytesIO(b"")
+            return response
+        return real(self, method, url, **kwargs)
+
+    monkeypatch.setattr(requests.Session, "request", second_tree_call_fails)
+    rows = _rows(client(kms, "alice").diagnostics())
+    assert rows["session"]["status"] == "warn" and rows["session"]["observed"]["http_status"] == 503
+    assert rows["top_level"]["status"] == "pass"
+
+
+def _fail_tree_call(monkeypatch, nth, error):
+    """The ``nth`` tree call raises ``error`` at the HTTP client: 1 is the reach, 2 the session check, 3 top_level."""
+    real = requests.Session.request
+    seen = []
+
+    def failing(self, method, url, **kwargs):
+        if "/cm/tree/" in url:
+            seen.append(url)
+            if len(seen) == nth:
+                raise error
+        return real(self, method, url, **kwargs)
+
+    monkeypatch.setattr(requests.Session, "request", failing)
+
+
+_LOST_LINE = requests.exceptions.ConnectionError(ConnectionRefusedError())
+_TLS_LOST = requests.exceptions.SSLError(ssl.SSLError())
+
+
+@pytest.mark.parametrize("error,stage", [(_LOST_LINE, "network"), (_TLS_LOST, "tls")])
+def test_a_transport_failure_at_the_session_check_reports_its_stage_and_ends_the_run(kms, monkeypatch, error, stage):
+    _fail_tree_call(monkeypatch, 2, error)
+    report = client(kms, "alice").diagnostics()
+    assert report["failed_stage"] == stage and _rows(report)["session"]["stage"] == stage
+    assert _logins(kms) == 1
+    _assert_rest_skipped(report, keep=("session",))
+
+
+@pytest.mark.parametrize("error,stage", [(_LOST_LINE, "network"), (_TLS_LOST, "tls")])
+def test_a_transport_failure_at_the_tree_is_not_a_browse_failure(kms, monkeypatch, error, stage):
+    _fail_tree_call(monkeypatch, 3, error)
+    report = client(kms, "alice").diagnostics()
+    assert report["failed_stage"] == stage and _rows(report)["top_level"]["stage"] == stage
+    assert _logins(kms) == 1
 
 
 @pytest.mark.parametrize("expired", ["401", "302"])
@@ -194,6 +263,38 @@ def test_a_refused_token_ends_the_run(kms, expired):
     report = kc.KmsLighthouseClient(base_url=kms["base_url"], allow_http=True, api_token="not-a-known-token").diagnostics()
     assert report["failed_stage"] == "login" and _rows(report)["login"]["status"] == "fail"
     _assert_rest_skipped(report)
+
+
+@pytest.mark.parametrize("answer", [301, 302, 400, 401, 403])
+def test_a_token_check_refused_in_any_way_ends_the_run(kms, answer):
+    kms["mock"].STATE["session_info_status"] = answer
+    report = token_client(kms, "alice").diagnostics()
+    row = _rows(report)["login"]
+    assert row["status"] == "fail" and row["observed"]["reason"] == "rejected"
+    assert report["failed_stage"] == "login"
+    _assert_rest_skipped(report)
+
+
+@pytest.mark.parametrize("answer", [500, 503, "error", "not_json", "empty"])
+def test_a_token_check_answered_with_a_server_failure_ends_the_run(kms, answer):
+    kms["mock"].STATE["session_info_status"] = answer
+    report = token_client(kms, "alice").diagnostics()
+    row = _rows(report)["login"]
+    assert row["status"] == "fail" and row["observed"]["reason"] == "server"
+    assert report["failed_stage"] == "login"
+    _assert_rest_skipped(report)
+
+
+def test_a_missing_session_info_route_warns_and_the_run_goes_on(kms):
+    kms["mock"].STATE["session_info_status"] = 404
+    rows = _rows(token_client(kms, "alice").diagnostics())
+    assert rows["login"]["status"] == "warn" and rows["login"]["observed"]["http_status"] == 404
+    assert rows["top_level"]["status"] == "pass"
+
+
+def test_a_login_rejection_names_the_other_causes_of_a_rejection(kms):
+    summary = _rows(client(kms, "alice", password="wrong-pass").diagnostics())["login"]["summary"].lower()
+    assert "password" in summary and "device" in summary and "shape" in summary
 
 
 def test_a_login_server_error_ends_the_run(kms):
@@ -221,6 +322,42 @@ def test_expiry_answer_is_probed_with_no_session(kms, expired, status, redirecte
     assert rows["expiry"]["status"] == "pass"
     anonymous = kms["mock"].REQUEST_LOG[0]
     assert anonymous == (None, "GET", kms["mock"].PREFIX + "/cm/tree/branch/view")
+
+
+@pytest.mark.parametrize("answer,failure", [("html", "not_json"), ("empty", "empty_body")])
+def test_a_200_with_no_session_shows_what_came_back(kms, answer, failure):
+    """A login page answered as HTTP 200 is not a session expiry the connector can see."""
+    kms["mock"].STATE["no_session_answer"] = answer
+    row = _rows(client(kms, "alice").diagnostics())["expiry"]
+    assert row["status"] == "warn"
+    assert row["observed"] == {"http_status": 200, "redirected": False, "failure": failure}
+
+
+def test_no_reply_at_all_never_reads_as_a_trusted_certificate(monkeypatch):
+    def nothing_comes_back(self, method, url, **kwargs):
+        raise RuntimeError("kms-exception-text-e4")
+
+    monkeypatch.setattr(requests.Session, "request", nothing_comes_back)
+    report = kc.KmsLighthouseClient(base_url="https://kms.example.com", username="u", password="p").diagnostics()
+    rows = _rows(report)
+    assert rows["network"]["observed"] == {"error_type": "RuntimeError"}
+    assert rows["tls"]["status"] == "skipped" and rows["expiry"]["status"] == "skipped"
+    assert report["overall"] == "fail"
+
+
+def test_the_first_call_and_the_login_keep_the_connectors_read_timeout(kms, monkeypatch):
+    real = requests.Session.request
+    timeouts = []
+
+    def recording(self, method, url, **kwargs):
+        timeouts.append(kwargs["timeout"])
+        return real(self, method, url, **kwargs)
+
+    monkeypatch.setattr(requests.Session, "request", recording)
+    client(kms, "alice").diagnostics()
+    reach, login, *later = timeouts
+    assert kd._CALL_SECONDS < reach[1] <= kc._DEFAULT_TIMEOUT[1] and kd._CALL_SECONDS < login[1] <= kc._DEFAULT_TIMEOUT[1]
+    assert later and all(read <= kd._CALL_SECONDS for _, read in later)
 
 
 def _closed_port():

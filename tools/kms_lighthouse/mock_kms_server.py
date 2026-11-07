@@ -103,6 +103,10 @@ Test-only switches and routes (not part of the KMS API):
     STATE["alt_prefix"] = "/api": GET requests are served under that prefix too; a login is not.
     STATE["search_max_rows"] = N: /search/full returns at most N rows per page, whatever is asked.
     STATE["search_max_query"] = N: a query longer than N characters answers 400 with no body.
+    STATE["session_info_status"] = N, "error", "not_json" or "empty": GET /sessionInfo answers that.
+    STATE["no_session_answer"] = "html" or "empty": a request with no session gets a 200 HTML page
+    or a 200 with no body instead of its 401/302 (a device that answers for KMS).
+    STATE["hold_no_session"] = True: a request with no session waits on HELD before it is answered.
     STATE["search_too_long"] = N or "error": what a too-long query answers instead (an HTTP status
     with no body, or a 200 {"status": "ERROR"}).
     STATE["search_requires_layout"] = True: /search/full without layoutId answers 400 with no body;
@@ -452,6 +456,9 @@ _DEFAULTS = {
     "alt_prefix": None,              # None | a second prefix that GET requests are served under
     "search_max_rows": None,         # None | a server-side cap on rows per /search/full page
     "search_max_query": None,        # None | the longest query /search/full accepts
+    "session_info_status": None,     # None | an HTTP status | "error" | "not_json" | "empty"
+    "no_session_answer": None,       # None | "html" | "empty": what a request with no session gets instead
+    "hold_no_session": False,        # True: a request with no session waits on HELD
     "search_too_long": 400,          # what a query over search_max_query answers: a status | "error"
     "search_requires_layout": False, # True | "error": /search/full without layoutId answers 400 | a 200 ERROR
     "search_page_status": None,      # None | an HTTP status: /search/full past the first page answers it
@@ -592,6 +599,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header(key, value)
         self.end_headers()
 
+    def _send_html(self):
+        raw = b"<html>not json</html>"
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Length", str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
+
     def _identity(self):
         auth = self.headers.get("Authorization") or ""
         login_sessions_live = STATE["session_expiry"] == "never"
@@ -628,6 +643,14 @@ class Handler(BaseHTTPRequestHandler):
                 HELD["arrived"].set()
                 if not HELD["release"].wait(5):
                     return self._send_empty(500)   # never released: fail instead of hanging
+        elif STATE["hold_no_session"]:
+            HELD["arrived"].set()
+            if not HELD["release"].wait(5):
+                return self._send_empty(500)   # never released: fail instead of hanging
+        if STATE["no_session_answer"] == "html":
+            return self._send_html()
+        if STATE["no_session_answer"] == "empty":
+            return self._send_empty(200)
         if STATE["expired_response"] == "302":
             self._send_empty(302, {"Location": "/kms/lh/login"})
         else:
@@ -701,6 +724,13 @@ class Handler(BaseHTTPRequestHandler):
         route = parts.path[len(prefix):]
         odd = STATE["odd_shapes"]
         if route == "/sessionInfo":
+            forced = STATE["session_info_status"]
+            if forced == "error":
+                return self._send_json(200, {"status": "ERROR"})
+            if forced == "not_json":
+                return self._send_html()
+            if forced is not None:
+                return self._send_empty(200 if forced == "empty" else forced)
             if odd == "list":
                 return self._send_json(200, [ODD_MARKER])
             if odd == "error":
@@ -817,13 +847,7 @@ class Handler(BaseHTTPRequestHandler):
         if forced == "empty":
             return self._send_empty(200)
         if forced == "not_json":
-            raw = b"<html>not json</html>"
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html")
-            self.send_header("Content-Length", str(len(raw)))
-            self.end_headers()
-            self.wfile.write(raw)
-            return None
+            return self._send_html()
         if forced == "error":
             return self._send_json(200, {"status": "ERROR", "exception": "AI text failed", "data": None})
         if forced is not None:

@@ -72,6 +72,7 @@ _LOGIN_ENDED = "Skipped: the login did not succeed, so nothing else was sent."
 _UNREACHABLE_ENDED = "Skipped: KMS could not be reached, so nothing else was sent."
 _BUDGET_ENDED = "Skipped: the run used up its budget of calls or time."
 _CLIENT_ENDED = "Skipped: the run could not start."
+_NO_REPLY = "Skipped: the first call got no reply to judge."
 _FAILURE_SUMMARIES = {
     "dns": "The KMS host name did not resolve. Check the URL and this server's DNS.",
     "refused": "The KMS host refused the connection. Check the URL, the port and the firewall.",
@@ -157,6 +158,10 @@ def _is_transport(reply: _Reply) -> bool:
     return reply.status == 0 and reply.failure is not None
 
 
+def _transport_stage(failure: str) -> str:
+    return "tls" if failure in _TLS_FAILURES else "network"
+
+
 def _record_fault(records) -> str | None:
     """Why the connector would refuse these records (``_tree_children``), or None when it would not."""
     if not isinstance(records, list) or not all(isinstance(record, dict) for record in records):
@@ -203,7 +208,7 @@ class _Run:
         self.deadline = latest if deadline is None else min(deadline, latest)
         self.calls = 0
         self.ended: str | None = None        # why every later check is skipped
-        self.reach = _Reply(0)
+        self.reach: _Reply | None = None     # None until a call came back
         self.tree_records: list = []
         self.search_records: list = []
         self.search_query: str | None = None  # a query that returned rows
@@ -214,17 +219,25 @@ class _Run:
         self.step_fetches: list = []         # (scenario digits, step id) that need their own call
 
     # ------------------------------------------------------------ the budget and the one way out
-    def _take_call(self):
-        """Count one call, or stop; returns its deadline (half the time left, so a stalled call cannot overrun)."""
+    def _take_call(self, connector_timeout: bool = False):
+        """Count one call, or stop; returns its deadline.
+
+        A reading call gets half the time left, so a stalled one cannot overrun.
+        The first call and the login are the ones a slow tenant needs to answer
+        for the run to mean anything, so they keep the connector's read timeout.
+        """
         left = self.deadline - kc._clock()
         if self.calls >= _MAX_CALLS or left <= 0:
             raise _Stop()
         self.calls += 1
+        if connector_timeout:
+            return kc._clock() + min(kc._DEFAULT_TIMEOUT[1], left)
         return kc._clock() + min(_CALL_SECONDS, left / 2)
 
-    def get(self, op: str, path: str, *, params=None, headers=None, prefix=None, session=None) -> _Reply:
+    def get(self, op: str, path: str, *, params=None, headers=None, prefix=None, session=None,
+            connector_timeout: bool = False) -> _Reply:
         client = self.client
-        deadline = self._take_call()
+        deadline = self._take_call(connector_timeout)
         failed = None
         try:
             status, body = client._send(session or client._session(), op, "GET", path, params=params, headers=headers,
@@ -249,7 +262,7 @@ class _Run:
     # ------------------------------------------------------------ network, TLS, item 3
     def check_network(self):
         # The first call carries no session and no credential (a new session has neither).
-        self.reach = self.get("diagnostics_reach", _TREE, session=self.client._new_session())
+        self.reach = self.get("diagnostics_reach", _TREE, session=self.client._new_session(), connector_timeout=True)
         failure = self.reach.failure if _is_transport(self.reach) else None
         if failure is None or failure in _TLS_FAILURES:
             return "pass", "This server reached KMS.", {"reached": True}
@@ -258,6 +271,8 @@ class _Run:
     def check_tls(self):
         if not self.client._base.startswith("https://"):
             return "skipped", "Skipped: the connection uses plain HTTP.", {"plain_http": True}
+        if self.reach is None:
+            return "skipped", _NO_REPLY, {}
         failure = self.reach.failure if _is_transport(self.reach) else None
         if failure in _TLS_FAILURES:
             return "fail", _FAILURE_SUMMARIES[failure], {"failure": failure}
@@ -267,9 +282,12 @@ class _Run:
 
     def check_expiry(self):
         reply = self.reach
+        if reply is None:
+            return "skipped", _NO_REPLY, {}
         if _is_transport(reply):
             return "skipped", "Skipped: KMS was not reached.", {}
-        observed = {"http_status": reply.status, "redirected": 300 <= reply.status < 400}
+        observed = {"http_status": reply.status, "redirected": 300 <= reply.status < 400,
+                    **({"failure": reply.failure} if reply.failure else {})}
         if kc._session_lost(reply.status):
             return "pass", "A request with no session is refused the way the connector expects.", observed
         return "warn", "A request with no session got an answer the connector does not treat as expiry.", observed
@@ -288,7 +306,7 @@ class _Run:
             except kc.KmsHTTPError:
                 reason = "held"
             if reason is None:
-                deadline = self._take_call()
+                deadline = self._take_call(connector_timeout=True)
                 try:
                     client._login(client._new_session(), deadline, seen)
                 except kc.KmsHTTPError as exc:
@@ -317,23 +335,47 @@ class _Run:
         if failure.transport is not None:
             self.ended = _UNREACHABLE_ENDED
             summary = _FAILURE_SUMMARIES[failure.transport]
-            stage = "tls" if failure.transport in _TLS_FAILURES else "network"
-            return "fail", summary, {**observed, "failure": failure.transport}, stage
+            return "fail", summary, {**observed, "failure": failure.transport}, _transport_stage(failure.transport)
         if failure.kind == "auth":
-            return "fail", "KMS rejected the login. Check the username and password.", {**observed, "reason": "rejected"}
+            return "fail", ("KMS rejected the login. Check the username and password. If they are right, a device in "
+                            "front of KMS may have answered, or the login has an unexpected shape."), {
+                **observed, "reason": "rejected"}
         reason = "no_session" if str(failure) == kc._NO_SESSION else failure.kind
         return "fail", "The login failed for a reason other than the password.", {**observed, "reason": reason}
+
+    def _unreachable(self, reply: _Reply):
+        self.ended = _UNREACHABLE_ENDED
+        return "fail", _FAILURE_SUMMARIES[reply.failure], reply.observed(), _transport_stage(reply.failure)
 
     def _check_token(self):
         reply = self.get("diagnostics_session", "/sessionInfo")
         if _is_transport(reply):
-            self.ended = _UNREACHABLE_ENDED
-            stage = "tls" if reply.failure in _TLS_FAILURES else "network"
-            return "fail", _FAILURE_SUMMARIES[reply.failure], reply.observed(), stage
-        if kc._session_lost(reply.status):
+            return self._unreachable(reply)
+        if kc._session_lost(reply.status) or reply.status in (400, 403):
             return "fail", "KMS refused the API token.", {**reply.observed(), "reason": "rejected"}
+        if reply.status == 404:
+            self.ended = None
+            return "warn", "/sessionInfo is absent. It is optional: the reads below prove the token.", reply.observed()
+        if not reply.ok:
+            return "fail", "The token check got a server error or an unusable answer.", {
+                **reply.observed(), "reason": "server"}
         self.ended = None
         return "pass", "An API token never logs in; KMS answered it.", reply.observed()
+
+    def check_session(self):
+        """One read with the session the login returned: a refusal here is a login failure, not a browse failure."""
+        if self.client.auth_method == "token":
+            return "info", "An API token has no login session; the login check already used it.", {}
+        reply = self.get("diagnostics_session", _TREE)
+        if _is_transport(reply):
+            return self._unreachable(reply)
+        if kc._session_lost(reply.status):
+            self.ended = _LOGIN_ENDED
+            return "fail", "KMS accepted the login but refused its session. Ask the KMS admin about API access.", {
+                **reply.observed(), "reason": "session_refused"}
+        if not reply.ok:
+            return "warn", "The first read after the login got an unexpected answer.", reply.observed()
+        return "pass", "KMS accepted the session the login returned.", reply.observed()
 
     # ------------------------------------------------------------ browse, items 4, 5, 6
     def _level(self, parent=None) -> tuple[_Reply, list]:
@@ -370,6 +412,8 @@ class _Run:
         failed = sum(1 for reply in opened if _tree_rows(reply) is None)
         observed.update(folders_opened=len(opened), folders_failed=failed, folder_statuses=_status_counts(opened))
         for reply in (top, start):
+            if _is_transport(reply):
+                return "fail", _FAILURE_SUMMARIES[reply.failure], observed, _transport_stage(reply.failure)
             if _tree_rows(reply) is None:
                 return "fail", "The folder tree could not be read.", {
                     **observed, **_reason(reply, _tree_records(reply))}
@@ -697,6 +741,7 @@ _CHECKS = (
     ("tls", [], "tls", _Run.check_tls, False),
     ("expiry", [3], "login", _Run.check_expiry, False),
     ("login", [2], "login", _Run.check_login, False),
+    ("session", [], "login", _Run.check_session, False),
     ("top_level", [4], "browse", _Run.check_top_level, False),
     ("search_layout", [8], "search", _Run.check_search_layout, False),
     ("types", [5], "browse", _Run.check_types, False),
