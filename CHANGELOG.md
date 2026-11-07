@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.612 (November 7, 2026)
+- Added F5 BIG-IP as a data source: virtual servers, pools, pool members and stats, nodes, iRules, SSL certificates, HA failover and sync state
+- Added Check Point Management as a data source: hosts, networks, groups, services, access and NAT rulebases, gateways, sessions, traffic and audit logs — API key or username/password
+- Added Dell OpenManage Enterprise as a data source: devices, inventory, alerts, warranties, firmware baselines and compliance, jobs, groups and audit logs
+- Added HPE OneView as a data source: server hardware, profiles, enclosures, interconnects, networks, alerts, events, tasks and firmware baselines
+
 ## Version 0.0.611 (November 6, 2026)
 - Added a Dashboards page that finds any dashboard: created/edited dates, filters by agent, date, owner and status, sort, list view, stars and a Shared-with-me tab (#1608)
 - Added data preview to the agent's table selector: sample 50 rows, edit the query, and save it as a cached custom table (#1609)
