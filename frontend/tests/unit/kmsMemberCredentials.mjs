@@ -9,10 +9,11 @@ import { catalogMessage } from '../../composables/useErrorMessage.ts'
 
 // Run: node --test tests/unit/kmsMemberCredentials.mjs
 // A KMS Lighthouse member's login lives on the connection row that runtime
-// reads. The credentials modal saves it there and shows the save error (the
-// backend's localized reason, e.g. the token format); the integration page's
-// Disconnect clears it there; the file-scope card keeps root folder 0.
-// Other connection types keep their behaviour.
+// reads. The credentials modal saves it there and, for every type, shows the
+// backend's localized reason on a failed save or Test; the integration page's
+// Disconnect clears it there; the file-scope card keeps root folder 0. The
+// diagnostics panel shows a refused second run and keeps its download alive.
+// Other connection types keep their endpoints and their silent Disconnect.
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const scriptOf = (sfc) => sfc.match(/<script[^>]*\bsetup\b[^>]*>([\s\S]*?)<\/script>/)[1]
@@ -72,9 +73,14 @@ r = await save('documentum', null)
 assert.deepEqual(r.calls, [['/connections/conn-1/my-credentials', 'POST']], 'Documentum is unchanged')
 r = await save('postgresql', tokenFormat)
 assert.deepEqual(r.calls, [['/data_sources/ds-1/my-credentials', 'POST']], 'other types keep the legacy endpoint')
-assert.equal(r.saveError, null, 'other types keep their save behaviour')
+assert.equal(r.saveError, en.errors['connection.kms_token_format'], 'every type shows why a save failed')
+assert.deepEqual(r.emitted, [], 'a failed save keeps the modal open for every type')
+r = await save('postgresql', { data: { detail: 'Authentication mode not permitted by data source policy' } })
+assert.equal(r.saveError, 'Authentication mode not permitted by data source policy', 'the server detail, for every type')
+r = await save('postgresql', { statusCode: 500, data: {} })
+assert.equal(r.saveError, en.data.failed, 'with no reason the save says it failed')
 
-// The Test button: KMS shows the backend's localized reason, never ofetch's status line.
+// The Test button: every type shows the backend's reason, never ofetch's status line.
 async function testCreds(type, failure) {
   const scope = {
     testing: ref(false), testResult: ref(null),
@@ -95,7 +101,9 @@ assert.deepEqual(r, { success: false, message: en.errors['connection.kms_token_f
 r = await testCreds('kms_lighthouse', { message: ofetchLine, data: { detail: 'Invalid credentials: password: required' } })
 assert.equal(r.message, 'Invalid credentials: password: required', 'other KMS 422s show the server detail')
 r = await testCreds('postgresql', { ...tokenFormat, message: ofetchLine })
-assert.equal(r.message, ofetchLine, 'other types keep their Test message')
+assert.equal(r.message, en.errors['connection.kms_token_format'], 'every type shows the localized reason on Test')
+r = await testCreds('postgresql', { message: ofetchLine, data: {} })
+assert.equal(r.message, en.data.failed, 'with no reason the Test says it failed, not the status line')
 
 // Switching the auth mode clears a stale save error.
 const authWatch = scriptOf(modal).match(/watch\(authMode, \(v\) => \{([\s\S]*?)\n\}\)/)
@@ -154,5 +162,42 @@ assert.equal(kms({}), 'https://kms.example.com')
 assert.equal(baseOf({ type: 'documentum', config: { rest_url: 'https://dctm', repository: 'r', root_path: '/a' } }),
   'https://dctm / r / /a', 'Documentum is unchanged')
 assert.equal(baseOf({ type: 'network_dir', config: { root_path: '/mnt/share' } }), '/mnt/share')
+
+// ---------------------------------------------------------------- diagnostics panel
+const panel = read('../../components/datasources/KmsDiagnosticsPanel.vue')
+const panelFns = declarations(scriptOf(panel))
+
+// A second run answers 409 with a typed code: the panel shows its localized line, and no report.
+const running = { statusCode: 409, data: { error_code: 'connection.kms_diagnostics_running', detail: 'Already running' } }
+const panelScope = {
+  props: { connectionId: 'conn-1' }, isRunning: ref(false), report: ref({ stale: true }), errorMessage: ref(''), t,
+  getErrorMessage: (e, fallback) => catalogMessage(e.data, t, te) ?? e.data?.detail ?? fallback,
+  useMyFetch: async () => ({ data: ref(null), error: ref(running) }),
+}
+await new Function(...Object.keys(panelScope), `${js([panelFns.get('runDiagnostics')])}\nreturn runDiagnostics`)(
+  ...Object.values(panelScope))()
+assert.equal(panelScope.errorMessage.value, en.errors['connection.kms_diagnostics_running'], 'the panel shows the 409')
+assert.equal(panelScope.report.value, null)
+assert.equal(panelScope.isRunning.value, false, 'the button comes back')
+
+// Download: the blob URL stays alive until the click has been handled.
+const revoked = []
+const timers = []
+const clicked = []
+const downloadScope = {
+  reportText: () => '{}',
+  Blob: class {},
+  URL: { createObjectURL: () => 'blob:report', revokeObjectURL: (url) => revoked.push(url) },
+  document: { createElement: () => ({ click() { clicked.push(revoked.length) } }) },
+  setTimeout: (run, delay) => timers.push([run, delay]),
+}
+new Function(...Object.keys(downloadScope), `${js([panelFns.get('downloadReport')])}\nreturn downloadReport`)(
+  ...Object.values(downloadScope))()
+assert.deepEqual(clicked, [0], 'the download was clicked with the URL still alive')
+assert.deepEqual(revoked, [], 'not revoked in the same tick as the click')
+assert.equal(timers.length, 1)
+assert.equal(timers[0][1], 0, 'revoked after one tick')
+timers[0][0]()
+assert.deepEqual(revoked, ['blob:report'], 'the URL is revoked after the tick')
 
 console.log('kmsMemberCredentials: ok')

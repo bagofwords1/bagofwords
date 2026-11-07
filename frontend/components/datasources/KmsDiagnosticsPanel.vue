@@ -115,6 +115,7 @@ function downloadReport() {
   link.href = url
   link.download = 'kms-diagnostics.json'
   link.click()
-  URL.revokeObjectURL(url)
+  // Some browsers start the download after this tick: the URL must outlive it.
+  setTimeout(() => URL.revokeObjectURL(url), 0)
 }
 </script>

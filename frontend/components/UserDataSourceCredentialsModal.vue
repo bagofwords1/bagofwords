@@ -172,8 +172,7 @@ async function onOAuthSignIn() {
 const saving = ref(false)
 const testing = ref(false)
 const testResult = ref<{ success: boolean, message?: string } | null>(null)
-// A failed save's message (KMS only: the backend sends a fixed, localized reason
-// such as the token format, never the typed input).
+// A failed save's message: the backend's reason, localized when it has a code.
 const saveError = ref<string | null>(null)
 
 async function onSave() {
@@ -191,7 +190,7 @@ async function onSave() {
     emit('saved')
     emit('update:modelValue', false)
   } catch (e) {
-    if (connectionType.value === 'kms_lighthouse') saveError.value = getErrorMessage(e, t('data.failed'))
+    saveError.value = getErrorMessage(e, t('data.failed'))
   } finally {
     saving.value = false
   }
@@ -204,9 +203,8 @@ async function onTest() {
     if (error.value) throw error.value
     testResult.value = data.value as any
   } catch (e: any) {
-    // KMS: the backend's localized reason (e.g. the token format), not the fetch status line.
-    const message = connectionType.value === 'kms_lighthouse' ? getErrorMessage(e, t('data.failed')) : (e?.message || t('data.failed'))
-    testResult.value = { success: false, message }
+    // The backend's reason, not the fetch status line.
+    testResult.value = { success: false, message: getErrorMessage(e, t('data.failed')) }
   } finally {
     testing.value = false
   }
