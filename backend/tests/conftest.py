@@ -726,7 +726,7 @@ def db_template(db_backend, alembic_config):
 
 
 @pytest.fixture(scope="function")
-def _fresh_test_database(alembic_config, db_backend, db_template):
+def _fresh_test_database(request, alembic_config, db_backend, db_template):
     """Give the test a fresh, fully migrated, empty database.
 
     sqlite and postgres clone the session template (see `_build_sqlite_template`
@@ -749,7 +749,12 @@ def _fresh_test_database(alembic_config, db_backend, db_template):
 
     if db_backend == "postgres":
         _dispose_async_engine()
-        db_template.reset()
+        # A corpus test restores its own saved database (see
+        # tests/fixtures/dashboard_corpus/reuse.py); going through the empty
+        # template first would cost a DROP DATABASE per test, since the two
+        # schemas differ.
+        if not {"corpus", "migrated_corpus"} & set(request.fixturenames):
+            db_template.reset()
         yield
         # Cleanup happens at the START of the next test (or container shutdown).
         return
