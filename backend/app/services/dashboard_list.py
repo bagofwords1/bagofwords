@@ -39,7 +39,7 @@ from datetime import datetime, timedelta
 from functools import cached_property
 
 from fastapi import HTTPException
-from sqlalchemy import and_, case, delete, exists, false, func, or_, select, text, true, union_all
+from sqlalchemy import and_, case, delete, exists, false, func, or_, select, text, true, union_all, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 
@@ -1075,8 +1075,10 @@ async def mark_shared_seen(db, user, organization) -> dict:
     seen = now
     if row is not None:
         previous = row.shared_seen_at
-        # Never back: a concurrent visit may have committed a later time.
         seen = max(previous, now)
-        row.shared_seen_at = seen
+        # Never back, checked by the database at the write: a concurrent visit
+        # may have committed a later time since `row` was read.
+        await db.execute(update(ArtifactListSeen).where(*mine, ArtifactListSeen.shared_seen_at < now)
+                         .values(shared_seen_at=now).execution_options(synchronize_session=False))
     await db.commit()
     return {"previous_seen_at": previous, "seen_at": seen}

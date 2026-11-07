@@ -97,28 +97,34 @@
 
                         <!-- Type filter (All / Dashboards / Docs) -->
                         <div class="ms-auto flex items-center gap-1 py-1.5">
-                            <button
+                            <UButton
                                 v-for="tf in typeFilters"
                                 :key="tf.value"
-                                type="button"
-                                class="px-2.5 py-1 text-xs rounded-full border transition-colors"
+                                color="gray"
+                                variant="ghost"
+                                size="xs"
+                                :ui="CHIP_BUTTON_UI"
+                                class="py-1 font-normal rounded-full border transition-colors"
                                 :class="state.type === tf.value ? CHIP_ON : CHIP_OFF"
                                 :aria-pressed="state.type === tf.value ? 'true' : 'false'"
                                 @click="go({ ...state, type: tf.value, page: 1 })"
                             >
                                 {{ tf.label }}
-                            </button>
+                            </UButton>
                         </div>
                     </nav>
                 </div>
 
                 <!-- Shared: how it reached me, with counts -->
                 <div v-if="state.tab === 'shared'" class="flex flex-wrap items-center gap-1 -mt-2 mb-5">
-                    <button
+                    <UButton
                         v-for="chip in ACCESS_CHIPS"
                         :key="chip"
-                        type="button"
-                        class="px-2.5 py-1 text-xs rounded-full border transition-colors"
+                        color="gray"
+                        variant="ghost"
+                        size="xs"
+                        :ui="CHIP_BUTTON_UI"
+                        class="py-1 gap-x-1 font-normal rounded-full border transition-colors"
                         :class="state.access === chip ? CHIP_ON : CHIP_OFF"
                         :aria-pressed="state.access === chip ? 'true' : 'false'"
                         :data-testid="`dashboard-access-chip-${chip}`"
@@ -131,7 +137,7 @@
                             :class="accessCounts ? '' : 'invisible'"
                             :aria-hidden="accessCounts ? undefined : 'true'"
                         >{{ accessCounts ? accessCounts[chip] : 0 }}</span>
-                    </button>
+                    </UButton>
                 </div>
 
                 <!-- The org admin's line, under the Organization chip -->
@@ -391,6 +397,7 @@ import DashboardRow from '~/components/dashboards/DashboardRow.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import {
     ACCESS_CHIPS,
+    CHIP_BUTTON_UI,
     SORTS,
     activeFilterChips,
     clampPage,
@@ -677,6 +684,9 @@ const attention = computed(() => (state.value.tab === 'shared' && state.value.ac
 
 // Dashboards whose star request is in flight: a second click on one waits.
 const pendingStars = reactive(new Set<string>())
+// Stars that landed since the last list left: a list that left before them
+// may answer with the old state, so they stay as set until a refetch asks again.
+const landedStars = new Set<string>()
 
 // Only the newest fetch writes the list and ends the loading state: an older
 // response landing late (a page or tab the reader has left) is dropped.
@@ -712,7 +722,7 @@ const fetchDashboards = async (quiet = false) => {
                 return
             }
             // A star still in flight keeps its local state: this response may predate it.
-            reports.value = mergeStarState(body.dashboards, pendingStars, reports.value)
+            reports.value = mergeStarState(body.dashboards, new Set([...pendingStars, ...landedStars]), reports.value)
             shownTab.value = state.value.tab
             pagination.value = body.meta
             settled.value = true
@@ -734,8 +744,22 @@ const fetchDashboards = async (quiet = false) => {
             })
         }
     } finally {
-        if (seq === fetchSeq && !clamping) isLoading.value = false
+        if (seq === fetchSeq && !clamping) {
+            isLoading.value = false
+            refetchAfterStars()
+        }
     }
+}
+
+// The list again, once no star is in flight and nothing is loading: starred
+// cards come first, so the order may change. A load in flight may have left
+// before the star landed and answer with the old one, so this runs at its end;
+// run sooner it would supersede that load. The set clears first: this refetch
+// left after those stars, and its own end stops here unless another landed.
+const refetchAfterStars = () => {
+    if (unmounted || pendingStars.size || !landedStars.size || isLoading.value) return
+    landedStars.clear()
+    return fetchDashboards(true)
 }
 
 // The list and its facets for the URL's state. On Shared, the watermark
@@ -743,6 +767,9 @@ const fetchDashboards = async (quiet = false) => {
 let loadSeq = 0
 const load = async () => {
     const seq = ++loadSeq
+    // Any list still in flight is for an older state: its answer must not end
+    // this load, or show while this load waits for the watermark.
+    fetchSeq++
     isLoading.value = true
     if (state.value.tab === 'shared') await markSharedSeen()
     if (seq !== loadSeq) return
@@ -825,10 +852,8 @@ const setStar = (id: string, starred: boolean) => {
     for (const card of reports.value) if (card.id === id) card.is_starred = starred
 }
 
-// The star: shown at once, then -- once no star is in flight -- the page is
-// fetched again (starred cards come first, so the order may change). On
-// failure the star goes back.
-let starsChanged = false
+// The star: shown at once, then the list is fetched again (refetchAfterStars).
+// On failure the star goes back.
 const toggleStar = async (d: any) => {
     const id: string = d.id
     if (pendingStars.has(id)) return
@@ -840,20 +865,14 @@ const toggleStar = async (d: any) => {
             method: next ? 'POST' : 'DELETE',
         })
         if (error.value) throw error.value
-        starsChanged = true
+        landedStars.add(id)
     } catch (error) {
         setStar(id, !next)
         toast.add({ title: t('dashboards.starFailed'), description: getErrorMessage(error), color: 'red' })
     } finally {
         pendingStars.delete(id)
     }
-    if (pendingStars.size || !starsChanged) return
-    starsChanged = false
-    // A load in flight already reads the stars from the server (and
-    // mergeStarState keeps any still pending); a quiet refetch now would
-    // supersede it and drop its response.
-    if (isLoading.value) return
-    await fetchDashboards(true)
+    await refetchAfterStars()
 }
 
 // The pencil: the reader's own conversation on the dashboard when they have

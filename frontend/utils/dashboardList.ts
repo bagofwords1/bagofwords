@@ -13,6 +13,20 @@ export const STATUSES = ['any', 'published', 'changes', 'draft'] as const
 export const ACCESS_CHIPS = ['all', 'direct', 'group', 'project', 'org', 'edit'] as const
 export const TYPES = ['all', 'page', 'doc'] as const
 
+/**
+ * `ui` of a gray ghost UButton whose colors are all its own (the funnel, the
+ * chips): the preset keeps only its focus ring, so its text and hover colors
+ * (dark mode's too) do not show through the on and off states.
+ */
+export const CHIP_BUTTON_UI = {
+  strategy: 'override',
+  color: {
+    gray: {
+      ghost: 'focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500 dark:focus-visible:ring-primary-400',
+    },
+  },
+}
+
 export type DashboardSort = typeof SORTS[number]
 export type DatePreset = typeof PRESETS[number]
 export type DashboardStatus = typeof STATUSES[number]

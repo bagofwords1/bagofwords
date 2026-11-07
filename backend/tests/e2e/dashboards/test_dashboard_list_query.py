@@ -381,8 +381,10 @@ def spawned(monkeypatch):
     """The background runs a route starts (a join's thumbnail), run when the test says."""
     from app.services.thumbnail_service import ThumbnailService
 
-    monkeypatch.setattr(ThumbnailService, "_build_thumbnail_html", lambda self, **kw: "")
+    # The vendored libraries are not there in a test run; the page is built for real.
+    monkeypatch.setattr("app.services.thumbnail_service.get_inline_scripts", lambda mode: "")
 
+    # The only seam around Chromium: generate_thumbnail launches it.
     async def draw(self, artifact_id, html_content, mode="page"):
         return None
 
