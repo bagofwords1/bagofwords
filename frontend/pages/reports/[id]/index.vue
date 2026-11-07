@@ -106,6 +106,10 @@
 			:report-id="report.id"
 		/>
 
+		<!-- Quick jump between prompts: a rail of ticks pinned over the
+		     inline-start edge of the scroller (outside it, so it never scrolls) -->
+		<TurnNavigator :turns="navTurns" :container="scrollContainer" :content="transcriptContent" @jump="jumpToTurn" />
+
 		<!-- Messages -->
 		<div class="flex-1 overflow-y-auto mt-4 pb-4 chat-messages" :class="{ 'compact-messages': isExcel }" ref="scrollContainer" @scroll.passive="onScroll" @wheel.passive="onFollowWheel" @touchstart.passive="endPinHold">
 			<div ref="transcriptContent" data-testid="transcript" class="ps-3 pe-3 sm:px-4 pb-[3px] max-w-chat w-full mx-auto" :style="pinMinHeightPx ? { minHeight: pinMinHeightPx + 'px' } : undefined">
@@ -1194,6 +1198,7 @@ import ReportHeader from '~/components/report/ReportHeader.vue'
 import ReportAgentPanel from '~/components/report/ReportAgentPanel.vue'
 import ReportEmptyState from '~/components/report/ReportEmptyState.vue'
 import ChatSummary from '~/components/report/ChatSummary.vue'
+import TurnNavigator, { type NavTurn } from '~/components/report/TurnNavigator.vue'
 import ForkBanner from '~/components/ForkBanner.vue'
 import ContinuedFromCard from '~/components/dashboard/conversation/ContinuedFromCard.vue'
 import ForkedQueriesPanel from '~/components/ForkedQueriesPanel.vue'
@@ -1709,6 +1714,34 @@ const visibleMessages = computed(() => {
 	}
 	return out
 })
+// One entry per user prompt for the turn navigator: the prompt text and the
+// answer of the completion that follows it (until the next prompt).
+const navTurns = computed<NavTurn[]>(() => {
+	const out: NavTurn[] = []
+	let current: NavTurn | null = null
+	for (const m of visibleMessages.value) {
+		if (m.role === 'user' && m.message_type !== 'steering' && (m.prompt?.content || '').trim()) {
+			current = { id: String(m.id), prompt: m.prompt!.content!, answer: '' }
+			out.push(current)
+		} else if (m.role === 'system' && current && !current.answer) {
+			current.answer = responseText(m)
+		}
+	}
+	return out
+})
+
+// Jump from the turn navigator: bring the prompt to the top of the view.
+function jumpToTurn(messageId: string) {
+	const container = scrollContainer.value
+	if (!container) return
+	const el = container.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`) as HTMLElement | null
+	if (!el) return
+	endPinHold()
+	isFollowing.value = false
+	const top = el.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop - 16
+	container.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+}
+
 const copiedMessageId = ref<string | null>(null)
 let currentController: AbortController | null = null
 const scrollContainer = ref<HTMLElement | null>(null)
