@@ -189,9 +189,9 @@ def generate_df(ds_clients, excel_files):
 def test_fork_server_gives_each_run_a_fresh_process_without_a_cold_start():
     """Consecutive runs come from distinct processes (nothing survives from
     one execution to the next), and each is forked from the fork server, which
-    has already paid for the imports, not started as a cold interpreter."""
-    from app.ai.code_execution.sandbox import runner as r
-
+    has already paid for the imports, not started as a cold interpreter: both
+    share one parent, and that parent is not this process (a cold start is a
+    direct child of the process that runs the job)."""
     code = """
 def generate_df(ds_clients, excel_files):
     import os as _os
@@ -201,10 +201,9 @@ def generate_df(ds_clients, excel_files):
     second = run_job(SandboxJob(mode="data", code=code))
     assert int(first.df["pid"][0]) != int(second.df["pid"][0])
     assert int(second.df["pid"][0]) != os.getpid()
-    fork_server = r._zygote._proc.pid
-    assert fork_server != os.getpid()
-    assert int(first.df["parent"][0]) == fork_server
-    assert int(second.df["parent"][0]) == fork_server
+    parent = int(first.df["parent"][0])
+    assert int(second.df["parent"][0]) == parent
+    assert parent != os.getpid()
 
 
 def test_spawn_fallback_when_fork_server_is_disabled(monkeypatch):

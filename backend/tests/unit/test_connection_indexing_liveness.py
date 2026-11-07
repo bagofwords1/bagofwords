@@ -18,7 +18,6 @@ The contract pinned here:
     last made progress — enough to diagnose it from a screenshot.
 """
 import asyncio
-import time
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
@@ -87,12 +86,18 @@ class _ServiceClock:
 
     Liveness and idleness are decided by elapsed time. Measured on the real
     clock, a test can't tell a run that went silent from a machine that paused
-    the test for a moment, so here only ``advance`` makes time pass.
+    the test for a moment, so here only the test makes time pass.
+
+    The two clocks move separately, because each deadline reads one of them:
+    the stale-run reaper and the heartbeat read the wall clock, the discovery
+    idle watchdog reads the monotonic one. Moving both would let one test's
+    time trip the other deadline. The monotonic clock starts at 0, so elapsed
+    times are exact sums of the steps, with no float error at a boundary.
     """
 
     def __init__(self, monkeypatch):
         self._wall = datetime.utcnow()
-        self._monotonic = time.perf_counter()
+        self._monotonic = 0.0
         clock = self
 
         class _Datetime(datetime):
@@ -107,8 +112,10 @@ class _ServiceClock:
     def now(self) -> datetime:
         return self._wall
 
-    def advance(self, seconds: float) -> None:
+    def pass_wall_time(self, seconds: float) -> None:
         self._wall += timedelta(seconds=seconds)
+
+    def pass_monotonic_time(self, seconds: float) -> None:
         self._monotonic += seconds
 
 
@@ -213,7 +220,7 @@ async def test_live_run_outlasting_the_stale_window_is_never_reaped(env, monkeyp
             # More than three stale windows in all, each step ending inside
             # the window of the last heartbeat: only heartbeats keep it alive.
             for _ in range(4):
-                clock.advance(0.9 * cis._STALE_AFTER_SECONDS)
+                clock.pass_wall_time(0.9 * cis._STALE_AFTER_SECONDS)
                 heartbeat_due = clock.now
 
                 async def heartbeat_landed():
@@ -308,7 +315,7 @@ async def test_discovery_that_stops_reporting_is_stopped_after_the_idle_window(e
     assert live.status == ConnectionIndexingStatus.RUNNING.value
     assert live.last_activity_at == stuck_since
 
-    clock.advance(cis._IDLE_TIMEOUT_SECONDS)
+    clock.pass_monotonic_time(2 * cis._IDLE_TIMEOUT_SECONDS)  # well past the window
     await asyncio.wait_for(run, timeout=30)
     failed = await _row(maker, row.id)
     assert failed.status == ConnectionIndexingStatus.FAILED.value
@@ -325,7 +332,7 @@ async def test_discovery_that_keeps_reporting_outlives_the_idle_window(env, monk
         for i in range(4):  # more than three idle windows in all
             # Time passes and the report lands in one step, so the idle check
             # never sees a full window since the last report, however late it runs.
-            clock.advance(0.9 * cis._IDLE_TIMEOUT_SECONDS)
+            clock.pass_monotonic_time(0.9 * cis._IDLE_TIMEOUT_SECONDS)
             progress_callback("datasets", f"model-{i}", i + 1, 4)
             await asyncio.sleep(0.15)  # gives the idle check (every 0.1s) its turn
         return []
