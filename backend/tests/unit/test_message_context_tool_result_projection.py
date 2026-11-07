@@ -10,6 +10,7 @@ work and catastrophic for large reports.
 # ruff: noqa: E402
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import uuid
@@ -36,6 +37,7 @@ from app.ai.context.builders.message_context_builder import MessageContextBuilde
 from app.ai.context.parts import ToolCallPart, ToolResultPart
 from app.ai.context.sections.base import xml_escape
 from app.ai.persisted_summary import UI_TOOL_PREVIEW_ROWS, build_tool_context_summary
+from app.core.fire_and_forget import _pending_tasks
 from app.dependencies import async_session_maker
 from app.models.agent_execution import AgentExecution
 from app.models.base import Base
@@ -114,6 +116,19 @@ async def db_and_hydrations():
     async with maker() as db:
         yield db, hydrated_large_payloads
     await engine.dispose()
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _finish_block_listeners():
+    """Seeding a finished CompletionBlock spawns ``_send_block_to_slack``, which
+    opens the app's own database, even from a test on the in-memory one. Left
+    running past the test, it can be the first connection on that test's
+    database file when the file is swapped: its switch to WAL then shares the
+    ``-journal`` path with the next test's, and one deletes the other's journal
+    (SQLITE_IOERR_DELETE_NOENT, issue #1573). Let it finish inside its test."""
+    yield
+    loop = asyncio.get_running_loop()
+    await asyncio.gather(*(t for t in _pending_tasks if t.get_loop() is loop), return_exceptions=True)
 
 
 @pytest_asyncio.fixture
