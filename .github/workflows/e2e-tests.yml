@@ -176,6 +176,13 @@ jobs:
         if-no-files-found: warn
         retention-days: 30
 
+    # Report-only for now. backend/scripts/ci_time_budget.py says how to make it
+    # blocking.
+    - name: Report slow tests
+      if: always()
+      continue-on-error: true
+      run: python3 backend/scripts/ci_time_budget.py backend/test-results/junit-${{ matrix.db }}.xml
+
   # The one e2e test a frontend change can break: it reads frontend/**/*.{vue,ts}
   # and checks each useCan('x') against the permission registry. It runs on its
   # own when the suite is skipped, so skipping loses nothing a frontend PR could
