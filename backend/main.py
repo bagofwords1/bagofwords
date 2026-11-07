@@ -452,6 +452,21 @@ async def startup_event():
         logger.error(f"Failed to connect to database after 3 retries: {str(e)}")
         exit(1)
 
+    # Object storage (storage.backend = s3 | azure): prove read/write/delete
+    # before serving, so bad credentials fail the pod instead of every upload.
+    try:
+        import asyncio as _asyncio
+        from app.services import storage as _storage
+        try:
+            _storage.ensure_layout()
+        except OSError as e:
+            logger.warning(f"Could not create the uploads/ folders: {e}")
+        where = await _asyncio.to_thread(_storage.check)
+        logger.info(f"File storage: {where}")
+    except Exception as e:
+        logger.error(f"❌ File storage is not usable: {e}")
+        exit(1)
+
     # Pay process-local tool discovery/schema and active connector import costs
     # during worker startup, rather than on the first user's first prompt.
     try:
@@ -474,6 +489,13 @@ async def startup_event():
         logger.exception("Code sandbox confinement check failed; continuing startup")
 
     await start_tool_audit_worker()
+    # Platform audit stream (bow-config audit.platform_stream): the restricted
+    # collector for events that belong to no organization.
+    try:
+        from app.ee.audit.maintenance import sync_platform_stream
+        await sync_platform_stream()
+    except Exception:
+        logger.exception("Platform audit stream sync failed; continuing startup")
 
     # Index historical agent runs for the diagnosis explorer in the background
     # (newest first, batched, no-op once every run carries the current rollup
@@ -731,6 +753,24 @@ async def startup_event():
             logger.info("Scheduled job: audit_stream_export")
         except Exception as e:
             logger.error(f"Failed to schedule audit stream export job: {e}")
+        # Audit health: a heartbeat event per streamed organization (so a
+        # collector can tell silence from inactivity) and the retention purge.
+        try:
+            from app.ee.audit.maintenance import heartbeat_tick, retention_purge
+            hb = int(settings.bow_config.audit.heartbeat_interval_seconds or 0)
+            if hb > 0:
+                scheduler.add_job(
+                    heartbeat_tick, trigger="interval", seconds=hb, id="audit_heartbeat",
+                    replace_existing=True, coalesce=True, max_instances=1, misfire_grace_time=hb,
+                )
+                logger.info("Scheduled job: audit_heartbeat every %s seconds", hb)
+            scheduler.add_job(
+                retention_purge, trigger="interval", hours=24, id="audit_retention_purge",
+                replace_existing=True, coalesce=True, max_instances=1, misfire_grace_time=3600,
+            )
+            logger.info("Scheduled job: audit_retention_purge daily")
+        except Exception as e:
+            logger.error(f"Failed to schedule audit maintenance jobs: {e}")
 
     # Background connection-status refresher: re-tests system_only connections
     # whose cached status is stale past the TTL (~5 min). Read endpoints serve
@@ -981,5 +1021,11 @@ app.add_middleware(ArtifactBodyLimit)
 # Site-wide security headers (fills gaps; route-set headers win).
 from app.core.security_headers import SecurityHeadersMiddleware
 app.add_middleware(SecurityHeadersMiddleware)
+# Audit provenance: request id (validated or minted, echoed as X-Request-ID),
+# opaque session id, client IP via trusted proxies, user agent — bound in a
+# contextvar every audit producer reads (app/ee/audit/context.py).
+from starlette.middleware.base import BaseHTTPMiddleware
+from app.ee.audit import context as _audit_context
+app.add_middleware(BaseHTTPMiddleware, dispatch=_audit_context.middleware)
 # Outermost: reject control characters in the URL before any routing.
 app.add_middleware(ControlCharGuardMiddleware)

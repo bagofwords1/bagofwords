@@ -20,6 +20,8 @@ connections do not silently change shape.
 Run:
     cd backend && python -m pytest tests/unit/test_graph_drive_multi_library.py -v
 """
+import asyncio
+
 import pytest
 
 from app.data_sources.clients.graph_drive_client import GRAPH_BASE, GraphDriveClient
@@ -111,6 +113,45 @@ def test_a_library_that_cannot_be_read_is_skipped_not_fatal():
     names = [f["name"] for f in c.list_files()]
     assert "code_of_conduct.pdf" in names, "the readable library must still list"
     assert "budget.xlsx" not in names
+
+
+def _scoped_to_finance(fail_pol_with):
+    """All libraries, scoped to 'Finance': present in Documents, and the
+    Policies lookup fails with the given Graph error."""
+    c = _client("*", folder_path="Finance", index_mode="metadata")
+    real = c._get
+
+    def _get(path, **kw):
+        if path == "/drives/drv-docs/root:/Finance":
+            return {"id": "root-docs"}
+        if path == "/drives/drv-pol/root:/Finance":
+            raise ValueError(fail_pol_with)
+        return real(path, **kw)
+
+    c._get = _get
+    return c
+
+
+def test_a_folder_missing_from_one_library_still_publishes_the_others():
+    # The folder legitimately exists in only some libraries; Graph's 404 for
+    # the others is a complete answer, not a failed discovery.
+    c = _scoped_to_finance("Graph /root:/Finance → 404 itemNotFound")
+    tables = asyncio.run(c.aget_schemas())
+    assert {t.name for t in tables} == {"Documents/budget.xlsx"}
+
+
+@pytest.mark.parametrize("error", [
+    "Graph /root:/Finance → 403 accessDenied",
+    "Graph /root:/Finance → 503 serviceNotAvailable",
+])
+def test_an_unreadable_library_still_blocks_publication(error):
+    # Anything but a confirmed miss could hide existing files, so the
+    # catalog must not be published as if it were complete.
+    from app.data_sources.clients.discovery import IncompleteDiscoveryError
+
+    c = _scoped_to_finance(error)
+    with pytest.raises(IncompleteDiscoveryError):
+        asyncio.run(c.aget_schemas())
 
 
 # ------------------------------------------------- single-library regression

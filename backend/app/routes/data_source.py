@@ -224,7 +224,13 @@ async def get_data_source_schema(
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
-    return await data_source_service.get_data_source_schema(db, data_source_id, include_inactive=False, organization=organization, current_user=current_user, with_stats=with_stats)
+    result = await data_source_service.get_data_source_schema(db, data_source_id, include_inactive=False, organization=organization, current_user=current_user, with_stats=with_stats)
+    await audit_service.log(
+        db=db, organization_id=str(organization.id), action="data_source.schema_viewed", user_id=str(current_user.id),
+        resource_type="data_source", resource_id=data_source_id,
+        details={"observation": "served", "table_count": len(result) if isinstance(result, list) else None, "with_stats": with_stats},
+    )
+    return result
 
 @router.get("/data_sources/{data_source_id}/full_schema", response_model=Union[PaginatedTablesResponse, list])
 @requires_resource_permission('data_source', 'view_schema')
@@ -932,7 +938,8 @@ async def export_agent_instructions(
     current_user: User = Depends(current_user),
 ):
     """Download this agent as a portable zip bundle: instructions (markdown),
-    agent.yaml (the manifest), and evals/*.yaml (test suites scoped to the agent).
+    agent.yaml (the manifest), evals/*.yaml (test suites scoped to the agent),
+    and queries/*.yaml (saved queries scoped to the agent).
 
     Gated on per-agent ``manage`` (full admins pass via the wildcard). ``manage``
     implies ``manage_instructions`` and ``manage_evals``, so it authorizes every

@@ -6,6 +6,7 @@ snapshots must use the same quiescent point.
 """
 
 import asyncio
+import os
 import time
 from datetime import datetime, timedelta
 from sqlalchemy import select, delete
@@ -36,11 +37,24 @@ async def maintain(db, batch=500):
     removed = 0
     # File scanning runs only in this maintenance process, never an API request.
     # Limit deletions per invocation; storage names contain no customer filenames.
+    from app.services import storage
+
     root = storage_root()
+    # Local blobs, plus (with object storage) blobs other pods wrote that this
+    # pod never fetched: an orphan in the bucket is invisible to a local glob.
+    candidates = {}
     for path in root.glob("*.blob"):
+        if not path.is_symlink():
+            candidates[path.name] = (path, path.stat().st_mtime)
+    for local, modified in await asyncio.to_thread(storage.remote_entries, root):
+        name = os.path.basename(local)
+        if name.endswith(".blob") and name not in candidates:
+            candidates[name] = (root / name, modified)
+    for path, modified in candidates.values():
         if removed >= batch:
             break
-        if path.is_symlink() or path.stat().st_mtime > time.time() - 86400:
+        # An unknown age is treated as new: an upload persists before it commits.
+        if modified is None or modified > time.time() - 86400:
             continue
         binding = await db.scalar(
             select(ArtifactFileBinding.id).where(
@@ -49,6 +63,7 @@ async def maintain(db, batch=500):
         )
         if binding is None:
             await asyncio.to_thread(path.unlink, missing_ok=True)
+            await storage.adiscard(path)
             removed += 1
     counts["orphan_blobs"] = removed
     return counts

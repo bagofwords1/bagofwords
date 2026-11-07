@@ -89,3 +89,13 @@ the one this chart creates.
 {{- define "bowapp.postgresql.secretName" -}}
 {{- default (include "bowapp.postgresql.fullname" .) .Values.postgresql.auth.existingSecret -}}
 {{- end }}
+
+{{/*
+Whether the chart mounts a volume at /app/backend/uploads: an emptyDir cache
+for object storage, or a PVC for persistent local storage.
+*/}}
+{{- define "bowapp.uploadsVolume" -}}
+{{- if or (ne (.Values.storage.backend | default "local") "local") .Values.storage.local.persistence.enabled -}}
+true
+{{- end -}}
+{{- end }}

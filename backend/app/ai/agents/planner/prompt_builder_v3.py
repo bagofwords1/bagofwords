@@ -228,6 +228,9 @@ class PromptBuilderV3:
                 "State the time window in the table description and answer; defaults cover 30 days. "
                 "For all-history requests use the supported maximum 366-day window and disclose it.\n"
                 "Curation:\n"
+                "- When the user supplies the correct answers to learn from (labels, expected "
+                "results, a reference report) for rows or files, read the matching skill in "
+                "<available_skills> with read_instruction BEFORE reading the items.\n"
                 "- Check for existing coverage before writing: instructions already in context "
                 "count; search_instructions / search_prompts when they might exist unseen.\n"
                 "- When a new learning CONFLICTS with an existing instruction, resolve it by "
@@ -619,14 +622,20 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
                 "WHATSAPP PLATFORM (the user messaged you over WhatsApp)\n"
                 "- BE VERY BRIEF. Answer in 1-2 sentences, plain text. Treat this like SMS — one "
                 "focused answer per turn, no lists, no multi-paragraph replies.\n"
-                "- Limited formatting only: *bold*, _italic_, ~strikethrough~, ```monospace```. "
-                "No headers, no HTML, no markdown links.\n"
-                "- Visualizations from create_data do NOT render in WhatsApp. NEVER set "
-                "`visualization_type` on create_data — always leave it unset so the result is a "
-                "plain table. Put the key numbers inline in prose (e.g. \"Revenue was $1.2M, up "
-                "8% MoM\").\n"
-                "- For tabular results, render a compact markdown table — keep it narrow (2-3 "
-                "columns max) so it stays readable on phone screens."
+                "- Limited formatting only: *bold* (ONE asterisk, never **), _italic_, "
+                "~strikethrough~, ```monospace```. No headers (#), no HTML, no markdown links, "
+                "no markdown tables — they all render as literal characters on WhatsApp.\n"
+                "- create_data visualizations render as image attachments on WhatsApp — set a "
+                "`visualization_type` (bar_chart, line_chart, pie_chart, area_chart, scatter_plot "
+                "or heatmap) when a chart is the "
+                "clearest answer, and the user gets a rendered chart image. Prefer a chart over "
+                "any table when the question is about a trend, ranking, or breakdown.\n"
+                "- Still describe the key numbers in your text (e.g. \"Revenue was $1.2M, up "
+                "8% MoM\") — on a phone the text is what the user reads first.\n"
+                "- Do NOT build tables in your text. For tabular results with 10+ rows the user "
+                "also gets a link to open the full table in BOW — describe the top values in "
+                "prose and let the link carry the detail. Smaller results get NO link, so include "
+                "every value in your text."
             )
         if platform == "google_chat":
             return (
@@ -863,8 +872,30 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         disabled = PromptBuilderV3._format_disabled_tools(planner_input)
         if disabled:
             parts.append(f"  {disabled}")
+        visibility = PromptBuilderV3._data_visibility_block(planner_input)
+        if visibility:
+            parts.append(f"  {visibility}")
         parts.append("</context>")
         return "\n".join(parts)
+
+    @staticmethod
+    def _data_visibility_block(planner_input: PlannerInput) -> str:
+        """Tells the model the organization hides data from it, on both the
+        legacy and the transcript path (they once drifted: the transcript path
+        never said it)."""
+        if getattr(planner_input, "allow_llm_see_data", True):
+            return ""
+        return (
+            "<data_visibility>Data privacy mode is ON for this organization "
+            "(allow_llm_see_data is off). Data tools (create_data, read_query) "
+            "return only columns, row_count and aggregate stats (counts, "
+            "mean/std/sum, date ranges) — never raw rows; file contents are not "
+            "shown and inspect_data is disabled. Earlier results in this "
+            "conversation are shown the same way. This is expected, not an error: "
+            "do not retry to \"see\" the data or attempt to retrieve individual "
+            "values. Reason from the structure and aggregates provided, and answer "
+            "without quoting raw rows.</data_visibility>"
+        )
 
     @staticmethod
     def _reuse_hint(planner_input: PlannerInput) -> str:
@@ -1019,7 +1050,11 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             getattr(planner_input, "sub_agents_enabled", False)
             and (getattr(planner_input, "sub_agent_posture", None) or "proactive").lower() != "explicit"
             and not (getattr(planner_input, "sub_agents_context", None) or "").strip()
-            and (getattr(planner_input, "mode", None) or "chat") != "subagent"
+            # Chat only: a training turn is curating the agent, not chasing a
+            # root cause. The nudge there turned rule checks over one table
+            # into hypothesis fan-outs whose research-only children came back
+            # blocked. `delegate` stays available; the turn just isn't pushed.
+            and (getattr(planner_input, "mode", None) or "chat") not in ("subagent", "training")
         ):
             parts.append(
                 "<delegation posture=\"proactive\">A why / root-cause ask with 3+ candidate causes: confirm the symptom with at most "
@@ -1028,6 +1063,10 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             )
         if getattr(planner_input, "sub_agent_budget", None):
             parts.append(f"<sub_agent_budget>{planner_input.sub_agent_budget}</sub_agent_budget>")
+        # Volatile by nature (it grows every step), so it lives here and never
+        # touches the cached prefix.
+        if getattr(planner_input, "run_efficiency", None):
+            parts.append(planner_input.run_efficiency)
         # Last on purpose: this head rides with the newest tool results, which
         # are usually English. Ending on the reply language keeps the user's
         # language next to the point where the model writes its answer.
@@ -1089,17 +1128,9 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             parts.append(f"  {planner_input.project_context}")
         if planner_input.instructions:
             parts.append(f"  {planner_input.instructions}")
-        if not getattr(planner_input, "allow_llm_see_data", True):
-            parts.append(
-                "  <data_visibility>Data privacy mode is ON for this organization "
-                "(allow_llm_see_data is off). Data tools (create_data, read_query) "
-                "return only columns, row_count and aggregate stats (counts, "
-                "mean/std/sum, date ranges) — never raw rows; inspect_data is "
-                "disabled. This is expected, not an error: do not retry to \"see\" "
-                "the data or attempt to retrieve individual values. Reason from the "
-                "structure and aggregates provided, and answer without quoting raw "
-                "rows.</data_visibility>"
-            )
+        visibility = PromptBuilderV3._data_visibility_block(planner_input)
+        if visibility:
+            parts.append(f"  {visibility}")
         # Agent roster (thin index of ALL attached agents) is rendered just
         # before the schema block. When present, schemas_combined holds full
         # schema only for the focused agents; the roster tells the model which

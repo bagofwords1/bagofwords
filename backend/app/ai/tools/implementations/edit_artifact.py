@@ -365,6 +365,8 @@ class EditArtifactTool(Tool):
             uploads_dir.mkdir(parents=True, exist_ok=True)
             out_path = uploads_dir / f"{new_artifact.id}.pptx"
             _shutil.move(str(_pptx_tmp), str(out_path))
+            from app.services import storage
+            await storage.apersist(out_path)
             new_artifact.pptx_path = str(out_path)
             try:
                 from app.ai.code_execution.pptx_executor import PptxPreviewService

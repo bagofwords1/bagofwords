@@ -47,7 +47,11 @@ def test_refresh_schema_only_considers_introspected_rows():
 
     from app.services import connection_service
 
-    src = inspect.getsource(connection_service.ConnectionService.refresh_schema)
+    # The public entry point delegates the catalog query to _refresh_schema.
+    svc = connection_service.ConnectionService
+    src = inspect.getsource(svc.refresh_schema)
+    if hasattr(svc, "_refresh_schema"):
+        src += inspect.getsource(svc._refresh_schema)
     assert "ConnectionTable.kind == KIND_TABLE" in src, (
         "refresh_schema must filter existing_tables to kind='table'; without it "
         "every kind='bow' custom table lands in the `missing` set and is deleted."

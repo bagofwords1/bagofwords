@@ -30,6 +30,12 @@ SCHEDULED_PROMPT = "scheduled_prompt"
 # Goes to the automation's owner, never to its result subscribers.
 AUTOMATION_FAILED = "automation_failed"
 
+# A shared (system_only) connection's health flipped, detected by the
+# background status sweep. Goes to the connection's admins and the managers of
+# the agents that rely on it.
+CONNECTION_DOWN = "connection_down"
+CONNECTION_RESTORED = "connection_restored"
+
 
 STRINGS: dict[str, dict[Any, dict[str, str]]] = {
     "en": {
@@ -75,6 +81,20 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "intro": "Your automation “{name}” failed and produced no results.",
             "next_run": "The schedule will run again at {time}.",
             "cta_text": "Open the automation",
+            "footer": "— Bag of Words",
+        },
+        CONNECTION_DOWN: {
+            "subject": "Connection “{name}” is down",
+            "greeting": "Hi,",
+            "intro": "The shared connection “{name}” failed its health checks and has been marked offline. Agents that rely on it can’t query it until it recovers.",
+            "cta_text": "Open the connection",
+            "footer": "— Bag of Words",
+        },
+        CONNECTION_RESTORED: {
+            "subject": "Connection “{name}” is back online",
+            "greeting": "Hi,",
+            "intro": "The shared connection “{name}” reconnected and is active again.",
+            "cta_text": "Open the connection",
             "footer": "— Bag of Words",
         },
     },
@@ -123,6 +143,20 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "cta_text": "Abrir la automatización",
             "footer": "— Bag of Words",
         },
+        CONNECTION_DOWN: {
+            "subject": "La conexión «{name}» está caída",
+            "greeting": "Hola:",
+            "intro": "La conexión compartida «{name}» no superó las comprobaciones de estado y se ha marcado como desconectada. Los agentes que dependen de ella no podrán consultarla hasta que se recupere.",
+            "cta_text": "Abrir la conexión",
+            "footer": "— Bag of Words",
+        },
+        CONNECTION_RESTORED: {
+            "subject": "La conexión «{name}» vuelve a estar en línea",
+            "greeting": "Hola:",
+            "intro": "La conexión compartida «{name}» se ha reconectado y vuelve a estar activa.",
+            "cta_text": "Abrir la conexión",
+            "footer": "— Bag of Words",
+        },
     },
     "he": {
         NotificationType.SHARE_DASHBOARD: {
@@ -167,6 +201,20 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "intro": "האוטומציה „{name}” נכשלה ולא הפיקה תוצאות.",
             "next_run": "המשימה המתוזמנת תרוץ שוב ב-{time}.",
             "cta_text": "פתיחת האוטומציה",
+            "footer": "— Bag of Words",
+        },
+        CONNECTION_DOWN: {
+            "subject": "החיבור „{name}” נפל",
+            "greeting": "שלום,",
+            "intro": "החיבור המשותף „{name}” נכשל בבדיקות התקינות וסומן כמנותק. סוכנים שתלויים בו לא יוכלו לתשאל אותו עד שיתאושש.",
+            "cta_text": "פתיחת החיבור",
+            "footer": "— Bag of Words",
+        },
+        CONNECTION_RESTORED: {
+            "subject": "החיבור „{name}” חזר לפעול",
+            "greeting": "שלום,",
+            "intro": "החיבור המשותף „{name}” התחבר מחדש והוא פעיל שוב.",
+            "cta_text": "פתיחת החיבור",
             "footer": "— Bag of Words",
         },
     },
@@ -215,6 +263,20 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "cta_text": "Ouvrir l'automatisation",
             "footer": "— Bag of Words",
         },
+        CONNECTION_DOWN: {
+            "subject": "La connexion « {name} » est hors service",
+            "greeting": "Bonjour,",
+            "intro": "La connexion partagée « {name} » a échoué à ses vérifications d'état et a été marquée hors ligne. Les agents qui en dépendent ne peuvent plus l'interroger jusqu'à son rétablissement.",
+            "cta_text": "Ouvrir la connexion",
+            "footer": "— Bag of Words",
+        },
+        CONNECTION_RESTORED: {
+            "subject": "La connexion « {name} » est de nouveau en ligne",
+            "greeting": "Bonjour,",
+            "intro": "La connexion partagée « {name} » s'est reconnectée et est de nouveau active.",
+            "cta_text": "Ouvrir la connexion",
+            "footer": "— Bag of Words",
+        },
     },
     "sv": {
         NotificationType.SHARE_DASHBOARD: {
@@ -259,6 +321,20 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "intro": "Din automatisering ”{name}” misslyckades och gav inga resultat.",
             "next_run": "Det schemalagda jobbet körs igen {time}.",
             "cta_text": "Öppna automatiseringen",
+            "footer": "— Bag of Words",
+        },
+        CONNECTION_DOWN: {
+            "subject": "Anslutningen ”{name}” är nere",
+            "greeting": "Hej,",
+            "intro": "Den delade anslutningen ”{name}” klarade inte sina hälsokontroller och har markerats som offline. Agenter som förlitar sig på den kan inte köra frågor mot den förrän den återställs.",
+            "cta_text": "Öppna anslutningen",
+            "footer": "— Bag of Words",
+        },
+        CONNECTION_RESTORED: {
+            "subject": "Anslutningen ”{name}” är online igen",
+            "greeting": "Hej,",
+            "intro": "Den delade anslutningen ”{name}” återanslöts och är aktiv igen.",
+            "cta_text": "Öppna anslutningen",
             "footer": "— Bag of Words",
         },
     },
@@ -307,6 +383,20 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "cta_text": "فتح الأتمتة",
             "footer": "— Bag of Words",
         },
+        CONNECTION_DOWN: {
+            "subject": "الاتصال «{name}» متوقف",
+            "greeting": "مرحبًا،",
+            "intro": "فشل الاتصال المشترك «{name}» في فحوصات السلامة وتم وضع علامة عليه بأنه غير متصل. لا يمكن للوكلاء الذين يعتمدون عليه الاستعلام منه حتى يتعافى.",
+            "cta_text": "فتح الاتصال",
+            "footer": "— Bag of Words",
+        },
+        CONNECTION_RESTORED: {
+            "subject": "عاد الاتصال «{name}» إلى الإنترنت",
+            "greeting": "مرحبًا،",
+            "intro": "أعاد الاتصال المشترك «{name}» الاتصال وأصبح نشطًا مرة أخرى.",
+            "cta_text": "فتح الاتصال",
+            "footer": "— Bag of Words",
+        },
     },
     "ru": {
         NotificationType.SHARE_DASHBOARD: {
@@ -351,6 +441,20 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "intro": "Автоматизация «{name}» завершилась с ошибкой и не дала результатов.",
             "next_run": "Расписание запустится снова {time}.",
             "cta_text": "Открыть автоматизацию",
+            "footer": "— Bag of Words",
+        },
+        CONNECTION_DOWN: {
+            "subject": "Подключение «{name}» недоступно",
+            "greeting": "Здравствуйте,",
+            "intro": "Общее подключение «{name}» не прошло проверки работоспособности и помечено как офлайн. Агенты, которые на него полагаются, не смогут выполнять запросы, пока оно не восстановится.",
+            "cta_text": "Открыть подключение",
+            "footer": "— Bag of Words",
+        },
+        CONNECTION_RESTORED: {
+            "subject": "Подключение «{name}» снова в сети",
+            "greeting": "Здравствуйте,",
+            "intro": "Общее подключение «{name}» восстановило связь и снова активно.",
+            "cta_text": "Открыть подключение",
             "footer": "— Bag of Words",
         },
     },
@@ -399,6 +503,20 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "cta_text": "Automatisierung öffnen",
             "footer": "— Bag of Words",
         },
+        CONNECTION_DOWN: {
+            "subject": "Verbindung „{name}“ ist ausgefallen",
+            "greeting": "Hallo,",
+            "intro": "Die gemeinsame Verbindung „{name}“ hat ihre Statusprüfungen nicht bestanden und wurde als offline markiert. Agenten, die darauf angewiesen sind, können sie erst nach der Wiederherstellung abfragen.",
+            "cta_text": "Verbindung öffnen",
+            "footer": "— Bag of Words",
+        },
+        CONNECTION_RESTORED: {
+            "subject": "Verbindung „{name}“ ist wieder online",
+            "greeting": "Hallo,",
+            "intro": "Die gemeinsame Verbindung „{name}“ hat sich wieder verbunden und ist wieder aktiv.",
+            "cta_text": "Verbindung öffnen",
+            "footer": "— Bag of Words",
+        },
     },
     "pt": {
         NotificationType.SHARE_DASHBOARD: {
@@ -445,6 +563,20 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "cta_text": "Abrir a automação",
             "footer": "— Bag of Words",
         },
+        CONNECTION_DOWN: {
+            "subject": "A conexão «{name}» está fora do ar",
+            "greeting": "Olá,",
+            "intro": "A conexão compartilhada «{name}» falhou nas verificações de integridade e foi marcada como offline. Os agentes que dependem dela não poderão consultá-la até que se recupere.",
+            "cta_text": "Abrir a conexão",
+            "footer": "— Bag of Words",
+        },
+        CONNECTION_RESTORED: {
+            "subject": "A conexão «{name}» está online novamente",
+            "greeting": "Olá,",
+            "intro": "A conexão compartilhada «{name}» reconectou-se e está ativa novamente.",
+            "cta_text": "Abrir a conexão",
+            "footer": "— Bag of Words",
+        },
     },
     "it": {
         NotificationType.SHARE_DASHBOARD: {
@@ -489,6 +621,20 @@ STRINGS: dict[str, dict[Any, dict[str, str]]] = {
             "intro": "La tua automazione «{name}» non è riuscita e non ha prodotto risultati.",
             "next_run": "L'attività pianificata verrà eseguita di nuovo il {time}.",
             "cta_text": "Apri l'automazione",
+            "footer": "— Bag of Words",
+        },
+        CONNECTION_DOWN: {
+            "subject": "La connessione «{name}» è inattiva",
+            "greeting": "Ciao,",
+            "intro": "La connessione condivisa «{name}» non ha superato i controlli di integrità ed è stata contrassegnata come offline. Gli agenti che vi fanno affidamento non potranno interrogarla finché non si ripristina.",
+            "cta_text": "Apri la connessione",
+            "footer": "— Bag of Words",
+        },
+        CONNECTION_RESTORED: {
+            "subject": "La connessione «{name}» è di nuovo online",
+            "greeting": "Ciao,",
+            "intro": "La connessione condivisa «{name}» si è riconnessa ed è di nuovo attiva.",
+            "cta_text": "Apri la connessione",
             "footer": "— Bag of Words",
         },
     },

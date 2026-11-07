@@ -158,6 +158,8 @@ class AttachFileTool(Tool):
         path = f"uploads/files/{uuid.uuid4()}_{safe}"
         async with aiofiles.open(path, "wb") as fh:
             await fh.write(content)
+        from app.services import storage
+        await storage.apersist(path, mime)
 
         db_file = File(
             filename=safe,

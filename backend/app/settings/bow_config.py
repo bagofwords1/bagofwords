@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, validator, field_validator, ConfigDict, AliasGenerator, model_validator
 from pydantic.alias_generators import to_camel
 import os
@@ -421,6 +421,164 @@ class SecurityConfig(BaseModel):
         default_factory=lambda: (os.getenv("BOW_TLS_STRICT_X509") or "").strip().lower()
         not in ("0", "false", "no", "off")
     )
+    # Peers whose X-Forwarded-For is believed when resolving the client address
+    # recorded in audit events (CIDR list). None = loopback and RFC 1918/ULA
+    # ranges, which covers a reverse proxy on the same host or Docker network.
+    # Set it to exactly your proxy addresses on a shared network, or [] to
+    # record the TCP peer only. Env: BOW_TRUSTED_PROXIES (comma separated).
+    trusted_proxies: Optional[List[str]] = Field(
+        default_factory=lambda: (
+            [p.strip() for p in os.getenv("BOW_TRUSTED_PROXIES").split(",") if p.strip()]
+            if os.getenv("BOW_TRUSTED_PROXIES") is not None else None
+        )
+    )
+
+
+class AuditPlatformStream(BaseModel):
+    """Restricted collector for events that belong to no organization
+    (unknown-account login failures, platform operations). Same destination
+    types and fields as an organization stream; secrets are read from this
+    config (use ${ENV} placeholders), never stored through the API."""
+    enabled: bool = False
+    destination: str = "https"
+    config: Dict[str, Any] = Field(default_factory=dict)
+    secrets: Dict[str, Any] = Field(default_factory=dict)
+    action_filter: Optional[List[str]] = None
+
+
+class AuditConfig(BaseModel):
+    """Audit evidence controls (docs/design/audit-event-contract.md)."""
+    # Bound on one event's details payload; beyond it the payload becomes an
+    # explicit truncation marker. Env: BOW_AUDIT_MAX_DETAILS_BYTES.
+    max_details_bytes: int = Field(default_factory=lambda: int(os.getenv("BOW_AUDIT_MAX_DETAILS_BYTES", "65536")))
+    # Bound on the executed-query payload of one agent/tool event; every query
+    # is kept, the longest are shortened with a marker. Env: BOW_AUDIT_MAX_QUERY_PAYLOAD_BYTES.
+    max_query_payload_bytes: int = Field(default_factory=lambda: int(os.getenv("BOW_AUDIT_MAX_QUERY_PAYLOAD_BYTES", "32768")))
+    # Heartbeat event written for every organization with an active stream so a
+    # collector can tell a silent producer from an idle one. 0 disables.
+    heartbeat_interval_seconds: int = Field(default_factory=lambda: int(os.getenv("BOW_AUDIT_HEARTBEAT_INTERVAL_SECONDS", "300")))
+    # Consecutive retryable delivery failures after which a stream is reported
+    # as degraded (audit event + admin e-mail) while it keeps retrying.
+    degraded_after_failures: int = Field(default_factory=lambda: int(os.getenv("BOW_AUDIT_DEGRADED_AFTER_FAILURES", "5")))
+    # Retention. None/0 = keep forever. Rows older than this are purged by the
+    # daily job unless they are still undelivered to an active stream or a
+    # legal hold is set. Env: BOW_AUDIT_RETENTION_DAYS / BOW_AUDIT_LEGAL_HOLD.
+    retention_days: Optional[int] = Field(default_factory=lambda: int(os.getenv("BOW_AUDIT_RETENTION_DAYS")) if os.getenv("BOW_AUDIT_RETENTION_DAYS") else None)
+    legal_hold: bool = Field(default_factory=lambda: (os.getenv("BOW_AUDIT_LEGAL_HOLD") or "").strip().lower() in ("1", "true", "yes", "on"))
+    platform_stream: AuditPlatformStream = AuditPlatformStream()
+
+
+def _storage_env(name: str, default: str = "") -> str:
+    return os.getenv(f"BOW_STORAGE_{name}", default).strip()
+
+
+class S3StorageConfig(BaseModel):
+    """S3 or any S3-compatible store (MinIO, R2, Wasabi, Ceph, StorageGRID...).
+
+    auth: 'default'     boto3 default chain (IRSA / Pod Identity / instance
+                        role / env vars / profile). Recommended on AWS.
+          'static'      access_key_id + secret_access_key (+ session_token).
+          'assume_role' STS assume-role of role_arn on top of the default chain,
+                        or of the static keys when they are set.
+    """
+    # Validate env-derived defaults too, not only values from the YAML.
+    model_config = ConfigDict(validate_default=True)
+
+    bucket: str = Field(default_factory=lambda: _storage_env("S3_BUCKET"))
+    region: str = Field(default_factory=lambda: _storage_env("S3_REGION"))
+    endpoint_url: str = Field(default_factory=lambda: _storage_env("S3_ENDPOINT_URL"))
+    addressing_style: str = Field(default_factory=lambda: _storage_env("S3_ADDRESSING_STYLE", "auto"))
+    auth: str = Field(default_factory=lambda: _storage_env("S3_AUTH", "default"))
+    access_key_id: str = Field(default_factory=lambda: _storage_env("S3_ACCESS_KEY_ID"))
+    secret_access_key: str = Field(default_factory=lambda: _storage_env("S3_SECRET_ACCESS_KEY"))
+    session_token: str = Field(default_factory=lambda: _storage_env("S3_SESSION_TOKEN"))
+    role_arn: str = Field(default_factory=lambda: _storage_env("S3_ROLE_ARN"))
+    external_id: str = Field(default_factory=lambda: _storage_env("S3_EXTERNAL_ID"))
+    sse: str = Field(default_factory=lambda: _storage_env("S3_SSE"))  # "" | AES256 | aws:kms
+    kms_key_id: str = Field(default_factory=lambda: _storage_env("S3_KMS_KEY_ID"))
+
+    @field_validator("auth")
+    @classmethod
+    def _check_auth(cls, v):
+        v = (v or "default").strip().lower()
+        if v not in {"default", "static", "assume_role"}:
+            raise ValueError("storage.s3.auth must be one of: default, static, assume_role")
+        return v
+
+    @field_validator("addressing_style")
+    @classmethod
+    def _check_addressing(cls, v):
+        v = (v or "auto").strip().lower()
+        if v not in {"auto", "path", "virtual"}:
+            raise ValueError("storage.s3.addressing_style must be one of: auto, path, virtual")
+        return v
+
+
+class AzureStorageConfig(BaseModel):
+    """Azure Blob Storage.
+
+    auth: 'default'           DefaultAzureCredential (AKS Workload Identity,
+                              Managed Identity, env, Azure CLI). Recommended.
+          'service_principal' tenant_id + client_id + client_secret.
+          'connection_string' connection_string (dev / Azurite).
+          'sas'               account_url + container-scoped sas_token.
+    """
+    # Validate env-derived defaults too, not only values from the YAML.
+    model_config = ConfigDict(validate_default=True)
+
+    account_url: str = Field(default_factory=lambda: _storage_env("AZURE_ACCOUNT_URL"))
+    container: str = Field(default_factory=lambda: _storage_env("AZURE_CONTAINER"))
+    auth: str = Field(default_factory=lambda: _storage_env("AZURE_AUTH", "default"))
+    tenant_id: str = Field(default_factory=lambda: _storage_env("AZURE_TENANT_ID"))
+    client_id: str = Field(default_factory=lambda: _storage_env("AZURE_CLIENT_ID"))
+    client_secret: str = Field(default_factory=lambda: _storage_env("AZURE_CLIENT_SECRET"))
+    connection_string: str = Field(default_factory=lambda: _storage_env("AZURE_CONNECTION_STRING"))
+    sas_token: str = Field(default_factory=lambda: _storage_env("AZURE_SAS_TOKEN"))
+
+    @field_validator("auth")
+    @classmethod
+    def _check_auth(cls, v):
+        v = (v or "default").strip().lower()
+        if v not in {"default", "service_principal", "connection_string", "sas"}:
+            raise ValueError(
+                "storage.azure.auth must be one of: default, service_principal, connection_string, sas"
+            )
+        return v
+
+
+class StorageConfig(BaseModel):
+    """Where durable files live (uploads, exports, thumbnails, branding...).
+
+    backend: 'local' (default) keeps everything on the local disk under
+             backend/uploads/, exactly as before.
+             's3' / 'azure' make the object store the source of truth; the
+             local uploads/ directory becomes a per-pod cache that is filled
+             on demand, so any replica (or a restarted pod) sees every file.
+    prefix:  key prefix inside the bucket/container, e.g. "bow/".
+    """
+    # Validate env-derived defaults too, not only values from the YAML.
+    model_config = ConfigDict(validate_default=True)
+
+    backend: str = Field(default_factory=lambda: _storage_env("BACKEND", "local"))
+    prefix: str = Field(default_factory=lambda: _storage_env("PREFIX"))
+    s3: S3StorageConfig = Field(default_factory=S3StorageConfig)
+    azure: AzureStorageConfig = Field(default_factory=AzureStorageConfig)
+
+    @field_validator("backend")
+    @classmethod
+    def _check_backend(cls, v):
+        v = (v or "local").strip().lower()
+        if v not in {"local", "s3", "azure"}:
+            raise ValueError("storage.backend must be one of: local, s3, azure")
+        return v
+
+    @field_validator("prefix")
+    @classmethod
+    def _normalize_prefix(cls, v):
+        v = (v or "").strip().strip("/")
+        if ".." in v.split("/"):
+            raise ValueError("storage.prefix must not contain '..'")
+        return f"{v}/" if v else ""
 
 
 class BowConfig(BaseModel):
@@ -453,6 +611,8 @@ class BowConfig(BaseModel):
     otel: OTELConfig = OTELConfig()
     i18n: I18nConfig = I18nConfig()
     security: SecurityConfig = SecurityConfig()
+    audit: AuditConfig = AuditConfig()
+    storage: StorageConfig = Field(default_factory=StorageConfig)
 
     @model_validator(mode="after")
     def validate_saml_providers(self):

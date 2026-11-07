@@ -18,6 +18,7 @@ from contextlib import redirect_stdout
 from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine, FrozenSet
 
 from app.ai.http.safe_client import SafeHttpClient
+from app.ai.data_visibility import allow_llm_see_data, cut_before_value, names_only_structure, redact_error_text
 from app.ai.code_execution.sandbox.config import MODE_INPROCESS, sandbox_mode
 from app.ai.code_execution.sandbox.namespace import (  # noqa: F401 - re-exported
     # READ_TEXT_* and _build_read_text stay importable from this module: tests
@@ -181,11 +182,25 @@ def _attach_partial_stdout(exc: BaseException, buffer: "io.StringIO") -> None:
         exc.captured_stdout = text[-FAILURE_STDOUT_TAIL_CHARS:]
 
 
-def format_execution_failure(exc: BaseException, message: str) -> str:
+def format_execution_failure(exc: BaseException, message: str, allow_llm_see_data: bool = True) -> str:
     """The error text a retry sees for a failed execution: the message, then
     the tail of what the code printed before it raised (when there is any).
     Kept separate from the UI-facing message so the chat shows the error and
-    the codegen prompt gets the evidence."""
+    the codegen prompt gets the evidence.
+
+    When the organization hides data from the model, what the code printed
+    is left out (it is usually data), and the error's own text stops where it
+    names a value, unless its type only names structure (data_visibility)."""
+    if not allow_llm_see_data:
+        # Generated code runs in the sandbox, which re-raises its error as a
+        # SandboxExecutionError carrying the original type name and message.
+        type_name = getattr(exc, "exc_type", None) or type(exc).__name__
+        raw = getattr(exc, "message", None) if getattr(exc, "exc_type", None) else str(exc)
+        if names_only_structure(type_name, raw or ""):
+            return message
+        if raw and raw in message:
+            return message.replace(raw, cut_before_value(raw))
+        return cut_before_value(message)
     partial = getattr(exc, "captured_stdout", "") or ""
     if not partial:
         return message
@@ -313,9 +328,9 @@ class TableAccessError(CodeSecurityError):
     """Raised when SQL reads a table that is not activated for the agent, or
     when the tables it reads cannot be verified (see table_scope).
 
-    Terminal: if generated code catches it and carries on, the run still
-    fails (see _raise_if_query_errors_were_swallowed) instead of answering
-    from whatever it fell back to.
+    Terminal for this code attempt: if generated code catches it and carries
+    on, the attempt still fails (see _raise_if_query_errors_were_swallowed).
+    The planner may explain the refusal and continue other permitted work.
     """
     terminal_execution_error = True
 
@@ -334,7 +349,8 @@ class QueryTimeoutError(AppError):
             f"Query exceeded {timeout_seconds}s timeout. "
             f"Run multiple smaller queries instead of one large scan — "
             f"each execute_query call gets its own {timeout_seconds}s budget. "
-            "Use LIMIT, narrower filters, or aggregation."
+            "Limit rows with the source's own syntax (LIMIT, or TOP n on SQL Server "
+            "and Teradata), narrower filters, or aggregation."
         )
         super().__init__(
             ErrorCode.QUERY_TIMEOUT,
@@ -769,6 +785,35 @@ _DB_ERROR_HINTS: List[Tuple[str, str]] = [
         "database charset — e.g. SELECT TO_CHAR(a) ... UNION ALL SELECT TO_CHAR(b) ... "
         "Apply the conversion to EVERY branch of the offending expression, then retry."
     ),
+    (
+        # Trino / Starburst: the catalog or schema was not resolved. Almost
+        # always a name the agent shortened or qualified with the wrong
+        # catalog; the listing shows the exact form to use.
+        "CATALOG_NOT_FOUND",
+        "Hint: Trino could not find that catalog. Use the table names exactly as "
+        "listed in the schema: schema.table for the session catalog, "
+        "catalog.schema.table for any other indexed catalog."
+    ),
+    (
+        "SCHEMA_NOT_FOUND",
+        "Hint: Trino could not find that schema. Qualify the table as schema.table "
+        "(or catalog.schema.table for another catalog) exactly as listed in the schema."
+    ),
+    (
+        "TABLE_NOT_FOUND",
+        "Hint: Trino could not find that table. Use the qualified name exactly as "
+        "listed in the schema (schema.table, or catalog.schema.table for another "
+        "catalog); identifiers are case-insensitive but the catalog and schema must match."
+    ),
+    (
+        # Starburst built-in access control: the login's active role lacks a
+        # grant. The agent cannot fix that, so say so instead of letting it
+        # re-roll the query.
+        "PERMISSION_DENIED",
+        "Hint: the Trino / Starburst role this connection uses has no grant on that "
+        "table. Choose another table from the listing; a missing grant or role must "
+        "be fixed on the connection by an admin, not by rewriting the query."
+    ),
 ]
 
 
@@ -834,8 +879,12 @@ class QueryCapturingClientWrapper:
         query_timeout_seconds: int = DEFAULT_QUERY_TIMEOUT_SECONDS,
         max_concurrent_queries: Optional[int] = None,
         captured_column_titles: Optional[Dict[str, Any]] = None,
+        hide_values_in_errors: bool = False,
     ):
         self._original = original_client
+        # With "Allow LLM to see data" off, a recorded query error stops where
+        # it names a value: the planner, history and compaction all read it.
+        self._hide_values_in_errors = hide_values_in_errors
         self._captured_queries = captured_queries
         self._captured_timings = captured_timings
         self._captured_column_titles = captured_column_titles
@@ -979,7 +1028,7 @@ class QueryCapturingClientWrapper:
                     "query_ms": round(_q_ms, 1),
                     "rows": None,
                     "sql": capture[:500] if isinstance(capture, str) else None,
-                    "error": str(e)[:200],
+                    "error": self._recorded_error(e),
                     "error_type": "timeout",
                     "timeout_seconds": self._query_timeout_seconds,
                     "cancellation": self._last_cancel_outcome,
@@ -996,12 +1045,20 @@ class QueryCapturingClientWrapper:
                     "query_ms": round(_q_ms, 1),
                     "rows": None,
                     "sql": capture[:500] if isinstance(capture, str) else None,
-                    "error": str(e)[:200],
+                    "error": self._recorded_error(e),
                     "terminal": bool(getattr(e, "terminal_execution_error", False)),
+                    **({"error_type": "table_access_denied", "error_message": str(e)}
+                       if isinstance(e, TableAccessError) else {}),
                 })
                 span.set_status(StatusCode.ERROR, str(e))
                 span.record_exception(e)
                 raise
+
+    def _recorded_error(self, e: BaseException) -> str:
+        text = str(e)
+        if self._hide_values_in_errors:
+            text = redact_error_text(text, type(e).__name__)
+        return text[:200]
 
     def _call_with_timeout(self, query, args, kwargs):
         """Run original.execute_query in a daemon thread; abandon it on timeout.
@@ -1257,6 +1314,7 @@ def wrap_clients_for_capture(
                 query_timeout_seconds=timeout,
                 max_concurrent_queries=query_concurrency.effective_limit(client, organization_settings),
                 captured_column_titles=captured_column_titles,
+                hide_values_in_errors=not allow_llm_see_data(organization_settings),
             )
         else:
             wrapped[key] = client
@@ -1670,6 +1728,11 @@ class StreamingCodeExecutor:
             span.set_attribute("code_execution.total_ms", round((_time.monotonic() - started) * 1000.0, 3))
             return result
 
+    def _retry_feedback(self, exc: BaseException, message: str) -> str:
+        """What the coder's next attempt sees about a failed run, under this
+        organization's "Allow LLM to see data" setting."""
+        return format_execution_failure(exc, message, allow_llm_see_data(self.organization_settings))
+
     def get_df_info(self, df: pd.DataFrame) -> Dict:
         """Extract comprehensive information from a DataFrame."""
         def convert_to_native(obj):
@@ -1955,7 +2018,7 @@ class StreamingCodeExecutor:
                 break
             except Exception as e:
                 msg = augment_db_error_hint(f"Execution error: {str(e)}")
-                code_and_error_messages.append((final_code, format_execution_failure(e, msg)))
+                code_and_error_messages.append((final_code, self._retry_feedback(e, msg)))
                 yield {"type": "stdout", "payload": msg}
                 retries += 1
                 if getattr(e, "terminal_execution_error", False):
@@ -2220,7 +2283,7 @@ class StreamingCodeExecutor:
                 break
             except Exception as e:
                 msg = augment_db_error_hint(f"Execution error: {str(e)}")
-                code_and_error_messages.append((final_code, format_execution_failure(e, msg)))
+                code_and_error_messages.append((final_code, self._retry_feedback(e, msg)))
                 yield {"type": "stdout", "payload": msg}
                 retries += 1
                 if getattr(e, "terminal_execution_error", False):

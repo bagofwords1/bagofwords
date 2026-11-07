@@ -88,7 +88,7 @@ def bounded_sql(sql: str, limit: int, dialect: str) -> Tuple[str, bool]:
     inner = strip_trailing_semicolon(sql)
     n = int(limit)
 
-    if dialect in ("postgresql", "mysql", "sqlite", "snowflake"):
+    if dialect in ("postgresql", "mysql", "sqlite", "snowflake", "trino"):
         return f"SELECT * FROM ({inner}) bow_sub LIMIT {n}", True
     if dialect == "oracle":
         # ROWNUM rather than FETCH FIRST: identical result and it works on 11g,

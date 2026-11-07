@@ -3,7 +3,7 @@ key: data-app-design
 title: Data apps
 description: Use when building or editing apps, dashboards, blogs, forms, or tools with saved records, uploads, AI streaming, permissions, or analytical data.
 category: dashboard
-version: "1.1"
+version: "1.2"
 order: 25
 default_enabled: true
 modes: [chat, training]
@@ -19,6 +19,8 @@ hero charts, cards, tabs, and themes are optional; do not add them to fill space
 Use a coherent type scale, readable numerals, aligned controls, useful density,
 intentional whitespace, and consistent chart colors. Custom React/CSS and the
 built-in kit are both supported. Respect the organization's actual brand.
+Draw line and area series straight (leave `smooth` off): a curve shows values
+between points that are not in the data.
 
 Connect backend query controls through useParams and useParamOptions. Separate
 query parameters from snapshot filtering and local selection/navigation state.

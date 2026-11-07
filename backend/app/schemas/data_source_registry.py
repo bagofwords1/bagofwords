@@ -42,6 +42,7 @@ from app.schemas.data_sources.configs import (
     MssqlKerberosDelegatedCredentials,
     PrestoConfig,
     TrinoConfig,
+    StarburstConfig,
     GoogleAnalyticsConfig,
     GCPConfig,
     AWSCostConfig,
@@ -70,6 +71,8 @@ from app.schemas.data_sources.configs import (
     AppDynamicsUserPassCredentials,
     AriaOperationsConfig,
     AriaOperationsUserPassCredentials,
+    VCenterConfig,
+    VCenterUserPassCredentials,
     SpectrumConfig,
     SpectrumUserPassCredentials,
     SpectrumTokenCredentials,
@@ -227,6 +230,7 @@ from app.schemas.data_sources.configs import (
     SQLCredentials,
     PrestoCredentials,
     TrinoCredentials,
+    TrinoTokenCredentials,
     GoogleAnalyticsCredentials,
     GCPCredentials,
     AWSCostCredentials,
@@ -1035,6 +1039,22 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         version="beta",
         requires_license="enterprise",
     ),
+    "vcenter": DataSourceRegistryEntry(
+        type="vcenter",
+        category="infra",
+        title="VMware vCenter",
+        description="VMware vCenter Server or ESXi (vSphere 7–9). Query VMs, disks, snapshots, hosts, clusters, datastores, networks, resource pools and tags, plus performance metrics, the event log, tasks and triggered alarms — for capacity questions and infrastructure RCA.",
+        config_schema=VCenterConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            # vCenter has no API keys: an SSO / AD user logs in and gets a session
+            # (one per query, logged out afterwards). Per-user scope = each
+            # analyst's own vCenter login, so vCenter permissions apply.
+            "userpass": AuthVariant(title="Username + Password", schema=VCenterUserPassCredentials, scopes=["system", "user"]),
+        }),
+        client_path="app.data_sources.clients.vcenter_client.VCenterClient",
+        version="beta",
+        requires_license="enterprise",
+    ),
     "spectrum": DataSourceRegistryEntry(
         type="spectrum",
         category="infra",
@@ -1125,12 +1145,50 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     "trino": DataSourceRegistryEntry(
         type="trino",
         title="Trino",
-        description="Trino is a distributed SQL query engine for big data analytics.",
+        description="Trino is a distributed SQL query engine for big data analytics. Federates many catalogs behind one SQL endpoint.",
         config_schema=TrinoConfig,
         credentials_auth=AuthOptions(default="userpass", by_auth={
-            "userpass": AuthVariant(title="Username / Password", schema=TrinoCredentials, scopes=["system", "user"])
+            "userpass": AuthVariant(title="Username / Password", schema=TrinoCredentials, scopes=["system", "user"]),
+            "token": AuthVariant(title="Access token (JWT)", schema=TrinoTokenCredentials, scopes=["system", "user"]),
         }),
-        client_path=None,
+        client_path="app.data_sources.clients.trino_client.TrinoClient",
+    ),
+    # Starburst Galaxy and Starburst Enterprise are Trino with a managed /
+    # hardened deployment around it: same driver, same SQL, same client. The
+    # separate entry exists for discoverability and for defaults that work on
+    # the first try (TLS on 443, a role, the Galaxy setup guide).
+    "starburst": DataSourceRegistryEntry(
+        type="starburst",
+        title="Starburst",
+        description="Starburst Galaxy and Starburst Enterprise: the Trino-based query engine that federates lakehouse, warehouse and operational databases under one SQL endpoint.",
+        config_schema=StarburstConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username / Password", schema=TrinoCredentials, scopes=["system", "user"]),
+            "token": AuthVariant(title="Access token (JWT)", schema=TrinoTokenCredentials, scopes=["system", "user"]),
+        }),
+        setup_guide=[
+            SetupStep(
+                title="Starburst Galaxy: create a role for Bag of Words",
+                body="In Galaxy go to Access control > Roles and privileges and add a role (for example bagofwords). Under Add privileges grant it Use cluster on the cluster, and Select from table on every catalog or schema the agent should see.",
+            ),
+            SetupStep(
+                title="Starburst Galaxy: create a service account",
+                body="Go to Access control > Service accounts, create one with the new role as its default role, and generate a password. The username is the service account's full name (for example bagofwords@<account>.galaxy.starburst.io). Enter it below as User, with the generated password.",
+            ),
+            SetupStep(
+                title="Starburst Galaxy: copy the connection details",
+                body="Open the cluster's Connection info (Partner connect > Other clients). Host is <account>-<cluster>.trino.galaxy.starburst.io and the port is 443 over HTTPS. If the cluster restricts client IPs, allow this Bag of Words instance's address.",
+            ),
+            SetupStep(
+                title="Starburst Enterprise: use the TLS coordinator",
+                body="Use the coordinator hostname with its TLS port (8443 by default, or 443 behind a load balancer) and keep Protocol on https. Log in with an LDAP or password-file user, or switch the authentication method to Access token for a JWT. If the certificate comes from an internal CA, paste the CA's PEM certificate into CA certificate.",
+            ),
+            SetupStep(
+                title="Pick catalog, schema and role, then test",
+                body="Catalog is where queries run by default; Schema narrows indexing to one or more schemas. Add other catalogs under Additional catalogs to let the agent join across them. If the login has several roles, set Role to the one that holds the grants, then click Test connection.",
+            ),
+        ],
+        client_path="app.data_sources.clients.trino_client.TrinoClient",
     ),
     "azure_data_explorer": DataSourceRegistryEntry(
         type="azure_data_explorer",

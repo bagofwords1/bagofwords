@@ -31,15 +31,13 @@ from app.ai.tools.schemas.read_report import (
     ReadReportOutput,
     ReadReportMessage,
     ReadReportArtifact,
+    ReadReportPage,
 )
 from app.models.artifact import ArtifactVersion
 from app.models.report import Report
 
 logger = logging.getLogger(__name__)
 
-# Cap conversation size so a long report doesn't blow up the observation.
-_MAX_MESSAGES = 40
-_MAX_CONTENT_CHARS = 2000
 
 
 def _extract_content(value: Any) -> str:
@@ -64,7 +62,10 @@ class ReadReportTool(Tool):
                 "RESEARCH: Read one of the current user's OWN reports by id — its "
                 "metadata, attached data sources, artifact summary, and conversation "
                 "(prompts and AI answers). Use search_reports first to find the "
-                "report_id. Only the user's own reports can be read; any other report "
+                "report_id. The conversation is paginated: with no offset you get the "
+                "most recent page; pass offset/limit (and follow page.next_offset / "
+                "page.prev_offset) to read a long report progressively, and "
+                "max_content_chars / content_offset to read a truncated message whole. Only the user's own reports can be read; any other report "
                 "returns not found. Use this to recall what was asked or built in a "
                 "previous report before continuing related work."
             ),
@@ -84,6 +85,10 @@ class ReadReportTool(Tool):
                 {
                     "input": {"report_id": "<report-uuid>"},
                     "description": "Read a prior report's conversation and artifacts",
+                },
+                {
+                    "input": {"report_id": "<report-uuid>", "offset": 0, "limit": 20},
+                    "description": "Read a long report from the beginning, one page at a time",
                 },
             ],
         )
@@ -214,32 +219,59 @@ class ReadReportTool(Tool):
 
         data_source_names = [ds.name for ds in (report.data_sources or []) if ds.name]
 
-        # Conversation (oldest first), capped.
+        # Conversation (oldest first), paginated.
         conversation = []
+        page: Optional[ReadReportPage] = None
         if data.include_conversation:
             completions = sorted(
                 report.completions or [],
                 key=lambda c: (c.turn_index or 0, c.created_at.timestamp() if c.created_at else 0),
             )
+            messages = []  # (role, full text, created_at)
             for c in completions:
                 # Hide internal webhook trigger rows.
                 if getattr(c, "webhook_id", None) and c.role == "user":
                     continue
                 raw = c.prompt if c.role == "user" else c.completion
-                content = _extract_content(raw)
-                if not content or not str(content).strip():
+                content = str(_extract_content(raw) or "")
+                if not content.strip():
                     continue
-                content = str(content)[:_MAX_CONTENT_CHARS]
+                messages.append((c.role, content, c.created_at))
+
+            total = len(messages)
+            limit = data.limit
+            if data.offset is None:
+                start = max(0, total - limit)  # most recent page
+            else:
+                start = min(data.offset, total)
+            end = min(start + limit, total)
+            cap = data.max_content_chars
+            for i in range(start, end):
+                role, text, created_at = messages[i]
+                c_start = min(data.content_offset, len(text))
+                c_end = min(c_start + cap, len(text))
+                truncated = c_end < len(text)
                 conversation.append(
                     ReadReportMessage(
-                        role=c.role,
-                        content=content,
-                        created_at=str(c.created_at) if c.created_at else None,
+                        index=i,
+                        role=role,
+                        content=text[c_start:c_end],
+                        created_at=str(created_at) if created_at else None,
+                        content_chars=len(text),
+                        truncated=truncated,
+                        next_content_offset=c_end if truncated else None,
                     )
                 )
-            if len(conversation) > _MAX_MESSAGES:
-                # Keep the most recent messages.
-                conversation = conversation[-_MAX_MESSAGES:]
+            page = ReadReportPage(
+                offset=start,
+                limit=limit,
+                returned=len(conversation),
+                total_messages=total,
+                has_more=end < total,
+                next_offset=end if end < total else None,
+                has_earlier=start > 0,
+                prev_offset=max(0, start - limit) if start > 0 else None,
+            )
 
         # Shared = a shared dashboard, as the list and search_reports read it (phase 9).
         from app.services import dashboard_legacy
@@ -257,15 +289,29 @@ class ReadReportTool(Tool):
             data_sources=data_source_names,
             artifacts=artifact_items,
             conversation=conversation,
-            message=(
-                f"Read report '{report.title or 'Untitled'}' "
-                f"({len(artifact_items)} artifact(s), {len(conversation)} message(s))"
-            ),
+            page=page,
+            message=None,
         )
 
+        if page and page.total_messages:
+            msg_part = (
+                f"messages {page.offset}-{page.offset + page.returned - 1} "
+                f"of {page.total_messages}"
+                if page.returned else f"no messages at offset {page.offset} of {page.total_messages}"
+            )
+            if page.has_more:
+                msg_part += f"; more after — next_offset={page.next_offset}"
+            if page.has_earlier:
+                msg_part += f"; earlier ones — prev_offset={page.prev_offset}"
+        else:
+            msg_part = f"{len(conversation)} message(s)"
+        output.message = (
+            f"Read report '{report.title or 'Untitled'}' "
+            f"({len(artifact_items)} artifact(s), {msg_part})"
+        )
         summary = (
             f"Read report '{report.title or 'Untitled'}' ({report.mode}) — "
-            f"{len(artifact_items)} artifact(s), {len(conversation)} message(s)"
+            f"{len(artifact_items)} artifact(s), {msg_part}"
         )
         yield ToolEndEvent(
             type="tool.end",
@@ -280,6 +326,7 @@ class ReadReportTool(Tool):
                     "data_sources": data_source_names,
                     "artifacts": [a.model_dump() for a in artifact_items],
                     "conversation": [m.model_dump() for m in conversation],
+                    "page": page.model_dump() if page else None,
                 },
             },
         )

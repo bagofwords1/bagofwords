@@ -1,0 +1,29 @@
+# Mock VMware vCenter Server 8.0 U3 (vim25 SOAP + vSphere Automation REST tagging) —
+# see mock_vcenter.py. A real vCenter cannot run here (appliance OVA on ESXi + a
+# Broadcom entitlement); this serves the exact wire the VCenterClient uses, encoded
+# with pyVmomi's own serializer, over HTTPS with a private "VMCA".
+#
+#   docker compose up -d
+#   # CA to paste into the connection's "CA certificate" field:
+#   cat .certs/ca.pem
+#   # mock-only introspection (open sessions, call counts, incident window):
+#   curl -sk https://localhost:8989/mock/state
+#
+# Connect with host=localhost port=8989 user=bow-ro@vsphere.local password=VMware1!RO
+services:
+  vcenter-mock:
+    image: python:3.13-slim
+    working_dir: /srv
+    volumes:
+      - ./mock_vcenter.py:/srv/mock_vcenter.py:ro
+      - ./.certs:/srv/.certs
+    command: sh -c "pip install --quiet 'pyvmomi>=9.1.1,<10' 'cryptography>=42' && python mock_vcenter.py"
+    environment:
+      VCENTER_MOCK_PORT: "8989"
+      VCENTER_MOCK_CERT_DIR: /srv/.certs
+      # VCENTER_MOCK_MODE: esxi              # standalone ESXi (HostAgent) instead of vCenter
+      # VCENTER_MOCK_API_VERSION: "7.0.3.0"  # advertise an older vim25 API
+      # VCENTER_MOCK_EXTRA_VMS: "5000"       # synthetic VMs for scale / paging runs
+      # VCENTER_MOCK_NOW: "1793330400"       # pin the clock (epoch seconds) for deterministic runs
+    ports:
+      - "8989:8989"

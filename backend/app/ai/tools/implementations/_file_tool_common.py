@@ -14,6 +14,8 @@ import uuid
 from typing import Any, Dict, Optional, Tuple
 
 import aiofiles
+
+from app.services import storage
 import pandas as pd
 from sqlalchemy import select
 
@@ -465,9 +467,13 @@ class SessionFileClient:
 
     async def aread_file(self, _file_id: str, **kwargs) -> Any:
         import asyncio as _asyncio
+        from app.services import storage
+        await storage.aensure_local(self._file.path)
         return await _asyncio.to_thread(self._inner().read_file, self._name, **kwargs)
 
     def read_raw_bytes(self, _file_id: str):
+        from app.services import storage
+        storage.ensure_local(self._file.path)
         return self._inner().read_raw_bytes(self._name)
 
     @property
@@ -814,23 +820,13 @@ def render_file_images(file_id: str, payload, *, max_pages: int = 8, dpi: int = 
 
 
 def allow_llm_see_data(runtime_ctx: Dict[str, Any]) -> bool:
-    """Whether the org lets raw data/content reach the model. Defaults to True
-    when settings are unavailable, matching the other tool call sites."""
-    try:
-        org = runtime_ctx.get("organization")
-        settings = getattr(org, "settings", None)
-        if settings is None:
-            return True
-        try:
-            return bool(settings.get_config("allow_llm_see_data").value)
-        except Exception:
-            pass
-        cfg = getattr(settings, "config", None)
-        if isinstance(cfg, dict):
-            return bool(cfg.get("allow_llm_see_data", {}).get("value", True))
-    except Exception:
-        pass
-    return True
+    """Whether the org lets raw data/content reach the model (the shared
+    reader: on without settings, off when they cannot be read)."""
+    from app.ai.data_visibility import allow_llm_see_data as _allowed
+
+    org = (runtime_ctx or {}).get("organization")
+    return _allowed(getattr(org, "settings", None))
+
 
 # Hard cap on auto-attach size. Larger files still return content inline but
 # don't get persisted — the agent should reach for a more specific reader.
@@ -1061,6 +1057,7 @@ async def attach_drive_file_to_session(
             # for content that is byte-identical. Size first (free), full
             # compare only on a size match.
             unchanged = False
+            await storage.aensure_local(path)
             try:
                 if (
                     cached.content_type == resolved_mime
@@ -1081,6 +1078,7 @@ async def attach_drive_file_to_session(
                 return str(cached.id)
             async with aiofiles.open(path, "wb") as fh:
                 await fh.write(content_bytes)
+            await storage.apersist(path, resolved_mime)
             cached.content_type = resolved_mime
             cached.filename = filename
             db_file = cached
@@ -1101,6 +1099,7 @@ async def attach_drive_file_to_session(
             path = f"uploads/files/{unique_filename}"
             async with aiofiles.open(path, "wb") as fh:
                 await fh.write(content_bytes)
+            await storage.apersist(path, resolved_mime)
 
             db_file = File(
                 filename=filename,

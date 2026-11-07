@@ -144,10 +144,14 @@
           <template v-if="isDax">DAX <span class="text-ink-muted">— one EVALUATE against a Power BI semantic model</span></template>
           <template v-else>SQL <span class="text-ink-muted">— in {{ activeConnectionType }} dialect</span></template>
         </label>
-        <textarea
-          v-model="form.definition_sql" data-testid="cq-sql" rows="8" spellcheck="false"
-          :placeholder="isDax ? 'EVALUATE SUMMARIZECOLUMNS(Sales[Region], &quot;Revenue&quot;, SUM(Sales[Revenue]))' : 'SELECT ...'"
-          class="w-full text-xs font-mono border border-gray-300 dark:border-gray-700 rounded-md px-2.5 py-2 dark:bg-gray-900 dark:text-white"
+        <SqlEditor
+          v-model="form.definition_sql"
+          :language="isDax ? 'dax' : (String(activeConnectionType).toLowerCase() === 'posthog' ? 'hogql' : 'sql')"
+          :connection-id="activeConnection?.id"
+          :min-height="120"
+          :max-height="360"
+          testid="cq-sql"
+          @run="runPreview"
         />
 
         <div class="flex items-center gap-2 mt-2">
@@ -517,6 +521,10 @@ const props = defineProps<{
   connections?: Array<{ id: string; name: string; type?: string }>
   cq?: any | null
   activateForDatasourceId?: string
+  // Prefill for a NEW custom table, e.g. from a table's data preview. Ignored
+  // when editing (`cq` set).
+  initialSql?: string
+  initialName?: string
 }>()
 
 const emit = defineEmits<{
@@ -644,9 +652,9 @@ watch(() => props.modelValue, (open) => {
     // preview gate does not apply until the SQL is changed.
     preview.value = { columns: props.cq.columns || [], rows: [], budget_error: null, estimated_rows: props.cq.no_rows }
   } else {
-    form.name = ''
+    form.name = props.initialName || ''
     form.description = ''
-    form.definition_sql = ''
+    form.definition_sql = props.initialSql || ''
     form.refresh_schedule_mode = 'interval'
     form.refresh_interval_minutes = 60
     form.refresh_at_time = '03:00'
@@ -818,6 +826,9 @@ function humanBytes(b: number) {
 }
 
 async function runPreview() {
+  // Also reached by the editor's Ctrl/⌘ + Enter, which the button's own
+  // disabled state does not guard.
+  if (previewing.value || !form.definition_sql.trim()) return
   previewing.value = true
   previewError.value = ''
   preview.value = null

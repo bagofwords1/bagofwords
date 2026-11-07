@@ -1,0 +1,16 @@
+get_context: 3,617 chars, instructions_total=9 truncated=False
+  sales_always   kind=instruction load_mode=always      required=True  text=    43 chars tokens=None
+  big_always     kind=instruction load_mode=always      required=True  text=           - tokens=27755
+  global_always  kind=instruction load_mode=always      required=True  text=    27 chars tokens=None
+  sales_smart    kind=instruction load_mode=intelligent required=False text=           - tokens=10
+  ?other         kind=skill       load_mode=intelligent required=False text=           - tokens=None
+  ?other         kind=skill       load_mode=intelligent required=False text=           - tokens=None
+  ?other         kind=skill       load_mode=intelligent required=False text=           - tokens=None
+  ?other         kind=skill       load_mode=intelligent required=False text=           - tokens=None
+  skill          kind=skill       load_mode=intelligent required=False text=           - tokens=None
+  hr_smart listed: False
+  hint: These are the organization's rules for this report. Entries with required: true apply to every request: follow …
+batch read ['big_always', 'sales_smart', 'built-in skill', 'built-in skill', 'built-in skill', 'built-in skill', 'skill']: 57,201 chars -> read ['big_always', 'sales_smart', 'built-in skill', 'built-in skill', 'built-in skill', 'built-in skill', 'skill'] not_read=None not_found=None
+  message: Read 7 instruction(s). Some are too long to return whole (truncated: true) — read on with instruction_id + offset.
+scoped read of hr_smart (other agent): False Instruction not found in this report
+unscoped read of hr_smart (admin visibility): True

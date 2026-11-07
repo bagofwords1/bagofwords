@@ -87,6 +87,7 @@ class InspectDataMCPTool(MCPTool):
             report=report,
             prompt=input_data.prompt,
             explicit_tables=input_data.tables,
+            instruction_ids=input_data.instruction_ids,
         )
         
         # Check if LLM is allowed to see data
@@ -285,7 +286,7 @@ class InspectDataMCPTool(MCPTool):
                         "tool": "mcp.inspect_data",
                         "data_source_ids": _ds_ids,
                         "tables_accessed": _tables,
-                        "executed_queries": _truncate_queries(executed_queries),
+                        "executed_queries": list(executed_queries or []),
                     },
                 )
             else:

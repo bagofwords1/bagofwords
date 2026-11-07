@@ -1,4 +1,5 @@
 import os
+import time
 import uuid
 import csv
 import logging
@@ -15,6 +16,7 @@ from app.models.completion import Completion
 from app.models.external_platform import ExternalPlatform
 from app.settings.database import create_async_session_factory
 from app.services.platform_adapters.adapter_factory import PlatformAdapterFactory
+from app.services.row_owner import step_report_id
 
 # This service runs as a fire-and-forget asyncio.create_task() spawned
 # from Step.after_update. The bg task outlives the request that created
@@ -23,11 +25,12 @@ from app.services.platform_adapters.adapter_factory import PlatformAdapterFactor
 # standard module logger.
 logger = logging.getLogger(__name__)
 
-# Below this row count, we don't send the raw table data to Slack/WhatsApp.
+# Below this row count, we don't send table data to Slack/WhatsApp (a CSV on
+# Slack, a report link on WhatsApp).
 # The agent's text answer already describes small results in prose (the
 # planner is instructed to do so for small datasets), so attaching a CSV
 # on top is noise. Larger results still go through so the user can
-# scan/download them. Teams skips table sends entirely (see
+# scan/download them (Slack) or open the full table in BOW (WhatsApp). Teams skips table sends entirely (see
 # send_step_result_to_slack): the agent's text answer renders its own
 # markdown table there, so a second raw table is a duplicate.
 MIN_ROWS_TO_SEND = 10
@@ -41,8 +44,72 @@ def _step_row_count(step: 'Step') -> int:
     except Exception:
         return 0
 
+# Clean, colorblind-friendly palette for chart images sent to chat platforms.
+# First color is the primary (single-series bars/lines); the rest cycle for
+# multi-category charts (pie slices, etc.).
+_CHART_COLORS = [
+    "#2563eb",  # blue
+    "#0d9488",  # teal
+    "#f59e0b",  # amber
+    "#db2777",  # pink
+    "#7c3aed",  # violet
+    "#16a34a",  # green
+    "#dc2626",  # red
+    "#0891b2",  # cyan
+    "#ca8a04",  # gold
+    "#64748b",  # slate
+]
+_INK = "#1e293b"       # axis text / labels
+_MUTED = "#94a3b8"     # spines / ticks
+_GRID = "#e2e8f0"      # gridlines
+
+
+def _style_axes(ax):
+    """Apply the shared clean look to a chart axes: no top/right spines,
+    muted remaining spines, a light horizontal grid behind the data, and
+    readable label colors."""
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_color(_MUTED)
+    ax.tick_params(colors=_INK, labelsize=11)
+    ax.yaxis.grid(True, color=_GRID, linewidth=1)
+    ax.xaxis.grid(False)
+    ax.set_axisbelow(True)
+
+
+def _fmt_value(v) -> str:
+    """Compact numeric label for bar annotations (1.2K, 3.5M, else the number)."""
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return str(v)
+    units = (("", 1.0), ("K", 1e3), ("M", 1e6), ("B", 1e9))
+    i = 0
+    while i + 1 < len(units) and abs(n) >= units[i + 1][1]:
+        i += 1
+    if i == 0:
+        return f"{n:g}"
+    scaled = round(n / units[i][1], 1)
+    # Rounding can push a value into the next unit (999,950 -> 1000.0K -> 1M).
+    if abs(scaled) >= 1000 and i + 1 < len(units):
+        i += 1
+        scaled = round(n / units[i][1], 1)
+    text = f"{scaled:.1f}".rstrip("0").rstrip(".")
+    return f"{text}{units[i][0]}"
+
+
+def _label_xy(ax, x_col, y_col, rotate_x: bool = True):
+    """Axis labels + shared styling for x/y charts (bar, line, area, scatter)."""
+    ax.set_xlabel(x_col, color=_INK)
+    ax.set_ylabel(y_col, color=_INK)
+    if rotate_x:
+        plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+    _style_axes(ax)
+
+
 def create_plot(data_model: dict, data: dict, title: str) -> str:
-    """Creates a plot from a step's data and data_model."""
+    """Creates a styled plot image from a step's data and data_model."""
     chart_type = data_model.get('type')
     series_info = data_model.get('series')
     rows = data.get('rows')
@@ -57,16 +124,21 @@ def create_plot(data_model: dict, data: dict, title: str) -> str:
         return None
 
     series = series_info[0]
+    primary = _CHART_COLORS[0]
 
     try:
-        plt.figure(figsize=(10, 6))
+        fig, ax = plt.subplots(figsize=(10, 6), facecolor="white")
+        ax.set_facecolor("white")
 
         if chart_type == 'bar_chart':
             x_col, y_col = series['key'], series['value']
-            plt.bar(df[x_col], df[y_col])
-            plt.xlabel(x_col)
-            plt.ylabel(y_col)
-            plt.xticks(rotation=45, ha='right')
+            bars = ax.bar(df[x_col].astype(str), df[y_col], color=primary, width=0.65)
+            _label_xy(ax, x_col, y_col)
+            try:  # value labels above each bar (matplotlib >= 3.4)
+                ax.bar_label(bars, labels=[_fmt_value(v) for v in df[y_col]],
+                             padding=3, color=_INK, fontsize=10)
+            except Exception:
+                pass
 
         elif chart_type == 'line_chart':
             x_col, y_col = series['key'], series['value']
@@ -76,10 +148,9 @@ def create_plot(data_model: dict, data: dict, title: str) -> str:
                     df = df.sort_values(by=x_col)
                 except (ValueError, TypeError):
                     pass
-            plt.plot(df[x_col], df[y_col], marker='o')
-            plt.xlabel(x_col)
-            plt.ylabel(y_col)
-            plt.xticks(rotation=45, ha='right')
+            ax.plot(df[x_col], df[y_col], marker='o', color=primary, linewidth=2.2,
+                    markersize=5, markerfacecolor="white", markeredgecolor=primary)
+            _label_xy(ax, x_col, y_col)
 
         elif chart_type == 'pie_chart':
             labels_col, values_col = series['key'], series['value']
@@ -89,8 +160,16 @@ def create_plot(data_model: dict, data: dict, title: str) -> str:
                 df_plot = pd.concat([df_sorted, pd.DataFrame([{labels_col: 'Other', values_col: other_sum}])])
             else:
                 df_plot = df
-            plt.pie(df_plot[values_col], labels=df_plot[labels_col], autopct='%1.1f%%', startangle=90)
-            plt.axis('equal')
+            colors = [_CHART_COLORS[i % len(_CHART_COLORS)] for i in range(len(df_plot))]
+            wedges, texts, autotexts = ax.pie(
+                df_plot[values_col], labels=df_plot[labels_col], autopct='%1.1f%%',
+                startangle=90, colors=colors,
+                wedgeprops=dict(edgecolor="white", linewidth=1.5),
+                textprops=dict(color=_INK, fontsize=11))
+            for at in autotexts:
+                at.set_color("white")
+                at.set_fontsize(10)
+            ax.axis('equal')
 
         elif chart_type == 'area_chart':
             x_col, y_col = series['key'], series['value']
@@ -100,47 +179,47 @@ def create_plot(data_model: dict, data: dict, title: str) -> str:
                     df = df.sort_values(by=x_col)
                 except (ValueError, TypeError):
                     pass
-            plt.fill_between(df[x_col], df[y_col], alpha=0.4)
-            plt.xlabel(x_col)
-            plt.ylabel(y_col)
-            plt.xticks(rotation=45, ha='right')
-        
+            ax.fill_between(df[x_col], df[y_col], alpha=0.25, color=primary)
+            ax.plot(df[x_col], df[y_col], color=primary, linewidth=2.2)
+            _label_xy(ax, x_col, y_col)
+
         elif chart_type == 'scatter_plot':
             x_col, y_col = series['x'], series['y']
-            plt.scatter(df[x_col], df[y_col])
-            plt.xlabel(x_col)
-            plt.ylabel(y_col)
+            ax.scatter(df[x_col], df[y_col], color=primary, alpha=0.75, edgecolor="white", s=55)
+            _label_xy(ax, x_col, y_col, rotate_x=False)
 
         elif chart_type == 'heatmap':
             x_col, y_col, val_col = series['x'], series['y'], series['value']
             pivot_df = df.pivot(index=y_col, columns=x_col, values=val_col)
-            cax = plt.matshow(pivot_df, cmap='viridis')
-            plt.colorbar(cax)
-            plt.xticks(ticks=range(len(pivot_df.columns)), labels=pivot_df.columns, rotation=90)
-            plt.yticks(ticks=range(len(pivot_df.index)), labels=pivot_df.index)
+            im = ax.imshow(pivot_df, cmap='viridis', aspect='auto')
+            fig.colorbar(im, ax=ax)
+            ax.set_xticks(range(len(pivot_df.columns)))
+            ax.set_xticklabels(pivot_df.columns, rotation=90)
+            ax.set_yticks(range(len(pivot_df.index)))
+            ax.set_yticklabels(pivot_df.index)
+            ax.tick_params(colors=_INK, labelsize=11)
 
         elif chart_type in ['candlestick', 'map', 'treemap', 'radar_chart']:
-            plt.text(0.5, 0.5, f"'{chart_type}' is a complex chart.\nPlotting support is coming soon!", 
-                     ha='center', va='center', size=12, bbox=dict(facecolor='lightgray', alpha=0.5))
-            plt.axis('off')
+            ax.text(0.5, 0.5, f"'{chart_type}' is a complex chart.\nPlotting support is coming soon!",
+                    ha='center', va='center', size=12, bbox=dict(facecolor='lightgray', alpha=0.5))
+            ax.axis('off')
 
         else:
             logger.warning("Unsupported chart type: %s", chart_type)
             return None
 
-        plt.title(title)
-        plt.grid(True, linestyle='--', alpha=0.6)
-        plt.tight_layout()
-        
+        ax.set_title(title, color=_INK, fontsize=15, fontweight="bold", pad=14)
+        fig.tight_layout()
+
         image_path = f"/tmp/{uuid.uuid4()}.png"
-        plt.savefig(image_path)
+        fig.savefig(image_path, dpi=150, facecolor="white", bbox_inches="tight")
         return image_path
 
     except Exception as e:
         logger.warning("Error creating plot for chart type %r: %s", chart_type, e)
         return None
     finally:
-        plt.close()
+        plt.close('all')
 
 def df_to_csv(data: dict) -> str:
     """Creates a CSV file from dictionary data."""
@@ -180,6 +259,43 @@ async def _handle_table_step_dm(adapter, external_user_id: str, step: 'Step', th
         if os.path.exists(file_path):
             os.remove(file_path)
     return success
+
+# (external_user_id, report_id) -> monotonic time the WhatsApp report link was
+# sent. Per-process only; it just keeps one answer from repeating its link.
+_REPORT_LINK_DEDUP_SECONDS = 120
+_recent_report_links: dict = {}
+
+
+async def _handle_table_step_link(adapter, db, external_user_id: str, step: 'Step', thread_ts: str = None, channel_id: str = None):
+    """WhatsApp: link to the full table in BOW instead of a raw CSV file.
+
+    A UUID-named CSV attachment is useless inside a phone chat — the customer
+    can't open or act on it. A link opens the real, interactive table in the
+    web report instead.
+    """
+    from app.settings.config import settings
+    # row_owner, not step.widget.report: a published dashboard's copy has no
+    # widget, and this is the one place that resolves a step's conversation.
+    report_id = await step_report_id(db, step)
+    if not report_id:
+        logger.info("SLACK_NOTIFIER: No conversation for table step %s; skipping WhatsApp link", step.id)
+        return False
+    # Every table step of one answer belongs to the same report, so they would
+    # all send the same URL. Send it once per user+report within a short window.
+    key = (external_user_id, report_id)
+    now = time.monotonic()
+    for k, ts in list(_recent_report_links.items()):
+        if now - ts > _REPORT_LINK_DEDUP_SECONDS:
+            del _recent_report_links[k]
+    if key in _recent_report_links:
+        logger.info("SLACK_NOTIFIER: Report link for %s already sent; skipping duplicate", report_id)
+        return True
+    _recent_report_links[key] = now
+    title = step.title or "Table"
+    url = f"{settings.bow_config.base_url}/reports/{report_id}"
+    # Bare URL (not a markdown link) so WhatsApp auto-links it; *title* is WhatsApp bold.
+    msg = f"*{title}*\n{url}"
+    return await adapter.send_dm_in_thread(external_user_id, msg, thread_ts, channel_id=channel_id)
 
 async def _handle_chart_step_dm(adapter, external_user_id: str, step: 'Step', thread_ts: str = None, channel_id: str = None, platform_type: str = None):
     """Handles sending chart data (as an image), optionally in a thread."""
@@ -276,8 +392,8 @@ async def send_step_result_to_slack(step_id: str, external_user_id: str | None =
             # text answer describes the data in-message, and neither platform
             # can take a CSV upload under app auth (Teams renders its own
             # markdown table; Chat's media upload rejects app credentials).
-            # Slack/WhatsApp are unaffected — their data goes out as a CSV
-            # attachment, not a second table in the chat.
+            # Slack gets a CSV attachment and WhatsApp a link to the report
+            # (see below), not a second table in the chat.
             if data_type == "table" and platform_type in ("teams", "google_chat"):
                 logger.info(
                     "SLACK_NOTIFIER: Skipping table send for step %s (%s gets data via the text answer)",
@@ -296,7 +412,12 @@ async def send_step_result_to_slack(step_id: str, external_user_id: str | None =
                 return
 
             if data_type == "table":
-                success = await _handle_table_step_dm(adapter, external_user_id, step, thread_ts, channel_id)
+                if platform_type == "whatsapp":
+                    # WhatsApp: a raw CSV is useless on a phone — send a link to
+                    # the full table in BOW instead (customer request).
+                    success = await _handle_table_step_link(adapter, db, external_user_id, step, thread_ts, channel_id)
+                else:
+                    success = await _handle_table_step_dm(adapter, external_user_id, step, thread_ts, channel_id)
             elif data_type == "count":
                 if step.data and 'rows' in step.data and step.data['rows'] and 'columns' in step.data and step.data['columns']:
                     count_value = step.data['rows'][0].get(step.data['columns'][0].get('field', ''))

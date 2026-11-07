@@ -306,6 +306,8 @@ async def _persist_csv_as_file(
     try:
         with open(dest_path, "w", encoding="utf-8", newline="") as fh:
             fh.write(csv)
+        from app.services import storage
+        await storage.apersist(dest_path, "text/csv")
     except Exception as e:
         logger.warning("read_excel_as_csv: failed to write CSV to %s: %s", dest_path, e)
         return None, None
@@ -347,4 +349,6 @@ async def _persist_csv_as_file(
             os.remove(dest_path)
         except Exception:
             pass
+        from app.services import storage
+        await storage.adiscard(dest_path)
         return None, None

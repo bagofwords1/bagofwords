@@ -8,6 +8,7 @@ from enum import Enum
 
 
 class ErrorCode(str, Enum):
+    CATALOG_DISCOVERY_INCOMPLETE = "catalog_discovery_incomplete"
     APPLICATION_NOT_FOUND = "APPLICATION_NOT_FOUND"
     APPLICATION_CAPABILITY_EXISTS = "APPLICATION_CAPABILITY_EXISTS"
     APPLICATION_AGENTS_INVALID = "APPLICATION_AGENTS_INVALID"
@@ -115,6 +116,9 @@ class ErrorCode(str, Enum):
     CONNECTION_KMS_USE_CONNECTION_CREDENTIALS = "connection.kms_use_connection_credentials"
     CONNECTION_KMS_ONLY = "connection.kms_only"
     CONNECTION_KMS_DIAGNOSTICS_RUNNING = "connection.kms_diagnostics_running"
+    CONNECTION_TABLE_NOT_FOUND = "connection.table_not_found"
+    TABLE_PREVIEW_UNSUPPORTED = "connection.table_preview_unsupported"
+    TABLE_PREVIEW_FAILED = "connection.table_preview_failed"
     USER_NOT_FOUND = "user.not_found"
     MEMBERSHIP_NOT_FOUND = "membership.not_found"
     ROLE_NOT_FOUND = "role.not_found"

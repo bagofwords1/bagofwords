@@ -208,6 +208,12 @@ BOWEmbed.mount({
   artifact: 'b51c4d89-…',             // dashboard / data app / chat assistant
   mode: 'floating' | 'inline' | 'page',
   container: '#assistant',            // inline
+  width: 600, height: 720,            // a number of px (at least 1) or any CSS length ('40rem', '80dvh', 'calc(…)');
+                                      //   floating: width and height, default 600 x 720, capped by the viewport;
+                                      //   inline: height only, default '100%'
+  zIndex: 1000,                       // floating: an integer or 'auto'; default 2147483000
+  accentColor: '#2563eb',             // floating launcher: any CSS colour; default '#2563eb'
+                                      // a refused value, or a colour that hides the launcher, warns and uses the default
   identity: { getAssertion }          // §4.1 — or { exchangeToken } §4.2, or { sso: 'popup' } §4.3
   context: { recordId: 'INC-1042' },  // → bow.context.host inside the artifact
   theme, locale,

@@ -6,6 +6,7 @@ the external SDK calls. No model credentials or network are needed.
 import base64
 import io
 import json
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -48,6 +49,15 @@ def _plain(value):
 
 def _blob(value):
     return json.dumps(_plain(value))
+
+
+_REPLY_LANGUAGE = re.compile(r"<reply_language>.*?</reply_language>", re.S)
+
+
+def _carries_ask(message) -> bool:
+    # The newest message ends with a reply-language reminder that quotes the
+    # user's words; that quote is not the ask itself, so look past it.
+    return ASK in _REPLY_LANGUAGE.sub("", _blob(message))
 
 
 class _EmptyStream:
@@ -137,7 +147,7 @@ async def test_uploads_remain_with_the_original_request_across_iterations(provid
     for count in (0, 1, 3):
         built = PromptBuilderV3.build(_input(screenshots[:count], uploads, live))
         messages = await _request(provider, built)
-        ask_indices = [i for i, m in enumerate(messages) if ASK in _blob(m)]
+        ask_indices = [i for i, m in enumerate(messages) if _carries_ask(m)]
         assert len(ask_indices) == 1
         ask_index = ask_indices[0]
         for upload in uploads:

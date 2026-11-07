@@ -25,7 +25,10 @@ class AuditLogStream(BaseSchema):
     """
     __tablename__ = "audit_log_streams"
 
-    organization_id = Column(String(36), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    # NULL for the platform stream (bow-config ``audit.platform_stream``): the
+    # restricted collector for events that have no justified organization,
+    # such as failed logins by unknown accounts. Never listed by the org API.
+    organization_id = Column(String(36), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True)
     name = Column(String(255), nullable=False)
     destination = Column(String(32), nullable=False)
     config = Column(JSON, nullable=False, default=dict)
@@ -43,6 +46,9 @@ class AuditLogStream(BaseSchema):
     # move the cursor once it no longer matches its snapshot.
     # Not updated_at: the exporter's own progress writes bump that.
     config_version = Column(Integer, nullable=False, default=0)
+    # Set once when consecutive failures reach audit.degraded_after_failures;
+    # cleared by the next successful delivery. Drives the degraded alert.
+    degraded_at = Column(DateTime, nullable=True)
 
     delivered_count = Column(BigInteger, nullable=False, default=0)
     last_delivered_at = Column(DateTime, nullable=True)

@@ -70,7 +70,10 @@ console.log('PASS: the SDK tells the host an artifact is unavailable apart from 
 
 // ── start timeout and teardown: timers, DOM removal and listener removal are
 // modelled, and the frame only says what each test makes it say ───────────
-function mountWith(options = {}) {
+// `styleFor(name)` may give a node a style object of its own, such as one that
+// refuses a value the way a browser does; by default every style is a plain object.
+// `computed(color)` stands in for getComputedStyle's background-color.
+function mountWith(options = {}, { styleFor, computed } = {}) {
   let onMessage = null
   let now = 0
   const timers = []
@@ -78,7 +81,7 @@ function mountWith(options = {}) {
   const contentWindow = { postMessage: (msg, origin) => sent.push({ msg, origin }) }
   const removed = []
   const node = (name) => {
-    const n = { name, style: {}, setAttribute() {}, addEventListener() {}, parentNode: null, children: [] }
+    const n = { name, style: (styleFor && styleFor(name)) || {}, setAttribute() {}, addEventListener() {}, parentNode: null, children: [] }
     n.appendChild = (child) => { child.parentNode = n; n.children.push(child) }
     n.removeChild = (child) => { child.parentNode = null; removed.push(child.name) }
     return n
@@ -98,6 +101,7 @@ function mountWith(options = {}) {
     clearTimeout: (t) => { if (t) t.done = true },
     addEventListener: (type, fn) => { if (type === 'message') onMessage = fn },
     removeEventListener: (type, fn) => { if (type === 'message' && onMessage === fn) onMessage = null },
+    getComputedStyle: computed ? (el) => ({ backgroundColor: computed(el.style.backgroundColor) }) : undefined,
   }
   const tick = (ms) => {
     now += ms
@@ -109,7 +113,7 @@ function mountWith(options = {}) {
   for (const name of ['unavailable', 'authRequired', 'authenticated', 'error']) embed.on(name, (detail) => events.push({ name, detail }))
   const deliver = (data, from = {}) => onMessage && onMessage({ source: contentWindow, origin: BOW, data, ...from })
   const hello = () => { deliver({ type: 'bow:hello' }); return sent.filter((s) => s.msg.type === 'bow:init').at(-1)?.msg.nonce }
-  return { embed, events, deliver, hello, tick, sent, removed, listening: () => onMessage !== null }
+  return { embed, events, deliver, hello, tick, sent, removed, body: document.body, listening: () => onMessage !== null }
 }
 
 {
@@ -225,3 +229,146 @@ console.log('PASS: a frame that never answers with the nonce is reported as unav
   assert.equal(late, 0)
 }
 console.log('PASS: destroy after logout waits for the frame to sign out (6 s at most), and the embed is inert after destroy')
+
+// ── sizes, z-index and launcher colour ──────────────────────────────────────
+{
+  // Spy on console.warn while fn runs, and always put it back.
+  const withWarnings = (fn) => {
+    const original = console.warn
+    const warnings = []
+    console.warn = (...args) => { warnings.push(args.map(String).join(' ')) }
+    try {
+      return { result: fn(), warnings }
+    } finally {
+      console.warn = original
+    }
+  }
+  // A wrapper style that acts as a browser's for width and height: a value it
+  // can't parse is dropped and the old one stays. `dvh: false` is an older
+  // browser without the dynamic viewport units. (A real browser is checked in
+  // embedSdkBrowser.mjs.)
+  const browserStyle = ({ dvh = true } = {}) => (name) => {
+    if (name !== 'wrapper') return null
+    const kept = { width: '', height: '' }
+    const valid = (v) => v === '' || !(/;|nonsense|url\(/.test(v) || /(^|min\()[1-9][\d.]*(,|$)/.test(v) || (!dvh && /[dsl]vh/i.test(v)))
+    const style = { cssText: '' }
+    for (const prop of ['width', 'height']) {
+      Object.defineProperty(style, prop, { get: () => kept[prop], set: (v) => { if (valid(String(v))) kept[prop] = String(v) } })
+    }
+    return style
+  }
+  const panelOf = (options, stub = { styleFor: browserStyle() }) =>
+    mountWith({ container: undefined, mode: 'floating', ...options }, stub).embed.iframe.parentNode.style
+  const panel = (options, stub) => withWarnings(() => panelOf(options, stub))
+
+  // Floating default: 600 x 720, capped by the viewport (dvh where known).
+  {
+    const { result, warnings } = panel({})
+    assert.equal(result.width, 'min(600px, calc(100vw - 32px))')
+    assert.equal(result.height, 'min(720px, calc(100dvh - 120px))')
+    assert.deepEqual(warnings, [])
+  }
+  // A browser without dvh keeps the vh line.
+  assert.equal(panel({ height: '80dvh' }, { styleFor: browserStyle({ dvh: false }) }).result.height, 'min(80vh, calc(100vh - 120px))')
+  // A number is pixels; any CSS length the browser keeps is used, in both modes, including calc() and small values.
+  for (const [given, shown] of [[480, '480px'], ['40rem', '40rem'], ['0.9em', '0.9em'], ['calc(100vh - 80px)', 'calc(100vh - 80px)'], [' 50% ', '50%']]) {
+    const { result, warnings } = panel({ width: given, height: given })
+    assert.equal(result.width, `min(${shown}, calc(100vw - 32px))`, `floating width ${given}`)
+    assert.equal(result.height, `min(${shown}, calc(100dvh - 120px))`, `floating height ${given}`)
+    assert.deepEqual(warnings, [])
+    assert.equal(mountWith({ height: given }, { styleFor: browserStyle() }).embed.iframe.parentNode.style.height, shown, `inline height ${given}`)
+  }
+  // A value the browser refuses, a number below 1, or a non-string warns once per option and is the default.
+  for (const bad of ['600px;background:url(x)', 'nonsense', '10', '', '  ', -5, 0, 0.5, NaN, Infinity, {}, true, Object.create(null)]) {
+    const { result, warnings } = panel({ width: bad, height: bad })
+    assert.equal(result.width, 'min(600px, calc(100vw - 32px))', `refuses width ${typeof bad === 'object' ? 'object' : String(bad)}`)
+    assert.equal(result.height, 'min(720px, calc(100dvh - 120px))')
+    assert.equal(warnings.length, 2)
+    assert.match(warnings[0], /^\[bow-embed\] ignoring width /)
+    const inline = withWarnings(() => mountWith({ height: bad }, { styleFor: browserStyle() }).embed.iframe.parentNode.style.height)
+    assert.equal(inline.result, '100%')
+    assert.equal(inline.warnings.length, 1)
+  }
+  // Absent: the default, without a word. Inline mode fills its container.
+  assert.deepEqual(panel({ width: null, height: undefined }).warnings, [])
+  assert.equal(mountWith({}).embed.iframe.parentNode.style.height, '100%')
+  assert.equal(mountWith({ width: 300 }).embed.iframe.parentNode.style.width, '100%')
+  // A host console.warn that throws does not break the mount.
+  {
+    const original = console.warn
+    console.warn = () => { throw new Error('the host console is broken') }
+    try {
+      assert.equal(panelOf({ width: 'nonsense', zIndex: 'bad', accentColor: 12 }).width, 'min(600px, calc(100vw - 32px))')
+    } finally {
+      console.warn = original
+    }
+  }
+
+  // z-index: 'auto' or an integer in CSS's range, as a number or a digit string; the launcher gets the same.
+  const floating = (options, stub) => {
+    const { body, embed } = mountWith({ container: undefined, mode: 'floating', ...options }, stub)
+    return { css: embed.iframe.parentNode.style.cssText, launcher: body.children.find((n) => n.name === 'launcher').style }
+  }
+  for (const [given, shown] of [[0, '0'], ['1000', '1000'], [' 7 ', '7'], [-3, '-3'], ['auto', 'auto'], ['AUTO', 'auto'],
+    [-2147483648, '-2147483648'], [2147483647, '2147483647']]) {
+    const { result, warnings } = withWarnings(() => floating({ zIndex: given }))
+    assert.match(result.css, new RegExp(`z-index:${shown}(;|$)`), `keeps zIndex ${JSON.stringify(given)}`)
+    assert.match(result.launcher.cssText, new RegExp(`z-index:${shown}(;|$)`))
+    assert.deepEqual(warnings, [])
+  }
+  for (const bad of [1.5, 1e21, 2147483648, '-2147483649', '1.5', '1;color:red', '', 'inherit', NaN, {}]) {
+    const { result, warnings } = withWarnings(() => floating({ zIndex: bad }))
+    assert.match(result.css, /z-index:2147483000(;|$)/, `refuses zIndex ${String(bad)}`)
+    assert.doesNotMatch(result.css + result.launcher.cssText, /color:red/)
+    assert.equal(warnings.length, 1)
+    assert.match(warnings[0], /^\[bow-embed\] ignoring zIndex /)
+  }
+  assert.match(floating({}).css, /z-index:2147483000(;|$)/)
+
+  // accentColor: any colour the browser keeps, set through background-color only.
+  const INVALID = ['blu', 'rgb()', 'red;x:y', 'url(x)']
+  const browserLauncher = (name) => {
+    if (name !== 'launcher') return null
+    let color = ''
+    return {
+      cssText: '',
+      get backgroundColor() { return color },
+      set backgroundColor(v) { if (!INVALID.includes(v)) color = String(v) },
+    }
+  }
+  // What getComputedStyle gives: see-through for transparent or an undefined var(), white for currentcolor (the icon is white).
+  const computed = (color) => ({ 'transparent': 'rgba(0, 0, 0, 0)', 'var(--missing)': 'rgba(0, 0, 0, 0)', 'currentcolor': 'rgb(255, 255, 255)',
+    '#fff': 'rgb(255, 255, 255)', '#2563eb': 'rgb(37, 99, 235)' })[color] || 'rgb(1, 2, 3)'
+  const accent = (accentColor) => withWarnings(() => floating({ accentColor }, { styleFor: browserLauncher, computed }).launcher)
+  for (const good of ['#abc', '#abcd', 'hsl(220deg 80% 50%)', 'oklch(60% 0.2 250)', 'var(--brand)', 'rgba(37, 99, 235, 0.5)']) {
+    const { result, warnings } = accent(good)
+    assert.equal(result.backgroundColor, good, `keeps accentColor ${good}`)
+    assert.deepEqual(warnings, [])
+  }
+  assert.equal(accent('  #abc ').result.backgroundColor, '#abc')
+  for (const bad of [...INVALID, '', 12, {}]) {
+    const { result, warnings } = accent(bad)
+    assert.equal(result.backgroundColor, '#2563eb', `refuses accentColor ${String(bad)}`)
+    assert.doesNotMatch(result.cssText, /x:y|url\(|blu/)
+    assert.equal(warnings.length, 1)
+  }
+  // A colour that would hide the launcher (see-through, or white like the icon) warns and is the default.
+  for (const hidden of ['transparent', 'var(--missing)', 'currentcolor', '#fff']) {
+    const { result, warnings } = accent(hidden)
+    assert.equal(result.backgroundColor, '#2563eb', `refuses hidden accentColor ${hidden}`)
+    assert.equal(warnings.length, 1)
+    assert.match(warnings[0], /hide the launcher/)
+  }
+  for (const absent of [undefined, null]) {
+    const { result, warnings } = accent(absent)
+    assert.equal(result.backgroundColor, '#2563eb')
+    assert.deepEqual(warnings, [])
+  }
+  // The launcher's style text resets the background longhands but never sets the colour or the shorthand.
+  {
+    const css = accent('#abc').result.cssText
+    assert.doesNotMatch(css, /background-color|background:/)
+    for (const reset of ['background-image:none;', 'background-clip:border-box;', 'background-origin:padding-box;']) assert.ok(css.includes(reset))
+  }
+}
+console.log('PASS: sizes take pixels or any CSS length the browser keeps (else a warning and the default), z-index takes integers or auto, the launcher colour stays visible')

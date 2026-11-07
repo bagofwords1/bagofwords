@@ -26,7 +26,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import and_, exists, func, or_, select, update
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import selectinload
 
@@ -50,6 +50,14 @@ STAMP_BUDGET_SECONDS = 10.0
 # Outlasts one stamping pass; a pass whose lease release fails (a locked
 # database) only blocks the next stamper until the lease expires.
 STAMP_LEASE_SECONDS = 30
+
+
+def _degraded_after() -> int:
+    try:
+        from app.settings.config import settings
+        return max(1, int(settings.bow_config.audit.degraded_after_failures))
+    except Exception:
+        return 5
 
 
 def backoff_seconds(failures: int) -> float:
@@ -131,10 +139,19 @@ async def stamp_visible_rows(now: Optional[datetime] = None) -> int:
 
 async def _stamp_batch(maker) -> int:
     async with maker() as db:
-        streamed_orgs = select(AuditLogStream.organization_id).where(AuditLogStream.deleted_at.is_(None))
+        streamed_orgs = select(AuditLogStream.organization_id).where(
+            AuditLogStream.deleted_at.is_(None), AuditLogStream.organization_id.isnot(None)
+        )
+        # Events without an organization are stamped only when the platform
+        # stream exists (bow-config audit.platform_stream); they are never
+        # routed to an organization's collector.
+        platform = exists().where(AuditLogStream.deleted_at.is_(None), AuditLogStream.organization_id.is_(None))
         ids = (await db.execute(
             select(AuditLog.id)
-            .where(AuditLog.export_seq.is_(None), AuditLog.organization_id.in_(streamed_orgs))
+            .where(
+                AuditLog.export_seq.is_(None),
+                or_(AuditLog.organization_id.in_(streamed_orgs), and_(AuditLog.organization_id.is_(None), platform)),
+            )
             .order_by(AuditLog.created_at, AuditLog.id)
             .limit(STAMP_BATCH)
         )).scalars().all()
@@ -148,8 +165,12 @@ async def _stamp_batch(maker) -> int:
         return len(ids)
 
 
-def _deliverable(q, organization_id: str, cursor_seq: Optional[int], start_after: Optional[datetime]):
-    q = q.where(AuditLog.organization_id == organization_id, AuditLog.export_seq.isnot(None))
+def _org_predicate(organization_id: Optional[str]):
+    return AuditLog.organization_id.is_(None) if organization_id is None else AuditLog.organization_id == organization_id
+
+
+def _deliverable(q, organization_id: Optional[str], cursor_seq: Optional[int], start_after: Optional[datetime]):
+    q = q.where(_org_predicate(organization_id), AuditLog.export_seq.isnot(None))
     if cursor_seq is not None:
         q = q.where(AuditLog.export_seq > cursor_seq)
     if start_after is not None:
@@ -157,7 +178,7 @@ def _deliverable(q, organization_id: str, cursor_seq: Optional[int], start_after
     return q
 
 
-async def fetch_batch(db, organization_id: str, cursor_seq: Optional[int], start_after: Optional[datetime], limit: int):
+async def fetch_batch(db, organization_id: Optional[str], cursor_seq: Optional[int], start_after: Optional[datetime], limit: int):
     from app.models.user import User
 
     q = select(AuditLog, User.email).outerjoin(User, User.id == AuditLog.user_id)
@@ -207,6 +228,7 @@ async def _claim(stream_id: str, now: datetime) -> Optional[dict]:
             "start_after": st.start_after,
             "failures": st.consecutive_failures or 0,
             "version": st.config_version or 0,
+            "degraded_at": st.degraded_at,
         }
         return snap
 
@@ -282,13 +304,22 @@ async def _finish_once(snap: dict, result: SendResult, now: datetime) -> Optiona
             # settings, so it must not mark the new ones failed or healthy.
             return None
         if result.kind == OK:
+            if st.degraded_at is not None:
+                transitioned = "recovered"
             st.consecutive_failures = 0
             st.next_attempt_at = None
             st.last_error = None
+            st.degraded_at = None
         elif result.kind == RETRYABLE:
             st.consecutive_failures = (st.consecutive_failures or 0) + 1
             st.next_attempt_at = now + timedelta(seconds=backoff_seconds(st.consecutive_failures))
             st.last_error = result.error
+            # Sustained retryable failure: the stream stays active and keeps
+            # retrying, but after this many failures in a row an operator must
+            # hear about it (audit event + admin e-mail), once per episode.
+            if st.degraded_at is None and st.consecutive_failures >= _degraded_after():
+                st.degraded_at = now
+                transitioned = "degraded"
         else:
             st.consecutive_failures = (st.consecutive_failures or 0) + 1
             st.next_attempt_at = None
@@ -404,7 +435,7 @@ async def stream_status(db, st: AuditLogStream, now: Optional[datetime] = None) 
     now = now or datetime.utcnow()
     # Pending = stamped rows past the cursor + rows not stamped yet.
     q = select(func.count(AuditLog.id), func.min(AuditLog.created_at)).where(
-        AuditLog.organization_id == st.organization_id,
+        _org_predicate(st.organization_id),
         or_(AuditLog.export_seq.is_(None), AuditLog.export_seq > (st.cursor_seq if st.cursor_seq is not None else -1)),
     )
     if st.start_after is not None:
@@ -415,19 +446,31 @@ async def stream_status(db, st: AuditLogStream, now: Optional[datetime] = None) 
 
 
 async def _on_transition(snap: dict, new_state: str, error: Optional[str]) -> None:
-    """Audit the transition and email the org's admins once."""
+    """Audit the transition (invalid / error / degraded / recovered) and tell
+    the org's admins once. The e-mail outcome is checked and logged: an alert
+    that silently failed to send is itself an operational failure."""
     maker = _session_maker()
+    action = {"degraded": "audit_stream.degraded", "recovered": "audit_stream.recovered"}.get(new_state, "audit_stream.state_changed")
     try:
         from app.ee.audit.service import audit_service
 
         async with maker() as db:
             await audit_service.log(
-                db=db, organization_id=snap["organization_id"], action="audit_stream.state_changed",
+                db=db, organization_id=snap["organization_id"], action=action,
                 user_id=None, resource_type="audit_log_stream", resource_id=snap["id"],
-                details={"title": snap["name"], "state": new_state, "destination": snap["destination"], "error": error},
+                details={"title": snap["name"], "state": new_state, "destination": snap["destination"], "error": error,
+                         "consecutive_failures": snap.get("failures")},
+                outcome="success" if new_state == "recovered" else "failure",
+                failure_reason=None if new_state == "recovered" else f"stream_{new_state}",
             )
     except Exception:
-        logger.debug("audit_stream.state_changed audit failed", exc_info=True)
+        logger.warning("%s audit failed for stream %s", action, snap["id"], exc_info=True)
+    if new_state == "recovered":
+        logger.info("audit stream %s (%s) recovered after sustained failures", snap["name"], snap["destination"])
+        return
+    if snap["organization_id"] is None:
+        logger.error("platform audit stream %s is %s: %s (configure audit.platform_stream)", snap["name"], new_state, error)
+        return
     try:
         from app.models.membership import Membership
         from app.models.user import User
@@ -441,18 +484,36 @@ async def _on_transition(snap: dict, new_state: str, error: Optional[str]) -> No
                 )
             )).scalars().all()
             if not emails:
+                logger.warning("audit stream %s is %s but the organization has no admin to notify", snap["id"], new_state)
                 return
             link = f"{settings.bow_config.base_url}/settings/audit?tab=streams"
-            subject = f"Audit log stream \"{snap['name']}\" stopped ({new_state})"
-            body = (
-                f"The audit log stream \"{snap['name']}\" ({snap['destination']}) stopped delivering events "
-                f"and is now {new_state}.\n\nLast error: {error or 'n/a'}\n\n"
-                f"Events are kept and will be delivered from where the stream stopped once it is fixed "
-                f"and resumed:\n{link}\n"
-            )
-            await notification_service.send_custom_email(
+            if new_state == "degraded":
+                subject = f"Audit log stream \"{snap['name']}\" is failing to deliver"
+                body = (
+                    f"The audit log stream \"{snap['name']}\" ({snap['destination']}) has failed "
+                    f"{snap.get('failures')} deliveries in a row and keeps retrying with backoff.\n\n"
+                    f"Last error: {error or 'n/a'}\n\nEvents are kept and will be delivered once the destination "
+                    f"accepts them again:\n{link}\n"
+                )
+            else:
+                subject = f"Audit log stream \"{snap['name']}\" stopped ({new_state})"
+                body = (
+                    f"The audit log stream \"{snap['name']}\" ({snap['destination']}) stopped delivering events "
+                    f"and is now {new_state}.\n\nLast error: {error or 'n/a'}\n\n"
+                    f"Events are kept and will be delivered from where the stream stopped once it is fixed "
+                    f"and resumed:\n{link}\n"
+                )
+            result = await notification_service.send_custom_email(
                 recipients=list(emails), subject=subject, body=body,
                 db=db, organization_id=snap["organization_id"], purpose="system",
             )
+            ok = getattr(result, "ok", None)
+            if ok is None:
+                ok = bool(getattr(result, "sent", False)) or (getattr(result, "status", "") == "sent")
+            if ok:
+                logger.info("audit stream %s: admin alert (%s) sent to %d admin(s)", snap["id"], new_state, len(emails))
+            else:
+                logger.error("audit stream %s: admin alert (%s) was NOT delivered: %s", snap["id"], new_state,
+                             getattr(result, "error", None) or getattr(result, "reason", None) or result)
     except Exception:
-        logger.warning("audit stream %s: admin notification failed", snap["id"], exc_info=True)
+        logger.error("audit stream %s: admin notification failed", snap["id"], exc_info=True)

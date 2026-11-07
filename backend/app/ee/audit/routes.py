@@ -133,6 +133,81 @@ def _csv_row(env: dict) -> list:
     )]
 
 
+@router.get("/health")
+@require_enterprise(feature="audit_logs")
+@requires_permission("view_audit_logs")
+async def audit_health(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Operational health of audit recording and delivery, independent of the
+    delivery path it describes (docs/design/audit-event-contract.md, "Health").
+
+    Process-level counters come from the durable queue of this worker; stream
+    rows cover this organization's streams: pending events, lag, oldest
+    pending age, consecutive failures, degraded/invalid state, and when the
+    last heartbeat was recorded (a collector not receiving heartbeats while
+    this says they are written has a delivery problem, not an idle producer).
+    """
+    from sqlalchemy import func, select
+    from app.ee.audit.models import AuditLog
+    from app.ee.audit.contract import REQUIRED_BY_CATEGORY
+    from app.ee.audit.maintenance import pending_counts
+    from app.ee.audit.streams.exporter import stream_status
+    from app.ee.audit.streams.models import AuditLogStream
+    from app.ee.audit.tool_audit import get_tool_audit_queue_stats, spill_backlog
+    from app.settings.config import settings
+
+    org_id = str(organization.id)
+    now = datetime.utcnow()
+    streams = (await db.execute(
+        select(AuditLogStream).where(AuditLogStream.organization_id == org_id, AuditLogStream.deleted_at.is_(None))
+    )).scalars().all()
+    stream_rows = []
+    for st in streams:
+        status = await stream_status(db, st, now)
+        stream_rows.append({
+            "id": st.id, "name": st.name, "destination": st.destination, "state": st.state,
+            "pending": status["pending"], "lag_seconds": status["lag_seconds"],
+            "oldest_pending_age_seconds": status["lag_seconds"],
+            "consecutive_failures": st.consecutive_failures or 0,
+            "degraded_since": st.degraded_at, "next_attempt_at": st.next_attempt_at,
+            "last_delivered_at": st.last_delivered_at, "last_error": st.last_error,
+        })
+    last_heartbeat = (await db.execute(
+        select(func.max(AuditLog.created_at)).where(AuditLog.organization_id == org_id, AuditLog.action == "audit.heartbeat")
+    )).scalar()
+    # Records missing a required field for their category (contract check).
+    missing_outcome = (await db.execute(
+        select(func.count(AuditLog.id)).where(
+            AuditLog.organization_id == org_id, AuditLog.schema_version.isnot(None), AuditLog.outcome.is_(None)
+        )
+    )).scalar() or 0
+    legacy = (await db.execute(
+        select(func.count(AuditLog.id)).where(AuditLog.organization_id == org_id, AuditLog.schema_version.is_(None))
+    )).scalar() or 0
+    queue = get_tool_audit_queue_stats()
+    cfg = settings.bow_config.audit
+    return {
+        "checked_at": now,
+        "recording": {
+            "queue_depth": queue.get("queued", 0),
+            "enqueued": queue.get("enqueued", 0), "written": queue.get("written", 0),
+            "failed_writes": queue.get("failed", 0), "recording_failures": queue.get("recording_failures", 0),
+            "spilled": queue.get("spilled", 0), "replayed": queue.get("replayed", 0),
+            "replay_errors": queue.get("replay_errors", 0), "dropped": queue.get("dropped", 0),
+            "spill_backlog": spill_backlog(),
+            **(await pending_counts(db)),
+        },
+        "contract": {"records_missing_outcome": int(missing_outcome), "legacy_records": int(legacy),
+                     "required_by_category": REQUIRED_BY_CATEGORY},
+        "heartbeat": {"interval_seconds": cfg.heartbeat_interval_seconds, "last_recorded_at": last_heartbeat},
+        "retention": {"days": cfg.retention_days, "legal_hold": cfg.legal_hold},
+        "streams": stream_rows,
+    }
+
+
 @router.get("/export")
 @require_enterprise(feature="audit_logs")
 @requires_permission("view_audit_logs")

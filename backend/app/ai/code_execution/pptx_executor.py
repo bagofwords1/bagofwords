@@ -262,6 +262,8 @@ class PptxCodeExecutor:
                 "Ensure the code calls prs.save(_pptx_output_path)"
             )
 
+        from app.services import storage
+        storage.persist(output_path)
         return output_path, output_log
 
 
@@ -295,6 +297,8 @@ class PptxCodeExecutor:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "wb") as fh:
             fh.write(result.pptx_bytes)
+        from app.services import storage
+        storage.persist(output_path)
         return output_path, result.stdout
 
 
@@ -394,6 +398,8 @@ class PptxPreviewService:
 
         # Collect generated image paths
         preview_images = sorted(artifact_preview_dir.glob("slide-*.png"))
+        from app.services import storage
+        storage.persist_tree(artifact_preview_dir)
 
         # Return relative paths from uploads directory
         relative_paths = [
@@ -408,6 +414,8 @@ class PptxPreviewService:
     def get_preview_paths(self, artifact_id: str) -> List[str]:
         """Get existing preview image paths for an artifact."""
         artifact_preview_dir = self.preview_dir / artifact_id
+        from app.services import storage
+        storage.ensure_local_tree(artifact_preview_dir)
         if not artifact_preview_dir.exists():
             return []
 
@@ -419,6 +427,8 @@ class PptxPreviewService:
     def cleanup_previews(self, artifact_id: str) -> None:
         """Remove all preview images for an artifact."""
         artifact_preview_dir = self.preview_dir / artifact_id
+        from app.services import storage
+        storage.discard_tree(artifact_preview_dir)
         if artifact_preview_dir.exists():
             import shutil
             shutil.rmtree(artifact_preview_dir)

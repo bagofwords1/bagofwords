@@ -376,3 +376,141 @@ async def test_process_captures_profile_name_for_get_user_info():
     info = await a.get_user_info("15551234567")
     assert info["name"] == "Alice"
     assert info["email"] is None
+
+
+# ---------- markdown_to_whatsapp (output normalization) ----------
+#
+# The agent emits standard markdown, but WhatsApp uses its own conventions and
+# shows markdown syntax as literal characters. These assert the invariants the
+# conversion promises (no stray markers survive), not one incidental string.
+
+markdown_to_whatsapp = wa_mod.markdown_to_whatsapp
+
+
+@pytest.mark.parametrize("raw", [
+    "ב-**Music Store** יש 3,503 שירים",
+    "Revenue was **$1.2M**, up **8%**",
+    "nested **a** and **b** bold",
+])
+def test_double_star_bold_becomes_single_star(raw):
+    out = markdown_to_whatsapp(raw)
+    assert "**" not in out                      # no literal double-stars survive
+    assert out.count("*") == raw.count("**")    # each ** pair -> one *
+
+
+def test_underscore_bold_becomes_single_star():
+    out = markdown_to_whatsapp("__bold__ and plain")
+    assert "__" not in out
+    assert "*bold*" in out
+
+
+def test_heading_becomes_bold_line_without_hashes():
+    out = markdown_to_whatsapp("# Top artists\nIron Maiden")
+    assert not out.lstrip().startswith("#")
+    assert "*Top artists*" in out
+    assert "Iron Maiden" in out                 # body line untouched
+
+
+def test_markdown_link_flattened_to_label_and_url():
+    out = markdown_to_whatsapp("See [the report](https://bow.test/r/5) now")
+    assert "](" not in out and "[" not in out    # no markdown link syntax left
+    assert "the report" in out                   # label preserved
+    assert "https://bow.test/r/5" in out         # url preserved (auto-links on WA)
+
+
+def test_markdown_table_flattened_to_plain_lines():
+    raw = (
+        "Genres:\n"
+        "| Genre | Tracks |\n"
+        "|---|---|\n"
+        "| Rock | 1,297 |\n"
+        "| Latin | 579 |\n"
+    )
+    out = markdown_to_whatsapp(raw)
+    assert "|" not in out                        # no pipes / broken table on WA
+    assert "---" not in out                      # separator row dropped
+    assert "Rock — 1,297" in out                 # row collapsed to a readable line
+    assert "Latin — 579" in out
+
+
+@pytest.mark.parametrize("raw", [
+    "הנה גרף:\n\n{{viz:a3a9f5a1-f7f2-4bc3-ab63-6429c2223ab3}}\n\nTop 5 ...",
+    "before {{ viz: 123e4567-e89b }} after",
+    "pic {{image:abc-def}} done",
+])
+def test_doc_embed_placeholders_are_stripped(raw):
+    out = markdown_to_whatsapp(raw)
+    assert "{{" not in out and "}}" not in out       # no raw placeholder leaks
+    assert "viz:" not in out and "image:" not in out
+
+
+def test_placeholder_removal_does_not_leave_triple_blank_lines():
+    out = markdown_to_whatsapp("line one\n\n{{viz:x-1}}\n\nline two")
+    assert "\n\n\n" not in out
+    assert "line one" in out and "line two" in out
+
+
+def test_already_whatsapp_text_is_left_alone():
+    raw = "*already bold* and _italic_ and a - bullet"
+    out = markdown_to_whatsapp(raw)
+    assert out == raw                            # single-star bold & bullets untouched
+
+
+@pytest.mark.parametrize("empty", ["", None])
+def test_empty_input_is_safe(empty):
+    assert markdown_to_whatsapp(empty) == empty
+
+
+@pytest.mark.asyncio
+async def test_send_response_normalizes_markdown_before_sending(monkeypatch):
+    """send_response must apply the WhatsApp normalization — the user should
+    never receive literal ** / # / pipes even if the agent emits them."""
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content.decode())
+        return httpx.Response(200, json={"messages": [{"id": "wamid.OUT"}]})
+
+    monkeypatch.setattr(httpx, "AsyncClient", _mock_client(handler))
+    a = make_adapter()
+    ok = await a.send_response({
+        "to": "15551234567",
+        "text": "ב-**Music Store** יש **3,503** שירים",
+    })
+    assert ok is True
+    sent = captured["body"]["text"]["body"]
+    assert "**" not in sent
+    assert "*Music Store*" in sent and "*3,503*" in sent
+
+
+def test_bold_italic_becomes_whatsapp_bold_italic():
+    out = markdown_to_whatsapp("***Iron Maiden*** rules")
+    assert "**" not in out
+    assert "*_Iron Maiden_*" in out
+
+
+def test_bold_containing_single_star_is_converted():
+    out = markdown_to_whatsapp("**5 * 3 = 15**")
+    assert "**" not in out
+    assert out == "*5 * 3 = 15*"
+
+
+def test_dunder_identifier_is_not_turned_into_bold():
+    raw = "call df.__len__() first"
+    assert markdown_to_whatsapp(raw) == raw
+
+
+def test_code_fence_content_is_left_untouched():
+    raw = "Run:\n```\nx = obj.__dict__\n| a | b |\n|---|---|\n**raw**\n```\nthen **done**"
+    out = markdown_to_whatsapp(raw)
+    assert "```\nx = obj.__dict__\n| a | b |\n|---|---|\n**raw**\n```" in out
+    assert out.endswith("then *done*")
+
+
+@pytest.mark.parametrize("raw", [
+    "| just a line that starts with a pipe",
+    "first\n--\nsecond",
+    "| a | b |\n| c | d |",  # no separator row -> not a markdown table
+])
+def test_non_table_lines_are_left_alone(raw):
+    assert markdown_to_whatsapp(raw) == raw

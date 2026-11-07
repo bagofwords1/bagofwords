@@ -72,6 +72,12 @@ class DataSourceTableSchema(BaseModel):
     # Safe display metadata only; query SQL, artifacts and RLS policies stay on
     # the connection-admin endpoint.
     custom_query_id: Optional[str] = None
+    # The connection catalog row (ConnectionTable) behind an introspected
+    # table; addresses GET /connections/{id}/tables/{connection_table_id}/preview.
+    connection_table_id: Optional[str] = None
+    # Whether the connection can serve sample rows for this table (source type
+    # and relation kind). Callers still need manage_connection to use it.
+    preview_supported: bool = False
     last_refreshed_at: OptionalUTCDatetime = None
     last_refresh_status: Optional[str] = None
     rls_enabled: bool = False

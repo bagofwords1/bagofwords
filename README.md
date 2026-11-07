@@ -161,6 +161,7 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | Vertica | Database / warehouse |
 | AWS Redshift | Database / warehouse |
 | Trino | Database / warehouse |
+| Starburst (Galaxy and Enterprise) | Database / warehouse |
 | Apache Pinot | Database / warehouse |
 | Apache Druid | Database / warehouse |
 | Oracle Database | Database / warehouse |

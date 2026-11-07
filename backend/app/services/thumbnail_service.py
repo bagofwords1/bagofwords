@@ -110,6 +110,8 @@ class ThumbnailService:
                 logger.warning("PIL not installed, saving full-size screenshot")
                 thumbnail_path.write_bytes(screenshot_bytes)
 
+            from app.services import storage
+            await storage.apersist(thumbnail_path, "image/png")
             return f"thumbnails/{artifact_id}.png"
 
         except Exception as e:
@@ -122,8 +124,9 @@ class ThumbnailService:
         Returns:
             Full filesystem path to the thumbnail, or None if it doesn't exist
         """
+        from app.services import storage
         path = self.UPLOADS_DIR / f"{artifact_id}.png"
-        if path.exists():
+        if storage.ensure_local(path):
             return path
         return None
 
@@ -133,7 +136,9 @@ class ThumbnailService:
         Returns:
             True if deleted, False if not found
         """
+        from app.services import storage
         path = self.UPLOADS_DIR / f"{artifact_id}.png"
+        storage.discard(path)
         if path.exists():
             path.unlink()
             return True
@@ -184,12 +189,14 @@ class ThumbnailService:
             Relative path to the new thumbnail, or None if source doesn't exist
         """
         import shutil
+        from app.services import storage
         source_path = self.UPLOADS_DIR / f"{source_artifact_id}.png"
-        if not source_path.exists():
+        if not storage.ensure_local(source_path):
             return None
 
         target_path = self.UPLOADS_DIR / f"{target_artifact_id}.png"
         shutil.copy2(source_path, target_path)
+        storage.persist(target_path, "image/png")
         return f"thumbnails/{target_artifact_id}.png"
 
     async def regenerate_for_report(self, report_id: str) -> Optional[str]:

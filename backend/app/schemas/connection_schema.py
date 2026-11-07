@@ -52,6 +52,9 @@ class ConnectionUpdate(BaseModel):
     # `config`; 0 (or null) clears the override so the org default applies.
     query_timeout_seconds: Optional[int] = None
     max_concurrent_queries: Optional[int] = None
+    # Per-connection on/off switch for down/restored alert emails, gated under
+    # the org toggle (effective = org AND this).
+    alert_emails_enabled: Optional[bool] = None
 
     @validator("query_timeout_seconds")
     def _validate_query_timeout(cls, v):
@@ -186,6 +189,12 @@ class ConnectionDetailSchema(BaseModel):
     rate_limit_per_minute: Optional[int] = None
     rate_limit_per_hour: Optional[int] = None
     rate_limit_per_day: Optional[int] = None
+    # Per-connection on/off switch for down/restored alert emails, gated under
+    # the org toggle (effective = org AND this). Default True.
+    alert_emails_enabled: bool = True
+    # The org-wide master toggle the per-connection switch sits under, so the
+    # connection panel can show it without needing manage_settings.
+    org_alert_emails_enabled: bool = True
     # Per-connection query limits (null = inherits the org default, shown
     # alongside so the form can say what "default" currently means).
     query_timeout_seconds: Optional[int] = None
@@ -205,9 +214,33 @@ class ConnectionTableSchema(BaseModel):
     id: str
     name: str
     column_count: int = 0
-    
+    # Whether GET /connections/{id}/tables/{table_id}/preview can serve this
+    # table. Only meaningful to connection managers — nobody else may call it.
+    preview_supported: bool = False
+
     class Config:
         from_attributes = True
+
+
+class ConnectionTablePreviewSchema(BaseModel):
+    """Sample rows from one introspected table."""
+    table_id: str
+    table_name: str
+    # What `sql` is written in: "sql", "dax" (Power BI) or "hogql" (PostHog).
+    language: str = "sql"
+    # The query for these rows, its row bound written in the source's syntax.
+    sql: str
+    # The same query without the bound — the starting point for a custom table.
+    base_sql: str
+    # "query" when `sql` ran; "storage" when the rows were read straight from
+    # table storage instead (BigQuery, where that read is free).
+    sampled_from: str = "query"
+    columns: List[dict] = []
+    rows: List[List[Any]] = []
+    row_limit: int
+    truncated: bool = False
+    # Row count recorded at indexing time, when the source reported one.
+    total_rows: Optional[int] = None
 
 
 class ConnectionTestOverride(BaseModel):

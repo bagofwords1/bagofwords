@@ -454,6 +454,14 @@
       "automation_failed": {
         "title": "\"{name}\" non è riuscito"
       },
+      "connection_down": {
+        "title": "La connessione «{name}» è inattiva",
+        "body": "«{name}» non ha superato i controlli di integrità ed è stata contrassegnata come offline. Gli agenti che vi fanno affidamento non possono interrogarla finché non si ripristina."
+      },
+      "connection_restored": {
+        "title": "La connessione «{name}» è di nuovo online",
+        "body": "«{name}» si è riconnessa ed è di nuovo attiva."
+      },
       "trigger_run": {
         "title": "⚡ \"{name}\" si è attivato — {summary}",
         "body": "L'indagine è terminata — apri la sessione per vedere i risultati."
@@ -1871,6 +1879,22 @@
       "override": "Queste regole valgono solo per te. Consenti sempre o Nega sempre della connessione ha priorità.",
       "save": "Salva regole",
       "failed": "Impossibile caricare o salvare le regole. Controlla il JSON e riprova."
+    },
+    "shell": {
+      "command": "Comando shell",
+      "server": "Server",
+      "directory": "Directory",
+      "cancelled": "Annullato",
+      "denied": "Negato",
+      "approval_expired": "Approvazione scaduta",
+      "execution_timed_out": "Tempo scaduto",
+      "failed": "Non riuscito",
+      "success": "Completato",
+      "running": "In esecuzione",
+      "awaitingApproval": "In attesa di approvazione",
+      "unknownState": "Il processo remoto potrebbe essere ancora in esecuzione. Verifica il suo stato prima di riprovare.",
+      "exitCode": "Codice di uscita: {code}",
+      "cancelledBeforeExecution": "Annullato prima dell’esecuzione."
     }
   },
   "entityCreate": {
@@ -2882,6 +2906,9 @@
       "locked": "Questa impostazione è bloccata e non può essere modificata.",
       "notEditable": "(Non modificabile direttamente)",
       "noSettings": "Nessuna impostazione IA disponibile.",
+      "noSearchResults": "Nessuna impostazione corrisponde alla ricerca.",
+      "searchPlaceholder": "Cerca impostazioni…",
+      "clearSearch": "Cancella ricerca",
       "sectionSummary": "{n} impostazioni",
       "sectionSummaryOn": "{n} impostazioni · {on} attive",
       "sections": {
@@ -3380,6 +3407,12 @@
         "monday": "Lunedì",
         "saturday": "Sabato"
       }
+    },
+    "connectionAlerts": {
+      "heading": "E-mail di avviso",
+      "label": "E-mail di avviso connessione inattiva",
+      "description": "Invia un'e-mail agli amministratori della connessione quando una connessione condivisa va offline o si ripristina. Le notifiche in-app sono sempre attive.",
+      "saveError": "Impossibile salvare l'impostazione degli avvisi di connessione."
     },
     "smtpTab": "SMTP",
     "timezone": {
@@ -3951,6 +3984,13 @@
       "uploadInvalid": "Scegli una chiave SSH privata inferiore a 64 KB. Chiavi pubbliche e altri file non sono accettati.",
       "keyRequired": "Verifica la chiave SSH del server per continuare o inserisci una chiave attendibile nelle impostazioni avanzate.",
       "required": "Compila i campi obbligatori: {fields}."
+    },
+    "connAlerts": {
+      "title": "E-mail di avviso guasto",
+      "label": "Invia e-mail agli amministratori quando questa connessione si interrompe",
+      "hint": "Invia un'e-mail agli amministratori quando questa connessione si interrompe. Le notifiche in-app sono sempre attive.",
+      "orgOffNote": "Le e-mail di avviso a livello di organizzazione sono disattivate (Impostazioni → SMTP). Attivale per gestirlo per connessione.",
+      "saveFailed": "Impossibile salvare l'impostazione."
     }
   },
   "share": {
@@ -4037,11 +4077,23 @@
     "close": "Chiudi",
     "copyClipboardFailed": "Impossibile copiare negli appunti"
   },
+  "dataGrid": {
+    "page": "Pagina",
+    "to": "a",
+    "of": "di",
+    "more": "altro",
+    "pageSizeSelectorLabel": "Dimensione pagina:",
+    "firstPage": "Prima pagina",
+    "previousPage": "Pagina precedente",
+    "nextPage": "Pagina successiva",
+    "lastPage": "Ultima pagina"
+  },
   "sharedReport": {
     "backToApp": "Torna all’app",
     "tabReport": "Report",
     "tabData": "Dati ({count})",
     "refreshedAt": "Aggiornato {time}",
+    "noDashboard": "Nessuna dashboard disponibile",
     "madeWith": "Realizzato con {brand}",
     "fork": "Crea copia"
   },
@@ -4051,6 +4103,7 @@
     "shell_confirmation.invalid_scope": "Ambito di autorizzazione non valido.",
     "shell_confirmation.report_required": "Le autorizzazioni di sessione richiedono un report.",
     "shell_confirmation.rule_mismatch": "Regola di comando non valida, oppure il pattern non corrisponde a questo comando.",
+    "catalog_discovery_incomplete": "L’aggiornamento del catalogo non è riuscito perché il rilevamento era incompleto. Il catalogo precedente e le selezioni delle tabelle sono stati conservati.",
     "saml_unavailable": "Configurazione SSO non disponibile. Contatta il tuo amministratore.",
     "saml_login_failed": "Accesso SSO non riuscito. Riprova o contatta il tuo amministratore.",
     "invitation_required": "La registrazione è disabilitata. Chiedi un invito al tuo amministratore.",
@@ -4081,10 +4134,9 @@
     "access.denied": "Accesso negato",
     "account.disabled": "Il tuo account è stato disattivato. Contatta il tuo amministratore.",
     "connection.not_found": "Connessione non trovata",
-    "connection.kms_token_format": "Il token API di KMS può contenere solo lettere, cifre e segni di punteggiatura semplici, senza spazi. Copialo di nuovo da KMS Lighthouse e incollalo come testo semplice.",
-    "connection.kms_use_connection_credentials": "Gli accessi a KMS Lighthouse vengono salvati nella connessione. Apri la connessione e connettiti da lì.",
-    "connection.kms_only": "La diagnostica si applica solo alle connessioni KMS Lighthouse.",
-    "connection.kms_diagnostics_running": "La diagnostica è già in esecuzione per questa connessione. Attendi che termini, quindi riprova.",
+    "connection.table_not_found": "Tabella non trovata",
+    "connection.table_preview_unsupported": "L'anteprima dei dati non è disponibile per le connessioni {type}.",
+    "connection.table_preview_failed": "Anteprima non riuscita: {reason}",
     "data_source.not_found": "Origine dati non trovata",
     "file.not_found": "File non trovato",
     "verification.invalid": "Token di verifica non valido o scaduto",
@@ -4167,7 +4219,11 @@
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
-    "ssh.key_discovery_failed": "Impossibile recuperare la chiave. Controlla host, porta e rete oppure inserisci una chiave attendibile nelle impostazioni avanzate."
+    "ssh.key_discovery_failed": "Impossibile recuperare la chiave. Controlla host, porta e rete oppure inserisci una chiave attendibile nelle impostazioni avanzate.",
+    "connection.kms_token_format": "Il token API di KMS può contenere solo lettere, cifre e segni di punteggiatura semplici, senza spazi. Copialo di nuovo da KMS Lighthouse e incollalo come testo semplice.",
+    "connection.kms_use_connection_credentials": "Gli accessi a KMS Lighthouse vengono salvati nella connessione. Apri la connessione e connettiti da lì.",
+    "connection.kms_only": "La diagnostica si applica solo alle connessioni KMS Lighthouse.",
+    "connection.kms_diagnostics_running": "La diagnostica è già in esecuzione per questa connessione. Attendi che termini, quindi riprova."
   },
   "email": {
     "dashboardShare": {
@@ -4312,16 +4368,146 @@
   "dashboards": {
     "title": "Dashboard",
     "subtitle": "Sfoglia e gestisci le tue dashboard e diapositive",
-    "searchPlaceholder": "Cerca dashboard…",
+    "searchPlaceholder": "Cerca dashboard o proprietari…",
     "myDashboards": "Le mie dashboard",
     "sharedWithMe": "Condivise con me",
     "empty": "Nessuna dashboard trovata",
-    "emptyDescription": "Prova a modificare il termine di ricerca o crea un report con una dashboard.",
+    "emptyMy": "Crea un report con una dashboard e apparirà qui.",
+    "emptyShared": "Non è ancora stato condiviso nulla con te.",
     "showingRange": "Visualizzate da {start} a {end} di {total} dashboard",
     "fetchFailed": "Impossibile caricare le dashboard",
     "typeAll": "Tutti",
     "typeDashboards": "Dashboard",
-    "typeDocs": "Documenti"
+    "typeDocs": "Documenti",
+    "reason": {
+      "direct": "Condivisa con te",
+      "group": "Gruppo {name}",
+      "project": "Progetto {name}",
+      "org": "Organizzazione",
+      "public": "Link pubblico",
+      "other": "Condivisa",
+      "groupAny": "Il tuo gruppo",
+      "projectAny": "Il tuo progetto"
+    },
+    "reasonTitle": {
+      "direct": "{owner} l’ha condivisa con te",
+      "group": "Condivisa con il tuo gruppo {name}",
+      "groupOther": "Condivisa con uno dei tuoi gruppi",
+      "project": "Nel progetto {name}, di cui fai parte",
+      "projectOther": "In un progetto di cui fai parte",
+      "org": "Condivisa con tutta l’organizzazione",
+      "public": "Chiunque abbia il link",
+      "also": "anche: {reason}",
+      "canEdit": "(puoi modificare)",
+      "viewOnly": "(sola lettura)"
+    },
+    "card": {
+      "edited": "Modificata {time}",
+      "created": "Creata il {date}",
+      "by": "di {name}",
+      "published": "Pubblicata il {date}",
+      "dataAsOf": "Dati aggiornati {time}",
+      "refreshFailing": "Aggiornamento non riuscito",
+      "lastEdit": "Ultima modifica: {time}",
+      "scheduledRefresh": "Aggiornamento pianificato"
+    },
+    "pill": {
+      "new": "Nuova",
+      "published": "Pubblicata",
+      "changes": "Modifiche non pubblicate",
+      "org": "Organizzazione",
+      "public": "Pubblica"
+    },
+    "mode": {
+      "page": "Dashboard",
+      "slides": "Diapositive",
+      "doc": "Documento"
+    },
+    "list": {
+      "createdShort": "creata il {date}",
+      "directFirst": "prima le condivisioni dirette",
+      "dateColumns": "Modificata · Creata"
+    },
+    "star": "Aggiungi a preferiti",
+    "unstar": "Rimuovi dai preferiti",
+    "starFailed": "Impossibile aggiornare i preferiti",
+    "emptyFiltered": "Prova un’altra ricerca o {clear}.",
+    "clearTheFilters": "cancella i filtri",
+    "count": "{n} dashboard | {n} dashboard",
+    "tabNew": "{n} nuova | {n} nuove",
+    "pagePrevious": "Pagina precedente",
+    "pageNext": "Pagina successiva",
+    "sort": {
+      "label": "Ordina",
+      "edited": "Modificate di recente",
+      "newest": "Create più di recente",
+      "oldest": "Create meno di recente",
+      "title": "Titolo A–Z",
+      "published": "Pubblicate di recente"
+    },
+    "view": {
+      "grid": "Griglia",
+      "list": "Elenco"
+    },
+    "access": {
+      "all": "Tutte",
+      "direct": "Direttamente",
+      "group": "I miei gruppi",
+      "project": "Progetti",
+      "org": "Organizzazione",
+      "edit": "Modificabili"
+    },
+    "presets": {
+      "any": "Qualsiasi data",
+      "last7": "Ultimi 7 giorni",
+      "last30": "Ultimi 30 giorni",
+      "last90": "Ultimi 90 giorni",
+      "year": "Quest’anno",
+      "older90": "Più di 90 giorni fa",
+      "custom": "Intervallo personalizzato"
+    },
+    "status": {
+      "any": "Qualsiasi stato",
+      "published": "Pubblicata",
+      "changes": "Modifiche non pubblicate",
+      "draft": "Bozza"
+    },
+    "filters": {
+      "button": "Filtri",
+      "agent": "Agente",
+      "created": "Creata",
+      "edited": "Modificata",
+      "owner": "Proprietario",
+      "status": "Stato",
+      "starredOnly": "Solo preferiti",
+      "clearAll": "Cancella tutto",
+      "allAgents": "Tutti gli agenti",
+      "agentsCount": "{n} agente | {n} agenti",
+      "anyone": "Chiunque",
+      "ownersCount": "{n} persona | {n} persone",
+      "from": "Dal",
+      "to": "al",
+      "toLabel": "Al",
+      "customRange": "{from} – {to}",
+      "rangeInvalid": "L’inizio deve essere uguale o precedente alla fine",
+      "unknownAgent": "Agente non disponibile",
+      "unknownOwner": "Persona sconosciuta",
+      "resultCount": "{n} di {total}",
+      "remove": "Rimuovi {name}"
+    },
+    "chips": {
+      "search": "“{q}”",
+      "owner": "Proprietario: {name}",
+      "created": "Creata: {range}",
+      "edited": "Modificata: {range}",
+      "starred": "Preferiti"
+    },
+    "attention": {
+      "title": "Richiedono attenzione",
+      "failing": "{n} con aggiornamento non riuscito | {n} con aggiornamento non riuscito",
+      "stale": "{n} non modificata da 90 giorni | {n} non modificate da 90 giorni",
+      "show": "Mostrale"
+    }
   },
   "excel": {
     "greeting": "Ciao, {name} 👋",
@@ -6135,39 +6321,6 @@
     "forbidden": "Non hai accesso a questa connessione.",
     "loadFailed": "Impossibile caricare la connessione. Riprova più tardi."
   },
-  "kmsDiagnostics": {
-    "run": "Esegui diagnostica",
-    "running": "Diagnostica in corso. Può richiedere fino a 90 secondi.",
-    "description": "Controlli di sola lettura su rete, certificato, accesso e comportamento di KMS. Invia al massimo un accesso.",
-    "overallPass": "Controlli automatici superati",
-    "overallWarn": "Terminato con avvisi",
-    "overallFail": "Terminato con un errore",
-    "manualCheck": "Resta un controllo manuale: esegui di nuovo come utente KMS con limitazioni e confronta i nomi degli elementi.",
-    "failedStage": "Non riuscito in: {stage}",
-    "calls": "{calls} chiamate in {seconds} s",
-    "callsUnknown": "Interrotto dopo {seconds} s. Il numero di chiamate è sconosciuto.",
-    "copy": "Copia report",
-    "copied": "Report copiato",
-    "copyFailed": "Impossibile copiare il report. Usa Scarica JSON.",
-    "download": "Scarica JSON",
-    "reportNote": "Il report resta in inglese per poterlo inviare ai tecnici BOW. Non contiene contenuti, nomi o password.",
-    "failed": "Impossibile eseguire la diagnostica.",
-    "status": {
-      "pass": "Superato",
-      "warn": "Avviso",
-      "fail": "Errore",
-      "info": "Info",
-      "skipped": "Saltato"
-    },
-    "stage": {
-      "network": "rete",
-      "tls": "TLS",
-      "login": "accesso",
-      "browse": "navigazione",
-      "search": "ricerca",
-      "read": "lettura"
-    }
-  },
   "trackedChanges": {
     "noChanges": "Nessuna modifica"
   },
@@ -6599,5 +6752,60 @@
     "enabled": "Abilitata",
     "embeddingEmpty": "Embedding is not configured",
     "oauthEmpty": "OAuth is not configured"
+  },
+  "tablePreview": {
+    "loading": "Caricamento righe…",
+    "failed": "Impossibile caricare un'anteprima di questa tabella.",
+    "showing": "{shown} righe mostrate",
+    "columns": "{count} colonne",
+    "empty": "Questa tabella non contiene righe.",
+    "reload": "Ricarica",
+    "createCustomTable": "Crea tabella personalizzata da questa",
+    "run": "Esegui",
+    "resetQuery": "Ripristina",
+    "runHint": "Ctrl/⌘ + Invio per eseguire. Solo query di lettura.",
+    "ofTotal": "~{total} righe nella tabella",
+    "retry": "Riprova",
+    "readOnlyHint": "Per modificare la query, questa connessione deve supportare le tabelle personalizzate.",
+    "storageNote": "Letto direttamente dallo storage della tabella, quindi questa anteprima non ha costi di query.",
+    "signInRequired": "Questa connessione usa le tue credenziali. Accedi per vederne le righe.",
+    "signIn": "Accedi",
+    "open": "Anteprima dati di {name}",
+    "subtitle": "Righe di esempio da {connection}, lette in tempo reale dalla sorgente.",
+    "close": "Chiudi",
+    "button": "Anteprima"
+  },
+  "kmsDiagnostics": {
+    "run": "Esegui diagnostica",
+    "running": "Diagnostica in corso. Può richiedere fino a 90 secondi.",
+    "description": "Controlli di sola lettura su rete, certificato, accesso e comportamento di KMS. Invia al massimo un accesso.",
+    "overallPass": "Controlli automatici superati",
+    "overallWarn": "Terminato con avvisi",
+    "overallFail": "Terminato con un errore",
+    "manualCheck": "Resta un controllo manuale: esegui di nuovo come utente KMS con limitazioni e confronta i nomi degli elementi.",
+    "failedStage": "Non riuscito in: {stage}",
+    "calls": "{calls} chiamate in {seconds} s",
+    "callsUnknown": "Interrotto dopo {seconds} s. Il numero di chiamate è sconosciuto.",
+    "copy": "Copia report",
+    "copied": "Report copiato",
+    "copyFailed": "Impossibile copiare il report. Usa Scarica JSON.",
+    "download": "Scarica JSON",
+    "reportNote": "Il report resta in inglese per poterlo inviare ai tecnici BOW. Non contiene contenuti, nomi o password.",
+    "failed": "Impossibile eseguire la diagnostica.",
+    "status": {
+      "pass": "Superato",
+      "warn": "Avviso",
+      "fail": "Errore",
+      "info": "Info",
+      "skipped": "Saltato"
+    },
+    "stage": {
+      "network": "rete",
+      "tls": "TLS",
+      "login": "accesso",
+      "browse": "navigazione",
+      "search": "ricerca",
+      "read": "lettura"
+    }
   }
 }
