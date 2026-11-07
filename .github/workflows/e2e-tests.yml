@@ -75,6 +75,17 @@ jobs:
       # --durations=50: list the slowest tests in every run, so the next
       # regression in per-test cost shows up in the log instead of the timeout.
       #
+      # --junitxml + ci_phase_times: full per-test timings, setup time included,
+      # uploaded below. pytest only writes the file when the session ends, and a
+      # job killed at timeout-minutes never gets there.
+      #
+      # --session-timeout=6900 is why it normally does get there. At 115 minutes
+      # pytest stops once a running test finishes, then prints the full failure
+      # summary and writes the XML. The step still fails (exit 2), so a stopped
+      # run cannot read as a pass. timeout-minutes stays as the hard backstop.
+      # Today this step starts 3 to 5 minutes into the job, and the cache gives
+      # back about 2.5 of them, so the stop costs a run 2 minutes at most.
+      #
       # -v: name each test as it starts and finishes. Without it a failure is a
       # bare F until the end-of-run summary, so a killed run cannot say which
       # test failed. Costs about 1 MB on a 12 MB log.
@@ -91,7 +102,18 @@ jobs:
       # container, and a failure in it is a failure of this run, not a gate
       # that skips the whole E2E suite.
       run: |
-        uv run pytest tests/e2e tests/unit/test_fast_artifact_lifecycle.py -n 4 -v -m "e2e or db" --db=${{ matrix.db }} --durations=50 --disable-warnings --timeout=600 --timeout-method=thread
+        uv run pytest tests/e2e tests/unit/test_fast_artifact_lifecycle.py -n 4 -v -m "e2e or db" --db=${{ matrix.db }} --durations=50 --disable-warnings --timeout=600 --timeout-method=thread --session-timeout=6900 --junitxml=test-results/junit-${{ matrix.db }}.xml -p tests.ci_phase_times
+
+    # always(), not !cancelled(): a run stopped by the job timeout counts as
+    # cancelled, and that is the run whose data is most wanted.
+    - name: Upload JUnit timings
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: junit-${{ matrix.db }}
+        path: backend/test-results/
+        if-no-files-found: warn
+        retention-days: 30
 
   # tests/unit carries no pytest marker, so the -m e2e / -m ai steps above never
   # touched it and nothing else ran it either — two MS Fabric OAuth assertions
