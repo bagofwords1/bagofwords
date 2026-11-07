@@ -401,7 +401,8 @@ connector's own read timeout, 60 s, inside the 90 s; every other call gets at mo
 remaining checks `skipped`. The connector rows have 22 of the 60 calls: a scenario
 with many steps can use them up, and then the row is `skipped`, `overall` is `warn`
 and the other checks still run. At most 5 items and 2 scenarios are sampled, those
-the connector rows read included, with at most 3 step calls per scenario. A server
+the connector rows read included. `scenario_steps` makes at most 3 step calls per
+scenario; `connector_read` makes the step calls `read_file` needs, inside that share. A server
 that keeps sending bytes slowly inside the socket timeout can still overrun the
 90 s, so the route stops waiting after 95 s and answers with `reason`
 `run_timed_out`. That run's results are lost: its `calls_made` is null and
