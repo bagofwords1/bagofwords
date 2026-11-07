@@ -50,12 +50,14 @@ and the top level comes back empty or is refused, the test fails with a hint to
 set Root folder ID or check the account's KMS permissions. With a root folder
 set, an empty answer fails the test too: KMS answers `SUCCESS` with no records
 for a `parentId` that is not valid, so an empty folder and a wrong id look the
-same. The connection can still be saved, so you can fix the id.
+same. The connection can still be saved, so you can fix the id. A saved system
+connection that keeps failing the test goes inactive after 3 status sweeps, which
+also removes its search; one successful test reactivates it.
 
 When Layout ID is set, the test also calls
 `GET /search/global/filters?layoutId=`. A 400, the API doc's answer to a layout
-that is not valid, fails the test with a message naming the layout, and the
-connection can still be saved. Any other failure of that call is ignored,
+that is not valid, fails the test with a message naming the layout. The
+connection can still be saved, and the same 3-sweep rule applies. Any other failure of that call is ignored,
 because the search itself is what matters. It is one call with no re-login, so
 the status sweep, which re-tests system connections every 300 s, makes one call
 more per test when a layout is set.
@@ -395,7 +397,9 @@ A connection runs one diagnostics at a time: a second run while one is active
 gets a 409 (`connection.kms_diagnostics_running`), shown in the panel. The guard
 holds until the run's thread really ends, also when the page stopped waiting for
 it. The guard is per process, so on an install with several workers two runs of
-one connection can still overlap when they land on different workers.
+one connection can still overlap when they land on different workers. A chunked
+answer is cut off at the run's deadline, but a server that trickles an answer of
+declared length inside the socket timeout can keep a run, and its guard, past it.
 
 **What it sends.** The same calls the connector makes, through the same code, so
 the egress check, the TLS verification and the refusal of redirects all apply:

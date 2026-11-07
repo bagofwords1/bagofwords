@@ -125,6 +125,8 @@ automated test are marked and point to the verification boundary or to P11.
 | A non-admin owner connects with their own login; ownership never unlocks the shared account. The rule lands with the owner credentials PR | `test_owner_who_is_not_an_admin_connects_with_their_own_login` (non-strict xfail: it passes before and after that PR; remove the mark after it merges) |
 | Member credential test drops destination keys | `test_member_credential_test_ignores_destination_keys` |
 | `connection.kms_token_format` on member save and member test | `test_a_bad_kms_token_format_has_its_own_error_code`, `test_the_credential_test_reports_a_bad_kms_token_format_with_its_own_code`, `test_member_save_shows_the_kms_token_format_message` |
+| A rejected member credential never comes back in the error, for any user-scope variant, on save, Test and patch | `test_a_save_with_a_field_missing_never_echoes_the_typed_secret`, `test_a_test_with_a_field_missing_never_echoes_the_typed_secret`, `test_a_patch_with_a_field_missing_never_echoes_the_typed_secret` |
+| A chunked 200 body stops at the deadline; with no deadline it is read to its end | `test_a_dripped_body_stops_when_the_deadline_passes`, `test_a_body_with_no_deadline_is_read_to_its_end_however_slow` |
 | Other KMS credential errors name the field only | `test_other_kms_credential_errors_name_the_field_without_the_pydantic_dump`, `test_other_credential_test_errors_keep_the_field_level_422` |
 | Legacy POST refuses KMS (`connection.kms_use_connection_credentials`) | `test_the_legacy_store_refuses_kms_before_anything_is_saved`, `test_legacy_save_refuses_kms_and_stores_nothing` |
 | Legacy DELETE also clears the connection-level row | `test_legacy_disconnect_clears_the_kms_connection_row` |
