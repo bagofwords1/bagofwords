@@ -174,7 +174,7 @@ automated test are marked and point to the verification boundary or to P11.
 
 ## Plan versus code
 
-The plan (`onboarding/plans/2026-11-04-kms-connector-plan.md`) was written
+The plan was written
 before the build. Where it and the code at `b536c8e8b` differ, the code wins and
 the guide describes the code:
 

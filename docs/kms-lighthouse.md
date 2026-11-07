@@ -266,9 +266,7 @@ is never served from the shared read cache.
 ## Content scrubbing
 
 Everything the connector returns (names, paths, snippets, article and scenario
-text) passes through one scrubber. The scope was decided by the product owner
-and is recorded in the maintainer notes for this connector
-(`onboarding/pr-kms/pr-highlights.md`, kept outside this repository):
+text) passes through one scrubber. The scope was decided by the product owner:
 
 - **Machine credentials only.** The connector removes credentials that systems
   put into content: secret URL parameters (also camel-case and compound names,
@@ -494,9 +492,7 @@ the connector's own 10 s.
 
 ## Known limitations and follow-ups
 
-Platform findings that are not KMS-specific are analysed in
-`onboarding/pr-kms/pr-highlights.md` ("Platform observation"); they are listed
-here so they are not lost:
+Platform findings that are not KMS-specific are listed here so they are not lost:
 
 - **Owner query identity** (OAuth connections only, so not KMS): `is_admin_or_owner`
   still lets a data-source owner pick the service account on delegated
