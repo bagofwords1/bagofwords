@@ -6141,6 +6141,7 @@
     "overallPass": "Alla kontroller godkändes",
     "overallWarn": "Klar med varningar",
     "overallFail": "Klar med ett fel",
+    "manualCheck": "En manuell kontroll återstår: kör igen som en begränsad KMS-användare och jämför elementnamnen.",
     "failedStage": "Misslyckades vid: {stage}",
     "calls": "{calls} anrop på {seconds} s",
     "copy": "Kopiera rapporten",

@@ -384,10 +384,16 @@ the egress check, the TLS verification and the refusal of redirects all apply:
 The search calls use fixed text (`a`, `*`, one Hebrew letter, a nonsense word for
 the zero-hit check, and runs of the letter `a` for the length check).
 
-**Limits.** At most 60 calls and 90 s; each call gets at most 20 s. Hitting a
-limit marks the remaining checks `skipped`. At most 5 items and 2 scenarios are
-sampled, with at most 3 step calls per scenario. A server that keeps sending
-bytes slowly inside the socket timeout can still overrun the 90 s.
+**Limits.** At most 60 calls and 90 s. The first call and the login keep the
+connector's own read timeout, 60 s, inside the 90 s; every other call gets at most
+20 s. Hitting a limit marks the remaining checks `skipped`. At most 5 items and 2
+scenarios are sampled, with at most 3 step calls per scenario. A server that keeps
+sending bytes slowly inside the socket timeout can still overrun the 90 s, so the
+route stops waiting after 95 s and answers with `reason` `run_timed_out`. That run's
+results are lost; its thread stops at its next call.
+
+A gateway in front of BOW with a 60 s read limit can cut a run against a stalled
+tenant. Raise the limit for this route, or run it from inside the network.
 
 **What the report holds.** Key names, type names, counts, status codes and
 booleans, plus the host, the API prefix, the auth method and the BOW version. It
@@ -397,21 +403,24 @@ Anything that is not a plain identifier is counted, or shown as `other`, and an
 element or key name is reported only when it is a plain identifier. The text
 stays in English on purpose: it is a report for engineers.
 
-`overall` is the worst status of the checks. A clean run ends in `warn`, not
-`pass`, because one account cannot prove item 12: `ai_elements` always warns and
-asks for a repeat as a restricted user. Items 10 and 13 are always `skipped`:
-failed logins are never sent on purpose, so ask the KMS admin for the
-concurrent-session limit, the lockout threshold and whether a logout exists.
+A clean automatic run ends in `pass`. One account cannot prove item 12, so
+`ai_elements` always warns and asks for a repeat as a restricted user, but that
+warning does not lower `overall`: the report lists it in `manual_checks`, and the
+panel says one manual check remains. Items 10 and 13 are always `skipped`: failed
+logins are never sent on purpose, so ask the KMS admin for the concurrent-session
+limit, the lockout threshold and whether a logout exists. Any other warning, or any
+other skipped check (including `ai_elements`, and `tls` unless the connection is
+plain HTTP), makes `overall` `warn`. A failed check makes it `fail`.
 
 **What to do per failed stage.**
 
 | `failed_stage` | Meaning | What to do |
 |---|---|---|
-| `network` | DNS failure, refused, timeout, or `egress_blocked` | Check the URL, DNS and the firewall from this server. `egress_blocked`: the host is refused by `security.block_private_outbound`. A proxy is not supported (see Known limitations). |
-| `tls` | `untrusted_certificate` or `tls_failed` | Add the CA to `REQUESTS_CA_BUNDLE`. A device that intercepts TLS needs its CA added. |
-| `login` | Rejected, held, `credentials_unavailable`, or no session in the answer | Check the username and password or the token. After a rejection wait five minutes, because of the login hold, before running it again. |
+| `network` | DNS failure, refused, timeout, `blocked_route`, `run_timed_out` or `egress_blocked` | Check the URL, DNS and the firewall from this server. `blocked_route`: a firewall or a missing route (no route to the host or the network, or access denied). `run_timed_out`: KMS may be stalling; run it again. `egress_blocked`: the host is refused by `security.block_private_outbound`. A proxy is not supported (see Known limitations). |
+| `tls` | `untrusted_certificate` (with OpenSSL's `verify_code`), `tls_failed` or `ca_bundle_unreadable` | Add the CA to `REQUESTS_CA_BUNDLE`. A device that intercepts TLS needs its CA added. An expired certificate or a host name mismatch has its own summary. `ca_bundle_unreadable`: the file `REQUESTS_CA_BUNDLE` names cannot be read, so nothing was sent. |
+| `login` | Rejected, held, `credentials_unavailable`, no session in the answer, `session_refused`, or `server` for a token | Check the username and password or the token. A rejection can also come from a device in front of KMS, or from a login with an unexpected shape. After a rejection wait five minutes, because of the login hold, before running it again. `session_refused`: KMS accepted the login but refused its session on the next call; ask the KMS admin whether the account may use the API. |
 | `browse` | The tree could not be read | Check the API prefix and the account's KMS permissions, and try Root folder ID. |
-| `search` | `/search/full` failed | Check Layout ID: see `search_layout` for the answer with and without it. |
+| `search` | `/search/full` failed | Check Layout ID: see `search_layout` for the answer with and without it. `bad_body` or `bad_encoding` on any check means KMS answered but its body broke after the status; a device in front of KMS is the first thing to check. |
 | `read` | No sampled item could be read | Check the account's KMS permissions. Send the report to the BOW engineers. |
 
 ## Known limitations and follow-ups

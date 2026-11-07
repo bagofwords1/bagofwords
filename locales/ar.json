@@ -6141,6 +6141,7 @@
     "overallPass": "نجحت جميع الفحوصات",
     "overallWarn": "انتهى مع تحذيرات",
     "overallFail": "انتهى مع فشل",
+    "manualCheck": "يتبقى فحص يدوي واحد: أعد التشغيل كمستخدم KMS مقيّد وقارن أسماء العناصر.",
     "failedStage": "فشل في: {stage}",
     "calls": "{calls} استدعاء في {seconds} ث",
     "copy": "نسخ التقرير",

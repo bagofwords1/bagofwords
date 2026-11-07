@@ -6646,6 +6646,7 @@
     "overallPass": "Todas las comprobaciones se superaron",
     "overallWarn": "Finalizado con advertencias",
     "overallFail": "Finalizado con un error",
+    "manualCheck": "Queda una comprobación manual: vuelva a ejecutarlo como usuario de KMS restringido y compare los nombres de los elementos.",
     "failedStage": "Falló en: {stage}",
     "calls": "{calls} llamadas en {seconds} s",
     "copy": "Copiar informe",

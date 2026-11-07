@@ -20,6 +20,9 @@
                     <div v-if="report.failed_stage" class="text-xs text-ink-muted" data-testid="kms-diagnostics-stage">
                         {{ $t('kmsDiagnostics.failedStage', { stage: $t(`kmsDiagnostics.stage.${report.failed_stage}`) }) }}
                     </div>
+                    <div v-if="report.manual_checks?.length" class="text-xs text-ink-muted" data-testid="kms-diagnostics-manual">
+                        {{ $t('kmsDiagnostics.manualCheck') }}
+                    </div>
                     <div class="text-xs text-ink-muted">
                         {{ $t('kmsDiagnostics.calls', { calls: report.calls_made, seconds: Math.round(report.duration_ms / 1000) }) }}
                     </div>
@@ -70,9 +73,9 @@ const overallLine = computed(() => {
 })
 
 function statusClass(status: string) {
-  if (status === 'pass') return 'bg-green-50 dark:bg-green-950 text-green-700 border-green-200'
-  if (status === 'fail') return 'bg-red-50 dark:bg-red-950 text-red-700 border-red-200'
-  if (status === 'warn') return 'bg-amber-50 dark:bg-amber-950 text-amber-700 border-amber-200'
+  if (status === 'pass') return 'bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-400 border-green-200'
+  if (status === 'fail') return 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-400 border-red-200'
+  if (status === 'warn') return 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 border-amber-200'
   return 'bg-surface-subtle text-ink-muted border-line'
 }
 
@@ -83,8 +86,10 @@ async function runDiagnostics() {
   errorMessage.value = ''
   try {
     const { data, error } = await useMyFetch(`/connections/${props.connectionId}/kms-diagnostics`, { method: 'POST' })
+    const answer = data.value as any
     if (error.value) errorMessage.value = getErrorMessage(error.value, t('kmsDiagnostics.failed'))
-    else report.value = data.value || null
+    else if (answer?.report_version && Array.isArray(answer.checks)) report.value = answer
+    else errorMessage.value = t('kmsDiagnostics.failed')
   } catch (e: any) {
     errorMessage.value = getErrorMessage(e, t('kmsDiagnostics.failed'))
   } finally {

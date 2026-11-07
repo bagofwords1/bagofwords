@@ -6666,6 +6666,7 @@
     "overallPass": "כל הבדיקות עברו",
     "overallWarn": "הסתיים עם אזהרות",
     "overallFail": "הסתיים עם כשל",
+    "manualCheck": "נותרה בדיקה ידנית אחת: הריצו שוב כמשתמש KMS מוגבל והשוו את שמות הרכיבים.",
     "failedStage": "נכשל בשלב: {stage}",
     "calls": "{calls} קריאות ב-{seconds} שניות",
     "copy": "העתקת הדוח",

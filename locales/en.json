@@ -6675,6 +6675,7 @@
     "overallPass": "All checks passed",
     "overallWarn": "Finished with warnings",
     "overallFail": "Finished with a failure",
+    "manualCheck": "One manual check remains: run this again as a restricted KMS user and compare the element names.",
     "failedStage": "Failed at: {stage}",
     "calls": "{calls} calls in {seconds} s",
     "copy": "Copy report",

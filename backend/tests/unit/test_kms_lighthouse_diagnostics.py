@@ -589,6 +589,28 @@ def test_hitting_the_time_budget_skips_the_rest(kms, monkeypatch):
     assert [row for row in report["checks"] if row["status"] == "skipped" and "budget" in row["summary"].lower()]
 
 
+def test_every_call_is_bound_by_the_time_left(kms, monkeypatch):
+    """A frozen clock that only the calls move: no call may get a timeout longer than what remains."""
+    probe = client(kms, "alice")
+    now = [1000.0]
+    deadline = now[0] + 30
+    real = requests.Session.request
+    seen = []
+
+    def recording(self, method, url, **kwargs):
+        seen.append((kwargs["timeout"], deadline - now[0]))
+        now[0] += 3
+        return real(self, method, url, **kwargs)
+
+    monkeypatch.setattr(kc.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(kc, "_clock", lambda: now[0])
+    monkeypatch.setattr(requests.Session, "request", recording)
+    report = probe.diagnostics(deadline=deadline)
+    assert len(seen) >= 5 and report["calls_made"] == len(seen)
+    for (connect, read), left in seen:
+        assert max(connect, read) <= max(kc._MIN_TIMEOUT_S, left), (connect, read, left)
+
+
 def test_a_caller_cannot_widen_the_time_budget(kms):
     far = kc._clock() + 10_000
     run = kd._Run(client(kms, "alice"), far)
@@ -703,7 +725,15 @@ def test_sentinels_really_reached_the_checks(kms):
     assert rows["top_level"]["observed"]["records"] > 0
     assert rows["field_types"]["observed"]["items_read"] > 0
     assert rows["login"]["observed"]["unlisted_names"] > 0, "the planted key name must be counted, never shown"
-    assert rows["types"]["observed"]["search_sub_types"]["other"] > 0, "a planted subType must not be shown"
+    assert rows["types"]["observed"]["search_sub_types"]["other"] > 0, "a subType with a space is no plain name"
+
+
+def test_a_plain_word_type_label_is_shown_on_purpose(kms):
+    """A one-word type or subType is a label, not content: it stays readable, and the guide says so."""
+    kms["mock"].STATE["extra_results"] = [{"id": "7001", "subType": "T_ANY_PLAIN_WORD", "title": "x", "description": "",
+                                           "statusCode": "2"}]
+    observed = _rows(client(kms, "alice").diagnostics())["types"]["observed"]
+    assert observed["search_sub_types"]["T_ANY_PLAIN_WORD"] == 1
 
 
 def test_a_token_and_cookie_value_never_leave(kms):
@@ -1246,6 +1276,19 @@ def test_a_client_is_never_built_with_an_api_prefix_that_is_not_a_plain_path(pre
         kc.KmsLighthouseClient(base_url="https://kms.example.com", api_prefix=prefix, username="u", password="p")
 
 
+@pytest.mark.parametrize("config", [{"base_url": "https://kms.example.com"}, '{"base_url": "https://kms.example.com"}'])
+def test_a_run_past_the_route_limit_is_a_network_failure_report(config):
+    report = kd.timed_out_report(config)
+    _assert_plain_report(report)
+    assert report["failed_stage"] == "network" and report["overall"] == "fail"
+    assert _rows(report)["network"]["observed"]["reason"] == "run_timed_out"
+    assert report["host"] == "kms.example.com"
+
+
+def test_the_route_limit_leaves_the_run_its_own_budget():
+    assert kd.route_seconds() == kd._MAX_SECONDS + 5
+
+
 def test_a_blocked_destination_is_a_network_failure_report():
     report = kd.failure_report({"base_url": "https://169.254.169.254"}, stage="network", reason="egress_blocked",
                                error_type="UnsafeURLError")
@@ -1302,6 +1345,27 @@ def test_the_panel_calls_the_route_and_reports_errors_like_the_page():
     assert 'role="alert"' in panel
 
 
+def test_the_panel_refuses_an_answer_that_is_not_a_report():
+    panel = _PANEL.read_text(encoding="utf-8")
+    run = panel[panel.index("async function runDiagnostics"):panel.index("const reportText")]
+    assert "answer?.report_version" in run and "Array.isArray(answer.checks)" in run, run
+    assert re.search(r"else errorMessage\.value = t\('kmsDiagnostics\.failed'\)", run), run
+
+
+def test_the_panel_states_the_manual_check_that_remains():
+    panel = _PANEL.read_text(encoding="utf-8")
+    template = panel[:panel.index("<script")]
+    assert re.search(r'v-if="report\.manual_checks\?\.length"[^>]*>\s*\{\{ \$t\(\'kmsDiagnostics\.manualCheck\'\) \}\}',
+                     template, re.S), "the panel must say one manual check remains"
+
+
+@pytest.mark.parametrize("status,color", [("pass", "green"), ("fail", "red"), ("warn", "amber")])
+def test_the_status_pills_keep_their_text_readable_in_dark_mode(status, color):
+    panel = _PANEL.read_text(encoding="utf-8")
+    pill = re.search(rf"status === '{status}'\) return '([^']+)'", panel)
+    assert pill and f"text-{color}-700" in pill.group(1) and f"dark:text-{color}-400" in pill.group(1)
+
+
 def test_the_panel_works_right_to_left():
     panel = _PANEL.read_text(encoding="utf-8")
     template = panel[:panel.index("<script")]
@@ -1321,6 +1385,10 @@ def test_the_connector_guide_covers_the_diagnostics():
     assert "/kms-diagnostics" in section and "60 calls" in section and "90 s" in section
     assert "restricted" in section.lower()
     assert "proxy" in guide[guide.index("## Known limitations and follow-ups"):].lower()
+    assert "manual_checks" in section, "what a clean run means"
+    for word in ("session_refused", "blocked_route", "ca_bundle_unreadable", "bad_body", "run_timed_out"):
+        assert f"`{word}`" in section, word
+    assert re.search(r"gateway.*60 s.*read limit|60 s read limit.*gateway", section, re.S), "a stalled tenant behind a gateway"
 
 
 def test_the_feedback_loop_maps_every_checklist_item_to_a_check():

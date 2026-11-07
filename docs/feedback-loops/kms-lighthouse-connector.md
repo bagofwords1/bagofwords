@@ -313,7 +313,7 @@ Run it at the install, then record the answers here.
 | 16 | `scenario_steps` | Status codes seen on step fetches |
 | 17 | `zero_hit` | Status, top-level and search-block key names, whether the connector can read it |
 | 18 | `page_rows` | Rows returned against rows requested, and the next page after a short one |
-| - | `network` | Whether this server reached KMS; else `dns`, `refused`, `timeout` or `connection_failed` (`egress_blocked` when the check runs before any call) |
+| - | `network` | Whether this server reached KMS; else `dns`, `refused`, `timeout`, `blocked_route` or `connection_failed` (`egress_blocked` when the check runs before any call, `run_timed_out` when the route gave up on the run) |
 | - | `tls` | Whether the certificate is trusted; else `untrusted_certificate` (with the integer `verify_code`), `tls_failed` or `ca_bundle_unreadable` |
 | - | `session` | One authenticated GET after a login: `session_refused` ends the run. Info for an API token |
 

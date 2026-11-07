@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import create_engine, text
 
 from app.core import egress
+from app.data_sources.clients import kms_lighthouse_diagnostics as kd
 from tests.e2e.test_kms_lighthouse import _admin, _cfg, _member, _svc_userpass, _user_required_source
 from tests.unit.test_kms_lighthouse_client import kms, kms_server  # noqa: F401
 
@@ -134,6 +135,27 @@ def test_a_blocked_destination_is_a_network_report_and_nothing_is_sent(
     assert body["failed_stage"] == "network" and body["calls_made"] == 0
     assert _rows(body)["network"]["observed"]["reason"] == "egress_blocked"
     assert kms["mock"].REQUEST_LOG == [], "the egress check runs before any KMS call"
+
+
+@pytest.mark.e2e
+def test_a_run_past_the_route_limit_is_a_report_and_the_request_ends(
+    kms, test_client, create_user, login_user, whoami, create_connection, monkeypatch,
+):
+    token, org, headers = _admin(create_user, login_user, whoami)
+    conn = _kms_connection(kms, create_connection, token, org)
+    # KMS takes the first call and says nothing. The client's own floor is 1 s, so the route's limit expires first.
+    monkeypatch.setattr(kd, "_MAX_SECONDS", 0.2)
+    monkeypatch.setattr(kd, "_ROUTE_GRACE_SECONDS", 0)
+    mock = kms["mock"]
+    mock.STATE["hold_no_session"] = True
+    try:
+        r = test_client.post(_url(conn["id"]), headers=headers)
+    finally:
+        mock.HELD["release"].set()
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["failed_stage"] == "network" and body["overall"] == "fail"
+    assert _rows(body)["network"]["observed"]["reason"] == "run_timed_out"
 
 
 @pytest.mark.e2e

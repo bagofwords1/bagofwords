@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 _REPORT_VERSION = 1
 _MAX_CALLS = 60
 _MAX_SECONDS = 90
+_ROUTE_GRACE_SECONDS = 5
 _CALL_SECONDS = 20            # one slow endpoint must not use up the whole run
 _MAX_ITEMS = 5
 _MAX_SCENARIOS = 2
@@ -84,6 +85,10 @@ _FAILURE_SUMMARIES = {
     "connection_failed": "The connection to KMS failed. Note that a proxy is not supported.",
     "blocked_route": "There is no open route to KMS from this server. Check the firewall and the routing.",
     "ca_bundle_unreadable": "The file named by REQUESTS_CA_BUNDLE cannot be read. Check its path and permissions.",
+}
+_NO_CLIENT_SUMMARIES = {
+    "egress_blocked": "The destination is blocked by this server's egress rules.",
+    "run_timed_out": "The run went past its time limit, so its results are lost. KMS may be stalling; run it again.",
 }
 # OpenSSL's verify codes that need a different action from "add the CA".
 _CERTIFICATE_SUMMARIES = {
@@ -875,13 +880,27 @@ def _host_of(base_url) -> str:
     return shown if _HOST_RE.fullmatch(shown) else ""
 
 
+def _config_dict(config) -> dict:
+    return (json.loads(config) if isinstance(config, str) else config) or {}
+
+
 def build_failure_report(config, exc: Exception) -> dict:
     """The report for a client that could not be built: the type name of ``exc`` only, never its text."""
-    if isinstance(config, str):
-        config = json.loads(config)
     if isinstance(exc, UnsafeURLError):
-        return failure_report(config or {}, stage="network", reason="egress_blocked", error_type=type(exc).__name__)
-    return failure_report(config or {}, stage="login", reason="credentials_unavailable", error_type=type(exc).__name__)
+        return failure_report(_config_dict(config), stage="network", reason="egress_blocked",
+                              error_type=type(exc).__name__)
+    return failure_report(_config_dict(config), stage="login", reason="credentials_unavailable",
+                          error_type=type(exc).__name__)
+
+
+def route_seconds() -> float:
+    """How long the route waits: the run's own budget, plus time for a last call to return."""
+    return _MAX_SECONDS + _ROUTE_GRACE_SECONDS
+
+
+def timed_out_report(config) -> dict:
+    """The route gave up on a run. A thread cannot be cancelled: it stops at its next ``_take_call``."""
+    return failure_report(_config_dict(config), stage="network", reason="run_timed_out", error_type="TimeoutError")
 
 
 def failure_report(config: dict, *, stage: str, reason: str, error_type: str) -> dict:
@@ -889,8 +908,7 @@ def failure_report(config: dict, *, stage: str, reason: str, error_type: str) ->
     prefix = config.get("api_prefix")
     prefix = prefix if isinstance(prefix, str) and kc._PREFIX_RE.fullmatch(prefix) else kc._DEFAULT_PREFIX
     auth_method = "token" if config.get("auth_type") == "token" else "userpass"
-    summary = ("The destination is blocked by this server's egress rules." if reason == "egress_blocked"
-               else "The connection's credentials could not be used.")
+    summary = _NO_CLIENT_SUMMARIES.get(reason, "The connection's credentials could not be used.")
     target = "network" if stage == "network" else "login"
     rows = []
     for check_id, checklist, check_stage, method, always in _CHECKS:

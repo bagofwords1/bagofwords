@@ -6141,6 +6141,7 @@
     "overallPass": "Alle Prüfungen bestanden",
     "overallWarn": "Mit Warnungen abgeschlossen",
     "overallFail": "Mit einem Fehler abgeschlossen",
+    "manualCheck": "Eine manuelle Prüfung bleibt offen: Führen Sie dies erneut als eingeschränkter KMS-Benutzer aus und vergleichen Sie die Elementnamen.",
     "failedStage": "Fehlgeschlagen bei: {stage}",
     "calls": "{calls} Aufrufe in {seconds} s",
     "copy": "Bericht kopieren",

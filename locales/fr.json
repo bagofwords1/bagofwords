@@ -6141,6 +6141,7 @@
     "overallPass": "Toutes les vérifications ont réussi",
     "overallWarn": "Terminé avec des avertissements",
     "overallFail": "Terminé avec un échec",
+    "manualCheck": "Il reste une vérification manuelle : relancez avec un utilisateur KMS restreint et comparez les noms des éléments.",
     "failedStage": "Échec à l'étape : {stage}",
     "calls": "{calls} appels en {seconds} s",
     "copy": "Copier le rapport",
