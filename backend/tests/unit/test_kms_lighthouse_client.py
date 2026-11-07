@@ -15,6 +15,7 @@ import threading
 import traceback
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 
 import pydantic
 import pytest
@@ -724,6 +725,54 @@ def test_empty_body_maps_to_no_data(kms, make):
     assert (info.value.status, info.value.kind) == (200, "no_data")
     _assert_closed(info.value)
     assert {row[0] for row in _rows(kms, "/_mock/empty")} == {"alice"}
+
+
+class _DrippedBody:
+    """A 200 whose body arrives one byte per clock tick: each chunk moves the fake clock on."""
+
+    status_code = 200
+
+    def __init__(self, clock, chunks):
+        self.clock, self.chunks, self.sent = clock, chunks, 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def iter_content(self, _size):
+        while self.sent < self.chunks:
+            self.sent += 1
+            self.clock[0] += 1
+            yield b"x"
+
+
+def _drip(kms, monkeypatch, chunks):
+    now = [100.0]
+    monkeypatch.setattr(kc, "_clock", lambda: now[0])
+    body = _DrippedBody(now, chunks)
+    return token_client(kms), SimpleNamespace(request=lambda *_a, **_k: body), body
+
+
+def test_a_dripped_body_stops_when_the_deadline_passes(kms, monkeypatch):
+    c, session, body = _drip(kms, monkeypatch, 1000)
+    with pytest.raises(kc._DeadlineTimeout) as info:
+        c._send(session, "op", "GET", "/x", deadline=103.0)
+    assert body.sent == 3, "no more of the body is read once the deadline has passed"
+    assert info.value.kind == "unreachable" and info.value.transport == "timeout" and info.value.answered == 200
+    _assert_closed(info.value)
+
+
+def test_a_body_with_no_deadline_is_read_to_its_end_however_slow(kms, monkeypatch):
+    c, session, body = _drip(kms, monkeypatch, 1000)
+    assert c._send(session, "op", "GET", "/x") == (200, b"x" * 1000)
+    assert body.sent == 1000
+
+
+def test_a_body_that_ends_inside_the_deadline_is_returned(kms, monkeypatch):
+    c, session, _ = _drip(kms, monkeypatch, 3)
+    assert c._send(session, "op", "GET", "/x", deadline=200.0) == (200, b"xxx")
 
 
 def test_oversized_response_is_refused(kms, caplog, monkeypatch):

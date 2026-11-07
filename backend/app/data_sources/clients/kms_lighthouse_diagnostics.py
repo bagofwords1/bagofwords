@@ -18,8 +18,10 @@ The safety rules, each held by this module:
 3. At most ``_MAX_CALLS`` calls and ``_MAX_SECONDS`` seconds. The clock is read
    before every call and each call's socket timeouts are cut to fit, connect and
    read together, so a server that goes silent cannot overrun it by more than the
-   one-second timeout floor. A server that keeps trickling bytes inside the socket
-   timeout can: nothing short of a second thread could interrupt that read.
+   one-second timeout floor. A chunked body is stopped at the deadline, chunk by
+   chunk. A body with a declared length comes back only every 64 KB, so a server
+   trickling it inside the socket timeout can still overrun, and holds the run's
+   guard meanwhile: nothing short of a second thread could interrupt that read.
    ``_PROOF_CALLS`` is the share of the connector rows, so a large tenant cannot
    take the calls the other checks need.
 4. No content leaves: rows hold key names, type names, counts, status codes and

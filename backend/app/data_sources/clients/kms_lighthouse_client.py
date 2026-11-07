@@ -2092,7 +2092,8 @@ class KmsLighthouseClient(DataSourceClient):
         With a ``deadline`` (a ``time.monotonic()`` value) the connect and the
         read timeout are each cut to the time left, but never below one second,
         so one exchange can take up to twice the time left: a caller that must
-        fit connect plus read passes a deadline that allows for both.
+        fit connect plus read passes a deadline that allows for both. A body is
+        also stopped at the first chunk read after the deadline.
         ``prefix`` replaces the configured API prefix for this one exchange
         (``diagnostics`` only: a GET, never a login).
         """
@@ -2106,7 +2107,7 @@ class KmsLighthouseClient(DataSourceClient):
             left = max(_MIN_TIMEOUT_S, deadline - started)
             timeout = (min(_DEFAULT_TIMEOUT[0], left), min(_DEFAULT_TIMEOUT[1], left))
         status, body, failed, cause, timed_out, transport, verify_code = 0, b"", None, None, False, None, None
-        connect_timeout = False
+        connect_timeout, out_of_time = False, False
         _IN_KMS_REQUEST.active = True   # urllib3 would log the URL with its query (ADR-2)
         try:
             with session.request(method, url, params=params, headers=headers, timeout=timeout,
@@ -2122,6 +2123,10 @@ class KmsLighthouseClient(DataSourceClient):
                             failed = "too_large"
                             break
                         chunks.append(chunk)
+                        # The socket timeout restarts with every byte, so a trickled body has only this bound.
+                        if deadline is not None and _clock() >= deadline:
+                            failed, cause, transport, out_of_time = "unreachable", "deadline", "timeout", True
+                            break
                     body = b"".join(chunks)
         except _TRANSPORT_ERRORS as exc:
             failed, cause = "unreachable", type(exc).__name__
@@ -2136,7 +2141,8 @@ class KmsLighthouseClient(DataSourceClient):
             # The class name tells SSL, DNS and timeouts apart; never the text (it holds the URL).
             logger.debug("kms_lighthouse %s failed: %s (%s)", op, failed, cause or "size cap")
             error = (_DeadlineTimeout()     # the deadline cut this timeout: the caller's time is up
-                     if timed_out and deadline is not None and deadline - time.monotonic() < _MIN_TIMEOUT_S
+                     if out_of_time or (timed_out and deadline is not None
+                                        and deadline - time.monotonic() < _MIN_TIMEOUT_S)
                      else KmsHTTPError(status if failed == "too_large" else 0, failed))
             error.transport, error.answered, error.verify_code = transport, status, verify_code
             error.connect_timeout = connect_timeout
