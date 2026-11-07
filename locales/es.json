@@ -1131,6 +1131,11 @@
     "steeringApplied": "Dirección aplicada",
     "steerQueuedFallback": "La ejecución acaba de terminar: tu mensaje se puso en cola",
     "jumpToLatest": "Ir a lo más reciente",
+    "turnNavigator": {
+      "label": "Mapa de la conversación",
+      "jumpTo": "Ir al mensaje {n} de {total}: {text}",
+      "noResponse": "Aún no hay respuesta"
+    },
     "steerFailed": "No se pudo dirigir la respuesta en curso",
     "instructionUnavailableTitle": "Instrucción no disponible",
     "instructionUnavailableBody": "Es posible que se haya eliminado o que no tengas acceso a ella.",

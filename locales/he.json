@@ -1131,6 +1131,11 @@
     "steeringApplied": "ההכוונה הוחלה",
     "steerQueuedFallback": "הריצה הסתיימה זה עתה — ההודעה נוספה לתור במקום",
     "jumpToLatest": "קפיצה לעדכון האחרון",
+    "turnNavigator": {
+      "label": "מפת השיחה",
+      "jumpTo": "מעבר להודעה {n} מתוך {total}: {text}",
+      "noResponse": "עדיין אין תשובה"
+    },
     "steerFailed": "הכוונת ההשלמה הרצה נכשלה",
     "instructionUnavailableTitle": "ההנחיה אינה זמינה",
     "instructionUnavailableBody": "ייתכן שהיא נמחקה, או שאין לך גישה אליה.",
