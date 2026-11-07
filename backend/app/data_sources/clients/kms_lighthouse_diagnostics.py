@@ -191,6 +191,22 @@ def _record_fault(records) -> str | None:
     return None
 
 
+def _unusable(records: list) -> int:
+    return sum(1 for record in records if not kc._DIGITS_RE.fullmatch(str(record.get("id", ""))))
+
+
+def _search_fault(records) -> str | None:
+    """Why the connector would refuse a search answer, or None.
+
+    Stricter on shape than on ids: one record that is not a dict refuses the
+    whole answer (``_search_page``), but a bad id is skipped, and only an answer
+    with no numeric id at all is refused (``_refuse_if_none_usable``).
+    """
+    if not isinstance(records, list) or not all(isinstance(record, dict) for record in records):
+        return "not_records"
+    return "non_numeric_id" if records and _unusable(records) == len(records) else None
+
+
 def _search_records(reply: _Reply):
     """What a usable search answer holds as its records; a stated total of zero is no hits."""
     block = reply.payload.get("regularSearch") if reply.ok and isinstance(reply.payload, dict) else None
@@ -203,9 +219,9 @@ def _tree_records(reply: _Reply):
 
 
 def _search_rows(reply: _Reply) -> list | None:
-    """The result records of a search answer, or None when the connector could not use them."""
+    """The result records of a search answer, or None when the connector would refuse it."""
     records = _search_records(reply)
-    return None if _record_fault(records) else records
+    return None if _search_fault(records) else records
 
 
 def _tree_rows(reply: _Reply) -> list | None:
@@ -213,9 +229,9 @@ def _tree_rows(reply: _Reply) -> list | None:
     return None if _record_fault(records) else records
 
 
-def _reason(reply: _Reply, records) -> dict:
+def _reason(reply: _Reply, fault: str | None) -> dict:
     """``{"reason": ...}`` when a usable answer held records the connector would refuse."""
-    return {"reason": _record_fault(records)} if reply.ok else {}
+    return {"reason": fault} if reply.ok else {}
 
 
 class _Run:
@@ -454,7 +470,7 @@ class _Run:
                         _transport_stage(reply.failure))
             if _tree_rows(reply) is None:
                 return "fail", "The folder tree could not be read.", {
-                    **observed, **_reason(reply, _tree_records(reply))}
+                    **observed, **_reason(reply, _record_fault(_tree_records(reply)))}
         if opened and failed == len(opened):
             return "fail", "No folder could be opened.", observed
         if not top_rows:
@@ -515,9 +531,13 @@ class _Run:
             observed.update(without_layout_status=reply.status, without_layout_rows=len(rows or ()))
         if rows is None:
             return "fail", "The search call failed.", {**observed, "failure": reply.failure,
-                                                       **_reason(reply, _search_records(reply))}
+                                                       **_reason(reply, _search_fault(_search_records(reply)))}
+        unusable = _unusable(rows)
+        observed["unusable_records"] = unusable
         if not rows:
             return "warn", "The search call worked but none of the fixed queries found anything.", observed
+        if unusable:
+            return "warn", "Some search records have no numeric id. The connector skips them.", observed
         return "pass", "The search call returned results.", observed
 
     def check_query_length(self):

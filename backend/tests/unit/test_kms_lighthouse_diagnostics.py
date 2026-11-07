@@ -829,12 +829,34 @@ def test_a_tree_the_connector_would_refuse_fails_top_level(kms, monkeypatch, rec
 
 @pytest.mark.parametrize("results,reason", [
     ([{"id": "x-1", "title": "t"}], "non_numeric_id"),
+    ([{"id": "x-1", "title": "t"}, {"title": "no id"}], "non_numeric_id"),
     ([{"id": "279", "title": "t"}, "a string"], "not_records"),
 ])
-def test_a_search_answer_the_connector_would_refuse_fails_search_layout(kms, results, reason):
+def test_a_search_answer_the_connector_refuses_fails_search_layout(kms, results, reason):
     kms["mock"].STATE["search_body"] = {"regularSearch": {"results": results}}
+    with pytest.raises(kc.KmsHTTPError):
+        client(kms, "alice").search_files("anything")
     row = _rows(client(kms, "alice").diagnostics())["search_layout"]
     assert row["status"] == "fail" and row["observed"]["reason"] == reason
+
+
+@pytest.mark.parametrize("results,usable,unusable", [
+    ([{"id": "279", "title": "t"}, {"id": "x-1", "title": "t"}], 1, 1),
+    ([{"id": "x-1", "title": "t"}, {"id": "279", "title": "t"}, {"id": "301", "title": "t"}, {"title": "no id"}], 2, 2),
+    # An offline record is hidden, not unusable, so the connector does not refuse this answer either.
+    ([{"id": "x-1", "title": "t"}, {"id": "4410", "title": "t", "statusCode": "1"}], 0, 1),
+])
+def test_a_search_answer_the_connector_can_use_warns_and_counts_the_unusable_records(kms, results, usable, unusable):
+    kms["mock"].STATE["search_body"] = {"regularSearch": {"results": results}}
+    assert len(client(kms, "alice").search_files("anything")) == usable, "the connector skips them and goes on"
+    row = _rows(client(kms, "alice").diagnostics())["search_layout"]
+    assert row["status"] == "warn" and row["observed"]["unusable_records"] == unusable
+    assert "reason" not in row["observed"]
+
+
+def test_a_search_with_every_record_usable_counts_none(kms):
+    row = _rows(client(kms, "alice").diagnostics())["search_layout"]
+    assert row["status"] == "pass" and row["observed"]["unusable_records"] == 0
 
 
 def test_a_folder_that_cannot_be_opened_warns(kms):
