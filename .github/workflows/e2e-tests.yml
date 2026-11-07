@@ -15,7 +15,69 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Decides whether a PR can skip the backend e2e suite. It is an allowlist: a
+  # file skips only if it is listed here as unable to affect the backend, and
+  # anything new or unlisted runs everything. Skipping needs every changed file
+  # to be listed. Do not add a path because it looks harmless: check that neither
+  # backend/app nor backend/tests read it (frontend/public is left out because
+  # both do, and CHANGELOG.md, VERSION and bow-config.yaml are read at runtime).
+  #
+  # This job must run on every event, never be skipped. dispatch-build inherits
+  # needs from e2e-tests, and a skipped job anywhere up that chain would skip
+  # dispatch-build too. On anything but a PR its one step is skipped, so the
+  # output is false and everything runs.
+  #
+  # When in doubt it runs the suite: a failed filter step leaves the output
+  # false, and an empty PR or one over the 3,000 files the API can list never
+  # reaches the filter.
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      skip_backend_e2e: ${{ steps.filter.outputs.backend_e2e == 'false' && steps.filter.outputs.must_run == 'false' }}
+    steps:
+    - name: Classify changed files
+      id: filter
+      if: github.event_name == 'pull_request' && github.event.pull_request.changed_files > 0 && github.event.pull_request.changed_files < 3000
+      continue-on-error: true
+      uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
+      with:
+        predicate-quantifier: every
+        filters: |
+          backend_e2e:
+            - '**'
+            - '!docs/**'
+            - '!media/**'
+            - '!locales/**'
+            - '!README.md'
+            - '!LICENSE'
+            - '!SECURITY.md'
+            - '!DEV.md'
+            - '!frontend/README.md'
+            - '!frontend/assets/**'
+            - '!frontend/components/**'
+            - '!frontend/composables/**'
+            - '!frontend/ee/**'
+            - '!frontend/layouts/**'
+            - '!frontend/media/**'
+            - '!frontend/middleware/**'
+            - '!frontend/pages/**'
+            - '!frontend/plugins/**'
+            - '!frontend/tests/**'
+            - '!frontend/utils/**'
+          must_run:
+            - '**/{Dockerfile*,*.lock,*-lock.*}'
+
+  # `if` is evaluated before the matrix expands, so when this job is skipped
+  # GitHub reports one check named `e2e-tests`. `e2e-tests (sqlite)` and
+  # `e2e-tests (postgres)` then never appear, and a PR that required either one
+  # would wait forever. Require `e2e-tests-result` instead.
   e2e-tests:
+    needs: changes
+    # !cancelled(): if `changes` itself fails, run the suite rather than skip it.
+    if: ${{ !cancelled() && needs.changes.outputs.skip_backend_e2e != 'true' }}
     runs-on: ubuntu-latest
     # The suite outgrew the old 60- then 90-minute caps (it was being cancelled
     # mid-run). It now runs under pytest-xdist (see the E2E step), which cuts
@@ -114,6 +176,50 @@ jobs:
         path: backend/test-results/
         if-no-files-found: warn
         retention-days: 30
+
+  # The one e2e test a frontend change can break: it reads frontend/**/*.{vue,ts}
+  # and checks each useCan('x') against the permission registry. It runs on its
+  # own when the suite is skipped, so skipping loses nothing a frontend PR could
+  # have failed. Any new e2e test that reads frontend/ belongs here too.
+  e2e-skipped-checks:
+    needs: changes
+    if: needs.changes.outputs.skip_backend_e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+    - uses: actions/checkout@v7
+
+    - uses: ./.github/actions/setup-backend
+
+    - name: Check frontend permissions against the registry
+      working-directory: ./backend
+      env:
+        TESTING: "true"
+        ENVIRONMENT: "production"
+      run: |
+        uv run pytest "tests/e2e/rbac/test_rbac_registry.py::test_frontend_use_can_permissions_exist_in_registry" -m e2e --db=sqlite --disable-warnings --timeout=600 --timeout-method=thread
+
+  # One check with the same name on every run, so this is the one to require.
+  # always(), not !cancelled(): a job skipped by a condition reports success, so
+  # a result job that skipped on a cancelled run would let an untested PR merge.
+  e2e-tests-result:
+    if: always()
+    needs: [changes, e2e-tests, e2e-skipped-checks]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check the e2e outcome
+      env:
+        SKIP: ${{ needs.changes.outputs.skip_backend_e2e }}
+        E2E: ${{ needs.e2e-tests.result }}
+        SKIPPED_CHECKS: ${{ needs.e2e-skipped-checks.result }}
+      run: |
+        echo "skip=$SKIP e2e=$E2E skipped-checks=$SKIPPED_CHECKS"
+        if [ "$SKIP" = "true" ]; then
+          [ "$E2E" = "skipped" ] && [ "$SKIPPED_CHECKS" = "success" ]
+        else
+          [ "$E2E" = "success" ]
+        fi
 
   # tests/unit carries no pytest marker, so the -m e2e / -m ai steps above never
   # touched it and nothing else ran it either — two MS Fabric OAuth assertions
