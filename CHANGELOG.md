@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.612 (November 7, 2026)
+- Changed per-user password connections so data source owners connect their own login; only admins and manage_connections holders use the shared one (#1622)
+
 ## Version 0.0.611 (November 6, 2026)
 - Added a Dashboards page that finds any dashboard: created/edited dates, filters by agent, date, owner and status, sort, list view, stars and a Shared-with-me tab (#1608)
 - Added data preview to the agent's table selector: sample 50 rows, edit the query, and save it as a cached custom table (#1609)
@@ -19,7 +22,6 @@
 - Fixed a stopped SSH command showing as "Approval expired"; shell commands now show as expandable terminal rows (#1619)
 
 ## Version 0.0.610 (November 5, 2026)
-- Changed per-user password connections so data source owners connect their own login; only admins and manage_connections holders use the shared one
 - Fixed answers ending in a cut-off error when a query hit a table the agent can't use; the agent now explains and continues (#1592)
 - Changed the floating embedded chat to open at 600 × 720 px, matching BOW's preview (#1594) — `width` / `height` options in `BOWEmbed.mount`
 - Added chart images to WhatsApp replies, with brief plain-text answers and a report link for large tables instead of a CSV file (#1589)
