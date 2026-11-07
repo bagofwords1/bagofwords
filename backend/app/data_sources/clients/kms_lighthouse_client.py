@@ -276,6 +276,7 @@ class KmsHTTPError(KmsError):
     transport: str | None = None     # how an unreachable KMS failed (``_transport_failure``): a fixed word
     answered: int = 0                # the HTTP status, when the failure came after it was read
     verify_code: int | None = None   # OpenSSL's code, when a certificate failed verification
+    connect_timeout: bool = False    # the connect timed out, not the read
 
     def __init__(self, status: int, kind: str, message: str | None = None):
         if kind not in _MESSAGES:
@@ -2022,7 +2023,7 @@ class KmsLighthouseClient(DataSourceClient):
                 raise _LoginFailure(failed.status, "server")
             login_failure = _LoginFailure(failed.status, failed.kind, str(failed))
             login_failure.transport, login_failure.answered = failed.transport, failed.answered
-            login_failure.verify_code = failed.verify_code
+            login_failure.verify_code, login_failure.connect_timeout = failed.verify_code, failed.connect_timeout
             raise login_failure
 
     def _send_login(self, session: requests.Session, deadline=None, observe: dict | None = None) -> None:
@@ -2099,6 +2100,7 @@ class KmsLighthouseClient(DataSourceClient):
             left = max(_MIN_TIMEOUT_S, deadline - started)
             timeout = (min(_DEFAULT_TIMEOUT[0], left), min(_DEFAULT_TIMEOUT[1], left))
         status, body, failed, cause, timed_out, transport, verify_code = 0, b"", None, None, False, None, None
+        connect_timeout = False
         _IN_KMS_REQUEST.active = True   # urllib3 would log the URL with its query (ADR-2)
         try:
             with session.request(method, url, params=params, headers=headers, timeout=timeout,
@@ -2118,6 +2120,7 @@ class KmsLighthouseClient(DataSourceClient):
         except _TRANSPORT_ERRORS as exc:
             failed, cause = "unreachable", type(exc).__name__
             timed_out = _is_timeout(exc)
+            connect_timeout = isinstance(exc, requests.exceptions.ConnectTimeout)
             transport = _body_failure(exc) if status and not timed_out else _transport_failure(exc)
             verify_code = _verify_code(exc)
         finally:
@@ -2130,6 +2133,7 @@ class KmsLighthouseClient(DataSourceClient):
                      if timed_out and deadline is not None and deadline - time.monotonic() < _MIN_TIMEOUT_S
                      else KmsHTTPError(status if failed == "too_large" else 0, failed))
             error.transport, error.answered, error.verify_code = transport, status, verify_code
+            error.connect_timeout = connect_timeout
             raise error
         logger.debug("kms_lighthouse %s -> %s in %d ms", op, status, int((time.monotonic() - started) * 1000))
         return status, body

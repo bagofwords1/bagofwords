@@ -28,6 +28,10 @@ The safety rules, each held by this module:
 5. One check failing never stops the others, unless login failed. An unexpected
    exception becomes that check's ``fail`` with its type name only.
 6. Sampling is small and fixed: ``_MAX_ITEMS`` items and ``_MAX_SCENARIOS`` scenarios.
+
+Only a call the connector really makes with this configuration can fail a run
+or end it. Every other call goes through ``_Run.observe``: the budgets count it,
+and whatever it gets back is a word in its row.
 """
 from __future__ import annotations
 
@@ -38,6 +42,7 @@ import re
 import ssl
 from collections import Counter
 from datetime import datetime, timezone
+from itertools import zip_longest
 from urllib.parse import urlsplit
 
 from app.core.url_safety import UnsafeURLError
@@ -59,13 +64,14 @@ _STEP_FETCHES = 3             # per sampled scenario
 _MAX_SCENARIO_NODES = 400
 _MAX_NAMES = 40
 _PROOF_CHECKS = ("connector_browse", "connector_search", "connector_read")
-_PROOF_CALLS = 22             # 60 less the 38 the other checks can need at most
+_PROOF_CALLS = 21             # 60 less the 39 the other checks can need at most
 _PROOF_ENTRIES = 10           # one tree call per listed folder at most, so at most 11 calls
 _PROOF_HITS = 5
 _PROOF_ITEMS = 2
 _PROOF_SCENARIOS = 1
 # The connector needs a query; tenants differ in language, so try a few fixed ones.
 _SAMPLE_QUERIES = ("a", "*", "ה")
+_TITLE_WORD_RE = re.compile(r"\w{3,}")
 _NO_HIT_QUERY = "zqxbowdiagnosticsnohit"
 _LONGER_QUERIES = (500, 1000)
 _SHORTER_QUERIES = (100, 50)
@@ -80,6 +86,8 @@ _DATE_KEYS = ("updateDate", "updatedDate", "createDate", "createdDate")
 _STEP_TEXT_KEYS = ("text", "stepName", "stepRemark", "stepNodeText")
 _TAG_RE = re.compile(r"<[A-Za-z/!?]")
 _TLS_FAILURES = ("untrusted_certificate", "tls_failed")
+_SLOWER = "slower_than_limit"         # a timeout this run cut below the connector's: KMS may only be slow
+_REACH_ROWS = ("network", "tls", "expiry")   # all three judge the one call with no session
 # What may appear as a string in a report: a plain identifier.
 _NAME_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,47}")
 _HOST_RE = re.compile(r"[a-z0-9.\[\]:-]{1,253}")
@@ -93,6 +101,10 @@ _CLIENT_ENDED = "Skipped: the run could not start."
 _CUT_OFF_ENDED = "Skipped: the run was cut off; calls may have been sent."
 _NO_REPLY = "Skipped: the first call got no reply to judge."
 _CA_BUNDLE_ENDED = "Skipped: the CA bundle cannot be read, so nothing was sent."
+_NO_REACH = "Skipped: the request with no session got no answer."
+_REACH_ONLY = "The request with no session got no answer, but later calls reached KMS."
+_SLOWER_SUMMARY = ("KMS did not answer within this run's shorter time limit. KMS may still work for users: "
+                   "the connector waits longer.")
 _FAILURE_SUMMARIES = {
     "dns": "The KMS host name did not resolve. Check the URL and this server's DNS.",
     "refused": "The KMS host refused the connection. Check the URL, the port and the firewall.",
@@ -199,12 +211,12 @@ class _Reply:
 
 
 def _is_transport(reply: _Reply) -> bool:
-    """No answer came back. A body the connector could not parse also has status 0, but carries no such word."""
-    return reply.status == 0 and reply.failure in _FAILURE_SUMMARIES
+    """No answer came back, also when a stall came after the status. A broken body carries no such word."""
+    return reply.failure in _FAILURE_SUMMARIES
 
 
-def _reply_of(failed: kc.KmsHTTPError) -> _Reply:
-    return _Reply(failed.answered or failed.status, None, failed.transport or failed.kind, failed.verify_code)
+def _no_answer(reply: _Reply) -> bool:
+    return _is_transport(reply) or reply.failure == _SLOWER
 
 
 def _body_chars(text: str) -> int:
@@ -268,6 +280,10 @@ def _tree_rows(reply: _Reply) -> list | None:
     return None if _record_fault(records) else records
 
 
+def _taking_turns(first: list, second: list) -> list:
+    return [entry for pair in zip_longest(first, second) for entry in pair if entry is not None]
+
+
 def _reason(reply: _Reply, fault: str | None) -> dict:
     """``{"reason": ...}`` when a usable answer held records the connector would refuse."""
     return {"reason": fault} if reply.ok else {}
@@ -290,8 +306,10 @@ class _Run:
         latest = self.started + _MAX_SECONDS
         self.deadline = latest if deadline is None else min(deadline, latest)
         self.calls = 0
+        self.allowed = 0.0                   # the seconds the latest call was given
         self.ended: str | None = None        # why every later check is skipped
         self.reach: _Reply | None = None     # None until a call came back
+        self.reached = False                 # some call got an answer from KMS
         self.ca_unreadable = False
         self.tree_records: list = []
         self.search_records: list = []
@@ -304,8 +322,10 @@ class _Run:
         self.step_fetches: list = []         # (scenario digits, step id) that need their own call
         self.sent: list = []                 # the answers of the check that is running
         self.proof_calls = 0
-        self.proof_entries: list = []        # what the connector listed and found
+        self.proof_listed: list = []         # the items and scenarios the connector listed
+        self.proof_found: list = []          # what the connector's search found
         self.proof_read: list = []           # the entry ids it was asked to read
+        self.title_word: str | None = None   # from a listed title, for one more query; never reported
 
     # ------------------------------------------------------------ the budget and the one way out
     def _take_call(self, connector_timeout: bool = False):
@@ -323,9 +343,10 @@ class _Run:
             raise _Stop()
         self.calls += 1
         if connector_timeout:
-            read = min(kc._DEFAULT_TIMEOUT[1], left - kc._DEFAULT_TIMEOUT[0])
-            return kc._clock() + max(kc._MIN_TIMEOUT_S, read)
-        return kc._clock() + min(_CALL_SECONDS, left / 2)
+            self.allowed = max(kc._MIN_TIMEOUT_S, min(kc._DEFAULT_TIMEOUT[1], left - kc._DEFAULT_TIMEOUT[0]))
+        else:
+            self.allowed = min(_CALL_SECONDS, left / 2)
+        return kc._clock() + self.allowed
 
     def _take_proof_call(self):
         if self.proof_calls >= _PROOF_CALLS:
@@ -336,16 +357,17 @@ class _Run:
     def closing(self) -> tuple | None:
         """``(summary, observed, stage)`` when what this check's calls saw ends the run.
 
-        The one way out for a dead line (every call of the check got no answer)
-        and for a session or token KMS stopped accepting (any call saw it).
+        The one way out for a dead line (the check's last call got no answer)
+        and for a session or token KMS stopped accepting (a call saw it, and no
+        call of the check proved the session).
         """
         replies = self.sent
-        if replies and all(_is_transport(reply) for reply in replies):
+        if replies and _is_transport(replies[-1]):
             last = replies[-1]
             self.ended = _UNREACHABLE_ENDED
             return _failure_summary(last.failure, last.verify_code), last.observed(), _transport_stage(last.failure)
         lost = next((reply for reply in replies if kc._session_lost(reply.status)), None)
-        if lost is None:
+        if lost is None or any(reply.ok for reply in replies):
             return None
         self.ended = _SESSION_ENDED
         if self.client.auth_method == "token":
@@ -353,12 +375,33 @@ class _Run:
         return ("KMS accepted the login but refused its session. Ask the KMS admin about API access.",
                 {**lost.observed(), "reason": "session_refused"}, "login")
 
-    def get(self, op: str, path: str, *, prefix=None, **kwargs) -> _Reply:
-        """One call of a check. An answer from another prefix says nothing about the session."""
-        reply = self._call(op, path, prefix=prefix, **kwargs)
-        if prefix is None or not kc._session_lost(reply.status):
-            self.sent.append(reply)
+    def get(self, op: str, path: str, **kwargs) -> _Reply:
+        """A call the connector makes with this configuration: ``closing`` judges it."""
+        reply = self._call(op, path, **kwargs)
+        self.sent.append(reply)
         return reply
+
+    def observe(self, op: str, path: str, **kwargs) -> _Reply:
+        """Any other call. The budgets count it, but it can neither fail the run nor end it."""
+        return self._call(op, path, **kwargs)
+
+    def line_gone(self) -> bool:
+        """The latest call of this check lost the line or the session: no point in sending another."""
+        return bool(self.sent) and (_is_transport(self.sent[-1]) or kc._session_lost(self.sent[-1].status))
+
+    def slowed(self, status: str) -> bool:
+        """This row's outcome comes from a timeout the run cut short, not from an answer of KMS."""
+        answered = [reply for reply in self.sent if reply.failure != _SLOWER]
+        return len(answered) < len(self.sent) and (status != "fail" or all(reply.ok for reply in answered))
+
+    def _cut_short(self, failed: kc.KmsHTTPError) -> bool:
+        """The call timed out, and this run gave it less time than the connector would have."""
+        timeout = kc._DEFAULT_TIMEOUT[0 if failed.connect_timeout else 1]
+        return failed.transport == "timeout" and self.allowed < timeout
+
+    def _reply_of(self, failed: kc.KmsHTTPError) -> _Reply:
+        word = _SLOWER if self._cut_short(failed) else failed.transport or failed.kind
+        return _Reply(failed.answered or failed.status, None, word, failed.verify_code)
 
     def _connector(self, call, *args, **kwargs) -> tuple:
         """``(what a public connector method gave, None)``, or ``(None, the kind it failed with)``."""
@@ -369,12 +412,12 @@ class _Run:
         except SearchStopped as stop:
             found = stop.files      # a small limit ends in "max_results"
             if stop.stop_reason == "deadline" and not found:
-                self.sent.append(_Reply(0, None, "timeout"))
+                self.sent.append(_Reply(0, None, _SLOWER))
                 return None, "unreachable"
         except kc.KmsHTTPError as exc:
             failed = exc
         if failed is not None:
-            self.sent.append(_reply_of(failed))
+            self.sent.append(self._reply_of(failed))
             return None, failed.kind
         self.sent.append(_Reply(200, {}))
         return found, None
@@ -388,9 +431,11 @@ class _Run:
             status, body = client._send(session or client._session(), op, "GET", path, params=params, headers=headers,
                                         deadline=deadline, prefix=prefix)
         except kc.KmsHTTPError as exc:
-            failed = _reply_of(exc)
+            failed = self._reply_of(exc)
         if failed is not None:
+            self.reached = self.reached or not _no_answer(failed)
             return failed
+        self.reached = True
         if status != 200 or not body.strip():
             return _Reply(status, None, None if status != 200 else "empty_body")
         try:
@@ -398,11 +443,15 @@ class _Run:
         except (ValueError, RecursionError):
             return _Reply(status, None, "not_json")
 
-    def _search(self, query: str, *, layout: bool = True, start: int = 0) -> _Reply:
+    def _search(self, query: str, *, layout: bool = True, start: int = 0, observation: bool = False) -> _Reply:
         params = {"query": query, "start": str(start), "rows": str(_ROWS)}
         if layout and self.client.layout_id is not None:
             params["layoutId"] = str(self.client.layout_id)
-        return self.get("diagnostics_search", _SEARCH, params=params)
+        return (self.observe if observation else self.get)("diagnostics_search", _SEARCH, params=params)
+
+    def _queries(self) -> tuple:
+        """The fixed queries, then a word from a listed title when there is one."""
+        return _SAMPLE_QUERIES + ((self.title_word,) if self.title_word else ())
 
     # ------------------------------------------------------------ network, TLS, item 3
     def _ca_bundle_unreadable(self) -> bool:
@@ -420,8 +469,10 @@ class _Run:
             self.ca_unreadable = True
             return "skipped", "Skipped: nothing is sent until the CA bundle can be read.", {}
         # The first call carries no session and no credential (a new session has neither).
-        # Not through ``get``: the network, tls and expiry rows each judge this one answer.
-        self.reach = self._call("diagnostics_reach", _TREE, session=self.client._new_session(), connector_timeout=True)
+        # The connector never makes it; ``settle_reach`` weighs it against the calls after it.
+        self.reach = self.observe("diagnostics_reach", _TREE, session=self.client._new_session(), connector_timeout=True)
+        if self.reach.failure == _SLOWER:
+            return "warn", _SLOWER_SUMMARY, {"reached": False, "failure": _SLOWER}
         failure = self.reach.failure if _is_transport(self.reach) else None
         if failure is None or failure in _TLS_FAILURES:
             return "pass", "This server reached KMS.", {"reached": True}
@@ -439,16 +490,16 @@ class _Run:
         if failure in _TLS_FAILURES:
             return "fail", _failure_summary(failure, self.reach.verify_code), {
                 "failure": failure, "verify_code": self.reach.verify_code}
-        if failure is not None:
-            return "skipped", "Skipped: KMS was not reached.", {}
+        if _no_answer(self.reach):
+            return "skipped", _NO_REACH, {}
         return "pass", "The KMS certificate is trusted.", {"verified": True}
 
     def check_expiry(self):
         reply = self.reach
         if reply is None:
             return "skipped", _NO_REPLY, {}
-        if _is_transport(reply):
-            return "skipped", "Skipped: KMS was not reached.", {}
+        if _no_answer(reply):
+            return "skipped", _NO_REACH, {}
         observed = {"http_status": reply.status, "redirected": 300 <= reply.status < 400,
                     **({"failure": reply.failure} if reply.failure else {})}
         if kc._session_lost(reply.status):
@@ -479,7 +530,7 @@ class _Run:
             return "fail", "A rejected login is recent, so no login was sent. Wait five minutes.", {
                 **observed, "reason": "held"}
         if failure is None:
-            self.ended = None
+            self.ended, self.reached = None, True
             return "pass", "KMS accepted the login. One run cannot measure the session lifetime.", observed
         return self._login_failed(failure, observed)
 
@@ -495,7 +546,11 @@ class _Run:
                 "unlisted_names": left_out + cookies_left_out}
 
     def _login_failed(self, failure: kc.KmsHTTPError, observed: dict):
-        if failure.transport is not None and failure.answered:
+        if self._cut_short(failure):
+            return "warn", _SLOWER_SUMMARY, {**observed, "failure": _SLOWER}
+        answered = failure.transport not in _FAILURE_SUMMARIES
+        self.reached = self.reached or answered
+        if failure.transport is not None and answered:
             return "fail", "KMS answered the login, but the answer could not be read.", {
                 **observed, "http_status": failure.answered, "reason": failure.transport}
         if failure.transport is not None:
@@ -511,21 +566,21 @@ class _Run:
         return "fail", "The login failed for a reason other than the password.", {**observed, "reason": reason}
 
     def _check_token(self):
-        reply = self.get("diagnostics_session", "/sessionInfo")
+        # The connector uses /sessionInfo for a name only and ignores any answer but a 401
+        # (``test_connection``), so that alone ends the run; the tree read decides the rest.
+        reply = self.observe("diagnostics_session", "/sessionInfo")
+        if reply.status == 401:
+            self.ended = _SESSION_ENDED
+            return "fail", "KMS refused the API token.", {**reply.observed(), "reason": "rejected"}
         self.ended = None
         if reply.ok:
             return "pass", "An API token never logs in; KMS answered it.", reply.observed()
-        # The connector uses /sessionInfo for a name only: anything but a refused token is no verdict on it.
         return "warn", "/sessionInfo gave no usable answer. It is optional: the next read decides.", reply.observed()
 
     def check_session(self):
-        """One read as the session or token: a refusal here is a login failure, not a browse failure."""
-        client = self.client
-        root = client.root_folder_id
+        """One read as the session or token: a lost session here is a login failure, not a browse failure."""
+        root = self.client.root_folder_id
         reply = self.get("diagnostics_session", _TREE, params=None if root is None else {"parentId": str(root)})
-        if client.auth_method == "token" and (reply.status == 403 or (reply.status == 400 and root is not None)):
-            self.ended = _SESSION_ENDED
-            return "fail", "KMS refused the API token.", {**reply.observed(), "reason": "rejected"}
         if not reply.ok:
             return "warn", "The first read after the login got an unexpected answer.", reply.observed()
         return "pass", "KMS accepted the session or token on a read.", reply.observed()
@@ -537,28 +592,56 @@ class _Run:
         observed = {"calls": self.calls - before}
         if kind:
             return "fail", "The connector could not list the folder tree.", {**observed, "kind": kind}
-        self.proof_entries += found
-        observed["entries"] = len(found)
+        self.proof_listed = [entry for entry in found if entry["kind"] != "folder"]
+        words = (_TITLE_WORD_RE.search(entry["name"]) for entry in self.proof_listed + found)
+        self.title_word = next((word.group() for word in words if word), None)
+        capped = len(found) >= _PROOF_ENTRIES
+        observed.update(entries=len(found), content_entries=len(self.proof_listed), capped=capped)
+        cut = " The listing reached this run's limit, so only part of the tree was proved." if capped else ""
         if not found:
             return "warn", "The connector listed nothing: an agent would see an empty knowledge base.", observed
-        return "pass", "The connector listed the folder tree.", observed
+        if not self.proof_listed:
+            return "warn", "The connector listed folders and nothing to read." + cut, observed
+        return "pass", "The connector listed the folder tree." + cut, observed
 
     def check_connector_search(self):
-        for tried, query in enumerate(_SAMPLE_QUERIES, 1):
+        tried, refused, kind = 0, 0, None
+        for query in self._queries():
+            tried += 1
             found, kind = self._connector(self.client.search_files, query, limit=_PROOF_HITS)
-            if kind:
-                return "fail", "The connector could not search.", {"kind": kind, "queries_tried": tried}
             if found:
-                self.proof_entries += found
-                return "pass", "The connector found results.", {"entries": len(found), "queries_tried": tried}
-        return ("warn", "The connector found nothing for the fixed queries: every hit was empty or hidden.",
-                {"entries": 0, "queries_tried": len(_SAMPLE_QUERIES)})
+                self.proof_found = found
+                observed = {"entries": len(found), "queries_tried": tried, "queries_refused": refused}
+                if refused:
+                    return "warn", "The connector found results, but KMS refused a fixed query.", observed
+                return "pass", "The connector found results.", observed
+            refused += 1 if kind else 0
+            if self.line_gone():
+                break
+        observed = {"entries": 0, "queries_tried": tried, "queries_refused": refused}
+        if refused == tried:
+            return "fail", "The connector could not search.", {**observed, "kind": kind}
+        return "warn", "The connector found nothing for the sample queries: every hit was empty or hidden.", observed
 
-    def _proof_sample(self, kind: str, count: int) -> list:
-        return list(dict.fromkeys(entry["id"] for entry in self.proof_entries if entry["kind"] == kind))[:count]
+    def _proof_sample(self) -> list:
+        """A search hit first, then a listed entry, whatever their kinds; then the rest up to the fixed counts."""
+        room, sample = Counter(item=_PROOF_ITEMS, scenario=_PROOF_SCENARIOS), []
+
+        def take(entry):
+            sample.append(entry["id"])
+            room[entry["kind"]] -= 1
+
+        for source in (self.proof_found, self.proof_listed):
+            entry = next((entry for entry in source if entry["id"] not in sample), None)
+            if entry is not None:
+                take(entry)
+        for entry in self.proof_found + self.proof_listed:
+            if entry["id"] not in sample and room[entry["kind"]] > 0:
+                take(entry)
+        return sample
 
     def check_connector_read(self):
-        self.proof_read = self._proof_sample("item", _PROOF_ITEMS) + self._proof_sample("scenario", _PROOF_SCENARIOS)
+        self.proof_read = self._proof_sample()
         kinds, usable, header_only, chars = Counter(), 0, 0, 0
         for entry_id in self.proof_read:
             text, kind = self._connector(self.client.read_file, entry_id)
@@ -569,10 +652,13 @@ class _Run:
             chars += body
             usable += 1 if body else 0
             header_only += 0 if body else 1
+        failed = sum(kinds.values())
         observed = {"reads": len(self.proof_read), "usable": usable, "header_only": header_only, "body_chars": chars,
-                    "kinds": dict(kinds)}
-        if kinds:
-            return "fail", "The connector could not read an entry it listed.", observed
+                    "failed_reads": failed, "kinds": dict(kinds)}
+        if failed and failed == len(self.proof_read):
+            return "fail", "The connector could not read any entry it listed.", observed
+        if failed:
+            return "warn", "The connector could not read one entry it listed, and read another.", observed
         if not self.proof_read:
             return "warn", "The connector listed nothing to read.", observed
         if header_only:
@@ -587,6 +673,11 @@ class _Run:
         if rows:
             self.tree_records.extend(rows)
         return reply, rows or []
+
+    def _no_parent_level(self) -> tuple[_Reply, list]:
+        """The tree call with no parent, which the connector never makes with a root set: it samples nothing."""
+        reply = self.observe("diagnostics_tree", _TREE)
+        return reply, _tree_rows(reply) or []
 
     def _enough_samples(self) -> bool:
         kinds = Counter(kc._kind_of(record) for record in self.tree_records)
@@ -606,15 +697,13 @@ class _Run:
 
     def check_top_level(self):
         root = self.client.root_folder_id
-        top, top_rows = self._level()
+        top, top_rows = self._level() if root is None else self._no_parent_level()
         observed = {**top.observed(), "no_parent_status": _status_key(top), "records": len(top_rows),
                     "folders": sum(1 for row in top_rows if kc._kind_of(row) == "folder")}
         start, start_rows = top, top_rows
         if root is not None:
             start, start_rows = self._level(root)
             observed.update(root_status=start.status, root_records=len(start_rows))
-        if start_rows:
-            self.sent = []      # the start answered, so the folders opened from it are judged alone
         opened = self._walk(start_rows)
         failed = sum(1 for reply in opened if _tree_rows(reply) is None)
         observed.update(folders_opened=len(opened), folders_failed=failed, folder_statuses=_status_counts(opened))
@@ -644,10 +733,11 @@ class _Run:
     def _ids_of(self, kind: str) -> list:
         """Sampled ids of ``kind``, in order, without offline content the connector would hide.
 
-        What the connector rows read comes first: they count towards the same sample (rule 6).
+        What the connector rows read comes first: they count towards the same sample
+        (rule 6). Then search and the tree take turns, so a small sample holds both.
         """
         seen = [entry_id.partition(":")[2] for entry_id in self.proof_read if entry_id.startswith(f"{kind}:")]
-        for record in self.tree_records + self.search_records:
+        for record in _taking_turns(self.search_records, self.tree_records):
             raw = str(record.get("id", ""))
             if (kc._kind_of(record) == kind and kc._DIGITS_RE.fullmatch(raw) and raw not in seen
                     and not self.client._hidden(record)):
@@ -665,8 +755,8 @@ class _Run:
 
     # ------------------------------------------------------------ search, items 8, 9, 17, 18
     def check_search_layout(self):
-        tried, reply, rows = 0, _Reply(0), None
-        for query in _SAMPLE_QUERIES:
+        tried, refused, reply, rows = 0, 0, _Reply(0), None
+        for query in self._queries():
             tried += 1
             reply = self._search(query)
             rows = _search_rows(reply)
@@ -674,28 +764,36 @@ class _Run:
                 self.search_query = query
                 self.search_records = rows
                 break
-            if rows is None:
+            refused += 1 if rows is None else 0
+            if self.line_gone():
                 break
         layout_set = self.client.layout_id is not None
-        observed = {"layout_set": layout_set, "queries_tried": tried}
-        if layout_set and not _is_transport(reply):
+        observed = {"layout_set": layout_set, "queries_tried": tried, "queries_refused": refused}
+        bare_unclear = False
+        if layout_set and not self.line_gone():
             observed.update(with_layout_status=_status_key(reply), with_layout_rows=len(rows or ()))
-            bare = self._search(self.search_query or _SAMPLE_QUERIES[0], layout=False)
-            refused = bare.status in _QUERY_REJECTIONS or bare.kms_error
+            bare = self._search(self.search_query or _SAMPLE_QUERIES[0], layout=False, observation=True)
+            bare_refused = bare.status in _QUERY_REJECTIONS or bare.kms_error
+            bare_unclear = _search_rows(bare) is None and not bare_refused
             observed.update(without_layout_status=_status_key(bare), without_layout_rows=len(_search_rows(bare) or ()),
                             layout_statuses=_status_counts([reply, bare]),
-                            layout_required=True if reply.ok and refused else None)
+                            layout_required=True if reply.ok and bare_refused else None)
         elif not layout_set:
             observed.update(without_layout_status=_status_key(reply), without_layout_rows=len(rows or ()))
-        if rows is None:
+        if refused == tried:
             return "fail", "The search call failed.", {**observed, "failure": reply.failure,
                                                        **_reason(reply, _search_fault(_search_records(reply)))}
+        rows = rows or []
         unusable = _unusable(rows)
         observed["unusable_records"] = unusable
         if not rows:
-            return "warn", "The search call worked but none of the fixed queries found anything.", observed
+            return "warn", "The search call worked but none of the sample queries found anything.", observed
+        if refused:
+            return "warn", "The search call returned results, but KMS refused a fixed query.", observed
         if unusable:
             return "warn", "Some search records have no numeric id. The connector skips them.", observed
+        if bare_unclear:
+            return "info", "The search call returned results. The same search with no layout gave no clear answer.", observed
         return "pass", "The search call returned results.", observed
 
     def check_query_length(self):
@@ -703,7 +801,7 @@ class _Run:
         replies, found = [], {}             # outcome -> the length that last gave it
 
         def attempt(length: int) -> str:
-            replies.append(self._search("a" * length))
+            replies.append(self._search("a" * length, observation=length > limit))   # the connector cuts those
             answer = replies[-1]
             outcome = ("rejected" if answer.status in _QUERY_REJECTIONS
                        else "accepted" if _search_rows(answer) is not None else "inconclusive")
@@ -715,11 +813,13 @@ class _Run:
         for length in {"accepted": _LONGER_QUERIES, "rejected": _SHORTER_QUERIES}.get(first, ()):
             if attempt(length) != first:
                 break
-        longest, inconclusive = found.get("accepted"), "inconclusive" in found
+        longest, unclear = found.get("accepted"), found.get("inconclusive")
         observed = {"connector_limit": limit, "longest_accepted": longest, "shortest_rejected": found.get("rejected"),
-                    "calls": len(replies), "inconclusive": inconclusive, "statuses": _status_counts(replies)}
-        if inconclusive:
+                    "calls": len(replies), "inconclusive": unclear is not None, "statuses": _status_counts(replies)}
+        if unclear is not None and unclear <= limit:
             return "warn", "KMS gave an answer to a long query that neither accepts nor rejects it.", observed
+        if unclear is not None:
+            return "info", "KMS accepts every query length the connector sends. A longer one got no clear answer.", observed
         if longest is not None and longest >= limit:
             return "pass", "KMS accepts every query length the connector sends.", observed
         return "warn", "KMS rejected a query the connector could send. Tell the BOW engineers.", observed
@@ -745,16 +845,18 @@ class _Run:
             return "skipped", "Skipped: no search returned rows.", {}
         returned = len(self.search_records)
         observed = {"rows_requested": _ROWS, "rows_returned": returned}
-        if returned >= _ROWS:
-            return "pass", "KMS returned every row asked for.", {**observed, "server_cap": False}
-        # A short page: the end of the results, or a cap? The next page tells.
-        reply = self._search(self.search_query, start=returned)
+        full = returned >= _ROWS
+        # After a full page the connector asks for the next one. After a short page it stops
+        # (``search_files``), so that call is an observation: the end of the results, or a cap?
+        reply = self._search(self.search_query, start=_ROWS if full else returned, observation=not full)
         following = _search_rows(reply)
         if following is None:
-            observed.update(next_page_status=_status_key(reply), server_cap=None)
+            observed.update(next_page_status=_status_key(reply), server_cap=False if full else None)
+            if full:
+                return "fail", "KMS refused the next page of results, which the connector asks for.", observed
             return "warn", "The next page of results could not be read, so a server-side cap cannot be ruled out.", observed
-        observed.update(next_page_rows=len(following), server_cap=bool(following))
-        if following:
+        observed.update(next_page_rows=len(following), server_cap=bool(following) and not full)
+        if following and not full:
             return "warn", "KMS caps rows per page below what the connector asks for, so paging stops early.", observed
         return "pass", "No server-side cap on rows was seen.", observed
 
@@ -819,7 +921,7 @@ class _Run:
             if isinstance(elements, list):
                 records = [element for element in elements if isinstance(element, dict)]
                 self.ai_records.append(records)
-                ai_names |= {element.get("element_name") for element in records}
+                ai_names |= {name for name in (element.get("element_name") for element in records) if isinstance(name, str)}
                 item_names |= set(kc._elements(item))
         if not replies:
             return "skipped", "Skipped: no sampled item has a version and a language.", {}
@@ -946,7 +1048,7 @@ class _Run:
         for label, prefix in _ALT_PREFIXES.items():
             if prefix == self.client.api_prefix:
                 continue
-            reply = self.get("diagnostics_prefix", path, params=params, prefix=prefix)
+            reply = self.observe("diagnostics_prefix", path, params=params, prefix=prefix)
             alternatives[label] = {**reply.observed(), "served": reply.ok}
         return "info", "One authenticated GET per other known prefix; no login was sent there.", {
             "endpoint": endpoint, "alternatives": alternatives}
@@ -1014,11 +1116,25 @@ def _run_check(run: _Run, check_id: str, checklist: list, stage: str, method) ->
     if closing is not None:
         summary, seen, stage_seen = closing
         return _row(check_id, checklist, stage_seen, "fail", summary, {**observed, **seen})
+    if run.slowed(status):
+        return _row(check_id, checklist, stage, "warn", _SLOWER_SUMMARY, {**observed, "failure": _SLOWER})
     return _row(check_id, checklist, moved[0] if moved else stage, status, summary, observed)
+
+
+def _settle_reach(run: _Run, rows: list) -> None:
+    """A later answer outweighs the call with no session, which the connector never makes."""
+    if run.reached and run.reach is not None and _no_answer(run.reach):
+        for row in rows:
+            if row["id"] in _REACH_ROWS:
+                row["observed"]["observation_failed"] = True
+                if row["status"] == "fail":
+                    row.update(status="warn", summary=_REACH_ONLY)
 
 
 def _lowers_overall(row: dict) -> bool:
     """A warning or a skip, unless it says nothing about this run: only a person can answer those."""
+    if row["observed"].get("observation_failed"):
+        return False
     if row["status"] == "warn":
         return row["id"] not in _MANUAL_CHECKS
     if row["status"] == "skipped":
@@ -1056,6 +1172,7 @@ def run_diagnostics(client, deadline=None) -> dict:
             rows.append(_row(check_id, checklist, stage, "skipped", run.ended, {}))
         else:
             rows.append(_run_check(run, check_id, checklist, stage, method))
+    _settle_reach(run, rows)
     duration_ms = max(0, int((kc._clock() - run.started) * 1000))
     return _report(_host_of(client._base), client.api_prefix, client.auth_method, client.root_folder_id is not None,
                    rows, run.calls, duration_ms, run.ended)

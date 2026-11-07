@@ -180,9 +180,9 @@ def _nothing(_kms, _monkeypatch):
 
 
 @pytest.mark.parametrize("fault,root,row_id,status,connector_says", [
-    (_offline_item, _CLEAN_ROOT, "connector_read", "fail",
+    (_offline_item, _CLEAN_ROOT, "connector_read", "warn",
      lambda probe: _failure_kind(probe.read_file, "item:279") == "not_found"),
-    (_scenario_with_no_id, _CLEAN_ROOT, "connector_read", "fail",
+    (_scenario_with_no_id, _CLEAN_ROOT, "connector_read", "warn",
      lambda probe: _failure_kind(probe.read_file, "scenario:21302") == "server"),
     (_tabs_with_no_elements, _CLEAN_ROOT, "connector_read", "warn",
      lambda probe: "\n\n" not in probe.read_file("item:279")),
@@ -229,7 +229,7 @@ def test_a_row_that_failed_in_the_connector_names_its_kind_only(kms, monkeypatch
     _clean_tenant(kms, monkeypatch)
     _offline_item(kms, monkeypatch)
     row = _rows(_clean_client(kms).diagnostics())["connector_read"]
-    assert row["observed"]["kinds"] == {"not_found": 1}
+    assert row["observed"]["kinds"] == {"not_found": 1} and row["observed"]["failed_reads"] == 1
     assert row["observed"]["reads"] == 2 and row["observed"]["usable"] == 1
 
 
@@ -381,7 +381,8 @@ def _chain_of_folders(kms, monkeypatch, length):
 def test_a_deep_tree_cannot_spend_the_budget_in_the_browse_row(kms, monkeypatch):
     _chain_of_folders(kms, monkeypatch, 60)
     row = _rows(client(kms, "alice").diagnostics())["connector_browse"]
-    assert row["status"] == "pass" and row["observed"]["calls"] == kd._PROOF_ENTRIES
+    assert row["status"] == "warn" and row["observed"]["calls"] == kd._PROOF_ENTRIES
+    assert row["observed"]["capped"] is True and "part of the tree" in row["summary"]
     assert kd._PROOF_ENTRIES + 1 <= kd._PROOF_CALLS
 
 
@@ -434,6 +435,7 @@ def test_the_connector_rows_do_not_widen_the_sample(kms, monkeypatch):
 
 # ------------------------------------------------------------------ one way out of a run on a dead line
 _READ_TIMEOUT = requests.exceptions.ReadTimeout()
+_LINE_GONE = requests.exceptions.ConnectionError(ConnectionRefusedError())
 _CERT_LOST = requests.exceptions.SSLError(ssl.SSLError())
 
 
@@ -453,7 +455,7 @@ def _fail_calls(monkeypatch, marker, error):
     return after
 
 
-@pytest.mark.parametrize("error,stage,word", [(_READ_TIMEOUT, "network", "timeout"), (_CERT_LOST, "tls", "tls_failed")])
+@pytest.mark.parametrize("error,stage,word", [(_LINE_GONE, "network", "refused"), (_CERT_LOST, "tls", "tls_failed")])
 def test_a_search_call_that_gets_no_answer_ends_the_run_at_its_transport_stage(kms, monkeypatch, error, stage, word):
     after = _fail_calls(monkeypatch, "/search/full", error)
     report = client(kms, "alice", layout_id=7).diagnostics()
@@ -464,16 +466,16 @@ def test_a_search_call_that_gets_no_answer_ends_the_run_at_its_transport_stage(k
     assert rows["search_layout"]["status"] == "skipped" and rows["prefix"]["status"] == "skipped"
 
 
-def test_a_search_that_hits_the_deadline_reads_as_a_timeout(kms, monkeypatch):
+def test_a_search_that_hits_the_deadline_never_reads_as_no_hits(kms, monkeypatch):
     """The connector turns a timed-out page into a stop with nothing found, so the row must not read as "no hits"."""
-    after = _fail_calls(monkeypatch, "/search/full", _READ_TIMEOUT)
+    _fail_calls(monkeypatch, "/search/full", _READ_TIMEOUT)
     report = client(kms, "alice").diagnostics(deadline=kc._clock() + 1.5)
     row = _rows(report)["connector_search"]
-    assert row["status"] == "fail" and row["stage"] == "network" and row["observed"]["failure"] == "timeout"
-    assert report["failed_stage"] == "network" and len(after) == 1
+    assert row["status"] == "warn" and row["observed"]["failure"] == "slower_than_limit"
+    assert report["overall"] == "warn"
 
 
-@pytest.mark.parametrize("error,stage", [(_READ_TIMEOUT, "network"), (_CERT_LOST, "tls")])
+@pytest.mark.parametrize("error,stage", [(_LINE_GONE, "network"), (_CERT_LOST, "tls")])
 def test_item_calls_that_all_get_no_answer_end_the_run(kms, monkeypatch, error, stage):
     """Search and the tree work; every item read fails on the wire."""
     _clean_tenant(kms, monkeypatch)
@@ -486,10 +488,10 @@ def test_item_calls_that_all_get_no_answer_end_the_run(kms, monkeypatch, error, 
 
 def test_one_call_of_several_with_no_answer_does_not_end_the_run(kms, monkeypatch):
     _clean_tenant(kms, monkeypatch)
-    _fail_calls(monkeypatch, "/public/item/", _READ_TIMEOUT)
+    _fail_calls(monkeypatch, "/public/item/", _LINE_GONE)
     report = _clean_client(kms).diagnostics()
     rows = _rows(report)
-    assert rows["connector_read"]["status"] == "fail" and rows["connector_read"]["stage"] == "read"
+    assert rows["connector_read"]["status"] == "warn" and rows["connector_read"]["stage"] == "read"
     assert rows["connector_read"]["observed"]["kinds"] == {"unreachable": 1}
     assert rows["field_types"]["status"] != "skipped", "the scenario was read, so the line is up"
 
@@ -505,18 +507,18 @@ def test_folders_that_all_get_no_answer_end_the_run(kms, monkeypatch):
             sent.append(url)
         if parent in ("12", "13", "14"):
             sent.append(url)
-            raise _READ_TIMEOUT
+            raise _LINE_GONE
         return real(self, method, url, **kwargs)
 
     monkeypatch.setattr(requests.Session, "request", only_folders_fail)
     report = client(kms, "alice", root_folder_id=10).diagnostics()
     row = _rows(report)["connector_browse"]
-    assert row["stage"] == "network" and row["observed"]["failure"] == "timeout"
+    assert row["stage"] == "network" and row["observed"]["failure"] == "refused"
     assert report["failed_stage"] == "network" and len(sent) == 1
 
 
 def test_a_walk_that_gets_no_answer_reads_as_network_even_after_the_root_answered(kms, monkeypatch):
-    """The third read of the root is the top_level check's own; every folder it opens after that times out."""
+    """The third read of the root is the top_level check's own; every folder it opens after that loses the line."""
     real = requests.Session.request
     root_reads = []
 
@@ -524,7 +526,7 @@ def test_a_walk_that_gets_no_answer_reads_as_network_even_after_the_root_answere
         parent = (kwargs.get("params") or {}).get("parentId")
         root_reads.extend([parent] if parent == "10" else [])
         if len(root_reads) == 3 and parent in ("12", "13", "14"):
-            raise _READ_TIMEOUT
+            raise _LINE_GONE
         return real(self, method, url, **kwargs)
 
     monkeypatch.setattr(requests.Session, "request", walk_fails)
@@ -532,7 +534,7 @@ def test_a_walk_that_gets_no_answer_reads_as_network_even_after_the_root_answere
     report = client(kms, "alice", root_folder_id=10).diagnostics()
     rows = _rows(report)
     assert rows["top_level"]["status"] == "fail" and rows["top_level"]["stage"] == "network"
-    assert rows["top_level"]["observed"]["failure"] == "timeout" and rows["search_layout"]["status"] == "skipped"
+    assert rows["top_level"]["observed"]["failure"] == "refused" and rows["search_layout"]["status"] == "skipped"
 
 
 def test_a_session_lost_at_a_later_check_reports_the_login_stage(kms):
@@ -694,53 +696,22 @@ def test_a_transport_failure_at_the_tree_is_not_a_browse_failure(kms, monkeypatc
 def test_a_refused_token_ends_the_run(kms, expired):
     kms["mock"].STATE["expired_response"] = expired
     report = kc.KmsLighthouseClient(base_url=kms["base_url"], allow_http=True, api_token="not-a-known-token").diagnostics()
-    assert report["failed_stage"] == "login" and _rows(report)["login"]["status"] == "fail"
-    _assert_rest_skipped(report)
-
-
-@pytest.mark.parametrize("answer", [301, 302, 401])
-def test_a_token_check_refused_ends_the_run(kms, answer):
-    kms["mock"].STATE["session_info_status"] = answer
-    report = token_client(kms, "alice").diagnostics()
-    row = _rows(report)["login"]
-    assert row["status"] == "fail" and row["observed"]["reason"] == "rejected"
     assert report["failed_stage"] == "login"
-    _assert_rest_skipped(report)
+    assert [row["id"] for row in report["checks"] if row["status"] == "fail"] == [{"401": "login", "302": "session"}[expired]]
+    _assert_rest_skipped(report, keep=("session",))
 
 
-@pytest.mark.parametrize("answer", [400, 403, 404, 500, 503, "error", "not_json", "empty"])
+@pytest.mark.parametrize("answer", [301, 302, 400, 403, 404, 500, 503, "error", "not_json", "empty"])
 def test_a_token_that_only_session_info_refuses_works_for_the_connector(kms, answer):
     """The connector takes a display name from /sessionInfo and ignores any answer but a refused token."""
     kms["mock"].STATE["session_info_status"] = answer
     assert token_client(kms, "alice").test_connection()["success"] is True
     assert token_client(kms, "alice").list_files(limit=1)
-    report = token_client(kms, "alice").diagnostics()
+    report = token_client(kms, "alice", root_folder_id=10).diagnostics()
     rows = _rows(report)
     assert rows["login"]["status"] == "warn" and rows["session"]["status"] == "pass"
     assert rows["connector_browse"]["status"] == "pass"
     assert rows["top_level"]["status"] == "pass"
-
-
-@pytest.mark.parametrize("root,answer", [(None, 403), (10, 403), (10, 400)])
-def test_a_token_refused_on_the_tree_read_ends_the_run_at_login(kms, monkeypatch, root, answer):
-    real = requests.Session.request
-    seen = []
-
-    def tree_refuses_the_token(self, method, url, **kwargs):
-        if "/cm/tree/" in url:
-            seen.append(url)
-            if len(seen) > 1:           # the first is the reach, with no token
-                response = requests.Response()
-                response.status_code, response.raw = answer, io.BytesIO(b"")
-                return response
-        return real(self, method, url, **kwargs)
-
-    monkeypatch.setattr(requests.Session, "request", tree_refuses_the_token)
-    report = token_client(kms, "alice", root_folder_id=root).diagnostics()
-    row = _rows(report)["session"]
-    assert row["status"] == "fail" and row["observed"]["reason"] == "rejected" and row["stage"] == "login"
-    assert report["failed_stage"] == "login" and report["calls_made"] == 3, "the reach, /sessionInfo, the tree read"
-    _assert_rest_skipped(report, keep=("session",))
 
 
 def test_a_top_level_that_refuses_with_a_400_is_not_blamed_on_the_token(kms):
@@ -978,7 +949,7 @@ def test_a_ca_bundle_is_not_consulted_over_plain_http(kms, monkeypatch, tmp_path
     assert _rows(client(kms, "alice").diagnostics())["login"]["status"] == "pass"
 
 
-def test_a_silent_server_is_a_timeout():
+def test_a_silent_server_in_a_short_run_is_slower_than_this_runs_limit():
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     listener.listen(8)
@@ -989,8 +960,8 @@ def test_a_silent_server_is_a_timeout():
     finally:
         listener.close()
     rows = _rows(report)
-    assert report["failed_stage"] == "network"
-    assert rows["network"]["observed"]["failure"] == "timeout"
+    assert report["overall"] == "warn" and rows["network"]["status"] == "warn"
+    assert rows["network"]["observed"]["failure"] == "slower_than_limit"
 
 
 @pytest.fixture
@@ -1510,7 +1481,7 @@ def test_a_search_with_no_hits_warns_after_a_few_fixed_queries(kms):
     kms["mock"].STATE["no_hit_text"] = ""
     row = _rows(client(kms, "alice").diagnostics())["search_layout"]
     assert row["status"] == "warn" and row["observed"]["without_layout_rows"] == 0
-    assert row["observed"]["queries_tried"] == len(kd._SAMPLE_QUERIES) <= 3
+    assert row["observed"]["queries_tried"] == len(kd._SAMPLE_QUERIES) + 1 <= 4, "the fixed ones and a listed title's word"
 
 
 @pytest.mark.parametrize("total_key", ["total", "totalResults", "numFound"])
@@ -1518,7 +1489,7 @@ def test_a_stated_zero_total_is_no_hits_not_a_failed_search(kms, total_key):
     kms["mock"].STATE["search_body"] = {"regularSearch": {total_key: 0}}
     row = _rows(client(kms, "alice").diagnostics())["search_layout"]
     assert row["status"] == "warn" and row["observed"]["without_layout_rows"] == 0
-    assert row["observed"]["queries_tried"] == len(kd._SAMPLE_QUERIES), "every fixed query is still tried"
+    assert row["observed"]["queries_tried"] == len(kd._SAMPLE_QUERIES) + 1, "every sample query is still tried"
 
 
 def test_a_search_answer_with_no_results_and_no_total_is_a_failure(kms):
@@ -1565,7 +1536,7 @@ def test_a_timed_out_bare_search_has_a_word_and_the_layout_stays_unknown(kms, mo
 
     monkeypatch.setattr(requests.Session, "request", bare_times_out)
     row = _rows(client(kms, "alice", layout_id=7).diagnostics())["search_layout"]
-    assert row["status"] == "pass" and row["observed"]["without_layout_status"] == "timeout"
+    assert row["status"] == "info" and row["observed"]["without_layout_status"] == "slower_than_limit"
     assert row["observed"]["layout_required"] is None
 
 
@@ -1611,7 +1582,8 @@ def test_each_rejection_status_counts_as_rejected(kms, rejection):
 def test_any_other_answer_to_a_long_query_is_inconclusive_not_accepted_or_rejected(kms, over, answer, status_key):
     kms["mock"].STATE.update({"search_max_query": over, "search_too_long": answer})
     row = _rows(client(kms, "alice").diagnostics())["query_length"]
-    assert row["observed"]["shortest_rejected"] is None and row["status"] == "warn"
+    assert row["observed"]["shortest_rejected"] is None
+    assert row["status"] == ("warn" if over < kc._MAX_QUERY_CHARS else "info"), "past the limit it is an observation"
     assert row["observed"]["inconclusive"] is True
     assert row["observed"]["statuses"][status_key] >= 1
     assert row["observed"]["longest_accepted"] == (None if over < kc._MAX_QUERY_CHARS else kc._MAX_QUERY_CHARS)
@@ -2035,6 +2007,618 @@ def test_a_blocked_destination_is_a_network_failure_report():
     assert _rows(report)["network"]["observed"]["reason"] == "egress_blocked"
 
 
+# ------------------------------------------------------------------ only the connector's own calls can fail or end a run
+_REDIRECT = 302
+
+
+def _answer_with(status):
+    response = requests.Response()
+    response.status_code, response.raw = status, io.BytesIO(b"")
+    return response
+
+
+def _inject(monkeypatch, is_the_call, what):
+    """``what`` (a status, or an error to raise) answers every call ``is_the_call`` picks; the rest reach the mock."""
+    real = requests.Session.request
+    picked = []
+
+    def choosing(self, method, url, **kwargs):
+        if is_the_call(url, kwargs.get("params") or {}, kwargs.get("headers") or {}, self):
+            picked.append(url)
+            if isinstance(what, int):
+                return _answer_with(what)
+            raise what
+        return real(self, method, url, **kwargs)
+
+    monkeypatch.setattr(requests.Session, "request", choosing)
+    return picked
+
+
+def _other_prefix(url, _params, _headers, _session):
+    return "/api/" in url and "/kms/lh/api/" not in url
+
+
+def _long_query(url, params, _headers, _session):
+    return len(params.get("query", "")) > kc._MAX_QUERY_CHARS
+
+
+def _bare_search(url, params, _headers, _session):
+    return "/search/full" in url and "layoutId" not in params
+
+
+def _no_parent_tree(url, params, _headers, _session):
+    return "/cm/tree/" in url and "parentId" not in params
+
+
+def _no_session(url, _params, _headers, session):
+    return "/cm/tree/" in url and not session.cookies and "Authorization" not in session.headers
+
+
+def _layout_client(kms):
+    return client(kms, "svc", root_folder_id=_CLEAN_ROOT, layout_id=7)
+
+
+@pytest.mark.parametrize("what", [_REDIRECT, _LOST_LINE, _READ_TIMEOUT, _TLS_LOST],
+                         ids=["redirect", "refused", "timeout", "tls"])
+@pytest.mark.parametrize("site,row_id", [(_other_prefix, "prefix"), (_long_query, "query_length"), (_bare_search, "search_layout"),
+                                         (_no_parent_tree, "top_level"), (_no_session, "network")],
+                         ids=["prefix", "long_query", "bare_search", "no_parent_tree", "no_session"])
+def test_an_observation_that_fails_never_changes_a_clean_tenants_verdict(kms, monkeypatch, site, row_id, what):
+    _clean_tenant(kms, monkeypatch)
+    picked = _inject(monkeypatch, site, what)
+    report = _layout_client(kms).diagnostics()
+    rows = _rows(report)
+    assert picked, "the fault was injected on a call that went out"
+    assert report["overall"] == "pass" and report["failed_stage"] is None, [
+        (row["id"], row["status"]) for row in report["checks"] if row["status"] not in ("pass", "info")]
+    assert rows["connector_read"]["status"] == "pass"
+    assert rows[row_id]["status"] in ("pass", "info", "warn"), rows[row_id]
+    assert _logins(kms) == 1
+    assert rows["prefix"]["status"] == "info", "the run went on to its last check"
+
+
+@pytest.mark.parametrize("site,row_id,word_of", [
+    (_other_prefix, "prefix", lambda row: row["observed"]["alternatives"]["api"]["failure"]),
+    (_long_query, "query_length", lambda row: next(iter(set(row["observed"]["statuses"]) - {"http_200"}))),
+    (_bare_search, "search_layout", lambda row: row["observed"]["without_layout_status"]),
+    (_no_parent_tree, "top_level", lambda row: row["observed"]["no_parent_status"]),
+    (_no_session, "network", lambda row: row["observed"]["failure"]),
+])
+def test_a_failed_observation_keeps_its_status_word(kms, monkeypatch, site, row_id, word_of):
+    _clean_tenant(kms, monkeypatch)
+    _inject(monkeypatch, site, _LOST_LINE)
+    row = _rows(_layout_client(kms).diagnostics())[row_id]
+    assert word_of(row) == "refused"
+    assert row["status"] in ("info", "warn"), "a failed observation is never a clean pass"
+
+
+def test_a_redirected_observation_keeps_its_status(kms, monkeypatch):
+    _clean_tenant(kms, monkeypatch)
+    _inject(monkeypatch, _bare_search, _REDIRECT)
+    row = _rows(_layout_client(kms).diagnostics())["search_layout"]
+    assert row["observed"]["without_layout_status"] == "http_302" and row["status"] == "info"
+
+
+def test_a_no_session_call_that_fails_with_nothing_else_reaching_kms_is_still_a_failure(monkeypatch):
+    calls = []
+
+    def refused(self, method, url, **kwargs):
+        calls.append(url)
+        raise _LOST_LINE
+
+    monkeypatch.setattr(requests.Session, "request", refused)
+    report = kc.KmsLighthouseClient(base_url="https://kms.example.com", username="u", password="p").diagnostics()
+    assert _rows(report)["network"]["status"] == "fail" and report["failed_stage"] == "network"
+    assert len(calls) == 2, "the no-session call and the login"
+
+
+def test_a_tls_failure_on_the_no_session_call_alone_is_not_a_tls_failure(monkeypatch):
+    calls = []
+
+    def only_the_first_call_fails(self, method, url, **kwargs):
+        calls.append(url)
+        if len(calls) == 1:
+            raise _CERT_LOST
+        response = requests.Response()
+        response.status_code, response.raw = 200, io.BytesIO(b'{"status": "SUCCESS", "data": []}')
+        return response
+
+    monkeypatch.setattr(requests.Session, "request", only_the_first_call_fails)
+    report = kc.KmsLighthouseClient(base_url="https://kms.example.com", api_token="t").diagnostics()
+    assert _rows(report)["tls"]["status"] == "warn" and _rows(report)["tls"]["observed"]["failure"] == "tls_failed"
+    assert report["failed_stage"] != "tls"
+
+
+def test_the_no_parent_call_feeds_no_sample_with_a_root_set(kms, monkeypatch):
+    """The connector never reads what that call lists, so nothing may be judged from it."""
+    _clean_tenant(kms, monkeypatch)
+    probe = _clean_client(kms)
+    report = probe.diagnostics()
+    assert _rows(report)["types"]["observed"]["tree_types"].get("FOLDER", 0) == 0, "root 78 holds item 279 alone"
+
+
+def test_a_query_past_the_connectors_limit_that_fails_leaves_the_row_at_info(kms, monkeypatch):
+    _clean_tenant(kms, monkeypatch)
+    kms["mock"].STATE.update({"search_max_query": 300, "search_too_long": 503})
+    report = _clean_client(kms).diagnostics()
+    row = _rows(report)["query_length"]
+    assert row["status"] == "info" and row["observed"]["longest_accepted"] == kc._MAX_QUERY_CHARS
+    assert report["overall"] == "pass"
+
+
+def test_a_query_at_the_connectors_limit_is_a_real_call(kms, monkeypatch):
+    _clean_tenant(kms, monkeypatch)
+    _inject(monkeypatch, lambda url, params, _h, _s: len(params.get("query", "")) == kc._MAX_QUERY_CHARS, _LOST_LINE)
+    report = _clean_client(kms).diagnostics()
+    assert report["failed_stage"] == "network" and _rows(report)["query_length"]["stage"] == "network"
+    assert _rows(report)["zero_hit"]["status"] == "skipped"
+
+
+def test_an_observation_counts_against_the_call_budget(kms, monkeypatch):
+    _clean_tenant(kms, monkeypatch)
+    report = _layout_client(kms).diagnostics()
+    assert report["calls_made"] == len(kms["mock"].REQUEST_LOG), "prefix, bare search and long queries included"
+
+
+# ------------------------------------------------------------------ what ends a run at the session and token checks
+def test_session_info_that_gets_no_answer_alone_warns_with_its_word(kms, monkeypatch):
+    _inject(monkeypatch, lambda url, *_rest: url.endswith("/sessionInfo"), _LOST_LINE)
+    report = token_client(kms, "alice", root_folder_id=10).diagnostics()
+    rows = _rows(report)
+    assert rows["login"]["status"] == "warn" and rows["login"]["observed"]["failure"] == "refused"
+    assert rows["connector_browse"]["status"] == "pass" and report["failed_stage"] is None
+
+
+def test_a_401_on_session_info_ends_the_run(kms):
+    kms["mock"].STATE["session_info_status"] = 401
+    report = token_client(kms, "alice").diagnostics()
+    row = _rows(report)["login"]
+    assert row["status"] == "fail" and row["observed"]["reason"] == "rejected" and report["failed_stage"] == "login"
+    _assert_rest_skipped(report)
+
+
+def _tree_after_the_reach_answers(monkeypatch, answer):
+    seen = []
+    real = requests.Session.request
+
+    def tree_answers(self, method, url, **kwargs):
+        if "/cm/tree/" in url:
+            seen.append(url)
+            if len(seen) > 1:           # the first is the reach, with no token
+                return _answer_with(answer)
+        return real(self, method, url, **kwargs)
+
+    monkeypatch.setattr(requests.Session, "request", tree_answers)
+
+
+@pytest.mark.parametrize("answer", [301, 302, 401])
+def test_a_token_lost_on_the_tree_read_ends_the_run_at_login(kms, monkeypatch, answer):
+    _tree_after_the_reach_answers(monkeypatch, answer)
+    report = token_client(kms, "alice").diagnostics()
+    row = _rows(report)["session"]
+    assert row["status"] == "fail" and row["stage"] == "login" and row["observed"]["reason"] == "rejected"
+    assert report["failed_stage"] == "login" and report["calls_made"] == 3, "the reach, /sessionInfo, the tree read"
+    _assert_rest_skipped(report, keep=("session",))
+
+
+@pytest.mark.parametrize("root,answer,kind", [(None, 403, "forbidden"), (10, 403, "forbidden"), (10, 400, "bad_request")])
+def test_a_403_or_400_on_the_tree_read_warns_and_the_connector_row_names_the_kind(kms, monkeypatch, root, answer, kind):
+    """The token may be fine: only the connector's own listing can say what this answer means."""
+    _tree_after_the_reach_answers(monkeypatch, answer)
+    report = token_client(kms, "alice", root_folder_id=root).diagnostics()
+    rows = _rows(report)
+    assert rows["session"]["status"] == "warn" and rows["session"]["observed"]["http_status"] == answer
+    assert rows["connector_browse"]["status"] == "fail" and rows["connector_browse"]["stage"] == "browse"
+    assert rows["connector_browse"]["observed"]["kind"] == kind
+    assert report["failed_stage"] == "browse"
+    assert rows["prefix"]["status"] != "skipped", "the run went on"
+
+
+def _some_hits(kms, monkeypatch, count):
+    mock = kms["mock"]
+    monkeypatch.setattr(mock, "SEARCH_RESULTS", [
+        {"id": "279", "subType": "T_PROCEDURE", "title": "t", "description": "", "statusCode": "2"},
+        {"id": "301", "subType": "T_PROCEDURE", "title": "t", "description": "", "statusCode": "2"}][:count])
+
+
+def test_one_item_that_redirects_while_others_read_does_not_end_the_run(kms, monkeypatch):
+    _clean_tenant(kms, monkeypatch)
+    _some_hits(kms, monkeypatch, 2)
+    calls = []
+    real = requests.Session.request
+
+    def second_item_read_redirects(self, method, url, **kwargs):
+        if url.endswith("/public/item/301"):
+            calls.append(url)
+            if len(calls) == 1:
+                return real(self, method, url, **kwargs)
+            return _answer_with(302)
+        return real(self, method, url, **kwargs)
+
+    monkeypatch.setattr(requests.Session, "request", second_item_read_redirects)
+    report = _clean_client(kms).diagnostics()
+    rows = _rows(report)
+    assert rows["field_types"]["status"] == "warn" and rows["field_types"]["observed"]["statuses"]["http_302"] == 1
+    assert report["failed_stage"] is None and rows["prefix"]["status"] == "info"
+
+
+def test_a_row_whose_every_call_lost_the_session_ends_the_run(kms, monkeypatch):
+    _clean_tenant(kms, monkeypatch)
+    _some_hits(kms, monkeypatch, 2)
+    reads = []
+    real = requests.Session.request
+
+    def field_types_all_redirect(self, method, url, **kwargs):
+        if "/public/item/" in url:
+            reads.append(url)
+            if len(reads) > 2:      # the two connector reads came first
+                return _answer_with(302)
+        return real(self, method, url, **kwargs)
+
+    monkeypatch.setattr(requests.Session, "request", field_types_all_redirect)
+    report = _clean_client(kms).diagnostics()
+    row = _rows(report)["field_types"]
+    assert row["stage"] == "login" and row["observed"]["reason"] == "session_refused" and report["failed_stage"] == "login"
+
+
+# ------------------------------------------------------------------ no answer, and an answer that came too late for this run
+def _stall_after_the_headers(monkeypatch, is_the_call):
+    """The status arrives, then the body stalls, so the failure keeps a status of 200."""
+    class Stalling(requests.Response):
+        def iter_content(self, *_args, **_kwargs):
+            raise requests.exceptions.ReadTimeout()
+            yield b""
+
+    real = requests.Session.request
+
+    def stalling(self, method, url, **kwargs):
+        if is_the_call(method, url, self):
+            response = Stalling()
+            response.status_code, response.raw = 200, io.BytesIO(b"")
+            return response
+        return real(self, method, url, **kwargs)
+
+    monkeypatch.setattr(requests.Session, "request", stalling)
+
+
+def test_a_stall_after_the_headers_of_the_first_call_is_no_answer(kms, monkeypatch):
+    _stall_after_the_headers(monkeypatch, lambda _method, url, session: _no_session(url, {}, {}, session))
+    rows = _rows(client(kms, "alice").diagnostics())
+    assert rows["network"]["observed"]["failure"] == "timeout", "a status alone does not make it an answer"
+    assert rows["expiry"]["status"] == "skipped"
+
+
+def test_a_stall_after_the_headers_of_the_login_is_a_network_failure(kms, monkeypatch):
+    _stall_after_the_headers(monkeypatch, lambda method, _url, _session: method == "POST")
+    report = client(kms, "alice").diagnostics()
+    row = _rows(report)["login"]
+    assert row["stage"] == "network" and row["observed"]["failure"] == "timeout" and report["failed_stage"] == "network"
+
+
+def test_a_stall_after_the_headers_of_a_cut_call_is_slower_than_limit(kms, monkeypatch):
+    _clean_tenant(kms, monkeypatch)
+    _stall_after_the_headers(monkeypatch, lambda _method, url, _session: "/search/full" in url)
+    report = _clean_client(kms).diagnostics()
+    row = _rows(report)["connector_search"]
+    assert row["status"] == "warn" and row["observed"]["failure"] == "slower_than_limit"
+
+
+def test_a_row_whose_last_call_got_no_answer_ends_the_run_at_that_stage(kms, monkeypatch):
+    """The first listed item reads, the second has no line left: the line is what the row last saw."""
+    _clean_tenant(kms, monkeypatch)
+    _some_hits(kms, monkeypatch, 2)
+    reads = []
+    real = requests.Session.request
+
+    def second_item_of_field_types_is_cut(self, method, url, **kwargs):
+        if "/public/item/" in url:
+            reads.append(url)
+            if len(reads) == 4:
+                raise _TLS_LOST
+        return real(self, method, url, **kwargs)
+
+    monkeypatch.setattr(requests.Session, "request", second_item_of_field_types_is_cut)
+    report = _clean_client(kms).diagnostics()
+    row = _rows(report)["field_types"]
+    assert row["status"] == "fail" and row["stage"] == "tls" and report["failed_stage"] == "tls"
+    assert _rows(report)["ai_elements"]["status"] == "skipped", "the run ended there"
+
+
+_CONNECT_TIMEOUT = requests.exceptions.ConnectTimeout()
+
+
+@pytest.mark.parametrize("marker,row_id", [("/search/full", "connector_search"), ("/public/item/", "connector_read")])
+def test_a_timeout_the_diagnostic_cut_short_is_slower_than_limit_and_the_run_goes_on(kms, monkeypatch, marker, row_id):
+    _clean_tenant(kms, monkeypatch)
+    kms["mock"].STATE["extra_results"] = []
+    _fail_calls(monkeypatch, marker, _READ_TIMEOUT)
+    report = _clean_client(kms).diagnostics()
+    row = _rows(report)[row_id]
+    assert row["status"] == "warn" and row["observed"]["failure"] == "slower_than_limit"
+    assert "may still work" in row["summary"]
+    assert report["failed_stage"] is None and report["overall"] == "warn"
+    assert _rows(report)["prefix"]["status"] == "info", "the run went on"
+
+
+def test_the_full_read_timeout_on_the_first_call_is_a_real_timeout(monkeypatch):
+    """The first call keeps the connector's own read timeout, so nothing here is the diagnostic's doing."""
+    timeouts = []
+
+    def silent(self, method, url, **kwargs):
+        timeouts.append(kwargs["timeout"])
+        raise requests.exceptions.ReadTimeout()
+
+    monkeypatch.setattr(requests.Session, "request", silent)
+    report = kc.KmsLighthouseClient(base_url="https://kms.example.com", username="u", password="p").diagnostics()
+    assert timeouts[0][1] == pytest.approx(kc._DEFAULT_TIMEOUT[1], abs=1)
+    assert _rows(report)["network"]["status"] == "fail" and _rows(report)["network"]["observed"]["failure"] == "timeout"
+    assert report["failed_stage"] == "network"
+
+
+def test_a_first_call_cut_short_by_a_short_run_is_slower_than_limit(monkeypatch):
+    def silent(self, method, url, **kwargs):
+        raise requests.exceptions.ReadTimeout()
+
+    monkeypatch.setattr(requests.Session, "request", silent)
+    report = kc.KmsLighthouseClient(base_url="https://kms.example.com", username="u", password="p").diagnostics(
+        deadline=kc._clock() + 30)
+    rows = _rows(report)
+    assert rows["network"]["status"] == "warn" and rows["network"]["observed"]["failure"] == "slower_than_limit"
+    assert rows["tls"]["status"] == "skipped", "no answer means nothing about the certificate"
+    assert rows["expiry"]["status"] == "skipped"
+
+
+def test_a_login_cut_short_is_slower_than_limit_and_ends_the_run_with_no_second_login(kms, monkeypatch):
+    real = requests.Session.request
+
+    def login_silent(self, method, url, **kwargs):
+        if method == "POST":
+            raise requests.exceptions.ReadTimeout()
+        return real(self, method, url, **kwargs)
+
+    monkeypatch.setattr(requests.Session, "request", login_silent)
+    report = client(kms, "alice").diagnostics(deadline=kc._clock() + 30)
+    row = _rows(report)["login"]
+    assert row["status"] == "warn" and row["observed"]["failure"] == "slower_than_limit"
+    assert report["overall"] == "warn" and _rows(report)["session"]["status"] == "skipped"
+
+
+def test_a_connect_timeout_the_diagnostic_did_not_cut_is_a_real_timeout(kms, monkeypatch):
+    """Later calls keep the connector's connect timeout, so this one proves the line is gone."""
+    _clean_tenant(kms, monkeypatch)
+    _fail_calls(monkeypatch, "/search/full", _CONNECT_TIMEOUT)
+    report = _clean_client(kms).diagnostics()
+    row = _rows(report)["connector_search"]
+    assert row["status"] == "fail" and row["stage"] == "network" and row["observed"]["failure"] == "timeout"
+    assert report["failed_stage"] == "network"
+
+
+def test_a_row_with_real_failures_stays_failed_beside_one_slow_call(kms, monkeypatch):
+    mock = kms["mock"]
+    _clean_tenant(kms, monkeypatch)
+    monkeypatch.setattr(mock, "SEARCH_RESULTS", [
+        {"id": str(n), "subType": "T_PROCEDURE", "title": "t", "description": "", "statusCode": "2"} for n in (7001, 7002)])
+    calls = []
+    real = requests.Session.request
+
+    def first_timed_read_stalls(self, method, url, **kwargs):
+        if url.endswith("/public/item/7001"):
+            calls.append(url)
+            if len(calls) == 2:
+                raise _READ_TIMEOUT
+        return real(self, method, url, **kwargs)
+
+    monkeypatch.setattr(requests.Session, "request", first_timed_read_stalls)
+    row = _rows(client(kms, "svc", root_folder_id=95).diagnostics())["field_types"]
+    assert row["status"] == "fail", "the mock has neither item, so one 404 is a real failure beside the slow call"
+
+
+# ------------------------------------------------------------------ proof rows that match real use
+def _item_read_order(mock):
+    return [row[2].rsplit("/", 1)[1] for row in mock.REQUEST_LOG if "/public/item/" in row[2]]
+
+
+def _hit(entry_id):
+    return {"id": entry_id, "subType": "T_PROCEDURE", "title": "t", "description": "", "statusCode": "2"}
+
+
+def _folder_of_items(kms, monkeypatch, count):
+    mock = kms["mock"]
+    tree = {"78": mock.TREE["78"], **{str(7100 + n): {"parent": "78", "title": "i", "type": "ITEM", "status": "2"}
+                                      for n in range(count)}}
+    monkeypatch.setattr(mock, "TREE", tree)
+    monkeypatch.setitem(mock.USERS, "svc", {**mock.USERS["svc"], "visible": set(tree)})
+
+
+def test_connector_read_reads_a_search_hit_first_then_a_listed_entry(kms, monkeypatch):
+    mock = kms["mock"]
+    _clean_tenant(kms, monkeypatch)
+    monkeypatch.setattr(mock, "SEARCH_RESULTS", [_hit("301")])
+    mock.STATE["extra_results"] = []
+    _clean_client(kms).diagnostics()     # the root lists item 279; search finds item 301
+    assert _item_read_order(mock)[:2] == ["301", "279"]
+
+
+def test_a_listed_entry_is_read_even_when_search_fills_the_sample(kms, monkeypatch):
+    mock = kms["mock"]
+    _clean_tenant(kms, monkeypatch)
+    monkeypatch.setattr(mock, "SEARCH_RESULTS", [_hit("301"), _hit("302"), _hit("305")])
+    mock.STATE["extra_results"] = []
+    report = _clean_client(kms).diagnostics()
+    assert _rows(report)["connector_read"]["observed"]["reads"] == 2 and _item_read_order(mock)[:2] == ["301", "279"]
+
+
+def test_a_listed_scenario_and_a_found_scenario_are_both_read(kms, monkeypatch):
+    mock = kms["mock"]
+    monkeypatch.setattr(mock, "TREE", {"78": mock.TREE["78"], "21302": {"parent": "78", "title": "s", "type": "ITEM",
+                                                                        "subType": "T_SCENARIO_FLOW", "status": "2"}})
+    monkeypatch.setitem(mock.USERS, "svc", {**mock.USERS["svc"], "visible": {"78", "21302"}})
+    monkeypatch.setattr(mock, "SEARCH_RESULTS", [_scenario_hit("21400")])
+    mock.STATE["extra_results"] = []
+    report = _clean_client(kms).diagnostics()
+    assert _rows(report)["connector_read"]["observed"]["reads"] == 2
+    asked = [request["path"].rsplit("/", 1)[1] for request in mock.STATE["scenario_requests"] if "/step/" not in request["path"]]
+    assert asked[:2] == ["21400", "21302"]
+
+
+def test_the_item_sample_holds_a_search_hit_and_a_tree_entry(kms, monkeypatch):
+    """With the connector rows out of calls, the sample comes from the records alone, and from both of them."""
+    mock = kms["mock"]
+    _folder_of_items(kms, monkeypatch, 8)
+    monkeypatch.setattr(mock, "SEARCH_RESULTS", [_hit("301")])
+    monkeypatch.setattr(kd, "_PROOF_CALLS", 0)
+    _clean_client(kms).diagnostics()
+    read = _item_read_order(mock)
+    assert read[0] == "301" and "7100" in read and len(read) <= kd._MAX_ITEMS
+
+
+def test_a_browse_with_folders_only_does_not_pass(kms, monkeypatch):
+    _chain_of_folders(kms, monkeypatch, 3)
+    row = _rows(client(kms, "alice").diagnostics())["connector_browse"]
+    assert row["status"] == "warn" and row["observed"]["entries"] == 3 and row["observed"]["content_entries"] == 0
+    assert row["observed"]["capped"] is False
+
+
+def test_a_listing_cut_by_the_cap_passes_and_says_only_part_was_proved(kms, monkeypatch):
+    _clean_tenant(kms, monkeypatch)
+    _folder_of_items(kms, monkeypatch, kd._PROOF_ENTRIES + 3)
+    report = _clean_client(kms).diagnostics()
+    row = _rows(report)["connector_browse"]
+    assert row["status"] == "pass" and row["observed"]["capped"] is True
+    assert "part of the tree" in row["summary"]
+    assert row["observed"]["calls"] == 1, "no descent to find more"
+
+
+def test_a_listing_inside_the_cap_is_not_capped(kms, monkeypatch):
+    _clean_tenant(kms, monkeypatch)
+    row = _rows(_clean_client(kms).diagnostics())["connector_browse"]
+    assert row["observed"]["capped"] is False and "part of the tree" not in row["summary"]
+
+
+def test_page_rows_asks_for_the_next_page_after_a_full_page(kms, monkeypatch):
+    mock = kms["mock"]
+    mock.STATE["extra_results"] = [_hit(str(7000 + n)) for n in range(60)]
+    report = client(kms, "alice").diagnostics()
+    observed = _rows(report)["page_rows"]["observed"]
+    assert observed["next_page_rows"] > 0 and observed["server_cap"] is False
+
+
+def test_a_refused_next_page_after_a_full_page_fails_as_the_connector_does(kms):
+    mock = kms["mock"]
+    mock.STATE["extra_results"] = [_hit(str(7000 + n)) for n in range(60)]
+    mock.STATE["search_page_status"] = 502
+    with pytest.raises(kc.KmsHTTPError):
+        client(kms, "alice").search_files("a", limit=100)
+    report = client(kms, "alice").diagnostics()
+    row = _rows(report)["page_rows"]
+    assert row["status"] == "fail" and row["observed"]["next_page_status"] == "http_502" and report["failed_stage"] == "search"
+
+
+def test_the_call_after_a_short_page_is_an_observation_the_connector_never_makes(kms, monkeypatch):
+    _clean_tenant(kms, monkeypatch)
+
+    def past_the_short_page(url, params, _headers, _session):
+        return "/search/full" in url and params.get("start", "0") != "0"
+
+    picked = _inject(monkeypatch, past_the_short_page, _LOST_LINE)
+    assert _clean_client(kms).search_files("a", limit=100) and picked == [], "the connector stops at a short page"
+    report = _clean_client(kms).diagnostics()
+    row = _rows(report)["page_rows"]
+    assert picked and row["status"] == "warn" and row["observed"]["next_page_status"] == "refused"
+    assert report["failed_stage"] is None and _rows(report)["field_types"]["status"] != "skipped"
+
+
+def _first_query_refused(monkeypatch, status=400):
+    return _inject(monkeypatch, lambda url, params, _h, _s: "/search/full" in url and params.get("query") == "a", status)
+
+
+def test_a_refused_fixed_query_tries_the_next_and_warns(kms, monkeypatch):
+    _clean_tenant(kms, monkeypatch)
+    _first_query_refused(monkeypatch)
+    report = _clean_client(kms).diagnostics()
+    rows = _rows(report)
+    for row_id in ("connector_search", "search_layout"):
+        assert rows[row_id]["status"] == "warn", row_id
+        assert rows[row_id]["observed"]["queries_refused"] == 1 and rows[row_id]["observed"]["queries_tried"] == 2
+    assert rows["connector_search"]["observed"]["entries"] > 0
+    assert report["failed_stage"] is None
+
+
+def test_every_fixed_query_refused_fails_search(kms, monkeypatch):
+    _clean_tenant(kms, monkeypatch)
+    kms["mock"].STATE["search_400"] = True
+    report = _clean_client(kms).diagnostics()
+    assert _rows(report)["connector_search"]["status"] == "fail"
+    assert _rows(report)["search_layout"]["status"] == "fail" and report["failed_stage"] == "search"
+
+
+def test_a_failed_query_with_no_line_left_tries_no_other(kms, monkeypatch):
+    _clean_tenant(kms, monkeypatch)
+    picked = _inject(monkeypatch, lambda url, _p, _h, _s: "/search/full" in url, _LOST_LINE)
+    report = _clean_client(kms).diagnostics()
+    assert len(picked) == 1 and report["failed_stage"] == "network"
+
+
+def _only_the_title_word_finds_anything(kms, monkeypatch, word):
+    mock = kms["mock"]
+    real = mock.Handler._search
+
+    def answer(self, user, query, odd):
+        if word in self.path:
+            return real(self, user, query, odd)
+        return self._send_json(200, {"regularSearch": {"results": []}})
+
+    monkeypatch.setattr(mock.Handler, "_search", answer)
+
+
+def test_a_listed_title_gives_the_last_sample_query_and_stays_out_of_the_report(kms, monkeypatch, caplog):
+    mock = kms["mock"]
+    word = "Zebrawordsentinel"
+    _clean_tenant(kms, monkeypatch)
+    monkeypatch.setitem(mock.TREE, "279", {**mock.TREE["279"], "title": f"{word} manual"})
+    _only_the_title_word_finds_anything(kms, monkeypatch, word)
+    caplog.set_level("DEBUG")
+    report = _clean_client(kms).diagnostics()
+    rows = _rows(report)
+    assert rows["connector_search"]["status"] == "pass"
+    assert rows["connector_search"]["observed"]["queries_tried"] == len(kd._SAMPLE_QUERIES) + 1
+    assert rows["search_layout"]["observed"]["queries_tried"] == len(kd._SAMPLE_QUERIES) + 1
+    assert word not in json.dumps(report) and word not in caplog.text
+
+
+def test_with_no_listed_title_only_the_fixed_queries_are_tried(kms, monkeypatch):
+    _clean_tenant(kms, monkeypatch)
+    kms["mock"].STATE["no_hit_text"] = ""
+    row = _rows(client(kms, "svc", root_folder_id=95).diagnostics())["connector_search"]
+    assert row["observed"]["queries_tried"] == len(kd._SAMPLE_QUERIES)
+
+
+def test_one_unreadable_entry_warns_when_another_read_worked(kms, monkeypatch):
+    _clean_tenant(kms, monkeypatch)
+    _offline_item(kms, monkeypatch)
+    row = _rows(_clean_client(kms).diagnostics())["connector_read"]
+    assert row["status"] == "warn" and row["observed"]["failed_reads"] == 1 and row["observed"]["usable"] == 1
+
+
+def test_every_read_failed_fails_the_row(kms, monkeypatch):
+    mock = kms["mock"]
+    _clean_tenant(kms, monkeypatch)
+    mock.STATE["extra_results"] = []
+    monkeypatch.setattr(mock, "SEARCH_RESULTS", [_hit("7001")])
+    report = client(kms, "svc", root_folder_id=95).diagnostics()
+    row = _rows(report)["connector_read"]
+    assert row["status"] == "fail" and row["observed"]["failed_reads"] == row["observed"]["reads"] == 1
+    assert report["failed_stage"] == "read"
+
+
+@pytest.mark.parametrize("name", [["E_SUMMARY"], {"a": 1}, 7, None])
+def test_an_ai_element_name_that_is_not_a_string_is_left_out(kms, monkeypatch, name):
+    _ai_elements(kms["mock"], monkeypatch, {"element_name": name, "element_text": "plain words"})
+    row = _rows(client(kms, "alice").diagnostics())["ai_elements"]
+    assert row["status"] == "warn" and "error_type" not in row["observed"]
+    assert row["observed"]["only_in_ai"] == [] and row["observed"]["unlisted_names"] == 0
+
+
 # ------------------------------------------------------------------ frontend wiring (read from source; no browser here)
 def _flat(tree, prefix=""):
     found = {}
@@ -2151,6 +2735,37 @@ def test_the_connector_guide_covers_the_diagnostics():
     assert "the connector's own public methods" in section, "what the proof rows are"
     assert re.search(r"`pass` needs all three", section), "the overall rule"
     assert re.search(r"gateway.*60 s.*read limit|60 s read limit.*gateway", section, re.S), "a stalled tenant behind a gateway"
+
+
+def _guide_section():
+    guide = _GUIDE.read_text(encoding="utf-8")
+    section = guide[guide.index("## On-site diagnostics"):]
+    return section[:section.index("\n## ", 5)]
+
+
+def test_the_guide_states_what_can_fail_or_end_a_run():
+    section = " ".join(_guide_section().split())
+    assert "Only a call the connector really makes with this configuration can fail a run or end it" in section
+    for word in ("slower_than_limit", "observation_failed", "failed_reads", "capped", "queries_refused"):
+        assert f"`{word}`" in section, word
+    assert "may still work for users" in section
+    assert "/sessionInfo" in section and not re.search(r"401 or a redirect\) ends the run there", section)
+    assert not re.search(r"a\s+403 there ends the run", section), "a 403 on the tree read warns"
+    assert f"{kd._PROOF_CALLS} of the 60 calls" in section, "the share in the guide is the share in the code"
+
+
+def test_the_guide_sends_the_installer_to_layout_id_only_when_one_is_set():
+    row = next(line for line in _guide_section().splitlines() if line.startswith("| `search` |"))
+    assert "Check Layout ID" not in row and "If a Layout ID is set" in row
+
+
+def test_the_guide_says_a_listed_title_can_give_one_search_word_held_in_memory_only():
+    assert re.search(r"listed\s+title.*held in\s+memory.*never", _guide_section(), re.S)
+
+
+def test_the_guide_lists_the_timed_out_panel_state_as_not_yet_proven():
+    guide = _GUIDE.read_text(encoding="utf-8")
+    assert re.search(r"timed-out\s+state.*(render|browser)", guide[guide.index("## Verification boundary"):], re.S)
 
 
 def test_the_feedback_loop_maps_every_checklist_item_to_a_check():
