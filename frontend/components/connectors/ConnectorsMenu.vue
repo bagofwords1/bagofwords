@@ -1,5 +1,6 @@
 <template>
-  <div class="inline-block relative">
+  <!-- Only shown when the user can reach at least one connector (signed in or not). -->
+  <div v-if="connectors.length" class="inline-block relative" data-testid="connectors-menu">
     <UPopover v-model:open="menuOpen" :popper="{ strategy: 'absolute', placement: 'bottom-start', offset: [0, 8] }">
       <UTooltip :text="$t('connectors.title')" :popper="{ strategy: 'fixed', placement: 'bottom-start' }">
         <button
@@ -20,13 +21,7 @@
       <template #panel="{ close }">
         <div class="text-xs text-start w-[280px] rounded-xl py-1" data-testid="connectors-panel">
           <div class="px-3 pt-2 pb-1 text-2xs font-medium uppercase tracking-wide text-ink-muted">{{ $t('connectors.title') }}</div>
-          <div v-if="loading && !connectors.length" class="px-3 py-3 flex items-center gap-2 text-gray-500">
-            <Spinner class="w-3 h-3 animate-spin" /> {{ $t('common.loading') }}
-          </div>
-          <div v-else-if="!connectors.length" class="px-3 py-3 text-gray-500 dark:text-gray-400">
-            {{ $t('connectors.empty') }}
-          </div>
-          <ul v-else class="max-h-72 overflow-y-auto">
+          <ul class="max-h-72 overflow-y-auto">
             <li
               v-for="ds in connectors"
               :key="ds.id"
