@@ -208,6 +208,8 @@ async def save_text_artifact(runtime_ctx: dict, filename: str, text: str, *, con
     path = _upload_path(f"{uuid4()}_{filename}")
     with open(path, "w", encoding="utf-8") as f:
         f.write(text)
+    from app.services import storage
+    await storage.apersist(path, content_type)
 
     file = File(
         filename=filename,
@@ -622,6 +624,15 @@ Do not use when:
             )
             return
 
+        # Persist display identity on authorized execution paths, including failures.
+        # Never expose credentials or the full connection configuration.
+        connection_info = {"connection_id": str(connection.id), "connection_name": connection.name,
+                           "connection_type": connection.type}
+        if connection.type in ("remote_ssh", "remote_smb"):
+            import json
+            config = json.loads(connection.config) if isinstance(connection.config, str) else connection.config
+            connection_info["execution_target"] = {"server": config.get("host"), "port": config.get("port", 22)}
+
         if connection.type in ("remote_ssh", "remote_smb"):
             from app.services.remote_server_access import remote_run_access
             remote_agent_ids = run_agent_ids if run_agent_ids is not None else [str(ds.id) for ds in (getattr(report, "data_sources", None) or [])]
@@ -630,7 +641,7 @@ Do not use when:
                 return
 
         # Emit connection name so the UI can show it during streaming
-        yield ToolProgressEvent(type="tool.progress", payload={"stage": "connection_resolved", "connection_name": connection.name})
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "connection_resolved", **connection_info})
 
         # Resolve per-user context forwarding (identity/membership → headers +
         # custom_metadata). Locked metadata fields clobber the model's values;
@@ -698,7 +709,7 @@ Do not use when:
             yield ToolEndEvent(
                 type="tool.end",
                 payload={
-                    "output": {"success": False, "error_message": f"Tool '{data.tool_name}' is disabled."},
+                    "output": {**connection_info, "success": False, "error_message": f"Tool '{data.tool_name}' is disabled."},
                     "observation": {"summary": f"Tool '{data.tool_name}' is disabled by admin", "success": False},
                 },
             )
@@ -714,6 +725,7 @@ Do not use when:
             )
             async for ev in policy_gate:
                 if isinstance(ev, ToolEndEvent):
+                    ev.payload["output"].update(connection_info)
                     yield ev
                     return
                 yield ev
@@ -740,6 +752,7 @@ Do not use when:
                         "Arguments do not match the tool's input schema — "
                         + "; ".join(arg_errors),
                         tool_input_schema,
+                        extra_output=connection_info,
                     ),
                 )
                 return
@@ -749,11 +762,22 @@ Do not use when:
         remaining = mcp_cooldown.remaining(cooldown_key)
         if remaining:
             yield ToolEndEvent(type="tool.end", payload=self._failure_payload(
-                data.tool_name, f"Rate limit: retry after {remaining} seconds", tool_input_schema))
+                data.tool_name, f"Rate limit: retry after {remaining} seconds", tool_input_schema,
+                extra_output=connection_info))
             return
 
         # Construct client and call tool
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "calling_tool"})
+        stop = runtime_ctx.get("sigkill_event")
+        if stop is not None and stop.is_set():
+            approval = {**(runtime_ctx.get("_mcp_policy_approval") or {}), "cancelled": True, "timed_out": False}
+            yield self._policy_end_event(
+                data.tool_name, "Cancelled before execution.", blocked_by="ask",
+                guidance="The user stopped the run. Do not execute this call.",
+                extra_output={**connection_info, "approval": approval,
+                              "outcome": "cancelled", "execution_state": "not_started"},
+            )
+            return
 
         try:
             # A configured MCP/API connection is ALWAYS called over its own wire.
@@ -802,7 +826,9 @@ Do not use when:
             logger.error(f"execute_mcp: Tool call failed: {e}", exc_info=True)
             yield ToolEndEvent(
                 type="tool.end",
-                payload=self._failure_payload(data.tool_name, str(e), tool_input_schema),
+                payload=self._failure_payload(data.tool_name, str(e), tool_input_schema,
+                    outcome="execution_timed_out" if isinstance(e, TimeoutError) else "failed",
+                    extra_output={**connection_info, "approval": runtime_ctx.get("_mcp_policy_approval")}),
             )
             return
 
@@ -810,7 +836,10 @@ Do not use when:
             mcp_cooldown.record(cooldown_key, result.get("error", ""))
             yield ToolEndEvent(
                 type="tool.end",
-                payload=self._failure_payload(data.tool_name, result.get("error", "Unknown error"), tool_input_schema),
+                payload=self._failure_payload(data.tool_name, result.get("error", "Unknown error"), tool_input_schema,
+                    outcome=result.get("error_code", "failed"),
+                    extra_output={**connection_info, "approval": runtime_ctx.get("_mcp_policy_approval"),
+                                  **({"execution_result": result.get("data")} if data.tool_name == "execute_shell" else {})}),
             )
             return
 
@@ -828,6 +857,7 @@ Do not use when:
             "preview": None,
             "error_message": None,
         }
+        output.update(connection_info)
         # Persist policy outcomes with the result so the UI (after rehydration)
         # and the planner's conversation digest can see them.
         policy_verdict = runtime_ctx.pop("_mcp_policy_verdict", None)
@@ -1152,9 +1182,9 @@ Do not use when:
             )
             yield self._policy_end_event(
                 data.tool_name,
-                f"Tool '{data.tool_name}' is denied by policy and cannot be executed. "
-                "Continue the task without it.",
+                f"Tool '{data.tool_name}' is denied by policy and cannot be executed.",
                 blocked_by="deny",
+                guidance="Continue the task without it.",
             )
             return
 
@@ -1193,9 +1223,9 @@ Do not use when:
             if not verdict.approve:
                 yield self._policy_end_event(
                     data.tool_name,
-                    f"Automatic policy review declined this call: {verdict.reason or 'not approved'}. "
-                    "You may ask the user to run it manually or continue without it.",
+                    f"Automatic policy review declined this call: {verdict.reason or 'not approved'}.",
                     blocked_by="auto",
+                    guidance="You may ask the user to run it manually or continue without it.",
                     extra_output={
                         "policy_reason": verdict.reason,
                         "policy_verdict": {"approved": False, "reason": verdict.reason or ""},
@@ -1219,8 +1249,9 @@ Do not use when:
                 yield self._policy_end_event(
                     data.tool_name,
                     f"Tool '{data.tool_name}' requires user approval, which is not "
-                    "available in this context (scheduled/background run). Continue without it.",
+                    "available in this context (scheduled/background run).",
                     blocked_by="ask",
+                    guidance="Continue without it.",
                 )
                 return
 
@@ -1333,7 +1364,10 @@ Do not use when:
                     # row as answerable so a late click gets a clear 'expired'.
                     await confirmations.expire(db, confirmation_id)
 
-            approved = bool(response and response.get("approved"))
+            # Stop wins even if an approval landed in the final poll window.
+            sigkill = runtime_ctx.get("sigkill_event")
+            cancelled = bool(sigkill is not None and sigkill.is_set())
+            approved = bool(response and response.get("approved")) and not cancelled
             if approved and approval_snapshot is not None:
                 await db.refresh(connection)
                 await db.refresh(tool_record)
@@ -1361,7 +1395,8 @@ Do not use when:
             runtime_ctx["_mcp_policy_approval"] = {
                 "approved": approved,
                 "remember": bool(response and response.get("remember")),
-                "timed_out": response is None,
+                "timed_out": response is None and not cancelled,
+                "cancelled": cancelled,
                 "resolved_by_name": resolved_by_name,
             }
             await log_tool_audit(
@@ -1374,14 +1409,17 @@ Do not use when:
                     "connection_id": str(connection.id),
                     "approved": approved,
                     "remembered": bool(response and response.get("remember")),
-                    "timed_out": response is None,
+                    "timed_out": response is None and not cancelled,
+                    "cancelled": cancelled,
                 },
             )
             if not approved:
-                reason = (
-                    "the approval request timed out"
-                    if response is None else "the user declined it"
-                )
+                outcome = "cancelled" if cancelled else "approval_expired" if response is None else "denied"
+                message = {
+                    "cancelled": "Cancelled before execution.",
+                    "approval_expired": "Approval expired before execution.",
+                    "denied": "Execution was denied.",
+                }[outcome]
                 remembered = bool(response and response.get("remember"))
                 if remembered:
                     guidance = "The user saved 'always deny' for this tool — do not retry it."
@@ -1396,9 +1434,11 @@ Do not use when:
                     )
                 yield self._policy_end_event(
                     data.tool_name,
-                    f"Tool '{data.tool_name}' was not executed because {reason}. {guidance}",
+                    message,
                     blocked_by="ask",
-                    extra_output={"approval": runtime_ctx.get("_mcp_policy_approval")},
+                    guidance="The user stopped the run. Do not execute this call." if cancelled else guidance,
+                    extra_output={"approval": runtime_ctx.get("_mcp_policy_approval"), "outcome": outcome,
+                                  "execution_state": "not_started"},
                 )
                 return
             yield ToolProgressEvent(type="tool.progress", payload={
@@ -1466,7 +1506,8 @@ Do not use when:
 
     @staticmethod
     def _policy_end_event(tool_name: str, message: str, *, blocked_by: str,
-                          extra_output: Dict[str, Any] | None = None) -> ToolEndEvent:
+                          extra_output: Dict[str, Any] | None = None,
+                          guidance: str = "") -> ToolEndEvent:
         output = {
             "success": False,
             "error_message": message,
@@ -1479,7 +1520,7 @@ Do not use when:
             payload={
                 "output": output,
                 "observation": {
-                    "summary": message,
+                    "summary": " ".join(filter(None, [message, guidance])),
                     "success": False,
                     "blocked_by_policy": blocked_by,
                 },
@@ -1487,7 +1528,8 @@ Do not use when:
         )
 
     @staticmethod
-    def _failure_payload(tool_name: str, error: str, input_schema: Any) -> Dict[str, Any]:
+    def _failure_payload(tool_name: str, error: str, input_schema: Any, *,
+                         outcome: str = "failed", extra_output: Dict[str, Any] | None = None) -> Dict[str, Any]:
         """Build a tool.end payload for a failed MCP call that includes the
         tool's declared input schema.
 
@@ -1498,11 +1540,18 @@ Do not use when:
         """
         err = error or "Unknown error"
         summary = f"Tool '{tool_name}' failed: {err}"
+        if outcome == "execution_timed_out":
+            return {
+                "output": {**(extra_output or {}), "success": False, "error_message": err,
+                           "outcome": outcome, "execution_state": "unknown"},
+                "observation": {"summary": summary + " Check remote state before retrying; do not assume the process stopped.",
+                                "success": False, "outcome": outcome},
+            }
         from app.services.mcp_cooldown import retry_after
         delay = retry_after(err)
         if delay is not None:
             return {
-                "output": {"success": False, "error_message": err, "retry_after_seconds": delay},
+                "output": {**(extra_output or {}), "success": False, "error_message": err, "outcome": outcome, "retry_after_seconds": delay},
                 "observation": {"success": False, "retry_after_seconds": delay,
                     "summary": summary + f". Wait at least {delay} seconds before retrying this connection. Use wait; do not fan out retries or change valid arguments to solve a rate limit."},
             }
@@ -1526,7 +1575,7 @@ Do not use when:
             except Exception:
                 resolved = input_schema
         return {
-            "output": {"success": False, "error_message": err, "input_schema": resolved},
+            "output": {**(extra_output or {}), "success": False, "error_message": err, "outcome": outcome, "input_schema": resolved},
             "observation": {"summary": summary, "success": False, "input_schema": resolved},
         }
 
@@ -1572,6 +1621,8 @@ Do not use when:
 
         with open(path, "w") as f:
             json.dump(data, f, default=str)
+        from app.services import storage
+        await storage.apersist(path, "application/json")
 
         file = File(
             filename=f"{safe_name}.json",

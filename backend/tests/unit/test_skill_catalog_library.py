@@ -25,6 +25,8 @@ from app.ai.skills.catalog import (
 #: listed after them, alphabetically, and stays off until enabled.
 CURATED_ORDER = [
     "train-agent",
+    # Training against a user-given target, over every item.
+    "learning-loop",
     "audit-instructions",
     # Task-based app design is the default; dashboards remain a supported view.
     "data-app-design",

@@ -116,6 +116,9 @@ class FastQueryClient(DataSourceClient):
                 alias = f"bow_a{i}"
                 safe_name = rel.name.replace('"', '""')
                 try:
+                    # Extracts are write-once (a refresh writes a new file).
+                    from app.services import storage
+                    storage.ensure_local(rel.artifact_path, fresh=False)
                     con.execute(
                         f"ATTACH '{rel.artifact_path}' AS {alias} "
                         f"(ENCRYPTION_KEY '{rel.artifact_key}', READ_ONLY)"

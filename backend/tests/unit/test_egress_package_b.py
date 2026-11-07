@@ -20,6 +20,7 @@ import os
 import shutil
 import ssl
 import subprocess
+import time
 from email.message import EmailMessage
 
 import pytest
@@ -52,6 +53,14 @@ def trap(monkeypatch):
     yield make
     for t in traps:
         t.close()
+
+
+def _wait_for(ready, timeout=3.0):
+    """Until `ready()` or the timeout; the assert that follows says which. For
+    a fake server that records on its own thread, when the sender gets no ack."""
+    deadline = time.monotonic() + timeout
+    while not ready() and time.monotonic() < deadline:
+        time.sleep(0.01)
 
 
 def _block_private(monkeypatch):
@@ -306,6 +315,7 @@ def test_syslog_stream_internal_collector_works_rebinding_refused(trap, monkeypa
         first = asyncio.run(_syslog("siem.corp.invalid", port).send(_EVENTS))
         second = asyncio.run(_syslog("siem.corp.invalid", port).send(_EVENTS))
         assert first.ok and not second.ok
+        _wait_for(lambda: seen and b"user.login" in seen[0])  # syslog over TCP has no ack
         assert len(seen) == 1 and b"user.login" in seen[0]
         assert t.hits == []
 

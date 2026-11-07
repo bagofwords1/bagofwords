@@ -4770,6 +4770,7 @@ class InstructionService:
             instructions/*.md   one file per live instruction, YAML frontmatter
             agent.yaml          the agent manifest (config, tables, tools, members)
             evals/*.yaml        one file per test suite scoped to this agent
+            queries/*.yaml      one file per saved query (Entity) scoped to this agent
 
         Each instruction's frontmatter carries the metadata that
         ``instruction_sync_service`` reads back (title, category, status,
@@ -4804,6 +4805,12 @@ class InstructionService:
         # export is per-agent. Paged rather than one capped call, so an agent
         # with more instructions than any single page can't silently export a
         # partial archive (a truncated backup reads as a complete one).
+        # include_drafts / include_archived mirror the flags the /agents tree
+        # sends when it lists an agent's instructions (KnowledgeExplorer.loadGroup)
+        # and the flags its badge count uses (get_instruction_counts). Without
+        # them the bundle silently drops draft/archived instructions the user sees
+        # in the UI, so the download count came up short of the badge (the "106 in
+        # the agent, 103 in the zip" report).
         items = []
         page_size = 500
         skip = 0
@@ -4814,6 +4821,8 @@ class InstructionService:
                 data_source_ids=[data_source_id],
                 include_global=False,
                 include_own=True,
+                include_drafts=True,
+                include_archived=True,
                 live=True,
             )
             batch = result.get("items", [])
@@ -4846,9 +4855,52 @@ class InstructionService:
                 label = dtext or f"{otype}:{oid}"
                 refs_by_instruction.setdefault(str(iid), []).append(label)
 
+        # Folder layout: recreate the agent's instruction directories so each
+        # markdown file lands in the same folder it sits in under the agent
+        # (InstructionDirectory + its placements), instead of a flat dump. Only
+        # this agent's scope is considered — an instruction shared with another
+        # agent keeps whatever folder it has HERE. No placement => repo root.
+        from app.models.instruction_directory import (
+            InstructionDirectory,
+            InstructionDirectoryPlacement,
+        )
+        dir_by_id: dict = {}
+        for did, dname, dparent in (await db.execute(
+            select(
+                InstructionDirectory.id,
+                InstructionDirectory.name,
+                InstructionDirectory.parent_id,
+            ).where(InstructionDirectory.data_source_id == data_source_id)
+        )).all():
+            dir_by_id[str(did)] = (dname, str(dparent) if dparent else None)
+        dir_for_instruction: dict = {}
+        if inst_ids and dir_by_id:
+            for iid, did in (await db.execute(
+                select(
+                    InstructionDirectoryPlacement.instruction_id,
+                    InstructionDirectoryPlacement.directory_id,
+                ).where(InstructionDirectoryPlacement.instruction_id.in_(inst_ids))
+            )).all():
+                # Keep only placements in THIS agent's directory scope.
+                if str(did) in dir_by_id:
+                    dir_for_instruction[str(iid)] = str(did)
+
         def _slug(value: str) -> str:
             value = re.sub(r"[^\w\s-]", "", value or "").strip().replace(" ", "-").lower()
             return value
+
+        def _dir_path(directory_id: str) -> str:
+            """Slash-joined slug path from the scope root to this directory,
+            walking parent_id. Guards against a cycle in the parent chain."""
+            parts: list[str] = []
+            seen: set[str] = set()
+            cur = directory_id
+            while cur and cur in dir_by_id and cur not in seen:
+                seen.add(cur)
+                dname, dparent = dir_by_id[cur]
+                parts.append(_slug(dname) or "folder")
+                cur = dparent
+            return "/".join(reversed(parts))
 
         buf = io.BytesIO()
         used_names: set[str] = set()
@@ -4864,14 +4916,21 @@ class InstructionService:
                 if not base:
                     base = f"{_slug(it.title) or str(it.id)}.md"
 
-                name = base
+                # Prefix the agent-folder path so the file nests where it sits in
+                # the UI; de-dup within that folder, not across the whole archive.
+                folder = ""
+                did = dir_for_instruction.get(str(it.id))
+                if did:
+                    folder = _dir_path(did)
+                prefix = f"instructions/{folder}/" if folder else "instructions/"
+
+                name = f"{prefix}{base}"
                 n = 1
                 while name in used_names:
                     stem = base[:-3] if base.endswith(".md") else base
-                    name = f"{stem}-{n}.md"
+                    name = f"{prefix}{stem}-{n}.md"
                     n += 1
                 used_names.add(name)
-                name = f"instructions/{name}"
 
                 # Frontmatter: only meaningful keys, in a stable order.
                 fm: dict = {}
@@ -4939,6 +4998,66 @@ class InstructionService:
                     zf.writestr(f"evals/{sname}", suite_yaml)
             except Exception as e:
                 logger.warning(f"Skipping evals in export for {data_source_id}: {e}")
+
+            # queries/*.yaml — one file per saved query (Entity) scoped to this
+            # agent. Export-only (no round-trip import, like the rest of the
+            # bundle). Visibility matches the agent's "Queries" panel: EntityService
+            # .list_entities applies the same bow/accessibility/workshop scoping,
+            # so a viewer gets live queries plus their own drafts/suggestions —
+            # the "like instructions" rule. Best-effort: skip on any failure.
+            try:
+                from app.services.entity_service import EntityService
+                entity_service = EntityService()
+                entities = []
+                e_skip = 0
+                e_page = 500
+                while True:
+                    batch = await entity_service.list_entities(
+                        db, organization, current_user,
+                        data_source_ids=[data_source_id],
+                        skip=e_skip, limit=e_page,
+                    )
+                    entities.extend(batch)
+                    # list_entities filters entirely in SQL before LIMIT, so a
+                    # short page is a reliable end-of-list signal.
+                    if len(batch) < e_page:
+                        break
+                    e_skip += e_page
+                used_query_names: set[str] = set()
+                for ent in entities:
+                    q_doc: dict = {
+                        "title": getattr(ent, "title", None) or "",
+                        "slug": getattr(ent, "slug", None) or str(ent.id),
+                        "type": getattr(ent, "type", None) or "model",
+                        "status": getattr(ent, "status", None) or "draft",
+                    }
+                    if getattr(ent, "description", None):
+                        q_doc["description"] = ent.description
+                    if getattr(ent, "tags", None):
+                        q_doc["tags"] = list(ent.tags)
+                    if getattr(ent, "parameters", None):
+                        q_doc["parameters"] = ent.parameters
+                    q_doc["code"] = getattr(ent, "code", None) or ""
+                    query_yaml = yaml.safe_dump(
+                        q_doc, sort_keys=False, allow_unicode=True
+                    )
+                    # Name the file after the readable title (like instructions).
+                    # The slug is often an auto-generated step-<hash> for queries
+                    # promoted from a conversation, so it makes a cryptic filename;
+                    # fall back to slug, then id, only when there is no title.
+                    base = (
+                        f"{_slug(q_doc['title']) or _slug(q_doc['slug']) or str(ent.id)}"
+                        ".yaml"
+                    )
+                    qname = base
+                    k = 1
+                    while qname in used_query_names:
+                        qname = f"{base[:-5]}-{k}.yaml"
+                        k += 1
+                    used_query_names.add(qname)
+                    zf.writestr(f"queries/{qname}", query_yaml)
+            except Exception as e:
+                logger.warning(f"Skipping queries in export for {data_source_id}: {e}")
 
         return buf.getvalue(), agent_name
 

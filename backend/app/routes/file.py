@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.dependencies import get_db
 from typing import Optional
+import asyncio
 import os
 import re
 from urllib.parse import quote
@@ -22,6 +23,7 @@ from app.dependencies import get_async_db
 from app.models.report import Report
 from app.ee.audit.service import audit_service
 from app.services import file_access_service as file_access
+from app.services import storage
 
 router = APIRouter(tags=["files"])
 file_service = FileService()
@@ -216,7 +218,7 @@ async def get_file_content(file_id: str, request: Request, current_user: User = 
     # directory-traversal sequences, so a tampered DB value can never make
     # open() escape uploads/files/.
     safe_path = os.path.join(os.getcwd(), "uploads", "files", os.path.basename(file.path))
-    if not os.path.exists(safe_path):
+    if not await storage.aensure_local(safe_path):
         raise HTTPException(status_code=404, detail="File content not found")
 
     try:
@@ -253,7 +255,7 @@ def _read_file_bytes_or_404(file: FileModel) -> bytes:
     if not file.path:
         raise HTTPException(status_code=404, detail="File content not found")
     safe_path = os.path.join(os.getcwd(), "uploads", "files", os.path.basename(file.path))
-    if not os.path.exists(safe_path):
+    if not storage.ensure_local(safe_path):
         raise HTTPException(status_code=404, detail="File content not found")
     with open(safe_path, "rb") as _fh:
         return _fh.read()
@@ -368,7 +370,7 @@ async def get_file_embed(
             except (HTTPException, AppError):
                 raise HTTPException(status_code=403, detail="Invalid or expired file token")
 
-    content = _read_file_bytes_or_404(file)
+    content = await asyncio.to_thread(_read_file_bytes_or_404, file)
     media_type = file.content_type or "application/octet-stream"
     # This is served on the app's own origin and content_type is whatever the
     # uploader's client claimed, so only passive types render inline (for

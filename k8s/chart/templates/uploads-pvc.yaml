@@ -1,0 +1,21 @@
+{{- if and (eq (.Values.storage.backend | default "local") "local") .Values.storage.local.persistence.enabled (not .Values.storage.local.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "bowapp.name" . }}-uploads
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bowapp.labels" . | nindent 4 }}
+  annotations:
+    # Uploaded files must survive `helm uninstall` / reinstall.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    {{- toYaml .Values.storage.local.persistence.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.storage.local.persistence.size }}
+  {{- with .Values.storage.local.persistence.storageClass }}
+  storageClassName: {{ if eq . "-" }}""{{ else }}{{ . }}{{ end }}
+  {{- end }}
+{{- end }}

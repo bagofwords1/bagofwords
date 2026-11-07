@@ -82,6 +82,16 @@ DATA_SOURCES = [
     #                        "auth_source": "LOCAL", "username": "admin",
     #                        "password": "Aria!2024"}}
     "aria_operations",
+    # Remote mode: no vCenter appliance can run in CI (OVA on ESXi + a Broadcom
+    # entitlement). Point VCENTER_TEST_HOST / _USERNAME / _PASSWORD (and
+    # optionally VCENTER_TEST_PORT, VCENTER_TEST_CA_PEM, VCENTER_TEST_VERIFY_SSL)
+    # at a real vCenter or ESXi, or at the vim25 mock
+    # `tools/vcenter/docker-compose.yaml` (mock_vcenter.py, pyVmomi's own wire
+    # serializer) — or use integrations.json:
+    #   {"vcenter": {"enabled": true, "host": "localhost", "port": 8989,
+    #                "username": "bow-ro@vsphere.local", "password": "VMware1!RO",
+    #                "ca_certificate": "<tools/vcenter/.certs/ca.pem contents>"}}
+    "vcenter",
     # Remote mode: no DX NetOps Spectrum OneClick can run in CI (Broadcom
     # entitlement, licensed Docker tarballs), so integrations.json points at
     # either a customer OneClick or the doc-shaped simulator:
@@ -402,6 +412,15 @@ def ds_kwargs(name: str) -> Dict[str, Any]:
             "password": os.environ.get("SPECTRUM_TEST_PASSWORD"),
             "token": os.environ.get("SPECTRUM_TEST_TOKEN"),
             "verify_ssl": os.environ.get("SPECTRUM_TEST_VERIFY_SSL", "true") != "false",
+        }
+    if name == "vcenter" and os.environ.get("VCENTER_TEST_HOST"):
+        return {
+            "host": os.environ["VCENTER_TEST_HOST"],
+            "port": int(os.environ.get("VCENTER_TEST_PORT", "443")),
+            "username": os.environ["VCENTER_TEST_USERNAME"],
+            "password": os.environ["VCENTER_TEST_PASSWORD"],
+            "ca_certificate": os.environ.get("VCENTER_TEST_CA_PEM"),
+            "verify_ssl": os.environ.get("VCENTER_TEST_VERIFY_SSL", "true") != "false",
         }
     if name == "netapp_ontap" and os.environ.get("NETAPP_URL"):
         return {

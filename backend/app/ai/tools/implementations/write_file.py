@@ -153,6 +153,8 @@ class WriteFileTool(Tool):
         if not f:
             return None, f"source_file_id '{source_file_id}' not found."
         try:
+            from app.services import storage
+            await storage.aensure_local(f.path)
             async with aiofiles.open(f.path, "rb") as fh:
                 return await fh.read(), None
         except Exception as e:

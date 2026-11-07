@@ -50,7 +50,8 @@ def _build_cartesian(data_model: dict, viz_index: int) -> str:
     is_horizontal = data_model.get("horizontal", False)
     chart_type = "line" if dm_type in ("line_chart", "area_chart") else "bar"
     is_area = dm_type == "area_chart"
-    smooth = "true" if dm_type in ("line_chart", "area_chart") else "false"
+    # Straight lines: smoothing draws values that are not in the data.
+    smooth = "false"
 
     rows_ref = f"viz[{viz_index}].rows"
 

@@ -322,3 +322,11 @@ html[dir="rtl"] .bidi-label { text-align: right; }
 /* Markdown's right-aligned column (`---:`) means the column's end edge, so it
  * follows the cell's own direction, not the UI's. */
 .markstream-vue :is(th, td).text-right { text-align: end; }
+
+/* ag-grid's paging footer, translated in RTL locales: lay it out right to
+ * left so "1 עד 50 מתוך 236" reads in order. The grid itself (columns)
+ * keeps ag-grid's own direction (enableRtl is a separate decision). */
+html[dir="rtl"] .ag-paging-panel { direction: rtl; }
+/* The first/previous/next/last buttons swap sides with it; mirror their
+ * arrows so each still points the way it moves. */
+html[dir="rtl"] .ag-paging-panel .ag-icon { transform: scaleX(-1); }

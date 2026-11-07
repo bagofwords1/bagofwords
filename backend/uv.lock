@@ -516,6 +516,21 @@ wheels = [
 ]
 
 [[package]]
+name = "azure-storage-blob"
+version = "12.31.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "azure-core" },
+    { name = "cryptography" },
+    { name = "isodate" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6f/18/eb2ade6eede419d33493016ec3243ca9860f67d0bc71aa0461cda2cad0c4/azure_storage_blob-12.31.1.tar.gz", hash = "sha256:0d6e5b860a1357efc602db04cfa7c9950ac86126edcf7db89320cde281555fe5", size = 672417, upload-time = "2026-10-29T23:34:05.69Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1a/93/b9f0dc477827887aef64012946bdba65e9aad67084ad38044661a72fe47d/azure_storage_blob-12.31.1-py3-none-any.whl", hash = "sha256:9e012d5f4ab658b7cb8a4581329d7a7aa2bf5f39b4d63baeefaae7f9e90fe6f0", size = 455904, upload-time = "2026-10-29T23:34:07.459Z" },
+]
+
+[[package]]
 name = "backoff"
 version = "2.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -540,6 +555,7 @@ dependencies = [
     { name = "awswrangler" },
     { name = "azure-identity" },
     { name = "azure-kusto-data" },
+    { name = "azure-storage-blob" },
     { name = "bcrypt" },
     { name = "boto3" },
     { name = "clickhouse-connect" },
@@ -615,6 +631,7 @@ dependencies = [
     { name = "python-pptx" },
     { name = "python-slugify" },
     { name = "python3-saml" },
+    { name = "pyvmomi" },
     { name = "pyyaml" },
     { name = "rapidfuzz" },
     { name = "regex" },
@@ -646,6 +663,7 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "aiosmtpd" },
+    { name = "moto", extra = ["s3"] },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-timeout" },
@@ -673,6 +691,7 @@ requires-dist = [
     { name = "awswrangler", specifier = ">=3.16.1,<3.17" },
     { name = "azure-identity", specifier = ">=1.25.3,<1.26" },
     { name = "azure-kusto-data", specifier = ">=4.6.3,<4.7" },
+    { name = "azure-storage-blob", specifier = ">=12.31.1,<12.32" },
     { name = "bcrypt", specifier = ">=4.3.0,<4.4" },
     { name = "boto3", specifier = ">=1.43.33,<1.44" },
     { name = "clickhouse-connect", specifier = ">=0.8.18,<0.9" },
@@ -704,6 +723,7 @@ requires-dist = [
     { name = "lxml", specifier = ">=6.1.1,<6.2" },
     { name = "matplotlib", specifier = ">=3.11.0,<3.12" },
     { name = "mcp", specifier = ">=1.30.0,<1.31" },
+    { name = "moto", extras = ["s3"], marker = "extra == 'dev'", specifier = ">=5.2.5,<5.3" },
     { name = "neo4j", specifier = ">=6.4.1,<6.5" },
     { name = "numpy", specifier = ">=1.26.4,<1.27" },
     { name = "openai", specifier = ">=1.109.1,<1.110" },
@@ -753,6 +773,7 @@ requires-dist = [
     { name = "python-pptx", specifier = ">=1.0.2,<1.1" },
     { name = "python-slugify", specifier = ">=8.0.4,<8.1" },
     { name = "python3-saml", specifier = ">=1.16.0,<2" },
+    { name = "pyvmomi", specifier = ">=9.1.1,<10" },
     { name = "pyyaml", specifier = ">=6.0.3,<6.1" },
     { name = "rapidfuzz", specifier = ">=3.14.5,<3.15" },
     { name = "regex", specifier = ">=2026.5.9,<2027" },
@@ -2842,6 +2863,30 @@ wheels = [
 ]
 
 [[package]]
+name = "moto"
+version = "5.2.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "boto3" },
+    { name = "botocore" },
+    { name = "cryptography" },
+    { name = "requests" },
+    { name = "responses" },
+    { name = "werkzeug" },
+    { name = "xmltodict" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/cb/a4/8d60630be6ff222421d281796d4dfd67d2eae66b47525735e57c9e275a27/moto-5.2.5.tar.gz", hash = "sha256:391857257d5dac144334013c2c10e599def5f0562f553e979160140bd7bd9cf6", size = 9249364, upload-time = "2026-10-27T22:46:30.724Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/38/b8/15e2ce7b6bb125558c81f63c42074a768df15138248cf2e2f1de2b4894eb/moto-5.2.5-py3-none-any.whl", hash = "sha256:eef62cdcf3bfe73e0863743511ba042dfaba04ba3d5ecdcb896a196c693ad528", size = 7205137, upload-time = "2026-10-27T22:46:27.843Z" },
+]
+
+[package.optional-dependencies]
+s3 = [
+    { name = "py-partiql-parser" },
+    { name = "pyyaml" },
+]
+
+[[package]]
 name = "msal"
 version = "1.37.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3838,6 +3883,15 @@ bcrypt = [
 ]
 
 [[package]]
+name = "py-partiql-parser"
+version = "0.6.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/56/7a/a0f6bda783eb4df8e3dfd55973a1ac6d368a89178c300e1b5b91cd181e5e/py_partiql_parser-0.6.3.tar.gz", hash = "sha256:09cecf916ce6e3da2c050f0cb6106166de42c33d34a078ec2eb19377ea70389a", size = 17456, upload-time = "2025-10-18T13:56:13.441Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c9/33/a7cbfccc39056a5cf8126b7aab4c8bafbedd4f0ca68ae40ecb627a2d2cd3/py_partiql_parser-0.6.3-py2.py3-none-any.whl", hash = "sha256:deb0769c3346179d2f590dcbde556f708cdb929059fb654bad75f4cf6e07f582", size = 23752, upload-time = "2025-10-18T13:56:12.256Z" },
+]
+
+[[package]]
 name = "py4j"
 version = "0.10.9.9"
 source = { registry = "https://pypi.org/simple" }
@@ -4484,6 +4538,14 @@ wheels = [
 ]
 
 [[package]]
+name = "pyvmomi"
+version = "9.1.1.0"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e0/18/044c8a0c8f6ac16642e65f4fac19653291c7f6c5ab61a3734c9f6066a87b/pyvmomi-9.1.1.0-py3-none-any.whl", hash = "sha256:76af3cba85573769daf4e6760aace32e7af34e1bbf343895b8c4798b6bc0e2d2", size = 557324, upload-time = "2026-09-03T11:42:04.524Z" },
+]
+
+[[package]]
 name = "pywin32"
 version = "312"
 source = { registry = "https://pypi.org/simple" }
@@ -4787,6 +4849,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f3/61/d7545dafb7ac2230c70d38d31cbfe4cc64f7144dc41f6e4e4b78ecd9f5bb/requests-toolbelt-1.0.0.tar.gz", hash = "sha256:7681a0a3d047012b5bdc0ee37d7f8f07ebe76ab08caeccfc3921ce23c88d5bc6", size = 206888, upload-time = "2023-05-01T04:11:33.229Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3f/51/d4db610ef29373b879047326cbf6fa98b6c1969d6f6dc423279de2b1be2c/requests_toolbelt-1.0.0-py2.py3-none-any.whl", hash = "sha256:cccfdd665f0a24fcf4726e690f65639d272bb0637b9b92dfd91a5568ccf6bd06", size = 54481, upload-time = "2023-05-01T04:11:28.427Z" },
+]
+
+[[package]]
+name = "responses"
+version = "0.26.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyyaml" },
+    { name = "requests" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9f/47/f216a33221db8eff328987661cf18371afee89c62a62b434b963d6b509c9/responses-0.26.3.tar.gz", hash = "sha256:b0c11ca8131b8b227b8d5108e6ed39772222bd5aab030ed430e8f99057c4c409", size = 86335, upload-time = "2026-08-26T19:17:24.373Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6d/86/ca7958de70cb0752350575e98229368a3a2f746a2942034b3364e17312bb/responses-0.26.3-py3-none-any.whl", hash = "sha256:74474f799334ac4f37d93b6437ecc3bb1bb5c77a8d31780a338643be2dce0af8", size = 36289, upload-time = "2026-08-26T19:17:23.176Z" },
 ]
 
 [[package]]
@@ -5845,6 +5921,18 @@ wheels = [
 ]
 
 [[package]]
+name = "werkzeug"
+version = "3.1.9"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "markupsafe" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a4/34/4dd12fc8bb7d61c91467ec3efe415ffa7d5456f799954b40c5bbaeae470e/werkzeug-3.1.9.tar.gz", hash = "sha256:55ca7c70a75689be937aa27f8ff4b018f06ff4838fc73045560bf0f5a1291060", size = 940188, upload-time = "2026-09-27T18:33:41.637Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a1/38/df03f564f43cec2684823f3cccae1a652ee7face1cbaa76fb223096e64d7/werkzeug-3.1.9-py3-none-any.whl", hash = "sha256:6392e50c78460ba618e5b21f08a71f59c99ce99cdc6cf6e3dd7e6ccca8754fab", size = 228700, upload-time = "2026-09-27T18:33:39.685Z" },
+]
+
+[[package]]
 name = "wrapt"
 version = "2.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -5962,6 +6050,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/e9/2e/52e9ef2b5c8ef2470e1e3ae3ef89f7ac45eecd267c7b3bab8a7ad7d68af1/xmlsec-1.3.17-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:3d1fc1fbe2e8585a3f468cf4154d0ec36cd95a15e68429ad8cc8ccd7c04e84ae", size = 4214358, upload-time = "2025-11-11T16:20:24.073Z" },
     { url = "https://files.pythonhosted.org/packages/ab/cd/5e9061027a203fd083b6058c2948ee1a16bd909d3a0e331e054362ca550e/xmlsec-1.3.17-cp314-cp314-win_amd64.whl", hash = "sha256:e2bf1d07c4f97afeb957f626b8c3ebb8cef300efa0cb95599e936c69a66a1b17", size = 2513252, upload-time = "2025-11-11T16:20:25.738Z" },
     { url = "https://files.pythonhosted.org/packages/93/e9/b2f4b9092434b854bcae0d901c10a7e96d2a12d03cc35dbf7a7b2c91502b/xmlsec-1.3.17-cp314-cp314-win_arm64.whl", hash = "sha256:3a6ced8c7744e896cb5a9fd0156d204df3143a62bae11be91cab8e9743d40eec", size = 2328451, upload-time = "2025-11-11T16:20:27.247Z" },
+]
+
+[[package]]
+name = "xmltodict"
+version = "1.0.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/19/70/80f3b7c10d2630aa66414bf23d210386700aa390547278c789afa994fd7e/xmltodict-1.0.4.tar.gz", hash = "sha256:6d94c9f834dd9e44514162799d344d815a3a4faec913717a9ecbfa5be1bb8e61", size = 26124, upload-time = "2026-02-22T02:21:22.074Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/38/34/98a2f52245f4d47be93b580dae5f9861ef58977d73a79eb47c58f1ad1f3a/xmltodict-1.0.4-py3-none-any.whl", hash = "sha256:a4a00d300b0e1c59fc2bfccb53d7b2e88c32f200df138a0dd2229f842497026a", size = 13580, upload-time = "2026-02-22T02:21:21.039Z" },
 ]
 
 [[package]]

@@ -103,6 +103,22 @@ class BigQuerySource:
                 break
         return cols, rows
 
+    def sample_table(self, table_id: str, limit: int) -> Tuple[List[dict], List[list]]:
+        """First `limit` rows of a whole table, read from storage.
+
+        `tabledata.list` is free, while `SELECT … LIMIT n` is billed as a scan
+        of every selected column — the LIMIT does not reduce the bytes read.
+        Used by the table preview, which only ever wants a table's first rows.
+        """
+        it = self._bq.list_rows(table_id, max_results=limit)
+        cols = [{"name": f.name, "dtype": f.field_type} for f in it.schema]
+        rows = []
+        for row in it:
+            rows.append([_jsonable(v) for v in row.values()])
+            if len(rows) >= limit:
+                break
+        return cols, rows
+
     def stream_batches(self, sql: str, batch_rows: int) -> Iterator["object"]:
         """Arrow batches straight from BigQuery into the artifact."""
         import pyarrow as pa

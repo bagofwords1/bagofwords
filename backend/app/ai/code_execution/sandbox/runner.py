@@ -200,8 +200,14 @@ def _stage_files(files: List[Dict[str, Any]], scratch_dir: str) -> None:
     target, which `_fs_policy` allows). A relative path that would resolve
     outside the scratch dir is sent as absolute instead.
     """
+    from app.services import storage
+
     for attrs in files:
         path = attrs.get("path")
+        if path:
+            # Object storage: fetch the file if this pod does not hold it yet
+            # (another replica uploaded it, or the pod restarted).
+            storage.ensure_local(str(path))
         if not path or os.path.isabs(str(path)):
             continue
         rel = os.path.normpath(str(path))

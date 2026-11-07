@@ -1042,7 +1042,8 @@ async def export_public_report_pptx(
         safe_pptx = safe_join(ReportPdfService.PPTX_DIR, os.path.basename(candidate))
     except UnsafePathError:
         safe_pptx = None
-    if safe_pptx is None or not safe_pptx.is_file():
+    from app.services import storage
+    if safe_pptx is None or not await storage.aensure_local(safe_pptx):
         raise HTTPException(
             status_code=409,
             detail="PowerPoint export is not available for this report",

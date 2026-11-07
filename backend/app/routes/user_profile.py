@@ -393,6 +393,8 @@ def _remove_avatar_file(image_url: Optional[str], user_id) -> None:
         os.remove(path)
     except OSError:
         pass
+    from app.services import storage
+    storage.discard(path)
 
 
 class UserAvatarSchema(BaseModel):
@@ -440,6 +442,11 @@ async def upload_my_avatar(
     image.save(buf, format="PNG")
     with open(file_path, "wb") as f:
         f.write(buf.getvalue())
+    from app.services import storage
+    try:
+        await storage.apersist(file_path, "image/png")
+    except storage.StorageError:
+        raise HTTPException(status_code=503, detail="File storage is unavailable; the image was not saved.")
 
     image_url = f"/api/users/avatar/{filename}"
     previous_url = await _stored_avatar_url(db, current_user.id)

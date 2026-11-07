@@ -226,6 +226,7 @@ class OpenSearchClient(DataSourceClient):
             except IndexingCancelled:
                 raise
             except Exception:
+                self.mark_discovery_incomplete("opensearch catalog")
                 continue
         return list(streams.values())
 
@@ -245,6 +246,7 @@ class OpenSearchClient(DataSourceClient):
         except IndexingCancelled:
             raise
         except Exception as e:
+            self.mark_discovery_incomplete("opensearch catalog")
             print(f"Error retrieving OpenSearch mappings: {e}")
             return []
 
@@ -318,6 +320,7 @@ class OpenSearchClient(DataSourceClient):
             except IndexingCancelled:
                 raise
             except Exception:
+                self.mark_discovery_incomplete("opensearch catalog")
                 continue
 
         tables: List[Table] = []

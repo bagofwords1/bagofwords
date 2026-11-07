@@ -79,6 +79,8 @@ def remove_generated_file(config) -> None:
         pass
     except Exception as e:
         logger.warning("demo dataset: failed to delete %s: %s", real, e)
+    from app.services import storage
+    storage.discard(real)
 
 
 def emoji_token(value: Optional[str]) -> Optional[str]:

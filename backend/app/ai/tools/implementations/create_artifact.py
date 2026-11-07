@@ -30,7 +30,7 @@ from app.ai.tools.schemas.create_artifact import CreateArtifactInput, CreateArti
 from app.ai.llm import LLM
 from app.ai.llm.types import ImageInput, Message, TextDeltaEvent
 from app.models.artifact import Artifact, ArtifactVersion
-from app.services.artifact_service import new_artifact, new_version
+from app.services.artifact_service import finish_version, new_artifact, new_version
 from app.models.visualization import Visualization
 from app.dependencies import async_session_maker
 from app.services.thumbnail_service import ThumbnailService
@@ -248,6 +248,8 @@ class CreateArtifactTool(Tool):
                 if not f.path:
                     continue
                 try:
+                    from app.services import storage
+                    await storage.aensure_local(f.path)
                     async with aiofiles.open(f.path, 'rb') as file:
                         content = await file.read()
                     images.append(ImageInput(
@@ -593,6 +595,8 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         import base64
 
         path = Path(__file__).parent.parent.parent.parent.parent / "uploads" / preview_images[0]
+        from app.services import storage
+        storage.ensure_local(path)
         try:
             return base64.b64encode(path.read_bytes()).decode("ascii")
         except OSError:
@@ -692,6 +696,8 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     output_path.unlink()
             except OSError:
                 pass
+            from app.services import storage
+            storage.discard(output_path)
             yield {
                 "code": original_code,
                 "ok": False,
@@ -1611,14 +1617,17 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             # skip in-browser Babel (app.services.artifact_precompile).
             from app.services.artifact_precompile import schedule_compile
             schedule_compile(content.get("code"))
+        # The outcome is applied after the resources savepoint below
+        # (finish_version): a failure there commits the version as failed,
+        # and must not carry an "edited" write with it.
         if data.mode == "slides":
-            artifact.status = "completed" if pptx_success else "failed"
+            final_status = "completed" if pptx_success else "failed"
             # Persist the executor error like page mode persists render errors,
             # so read_artifact and later repairs can see WHY the deck failed.
             if pptx_error:
                 artifact.render_errors = [pptx_error]
         else:
-            artifact.status = "completed" if render_clean else "failed"
+            final_status = "completed" if render_clean else "failed"
 
         # Set pptx_path for slides mode
         if pptx_path:
@@ -1675,6 +1684,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             message = exc.message if isinstance(exc, AppError) else 'Resource definitions could not be applied. Check definitions and retry.'
             yield ToolEndEvent(type='tool.end', payload={'output': {'success': False}, 'observation': {'error': message}})
             return
+        await finish_version(db, artifact, final_status)
         await db.commit()
         await db.refresh(artifact)
 

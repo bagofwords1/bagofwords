@@ -124,6 +124,7 @@ const iconPath = computed(() => {
         elasticsearch: 'elasticsearch.svg',
         s3: 's3.svg',
         azure_cost: 'azure_cost.svg',
+        vcenter: 'vcenter.svg',
         // Code connections reuse the provider brand assets.
         github_repo: 'github.svg',
         gitlab_repo: 'gitlab.svg',

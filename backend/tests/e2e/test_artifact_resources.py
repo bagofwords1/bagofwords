@@ -1001,3 +1001,88 @@ def test_resource_changes_describe_committed_schema_and_permissions(artifact_api
     assert updated['changes']['permissions']['after']['read']['audience'] == 'public'
     assert updated['changes']['permissions']['before']['read']['audience'] != 'public'
     assert 'records' not in updated and 'files' not in updated
+
+
+def _files_resource(client, base, headers):
+    response = client.post(
+        base + "/resources",
+        headers=headers,
+        json={"action": "create", "idempotency_key": str(uuid.uuid4()),
+              "definition": {"name": "documents", "kind": "files"}},
+    )
+    assert response.status_code == 200, response.text
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("custom_root", [False, True], ids=["default-root", "BOW_ARTIFACT_STORAGE"])
+def test_data_app_files_follow_object_storage_to_any_pod(artifact_api, monkeypatch, tmp_path, object_store, custom_root):
+    """With object storage a data app's file resource needs no shared volume:
+    a pod that never saw the upload serves it, and a delete reaches the bucket."""
+    from app.services import storage
+
+    client, base, headers, _ = artifact_api
+    if custom_root:
+        monkeypatch.setenv("BOW_ARTIFACT_STORAGE", str(tmp_path / "artifact-volume"))
+    else:
+        monkeypatch.delenv("BOW_ARTIFACT_STORAGE", raising=False)
+    _files_resource(client, base, headers)
+    raw = f"private bytes {uuid.uuid4()}".encode()
+    up = client.post(base + "/files/documents/upload", headers=headers,
+                     files={"file": ("note.txt", raw, "text/plain")})
+    assert up.status_code == 200, up.text
+    file_id = up.json()["id"]
+    assert f"artifact_files/{file_id}.blob" in set(object_store.list("artifact_files/"))
+
+    from app.services.artifact_file_service import storage_root
+    (storage_root() / f"{file_id}.blob").unlink()  # a pod that never saw it
+    got = client.get(base + "/files/" + file_id + "/content", headers=headers)
+    assert got.status_code == 200
+    assert got.content == raw
+
+    assert client.delete(base + "/files/" + file_id, headers=headers).status_code == 200
+    assert f"artifact_files/{file_id}.blob" not in set(object_store.list("artifact_files/"))
+    assert storage.ensure_local(storage_root() / f"{file_id}.blob", fresh=False) is False
+
+
+@pytest.mark.e2e
+def test_data_app_files_still_need_a_root_on_local_storage(artifact_api, monkeypatch):
+    client, base, headers, _ = artifact_api
+    monkeypatch.delenv("BOW_ARTIFACT_STORAGE", raising=False)
+    _files_resource(client, base, headers)
+    r = client.post(base + "/files/documents/upload", headers=headers, files={"file": ("n.txt", b"x", "text/plain")})
+    assert r.status_code == 503
+
+
+@pytest.mark.e2e
+def test_orphan_cleanup_also_removes_blobs_only_the_bucket_holds(artifact_api, monkeypatch, tmp_path, object_store):
+    import asyncio
+    import time as _time
+
+    from app.dependencies import async_session_maker
+    from app.services import artifact_maintenance, storage
+    from app.services.artifact_file_service import storage_root
+
+    client, base, headers, _ = artifact_api
+    monkeypatch.setenv("BOW_ARTIFACT_STORAGE", str(tmp_path / "artifact-volume"))
+    _files_resource(client, base, headers)
+    kept = client.post(base + "/files/documents/upload", headers=headers,
+                       files={"file": ("keep.txt", b"keep me", "text/plain")}).json()["id"]
+    # Another pod crashed between writing a blob and committing its row.
+    orphan = storage_root() / f"{uuid.uuid4()}.blob"
+    orphan.write_bytes(b"encrypted junk")
+    storage.persist(orphan)
+    orphan.unlink()
+    (storage_root() / f"{kept}.blob").unlink()  # this pod holds neither
+
+    real_time = _time.time
+    monkeypatch.setattr(artifact_maintenance.time, "time", lambda: real_time() + 3 * 86400)
+
+    async def run():
+        async with async_session_maker() as db:
+            return await artifact_maintenance.maintain(db)
+
+    counts = asyncio.run(run())
+    assert counts["orphan_blobs"] == 1
+    remaining = set(object_store.list("artifact_files/"))
+    assert f"artifact_files/{orphan.name}" not in remaining
+    assert f"artifact_files/{kept}.blob" in remaining
