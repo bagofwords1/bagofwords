@@ -458,6 +458,20 @@ def test_automated_probe_alerts_admins_on_down_then_restore(fake_client, outbox)
 
 @pytest.mark.e2e
 @pytest.mark.db
+def test_background_probe_keeps_the_agent_in_step_with_its_connection(fake_client, outbox):
+    """The agents list shows the agent's own flag; the background sweep must
+    move it with the shared connection, not leave it to a manual agent test."""
+    ids = _run(_seed(["Sales/Orders"]))
+
+    _go_down(fake_client, ids)
+    assert _run(_active_flags(ids)) == (False, False)
+
+    _recover(fake_client, ids)
+    assert _run(_active_flags(ids)) == (True, True)
+
+
+@pytest.mark.e2e
+@pytest.mark.db
 def test_manual_test_never_alerts_but_the_sweep_still_announces(fake_client, outbox):
     """A person diagnosing with the Test button must not spray the admins —
     but if their test is what deactivated the connection, the outage must

@@ -1326,6 +1326,7 @@ class ConnectionService:
             # Update is_active for system_only connections
             if connection.auth_policy == "system_only":
                 self._record_probe_outcome(connection, success)
+                self._sync_agents_with_connection(connection)
 
             await db.commit()
             await self._alert_on_health_transition(db, connection, current_user)
@@ -1339,6 +1340,7 @@ class ConnectionService:
 
                 if connection.auth_policy == "system_only":
                     self._record_probe_outcome(connection, False)
+                    self._sync_agents_with_connection(connection)
 
                 await db.commit()
                 await self._alert_on_health_transition(db, connection, current_user)
@@ -1372,6 +1374,28 @@ class ConnectionService:
             threshold = 3
         if failures >= threshold and connection.is_active:
             connection.is_active = False
+
+    @staticmethod
+    def _sync_agents_with_connection(connection: Connection) -> None:
+        """Make each agent's ``is_active`` follow its shared connections.
+
+        The agent flag is what the agents list and the sidebar show, but it was
+        only refreshed by the agent-level "Test connection" — so a connection
+        the background sweep had taken down still showed its agents as healthy.
+        Same rule as that agent-level test: only agents whose connections are
+        all shared (``system_only``) follow them; a per-user connection's probe
+        says nothing about the agent for everybody else.
+        """
+        for ds in (connection.data_sources or []):
+            conns = list(ds.connections or [])
+            if not conns or any(
+                (getattr(c, "auth_policy", None) or "system_only") != "system_only"
+                for c in conns
+            ):
+                continue
+            up = all(bool(c.is_active) for c in conns)
+            if bool(ds.is_active) != up:
+                ds.is_active = up
 
     @staticmethod
     async def _alert_on_health_transition(

@@ -3593,7 +3593,17 @@ const fetchAgents = async () => {
       .sort((a: any, b: any) => (a.name || '').localeCompare(b.name || '', locale.value, { sensitivity: 'base' }))
   } catch (e) { console.error(e) } finally { agentsLoaded.value = true }
 }
-const agentStatusDot = (a: any) => a?.publish_status === 'disabled' ? 'bg-gray-300' : (a?.status === 'active' ? 'bg-green-400' : 'bg-gray-300')
+// Agent dot in the tree: the same connection health the agent page's chip shows
+// (getEffectiveStatus), worst connection first, so the two never disagree. An
+// agent whose shared connection was taken down is red, not a neutral gray.
+const AGENT_DOT_PRECEDENCE = ['error', 'indexing_failed', 'sign_in_required', 'indexing'] as const
+const agentStatusDot = (a: any) => {
+  if (a?.publish_status === 'disabled') return 'bg-gray-300'
+  if (a?.status !== 'active') return 'bg-red-500'
+  const statuses = (a?.connections || []).map((c: any) => c?.is_active === false ? 'error' : getEffectiveStatus(c))
+  const worst = AGENT_DOT_PRECEDENCE.find(s => statuses.includes(s))
+  return worst ? statusDotClass(worst) : 'bg-green-500'
+}
 // Panel -> tree half of the files sync. Deliberately narrower than
 // loadAgentMeta: an upload or delete in the panel changes only the uploaded
 // files, so re-pulling the agent's tables, tools and file connections would
