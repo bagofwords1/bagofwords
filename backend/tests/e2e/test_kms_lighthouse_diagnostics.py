@@ -3,12 +3,14 @@
 Only the KMS Lighthouse API is simulated (tools/kms_lighthouse mock, in process).
 """
 import os
+import threading
 import uuid
 
 import pytest
 from sqlalchemy import create_engine, text
 
 from app.core import egress
+from app.data_sources.clients import kms_lighthouse_client as kc
 from app.data_sources.clients import kms_lighthouse_diagnostics as kd
 from tests.e2e.test_kms_lighthouse import _admin, _cfg, _member, _svc_userpass, _user_required_source
 from tests.unit.test_kms_lighthouse_client import kms, kms_server  # noqa: F401
@@ -20,6 +22,17 @@ def _url(connection_id):
 
 def _rows(body):
     return {row["id"]: row for row in body["checks"]}
+
+
+def _readable_search(kms, monkeypatch):
+    """The tree and search hold only ids with a body, so the connector can read everything the run samples."""
+    mock = kms["mock"]
+    monkeypatch.setattr(mock, "TREE", {node_id: node for node_id, node in mock.TREE.items()
+                                       if node["type"] == "FOLDER" or node_id in mock.ITEMS})
+    monkeypatch.setattr(mock, "SEARCH_RESULTS", [
+        {"id": "279", "subType": "T_PROCEDURE", "title": "t", "description": "", "statusCode": "2"}])
+    mock.STATE["extra_results"] = [{"id": "21302", "subType": "T_SCENARIO_FLOW", "title": "t", "description": "",
+                                    "statusCode": "2"}]
 
 
 def _forget_saved_credentials(connection_id):
@@ -37,9 +50,10 @@ def _kms_connection(kms, create_connection, token, org, credentials=None, **conf
 
 
 @pytest.mark.e2e
-def test_an_admin_gets_a_report_and_no_secret(kms, test_client, create_user, login_user, whoami, create_connection):
+def test_an_admin_gets_a_report_and_no_secret(kms, test_client, create_user, login_user, whoami, create_connection, monkeypatch):
     token, org, headers = _admin(create_user, login_user, whoami)
     conn = _kms_connection(kms, create_connection, token, org)
+    _readable_search(kms, monkeypatch)
     mock = kms["mock"]
     mock.REQUEST_LOG.clear()
     mock.STATE["login_count"] = 0
@@ -95,13 +109,16 @@ def test_a_wrong_password_is_a_report_not_an_error(kms, test_client, create_user
 
 
 @pytest.mark.e2e
-def test_the_admin_fallback_runs_on_a_per_user_connection(kms, test_client, create_user, login_user, whoami, create_data_source):
+def test_the_admin_fallback_runs_on_a_per_user_connection(
+    kms, test_client, create_user, login_user, whoami, create_data_source, monkeypatch,
+):
     token, org, headers = _admin(create_user, login_user, whoami)
     _, conn_id = _user_required_source(kms, test_client, create_data_source, token, org, headers)
+    _readable_search(kms, monkeypatch)
     kms["mock"].REQUEST_LOG.clear()
     r = test_client.post(_url(conn_id), headers=headers)
     assert r.status_code == 200, r.text
-    assert r.json()["failed_stage"] is None
+    assert r.json()["failed_stage"] is None, [row for row in r.json()["checks"] if row["status"] == "fail"]
     assert "svc" in {user for user, _, _ in kms["mock"].REQUEST_LOG}
 
 
@@ -156,6 +173,38 @@ def test_a_run_past_the_route_limit_is_a_report_and_the_request_ends(
     body = r.json()
     assert body["failed_stage"] == "network" and body["overall"] == "fail"
     assert _rows(body)["network"]["observed"]["reason"] == "run_timed_out"
+    assert body["calls_made"] is None and body["calls_unknown"] is True
+
+
+@pytest.mark.e2e
+def test_a_run_that_starts_after_the_route_gave_up_sends_nothing(
+    kms, test_client, create_user, login_user, whoami, create_connection, monkeypatch,
+):
+    """A worker thread that frees up late must not start a login nobody waits for."""
+    token, org, headers = _admin(create_user, login_user, whoami)
+    conn = _kms_connection(kms, create_connection, token, org)
+    monkeypatch.setattr(kd, "_MAX_SECONDS", 0.2)
+    monkeypatch.setattr(kd, "_ROUTE_GRACE_SECONDS", 0)
+    gate, finished = threading.Event(), threading.Event()
+    real = kc.KmsLighthouseClient.diagnostics
+
+    def starts_late(self, *args, **kwargs):
+        gate.wait(5)
+        try:
+            return real(self, *args, **kwargs)
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(kc.KmsLighthouseClient, "diagnostics", starts_late)
+    mock = kms["mock"]
+    mock.REQUEST_LOG.clear()
+    mock.STATE["login_count"] = 0
+    r = test_client.post(_url(conn["id"]), headers=headers)
+    assert r.status_code == 200, r.text
+    assert _rows(r.json())["network"]["observed"]["reason"] == "run_timed_out"
+    gate.set()
+    assert finished.wait(5)
+    assert mock.STATE["login_count"] == 0 and mock.REQUEST_LOG == []
 
 
 @pytest.mark.e2e

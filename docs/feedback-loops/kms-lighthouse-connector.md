@@ -315,7 +315,10 @@ Run it at the install, then record the answers here.
 | 18 | `page_rows` | Rows returned against rows requested, and the next page after a short one |
 | - | `network` | Whether this server reached KMS; else `dns`, `refused`, `timeout`, `blocked_route` or `connection_failed` (`egress_blocked` when the check runs before any call, `run_timed_out` when the route gave up on the run) |
 | - | `tls` | Whether the certificate is trusted; else `untrusted_certificate` (with the integer `verify_code`), `tls_failed` or `ca_bundle_unreadable` |
-| - | `session` | One authenticated GET after a login: `session_refused` ends the run. Info for an API token |
+| - | `session` | One read after the login, or with the API token, at the root when one is set: a refused session (`session_refused`) or token (`rejected`) ends the run at stage `login` |
+| - | `connector_browse` | `list_files` itself: entries listed and tree calls. A proof row: `overall` `pass` needs all three |
+| - | `connector_search` | `search_files` itself: entries found and queries tried |
+| - | `connector_read` | `read_file` itself on up to 2 items and 1 scenario: reads, usable, header-only, characters of body, and the kinds of error |
 
 ## Scrub decisions
 

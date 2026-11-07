@@ -31,6 +31,7 @@ import threading
 import time
 import unicodedata
 from collections import Counter, OrderedDict, deque
+from contextlib import contextmanager
 from html.entities import html5 as _HTML5_ENTITIES
 from datetime import datetime
 from urllib.parse import unquote, urlsplit
@@ -57,6 +58,28 @@ class _KmsRequestLogGate(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         return not getattr(_IN_KMS_REQUEST, "active", False)
+
+
+# A diagnostics run calls the connector's public methods to prove them, with
+# at most one login in the whole run. While ``proof_calls`` is active on this
+# thread a login is refused, and every exchange takes its deadline from ``take_call``.
+_PROOF = threading.local()
+
+
+@contextmanager
+def proof_calls(take_call):
+    """No login on this thread inside the block; ``take_call()`` budgets each exchange, or raises to stop."""
+    _PROOF.take_call = take_call
+    try:
+        yield
+    finally:
+        _PROOF.take_call = None
+
+
+def _refuse_login_in_proof() -> None:
+    if getattr(_PROOF, "take_call", None) is not None:
+        logger.debug("kms_lighthouse %s refused: %s", "login", "diagnostics sends one login at most")
+        raise _LoginFailure(401, "auth", _SESSION_REFUSED)
 
 
 def _install_urllib3_gate() -> None:
@@ -139,9 +162,10 @@ _CHUNK_BYTES = 64 * 1024
 _TRANSPORT_ERRORS = (requests.RequestException, urllib3.exceptions.HTTPError, http.client.HTTPException,
                      OSError, UnicodeError, requests.cookies.CookieConflictError)
 # A firewall or a missing route, whatever urllib3 calls it.
-_BLOCKED_ROUTE_ERRNOS = (errno.EHOSTUNREACH, errno.ENETUNREACH, errno.EACCES)
+_BLOCKED_ROUTE_ERRNOS = (errno.EHOSTUNREACH, errno.ENETUNREACH, errno.EACCES, errno.EPERM)
 _URL_MESSAGE = ("KMS Lighthouse URL must be an HTTP(S) URL such as https://example.lighthouse-cloud.com, "
                 "without a user name or password in the URL, a query, or a fragment.")
+_NO_CREDENTIAL = "Provide a KMS username and password or an API token."
 
 
 # ADR-6: userpass clients for one identity share one KMS session per process.
@@ -1848,7 +1872,7 @@ class KmsLighthouseClient(DataSourceClient):
         elif has_userpass:
             self.auth_method = "userpass"
         else:
-            raise KmsError("Provide a KMS username and password or an API token.")
+            raise KmsError(_NO_CREDENTIAL)
         if self.auth_method == "token" and not KMS_TOKEN_RE.fullmatch(api_token):
             raise KmsError(KMS_TOKEN_FORMAT_MESSAGE)
         self._username = username if self.auth_method == "userpass" else None
@@ -1935,6 +1959,7 @@ class KmsLighthouseClient(DataSourceClient):
         # login_lock, so a login in flight (e.g. a health probe) does not block it.
         if self._is_young(entry):
             return
+        _refuse_login_in_proof()
         with entry.login_lock:
             if self._is_young(entry):
                 return   # another caller logged in while this one waited
@@ -1956,6 +1981,7 @@ class KmsLighthouseClient(DataSourceClient):
         forgets it; a rejected ``test_connection`` login leaves a young session
         to the tool calls that hold it (ADR-6).
         """
+        _refuse_login_in_proof()
         entry = self._entry
         with entry.login_lock:
             if entry.generation == used_generation or not self._is_young(entry):
@@ -2056,11 +2082,16 @@ class KmsLighthouseClient(DataSourceClient):
     def _send(self, session, op, method, path, *, params=None, headers=None, deadline=None, prefix=None):
         """One HTTP exchange. Returns (status, body bytes); never raises with a URL.
 
-        With a ``deadline`` (a ``time.monotonic()`` value) the connect and read
-        timeouts are cut to the time left, but never below one second.
+        With a ``deadline`` (a ``time.monotonic()`` value) the connect and the
+        read timeout are each cut to the time left, but never below one second,
+        so one exchange can take up to twice the time left: a caller that must
+        fit connect plus read passes a deadline that allows for both.
         ``prefix`` replaces the configured API prefix for this one exchange
         (``diagnostics`` only: a GET, never a login).
         """
+        take_call = getattr(_PROOF, "take_call", None)
+        if take_call is not None:
+            deadline = take_call()
         url = self._base + (prefix or self.api_prefix) + path
         started = time.monotonic()
         timeout = _DEFAULT_TIMEOUT

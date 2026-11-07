@@ -9,13 +9,19 @@ The safety rules, each held by this module:
 
 1. Read-only: one login POST and the GETs the connector already makes, through
    the client's own ``_send`` (same session setup, TLS verification and redirect
-   refusal). ``_request`` is not used: it logs in again after a refused session.
-2. One login at most, never with a hold in force. A hold or a rejection ends the run.
+   refusal). The ``connector_*`` rows call the public ``list_files``,
+   ``search_files`` and ``read_file``, because only the connector can say whether
+   a tenant works for it: an answer it would refuse must never read as a pass.
+2. One login at most, never with a hold in force. A hold or a rejection ends the
+   run. The public methods log in again after a refused session, so they run
+   inside ``kc.proof_calls``, where a login is refused.
 3. At most ``_MAX_CALLS`` calls and ``_MAX_SECONDS`` seconds. The clock is read
-   before every call and each call's socket timeouts are cut to fit, so a server
-   that goes silent cannot overrun it by more than the one-second timeout floor.
-   A server that keeps trickling bytes inside the socket timeout can: nothing
-   short of a second thread could interrupt that read.
+   before every call and each call's socket timeouts are cut to fit, connect and
+   read together, so a server that goes silent cannot overrun it by more than the
+   one-second timeout floor. A server that keeps trickling bytes inside the socket
+   timeout can: nothing short of a second thread could interrupt that read.
+   ``_PROOF_CALLS`` is the share of the connector rows, so a large tenant cannot
+   take the calls the other checks need.
 4. No content leaves: rows hold key names, type names, counts, status codes and
    booleans. ``_closed`` is the chokepoint; any other string becomes ``"other"``.
    Summaries are fixed text with numbers.
@@ -29,12 +35,14 @@ import json
 import logging
 import os
 import re
+import ssl
 from collections import Counter
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 from app.core.url_safety import UnsafeURLError
 from app.data_sources.clients import kms_lighthouse_client as kc
+from app.data_sources.clients.base import SearchStopped
 from app.settings.config import settings
 
 logger = logging.getLogger(__name__)
@@ -50,6 +58,12 @@ _TREE_WALK_CALLS = 4          # folders opened to find items and scenarios
 _STEP_FETCHES = 3             # per sampled scenario
 _MAX_SCENARIO_NODES = 400
 _MAX_NAMES = 40
+_PROOF_CHECKS = ("connector_browse", "connector_search", "connector_read")
+_PROOF_CALLS = 22             # 60 less the 38 the other checks can need at most
+_PROOF_ENTRIES = 10           # one tree call per listed folder at most, so at most 11 calls
+_PROOF_HITS = 5
+_PROOF_ITEMS = 2
+_PROOF_SCENARIOS = 1
 # The connector needs a query; tenants differ in language, so try a few fixed ones.
 _SAMPLE_QUERIES = ("a", "*", "ה")
 _NO_HIT_QUERY = "zqxbowdiagnosticsnohit"
@@ -71,9 +85,12 @@ _NAME_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,47}")
 _HOST_RE = re.compile(r"[a-z0-9.\[\]:-]{1,253}")
 
 _LOGIN_ENDED = "Skipped: the login did not succeed, so nothing else was sent."
+_SESSION_ENDED = "Skipped: KMS refused the session or the token, so nothing else was sent."
 _UNREACHABLE_ENDED = "Skipped: KMS could not be reached, so nothing else was sent."
 _BUDGET_ENDED = "Skipped: the run used up its budget of calls or time."
+_PROOF_SPENT = "Skipped: the connector rows used up their share of the calls, so this was not proved."
 _CLIENT_ENDED = "Skipped: the run could not start."
+_CUT_OFF_ENDED = "Skipped: the run was cut off; calls may have been sent."
 _NO_REPLY = "Skipped: the first call got no reply to judge."
 _CA_BUNDLE_ENDED = "Skipped: the CA bundle cannot be read, so nothing was sent."
 _FAILURE_SUMMARIES = {
@@ -89,6 +106,7 @@ _FAILURE_SUMMARIES = {
 _NO_CLIENT_SUMMARIES = {
     "egress_blocked": "The destination is blocked by this server's egress rules.",
     "run_timed_out": "The run went past its time limit, so its results are lost. KMS may be stalling; run it again.",
+    "bad_settings": "The connection settings are not valid. Check the URL, the API path prefix and Allow HTTP.",
 }
 # OpenSSL's verify codes that need a different action from "add the CA".
 _CERTIFICATE_SUMMARIES = {
@@ -138,15 +156,21 @@ def _type_counts(values) -> dict:
 
 
 def _status_key(reply: "_Reply") -> str:
-    return f"http_{reply.status}" if reply.failure is None else reply.failure
+    if reply.failure is not None:
+        return reply.failure
+    return "kms_error" if reply.kms_error else f"http_{reply.status}"
 
 
 def _status_counts(replies) -> dict:
     return dict(Counter(_status_key(reply) for reply in replies))
 
 
-class _Stop(Exception):
-    """The budget ran out."""
+class _Stop(kc.KmsError):
+    """The budget ran out. A ``KmsError``, so the connector's own error handling lets it through."""
+
+
+class _ProofSpent(_Stop):
+    """The connector rows used up their share of the budget; the other checks still run."""
 
 
 class _Reply:
@@ -159,11 +183,15 @@ class _Reply:
         self.verify_code = verify_code
 
     @property
+    def kms_error(self) -> bool:
+        """KMS's HTTP 200 {"status": "ERROR"}."""
+        return (self.status == 200 and isinstance(self.payload, dict)
+                and str(self.payload.get("status", "")).upper() == "ERROR")
+
+    @property
     def ok(self) -> bool:
         """HTTP 200 with JSON that is not KMS's {"status": "ERROR"}."""
-        if self.status != 200 or self.failure is not None or self.payload is None:
-            return False
-        return not (isinstance(self.payload, dict) and str(self.payload.get("status", "")).upper() == "ERROR")
+        return self.status == 200 and self.failure is None and self.payload is not None and not self.kms_error
 
     def observed(self) -> dict:
         return {"http_status": self.status, **({"failure": self.failure} if self.failure else {}),
@@ -171,7 +199,18 @@ class _Reply:
 
 
 def _is_transport(reply: _Reply) -> bool:
-    return reply.status == 0 and reply.failure is not None
+    """No answer came back. A body the connector could not parse also has status 0, but carries no such word."""
+    return reply.status == 0 and reply.failure in _FAILURE_SUMMARIES
+
+
+def _reply_of(failed: kc.KmsHTTPError) -> _Reply:
+    return _Reply(failed.answered or failed.status, None, failed.transport or failed.kind, failed.verify_code)
+
+
+def _body_chars(text: str) -> int:
+    """Rendered text below the header: one block of lines, a blank line, then the body. Headings are not text."""
+    body = text.partition("\n\n")[2]
+    return sum(len(line) for line in body.splitlines() if line.strip() and not line.startswith("#"))
 
 
 def _transport_stage(failure: str) -> str:
@@ -234,6 +273,14 @@ def _reason(reply: _Reply, fault: str | None) -> dict:
     return {"reason": fault} if reply.ok else {}
 
 
+def _step_usable(reply: _Reply, digits: str, step_id: str) -> bool:
+    """The connector's rule for a step call (``_fetch_step``): the step it asked for, of the scenario it asked for."""
+    data = reply.payload.get("data") if reply.ok and isinstance(reply.payload, dict) else None
+    step = data.get("steps") if isinstance(data, dict) else None
+    return (isinstance(step, dict) and kc._same_id(data.get("id"), digits)
+            and kc._step_key(step.get("stepId")) == step_id)
+
+
 class _Run:
     """One diagnostics run: the budget, the samples, and one method per check."""
 
@@ -252,27 +299,88 @@ class _Run:
         self.items: list = []                # (digits, payload) of the items read
         self.ai_records: list = []           # the element records of each AI text answer
         self.ai_statuses: dict | None = None # None: no AI text was asked for
+        self.ai_common = 0                   # element names the AI text shares with the items
         self.scenarios_read = 0
         self.step_fetches: list = []         # (scenario digits, step id) that need their own call
+        self.sent: list = []                 # the answers of the check that is running
+        self.proof_calls = 0
+        self.proof_entries: list = []        # what the connector listed and found
+        self.proof_read: list = []           # the entry ids it was asked to read
 
     # ------------------------------------------------------------ the budget and the one way out
     def _take_call(self, connector_timeout: bool = False):
         """Count one call, or stop; returns its deadline.
 
-        A reading call gets half the time left, so a stalled one cannot overrun.
-        The first call and the login are the ones a slow tenant needs to answer
-        for the run to mean anything, so they keep the connector's read timeout.
+        ``_send`` gives the connect and the read timeout each up to that
+        deadline, so the deadline leaves room for both. A reading call gets half
+        the time left, so a stalled one cannot overrun. The first call and the
+        login are the ones a slow tenant needs to answer for the run to mean
+        anything, so they keep the connector's read timeout, less its connect
+        timeout, when the time left allows it.
         """
         left = self.deadline - kc._clock()
         if self.calls >= _MAX_CALLS or left <= 0:
             raise _Stop()
         self.calls += 1
         if connector_timeout:
-            return kc._clock() + min(kc._DEFAULT_TIMEOUT[1], left)
+            read = min(kc._DEFAULT_TIMEOUT[1], left - kc._DEFAULT_TIMEOUT[0])
+            return kc._clock() + max(kc._MIN_TIMEOUT_S, read)
         return kc._clock() + min(_CALL_SECONDS, left / 2)
 
-    def get(self, op: str, path: str, *, params=None, headers=None, prefix=None, session=None,
-            connector_timeout: bool = False) -> _Reply:
+    def _take_proof_call(self):
+        if self.proof_calls >= _PROOF_CALLS:
+            raise _ProofSpent()
+        self.proof_calls += 1
+        return self._take_call()
+
+    def closing(self) -> tuple | None:
+        """``(summary, observed, stage)`` when what this check's calls saw ends the run.
+
+        The one way out for a dead line (every call of the check got no answer)
+        and for a session or token KMS stopped accepting (any call saw it).
+        """
+        replies = self.sent
+        if replies and all(_is_transport(reply) for reply in replies):
+            last = replies[-1]
+            self.ended = _UNREACHABLE_ENDED
+            return _failure_summary(last.failure, last.verify_code), last.observed(), _transport_stage(last.failure)
+        lost = next((reply for reply in replies if kc._session_lost(reply.status)), None)
+        if lost is None:
+            return None
+        self.ended = _SESSION_ENDED
+        if self.client.auth_method == "token":
+            return "KMS refused the API token.", {**lost.observed(), "reason": "rejected"}, "login"
+        return ("KMS accepted the login but refused its session. Ask the KMS admin about API access.",
+                {**lost.observed(), "reason": "session_refused"}, "login")
+
+    def get(self, op: str, path: str, *, prefix=None, **kwargs) -> _Reply:
+        """One call of a check. An answer from another prefix says nothing about the session."""
+        reply = self._call(op, path, prefix=prefix, **kwargs)
+        if prefix is None or not kc._session_lost(reply.status):
+            self.sent.append(reply)
+        return reply
+
+    def _connector(self, call, *args, **kwargs) -> tuple:
+        """``(what a public connector method gave, None)``, or ``(None, the kind it failed with)``."""
+        found, failed = None, None
+        try:
+            with kc.proof_calls(self._take_proof_call):
+                found = call(*args, **kwargs)
+        except SearchStopped as stop:
+            found = stop.files      # a small limit ends in "max_results"
+            if stop.stop_reason == "deadline" and not found:
+                self.sent.append(_Reply(0, None, "timeout"))
+                return None, "unreachable"
+        except kc.KmsHTTPError as exc:
+            failed = exc
+        if failed is not None:
+            self.sent.append(_reply_of(failed))
+            return None, failed.kind
+        self.sent.append(_Reply(200, {}))
+        return found, None
+
+    def _call(self, op: str, path: str, *, params=None, headers=None, prefix=None, session=None,
+              connector_timeout: bool = False) -> _Reply:
         client = self.client
         deadline = self._take_call(connector_timeout)
         failed = None
@@ -280,7 +388,7 @@ class _Run:
             status, body = client._send(session or client._session(), op, "GET", path, params=params, headers=headers,
                                         deadline=deadline, prefix=prefix)
         except kc.KmsHTTPError as exc:
-            failed = _Reply(exc.answered or exc.status, None, exc.transport or exc.kind, exc.verify_code)
+            failed = _reply_of(exc)
         if failed is not None:
             return failed
         if status != 200 or not body.strip():
@@ -299,14 +407,21 @@ class _Run:
     # ------------------------------------------------------------ network, TLS, item 3
     def _ca_bundle_unreadable(self) -> bool:
         bundle = os.environ.get("REQUESTS_CA_BUNDLE")
-        return self.client._base.startswith("https://") and bool(bundle) and not os.access(bundle, os.R_OK)
+        if not bundle or not self.client._base.startswith("https://"):
+            return False
+        try:    # the connector takes the variable as requests does: a file or a directory
+            ssl.create_default_context(**{"capath" if os.path.isdir(bundle) else "cafile": bundle})
+        except (OSError, ValueError):
+            return True
+        return False
 
     def check_network(self):
         if self._ca_bundle_unreadable():
             self.ca_unreadable = True
             return "skipped", "Skipped: nothing is sent until the CA bundle can be read.", {}
         # The first call carries no session and no credential (a new session has neither).
-        self.reach = self.get("diagnostics_reach", _TREE, session=self.client._new_session(), connector_timeout=True)
+        # Not through ``get``: the network, tls and expiry rows each judge this one answer.
+        self.reach = self._call("diagnostics_reach", _TREE, session=self.client._new_session(), connector_timeout=True)
         failure = self.reach.failure if _is_transport(self.reach) else None
         if failure is None or failure in _TLS_FAILURES:
             return "pass", "This server reached KMS.", {"reached": True}
@@ -395,40 +510,74 @@ class _Run:
         reason = "no_session" if str(failure) == kc._NO_SESSION else failure.kind
         return "fail", "The login failed for a reason other than the password.", {**observed, "reason": reason}
 
-    def _unreachable(self, reply: _Reply):
-        self.ended = _UNREACHABLE_ENDED
-        return ("fail", _failure_summary(reply.failure, reply.verify_code), reply.observed(),
-                _transport_stage(reply.failure))
-
     def _check_token(self):
         reply = self.get("diagnostics_session", "/sessionInfo")
-        if _is_transport(reply):
-            return self._unreachable(reply)
-        if kc._session_lost(reply.status) or reply.status in (400, 403):
-            return "fail", "KMS refused the API token.", {**reply.observed(), "reason": "rejected"}
-        if reply.status == 404:
-            self.ended = None
-            return "warn", "/sessionInfo is absent. It is optional: the reads below prove the token.", reply.observed()
-        if not reply.ok:
-            return "fail", "The token check got a server error or an unusable answer.", {
-                **reply.observed(), "reason": "server"}
         self.ended = None
-        return "pass", "An API token never logs in; KMS answered it.", reply.observed()
+        if reply.ok:
+            return "pass", "An API token never logs in; KMS answered it.", reply.observed()
+        # The connector uses /sessionInfo for a name only: anything but a refused token is no verdict on it.
+        return "warn", "/sessionInfo gave no usable answer. It is optional: the next read decides.", reply.observed()
 
     def check_session(self):
-        """One read with the session the login returned: a refusal here is a login failure, not a browse failure."""
-        if self.client.auth_method == "token":
-            return "info", "An API token has no login session; the login check already used it.", {}
-        reply = self.get("diagnostics_session", _TREE)
-        if _is_transport(reply):
-            return self._unreachable(reply)
-        if kc._session_lost(reply.status):
-            self.ended = _LOGIN_ENDED
-            return "fail", "KMS accepted the login but refused its session. Ask the KMS admin about API access.", {
-                **reply.observed(), "reason": "session_refused"}
+        """One read as the session or token: a refusal here is a login failure, not a browse failure."""
+        client = self.client
+        root = client.root_folder_id
+        reply = self.get("diagnostics_session", _TREE, params=None if root is None else {"parentId": str(root)})
+        if client.auth_method == "token" and (reply.status == 403 or (reply.status == 400 and root is not None)):
+            self.ended = _SESSION_ENDED
+            return "fail", "KMS refused the API token.", {**reply.observed(), "reason": "rejected"}
         if not reply.ok:
             return "warn", "The first read after the login got an unexpected answer.", reply.observed()
-        return "pass", "KMS accepted the session the login returned.", reply.observed()
+        return "pass", "KMS accepted the session or token on a read.", reply.observed()
+
+    # ------------------------------------------------------------ the connector's own proof
+    def check_connector_browse(self):
+        before = self.calls
+        found, kind = self._connector(self.client.list_files, limit=_PROOF_ENTRIES)
+        observed = {"calls": self.calls - before}
+        if kind:
+            return "fail", "The connector could not list the folder tree.", {**observed, "kind": kind}
+        self.proof_entries += found
+        observed["entries"] = len(found)
+        if not found:
+            return "warn", "The connector listed nothing: an agent would see an empty knowledge base.", observed
+        return "pass", "The connector listed the folder tree.", observed
+
+    def check_connector_search(self):
+        for tried, query in enumerate(_SAMPLE_QUERIES, 1):
+            found, kind = self._connector(self.client.search_files, query, limit=_PROOF_HITS)
+            if kind:
+                return "fail", "The connector could not search.", {"kind": kind, "queries_tried": tried}
+            if found:
+                self.proof_entries += found
+                return "pass", "The connector found results.", {"entries": len(found), "queries_tried": tried}
+        return ("warn", "The connector found nothing for the fixed queries: every hit was empty or hidden.",
+                {"entries": 0, "queries_tried": len(_SAMPLE_QUERIES)})
+
+    def _proof_sample(self, kind: str, count: int) -> list:
+        return list(dict.fromkeys(entry["id"] for entry in self.proof_entries if entry["kind"] == kind))[:count]
+
+    def check_connector_read(self):
+        self.proof_read = self._proof_sample("item", _PROOF_ITEMS) + self._proof_sample("scenario", _PROOF_SCENARIOS)
+        kinds, usable, header_only, chars = Counter(), 0, 0, 0
+        for entry_id in self.proof_read:
+            text, kind = self._connector(self.client.read_file, entry_id)
+            if kind:
+                kinds[kind] += 1
+                continue
+            body = _body_chars(text)    # a length is all that stays of a read
+            chars += body
+            usable += 1 if body else 0
+            header_only += 0 if body else 1
+        observed = {"reads": len(self.proof_read), "usable": usable, "header_only": header_only, "body_chars": chars,
+                    "kinds": dict(kinds)}
+        if kinds:
+            return "fail", "The connector could not read an entry it listed.", observed
+        if not self.proof_read:
+            return "warn", "The connector listed nothing to read.", observed
+        if header_only:
+            return "warn", "The connector read an entry and got its header lines only.", observed
+        return "pass", "The connector read the sampled entries as text.", observed
 
     # ------------------------------------------------------------ browse, items 4, 5, 6
     def _level(self, parent=None) -> tuple[_Reply, list]:
@@ -445,39 +594,44 @@ class _Run:
 
     def _walk(self, rows: list) -> list:
         """Open a few folders from ``rows`` to find items and scenarios; returns the answers."""
-        folders, replies = [row for row in rows if kc._kind_of(row) == "folder"], []
+        def shown(records):
+            return [row for row in records if kc._kind_of(row) == "folder" and not self.client._hidden(row)]
+
+        folders, replies = shown(rows), []
         while folders and len(replies) < _TREE_WALK_CALLS and not self._enough_samples():
             reply, found = self._level(folders.pop(0)["id"])
             replies.append(reply)
-            folders += [row for row in found if kc._kind_of(row) == "folder"]
+            folders += shown(found)
         return replies
 
     def check_top_level(self):
         root = self.client.root_folder_id
         top, top_rows = self._level()
-        observed = {**top.observed(), "records": len(top_rows),
+        observed = {**top.observed(), "no_parent_status": _status_key(top), "records": len(top_rows),
                     "folders": sum(1 for row in top_rows if kc._kind_of(row) == "folder")}
         start, start_rows = top, top_rows
         if root is not None:
             start, start_rows = self._level(root)
             observed.update(root_status=start.status, root_records=len(start_rows))
+        if start_rows:
+            self.sent = []      # the start answered, so the folders opened from it are judged alone
         opened = self._walk(start_rows)
         failed = sum(1 for reply in opened if _tree_rows(reply) is None)
         observed.update(folders_opened=len(opened), folders_failed=failed, folder_statuses=_status_counts(opened))
-        for reply in (top, start):
-            if _is_transport(reply):
-                return ("fail", _failure_summary(reply.failure, reply.verify_code), observed,
-                        _transport_stage(reply.failure))
-            if _tree_rows(reply) is None:
-                return "fail", "The folder tree could not be read.", {
-                    **observed, **_reason(reply, _record_fault(_tree_records(reply)))}
+        # With a root set the connector never makes the call with no parent, so only the root is judged.
+        if _tree_rows(start) is None:
+            hinted = root is None and (start.failure == "empty_body" or kc._kind_for_status(start.status) == "bad_request")
+            return "fail", kc._TOP_LEVEL_HINT if hinted else "The folder tree could not be read.", {
+                **observed, **_reason(start, _record_fault(_tree_records(start)))}
         if opened and failed == len(opened):
             return "fail", "No folder could be opened.", observed
-        if not top_rows:
-            return "warn", "The tree call with no parent came back empty. Set Root folder ID.", observed
+        if not start_rows:
+            return "warn", kc._TOP_LEVEL_HINT if root is None else "The root folder came back empty.", observed
         if failed:
             return "warn", "Some folders could not be opened.", observed
-        return "pass", "The tree call with no parent returns the top level.", observed
+        if not top_rows:
+            return "info", "The root folder answers. The tree call with no parent does not, and is not used here.", observed
+        return "pass", "The tree returns its records from where the connector starts.", observed
 
     def check_types(self):
         tree, search = self.tree_records, self.search_records
@@ -488,8 +642,11 @@ class _Run:
         return "info", "Counts of the type and subType values seen in the sample.", observed
 
     def _ids_of(self, kind: str) -> list:
-        """Sampled ids of ``kind``, in order, without offline content the connector would hide."""
-        seen = []
+        """Sampled ids of ``kind``, in order, without offline content the connector would hide.
+
+        What the connector rows read comes first: they count towards the same sample (rule 6).
+        """
+        seen = [entry_id.partition(":")[2] for entry_id in self.proof_read if entry_id.startswith(f"{kind}:")]
         for record in self.tree_records + self.search_records:
             raw = str(record.get("id", ""))
             if (kc._kind_of(record) == kind and kc._DIGITS_RE.fullmatch(raw) and raw not in seen
@@ -521,14 +678,15 @@ class _Run:
                 break
         layout_set = self.client.layout_id is not None
         observed = {"layout_set": layout_set, "queries_tried": tried}
-        if layout_set:
-            observed.update(with_layout_status=reply.status, with_layout_rows=len(rows or ()))
+        if layout_set and not _is_transport(reply):
+            observed.update(with_layout_status=_status_key(reply), with_layout_rows=len(rows or ()))
             bare = self._search(self.search_query or _SAMPLE_QUERIES[0], layout=False)
-            bare_rows = _search_rows(bare)
-            observed.update(without_layout_status=bare.status, without_layout_rows=len(bare_rows or ()),
-                            layout_required=reply.ok and not bare.ok)
-        else:
-            observed.update(without_layout_status=reply.status, without_layout_rows=len(rows or ()))
+            refused = bare.status in _QUERY_REJECTIONS or bare.kms_error
+            observed.update(without_layout_status=_status_key(bare), without_layout_rows=len(_search_rows(bare) or ()),
+                            layout_statuses=_status_counts([reply, bare]),
+                            layout_required=True if reply.ok and refused else None)
+        elif not layout_set:
+            observed.update(without_layout_status=_status_key(reply), without_layout_rows=len(rows or ()))
         if rows is None:
             return "fail", "The search call failed.", {**observed, "failure": reply.failure,
                                                        **_reason(reply, _search_fault(_search_records(reply)))}
@@ -547,7 +705,8 @@ class _Run:
         def attempt(length: int) -> str:
             replies.append(self._search("a" * length))
             answer = replies[-1]
-            outcome = "accepted" if answer.ok else "rejected" if answer.status in _QUERY_REJECTIONS else "inconclusive"
+            outcome = ("rejected" if answer.status in _QUERY_REJECTIONS
+                       else "accepted" if _search_rows(answer) is not None else "inconclusive")
             found[outcome] = length
             return outcome
 
@@ -592,7 +751,7 @@ class _Run:
         reply = self._search(self.search_query, start=returned)
         following = _search_rows(reply)
         if following is None:
-            observed.update(next_page_status=reply.status, server_cap=None)
+            observed.update(next_page_status=_status_key(reply), server_cap=None)
             return "warn", "The next page of results could not be read, so a server-side cap cannot be ruled out.", observed
         observed.update(next_page_rows=len(following), server_cap=bool(following))
         if following:
@@ -668,7 +827,7 @@ class _Run:
         item_only, item_left_out = _plain_names(item_names - ai_names)
         observed = {"statuses": _status_counts(replies), "only_in_ai": ai_only, "only_in_item": item_only,
                     "common": len(ai_names & item_names), "unlisted_names": ai_left_out + item_left_out}
-        self.ai_statuses = observed["statuses"]
+        self.ai_statuses, self.ai_common = observed["statuses"], observed["common"]
         return ("warn", "One account cannot prove permission filtering: repeat this run as a restricted user and "
                         "compare the element names.", observed)
 
@@ -688,7 +847,8 @@ class _Run:
                     ambiguous += 1
                 else:
                     plain += 1
-        observed = {"statuses": self.ai_statuses, "plain": plain, "ambiguous": ambiguous, "blank": blank}
+        observed = {"statuses": self.ai_statuses, "plain": plain, "ambiguous": ambiguous, "blank": blank,
+                    "common": self.ai_common}
         if odd_keys:
             keys, left_out = _plain_names(odd_keys)
             observed.update(element_keys=keys, unlisted_names=left_out)
@@ -698,6 +858,10 @@ class _Run:
             return "warn", "Some AI text looks like HTML. The connector renders those elements from the item.", observed
         if not plain:
             return "warn", "The AI answers held no plain text. The connector falls back to the item.", observed
+        if not self.ai_common:
+            return "warn", "The AI text shares no element with the item, so the connector falls back to the item.", observed
+        if len(self.ai_records) < sum(self.ai_statuses.values()):
+            return "warn", "Only some sampled items gave AI text. See the status codes.", observed
         return "pass", "The sampled AI text is plain text.", observed
 
     # ------------------------------------------------------------ read, items 15, 16
@@ -731,6 +895,8 @@ class _Run:
                 **observed, "step_keys": keys, "unlisted_names": left_out}
         if tags or entities:
             return "warn", "Scenario text has tags or entities although plainText=true was sent.", observed
+        if read < len(ids):
+            return "warn", "Some sampled scenarios could not be read. See the status codes.", observed
         return "pass", "The sampled scenario text is plain text.", observed
 
     def _scenario_strings(self, digits: str, root: dict) -> list:
@@ -757,13 +923,15 @@ class _Run:
             return "skipped", "Skipped: no sampled scenario could be read.", {}
         if not self.step_fetches:
             return "info", "No sampled step needed its own call.", {"statuses": {}}
-        replies = [self.get("diagnostics_step", f"/public/scenario/{digits}/step/{step_id}", params=kc._SCENARIO_PARAMS,
-                            headers={"Accept": kc._SCENARIO_ACCEPT})
-                   for digits, step_id in self.step_fetches]
-        observed = {"statuses": _status_counts(replies)}
-        if all(reply.ok for reply in replies):
-            return "pass", "Every sampled step call was answered.", observed
-        return "warn", "A step call failed. Such a step shows as not available.", observed
+        replies, unusable = [], 0
+        for digits, step_id in self.step_fetches:
+            replies.append(self.get("diagnostics_step", f"/public/scenario/{digits}/step/{step_id}",
+                                    params=kc._SCENARIO_PARAMS, headers={"Accept": kc._SCENARIO_ACCEPT}))
+            unusable += 0 if _step_usable(replies[-1], digits, step_id) else 1
+        observed = {"statuses": _status_counts(replies), "unusable": unusable}
+        if not unusable:
+            return "pass", "Every sampled step call gave the step the connector asked for.", observed
+        return "warn", "A step call gave nothing the connector can use. Such a step shows as not available.", observed
 
     # ------------------------------------------------------------ item 1
     def check_prefix(self):
@@ -800,6 +968,9 @@ _CHECKS = (
     ("expiry", [3], "login", _Run.check_expiry, False),
     ("login", [2], "login", _Run.check_login, False),
     ("session", [], "login", _Run.check_session, False),
+    ("connector_browse", [], "browse", _Run.check_connector_browse, False),
+    ("connector_search", [], "search", _Run.check_connector_search, False),
+    ("connector_read", [], "read", _Run.check_connector_read, False),
     ("top_level", [4], "browse", _Run.check_top_level, False),
     ("search_layout", [8], "search", _Run.check_search_layout, False),
     ("types", [5], "browse", _Run.check_types, False),
@@ -826,8 +997,11 @@ def _row(check_id: str, checklist: list, stage: str, status: str, summary: str, 
 
 def _run_check(run: _Run, check_id: str, checklist: list, stage: str, method) -> dict:
     """One row. The method may name another stage as a fourth value (a login that never reached KMS)."""
+    run.sent = []
     try:
         status, summary, observed, *moved = method(run)
+    except _ProofSpent:
+        return _row(check_id, checklist, stage, "skipped", _PROOF_SPENT, {})
     except _Stop:
         run.ended = _BUDGET_ENDED
         return _row(check_id, checklist, stage, "skipped", _BUDGET_ENDED, {})
@@ -836,6 +1010,10 @@ def _run_check(run: _Run, check_id: str, checklist: list, stage: str, method) ->
         logger.warning("kms_lighthouse diagnostics check %s failed unexpectedly: %s", check_id, type(exc).__name__)
         return _row(check_id, checklist, stage, "fail", "This check stopped unexpectedly.",
                     {"error_type": type(exc).__name__})
+    closing = run.closing()
+    if closing is not None:
+        summary, seen, stage_seen = closing
+        return _row(check_id, checklist, stage_seen, "fail", summary, {**observed, **seen})
     return _row(check_id, checklist, moved[0] if moved else stage, status, summary, observed)
 
 
@@ -852,12 +1030,13 @@ def _overall(rows: list, ended: str | None) -> tuple[str, str | None]:
     failed = next((row["stage"] for row in rows if row["status"] == "fail"), None)
     if failed is not None:
         return "fail", failed
-    if ended is not None or any(_lowers_overall(row) for row in rows):
+    proved = sum(1 for row in rows if row["id"] in _PROOF_CHECKS and row["status"] == "pass") == len(_PROOF_CHECKS)
+    if ended is not None or not proved or any(_lowers_overall(row) for row in rows):
         return "warn", None
     return "pass", None
 
 
-def _report(host: str, api_prefix: str, auth_method: str, root_folder_set: bool, rows: list, calls: int,
+def _report(host: str, api_prefix: str, auth_method: str, root_folder_set: bool, rows: list, calls: int | None,
             duration_ms: int, ended: str | None) -> dict:
     overall, failed_stage = _overall(rows, ended)
     return {
@@ -865,7 +1044,7 @@ def _report(host: str, api_prefix: str, auth_method: str, root_folder_set: bool,
         "bow_version": settings.PROJECT_VERSION, "host": host, "api_prefix": api_prefix, "auth_method": auth_method,
         "root_folder_set": root_folder_set, "overall": overall, "failed_stage": failed_stage,
         "manual_checks": [row["id"] for row in rows if row["id"] in _MANUAL_CHECKS and row["status"] == "warn"],
-        "calls_made": calls, "duration_ms": duration_ms, "checks": rows,
+        "calls_made": calls, "calls_unknown": calls is None, "duration_ms": duration_ms, "checks": rows,
     }
 
 
@@ -878,8 +1057,8 @@ def run_diagnostics(client, deadline=None) -> dict:
         else:
             rows.append(_run_check(run, check_id, checklist, stage, method))
     duration_ms = max(0, int((kc._clock() - run.started) * 1000))
-    return _report(client.host, client.api_prefix, client.auth_method, client.root_folder_id is not None, rows,
-                   run.calls, duration_ms, run.ended)
+    return _report(_host_of(client._base), client.api_prefix, client.auth_method, client.root_folder_id is not None,
+                   rows, run.calls, duration_ms, run.ended)
 
 
 def _host_of(base_url) -> str:
@@ -909,8 +1088,16 @@ def build_failure_report(config, exc: Exception) -> dict:
     if isinstance(exc, UnsafeURLError):
         return failure_report(_config_dict(config), stage="network", reason="egress_blocked",
                               error_type=type(exc).__name__)
+    if isinstance(exc, kc.KmsError) and str(exc) not in (kc._NO_CREDENTIAL, kc.KMS_TOKEN_FORMAT_MESSAGE):
+        return failure_report(_config_dict(config), stage="network", reason="bad_settings",
+                              error_type=type(exc).__name__)
     return failure_report(_config_dict(config), stage="login", reason="credentials_unavailable",
                           error_type=type(exc).__name__)
+
+
+def run_deadline() -> float:
+    """A run's deadline, read when the request arrives: a thread that starts late cannot outlive the route."""
+    return kc._clock() + _MAX_SECONDS
 
 
 def route_seconds() -> float:
@@ -920,10 +1107,12 @@ def route_seconds() -> float:
 
 def timed_out_report(config) -> dict:
     """The route gave up on a run. A thread cannot be cancelled: it stops at its next ``_take_call``."""
-    return failure_report(_config_dict(config), stage="network", reason="run_timed_out", error_type="TimeoutError")
+    return failure_report(_config_dict(config), stage="network", reason="run_timed_out", error_type="TimeoutError",
+                          ended=_CUT_OFF_ENDED, calls=None, duration_ms=int(route_seconds() * 1000))
 
 
-def failure_report(config: dict, *, stage: str, reason: str, error_type: str) -> dict:
+def failure_report(config: dict, *, stage: str, reason: str, error_type: str, ended: str = _CLIENT_ENDED,
+                   calls: int | None = 0, duration_ms: int = 0) -> dict:
     """The same report when no client could be built, so the installer always gets something to send."""
     prefix = config.get("api_prefix")
     prefix = prefix if isinstance(prefix, str) and kc._PREFIX_RE.fullmatch(prefix) else kc._DEFAULT_PREFIX
@@ -937,6 +1126,6 @@ def failure_report(config: dict, *, stage: str, reason: str, error_type: str) ->
         elif always:
             rows.append(_row(check_id, checklist, check_stage, *method(None)))
         else:
-            rows.append(_row(check_id, checklist, check_stage, "skipped", _CLIENT_ENDED, {}))
+            rows.append(_row(check_id, checklist, check_stage, "skipped", ended, {}))
     return _report(_host_of(config.get("base_url")), prefix, auth_method,
-                   config.get("root_folder_id") not in (None, ""), rows, 0, 0, _CLIENT_ENDED)
+                   config.get("root_folder_id") not in (None, ""), rows, calls, duration_ms, ended)

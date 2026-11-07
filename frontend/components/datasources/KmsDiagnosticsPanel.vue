@@ -24,7 +24,7 @@
                         {{ $t('kmsDiagnostics.manualCheck') }}
                     </div>
                     <div class="text-xs text-ink-muted">
-                        {{ $t('kmsDiagnostics.calls', { calls: report.calls_made, seconds: Math.round(report.duration_ms / 1000) }) }}
+                        {{ report.calls_unknown ? $t('kmsDiagnostics.callsUnknown', { seconds: Math.round(report.duration_ms / 1000) }) : $t('kmsDiagnostics.calls', { calls: report.calls_made, seconds: Math.round(report.duration_ms / 1000) }) }}
                     </div>
                 </div>
                 <div class="flex items-center gap-2">

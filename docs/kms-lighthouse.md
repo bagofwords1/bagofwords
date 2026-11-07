@@ -376,8 +376,19 @@ the egress check, the TLS verification and the refusal of redirects all apply:
   answers.
 - At most one login. A rejected login is never retried, and the login hold is
   respected: a hold or a rejection ends the run and sends nothing else.
+- With a token, `/sessionInfo` and one tree read. The connector uses `/sessionInfo`
+  for a display name only, so only a refused token (401 or a redirect) ends the run
+  there. Any other answer warns, and the tree read decides: a 401, a redirect or a
+  403 there ends the run at stage `login`, and so does a 400 with a Root folder ID
+  set. A 400 with no root is what the connector reads as "set a root folder".
 - Read-only GETs: the tree, `/search/full`, `/public/item`, `/ai_answers_item`,
-  the scenario and step routes, and, with a token, `/sessionInfo`.
+  and the scenario and step routes.
+- Calls to the connector's own public methods, right after the session check:
+  `connector_browse` is `list_files` with a limit of 10, `connector_search` is
+  `search_files` with the first fixed query that finds anything, and
+  `connector_read` is `read_file` on up to 2 items and 1 scenario from those results.
+  They reuse the one session: inside them a login cannot be sent, so a session
+  KMS refuses ends the run at stage `login`. What they read is measured and dropped.
 - After a successful login only, one authenticated GET to each other known
   prefix (`/kms/lh/api`, `/api`). A login is never sent to another prefix.
 
@@ -386,11 +397,16 @@ the zero-hit check, and runs of the letter `a` for the length check).
 
 **Limits.** At most 60 calls and 90 s. The first call and the login keep the
 connector's own read timeout, 60 s, inside the 90 s; every other call gets at most
-20 s. Hitting a limit marks the remaining checks `skipped`. At most 5 items and 2
-scenarios are sampled, with at most 3 step calls per scenario. A server that keeps
-sending bytes slowly inside the socket timeout can still overrun the 90 s, so the
-route stops waiting after 95 s and answers with `reason` `run_timed_out`. That run's
-results are lost; its thread stops at its next call.
+20 s. Connect and read together fit the time left. Hitting a limit marks the
+remaining checks `skipped`. The connector rows have 22 of the 60 calls: a scenario
+with many steps can use them up, and then the row is `skipped`, `overall` is `warn`
+and the other checks still run. At most 5 items and 2 scenarios are sampled, those
+the connector rows read included, with at most 3 step calls per scenario. A server
+that keeps sending bytes slowly inside the socket timeout can still overrun the
+90 s, so the route stops waiting after 95 s and answers with `reason`
+`run_timed_out`. That run's results are lost: its `calls_made` is null and
+`calls_unknown` is true, because its thread was working and calls may have been
+sent. The thread stops at its next call, and a thread that starts late sends nothing.
 
 A gateway in front of BOW with a 60 s read limit can cut a run against a stalled
 tenant. Raise the limit for this route, or run it from inside the network.
@@ -401,27 +417,44 @@ holds no document title or body, folder name, search hit text, username, full
 name, password, token, cookie value, tenant response text or exception text.
 Anything that is not a plain identifier is counted, or shown as `other`, and an
 element or key name is reported only when it is a plain identifier. The text
-stays in English on purpose: it is a report for engineers.
+stays in English on purpose: it is a report for engineers. Status words are
+`http_<status>`, `kms_error` for a 200 with `{"status": "ERROR"}`, or the failure
+word (`timeout`, `bad_body` and so on).
 
-A clean automatic run ends in `pass`. One account cannot prove item 12, so
-`ai_elements` always warns and asks for a repeat as a restricted user, but that
-warning does not lower `overall`: the report lists it in `manual_checks`, and the
-panel says one manual check remains. Items 10 and 13 are always `skipped`: failed
-logins are never sent on purpose, so ask the KMS admin for the concurrent-session
-limit, the lockout threshold and whether a logout exists. Any other warning, or any
-other skipped check (including `ai_elements`, and `tls` unless the connection is
-plain HTTP), makes `overall` `warn`. A failed check makes it `fail`.
+**Proof rows.** `connector_browse`, `connector_search` and `connector_read` are the
+verdict; every other row is an observation for the checklist. Each is `pass` only
+when the connector returned something usable (a list that is not empty, text with
+more than its header lines), `warn` when it came back empty, and `fail` when it
+raised, with the kind of the error or its type name. Their `observed` holds counts
+and lengths only. A row other than these may only `fail` on a call the connector
+makes with this configuration: with a Root folder ID set, the tree call with no
+parent is `info`.
+
+`overall` `pass` needs all three proof rows `pass`, and no `fail` and no `warn`
+other than the manual check. One account cannot prove item 12, so `ai_elements`
+always warns and asks for a repeat as a restricted user, but that warning does not
+lower `overall`: the report lists it in `manual_checks`, and the panel says one
+manual check remains. The panel says "Automatic checks passed", not that every
+check passed. Items 10 and 13 are always `skipped`: failed logins are never sent on
+purpose, so ask the KMS admin for the concurrent-session limit, the lockout
+threshold and whether a logout exists. Any other warning, or any other skipped
+check (including `ai_elements`, and `tls` unless the connection is plain HTTP),
+makes `overall` `warn`. A failed check makes it `fail`.
+
+A call that gets no answer ends the run at stage `network` or `tls`, as does a check
+whose calls all got none; one call of several does not. A refused session or token
+at any check ends the run at stage `login`.
 
 **What to do per failed stage.**
 
 | `failed_stage` | Meaning | What to do |
 |---|---|---|
-| `network` | DNS failure, refused, timeout, `blocked_route`, `run_timed_out` or `egress_blocked` | Check the URL, DNS and the firewall from this server. `blocked_route`: a firewall or a missing route (no route to the host or the network, or access denied). `run_timed_out`: KMS may be stalling; run it again. `egress_blocked`: the host is refused by `security.block_private_outbound`. A proxy is not supported (see Known limitations). |
+| `network` | DNS failure, refused, timeout, `blocked_route`, `run_timed_out`, `egress_blocked` or `bad_settings` | Check the URL, DNS and the firewall from this server. `blocked_route`: a firewall or a missing route (no route to the host or the network, or access denied). `run_timed_out`: KMS may be stalling; run it again. `egress_blocked`: the host is refused by `security.block_private_outbound`. `bad_settings`: the saved URL, API path prefix or Allow HTTP cannot be used, so nothing was sent. A proxy is not supported (see Known limitations). |
 | `tls` | `untrusted_certificate` (with OpenSSL's `verify_code`), `tls_failed` or `ca_bundle_unreadable` | Add the CA to `REQUESTS_CA_BUNDLE`. A device that intercepts TLS needs its CA added. An expired certificate or a host name mismatch has its own summary. `ca_bundle_unreadable`: the file `REQUESTS_CA_BUNDLE` names cannot be read, so nothing was sent. |
 | `login` | Rejected, held, `credentials_unavailable`, no session in the answer, `session_refused`, or `server` for a token | Check the username and password or the token. A rejection can also come from a device in front of KMS, or from a login with an unexpected shape. After a rejection wait five minutes, because of the login hold, before running it again. `session_refused`: KMS accepted the login but refused its session on the next call; ask the KMS admin whether the account may use the API. |
-| `browse` | The tree could not be read | Check the API prefix and the account's KMS permissions, and try Root folder ID. |
-| `search` | `/search/full` failed, or the connector would refuse its answer (`not_records`, or `non_numeric_id` when no record has a numeric id) | Check Layout ID: see `search_layout` for the answer with and without it. Records with no numeric id beside usable ones are not a failure: the connector skips them, so the check warns and counts them in `unusable_records`. `bad_body` or `bad_encoding` on any check means KMS answered but its body broke after the status; a device in front of KMS is the first thing to check. |
-| `read` | No sampled item could be read | Check the account's KMS permissions. Send the report to the BOW engineers. |
+| `browse` | The connector could not list the tree, or the tree could not be read | Check the API prefix and the account's KMS permissions. With no Root folder ID, try setting one. |
+| `search` | The connector could not search, `/search/full` failed, or the connector would refuse its answer (`not_records`, or `non_numeric_id` when no record has a numeric id) | Check Layout ID: see `search_layout` for the answer with and without it. Records with no numeric id beside usable ones are not a failure: the connector skips them, so the check warns and counts them in `unusable_records`. `bad_body` or `bad_encoding` on any check means KMS answered but its body broke after the status; a device in front of KMS is the first thing to check. |
+| `read` | The connector could not read an entry it listed (`connector_read` names the kinds), or no sampled item could be read | Check the account's KMS permissions. Send the report to the BOW engineers. |
 
 ## Known limitations and follow-ups
 

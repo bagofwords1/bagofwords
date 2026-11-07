@@ -116,6 +116,7 @@ Test-only switches and routes (not part of the KMS API):
     STATE["search_page_status"] = N: /search/full past the first page answers HTTP N with no body.
     STATE["no_hit_text"] = "x": a query holding "x" matches nothing; its body is
     STATE["no_hit_body"], or an empty results list when that is None.
+    STATE["top_level_status"] = N: the tree call with no parentId answers HTTP N with no body.
   - GET {PREFIX}/_mock/empty              HTTP 200 with an empty body
   - GET {PREFIX}/_mock/oversized          HTTP 200 with a large JSON body (OVERSIZED_BYTES)
 
@@ -467,6 +468,7 @@ _DEFAULTS = {
     "search_page_status": None,      # None | an HTTP status: /search/full past the first page answers it
     "no_hit_text": None,             # None | a query holding this text matches nothing
     "no_hit_body": None,             # None | the whole JSON body of a query that matches nothing
+    "top_level_status": None,        # None | an HTTP status: the tree call with no parentId answers it
 }
 _STEP_ANSWERS = ("error", "wrong_step")
 _STALE = {"barrier": None}           # the barrier for STATE["hold_stale_401s"]
@@ -778,6 +780,8 @@ class Handler(BaseHTTPRequestHandler):
                 with _LOCK:
                     STATE["tree_status_sent"].append(parent)
                 return self._send_empty(STATE["tree_status"][parent])
+            if parent is None and STATE["top_level_status"] is not None:
+                return self._send_empty(STATE["top_level_status"])
             if parent is None and STATE["top_level_requires_parent"]:
                 return self._send_json(200, {"status": "SUCCESS", "data": []})
             visible = USERS[user]["visible"]
