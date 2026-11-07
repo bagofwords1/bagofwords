@@ -45,7 +45,8 @@
           @click="enterCategory(category.name)"
         >
           <div class="flex items-center space-x-2 min-w-0">
-            <Icon :name="categoryIcon(category.name)" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
+            <PlugIcon v-if="category.name === 'connectors'" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
+            <Icon v-else :name="categoryIcon(category.name)" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
             <span class="text-xs text-gray-900 dark:text-white truncate">{{ category.label }}</span>
           </div>
           <Icon name="heroicons-chevron-right" class="w-3.5 h-3.5 text-ink-muted flex-shrink-0" />
@@ -239,6 +240,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import Spinner from '~/components/Spinner.vue'
+import PlugIcon from '~/components/icons/PlugIcon.vue'
 import PromptParametersModal from '~/components/prompt/PromptParametersModal.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import { usePermissions, useResourcePermissions } from '~/composables/usePermissions'
@@ -528,7 +530,6 @@ const showCategoryList = computed(() =>
 function categoryIcon(name: string): string {
   switch (name) {
     case 'data_sources': return 'heroicons-cube'
-    case 'connectors': return 'heroicons-puzzle-piece'
     case 'instructions': return 'heroicons-document-text'
     case 'prompts': return 'heroicons-book-open'
     case 'files': return 'heroicons-document'
