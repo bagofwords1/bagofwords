@@ -82,7 +82,9 @@ jobs:
     # The suite outgrew the old 60- then 90-minute caps. 120 is no longer
     # generous: the Postgres job reaches it in about 41% of runs, 93-96% done.
     # Raising it again only postpones that; the cost is test setup, not this cap.
-    timeout-minutes: 120
+    # 122, not 120: pytest stops itself at 115 minutes (--session-timeout below),
+    # and this leaves room for it to finish a running test and upload its timings.
+    timeout-minutes: 122
     strategy:
       fail-fast: false
       matrix:
