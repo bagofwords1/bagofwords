@@ -70,7 +70,6 @@ class Corpus:
 
 class Seeder:
     def __init__(self, rows: Rows, cast: Cast):
-        self.rows = rows
         self.cast = cast
         self.corpus = Corpus(cast=cast)
         for key, person in cast.people.items():
@@ -87,16 +86,25 @@ class Seeder:
         # A fixed clock: creation order decides "latest", so it must not
         # depend on how fast the seed runs.
         self._t = datetime(2026, 3, 1, 9, 0, 0)
+        self._counts: dict[str, int] = {}
+        self.attach(rows)
+
+    def attach(self, rows: Rows) -> None:
+        """Write through `rows` on this seeder's clock and names."""
+        self.rows = rows
         rows.clock = self.tick
+
         # Every row the seed writes gets a stable name (table#n, in insertion
         # order) unless a more telling one is given with corpus.name().
-        self._counts: dict[str, int] = {}
-
         def auto_name(table: str, row_id: str) -> None:
             self._counts[table] = self._counts.get(table, 0) + 1
             self.corpus.names.setdefault(row_id, f"{table}#{self._counts[table]}")
 
         rows.on_insert = auto_name
+
+    def __getstate__(self) -> dict:
+        """Saved without `rows`: its engine belongs to one test."""
+        return {k: v for k, v in self.__dict__.items() if k != "rows"}
 
     @staticmethod
     def slug(*parts: str) -> str:
