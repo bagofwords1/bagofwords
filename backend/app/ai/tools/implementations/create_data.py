@@ -6,6 +6,7 @@ import time as _time
 from contextlib import nullcontext
 from typing import AsyncIterator, Dict, Any, Type, Optional, List, Union
 from pydantic import BaseModel
+from app.services.artifact_payload import partial_rows_note
 from app.core.otel import get_tracer
 from app.ee.audit.tool_audit import log_tool_audit, _truncate_queries
 
@@ -2355,6 +2356,9 @@ Do not use generic placeholders like "value" unless that is the actual column na
             f"Created data '{data.title}' successfully",
             f"{row_count} rows x {len(column_names)} cols",
         ]
+        kept_note = partial_rows_note(row_count, len(formatted.get("rows", [])))
+        if kept_note:
+            summary_parts.append(kept_note)
         if column_names:
             shown_cols = ", ".join(column_names[:10])
             if len(column_names) > 10:

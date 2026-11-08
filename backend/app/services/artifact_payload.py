@@ -30,6 +30,48 @@ logger = logging.getLogger(__name__)
 UNSCOPED: Any = object()
 
 
+def row_count_fields(data: Any) -> dict[str, Any]:
+    """How much of a query's result a stored dataset holds.
+
+    Stored rows are cut at the org's `limit_row_count`, so `len(rows)` says
+    nothing about the size of the result; `info.total_rows` does. `row_count` is
+    the result's real size, `loaded_row_count` the rows actually present, and
+    `truncated` whether anything is missing. Totals computed from truncated rows
+    are wrong, so anything that builds or renders a page needs all three.
+    """
+    data = data if isinstance(data, dict) else {}
+    rows = data.get("rows")
+    loaded = len(rows) if isinstance(rows, list) else 0
+    info = data.get("info")
+    total = info.get("total_rows") if isinstance(info, dict) else None
+    real = total if isinstance(total, int) and not isinstance(total, bool) and total >= loaded else loaded
+    return {"row_count": real, "loaded_row_count": loaded, "truncated": real > loaded}
+
+
+def partial_rows_note(row_count: Any, stored_rows: int) -> Optional[str]:
+    """What to tell the planner when a query's result was cut, else None.
+
+    Said when the query is created, because that is when the planner can still
+    write a better one.
+    """
+    if not isinstance(row_count, int) or row_count <= stored_rows:
+        return None
+    return (
+        f"only the first {stored_rows} rows are kept (org row limit), so pages and charts receive "
+        f"{stored_rows}; for totals, KPIs, rankings or trends, aggregate in the query"
+    )
+
+
+def partial_data_used(visualizations: list[dict[str, Any]], code: str) -> list[dict[str, Any]]:
+    """The cut datasets a page's code actually reads, for the planner to fix."""
+    return [
+        {"visualization_id": v["id"], "title": v.get("title"), "row_count": v.get("row_count"),
+         "loaded_row_count": v.get("loaded_row_count")}
+        for v in visualizations
+        if v.get("truncated") and str(v.get("id")) in (code or "")
+    ]
+
+
 async def _resolve_rows(db, step, report, viewer) -> tuple[dict, bool]:
     """(data, withheld) for `step` as `viewer` may see it."""
     if step is None:
@@ -156,6 +198,7 @@ async def collect_visualizations(db, artifact, *, viewer: Any = UNSCOPED) -> lis
             "view": viz.view or {},
             "rows": data.get("rows", []) if data else [],
             "columns": data.get("columns", []) if data else [],
+            **row_count_fields(data),
             "dataModel": step.data_model or {} if step else {},
             # As ArtifactFrame.vue sends it: artifact code may tell a chart
             # whose step failed from one that returned no rows.
