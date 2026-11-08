@@ -1,0 +1,2373 @@
+{
+ "api_prefix": "/mgmt",
+ "contract": "F5 BIG-IP iControl REST, TMOS 15.x-17.x (shapes verified against 17.1 docs, f5-ansible fixtures and f5-common-python; see tools/f5_bigip/SOURCES.md)",
+ "filters": {
+  "partition": "Server-side $filter=partition eq <name> on collection tables; other filters are applied client-side as equality / membership after a complete fetch."
+ },
+ "login_path": "/mgmt/shared/authn/login",
+ "page_size": 500,
+ "sha256": "360596e36f1d0b9118398614bb380df79b95b858690b7bb79de86ca41059ad61",
+ "tables": {
+  "cm_devices": {
+   "description": "Device trust members (HA pair/cluster): hostname, management IP, failoverState, version, platform, selfDevice.",
+   "fields": {
+    "activeModules": {
+     "description": "Licensed active modules.",
+     "type": "array"
+    },
+    "baseMac": {
+     "description": "",
+     "type": "string"
+    },
+    "build": {
+     "description": "",
+     "type": "string"
+    },
+    "cert": {
+     "description": "Device-trust certificate name.",
+     "type": "string"
+    },
+    "chassisId": {
+     "description": "",
+     "type": "string"
+    },
+    "chassisType": {
+     "description": "",
+     "type": "string"
+    },
+    "comment": {
+     "description": "",
+     "type": "string"
+    },
+    "configsyncIp": {
+     "description": "",
+     "type": "string"
+    },
+    "contact": {
+     "description": "",
+     "type": "string"
+    },
+    "edition": {
+     "description": "",
+     "type": "string"
+    },
+    "failoverState": {
+     "description": "active / standby / offline / forced-offline / unknown.",
+     "type": "string"
+    },
+    "fullPath": {
+     "description": "Partition-qualified path, e.g. /Common/web_pool. Use this as the join key and as the `name` control.",
+     "type": "string"
+    },
+    "generation": {
+     "description": "Configuration generation counter; increments on change.",
+     "type": "integer"
+    },
+    "haCapacity": {
+     "description": "",
+     "type": "integer"
+    },
+    "hostname": {
+     "description": "Device hostname.",
+     "type": "string"
+    },
+    "key": {
+     "description": "",
+     "type": "string"
+    },
+    "kind": {
+     "description": "iControl REST kind string.",
+     "type": "string"
+    },
+    "location": {
+     "description": "",
+     "type": "string"
+    },
+    "managementIp": {
+     "description": "Management IP.",
+     "type": "string"
+    },
+    "marketingName": {
+     "description": "Platform marketing name.",
+     "type": "string"
+    },
+    "mirrorIp": {
+     "description": "",
+     "type": "string"
+    },
+    "mirrorSecondaryIp": {
+     "description": "",
+     "type": "string"
+    },
+    "multicastInterface": {
+     "description": "",
+     "type": "string"
+    },
+    "multicastIp": {
+     "description": "",
+     "type": "string"
+    },
+    "multicastPort": {
+     "description": "",
+     "type": "integer"
+    },
+    "name": {
+     "description": "Object name within its partition.",
+     "type": "string"
+    },
+    "optionalModules": {
+     "description": "",
+     "type": "array"
+    },
+    "partition": {
+     "description": "Administrative partition (e.g. Common).",
+     "type": "string"
+    },
+    "platformId": {
+     "description": "",
+     "type": "string"
+    },
+    "product": {
+     "description": "",
+     "type": "string"
+    },
+    "selfDevice": {
+     "description": "'true' for the device answering the API.",
+     "type": "string"
+    },
+    "selfLink": {
+     "description": "Object self URI (host is always 'localhost').",
+     "type": "string"
+    },
+    "timeLimitedModules": {
+     "description": "",
+     "type": "array"
+    },
+    "timeZone": {
+     "description": "",
+     "type": "string"
+    },
+    "unicastAddress": {
+     "description": "[{ip, port, effectiveIp, effectivePort}]",
+     "type": "array"
+    },
+    "version": {
+     "description": "TMOS version.",
+     "type": "string"
+    }
+   },
+   "kind": "collection",
+   "notes": "",
+   "object_scoped": true,
+   "parents": [],
+   "path": "/mgmt/tm/cm/device",
+   "stats_rows": null,
+   "verified": "verified"
+  },
+  "cm_failover_status": {
+   "description": "Failover status of the device answering the API (ACTIVE/STANDBY...) with detail lines per traffic group.",
+   "fields": {
+    "color": {
+     "description": "green / yellow / red / blue.",
+     "type": "string"
+    },
+    "details": {
+     "description": "Detail lines, e.g. 'active for /Common/traffic-group-1'.",
+     "type": "array"
+    },
+    "status": {
+     "description": "ACTIVE / STANDBY / OFFLINE / FORCED OFFLINE.",
+     "type": "string"
+    },
+    "summary": {
+     "description": "e.g. '1/1 active'.",
+     "type": "string"
+    }
+   },
+   "kind": "nested",
+   "notes": "",
+   "object_scoped": false,
+   "parents": [],
+   "path": "/mgmt/tm/cm/failover-status",
+   "stats_rows": null,
+   "verified": "verified"
+  },
+  "cm_sync_status": {
+   "description": "Config-sync status of the device group (In Sync / Changes Pending ...).",
+   "fields": {
+    "color": {
+     "description": "",
+     "type": "string"
+    },
+    "details": {
+     "description": "Detail lines per device group.",
+     "type": "array"
+    },
+    "mode": {
+     "description": "high-availability / standalone.",
+     "type": "string"
+    },
+    "status": {
+     "description": "In Sync / Changes Pending / Standalone / Disconnected ...",
+     "type": "string"
+    },
+    "summary": {
+     "description": "",
+     "type": "string"
+    }
+   },
+   "kind": "nested",
+   "notes": "",
+   "object_scoped": false,
+   "parents": [],
+   "path": "/mgmt/tm/cm/sync-status",
+   "stats_rows": null,
+   "verified": "verified"
+  },
+  "irules": {
+   "description": "iRules with TCL source (apiAnonymous). Join virtual_servers.rules to find where each is attached.",
+   "fields": {
+    "apiAnonymous": {
+     "description": "The iRule TCL source (definition-checksum/signature lines may be embedded).",
+     "type": "string"
+    },
+    "fullPath": {
+     "description": "Partition-qualified path, e.g. /Common/web_pool. Use this as the join key and as the `name` control.",
+     "type": "string"
+    },
+    "generation": {
+     "description": "Configuration generation counter; increments on change.",
+     "type": "integer"
+    },
+    "ignoreVerification": {
+     "description": "",
+     "type": "string"
+    },
+    "kind": {
+     "description": "iControl REST kind string.",
+     "type": "string"
+    },
+    "name": {
+     "description": "Object name within its partition.",
+     "type": "string"
+    },
+    "partition": {
+     "description": "Administrative partition (e.g. Common).",
+     "type": "string"
+    },
+    "selfLink": {
+     "description": "Object self URI (host is always 'localhost').",
+     "type": "string"
+    }
+   },
+   "kind": "collection",
+   "notes": "",
+   "object_scoped": true,
+   "parents": [],
+   "path": "/mgmt/tm/ltm/rule",
+   "stats_rows": null,
+   "verified": "verified"
+  },
+  "ltm_monitors_http": {
+   "description": "HTTP health monitors: send/recv strings, interval/timeout, destination alias. Secrets (password) are stripped.",
+   "fields": {
+    "adaptive": {
+     "description": "",
+     "type": "string"
+    },
+    "adaptiveDivergenceType": {
+     "description": "",
+     "type": "string"
+    },
+    "adaptiveDivergenceValue": {
+     "description": "",
+     "type": "integer"
+    },
+    "adaptiveLimit": {
+     "description": "",
+     "type": "integer"
+    },
+    "adaptiveSamplingTimespan": {
+     "description": "",
+     "type": "integer"
+    },
+    "appService": {
+     "description": "",
+     "type": "string"
+    },
+    "defaultsFrom": {
+     "description": "Parent monitor.",
+     "type": "string"
+    },
+    "description": {
+     "description": "User description.",
+     "type": "string"
+    },
+    "destination": {
+     "description": "Alias destination '*:*' or addr:port.",
+     "type": "string"
+    },
+    "fullPath": {
+     "description": "Partition-qualified path, e.g. /Common/web_pool. Use this as the join key and as the `name` control.",
+     "type": "string"
+    },
+    "generation": {
+     "description": "Configuration generation counter; increments on change.",
+     "type": "integer"
+    },
+    "interval": {
+     "description": "Probe interval (s).",
+     "type": "integer"
+    },
+    "ipDscp": {
+     "description": "",
+     "type": "integer"
+    },
+    "kind": {
+     "description": "iControl REST kind string.",
+     "type": "string"
+    },
+    "manualResume": {
+     "description": "",
+     "type": "string"
+    },
+    "name": {
+     "description": "Object name within its partition.",
+     "type": "string"
+    },
+    "partition": {
+     "description": "Administrative partition (e.g. Common).",
+     "type": "string"
+    },
+    "recv": {
+     "description": "Expected receive string.",
+     "type": "string"
+    },
+    "recvDisable": {
+     "description": "",
+     "type": "string"
+    },
+    "reverse": {
+     "description": "",
+     "type": "string"
+    },
+    "selfLink": {
+     "description": "Object self URI (host is always 'localhost').",
+     "type": "string"
+    },
+    "send": {
+     "description": "Send string (request).",
+     "type": "string"
+    },
+    "timeUntilUp": {
+     "description": "",
+     "type": "integer"
+    },
+    "timeout": {
+     "description": "Timeout (s).",
+     "type": "integer"
+    },
+    "transparent": {
+     "description": "",
+     "type": "string"
+    },
+    "upInterval": {
+     "description": "",
+     "type": "integer"
+    },
+    "username": {
+     "description": "Basic-auth user for the probe (password is never returned by the connector).",
+     "type": "string"
+    }
+   },
+   "kind": "collection",
+   "notes": "",
+   "object_scoped": true,
+   "parents": [],
+   "path": "/mgmt/tm/ltm/monitor/http",
+   "stats_rows": null,
+   "verified": "verified"
+  },
+  "net_interfaces": {
+   "description": "Physical interfaces: enabled, negotiated media, MAC, MTU, STP.",
+   "fields": {
+    "bundle": {
+     "description": "",
+     "type": "string"
+    },
+    "bundleSpeed": {
+     "description": "",
+     "type": "string"
+    },
+    "disabled": {
+     "description": "",
+     "type": "boolean"
+    },
+    "enabled": {
+     "description": "True when enabled (absent/`disabled` when not).",
+     "type": "boolean"
+    },
+    "flowControl": {
+     "description": "",
+     "type": "string"
+    },
+    "forceGigabitFiber": {
+     "description": "",
+     "type": "string"
+    },
+    "forwardErrorCorrection": {
+     "description": "",
+     "type": "string"
+    },
+    "fullPath": {
+     "description": "Partition-qualified path, e.g. /Common/web_pool. Use this as the join key and as the `name` control.",
+     "type": "string"
+    },
+    "generation": {
+     "description": "Configuration generation counter; increments on change.",
+     "type": "integer"
+    },
+    "ifIndex": {
+     "description": "SNMP ifIndex.",
+     "type": "integer"
+    },
+    "kind": {
+     "description": "iControl REST kind string.",
+     "type": "string"
+    },
+    "lldpAdmin": {
+     "description": "",
+     "type": "string"
+    },
+    "macAddress": {
+     "description": "",
+     "type": "string"
+    },
+    "mediaActive": {
+     "description": "Negotiated media, e.g. 10000SR-FD, or 'none' when down.",
+     "type": "string"
+    },
+    "mediaFixed": {
+     "description": "",
+     "type": "string"
+    },
+    "mediaMax": {
+     "description": "",
+     "type": "string"
+    },
+    "mediaSfp": {
+     "description": "",
+     "type": "string"
+    },
+    "mtu": {
+     "description": "",
+     "type": "integer"
+    },
+    "name": {
+     "description": "Object name within its partition.",
+     "type": "string"
+    },
+    "portFwdMode": {
+     "description": "",
+     "type": "string"
+    },
+    "preferPort": {
+     "description": "",
+     "type": "string"
+    },
+    "selfLink": {
+     "description": "Object self URI (host is always 'localhost').",
+     "type": "string"
+    },
+    "sflow.pollInterval": {
+     "description": "",
+     "type": "integer"
+    },
+    "sflow.pollIntervalGlobal": {
+     "description": "",
+     "type": "string"
+    },
+    "stp": {
+     "description": "",
+     "type": "string"
+    },
+    "stpEdgePort": {
+     "description": "",
+     "type": "string"
+    },
+    "stpLinkType": {
+     "description": "",
+     "type": "string"
+    }
+   },
+   "kind": "collection",
+   "notes": "",
+   "object_scoped": false,
+   "parents": [],
+   "path": "/mgmt/tm/net/interface",
+   "stats_rows": null,
+   "verified": "verified"
+  },
+  "net_self": {
+   "description": "Self IPs: address/CIDR, VLAN, floating, traffic group, port lockdown.",
+   "fields": {
+    "address": {
+     "description": "CIDR address, e.g. 10.1.1.2/24.",
+     "type": "string"
+    },
+    "addressSource": {
+     "description": "",
+     "type": "string"
+    },
+    "allowService": {
+     "description": "Port lockdown list ('default', 'all', or service:port).",
+     "type": "array"
+    },
+    "floating": {
+     "description": "enabled for floating (traffic-group) addresses.",
+     "type": "string"
+    },
+    "fullPath": {
+     "description": "Partition-qualified path, e.g. /Common/web_pool. Use this as the join key and as the `name` control.",
+     "type": "string"
+    },
+    "generation": {
+     "description": "Configuration generation counter; increments on change.",
+     "type": "integer"
+    },
+    "inheritedTrafficGroup": {
+     "description": "",
+     "type": "string"
+    },
+    "kind": {
+     "description": "iControl REST kind string.",
+     "type": "string"
+    },
+    "name": {
+     "description": "Object name within its partition.",
+     "type": "string"
+    },
+    "partition": {
+     "description": "Administrative partition (e.g. Common).",
+     "type": "string"
+    },
+    "selfLink": {
+     "description": "Object self URI (host is always 'localhost').",
+     "type": "string"
+    },
+    "servicePolicy": {
+     "description": "",
+     "type": "string"
+    },
+    "trafficGroup": {
+     "description": "Traffic group fullPath.",
+     "type": "string"
+    },
+    "unit": {
+     "description": "",
+     "type": "integer"
+    },
+    "vlan": {
+     "description": "VLAN fullPath.",
+     "type": "string"
+    }
+   },
+   "kind": "collection",
+   "notes": "",
+   "object_scoped": true,
+   "parents": [],
+   "path": "/mgmt/tm/net/self",
+   "stats_rows": null,
+   "verified": "verified"
+  },
+  "net_vlans": {
+   "description": "VLANs: tag, MTU, failsafe, learning.",
+   "fields": {
+    "autoLasthop": {
+     "description": "",
+     "type": "string"
+    },
+    "cmpHash": {
+     "description": "",
+     "type": "string"
+    },
+    "dagRoundRobin": {
+     "description": "",
+     "type": "string"
+    },
+    "dagTunnel": {
+     "description": "",
+     "type": "string"
+    },
+    "description": {
+     "description": "User description.",
+     "type": "string"
+    },
+    "failsafe": {
+     "description": "enabled/disabled.",
+     "type": "string"
+    },
+    "failsafeAction": {
+     "description": "",
+     "type": "string"
+    },
+    "failsafeTimeout": {
+     "description": "",
+     "type": "integer"
+    },
+    "fullPath": {
+     "description": "Partition-qualified path, e.g. /Common/web_pool. Use this as the join key and as the `name` control.",
+     "type": "string"
+    },
+    "generation": {
+     "description": "Configuration generation counter; increments on change.",
+     "type": "integer"
+    },
+    "hardwareSyncookie": {
+     "description": "",
+     "type": "string"
+    },
+    "ifIndex": {
+     "description": "",
+     "type": "integer"
+    },
+    "interfacesReference.link": {
+     "description": "Link to member interfaces.",
+     "type": "string"
+    },
+    "kind": {
+     "description": "iControl REST kind string.",
+     "type": "string"
+    },
+    "learning": {
+     "description": "",
+     "type": "string"
+    },
+    "mtu": {
+     "description": "",
+     "type": "integer"
+    },
+    "name": {
+     "description": "Object name within its partition.",
+     "type": "string"
+    },
+    "partition": {
+     "description": "Administrative partition (e.g. Common).",
+     "type": "string"
+    },
+    "selfLink": {
+     "description": "Object self URI (host is always 'localhost').",
+     "type": "string"
+    },
+    "sflow.pollInterval": {
+     "description": "",
+     "type": "integer"
+    },
+    "sflow.samplingRate": {
+     "description": "",
+     "type": "integer"
+    },
+    "sourceChecking": {
+     "description": "",
+     "type": "string"
+    },
+    "synFloodRateLimit": {
+     "description": "",
+     "type": "integer"
+    },
+    "syncacheThreshold": {
+     "description": "",
+     "type": "integer"
+    },
+    "tag": {
+     "description": "802.1Q tag.",
+     "type": "integer"
+    }
+   },
+   "kind": "collection",
+   "notes": "",
+   "object_scoped": true,
+   "parents": [],
+   "path": "/mgmt/tm/net/vlan",
+   "stats_rows": null,
+   "verified": "verified"
+  },
+  "node_stats": {
+   "description": "Live node status: monitorStatus, availability, reason, server-side connections.",
+   "fields": {
+    "_object": {
+     "description": "Node fullPath parsed from the stats entry key.",
+     "type": "string"
+    },
+    "addr": {
+     "description": "Node IP.",
+     "type": "string"
+    },
+    "curSessions": {
+     "description": "",
+     "type": "integer"
+    },
+    "monitorRule": {
+     "description": "",
+     "type": "string"
+    },
+    "monitorStatus": {
+     "description": "up / down / forced-down / unchecked.",
+     "type": "string"
+    },
+    "serverside.bitsIn": {
+     "description": "",
+     "type": "integer"
+    },
+    "serverside.bitsOut": {
+     "description": "",
+     "type": "integer"
+    },
+    "serverside.curConns": {
+     "description": "",
+     "type": "integer"
+    },
+    "serverside.maxConns": {
+     "description": "",
+     "type": "integer"
+    },
+    "serverside.pktsIn": {
+     "description": "",
+     "type": "integer"
+    },
+    "serverside.pktsOut": {
+     "description": "",
+     "type": "integer"
+    },
+    "serverside.totConns": {
+     "description": "",
+     "type": "integer"
+    },
+    "sessionStatus": {
+     "description": "",
+     "type": "string"
+    },
+    "status.availabilityState": {
+     "description": "",
+     "type": "string"
+    },
+    "status.enabledState": {
+     "description": "",
+     "type": "string"
+    },
+    "status.statusReason": {
+     "description": "",
+     "type": "string"
+    },
+    "tmName": {
+     "description": "Node fullPath.",
+     "type": "string"
+    },
+    "totRequests": {
+     "description": "",
+     "type": "integer"
+    }
+   },
+   "kind": "stats",
+   "notes": "",
+   "object_scoped": true,
+   "parents": [],
+   "path": "/mgmt/tm/ltm/node/stats",
+   "stats_rows": null,
+   "verified": "verified"
+  },
+  "nodes": {
+   "description": "Nodes (backend addresses) with configured state/session and node monitor.",
+   "fields": {
+    "address": {
+     "description": "Node IP address.",
+     "type": "string"
+    },
+    "connectionLimit": {
+     "description": "",
+     "type": "integer"
+    },
+    "description": {
+     "description": "User description.",
+     "type": "string"
+    },
+    "dynamicRatio": {
+     "description": "",
+     "type": "integer"
+    },
+    "ephemeral": {
+     "description": "",
+     "type": "string"
+    },
+    "fqdn.addressFamily": {
+     "description": "",
+     "type": "string"
+    },
+    "fqdn.autopopulate": {
+     "description": "",
+     "type": "string"
+    },
+    "fqdn.downInterval": {
+     "description": "",
+     "type": "integer"
+    },
+    "fqdn.interval": {
+     "description": "",
+     "type": "string"
+    },
+    "fqdn.tmName": {
+     "description": "FQDN when address is resolved dynamically.",
+     "type": "string"
+    },
+    "fullPath": {
+     "description": "Partition-qualified path, e.g. /Common/web_pool. Use this as the join key and as the `name` control.",
+     "type": "string"
+    },
+    "generation": {
+     "description": "Configuration generation counter; increments on change.",
+     "type": "integer"
+    },
+    "kind": {
+     "description": "iControl REST kind string.",
+     "type": "string"
+    },
+    "logging": {
+     "description": "",
+     "type": "string"
+    },
+    "monitor": {
+     "description": "'default' or explicit monitors.",
+     "type": "string"
+    },
+    "name": {
+     "description": "Object name within its partition.",
+     "type": "string"
+    },
+    "partition": {
+     "description": "Administrative partition (e.g. Common).",
+     "type": "string"
+    },
+    "rateLimit": {
+     "description": "",
+     "type": "string"
+    },
+    "ratio": {
+     "description": "",
+     "type": "integer"
+    },
+    "selfLink": {
+     "description": "Object self URI (host is always 'localhost').",
+     "type": "string"
+    },
+    "session": {
+     "description": "monitor-enabled / user-enabled / user-disabled.",
+     "type": "string"
+    },
+    "state": {
+     "description": "up / down / user-down / unchecked.",
+     "type": "string"
+    }
+   },
+   "kind": "collection",
+   "notes": "",
+   "object_scoped": true,
+   "parents": [],
+   "path": "/mgmt/tm/ltm/node",
+   "stats_rows": null,
+   "verified": "verified"
+  },
+  "partitions": {
+   "description": "Administrative partitions; use their names in the partition filter.",
+   "fields": {
+    "defaultRouteDomain": {
+     "description": "Default route domain id.",
+     "type": "integer"
+    },
+    "description": {
+     "description": "",
+     "type": "string"
+    },
+    "fullPath": {
+     "description": "Partition-qualified path, e.g. /Common/web_pool. Use this as the join key and as the `name` control.",
+     "type": "string"
+    },
+    "generation": {
+     "description": "Configuration generation counter; increments on change.",
+     "type": "integer"
+    },
+    "kind": {
+     "description": "iControl REST kind string.",
+     "type": "string"
+    },
+    "name": {
+     "description": "Object name within its partition.",
+     "type": "string"
+    },
+    "selfLink": {
+     "description": "Object self URI (host is always 'localhost').",
+     "type": "string"
+    }
+   },
+   "kind": "collection",
+   "notes": "",
+   "object_scoped": false,
+   "parents": [],
+   "path": "/mgmt/tm/auth/partition",
+   "stats_rows": null,
+   "verified": "verified"
+  },
+  "pool_member_stats": {
+   "description": "Live pool-member status: monitorStatus (up/down/forced-down/unchecked), sessionStatus, availability reason, connections. Supply parent {\"pool\": ...}; without it one request per pool is made.",
+   "fields": {
+    "_object": {
+     "description": "Member fullPath parsed from the stats entry key.",
+     "type": "string"
+    },
+    "addr": {
+     "description": "Member IP.",
+     "type": "string"
+    },
+    "connq.ageMax": {
+     "description": "",
+     "type": "integer"
+    },
+    "connq.depth": {
+     "description": "",
+     "type": "integer"
+    },
+    "connq.serviced": {
+     "description": "",
+     "type": "integer"
+    },
+    "curSessions": {
+     "description": "",
+     "type": "integer"
+    },
+    "monitorRule": {
+     "description": "Monitor rule in effect.",
+     "type": "string"
+    },
+    "monitorStatus": {
+     "description": "up / down / forced-down / unchecked / fqdn-up ...",
+     "type": "string"
+    },
+    "nodeName": {
+     "description": "Node fullPath.",
+     "type": "string"
+    },
+    "pool": {
+     "description": "Parent pool fullPath (added by the connector).",
+     "type": "string"
+    },
+    "poolName": {
+     "description": "Parent pool fullPath.",
+     "type": "string"
+    },
+    "port": {
+     "description": "Member port.",
+     "type": "integer"
+    },
+    "serverside.bitsIn": {
+     "description": "",
+     "type": "integer"
+    },
+    "serverside.bitsOut": {
+     "description": "",
+     "type": "integer"
+    },
+    "serverside.curConns": {
+     "description": "",
+     "type": "integer"
+    },
+    "serverside.maxConns": {
+     "description": "",
+     "type": "integer"
+    },
+    "serverside.pktsIn": {
+     "description": "",
+     "type": "integer"
+    },
+    "serverside.pktsOut": {
+     "description": "",
+     "type": "integer"
+    },
+    "serverside.totConns": {
+     "description": "",
+     "type": "integer"
+    },
+    "sessionStatus": {
+     "description": "enabled / user-disabled / ...",
+     "type": "string"
+    },
+    "status.availabilityState": {
+     "description": "available / offline / unknown.",
+     "type": "string"
+    },
+    "status.enabledState": {
+     "description": "enabled / disabled.",
+     "type": "string"
+    },
+    "status.statusReason": {
+     "description": "e.g. 'Pool member has been marked down by a monitor', 'Forced down'.",
+     "type": "string"
+    },
+    "totRequests": {
+     "description": "",
+     "type": "integer"
+    }
+   },
+   "kind": "stats",
+   "notes": "",
+   "object_scoped": true,
+   "parents": [
+    "pool"
+   ],
+   "path": "/mgmt/tm/ltm/pool/{pool}/members/stats",
+   "stats_rows": null,
+   "verified": "verified"
+  },
+  "pool_members": {
+   "description": "Pool members (node:port) with configured state/session and monitor. Supply parent {\"pool\": \"/Partition/name\"}; without it the connector crawls every pool with expandSubcollections=true and adds a `pool` column.",
+   "fields": {
+    "address": {
+     "description": "Member IP address.",
+     "type": "string"
+    },
+    "connectionLimit": {
+     "description": "",
+     "type": "integer"
+    },
+    "description": {
+     "description": "User description.",
+     "type": "string"
+    },
+    "dynamicRatio": {
+     "description": "",
+     "type": "integer"
+    },
+    "ephemeral": {
+     "description": "'true' for FQDN-ephemeral members.",
+     "type": "string"
+    },
+    "fqdn.autopopulate": {
+     "description": "",
+     "type": "string"
+    },
+    "fqdn.tmName": {
+     "description": "FQDN node name.",
+     "type": "string"
+    },
+    "fullPath": {
+     "description": "Partition-qualified path, e.g. /Common/web_pool. Use this as the join key and as the `name` control.",
+     "type": "string"
+    },
+    "generation": {
+     "description": "Configuration generation counter; increments on change.",
+     "type": "integer"
+    },
+    "inheritProfile": {
+     "description": "",
+     "type": "string"
+    },
+    "kind": {
+     "description": "iControl REST kind string.",
+     "type": "string"
+    },
+    "logging": {
+     "description": "",
+     "type": "string"
+    },
+    "monitor": {
+     "description": "'default' (inherit pool monitor) or explicit monitors.",
+     "type": "string"
+    },
+    "name": {
+     "description": "Object name within its partition.",
+     "type": "string"
+    },
+    "partition": {
+     "description": "Administrative partition (e.g. Common).",
+     "type": "string"
+    },
+    "pool": {
+     "description": "Parent pool fullPath (added by the connector).",
+     "type": "string"
+    },
+    "priorityGroup": {
+     "description": "Priority group.",
+     "type": "integer"
+    },
+    "rateLimit": {
+     "description": "",
+     "type": "string"
+    },
+    "ratio": {
+     "description": "Ratio weight.",
+     "type": "integer"
+    },
+    "selfLink": {
+     "description": "Object self URI (host is always 'localhost').",
+     "type": "string"
+    },
+    "session": {
+     "description": "monitor-enabled / user-enabled / user-disabled / monitor-disabled.",
+     "type": "string"
+    },
+    "state": {
+     "description": "up / down / user-down / unchecked / fqdn-up ...",
+     "type": "string"
+    }
+   },
+   "kind": "collection",
+   "notes": "",
+   "object_scoped": true,
+   "parents": [
+    "pool"
+   ],
+   "path": "/mgmt/tm/ltm/pool/{pool}/members",
+   "stats_rows": null,
+   "verified": "verified"
+  },
+  "pool_stats": {
+   "description": "Live pool status: availability/reason, active vs configured member counts, server-side connections and queueing.",
+   "fields": {
+    "_object": {
+     "description": "Object fullPath parsed from the stats entry key.",
+     "type": "string"
+    },
+    "activeMemberCnt": {
+     "description": "Members currently active (up and enabled).",
+     "type": "integer"
+    },
+    "availableMemberCnt": {
+     "description": "Members available.",
+     "type": "integer"
+    },
+    "connq.ageMax": {
+     "description": "",
+     "type": "integer"
+    },
+    "connq.depth": {
+     "description": "Connection queue depth.",
+     "type": "integer"
+    },
+    "connq.serviced": {
+     "description": "",
+     "type": "integer"
+    },
+    "connqAll.depth": {
+     "description": "Queue depth across all members.",
+     "type": "integer"
+    },
+    "curSessions": {
+     "description": "Current sessions.",
+     "type": "integer"
+    },
+    "memberCnt": {
+     "description": "Configured members.",
+     "type": "integer"
+    },
+    "minActiveMembers": {
+     "description": "",
+     "type": "integer"
+    },
+    "monitorRule": {
+     "description": "Effective monitor rule.",
+     "type": "string"
+    },
+    "serverside.bitsIn": {
+     "description": "",
+     "type": "integer"
+    },
+    "serverside.bitsOut": {
+     "description": "",
+     "type": "integer"
+    },
+    "serverside.curConns": {
+     "description": "Current server-side connections.",
+     "type": "integer"
+    },
+    "serverside.maxConns": {
+     "description": "",
+     "type": "integer"
+    },
+    "serverside.pktsIn": {
+     "description": "",
+     "type": "integer"
+    },
+    "serverside.pktsOut": {
+     "description": "",
+     "type": "integer"
+    },
+    "serverside.totConns": {
+     "description": "",
+     "type": "integer"
+    },
+    "status.availabilityState": {
+     "description": "available / offline / unknown.",
+     "type": "string"
+    },
+    "status.enabledState": {
+     "description": "",
+     "type": "string"
+    },
+    "status.statusReason": {
+     "description": "e.g. 'The children pool member(s) are down'.",
+     "type": "string"
+    },
+    "tmName": {
+     "description": "Pool fullPath.",
+     "type": "string"
+    },
+    "totRequests": {
+     "description": "Total requests.",
+     "type": "integer"
+    }
+   },
+   "kind": "stats",
+   "notes": "",
+   "object_scoped": true,
+   "parents": [],
+   "path": "/mgmt/tm/ltm/pool/stats",
+   "stats_rows": null,
+   "verified": "verified"
+  },
+  "pools": {
+   "description": "Load-balancing pools: LB mode, monitor expression, member thresholds.",
+   "fields": {
+    "allowNat": {
+     "description": "yes/no.",
+     "type": "string"
+    },
+    "allowSnat": {
+     "description": "yes/no.",
+     "type": "string"
+    },
+    "description": {
+     "description": "User description.",
+     "type": "string"
+    },
+    "fullPath": {
+     "description": "Partition-qualified path, e.g. /Common/web_pool. Use this as the join key and as the `name` control.",
+     "type": "string"
+    },
+    "generation": {
+     "description": "Configuration generation counter; increments on change.",
+     "type": "integer"
+    },
+    "ignorePersistedWeight": {
+     "description": "",
+     "type": "string"
+    },
+    "kind": {
+     "description": "iControl REST kind string.",
+     "type": "string"
+    },
+    "loadBalancingMode": {
+     "description": "round-robin, least-connections-member, ratio-member, ...",
+     "type": "string"
+    },
+    "membersReference.items": {
+     "description": "Inline members (only when the client expands subcollections; see pool_members).",
+     "type": "array"
+    },
+    "membersReference.link": {
+     "description": "Link to the members subcollection.",
+     "type": "string"
+    },
+    "minActiveMembers": {
+     "description": "Priority-group activation threshold (0 = disabled).",
+     "type": "integer"
+    },
+    "minUpMembers": {
+     "description": "Minimum up members before action.",
+     "type": "integer"
+    },
+    "minUpMembersAction": {
+     "description": "",
+     "type": "string"
+    },
+    "minUpMembersChecking": {
+     "description": "enabled/disabled.",
+     "type": "string"
+    },
+    "monitor": {
+     "description": "Health monitor expression, e.g. '/Common/http' or 'min 1 of { ... }'; 'none' when unmonitored.",
+     "type": "string"
+    },
+    "name": {
+     "description": "Object name within its partition.",
+     "type": "string"
+    },
+    "partition": {
+     "description": "Administrative partition (e.g. Common).",
+     "type": "string"
+    },
+    "queueDepthLimit": {
+     "description": "",
+     "type": "integer"
+    },
+    "queueOnConnectionLimit": {
+     "description": "",
+     "type": "string"
+    },
+    "queueTimeLimit": {
+     "description": "",
+     "type": "integer"
+    },
+    "reselectTries": {
+     "description": "",
+     "type": "integer"
+    },
+    "selfLink": {
+     "description": "Object self URI (host is always 'localhost').",
+     "type": "string"
+    },
+    "serviceDownAction": {
+     "description": "none/reset/drop/reselect when the selected member goes down.",
+     "type": "string"
+    },
+    "slowRampTime": {
+     "description": "Seconds of slow ramp for new members.",
+     "type": "integer"
+    }
+   },
+   "kind": "collection",
+   "notes": "",
+   "object_scoped": true,
+   "parents": [],
+   "path": "/mgmt/tm/ltm/pool",
+   "stats_rows": null,
+   "verified": "verified"
+  },
+  "profiles_client_ssl": {
+   "description": "Client-SSL profiles with cert/key/chain, ciphers, SNI and renegotiation settings. Join `cert` to ssl_certs.fullPath to find listeners using an expiring certificate.",
+   "fields": {
+    "alertTimeout": {
+     "description": "",
+     "type": "string"
+    },
+    "allowNonSsl": {
+     "description": "",
+     "type": "string"
+    },
+    "appService": {
+     "description": "",
+     "type": "string"
+    },
+    "authenticate": {
+     "description": "",
+     "type": "string"
+    },
+    "authenticateDepth": {
+     "description": "",
+     "type": "integer"
+    },
+    "caFile": {
+     "description": "",
+     "type": "string"
+    },
+    "cacheSize": {
+     "description": "",
+     "type": "integer"
+    },
+    "cacheTimeout": {
+     "description": "",
+     "type": "integer"
+    },
+    "cert": {
+     "description": "Certificate fullPath (sys/file/ssl-cert) \u2014 join to ssl_certs.fullPath for expiry.",
+     "type": "string"
+    },
+    "certKeyChain": {
+     "description": "[{name, cert, key, chain}] cert/key pairs (SNI).",
+     "type": "array"
+    },
+    "chain": {
+     "description": "Chain bundle fullPath or 'none'.",
+     "type": "string"
+    },
+    "cipherGroup": {
+     "description": "",
+     "type": "string"
+    },
+    "ciphers": {
+     "description": "Cipher string.",
+     "type": "string"
+    },
+    "crlFile": {
+     "description": "",
+     "type": "string"
+    },
+    "defaultsFrom": {
+     "description": "Parent profile fullPath.",
+     "type": "string"
+    },
+    "description": {
+     "description": "User description.",
+     "type": "string"
+    },
+    "fullPath": {
+     "description": "Partition-qualified path, e.g. /Common/web_pool. Use this as the join key and as the `name` control.",
+     "type": "string"
+    },
+    "generation": {
+     "description": "Configuration generation counter; increments on change.",
+     "type": "integer"
+    },
+    "handshakeTimeout": {
+     "description": "",
+     "type": "string"
+    },
+    "inheritCertkeychain": {
+     "description": "",
+     "type": "string"
+    },
+    "key": {
+     "description": "Key fullPath.",
+     "type": "string"
+    },
+    "kind": {
+     "description": "iControl REST kind string.",
+     "type": "string"
+    },
+    "mode": {
+     "description": "enabled/disabled.",
+     "type": "string"
+    },
+    "name": {
+     "description": "Object name within its partition.",
+     "type": "string"
+    },
+    "ocspStapling": {
+     "description": "",
+     "type": "string"
+    },
+    "partition": {
+     "description": "Administrative partition (e.g. Common).",
+     "type": "string"
+    },
+    "peerCertMode": {
+     "description": "ignore/request/require.",
+     "type": "string"
+    },
+    "renegotiation": {
+     "description": "",
+     "type": "string"
+    },
+    "secureRenegotiation": {
+     "description": "",
+     "type": "string"
+    },
+    "selfLink": {
+     "description": "Object self URI (host is always 'localhost').",
+     "type": "string"
+    },
+    "serverName": {
+     "description": "SNI server name.",
+     "type": "string"
+    },
+    "sniDefault": {
+     "description": "",
+     "type": "string"
+    },
+    "sniRequire": {
+     "description": "",
+     "type": "string"
+    },
+    "sslForwardProxy": {
+     "description": "",
+     "type": "string"
+    },
+    "strictResume": {
+     "description": "",
+     "type": "string"
+    },
+    "uncleanShutdown": {
+     "description": "",
+     "type": "string"
+    }
+   },
+   "kind": "collection",
+   "notes": "",
+   "object_scoped": true,
+   "parents": [],
+   "path": "/mgmt/tm/ltm/profile/client-ssl",
+   "stats_rows": null,
+   "verified": "verified"
+  },
+  "profiles_http": {
+   "description": "HTTP profiles (XFF insertion, proxy type, chunking, enforcement).",
+   "fields": {
+    "acceptXff": {
+     "description": "",
+     "type": "string"
+    },
+    "basicAuthRealm": {
+     "description": "",
+     "type": "string"
+    },
+    "defaultsFrom": {
+     "description": "Parent profile fullPath.",
+     "type": "string"
+    },
+    "description": {
+     "description": "User description.",
+     "type": "string"
+    },
+    "encryptCookies": {
+     "description": "",
+     "type": "array"
+    },
+    "enforcement.maxHeaderCount": {
+     "description": "",
+     "type": "integer"
+    },
+    "enforcement.maxHeaderSize": {
+     "description": "",
+     "type": "integer"
+    },
+    "enforcement.pipeline": {
+     "description": "",
+     "type": "string"
+    },
+    "enforcement.unknownMethod": {
+     "description": "",
+     "type": "string"
+    },
+    "fallbackHost": {
+     "description": "",
+     "type": "string"
+    },
+    "fallbackStatusCodes": {
+     "description": "",
+     "type": "array"
+    },
+    "fullPath": {
+     "description": "Partition-qualified path, e.g. /Common/web_pool. Use this as the join key and as the `name` control.",
+     "type": "string"
+    },
+    "generation": {
+     "description": "Configuration generation counter; increments on change.",
+     "type": "integer"
+    },
+    "headerErase": {
+     "description": "",
+     "type": "string"
+    },
+    "headerInsert": {
+     "description": "",
+     "type": "string"
+    },
+    "insertXforwardedFor": {
+     "description": "enabled/disabled.",
+     "type": "string"
+    },
+    "kind": {
+     "description": "iControl REST kind string.",
+     "type": "string"
+    },
+    "lwsWidth": {
+     "description": "",
+     "type": "integer"
+    },
+    "name": {
+     "description": "Object name within its partition.",
+     "type": "string"
+    },
+    "oneconnectTransformations": {
+     "description": "",
+     "type": "string"
+    },
+    "partition": {
+     "description": "Administrative partition (e.g. Common).",
+     "type": "string"
+    },
+    "proxyType": {
+     "description": "reverse / explicit / transparent.",
+     "type": "string"
+    },
+    "redirectRewrite": {
+     "description": "",
+     "type": "string"
+    },
+    "requestChunking": {
+     "description": "",
+     "type": "string"
+    },
+    "responseChunking": {
+     "description": "",
+     "type": "string"
+    },
+    "selfLink": {
+     "description": "Object self URI (host is always 'localhost').",
+     "type": "string"
+    },
+    "serverAgentName": {
+     "description": "",
+     "type": "string"
+    },
+    "viaRequest": {
+     "description": "",
+     "type": "string"
+    },
+    "viaResponse": {
+     "description": "",
+     "type": "string"
+    },
+    "xffAlternativeNames": {
+     "description": "",
+     "type": "array"
+    }
+   },
+   "kind": "collection",
+   "notes": "",
+   "object_scoped": true,
+   "parents": [],
+   "path": "/mgmt/tm/ltm/profile/http",
+   "stats_rows": null,
+   "verified": "verified"
+  },
+  "ssl_certs": {
+   "description": "Installed certificates with subject/issuer, SANs and expiry (expirationDate epoch seconds, expirationString text).",
+   "fields": {
+    "certificateKeyCurveName": {
+     "description": "",
+     "type": "string"
+    },
+    "certificateKeySize": {
+     "description": "Key bits.",
+     "type": "integer"
+    },
+    "checksum": {
+     "description": "",
+     "type": "string"
+    },
+    "createTime": {
+     "description": "",
+     "type": "string"
+    },
+    "createdBy": {
+     "description": "",
+     "type": "string"
+    },
+    "expirationDate": {
+     "description": "Expiry as Unix epoch seconds (UTC). Compare with _bow_retrieved_at for days-to-expiry.",
+     "type": "integer"
+    },
+    "expirationString": {
+     "description": "Expiry as text, e.g. 'Jan 10 2027 12:00:00 GMT'.",
+     "type": "string"
+    },
+    "fingerprint": {
+     "description": "",
+     "type": "string"
+    },
+    "fullPath": {
+     "description": "Partition-qualified path, e.g. /Common/web_pool. Use this as the join key and as the `name` control.",
+     "type": "string"
+    },
+    "generation": {
+     "description": "Configuration generation counter; increments on change.",
+     "type": "integer"
+    },
+    "isBundle": {
+     "description": "'true' when the file holds more than one certificate.",
+     "type": "string"
+    },
+    "issuer": {
+     "description": "X.509 issuer.",
+     "type": "string"
+    },
+    "keyType": {
+     "description": "",
+     "type": "string"
+    },
+    "kind": {
+     "description": "iControl REST kind string.",
+     "type": "string"
+    },
+    "lastUpdateTime": {
+     "description": "",
+     "type": "string"
+    },
+    "mode": {
+     "description": "",
+     "type": "integer"
+    },
+    "name": {
+     "description": "Object name within its partition.",
+     "type": "string"
+    },
+    "partition": {
+     "description": "Administrative partition (e.g. Common).",
+     "type": "string"
+    },
+    "revision": {
+     "description": "",
+     "type": "integer"
+    },
+    "selfLink": {
+     "description": "Object self URI (host is always 'localhost').",
+     "type": "string"
+    },
+    "serialNumber": {
+     "description": "",
+     "type": "string"
+    },
+    "size": {
+     "description": "File size (bytes).",
+     "type": "integer"
+    },
+    "sourcePath": {
+     "description": "",
+     "type": "string"
+    },
+    "subject": {
+     "description": "X.509 subject.",
+     "type": "string"
+    },
+    "subjectAlternativeName": {
+     "description": "SANs.",
+     "type": "string"
+    },
+    "systemPath": {
+     "description": "",
+     "type": "string"
+    },
+    "updatedBy": {
+     "description": "",
+     "type": "string"
+    },
+    "version": {
+     "description": "X.509 version.",
+     "type": "integer"
+    }
+   },
+   "kind": "collection",
+   "notes": "",
+   "object_scoped": true,
+   "parents": [],
+   "path": "/mgmt/tm/sys/file/ssl-cert",
+   "stats_rows": null,
+   "verified": "verified"
+  },
+  "sys_clock": {
+   "description": "Device clock (single row).",
+   "fields": {
+    "fullDate": {
+     "description": "Device UTC time (ISO 8601). Compare with _bow_retrieved_at to detect clock skew.",
+     "type": "string"
+    }
+   },
+   "kind": "nested",
+   "notes": "",
+   "object_scoped": false,
+   "parents": [],
+   "path": "/mgmt/tm/sys/clock",
+   "stats_rows": null,
+   "verified": "verified"
+  },
+  "sys_cpu": {
+   "description": "Per-CPU utilisation (5 s / 1 min / 5 min idle, user, system, busy ratio). One row per CPU per host. Undocumented endpoint: key names are flattened from the device response as-is.",
+   "fields": {
+    "cpuId": {
+     "description": "CPU index.",
+     "type": "integer"
+    },
+    "fiveMinAvgIdle": {
+     "description": "",
+     "type": "integer"
+    },
+    "fiveMinAvgIowait": {
+     "description": "",
+     "type": "integer"
+    },
+    "fiveMinAvgRatio": {
+     "description": "% busy over 5 min.",
+     "type": "integer"
+    },
+    "fiveMinAvgSystem": {
+     "description": "",
+     "type": "integer"
+    },
+    "fiveMinAvgUser": {
+     "description": "",
+     "type": "integer"
+    },
+    "fiveSecAvgIdle": {
+     "description": "% idle over 5 s.",
+     "type": "integer"
+    },
+    "fiveSecAvgIowait": {
+     "description": "",
+     "type": "integer"
+    },
+    "fiveSecAvgRatio": {
+     "description": "% busy over 5 s.",
+     "type": "integer"
+    },
+    "fiveSecAvgSystem": {
+     "description": "",
+     "type": "integer"
+    },
+    "fiveSecAvgUser": {
+     "description": "",
+     "type": "integer"
+    },
+    "hostId": {
+     "description": "Host (blade) id.",
+     "type": "string"
+    },
+    "idle": {
+     "description": "Cumulative idle ticks.",
+     "type": "integer"
+    },
+    "iowait": {
+     "description": "",
+     "type": "integer"
+    },
+    "irq": {
+     "description": "",
+     "type": "integer"
+    },
+    "niced": {
+     "description": "",
+     "type": "integer"
+    },
+    "oneMinAvgIdle": {
+     "description": "",
+     "type": "integer"
+    },
+    "oneMinAvgIowait": {
+     "description": "",
+     "type": "integer"
+    },
+    "oneMinAvgRatio": {
+     "description": "% busy over 1 min.",
+     "type": "integer"
+    },
+    "oneMinAvgSystem": {
+     "description": "",
+     "type": "integer"
+    },
+    "oneMinAvgUser": {
+     "description": "",
+     "type": "integer"
+    },
+    "ratio": {
+     "description": "",
+     "type": "integer"
+    },
+    "softirq": {
+     "description": "",
+     "type": "integer"
+    },
+    "stolen": {
+     "description": "",
+     "type": "integer"
+    },
+    "system": {
+     "description": "",
+     "type": "integer"
+    },
+    "usageRatio": {
+     "description": "Current % busy.",
+     "type": "integer"
+    },
+    "user": {
+     "description": "",
+     "type": "integer"
+    }
+   },
+   "kind": "nested",
+   "notes": "Endpoint existence verified (DevCentral); exact key names inferred from tmsh 'show sys cpu'. Extra keys returned by the device are kept as columns.",
+   "object_scoped": false,
+   "parents": [],
+   "path": "/mgmt/tm/sys/cpu",
+   "stats_rows": "cpuInfo",
+   "verified": "inferred"
+  },
+  "sys_hardware": {
+   "description": "Platform, chassis serial and CPU hardware info (single row with dotted group.field columns).",
+   "fields": {
+    "hardware-version.cpus.model": {
+     "description": "CPU model.",
+     "type": "string"
+    },
+    "hardware-version.cpus.versions": {
+     "description": "[{tmName, version}] e.g. cores, cache size, cpu MHz.",
+     "type": "array"
+    },
+    "platform.baseMac": {
+     "description": "",
+     "type": "string"
+    },
+    "platform.biosRev": {
+     "description": "",
+     "type": "string"
+    },
+    "platform.marketingName": {
+     "description": "e.g. BIG-IP Virtual Edition / BIG-IP i5800.",
+     "type": "string"
+    },
+    "platform.pvaVersion": {
+     "description": "",
+     "type": "string"
+    },
+    "system-info.bigipChassisSerialNum": {
+     "description": "Chassis serial number.",
+     "type": "string"
+    },
+    "system-info.hostBoardPartRevNum": {
+     "description": "",
+     "type": "string"
+    },
+    "system-info.hostBoardSerialNum": {
+     "description": "",
+     "type": "string"
+    },
+    "system-info.platform": {
+     "description": "Platform ID (e.g. Z100, C117).",
+     "type": "string"
+    },
+    "system-info.switchBoardPartRevNum": {
+     "description": "",
+     "type": "string"
+    },
+    "system-info.switchBoardSerialNum": {
+     "description": "",
+     "type": "string"
+    }
+   },
+   "kind": "nested",
+   "notes": "platform/* and system-info/* keys verified from f5-ansible bigip_device_info; hardware-version/cpus shape inferred.",
+   "object_scoped": false,
+   "parents": [],
+   "path": "/mgmt/tm/sys/hardware",
+   "stats_rows": null,
+   "verified": "partial"
+  },
+  "sys_memory": {
+   "description": "Host memory per host id: total/used, TMM vs other memory, swap. Undocumented endpoint; keys are flattened from the device response as-is.",
+   "fields": {
+    "hostId": {
+     "description": "Host (blade) id.",
+     "type": "string"
+    },
+    "memoryTotal": {
+     "description": "Total host memory (bytes).",
+     "type": "integer"
+    },
+    "memoryUsed": {
+     "description": "Used host memory (bytes).",
+     "type": "integer"
+    },
+    "otherMemoryTotal": {
+     "description": "",
+     "type": "integer"
+    },
+    "otherMemoryUsed": {
+     "description": "Non-TMM (Linux) memory used (bytes).",
+     "type": "integer"
+    },
+    "swapTotal": {
+     "description": "",
+     "type": "integer"
+    },
+    "swapUsed": {
+     "description": "",
+     "type": "integer"
+    },
+    "tmmMemoryTotal": {
+     "description": "Memory provisioned to TMM (bytes).",
+     "type": "integer"
+    },
+    "tmmMemoryUsed": {
+     "description": "TMM memory in use (bytes).",
+     "type": "integer"
+    }
+   },
+   "kind": "nested",
+   "notes": "memory-host/memory-tmm group keys verified (f5-common-python test, DevCentral); leaf key names beyond memoryTotal/memoryUsed inferred from tmsh 'show sys memory'.",
+   "object_scoped": false,
+   "parents": [],
+   "path": "/mgmt/tm/sys/memory",
+   "stats_rows": "memory-host",
+   "verified": "inferred"
+  },
+  "sys_memory_tmm": {
+   "description": "Per-TMM memory total/used (bytes).",
+   "fields": {
+    "memoryTotal": {
+     "description": "Bytes.",
+     "type": "integer"
+    },
+    "memoryUsed": {
+     "description": "Bytes.",
+     "type": "integer"
+    },
+    "tmmId": {
+     "description": "TMM instance id (e.g. 0.1).",
+     "type": "string"
+    }
+   },
+   "kind": "nested",
+   "notes": "",
+   "object_scoped": false,
+   "parents": [],
+   "path": "/mgmt/tm/sys/memory",
+   "stats_rows": "memory-tmm",
+   "verified": "partial"
+  },
+  "sys_version": {
+   "description": "TMOS software version, build, edition and build date (single row).",
+   "fields": {
+    "Build": {
+     "description": "",
+     "type": "string"
+    },
+    "Date": {
+     "description": "Build date.",
+     "type": "string"
+    },
+    "Edition": {
+     "description": "e.g. 'Point Release 1'.",
+     "type": "string"
+    },
+    "Product": {
+     "description": "BIG-IP",
+     "type": "string"
+    },
+    "Title": {
+     "description": "Main Package",
+     "type": "string"
+    },
+    "Version": {
+     "description": "TMOS version, e.g. 17.1.1.",
+     "type": "string"
+    }
+   },
+   "kind": "nested",
+   "notes": "",
+   "object_scoped": false,
+   "parents": [],
+   "path": "/mgmt/tm/sys/version",
+   "stats_rows": null,
+   "verified": "verified"
+  },
+  "virtual_server_stats": {
+   "description": "Live status and counters per virtual server (availability, reason, connections, bits, requests). Counters are cumulative since reset, not rates.",
+   "fields": {
+    "_object": {
+     "description": "Object fullPath parsed from the stats entry key (~Partition~name).",
+     "type": "string"
+    },
+    "clientside.bitsIn": {
+     "description": "Client bits in (counter).",
+     "type": "integer"
+    },
+    "clientside.bitsOut": {
+     "description": "Client bits out (counter).",
+     "type": "integer"
+    },
+    "clientside.curConns": {
+     "description": "Current client connections.",
+     "type": "integer"
+    },
+    "clientside.evictedConns": {
+     "description": "Connections evicted by flow eviction.",
+     "type": "integer"
+    },
+    "clientside.maxConns": {
+     "description": "Peak client connections.",
+     "type": "integer"
+    },
+    "clientside.pktsIn": {
+     "description": "Client packets in.",
+     "type": "integer"
+    },
+    "clientside.pktsOut": {
+     "description": "Client packets out.",
+     "type": "integer"
+    },
+    "clientside.slowKilled": {
+     "description": "Slow-flow kills.",
+     "type": "integer"
+    },
+    "clientside.totConns": {
+     "description": "Total client connections (counter).",
+     "type": "integer"
+    },
+    "cmpEnableMode": {
+     "description": "CMP mode (all-cpus).",
+     "type": "string"
+    },
+    "cmpEnabled": {
+     "description": "CMP enabled.",
+     "type": "string"
+    },
+    "csMaxConnDur": {
+     "description": "Max client connection duration (ms).",
+     "type": "integer"
+    },
+    "csMeanConnDur": {
+     "description": "Mean client connection duration (ms).",
+     "type": "integer"
+    },
+    "csMinConnDur": {
+     "description": "Min client connection duration (ms).",
+     "type": "integer"
+    },
+    "destination": {
+     "description": "Listener addr:port.",
+     "type": "string"
+    },
+    "ephemeral.bitsIn": {
+     "description": "",
+     "type": "integer"
+    },
+    "ephemeral.bitsOut": {
+     "description": "",
+     "type": "integer"
+    },
+    "ephemeral.curConns": {
+     "description": "Ephemeral listener current connections.",
+     "type": "integer"
+    },
+    "ephemeral.totConns": {
+     "description": "Ephemeral total connections.",
+     "type": "integer"
+    },
+    "fiveMinAvgUsageRatio": {
+     "description": "CPU usage ratio over 5 min (%).",
+     "type": "integer"
+    },
+    "fiveSecAvgUsageRatio": {
+     "description": "CPU usage ratio over 5 s (%).",
+     "type": "integer"
+    },
+    "oneMinAvgUsageRatio": {
+     "description": "CPU usage ratio over 1 min (%).",
+     "type": "integer"
+    },
+    "status.availabilityState": {
+     "description": "available / offline / unknown.",
+     "type": "string"
+    },
+    "status.enabledState": {
+     "description": "enabled / disabled.",
+     "type": "string"
+    },
+    "status.statusReason": {
+     "description": "Human reason, e.g. 'The children pool member(s) are down'.",
+     "type": "string"
+    },
+    "syncookie.accepts": {
+     "description": "",
+     "type": "integer"
+    },
+    "syncookie.rejects": {
+     "description": "",
+     "type": "integer"
+    },
+    "syncookie.syncookies": {
+     "description": "",
+     "type": "integer"
+    },
+    "syncookieStatus": {
+     "description": "SYN cookie status.",
+     "type": "string"
+    },
+    "tmName": {
+     "description": "Virtual server fullPath.",
+     "type": "string"
+    },
+    "totRequests": {
+     "description": "Total L7 requests (counter).",
+     "type": "integer"
+    }
+   },
+   "kind": "stats",
+   "notes": "",
+   "object_scoped": true,
+   "parents": [],
+   "path": "/mgmt/tm/ltm/virtual/stats",
+   "stats_rows": null,
+   "verified": "verified"
+  },
+  "virtual_servers": {
+   "description": "Virtual servers (listeners): destination, default pool, enabled state, profiles, iRules.",
+   "fields": {
+    "addressStatus": {
+     "description": "yes/no: contributes to virtual-address status.",
+     "type": "string"
+    },
+    "autoLasthop": {
+     "description": "default/enabled/disabled.",
+     "type": "string"
+    },
+    "cmpEnabled": {
+     "description": "yes/no.",
+     "type": "string"
+    },
+    "connectionLimit": {
+     "description": "Max concurrent connections (0 = unlimited).",
+     "type": "integer"
+    },
+    "description": {
+     "description": "User description.",
+     "type": "string"
+    },
+    "destination": {
+     "description": "Listener as /Partition/addr:port (or addr.port for IPv6).",
+     "type": "string"
+    },
+    "disabled": {
+     "description": "True when administratively disabled.",
+     "type": "boolean"
+    },
+    "enabled": {
+     "description": "True when enabled (mutually exclusive with `disabled`).",
+     "type": "boolean"
+    },
+    "fallbackPersistence": {
+     "description": "Fallback persistence profile.",
+     "type": "string"
+    },
+    "fullPath": {
+     "description": "Partition-qualified path, e.g. /Common/web_pool. Use this as the join key and as the `name` control.",
+     "type": "string"
+    },
+    "generation": {
+     "description": "Configuration generation counter; increments on change.",
+     "type": "integer"
+    },
+    "gtmScore": {
+     "description": "GTM score.",
+     "type": "integer"
+    },
+    "ipProtocol": {
+     "description": "tcp, udp, sctp or any.",
+     "type": "string"
+    },
+    "kind": {
+     "description": "iControl REST kind string.",
+     "type": "string"
+    },
+    "mask": {
+     "description": "Destination netmask.",
+     "type": "string"
+    },
+    "mirror": {
+     "description": "Connection mirroring enabled/disabled.",
+     "type": "string"
+    },
+    "name": {
+     "description": "Object name within its partition.",
+     "type": "string"
+    },
+    "nat64": {
+     "description": "enabled/disabled.",
+     "type": "string"
+    },
+    "partition": {
+     "description": "Administrative partition (e.g. Common).",
+     "type": "string"
+    },
+    "persist": {
+     "description": "Persistence profiles [{name, partition, tmDefault}].",
+     "type": "array"
+    },
+    "policiesReference.link": {
+     "description": "Link to the policies subcollection.",
+     "type": "string"
+    },
+    "pool": {
+     "description": "Default pool fullPath.",
+     "type": "string"
+    },
+    "profilesReference.items": {
+     "description": "Attached profiles when expanded (name, fullPath, context).",
+     "type": "array"
+    },
+    "rateLimit": {
+     "description": "Connections/second limit or 'disabled'.",
+     "type": "string"
+    },
+    "rateLimitMode": {
+     "description": "Rate limit keying mode.",
+     "type": "string"
+    },
+    "rules": {
+     "description": "Ordered iRule fullPaths attached to the listener.",
+     "type": "array"
+    },
+    "selfLink": {
+     "description": "Object self URI (host is always 'localhost').",
+     "type": "string"
+    },
+    "serviceDownImmediateAction": {
+     "description": "none/drop/reset on first SYN when service is down.",
+     "type": "string"
+    },
+    "source": {
+     "description": "Allowed source CIDR.",
+     "type": "string"
+    },
+    "sourceAddressTranslation.pool": {
+     "description": "SNAT pool fullPath when type is snat.",
+     "type": "string"
+    },
+    "sourceAddressTranslation.type": {
+     "description": "automap, snat, lsn or none.",
+     "type": "string"
+    },
+    "sourcePort": {
+     "description": "preserve, preserve-strict or change.",
+     "type": "string"
+    },
+    "synCookieStatus": {
+     "description": "not-activated or activated (SYN flood defence engaged).",
+     "type": "string"
+    },
+    "throughputCapacity": {
+     "description": "Max throughput in Mbps, or 'infinite'.",
+     "type": "string"
+    },
+    "translateAddress": {
+     "description": "enabled/disabled.",
+     "type": "string"
+    },
+    "translatePort": {
+     "description": "enabled/disabled.",
+     "type": "string"
+    },
+    "vlans": {
+     "description": "VLAN fullPaths the listener is scoped to.",
+     "type": "array"
+    },
+    "vlansDisabled": {
+     "description": "True when the VLAN list is a deny list.",
+     "type": "boolean"
+    },
+    "vlansEnabled": {
+     "description": "True when the VLAN list is an allow list.",
+     "type": "boolean"
+    },
+    "vsIndex": {
+     "description": "Internal virtual server index.",
+     "type": "integer"
+    }
+   },
+   "kind": "collection",
+   "notes": "",
+   "object_scoped": true,
+   "parents": [],
+   "path": "/mgmt/tm/ltm/virtual",
+   "stats_rows": null,
+   "verified": "verified"
+  }
+ },
+ "token_path": "/mgmt/shared/authz/tokens"
+}
