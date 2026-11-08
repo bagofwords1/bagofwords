@@ -504,6 +504,7 @@ _MAX_QUOTED_CHARS = 256       # a quote not closed within this many characters o
 _PARAMS_RE = re.compile(r"[?#;&][^\s\"'<>]*+")
 _PARAM_SEPARATOR_RE = re.compile(r"([?#;&])")
 _PARAM_NAME_NOISE_RE = re.compile(r"[-_\[\]]")
+_AMP_PREFIXES_RE = re.compile(r"(?:amp;)*+")      # never fails: the run of "amp;" that starts a parameter name
 _MAX_SCRUB_DEPTH = 4          # rounds of percent-decoding a nested value gets
 _DAY_FIRST_RE = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})$")
 
@@ -511,8 +512,7 @@ _DAY_FIRST_RE = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})$")
 def _param_key(name: str) -> str:
     """A parameter name as compared: lower case, no "amp;" left from unescaping, no '_', '-' or '[]'."""
     key = name.strip().lower()
-    while key.startswith("amp;"):
-        key = key[len("amp;"):]
+    key = key[_AMP_PREFIXES_RE.match(key).end():]      # one slice, however long the run
     return _PARAM_NAME_NOISE_RE.sub("", key)
 
 

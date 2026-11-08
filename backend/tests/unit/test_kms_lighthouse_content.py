@@ -9,6 +9,7 @@ Behaviour is asserted on the public methods' output only.
 # ruff: noqa: F811
 import ast
 import asyncio
+import gc
 import html
 import logging
 import random
@@ -3412,6 +3413,52 @@ def test_ai_element_check_is_linear_at_full_length(name):
     started = time.perf_counter()
     kc._ai_sections(elements, {"E": {"value": value, "type": "EDITOR_FIELD"}})
     assert time.perf_counter() - started < 3.0, name
+
+
+_SIZE_FACTOR = 8          # the large input is this many times the small one
+_MAX_GROWTH = 24          # linear work grows about 8 times, quadratic work about 64
+_NOISE_FLOOR = 0.005      # CPU seconds; below this a small run is mostly timer noise and counts as this much
+
+
+def _cpu_seconds(run, repeats=3):
+    """The least CPU time of `repeats` runs of `run`, without a collection landing in the middle of one."""
+    best = None
+    gc.collect()
+    gc.disable()
+    try:
+        for _ in range(repeats):
+            started = time.process_time()
+            run()
+            spent = time.process_time() - started
+            best = spent if best is None else min(best, spent)
+    finally:
+        gc.enable()
+    return best
+
+
+def _assert_linear(run_at, small, name=""):
+    """`run_at(size)` must take about _SIZE_FACTOR times the CPU when its input is _SIZE_FACTOR times larger.
+
+    A ratio of two runs in this process, so it does not depend on the machine or its load: no time limit
+    is asserted."""
+    base = max(_cpu_seconds(lambda: run_at(small)), _NOISE_FLOOR)
+    large = _cpu_seconds(lambda: run_at(small * _SIZE_FACTOR))
+    assert large < base * _MAX_GROWTH, f"{name}: {large:.3f}s against {base:.3f}s at 1/{_SIZE_FACTOR} of the size"
+
+
+@pytest.mark.parametrize("unit,tail", [("amp%3B", "token=x"), ("AMP%3b", "api_key=x"), ("%61mp%3B", "password=x")],
+                         ids=["lower", "upper", "encoded"])
+def test_a_long_run_of_amp_prefixes_is_scrubbed_in_linear_work(kms, unit, tail):
+    # A percent-encoded run stays one parameter until its name is decoded (1.2 MB took 3.6 s, and a
+    # response may hold 16 MB). 40,000 units already give quadratic work a 64-fold growth.
+    def run_at(units):
+        raw_id = str(uuid.uuid4().int)[:9]
+        url = f"{_URL}?" + unit * units + tail
+        kms["mock"].STATE["extra_results"] = [_record(raw_id, "Guide " + url)]
+        entry = _by_id(client(kms).search_files("x"))[f"item:{raw_id}"]
+        assert tail.split("=")[0] not in entry["name"], "the secret parameter is dropped at every size"
+
+    _assert_linear(run_at, 40_000, unit)
 
 
 def test_search_scrubs_a_title_or_description_at_full_length(kms):
