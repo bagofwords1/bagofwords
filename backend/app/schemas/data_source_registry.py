@@ -1998,7 +1998,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             by_auth={
                 "token": AuthVariant(title="API token (Bearer)", schema=KmsLighthouseTokenCredentials, scopes=["system", "user"]),
                 "userpass": AuthVariant(
-                    title="Username / Password (undocumented login; the password goes in the URL)",
+                    title="Password in URL (undocumented)",
                     schema=KmsLighthouseUserPassCredentials, scopes=["system", "user"],
                 ),
             },
