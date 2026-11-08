@@ -186,22 +186,24 @@ def generate_df(ds_clients, excel_files):
     assert time.monotonic() - t0 < 10
 
 
-def test_fork_server_gives_each_run_a_fresh_process_quickly():
+def test_fork_server_gives_each_run_a_fresh_process_without_a_cold_start():
     """Consecutive runs come from distinct processes (nothing survives from
-    one execution to the next) and, after the first, start in well under the
-    cost of a cold interpreter."""
+    one execution to the next), and each is forked from the fork server, which
+    has already paid for the imports, not started as a cold interpreter: both
+    share one parent, and that parent is not this process (a cold start is a
+    direct child of the process that runs the job)."""
     code = """
 def generate_df(ds_clients, excel_files):
     import os as _os
-    return pd.DataFrame({"pid": [_os.getpid()]})
+    return pd.DataFrame({"pid": [_os.getpid()], "parent": [_os.getppid()]})
 """
     first = run_job(SandboxJob(mode="data", code=code))
-    t0 = time.monotonic()
     second = run_job(SandboxJob(mode="data", code=code))
-    elapsed = time.monotonic() - t0
     assert int(first.df["pid"][0]) != int(second.df["pid"][0])
     assert int(second.df["pid"][0]) != os.getpid()
-    assert elapsed < 0.5, f"second run took {elapsed:.2f}s"
+    parent = int(first.df["parent"][0])
+    assert int(second.df["parent"][0]) == parent
+    assert parent != os.getpid()
 
 
 def test_spawn_fallback_when_fork_server_is_disabled(monkeypatch):

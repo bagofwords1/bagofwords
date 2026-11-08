@@ -43,15 +43,17 @@ def _dataset(n_rows: int) -> dict:
 
 
 def _best_of(fn, rounds: int = 5) -> float:
-    """Best-of-N wall time. Best-of resists scheduler noise on shared CI."""
+    """Best-of-N CPU time of this thread. Wall time also counts the time the
+    scheduler gave to other processes, which shared CI can stretch past any
+    ratio these tests allow."""
     fn()  # warm caches (Fernet instance, allocator)
     return min(_timed(fn) for _ in range(rounds))
 
 
 def _timed(fn) -> float:
-    start = time.perf_counter()
+    start = time.thread_time()
     fn()
-    return time.perf_counter() - start
+    return time.thread_time() - start
 
 
 @pytest.fixture(scope="module")
