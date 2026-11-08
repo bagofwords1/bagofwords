@@ -1,0 +1,3801 @@
+{
+ "contract": {
+  "login_path": "/rest/login-sessions",
+  "max_api_version": 7200,
+  "min_api_version": 1200,
+  "reference_api_version": 6800,
+  "reference_release": "HPE OneView 9.00 / Synergy Composer 9.00",
+  "version_path": "/rest/version"
+ },
+ "resources": {
+  "alerts": {
+   "default_fields": [
+    "uri",
+    "severity",
+    "alertState",
+    "description",
+    "healthCategory",
+    "urgency",
+    "resourceUri",
+    "associatedResource.resourceName",
+    "associatedResource.resourceCategory",
+    "correctiveAction",
+    "created",
+    "modified"
+   ],
+   "description": "Alerts raised on managed resources. Filter on alertState ('Active'/'Cleared'/'Locked'), severity ('Critical'/'Warning'/'OK'/'Unknown'/'Disabled'), healthCategory, urgency or the associated resource; use lookback for recent alerts.",
+   "fields": {
+    "alertState": {
+     "description": "Active, Cleared or Locked.",
+     "type": "string"
+    },
+    "alertTypeID": {
+     "description": "Alert type identifier, e.g. Alerts.CertificateStatus.NonCompliant.",
+     "type": "string"
+    },
+    "assignedToUser": {
+     "description": "User the alert is assigned to.",
+     "type": "string"
+    },
+    "associatedResource.associationType": {
+     "description": "HAS_A / MANAGED_BY \u2026",
+     "type": "string"
+    },
+    "associatedResource.resourceCategory": {
+     "description": "Category of the associated resource.",
+     "type": "string"
+    },
+    "associatedResource.resourceName": {
+     "description": "Name of the associated resource.",
+     "type": "string"
+    },
+    "associatedResource.resourceUri": {
+     "description": "URI of the associated resource.",
+     "type": "string"
+    },
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "changeLog": {
+     "description": "[{uri, userEntered, username, notes, alertState, created}] history entries.",
+     "type": "array"
+    },
+    "correctiveAction": {
+     "description": "Recommended corrective action.",
+     "type": "string"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "description": {
+     "description": "Free-text description.",
+     "type": "string"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "eventUri": {
+     "description": "Originating event URI.",
+     "type": "string"
+    },
+    "healthCategory": {
+     "description": "Health category (Firmware, Power, Thermal, Network \u2026).",
+     "type": "string"
+    },
+    "lifeCycle": {
+     "description": "True when the alert is a lifecycle (not health) alert.",
+     "type": "boolean"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "physicalResourceType": {
+     "description": "Physical resource type, e.g. server-hardware.",
+     "type": "string"
+    },
+    "resourceID": {
+     "description": "Id of the resource the alert is about.",
+     "inferred": true,
+     "type": "string"
+    },
+    "resourceUri": {
+     "description": "URI of the resource the alert is about.",
+     "type": "string"
+    },
+    "serviceEventSource": {
+     "description": "Raised by a remote support service event.",
+     "inferred": true,
+     "type": "boolean"
+    },
+    "severity": {
+     "description": "Critical, Warning, OK, Unknown or Disabled.",
+     "type": "string"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "urgency": {
+     "description": "None, Low, Medium, High or Immediate.",
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    }
+   },
+   "filters": [
+    "severity",
+    "alertState",
+    "alertTypeID",
+    "healthCategory",
+    "urgency",
+    "resourceUri",
+    "physicalResourceType",
+    "assignedToUser",
+    "lifeCycle",
+    "created",
+    "modified",
+    "associatedResource.resourceName",
+    "associatedResource.resourceUri",
+    "associatedResource.resourceCategory"
+   ],
+   "kind": "collection",
+   "parents": [],
+   "path": "/rest/alerts",
+   "sortable": true,
+   "time_field": "created"
+  },
+  "appliance_health": {
+   "default_fields": [
+    "resourceName",
+    "status",
+    "statusMessage",
+    "available",
+    "capacity",
+    "member"
+   ],
+   "description": "Appliance node health (CPU, memory, disk). One row per reported resource; member keeps the raw object because field names vary by release.",
+   "fields": {
+    "available": {
+     "description": "Available amount as reported.",
+     "inferred": true,
+     "type": "string"
+    },
+    "capacity": {
+     "description": "Capacity as reported.",
+     "inferred": true,
+     "type": "string"
+    },
+    "member": {
+     "description": "Raw member object exactly as returned, for fields not modelled here.",
+     "type": "object"
+    },
+    "resourceName": {
+     "description": "Resource name (CPU, Memory, Disk Space \u2026).",
+     "inferred": true,
+     "type": "string"
+    },
+    "status": {
+     "description": "Status reported for the resource.",
+     "inferred": true,
+     "type": "string"
+    },
+    "statusMessage": {
+     "description": "Human readable status message.",
+     "inferred": true,
+     "type": "string"
+    }
+   },
+   "filters": [],
+   "kind": "singleton_members",
+   "members_key": "members",
+   "parents": [],
+   "path": "/rest/appliance/health-status",
+   "sortable": false
+  },
+  "appliance_version": {
+   "default_fields": [
+    "softwareVersion",
+    "major",
+    "minor",
+    "modelNumber",
+    "serialNumber",
+    "family"
+   ],
+   "description": "Appliance software version and model (one row). Use to confirm which OneView release answered.",
+   "fields": {
+    "build": {
+     "description": "Build number.",
+     "type": "string"
+    },
+    "compatibility": {
+     "description": "Compatibility level.",
+     "type": "string"
+    },
+    "family": {
+     "description": "Product family string.",
+     "type": "string"
+    },
+    "major": {
+     "description": "Major version.",
+     "type": "string"
+    },
+    "minor": {
+     "description": "Minor version.",
+     "type": "string"
+    },
+    "modelNumber": {
+     "description": "Appliance model, e.g. HPE Synergy Composer2 or HPE OneView VM - VMware vSphere.",
+     "type": "string"
+    },
+    "platformType": {
+     "description": "Platform type, e.g. vm or hardware.",
+     "type": "string"
+    },
+    "serialNumber": {
+     "description": "Appliance serial number.",
+     "type": "string"
+    },
+    "softwareVersion": {
+     "description": "Full appliance software version, e.g. 9.00.00-0417420.",
+     "type": "string"
+    },
+    "type": {
+     "description": "Schema type, e.g. NodeVersionDto4.",
+     "type": "string"
+    }
+   },
+   "filters": [],
+   "kind": "singleton",
+   "parents": [],
+   "path": "/rest/appliance/nodeinfo/version",
+   "sortable": false
+  },
+  "datacenters": {
+   "default_fields": [
+    "uri",
+    "name",
+    "status",
+    "state",
+    "width",
+    "depth",
+    "contents"
+   ],
+   "description": "Data centers (floor layout, power cost and cooling parameters).",
+   "fields": {
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "contents": {
+     "description": "Placed resources [{resourceUri, x, y, rotation}].",
+     "inferred": true,
+     "type": "array"
+    },
+    "coolingCapacity": {
+     "description": "Cooling capacity in kW.",
+     "inferred": true,
+     "type": "integer"
+    },
+    "coolingMultiplier": {
+     "description": "Cooling multiplier.",
+     "inferred": true,
+     "type": "number"
+    },
+    "costPerKilowattHour": {
+     "description": "Cost per kWh.",
+     "inferred": true,
+     "type": "number"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "currency": {
+     "description": "Currency code.",
+     "inferred": true,
+     "type": "string"
+    },
+    "defaultPowerLineVoltage": {
+     "description": "Default line voltage.",
+     "inferred": true,
+     "type": "integer"
+    },
+    "depth": {
+     "description": "Depth in mm.",
+     "type": "integer"
+    },
+    "deratingPercentage": {
+     "description": "Derating percentage.",
+     "inferred": true,
+     "type": "number"
+    },
+    "deratingType": {
+     "description": "NaJp, Custom or None.",
+     "inferred": true,
+     "type": "string"
+    },
+    "description": {
+     "description": "Free-text description.",
+     "type": "string"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Display name.",
+     "type": "string"
+    },
+    "state": {
+     "description": "Lifecycle state (resource specific).",
+     "type": "string"
+    },
+    "status": {
+     "description": "Health: OK, Warning, Critical, Disabled or Unknown.",
+     "type": "string"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    },
+    "width": {
+     "description": "Width in mm.",
+     "type": "integer"
+    }
+   },
+   "filters": [
+    "name",
+    "status",
+    "state"
+   ],
+   "kind": "collection",
+   "parents": [],
+   "path": "/rest/datacenters",
+   "sortable": true
+  },
+  "enclosure_groups": {
+   "default_fields": [
+    "uri",
+    "name",
+    "status",
+    "state"
+   ],
+   "description": "Enclosure groups: the logical interconnect group mapping shared by a set of enclosures.",
+   "fields": {
+    "associatedInterconnectGroups": {
+     "description": "Logical interconnect group URIs.",
+     "type": "array"
+    },
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "description": {
+     "description": "Free-text description.",
+     "type": "string"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "enclosureCount": {
+     "description": "Number of enclosures per logical enclosure.",
+     "type": "integer"
+    },
+    "enclosureTypeUri": {
+     "description": "Enclosure type URI.",
+     "type": "string"
+    },
+    "interconnectBayMappingCount": {
+     "description": "Number of bay mappings.",
+     "type": "integer"
+    },
+    "interconnectBayMappings": {
+     "description": "[{enclosureIndex, interconnectBay, logicalInterconnectGroupUri}].",
+     "type": "array"
+    },
+    "ipAddressingMode": {
+     "description": "DHCP, External, IpPool.",
+     "type": "string"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Display name.",
+     "type": "string"
+    },
+    "powerMode": {
+     "description": "Power redundancy mode.",
+     "type": "string"
+    },
+    "scopesUri": {
+     "description": "URI of the scopes assigned to the resource.",
+     "type": "string"
+    },
+    "stackingMode": {
+     "description": "Enclosure, SwitchPairs, MultiEnclosure \u2026",
+     "type": "string"
+    },
+    "state": {
+     "description": "Lifecycle state (resource specific).",
+     "type": "string"
+    },
+    "status": {
+     "description": "Health: OK, Warning, Critical, Disabled or Unknown.",
+     "type": "string"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    }
+   },
+   "filters": [
+    "name",
+    "status",
+    "state"
+   ],
+   "kind": "collection",
+   "parents": [],
+   "path": "/rest/enclosure-groups",
+   "sortable": true
+  },
+  "enclosures": {
+   "default_fields": [
+    "uri",
+    "name",
+    "enclosureModel",
+    "status",
+    "state",
+    "serialNumber",
+    "enclosureGroupUri",
+    "logicalEnclosureUri",
+    "rackName",
+    "fwBaselineName",
+    "deviceBayCount",
+    "interconnectBayCount"
+   ],
+   "description": "Enclosures/frames (e.g. HPE Synergy 12000 Frame): health, bays (device, fan, power supply, interconnect, manager/FLM), power and firmware baseline.",
+   "fields": {
+    "applianceBayCount": {
+     "description": "Appliance bays.",
+     "type": "integer"
+    },
+    "applianceBays": {
+     "description": "Appliance bays (Composer/Image Streamer): [{bayNumber, devicePresence, model, serialNumber, status, poweredOn}].",
+     "type": "array"
+    },
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "description": {
+     "description": "Free-text description.",
+     "type": "string"
+    },
+    "deviceBayCount": {
+     "description": "Device bays.",
+     "type": "integer"
+    },
+    "deviceBays": {
+     "description": "Device bays: [{bayNumber, devicePresence, deviceUri, profileUri, model, serialNumber, bayPowerState, powerAllocationWatts}].",
+     "type": "array"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "enclosureGroupUri": {
+     "description": "Enclosure group URI.",
+     "type": "string"
+    },
+    "enclosureModel": {
+     "description": "Model, e.g. Synergy 12000 Frame.",
+     "type": "string"
+    },
+    "enclosureType": {
+     "description": "SY12000, C7000 \u2026",
+     "type": "string"
+    },
+    "fanBayCount": {
+     "description": "Fan bays.",
+     "type": "integer"
+    },
+    "fanBays": {
+     "description": "Fan bays: [{bayNumber, devicePresence, deviceRequired, model, partNumber, serialNumber, state, status}].",
+     "type": "array"
+    },
+    "fwBaselineName": {
+     "description": "Firmware baseline name.",
+     "type": "string"
+    },
+    "fwBaselineUri": {
+     "description": "Firmware baseline URI (SPP) applied to the frame.",
+     "type": "string"
+    },
+    "interconnectBayCount": {
+     "description": "Interconnect bays.",
+     "type": "integer"
+    },
+    "interconnectBays": {
+     "description": "Interconnect bays: [{bayNumber, interconnectModel, interconnectUri, logicalInterconnectUri, bayPowerState, interconnectReady}].",
+     "type": "array"
+    },
+    "isFwManaged": {
+     "description": "Whether firmware is managed by OneView.",
+     "type": "boolean"
+    },
+    "licensingIntent": {
+     "description": "Licensing intent.",
+     "type": "string"
+    },
+    "logicalEnclosureUri": {
+     "description": "Logical enclosure URI.",
+     "type": "string"
+    },
+    "managerBays": {
+     "description": "Frame link modules: [{bayNumber, role, model, fwVersion, ipAddress, status, linkPortState, mgmtPortState}].",
+     "type": "array"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Display name.",
+     "type": "string"
+    },
+    "partNumber": {
+     "description": "Part number.",
+     "type": "string"
+    },
+    "powerAllocatedWatts": {
+     "description": "Allocated watts.",
+     "type": "integer"
+    },
+    "powerCapacityWatts": {
+     "description": "Power capacity in watts.",
+     "type": "integer"
+    },
+    "powerMode": {
+     "description": "Power redundancy mode.",
+     "type": "string"
+    },
+    "powerSupplyBayCount": {
+     "description": "Power supply bays.",
+     "type": "integer"
+    },
+    "powerSupplyBays": {
+     "description": "Power supply bays: [{bayNumber, devicePresence, model, outputCapacityWatts, serialNumber, status}].",
+     "type": "array"
+    },
+    "rackName": {
+     "description": "Rack name the enclosure is mounted in.",
+     "type": "string"
+    },
+    "refreshState": {
+     "description": "Refresh state.",
+     "type": "string"
+    },
+    "scopesUri": {
+     "description": "URI of the scopes assigned to the resource.",
+     "type": "string"
+    },
+    "serialNumber": {
+     "description": "Enclosure serial number.",
+     "type": "string"
+    },
+    "state": {
+     "description": "Lifecycle state (resource specific).",
+     "type": "string"
+    },
+    "stateReason": {
+     "description": "Reason for the state.",
+     "type": "string"
+    },
+    "status": {
+     "description": "Health: OK, Warning, Critical, Disabled or Unknown.",
+     "type": "string"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "uidState": {
+     "description": "UID light state.",
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    },
+    "uuid": {
+     "description": "Enclosure UUID.",
+     "type": "string"
+    },
+    "vcmMode": {
+     "description": "True when managed by Virtual Connect Manager (c7000 only).",
+     "type": "boolean"
+    }
+   },
+   "filters": [
+    "name",
+    "status",
+    "state",
+    "enclosureModel",
+    "enclosureType",
+    "serialNumber",
+    "uuid",
+    "enclosureGroupUri",
+    "logicalEnclosureUri",
+    "rackName",
+    "fwBaselineUri"
+   ],
+   "kind": "collection",
+   "parents": [],
+   "path": "/rest/enclosures",
+   "sortable": true
+  },
+  "ethernet_networks": {
+   "default_fields": [
+    "uri",
+    "name",
+    "vlanId",
+    "ethernetNetworkType",
+    "purpose",
+    "status",
+    "state"
+   ],
+   "description": "Ethernet networks (VLANs) defined on the appliance.",
+   "fields": {
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "connectionTemplateUri": {
+     "description": "Connection template (bandwidth) URI.",
+     "type": "string"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "description": {
+     "description": "Free-text description.",
+     "type": "string"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "ethernetNetworkType": {
+     "description": "Tagged, Untagged, Tunnel, ImageStreamer.",
+     "type": "string"
+    },
+    "fabricUri": {
+     "description": "Fabric URI.",
+     "type": "string"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Display name.",
+     "type": "string"
+    },
+    "privateNetwork": {
+     "description": "Private network.",
+     "type": "boolean"
+    },
+    "purpose": {
+     "description": "General, Management, VMMigration, FaultTolerance, ISCSI.",
+     "type": "string"
+    },
+    "scopesUri": {
+     "description": "URI of the scopes assigned to the resource.",
+     "type": "string"
+    },
+    "smartLink": {
+     "description": "SmartLink enabled.",
+     "type": "boolean"
+    },
+    "state": {
+     "description": "Lifecycle state (resource specific).",
+     "type": "string"
+    },
+    "status": {
+     "description": "Health: OK, Warning, Critical, Disabled or Unknown.",
+     "type": "string"
+    },
+    "subnetUri": {
+     "description": "Associated IPv4 subnet URI.",
+     "type": "string"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    },
+    "vlanId": {
+     "description": "VLAN id.",
+     "type": "integer"
+    }
+   },
+   "filters": [
+    "name",
+    "status",
+    "state",
+    "vlanId",
+    "ethernetNetworkType",
+    "purpose",
+    "smartLink",
+    "privateNetwork",
+    "fabricUri"
+   ],
+   "kind": "collection",
+   "parents": [],
+   "path": "/rest/ethernet-networks",
+   "sortable": true
+  },
+  "events": {
+   "default_fields": [
+    "uri",
+    "eventTypeID",
+    "severity",
+    "description",
+    "healthCategory",
+    "urgency",
+    "rxTime",
+    "created",
+    "associatedResource.resourceName"
+   ],
+   "description": "Raw events (SNMP traps, status polls, user actions) that alerts are derived from. Filter on eventTypeID, severity, healthCategory or lookback.",
+   "fields": {
+    "associatedResource.resourceCategory": {
+     "description": "Category of the associated resource.",
+     "inferred": true,
+     "type": "string"
+    },
+    "associatedResource.resourceName": {
+     "description": "Name of the associated resource.",
+     "inferred": true,
+     "type": "string"
+    },
+    "associatedResource.resourceUri": {
+     "description": "URI of the associated resource.",
+     "inferred": true,
+     "type": "string"
+    },
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "description": {
+     "description": "Free-text description.",
+     "type": "string"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "eventDetails": {
+     "description": "[{eventItemName, eventItemValue, isThisVarbindData, varBindOrderIndex}].",
+     "type": "array"
+    },
+    "eventTypeID": {
+     "description": "Event type id, e.g. StatusPoll.EnclosureStatus or Trap.cpqHoProcessorStatus.",
+     "type": "string"
+    },
+    "healthCategory": {
+     "description": "Health category.",
+     "type": "string"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "resourceUri": {
+     "description": "URI of the resource the event concerns.",
+     "inferred": true,
+     "type": "string"
+    },
+    "rxTime": {
+     "description": "Time the event was received.",
+     "type": "string"
+    },
+    "serviceEventDetails": {
+     "description": "Remote support case details.",
+     "type": "object"
+    },
+    "serviceEventSource": {
+     "description": "Raised by a remote support service event.",
+     "type": "boolean"
+    },
+    "severity": {
+     "description": "Critical, Warning, OK, Unknown.",
+     "type": "string"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "urgency": {
+     "description": "None, Low, Medium, High, Immediate.",
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    }
+   },
+   "filters": [
+    "eventTypeID",
+    "severity",
+    "healthCategory",
+    "urgency",
+    "created",
+    "resourceUri",
+    "associatedResource.resourceName",
+    "associatedResource.resourceUri"
+   ],
+   "kind": "collection",
+   "parents": [],
+   "path": "/rest/events",
+   "sortable": true,
+   "time_field": "created"
+  },
+  "fc_networks": {
+   "default_fields": [
+    "uri",
+    "name",
+    "fabricType",
+    "status",
+    "state",
+    "managedSanUri"
+   ],
+   "description": "Fibre Channel networks.",
+   "fields": {
+    "autoLoginRedistribution": {
+     "description": "Auto login redistribution.",
+     "type": "boolean"
+    },
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "connectionTemplateUri": {
+     "description": "Connection template (bandwidth) URI.",
+     "type": "string"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "description": {
+     "description": "Free-text description.",
+     "type": "string"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "fabricType": {
+     "description": "FabricAttach or DirectAttach.",
+     "type": "string"
+    },
+    "fabricUri": {
+     "description": "Fabric URI.",
+     "type": "string"
+    },
+    "linkStabilityTime": {
+     "description": "Link stability time in seconds.",
+     "type": "integer"
+    },
+    "managedSanUri": {
+     "description": "Managed SAN URI (null when not associated).",
+     "type": "string"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Display name.",
+     "type": "string"
+    },
+    "scopesUri": {
+     "description": "URI of the scopes assigned to the resource.",
+     "type": "string"
+    },
+    "state": {
+     "description": "Lifecycle state (resource specific).",
+     "type": "string"
+    },
+    "status": {
+     "description": "Health: OK, Warning, Critical, Disabled or Unknown.",
+     "type": "string"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    }
+   },
+   "filters": [
+    "name",
+    "status",
+    "state",
+    "fabricType",
+    "managedSanUri"
+   ],
+   "kind": "collection",
+   "parents": [],
+   "path": "/rest/fc-networks",
+   "sortable": true
+  },
+  "fcoe_networks": {
+   "default_fields": [
+    "uri",
+    "name",
+    "vlanId",
+    "status",
+    "state"
+   ],
+   "description": "FCoE networks.",
+   "fields": {
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "connectionTemplateUri": {
+     "description": "Connection template (bandwidth) URI.",
+     "type": "string"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "description": {
+     "description": "Free-text description.",
+     "type": "string"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "fabricUri": {
+     "description": "Fabric URI.",
+     "type": "string"
+    },
+    "managedSanUri": {
+     "description": "Managed SAN URI.",
+     "type": "string"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Display name.",
+     "type": "string"
+    },
+    "scopesUri": {
+     "description": "URI of the scopes assigned to the resource.",
+     "type": "string"
+    },
+    "state": {
+     "description": "Lifecycle state (resource specific).",
+     "type": "string"
+    },
+    "status": {
+     "description": "Health: OK, Warning, Critical, Disabled or Unknown.",
+     "type": "string"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    },
+    "vlanId": {
+     "description": "VLAN id.",
+     "type": "integer"
+    }
+   },
+   "filters": [
+    "name",
+    "status",
+    "state",
+    "vlanId"
+   ],
+   "kind": "collection",
+   "parents": [],
+   "path": "/rest/fcoe-networks",
+   "sortable": true
+  },
+  "firmware_drivers": {
+   "default_fields": [
+    "uri",
+    "name",
+    "version",
+    "bundleType",
+    "status",
+    "state",
+    "releaseDate",
+    "baselineShortName",
+    "bundleSize"
+   ],
+   "description": "Firmware bundles (SPP / Synergy Service Pack / hotfix) in the appliance repository and the components they contain.",
+   "fields": {
+    "baselineShortName": {
+     "description": "Short name.",
+     "type": "string"
+    },
+    "bundleSize": {
+     "description": "Size in bytes.",
+     "type": "integer"
+    },
+    "bundleType": {
+     "description": "SPP, Hotfix or Custom.",
+     "type": "string"
+    },
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "description": {
+     "description": "Free-text description.",
+     "type": "string"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "fwComponents": {
+     "description": "[{name, componentVersion, fileName, swKeyNameList[]}].",
+     "type": "array"
+    },
+    "hotfixes": {
+     "description": "[{hotfixName, releaseDate, resourceId}].",
+     "type": "array"
+    },
+    "hpsumVersion": {
+     "description": "SUM version.",
+     "type": "string"
+    },
+    "isoFileName": {
+     "description": "ISO file name.",
+     "type": "string"
+    },
+    "lastTaskUri": {
+     "description": "Last task URI.",
+     "type": "string"
+    },
+    "locations": {
+     "description": "Where the bundle is stored.",
+     "type": "object"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Display name.",
+     "type": "string"
+    },
+    "parentBundle": {
+     "description": "{parentBundleName, releaseDate, version} for hotfixes/custom SPPs.",
+     "type": "object"
+    },
+    "releaseDate": {
+     "description": "Release date.",
+     "type": "string"
+    },
+    "resourceId": {
+     "description": "Resource id.",
+     "type": "string"
+    },
+    "resourceState": {
+     "description": "Resource state.",
+     "type": "string"
+    },
+    "scopesUri": {
+     "description": "URI of the scopes assigned to the resource.",
+     "type": "string"
+    },
+    "state": {
+     "description": "Lifecycle state (resource specific).",
+     "type": "string"
+    },
+    "status": {
+     "description": "Health: OK, Warning, Critical, Disabled or Unknown.",
+     "type": "string"
+    },
+    "supportedLanguages": {
+     "description": "Supported languages.",
+     "type": "array"
+    },
+    "supportedOSList": {
+     "description": "Supported operating systems.",
+     "type": "array"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    },
+    "uuid": {
+     "description": "Bundle UUID.",
+     "type": "string"
+    },
+    "version": {
+     "description": "Bundle version, e.g. SY-2023.09.01.",
+     "type": "string"
+    }
+   },
+   "filters": [
+    "name",
+    "status",
+    "state",
+    "version",
+    "bundleType",
+    "baselineShortName",
+    "isoFileName"
+   ],
+   "kind": "collection",
+   "parents": [],
+   "path": "/rest/firmware-drivers",
+   "sortable": true
+  },
+  "index_resources": {
+   "default_fields": [
+    "uri",
+    "name",
+    "category",
+    "status",
+    "state",
+    "attributes"
+   ],
+   "description": "Index search across every resource category. Controls: category (list of categories, e.g. [\"server-hardware\",\"enclosures\"]), user_query (free text such as a serial number or name fragment) and filter. Returns the indexed attributes, not the full resource; follow uri with the typed table.",
+   "fields": {
+    "attributes": {
+     "description": "Indexed attributes (model, serialNumber, status, \u2026).",
+     "type": "object"
+    },
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "description": {
+     "description": "Free-text description.",
+     "type": "string"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "multiAttributes": {
+     "description": "Multi-valued indexed attributes.",
+     "type": "object"
+    },
+    "name": {
+     "description": "Display name.",
+     "type": "string"
+    },
+    "state": {
+     "description": "Lifecycle state (resource specific).",
+     "type": "string"
+    },
+    "status": {
+     "description": "Health: OK, Warning, Critical, Disabled or Unknown.",
+     "type": "string"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    }
+   },
+   "filters": [
+    "name",
+    "status",
+    "state"
+   ],
+   "kind": "index",
+   "parents": [],
+   "path": "/rest/index/resources",
+   "sortable": true
+  },
+  "interconnect_ports": {
+   "carry": {
+    "enclosureName": "enclosureName",
+    "interconnectName": "name",
+    "interconnectUri": "uri"
+   },
+   "default_fields": [
+    "interconnectUri",
+    "interconnectName",
+    "enclosureName",
+    "port.portName",
+    "port.portType",
+    "port.portStatus",
+    "port.portHealthStatus",
+    "port.operationalSpeed",
+    "port.associatedUplinkSetUri",
+    "port.neighbor"
+   ],
+   "description": "Flattened interconnect ports: one row per port with the owning interconnect's uri/name/enclosure plus port state, speed, uplink set, LLDP neighbor and FC login details. Filters apply to the interconnect, not the port.",
+   "fields": {
+    "enclosureName": {
+     "description": "Enclosure name.",
+     "type": "string"
+    },
+    "interconnectName": {
+     "description": "Owning interconnect name.",
+     "type": "string"
+    },
+    "interconnectUri": {
+     "description": "Owning interconnect URI.",
+     "type": "string"
+    },
+    "port.associatedUplinkSetUri": {
+     "description": "Uplink set the port belongs to.",
+     "type": "string"
+    },
+    "port.bayNumber": {
+     "description": "Bay number.",
+     "type": "integer"
+    },
+    "port.connectorType": {
+     "description": "Connector/transceiver type.",
+     "type": "string"
+    },
+    "port.dcbxInfo": {
+     "description": "DCBX status.",
+     "type": "object"
+    },
+    "port.enabled": {
+     "description": "Administratively enabled.",
+     "type": "boolean"
+    },
+    "port.fcPortProperties": {
+     "description": "FC properties {wwpn, wwnn, loginsCount, opOnline, opOnlineReason, trunkMaster}.",
+     "type": "object"
+    },
+    "port.interconnectName": {
+     "description": "Interconnect name as reported on the port.",
+     "type": "string"
+    },
+    "port.lagId": {
+     "description": "LAG id.",
+     "type": "integer"
+    },
+    "port.name": {
+     "description": "Port name (duplicate of portName on most releases).",
+     "type": "string"
+    },
+    "port.neighbor": {
+     "description": "LLDP neighbor {remoteSystemName, remotePortId, remotePortDescription, remoteChassisId, remoteMgmtAddress}.",
+     "type": "object"
+    },
+    "port.operationalSpeed": {
+     "description": "Negotiated speed, e.g. Speed_100G.",
+     "type": "string"
+    },
+    "port.pairedPortName": {
+     "description": "Paired port.",
+     "type": "string"
+    },
+    "port.portHealthStatus": {
+     "description": "Normal, Warning, Critical, Disabled, Unknown.",
+     "type": "string"
+    },
+    "port.portId": {
+     "description": "Port id.",
+     "type": "string"
+    },
+    "port.portName": {
+     "description": "Port name, e.g. Q1:1 or d12.",
+     "type": "string"
+    },
+    "port.portStatus": {
+     "description": "Linked, Unlinked, Disabled \u2026",
+     "type": "string"
+    },
+    "port.portStatusReason": {
+     "description": "Why the port is in its status.",
+     "type": "string"
+    },
+    "port.portType": {
+     "description": "Uplink, Downlink, Stacking or Interconnect.",
+     "type": "string"
+    },
+    "port.portTypeExtended": {
+     "description": "Extended port type.",
+     "type": "string"
+    },
+    "port.state": {
+     "description": "State.",
+     "type": "string"
+    },
+    "port.status": {
+     "description": "Health status.",
+     "type": "string"
+    },
+    "port.subports": {
+     "description": "Sub-ports when the port is split.",
+     "type": "array"
+    },
+    "port.uri": {
+     "description": "Port URI.",
+     "type": "string"
+    },
+    "port.vlans": {
+     "description": "VLANs carried.",
+     "type": "array"
+    }
+   },
+   "filters": [
+    "name",
+    "status",
+    "state",
+    "model",
+    "enclosureUri",
+    "enclosureName",
+    "logicalInterconnectUri"
+   ],
+   "flatten": "ports",
+   "flatten_as": "port",
+   "kind": "collection_flatten",
+   "parents": [],
+   "path": "/rest/interconnects",
+   "sortable": true
+  },
+  "interconnects": {
+   "default_fields": [
+    "uri",
+    "name",
+    "model",
+    "status",
+    "state",
+    "powerState",
+    "enclosureName",
+    "firmwareVersion",
+    "logicalInterconnectUri",
+    "stackingDomainRole",
+    "portCount"
+   ],
+   "description": "Physical interconnect modules (Virtual Connect / switches): health, firmware, stacking, location and nested ports.",
+   "fields": {
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "description": {
+     "description": "Free-text description.",
+     "type": "string"
+    },
+    "deviceResetState": {
+     "description": "Reset state.",
+     "type": "string"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "enableIgmpSnooping": {
+     "description": "IGMP snooping enabled.",
+     "type": "boolean"
+    },
+    "enableNetworkLoopProtection": {
+     "description": "Loop protection enabled.",
+     "type": "boolean"
+    },
+    "enablePauseFloodProtection": {
+     "description": "Pause flood protection enabled.",
+     "type": "boolean"
+    },
+    "enclosureName": {
+     "description": "Enclosure name.",
+     "type": "string"
+    },
+    "enclosureType": {
+     "description": "Enclosure type.",
+     "type": "string"
+    },
+    "enclosureUri": {
+     "description": "Enclosure URI.",
+     "type": "string"
+    },
+    "firmwareVersion": {
+     "description": "Firmware version.",
+     "type": "string"
+    },
+    "hostName": {
+     "description": "Host name.",
+     "type": "string"
+    },
+    "interconnectIP": {
+     "description": "Management IP address.",
+     "type": "string"
+    },
+    "interconnectLocation": {
+     "description": "Location {locationEntries: [{type, value}]} (Enclosure, Bay).",
+     "type": "object"
+    },
+    "interconnectMAC": {
+     "description": "Management MAC.",
+     "type": "string"
+    },
+    "interconnectTypeUri": {
+     "description": "Interconnect type URI.",
+     "type": "string"
+    },
+    "logicalInterconnectUri": {
+     "description": "Logical interconnect URI (null when unmanaged).",
+     "type": "string"
+    },
+    "migrationState": {
+     "description": "Migration state.",
+     "type": "string"
+    },
+    "model": {
+     "description": "Model, e.g. Virtual Connect SE 100Gb F32 Module for Synergy.",
+     "type": "string"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Display name.",
+     "type": "string"
+    },
+    "partNumber": {
+     "description": "Part number.",
+     "type": "string"
+    },
+    "portCount": {
+     "description": "Number of ports.",
+     "type": "integer"
+    },
+    "ports": {
+     "description": "Ports: [{portName, portType, portStatus, portStatusReason, portHealthStatus, operationalSpeed, enabled, neighbor{}, associatedUplinkSetUri, fcPortProperties{}, subports[]}] \u2014 use interconnect_ports for a flat view.",
+     "type": "array"
+    },
+    "powerState": {
+     "description": "On or Off.",
+     "type": "string"
+    },
+    "productName": {
+     "description": "Product name.",
+     "type": "string"
+    },
+    "qosConfiguration": {
+     "description": "QoS configuration.",
+     "type": "object"
+    },
+    "scopesUri": {
+     "description": "URI of the scopes assigned to the resource.",
+     "type": "string"
+    },
+    "serialNumber": {
+     "description": "Serial number.",
+     "type": "string"
+    },
+    "snmpConfiguration": {
+     "description": "SNMP configuration (community strings are stripped).",
+     "type": "object"
+    },
+    "sparePartNumber": {
+     "description": "Spare part number.",
+     "type": "string"
+    },
+    "stackingDomainId": {
+     "description": "Stacking domain id.",
+     "type": "integer"
+    },
+    "stackingDomainRole": {
+     "description": "Master, Slave or Unknown.",
+     "type": "string"
+    },
+    "stackingMemberId": {
+     "description": "Stacking member id.",
+     "type": "integer"
+    },
+    "state": {
+     "description": "Lifecycle state (resource specific).",
+     "type": "string"
+    },
+    "status": {
+     "description": "Health: OK, Warning, Critical, Disabled or Unknown.",
+     "type": "string"
+    },
+    "subPortCount": {
+     "description": "Number of sub-ports.",
+     "type": "integer"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "uidState": {
+     "description": "UID light state.",
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    }
+   },
+   "filters": [
+    "name",
+    "status",
+    "state",
+    "model",
+    "serialNumber",
+    "enclosureUri",
+    "enclosureName",
+    "logicalInterconnectUri",
+    "interconnectTypeUri",
+    "powerState",
+    "firmwareVersion",
+    "stackingDomainRole"
+   ],
+   "kind": "collection",
+   "parents": [],
+   "path": "/rest/interconnects",
+   "sortable": true
+  },
+  "logical_enclosures": {
+   "default_fields": [
+    "uri",
+    "name",
+    "status",
+    "state",
+    "enclosureGroupUri",
+    "enclosureUris",
+    "firmwareBaselineUri"
+   ],
+   "description": "Logical enclosures: enclosure group + enclosures + logical interconnects, with firmware baseline and consistency state.",
+   "fields": {
+    "ambientTemperatureMode": {
+     "description": "Standard or ASHRAE A3/A4.",
+     "type": "string"
+    },
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "deleteFailed": {
+     "description": "True if the last delete failed.",
+     "type": "boolean"
+    },
+    "description": {
+     "description": "Free-text description.",
+     "type": "string"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "enclosureGroupUri": {
+     "description": "Enclosure group URI.",
+     "type": "string"
+    },
+    "enclosureUris": {
+     "description": "Member enclosure URIs.",
+     "type": "array"
+    },
+    "firmware": {
+     "description": "Firmware settings {firmwareBaselineUri, firmwareUpdateOn, forceInstallFirmware, logicalInterconnectUpdateMode}.",
+     "type": "object"
+    },
+    "firmwareBaselineUri": {
+     "description": "Firmware baseline URI.",
+     "type": "string"
+    },
+    "ipAddressingMode": {
+     "description": "IP addressing mode.",
+     "type": "string"
+    },
+    "logicalInterconnectUris": {
+     "description": "Logical interconnect URIs.",
+     "type": "array"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Display name.",
+     "type": "string"
+    },
+    "powerMode": {
+     "description": "Power mode.",
+     "type": "string"
+    },
+    "scalingState": {
+     "description": "Growing, Shrinking or Static.",
+     "type": "string"
+    },
+    "scopesUri": {
+     "description": "URI of the scopes assigned to the resource.",
+     "type": "string"
+    },
+    "state": {
+     "description": "Lifecycle state (resource specific).",
+     "type": "string"
+    },
+    "status": {
+     "description": "Health: OK, Warning, Critical, Disabled or Unknown.",
+     "type": "string"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    }
+   },
+   "filters": [
+    "name",
+    "status",
+    "state",
+    "enclosureGroupUri"
+   ],
+   "kind": "collection",
+   "parents": [],
+   "path": "/rest/logical-enclosures",
+   "sortable": true
+  },
+  "logical_interconnects": {
+   "default_fields": [
+    "uri",
+    "name",
+    "status",
+    "state",
+    "consistencyStatus",
+    "stackingHealth",
+    "logicalInterconnectGroupUri",
+    "enclosureUris",
+    "interconnects"
+   ],
+   "description": "Logical interconnects: the configured (expected) state spanning a set of physical interconnects, with consistency to its group and stacking health.",
+   "fields": {
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "consistencyStatus": {
+     "description": "CONSISTENT, NOT_CONSISTENT or UNKNOWN against the logical interconnect group.",
+     "type": "string"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "description": {
+     "description": "Free-text description.",
+     "type": "string"
+    },
+    "domainUri": {
+     "description": "Domain URI.",
+     "type": "string"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "enclosureType": {
+     "description": "Enclosure type.",
+     "type": "string"
+    },
+    "enclosureUris": {
+     "description": "Enclosure URIs spanned.",
+     "type": "array"
+    },
+    "ethernetSettings": {
+     "description": "Ethernet settings.",
+     "type": "object"
+    },
+    "fabricUri": {
+     "description": "Fabric URI.",
+     "type": "string"
+    },
+    "icmLicenses": {
+     "description": "Interconnect licenses.",
+     "type": "object"
+    },
+    "igmpSettings": {
+     "description": "IGMP settings.",
+     "type": "object"
+    },
+    "interconnectMap": {
+     "description": "Bay to interconnect map {interconnectMapEntries: [{location, interconnectUri, permittedInterconnectTypeUri, enclosureIndex}]}.",
+     "type": "object"
+    },
+    "interconnects": {
+     "description": "Member interconnect URIs.",
+     "type": "array"
+    },
+    "internalNetworkUris": {
+     "description": "Internal network URIs.",
+     "type": "array"
+    },
+    "logicalInterconnectGroupUri": {
+     "description": "Logical interconnect group URI.",
+     "type": "string"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Display name.",
+     "type": "string"
+    },
+    "portFlapProtection": {
+     "description": "Port flap protection settings.",
+     "type": "object"
+    },
+    "portMonitor": {
+     "description": "Port monitor configuration.",
+     "type": "object"
+    },
+    "securityStandardMode": {
+     "description": "Security standard mode.",
+     "type": "string"
+    },
+    "snmpConfiguration": {
+     "description": "SNMP configuration (community strings are stripped).",
+     "type": "object"
+    },
+    "stackingHealth": {
+     "description": "Connected, BiConnected, Disconnected, Unknown.",
+     "type": "string"
+    },
+    "state": {
+     "description": "Lifecycle state (resource specific).",
+     "type": "string"
+    },
+    "status": {
+     "description": "Health: OK, Warning, Critical, Disabled or Unknown.",
+     "type": "string"
+    },
+    "telemetryConfiguration": {
+     "description": "Telemetry configuration.",
+     "type": "object"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    }
+   },
+   "filters": [
+    "name",
+    "status",
+    "state",
+    "consistencyStatus",
+    "stackingHealth",
+    "logicalInterconnectGroupUri"
+   ],
+   "kind": "collection",
+   "parents": [],
+   "path": "/rest/logical-interconnects",
+   "sortable": true
+  },
+  "network_sets": {
+   "default_fields": [
+    "uri",
+    "name",
+    "status",
+    "state",
+    "networkUris",
+    "nativeNetworkUri"
+   ],
+   "description": "Network sets: bundles of Ethernet networks presented to a profile connection.",
+   "fields": {
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "connectionTemplateUri": {
+     "description": "Connection template URI.",
+     "type": "string"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "description": {
+     "description": "Free-text description.",
+     "type": "string"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Display name.",
+     "type": "string"
+    },
+    "nativeNetworkUri": {
+     "description": "Native network URI.",
+     "type": "string"
+    },
+    "networkSetType": {
+     "description": "Regular or Large.",
+     "type": "string"
+    },
+    "networkUris": {
+     "description": "Member Ethernet network URIs.",
+     "type": "array"
+    },
+    "scopesUri": {
+     "description": "URI of the scopes assigned to the resource.",
+     "type": "string"
+    },
+    "state": {
+     "description": "Lifecycle state (resource specific).",
+     "type": "string"
+    },
+    "status": {
+     "description": "Health: OK, Warning, Critical, Disabled or Unknown.",
+     "type": "string"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    }
+   },
+   "filters": [
+    "name",
+    "status",
+    "state",
+    "networkSetType"
+   ],
+   "kind": "collection",
+   "parents": [],
+   "path": "/rest/network-sets",
+   "sortable": true
+  },
+  "power_devices": {
+   "default_fields": [
+    "uri",
+    "name",
+    "model",
+    "status",
+    "state",
+    "deviceType",
+    "capacity",
+    "powerConnections"
+   ],
+   "description": "Power delivery devices (iPDUs, outlets, power feeds) and what they feed.",
+   "fields": {
+    "capacity": {
+     "description": "Capacity in amps or watts as reported.",
+     "inferred": true,
+     "type": "integer"
+    },
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "description": {
+     "description": "Free-text description.",
+     "type": "string"
+    },
+    "deviceType": {
+     "description": "BranchCircuit, PowerFeed, Breaker, PowerStrip, Outlet \u2026",
+     "inferred": true,
+     "type": "string"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "feedIdentifier": {
+     "description": "Feed identifier (A/B).",
+     "inferred": true,
+     "type": "string"
+    },
+    "lineVoltage": {
+     "description": "Line voltage.",
+     "inferred": true,
+     "type": "integer"
+    },
+    "managedBy": {
+     "description": "Managing device {hostName, ...} (credentials stripped).",
+     "inferred": true,
+     "type": "object"
+    },
+    "model": {
+     "description": "Model.",
+     "type": "string"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Display name.",
+     "type": "string"
+    },
+    "partNumber": {
+     "description": "Part number.",
+     "type": "string"
+    },
+    "phaseType": {
+     "description": "SinglePhase or ThreePhase.",
+     "inferred": true,
+     "type": "string"
+    },
+    "powerConnections": {
+     "description": "[{connectionUri, deviceConnection, sourceConnection}].",
+     "inferred": true,
+     "type": "array"
+    },
+    "ratedCapacity": {
+     "description": "Rated capacity.",
+     "inferred": true,
+     "type": "integer"
+    },
+    "refreshState": {
+     "description": "Refresh state.",
+     "inferred": true,
+     "type": "string"
+    },
+    "serialNumber": {
+     "description": "Serial number.",
+     "type": "string"
+    },
+    "state": {
+     "description": "Lifecycle state (resource specific).",
+     "type": "string"
+    },
+    "status": {
+     "description": "Health: OK, Warning, Critical, Disabled or Unknown.",
+     "type": "string"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "uidState": {
+     "description": "UID light state.",
+     "inferred": true,
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    },
+    "uuid": {
+     "description": "UUID.",
+     "type": "string"
+    }
+   },
+   "filters": [
+    "name",
+    "status",
+    "state",
+    "model",
+    "serialNumber",
+    "deviceType"
+   ],
+   "kind": "collection",
+   "parents": [],
+   "path": "/rest/power-devices",
+   "sortable": true
+  },
+  "racks": {
+   "default_fields": [
+    "uri",
+    "name",
+    "model",
+    "status",
+    "state",
+    "serialNumber",
+    "rackMounts"
+   ],
+   "description": "Racks and what is mounted in them.",
+   "fields": {
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "depth": {
+     "description": "Depth in mm.",
+     "type": "integer"
+    },
+    "description": {
+     "description": "Free-text description.",
+     "type": "string"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "height": {
+     "description": "Height in mm.",
+     "type": "integer"
+    },
+    "model": {
+     "description": "Rack model.",
+     "type": "string"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Display name.",
+     "type": "string"
+    },
+    "partNumber": {
+     "description": "Part number.",
+     "type": "string"
+    },
+    "rackMounts": {
+     "description": "[{mountUri, topUSlot, uHeight, location}].",
+     "inferred": true,
+     "type": "array"
+    },
+    "serialNumber": {
+     "description": "Rack serial number.",
+     "type": "string"
+    },
+    "state": {
+     "description": "Lifecycle state (resource specific).",
+     "type": "string"
+    },
+    "status": {
+     "description": "Health: OK, Warning, Critical, Disabled or Unknown.",
+     "type": "string"
+    },
+    "thermalLimit": {
+     "description": "Thermal limit in watts.",
+     "inferred": true,
+     "type": "integer"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "uHeight": {
+     "description": "Height in U.",
+     "inferred": true,
+     "type": "integer"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    },
+    "uuid": {
+     "description": "Rack UUID.",
+     "type": "string"
+    },
+    "width": {
+     "description": "Width in mm.",
+     "type": "integer"
+    }
+   },
+   "filters": [
+    "name",
+    "status",
+    "state",
+    "serialNumber",
+    "model"
+   ],
+   "kind": "collection",
+   "parents": [],
+   "path": "/rest/racks",
+   "sortable": true
+  },
+  "sas_interconnects": {
+   "default_fields": [
+    "uri",
+    "name",
+    "model",
+    "status",
+    "state",
+    "powerState",
+    "enclosureName",
+    "firmwareVersion"
+   ],
+   "description": "SAS interconnect modules (Synergy D3940 connectivity): health, firmware and location.",
+   "fields": {
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "description": {
+     "description": "Free-text description.",
+     "type": "string"
+    },
+    "deviceResetState": {
+     "description": "Reset state.",
+     "type": "string"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "enclosureName": {
+     "description": "Enclosure name.",
+     "type": "string"
+    },
+    "enclosureUri": {
+     "description": "Enclosure URI.",
+     "type": "string"
+    },
+    "firmwareVersion": {
+     "description": "Firmware version.",
+     "type": "string"
+    },
+    "hardwareVersion": {
+     "description": "Hardware version.",
+     "inferred": true,
+     "type": "string"
+    },
+    "interconnectLocation": {
+     "description": "Location {locationEntries: [{type, value}]}.",
+     "type": "object"
+    },
+    "interconnectTypeUri": {
+     "description": "SAS interconnect type URI.",
+     "type": "string"
+    },
+    "model": {
+     "description": "Model, e.g. Synergy 12Gb SAS Connection Module.",
+     "type": "string"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Display name.",
+     "type": "string"
+    },
+    "partNumber": {
+     "description": "Part number.",
+     "type": "string"
+    },
+    "powerState": {
+     "description": "On or Off.",
+     "type": "string"
+    },
+    "productName": {
+     "description": "Product name.",
+     "type": "string"
+    },
+    "refreshState": {
+     "description": "Refresh state.",
+     "type": "string"
+    },
+    "sasLogicalInterconnectUri": {
+     "description": "SAS logical interconnect URI.",
+     "inferred": true,
+     "type": "string"
+    },
+    "scopesUri": {
+     "description": "URI of the scopes assigned to the resource.",
+     "type": "string"
+    },
+    "serialNumber": {
+     "description": "Serial number.",
+     "type": "string"
+    },
+    "state": {
+     "description": "Lifecycle state (resource specific).",
+     "type": "string"
+    },
+    "stateReason": {
+     "description": "State reason.",
+     "type": "string"
+    },
+    "status": {
+     "description": "Health: OK, Warning, Critical, Disabled or Unknown.",
+     "type": "string"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "uidState": {
+     "description": "UID light state.",
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    }
+   },
+   "filters": [
+    "name",
+    "status",
+    "state",
+    "model",
+    "serialNumber",
+    "enclosureUri",
+    "enclosureName",
+    "powerState"
+   ],
+   "kind": "collection",
+   "parents": [],
+   "path": "/rest/sas-interconnects",
+   "sortable": true
+  },
+  "scopes": {
+   "default_fields": [
+    "uri",
+    "name",
+    "description",
+    "status",
+    "state",
+    "created",
+    "modified"
+   ],
+   "description": "Scopes (resource groupings used for RBAC).",
+   "fields": {
+    "applianceId": {
+     "description": "Appliance id.",
+     "type": "string"
+    },
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "description": {
+     "description": "Free-text description.",
+     "type": "string"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "extAttributes": {
+     "description": "Extended attributes.",
+     "type": "object"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Display name.",
+     "type": "string"
+    },
+    "oldUri": {
+     "description": "Previous URI after migration.",
+     "type": "string"
+    },
+    "state": {
+     "description": "Lifecycle state (resource specific).",
+     "type": "string"
+    },
+    "status": {
+     "description": "Health: OK, Warning, Critical, Disabled or Unknown.",
+     "type": "string"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    }
+   },
+   "filters": [
+    "name",
+    "status",
+    "state"
+   ],
+   "kind": "collection",
+   "parents": [],
+   "path": "/rest/scopes",
+   "sortable": true
+  },
+  "server_hardware": {
+   "default_fields": [
+    "uri",
+    "name",
+    "model",
+    "status",
+    "state",
+    "powerState",
+    "serialNumber",
+    "serverProfileUri",
+    "locationUri",
+    "position",
+    "mpHostInfo.mpHostName",
+    "mpFirmwareVersion",
+    "romVersion"
+   ],
+   "description": "Physical servers managed by the appliance (blades and rack servers) with health, power, iLO, firmware and profile linkage.",
+   "fields": {
+    "assetTag": {
+     "description": "Asset tag.",
+     "type": "string"
+    },
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "description": {
+     "description": "Free-text description.",
+     "type": "string"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "formFactor": {
+     "description": "HalfHeight, FullHeight, 1U, 2U \u2026",
+     "type": "string"
+    },
+    "generation": {
+     "description": "Server generation, e.g. Gen10.",
+     "type": "string"
+    },
+    "hostOsType": {
+     "description": "Host OS type reported by the profile.",
+     "type": "string"
+    },
+    "intelligentProvisioningVersion": {
+     "description": "Intelligent Provisioning version.",
+     "type": "string"
+    },
+    "licensingIntent": {
+     "description": "OneView licensing intent (OneView, OneViewNoiLO, OneViewStandard).",
+     "type": "string"
+    },
+    "locationUri": {
+     "description": "URI of the enclosure that holds the server (blades).",
+     "type": "string"
+    },
+    "maintenanceMode": {
+     "description": "True while in maintenance mode (alerts suppressed).",
+     "type": "boolean"
+    },
+    "memoryMb": {
+     "description": "Installed memory in MB.",
+     "type": "integer"
+    },
+    "model": {
+     "description": "Full model, e.g. Synergy 480 Gen10.",
+     "type": "string"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "mpFirmwareVersion": {
+     "description": "iLO firmware version.",
+     "type": "string"
+    },
+    "mpHostInfo.mpHostName": {
+     "description": "iLO host name.",
+     "type": "string"
+    },
+    "mpHostInfo.mpIpAddresses": {
+     "description": "iLO IP addresses: [{address, type}].",
+     "type": "array"
+    },
+    "mpModel": {
+     "description": "iLO model, e.g. iLO5.",
+     "type": "string"
+    },
+    "name": {
+     "description": "Display name.",
+     "type": "string"
+    },
+    "partNumber": {
+     "description": "Part number.",
+     "type": "string"
+    },
+    "portMap": {
+     "description": "Adapter/port map object.",
+     "type": "object"
+    },
+    "position": {
+     "description": "Bay number inside the enclosure (blades) or null.",
+     "type": "integer"
+    },
+    "powerState": {
+     "description": "On, Off, PoweringOn, PoweringOff, Resetting or Unknown.",
+     "type": "string"
+    },
+    "processorCoreCount": {
+     "description": "Cores per processor.",
+     "type": "integer"
+    },
+    "processorCount": {
+     "description": "Processor sockets.",
+     "type": "integer"
+    },
+    "processorSpeedMhz": {
+     "description": "Processor speed in MHz.",
+     "type": "integer"
+    },
+    "processorType": {
+     "description": "Processor model string.",
+     "type": "string"
+    },
+    "refreshState": {
+     "description": "NotRefreshing, RefreshPending, Refreshing, RefreshFailed.",
+     "type": "string"
+    },
+    "romVersion": {
+     "description": "System ROM version.",
+     "type": "string"
+    },
+    "scopesUri": {
+     "description": "URI of the scopes assigned to the resource.",
+     "type": "string"
+    },
+    "serialNumber": {
+     "description": "Physical serial number.",
+     "type": "string"
+    },
+    "serverGroupUri": {
+     "description": "Enclosure group URI.",
+     "type": "string"
+    },
+    "serverHardwareTypeUri": {
+     "description": "Server hardware type URI.",
+     "type": "string"
+    },
+    "serverProfileUri": {
+     "description": "Applied server profile URI, null when unassigned.",
+     "type": "string"
+    },
+    "serverSettings": {
+     "description": "Server settings object (firmwareAndDriversInstallState, hpSmartUpdateToolStatus).",
+     "type": "object"
+    },
+    "shortModel": {
+     "description": "Short model, e.g. SY 480 Gen10.",
+     "type": "string"
+    },
+    "signature": {
+     "description": "Hardware signature object (personalityChecksum, serverHwChecksum).",
+     "type": "object"
+    },
+    "state": {
+     "description": "Lifecycle state (resource specific).",
+     "type": "string"
+    },
+    "stateReason": {
+     "description": "Why the server is in its state (e.g. NotApplicable, Unconfigured).",
+     "type": "string"
+    },
+    "status": {
+     "description": "Health: OK, Warning, Critical, Disabled or Unknown.",
+     "type": "string"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "uidState": {
+     "description": "UID light state.",
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    },
+    "uuid": {
+     "description": "Hardware UUID.",
+     "type": "string"
+    }
+   },
+   "filters": [
+    "name",
+    "status",
+    "state",
+    "powerState",
+    "model",
+    "shortModel",
+    "serialNumber",
+    "uuid",
+    "serverProfileUri",
+    "serverHardwareTypeUri",
+    "locationUri",
+    "serverGroupUri",
+    "mpModel",
+    "formFactor",
+    "generation",
+    "maintenanceMode",
+    "memoryMb",
+    "position",
+    "mpFirmwareVersion",
+    "romVersion",
+    "assetTag",
+    "hostOsType"
+   ],
+   "kind": "collection",
+   "parents": [],
+   "path": "/rest/server-hardware",
+   "sortable": true
+  },
+  "server_hardware_firmware": {
+   "default_fields": [
+    "serverHardwareUri",
+    "serverName",
+    "serverModel",
+    "component.componentName",
+    "component.componentVersion",
+    "component.componentLocation"
+   ],
+   "description": "Installed firmware components per server, one row per component (System ROM, iLO, NICs, HBAs \u2026). Without a parent, the whole estate is read in one paginated call; with parent {\"id\": <server id>} only that server is read.",
+   "fields": {
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "component.componentKey": {
+     "description": "Component key.",
+     "type": "string"
+    },
+    "component.componentLocation": {
+     "description": "Slot/location of the component.",
+     "type": "string"
+    },
+    "component.componentName": {
+     "description": "Component name, e.g. System ROM or HPE Synergy 3820C 10/20Gb CNA.",
+     "type": "string"
+    },
+    "component.componentVersion": {
+     "description": "Installed version.",
+     "type": "string"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "serverHardwareUri": {
+     "description": "Server hardware URI the component belongs to.",
+     "type": "string"
+    },
+    "serverModel": {
+     "description": "Server hardware model.",
+     "type": "string"
+    },
+    "serverName": {
+     "description": "Server hardware name.",
+     "type": "string"
+    },
+    "state": {
+     "description": "Lifecycle state (resource specific).",
+     "type": "string"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    }
+   },
+   "filters": [
+    "serverName",
+    "serverModel",
+    "components.componentName",
+    "components.componentVersion"
+   ],
+   "flatten": "components",
+   "flatten_as": "component",
+   "kind": "collection_flatten",
+   "optional_parents": [
+    "id"
+   ],
+   "parent_path": "/rest/server-hardware/{id}/firmware",
+   "parents": [],
+   "path": "/rest/server-hardware/*/firmware",
+   "sortable": false
+  },
+  "server_hardware_types": {
+   "default_fields": [
+    "uri",
+    "name",
+    "model",
+    "family",
+    "generation",
+    "formFactor"
+   ],
+   "description": "Server hardware type definitions (model/generation/adapters) referenced by servers, profiles and templates.",
+   "fields": {
+    "adapters": {
+     "description": "Adapters: [{model, deviceType, location, slot, ports[]}].",
+     "type": "array"
+    },
+    "bootCapabilities": {
+     "description": "Boot capabilities.",
+     "type": "array"
+    },
+    "bootModes": {
+     "description": "Supported boot modes.",
+     "type": "array"
+    },
+    "capabilities": {
+     "description": "Capabilities list.",
+     "type": "array"
+    },
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "description": {
+     "description": "Free-text description.",
+     "type": "string"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "family": {
+     "description": "Family, e.g. Synergy.",
+     "type": "string"
+    },
+    "formFactor": {
+     "description": "Form factor.",
+     "type": "string"
+    },
+    "generation": {
+     "description": "Generation, e.g. Gen10.",
+     "type": "string"
+    },
+    "model": {
+     "description": "Model string.",
+     "type": "string"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Display name.",
+     "type": "string"
+    },
+    "platform": {
+     "description": "Platform (x86, ...).",
+     "type": "string"
+    },
+    "state": {
+     "description": "Lifecycle state (resource specific).",
+     "type": "string"
+    },
+    "status": {
+     "description": "Health: OK, Warning, Critical, Disabled or Unknown.",
+     "type": "string"
+    },
+    "storageCapabilities": {
+     "description": "Local storage capabilities.",
+     "type": "object"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "uefiClass": {
+     "description": "UEFI class.",
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    }
+   },
+   "filters": [
+    "name",
+    "model",
+    "family",
+    "generation",
+    "formFactor"
+   ],
+   "kind": "collection",
+   "parents": [],
+   "path": "/rest/server-hardware-types",
+   "sortable": true
+  },
+  "server_hardware_utilization": {
+   "default_fields": [
+    "id",
+    "metricName",
+    "sampleTime",
+    "value",
+    "resolution",
+    "isFresh"
+   ],
+   "description": "Historical utilization samples for one server: AveragePower, PeakPower, AmbientTemperature, CpuUtilization, CpuAverageFreq, PowerCap. Requires parent {\"id\": <server id>}; one row per (metric, sample). Use lookback/start_time/end_time and view (native=5 min, hour, day).",
+   "fields": {
+    "id": {
+     "description": "Server hardware id (parent).",
+     "type": "string"
+    },
+    "isFresh": {
+     "description": "Whether the data is current.",
+     "type": "boolean"
+    },
+    "metricCapacity": {
+     "description": "Capacity for the metric when reported (e.g. power cap watts).",
+     "type": "number"
+    },
+    "metricName": {
+     "description": "Metric name.",
+     "type": "string"
+    },
+    "newestSampleTime": {
+     "description": "Newest sample the appliance holds.",
+     "type": "string"
+    },
+    "oldestSampleTime": {
+     "description": "Oldest sample the appliance holds.",
+     "type": "string"
+    },
+    "refreshTaskUri": {
+     "description": "Task URI when a refresh was queued (never queued by this connector).",
+     "type": "string"
+    },
+    "resolution": {
+     "description": "Sample resolution in milliseconds.",
+     "type": "integer"
+    },
+    "sampleTime": {
+     "description": "Sample timestamp (UTC, converted from epoch milliseconds).",
+     "type": "string"
+    },
+    "sliceEndTime": {
+     "description": "End of the returned slice.",
+     "type": "string"
+    },
+    "sliceStartTime": {
+     "description": "Start of the returned slice; if later than the requested start, request the earlier segment.",
+     "type": "string"
+    },
+    "value": {
+     "description": "Sample value (W, \u00b0C, % \u2026); null means no sample.",
+     "type": "number"
+    }
+   },
+   "filters": [],
+   "kind": "utilization",
+   "metrics": [
+    "AveragePower",
+    "PeakPower",
+    "AmbientTemperature",
+    "CpuUtilization",
+    "CpuAverageFreq",
+    "PowerCap"
+   ],
+   "parents": [
+    "id"
+   ],
+   "path": "/rest/server-hardware/{id}/utilization",
+   "sortable": false,
+   "views": [
+    "native",
+    "hour",
+    "day"
+   ]
+  },
+  "server_profile_templates": {
+   "default_fields": [
+    "uri",
+    "name",
+    "status",
+    "state",
+    "serverHardwareTypeUri",
+    "enclosureGroupUri",
+    "firmware"
+   ],
+   "description": "Server profile templates: the desired configuration that profiles are checked against.",
+   "fields": {
+    "affinity": {
+     "description": "Bay or BayAndServer.",
+     "type": "string"
+    },
+    "bios": {
+     "description": "BIOS settings {manageBios, overriddenSettings[]}.",
+     "type": "object"
+    },
+    "boot": {
+     "description": "Boot order settings.",
+     "type": "object"
+    },
+    "bootMode": {
+     "description": "Boot mode {manageMode, mode, pxeBootPolicy, secureBoot}.",
+     "type": "object"
+    },
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "connectionSettings": {
+     "description": "Connection settings {manageConnections, connections[], complianceControl}.",
+     "type": "object"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "description": {
+     "description": "Free-text description.",
+     "type": "string"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "enclosureGroupUri": {
+     "description": "Enclosure group URI.",
+     "type": "string"
+    },
+    "firmware": {
+     "description": "Firmware settings {firmwareBaselineUri, manageFirmware, firmwareInstallType, forceInstallFirmware, complianceControl, consistencyState}.",
+     "type": "object"
+    },
+    "hideUnusedFlexNics": {
+     "description": "Hide unused FlexNICs.",
+     "type": "boolean"
+    },
+    "iscsiInitiatorNameType": {
+     "description": "AutoGenerated or UserDefined.",
+     "type": "string"
+    },
+    "localStorage": {
+     "description": "Local storage settings.",
+     "type": "object"
+    },
+    "macType": {
+     "description": "Virtual, Physical or UserDefined.",
+     "type": "string"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Display name.",
+     "type": "string"
+    },
+    "osDeploymentSettings": {
+     "description": "OS deployment settings.",
+     "type": "object"
+    },
+    "sanStorage": {
+     "description": "SAN storage settings.",
+     "type": "object"
+    },
+    "scopesUri": {
+     "description": "URI of the scopes assigned to the resource.",
+     "type": "string"
+    },
+    "serialNumberType": {
+     "description": "Virtual, Physical or UserDefined.",
+     "type": "string"
+    },
+    "serverHardwareTypeUri": {
+     "description": "Server hardware type URI.",
+     "type": "string"
+    },
+    "serverProfileDescription": {
+     "description": "Description applied to profiles created from the template.",
+     "type": "string"
+    },
+    "state": {
+     "description": "Lifecycle state (resource specific).",
+     "type": "string"
+    },
+    "status": {
+     "description": "Health: OK, Warning, Critical, Disabled or Unknown.",
+     "type": "string"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    },
+    "wwnType": {
+     "description": "Virtual, Physical or UserDefined.",
+     "type": "string"
+    }
+   },
+   "filters": [
+    "name",
+    "status",
+    "state",
+    "serverHardwareTypeUri",
+    "enclosureGroupUri",
+    "affinity"
+   ],
+   "kind": "collection",
+   "parents": [],
+   "path": "/rest/server-profile-templates",
+   "sortable": true
+  },
+  "server_profiles": {
+   "default_fields": [
+    "uri",
+    "name",
+    "status",
+    "state",
+    "serverHardwareUri",
+    "templateCompliance",
+    "serverProfileTemplateUri",
+    "enclosureUri",
+    "enclosureBay",
+    "serialNumber"
+   ],
+   "description": "Server profiles: the configuration applied to a server (connections, firmware baseline, BIOS, boot, storage) and its compliance with its template.",
+   "fields": {
+    "affinity": {
+     "description": "Bay or BayAndServer.",
+     "type": "string"
+    },
+    "bios": {
+     "description": "BIOS settings {manageBios, overriddenSettings[]}.",
+     "type": "object"
+    },
+    "boot": {
+     "description": "Boot order settings.",
+     "type": "object"
+    },
+    "bootMode": {
+     "description": "Boot mode {manageMode, mode, pxeBootPolicy, secureBoot}.",
+     "type": "object"
+    },
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "connectionSettings": {
+     "description": "Connection settings {manageConnections, connections[], complianceControl}.",
+     "type": "object"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "description": {
+     "description": "Free-text description.",
+     "type": "string"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "enclosureBay": {
+     "description": "Bay of the assigned server.",
+     "type": "integer"
+    },
+    "enclosureGroupUri": {
+     "description": "Enclosure group URI.",
+     "type": "string"
+    },
+    "enclosureUri": {
+     "description": "Enclosure URI of the assigned server.",
+     "type": "string"
+    },
+    "firmware": {
+     "description": "Firmware settings {firmwareBaselineUri, manageFirmware, firmwareInstallType, forceInstallFirmware, complianceControl, consistencyState}.",
+     "type": "object"
+    },
+    "hideUnusedFlexNics": {
+     "description": "Hide unused FlexNICs.",
+     "type": "boolean"
+    },
+    "inProgress": {
+     "description": "True while a task is modifying the profile.",
+     "type": "boolean"
+    },
+    "iscsiInitiatorName": {
+     "description": "iSCSI initiator name.",
+     "type": "string"
+    },
+    "iscsiInitiatorNameType": {
+     "description": "AutoGenerated or UserDefined.",
+     "type": "string"
+    },
+    "localStorage": {
+     "description": "Local storage settings.",
+     "type": "object"
+    },
+    "macType": {
+     "description": "Virtual, Physical or UserDefined.",
+     "type": "string"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Display name.",
+     "type": "string"
+    },
+    "osDeploymentSettings": {
+     "description": "OS deployment settings.",
+     "type": "object"
+    },
+    "refreshState": {
+     "description": "Refresh state.",
+     "type": "string"
+    },
+    "sanStorage": {
+     "description": "SAN storage settings.",
+     "type": "object"
+    },
+    "scopesUri": {
+     "description": "URI of the scopes assigned to the resource.",
+     "type": "string"
+    },
+    "serialNumber": {
+     "description": "Serial number presented to the OS (virtual or physical).",
+     "type": "string"
+    },
+    "serialNumberType": {
+     "description": "Virtual, Physical or UserDefined.",
+     "type": "string"
+    },
+    "serverHardwareReapplyState": {
+     "description": "Reapply state of the hardware configuration.",
+     "type": "string"
+    },
+    "serverHardwareTypeUri": {
+     "description": "Server hardware type URI.",
+     "type": "string"
+    },
+    "serverHardwareUri": {
+     "description": "Assigned server hardware URI (null when unassigned).",
+     "type": "string"
+    },
+    "serverProfileTemplateUri": {
+     "description": "Template the profile was created from (null when none).",
+     "type": "string"
+    },
+    "state": {
+     "description": "Lifecycle state (resource specific).",
+     "type": "string"
+    },
+    "status": {
+     "description": "Health: OK, Warning, Critical, Disabled or Unknown.",
+     "type": "string"
+    },
+    "taskUri": {
+     "description": "URI of the task currently or last applied.",
+     "type": "string"
+    },
+    "templateCompliance": {
+     "description": "Compliant, NonCompliant or Unknown relative to serverProfileTemplateUri.",
+     "type": "string"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    },
+    "uuid": {
+     "description": "UUID presented to the OS.",
+     "type": "string"
+    },
+    "wwnType": {
+     "description": "Virtual, Physical or UserDefined.",
+     "type": "string"
+    }
+   },
+   "filters": [
+    "name",
+    "status",
+    "state",
+    "serverHardwareUri",
+    "serverProfileTemplateUri",
+    "templateCompliance",
+    "enclosureGroupUri",
+    "enclosureUri",
+    "serverHardwareTypeUri",
+    "serialNumber",
+    "uuid",
+    "affinity"
+   ],
+   "kind": "collection",
+   "parents": [],
+   "path": "/rest/server-profiles",
+   "sortable": true
+  },
+  "storage_pools": {
+   "default_fields": [
+    "uri",
+    "name",
+    "status",
+    "state",
+    "storageSystemUri",
+    "totalCapacity",
+    "freeCapacity",
+    "allocatedCapacity",
+    "isManaged"
+   ],
+   "description": "Storage pools (CPGs) with capacity and ownership.",
+   "fields": {
+    "allocatedCapacity": {
+     "description": "Allocated capacity in bytes.",
+     "type": "integer"
+    },
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "description": {
+     "description": "Free-text description.",
+     "type": "string"
+    },
+    "deviceSpecificAttributes": {
+     "description": "{domain, supportedRaidLevel, deviceSpeed, capacityLimit, capacityWarningLimit, allocatedCapacity{}}.",
+     "type": "object"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "freeCapacity": {
+     "description": "Free capacity in bytes.",
+     "type": "integer"
+    },
+    "isManaged": {
+     "description": "Managed by OneView.",
+     "type": "boolean"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Display name.",
+     "type": "string"
+    },
+    "state": {
+     "description": "Lifecycle state (resource specific).",
+     "type": "string"
+    },
+    "status": {
+     "description": "Health: OK, Warning, Critical, Disabled or Unknown.",
+     "type": "string"
+    },
+    "storageSystemUri": {
+     "description": "Owning storage system URI.",
+     "type": "string"
+    },
+    "totalCapacity": {
+     "description": "Total capacity in bytes.",
+     "type": "integer"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    }
+   },
+   "filters": [
+    "name",
+    "status",
+    "state",
+    "storageSystemUri",
+    "isManaged"
+   ],
+   "kind": "collection",
+   "parents": [],
+   "path": "/rest/storage-pools",
+   "sortable": true
+  },
+  "storage_systems": {
+   "default_fields": [
+    "uri",
+    "name",
+    "family",
+    "status",
+    "state",
+    "hostname",
+    "mode",
+    "totalCapacity",
+    "deviceSpecificAttributes"
+   ],
+   "description": "Managed storage systems (3PAR/Primera/Alletra/Nimble): health, family, capacity, ports (credentials are never returned).",
+   "fields": {
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "description": {
+     "description": "Free-text description.",
+     "type": "string"
+    },
+    "deviceSpecificAttributes": {
+     "description": "{firmware, model, softwareVersion, managedDomain, managedPools[]}.",
+     "type": "object"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "family": {
+     "description": "StoreServ, StoreVirtual, Nimble \u2026",
+     "type": "string"
+    },
+    "hostname": {
+     "description": "Management hostname/IP.",
+     "type": "string"
+    },
+    "mode": {
+     "description": "Managed or Monitored.",
+     "type": "string"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Display name.",
+     "type": "string"
+    },
+    "ports": {
+     "description": "[{id, name, mode, portWwn, expectedNetworkUri, actualNetworkUri, status, deviceSpecificAttributes}].",
+     "type": "array"
+    },
+    "state": {
+     "description": "Lifecycle state (resource specific).",
+     "type": "string"
+    },
+    "status": {
+     "description": "Health: OK, Warning, Critical, Disabled or Unknown.",
+     "type": "string"
+    },
+    "storagePoolsUri": {
+     "description": "Storage pools collection URI.",
+     "type": "string"
+    },
+    "totalCapacity": {
+     "description": "Total capacity in bytes.",
+     "type": "integer"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    }
+   },
+   "filters": [
+    "name",
+    "status",
+    "state",
+    "family",
+    "mode",
+    "hostname"
+   ],
+   "kind": "collection",
+   "parents": [],
+   "path": "/rest/storage-systems",
+   "sortable": true
+  },
+  "storage_volumes": {
+   "default_fields": [
+    "uri",
+    "name",
+    "status",
+    "state",
+    "storageSystemUri",
+    "storagePoolUri",
+    "provisioningType",
+    "provisionedCapacity",
+    "allocatedCapacity",
+    "isShareable"
+   ],
+   "description": "Storage volumes presented to profiles.",
+   "fields": {
+    "allocatedCapacity": {
+     "description": "Allocated capacity in bytes.",
+     "type": "integer"
+    },
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "description": {
+     "description": "Free-text description.",
+     "type": "string"
+    },
+    "deviceSpecificAttributes": {
+     "description": "{iqn, transport, copyState, isDeduplicated, isCompressed, dataProtectionLevel \u2026}.",
+     "type": "object"
+    },
+    "deviceVolumeName": {
+     "description": "Name on the array.",
+     "type": "string"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "isPermanent": {
+     "description": "Survives profile deletion.",
+     "type": "boolean"
+    },
+    "isShareable": {
+     "description": "Shareable between profiles.",
+     "type": "boolean"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Display name.",
+     "type": "string"
+    },
+    "provisionedCapacity": {
+     "description": "Provisioned capacity in bytes.",
+     "type": "integer"
+    },
+    "provisioningType": {
+     "description": "Thin, Full, ThinDeduplicated.",
+     "type": "string"
+    },
+    "requestingRefresh": {
+     "description": "Refresh requested.",
+     "type": "boolean"
+    },
+    "state": {
+     "description": "Lifecycle state (resource specific).",
+     "type": "string"
+    },
+    "status": {
+     "description": "Health: OK, Warning, Critical, Disabled or Unknown.",
+     "type": "string"
+    },
+    "storagePoolUri": {
+     "description": "Storage pool URI.",
+     "type": "string"
+    },
+    "storageSystemUri": {
+     "description": "Storage system URI.",
+     "type": "string"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    },
+    "volumeTemplateUri": {
+     "description": "Volume template URI.",
+     "type": "string"
+    }
+   },
+   "filters": [
+    "name",
+    "status",
+    "state",
+    "storageSystemUri",
+    "storagePoolUri",
+    "isShareable",
+    "provisioningType"
+   ],
+   "kind": "collection",
+   "parents": [],
+   "path": "/rest/storage-volumes",
+   "sortable": true
+  },
+  "tasks": {
+   "default_fields": [
+    "uri",
+    "name",
+    "taskState",
+    "taskStatus",
+    "taskType",
+    "percentComplete",
+    "owner",
+    "associatedResource.resourceName",
+    "associatedResource.resourceCategory",
+    "taskErrors",
+    "created",
+    "modified"
+   ],
+   "description": "Appliance tasks (profile apply, firmware update, refresh \u2026) with state, progress, errors and the associated resource. Filter on taskState ('Running','Completed','Error','Warning','Terminated','Pending'), taskType, owner, associatedResource.*, or lookback.",
+   "fields": {
+    "associatedResource.associationType": {
+     "description": "MANAGED_BY \u2026",
+     "type": "string"
+    },
+    "associatedResource.resourceCategory": {
+     "description": "Category of the resource.",
+     "type": "string"
+    },
+    "associatedResource.resourceName": {
+     "description": "Name of the resource the task operates on.",
+     "type": "string"
+    },
+    "associatedResource.resourceUri": {
+     "description": "URI of the resource the task operates on.",
+     "type": "string"
+    },
+    "associatedTaskUri": {
+     "description": "Associated task URI.",
+     "type": "string"
+    },
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "completedSteps": {
+     "description": "Completed steps.",
+     "type": "integer"
+    },
+    "computedPercentComplete": {
+     "description": "Progress computed from child tasks.",
+     "type": "integer"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "expectedDuration": {
+     "description": "Expected duration in seconds.",
+     "type": "integer"
+    },
+    "hidden": {
+     "description": "Hidden from the UI.",
+     "type": "boolean"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Display name.",
+     "type": "string"
+    },
+    "owner": {
+     "description": "User that owns the task.",
+     "type": "string"
+    },
+    "parentTaskUri": {
+     "description": "Parent task URI for sub-tasks.",
+     "type": "string"
+    },
+    "percentComplete": {
+     "description": "Progress 0-100.",
+     "type": "integer"
+    },
+    "progressUpdates": {
+     "description": "[{timestamp, statusUpdate, id}].",
+     "type": "array"
+    },
+    "stateReason": {
+     "description": "Reason for the state.",
+     "type": "string"
+    },
+    "taskErrors": {
+     "description": "[{errorCode, message, details, recommendedActions[], errorSource, nestedErrors[]}].",
+     "type": "array"
+    },
+    "taskOutput": {
+     "description": "Output lines.",
+     "type": "array"
+    },
+    "taskState": {
+     "description": "Completed, Error, Warning, Running, Pending, Terminated, Cancelling, Interrupted, Killed, Suspended, Unknown, New, Starting, Stopping.",
+     "type": "string"
+    },
+    "taskStatus": {
+     "description": "Human readable status line.",
+     "type": "string"
+    },
+    "taskType": {
+     "description": "User, Appliance or Background.",
+     "type": "string"
+    },
+    "totalSteps": {
+     "description": "Total steps.",
+     "type": "integer"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    },
+    "userInitiated": {
+     "description": "True for user-initiated tasks.",
+     "type": "boolean"
+    }
+   },
+   "filters": [
+    "name",
+    "taskState",
+    "taskType",
+    "owner",
+    "userInitiated",
+    "hidden",
+    "parentTaskUri",
+    "created",
+    "modified",
+    "associatedResource.resourceName",
+    "associatedResource.resourceUri",
+    "associatedResource.resourceCategory"
+   ],
+   "kind": "collection",
+   "parents": [],
+   "path": "/rest/tasks",
+   "sortable": true,
+   "time_field": "created"
+  },
+  "uplink_sets": {
+   "default_fields": [
+    "uri",
+    "name",
+    "status",
+    "state",
+    "logicalInterconnectUri",
+    "networkType",
+    "reachability",
+    "networkUris"
+   ],
+   "description": "Uplink sets: the uplink ports of a logical interconnect and the networks carried on them.",
+   "fields": {
+    "category": {
+     "description": "Resource category, e.g. server-hardware.",
+     "type": "string"
+    },
+    "connectionMode": {
+     "description": "Auto or Failover.",
+     "type": "string"
+    },
+    "created": {
+     "description": "Creation timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "description": {
+     "description": "Free-text description.",
+     "type": "string"
+    },
+    "eTag": {
+     "description": "Entity tag for concurrency control.",
+     "type": "string"
+    },
+    "ethernetNetworkType": {
+     "description": "Tagged, Untagged, Tunnel, ImageStreamer.",
+     "type": "string"
+    },
+    "fcMode": {
+     "description": "FC mode (TRUNK/NONE).",
+     "type": "string"
+    },
+    "fcNetworkUris": {
+     "description": "FC network URIs carried.",
+     "type": "array"
+    },
+    "fcoeNetworkUris": {
+     "description": "FCoE network URIs carried.",
+     "type": "array"
+    },
+    "lacpTimer": {
+     "description": "Short or Long.",
+     "type": "string"
+    },
+    "logicalInterconnectUri": {
+     "description": "Logical interconnect URI.",
+     "type": "string"
+    },
+    "manualLoginRedistributionState": {
+     "description": "FC login redistribution state.",
+     "type": "string"
+    },
+    "modified": {
+     "description": "Last modification timestamp (ISO-8601 UTC).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Display name.",
+     "type": "string"
+    },
+    "nativeNetworkUri": {
+     "description": "Native (untagged) network URI.",
+     "type": "string"
+    },
+    "networkType": {
+     "description": "Ethernet or FibreChannel.",
+     "type": "string"
+    },
+    "networkUris": {
+     "description": "Ethernet network URIs carried.",
+     "type": "array"
+    },
+    "portConfigInfos": {
+     "description": "[{portUri, desiredSpeed, location{locationEntries[]}, expectedNeighbor{}}].",
+     "type": "array"
+    },
+    "primaryPort": {
+     "description": "Primary port location for Failover mode.",
+     "type": "object"
+    },
+    "reachability": {
+     "description": "Reachable, NotReachable, Unknown \u2026",
+     "type": "string"
+    },
+    "state": {
+     "description": "Lifecycle state (resource specific).",
+     "type": "string"
+    },
+    "status": {
+     "description": "Health: OK, Warning, Critical, Disabled or Unknown.",
+     "type": "string"
+    },
+    "type": {
+     "description": "Resource schema type string, e.g. server-hardware-12.",
+     "type": "string"
+    },
+    "uri": {
+     "description": "Canonical resource URI, e.g. /rest/server-hardware/<uuid>; join key everywhere.",
+     "type": "string"
+    }
+   },
+   "filters": [
+    "name",
+    "status",
+    "state",
+    "logicalInterconnectUri",
+    "networkType",
+    "reachability"
+   ],
+   "kind": "collection",
+   "parents": [],
+   "path": "/rest/uplink-sets",
+   "sortable": true
+  }
+ },
+ "sha256": "8eb6bcae91d4fdcfa636226d6f6a59e7b013cf3dc46af000b606e050a71c8781"
+}

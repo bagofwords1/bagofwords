@@ -17,6 +17,7 @@ from app.ai.tools.schemas import (
 )
 from app.ai.agents.coder.coder import Coder
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
+from app.ai.tools.data_notices import attach_data_notices
 from app.ai.schemas.codegen import CodeGenRequest
 from app.ai.prompt_formatters import build_codegen_context
 from app.dependencies import async_session_maker
@@ -397,6 +398,8 @@ Queries are subject to a per-connection timeout.
             "success": success,
             "execution_duration_ms": execution_duration_ms,
         }
+        if success:
+            attach_data_notices(observation, query_timings)
         if not success and raw_errors:
             # Mirror create_data's error shape so the planner sees the real DB
             # message / failed SQL instead of a repr of list-of-tuples.

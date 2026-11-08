@@ -67,7 +67,12 @@ from app.ai.code_execution.sandbox_helpers import (
 # output as the code's own prints. Clients print nothing themselves: their
 # calls run on a timeout thread (and, sandboxed, in another process) whose
 # stdout is never captured.
+# The query wrapper also copies the note onto the query's timing record as
+# `notice`, so the tools can hand it to the planner as a field of its own
+# (`data_notices`) instead of a line somewhere in the run log — a model reading
+# "30 rows" skims past a log line saying the source stopped at 30.
 QUERY_NOTICE_ATTR = "bow_notice"
+QUERY_NOTICE_MAX_CHARS = 1000
 
 # A client that sends the source something other than the query it was given
 # (Priority answering a subform table through its parent's $expand) records the
@@ -115,6 +120,16 @@ def query_notice(result) -> Optional[str]:
     attrs = getattr(result, "attrs", None)
     note = attrs.get(QUERY_NOTICE_ATTR) if isinstance(attrs, dict) else None
     return note if isinstance(note, str) and note.strip() else None
+
+
+def collect_query_notices(query_timings) -> List[str]:
+    """The distinct client notes of one execution, in the order they arrived."""
+    notices: List[str] = []
+    for timing in query_timings or []:
+        note = timing.get("notice") if isinstance(timing, dict) else None
+        if isinstance(note, str) and note.strip() and note not in notices:
+            notices.append(note)
+    return notices
 
 
 class _ThreadLocalStdoutRouter:
@@ -1011,13 +1026,15 @@ class QueryCapturingClientWrapper:
                 sent = _attrs.get(SENT_REQUEST_ATTR) if isinstance(_attrs, dict) else None
                 if isinstance(sent, str) and sent.strip():
                     timing["sent_request"] = sent[:SENT_REQUEST_MAX_CHARS]
+                note = query_notice(result)
+                if note:
+                    timing["notice"] = note.strip()[:QUERY_NOTICE_MAX_CHARS]
                 self._captured_timings.append(timing)
                 if self._captured_column_titles is not None:
                     merge_column_titles(self._captured_column_titles, result)
                 # In process, this thread is the code-exec worker and its
                 # stdout is the run output. Sandboxed, it is a parent-side
                 # handler with nothing bound, and the child prints the note.
-                note = query_notice(result)
                 if note and isinstance(sys.stdout, _ThreadLocalStdoutRouter) and sys.stdout.is_bound():
                     print(note)
                 return result
