@@ -178,7 +178,14 @@ def ip_violation(ip: IPAddress, policy: Policy, block_private: Optional[bool] = 
 
 
 def _normalize_host(host: Optional[str]) -> str:
+    """The name to compare against policy lists (no final dot, lower case)."""
     return (host or "").strip().strip("[]").rstrip(".").lower()
+
+
+def _lookup_name(host: Optional[str]) -> str:
+    """The name to resolve. A final dot stays: it makes the name absolute, so a
+    resolver's search list does not apply to it."""
+    return (host or "").strip().strip("[]")
 
 
 def check_host(
@@ -200,7 +207,7 @@ def check_host(
     block_private = block_private_outbound()
     if (policy == Policy.PUBLIC or block_private) and (name == "localhost" or name.endswith(".localhost")):
         raise UnsafeURLError("URL must point at a public address.")
-    addrs = resolve_host(name)
+    addrs = resolve_host(_lookup_name(host))
     if not addrs:
         if require_resolution:
             raise UnsafeURLError(f"Could not resolve host {name!r}.")
@@ -575,13 +582,15 @@ def _sock_family(ip: IPAddress) -> int:
 def _connect_first(addrs: list[IPAddress], port: int, host: str, timeout: Optional[float]) -> socket.socket:
     last: Optional[OSError] = None
     for ip in addrs:
-        s = socket.socket(_sock_family(ip), socket.SOCK_STREAM)
-        s.settimeout(timeout)
+        s = None
         try:
+            s = socket.socket(_sock_family(ip), socket.SOCK_STREAM)
+            s.settimeout(timeout)
             s.connect((str(ip), int(port)))
             return s
         except OSError as e:
-            s.close()
+            if s is not None:
+                s.close()
             last = e
     raise last or OSError(f"Could not connect to {host!r}")
 
@@ -606,13 +615,15 @@ async def open_pinned_socket(
     loop = asyncio.get_running_loop()
     last: Optional[BaseException] = None
     for ip in addrs:
-        s = socket.socket(_sock_family(ip), socket.SOCK_STREAM)
-        s.setblocking(False)
+        s = None
         try:
+            s = socket.socket(_sock_family(ip), socket.SOCK_STREAM)
+            s.setblocking(False)
             await asyncio.wait_for(loop.sock_connect(s, (str(ip), int(port))), timeout)
             return s
         except (OSError, asyncio.TimeoutError) as e:
-            s.close()
+            if s is not None:
+                s.close()
             last = e
     if last is not None:
         raise last

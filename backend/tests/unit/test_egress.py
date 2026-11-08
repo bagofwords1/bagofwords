@@ -19,7 +19,9 @@ would fail instead of reaching the server.
 """
 from __future__ import annotations
 
+import asyncio
 import datetime
+import errno
 import ipaddress
 import socket
 import ssl
@@ -36,8 +38,10 @@ from app.core.egress import (
     check_google_token_uri,
     check_host,
     check_url,
+    connect_pinned_socket,
     curl_pinned_request,
     mcp_client_factory,
+    open_pinned_socket,
     pinned_async_client,
     pinned_client,
     pinned_session,
@@ -389,6 +393,76 @@ def test_requests_tls_certificate_is_verified_against_the_hostname(dns, tmp_path
             with pytest.raises(requests.exceptions.SSLError):
                 s.get(f"https://impostor.invalid:{port}/", timeout=5)
     assert seen == [("GET", "/", f"gw.corp.invalid:{port}")]
+
+
+def test_an_absolute_name_is_resolved_as_written(dns):
+    with local_server() as (port, seen):
+        # Only the name with its final dot answers; a resolver with a search
+        # list treats the two spellings differently.
+        fake = dns({"metrics.example.": "127.0.0.1"})
+        with pinned_session(Policy.ADMIN) as s:
+            assert s.get(f"http://metrics.example.:{port}/ok", timeout=5).status_code == 200
+    assert fake.lookups == ["metrics.example."]
+    assert [path for _, path, _ in seen] == ["/ok"]
+
+
+def test_the_addresses_of_an_absolute_name_are_the_ones_checked(dns):
+    dns({"metrics.example.": "127.0.0.1", "metrics.example": "169.254.169.254"})
+    assert [str(ip) for ip in check_host("metrics.example.", Policy.ADMIN)] == ["127.0.0.1"]
+
+    dns({"metrics.example.": "169.254.169.254", "metrics.example": "127.0.0.1"})
+    with pytest.raises(UnsafeURLError):
+        check_host("metrics.example.", Policy.ADMIN)
+
+
+def test_policy_names_match_with_or_without_the_final_dot(dns):
+    dns({})
+    with pytest.raises(UnsafeURLError):
+        check_host("metadata.google.internal.", Policy.ADMIN)
+    with pytest.raises(UnsafeURLError):
+        check_host("LOCALHOST.", Policy.PUBLIC)
+
+
+@pytest.fixture
+def no_ipv6(monkeypatch):
+    """A host whose kernel has no IPv6: creating an AF_INET6 socket fails."""
+    real = socket.socket
+
+    class NoIPv6(real):
+        def __init__(self, family=-1, *args, **kwargs):
+            if family == socket.AF_INET6:
+                raise OSError(errno.EAFNOSUPPORT, "Address family not supported by protocol")
+            super().__init__(family, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "socket", NoIPv6)
+
+
+def test_blocking_connect_moves_on_when_an_address_family_is_unavailable(dns, no_ipv6):
+    with local_server() as (port, _):
+        dns({"dual.invalid": [["2001:db8::1", "127.0.0.1"]]})
+        with connect_pinned_socket("dual.invalid", port, Policy.ADMIN, timeout=5) as sock:
+            assert sock.getpeername()[:2] == ("127.0.0.1", port)
+
+
+def test_async_connect_moves_on_when_an_address_family_is_unavailable(dns, no_ipv6):
+    async def connect(port):
+        sock = await open_pinned_socket("dual.invalid", port, Policy.ADMIN, timeout=5)
+        try:
+            return sock.getpeername()[:2]
+        finally:
+            sock.close()
+
+    with local_server() as (port, _):
+        dns({"dual.invalid": [["2001:db8::1", "127.0.0.1"]]})
+        assert asyncio.run(connect(port)) == ("127.0.0.1", port)
+
+
+def test_requests_session_moves_on_when_an_address_family_is_unavailable(dns, no_ipv6):
+    with local_server() as (port, seen):
+        dns({"dual.invalid": [["2001:db8::1", "127.0.0.1"]]})
+        with pinned_session(Policy.ADMIN) as s:
+            assert s.get(f"http://dual.invalid:{port}/ok", timeout=5).status_code == 200
+    assert [path for _, path, _ in seen] == ["/ok"]
 
 
 # ── curl_cffi pinning (web_fetch / sandbox http) ────────────────────────────
