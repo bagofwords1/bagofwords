@@ -110,7 +110,8 @@ def items_api():
 
 @pytest.fixture
 def org(test_client, bootstrap_admin, create_llm_provider_and_models, enable_mcp,
-        create_custom_api_connection, create_domain_from_connection, items_api, monkeypatch):
+        create_custom_api_connection, create_domain_from_connection, wait_for_connection_indexing,
+        items_api, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY_TEST", "dummy-local-provider-boundary")
     admin = bootstrap_admin("apifiles")
     token, org_id = admin["token"], admin["org_id"]
@@ -125,9 +126,12 @@ def org(test_client, bootstrap_admin, create_llm_provider_and_models, enable_mcp
                     "description": "Cost report", "parameters": [
                         {"name": "days", "in": "query", "type": "integer", "description": "Window"}]}],
     )
+    ds = create_domain_from_connection(name=f"{slug} agent", connection_id=conn["id"], user_token=token, org_id=org_id)
+    # Creation starts a background discovery run that writes the tool catalog
+    # with the fixture's mock client; let it finish before the real refresh.
+    wait_for_connection_indexing(connection_id=conn["id"], user_token=token, org_id=org_id)
     r = test_client.post(f"/api/connections/{conn['id']}/refresh-tools", headers=h)
     assert r.status_code == 200, r.text
-    ds = create_domain_from_connection(name=f"{slug} agent", connection_id=conn["id"], user_token=token, org_id=org_id)
     return {"admin": admin, "org_id": str(org_id), "h": h, "slug": slug,
             "api_ds": str(ds["id"]), "api_conn": str(conn["id"])}
 
