@@ -8,13 +8,15 @@ faked on 127.0.0.1); the network is played at the socket boundary by
 ``NetTrap`` — every connect to 169.254.169.254 lands on a metadata stand-in
 whose hit list must stay empty.
 """
+import asyncio
 import threading
-import time
 import uuid
 
 import pytest
 
 from app.core import egress
+from app.dependencies import async_session_maker
+from app.services.connection_indexing_service import ConnectionIndexingService
 from tests.utils.egress_fakes import NetTrap, local_server
 
 
@@ -62,13 +64,12 @@ def _create(test_client, headers, base_url):
     })
 
 
-def _settle_indexing(test_client, headers, conn_id):
-    for _ in range(200):
-        status = test_client.get(f"/api/connections/{conn_id}/indexing", headers=headers).json()["status"]
-        if status in ("completed", "failed"):
-            return True
-        time.sleep(0.1)
-    return False
+def _wait_for_indexing(conn_id):
+    """Block until the connection's background indexing has finished."""
+    async def wait():
+        async with async_session_maker() as db:
+            await ConnectionIndexingService().wait_for_active(db, str(conn_id), timeout_s=120.0)
+    asyncio.run(wait())
 
 
 @pytest.mark.e2e
@@ -146,7 +147,7 @@ def test_changed_name_follows_the_policy_during_background_indexing(test_client,
         assert routes.indexing_started.wait(10)
         trap.table["rebind.corp.invalid"] = ["169.254.169.254"]
         routes.release.set()
-        assert _settle_indexing(test_client, admin, conn_id)
+        _wait_for_indexing(conn_id)
     assert trap.hits == []
 
 
@@ -157,7 +158,7 @@ def test_name_answering_differently_at_connect_follows_the_policy(test_client, a
     trap, port, _ = net
     trap.table["rebind.corp.invalid"] = ["127.0.0.1"]
     conn_id = _create(test_client, admin, f"http://rebind.corp.invalid:{port}").json()["id"]
-    assert _settle_indexing(test_client, admin, conn_id)
+    _wait_for_indexing(conn_id)
     # One answer for the check; every later lookup answers differently.
     trap.table["rebind.corp.invalid"] = ["127.0.0.1", "169.254.169.254"]
 
@@ -181,7 +182,7 @@ def test_redirects_follow_the_outbound_policy(test_client, admin, net):
     with local_server(Redirecting()) as (port, _):
         trap.table["prom.corp.invalid"] = ["127.0.0.1"]
         conn_id = _create(test_client, admin, f"http://prom.corp.invalid:{port}").json()["id"]
-        assert _settle_indexing(test_client, admin, conn_id)
+        _wait_for_indexing(conn_id)
         redirect["on"] = True
         r = test_client.post(f"/api/connections/{conn_id}/test", headers=admin, json={})
     assert r.status_code == 200 and r.json()["success"] is False
