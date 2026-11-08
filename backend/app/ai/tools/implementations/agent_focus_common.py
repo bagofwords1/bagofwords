@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -112,7 +112,8 @@ def report_selection_is_auto(report: Any) -> bool:
     return not list(getattr(report, "data_sources", None) or [])
 
 
-async def resolve_run_agents(db, organization: Any, user: Any, report: Any) -> List[Any]:
+async def resolve_run_agents(db, organization: Any, user: Any, report: Any,
+                             agent_ids: Optional[List[str]] = None) -> List[Any]:
     """The agents a run actually executes against — the working set.
 
     Auto is a MODE, not a set: "every agent I can access", resolved here at run
@@ -133,6 +134,14 @@ async def resolve_run_agents(db, organization: Any, user: Any, report: Any) -> L
         # whole roster here would hand a caller that never had a report every
         # agent the user can reach.
         return []
+    if agent_ids is not None:
+        # A run with its own agents (a scheduled task's selection): exactly
+        # those, re-checked against what the running user can use today.
+        wanted = {str(i) for i in agent_ids}
+        agents = [a for a in await accessible_agents(db, organization, user) if str(a.id) in wanted]
+        from app.services.connected_application_service import filter_agents
+        agents = await filter_agents(db, agents, organization.id)
+        return [ds for ds in agents if DataSourceService.is_execution_live(ds)]
     attached = list(getattr(report, "data_sources", None) or [])
     # Artifact-chat threads are never Auto: their roster is the owner-allowed ∩
     # viewer-accessible intersection synced per message, and empty means
@@ -146,8 +155,26 @@ async def resolve_run_agents(db, organization: Any, user: Any, report: Any) -> L
     return [ds for ds in agents if DataSourceService.is_execution_live(ds)]
 
 
+def scope_report_to_run_agents(report: Any, agents: List[Any]) -> None:
+    """Make this run see ``agents`` as the report's attached agents.
+
+    The agent loop reads ``report.data_sources`` (roster, capabilities, focus)
+    as well as its own working set. A run with its own agents must not see the
+    report's other attachments there, so the in-memory collection is replaced
+    WITHOUT marking it changed: nothing is written to the report, and another
+    task or a chat on the same report keeps its own agents.
+    """
+    from sqlalchemy.orm.attributes import set_committed_value
+
+    ids = {str(a.id) for a in agents}
+    set_committed_value(report, "data_sources", list(agents))
+    focus = [str(x) for x in (getattr(report, "focused_data_source_ids", None) or []) if str(x) in ids]
+    set_committed_value(report, "focused_data_source_ids", focus or None)
+
+
 async def prepare_run_agents(db, organization: Any, user: Any, report: Any,
-                             data_source_service: Any = None) -> Tuple[List[Any], Dict[str, Any]]:
+                             data_source_service: Any = None,
+                             agent_ids: Optional[List[str]] = None) -> Tuple[List[Any], Dict[str, Any]]:
     """``(agents, clients)`` for a run — the working set and its query clients.
 
     An agent the user cannot reach 403s inside ``construct_clients``; it is
@@ -158,7 +185,9 @@ async def prepare_run_agents(db, organization: Any, user: Any, report: Any,
     from fastapi import HTTPException
 
     svc = data_source_service or DataSourceService()
-    agents = await resolve_run_agents(db, organization, user, report)
+    agents = await resolve_run_agents(db, organization, user, report, agent_ids=agent_ids)
+    if agent_ids is not None and report is not None:
+        scope_report_to_run_agents(report, agents)
     clients: Dict[str, Any] = {}
     for ds in agents:
         try:
