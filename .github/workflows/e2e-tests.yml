@@ -142,6 +142,11 @@ jobs:
       # uploaded below. pytest only writes the file when the session ends, and a
       # job killed at timeout-minutes never gets there.
       #
+      # --dist=worksteal: the default `load` mode hands each worker large chunks
+      # up front, so a run of slow dashboards tests ended up on one worker while
+      # the other three sat idle for the last 40 minutes (Postgres, -n 4). Idle
+      # workers now take pending tests from busy ones.
+      #
       # --session-timeout=6900 is why it normally does get there. At 115 minutes
       # pytest stops once a running test finishes, then prints the full failure
       # summary and writes the XML. The step still fails (exit 2), so a stopped
@@ -165,7 +170,7 @@ jobs:
       # container, and a failure in it is a failure of this run, not a gate
       # that skips the whole E2E suite.
       run: |
-        uv run pytest tests/e2e tests/unit/test_fast_artifact_lifecycle.py -n 4 -v -m "e2e or db" --db=${{ matrix.db }} --durations=50 --disable-warnings --timeout=600 --timeout-method=thread --session-timeout=6900 --junitxml=test-results/junit-${{ matrix.db }}.xml -p tests.ci_phase_times
+        uv run pytest tests/e2e tests/unit/test_fast_artifact_lifecycle.py -n 4 --dist=worksteal -v -m "e2e or db" --db=${{ matrix.db }} --durations=50 --disable-warnings --timeout=600 --timeout-method=thread --session-timeout=6900 --junitxml=test-results/junit-${{ matrix.db }}.xml -p tests.ci_phase_times
 
     # always(), not !cancelled(): a run stopped by the job timeout counts as
     # cancelled, and that is the run whose data is most wanted.
