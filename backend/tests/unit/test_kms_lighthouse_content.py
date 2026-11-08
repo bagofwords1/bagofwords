@@ -880,18 +880,24 @@ def test_whole_number_list_limits_are_accepted(kms, limit, count):
     assert len(_content(client(kms, max_results=5).list_files(limit=limit))) == count
 
 
-@pytest.mark.parametrize("value", ["ſcenario:5", "ıtem:5", "İtem:5", "ſcenario:4401", "FOLDER:ſ"])
-def test_parse_id_refuses_unicode_case_folded_prefixes(value):
-    # P5 reads by these ids: a kind outside item/scenario/folder must never come back.
+@pytest.mark.parametrize("value", ["ſcenario:5", "ıtem:5", "İtem:5", "ſcenario:4401", "FOLDER:ſ", "scenario:abc",
+                                   "item:", "bogus:7", "12a"])
+def test_read_refuses_an_id_that_is_not_typed_or_digits_before_any_request(kms, value):
+    # A kind outside item/scenario/folder, Unicode case folds included, must never come back.
+    c = client(kms)
+    kms["mock"].REQUEST_LOG.clear()
     with pytest.raises(kc.KmsError) as info:
-        kc._parse_id(value)
+        c.read_file(value)
     assert str(info.value) == kc._BAD_ID
+    assert kms["mock"].REQUEST_LOG == [], "refused before any request"
 
 
-def test_parse_id_accepts_any_ascii_case():
-    assert kc._parse_id("SCENARIO:5") == ("scenario", "5")
-    assert kc._parse_id("Folder:7") == ("folder", "7")
-    assert kc._parse_id("279") == ("item", "279")
+def test_read_accepts_a_kind_in_any_ascii_case_and_bare_digits(kms):
+    assert "Is the card blocked?" in client(kms).read_file("SCENARIO:21400")
+    assert client(kms).read_file("279") == client(kms).read_file("Item:279")
+    with pytest.raises(kc.KmsError) as info:
+        client(kms).read_file("Folder:10")
+    assert str(info.value) == _FOLDER_READ
 
 
 # ------------------------------------------------------------------ read article
@@ -1702,19 +1708,24 @@ def test_cut_markers_count_toward_the_tree_bound():
 
 
 def test_a_wide_inline_root_renders_in_linear_time():
-    # 200,000 inline options with credential-shaped labels: only the labels that are shown are scrubbed
-    # (fix round 2, item 4). The other linear guards use 3 s as their generous bound.
+    # Up to 200,000 inline options with credential-shaped labels: only the labels that are shown are
+    # scrubbed (fix round 2, item 4).
     label = "Send Authorization: Bearer abcDEF123456ghi to the API, then api_key=Xk29abcDEF77 in the file. "
-    root = {"stepId": 1, "stepName": "Pick one",
-            "decisions": {f"9:2:{100000 + n}": f"{label * 2}{n}" for n in range(200_000)},
-            "children": {str(100000 + n): {"stepId": 100000 + n, "text": f"Option {n} step."}
-                         for n in range(200_000)}}
-    fetched = []
-    started = time.perf_counter()
-    lines = kc._render_scenario(root, fetched.append)
-    assert time.perf_counter() - started < 3.0
-    assert len(lines) <= 405 and lines[-1] == _TRUNCATED and fetched == []
-    assert "abcDEF123456ghi" not in "\n".join(lines)
+
+    def prepare(options):
+        root = {"stepId": 1, "stepName": "Pick one",
+                "decisions": {f"9:2:{100000 + n}": f"{label * 2}{n}" for n in range(options)},
+                "children": {str(100000 + n): {"stepId": 100000 + n, "text": f"Option {n} step."}
+                             for n in range(options)}}
+
+        def run():
+            fetched = []
+            lines = kc._render_scenario(root, fetched.append)
+            assert len(lines) <= 405 and lines[-1] == _TRUNCATED and fetched == []
+            assert "abcDEF123456ghi" not in "\n".join(lines)
+        return run
+
+    _assert_linear(prepare, 25_000)
 
 
 def test_a_step_that_failed_is_not_fetched_again(kms, monkeypatch):
@@ -3295,10 +3306,9 @@ _ADVERSARIAL = {
 @pytest.mark.parametrize("name", sorted(_ADVERSARIAL))
 def test_scrub_is_linear_on_adversarial_input(name):
     # Later phases scrub whole article bodies with it; a quadratic pattern would hold the GIL for seconds
-    # (44 s for the JWT headers before the fix). Measured: under 0.35 s each, so 2 s is a generous bound.
-    started = time.perf_counter()
-    kc._scrub(_ADVERSARIAL[name])
-    assert time.perf_counter() - started < 2.0, name
+    # (44 s for the JWT headers before the fix).
+    text = _ADVERSARIAL[name]
+    _assert_linear(lambda size: (lambda: kc._scrub(_shrunk(text, size))), _ADVERSARIAL_SMALL, name)
 
 
 # Pieces a page may put next to each other: every corpus text, every name form, and the characters
@@ -3368,14 +3378,20 @@ _HTML_ADVERSARIAL = {
 @pytest.mark.parametrize("name", sorted(_HTML_ADVERSARIAL))
 def test_search_title_and_description_are_linear_at_full_length(kms, name):
     # Titles and descriptions are scrubbed whole (a cut before the scrub could split a secret), so the
-    # tag removal must be linear too. Measured: under 0.3 s each through the mock, so 3 s is a generous bound.
-    raw_id = str(uuid.uuid4().int)[:9]
+    # tag removal must be linear too.
     text = _HTML_ADVERSARIAL[name]
-    kms["mock"].STATE["extra_results"] = [_record(raw_id, "Guide " + text, description="Guide " + text)]
-    started = time.perf_counter()
-    entry = _by_id(client(kms).search_files("x"))[f"item:{raw_id}"]
-    assert time.perf_counter() - started < 3.0, name
-    assert entry["name"].startswith("Guide") and entry["snippet"].startswith("Guide")
+
+    def prepare(size):
+        raw_id = str(uuid.uuid4().int)[:9]
+        shown = _shrunk(text, size)
+        kms["mock"].STATE["extra_results"] = [_record(raw_id, "Guide " + shown, description="Guide " + shown)]
+
+        def run():
+            entry = _by_id(client(kms).search_files("x"))[f"item:{raw_id}"]
+            assert entry["name"].startswith("Guide") and entry["snippet"].startswith("Guide")
+        return run
+
+    _assert_linear(prepare, _ADVERSARIAL_SMALL, name)
 
 
 _AI_MARKUP_ADVERSARIAL = {
@@ -3401,20 +3417,22 @@ _AI_MARKUP_ADVERSARIAL = {
 @pytest.mark.parametrize("name", sorted(_AI_MARKUP_ADVERSARIAL) + ["duplicate_names"])
 def test_ai_element_check_is_linear_at_full_length(name):
     # Every ai element is checked (tag-shaped '<' or character reference) and rendered from its ai
-    # text or its item HTML, at full length. Measured: well under 0.5 s each, so 3 s is a generous bound.
+    # text or its item HTML, at full length.
     # 200 ambiguous ai elements with one element_name render that name's full-length item HTML once.
-    if name == "duplicate_names":
-        text, value, copies = "AI draft <b>bold</b>", "<p>" + _adversarial("plain words ") + "</p>", 200
-    else:
-        text = value = _AI_MARKUP_ADVERSARIAL[name]
-        copies = 1
-    elements = [{"element_name": "E", "element_caption": "C", "tab_caption": "T", "element_text": text}
-                for _ in range(copies)]
-    started = time.perf_counter()
-    kc._ai_sections(elements, {"E": {"value": value, "type": "EDITOR_FIELD"}})
-    assert time.perf_counter() - started < 3.0, name
+    def prepare(size):
+        if name == "duplicate_names":
+            text, value, copies = "AI draft <b>bold</b>", "<p>" + _shrunk(_adversarial("plain words "), size) + "</p>", 200
+        else:
+            text = value = _shrunk(_AI_MARKUP_ADVERSARIAL[name], size)
+            copies = 1
+        elements = [{"element_name": "E", "element_caption": "C", "tab_caption": "T", "element_text": text}
+                    for _ in range(copies)]
+        return lambda: kc._ai_sections(elements, {"E": {"value": value, "type": "EDITOR_FIELD"}})
+
+    _assert_linear(prepare, _ADVERSARIAL_SMALL, name)
 
 
+_ADVERSARIAL_SMALL = 25_000     # the corpus forms are 200,000 characters long, _SIZE_FACTOR times this
 _SIZE_FACTOR = 8          # the large input is this many times the small one
 _MAX_GROWTH = 24          # linear work grows about 8 times, quadratic work about 64
 _NOISE_FLOOR = 0.005      # CPU seconds; below this a small run is mostly timer noise and counts as this much
@@ -3436,14 +3454,23 @@ def _cpu_seconds(run, repeats=3):
     return best
 
 
-def _assert_linear(run_at, small, name=""):
-    """`run_at(size)` must take about _SIZE_FACTOR times the CPU when its input is _SIZE_FACTOR times larger.
+def _assert_linear(prepare, small, name=""):
+    """The run from `prepare(size)` must take about _SIZE_FACTOR times the CPU at _SIZE_FACTOR times the size.
 
-    A ratio of two runs in this process, so it does not depend on the machine or its load: no time limit
-    is asserted."""
-    base = max(_cpu_seconds(lambda: run_at(small)), _NOISE_FLOOR)
-    large = _cpu_seconds(lambda: run_at(small * _SIZE_FACTOR))
+    A ratio of two CPU measurements in this process, so neither the machine's speed nor other processes
+    decide it, and no time limit is asserted. Python cannot count what the regex engine and string copies
+    do, so the growth between two sizes stands in for an operation count."""
+    base = max(_cpu_seconds(prepare(small)), _NOISE_FLOOR)
+    run = prepare(small * _SIZE_FACTOR)
+    large = _cpu_seconds(run, repeats=1)
+    if large >= base * _MAX_GROWTH:         # one slow run is not yet a verdict
+        large = min(large, _cpu_seconds(run, repeats=2))
     assert large < base * _MAX_GROWTH, f"{name}: {large:.3f}s against {base:.3f}s at 1/{_SIZE_FACTOR} of the size"
+
+
+def _shrunk(text, size):
+    """`text` cut to about `size` characters, keeping its last characters (some forms depend on how they end)."""
+    return text if len(text) <= size else text[:size - 4] + text[-4:]
 
 
 @pytest.mark.parametrize("unit,tail", [("amp%3B", "token=x"), ("AMP%3b", "api_key=x"), ("%61mp%3B", "password=x")],
@@ -3451,14 +3478,17 @@ def _assert_linear(run_at, small, name=""):
 def test_a_long_run_of_amp_prefixes_is_scrubbed_in_linear_work(kms, unit, tail):
     # A percent-encoded run stays one parameter until its name is decoded (1.2 MB took 3.6 s, and a
     # response may hold 16 MB). 40,000 units already give quadratic work a 64-fold growth.
-    def run_at(units):
+    def prepare(units):
         raw_id = str(uuid.uuid4().int)[:9]
         url = f"{_URL}?" + unit * units + tail
         kms["mock"].STATE["extra_results"] = [_record(raw_id, "Guide " + url)]
-        entry = _by_id(client(kms).search_files("x"))[f"item:{raw_id}"]
-        assert tail.split("=")[0] not in entry["name"], "the secret parameter is dropped at every size"
 
-    _assert_linear(run_at, 40_000, unit)
+        def run():
+            entry = _by_id(client(kms).search_files("x"))[f"item:{raw_id}"]
+            assert tail.split("=")[0] not in entry["name"], "the secret parameter is dropped at every size"
+        return run
+
+    _assert_linear(prepare, 40_000, unit)
 
 
 def test_search_scrubs_a_title_or_description_at_full_length(kms):
