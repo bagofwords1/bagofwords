@@ -120,6 +120,7 @@
     "fileBrowserRetry": "Tentar novamente",
     "fileBrowserEmpty": "Nenhum arquivo corresponde ao escopo desta conexão.",
     "fileBrowserNoResults": "Nenhum arquivo corresponde a “{q}”.",
+    "fileBrowserSummaryKms": "{n} arquivos listados para navegação · as permissões do KMS decidem o que o agente pode pesquisar e ler",
     "fileBrowserSummary": "{n} arquivos no escopo · o agente lê apenas estes · acessos negados são auditados",
     "fileBrowserTruncated": "Mostrando os primeiros {shown} de {total} arquivos — restrinja o escopo da conexão para ver o restante.",
     "fileBrowserOpenInSource": "Abrir na origem",
@@ -6776,6 +6777,7 @@
     "button": "Pré-visualizar"
   },
   "kmsFileScope": {
+    "headerSubtitle": "A pasta raiz define onde a navegação começa. As permissões do KMS decidem o que o agente pode pesquisar e ler.",
     "browsingOnly": "Apenas navegação",
     "accessNote": "Uma pasta raiz limita apenas a navegação. As permissões do KMS da identidade conectada decidem o que o agente pode pesquisar e ler, incluindo itens fora dessa pasta. Edite a pasta raiz ou a indexação na própria conexão."
   },

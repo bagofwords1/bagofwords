@@ -2,7 +2,7 @@
   <div class="p-4">
     <div v-if="showHeader" class="mb-4">
       <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ headerTitle }}</div>
-      <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ headerSubtitle }}</p>
+      <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ subtitle }}</p>
     </div>
 
     <div v-for="conn in fileConnections" :key="conn.id"
@@ -75,7 +75,6 @@ const props = withDefaults(defineProps<{
   loading: false,
   showHeader: true,
   headerTitle: 'File scope',
-  headerSubtitle: 'File connections are scoped by include-patterns, not by picking individual files. Everything matching is available to the agent.',
   showSave: false,
   saveLabel: 'Continue',
 })
@@ -84,6 +83,13 @@ defineEmits(['saved'])
 const fileConnections = computed(() =>
   (props.connections || []).filter((c: any) => props.registryByType[c.type]?.data_shape === 'files')
 )
+const subtitle = computed(() => {
+  if (props.headerSubtitle !== undefined) return props.headerSubtitle
+  const onlyKms = fileConnections.value.length > 0 && fileConnections.value.every((c: any) => c.type === 'kms_lighthouse')
+  return onlyKms
+    ? t('kmsFileScope.headerSubtitle')
+    : 'File connections are scoped by include-patterns, not by picking individual files. Everything matching is available to the agent.'
+})
 
 const cfg = (c: any) => c?.config || {}
 const isKms = (c: any) => c.type === 'kms_lighthouse'

@@ -135,6 +135,7 @@
     "fileBrowserRetry": "Reintentar",
     "fileBrowserEmpty": "Ningún archivo coincide con el alcance de esta conexión.",
     "fileBrowserNoResults": "Ningún archivo coincide con “{q}”.",
+    "fileBrowserSummaryKms": "{n} archivos listados para navegar · los permisos de KMS deciden qué puede buscar y leer el agente",
     "fileBrowserSummary": "{n} archivos en el alcance · el agente solo lee estos · los accesos denegados se auditan",
     "fileBrowserTruncated": "Se muestran los primeros {shown} de {total} archivos: acota el alcance de la conexión para ver el resto.",
     "fileBrowserOpenInSource": "Abrir en el origen",
@@ -7387,6 +7388,7 @@
     "button": "Vista previa"
   },
   "kmsFileScope": {
+    "headerSubtitle": "La carpeta raíz indica dónde empieza la navegación. Los permisos de KMS deciden qué puede buscar y leer el agente.",
     "browsingOnly": "Solo navegación",
     "accessNote": "Una carpeta raíz limita solo la navegación. Los permisos de KMS de la identidad conectada deciden qué puede buscar y leer el agente, incluidos los elementos fuera de esa carpeta. Edita la carpeta raíz o la indexación en la propia conexión."
   },

@@ -120,6 +120,7 @@
     "fileBrowserRetry": "Försök igen",
     "fileBrowserEmpty": "Inga filer matchar anslutningens omfång.",
     "fileBrowserNoResults": "Inga filer matchar ”{q}”.",
+    "fileBrowserSummaryKms": "{n} filer listade för bläddring · KMS-behörigheterna avgör vad agenten kan söka i och läsa",
     "fileBrowserSummary": "{n} filer i omfånget · agenten läser bara dessa · nekade åtkomster loggas",
     "fileBrowserTruncated": "Visar de första {shown} av {total} filer – begränsa anslutningens omfång för att se resten.",
     "fileBrowserOpenInSource": "Öppna i källan",
@@ -6776,6 +6777,7 @@
     "button": "Förhandsgranska"
   },
   "kmsFileScope": {
+    "headerSubtitle": "Rotmappen anger var bläddringen börjar. KMS-behörigheterna avgör vad agenten kan söka i och läsa.",
     "browsingOnly": "Endast bläddring",
     "accessNote": "En rotmapp begränsar endast bläddring. KMS-behörigheterna för den anslutna identiteten avgör vad agenten kan söka i och läsa, även objekt utanför den mappen. Redigera rotmappen eller indexeringen i själva anslutningen."
   },

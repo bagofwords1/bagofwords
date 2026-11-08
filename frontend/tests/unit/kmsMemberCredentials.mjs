@@ -167,29 +167,107 @@ assert.equal(baseOf({ type: 'documentum', config: { rest_url: 'https://dctm', re
   'https://dctm / r / /a', 'Documentum is unchanged')
 assert.equal(baseOf({ type: 'network_dir', config: { root_path: '/mnt/share' } }), '/mnt/share')
 
-// The card as it renders: its real template and helpers, for one connection at a time.
-const { code: scopeTemplate } = compileTemplate({
-  source: parse(scope).descriptor.template.content, filename: 'FileSourceScope.vue', id: 'file-source-scope',
-})
-const scopeRender = new Function('Vue', scopeTemplate
-  .replace(/import \{([^}]*)\} from "vue"/, (_, names) => `const {${names.replace(/ as /g, ': ')}} = Vue`)
-  .replace('export function render', 'return function render'))(Vue)
-const helperNames = [...scopeFns.keys()].filter((name) => !['props', 'fileConnections', 't'].includes(name))
-const helpers = new Function(`${js(helperNames.map((name) => scopeFns.get(name)))}\nreturn { ${helperNames.join(', ')} }`)()
-const card = (conn) => {
-  const context = { ...helpers, t, fileConnections: [conn], loading: false, showHeader: false, showSave: false }
-  const app = Vue.createSSRApp({ render: scopeRender, data: () => context })
-  app.component('DataSourceIcon', { render: () => null })
+// The components as they render: their real templates, with the card's and the panel's real helpers.
+const templateOf = (sfc, id) => {
+  const { code } = compileTemplate({ source: parse(sfc).descriptor.template.content, filename: `${id}.vue`, id })
+  return new Function('Vue', code
+    .replace(/import \{([^}]*)\} from "vue"/, (_, names) => `const {${names.replace(/ as /g, ': ')}} = Vue`)
+    .replace('export function render', 'return function render'))(Vue)
+}
+const NO_RENDER = { render: () => null }
+const rendered = (render, state, components) => {
+  const app = Vue.createSSRApp({ render, setup: () => state })
+  app.config.globalProperties.$t = t
+  for (const [name, component] of Object.entries(components)) app.component(name, component)
   return renderToString(app)
 }
-const scopeWarn = console.warn
-console.warn = () => {}       // the card is rendered without its Nuxt shell
-const kmsCard = await card({ id: 'k', type: 'kms_lighthouse', name: 'KMS', config: { base_url: 'https://kms.example.com', root_folder_id: 10 } })
-const blankRootCard = await card({ id: 'k', type: 'kms_lighthouse', name: 'KMS', config: { base_url: 'https://kms.example.com' } })
-const dctmCard = await card({ id: 'd', type: 'documentum', name: 'Docs', config: { rest_url: 'https://dctm', root_path: '/a', include_globs: '*.pdf' } })
-const shareCard = await card({ id: 'n', type: 'network_dir', name: 'Share', config: { root_path: '/mnt/share' } })
-console.warn = scopeWarn
 
+const scopeRender = templateOf(scope, 'file-source-scope')
+const scopeNames = [...scopeFns.keys()]
+const FILE_TYPES = { kms_lighthouse: { data_shape: 'files' }, documentum: { data_shape: 'files' }, network_dir: { data_shape: 'files' } }
+const card = (connections, given = {}) => {
+  const state = new Function('withDefaults', 'defineProps', 'computed', 't',
+    `${js(scopeNames.map((name) => scopeFns.get(name)))}\nreturn { ${scopeNames.join(', ')} }`)(
+    (_, defaults) => ({ ...defaults, connections, registryByType: FILE_TYPES, ...given }), () => ({}), Vue.computed, t)
+  return rendered(scopeRender, { ...state.props, ...state, t }, { DataSourceIcon: NO_RENDER })
+}
+
+const KMS_ROOTED = { id: 'k', type: 'kms_lighthouse', name: 'KMS', config: { base_url: 'https://kms.example.com', root_folder_id: 10 } }
+const DOCUMENTUM = { id: 'd', type: 'documentum', name: 'Docs', config: { rest_url: 'https://dctm', root_path: '/a', include_globs: '*.pdf' } }
+const NETWORK = { id: 'n', type: 'network_dir', name: 'Share', config: { root_path: '/mnt/share' } }
+const PATTERN_SUBTITLE = 'File connections are scoped by include-patterns, not by picking individual files. Everything matching is available to the agent.'
+
+const componentWarn = console.warn
+console.warn = () => {}       // rendered without the Nuxt shell
+const kmsCard = await card([KMS_ROOTED])
+const blankRootCard = await card([{ id: 'k', type: 'kms_lighthouse', name: 'KMS', config: { base_url: 'https://kms.example.com' } }])
+const dctmCard = await card([DOCUMENTUM])
+const shareCard = await card([NETWORK])
+const mixedCard = await card([KMS_ROOTED, DOCUMENTUM])
+const noConnectionCard = await card([])
+const callerCard = await card([KMS_ROOTED], { headerSubtitle: 'Words from the caller.' })
+const blankCallerCard = await card([KMS_ROOTED], { headerSubtitle: '' })
+
+const agentFiles = read('../../components/datasources/AgentFilesPanel.vue')
+const agentFilesFns = declarations(scriptOf(agentFiles))
+const agentFilesRender = templateOf(agentFiles, 'agent-files-panel')
+const agentFilesHelpers = new Function(`${js(['cfg', 'baseOf', 'globsOf', 'indexModeOf', 'badgeLabel', 'badgeClass']
+  .map((name) => agentFilesFns.get(name)))}\nreturn { cfg, baseOf, globsOf, indexModeOf, badgeLabel, badgeClass }`)()
+const filesTab = (conn) => rendered(agentFilesRender,
+  { ...agentFilesHelpers, files: [], fileConnections: [conn], canUpdate: false, uploading: false },
+  { DataSourceIcon: NO_RENDER, UIcon: NO_RENDER,
+    ConnectionFileBrowser: { props: ['connectionType'], render() { return Vue.h('i', { 'data-type': this.connectionType }) } } })
+const kmsFilesTab = await filesTab(KMS_ROOTED)
+const dctmFilesTab = await filesTab(DOCUMENTUM)
+const shareFilesTab = await filesTab(NETWORK)
+
+const fileBrowser = read('../../components/datasources/ConnectionFileBrowser.vue')
+const fileBrowserRender = templateOf(fileBrowser, 'connection-file-browser')
+const listing = (connectionType) => rendered(fileBrowserRender, {
+  connectionType, connectRequired: false, opened: null, loading: false, loaded: true, error: null, segments: [], query: '',
+  searching: false, contents: { folders: [], files: [] }, shownFiles: [], results: [], files: [{}, {}, {}], total: 3,
+  previewSupported: true,
+}, { UIcon: NO_RENDER, ConnectionFilePreview: NO_RENDER })
+const kmsListing = await listing('kms_lighthouse')
+const dctmListing = await listing('documentum')
+const untypedListing = await listing(undefined)
+console.warn = componentWarn
+
+// The header above the cards.
+for (const [what, html] of [['a root folder', kmsCard], ['no root folder', blankRootCard]]) {
+  assert.doesNotMatch(html, /include-patterns/, `the header over a KMS card with ${what} claims no pattern scope`)
+  assert.doesNotMatch(html, /Everything matching/, `the header over a KMS card with ${what} claims no pattern scope`)
+  assert.ok(html.includes(en.kmsFileScope.headerSubtitle), `the header over a KMS card with ${what} has the KMS wording`)
+}
+for (const [what, html] of [['Documentum', dctmCard], ['a network folder', shareCard], ['a mixed list', mixedCard], ['no connection', noConnectionCard]]) {
+  assert.ok(html.includes(PATTERN_SUBTITLE), `${what} keeps today's header`)
+  assert.ok(!html.includes(en.kmsFileScope.headerSubtitle), `${what} has no KMS header`)
+}
+assert.ok(callerCard.includes('Words from the caller.'), "a caller's subtitle wins over the KMS wording")
+assert.ok(!callerCard.includes(en.kmsFileScope.headerSubtitle) && !callerCard.includes(PATTERN_SUBTITLE), "only the caller's subtitle shows")
+assert.ok(!blankCallerCard.includes(en.kmsFileScope.headerSubtitle), 'an empty subtitle from a caller wins too')
+assert.match(en.kmsFileScope.headerSubtitle, /KMS permissions/)
+assert.doesNotMatch(en.kmsFileScope.headerSubtitle, /pattern/i)
+
+// The Files tab: the Scope row, and the summary under the listing.
+assert.doesNotMatch(kmsFilesTab, /whole path/, 'the KMS Files tab names no path scope')
+assert.ok(kmsFilesTab.includes(en.kmsFileScope.browsingOnly), 'the KMS Files tab shows browsing only as its scope')
+assert.ok(kmsFilesTab.includes('data-type="kms_lighthouse"'), 'the panel tells the browser its connection type')
+assert.ok(dctmFilesTab.includes('*.pdf') && !dctmFilesTab.includes(en.kmsFileScope.browsingOnly), 'Documentum keeps its patterns')
+assert.ok(dctmFilesTab.includes('data-type="documentum"'))
+assert.ok(shareFilesTab.includes('whole path') && !shareFilesTab.includes(en.kmsFileScope.browsingOnly), 'no patterns reads as before')
+
+assert.doesNotMatch(kmsListing, /reads only these/, 'the KMS summary promises no reading limit')
+assert.doesNotMatch(kmsListing, /denials are audited/, 'the KMS summary promises no audit of denials')
+assert.ok(kmsListing.includes(t('agentsPage.fileBrowserSummaryKms', { n: 3 })), 'the KMS summary has its own wording')
+assert.match(en.agentsPage.fileBrowserSummaryKms, /\{n\} files listed/)
+assert.match(en.agentsPage.fileBrowserSummaryKms, /KMS permissions/)
+assert.match(fileBrowser, /defineProps<\{[^}]*connectionType\?: string/, 'the browser declares the type the panel passes')
+const SCOPED_SUMMARY = '3 files in scope · the agent reads only these · denials are audited'
+assert.ok(dctmListing.includes(SCOPED_SUMMARY), 'Documentum keeps its summary')
+assert.ok(untypedListing.includes(SCOPED_SUMMARY), 'a caller that names no type keeps the summary')
+
+// The card body.
 for (const [what, html] of [['a root folder', kmsCard], ['no root folder', blankRootCard]]) {
   assert.doesNotMatch(html, /denied and audited/, `a KMS card with ${what} promises no access boundary`)
   assert.doesNotMatch(html, /only<\/strong> files matching/, `a KMS card with ${what} promises no file scope`)
@@ -211,12 +289,17 @@ assert.ok(dctmCard.includes('*.pdf'), 'patterns stay')
 assert.ok(shareCard.includes('whole path (no patterns)'), 'no patterns reads as before')
 
 for (const locale of ['en', 'es', 'he', 'fr', 'sv', 'ar', 'ru', 'de', 'pt', 'it']) {
-  const section = JSON.parse(read(`../../../locales/${locale}.json`)).kmsFileScope
-  assert.deepEqual(Object.keys(section ?? {}).sort(), ['accessNote', 'browsingOnly'], `${locale} has the card's keys`)
-  for (const key of ['accessNote', 'browsingOnly']) {
+  const catalog = JSON.parse(read(`../../../locales/${locale}.json`))
+  const section = catalog.kmsFileScope
+  assert.deepEqual(Object.keys(section ?? {}).sort(), ['accessNote', 'browsingOnly', 'headerSubtitle'], `${locale} has the card's keys`)
+  for (const key of ['accessNote', 'browsingOnly', 'headerSubtitle']) {
     assert.ok(section[key].trim(), `${locale}.${key} is written`)
     if (locale !== 'en') assert.notEqual(section[key], en.kmsFileScope[key], `${locale}.${key} is translated`)
   }
+  const summary = catalog.agentsPage.fileBrowserSummaryKms
+  assert.ok(summary?.includes('{n}'), `${locale} has the KMS summary with its count`)
+  assert.doesNotMatch(summary, /\|/, `${locale}: a bare "|" would split the summary into plural forms`)
+  if (locale !== 'en') assert.notEqual(summary, en.agentsPage.fileBrowserSummaryKms, `${locale} summary is translated`)
 }
 
 // ---------------------------------------------------------------- diagnostics panel

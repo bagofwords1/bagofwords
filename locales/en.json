@@ -136,6 +136,7 @@
     "fileBrowserRetry": "Try again",
     "fileBrowserEmpty": "No files match this connection's scope.",
     "fileBrowserNoResults": "No files match “{q}”.",
+    "fileBrowserSummaryKms": "{n} files listed for browsing · KMS permissions decide what the agent can search and read",
     "fileBrowserSummary": "{n} files in scope · the agent reads only these · denials are audited",
     "fileBrowserTruncated": "Showing the first {shown} of {total} files — narrow the connection's scope to browse the rest.",
     "fileBrowserOpenInSource": "Open in source",
@@ -7416,6 +7417,7 @@
     "button": "Preview"
   },
   "kmsFileScope": {
+    "headerSubtitle": "The root folder sets where browsing starts. KMS permissions decide what the agent can search and read.",
     "browsingOnly": "Browsing only",
     "accessNote": "A root folder limits browsing only. KMS permissions for the connected identity decide what the agent can search and read, including items outside that folder. Edit the root folder or indexing on the connection itself."
   },

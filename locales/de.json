@@ -120,6 +120,7 @@
     "fileBrowserRetry": "Erneut versuchen",
     "fileBrowserEmpty": "Keine Dateien im Bereich dieser Verbindung.",
     "fileBrowserNoResults": "Keine Dateien passen zu „{q}“.",
+    "fileBrowserSummaryKms": "{n} Dateien zum Blättern aufgelistet · die KMS-Berechtigungen bestimmen, was der Agent suchen und lesen kann",
     "fileBrowserSummary": "{n} Dateien im Bereich · der Agent liest nur diese · verweigerte Zugriffe werden protokolliert",
     "fileBrowserTruncated": "Die ersten {shown} von {total} Dateien werden angezeigt – schränken Sie den Bereich der Verbindung ein, um den Rest zu sehen.",
     "fileBrowserOpenInSource": "In der Quelle öffnen",
@@ -6776,6 +6777,7 @@
     "button": "Vorschau"
   },
   "kmsFileScope": {
+    "headerSubtitle": "Der Stammordner legt fest, wo das Blättern beginnt. Die KMS-Berechtigungen bestimmen, was der Agent suchen und lesen kann.",
     "browsingOnly": "Nur zum Blättern",
     "accessNote": "Ein Stammordner begrenzt nur das Blättern. Die KMS-Berechtigungen der verbundenen Identität bestimmen, was der Agent suchen und lesen kann, auch Elemente außerhalb dieses Ordners. Bearbeiten Sie den Stammordner oder die Indizierung in der Verbindung selbst."
   },
