@@ -58,7 +58,9 @@ def partial_rows_note(row_count: Any, stored_rows: int) -> Optional[str]:
         return None
     return (
         f"only the first {stored_rows} rows are kept (org row limit), so pages and charts receive "
-        f"{stored_rows}; for totals, KPIs, rankings or trends, aggregate in the query"
+        f"{stored_rows}; for totals, KPIs, rankings or trends, aggregate in the query; a list or lookup "
+        "may use these rows if the page says how many it shows (a query with optional filters returns "
+        "every row when run with no values, which is expected)"
     )
 
 

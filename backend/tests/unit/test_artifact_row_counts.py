@@ -72,6 +72,9 @@ def test_the_code_writer_is_told_not_to_total_cut_rows():
 def test_the_planner_hears_about_a_cut_when_it_can_still_change_the_query():
     note = partial_rows_note(2240, 1000)
     assert "1000" in note and "aggregate" in note
+    # A list can stay partial if it says so, and an unfiltered preview isn't a bug:
+    # without these the agent abandoned a working lookup.
+    assert "says how many" in note and "no values" in note
 
 
 @pytest.mark.parametrize("row_count,stored", [(1000, 1000), (3, 10), (None, 10)])
