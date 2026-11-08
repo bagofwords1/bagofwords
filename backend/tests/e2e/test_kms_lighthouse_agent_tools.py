@@ -16,7 +16,9 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from app.core import egress
 from app.data_sources.clients import kms_lighthouse_client as kc
+from tests.unit.test_documentum_client import dctm, dctm_server  # noqa: F401
 from tests.unit.test_kms_lighthouse_client import kms, kms_server  # noqa: F401
 
 pytestmark = pytest.mark.e2e
@@ -171,6 +173,9 @@ def _member_file_tools(ds_id, conn_id, report_id):
 
     calls = {
         "list_files": (ListFilesTool(), {"connection_id": conn_id}),
+        "list_files_catalog": (ListFilesTool(), {"connection_id": conn_id, "source": "catalog"}),
+        "list_files_cursor": (ListFilesTool(), {"connection_id": conn_id, "cursor": "abc"}),
+        "list_files_persist": (ListFilesTool(), {"connection_id": conn_id, "persist": True}),
         "search_files": (SearchFilesTool(), {"connection_id": conn_id, "query": "billing"}),
         "read_file": (ReadFileTool(), {"connection_id": conn_id, "file_id": "item:301"}),
     }
@@ -285,11 +290,84 @@ def test_member_without_credentials_is_told_to_connect_by_every_file_tool(
     # The client build's credentials-required refusal reaches each tool as the same Connect call to
     # action (friendly_tool_error), never as the raw refusal or, for list_files, an empty catalog.
     conn_name = connections[0]["name"]
-    assert list(payloads) == ["list_files", "search_files", "read_file"]
+    assert list(payloads) == ["list_files", "list_files_catalog", "list_files_cursor", "list_files_persist",
+                              "search_files", "read_file"]
     for tool, payload in payloads.items():
         out = payload["output"]
         assert out["success"] is False, (tool, out)
         assert f"tell the user to Connect '{conn_name}' from the agent selector" in out["error"], (tool, out)
         assert "User credentials required" not in out["error"], (tool, out)
         assert "Catalog is empty" not in str(payload), tool
+        # The missing sign-in answers before the catalog, cursor and persist checks of list_files.
+        assert "None." not in out["error"] and "cursor" not in out["error"], (tool, out)
     assert kms["mock"].REQUEST_LOG == [], "no KMS call may run before the member connects"
+
+
+def _list_files_payload(conn_id, report_id, ds_id):
+    """list_files with no folder, run as the report's user; the tool's final payload."""
+    from app.ai.tools.implementations.list_files import ListFilesTool
+    from app.dependencies import async_session_maker
+
+    async def run():
+        async with async_session_maker() as db:
+            _, org, user, report = await _loaded(db, ds_id, report_id)
+            ctx = {"db": db, "organization": org, "user": user, "report": report}
+            return [e async for e in ListFilesTool().run_stream({"connection_id": conn_id}, ctx)][-1].payload
+
+    return asyncio.run(run())
+
+
+def test_a_blocked_destination_keeps_its_own_error_and_makes_no_kms_call(
+    kms, monkeypatch, test_client, create_user, login_user, whoami, create_data_source, create_report,
+):
+    ds_id, conn_id, report_id = _setup(kms, test_client, create_user, login_user, whoami, create_data_source,
+                                       create_report)
+    monkeypatch.setattr(egress, "block_private_outbound", lambda: True)    # admin policy; the mock is on localhost
+    kms["mock"].REQUEST_LOG.clear()
+
+    payload = _list_files_payload(conn_id, report_id, ds_id)
+
+    out = payload["output"]
+    assert out["success"] is False, out
+    assert "Failed to construct client" in out["error"], out
+    assert "Connect" not in out["error"], out
+    assert "Catalog is empty" not in str(payload)
+    assert kms["mock"].REQUEST_LOG == [], "the egress check runs before any KMS call"
+
+
+def test_another_file_type_without_a_client_reads_as_an_empty_catalog(
+    dctm, test_client, create_user, login_user, whoami, create_data_source, create_report,
+):
+    # Only kms_lighthouse answers with the client's error; a type with a catalog keeps reading the catalog.
+    admin = create_user()
+    token = login_user(admin["email"], admin["password"])
+    org = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": org}
+    alice_login = {"username": "alice", "password": dctm["mock"].USERS["alice"]["password"]}
+    ds = create_data_source(
+        name="Documentum per-user", type="documentum",
+        config={"rest_url": dctm["rest_url"], "repository": dctm["repository"], "allow_http": True, "index_mode": "none"},
+        credentials=alice_login, auth_policy="user_required", user_token=token, org_id=org,
+    )
+    assert test_client.put(f"/api/data_sources/{ds['id']}", json={"is_public": True},
+                           headers=headers).status_code == 200
+    conn_id = test_client.get(f"/api/data_sources/{ds['id']}/connections", headers=headers).json()[0]["id"]
+    email = f"dctm-member-{uuid.uuid4().hex[:6]}@example.com"
+    invited = test_client.post(f"/api/organizations/{org}/members",
+                               json={"organization_id": org, "email": email, "role": "member"}, headers=headers)
+    assert invited.status_code == 200, invited.json()
+    member = create_user(email=email)
+    member_token = login_user(member["email"], member["password"])
+    member_h = {"Authorization": f"Bearer {member_token}", "X-Organization-Id": org}
+    # As in the KMS flow above: the member connects, starts a report, then disconnects.
+    endpoint = f"/api/connections/{conn_id}/my-credentials"
+    saved = test_client.post(endpoint, json={"auth_mode": "userpass", "credentials": alice_login}, headers=member_h)
+    assert saved.status_code == 200, saved.json()
+    report = create_report(title="Documentum member", user_token=member_token, org_id=org, data_sources=[ds["id"]])
+    removed = test_client.delete(endpoint, headers=member_h)
+    assert removed.status_code in (200, 204), removed.text
+
+    payload = _list_files_payload(conn_id, report["id"], ds["id"])
+
+    assert payload["output"]["success"] is True, payload["output"]
+    assert "Catalog is empty" in payload["observation"]["summary"], payload["observation"]
