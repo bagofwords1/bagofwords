@@ -74,6 +74,20 @@ def partial_data_used(visualizations: list[dict[str, Any]], code: str) -> list[d
     ]
 
 
+def partial_data_warning(partial: list[dict[str, Any]]) -> str:
+    """The planner's warning for `partial_data_used` results; "" when there are none."""
+    if not partial:
+        return ""
+    described = "; ".join(
+        f"'{p.get('title') or 'Untitled'}' ({p.get('loaded_row_count')} of {p.get('row_count')} rows)" for p in partial
+    )
+    return (
+        f" WARNING: this page reads only part of its data: {described}. Totals, KPIs, rankings or trends "
+        "computed from those rows are wrong. Create a query that aggregates in the database and use it with "
+        "edit_artifact. A browsable list may stay if it says how many rows it shows."
+    )
+
+
 async def _resolve_rows(db, step, report, viewer) -> tuple[dict, bool]:
     """(data, withheld) for `step` as `viewer` may see it."""
     if step is None:

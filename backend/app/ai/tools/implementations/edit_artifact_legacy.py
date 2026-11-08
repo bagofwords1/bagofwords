@@ -26,6 +26,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import lazyload, selectinload
 
+from app.services.artifact_payload import row_count_fields
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import (
@@ -514,7 +515,7 @@ VISUALIZATION DATA (current visualizations in data.visualizations order — for 
 
 {viz_json}
 
-(Note: `rows`/`sample_rows` above are a sample capped at 100 rows; `row_count` is the true dataset size the live dashboard receives.)
+(Note: `rows`/`sample_rows` above are a sample capped at 100 rows. `row_count` is the query's real size; the live dashboard receives `loaded_row_count` rows, and `truncated: true` means that is only part of the result.)
 
 Apply the user's edit now:"""
 
@@ -537,7 +538,7 @@ DATA ACCESS:
 - Each viz: `{{ id, title, columns: [{{headerName, field, dtype, unique_count}}], rows: [{{...}}], view, dataModel }}`
 - Access values: `row[column.field]`, display labels: `column.headerName`
 - Column metadata includes `dtype` (pandas type) and `unique_count` — use these for filter/format decisions
-- **Sample vs full data:** `rows` in the user message are a SAMPLE (capped at 100) for editing context; at runtime the dashboard receives the FULL dataset — `row_count` rows. Never write workarounds for the sample size.
+- **Sample vs full data:** `rows` in the user message are a SAMPLE (capped at 100) for editing context; at runtime the dashboard receives `loaded_row_count` rows. Never write workarounds for the sample size. `truncated: true` means those rows are only part of the `row_count` result: never compute totals, KPIs, rankings or trends from them.
 - **NEVER hardcode data** — ALL values from the viz data payload (`vizById("<uuid>").rows`)
 - **DATA ACCESS IS ID-KEYED:** bind data with `vizById("<uuid>")` (uuids are in the VISUALIZATION DATA `id` fields). NEVER add new positional `viz[N]` references; when your edit touches a line that still uses `viz[N]`, convert it to `vizById("<uuid>")`.
 - **DEFENSIVE CODING**: Row values can be `null`/`undefined`. ALWAYS guard before string methods: `(val || '').includes('x')` or `String(val ?? '').toLowerCase()`. Never call `.includes()`, `.toLowerCase()`, `.startsWith()`, `.split()` on a potentially nullish value.
@@ -1046,9 +1047,9 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
                 "data_model_type": (view_dict.get("view") or {}).get("type") or view_dict.get("type"),
                 "columns": raw_columns,
                 "column_info": column_info,
-                # row_count = TRUE dataset size; rows is a 100-row sample
+                # row_count = the query's real size; rows is a 100-row sample
                 # (see create_artifact — same contract).
-                "row_count": len(_all_rows),
+                **row_count_fields(step_data),
                 "sample_row_count": len(rows),
                 "rows": rows,
                 "dataModel": data_model or {},

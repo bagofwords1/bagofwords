@@ -13,7 +13,12 @@ if str(BACKEND_ROOT) not in sys.path:
 
 import pytest  # noqa: E402
 
-from app.services.artifact_payload import partial_data_used, partial_rows_note, row_count_fields  # noqa: E402
+from app.services.artifact_payload import (  # noqa: E402
+    partial_data_used,
+    partial_data_warning,
+    partial_rows_note,
+    row_count_fields,
+)
 
 
 def _data(stored, total):
@@ -91,3 +96,30 @@ def test_only_cut_datasets_the_page_reads_are_reported():
     found = partial_data_used(vizs, 'const a = vizById("used-cut"); const c = vizById("used-whole");')
     assert [f["visualization_id"] for f in found] == ["used-cut"]
     assert found[0]["row_count"] == 2240 and found[0]["loaded_row_count"] == 1000
+
+
+def test_the_warning_names_each_cut_dataset_and_says_what_to_do():
+    used = [{"title": "Sales", "row_count": 2240, "loaded_row_count": 1000}, {"title": None, "row_count": 9, "loaded_row_count": 5}]
+    warning = partial_data_warning(used)
+    assert "1000 of 2240" in warning and "5 of 9" in warning and "Sales" in warning and "None" not in warning
+    assert "aggregates in the database" in warning
+
+
+def test_no_warning_when_the_page_reads_no_cut_data():
+    assert partial_data_warning([]) == ""
+
+
+def test_every_page_host_receives_the_counts():
+    from app.ai.tools.mcp.app_tools import _ARTIFACT_VIZ_KEYS
+
+    assert {"row_count", "loaded_row_count", "truncated"} <= set(_ARTIFACT_VIZ_KEYS)
+
+
+def test_no_prompt_still_claims_the_page_gets_every_row():
+    from app.ai.tools.implementations.create_artifact import CreateArtifactTool
+    from app.ai.tools.implementations.edit_artifact_legacy import EditArtifactTool
+
+    assert "FULL dataset" not in CreateArtifactTool()._build_page_system_prompt()
+    edit_prompt = EditArtifactTool()._build_edit_system_prompt()
+    assert "FULL dataset" not in edit_prompt
+    assert "loaded_row_count" in edit_prompt

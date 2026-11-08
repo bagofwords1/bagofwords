@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.ai.tools.artifact_verification import with_automatic_artifact_check
-from app.services.artifact_payload import partial_data_used, row_count_fields
+from app.services.artifact_payload import partial_data_used, partial_data_warning, row_count_fields
 from app.ai.tools.base import Tool
 from app.models.file import File
 from app.models.report_file_association import report_file_association
@@ -1095,7 +1095,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
 
             # Get data directly from step (like frontend does). Generation and
             # headless preview see a bounded sample; the live render receives
-            # the full dataset from the frontend. Keep both counts so the
+            # every stored row from the frontend. Keep the counts so the
             # sample is never mislabeled as the whole dataset.
             step_data = step.data if step else {}
             _all_rows = (step_data.get("rows") or []) if step_data else []
@@ -1946,14 +1946,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         partial_data = partial_data_used(visualizations, code) if data.mode == "page" else []
         if partial_data:
             observation["partial_data"] = partial_data
-            described = "; ".join(
-                f"'{p['title']}' ({p['loaded_row_count']} of {p['row_count']} rows)" for p in partial_data
-            )
-            observation["summary"] += (
-                f" WARNING: this page reads only part of its data: {described}. Totals, KPIs, rankings or "
-                "trends computed from those rows are wrong. Create a query that aggregates in the database "
-                "and use it with edit_artifact. A browsable list may stay if it says how many rows it shows."
-            )
+            observation["summary"] += partial_data_warning(partial_data)
 
         # Add preview screenshot for planner reflection (page mode)
         if _attach_screenshot:
