@@ -7386,6 +7386,10 @@
     "close": "Cerrar",
     "button": "Vista previa"
   },
+  "kmsFileScope": {
+    "browsingOnly": "Solo navegación",
+    "accessNote": "Una carpeta raíz limita solo la navegación. Los permisos de KMS de la identidad conectada deciden qué puede buscar y leer el agente, incluidos los elementos fuera de esa carpeta. Edita la carpeta raíz o la indexación en la propia conexión."
+  },
   "kmsDiagnostics": {
     "run": "Ejecutar diagnóstico",
     "running": "Ejecutando el diagnóstico. Puede tardar hasta 90 segundos.",

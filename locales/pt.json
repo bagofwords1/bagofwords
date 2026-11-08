@@ -6775,6 +6775,10 @@
     "close": "Fechar",
     "button": "Pré-visualizar"
   },
+  "kmsFileScope": {
+    "browsingOnly": "Apenas navegação",
+    "accessNote": "Uma pasta raiz limita apenas a navegação. As permissões do KMS da identidade conectada decidem o que o agente pode pesquisar e ler, incluindo itens fora dessa pasta. Edite a pasta raiz ou a indexação na própria conexão."
+  },
   "kmsDiagnostics": {
     "run": "Executar diagnóstico",
     "running": "A executar o diagnóstico. Isto pode demorar até 90 segundos.",

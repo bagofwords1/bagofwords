@@ -7415,6 +7415,10 @@
     "close": "Close",
     "button": "Preview"
   },
+  "kmsFileScope": {
+    "browsingOnly": "Browsing only",
+    "accessNote": "A root folder limits browsing only. KMS permissions for the connected identity decide what the agent can search and read, including items outside that folder. Edit the root folder or indexing on the connection itself."
+  },
   "kmsDiagnostics": {
     "run": "Run diagnostics",
     "running": "Running diagnostics. This can take up to 90 seconds.",

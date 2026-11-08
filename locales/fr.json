@@ -6775,6 +6775,10 @@
     "close": "Fermer",
     "button": "Aperçu"
   },
+  "kmsFileScope": {
+    "browsingOnly": "Navigation uniquement",
+    "accessNote": "Un dossier racine limite uniquement la navigation. Les autorisations KMS de l'identité connectée déterminent ce que l'agent peut rechercher et lire, y compris les éléments hors de ce dossier. Modifiez le dossier racine ou l'indexation dans la connexion elle-même."
+  },
   "kmsDiagnostics": {
     "run": "Lancer le diagnostic",
     "running": "Diagnostic en cours. Cela peut prendre jusqu'à 90 secondes.",

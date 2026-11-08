@@ -2,7 +2,10 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
 import ts from 'typescript'
+import * as Vue from 'vue'
 import { ref } from 'vue'
+import { compileTemplate, parse } from 'vue/compiler-sfc'
+import { renderToString } from 'vue/server-renderer'
 import { createI18n } from 'vue-i18n'
 
 import { catalogMessage } from '../../composables/useErrorMessage.ts'
@@ -11,8 +14,9 @@ import { catalogMessage } from '../../composables/useErrorMessage.ts'
 // A KMS Lighthouse member's login lives on the connection row that runtime
 // reads. The credentials modal saves it there and, for every type, shows the
 // backend's localized reason on a failed save or Test; the integration page's
-// Disconnect clears it there; the file-scope card keeps root folder 0. The
-// diagnostics panel shows a refused second run and keeps its download alive.
+// Disconnect clears it there; the file-scope card keeps root folder 0 and says
+// that a KMS root limits browsing, not access. The diagnostics panel shows a
+// refused second run and keeps its download alive.
 // Other connection types keep their endpoints and their silent Disconnect.
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8')
@@ -162,6 +166,58 @@ assert.equal(kms({}), 'https://kms.example.com')
 assert.equal(baseOf({ type: 'documentum', config: { rest_url: 'https://dctm', repository: 'r', root_path: '/a' } }),
   'https://dctm / r / /a', 'Documentum is unchanged')
 assert.equal(baseOf({ type: 'network_dir', config: { root_path: '/mnt/share' } }), '/mnt/share')
+
+// The card as it renders: its real template and helpers, for one connection at a time.
+const { code: scopeTemplate } = compileTemplate({
+  source: parse(scope).descriptor.template.content, filename: 'FileSourceScope.vue', id: 'file-source-scope',
+})
+const scopeRender = new Function('Vue', scopeTemplate
+  .replace(/import \{([^}]*)\} from "vue"/, (_, names) => `const {${names.replace(/ as /g, ': ')}} = Vue`)
+  .replace('export function render', 'return function render'))(Vue)
+const helperNames = [...scopeFns.keys()].filter((name) => !['props', 'fileConnections', 't'].includes(name))
+const helpers = new Function(`${js(helperNames.map((name) => scopeFns.get(name)))}\nreturn { ${helperNames.join(', ')} }`)()
+const card = (conn) => {
+  const context = { ...helpers, t, fileConnections: [conn], loading: false, showHeader: false, showSave: false }
+  const app = Vue.createSSRApp({ render: scopeRender, data: () => context })
+  app.component('DataSourceIcon', { render: () => null })
+  return renderToString(app)
+}
+const scopeWarn = console.warn
+console.warn = () => {}       // the card is rendered without its Nuxt shell
+const kmsCard = await card({ id: 'k', type: 'kms_lighthouse', name: 'KMS', config: { base_url: 'https://kms.example.com', root_folder_id: 10 } })
+const blankRootCard = await card({ id: 'k', type: 'kms_lighthouse', name: 'KMS', config: { base_url: 'https://kms.example.com' } })
+const dctmCard = await card({ id: 'd', type: 'documentum', name: 'Docs', config: { rest_url: 'https://dctm', root_path: '/a', include_globs: '*.pdf' } })
+const shareCard = await card({ id: 'n', type: 'network_dir', name: 'Share', config: { root_path: '/mnt/share' } })
+console.warn = scopeWarn
+
+for (const [what, html] of [['a root folder', kmsCard], ['no root folder', blankRootCard]]) {
+  assert.doesNotMatch(html, /denied and audited/, `a KMS card with ${what} promises no access boundary`)
+  assert.doesNotMatch(html, /only<\/strong> files matching/, `a KMS card with ${what} promises no file scope`)
+  assert.doesNotMatch(html, /whole path/, `a KMS card with ${what} names no path scope`)
+  assert.ok(html.includes(en.kmsFileScope.accessNote), `a KMS card with ${what} says what the root does`)
+  assert.ok(html.includes(en.kmsFileScope.browsingOnly), `a KMS card with ${what} shows browsing only as its scope`)
+}
+assert.ok(kmsCard.includes('https://kms.example.com / folder 10'), 'the card still names the root folder')
+assert.match(en.kmsFileScope.accessNote, /browsing/i)
+assert.match(en.kmsFileScope.accessNote, /KMS permissions/)
+assert.match(en.kmsFileScope.accessNote, /search and read/)
+
+for (const [what, html] of [['Documentum', dctmCard], ['a network folder', shareCard]]) {
+  assert.match(html, /denied and audited/, `${what} keeps its scope promise`)
+  assert.ok(!html.includes(en.kmsFileScope.accessNote), `${what} has no KMS wording`)
+  assert.ok(!html.includes(en.kmsFileScope.browsingOnly), `${what} has no KMS wording`)
+}
+assert.ok(dctmCard.includes('*.pdf'), 'patterns stay')
+assert.ok(shareCard.includes('whole path (no patterns)'), 'no patterns reads as before')
+
+for (const locale of ['en', 'es', 'he', 'fr', 'sv', 'ar', 'ru', 'de', 'pt', 'it']) {
+  const section = JSON.parse(read(`../../../locales/${locale}.json`)).kmsFileScope
+  assert.deepEqual(Object.keys(section ?? {}).sort(), ['accessNote', 'browsingOnly'], `${locale} has the card's keys`)
+  for (const key of ['accessNote', 'browsingOnly']) {
+    assert.ok(section[key].trim(), `${locale}.${key} is written`)
+    if (locale !== 'en') assert.notEqual(section[key], en.kmsFileScope[key], `${locale}.${key} is translated`)
+  }
+}
 
 // ---------------------------------------------------------------- diagnostics panel
 const panel = read('../../components/datasources/KmsDiagnosticsPanel.vue')

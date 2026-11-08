@@ -6775,6 +6775,10 @@
     "close": "Schließen",
     "button": "Vorschau"
   },
+  "kmsFileScope": {
+    "browsingOnly": "Nur zum Blättern",
+    "accessNote": "Ein Stammordner begrenzt nur das Blättern. Die KMS-Berechtigungen der verbundenen Identität bestimmen, was der Agent suchen und lesen kann, auch Elemente außerhalb dieses Ordners. Bearbeiten Sie den Stammordner oder die Indizierung in der Verbindung selbst."
+  },
   "kmsDiagnostics": {
     "run": "Diagnose ausführen",
     "running": "Diagnose läuft. Das kann bis zu 90 Sekunden dauern.",

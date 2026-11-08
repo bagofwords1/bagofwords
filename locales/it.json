@@ -6775,6 +6775,10 @@
     "close": "Chiudi",
     "button": "Anteprima"
   },
+  "kmsFileScope": {
+    "browsingOnly": "Solo navigazione",
+    "accessNote": "Una cartella radice limita solo la navigazione. Le autorizzazioni KMS dell'identità connessa decidono cosa l'agente può cercare e leggere, compresi gli elementi fuori da quella cartella. Modifica la cartella radice o l'indicizzazione nella connessione stessa."
+  },
   "kmsDiagnostics": {
     "run": "Esegui diagnostica",
     "running": "Diagnostica in corso. Può richiedere fino a 90 secondi.",

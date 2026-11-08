@@ -26,7 +26,8 @@
 
         <span class="text-ink-muted">Scope</span>
         <div>
-          <template v-if="globsOf(conn).length">
+          <span v-if="isKms(conn)" class="text-gray-500 dark:text-gray-400 italic">{{ t('kmsFileScope.browsingOnly') }}</span>
+          <template v-else-if="globsOf(conn).length">
             <code v-for="g in globsOf(conn)" :key="g"
                   class="inline-block mr-1.5 mb-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-100 dark:border-blue-800">{{ g }}</code>
           </template>
@@ -34,7 +35,8 @@
         </div>
       </div>
 
-      <p class="mt-3 text-2xs text-ink-muted leading-relaxed">
+      <p v-if="isKms(conn)" class="mt-3 text-2xs text-ink-muted leading-relaxed">{{ t('kmsFileScope.accessNote') }}</p>
+      <p v-else class="mt-3 text-2xs text-ink-muted leading-relaxed">
         The agent can list, search and read <strong>only</strong> files matching these patterns —
         access to anything else is denied and audited. Edit the path, patterns or indexing on the
         connection itself.
@@ -57,6 +59,8 @@
 
 <script setup lang="ts">
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
+
+const { t } = useI18n()
 
 const props = withDefaults(defineProps<{
   connections: any[]
@@ -82,6 +86,7 @@ const fileConnections = computed(() =>
 )
 
 const cfg = (c: any) => c?.config || {}
+const isKms = (c: any) => c.type === 'kms_lighthouse'
 const baseOf = (c: any) => {
   const g = cfg(c)
   if (c.type === 'sharepoint_onprem') return [g.site_url, g.drive_name, g.folder_path].filter(Boolean).join(' / ')

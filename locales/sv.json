@@ -6775,6 +6775,10 @@
     "close": "Stäng",
     "button": "Förhandsgranska"
   },
+  "kmsFileScope": {
+    "browsingOnly": "Endast bläddring",
+    "accessNote": "En rotmapp begränsar endast bläddring. KMS-behörigheterna för den anslutna identiteten avgör vad agenten kan söka i och läsa, även objekt utanför den mappen. Redigera rotmappen eller indexeringen i själva anslutningen."
+  },
   "kmsDiagnostics": {
     "run": "Kör diagnostik",
     "running": "Diagnostiken körs. Det kan ta upp till 90 sekunder.",
