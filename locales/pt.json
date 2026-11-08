@@ -4219,7 +4219,8 @@
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
-    "ssh.key_discovery_failed": "Não foi possível buscar a chave. Verifique host, porta e rede ou insira uma chave confiável nas configurações avançadas."
+    "ssh.key_discovery_failed": "Não foi possível buscar a chave. Verifique host, porta e rede ou insira uma chave confiável nas configurações avançadas.",
+    "file.in_use": "O arquivo é usado por um painel"
   },
   "email": {
     "dashboardShare": {
@@ -4359,7 +4360,26 @@
     "metadataFieldsMany": "{count} campos de metadados",
     "metadataTagsOne": "{count} tag de metadados",
     "metadataTagsMany": "{count} tags de metadados",
-    "noMetadata": "Sem metadados"
+    "noMetadata": "Sem metadados",
+    "search": "Pesquisar arquivos",
+    "filterAll": "Todos os arquivos",
+    "filterUploads": "Enviados",
+    "filterGenerated": "Saída de ferramentas",
+    "sourceGenerated": "Saída de ferramenta",
+    "showingCount": "{shown} de {total} arquivos",
+    "selectAll": "Selecionar todos os exibidos",
+    "deleteSelected": "Excluir {count} selecionados",
+    "delete": "Excluir",
+    "download": "Baixar",
+    "empty": "Nenhum arquivo corresponde",
+    "confirmTitleOne": "Excluir este arquivo?",
+    "confirmTitleMany": "Excluir {count} arquivos?",
+    "confirmBody": "Arquivos excluídos são removidos de todos os relatórios e não podem ser recuperados.",
+    "toastDeletedOne": "Arquivo excluído",
+    "toastDeletedMany": "{count} arquivos excluídos",
+    "toastPartial": "{count} arquivos não puderam ser excluídos",
+    "toastError": "Não foi possível excluir os arquivos",
+    "toastDownloadError": "Não foi possível baixar o arquivo"
   },
   "dashboards": {
     "title": "Painéis",
@@ -5494,7 +5514,9 @@
     "modeChat": "Chat",
     "modelAuto": "Auto",
     "noAgents": "Nenhum",
-    "project": "Projeto"
+    "project": "Projeto",
+    "toolOutputFilesOne": "{count} arquivo gerado por ferramentas",
+    "toolOutputFilesMany": "{count} arquivos gerados por ferramentas"
   },
   "errorPage": {
     "notFoundTitle": "404",

@@ -4652,7 +4652,8 @@
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
-    "ssh.key_discovery_failed": "Could not fetch the server key. Check the hostname, port and network access, or enter a trusted key under Advanced."
+    "ssh.key_discovery_failed": "Could not fetch the server key. Check the hostname, port and network access, or enter a trusted key under Advanced.",
+    "file.in_use": "File is used by a dashboard"
   },
   "email": {
     "dashboardShare": {
@@ -4821,7 +4822,26 @@
     "metadataFieldsMany": "{count} metadata fields",
     "metadataTagsOne": "{count} metadata tag",
     "metadataTagsMany": "{count} metadata tags",
-    "noMetadata": "No metadata"
+    "noMetadata": "No metadata",
+    "search": "Search files",
+    "filterAll": "All files",
+    "filterUploads": "Uploaded",
+    "filterGenerated": "Tool output",
+    "sourceGenerated": "Tool output",
+    "showingCount": "{shown} of {total} files",
+    "selectAll": "Select all shown",
+    "deleteSelected": "Delete {count} selected",
+    "delete": "Delete",
+    "download": "Download",
+    "empty": "No files match",
+    "confirmTitleOne": "Delete this file?",
+    "confirmTitleMany": "Delete {count} files?",
+    "confirmBody": "Deleted files are removed from every report and cannot be recovered.",
+    "toastDeletedOne": "File deleted",
+    "toastDeletedMany": "{count} files deleted",
+    "toastPartial": "{count} files could not be deleted",
+    "toastError": "Could not delete the files",
+    "toastDownloadError": "Could not download the file"
   },
   "dashboards": {
     "title": "Dashboards",
@@ -6026,7 +6046,9 @@
     "modeChat": "Chat",
     "modelAuto": "Auto",
     "noAgents": "None",
-    "project": "Project"
+    "project": "Project",
+    "toolOutputFilesOne": "{count} file produced by tool runs",
+    "toolOutputFilesMany": "{count} files produced by tool runs"
   },
   "errorPage": {
     "notFoundTitle": "404",

@@ -4219,7 +4219,8 @@
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
-    "ssh.key_discovery_failed": "Не удалось получить ключ. Проверьте адрес, порт и сеть или введите доверенный ключ в дополнительных настройках."
+    "ssh.key_discovery_failed": "Не удалось получить ключ. Проверьте адрес, порт и сеть или введите доверенный ключ в дополнительных настройках.",
+    "file.in_use": "Файл используется дашбордом"
   },
   "email": {
     "dashboardShare": {
@@ -4359,7 +4360,26 @@
     "metadataFieldsMany": "{count} полей метаданных",
     "metadataTagsOne": "{count} тег метаданных",
     "metadataTagsMany": "{count} тегов метаданных",
-    "noMetadata": "Нет метаданных"
+    "noMetadata": "Нет метаданных",
+    "search": "Поиск файлов",
+    "filterAll": "Все файлы",
+    "filterUploads": "Загруженные",
+    "filterGenerated": "Результаты инструментов",
+    "sourceGenerated": "Результат инструмента",
+    "showingCount": "{shown} из {total} файлов",
+    "selectAll": "Выбрать все показанные",
+    "deleteSelected": "Удалить выбранные ({count})",
+    "delete": "Удалить",
+    "download": "Скачать",
+    "empty": "Нет подходящих файлов",
+    "confirmTitleOne": "Удалить этот файл?",
+    "confirmTitleMany": "Удалить файлы ({count})?",
+    "confirmBody": "Удалённые файлы убираются из всех отчётов, восстановить их нельзя.",
+    "toastDeletedOne": "Файл удалён",
+    "toastDeletedMany": "Удалено файлов: {count}",
+    "toastPartial": "Не удалось удалить файлов: {count}",
+    "toastError": "Не удалось удалить файлы",
+    "toastDownloadError": "Не удалось скачать файл"
   },
   "dashboards": {
     "title": "Дашборды",
@@ -5494,7 +5514,9 @@
     "modeChat": "Чат",
     "modelAuto": "Авто",
     "noAgents": "Нет",
-    "project": "Проект"
+    "project": "Проект",
+    "toolOutputFilesOne": "Файлов, созданных инструментами: {count}",
+    "toolOutputFilesMany": "Файлов, созданных инструментами: {count}"
   },
   "errorPage": {
     "notFoundTitle": "404",

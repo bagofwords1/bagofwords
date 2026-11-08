@@ -4219,7 +4219,8 @@
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
-    "ssh.key_discovery_failed": "Schlüssel konnte nicht abgerufen werden. Prüfen Sie Host, Port und Netzwerk oder geben Sie unter Erweitert einen vertrauenswürdigen Schlüssel ein."
+    "ssh.key_discovery_failed": "Schlüssel konnte nicht abgerufen werden. Prüfen Sie Host, Port und Netzwerk oder geben Sie unter Erweitert einen vertrauenswürdigen Schlüssel ein.",
+    "file.in_use": "Die Datei wird von einem Dashboard verwendet"
   },
   "email": {
     "dashboardShare": {
@@ -4359,7 +4360,26 @@
     "metadataFieldsMany": "{count} Metadatenfelder",
     "metadataTagsOne": "{count} Metadaten-Tag",
     "metadataTagsMany": "{count} Metadaten-Tags",
-    "noMetadata": "Keine Metadaten"
+    "noMetadata": "Keine Metadaten",
+    "search": "Dateien suchen",
+    "filterAll": "Alle Dateien",
+    "filterUploads": "Hochgeladen",
+    "filterGenerated": "Tool-Ausgabe",
+    "sourceGenerated": "Tool-Ausgabe",
+    "showingCount": "{shown} von {total} Dateien",
+    "selectAll": "Alle angezeigten auswählen",
+    "deleteSelected": "{count} ausgewählte löschen",
+    "delete": "Löschen",
+    "download": "Herunterladen",
+    "empty": "Keine passenden Dateien",
+    "confirmTitleOne": "Diese Datei löschen?",
+    "confirmTitleMany": "{count} Dateien löschen?",
+    "confirmBody": "Gelöschte Dateien werden aus allen Berichten entfernt und können nicht wiederhergestellt werden.",
+    "toastDeletedOne": "Datei gelöscht",
+    "toastDeletedMany": "{count} Dateien gelöscht",
+    "toastPartial": "{count} Dateien konnten nicht gelöscht werden",
+    "toastError": "Die Dateien konnten nicht gelöscht werden",
+    "toastDownloadError": "Die Datei konnte nicht heruntergeladen werden"
   },
   "dashboards": {
     "title": "Dashboards",
@@ -5494,7 +5514,9 @@
     "modeChat": "Chat",
     "modelAuto": "Auto",
     "noAgents": "Keine",
-    "project": "Projekt"
+    "project": "Projekt",
+    "toolOutputFilesOne": "{count} von Tools erzeugte Datei",
+    "toolOutputFilesMany": "{count} von Tools erzeugte Dateien"
   },
   "errorPage": {
     "notFoundTitle": "404",

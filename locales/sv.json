@@ -4219,7 +4219,8 @@
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
-    "ssh.key_discovery_failed": "Kunde inte hämta nyckeln. Kontrollera värd, port och nätverk eller ange en betrodd nyckel under Avancerat."
+    "ssh.key_discovery_failed": "Kunde inte hämta nyckeln. Kontrollera värd, port och nätverk eller ange en betrodd nyckel under Avancerat.",
+    "file.in_use": "Filen används av en instrumentpanel"
   },
   "email": {
     "dashboardShare": {
@@ -4359,7 +4360,26 @@
     "metadataFieldsMany": "{count} metadatafält",
     "metadataTagsOne": "{count} metadatatagg",
     "metadataTagsMany": "{count} metadatataggar",
-    "noMetadata": "Ingen metadata"
+    "noMetadata": "Ingen metadata",
+    "search": "Sök filer",
+    "filterAll": "Alla filer",
+    "filterUploads": "Uppladdade",
+    "filterGenerated": "Verktygsutdata",
+    "sourceGenerated": "Verktygsutdata",
+    "showingCount": "{shown} av {total} filer",
+    "selectAll": "Markera alla som visas",
+    "deleteSelected": "Ta bort {count} markerade",
+    "delete": "Ta bort",
+    "download": "Ladda ner",
+    "empty": "Inga filer matchar",
+    "confirmTitleOne": "Ta bort den här filen?",
+    "confirmTitleMany": "Ta bort {count} filer?",
+    "confirmBody": "Borttagna filer tas bort från alla rapporter och kan inte återställas.",
+    "toastDeletedOne": "Filen togs bort",
+    "toastDeletedMany": "{count} filer togs bort",
+    "toastPartial": "{count} filer kunde inte tas bort",
+    "toastError": "Det gick inte att ta bort filerna",
+    "toastDownloadError": "Det gick inte att ladda ner filen"
   },
   "dashboards": {
     "title": "Instrumentpaneler",
@@ -5494,7 +5514,9 @@
     "modeChat": "Chatt",
     "modelAuto": "Auto",
     "noAgents": "Inga",
-    "project": "Projekt"
+    "project": "Projekt",
+    "toolOutputFilesOne": "{count} fil skapad av verktyg",
+    "toolOutputFilesMany": "{count} filer skapade av verktyg"
   },
   "errorPage": {
     "notFoundTitle": "404",

@@ -108,6 +108,7 @@ class ErrorCode(str, Enum):
     DASHBOARD_TRANSFER_NOT_EDITOR = "dashboard.transfer_not_editor"
     DASHBOARD_PUBLIC_OWNER_ONLY = "dashboard.public_owner_only"
     FILE_NOT_FOUND = "file.not_found"
+    FILE_IN_USE = "file.in_use"
     DATA_SOURCE_NOT_FOUND = "data_source.not_found"
     DATA_SOURCE_IN_USE = "data_source.in_use"
     CONNECTION_NOT_FOUND = "connection.not_found"

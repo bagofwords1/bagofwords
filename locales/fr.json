@@ -4219,7 +4219,8 @@
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
-    "ssh.key_discovery_failed": "Impossible de récupérer la clé. Vérifiez l’hôte, le port et le réseau, ou saisissez une clé fiable dans les paramètres avancés."
+    "ssh.key_discovery_failed": "Impossible de récupérer la clé. Vérifiez l’hôte, le port et le réseau, ou saisissez une clé fiable dans les paramètres avancés.",
+    "file.in_use": "Le fichier est utilisé par un tableau de bord"
   },
   "email": {
     "dashboardShare": {
@@ -4359,7 +4360,26 @@
     "metadataFieldsMany": "{count} champs de métadonnées",
     "metadataTagsOne": "{count} étiquette de métadonnées",
     "metadataTagsMany": "{count} étiquettes de métadonnées",
-    "noMetadata": "Aucune métadonnée"
+    "noMetadata": "Aucune métadonnée",
+    "search": "Rechercher des fichiers",
+    "filterAll": "Tous les fichiers",
+    "filterUploads": "Importés",
+    "filterGenerated": "Sortie d'outil",
+    "sourceGenerated": "Sortie d'outil",
+    "showingCount": "{shown} sur {total} fichiers",
+    "selectAll": "Tout sélectionner",
+    "deleteSelected": "Supprimer {count} sélectionnés",
+    "delete": "Supprimer",
+    "download": "Télécharger",
+    "empty": "Aucun fichier ne correspond",
+    "confirmTitleOne": "Supprimer ce fichier ?",
+    "confirmTitleMany": "Supprimer {count} fichiers ?",
+    "confirmBody": "Les fichiers supprimés sont retirés de tous les rapports et ne peuvent pas être récupérés.",
+    "toastDeletedOne": "Fichier supprimé",
+    "toastDeletedMany": "{count} fichiers supprimés",
+    "toastPartial": "{count} fichiers n'ont pas pu être supprimés",
+    "toastError": "Impossible de supprimer les fichiers",
+    "toastDownloadError": "Impossible de télécharger le fichier"
   },
   "dashboards": {
     "title": "Tableaux de bord",
@@ -5494,7 +5514,9 @@
     "modeChat": "Chat",
     "modelAuto": "Auto",
     "noAgents": "Aucun",
-    "project": "Projet"
+    "project": "Projet",
+    "toolOutputFilesOne": "{count} fichier produit par des outils",
+    "toolOutputFilesMany": "{count} fichiers produits par des outils"
   },
   "errorPage": {
     "notFoundTitle": "404",

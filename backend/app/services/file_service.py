@@ -281,6 +281,82 @@ class FileService:
 
         return True
         
+    # How many files one bulk delete may name.
+    BULK_DELETE_MAX = 2000
+
+    async def delete_files(self, db: AsyncSession, file_ids: list, organization: Organization, current_user: User) -> dict:
+        """Delete files for good: the row, every link to it, and its bytes.
+
+        Who may delete a file: the user who created it (their upload, or the
+        tool output of their run), or a full admin. A file backing a dashboard
+        resource or a published dashboard release is refused — the dashboard
+        owns it. Every id is checked; refusals are reported per id and do not
+        stop the others.
+
+        Returns ``{"deleted": [ids], "failed": [{"id", "error_code", "reason"}]}``.
+        """
+        from app.errors import ErrorCode
+        from app.models.artifact_release import artifact_release_file_association
+        from app.models.artifact_resource import ArtifactFileBinding
+        from app.models.project import project_file_association
+        from app.services.file_access_service import is_full_admin
+
+        ids = list(dict.fromkeys(str(i) for i in (file_ids or []) if i))
+        result = {"deleted": [], "failed": []}
+        if not ids:
+            return result
+
+        rows = {
+            str(f.id): f for f in (await db.execute(
+                select(File).where(File.id.in_(ids), File.organization_id == str(organization.id))
+            )).scalars().all()
+        }
+        admin = await is_full_admin(db, current_user, organization)
+        in_use = {str(r[0]) for r in (await db.execute(
+            select(ArtifactFileBinding.file_id).where(ArtifactFileBinding.file_id.in_(ids))
+        )).all()} | {str(r[0]) for r in (await db.execute(
+            select(artifact_release_file_association.c.file_id)
+            .where(artifact_release_file_association.c.file_id.in_(ids))
+        )).all()}
+
+        doomed = []
+        for fid in ids:
+            f = rows.get(fid)
+            # Another org's id, or one the user may not touch: same answer, so
+            # ids from elsewhere do not leak.
+            if f is None or not (admin or str(f.user_id) == str(current_user.id)):
+                result["failed"].append({"id": fid, "error_code": ErrorCode.FILE_NOT_FOUND.value, "reason": "not found"})
+            elif fid in in_use or f.source_kind == "artifact_resource":
+                result["failed"].append({"id": fid, "error_code": ErrorCode.FILE_IN_USE.value, "reason": "used by a dashboard"})
+            else:
+                doomed.append(f)
+        if not doomed:
+            return result
+
+        doomed_ids = [str(f.id) for f in doomed]
+        for table in (report_file_association, data_source_file_association, project_file_association):
+            await db.execute(table.delete().where(table.c.file_id.in_(doomed_ids)))
+        for model in (FileTag, SheetSchema):
+            await db.execute(model.__table__.delete().where(model.file_id.in_(doomed_ids)))
+        paths = [f.path for f in doomed if f.path]
+        await db.execute(File.__table__.delete().where(File.id.in_(doomed_ids)))
+        await db.commit()
+
+        # Bytes last, after the rows are gone: a failure here leaves an
+        # orphaned blob, never a row that points at nothing.
+        for path in paths:
+            try:
+                if os.path.isfile(path):
+                    os.remove(path)
+            except OSError as e:
+                logger.warning("file delete: could not remove %s: %s", path, e)
+            try:
+                await storage.adiscard(path)
+            except Exception as e:  # noqa: BLE001 — best effort, like the local unlink
+                logger.warning("file delete: could not discard %s: %s", path, e)
+        result["deleted"] = doomed_ids
+        return result
+
     async def get_files(self, db: AsyncSession, organization: Organization, current_user: User):
         """Files the user may list: their own uploads plus the libraries of
         agents and projects they can see (every file, for a full admin)."""
@@ -293,8 +369,12 @@ class FileService:
         result = await db.execute(stmt)
         files = result.scalars().all()
 
+        from app.services.file_access_service import is_full_admin
+        admin = await is_full_admin(db, current_user, organization)
+
         # get files with tags
         for file in files:
+            file.can_delete = admin or str(file.user_id) == str(current_user.id)
             stmt = select(FileTag).filter(FileTag.file_id == file.id)
             result = await db.execute(stmt)
             file.tags = result.scalars().all()

@@ -48,9 +48,17 @@
                             <span v-else class="text-ink-muted">{{ $t('scheduledPrompt.noAgents') }}</span>
                         </dd>
                     </div>
-                    <div v-if="viewFiles.length" class="flex items-start gap-2">
+                    <div v-if="viewAttachedFiles.length || viewGeneratedCount" class="flex items-start gap-2">
                         <dt class="w-24 shrink-0 text-xs text-ink-muted">{{ $t('scheduledPrompt.files') }}</dt>
-                        <dd class="text-xs text-gray-700 dark:text-gray-300">{{ viewFiles.map((f) => f.filename || f.name).join(', ') }}</dd>
+                        <dd class="text-xs text-ink-2">
+                            <span v-if="viewAttachedFiles.length">{{ viewAttachedFiles.map((f) => f.filename || f.name).join(', ') }}</span>
+                            <NuxtLink
+                                v-if="viewGeneratedCount"
+                                to="/files"
+                                class="block text-ink-muted hover:underline"
+                                data-testid="scheduled-tool-output-count"
+                            >{{ $t(viewGeneratedCount === 1 ? 'scheduledPrompt.toolOutputFilesOne' : 'scheduledPrompt.toolOutputFilesMany', { count: viewGeneratedCount }) }}</NuxtLink>
+                        </dd>
                     </div>
                     <div class="flex items-start gap-2">
                         <dt class="w-24 shrink-0 text-xs text-ink-muted">{{ $t('scheduledPrompt.model') }}</dt>
@@ -488,6 +496,12 @@ function formatRunDate(value?: string): string {
 // report's own defaults.
 const viewAgents = ref<any[]>([])
 const viewFiles = ref<any[]>([])
+// Files the user attached are listed by name. Tool output saved by earlier runs
+// (one file per API call per run) is only counted: on a daily schedule it runs
+// to hundreds of names.
+const isGeneratedFile = (f: any) => (f?.source_kind || 'upload') !== 'upload'
+const viewAttachedFiles = computed(() => viewFiles.value.filter((f) => !isGeneratedFile(f)))
+const viewGeneratedCount = computed(() => viewFiles.value.filter(isGeneratedFile).length)
 const viewModels = ref<any[]>([])
 const viewReportMode = ref<string>('')
 const viewReportModelId = ref<string>('')

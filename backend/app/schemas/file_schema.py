@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 from app.schemas.file_tag_schema import FileTagSchema
 from app.schemas.sheet_schema_schema_ import SheetSchema
@@ -34,3 +34,21 @@ class FileSchemaWithCompletionId(FileSchema):
 class FileSchemaWithMetadata(FileSchema):
     schemas: list[SheetSchema]
     tags: list[FileTagSchema]
+    # Whether the listing user may delete this file (its creator, or a full
+    # admin). The delete endpoints check again; this only drives the UI.
+    can_delete: bool = False
+
+
+class FilesDeleteRequest(BaseModel):
+    file_ids: list[str] = Field(..., min_length=1, max_length=2000)
+
+
+class FileDeleteFailure(BaseModel):
+    id: str
+    error_code: str
+    reason: str
+
+
+class FilesDeleteResult(BaseModel):
+    deleted: list[str]
+    failed: list[FileDeleteFailure]

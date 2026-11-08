@@ -4219,7 +4219,8 @@
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
-    "ssh.key_discovery_failed": "تعذر جلب المفتاح. تحقق من اسم الخادم والمنفذ والشبكة، أو أدخل مفتاحًا موثوقًا في الإعدادات المتقدمة."
+    "ssh.key_discovery_failed": "تعذر جلب المفتاح. تحقق من اسم الخادم والمنفذ والشبكة، أو أدخل مفتاحًا موثوقًا في الإعدادات المتقدمة.",
+    "file.in_use": "الملف مستخدم في لوحة معلومات"
   },
   "email": {
     "dashboardShare": {
@@ -4359,7 +4360,26 @@
     "metadataFieldsMany": "{count} حقول بيانات وصفية",
     "metadataTagsOne": "{count} علامة بيانات وصفية",
     "metadataTagsMany": "{count} علامات بيانات وصفية",
-    "noMetadata": "لا توجد بيانات وصفية"
+    "noMetadata": "لا توجد بيانات وصفية",
+    "search": "البحث في الملفات",
+    "filterAll": "كل الملفات",
+    "filterUploads": "المرفوعة",
+    "filterGenerated": "مخرجات الأدوات",
+    "sourceGenerated": "مخرجات أداة",
+    "showingCount": "{shown} من {total} ملفات",
+    "selectAll": "تحديد كل المعروض",
+    "deleteSelected": "حذف {count} محددة",
+    "delete": "حذف",
+    "download": "تنزيل",
+    "empty": "لا توجد ملفات مطابقة",
+    "confirmTitleOne": "حذف هذا الملف؟",
+    "confirmTitleMany": "حذف {count} ملفات؟",
+    "confirmBody": "تُزال الملفات المحذوفة من كل التقارير ولا يمكن استعادتها.",
+    "toastDeletedOne": "تم حذف الملف",
+    "toastDeletedMany": "تم حذف {count} ملفات",
+    "toastPartial": "تعذر حذف {count} ملفات",
+    "toastError": "تعذر حذف الملفات",
+    "toastDownloadError": "تعذر تنزيل الملف"
   },
   "dashboards": {
     "title": "لوحات التحكم",
@@ -5494,7 +5514,9 @@
     "modeChat": "محادثة",
     "modelAuto": "تلقائي",
     "noAgents": "لا شيء",
-    "project": "مشروع"
+    "project": "مشروع",
+    "toolOutputFilesOne": "{count} ملف أنتجته الأدوات",
+    "toolOutputFilesMany": "{count} ملفات أنتجتها الأدوات"
   },
   "errorPage": {
     "notFoundTitle": "404",

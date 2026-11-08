@@ -4592,7 +4592,8 @@
     "INSTRUCTION_APPLICATIONS_INVALID": "יש לבחור יישומים קיימים בארגון הזה",
     "APPLICATION_AGENT_FORBIDDEN": "ליישום אין גישה לסוכן הזה",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "יש לנהל יישומים ישירות ב-BOW",
-    "ssh.key_discovery_failed": "לא ניתן לקבל את מפתח השרת. בדקו את שם השרת, הפורט והגישה לרשת, או הזינו מפתח מהימן בהגדרות המתקדמות."
+    "ssh.key_discovery_failed": "לא ניתן לקבל את מפתח השרת. בדקו את שם השרת, הפורט והגישה לרשת, או הזינו מפתח מהימן בהגדרות המתקדמות.",
+    "file.in_use": "הקובץ בשימוש בגלריה"
   },
   "email": {
     "dashboardShare": {
@@ -4761,7 +4762,26 @@
     "metadataFieldsMany": "{count} שדות מטא-דאטה",
     "metadataTagsOne": "{count} תג מטא-דאטה",
     "metadataTagsMany": "{count} תגי מטא-דאטה",
-    "noMetadata": "אין מטא-דאטה"
+    "noMetadata": "אין מטא-דאטה",
+    "search": "חיפוש קבצים",
+    "filterAll": "כל הקבצים",
+    "filterUploads": "הועלו",
+    "filterGenerated": "פלט כלים",
+    "sourceGenerated": "פלט כלי",
+    "showingCount": "{shown} מתוך {total} קבצים",
+    "selectAll": "בחירת כל המוצגים",
+    "deleteSelected": "מחיקת {count} שנבחרו",
+    "delete": "מחיקה",
+    "download": "הורדה",
+    "empty": "אין קבצים תואמים",
+    "confirmTitleOne": "למחוק את הקובץ?",
+    "confirmTitleMany": "למחוק {count} קבצים?",
+    "confirmBody": "קבצים שנמחקו מוסרים מכל הדוחות ואי אפשר לשחזר אותם.",
+    "toastDeletedOne": "הקובץ נמחק",
+    "toastDeletedMany": "{count} קבצים נמחקו",
+    "toastPartial": "לא ניתן היה למחוק {count} קבצים",
+    "toastError": "לא ניתן היה למחוק את הקבצים",
+    "toastDownloadError": "לא ניתן היה להוריד את הקובץ"
   },
   "dashboards": {
     "title": "דשבורדים",
@@ -5955,7 +5975,9 @@
     "modeChat": "צ'אט",
     "modelAuto": "אוטומטי",
     "noAgents": "ללא",
-    "project": "פרויקט"
+    "project": "פרויקט",
+    "toolOutputFilesOne": "קובץ אחד שנוצר על ידי כלים",
+    "toolOutputFilesMany": "{count} קבצים שנוצרו על ידי כלים"
   },
   "errorPage": {
     "notFoundTitle": "404",
