@@ -280,6 +280,11 @@ class MCPCreateDataOutput(BaseModel):
     visualization_id: Optional[str] = None
     success: bool
     data_preview: Optional[Dict[str, Any]] = None
+    data_notices: Optional[List[str]] = Field(
+        default=None,
+        description="Notes the data source attached to this result, e.g. that a row limit cut it off. "
+        "When present, the result may be incomplete: never describe it as all of the data.",
+    )
     error_message: Optional[str] = None
     url: Optional[str] = Field(default=None, description="Link to view the report. Always share this with the user.")
 
