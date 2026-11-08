@@ -75,7 +75,8 @@ def _demote(test_client, admin, owner):
 
 
 @pytest.fixture
-def world(logins, test_client, bootstrap_admin, invite_user_to_org, create_data_source, create_report):
+def world(logins, test_client, bootstrap_admin, invite_user_to_org, create_data_source, create_report,
+          wait_for_connection_indexing):
     """A public per-user Postgres source, its now non-admin owner, and the owner's report."""
     admin = bootstrap_admin()
     org_id = admin["org_id"]
@@ -99,6 +100,8 @@ def world(logins, test_client, bootstrap_admin, invite_user_to_org, create_data_
     seeded = _run(_seed_artifact_graph(report["id"]))
     _run(_set_step_code(seeded["step_ids"][0], _query_code(ds_name)))
 
+    # The first indexing run logs in with the shared login. It must not land after the clear.
+    wait_for_connection_indexing(connection_id=connections[0]["id"], user_token=admin["token"], org_id=org_id)
     logins.clear()
     return {
         "admin": admin, "owner": owner, "owner_h": owner_h, "org_id": org_id, "ds_id": ds["id"], "ds_name": ds_name,
@@ -327,6 +330,7 @@ def test_non_admin_owner_can_reload_a_source_that_takes_no_login(
 @pytest.mark.e2e
 def test_reload_keeps_a_stored_secret_of_a_loginless_type_from_a_non_admin_owner(
     tmp_path, keys_used, test_client, bootstrap_admin, invite_user_to_org, create_data_source,
+    wait_for_connection_indexing,
 ):
     """DuckDB can run with no login or with shared cloud keys. With keys it is an ordinary shared source."""
     _, config = _duckdb_source(tmp_path)
@@ -340,6 +344,7 @@ def test_reload_keeps_a_stored_secret_of_a_loginless_type_from_a_non_admin_owner
     assert admin_reload.status_code == 200, admin_reload.text
     assert "shared-key" in keys_used, "the stored keys must reach the client for an admin, or this test proves nothing"
     _demote(test_client, admin, owner)
+    wait_for_connection_indexing(connection_id=ds["connections"][0]["id"], user_token=admin["token"], org_id=org_id)
     keys_used.clear()
 
     reloaded = test_client.get(f"/api/data_sources/{ds['id']}/refresh_schema", headers=_headers(owner["token"], org_id))
@@ -352,8 +357,12 @@ DUCKDB_KEYS = {"access_key": "shared-key", "secret_key": "not-a-real-secret"}
 
 
 @pytest.fixture
-def team(test_client, bootstrap_admin, invite_user_to_org, create_connection):
-    """An org admin, an owner who is an admin until demoted, and builders for their agent."""
+def team(test_client, bootstrap_admin, invite_user_to_org, create_connection, wait_for_connection_indexing):
+    """An org admin, an owner who is an admin until demoted, and builders for their agent.
+
+    Building the agent waits out each connection's first indexing run, which uses the stored
+    credentials, so a recorder cleared afterwards sees only the action under test.
+    """
     admin = bootstrap_admin()
     org_id = admin["org_id"]
     owner = invite_user_to_org(org_id=org_id, admin_token=admin["token"], role="admin")
@@ -376,6 +385,8 @@ def team(test_client, bootstrap_admin, invite_user_to_org, create_connection):
             headers=_headers(owner["token"], org_id),
         )
         assert created.status_code == 200, created.text
+        for linked in connections:
+            wait_for_connection_indexing(connection_id=linked["id"], user_token=admin["token"], org_id=org_id)
         return created.json()
 
     def reload_as(user, agent_id):
