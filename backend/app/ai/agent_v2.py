@@ -6688,6 +6688,14 @@ class AgentV2:
                                         "observation": _observation,
                                     }
 
+                                # A name the run does not have (a hallucinated or
+                                # stale mcp__ name, typically one replayed from an
+                                # earlier run's history) is an unknown tool, not a
+                                # plan-type problem: say so and name what IS callable,
+                                # so the model can recover on its next step.
+                                if self.registry.get_metadata(tool_name) is None:
+                                    return await _refuse_before_dispatch(self._unknown_tool_observation(tool_name))
+
                                 # Validate tool availability for chosen plan_type
                                 if not self._validate_tool_for_plan_type(tool_name, decision.plan_type):
                                     return await _refuse_before_dispatch({
@@ -9221,6 +9229,37 @@ class AgentV2:
             candidates = [t for t in candidates if t.name in allowed]
         self.planner.tool_catalog = await refresh_browser_tool_catalog(
             self.planner.tool_catalog, candidates, ctx)
+
+    # How many callable MCP names an unknown-tool refusal lists.
+    _UNKNOWN_TOOL_SUGGESTIONS = 25
+
+    def _unknown_tool_observation(self, tool_name: str) -> dict:
+        """Refusal for a tool name the run does not have.
+
+        For an ``mcp__`` name it lists the MCP tools this run can call (native
+        names, plus ``call_tool`` when some sit behind ``search_tools``), so a
+        stale name from an earlier run's history is corrected in one step.
+        """
+        name = str(tool_name)
+        observation = {
+            "summary": f"Unknown tool '{name}'",
+            "error": {"code": "unknown_tool", "message": f"'{name}' is not a tool in this conversation"},
+        }
+        if not name.startswith("mcp__"):
+            return observation
+        native = sorted(getattr(self, "_native_mcp_names", None) or ())
+        deferred = bool(getattr(self, "_deferred_mcp_tools", None))
+        if native or deferred:
+            shown = native[: self._UNKNOWN_TOOL_SUGGESTIONS]
+            observation["available_mcp_tools"] = shown
+            hint = f"Call one of these instead: {', '.join(shown)}." if shown else ""
+            if deferred:
+                hint = (hint + " More tools are reachable with search_tools, then call_tool.").strip()
+            observation["error"]["message"] += f". {hint}"
+        else:
+            observation["error"]["message"] += ". No MCP or custom API tools are available in this conversation."
+        logger.warning("[agent] unknown tool %s (native mcp tools: %d, deferred: %s)", name, len(native), deferred)
+        return observation
 
     def _validate_tool_for_plan_type(self, tool_name: str, plan_type: str) -> bool:
         """Validate that tool is available for the chosen plan type.
