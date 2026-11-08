@@ -105,6 +105,9 @@ class FakeResponse:
 class FakeSession:
     """A requests.Session backed either by a FakeHogQL or by canned responses."""
 
+    def mount(self, prefix, adapter):
+        pass
+
     def __init__(self, server=None, responses=None):
         self.server = server
         self._responses = list(responses or [])

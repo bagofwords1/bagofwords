@@ -5,6 +5,7 @@ from xml.etree.ElementTree import Element
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_request, pinned_session
 from defusedxml import ElementTree as ET
 
 from app.ai.prompt_formatters import ServiceFormatter, Table, TableColumn
@@ -140,7 +141,7 @@ class InforEpmClient(DataSourceClient):
                 raise RuntimeError("gateway_token_url is required (or a bearer_token)")
             if not (self.gateway_client_id and self.gateway_client_secret):
                 raise RuntimeError("gateway_client_id and gateway_client_secret are required")
-        self._http = requests.Session()
+        self._http = pinned_session()
         try:
             self._ensure_token()
         except Exception:
@@ -169,7 +170,8 @@ class InforEpmClient(DataSourceClient):
             token_auth["auth"] = (self.gateway_client_id, self.gateway_client_secret)
         if self.gateway_scope:
             data["scope"] = self.gateway_scope
-        response = requests.post(
+        response = pinned_request(
+            "POST",
             self.gateway_token_url, data=data, timeout=self.timeout_sec, verify=self.verify_ssl,
             **token_auth,
         )

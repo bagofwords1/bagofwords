@@ -104,6 +104,7 @@ def patch_requests(monkeypatch):
     def _install(routes, token_responses=None):
         fake = _FakeRequests(routes, token_responses)
         monkeypatch.setattr("app.data_sources.clients.aria_operations_client.requests", fake)
+        monkeypatch.setattr("app.data_sources.clients.aria_operations_client.pinned_session", fake.Session)
         return fake
     return _install
 

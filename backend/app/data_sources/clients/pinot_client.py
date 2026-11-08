@@ -9,10 +9,7 @@ from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
 
 from pinotdb import connect as pinot_connect
 
-try:
-    import requests  # type: ignore
-except Exception:
-    requests = None  # graceful fallback when requests is unavailable
+from app.core.egress import pinned_request
 
 
 class PinotClient(DataSourceClient):
@@ -89,11 +86,11 @@ class PinotClient(DataSourceClient):
         tables: Dict[str, Table] = {}
         table_names: List[str] = []
 
-        if self.controller and requests:
+        if self.controller:
             try:
                 base = self.controller.rstrip("/")
                 auth = (self.user, self.password) if self.user and self.password else None
-                r = requests.get(f"{base}/tables", timeout=20, auth=auth)
+                r = pinned_request("GET", f"{base}/tables", timeout=20, auth=auth)
                 r.raise_for_status()
                 payload = r.json()
                 table_names = payload.get("tables", []) if isinstance(payload, dict) else list(payload or [])

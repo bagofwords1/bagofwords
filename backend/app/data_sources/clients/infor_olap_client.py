@@ -4,6 +4,7 @@ from urllib.parse import urlsplit, urlunsplit
 from xml.sax.saxutils import escape as xml_escape
 
 import requests
+from app.core.egress import pinned_request, pinned_session
 
 from app.data_sources.clients.xmla_base import XMLA_NS, XmlaClient, XmlaHttpError
 
@@ -110,7 +111,7 @@ class InforOlapClient(XmlaClient):
                 "when gateway_token_url is configured"
             )
         if self._http is None:
-            self._http = requests.Session()
+            self._http = pinned_session()
         self._ensure_gateway_token()
 
     def _ensure_gateway_token(self):
@@ -123,7 +124,8 @@ class InforOlapClient(XmlaClient):
         }
         if self.gateway_scope:
             token_data["scope"] = self.gateway_scope
-        response = requests.post(
+        response = pinned_request(
+            "POST",
             self.gateway_token_url,
             data=token_data,
             timeout=self.timeout_sec,

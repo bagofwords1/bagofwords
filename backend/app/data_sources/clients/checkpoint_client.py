@@ -26,6 +26,7 @@ from urllib.parse import urlsplit
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_session
 
 from app.ai.prompt_formatters import ForeignKey, Table, TableColumn
 from app.data_sources.clients.base import DataSourceClient
@@ -153,7 +154,7 @@ class CheckPointClient(DataSourceClient):
         self.timeout = self._integer(timeout, "timeout", 1, 120)
         self.max_rows = self._integer(max_rows, "max_rows", 1, 100000)
         self._credentials = {"api-key": api_key} if api_key else {"user": username, "password": password}
-        self._session = requests.Session()
+        self._session = pinned_session()
         self._session.trust_env = False
         self._session.headers.update(
             {"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "bagofwords-checkpoint/1"}

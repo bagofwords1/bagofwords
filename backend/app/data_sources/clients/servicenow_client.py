@@ -18,6 +18,7 @@ from typing import Generator, List, Optional, Tuple
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_session
 
 from app.data_sources.clients._document_text import (
     DOC_EXTS,
@@ -262,7 +263,7 @@ class ServiceNowClient(DataSourceClient):
             raise RuntimeError(
                 "ServiceNow client has no credentials: provide username/password or sign in with OAuth."
             )
-        session = requests.Session()
+        session = pinned_session()
         session.verify = self.verify_ssl
         session.headers.update({"Accept": "application/json"})
         if self.access_token:

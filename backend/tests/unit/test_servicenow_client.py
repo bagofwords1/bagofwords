@@ -46,6 +46,9 @@ class FakeResponse:
 class FakeSession:
     """Routes Table API GETs to canned responses and records every request."""
 
+    def mount(self, prefix, adapter):
+        pass
+
     def __init__(self, responder):
         self.responder = responder
         self.requests: list[tuple[str, dict]] = []
@@ -343,6 +346,9 @@ import pytest as _pytest  # noqa: E402  (kept local to this section)
 
 class AttachmentSession:
     """Serves Attachment API metadata + binary, records requests."""
+
+    def mount(self, prefix, adapter):
+        pass
 
     def __init__(self, meta_rows, binary=b"%PDF-1.4 fake"):
         self.meta_rows = meta_rows

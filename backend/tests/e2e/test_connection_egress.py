@@ -8,6 +8,8 @@ faked on 127.0.0.1); the network is played at the socket boundary by
 ``NetTrap`` — every connect to 169.254.169.254 lands on a metadata stand-in
 whose hit list must stay empty.
 """
+import threading
+import time
 import uuid
 
 import pytest
@@ -60,6 +62,15 @@ def _create(test_client, headers, base_url):
     })
 
 
+def _settle_indexing(test_client, headers, conn_id):
+    for _ in range(200):
+        status = test_client.get(f"/api/connections/{conn_id}/indexing", headers=headers).json()["status"]
+        if status in ("completed", "failed"):
+            return True
+        time.sleep(0.1)
+    return False
+
+
 @pytest.mark.e2e
 def test_connection_to_internal_server_works_and_update_to_metadata_is_refused(test_client, admin, net):
     trap, port, seen = net
@@ -101,6 +112,78 @@ def test_connection_rebound_to_metadata_after_save_is_refused_at_test_time(test_
     trap.table["rebind.corp.invalid"] = ["169.254.169.254"]
 
     r = test_client.post(f"/api/connections/{conn_id}/test", headers=admin, json={})
+    assert r.status_code == 200 and r.json()["success"] is False
+    assert trap.hits == []
+
+
+class _HeldIndexing(_Prometheus):
+    """Holds the second metric-name listing (the first is the create-time
+    validation, the second the background indexing) until the test releases it."""
+
+    def __init__(self):
+        super().__init__()
+        self.listings = 0
+        self.indexing_started, self.release = threading.Event(), threading.Event()
+
+    def get(self, key, default=None):
+        if str(key[1] if isinstance(key, tuple) else key) == "/api/v1/label/__name__/values":
+            self.listings += 1
+            if self.listings == 2:
+                self.indexing_started.set()
+                self.release.wait(20)
+        return super().get(key, default)
+
+
+@pytest.mark.e2e
+def test_changed_name_follows_the_policy_during_background_indexing(test_client, admin, net):
+    """Indexing is built and checked before the name changes; its later
+    requests must apply the policy to the new answer."""
+    trap, _, _ = net
+    routes = _HeldIndexing()
+    with local_server(routes) as (port, _):
+        trap.table["rebind.corp.invalid"] = ["127.0.0.1"]
+        conn_id = _create(test_client, admin, f"http://rebind.corp.invalid:{port}").json()["id"]
+        assert routes.indexing_started.wait(10)
+        trap.table["rebind.corp.invalid"] = ["169.254.169.254"]
+        routes.release.set()
+        assert _settle_indexing(test_client, admin, conn_id)
+    assert trap.hits == []
+
+
+@pytest.mark.e2e
+def test_name_answering_differently_at_connect_follows_the_policy(test_client, admin, net):
+    """A name whose answer changes: the use-time check sees the internal address,
+    the connection must not be made to a second answer."""
+    trap, port, _ = net
+    trap.table["rebind.corp.invalid"] = ["127.0.0.1"]
+    conn_id = _create(test_client, admin, f"http://rebind.corp.invalid:{port}").json()["id"]
+    assert _settle_indexing(test_client, admin, conn_id)
+    # One answer for the check; every later lookup answers differently.
+    trap.table["rebind.corp.invalid"] = ["127.0.0.1", "169.254.169.254"]
+
+    r = test_client.post(f"/api/connections/{conn_id}/test", headers=admin, json={})
+    assert r.status_code == 200
+    assert trap.hits == []
+
+
+@pytest.mark.e2e
+def test_redirects_follow_the_outbound_policy(test_client, admin, net):
+    """The saved name stays clean; the server answers with a redirect."""
+    trap, _, _ = net
+    redirect = {"on": False}
+
+    class Redirecting(_Prometheus):
+        def get(self, key, default=None):
+            if redirect["on"]:
+                return (302, {"Location": "http://169.254.169.254/latest/user-data"}, b"")
+            return super().get(key, default)
+
+    with local_server(Redirecting()) as (port, _):
+        trap.table["prom.corp.invalid"] = ["127.0.0.1"]
+        conn_id = _create(test_client, admin, f"http://prom.corp.invalid:{port}").json()["id"]
+        assert _settle_indexing(test_client, admin, conn_id)
+        redirect["on"] = True
+        r = test_client.post(f"/api/connections/{conn_id}/test", headers=admin, json={})
     assert r.status_code == 200 and r.json()["success"] is False
     assert trap.hits == []
 

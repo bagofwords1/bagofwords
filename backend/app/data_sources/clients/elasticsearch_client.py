@@ -53,7 +53,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
-import requests
+from app.core.egress import pinned_request
 
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.elasticsearch_guardrails import (
@@ -310,7 +310,7 @@ class ElasticsearchClient(DataSourceClient):
         auth, extra_headers = self._auth()
         headers = {"Content-Type": "application/json"}
         headers.update(extra_headers)
-        resp = requests.request(
+        resp = pinned_request(
             method,
             f"{self.base_url}{path}",
             json=json_body,
@@ -721,7 +721,7 @@ class ElasticsearchClient(DataSourceClient):
         auth, extra_headers = self._auth()
         headers = {"Content-Type": "application/json", "kbn-xsrf": "true"}
         headers.update(extra_headers)
-        resp = requests.request(
+        resp = pinned_request(
             method, f"{self.kibana_url}{path}", params=params, json=json_body,
             auth=auth, verify=self.verify_certs, timeout=self.TIMEOUTS,
             headers=headers,

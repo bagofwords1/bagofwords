@@ -26,6 +26,7 @@ import ssl
 
 import httpx
 import pytest
+import requests
 
 from app.ai.http import safe_client
 from app.core import egress
@@ -39,6 +40,7 @@ from app.core.egress import (
     mcp_client_factory,
     pinned_async_client,
     pinned_client,
+    pinned_session,
 )
 from app.core.url_safety import UnsafeURLError
 from tests.utils.egress_fakes import FakeDNS, local_server
@@ -318,6 +320,75 @@ def test_tls_certificate_is_verified_against_the_hostname(dns, tmp_path):
             with pytest.raises(httpx.ConnectError) as exc:
                 c.get(f"https://impostor.invalid:{port}/")
             assert "certificate" in str(exc.value).lower() or "hostname" in str(exc.value).lower()
+
+
+# ── requests connectors ─────────────────────────────────────────────────────
+
+
+def test_requests_session_connects_to_the_validated_address(dns):
+    with local_server() as (port, seen):
+        fake = dns({"prom.corp.invalid": ["127.0.0.1", "169.254.169.254"]})
+        with pinned_session(Policy.ADMIN) as s:
+            assert s.get(f"http://prom.corp.invalid:{port}/ok", timeout=5).status_code == 200
+    assert seen == [("GET", "/ok", f"prom.corp.invalid:{port}")]
+    assert fake.lookups == ["prom.corp.invalid"]
+
+
+def test_requests_session_applies_the_policy_when_a_name_changes(dns):
+    with local_server() as (port, seen):
+        dns({"prom.corp.invalid": "169.254.169.254"})
+        with pinned_session(Policy.ADMIN) as s, pytest.raises(requests.exceptions.ConnectionError) as exc:
+            s.get(f"http://prom.corp.invalid:{port}/", timeout=5)
+    assert isinstance(exc.value, UnsafeURLError)
+    assert seen == []
+
+
+@pytest.mark.parametrize("target", ["http://169.254.169.254/latest/meta-data/", "http://imds.corp.invalid/"])
+def test_requests_session_applies_the_policy_to_redirects(dns, target):
+    with local_server({"/": (302, {"Location": target}, b"")}) as (port, _):
+        dns({"prom.corp.invalid": "127.0.0.1", "imds.corp.invalid": "169.254.169.254"})
+        with pinned_session(Policy.ADMIN) as s, pytest.raises(UnsafeURLError):
+            s.get(f"http://prom.corp.invalid:{port}/", timeout=5)
+
+
+def test_requests_session_refuses_private_when_blocked(dns, monkeypatch):
+    with local_server() as (port, seen):
+        dns({"prom.corp.invalid": "127.0.0.1"})
+        monkeypatch.setattr(egress, "block_private_outbound", lambda: True)
+        with pinned_session(Policy.ADMIN) as s, pytest.raises(UnsafeURLError):
+            s.get(f"http://prom.corp.invalid:{port}/", timeout=5)
+    assert seen == []
+
+
+def test_requests_session_checks_the_name_behind_a_proxy(dns, monkeypatch):
+    dns({"prom.corp.invalid": "169.254.169.254"})
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9")
+    with pinned_session(Policy.ADMIN) as s, pytest.raises(UnsafeURLError):
+        s.get("http://prom.corp.invalid/", timeout=5)
+
+
+def test_requests_session_unreachable_host_is_an_ordinary_connection_error(dns):
+    dns({"prom.corp.invalid": "127.0.0.1"})
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    with pinned_session(Policy.ADMIN) as s, pytest.raises(requests.exceptions.ConnectionError) as exc:
+        s.get(f"http://prom.corp.invalid:{port}/", timeout=5)
+    assert not isinstance(exc.value, UnsafeURLError)
+
+
+def test_requests_tls_certificate_is_verified_against_the_hostname(dns, tmp_path):
+    cert, key = _self_signed(tmp_path, "gw.corp.invalid")
+    server_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server_ctx.load_cert_chain(cert, key)
+    with local_server(tls_context=server_ctx) as (port, seen):
+        dns({"gw.corp.invalid": "127.0.0.1", "impostor.invalid": "127.0.0.1"})
+        with pinned_session(Policy.ADMIN) as s:
+            s.verify = cert
+            assert s.get(f"https://gw.corp.invalid:{port}/", timeout=5).status_code == 200
+            with pytest.raises(requests.exceptions.SSLError):
+                s.get(f"https://impostor.invalid:{port}/", timeout=5)
+    assert seen == [("GET", "/", f"gw.corp.invalid:{port}")]
 
 
 # ── curl_cffi pinning (web_fetch / sandbox http) ────────────────────────────

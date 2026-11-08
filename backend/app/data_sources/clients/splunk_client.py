@@ -46,6 +46,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_request
 
 from app.data_sources.clients.progress import IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
@@ -168,7 +169,8 @@ class SplunkClient(DataSourceClient):
         params = dict(params or {})
         params.setdefault("output_mode", "json")
         try:
-            resp = requests.get(
+            resp = pinned_request(
+                "GET",
                 f"{self.base_url}{path}", params=params,
                 headers=self._headers(), auth=self._auth(),
                 verify=self.verify_ssl, timeout=HTTP_TIMEOUT,
@@ -222,7 +224,8 @@ class SplunkClient(DataSourceClient):
         if latest is not None:
             params["latest_time"] = latest
         try:
-            resp = requests.post(
+            resp = pinned_request(
+                "POST",
                 f"{self.base_url}/services/search/jobs",
                 data=params, headers=self._headers(), auth=self._auth(),
                 verify=self.verify_ssl, timeout=HTTP_TIMEOUT,

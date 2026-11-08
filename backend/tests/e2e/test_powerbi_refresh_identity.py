@@ -151,7 +151,7 @@ def test_refresh_preserves_model_identity_and_updates_columns(
     monkeypatch.setattr("app.data_sources.clients.powerbi_client.requests.Session", lambda: tenant)
     token = Mock(status_code=200)
     token.json.return_value = {"access_token": "app-test-token"}
-    monkeypatch.setattr("app.data_sources.clients.powerbi_client.requests.post", lambda *a, **k: token)
+    monkeypatch.setattr("app.data_sources.clients.powerbi_client.pinned_request", lambda *a, **k: token)
     rows, selected, canonical = asyncio.run(refresh_and_read(ids, profile["id"], shared))
     assert {t.metadata_json["powerbi"]["datasetId"] for t in rows} == {"ds-a", "ds-b"}
     assert len({t.name for t in rows}) == 2
@@ -395,5 +395,5 @@ def test_duplicate_identity_refresh_preserves_links_and_selection(
     monkeypatch.setattr("app.data_sources.clients.powerbi_client.requests.Session", lambda: tenant)
     token = Mock(status_code=200)
     token.json.return_value = {"access_token": "app-test-token"}
-    monkeypatch.setattr("app.data_sources.clients.powerbi_client.requests.post", lambda *a, **k: token)
+    monkeypatch.setattr("app.data_sources.clients.powerbi_client.pinned_request", lambda *a, **k: token)
     asyncio.run(check())

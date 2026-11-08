@@ -24,6 +24,7 @@ from urllib.parse import parse_qsl, quote, urlencode, urlsplit
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_session
 
 from app.ai.prompt_formatters import ForeignKey, Table, TableColumn
 from app.data_sources.clients.base import DataSourceClient
@@ -676,7 +677,7 @@ No SQL, raw URLs, tmsh/bash, transactions or mutations: the client cannot send a
     @contextmanager
     def _session(self):
         """Token login, yield, guaranteed logout (DELETE own token)."""
-        with requests.Session() as session:
+        with pinned_session() as session:
             session.trust_env = False
             session.verify = self._verify
             session.headers.update({"Accept": "application/json", "User-Agent": "bagofwords-f5-bigip/1"})

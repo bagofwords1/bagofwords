@@ -26,6 +26,9 @@ Entry points:
 * ``pinned_async_client(policy, **httpx_kwargs) -> httpx.AsyncClient``
 * ``PinnedTransport`` / ``AsyncPinnedTransport`` (pass as ``transport=``)
 * ``mcp_client_factory(policy)`` — ``httpx_client_factory`` for the MCP SDK
+* ``pinned_session(policy) -> requests.Session`` / ``pinned_request(method, url)``
+  — same guarantee for connectors built on ``requests``; every new connection
+  and redirect hop is checked
 * ``curl_pinned_request(url, policy) -> (canonical_url, curl_options)`` for
   curl_cffi (``CURLOPT_RESOLVE`` pin)
 * ``check_google_token_uri(service_account_info)``
@@ -49,6 +52,13 @@ from typing import Any, Optional
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
+import requests
+from requests.adapters import HTTPAdapter
+from requests.utils import select_proxy
+from urllib3.connection import HTTPConnection, HTTPSConnection
+from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
+from urllib3.exceptions import ConnectTimeoutError, NameResolutionError, NewConnectionError
+from urllib3.util.connection import _DEFAULT_TIMEOUT
 
 from app.core.url_safety import (
     IPAddress,
@@ -438,6 +448,100 @@ def check_connected_ip(primary_ip: Optional[str], url: str, policy: Policy | str
         raise UnsafeURLError(f"Connected to a refused address: {reason}.")
 
 
+# ── requests (connector HTTP clients) ───────────────────────────────────────
+#
+# Same guarantee as the httpx transports for clients built on ``requests``. The
+# pin sits where urllib3 opens the socket rather than in the URL, so the
+# hostname stays in the URL, ``Host`` header, SNI and certificate check, and
+# every new connection is validated: each redirect hop re-enters here, and a
+# background job that outlives the check made when its client was built cannot
+# follow a name that has since changed.
+
+
+class RequestsEgressBlocked(UnsafeURLError, requests.exceptions.ConnectionError):
+    """A refused destination, seen by ``except RequestException`` handlers as
+    an unreachable host and by ``except UnsafeURLError`` as a block."""
+
+    def __init__(self, message: str, *, request: Any = None):
+        UnsafeURLError.__init__(self, message)
+        requests.exceptions.ConnectionError.__init__(self, message, request=request)
+
+
+class _PinnedConnection:
+    egress_policy = Policy.ADMIN
+
+    def _new_conn(self) -> socket.socket:
+        timeout = None if self.timeout is _DEFAULT_TIMEOUT else self.timeout
+        # A name that does not resolve stays an ordinary connection failure.
+        addrs = check_host(self._dns_host, self.egress_policy, require_resolution=False)
+        if not addrs:
+            raise NameResolutionError(self.host, self, socket.gaierror(socket.EAI_NONAME, "Name or service not known"))
+        try:
+            sock = _connect_first(addrs, self.port, self._dns_host, timeout)
+        except socket.timeout as e:
+            raise ConnectTimeoutError(self, f"Connection to {self.host} timed out.") from e
+        except OSError as e:
+            raise NewConnectionError(self, f"Failed to establish a new connection: {e}") from e
+        for opt in self.socket_options or ():
+            sock.setsockopt(*opt)
+        return sock
+
+
+def _pinned_pools(policy: Policy) -> dict:
+    attrs = {"egress_policy": policy}
+    http_conn = type("PinnedHTTPConnection", (_PinnedConnection, HTTPConnection), attrs)
+    https_conn = type("PinnedHTTPSConnection", (_PinnedConnection, HTTPSConnection), attrs)
+    return {
+        "http": type("PinnedHTTPPool", (HTTPConnectionPool,), {"ConnectionCls": http_conn}),
+        "https": type("PinnedHTTPSPool", (HTTPSConnectionPool,), {"ConnectionCls": https_conn}),
+    }
+
+
+_PINNED_POOLS = {policy: _pinned_pools(policy) for policy in Policy}
+
+
+class PinnedHTTPAdapter(HTTPAdapter):
+    """``HTTPAdapter`` whose direct connections are pinned. Auth handlers,
+    client certificates, ``verify`` and ``trust_env`` keep working unchanged:
+    they sit above the socket this replaces."""
+
+    __attrs__ = HTTPAdapter.__attrs__ + ["_policy"]
+
+    def __init__(self, policy: Policy | str = Policy.ADMIN, **kwargs: Any):
+        self._policy = Policy(policy)
+        super().__init__(**kwargs)
+
+    def init_poolmanager(self, *args: Any, **kwargs: Any) -> None:
+        super().init_poolmanager(*args, **kwargs)
+        self.poolmanager.pool_classes_by_scheme = _PINNED_POOLS[self._policy]
+
+    def send(self, request, stream=False, timeout=None, verify=True, cert=None, proxies=None):
+        try:
+            # Behind a proxy the proxy resolves: the known limit in this
+            # module's docstring. Check the name, as the httpx transports do.
+            if select_proxy(request.url, proxies):
+                check_url(request.url, self._policy)
+            return super().send(request, stream=stream, timeout=timeout, verify=verify, cert=cert, proxies=proxies)
+        except UnsafeURLError as e:
+            raise RequestsEgressBlocked(str(e), request=request) from None
+
+
+def pinned_session(policy: Policy | str = Policy.ADMIN) -> requests.Session:
+    """``requests.Session()`` that validates every new connection under
+    ``policy`` and connects to the validated address."""
+    session = requests.Session()
+    adapter = PinnedHTTPAdapter(policy)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
+
+
+def pinned_request(method: str, url: str, *, policy: Policy | str = Policy.ADMIN, **kwargs: Any) -> requests.Response:
+    """One-shot ``requests.request(method, url, **kwargs)`` through a pinned session."""
+    with pinned_session(policy) as session:
+        return session.request(method, url, **kwargs)
+
+
 # ── Google service-account keys ─────────────────────────────────────────────
 
 GOOGLE_TOKEN_URIS = frozenset({
@@ -468,13 +572,9 @@ def _sock_family(ip: IPAddress) -> int:
     return socket.AF_INET6 if ip.version == 6 else socket.AF_INET
 
 
-def connect_pinned_socket(
-    host: str, port: int, policy: Policy | str = Policy.ADMIN, *, timeout: Optional[float] = None
-) -> socket.socket:
-    """Blocking TCP connect to a validated address of ``host``.
-    Raises ``UnsafeURLError`` when refused, ``OSError`` when unreachable."""
+def _connect_first(addrs: list[IPAddress], port: int, host: str, timeout: Optional[float]) -> socket.socket:
     last: Optional[OSError] = None
-    for ip in check_host(host, policy):
+    for ip in addrs:
         s = socket.socket(_sock_family(ip), socket.SOCK_STREAM)
         s.settimeout(timeout)
         try:
@@ -484,6 +584,14 @@ def connect_pinned_socket(
             s.close()
             last = e
     raise last or OSError(f"Could not connect to {host!r}")
+
+
+def connect_pinned_socket(
+    host: str, port: int, policy: Policy | str = Policy.ADMIN, *, timeout: Optional[float] = None
+) -> socket.socket:
+    """Blocking TCP connect to a validated address of ``host``.
+    Raises ``UnsafeURLError`` when refused, ``OSError`` when unreachable."""
+    return _connect_first(check_host(host, policy), port, host, timeout)
 
 
 async def open_pinned_socket(

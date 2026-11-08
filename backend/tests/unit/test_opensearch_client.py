@@ -64,7 +64,7 @@ def transport(monkeypatch):
     def _install(routes=None, error=None):
         fake = _CapturingRequest(routes, error)
         monkeypatch.setattr(
-            "app.data_sources.clients.opensearch_client.requests.request", fake
+            "app.data_sources.clients.opensearch_client.pinned_request", fake
         )
         return fake
     return _install

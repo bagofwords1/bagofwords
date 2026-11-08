@@ -2,7 +2,7 @@ from app.data_sources.clients.progress import discovery_progress, discovery_item
 from app.data_sources.clients.base import DataSourceClient
 
 import pandas as pd
-import requests
+from app.core.egress import pinned_request
 from typing import List, Generator, Optional, Dict, Any
 from contextlib import contextmanager
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
@@ -28,7 +28,8 @@ class _BasicTokenCursor:
         self._rows: List[tuple] = []
 
     def execute(self, sql: str, params: Any = None) -> "_BasicTokenCursor":
-        resp = requests.post(
+        resp = pinned_request(
+            "POST",
             self._url,
             json={"query": sql, "resultFormat": "object", "header": False},
             headers={

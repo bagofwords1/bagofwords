@@ -28,7 +28,9 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 import app.data_sources.clients.salesforce_client as sfmod
+from app.core.egress import PinnedHTTPAdapter
 from app.data_sources.clients.salesforce_client import SalesforceClient
+from tests.utils.egress_fakes import one_shot
 
 
 # ---------- test RSA key (for the real JWT signing path) ---------- #
@@ -62,7 +64,8 @@ class _FakeSalesforce:
     # Per-test override of the canned query pages (see _set_pages).
     pages: list | None = None
 
-    def __init__(self, **kwargs):
+    def __init__(self, session=None, **kwargs):
+        assert isinstance(session.get_adapter("https://x.invalid"), PinnedHTTPAdapter)
         type(self).last_kwargs = kwargs
         self._global = _global_describe
         self._object_fields = _object_fields
@@ -256,7 +259,7 @@ class TestJwtBearer:
                 "instance_url": "https://na5.my.salesforce.com",
             })
 
-        monkeypatch.setattr(sfmod.requests, "post", fake_post)
+        monkeypatch.setattr(sfmod, "pinned_request", one_shot(fake_post))
 
         c = SalesforceClient(consumer_key="CK", private_key=private_key_pem, username="svc@x.com")
         assert c._auth_mode == "jwt"
@@ -278,7 +281,7 @@ class TestJwtBearer:
             captured["url"] = url
             return _FakeResponse(200, {"access_token": "t", "instance_url": "https://cs1.my.salesforce.com"})
 
-        monkeypatch.setattr(sfmod.requests, "post", fake_post)
+        monkeypatch.setattr(sfmod, "pinned_request", one_shot(fake_post))
         c = SalesforceClient(consumer_key="CK", private_key=private_key_pem, username="s", sandbox=True)
         _ = c.sf
         assert captured["url"].startswith("https://test.salesforce.com")
@@ -287,7 +290,7 @@ class TestJwtBearer:
         def fake_post(url, data=None, timeout=None):
             return _FakeResponse(400, {"error": "invalid_grant", "error_description": "user hasn't approved this consumer"})
 
-        monkeypatch.setattr(sfmod.requests, "post", fake_post)
+        monkeypatch.setattr(sfmod, "pinned_request", one_shot(fake_post))
         c = SalesforceClient(consumer_key="CK", private_key=private_key_pem, username="s")
         with pytest.raises(RuntimeError, match="invalid_grant"):
             _ = c.sf
@@ -308,7 +311,7 @@ class TestClientCredentials:
                 "instance_url": "https://rooms.my.salesforce.com",
             })
 
-        monkeypatch.setattr(sfmod.requests, "post", fake_post)
+        monkeypatch.setattr(sfmod, "pinned_request", one_shot(fake_post))
 
         c = SalesforceClient(consumer_key="CK", consumer_secret="CS", domain="rooms")
         assert c._auth_mode == "client_credentials"
@@ -332,20 +335,20 @@ class TestClientCredentials:
         # Both variants share consumer_key; the secret-vs-private-key split is
         # what discriminates them, since the chosen auth name never reaches
         # the client (construct_client strips it).
-        monkeypatch.setattr(sfmod.requests, "post", lambda *a, **k: _FakeResponse(
+        monkeypatch.setattr(sfmod, "pinned_request", lambda *a, **k: _FakeResponse(
             200, {"access_token": "t", "instance_url": "https://x.my.salesforce.com"}))
         c = SalesforceClient(consumer_key="CK", private_key=private_key_pem, username="u@x.com")
         assert c._auth_mode == "jwt"
 
     def test_generic_login_host_gets_a_my_domain_hint(self, monkeypatch):
-        monkeypatch.setattr(sfmod.requests, "post", lambda *a, **k: _FakeResponse(
+        monkeypatch.setattr(sfmod, "pinned_request", lambda *a, **k: _FakeResponse(
             400, {"error": "invalid_client", "error_description": "invalid client credentials"}))
         c = SalesforceClient(consumer_key="CK", consumer_secret="CS")  # domain left at "login"
         with pytest.raises(RuntimeError, match="My Domain"):
             _ = c.sf
 
     def test_my_domain_failure_omits_the_hint(self, monkeypatch):
-        monkeypatch.setattr(sfmod.requests, "post", lambda *a, **k: _FakeResponse(
+        monkeypatch.setattr(sfmod, "pinned_request", lambda *a, **k: _FakeResponse(
             400, {"error": "invalid_client", "error_description": "invalid client credentials"}))
         c = SalesforceClient(consumer_key="CK", consumer_secret="CS", domain="rooms")
         with pytest.raises(RuntimeError) as exc:
