@@ -102,7 +102,6 @@ async def report_with_steps(tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.usefixtures("finish_spawned_tasks")  # seeded steps spawn the Slack hook
 async def test_discovery_uses_summaries_without_loading_result_data(report_with_steps):
     ids = report_with_steps.ids
     async with report_with_steps.maker() as db:

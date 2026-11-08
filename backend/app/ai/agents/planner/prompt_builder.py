@@ -38,6 +38,10 @@ _OBS_KEEP_KEYS = {
     # argument shape from context after _RECENT_OBS_FULL calls, leaving the
     # agent to re-guess or pay for another discovery round trip.
     "input_schema",
+    # A data source's notes on a result (row limit hit, query rewritten). An
+    # older result is still the one the answer may rest on; dropping the note
+    # let it pass for complete.
+    "data_notices",
 }
 
 class PromptBuilder:
