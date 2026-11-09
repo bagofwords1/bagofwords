@@ -81,6 +81,11 @@ def local_server(routes=None, tls_context=None):
         srv.server_close()
 
 
+def one_shot(fake):
+    """Adapts a ``requests.post``-shaped fake to ``egress.pinned_request``."""
+    return lambda method, url, **kwargs: fake(url, **kwargs)
+
+
 # ── socket-level trap (non-HTTP paths, drivers, SDKs that resolve themselves) ──
 
 METADATA_IP = "169.254.169.254"

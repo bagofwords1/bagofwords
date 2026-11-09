@@ -218,9 +218,9 @@ class AzureCostClient(DataSourceClient):
 
     def _session(self):
         if self._http is None:
-            import requests
+            from app.core.egress import pinned_session
 
-            self._http = requests.Session()
+            self._http = pinned_session()
         return self._http
 
     @contextmanager

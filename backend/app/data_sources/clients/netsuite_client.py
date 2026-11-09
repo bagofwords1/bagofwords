@@ -3,7 +3,7 @@ from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
 
 import pandas as pd
-import requests
+from app.core.egress import pinned_session
 from requests_oauthlib import OAuth1
 from typing import List, Optional
 from contextlib import contextmanager
@@ -45,7 +45,7 @@ class NetsuiteClient(DataSourceClient):
             realm=self._realm,
             signature_method="HMAC-SHA256",
         )
-        session = requests.Session()
+        session = pinned_session()
         session.auth = auth
         session.headers.update({
             "Content-Type": "application/json",

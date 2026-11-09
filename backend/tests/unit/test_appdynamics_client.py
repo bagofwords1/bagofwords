@@ -101,6 +101,9 @@ def patch_requests(monkeypatch):
         monkeypatch.setattr(
             "app.data_sources.clients.appdynamics_client.requests", fake
         )
+        monkeypatch.setattr(
+            "app.data_sources.clients.appdynamics_client.pinned_session", fake.Session
+        )
         return fake
     return _install
 

@@ -2,7 +2,7 @@ from app.data_sources.clients.progress import discovery_progress, discovery_item
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 from typing import List, Dict, Optional
-import requests
+from app.core.egress import pinned_session
 import pandas as pd
 
 
@@ -49,7 +49,7 @@ class TableauClient(DataSourceClient):
         if not self.server_url:
             raise RuntimeError("server_url is required")
 
-        session = requests.Session()
+        session = pinned_session()
 
         signin_url = f"{self.server_url.rstrip('/')}/api/{self._api_version}/auth/signin"
         if self.pat_name and self.pat_token:

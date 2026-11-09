@@ -5,7 +5,7 @@ from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 import json
 import re
 import pandas as pd
-import requests
+from app.core.egress import pinned_request
 from typing import Any, Dict, List, Optional
 
 
@@ -91,7 +91,7 @@ class OpenSearchClient(DataSourceClient):
     def _request(self, method: str, path: str, json_body: Any = None,
                  params: Optional[Dict[str, Any]] = None) -> Any:
         auth = (self.user, self.password or "") if self.user else None
-        resp = requests.request(
+        resp = pinned_request(
             method,
             f"{self.base_url}{path}",
             json=json_body,

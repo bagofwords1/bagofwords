@@ -24,6 +24,7 @@ from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_session
 
 from app.ai.prompt_formatters import ForeignKey, Table, TableColumn
 from app.data_sources.clients.base import DataSourceClient
@@ -275,7 +276,7 @@ No SQL, raw URLs, actions or mutations exist; the account only needs the Viewer 
     def _session(self):
         """Documented handshake: POST Sessions -> 201 + X-Auth-Token; DELETE Sessions('<Id>') -> 204."""
         deadline = time.monotonic() + 120
-        with requests.Session() as session:
+        with pinned_session() as session:
             session.trust_env = False
             session.verify = self._verify
             session.headers.update({"Accept": "application/json", "Content-Type": "application/json",

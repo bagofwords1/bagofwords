@@ -19,13 +19,16 @@ would fail instead of reaching the server.
 """
 from __future__ import annotations
 
+import asyncio
 import datetime
+import errno
 import ipaddress
 import socket
 import ssl
 
 import httpx
 import pytest
+import requests
 
 from app.ai.http import safe_client
 from app.core import egress
@@ -35,10 +38,13 @@ from app.core.egress import (
     check_google_token_uri,
     check_host,
     check_url,
+    connect_pinned_socket,
     curl_pinned_request,
     mcp_client_factory,
+    open_pinned_socket,
     pinned_async_client,
     pinned_client,
+    pinned_session,
 )
 from app.core.url_safety import UnsafeURLError
 from tests.utils.egress_fakes import FakeDNS, local_server
@@ -318,6 +324,145 @@ def test_tls_certificate_is_verified_against_the_hostname(dns, tmp_path):
             with pytest.raises(httpx.ConnectError) as exc:
                 c.get(f"https://impostor.invalid:{port}/")
             assert "certificate" in str(exc.value).lower() or "hostname" in str(exc.value).lower()
+
+
+# ── requests connectors ─────────────────────────────────────────────────────
+
+
+def test_requests_session_connects_to_the_validated_address(dns):
+    with local_server() as (port, seen):
+        fake = dns({"prom.corp.invalid": ["127.0.0.1", "169.254.169.254"]})
+        with pinned_session(Policy.ADMIN) as s:
+            assert s.get(f"http://prom.corp.invalid:{port}/ok", timeout=5).status_code == 200
+    assert seen == [("GET", "/ok", f"prom.corp.invalid:{port}")]
+    assert fake.lookups == ["prom.corp.invalid"]
+
+
+def test_requests_session_applies_the_policy_when_a_name_changes(dns):
+    with local_server() as (port, seen):
+        dns({"prom.corp.invalid": "169.254.169.254"})
+        with pinned_session(Policy.ADMIN) as s, pytest.raises(requests.exceptions.ConnectionError) as exc:
+            s.get(f"http://prom.corp.invalid:{port}/", timeout=5)
+    assert isinstance(exc.value, UnsafeURLError)
+    assert seen == []
+
+
+@pytest.mark.parametrize("target", ["http://169.254.169.254/latest/meta-data/", "http://imds.corp.invalid/"])
+def test_requests_session_applies_the_policy_to_redirects(dns, target):
+    with local_server({"/": (302, {"Location": target}, b"")}) as (port, _):
+        dns({"prom.corp.invalid": "127.0.0.1", "imds.corp.invalid": "169.254.169.254"})
+        with pinned_session(Policy.ADMIN) as s, pytest.raises(UnsafeURLError):
+            s.get(f"http://prom.corp.invalid:{port}/", timeout=5)
+
+
+def test_requests_session_refuses_private_when_blocked(dns, monkeypatch):
+    with local_server() as (port, seen):
+        dns({"prom.corp.invalid": "127.0.0.1"})
+        monkeypatch.setattr(egress, "block_private_outbound", lambda: True)
+        with pinned_session(Policy.ADMIN) as s, pytest.raises(UnsafeURLError):
+            s.get(f"http://prom.corp.invalid:{port}/", timeout=5)
+    assert seen == []
+
+
+def test_requests_session_checks_the_name_behind_a_proxy(dns, monkeypatch):
+    dns({"prom.corp.invalid": "169.254.169.254"})
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9")
+    with pinned_session(Policy.ADMIN) as s, pytest.raises(UnsafeURLError):
+        s.get("http://prom.corp.invalid/", timeout=5)
+
+
+def test_requests_session_unreachable_host_is_an_ordinary_connection_error(dns):
+    dns({"prom.corp.invalid": "127.0.0.1"})
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    with pinned_session(Policy.ADMIN) as s, pytest.raises(requests.exceptions.ConnectionError) as exc:
+        s.get(f"http://prom.corp.invalid:{port}/", timeout=5)
+    assert not isinstance(exc.value, UnsafeURLError)
+
+
+def test_requests_tls_certificate_is_verified_against_the_hostname(dns, tmp_path):
+    cert, key = _self_signed(tmp_path, "gw.corp.invalid")
+    server_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server_ctx.load_cert_chain(cert, key)
+    with local_server(tls_context=server_ctx) as (port, seen):
+        dns({"gw.corp.invalid": "127.0.0.1", "impostor.invalid": "127.0.0.1"})
+        with pinned_session(Policy.ADMIN) as s:
+            s.verify = cert
+            assert s.get(f"https://gw.corp.invalid:{port}/", timeout=5).status_code == 200
+            with pytest.raises(requests.exceptions.SSLError):
+                s.get(f"https://impostor.invalid:{port}/", timeout=5)
+    assert seen == [("GET", "/", f"gw.corp.invalid:{port}")]
+
+
+def test_an_absolute_name_is_resolved_as_written(dns):
+    with local_server() as (port, seen):
+        # Only the name with its final dot answers; a resolver with a search
+        # list treats the two spellings differently.
+        fake = dns({"metrics.example.": "127.0.0.1"})
+        with pinned_session(Policy.ADMIN) as s:
+            assert s.get(f"http://metrics.example.:{port}/ok", timeout=5).status_code == 200
+    assert fake.lookups == ["metrics.example."]
+    assert [path for _, path, _ in seen] == ["/ok"]
+
+
+def test_the_addresses_of_an_absolute_name_are_the_ones_checked(dns):
+    dns({"metrics.example.": "127.0.0.1", "metrics.example": "169.254.169.254"})
+    assert [str(ip) for ip in check_host("metrics.example.", Policy.ADMIN)] == ["127.0.0.1"]
+
+    dns({"metrics.example.": "169.254.169.254", "metrics.example": "127.0.0.1"})
+    with pytest.raises(UnsafeURLError):
+        check_host("metrics.example.", Policy.ADMIN)
+
+
+def test_policy_names_match_with_or_without_the_final_dot(dns):
+    dns({})
+    with pytest.raises(UnsafeURLError):
+        check_host("metadata.google.internal.", Policy.ADMIN)
+    with pytest.raises(UnsafeURLError):
+        check_host("LOCALHOST.", Policy.PUBLIC)
+
+
+@pytest.fixture
+def no_ipv6(monkeypatch):
+    """A host whose kernel has no IPv6: creating an AF_INET6 socket fails."""
+    real = socket.socket
+
+    class NoIPv6(real):
+        def __init__(self, family=-1, *args, **kwargs):
+            if family == socket.AF_INET6:
+                raise OSError(errno.EAFNOSUPPORT, "Address family not supported by protocol")
+            super().__init__(family, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "socket", NoIPv6)
+
+
+def test_blocking_connect_moves_on_when_an_address_family_is_unavailable(dns, no_ipv6):
+    with local_server() as (port, _):
+        dns({"dual.invalid": [["2001:db8::1", "127.0.0.1"]]})
+        with connect_pinned_socket("dual.invalid", port, Policy.ADMIN, timeout=5) as sock:
+            assert sock.getpeername()[:2] == ("127.0.0.1", port)
+
+
+def test_async_connect_moves_on_when_an_address_family_is_unavailable(dns, no_ipv6):
+    async def connect(port):
+        sock = await open_pinned_socket("dual.invalid", port, Policy.ADMIN, timeout=5)
+        try:
+            return sock.getpeername()[:2]
+        finally:
+            sock.close()
+
+    with local_server() as (port, _):
+        dns({"dual.invalid": [["2001:db8::1", "127.0.0.1"]]})
+        assert asyncio.run(connect(port)) == ("127.0.0.1", port)
+
+
+def test_requests_session_moves_on_when_an_address_family_is_unavailable(dns, no_ipv6):
+    with local_server() as (port, seen):
+        dns({"dual.invalid": [["2001:db8::1", "127.0.0.1"]]})
+        with pinned_session(Policy.ADMIN) as s:
+            assert s.get(f"http://dual.invalid:{port}/ok", timeout=5).status_code == 200
+    assert [path for _, path, _ in seen] == ["/ok"]
 
 
 # ── curl_cffi pinning (web_fetch / sandbox http) ────────────────────────────

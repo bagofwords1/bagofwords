@@ -60,6 +60,9 @@ class FakeFalcon:
     that route; the fake applies the endpoint's paging and limit rules and
     validates every request the client makes."""
 
+    def mount(self, prefix, adapter):
+        pass
+
     def __init__(self, data=None, *, region_header="us-1", deny=(), token_status=201):
         self.data = data or {}
         self.region_header = region_header

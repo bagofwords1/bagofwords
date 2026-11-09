@@ -23,7 +23,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
-import requests
+from app.core.egress import pinned_request
 
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import ForeignKey, Table, TableColumn, ServiceFormatter
@@ -167,7 +167,8 @@ class MondayClient(DataSourceClient):
             payload["variables"] = variables
         last_error = "unknown error"
         for attempt in range(RETRIES):
-            response = requests.post(
+            response = pinned_request(
+                "POST",
                 API_URL,
                 json=payload,
                 headers={

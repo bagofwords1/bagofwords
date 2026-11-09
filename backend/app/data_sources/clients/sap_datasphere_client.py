@@ -5,6 +5,7 @@ from typing import List, Dict, Optional, Tuple
 from urllib.parse import urljoin, urlencode, quote
 import time
 import requests
+from app.core.egress import pinned_session
 import pandas as pd
 from defusedxml import ElementTree as ET
 
@@ -105,7 +106,7 @@ class SapDatasphereClient(DataSourceClient):
 
     def _session(self) -> requests.Session:
         if self._http is None:
-            self._http = requests.Session()
+            self._http = pinned_session()
             self._http.verify = self.verify_ssl
         return self._http
 
