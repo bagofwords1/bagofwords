@@ -831,7 +831,39 @@
     ],
     "artifactLoadFailed": "Det gick inte att läsa in översikten. Uppdatera sidan och försök igen.",
     "deleteUnpublishedDashboards": "Opublicerade instrumentpaneler i den raderas också: {names}",
-    "deleteLosesUnpublishedChanges": "Opublicerade ändringar i dessa instrumentpaneler går förlorade (den publicerade versionen finns kvar): {names}"
+    "deleteLosesUnpublishedChanges": "Opublicerade ändringar i dessa instrumentpaneler går förlorade (den publicerade versionen finns kvar): {names}",
+    "view": {
+      "groupAndSort": "Gruppera och sortera",
+      "groupBy": "Gruppera efter",
+      "sortBy": "Sortera efter",
+      "direction": "Riktning",
+      "group": {
+        "date": "Datum",
+        "status": "Status",
+        "none": "Ingen"
+      },
+      "sort": {
+        "updated": "Senaste aktivitet",
+        "created": "Skapad",
+        "name": "Namn"
+      },
+      "dir": {
+        "desc": "Fallande",
+        "asc": "Stigande"
+      },
+      "groups": {
+        "starred": "Stjärnmärkta",
+        "today": "Idag",
+        "yesterday": "Igår",
+        "previous7": "Senaste 7 dagarna",
+        "previous30": "Senaste 30 dagarna",
+        "older": "Äldre",
+        "needsInput": "Kräver indata",
+        "running": "Körs",
+        "queued": "I kö",
+        "idle": "Inaktiv"
+      }
+    }
   },
   "projects": {
     "title": "Projekt",

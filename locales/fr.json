@@ -831,7 +831,39 @@
     ],
     "artifactLoadFailed": "Impossible de charger le tableau de bord. Actualisez la page pour réessayer.",
     "deleteUnpublishedDashboards": "Ses tableaux de bord non publiés seront aussi supprimés : {names}",
-    "deleteLosesUnpublishedChanges": "Les modifications non publiées de ces tableaux de bord seront perdues (la version publiée reste) : {names}"
+    "deleteLosesUnpublishedChanges": "Les modifications non publiées de ces tableaux de bord seront perdues (la version publiée reste) : {names}",
+    "view": {
+      "groupAndSort": "Grouper et trier",
+      "groupBy": "Grouper par",
+      "sortBy": "Trier par",
+      "direction": "Sens",
+      "group": {
+        "date": "Date",
+        "status": "Statut",
+        "none": "Aucun"
+      },
+      "sort": {
+        "updated": "Dernière activité",
+        "created": "Création",
+        "name": "Nom"
+      },
+      "dir": {
+        "desc": "Décroissant",
+        "asc": "Croissant"
+      },
+      "groups": {
+        "starred": "Favoris",
+        "today": "Aujourd'hui",
+        "yesterday": "Hier",
+        "previous7": "7 derniers jours",
+        "previous30": "30 derniers jours",
+        "older": "Plus anciens",
+        "needsInput": "Action requise",
+        "running": "En cours",
+        "queued": "En file d'attente",
+        "idle": "Inactif"
+      }
+    }
   },
   "projects": {
     "title": "Projets",

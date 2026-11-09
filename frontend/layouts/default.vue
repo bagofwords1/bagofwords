@@ -316,9 +316,15 @@
             </button>
             <NuxtLink to="/reports" class="text-2xs font-semibold text-ink-muted uppercase tracking-wider hover:text-gray-700 dark:hover:text-gray-200 transition-colors">{{ $t('nav.reports') }}</NuxtLink>
           </div>
-          <NuxtLink to="/reports" class="inline-flex items-center gap-0.5 text-2xs font-medium text-ink-muted hover:text-gray-700 dark:hover:text-gray-200 opacity-0 group-hover/hdr:opacity-100 focus:opacity-100 transition-opacity">
-            {{ $t('reports.viewAll') }}<UIcon name="i-heroicons-arrow-right" class="w-3 h-3" />
-          </NuxtLink>
+          <div class="flex items-center gap-1 shrink-0">
+            <NuxtLink to="/reports" class="inline-flex items-center gap-0.5 text-2xs font-medium text-ink-muted hover:text-gray-700 dark:hover:text-gray-200 opacity-0 group-hover/hdr:opacity-100 focus:opacity-100 transition-opacity">
+              {{ $t('reports.viewAll') }}<UIcon name="i-heroicons-arrow-right" class="w-3 h-3" />
+            </NuxtLink>
+            <!-- Group and sort control (reference: Claude's sidebar) — sits at
+                 the inline-end of the header, View all next to it. Only once
+                 there are reports to group. -->
+            <SidebarReportsViewMenu v-if="recentReports.length" />
+          </div>
         </div>
         <div v-show="reportsOpen" class="-me-1 pe-1" :class="isShortSidebar ? '' : 'flex-1 min-h-0 overflow-y-auto'">
           <ul class="font-normal text-sm !ps-0 space-y-0.5">
@@ -334,64 +340,85 @@
                 <span class="flex-1 truncate italic text-gray-500 dark:text-gray-400">{{ $t('reports.newReport') }}</span>
               </div>
             </li>
-            <!-- Draggable onto a project row above. The row keeps its place in
-                 this list after the move — a project is a label on the report,
-                 not a folder it disappears into — and gains the accent strip. -->
-            <li
-              v-for="report in sortedRecentReports"
-              :key="report.id"
-              class="relative group/report rounded-md"
-              :class="draggingReport?.id === report.id ? 'opacity-50' : ''"
-              draggable="true"
-              @dragstart="startReportDrag($event, report)"
-              @dragend="endReportDrag"
-            >
-              <NuxtLink :to="`/reports/${report.id}`" :class="[
-                'flex items-center gap-2 px-2.5 py-1.5 pe-8 w-full rounded-md',
-                isRouteActive(`/reports/${report.id}`) ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70'
-              ]">
-                <!-- Status dot in a fixed leading cell: keeps every row's dot —
-                     and the title after it — column-aligned. Always rendered
-                     (show-idle → hollow ring when idle). -->
-                <span class="inline-flex items-center shrink-0">
-                  <ReportStatusDot :report-id="report.id" show-idle />
-                </span>
-                <span v-text-dir
-                  class="flex-1 truncate"
-                  :class="{ 'report-title-reveal': titledReportIds.has(report.id) }"
-                >{{ report.title || $t('reports.untitled') }}</span>
-              </NuxtLink>
-              <!-- Project membership: a thin color rule at the leading edge
-                   (replaces the old project-tinted icon). Outside the flex flow
-                   so the dot column stays aligned on non-project rows. Rendered
-                   for any project — pre-palette folders have no color of their
-                   own, and an invisible strip would read as "the move failed". -->
-              <span
-                v-if="report.project"
-                class="absolute start-0.5 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full pointer-events-none transition-colors"
-                :class="!report.project.color ? 'bg-gray-300 dark:bg-gray-600' : ''"
-                :style="report.project.color ? { backgroundColor: report.project.color } : undefined"
-              ></span>
-              <!-- Trailing star at rest; fades on hover (or when the row menu is
-                   open) so the actions ellipsis takes the same spot.
-                   pointer-events-none so the underlying link stays clickable. -->
-              <UIcon
-                v-if="report.is_starred"
-                name="i-heroicons-star-solid"
-                class="absolute end-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-amber-400 pointer-events-none transition-opacity"
-                :class="(reportMenuOpen && menuReport?.id === report.id) ? 'opacity-0' : 'opacity-100 group-hover/report:opacity-0'"
-              />
-              <!-- Hover actions: ellipsis circle → teleported menu (see below) -->
-              <button
-                type="button"
-                @click.stop.prevent="openReportMenu($event, report)"
-                class="absolute end-1 top-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 rounded-full text-ink-muted hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200/80 dark:hover:bg-gray-700 transition-opacity"
-                :class="reportMenuOpen && menuReport?.id === report.id ? 'opacity-100 bg-gray-200/80 dark:bg-gray-700' : 'opacity-0 group-hover/report:opacity-100'"
-                :aria-label="$t('reports.rowActions')"
-              >
-                <UIcon name="i-heroicons-ellipsis-horizontal" class="w-4 h-4" />
-              </button>
-            </li>
+            <!-- Grouped + sorted per the saved view (useReportGrouping):
+                 starred pin to their own group on top; `none` is a flat,
+                 header-less list like before. Headers collapse (session-only). -->
+            <template v-for="group in groupedRecentReports" :key="'g:' + group.key">
+              <!-- Group headers sit a level below the REPORTS section title:
+                   softer (medium, normal-case) and slightly inset, so the rail
+                   reads as "section → groups → rows". -->
+              <li v-if="!group.flat" class="ps-3.5 pe-2 pt-1.5 pb-0.5">
+                <button
+                  type="button"
+                  @click="toggleGroup(group.key)"
+                  :aria-expanded="!collapsedGroups.has(group.key)"
+                  class="flex items-center gap-1 w-full text-2xs font-medium text-ink-muted tracking-normal hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+                >
+                  <UIcon :name="collapsedGroups.has(group.key) ? 'i-heroicons-chevron-right' : 'i-heroicons-chevron-down'" class="w-2.5 h-2.5 shrink-0 rtl-flip" />
+                  <span class="truncate">{{ group.label }}</span>
+                </button>
+              </li>
+              <!-- Draggable onto a project row above. The row keeps its place in
+                   this list after the move — a project is a label on the report,
+                   not a folder it disappears into — and gains the accent strip. -->
+              <template v-if="!collapsedGroups.has(group.key)">
+                <li
+                  v-for="report in group.reports"
+                  :key="report.id"
+                  class="relative group/report rounded-md"
+                  :class="draggingReport?.id === report.id ? 'opacity-50' : ''"
+                  draggable="true"
+                  @dragstart="startReportDrag($event, report)"
+                  @dragend="endReportDrag"
+                >
+                  <NuxtLink :to="`/reports/${report.id}`" :class="[
+                    'flex items-center gap-2 px-2.5 py-1.5 pe-8 w-full rounded-md',
+                    isRouteActive(`/reports/${report.id}`) ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70'
+                  ]">
+                    <!-- Status dot in a fixed leading cell: keeps every row's dot —
+                         and the title after it — column-aligned. Always rendered
+                         (show-idle → hollow ring when idle). -->
+                    <span class="inline-flex items-center shrink-0">
+                      <ReportStatusDot :report-id="report.id" show-idle />
+                    </span>
+                    <span v-text-dir
+                      class="flex-1 truncate"
+                      :class="{ 'report-title-reveal': titledReportIds.has(report.id) }"
+                    >{{ report.title || $t('reports.untitled') }}</span>
+                  </NuxtLink>
+                  <!-- Project membership: a thin color rule at the leading edge
+                       (replaces the old project-tinted icon). Outside the flex flow
+                       so the dot column stays aligned on non-project rows. Rendered
+                       for any project — pre-palette folders have no color of their
+                       own, and an invisible strip would read as "the move failed". -->
+                  <span
+                    v-if="report.project"
+                    class="absolute start-0.5 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full pointer-events-none transition-colors"
+                    :class="!report.project.color ? 'bg-gray-300 dark:bg-gray-600' : ''"
+                    :style="report.project.color ? { backgroundColor: report.project.color } : undefined"
+                  ></span>
+                  <!-- Trailing star at rest; fades on hover (or when the row menu is
+                       open) so the actions ellipsis takes the same spot.
+                       pointer-events-none so the underlying link stays clickable. -->
+                  <UIcon
+                    v-if="report.is_starred"
+                    name="i-heroicons-star-solid"
+                    class="absolute end-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-amber-400 pointer-events-none transition-opacity"
+                    :class="(reportMenuOpen && menuReport?.id === report.id) ? 'opacity-0' : 'opacity-100 group-hover/report:opacity-0'"
+                  />
+                  <!-- Hover actions: ellipsis circle → teleported menu (see below) -->
+                  <button
+                    type="button"
+                    @click.stop.prevent="openReportMenu($event, report)"
+                    class="absolute end-1 top-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 rounded-full text-ink-muted hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200/80 dark:hover:bg-gray-700 transition-opacity"
+                    :class="reportMenuOpen && menuReport?.id === report.id ? 'opacity-100 bg-gray-200/80 dark:bg-gray-700' : 'opacity-0 group-hover/report:opacity-100'"
+                    :aria-label="$t('reports.rowActions')"
+                  >
+                    <UIcon name="i-heroicons-ellipsis-horizontal" class="w-4 h-4" />
+                  </button>
+                </li>
+              </template>
+            </template>
             <li v-if="!recentReports.length" class="px-2.5 py-1.5 text-xs text-ink-muted">
               {{ $t('reports.empty') }}
             </li>
@@ -949,6 +976,7 @@
 
   onMounted(async () => {
     openStream() // live badge/sort updates for every list surface
+    hydrateSidebarReportsView() // apply the saved group/sort choice before paint
     try {
       const inOnboarding = route.path.startsWith('/onboarding')
       if (!inOnboarding) {
@@ -1090,6 +1118,21 @@
   // that arrived over the stream since the list was fetched, so a report
   // jumps to the top the moment its run produces something new.
   const sortedRecentReports = computed(() => sortByActivity(recentReports.value))
+
+  // Grouped + sorted view of the rail, driven by the saved preference
+  // (bow.sidebar.reports.view). Starred pin to their own group on top; date and
+  // status buckets re-evaluate off the live activity stream.
+  const { grouped: groupedRecentReports } = useReportGrouping(recentReports)
+  const { hydrate: hydrateSidebarReportsView } = useSidebarReportsView()
+  // Which group headers are collapsed — session-only UI state (not persisted),
+  // keyed by the stable group key ('today', 'starred', 'running', …).
+  const collapsedGroups = ref<Set<string>>(new Set())
+  const toggleGroup = (key: string) => {
+    const next = new Set(collapsedGroups.value)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    collapsedGroups.value = next
+  }
 
   // Sidebar height, split down the middle. PROJECTS used to be pinned at
   // max-h-44 (176px) and shrink-0, so it held that height whether it had two
