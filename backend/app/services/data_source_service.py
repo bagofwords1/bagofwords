@@ -2603,7 +2603,11 @@ class DataSourceService:
                 }
 
             # Step 2: Validate schema access by attempting to get tables
-            schema_status = await self._avalidate_schema_access(client)
+            # Warehouse query tag: this catalog read is part of a connection
+            # check, not indexing (app/data_sources/query_tag.py).
+            from app.data_sources.query_tag import query_tag_defaults
+            with query_tag_defaults(source="connection_test"):
+                schema_status = await self._avalidate_schema_access(client)
             
             # Combine results
             if not schema_status.get("success"):

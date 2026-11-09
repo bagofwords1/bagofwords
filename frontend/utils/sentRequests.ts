@@ -32,3 +32,31 @@ export function withSentRequests(queries: string[], timings: any[], label: strin
     return `${text}\n\n-- ${label}:\n${match.sent_request}`
   })
 }
+
+// The source's own id for each query (`source_query_id`, e.g. Snowflake's
+// query id), so an admin can find the exact row in the warehouse's query
+// history. Paired with its query by the recorded text, like the sent request.
+export function withSourceQueryIds(queries: string[], timings: any[], label: string): string[] {
+  const pending = (Array.isArray(timings) ? timings : []).filter(
+    (t) => t && typeof t.sql === 'string' && typeof t.source_query_id === 'string' && t.source_query_id,
+  )
+  return queries.map((query) => {
+    const text = String(query ?? '')
+    const i = pending.findIndex((t) => text.startsWith(t.sql))
+    if (i === -1) return text
+    const [match] = pending.splice(i, 1)
+    return `${text}\n-- ${label}: ${match.source_query_id}`
+  })
+}
+
+// Full Code view: each query's source id as a trailing comment, so the link
+// to the warehouse's query history survives a reload (the per-query list
+// does not; the timing records do).
+export function withSourceQueryIdsAppended(code: string, timings: any[], label: string): string {
+  const ids = (Array.isArray(timings) ? timings : [])
+    .map((t) => (t && typeof t.source_query_id === 'string' ? t.source_query_id : ''))
+    .filter(Boolean)
+  if (!ids.length) return code
+  const lines = [...new Set(ids)].map((id) => `# ${id}`)
+  return `${code.replace(/\s+$/, '')}\n\n# ${label}:\n${lines.join('\n')}`
+}

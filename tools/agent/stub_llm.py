@@ -59,14 +59,17 @@ def _all_text(body: dict) -> str:
     return "\n".join(parts)
 
 
-def _observation_count(text: str) -> int:
-    return text.count('"execution_number"')
+def _observation_count(text: str, body: dict | None = None) -> int:
+    # Tool results arrive as role="tool" messages; older prompts also echoed
+    # an "execution_number" per observation. Count whichever is larger.
+    tool_msgs = sum(1 for m in (body or {}).get("messages", []) if m.get("role") == "tool")
+    return max(text.count('"execution_number"'), tool_msgs)
 
 
-def _planner_tool_calls(text: str):
+def _planner_tool_calls(text: str, body: dict | None = None):
     """Decide which batch of tool calls (or final answer) to emit."""
     n = len(SOURCES)
-    obs = _observation_count(text)
+    obs = _observation_count(text, body)
     want_inspect = "inspect" in PHASES
     want_create = "create" in PHASES
 
@@ -188,7 +191,7 @@ async def chat_completions(request: Request):
     stream = bool(body.get("stream"))
 
     if body.get("tools"):
-        tool_calls, content = _planner_tool_calls(text)
+        tool_calls, content = _planner_tool_calls(text, body)
         if stream:
             return _stream_response(content, tool_calls)
         return _json_response(content)

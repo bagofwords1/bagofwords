@@ -458,6 +458,21 @@ class SnowflakeConfig(BaseModel):
         description="Optional Snowflake role to use for this connection",
         json_schema_extra={"ui:type": "string"},
     )
+    query_tag_enabled: bool = Field(
+        True,
+        title="Tag queries",
+        description="Set a JSON QUERY_TAG on every query (report, conversation turn, run and user IDs) so admins can match QUERY_HISTORY rows to Bag of Words sessions. Turn off if you already set your own QUERY_TAG.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    query_tag_label: Optional[str] = Field(
+        None,
+        max_length=100,
+        # Same character set app/data_sources/query_tag.py lets into a tag.
+        pattern=r"^[A-Za-z0-9 _.:/@-]*$",
+        title="Query tag label",
+        description="Optional label added to the query tag as \"label\", e.g. a team or cost center. Letters, digits, spaces and _ . : / @ - only (max 100).",
+        json_schema_extra={"ui:type": "string"},
+    )
 
 
 # BigQuery - credentials_json already contains all auth info
