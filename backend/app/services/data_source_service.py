@@ -6317,12 +6317,15 @@ class DataSourceService:
                 )
             except HTTPException as e:
                 # A tokenless caller can still use the system catalog, and so can a
-                # refused caller when nothing here takes a login: there is nothing to
-                # connect. Other discovery/publication failures must propagate, not
-                # look successful.
-                from app.services.connection_identity import takes_no_login
+                # refused caller who may see a connection that takes no login: it has
+                # nothing to connect, whatever the agent's other connections need.
+                # Other discovery/publication failures must propagate, not look
+                # successful.
                 if not isinstance(e, CredentialsRequiredError) and not (
-                    e.status_code == 403 and all(takes_no_login(c) for c in per_user_connections)
+                    e.status_code == 403
+                    and await self._caller_sees_a_no_login_connection(
+                        db, data_source, current_user, per_user_connections
+                    )
                 ):
                     raise
                 # Degrading here is deliberate (a live fetch against the user's
@@ -6342,6 +6345,20 @@ class DataSourceService:
             current_user=current_user,
         )
 
+    async def _caller_sees_a_no_login_connection(
+        self, db: AsyncSession, data_source: DataSource, current_user: User, connections: list,
+    ) -> bool:
+        """True if one of `connections` takes no login and this caller's catalog includes it.
+
+        Only decides whether a refusal stands: no credential is resolved here. A
+        member the classifier denies gets nothing from the connection, so for
+        them the refusal is the honest answer rather than an empty success.
+        """
+        from app.services.connection_identity import takes_no_login
+
+        open_ids, overlay_ids, _ = await self.classify_connection_access(db, data_source, current_user)
+        visible_ids = {*open_ids, *overlay_ids}
+        return any(str(c.id) in visible_ids and takes_no_login(c) for c in connections)
 
     async def get_metadata_resources(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User = None):
         result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
