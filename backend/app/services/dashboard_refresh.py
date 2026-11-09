@@ -245,7 +245,11 @@ async def refresh(db, artifact: Artifact, run_user: User, organization, *, trigg
     finished = False
     try:
         try:
-            result = await _run_and_write(db, artifact_id, release, run_user, organization)
+            # Warehouse query tag (app/data_sources/query_tag.py).
+            from app.data_sources.query_tag import query_tag_defaults
+            with query_tag_defaults(source=f"dashboard_refresh.{trigger}", org_id=organization_id,
+                                    user_id=user_id, release_id=release_id):
+                result = await _run_and_write(db, artifact_id, release, run_user, organization)
         except Exception as e:
             logger.warning("Dashboard %s: refresh failed", artifact_id, exc_info=True)
             result = _result("failed",

@@ -1509,6 +1509,7 @@
       "toggleQueries": "Abfragen",
       "toggleFullCode": "Vollständiger Code",
       "sentRequest": "An die Datenquelle gesendet",
+      "sourceQueryId": "Abfrage-ID in der Datenquelle",
       "attempts": "Versuche ({count})",
       "addToSpreadsheet": "Zur Tabelle hinzufügen",
       "addToSpreadsheetTitle": "Daten zur Excel-Tabelle hinzufügen",

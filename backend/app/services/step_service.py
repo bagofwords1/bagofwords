@@ -404,10 +404,23 @@ class StepService:
             s for s in (param_specs or []) if getattr(s, "source", None) == "identity"
         ]
         captured_queries: Optional[list] = [] if identity_specs else None
-        df, output_log, _ = await executor.execute_code_async(
-            code=code, ds_clients=db_clients, excel_files=excel_files, loadables=loadables,
-            params=params, captured_queries=captured_queries,
-        )
+        # Query tag (app/data_sources/query_tag.py): the step is always this
+        # one; the kind of run is whatever the caller already said (a
+        # scheduled refresh, the agent's read_query), else a plain step run.
+        from app.data_sources.query_tag import query_tag_defaults, query_tag_scope
+        _credential_user_id = getattr(getattr(ctx, "credential_user", None), "id", None)
+        with query_tag_defaults(
+            source="step_run",
+            org_id=getattr(org, "id", None),
+            user_id=_credential_user_id,
+            report_id=getattr(ctx.report, "id", None),
+            query_id=getattr(step, "query_id", None),
+            release_id=getattr(ctx.release, "id", None),
+        ), query_tag_scope(step_id=getattr(step, "id", None)):
+            df, output_log, _ = await executor.execute_code_async(
+                code=code, ds_clients=db_clients, excel_files=excel_files, loadables=loadables,
+                params=params, captured_queries=captured_queries,
+            )
         if identity_specs:
             from app.ai.code_execution.query_params import (
                 ParamError,

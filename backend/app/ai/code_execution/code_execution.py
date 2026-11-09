@@ -83,6 +83,21 @@ QUERY_NOTICE_MAX_CHARS = 1000
 SENT_REQUEST_ATTR = "bow_sent_request"
 SENT_REQUEST_MAX_CHARS = 1000
 
+
+def _source_query_id(carrier) -> Optional[str]:
+    """The warehouse's own id for a statement, if the client reported one.
+
+    `carrier` is a result frame's `attrs` dict, or the exception a failed
+    statement raised (see query_tag.SOURCE_QUERY_ID_ATTR).
+    """
+    if isinstance(carrier, dict):
+        value = carrier.get(query_tag.SOURCE_QUERY_ID_ATTR)
+    else:
+        value = getattr(carrier, query_tag.SOURCE_QUERY_ID_ATTR, None)
+    if isinstance(value, str) and value.strip():
+        return value.strip()[:100]
+    return None
+
 # A client whose catalog knows human titles for its columns (Priority:
 # ORDNAME -> "Order Number" / "מספר הזמנה") labels its result with
 # {column: title}. The query wrappers of one execution collect these into one
@@ -238,6 +253,7 @@ def _stdout_router() -> _ThreadLocalStdoutRouter:
         return router
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig, FeatureState
 from app.data_sources import query_concurrency
+from app.data_sources import query_tag
 from app.services.usage_policy_service import UsageLimitContext
 from app.ai.code_execution.sql_guard import ReadOnlyViolation, ensure_read_only
 from app.ai.code_execution.table_scope import TableScopeViolation, enforce_table_scope
@@ -895,6 +911,7 @@ class QueryCapturingClientWrapper:
         max_concurrent_queries: Optional[int] = None,
         captured_column_titles: Optional[Dict[str, Any]] = None,
         hide_values_in_errors: bool = False,
+        query_tag_defaults: Optional[Dict[str, Any]] = None,
     ):
         self._original = original_client
         # With "Allow LLM to see data" off, a recorded query error stops where
@@ -924,6 +941,12 @@ class QueryCapturingClientWrapper:
             if isinstance(max_concurrent_queries, (int, float)) and max_concurrent_queries > 0
             else query_concurrency.DEFAULT_MAX_CONCURRENT_QUERIES
         )
+        # Who is behind this run's queries, for the source's query tag
+        # (app/data_sources/query_tag.py). Snapshotted now, on the thread that
+        # still has the run's context: the query itself runs on a timeout
+        # thread (and, sandboxed, from an RPC thread) that inherits none.
+        with query_tag.query_tag_defaults(**(query_tag_defaults or {})):
+            self._query_tag = query_tag.current_query_tag()
 
     def execute_query(self, query=_NO_QUERY, *args, **kwargs):
         """Intercept execute_query calls to capture the query string and wall-clock duration.
@@ -1029,6 +1052,9 @@ class QueryCapturingClientWrapper:
                 note = query_notice(result)
                 if note:
                     timing["notice"] = note.strip()[:QUERY_NOTICE_MAX_CHARS]
+                source_qid = _source_query_id(_attrs)
+                if source_qid:
+                    timing["source_query_id"] = source_qid
                 self._captured_timings.append(timing)
                 if self._captured_column_titles is not None:
                     merge_column_titles(self._captured_column_titles, result)
@@ -1064,6 +1090,7 @@ class QueryCapturingClientWrapper:
                     "sql": capture[:500] if isinstance(capture, str) else None,
                     "error": self._recorded_error(e),
                     "terminal": bool(getattr(e, "terminal_execution_error", False)),
+                    **({"source_query_id": _source_query_id(e)} if _source_query_id(e) else {}),
                     **({"error_type": "table_access_denied", "error_message": str(e)}
                        if isinstance(e, TableAccessError) else {}),
                 })
@@ -1092,17 +1119,21 @@ class QueryCapturingClientWrapper:
         those must survive.
         """
         if getattr(self._original, "_manages_query_deadline", False):
-            return self._original.execute_query(query, *args, **kwargs)
+            with query_tag.applied_query_tag(self._query_tag):
+                return self._original.execute_query(query, *args, **kwargs)
         holder: Dict[str, Any] = {}
 
         def runner():
             try:
-                if query is _NO_QUERY:
-                    # Keyword-only client call — there was no positional to
-                    # forward (args is necessarily empty in this case).
-                    holder["value"] = self._original.execute_query(**kwargs)
-                else:
-                    holder["value"] = self._original.execute_query(query, *args, **kwargs)
+                # A fresh thread starts with an empty context: re-apply the
+                # run's query tag so the client can stamp it on the session.
+                with query_tag.applied_query_tag(self._query_tag):
+                    if query is _NO_QUERY:
+                        # Keyword-only client call — there was no positional to
+                        # forward (args is necessarily empty in this case).
+                        holder["value"] = self._original.execute_query(**kwargs)
+                    else:
+                        holder["value"] = self._original.execute_query(query, *args, **kwargs)
             except BaseException as exc:
                 holder["exc"] = exc
 
@@ -1304,6 +1335,18 @@ def wrap_clients_for_capture(
     """
     from app.data_sources.clients._unavailable_client import UnavailableConnectionClient
 
+    # The run's metering context names what kind of run this is ("agent",
+    # "query_run", "dashboard_filter_run", ...). It only fills gaps in the
+    # query tag: an entry point that set a more specific source keeps it.
+    tag_defaults = None
+    if usage_context is not None:
+        tag_defaults = {
+            "source": getattr(usage_context, "source", None),
+            "org_id": getattr(usage_context, "organization_id", None),
+            "user_id": getattr(usage_context, "user_id", None),
+            "ref_id": getattr(usage_context, "source_ref_id", None),
+        }
+
     wrapped = {}
     for key, client in (ds_clients or {}).items():
         # A connection that could not be built never reaches its source, so it
@@ -1332,6 +1375,7 @@ def wrap_clients_for_capture(
                 max_concurrent_queries=query_concurrency.effective_limit(client, organization_settings),
                 captured_column_titles=captured_column_titles,
                 hide_values_in_errors=not allow_llm_see_data(organization_settings),
+                query_tag_defaults=tag_defaults,
             )
         else:
             wrapped[key] = client

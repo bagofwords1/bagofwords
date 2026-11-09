@@ -106,6 +106,21 @@ def _check_network_dir_root(conn_type: str, config) -> None:
         raise HTTPException(status_code=400, detail=f"root_path: {e}")
 
 
+def _check_query_tag_label(config) -> None:
+    """Save/test-time guard: a warehouse query tag label must fit in a tag
+    (app/data_sources/query_tag.py). The client drops an unfit one silently,
+    so say so here instead."""
+    from app.data_sources.query_tag import label_error
+    from app.errors import ErrorCode
+
+    cfg = json.loads(config) if isinstance(config, str) else (config or {})
+    if not isinstance(cfg, dict):
+        return
+    problem = label_error(cfg.get("query_tag_label"))
+    if problem:
+        raise AppError.bad_request(ErrorCode.VALIDATION, f"Query tag label {problem}.")
+
+
 _GOOGLE_SA_KEYS = ("credentials_json", "service_account_json")
 
 
@@ -463,6 +478,7 @@ class ConnectionService:
         _reject_unsafe_oauth_urls(config, credentials)
         _reject_unsafe_google_keys(credentials)
         _check_network_dir_root(type, config)
+        _check_query_tag_label(config)
 
         # Check enterprise license for restricted data sources
         from app.ee.license import is_datasource_allowed, is_enterprise_licensed
@@ -495,11 +511,14 @@ class ConnectionService:
 
         # Validate connection before saving (for system_only auth)
         if auth_policy == "system_only":
-            validation_result = await self.test_connection_params(
-                data_source_type=type,
-                config=config,
-                credentials=credentials,
-            )
+            from app.data_sources.query_tag import query_tag_defaults
+            with query_tag_defaults(source="connection_test", org_id=getattr(organization, "id", None),
+                                    user_id=getattr(current_user, "id", None)):
+                validation_result = await self.test_connection_params(
+                    data_source_type=type,
+                    config=config,
+                    credentials=credentials,
+                )
             # Hard-block only when the host is genuinely unreachable — the
             # root probe is a heuristic (APIs without a root route answer 404
             # at "/" while their endpoints work; see test_connection).
@@ -865,17 +884,22 @@ class ConnectionService:
         if connection_changed:
             _check_tool_provider_url(connection.type, connection.config)
             _check_network_dir_root(connection.type, connection.config)
+            _check_query_tag_label(connection.config)
 
         # Revalidate if connection fields changed
         if connection_changed and connection.auth_policy == "system_only":
             current_config = json.loads(connection.config) if isinstance(connection.config, str) else connection.config
             current_credentials = connection.decrypt_credentials()
             
-            validation_result = await self.test_connection_params(
-                data_source_type=connection.type,
-                config=current_config,
-                credentials=current_credentials,
-            )
+            from app.data_sources.query_tag import query_tag_defaults
+            with query_tag_defaults(source="connection_test", connection_id=connection.id,
+                                    org_id=getattr(organization, "id", None),
+                                    user_id=getattr(current_user, "id", None)):
+                validation_result = await self.test_connection_params(
+                    data_source_type=connection.type,
+                    config=current_config,
+                    credentials=current_credentials,
+                )
             
             # Block the save only when the host is genuinely unreachable. The
             # probe is a heuristic — an API whose root answers 404 while its
@@ -1192,8 +1216,11 @@ class ConnectionService:
             _check_tool_provider_url(data_source_type, config)
             _check_network_dir_root(data_source_type, config)
             _reject_unsafe_google_keys(credentials)
+            _check_query_tag_label(config)
         except HTTPException as e:
             return {"success": False, "message": e.detail, "connectivity": False}
+        except AppError as e:
+            return {"success": False, "message": e.message, "connectivity": False}
         oauth_user_mode = (
             data_source_type == "mcp"
             and (config or {}).get("auth_type") in ("oauth_app", "dcr")
@@ -1250,7 +1277,11 @@ class ConnectionService:
                     }
 
             # Validate schema access
-            schema_status = await self._avalidate_schema_access(client)
+            # Warehouse query tag: this catalog read is part of a connection
+            # check, not indexing (app/data_sources/query_tag.py).
+            from app.data_sources.query_tag import query_tag_defaults
+            with query_tag_defaults(source="connection_test"):
+                schema_status = await self._avalidate_schema_access(client)
 
             if not schema_status.get("success"):
                 return {
@@ -1311,7 +1342,11 @@ class ConnectionService:
                 config_overrides=config_overrides,
                 credential_overrides=credential_overrides,
             )
-            connection_status = await client.atest_connection()
+            from app.data_sources.query_tag import query_tag_defaults
+            with query_tag_defaults(source="connection_test", connection_id=connection.id,
+                                    org_id=getattr(organization, "id", None),
+                                    user_id=getattr(current_user, "id", None)):
+                connection_status = await client.atest_connection()
 
             success = bool(connection_status.get("success")) if isinstance(connection_status, dict) else bool(connection_status)
 
@@ -1716,10 +1751,17 @@ class ConnectionService:
         notifications = []
         published = False
         try:
-            tables = await self._refresh_schema(
-                db, connection, current_user, progress_callback, introspection,
-                keep_fresh_tables, diagnostics_hook,
-            )
+            from app.data_sources.query_tag import query_tag_defaults
+            with query_tag_defaults(
+                source="indexing",
+                connection_id=getattr(connection, "id", None),
+                org_id=getattr(connection, "organization_id", None),
+                user_id=getattr(current_user, "id", None),
+            ):
+                tables = await self._refresh_schema(
+                    db, connection, current_user, progress_callback, introspection,
+                    keep_fresh_tables, diagnostics_hook,
+                )
             if self._catalog_discovery_complete:
                 from app.models.data_source import DataSource
                 from app.models.domain_connection import domain_connection
