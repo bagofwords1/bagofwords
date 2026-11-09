@@ -44,7 +44,8 @@ logger = logging.getLogger(__name__)
 _DEFAULT_COOLDOWN_MINUTES = 60
 
 # Org setting (OrganizationSettings.config) that turns connection-alert *email*
-# off for the whole org. The in-app inbox row is unaffected. Default on.
+# on for the whole org. The in-app inbox row is unaffected. Default off: an
+# admin opts in from Settings → Email; until then only the inbox row fires.
 EMAIL_ENABLED_KEY = "connection_alerts_email"
 
 # Where a recipient who manages none of the connection's agents is sent: the
@@ -120,7 +121,11 @@ async def _recipient_links(db: AsyncSession, connection) -> Dict[str, str]:
 
 
 async def org_email_enabled(db: AsyncSession, org_id: str) -> bool:
-    """Whether the org wants connection-alert emails (default True)."""
+    """Whether the org wants connection-alert emails (default False).
+
+    Emails are opt-in: an admin flips the toggle in Settings → Email. A missing
+    row, a missing key, or a read error all mean "not opted in", so we stay
+    silent rather than surprise an org with mail it never asked for."""
     from app.models.organization_settings import OrganizationSettings
     try:
         row = (await db.execute(
@@ -129,11 +134,11 @@ async def org_email_enabled(db: AsyncSession, org_id: str) -> bool:
             )
         )).scalar_one_or_none()
         if row is None:
-            return True
-        return bool(row.get_config(EMAIL_ENABLED_KEY, True))
+            return False
+        return bool(row.get_config(EMAIL_ENABLED_KEY, False))
     except Exception:  # noqa: BLE001
         logger.warning("connection alert: reading org email toggle failed", exc_info=True)
-        return True
+        return False
 
 
 async def _clear_opposite_rows(db: AsyncSession, conn_id: str, ntype: str) -> None:
