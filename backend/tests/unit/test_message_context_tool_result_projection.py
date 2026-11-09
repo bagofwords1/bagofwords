@@ -47,7 +47,8 @@ from app.models.step import Step
 from app.models.tool_execution import ToolExecution
 from app.models.user import User
 
-pytestmark = pytest.mark.db  # opens real sessions — see tests/unit/conftest.py
+# Real sessions (see tests/unit/conftest.py).
+pytestmark = pytest.mark.db
 
 
 _LARGE_PAYLOAD_MARKER = "payload-that-history-must-not-hydrate-"

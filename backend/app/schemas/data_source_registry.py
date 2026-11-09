@@ -55,6 +55,10 @@ from app.schemas.data_sources.configs import (
     SalesforceConfig,
     MondayConfig,
     NetAppOntapConfig,
+    F5BigIpConfig, F5BigIpCredentials,
+    CheckPointConfig, CheckPointUserPassCredentials, CheckPointApiKeyCredentials,
+    DellOmeConfig, DellOmeCredentials,
+    HpeOneViewConfig, HpeOneViewCredentials,
     NetAppOntapCredentials,
     ServiceNowConfig,
     ZabbixConfig,
@@ -68,6 +72,8 @@ from app.schemas.data_sources.configs import (
     AppDynamicsUserPassCredentials,
     AriaOperationsConfig,
     AriaOperationsUserPassCredentials,
+    VCenterConfig,
+    VCenterUserPassCredentials,
     SpectrumConfig,
     SpectrumUserPassCredentials,
     SpectrumTokenCredentials,
@@ -243,6 +249,11 @@ from app.schemas.data_sources.configs import (
     ServiceNowCredentials,
     MongoDBCredentials,
     Neo4jCredentials,
+    Neo4jBearerCredentials,
+    Neo4jNoAuthCredentials,
+    Neo4jImpersonationCredentials,
+    Neo4jKerberosCredentials,
+    Neo4jKerberosDelegatedCredentials,
     PostHogCredentials,
     # MCP
     MCPConfig,
@@ -971,6 +982,55 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         client_path="app.data_sources.clients.netapp_ontap_client.NetAppOntapClient",
         version="beta",
     ),
+    "f5_bigip": DataSourceRegistryEntry(
+        type="f5_bigip",
+        category="infra",
+        title="F5 BIG-IP",
+        description="Investigate load-balancer incidents with read-only virtual servers, pools, pool members and their stats, nodes, iRules, certificates, device and failover state via iControl REST. Simulator-verified; customer validation required.",
+        config_schema=F5BigIpConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username / Password", schema=F5BigIpCredentials, scopes=["system", "user"]),
+        }),
+        client_path="app.data_sources.clients.f5_bigip_client.F5BigIpClient",
+        version="beta",
+    ),
+    "checkpoint": DataSourceRegistryEntry(
+        type="checkpoint",
+        category="infra",
+        title="Check Point Management",
+        description="Investigate firewall policy and gateway incidents with read-only hosts, networks, groups, services, access and NAT rulebases, gateways, sessions and logs via the Management API. Simulator-verified; customer validation required.",
+        config_schema=CheckPointConfig,
+        credentials_auth=AuthOptions(default="api_key", by_auth={
+            "api_key": AuthVariant(title="API key", schema=CheckPointApiKeyCredentials, scopes=["system", "user"]),
+            "userpass": AuthVariant(title="Username / Password", schema=CheckPointUserPassCredentials, scopes=["system", "user"]),
+        }),
+        client_path="app.data_sources.clients.checkpoint_client.CheckPointClient",
+        version="beta",
+    ),
+    "dell_ome": DataSourceRegistryEntry(
+        type="dell_ome",
+        category="infra",
+        title="Dell OpenManage Enterprise",
+        description="Investigate server fleet incidents with read-only devices, inventory, alerts, warranty, firmware baselines and compliance, jobs, groups and audit logs via the OME REST API. Simulator-verified; customer validation required.",
+        config_schema=DellOmeConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username / Password", schema=DellOmeCredentials, scopes=["system"]),
+        }),
+        client_path="app.data_sources.clients.dell_ome_client.DellOmeClient",
+        version="beta",
+    ),
+    "hpe_oneview": DataSourceRegistryEntry(
+        type="hpe_oneview",
+        category="infra",
+        title="HPE OneView",
+        description="Investigate compute infrastructure incidents with read-only server hardware, enclosures, interconnects, server profiles, firmware, alerts, tasks and networks via the OneView REST API. Simulator-verified; customer validation required.",
+        config_schema=HpeOneViewConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username / Password", schema=HpeOneViewCredentials, scopes=["system", "user"]),
+        }),
+        client_path="app.data_sources.clients.hpe_oneview_client.HpeOneViewClient",
+        version="beta",
+    ),
     "kubernetes": DataSourceRegistryEntry(
         type="kubernetes",
         category="infra",
@@ -1031,6 +1091,22 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         # Explicit path: dynamic resolution would derive "AriaOperationsClient"
         # correctly today, but the explicit path is the contract.
         client_path="app.data_sources.clients.aria_operations_client.AriaOperationsClient",
+        version="beta",
+        requires_license="enterprise",
+    ),
+    "vcenter": DataSourceRegistryEntry(
+        type="vcenter",
+        category="infra",
+        title="VMware vCenter",
+        description="VMware vCenter Server or ESXi (vSphere 7–9). Query VMs, disks, snapshots, hosts, clusters, datastores, networks, resource pools and tags, plus performance metrics, the event log, tasks and triggered alarms — for capacity questions and infrastructure RCA.",
+        config_schema=VCenterConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            # vCenter has no API keys: an SSO / AD user logs in and gets a session
+            # (one per query, logged out afterwards). Per-user scope = each
+            # analyst's own vCenter login, so vCenter permissions apply.
+            "userpass": AuthVariant(title="Username + Password", schema=VCenterUserPassCredentials, scopes=["system", "user"]),
+        }),
+        client_path="app.data_sources.clients.vcenter_client.VCenterClient",
         version="beta",
         requires_license="enterprise",
     ),
@@ -1358,11 +1434,43 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         credentials_auth=AuthOptions(
             default="userpass",
             by_auth={
+                # Native or LDAP users (LDAP is checked by the server).
                 "userpass": AuthVariant(
                     title="Username / Password",
                     schema=Neo4jCredentials,
                     scopes=["system", "user"]
-                )
+                ),
+                # A token from the IdP Neo4j's OIDC SSO trusts.
+                "bearer": AuthVariant(
+                    title="SSO access token (OIDC)",
+                    schema=Neo4jBearerCredentials,
+                    scopes=["system", "user"],
+                ),
+                # A service user that runs queries as another Neo4j user. Under
+                # "Require user authentication" the impersonated user is bound
+                # to a member attribute (member_mapped), never typed by members.
+                "impersonation": AuthVariant(
+                    title="Impersonation",
+                    schema=Neo4jImpersonationCredentials,
+                    scopes=["system"],
+                ),
+                # BOW's own Kerberos identity; system scope only.
+                "kerberos": AuthVariant(
+                    title="Kerberos",
+                    schema=Neo4jKerberosCredentials,
+                    scopes=["system"],
+                ),
+                # Per-user Kerberos SSO via constrained delegation, as for SQL Server.
+                "kerberos_delegated": AuthVariant(
+                    title="Kerberos SSO (per-user delegation)",
+                    schema=Neo4jKerberosDelegatedCredentials,
+                    scopes=["user"],
+                ),
+                "none": AuthVariant(
+                    title="No Authentication",
+                    schema=Neo4jNoAuthCredentials,
+                    scopes=["system"],
+                ),
             }
         ),
         client_path="app.data_sources.clients.neo4j_client.Neo4jClient",

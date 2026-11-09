@@ -40,6 +40,7 @@ from contextlib import contextmanager
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_session
 
 from app.ai.prompt_formatters import ForeignKey, ServiceFormatter, Table, TableColumn
 from app.data_sources.clients.base import DataSourceClient
@@ -299,7 +300,7 @@ class CrowdStrikeClient(DataSourceClient):
 
     @contextmanager
     def connect(self) -> Generator[requests.Session]:
-        session = requests.Session()
+        session = pinned_session()
         session.verify = self.verify_ssl
         session.headers.update({"Accept": "application/json"})
         self._session = session

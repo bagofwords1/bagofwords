@@ -23,6 +23,9 @@ def oneclick(monkeypatch):
     spec.loader.exec_module(mock)
     with TestClient(mock.app) as http:
         class Session:
+            def mount(self, prefix, adapter):
+                pass
+
             def request(self, method, url, **kwargs):
                 for k in ("verify", "timeout", "allow_redirects"):
                     kwargs.pop(k, None)

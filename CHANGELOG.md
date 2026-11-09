@@ -1,5 +1,34 @@
 # Release Notes
 
+## Version 0.0.612 (November 8, 2026)
+- Added F5 BIG-IP as a data source: virtual servers, pools, pool members and stats, nodes, iRules, SSL certificates, HA failover and sync state (#1634)
+- Added Check Point Management as a data source: hosts, networks, groups, services, access and NAT rulebases, gateways, sessions, traffic and audit logs — API key or username/password (#1634)
+- Added Dell OpenManage Enterprise as a data source: devices, inventory, alerts, warranties, firmware baselines and compliance, jobs, groups and audit logs (#1634)
+- Added HPE OneView as a data source: server hardware, profiles, enclosures, interconnects, networks, alerts, events, tasks and firmware baselines (#1634)
+- Fixed the agent calling a row-limited or rewritten query result complete (#1627)
+- Fixed slide-deck cards on the Dashboards page showing a blank icon instead of the first slide (#1628)
+- Fixed the edit-dashboard step in chat showing two labels run together (#1629)
+- Fixed the share dialog listing a report's agents in a random order (#1626)
+- Changed per-user password connections so data source owners connect their own login; only admins and manage_connections holders use the shared one (#1622)
+
+## Version 0.0.611 (November 6, 2026)
+- Added a Dashboards page that finds any dashboard: created/edited dates, filters by agent, date, owner and status, sort, list view, stars and a Shared-with-me tab (#1608)
+- Added data preview to the agent's table selector: sample 50 rows, edit the query, and save it as a cached custom table (#1609)
+- Added in-app and email alerts to admins when a shared connection goes down or recovers (#1602) — email on/off in the SMTP settings, with a per-connection toggle
+- Added VMware vCenter / ESXi as a data source: VMs, hosts, clusters, datastores, performance metrics, events, tasks and alarms (#1610)
+- Added S3 and Azure Blob storage for uploaded files (#1607) — `storage.backend` (`local` default, `s3`, `azure`) in bow-config or `BOW_STORAGE_BACKEND`
+- Added a training skill that learns instructions from labelled examples (#1613)
+- Added a search box to Settings → AI Settings (#1604)
+- Added paging to `read_report` so the agent can read long conversations in full (#1612)
+- Added a prompt rail beside the report transcript: hover a tick to preview a prompt, click to jump to it (#1620)
+- Fixed agent downloads missing drafts, archived instructions, folders and saved queries (#1600)
+- Fixed agents losing their selected tables when a scheduled catalog refresh fails partway (#1599)
+- Fixed clearing a model's price override having no effect (#1603)
+- Fixed MCP `get_visualization` and `get_artifact_data` returning the owner's rows and code instead of the reader's (#1605)
+- Fixed document headings disappearing in dark mode, and new line charts smoothing over the data (#1606)
+- Fixed letter-spaced Hebrew labels and untranslated viewer strings in agent-built apps (#1606)
+- Fixed a stopped SSH command showing as "Approval expired"; shell commands now show as expandable terminal rows (#1619)
+
 ## Version 0.0.610 (November 5, 2026)
 - Fixed answers ending in a cut-off error when a query hit a table the agent can't use; the agent now explains and continues (#1592)
 - Changed the floating embedded chat to open at 600 × 720 px, matching BOW's preview (#1594) — `width` / `height` options in `BOWEmbed.mount`

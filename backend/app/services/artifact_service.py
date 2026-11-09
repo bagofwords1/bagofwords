@@ -43,6 +43,39 @@ async def follow_conversation_project(db: AsyncSession, report_ids: List[str], p
         )
 
 
+# ---------------------------------------------------------------------------
+# "Edited" (dashlist01): when a dashboard's content last changed
+#
+# Its writers: the factory (a completed version, a rename),
+# ArtifactService.update, finish_version (the agent tool's pending ->
+# completed), and, outside this module, publish (dashboard_publish._go_live)
+# and restore (dashboard_collab.rollback). Never a data refresh or a record
+# write -- those move updated_at only. A future status transition outside
+# finish_version would not move it.
+# ---------------------------------------------------------------------------
+
+
+async def mark_content_edited(db: AsyncSession, artifact_id: str) -> None:
+    """The dashboard's content changed now. Does not commit. updated_at is
+    kept as it is: it has writers of its own (a refresh, record writes, the
+    agent tools), and the column's onupdate would otherwise move it here."""
+    from datetime import datetime
+    from sqlalchemy import update
+
+    await db.execute(
+        update(Artifact).where(Artifact.id == str(artifact_id))
+        .values(content_updated_at=datetime.utcnow(), updated_at=Artifact.updated_at)
+    )
+
+
+async def finish_version(db: AsyncSession, version: ArtifactVersion, status: str) -> None:
+    """A pending version's outcome; a completed one moves the dashboard's
+    Edited time. Does not commit."""
+    version.status = status
+    if status == "completed":
+        await mark_content_edited(db, str(version.artifact_id))
+
+
 async def new_artifact(
     db: AsyncSession,
     *,
@@ -66,12 +99,15 @@ async def new_artifact(
     conversation's project (dashboards project, phase 4): the /d routes and
     the owner's sharing controls read them from the dashboard.
     """
+    from datetime import datetime
     from app.models.report import Report
 
     owner = (await db.execute(
         select(Report.user_id, Report.project_id).where(Report.id == _id(report_id))
     )).first()
+    now = datetime.utcnow()  # one clock read: Edited is never before Created
     parent = Artifact(
+        created_at=now,
         report_id=_id(report_id),
         organization_id=_id(organization_id),
         created_by=_id(user_id),
@@ -79,6 +115,7 @@ async def new_artifact(
         title=title,
         owner_id=_id(owner[0]) if owner else None,
         project_id=_id(owner[1]) if owner else None,
+        content_updated_at=now if status == "completed" else None,
     )
     db.add(parent)
     await db.flush()
@@ -160,6 +197,7 @@ async def new_version(
     status: str = "completed",
     title: Optional[str] = None,
     report_id: Optional[str] = None,
+    content_changed: bool = True,
     **version_fields: Any,
 ) -> ArtifactVersion:
     """Append the next version to the artifact ``source`` belongs to.
@@ -175,6 +213,11 @@ async def new_version(
     then hits uq_artifact_versions_artifact_version. Each attempt runs in a
     SAVEPOINT, so a lost race undoes only that INSERT — never the caller's
     transaction — and is retried with a freshly read number.
+
+    A completed version moves the dashboard's Edited time, unless
+    ``content_changed`` is False (a copy of the content as it is: an editor
+    joining, the owner's Edit after the conversation was deleted). A rename
+    moves it either way.
     """
     # The lineage (collab01): a version grows from its source and stays on
     # its draft, unless the caller says otherwise (a joining conversation).
@@ -210,11 +253,14 @@ async def new_version(
                 db.expunge(version)
             if not _is_version_number_collision(exc) or attempt == _MINT_ATTEMPTS - 1:
                 raise
-    if title is not None and title != source.title:
+    renamed = title is not None and title != source.title
+    if renamed:
         parent = await db.get(Artifact, str(source.artifact_id))
         if parent is not None:
             parent.title = title
             db.add(parent)
+    if (status == "completed" and content_changed) or renamed:
+        await mark_content_edited(db, str(source.artifact_id))
     await db.flush()
     await _snapshot_elements(db, version)
     # refresh also resolves the title/mode read-throughs from the parent
@@ -435,13 +481,17 @@ class ArtifactService:
             # Writes to version.title are silent no-ops (column_property):
             # a rename targets the parent — the whole artifact, on purpose.
             parent = await db.get(Artifact, str(artifact.artifact_id))
-            if parent is not None:
+            if parent is not None and patch.title != parent.title:
                 parent.title = patch.title
                 db.add(parent)
+                await mark_content_edited(db, str(artifact.artifact_id))
         if patch.content is not None:
             # In-place edit of THIS row. Version numbers are minted only by
             # new_version(); bumping here would collide with the next row.
+            changed = patch.content != artifact.content
             artifact.content = patch.content
+            if changed and artifact.status == "completed":
+                await mark_content_edited(db, str(artifact.artifact_id))
         if patch.generation_prompt is not None:
             artifact.generation_prompt = patch.generation_prompt
 

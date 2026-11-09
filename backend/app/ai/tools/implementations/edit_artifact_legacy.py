@@ -1586,6 +1586,8 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
             uploads_dir.mkdir(parents=True, exist_ok=True)
             out_path = uploads_dir / f"{new_artifact.id}.pptx"
             _shutil.move(str(_pptx_tmp_path), str(out_path))
+            from app.services import storage
+            await storage.apersist(out_path)
             new_artifact.pptx_path = str(out_path)
 
             # A preview failure costs only the preview — the deck still opens.

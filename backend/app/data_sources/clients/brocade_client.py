@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_session
 from defusedxml import ElementTree
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
 from app.data_sources.clients.base import DataSourceClient
@@ -221,7 +222,7 @@ class BrocadeClient(DataSourceClient):
     def _session(self):
         with self._lock:
             deadline = time.monotonic() + 120
-            with requests.Session() as session:
+            with pinned_session() as session:
                 session.trust_env = False
                 # Match SharePoint Server: CA trust is deployment-owned; never disable TLS verification.
                 session.verify = os.environ.get("REQUESTS_CA_BUNDLE") or True

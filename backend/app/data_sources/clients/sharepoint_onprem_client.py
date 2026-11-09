@@ -15,6 +15,7 @@ from urllib.parse import quote, unquote, urlsplit
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_session
 from requests_ntlm import HttpNtlmAuth
 
 from app.ai.prompt_formatters import Table
@@ -155,7 +156,7 @@ class SharepointOnpremClient(SharepointBoundedListing, DataSourceClient):
             self._local.session.close()
             del self._local.session
         if not hasattr(self._local, "session"):
-            session = requests.Session()
+            session = pinned_session()
             session.trust_env = False  # no ambient proxy / .netrc credentials
             if self.kerberos:
                 try:

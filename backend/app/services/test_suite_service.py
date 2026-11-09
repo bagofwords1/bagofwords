@@ -600,7 +600,7 @@ class TestSuiteService:
 
             out["cases"].append(case_dict)
 
-        return yaml.safe_dump(out, sort_keys=False)
+        return yaml.safe_dump(out, sort_keys=False, allow_unicode=True)
 
     async def _prompt_yaml_from_json(
         self,

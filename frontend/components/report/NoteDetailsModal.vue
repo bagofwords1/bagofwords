@@ -55,7 +55,7 @@ function formatTime(ts?: string): string {
 .note-markdown :deep(h2) { font-size: 0.875rem; font-weight: 600; margin: 0.8rem 0 0.3rem; }
 .note-markdown :deep(h3) { font-size: 0.8125rem; font-weight: 600; margin: 0.7rem 0 0.25rem; color: rgb(75 85 99); }
 .note-markdown :deep(h1:first-child), .note-markdown :deep(h2:first-child), .note-markdown :deep(h3:first-child) { margin-top: 0; }
-:global(.dark) .note-markdown :deep(h3) { color: rgb(156 163 175); }
+.dark .note-markdown :deep(h3) { color: rgb(156 163 175); }
 .note-markdown :deep(code) { font-size: 0.8125rem; background: rgb(243 244 246); border-radius: 0.25rem; padding: 0.05rem 0.3rem; }
-:global(.dark) .note-markdown :deep(code) { background: rgb(31 41 55); }
+.dark .note-markdown :deep(code) { background: rgb(31 41 55); }
 </style>

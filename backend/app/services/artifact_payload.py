@@ -157,6 +157,9 @@ async def collect_visualizations(db, artifact, *, viewer: Any = UNSCOPED) -> lis
             "rows": data.get("rows", []) if data else [],
             "columns": data.get("columns", []) if data else [],
             "dataModel": step.data_model or {} if step else {},
+            # As ArtifactFrame.vue sends it: artifact code may tell a chart
+            # whose step failed from one that returned no rows.
+            "stepStatus": step.status if step else None,
         }
         if viewer is not UNSCOPED:
             # Reader-scoped callers (the chat context, the public export) must

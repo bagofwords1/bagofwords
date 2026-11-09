@@ -1,6 +1,7 @@
 from app.data_sources.clients.progress import discovery_progress, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
+from app.core.egress import pinned_session
 
 import json
 import pandas as pd
@@ -108,7 +109,7 @@ class JaegerClient(DataSourceClient):
 
     @contextmanager
     def connect(self):
-        session = requests.Session()
+        session = pinned_session()
         session.headers.update(self._headers())
         auth = self._auth()
         if auth is not None:

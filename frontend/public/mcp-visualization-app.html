@@ -432,7 +432,13 @@
             { offset: 1, color: colors[0] + '05' },
           ]),
         } : undefined,
-        smooth: type === 'line_chart' || type === 'area_chart',
+        // The saved view's own setting; views saved before it was stored
+        // keep the curve they were always drawn with here.
+        smooth: (function () {
+          var inner = (viz.view && viz.view.view) || viz.view || {};
+          if (typeof inner.smooth === 'boolean') return inner.smooth;
+          return type === 'line_chart' || type === 'area_chart';
+        })(),
       }],
     };
   }

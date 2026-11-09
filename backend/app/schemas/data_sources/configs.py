@@ -1157,6 +1157,53 @@ class AriaOperationsConfig(BaseModel):
     )
 
 
+
+# VMware vCenter Server / ESXi — vSphere Web Services API (SOAP vim25) + Automation REST (tags)
+class VCenterUserPassCredentials(BaseModel):
+    username: str = Field(
+        ...,
+        title="Username",
+        description="A vCenter SSO or Active Directory user, e.g. svc-bow@vsphere.local. Grant it the built-in Read-only role on the vCenter root with 'Propagate to children'.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
+
+
+class VCenterConfig(BaseModel):
+    host: str = Field(
+        ...,
+        title="vCenter Server",
+        description="Host name or URL of the vCenter Server (or a standalone ESXi host), e.g. vcenter.acme.local. HTTPS only.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    port: int = Field(443, ge=1, le=65535, title="Port", description="HTTPS port (443 unless your vCenter uses another).",
+                      json_schema_extra={"ui:type": "number"})
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the vCenter certificate. vCenter usually presents a certificate from its own VMCA: paste the VMCA root below rather than turning this off.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    ca_certificate: Optional[str] = Field(
+        None,
+        title="CA certificate (optional)",
+        description="PEM certificate of the CA that signed the vCenter certificate (the VMCA root, from https://<vcenter>/certs/download.zip).",
+        json_schema_extra={"ui:type": "textarea"},
+    )
+    include_tags: bool = Field(
+        True,
+        title="Include vSphere tags",
+        description="Read tags and categories through the vSphere Automation REST API (vCenter 7.0 U2 or later).",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    default_lookback_hours: int = Field(
+        24, ge=1, le=720, title="Default lookback (hours)",
+        description="Window for events and tasks when a question gives no explicit time range.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    timeout: int = Field(60, ge=5, le=300, title="Request timeout (seconds)", json_schema_extra={"ui:type": "number"})
+
+
 # DX NetOps Spectrum (Broadcom / CA Spectrum) — OneClick Web Services API
 class SpectrumUserPassCredentials(BaseModel):
     username: str = Field(
@@ -1763,6 +1810,43 @@ class Neo4jConfig(BaseModel):
         description="Database name (default: neo4j)",
         json_schema_extra={"ui:type": "string"},
     )
+    max_rows: int = Field(
+        10_000,
+        ge=1,
+        le=100_000,
+        title="Row limit",
+        description="Most rows one query returns. Larger results are cut off and the agent is told to aggregate.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    schema_sample_size: int = Field(
+        100,
+        ge=1,
+        le=10_000,
+        title="Schema sample size",
+        description=(
+            "Nodes or relationships sampled per label to find properties, used only when the "
+            "database's schema procedures are restricted for this user."
+        ),
+        json_schema_extra={"ui:type": "number"},
+    )
+    allow_gds: bool = Field(
+        False,
+        title="Allow graph algorithms (GDS)",
+        description=(
+            "Let the agent run Graph Data Science algorithms in stream / stats mode (PageRank, "
+            "community detection, similarity, paths). Needs the GDS plugin. Write and mutate modes stay blocked."
+        ),
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    kerberos_service: str = Field(
+        "neo4j",
+        title="Kerberos service name",
+        description=(
+            "Only for Kerberos: the service part of Neo4j's Kerberos principal "
+            "(neo4j for neo4j/host@REALM)."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
 
     @field_validator("uri")
     @classmethod
@@ -1771,12 +1855,20 @@ class Neo4jConfig(BaseModel):
 
         return validate_uri(v)
 
+    @field_validator("kerberos_service")
+    @classmethod
+    def _service_is_one_name(cls, v: str) -> str:
+        v = (v or "neo4j").strip()
+        if not v or any(c in v for c in "/@ "):
+            raise ValueError("Enter only the service name, e.g. neo4j (no host or realm).")
+        return v
+
 
 class Neo4jCredentials(BaseModel):
     username: str = Field(
         ...,
         title="Username",
-        description="A Neo4j user. A user with a reader role is enough.",
+        description="A Neo4j user. A user with a reader role is enough. LDAP users sign in here too.",
         json_schema_extra={"ui:type": "string"},
     )
     password: str = Field(
@@ -1784,6 +1876,106 @@ class Neo4jCredentials(BaseModel):
         title="Password",
         json_schema_extra={"ui:type": "password"},
     )
+
+
+class Neo4jBearerCredentials(BaseModel):
+    """A token from the identity provider Neo4j's SSO (OIDC) is set up with."""
+    token: str = Field(
+        ...,
+        min_length=1,
+        title="Access token",
+        description=(
+            "An OIDC access or ID token that Neo4j's SSO accepts (the JWT itself, without "
+            "\"Bearer\"). Tokens expire: replace it when the connection test fails."
+        ),
+        json_schema_extra={"ui:type": "password"},
+    )
+
+    @field_validator("token")
+    @classmethod
+    def _strip_bearer(cls, v: str) -> str:
+        v = (v or "").strip()
+        if v.lower() == "bearer" or v.lower().startswith(("bearer ", "bearer\t")):
+            v = v[6:].strip()
+        if not v:
+            raise ValueError("The token is empty.")
+        return v
+
+
+class Neo4jNoAuthCredentials(BaseModel):
+    """A server with authentication disabled (dbms.security.auth_enabled=false)."""
+    pass
+
+
+class Neo4jImpersonationCredentials(BaseModel):
+    """A service user that runs each query as another Neo4j user.
+
+    Neo4j checks the impersonated user's own roles on every query. The service
+    user needs the IMPERSONATE privilege (Neo4j Enterprise or Aura Enterprise).
+    """
+    username: str = Field(
+        ...,
+        title="Service username",
+        description="A Neo4j user granted IMPERSONATE on the users BOW should act as.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(
+        ...,
+        title="Service password",
+        json_schema_extra={"ui:type": "password"},
+    )
+    impersonated_user: str | None = Field(
+        None,
+        title="Run queries as",
+        description=(
+            "The Neo4j user queries run as. Under \"Require user authentication\", map it to a "
+            "member attribute so each member runs as their own Neo4j user."
+        ),
+        json_schema_extra={"ui:type": "string", "ui:memberBindable": True},
+    )
+
+
+class Neo4jKerberosCredentials(BaseModel):
+    """BOW's own Kerberos identity (keytab or default credential cache).
+
+    Needs Neo4j Enterprise with the Kerberos add-on, and krb5 configured on
+    the BOW server.
+    """
+    use_kerberos: bool = Field(
+        True,
+        title="Use Kerberos",
+        description="Sign in with the BOW server's Kerberos identity. Needs krb5 on the BOW server (keytab + krb5.conf).",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    kerberos_principal: str | None = Field(
+        None,
+        title="Service principal (optional)",
+        description="Client principal to sign in as, e.g. svc-bow@CORP.EXAMPLE.COM. Needs a matching keytab entry. Leave blank for the default credential cache.",
+        json_schema_extra={"ui:type": "string"},
+    )
+
+    @model_validator(mode="after")
+    def _kerberos_stays_on(self) -> Neo4jKerberosCredentials:
+        if not self.use_kerberos:
+            raise ValueError("Kerberos must remain enabled for this authentication method.")
+        return self
+
+
+class Neo4jKerberosDelegatedCredentials(BaseModel):
+    """Per-user Kerberos SSO via constrained delegation (S4U2Self + S4U2Proxy),
+    the same flow as SQL Server's."""
+    use_kerberos: bool = Field(
+        True,
+        title="Use Kerberos SSO",
+        description="Queries run under your own Active Directory identity via Kerberos Constrained Delegation.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+
+    @model_validator(mode="after")
+    def _kerberos_stays_on(self) -> Neo4jKerberosDelegatedCredentials:
+        if not self.use_kerberos:
+            raise ValueError("Kerberos must remain enabled for this authentication method.")
+        return self
 
 # OpenSearch
 class OpenSearchCredentials(BaseModel):
@@ -4370,6 +4562,67 @@ class BrocadeConfig(BaseModel):
     include_advanced: bool = Field(False, title="Include advanced diagnostic tables", description="The default catalog contains 12 primary investigation tables.")
     allow_http: bool = Field(False, title="Allow HTTP for a local simulator", description="Only loopback addresses are accepted over HTTP.")
     login_scheme: Literal["Basic", "Custom_Basic"] = Field("Custom_Basic", title="Login scheme", description="Use Custom_Basic or Basic, as supported by your switch.")
+
+
+class F5BigIpCredentials(BaseModel):
+    username: str = Field(..., title="Username", description="BIG-IP account with a read-only role (Guest or Auditor). Remote-auth (LDAP/RADIUS/TACACS) users are supported through token login.")
+    password: str = Field(..., title="Password", json_schema_extra={"ui:type": "password"})
+
+
+class F5BigIpConfig(BaseModel):
+    url: str = Field(..., title="Management URL", description="BIG-IP management origin, for example https://bigip.example:443. Uses iControl REST under /mgmt.")
+    login_provider: str = Field("tmos", title="Login provider", description="iControl REST loginProviderName used for token login. Keep tmos unless your remote-auth provider differs.")
+    ca_certificate: Optional[str] = Field(None, title="Trusted CA certificate", description="Optional PEM CA certificate for the appliance. Certificate verification is always enabled.", json_schema_extra={"ui:type": "textarea"})
+    timeout: int = Field(30, ge=1, le=120, title="Request timeout (seconds)")
+    max_rows: int = Field(10000, ge=1, le=100000, title="Maximum complete result rows", description="Queries exceeding this ceiling fail explicitly; they never return silently truncated evidence.")
+    allow_http: bool = Field(False, title="Allow HTTP for a simulator", description="Only enable for an isolated simulated API. Real appliances should use HTTPS.")
+
+
+class CheckPointUserPassCredentials(BaseModel):
+    username: str = Field(..., title="Username", description="Management administrator with a Read Only permission profile. Sessions are opened read-only and never publish.")
+    password: str = Field(..., title="Password", json_schema_extra={"ui:type": "password"})
+
+
+class CheckPointApiKeyCredentials(BaseModel):
+    api_key: str = Field(..., title="API key", description="API key of a read-only administrator (required for Smart-1 Cloud).", json_schema_extra={"ui:type": "password"})
+
+
+class CheckPointConfig(BaseModel):
+    url: str = Field(..., title="Management URL", description="Security Management Server origin (https://mgmt.example:443, optionally ending in /web_api) or the Smart-1 Cloud Web-API URL (https://<tenant>.maas.checkpoint.com/<context>/web_api).")
+    domain: Optional[str] = Field(None, title="Domain", description="Multi-Domain Server domain name to log in to. Leave empty for a single-domain Security Management Server.")
+    api_version: Optional[str] = Field(None, title="API version", description="Optional Management API version to pin, for example 1.9.1. Empty uses the server default.")
+    ca_certificate: Optional[str] = Field(None, title="Trusted CA certificate", description="Optional PEM CA certificate for the management server. Certificate verification is always enabled.", json_schema_extra={"ui:type": "textarea"})
+    timeout: int = Field(30, ge=1, le=120, title="Request timeout (seconds)")
+    max_rows: int = Field(10000, ge=1, le=100000, title="Maximum complete result rows", description="Queries exceeding this ceiling fail explicitly; they never return silently truncated evidence.")
+    allow_http: bool = Field(False, title="Allow HTTP for a simulator", description="Only enable for an isolated simulated API. Real servers should use HTTPS.")
+
+
+class DellOmeCredentials(BaseModel):
+    username: str = Field(..., title="Username", description="OpenManage Enterprise account with the Viewer role.")
+    password: str = Field(..., title="Password", json_schema_extra={"ui:type": "password"})
+
+
+class DellOmeConfig(BaseModel):
+    url: str = Field(..., title="Appliance URL", description="OpenManage Enterprise (or OME-Modular) origin, for example https://ome.example:443.")
+    ca_certificate: Optional[str] = Field(None, title="Trusted CA certificate", description="Optional PEM CA certificate for the appliance. Certificate verification is always enabled.", json_schema_extra={"ui:type": "textarea"})
+    timeout: int = Field(30, ge=1, le=120, title="Request timeout (seconds)")
+    max_rows: int = Field(10000, ge=1, le=100000, title="Maximum complete result rows", description="Queries exceeding this ceiling fail explicitly; they never return silently truncated evidence.")
+    allow_http: bool = Field(False, title="Allow HTTP for a simulator", description="Only enable for an isolated simulated API. Real appliances should use HTTPS.")
+
+
+class HpeOneViewCredentials(BaseModel):
+    username: str = Field(..., title="Username", description="OneView account with the Read only role.")
+    password: str = Field(..., title="Password", json_schema_extra={"ui:type": "password"})
+
+
+class HpeOneViewConfig(BaseModel):
+    url: str = Field(..., title="Appliance URL", description="OneView or Synergy Composer origin, for example https://oneview.example:443.")
+    auth_login_domain: str = Field("local", title="Authentication directory", description="authLoginDomain sent at login: local for appliance accounts, or the configured directory name.")
+    api_version: Optional[int] = Field(None, title="X-API-Version", description="Optional API version to pin. Empty negotiates the appliance's current version from GET /rest/version (clamped to the connector's supported range 1200–7200).")
+    ca_certificate: Optional[str] = Field(None, title="Trusted CA certificate", description="Optional PEM CA certificate for the appliance. Certificate verification is always enabled.", json_schema_extra={"ui:type": "textarea"})
+    timeout: int = Field(30, ge=1, le=120, title="Request timeout (seconds)")
+    max_rows: int = Field(10000, ge=1, le=100000, title="Maximum complete result rows", description="Queries exceeding this ceiling fail explicitly; they never return silently truncated evidence.")
+    allow_http: bool = Field(False, title="Allow HTTP for a simulator", description="Only enable for an isolated simulated API. Real appliances should use HTTPS.")
 
 
 class GitRepoConfig(BaseModel):

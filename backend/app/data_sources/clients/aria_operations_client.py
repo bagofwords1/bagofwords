@@ -48,6 +48,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_session
 
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.progress import ProgressCallback
@@ -255,7 +256,7 @@ class AriaOperationsClient(DataSourceClient):
 
     def _http(self) -> requests.Session:
         if self._session is None:
-            self._session = requests.Session()
+            self._session = pinned_session()
         return self._session
 
     @property
@@ -508,6 +509,7 @@ class AriaOperationsClient(DataSourceClient):
                     except IndexingCancelled:
                         raise
                     except Exception:
+                        self.mark_discovery_incomplete("Aria dynamic metric tables")
                         n = 0
                     if n > 0:
                         populated.append((ak_key, rk.get("key"), rk.get("name") or rk.get("key"), n))
@@ -529,6 +531,7 @@ class AriaOperationsClient(DataSourceClient):
                 except IndexingCancelled:
                     raise
                 except Exception:
+                    self.mark_discovery_incomplete("Aria dynamic metric tables")
                     continue
                 if not stats:
                     continue
@@ -536,6 +539,7 @@ class AriaOperationsClient(DataSourceClient):
         except IndexingCancelled:
             raise
         except Exception:
+            self.mark_discovery_incomplete("Aria dynamic metric tables")
             pass
         return tables
 

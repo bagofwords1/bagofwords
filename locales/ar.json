@@ -454,6 +454,14 @@
       "automation_failed": {
         "title": "فشل \"{name}\""
       },
+      "connection_down": {
+        "title": "الاتصال «{name}» متوقف",
+        "body": "فشل «{name}» في فحوصات السلامة وتم وضع علامة عليه بأنه غير متصل. لا يمكن للوكلاء الذين يعتمدون عليه الاستعلام منه حتى يتعافى."
+      },
+      "connection_restored": {
+        "title": "عاد الاتصال «{name}» إلى الإنترنت",
+        "body": "أعاد «{name}» الاتصال وأصبح نشطًا مرة أخرى."
+      },
       "trigger_run": {
         "title": "⚡ تم تفعيل \"{name}\" — {summary}",
         "body": "اكتمل التحقيق — افتح الجلسة للاطلاع على النتائج."
@@ -1871,6 +1879,22 @@
       "override": "تنطبق هذه القواعد عليك فقط. إعداد الاتصال السماح دائمًا أو الرفض دائمًا له الأولوية.",
       "save": "حفظ القواعد",
       "failed": "تعذر تحميل القواعد أو حفظها. تحقق من JSON وحاول مجددًا."
+    },
+    "shell": {
+      "command": "أمر الطرفية",
+      "server": "الخادم",
+      "directory": "المجلد",
+      "cancelled": "أُلغي",
+      "denied": "رُفض",
+      "approval_expired": "انتهت صلاحية الموافقة",
+      "execution_timed_out": "انتهت المهلة",
+      "failed": "فشل",
+      "success": "اكتمل",
+      "running": "قيد التشغيل",
+      "awaitingApproval": "بانتظار الموافقة",
+      "unknownState": "قد تكون العملية البعيدة لا تزال قيد التشغيل. تحقق من حالتها قبل إعادة المحاولة.",
+      "exitCode": "رمز الخروج: {code}",
+      "cancelledBeforeExecution": "أُلغي قبل التنفيذ."
     }
   },
   "entityCreate": {
@@ -2906,6 +2930,9 @@
       "locked": "هذا الإعداد مقفل ولا يمكن تغييره.",
       "notEditable": "(لا يمكن تعديله مباشرة)",
       "noSettings": "لا توجد إعدادات للذكاء الاصطناعي.",
+      "noSearchResults": "لا توجد إعدادات تطابق بحثك.",
+      "searchPlaceholder": "البحث في الإعدادات…",
+      "clearSearch": "مسح البحث",
       "sectionSummary": "{n} إعدادات",
       "sectionSummaryOn": "{n} إعدادات · {on} مفعّلة",
       "sections": {
@@ -3404,6 +3431,12 @@
         "monday": "الاثنين",
         "saturday": "السبت"
       }
+    },
+    "connectionAlerts": {
+      "heading": "رسائل التنبيه",
+      "label": "رسائل تنبيه انقطاع الاتصال",
+      "description": "إرسال بريد إلكتروني إلى مسؤولي الاتصال عند تعطل اتصال مشترك أو عودته. تظل الإشعارات داخل التطبيق مفعّلة دائمًا.",
+      "saveError": "تعذّر حفظ إعداد تنبيهات الاتصال."
     },
     "smtpTab": "SMTP",
     "timezone": {
@@ -3975,6 +4008,13 @@
       "uploadInvalid": "اختر ملف مفتاح SSH خاصًا أصغر من 64 كيلوبايت. لا تُقبل المفاتيح العامة أو الملفات الأخرى.",
       "keyRequired": "تحقق من مفتاح SSH للخادم للمتابعة، أو أدخل مفتاحًا موثوقًا في الإعدادات المتقدمة.",
       "required": "أكمل الحقول المطلوبة: {fields}."
+    },
+    "connAlerts": {
+      "title": "رسائل تنبيه الانقطاع",
+      "label": "إرسال بريد إلى المسؤولين عند تعطل هذا الاتصال",
+      "hint": "يُرسل بريدًا إلى المسؤولين عند تعطل هذا الاتصال. تظل إشعارات التطبيق مفعّلة دائمًا.",
+      "orgOffNote": "رسائل التنبيه على مستوى المؤسسة متوقفة (الإعدادات → SMTP). فعّلها للتحكم في ذلك لكل اتصال.",
+      "saveFailed": "تعذّر حفظ الإعداد."
     }
   },
   "share": {
@@ -4061,11 +4101,23 @@
     "close": "إغلاق",
     "copyClipboardFailed": "تعذّر النسخ إلى الحافظة"
   },
+  "dataGrid": {
+    "page": "صفحة",
+    "to": "إلى",
+    "of": "من",
+    "more": "المزيد",
+    "pageSizeSelectorLabel": "حجم الصفحة:",
+    "firstPage": "الصفحة الأولى",
+    "previousPage": "الصفحة السابقة",
+    "nextPage": "الصفحة التالية",
+    "lastPage": "الصفحة الأخيرة"
+  },
   "sharedReport": {
     "backToApp": "العودة إلى التطبيق",
     "tabReport": "التقرير",
     "tabData": "البيانات ({count})",
     "refreshedAt": "تم التحديث {time}",
+    "noDashboard": "لا توجد لوحة تحكم متاحة",
     "madeWith": "صُنع باستخدام {brand}",
     "fork": "إنشاء نسخة"
   },
@@ -4075,6 +4127,7 @@
     "shell_confirmation.invalid_scope": "نطاق إذن غير صالح.",
     "shell_confirmation.report_required": "تتطلب أذونات الجلسة تقريرًا.",
     "shell_confirmation.rule_mismatch": "قاعدة أمر غير صالحة، أو أن النمط لا يطابق هذا الأمر.",
+    "catalog_discovery_incomplete": "فشل تحديث الكتالوج لأن الاكتشاف لم يكتمل. تم الاحتفاظ بالكتالوج السابق واختيارات الجداول.",
     "saml_unavailable": "إعدادات تسجيل الدخول الموحد غير متاحة. تواصل مع المسؤول.",
     "saml_login_failed": "فشل تسجيل الدخول الموحد. أعد المحاولة أو تواصل مع المسؤول.",
     "invitation_required": "التسجيل معطّل. اطلب دعوة من المسؤول.",
@@ -4105,6 +4158,9 @@
     "access.denied": "تم رفض الوصول",
     "account.disabled": "تم تعطيل حسابك. يرجى التواصل مع المسؤول.",
     "connection.not_found": "الاتصال غير موجود",
+    "connection.table_not_found": "الجدول غير موجود",
+    "connection.table_preview_unsupported": "معاينة البيانات غير متاحة لاتصالات {type}.",
+    "connection.table_preview_failed": "فشلت المعاينة: {reason}",
     "data_source.not_found": "مصدر البيانات غير موجود",
     "file.not_found": "الملف غير موجود",
     "verification.invalid": "رمز التحقق غير صالح أو منتهي الصلاحية",
@@ -4332,16 +4388,146 @@
   "dashboards": {
     "title": "لوحات التحكم",
     "subtitle": "تصفّح وأدِر لوحات التحكم والشرائح",
-    "searchPlaceholder": "ابحث في لوحات التحكم…",
+    "searchPlaceholder": "ابحث في لوحات التحكم أو المالكين…",
     "myDashboards": "لوحات التحكم الخاصة بي",
     "sharedWithMe": "تمت مشاركتها معي",
     "empty": "لا توجد لوحات تحكم",
-    "emptyDescription": "حاول تعديل مصطلح البحث، أو أنشئ تقريرًا بلوحة تحكم.",
+    "emptyMy": "أنشئ تقريرًا بلوحة تحكم وستظهر هنا.",
+    "emptyShared": "لم تتم مشاركة أي شيء معك بعد.",
     "showingRange": "عرض {start} إلى {end} من إجمالي {total} لوحة تحكم",
     "fetchFailed": "تعذّر جلب لوحات التحكم",
     "typeAll": "الكل",
     "typeDashboards": "لوحات المعلومات",
-    "typeDocs": "المستندات"
+    "typeDocs": "المستندات",
+    "reason": {
+      "direct": "تمت مشاركتها معك",
+      "group": "المجموعة {name}",
+      "project": "المشروع {name}",
+      "org": "المؤسسة",
+      "public": "رابط عام",
+      "other": "مشتركة",
+      "groupAny": "مجموعتك",
+      "projectAny": "مشروعك"
+    },
+    "reasonTitle": {
+      "direct": "شاركها {owner} معك",
+      "group": "تمت مشاركتها مع مجموعتك {name}",
+      "groupOther": "تمت مشاركتها مع إحدى مجموعاتك",
+      "project": "ضمن المشروع {name} الذي تنتمي إليه",
+      "projectOther": "ضمن مشروع تنتمي إليه",
+      "org": "تمت مشاركتها مع الجميع في المؤسسة",
+      "public": "أي شخص لديه الرابط",
+      "also": "أيضًا: {reason}",
+      "canEdit": "(يمكنك التعديل)",
+      "viewOnly": "(عرض فقط)"
+    },
+    "card": {
+      "edited": "عُدّلت {time}",
+      "created": "أُنشئت {date}",
+      "by": "بواسطة {name}",
+      "published": "نُشرت {date}",
+      "dataAsOf": "حُدّثت البيانات {time}",
+      "refreshFailing": "فشل التحديث",
+      "lastEdit": "آخر تعديل: {time}",
+      "scheduledRefresh": "تحديث مُجدوَل"
+    },
+    "pill": {
+      "new": "جديدة",
+      "published": "منشورة",
+      "changes": "تغييرات غير منشورة",
+      "org": "المؤسسة",
+      "public": "عامة"
+    },
+    "mode": {
+      "page": "لوحة معلومات",
+      "slides": "شرائح",
+      "doc": "مستند"
+    },
+    "list": {
+      "createdShort": "أُنشئت {date}",
+      "directFirst": "المشاركات المباشرة أولًا",
+      "dateColumns": "التعديل · الإنشاء"
+    },
+    "star": "تمييز بنجمة",
+    "unstar": "إزالة النجمة",
+    "starFailed": "تعذّر تحديث النجمة",
+    "emptyFiltered": "جرّب بحثًا آخر، أو {clear}.",
+    "clearTheFilters": "امسح عوامل التصفية",
+    "count": "لوحات التحكم: {n}",
+    "tabNew": "جديدة: {n}",
+    "pagePrevious": "الصفحة السابقة",
+    "pageNext": "الصفحة التالية",
+    "sort": {
+      "label": "الترتيب",
+      "edited": "المعدّلة مؤخرًا",
+      "newest": "الأحدث إنشاءً",
+      "oldest": "الأقدم إنشاءً",
+      "title": "العنوان أ–ي",
+      "published": "المنشورة مؤخرًا"
+    },
+    "view": {
+      "grid": "شبكة",
+      "list": "قائمة"
+    },
+    "access": {
+      "all": "الكل",
+      "direct": "مباشرةً",
+      "group": "مجموعاتي",
+      "project": "المشاريع",
+      "org": "المؤسسة",
+      "edit": "يمكنني التعديل"
+    },
+    "presets": {
+      "any": "أي وقت",
+      "last7": "آخر 7 أيام",
+      "last30": "آخر 30 يومًا",
+      "last90": "آخر 90 يومًا",
+      "year": "هذا العام",
+      "older90": "أقدم من 90 يومًا",
+      "custom": "نطاق مخصص"
+    },
+    "status": {
+      "any": "أي حالة",
+      "published": "منشورة",
+      "changes": "تغييرات غير منشورة",
+      "draft": "مسودة"
+    },
+    "filters": {
+      "button": "عوامل التصفية",
+      "agent": "الوكيل",
+      "created": "الإنشاء",
+      "edited": "التعديل",
+      "owner": "المالك",
+      "status": "الحالة",
+      "starredOnly": "المميّزة بنجمة فقط",
+      "clearAll": "مسح الكل",
+      "allAgents": "كل الوكلاء",
+      "agentsCount": "الوكلاء: {n}",
+      "anyone": "أي شخص",
+      "ownersCount": "الأشخاص: {n}",
+      "from": "من",
+      "to": "إلى",
+      "toLabel": "إلى",
+      "customRange": "{from} – {to}",
+      "rangeInvalid": "يجب أن تكون البداية في تاريخ النهاية أو قبله",
+      "unknownAgent": "وكيل غير متاح",
+      "unknownOwner": "شخص غير معروف",
+      "resultCount": "{n} من {total}",
+      "remove": "إزالة {name}"
+    },
+    "chips": {
+      "search": "\"{q}\"",
+      "owner": "المالك: {name}",
+      "created": "الإنشاء: {range}",
+      "edited": "التعديل: {range}",
+      "starred": "المميّزة بنجمة"
+    },
+    "attention": {
+      "title": "تحتاج إلى انتباه",
+      "failing": "فشل التحديث: {n}",
+      "stale": "بلا تعديل منذ 90 يومًا: {n}",
+      "show": "اعرضها"
+    }
   },
   "excel": {
     "greeting": "مرحبًا، {name} 👋",
@@ -6586,5 +6772,27 @@
     "enabled": "مفعّل",
     "embeddingEmpty": "Embedding is not configured",
     "oauthEmpty": "OAuth is not configured"
+  },
+  "tablePreview": {
+    "loading": "جارٍ تحميل الصفوف…",
+    "failed": "تعذّر تحميل معاينة لهذا الجدول.",
+    "showing": "عرض {shown} صفوف",
+    "columns": "{count} أعمدة",
+    "empty": "لا يحتوي هذا الجدول على صفوف.",
+    "reload": "إعادة التحميل",
+    "createCustomTable": "إنشاء جدول مخصص من هذا الجدول",
+    "run": "تشغيل",
+    "resetQuery": "إعادة تعيين",
+    "runHint": "Ctrl/⌘ + Enter للتشغيل. استعلامات القراءة فقط.",
+    "ofTotal": "~{total} صفًا في الجدول",
+    "retry": "إعادة المحاولة",
+    "readOnlyHint": "يتطلب تعديل الاستعلام تفعيل الجداول المخصصة على هذا الاتصال.",
+    "storageNote": "تمت القراءة مباشرة من تخزين الجدول، لذا لا توجد تكلفة استعلام لهذه المعاينة.",
+    "signInRequired": "يعمل هذا الاتصال ببيانات اعتمادك الخاصة. سجّل الدخول لرؤية صفوفه.",
+    "signIn": "تسجيل الدخول",
+    "open": "معاينة البيانات في {name}",
+    "subtitle": "صفوف نموذجية من {connection}، تُقرأ مباشرة من المصدر.",
+    "close": "إغلاق",
+    "button": "معاينة"
   }
 }

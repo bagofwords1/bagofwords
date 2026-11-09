@@ -1,0 +1,21 @@
+list_instructions description mentions read_instruction: False
+read_instruction accepts: ['instruction_id']
+
+== list_instructions ==
+  giant  full= 120048 shown= 500 text_truncated=<missing> text_length=<missing>
+  long   full= 160079 shown= 500 text_truncated=<missing> text_length=<missing>
+  medium full=   3099 shown= 500 text_truncated=<missing> text_length=<missing>
+
+== read_instruction medium (3,099 chars, 78 lines) ==
+  response size: 3,474 chars   whole text in one call: True
+  read_mode=None truncated=None next_offset=None clipped_line=None outline=no
+
+== read_instruction long (160,079 chars, 3,865 lines) ==
+  response size: 164,241 chars   whole text in one call: True
+  read_mode=None truncated=None next_offset=None clipped_line=None outline=no
+  grep 'LAST LINE': not supported
+
+== read_instruction giant (120,048 chars, 3 lines) ==
+  response size: 150,348 chars   whole text in one call: True
+  read_mode=None truncated=None next_offset=None clipped_line=None outline=no
+  grep 'TAIL use': not supported

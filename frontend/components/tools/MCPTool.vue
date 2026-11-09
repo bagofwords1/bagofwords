@@ -1,7 +1,11 @@
 <template>
   <div class="mt-1">
+    <RemoteShellTool v-if="isShell" :args="args.arguments || {}" :result="resultJson" :status="status"
+      :progress-stage="progressStage" :run-status="runStatus" :duration="duration"
+      :connection-name="resultJson.connection_name" :approval-label="approvalOutcomeLabel"
+      :confirmation-target="confirmation?.arguments?._execution_target" />
     <!-- Status header -->
-    <Transition name="fade" appear>
+    <Transition v-if="!isShell" name="fade" appear>
       <div
         class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
         @click="toggleExpanded"
@@ -11,7 +15,7 @@
           <span class="tool-shimmer">{{ runningLabel }}</span>
         </span>
         <span v-else class="text-gray-600 dark:text-gray-400 flex items-center gap-1">
-          <DataSourceIcon v-if="connectorKey" type="mcp" :connector-key="connectorKey" class="w-3 h-3 me-1 shrink-0" />
+          <DataSourceIcon v-if="connectionIcon" :type="connectionIcon.type" :connector-key="connectionIcon.connectorKey" class="w-3 h-3 me-1 shrink-0" />
           <McpIcon v-else-if="isMcpFamily" class="w-3 h-3 me-1 shrink-0" />
           <Icon v-else name="heroicons-server-stack" class="w-3 h-3 me-1 text-ink-muted" />
           <span>{{ doneLabel }}</span>
@@ -33,16 +37,21 @@
       data-testid="mcp-approval-card"
     >
       <button
-        v-if="argsOneLine"
+        v-if="argsOneLine && !isShell"
         type="button"
         class="block max-w-full truncate text-start text-chat-2 font-mono text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
         :title="showArgs ? '' : argsOneLine"
         @click="showArgs = !showArgs"
       >{{ argsOneLine }}</button>
+      <div v-if="isShell" class="text-chat-2 text-ink-muted">
+        {{ t('tools.shell.server') }}: <bdi dir="ltr">{{ confirmation?.arguments?._execution_target?.server || resultJson.connection_name }}</bdi>
+        · {{ t('tools.shell.directory') }}: <bdi dir="ltr">{{ args.arguments?.working_directory }}</bdi>
+      </div>
       <pre
         v-if="showArgs || shellPermissions || mandatoryApproval"
         class="max-h-32 overflow-auto rounded bg-gray-50 dark:bg-gray-900 text-chat-2 leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words font-mono"
-      >{{ confirmationArgs }}</pre>
+        :dir="isShell ? 'ltr' : undefined"
+      >{{ isShell ? args.arguments?.command : confirmationArgs }}</pre>
       <div v-if="shellPermissions && !mandatoryApproval" class="space-y-1 text-chat-2">
         <label class="text-ink-muted">{{ t('tools.remoteShell.pattern') }}</label>
         <UTextarea dir="ltr" :rows="2" v-model="commandPattern" :aria-label="t('tools.remoteShell.pattern')" class="font-mono" />
@@ -82,23 +91,11 @@
       </div>
     </div>
 
-    <!-- Failure surfaced inline (amber, not red): a failed tool call is
-         recoverable context for the run, not a hard system error — show it
-         without needing to expand the row. -->
-    <div
-      v-if="isFailed && errorMessage"
-      class="mt-1 ms-1 flex items-start gap-1 text-chat-2 text-amber-600 dark:text-amber-500"
-      data-testid="mcp-error"
-    >
-      <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 mt-0.5 shrink-0" />
-      <span class="break-words">{{ errorMessage }}</span>
-    </div>
-
     <!-- 'ask' policy outcome: who allowed or denied this call. Persisted on
          the tool output, so it survives rehydration; right after a click the
          local decision renders as "by you" until the output arrives. -->
     <div
-      v-if="approvalOutcome"
+      v-if="!isShell && isExpanded && approvalOutcome"
       class="mt-1 flex items-center gap-1 text-chat-2"
       :class="approvalOutcome.approved ? 'text-ink-muted' : 'text-amber-600 dark:text-amber-500'"
       data-testid="mcp-approval-outcome"
@@ -109,7 +106,7 @@
 
     <!-- Auto policy verdict ('auto' policy): small-model review outcome -->
     <div
-      v-if="autoPolicy"
+      v-if="!isShell && isExpanded && autoPolicy"
       class="mt-1 flex items-center gap-1 text-chat-2"
       :class="autoPolicy.approved ? 'text-ink-muted' : 'text-amber-600 dark:text-amber-500'"
       data-testid="mcp-auto-policy"
@@ -120,7 +117,7 @@
 
     <!-- Expandable content -->
     <Transition name="slide">
-      <div v-if="isExpanded && status !== 'running'" class="mt-2 space-y-1.5">
+      <div v-if="!isShell && isExpanded && status !== 'running'" class="mt-2 space-y-1.5">
         <!-- Command (input) -->
         <div v-if="command" class="group">
           <div
@@ -178,7 +175,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import RemoteShellTool from '~/components/tools/RemoteShellTool.vue'
+import { toolOutcome } from '~/utils/toolOutcome'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import { useToolConnectionIcon } from '~/composables/useToolConnectionIcon'
 import McpIcon from '~/components/icons/McpIcon.vue'
@@ -200,6 +199,7 @@ const props = defineProps<{
   toolExecution: ToolExecution
   dataSources?: any[]
   systemCompletionId?: string | null
+  runStatus?: string
 }>()
 
 const isExpanded = ref(false)
@@ -237,7 +237,7 @@ const localDecision = ref<{ approved: boolean } | null>(null)
 // the local click as fallback. A timed-out approval is not a decision.
 const approvalOutcome = computed(() => {
   const a = (resultJson.value as any).approval
-  if (a && !a.timed_out) return { approved: !!a.approved, name: a.resolved_by_name || '' }
+  if (a && !a.timed_out && !a.cancelled) return { approved: !!a.approved, name: a.resolved_by_name || '' }
   if (localDecision.value) return { approved: localDecision.value.approved, name: '' }
   return null
 })
@@ -347,14 +347,19 @@ const isMcpFamily = computed(() =>
 // connection_id, search_mcps' connection_ids, and a sole-provider fallback so
 // "Finding <provider> tools" discovery rows get the brand icon too).
 const mcpConnIcon = useToolConnectionIcon(
-  () => props.toolExecution,
+  () => ({ ...props.toolExecution, arguments_json: args.value }),
   () => props.dataSources,
   { connectionTypes: ['mcp', 'custom_api', 'remote_ssh', 'remote_smb'] },
 )
 
 // Catalog key ("monday", "notion", …) so known connectors get their brand
 // icon; custom MCP servers have none and fall back to the MCP logo.
-const connectorKey = computed(() => mcpConnIcon.value?.connectorKey || null)
+const connectionIcon = computed(() => resultJson.value.connection_type
+  ? { type: resultJson.value.connection_type, connectorKey: mcpConnIcon.value?.connectorKey || null }
+  : mcpConnIcon.value)
+const isShell = computed(() => args.value.tool_name === 'execute_shell' && (
+  connectionIcon.value?.type === 'remote_ssh' || shellPermissions.value
+))
 
 const duration = computed(() => {
   const ms = props.toolExecution?.duration_ms
@@ -405,7 +410,7 @@ const doneLabel = computed(() => {
     if (resultJson.value.success === false) {
       const connName = resultJson.value.connection_name || args.value.tool_name || 'MCP tool'
       const blocked = resultJson.value.blocked_by_policy
-      if (blocked === 'ask') return t('tools.mcp.declined', { name: args.value.tool_name || connName })
+      if (blocked === 'ask') return `${args.value.tool_name || connName} · ${t(`tools.shell.${toolOutcome(resultJson.value, status.value, progressStage.value, props.runStatus)}`)}`
       if (blocked === 'auto') return t('tools.mcp.autoDeclinedLabel', { name: args.value.tool_name || connName })
       if (blocked) return t('tools.mcp.blockedByPolicy', { name: args.value.tool_name || connName })
       return t('tools.mcp.failed', { name: connName })
@@ -480,8 +485,9 @@ const previewMeta = computed(() => {
   return t('tools.mcp.records', { n: total })
 })
 
-const errorMessage = computed(() => resultJson.value.error_message || resultJson.value.error || '')
-const isFailed = computed(() => resultJson.value.success === false || status.value === 'error')
+const errorMessage = computed(() => resultJson.value.blocked_by_policy === 'ask' && resultJson.value.approval
+  ? t(`tools.shell.${toolOutcome(resultJson.value, status.value, progressStage.value, props.runStatus)}`)
+  : resultJson.value.error_message || resultJson.value.error || '')
 
 function toggleExpanded() {
   if (status.value !== 'running') {

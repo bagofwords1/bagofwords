@@ -473,6 +473,14 @@
       "automation_failed": {
         "title": "\"{name}\" נכשל"
       },
+      "connection_down": {
+        "title": "החיבור „{name}” נפל",
+        "body": "„{name}” נכשל בבדיקות התקינות וסומן כמנותק. סוכנים שתלויים בו לא יוכלו לתשאל אותו עד שיתאושש."
+      },
+      "connection_restored": {
+        "title": "החיבור „{name}” חזר לפעול",
+        "body": "„{name}” התחבר מחדש והוא פעיל שוב."
+      },
       "trigger_run": {
         "title": "⚡ \"{name}\" הופעל — {summary}",
         "body": "החקירה הושלמה — פתחו את הסשן לצפייה בממצאים."
@@ -1131,6 +1139,11 @@
     "steeringApplied": "ההכוונה הוחלה",
     "steerQueuedFallback": "הריצה הסתיימה זה עתה — ההודעה נוספה לתור במקום",
     "jumpToLatest": "קפיצה לעדכון האחרון",
+    "turnNavigator": {
+      "label": "מפת השיחה",
+      "jumpTo": "מעבר להודעה {n} מתוך {total}: {text}",
+      "noResponse": "עדיין אין תשובה"
+    },
     "steerFailed": "הכוונת ההשלמה הרצה נכשלה",
     "instructionUnavailableTitle": "ההנחיה אינה זמינה",
     "instructionUnavailableBody": "ייתכן שהיא נמחקה, או שאין לך גישה אליה.",
@@ -2032,6 +2045,28 @@
       "override": "הכללים חלים רק עליך. להגדרות לאפשר תמיד או לחסום תמיד של החיבור יש עדיפות.",
       "save": "שמירת כללים",
       "failed": "לא ניתן לטעון או לשמור כללים. יש לבדוק את ה־JSON ולנסות שוב."
+    },
+    "readReport": {
+      "window": "הודעות {start}–{end} / {total}",
+      "charWindow": "הודעה {index} · תווים {start}–{end} / {total}",
+      "emptyWindow": "אין הודעות במיקום {offset} / {total}",
+      "messageTruncated": "נחתך · {shown} / {total} תווים"
+    },
+    "shell": {
+      "command": "פקודת מעטפת",
+      "server": "שרת",
+      "directory": "תיקייה",
+      "cancelled": "בוטל",
+      "denied": "נדחה",
+      "approval_expired": "תוקף האישור פג",
+      "execution_timed_out": "תם הזמן",
+      "failed": "נכשל",
+      "success": "הושלם",
+      "running": "בביצוע",
+      "awaitingApproval": "ממתין לאישור",
+      "unknownState": "ייתכן שהתהליך המרוחק עדיין פועל. יש לבדוק את מצבו לפני ניסיון חוזר.",
+      "exitCode": "קוד יציאה: {code}",
+      "cancelledBeforeExecution": "בוטל לפני הביצוע."
     }
   },
   "entityCreate": {
@@ -3141,6 +3176,9 @@
       "locked": "הגדרה זו נעולה ולא ניתן לשנותה.",
       "notEditable": "(לא ניתן לעריכה ישירה)",
       "noSettings": "אין הגדרות בינה מלאכותית זמינות.",
+      "noSearchResults": "אין הגדרות שתואמות לחיפוש.",
+      "searchPlaceholder": "חיפוש הגדרות…",
+      "clearSearch": "ניקוי החיפוש",
       "sectionSummary": "{n} הגדרות",
       "sectionSummaryOn": "{n} הגדרות · {on} פעילות",
       "sections": {
@@ -3725,6 +3763,12 @@
         "monday": "יום שני",
         "saturday": "שבת"
       }
+    },
+    "connectionAlerts": {
+      "heading": "מיילי התראה",
+      "label": "מיילים על נפילת חיבור",
+      "description": "שליחת מייל לאדמיני החיבור כשחיבור משותף נופל או חוזר. התראות באפליקציה תמיד פעילות.",
+      "saveError": "לא ניתן היה לשמור את הגדרת התראות החיבור."
     },
     "smtpTab": "SMTP",
     "timezone": {
@@ -4314,6 +4358,13 @@
       "uploadInvalid": "בחרו קובץ מפתח SSH פרטי שקטן מ־64 KB. מפתחות ציבוריים וקבצים אחרים אינם מתקבלים.",
       "keyRequired": "כדי להמשיך, אמתו את מפתח ה־SSH של השרת או הזינו מפתח מהימן בהגדרות המתקדמות.",
       "required": "יש למלא את שדות החובה: {fields}."
+    },
+    "connAlerts": {
+      "title": "מיילי התראה על נפילה",
+      "label": "שליחת מייל לאדמינים כשהחיבור הזה נופל",
+      "hint": "שליחת מייל לאדמינים כשהחיבור הזה נופל. התראות באפליקציה תמיד פעילות.",
+      "orgOffNote": "מיילי ההתראה ברמת הארגון כבויים (הגדרות → SMTP). הדליקו אותם כדי לשלוט בזה לכל חיבור.",
+      "saveFailed": "לא ניתן היה לשמור את ההגדרה."
     }
   },
   "share": {
@@ -4405,11 +4456,23 @@
     "close": "סגירה",
     "copyClipboardFailed": "לא ניתן להעתיק ללוח"
   },
+  "dataGrid": {
+    "page": "עמוד",
+    "to": "עד",
+    "of": "מתוך",
+    "more": "עוד",
+    "pageSizeSelectorLabel": "גודל עמוד:",
+    "firstPage": "עמוד ראשון",
+    "previousPage": "עמוד קודם",
+    "nextPage": "עמוד הבא",
+    "lastPage": "עמוד אחרון"
+  },
   "sharedReport": {
     "backToApp": "חזרה לאפליקציה",
     "tabReport": "דוח",
     "tabData": "נתונים ({count})",
     "refreshedAt": "רוענן {time}",
+    "noDashboard": "אין דשבורד זמין",
     "madeWith": "נוצר באמצעות {brand}",
     "fork": "יצירת עותק"
   },
@@ -4419,6 +4482,7 @@
     "shell_confirmation.invalid_scope": "היקף הרשאה לא תקין.",
     "shell_confirmation.report_required": "הרשאות סשן דורשות דוח.",
     "shell_confirmation.rule_mismatch": "כלל פקודה לא תקין, או שהתבנית אינה תואמת לפקודה זו.",
+    "catalog_discovery_incomplete": "רענון הקטלוג נכשל כי הגילוי לא הושלם. הקטלוג הקודם ובחירות הטבלאות נשמרו.",
     "saml_unavailable": "הגדרות ההתחברות הארגונית אינן זמינות. יש לפנות למנהל המערכת.",
     "saml_login_failed": "ההתחברות הארגונית נכשלה. יש לנסות שוב או לפנות למנהל המערכת.",
     "invitation_required": "ההרשמה מושבתת. יש לבקש הזמנה ממנהל המערכת.",
@@ -4449,6 +4513,9 @@
     "access.denied": "הגישה נדחתה",
     "account.disabled": "החשבון שלך הושבת. פנה למנהל המערכת.",
     "connection.not_found": "החיבור לא נמצא",
+    "connection.table_not_found": "הטבלה לא נמצאה",
+    "connection.table_preview_unsupported": "תצוגה מקדימה של נתונים אינה זמינה לחיבורי {type}.",
+    "connection.table_preview_failed": "התצוגה המקדימה נכשלה: {reason}",
     "data_source.not_found": "מקור הנתונים לא נמצא",
     "file.not_found": "הקובץ לא נמצא",
     "verification.invalid": "אסימון האימות אינו תקף או שפג תוקפו",
@@ -4723,16 +4790,146 @@
   "dashboards": {
     "title": "דשבורדים",
     "subtitle": "עיון וניהול של דשבורדים והמצגות שלך",
-    "searchPlaceholder": "חיפוש דשבורדים…",
+    "searchPlaceholder": "חיפוש דשבורדים או בעלים…",
     "myDashboards": "דשבורדים שלי",
     "sharedWithMe": "משותפים איתי",
     "empty": "לא נמצאו דשבורדים",
-    "emptyDescription": "נסה לשנות את מונח החיפוש, או צור דשבורד חדש.",
+    "emptyMy": "צרו דוח עם דשבורד והוא יופיע כאן.",
+    "emptyShared": "עדיין לא שותף איתכם דבר.",
     "showingRange": "מוצגים {start} עד {end} מתוך {total} דשבורדים",
     "fetchFailed": "טעינת הדשבורדים נכשלה",
     "typeAll": "הכול",
     "typeDashboards": "גלריות",
-    "typeDocs": "מסמכים"
+    "typeDocs": "מסמכים",
+    "reason": {
+      "direct": "שותף איתך",
+      "group": "קבוצה {name}",
+      "project": "פרויקט {name}",
+      "org": "הארגון",
+      "public": "קישור ציבורי",
+      "other": "משותף",
+      "groupAny": "הקבוצה שלך",
+      "projectAny": "הפרויקט שלך"
+    },
+    "reasonTitle": {
+      "direct": "שותף איתך על ידי {owner}",
+      "group": "שותף עם הקבוצה שלך {name}",
+      "groupOther": "שותף עם אחת הקבוצות שלך",
+      "project": "בפרויקט {name} שלך",
+      "projectOther": "באחד הפרויקטים שלך",
+      "org": "שותף עם כל הארגון",
+      "public": "כל מי שיש לו את הקישור",
+      "also": "וגם: {reason}",
+      "canEdit": "(הרשאת עריכה)",
+      "viewOnly": "(צפייה בלבד)"
+    },
+    "card": {
+      "edited": "נערך {time}",
+      "created": "נוצר {date}",
+      "by": "מאת {name}",
+      "published": "פורסם {date}",
+      "dataAsOf": "הנתונים עודכנו {time}",
+      "refreshFailing": "הרענון נכשל",
+      "lastEdit": "עריכה אחרונה: {time}",
+      "scheduledRefresh": "רענון מתוזמן"
+    },
+    "pill": {
+      "new": "חדש",
+      "published": "פורסם",
+      "changes": "שינויים שלא פורסמו",
+      "org": "ארגון",
+      "public": "ציבורי"
+    },
+    "mode": {
+      "page": "גלריה",
+      "slides": "שקופיות",
+      "doc": "מסמך"
+    },
+    "list": {
+      "createdShort": "נוצר {date}",
+      "directFirst": "שיתופים ישירים קודם",
+      "dateColumns": "נערך · נוצר"
+    },
+    "star": "סמן בכוכב",
+    "unstar": "הסר כוכב",
+    "starFailed": "לא ניתן היה לעדכן את הכוכב",
+    "emptyFiltered": "נסו חיפוש אחר, או {clear}.",
+    "clearTheFilters": "נקו את הסינון",
+    "count": "דשבורד אחד | {n} דשבורדים",
+    "tabNew": "{n} חדש | {n} חדשים",
+    "pagePrevious": "העמוד הקודם",
+    "pageNext": "העמוד הבא",
+    "sort": {
+      "label": "מיון",
+      "edited": "נערכו לאחרונה",
+      "newest": "נוצרו לאחרונה",
+      "oldest": "נוצרו ראשונים",
+      "title": "כותרת א–ת",
+      "published": "פורסמו לאחרונה"
+    },
+    "view": {
+      "grid": "רשת",
+      "list": "רשימה"
+    },
+    "access": {
+      "all": "הכול",
+      "direct": "ישירות",
+      "group": "הקבוצות שלי",
+      "project": "פרויקטים",
+      "org": "הארגון",
+      "edit": "הרשאת עריכה"
+    },
+    "presets": {
+      "any": "כל הזמנים",
+      "last7": "7 הימים האחרונים",
+      "last30": "30 הימים האחרונים",
+      "last90": "90 הימים האחרונים",
+      "year": "השנה",
+      "older90": "לפני יותר מ-90 יום",
+      "custom": "טווח מותאם"
+    },
+    "status": {
+      "any": "כל הסטטוסים",
+      "published": "פורסם",
+      "changes": "שינויים שלא פורסמו",
+      "draft": "טיוטה"
+    },
+    "filters": {
+      "button": "מסננים",
+      "agent": "סוכן",
+      "created": "נוצר",
+      "edited": "נערך",
+      "owner": "בעלים",
+      "status": "סטטוס",
+      "starredOnly": "מסומנים בכוכב בלבד",
+      "clearAll": "נקו הכול",
+      "allAgents": "כל הסוכנים",
+      "agentsCount": "סוכן אחד | {n} סוכנים",
+      "anyone": "כולם",
+      "ownersCount": "אדם אחד | {n} אנשים",
+      "from": "מתאריך",
+      "to": "עד",
+      "toLabel": "עד תאריך",
+      "customRange": "{from} – {to}",
+      "rangeInvalid": "תאריך ההתחלה חייב להיות לפני תאריך הסיום או באותו יום",
+      "unknownAgent": "סוכן לא זמין",
+      "unknownOwner": "אדם לא ידוע",
+      "resultCount": "{n} מתוך {total}",
+      "remove": "הסרת {name}"
+    },
+    "chips": {
+      "search": "\"{q}\"",
+      "owner": "בעלים: {name}",
+      "created": "נוצר: {range}",
+      "edited": "נערך: {range}",
+      "starred": "מסומנים בכוכב"
+    },
+    "attention": {
+      "title": "דורשים תשומת לב",
+      "failing": "{n} נכשל ברענון | {n} נכשלים ברענון",
+      "stale": "{n} לא נערך 90 יום | {n} לא נערכו 90 יום",
+      "show": "הציגו אותם"
+    }
   },
   "excel": {
     "greeting": "היי, {name} 👋",
@@ -7206,5 +7403,27 @@
     "enabled": "פעיל",
     "embeddingEmpty": "לא הוגדרה הטמעה",
     "oauthEmpty": "לא הוגדר OAuth"
+  },
+  "tablePreview": {
+    "loading": "טוען שורות…",
+    "failed": "לא ניתן לטעון תצוגה מקדימה של הטבלה.",
+    "showing": "מוצגות {shown} שורות",
+    "columns": "{count} עמודות",
+    "empty": "אין שורות בטבלה הזו.",
+    "reload": "טעינה מחדש",
+    "createCustomTable": "יצירת טבלה מותאמת",
+    "run": "הרצה",
+    "resetQuery": "איפוס",
+    "runHint": "Ctrl/⌘ + Enter להרצה. שאילתות קריאה בלבד.",
+    "ofTotal": "כ-{total} שורות בטבלה",
+    "retry": "ניסיון חוזר",
+    "readOnlyHint": "עריכת השאילתה דורשת טבלאות מותאמות בחיבור הזה.",
+    "storageNote": "נקרא ישירות מאחסון הטבלה, ולכן לתצוגה המקדימה הזו אין עלות שאילתה.",
+    "signInRequired": "החיבור הזה פועל עם פרטי ההתחברות שלך. יש להתחבר כדי לראות את השורות שלו.",
+    "signIn": "התחברות",
+    "open": "תצוגה מקדימה של הנתונים ב-{name}",
+    "subtitle": "שורות לדוגמה מ-{connection}, נקראות ישירות מהמקור.",
+    "close": "סגירה",
+    "button": "תצוגה מקדימה"
   }
 }

@@ -122,7 +122,11 @@ ENV PIP_NO_CACHE_DIR=1 \
 # Install Python runtime and minimal system libs. Node.js is no longer
 # needed at runtime: the frontend is pre-generated as static files by the
 # frontend-builder stage and served directly by FastAPI.
-RUN apt-get update && \
+# Bump APT_REFRESH to force a fresh `apt-get upgrade` past the registry
+# build cache when Trivy flags an OS package that already has a fix.
+ARG APT_REFRESH=2026-11-08
+RUN echo "apt refresh: ${APT_REFRESH}" && \
+    apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends curl ca-certificates gnupg git openssh-client tini libpq5 vim-tiny && \
     # Kerberos runtime for Windows Integrated auth to SQL Server: GSSAPI libs

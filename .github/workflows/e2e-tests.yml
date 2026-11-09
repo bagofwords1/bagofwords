@@ -8,20 +8,83 @@ on:
   workflow_dispatch:  # Allows manual trigger
 
 # A new push to the same PR supersedes the run in flight — there is no point
-# finishing a 40-minute suite against a commit nobody will merge. Pushes to
+# finishing a two-hour suite against a commit nobody will merge. Pushes to
 # main are never cancelled: dispatch-build hangs off that run.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  e2e-tests:
+  # Decides whether a PR can skip the backend e2e suite. It is an allowlist: a
+  # file skips only if it is listed here as unable to affect the backend, and
+  # anything new or unlisted runs everything. Skipping needs every changed file
+  # to be listed. Do not add a path because it looks harmless: check that neither
+  # backend/app nor backend/tests read it (frontend/public is left out because
+  # both do, and CHANGELOG.md, VERSION and bow-config.yaml are read at runtime).
+  #
+  # This job must run on every event, never be skipped. dispatch-build inherits
+  # needs from e2e-tests, and a skipped job anywhere up that chain would skip
+  # dispatch-build too. On anything but a PR its one step is skipped, so the
+  # output is false and everything runs.
+  #
+  # When in doubt it runs the suite: a failed filter step leaves the output
+  # false, and an empty PR or one over the 3,000 files the API can list never
+  # reaches the filter.
+  changes:
     runs-on: ubuntu-latest
-    # The suite outgrew the old 60- then 90-minute caps (it was being cancelled
-    # mid-run). It now runs under pytest-xdist (see the E2E step), which cuts
-    # wall time several-fold; 120 leaves generous headroom while still bounding
-    # runaway hangs.
-    timeout-minutes: 120
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      skip_backend_e2e: ${{ steps.filter.outputs.backend_e2e == 'false' && steps.filter.outputs.must_run == 'false' }}
+    steps:
+    - name: Classify changed files
+      id: filter
+      if: github.event_name == 'pull_request' && github.event.pull_request.changed_files > 0 && github.event.pull_request.changed_files < 3000
+      continue-on-error: true
+      uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
+      with:
+        predicate-quantifier: every
+        filters: |
+          backend_e2e:
+            - '**'
+            - '!docs/**'
+            - '!media/**'
+            - '!locales/**'
+            - '!README.md'
+            - '!LICENSE'
+            - '!SECURITY.md'
+            - '!DEV.md'
+            - '!frontend/README.md'
+            - '!frontend/assets/**'
+            - '!frontend/components/**'
+            - '!frontend/composables/**'
+            - '!frontend/ee/**'
+            - '!frontend/layouts/**'
+            - '!frontend/media/**'
+            - '!frontend/middleware/**'
+            - '!frontend/pages/**'
+            - '!frontend/plugins/**'
+            - '!frontend/tests/**'
+            - '!frontend/utils/**'
+          must_run:
+            - '**/{Dockerfile*,*.lock,*-lock.*}'
+
+  # `if` is evaluated before the matrix expands, so when this job is skipped
+  # GitHub reports one check named `e2e-tests`. `e2e-tests (sqlite)` and
+  # `e2e-tests (postgres)` then never appear, and a PR that required either one
+  # would wait forever. Require `e2e-tests-result` instead.
+  e2e-tests:
+    needs: changes
+    # !cancelled(): if `changes` itself fails, run the suite rather than skip it.
+    if: ${{ !cancelled() && needs.changes.outputs.skip_backend_e2e != 'true' }}
+    runs-on: ubuntu-latest
+    # The suite outgrew the old 60- then 90-minute caps. 120 is no longer
+    # generous: the Postgres job reaches it in about 41% of runs, 93-96% done.
+    # Raising it again only postpones that; the cost is test setup, not this cap.
+    # 122, not 120: pytest stops itself at 115 minutes (--session-timeout below),
+    # and this leaves room for it to finish a running test and upload its timings.
+    timeout-minutes: 122
     strategy:
       fail-fast: false
       matrix:
@@ -29,17 +92,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v7
-    
-    - name: Set up Python
-      uses: actions/setup-python@v6
-      with:
-        python-version: '3.13'
-        
-    - name: Install dependencies
-      working-directory: ./backend
-      run: |
-        pip install uv
-        uv sync --frozen --extra dev
+
+    - uses: ./.github/actions/setup-backend
 
     - name: Check for AI file changes
       id: changes
@@ -84,6 +138,26 @@ jobs:
       # --durations=50: list the slowest tests in every run, so the next
       # regression in per-test cost shows up in the log instead of the timeout.
       #
+      # --junitxml + ci_phase_times: full per-test timings, setup time included,
+      # uploaded below. pytest only writes the file when the session ends, and a
+      # job killed at timeout-minutes never gets there.
+      #
+      # --dist=worksteal: the default `load` mode hands each worker large chunks
+      # up front, so a run of slow dashboards tests ended up on one worker while
+      # the other three sat idle for the last 40 minutes (Postgres, -n 4). Idle
+      # workers now take pending tests from busy ones.
+      #
+      # --session-timeout=6900 is why it normally does get there. At 115 minutes
+      # pytest stops once a running test finishes, then prints the full failure
+      # summary and writes the XML. The step still fails (exit 2), so a stopped
+      # run cannot read as a pass. timeout-minutes stays as the hard backstop.
+      # Today this step starts 3 to 5 minutes into the job, and the cache gives
+      # back about 2.5 of them, so the stop costs a run 2 minutes at most.
+      #
+      # -v: name each test as it starts and finishes. Without it a failure is a
+      # bare F until the end-of-run summary, so a killed run cannot say which
+      # test failed. Costs about 1 MB on a 12 MB log.
+      #
       # tests/e2e: every e2e-marked test lives there. Without the path the
       # controller and each worker imported all ~11.5k tests (unit, ai, evals …)
       # only to deselect them — ~110s of collection per process instead of ~15s.
@@ -96,39 +170,92 @@ jobs:
       # container, and a failure in it is a failure of this run, not a gate
       # that skips the whole E2E suite.
       run: |
-        uv run pytest tests/e2e tests/unit/test_fast_artifact_lifecycle.py -n 4 -m "e2e or db" --db=${{ matrix.db }} --durations=50 --disable-warnings --timeout=600 --timeout-method=thread
+        uv run pytest tests/e2e tests/unit/test_fast_artifact_lifecycle.py -n 4 --dist=worksteal -v -m "e2e or db" --db=${{ matrix.db }} --durations=50 --disable-warnings --timeout=600 --timeout-method=thread --session-timeout=6900 --junitxml=test-results/junit-${{ matrix.db }}.xml -p tests.ci_phase_times
+
+    # always(), not !cancelled(): a run stopped by the job timeout counts as
+    # cancelled, and that is the run whose data is most wanted.
+    - name: Upload JUnit timings
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: junit-${{ matrix.db }}
+        path: backend/test-results/
+        if-no-files-found: warn
+        retention-days: 30
+
+    # Report-only for now. backend/scripts/ci_time_budget.py says how to make it
+    # blocking.
+    - name: Report slow tests
+      if: always()
+      continue-on-error: true
+      run: python3 backend/scripts/ci_time_budget.py backend/test-results/junit-${{ matrix.db }}.xml
+
+  # The one e2e test a frontend change can break: it reads frontend/**/*.{vue,ts}
+  # and checks each useCan('x') against the permission registry. It runs on its
+  # own when the suite is skipped, so skipping loses nothing a frontend PR could
+  # have failed. Any new e2e test that reads frontend/ belongs here too.
+  e2e-skipped-checks:
+    needs: changes
+    if: needs.changes.outputs.skip_backend_e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+    - uses: actions/checkout@v7
+
+    - uses: ./.github/actions/setup-backend
+
+    - name: Check frontend permissions against the registry
+      working-directory: ./backend
+      env:
+        TESTING: "true"
+        ENVIRONMENT: "production"
+      run: |
+        uv run pytest "tests/e2e/rbac/test_rbac_registry.py::test_frontend_use_can_permissions_exist_in_registry" -m e2e --db=sqlite --disable-warnings --timeout=600 --timeout-method=thread
+
+  # One check with the same name on every run, so this is the one to require.
+  # always(), not !cancelled(): a job skipped by a condition reports success, so
+  # a result job that skipped on a cancelled run would let an untested PR merge.
+  e2e-tests-result:
+    if: always()
+    needs: [changes, e2e-tests, e2e-skipped-checks]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check the e2e outcome
+      env:
+        SKIP: ${{ needs.changes.outputs.skip_backend_e2e }}
+        E2E: ${{ needs.e2e-tests.result }}
+        SKIPPED_CHECKS: ${{ needs.e2e-skipped-checks.result }}
+      run: |
+        echo "skip=$SKIP e2e=$E2E skipped-checks=$SKIPPED_CHECKS"
+        if [ "$SKIP" = "true" ]; then
+          [ "$E2E" = "skipped" ] && [ "$SKIPPED_CHECKS" = "success" ]
+        else
+          [ "$E2E" = "success" ]
+        fi
 
   # tests/unit carries no pytest marker, so the -m e2e / -m ai steps above never
   # touched it and nothing else ran it either — two MS Fabric OAuth assertions
   # sat red for two months before anyone noticed. It is pure logic (no HTTP, no
   # containers), so it runs once on sqlite rather than across the db matrix.
   #
-  # Non-blocking (continue-on-error): the suite outgrew the old serial run and
-  # was hitting the job timeout mid-run on every push, cancelling with zero
-  # failing tests — a gate that never passes gates nothing. It still runs (in
-  # parallel, see the step) so real failures stay visible in the checks list,
-  # but it no longer blocks or cancels anything; dispatch-build never depended
-  # on it.
+  # Non-blocking (continue-on-error). This began when the serial suite hit the
+  # job timeout on every push; that is long gone. It stays for now because the
+  # job has too short a green record: main has passed only since 5 Nov, and a
+  # timing test still fails now and then (test_connection_indexing_liveness.py).
+  # Real failures stay visible in the checks list. dispatch-build has never
+  # depended on this job.
   unit-tests:
     runs-on: ubuntu-latest
-    # The suite takes ~60 minutes at -n 4 on a hosted runner; sandboxed
-    # generated-code tests add child process and Arrow round-trip overhead.
+    # The suite takes about 7 minutes at -n 4 on a hosted runner. The limit is
+    # far above that and only bounds a hang.
     timeout-minutes: 120
     continue-on-error: true
 
     steps:
     - uses: actions/checkout@v7
 
-    - name: Set up Python
-      uses: actions/setup-python@v6
-      with:
-        python-version: '3.13'
-
-    - name: Install dependencies
-      working-directory: ./backend
-      run: |
-        pip install uv
-        uv sync --frozen --extra dev
+    - uses: ./.github/actions/setup-backend
 
     - name: Run unit tests
       working-directory: ./backend
@@ -139,27 +266,20 @@ jobs:
       # Unit tests are pure logic; the per-test fresh database is opt-in here
       # (@pytest.mark.db, see tests/unit/conftest.py) so the ~90% of tests that
       # never open a session no longer pay ~1s of engine-dispose + file-swap
-      # overhead each — that overhead was most of the hour this job took.
+      # overhead each — that overhead was most of the hour this job once took.
       run: |
         uv run pytest tests/unit -n 4 --db=sqlite --disable-warnings --timeout=600 --timeout-method=thread
 
   playwright-tests:
-    runs-on: ubuntu-latest
+    # Pinned: Playwright 1.56.0 can't install chromium on ubuntu-26.04, which
+    # ubuntu-latest is moving to. Unpin after upgrading Playwright.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     
     steps:
     - uses: actions/checkout@v7
 
-    - name: Set up Python
-      uses: actions/setup-python@v6
-      with:
-        python-version: '3.13'
-
-    - name: Install backend dependencies
-      working-directory: ./backend
-      run: |
-        pip install uv
-        uv sync --frozen --extra dev
+    - uses: ./.github/actions/setup-backend
 
     - name: Set up Node.js
       uses: actions/setup-node@v4
@@ -253,16 +373,7 @@ jobs:
     steps:
     - uses: actions/checkout@v7
 
-    - name: Set up Python
-      uses: actions/setup-python@v6
-      with:
-        python-version: '3.13'
-
-    - name: Install dependencies
-      working-directory: ./backend
-      run: |
-        pip install uv
-        uv sync --frozen --extra dev
+    - uses: ./.github/actions/setup-backend
 
     - name: Restore integrations credentials
       run: |
@@ -295,18 +406,8 @@ jobs:
             - 'backend/app/ai/**'
             - 'backend/app/models/llm*'
 
-    - name: Set up Python
+    - uses: ./.github/actions/setup-backend
       if: steps.changes.outputs.llm_files == 'true'
-      uses: actions/setup-python@v6
-      with:
-        python-version: '3.13'
-
-    - name: Install dependencies
-      if: steps.changes.outputs.llm_files == 'true'
-      working-directory: ./backend
-      run: |
-        pip install uv
-        uv sync --frozen --extra dev
 
     - name: Restore integrations credentials
       if: steps.changes.outputs.llm_files == 'true'

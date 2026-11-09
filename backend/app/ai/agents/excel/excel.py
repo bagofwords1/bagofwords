@@ -25,6 +25,8 @@ class ExcelAgent:
     def get_schema(self, index):
 
         file_path = self.excel_file.path
+        from app.services import storage
+        storage.ensure_local(file_path)
 
         xl = pd.ExcelFile(file_path)
         

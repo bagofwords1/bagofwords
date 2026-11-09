@@ -138,7 +138,7 @@ const isSkill = computed(() => result.value?.kind === 'skill')
 const text = computed<string>(() => result.value?.text || '')
 const message = computed<string>(() => result.value?.message || '')
 
-// Windowed reads (see backend read_instruction._window_read): 'full' returns
+// Windowed reads (see backend _instruction_window.read_window): 'full' returns
 // the whole body with no extra fields; 'head' is a plain read of a body too
 // long to return whole; 'range' is offset/limit; 'grep' is grep_pattern.
 const readMode = computed<string>(() => result.value?.read_mode || 'full')

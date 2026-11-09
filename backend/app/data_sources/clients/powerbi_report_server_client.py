@@ -1,6 +1,7 @@
 from __future__ import annotations
 from app.data_sources.clients.progress import discovery_progress
 
+from app.data_sources.clients.progress import IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.progress import ProgressCallback, make_reporter
 from app.ai.prompt_formatters import Table, TableColumn, ForeignKey, ServiceFormatter
@@ -20,6 +21,7 @@ from defusedxml import ElementTree as ET
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_session
 from requests_ntlm import HttpNtlmAuth
 
 
@@ -210,7 +212,7 @@ class PowerBIReportServerClient(DataSourceClient):
     def connect(self):
         if self._session is not None:
             return
-        session = requests.Session()
+        session = pinned_session()
         session.auth = HttpNtlmAuth(self._ntlm_user(), self.password)
         # verify_ssl decides whether to verify; the CA bundle is only the trust
         # store used when it is on.
@@ -349,7 +351,8 @@ class PowerBIReportServerClient(DataSourceClient):
         so a subsequent schema refresh is a cheap JSON read.
         """
         cache_file = _pbix_cache_path(report_id, modified_date)
-        if use_cache and cache_file.exists():
+        from app.services import storage
+        if use_cache and storage.ensure_local(cache_file, fresh=False):
             try:
                 with cache_file.open("r", encoding="utf-8") as f:
                     return json.load(f)
@@ -442,6 +445,8 @@ class PowerBIReportServerClient(DataSourceClient):
                 _PBIX_SCHEMA_CACHE_DIR.mkdir(parents=True, exist_ok=True)
                 with cache_file.open("w", encoding="utf-8") as f:
                     json.dump(result, f)
+                from app.services import storage
+                storage.persist(cache_file)
             except Exception as e:
                 logger.debug(f"pbix cache write failed for {report_id}: {e}")
 
@@ -473,6 +478,10 @@ class PowerBIReportServerClient(DataSourceClient):
         """
         cache_dir = _pbix_data_cache_dir(report_id, modified_date)
         manifest_path = cache_dir / "manifest.json"
+        from app.services import storage
+        if storage.enabled() and not manifest_path.exists():
+            # Another pod may have materialized this report already.
+            storage.ensure_local_tree(cache_dir)
         if manifest_path.exists():
             try:
                 with manifest_path.open("r", encoding="utf-8") as f:
@@ -560,6 +569,13 @@ class PowerBIReportServerClient(DataSourceClient):
 
             with manifest_path.open("w", encoding="utf-8") as f:
                 json.dump(manifest, f)
+            try:
+                # manifest.json last: it marks the dir complete for other pods.
+                for rel in manifest.values():
+                    storage.persist(cache_dir / rel)
+                storage.persist(manifest_path)
+            except storage.StorageError as e:
+                logger.warning("pbirs: parquet cache not uploaded to object storage: %s", e)
 
             return {t: cache_dir / rel for t, rel in manifest.items()}
         finally:
@@ -901,27 +917,42 @@ class PowerBIReportServerClient(DataSourceClient):
 
             try:
                 pbi_reports = pbi_f.result()
+            except IndexingCancelled:
+                raise
             except Exception as e:
+                self.mark_discovery_incomplete("powerbi_report_server catalog")
                 logger.warning(f"list_powerbi_reports failed: {e}")
                 pbi_reports = []
             try:
                 rdl_reports = rdl_f.result()
+            except IndexingCancelled:
+                raise
             except Exception as e:
+                self.mark_discovery_incomplete("powerbi_report_server catalog")
                 logger.warning(f"list_paginated_reports failed: {e}")
                 rdl_reports = []
             try:
                 shared_datasets = ds_f.result()
+            except IndexingCancelled:
+                raise
             except Exception as e:
+                self.mark_discovery_incomplete("powerbi_report_server catalog")
                 logger.warning(f"list_shared_datasets failed: {e}")
                 shared_datasets = []
             try:
                 kpis = kpi_f.result()
+            except IndexingCancelled:
+                raise
             except Exception as e:
+                self.mark_discovery_incomplete("powerbi_report_server catalog")
                 logger.warning(f"list_kpis failed: {e}")
                 kpis = []
             try:
                 shared_ds_sources = dsrc_f.result()
+            except IndexingCancelled:
+                raise
             except Exception as e:
+                self.mark_discovery_incomplete("powerbi_report_server catalog")
                 logger.warning(f"list_shared_data_sources failed: {e}")
                 shared_ds_sources = []
 
@@ -974,7 +1005,10 @@ class PowerBIReportServerClient(DataSourceClient):
                         r = ext_futs[fut]
                         try:
                             pbix_schemas[r["Id"]] = fut.result()
+                        except IndexingCancelled:
+                            raise
                         except Exception as e:
+                            self.mark_discovery_incomplete("powerbi_report_server catalog")
                             logger.debug(f"pbix schema extract failed for {r['Id']}: {e}")
                         reporter.item(r.get("Name") or r["Id"])
 
@@ -1116,7 +1150,10 @@ class PowerBIReportServerClient(DataSourceClient):
                     try:
                         xml_bytes = fut.result()
                         parsed = self.parse_rdl_content(xml_bytes)
+                    except IndexingCancelled:
+                        raise
                     except Exception as e:
+                        self.mark_discovery_incomplete("powerbi_report_server catalog")
                         logger.warning(f"RDL {rname} parse failed: {e}")
                         tables.append(Table(
                             name=f"rdl:{rname}",
@@ -1214,7 +1251,10 @@ class PowerBIReportServerClient(DataSourceClient):
                     d = schema_futs[fut]
                     try:
                         schemas[d["Id"]] = fut.result()
+                    except IndexingCancelled:
+                        raise
                     except Exception as e:
+                        self.mark_discovery_incomplete("powerbi_report_server catalog")
                         logger.debug(f"dataset {d['Id']} schema failed: {e}")
                     reporter.item(d.get("Name") or d["Id"])
                 for fut in as_completed(content_futs):
@@ -1263,7 +1303,10 @@ class PowerBIReportServerClient(DataSourceClient):
                                             description=None,
                                             metadata={"role": "column", "data_field": fld.get("data_field")},
                                         ))
+                    except IndexingCancelled:
+                        raise
                     except Exception as e:
+                        self.mark_discovery_incomplete("powerbi_report_server catalog")
                         logger.debug(f"dataset {did} RSD parse failed: {e}")
 
                 metadata_json = {

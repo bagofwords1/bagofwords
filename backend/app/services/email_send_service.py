@@ -670,7 +670,8 @@ class EmailSendService:
         if not f:
             res.error = "File not found"
             return res, None, None
-        if not f.path or not os.path.isfile(f.path):
+        from app.services import storage
+        if not f.path or not await storage.aensure_local(f.path):
             res.error = "File is no longer available on disk"
             return res, None, None
 

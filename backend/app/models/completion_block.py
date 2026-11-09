@@ -65,6 +65,72 @@ _swapped_completion_ids = set()
 _block_locks: Dict[str, asyncio.Lock] = {}
 
 
+async def _send_generated_image_for_block(
+    db, completion, te, block_id_str, thread_ts, response_channel, org_id
+):
+    """Deliver a ``generate_image`` result to the chat platform as an image.
+
+    ``generate_image`` stores its output as a report File (returning a
+    ``file_id``), not a Step — so the step-result path
+    (``send_step_result_to_slack``, which keys off ``created_step_id``) never
+    picks it up and the generated picture only ever reached the web UI. This
+    mirrors that path for generated images: load the File the tool produced and
+    send it as an image attachment. Platforms that can't attach files under app
+    auth (Google Chat) degrade to a text pointer inside their own
+    ``send_file_in_thread``.
+
+    Resolves its own adapter from the completion's platform so it works from
+    both the per-block listener (where no adapter is in scope on a tool block)
+    and the finish-hook loop. Returns True when this block is a generated image
+    we handled (so the caller marks it sent), False when it is anything else.
+    """
+    if not (te and te.tool_name == "generate_image" and te.success):
+        return False
+    result = te.result_json if isinstance(te.result_json, dict) else {}
+    file_id = result.get("file_id")
+    if not file_id:
+        return False
+
+    from app.models.file import File
+    file_row = (
+        await db.execute(select(File).where(File.id == str(file_id)))
+    ).scalar_one_or_none()
+    # Only ship actual image files; guard a missing/retyped row defensively.
+    if not file_row or not file_row.path:
+        return False
+    if file_row.content_type and not file_row.content_type.startswith("image/"):
+        return False
+
+    platform = (
+        await db.execute(
+            select(ExternalPlatform).where(
+                ExternalPlatform.organization_id == org_id,
+                ExternalPlatform.platform_type == completion.external_platform,
+            )
+        )
+    ).scalar_one_or_none()
+    if not platform:
+        return False
+    adapter = PlatformAdapterFactory.create_adapter(platform)
+
+    # Short caption — the agent's text answer already describes the picture, so
+    # keep this to the file's own name (WhatsApp caps the caption anyway).
+    caption = (file_row.filename or "image").strip()[:200]
+    try:
+        await adapter.send_file_in_thread(
+            completion.external_user_id,
+            file_row.path,
+            caption,
+            thread_ts,
+            channel_id=response_channel,
+        )
+    except Exception as e:
+        print(f"Error sending generated image {file_id} for block {block_id_str}: {e}")
+    # Return True even on send failure: the attempt is made once and the dedupe
+    # guard should not let a transient error trigger repeated re-uploads.
+    return True
+
+
 async def send_completion_blocks_to_slack(completion_id: str):
     """Send all terminal completion blocks for a finished completion to Slack."""
     session_maker = create_async_session_factory()
@@ -171,13 +237,15 @@ async def send_completion_blocks_to_slack(completion_id: str):
                         await adapter.send_dm_in_thread(completion.external_user_id, content, thread_ts, channel_id=response_channel)
                         _sent_block_text_ids.add(block_id_str)
 
-                    # If this block has a tool execution that created a step, send the step result (chart/table)
-                    if block.tool_execution_id:
+                    # If this block has a tool execution that produced output,
+                    # send it once: a step result (chart/table) or a generated
+                    # image file (generate_image stores a File, not a Step).
+                    if block.tool_execution_id and block_id_str not in _sent_block_tool_ids:
                         try:
                             te_stmt = select(ToolExecution).where(ToolExecution.id == block.tool_execution_id)
                             te_result = await db.execute(te_stmt)
                             te = te_result.scalar_one_or_none()
-                            if te and te.created_step_id and block_id_str not in _sent_block_tool_ids:
+                            if te and te.created_step_id:
                                 # Pass routing details explicitly with thread context
                                 await send_step_result_to_slack(
                                     str(te.created_step_id),
@@ -188,8 +256,12 @@ async def send_completion_blocks_to_slack(completion_id: str):
                                     platform_type=completion.external_platform
                                 )
                                 _sent_block_tool_ids.add(block_id_str)
+                            elif await _send_generated_image_for_block(
+                                db, completion, te, block_id_str, thread_ts, response_channel, org_id
+                            ):
+                                _sent_block_tool_ids.add(block_id_str)
                         except Exception as e:
-                            print(f"Error sending step result for block {block.id}: {e}")
+                            print(f"Error sending tool result for block {block.id}: {e}")
 
             # Once the completion has finished, swap the processing reaction:
             # remove eyes, add checkmark. Guarded so repeated finish-updates
@@ -315,7 +387,10 @@ async def _send_block_to_slack(block_id: str):
                                 _sent_block_text_ids.add(block_id_str)
                                 await adapter.send_dm_in_thread(completion.external_user_id, fresh_block.content or content, thread_ts, channel_id=response_channel)
 
-                # Tool-origin content: if a tool execution exists and finished, send the step output (chart/table/file) once
+                # Tool-origin content: if a tool execution exists and finished,
+                # send its output (chart/table step, or a generated image file)
+                # once. generate_image stores a File rather than a Step, so it
+                # needs its own send path alongside send_step_result_to_slack.
                 if getattr(block, 'tool_execution_id', None) and (block.status in ('success', 'error', 'completed')) and (block_id_str not in _sent_block_tool_ids):
                     try:
                         te_stmt = select(ToolExecution).where(ToolExecution.id == block.tool_execution_id)
@@ -333,6 +408,10 @@ async def _send_block_to_slack(block_id: str):
                             channel_id=response_channel,
                             platform_type=completion.external_platform
                         )
+                        _sent_block_tool_ids.add(block_id_str)
+                    elif await _send_generated_image_for_block(
+                        db, completion, te, block_id_str, thread_ts, response_channel, org_id
+                    ):
                         _sent_block_tool_ids.add(block_id_str)
         except Exception as e:
             # Swallow errors to avoid interrupting transaction lifecycles

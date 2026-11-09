@@ -31,6 +31,7 @@ from urllib.parse import quote, unquote, urlsplit
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_request, pinned_session
 
 from app.ai.prompt_formatters import Table
 from app.data_sources.clients.base import Capability, DataSourceClient
@@ -205,7 +206,7 @@ class DocumentumClient(DataSourceClient):
         # ambient proxy/.netrc credentials, deployment-owned CA bundle only.
         if not hasattr(self._local, "session"):
             import os
-            session = requests.Session()
+            session = pinned_session()
             session.trust_env = False
             session.verify = os.environ.get("REQUESTS_CA_BUNDLE") or True
             session.headers["Accept"] = DCTM_JSON
@@ -236,9 +237,9 @@ class DocumentumClient(DataSourceClient):
         form.update({"client_id": self._client_id, "client_secret": self._client_secret})
         import os
         try:
-            response = requests.post(self._otds_url + "/otdsws/oauth2/token", data=form, timeout=(10, 30),
-                                     headers={"Accept": "application/json"},
-                                     verify=os.environ.get("REQUESTS_CA_BUNDLE") or True, allow_redirects=False)
+            response = pinned_request("POST", self._otds_url + "/otdsws/oauth2/token", data=form, timeout=(10, 30),
+                                      headers={"Accept": "application/json"},
+                                      verify=os.environ.get("REQUESTS_CA_BUNDLE") or True, allow_redirects=False)
         except requests.exceptions.SSLError as exc:
             raise ValueError("OTDS TLS verification failed. Install the issuing CA in the backend trust store.") from exc
         except requests.RequestException as exc:

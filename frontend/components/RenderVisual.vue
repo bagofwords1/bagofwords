@@ -296,7 +296,9 @@ function buildCartesianOptions(normalizedRows: DataRow[], dataModel: DataModel):
             break;
         case 'area_chart':
             chartType = 'line';
-            specificSeriesOptions = { smooth: true };
+            // Honour the saved setting like line charts do; views saved before
+            // the straight default have no value and keep their curve.
+            specificSeriesOptions = { smooth: props.view?.view?.smooth ?? true };
             break;
         case 'bar_chart':
         default:

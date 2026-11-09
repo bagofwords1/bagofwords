@@ -26,6 +26,7 @@ from typing import Generator, List, Optional
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_session
 
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import ForeignKey, Table, TableColumn, ServiceFormatter
@@ -187,7 +188,7 @@ class ZabbixClient(DataSourceClient):
 
     @contextmanager
     def connect(self) -> Generator[requests.Session, None, None]:
-        session = requests.Session()
+        session = pinned_session()
         session.headers.update({"Content-Type": "application/json-rpc"})
         session.verify = self.verify_ssl
         # NB: the Bearer header is attached per-request in `_rpc`, not here —

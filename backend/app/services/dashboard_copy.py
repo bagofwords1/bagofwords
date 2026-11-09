@@ -498,10 +498,12 @@ def _copy_deck(path: str | None, new_stem: str) -> str | None:
     try:
         source = Path(path) if Path(path).is_absolute() else _UPLOADS / str(path)
         source = safe_join(_UPLOADS, str(source.resolve().relative_to(_UPLOADS.resolve())))
-        if not source.is_file():
+        from app.services import storage
+        if not storage.ensure_local(source):
             return None
         target = source.with_name(f"{new_stem}.pptx")
         shutil.copy2(source, target)
+        storage.persist(target)
         return str(target)
     except (ValueError, OSError) as e:  # UnsafePathError is a ValueError
         logger.warning("deck not copied for %s: %s", new_stem, e)
@@ -518,12 +520,14 @@ def _copy_previews(paths: list, release_id: str, stem: str | None = None) -> tup
     for p in paths:
         try:
             source = safe_join(base, str(p).removeprefix("pptx_previews/"))
-            if source.suffix.lower() != ".png" or not source.is_file():
+            from app.services import storage
+            if source.suffix.lower() != ".png" or not storage.ensure_local(source):
                 raise FileNotFoundError(str(p))
             folder = stem or f"release-{release_id}"
             target = base / folder / source.name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
+            storage.persist(target)
             new = f"pptx_previews/{folder}/{source.name}"
             copied[p] = new
             out.append(new)
@@ -546,9 +550,12 @@ def remove_release_files(release_id: str, pptx_path: str | None = None) -> None:
                 candidates.append(deck)
         except (ValueError, OSError):  # UnsafePathError is a ValueError
             pass
+    from app.services import storage
     for path in candidates:
         try:
             path.unlink(missing_ok=True)
         except OSError as e:
             logger.warning("release file not removed %s: %s", path, e)
+        storage.discard(path)
     shutil.rmtree(_UPLOADS / "pptx_previews" / stem, ignore_errors=True)
+    storage.discard_tree(_UPLOADS / "pptx_previews" / stem)

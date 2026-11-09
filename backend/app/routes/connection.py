@@ -31,6 +31,7 @@ from app.schemas.connection_schema import (
     ConnectionSchema,
     ConnectionDetailSchema,
     ConnectionTableSchema,
+    ConnectionTablePreviewSchema,
     ConnectionTestOverride,
     ConnectionTestResult,
     ConnectionToolTestRequest,
@@ -58,6 +59,7 @@ from app.schemas.custom_query_schema import (
     CustomQueryTarget,
 )
 from app.services.custom_query_service import custom_query_service, is_accelerable_type
+from app.services.table_preview_service import table_preview_service, is_previewable_table
 from app.errors import AppError, ErrorCode
 from app.services.member_attributes import require_attribute_admin
 from app.services.member_identity import (
@@ -524,6 +526,7 @@ async def get_connection(
     from app.services.connection_identity import management_requires_user_auth
     personal_management = management_requires_user_auth(connection)
     query_limits = await _query_limit_fields(db, organization, config if can_manage else {})
+    from app.services.connection_alerts import org_email_enabled
     return ConnectionDetailSchema(
         id=str(connection.id),
         name=connection.name,
@@ -560,6 +563,8 @@ async def get_connection(
         rate_limit_per_minute=connection.rate_limit_per_minute,
         rate_limit_per_hour=connection.rate_limit_per_hour,
         rate_limit_per_day=connection.rate_limit_per_day,
+        alert_emails_enabled=connection.alert_emails_enabled is not False,
+        org_alert_emails_enabled=await org_email_enabled(db, str(organization.id)),
         **query_limits,
         data_shape=data_shape_for(connection.type),
         catalog_nouns=catalog_nouns_override(connection.type),
@@ -1187,15 +1192,8 @@ async def refresh_my_connection_schema(
     from app.services.data_source_service import DataSourceService
     from app.models.user_data_source_overlay import UserDataSourceTable
     ds_service = DataSourceService()
-    unreadable = []
-    for ds in (connection.data_sources or []):
-        try:
-            # Live fetch with the user's creds + upsert their overlay (same path
-            # the OAuth callback runs after sign-in).
-            await ds_service.get_user_data_source_schema(db=db, data_source=ds, user=current_user, force_refresh=True)
-            unreadable.extend(getattr(ds_service, "last_discovery_diagnostics", []) or [])
-        except Exception as e:
-            logger.warning(f"Per-user schema refresh failed for data source {ds.id}: {e}")
+    await ds_service.refresh_user_connection_catalog(db, connection, current_user)
+    unreadable = ds_service.last_discovery_diagnostics
 
     # Recompute the user's accessible table count for this connection.
     ds_ids = [str(ds.id) for ds in (connection.data_sources or [])]
@@ -1392,7 +1390,8 @@ async def get_connection_tables(
     # Non-managers see only the tables their visible agents have selected:
     # a table deselected on every agent they can use is not theirs to browse.
     selected_ids = None
-    if not await _can_manage_connection(db, organization, current_user, connection):
+    can_manage = await _can_manage_connection(db, organization, current_user, connection)
+    if not can_manage:
         resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
         linked_ids = {str(ds.id) for ds in (connection.data_sources or [])}
         manages_linked_agent = any(
@@ -1428,7 +1427,59 @@ async def get_connection_tables(
             id=str(table.id),
             name=table.name,
             column_count=len(table.columns) if table.columns else 0,
+            preview_supported=can_manage and is_previewable_table(connection.type, table),
         ))
+    return result
+
+
+@router.get("/{connection_id}/completions")
+@requires_resource_permission('connection', 'manage_connection')
+async def get_connection_completions(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Table and column names for the query editor's suggestions.
+
+    Gated like the editors that use it (table preview, custom tables): only a
+    connection manager writes queries against the source here. Each name comes
+    with the text to insert, quoted only where the dialect needs it.
+    """
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    return await table_preview_service.completions(db, connection)
+
+
+@router.get(
+    "/{connection_id}/tables/{table_id}/preview",
+    response_model=ConnectionTablePreviewSchema,
+)
+@requires_resource_permission('connection', 'manage_connection')
+async def preview_connection_table(
+    connection_id: str,
+    table_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Sample rows from one introspected table, for connection managers.
+
+    The query is built server-side from the catalog row (quoted for the
+    source's dialect) — the caller only names which table.
+    """
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    table = await table_preview_service.get_table(db, connection, table_id)
+    result = await table_preview_service.preview(db, connection, table, current_user)
+    try:
+        # Reading source rows is data access, not configuration: record it.
+        await audit_service.log(
+            db, organization_id=str(organization.id), user_id=str(current_user.id),
+            action="connection.table.previewed",
+            resource_type="connection", resource_id=str(connection.id),
+            details={"connection": connection.name, "table": table.name},
+        )
+    except Exception:
+        pass
     return result
 
 

@@ -34,6 +34,9 @@ class _FakeResponse:
 class _FakeSession:
     """Records every POST and replays scripted results keyed by method name."""
 
+    def mount(self, prefix, adapter):
+        pass
+
     def __init__(self, results):
         # results: method -> value (the JSON-RPC `result`) OR an Exception/dict error
         self._results = results

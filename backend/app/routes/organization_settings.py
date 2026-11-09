@@ -8,6 +8,7 @@ from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission
 from app.services.organization_settings_service import OrganizationSettingsService
 from app.schemas.organization_settings_schema import (
+    ConnectionAlertsUpdate,
     EntraProfileSyncConfig,
     GoogleProfileSyncConfig,
     OrgSmtpSchema,
@@ -97,6 +98,30 @@ async def update_organization_locale(
     """Set the org's locale override. Pass {"locale": "en|es|he"} or {"locale": null} to clear."""
     locale = payload.get("locale")
     return await settings_service.update_locale(db, organization, current_user, locale)
+
+
+@router.get("/organization/connection-alerts")
+@requires_permission('manage_settings')
+async def get_organization_connection_alerts(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Whether the org sends connection down/restored alert emails (default on)."""
+    return await settings_service.get_connection_alerts(db, organization, current_user)
+
+
+@router.put("/organization/connection-alerts")
+@requires_permission('manage_settings')
+async def update_organization_connection_alerts(
+    payload: ConnectionAlertsUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Turn connection-alert emails on/off. Pass {"email_enabled": true|false}."""
+    return await settings_service.update_connection_alerts(
+        db, organization, current_user, payload.email_enabled)
 
 
 @router.get("/organization/timezone")

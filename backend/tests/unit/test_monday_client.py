@@ -19,6 +19,7 @@ import json
 import pandas as pd
 import pytest
 
+from tests.utils.egress_fakes import one_shot
 from app.data_sources.clients.monday_client import MondayClient
 
 
@@ -138,7 +139,7 @@ def fake_post(monkeypatch, responder):
         calls.append(json)
         return responder(json["query"], json.get("variables") or {})
 
-    monkeypatch.setattr("app.data_sources.clients.monday_client.requests.post", post)
+    monkeypatch.setattr("app.data_sources.clients.monday_client.pinned_request", one_shot(post))
     return calls
 
 
@@ -278,7 +279,7 @@ def test_get_schemas_discovers_classic_and_multi_level_boards(monkeypatch):
             boards.append(BOARD_MULTI_LEVEL)
         return FakeResponse({"data": {"boards": boards if variables["page"] == 1 else []}})
 
-    monkeypatch.setattr("app.data_sources.clients.monday_client.requests.post", post)
+    monkeypatch.setattr("app.data_sources.clients.monday_client.pinned_request", one_shot(post))
 
     tables = MondayClient(api_token="t").get_schemas()
 

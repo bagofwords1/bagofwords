@@ -47,6 +47,7 @@ from urllib.parse import parse_qsl, unquote, urljoin, urlsplit
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_session
 from defusedxml import ElementTree as SafeET
 
 from app.ai.prompt_formatters import ForeignKey, ServiceFormatter, Table, TableColumn
@@ -244,7 +245,7 @@ class MecmClient(DataSourceClient):
         session = getattr(self._local, "session", None)
         if session is not None:
             return session
-        session = requests.Session()
+        session = pinned_session()
         session.trust_env = False  # no ambient proxies / .netrc credentials
         if self.kerberos:
             try:

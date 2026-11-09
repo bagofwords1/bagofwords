@@ -11,6 +11,7 @@ from typing import Generator, List, Optional
 import pandas as pd
 
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
+from app.data_sources.clients.progress import IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.progress import ProgressCallback, make_reporter
 from app.data_sources.fk_reflection import attach_foreign_keys
@@ -40,6 +41,12 @@ class SqliteClient(DataSourceClient):
 
     def __init__(self, database: str = ":memory:"):
         self.database = database
+        if database and database != ":memory:":
+            # A generated demo dataset lives under uploads/; with object
+            # storage another pod may hold it. No-op for any other path.
+            from app.services import storage
+            if storage.enabled() and storage.key_for(database):
+                storage.ensure_local(database, fresh=False)
 
     @cached_property
     def sqlite_uri(self) -> str:
@@ -133,7 +140,10 @@ class SqliteClient(DataSourceClient):
                 reporter.done()
                 self._attach_foreign_keys(tables)
                 return tables
+        except IndexingCancelled:
+            raise
         except Exception as exc:
+            self.mark_discovery_incomplete("sqlite catalog")
             print(f"Error retrieving tables: {exc}")
             return []
 

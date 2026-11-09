@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.utils.egress_fakes import one_shot
 from app.data_sources.clients.qlik_sense_client import (
     QlikSenseClient,
     _build_hypercube_def,
@@ -581,7 +582,7 @@ class TestOAuthM2M:
             )
 
         monkeypatch.setattr(
-            "app.data_sources.clients.qlik_sense_client.requests.post", _fake_post
+            "app.data_sources.clients.qlik_sense_client.pinned_request", one_shot(_fake_post)
         )
         session = _install_rest(client, {"/api/v1/users/me": USERS_ME_OK})
 
@@ -608,7 +609,7 @@ class TestOAuthM2M:
             )
 
         monkeypatch.setattr(
-            "app.data_sources.clients.qlik_sense_client.requests.post", _fake_post
+            "app.data_sources.clients.qlik_sense_client.pinned_request", one_shot(_fake_post)
         )
         _install_rest(client, {
             "/api/v1/users/me": USERS_ME_OK,
@@ -629,7 +630,7 @@ class TestOAuthM2M:
             return _json_response({"access_token": next(tokens), "expires_in": 3600})
 
         monkeypatch.setattr(
-            "app.data_sources.clients.qlik_sense_client.requests.post", _fake_post
+            "app.data_sources.clients.qlik_sense_client.pinned_request", one_shot(_fake_post)
         )
         session = _install_rest(client, {"/api/v1/users/me": USERS_ME_OK})
 
@@ -650,7 +651,7 @@ class TestOAuthM2M:
             return _json_response({"error": "invalid_client"}, status=401)
 
         monkeypatch.setattr(
-            "app.data_sources.clients.qlik_sense_client.requests.post", _fake_post
+            "app.data_sources.clients.qlik_sense_client.pinned_request", one_shot(_fake_post)
         )
         _install_rest(client, {"/api/v1/users/me": USERS_ME_OK})
         with pytest.raises(RuntimeError, match="OAuth token exchange failed"):
@@ -663,7 +664,7 @@ class TestOAuthM2M:
             return _json_response({"token_type": "bearer"})  # no access_token
 
         monkeypatch.setattr(
-            "app.data_sources.clients.qlik_sense_client.requests.post", _fake_post
+            "app.data_sources.clients.qlik_sense_client.pinned_request", one_shot(_fake_post)
         )
         _install_rest(client, {"/api/v1/users/me": USERS_ME_OK})
         with pytest.raises(RuntimeError, match="missing access_token"):
@@ -682,7 +683,7 @@ class TestOAuthM2M:
             raise AssertionError("OAuth token endpoint must not be called when api_key is set")
 
         monkeypatch.setattr(
-            "app.data_sources.clients.qlik_sense_client.requests.post", _fake_post
+            "app.data_sources.clients.qlik_sense_client.pinned_request", one_shot(_fake_post)
         )
         session = _install_rest(client, {"/api/v1/users/me": USERS_ME_OK})
         client._rest_get("/api/v1/users/me")
@@ -698,7 +699,7 @@ class TestOAuthM2M:
             return _json_response({"access_token": "t", "expires_in": 3600})
 
         monkeypatch.setattr(
-            "app.data_sources.clients.qlik_sense_client.requests.post", _fake_post
+            "app.data_sources.clients.qlik_sense_client.pinned_request", one_shot(_fake_post)
         )
         _install_rest(client, {"/api/v1/users/me": USERS_ME_OK})
         client._rest_get("/api/v1/users/me")
@@ -713,7 +714,7 @@ class TestOAuthM2M:
             return _json_response({"access_token": "t", "expires_in": 3600})
 
         monkeypatch.setattr(
-            "app.data_sources.clients.qlik_sense_client.requests.post", _fake_post
+            "app.data_sources.clients.qlik_sense_client.pinned_request", one_shot(_fake_post)
         )
         _install_rest(client, {"/api/v1/users/me": USERS_ME_OK})
         client._rest_get("/api/v1/users/me")

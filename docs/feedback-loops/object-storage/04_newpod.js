@@ -1,0 +1,20 @@
+const { launch, shot, BASE, DIR } = require('./common');
+const fs = require('fs');
+(async () => {
+  const { browser, context, page } = await launch();
+  const seen = [];
+  page.on('response', r => { const u = r.url(); if (/general\/icon|users\/avatar|thumbnails\/|\/files\/.*\/content/.test(u)) seen.push(`${r.status()} ${u.replace(BASE, '')}`); });
+  await page.goto(BASE, { timeout: 120000 });
+  await page.waitForTimeout(6000);
+  await shot(page, 'newpod_home');
+  await page.goto(`${BASE}/dashboards`, { timeout: 120000 });
+  await page.waitForTimeout(8000);
+  await shot(page, 'newpod_dashboards');
+  const token = (await context.cookies()).find(c => c.name === 'auth.token').value;
+  const orgs = await page.evaluate(async t => (await fetch('/api/organizations', { headers: { Authorization: `Bearer ${t}` } })).json(), token);
+  const fid = fs.readFileSync(`${DIR}/fid.txt`, 'utf8').trim();
+  const dl = await page.evaluate(async ([t, org, id]) => { const r = await fetch(`/api/files/${id}/content`, { headers: { Authorization: `Bearer ${t}`, 'X-Organization-Id': org } }); return [r.status, await r.text()]; }, [token, orgs[0].id, fid]);
+  console.log('download', dl[0], JSON.stringify(dl[1].slice(0, 60)));
+  console.log(seen.join('\n'));
+  await browser.close();
+})().catch(e => { console.error(e); process.exit(1); });

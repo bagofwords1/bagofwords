@@ -195,6 +195,7 @@ class AzureDataExplorerClient(DataSourceClient):
             except IndexingCancelled:
                 raise
             except Exception:
+                self.mark_discovery_incomplete("azure_data_explorer catalog")
                 pass
             
             return []

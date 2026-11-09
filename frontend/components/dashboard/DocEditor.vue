@@ -288,6 +288,11 @@ const toolbarButtons = computed(() => {
 </script>
 
 <style scoped>
+/* Dark overrides are written `.dark .bow-doc… :deep(el)`: `.dark` (on <html>)
+   is just an ancestor and the scope attribute lands on the component class,
+   so each one outranks its light rule. Never `:global(.dark) .x`: Vue drops
+   everything after the :global() and the rule becomes a bare `.dark {…}`
+   that styles <html> instead (tests/unit/darkSelectorsScoped.mjs). */
 .bow-doc-editor {
   max-width: 46rem;
   margin: 0 auto;
@@ -299,14 +304,14 @@ const toolbarButtons = computed(() => {
   color: rgb(55 65 81);
   min-height: 50vh;
 }
-:global(.dark) .bow-doc-editor :deep(.ProseMirror) { color: rgb(209 213 219); }
+.dark .bow-doc-editor :deep(.ProseMirror) { color: rgb(209 213 219); }
 
 .bow-doc-editor :deep(h1) { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 1.25rem; color: rgb(17 24 39); }
 .bow-doc-editor :deep(h2) { font-size: 1.125rem; font-weight: 600; margin: 2rem 0 0.625rem; padding-bottom: 0.375rem; border-bottom: 1px solid rgb(243 244 246); color: rgb(17 24 39); }
 .bow-doc-editor :deep(h3) { font-size: 1rem; font-weight: 600; margin: 1.5rem 0 0.5rem; color: rgb(31 41 55); }
-:global(.dark) .bow-doc-editor :deep(h1),
-:global(.dark) .bow-doc-editor :deep(h2) { color: rgb(243 244 246); border-color: rgb(31 41 55); }
-:global(.dark) .bow-doc-editor :deep(h3) { color: rgb(229 231 235); }
+.dark .bow-doc-editor :deep(h1),
+.dark .bow-doc-editor :deep(h2) { color: rgb(243 244 246); border-color: rgb(31 41 55); }
+.dark .bow-doc-editor :deep(h3) { color: rgb(229 231 235); }
 
 .bow-doc-editor :deep(p) { margin: 0.75rem 0; }
 .bow-doc-editor :deep(ul), .bow-doc-editor :deep(ol) { margin: 0.75rem 0; padding-inline-start: 1.5rem; }
@@ -314,14 +319,14 @@ const toolbarButtons = computed(() => {
 .bow-doc-editor :deep(ol) { list-style: decimal; }
 .bow-doc-editor :deep(blockquote) { margin: 1.25rem 0; padding-inline-start: 1rem; border-inline-start: 3px solid rgb(229 231 235); color: rgb(107 114 128); font-style: italic; }
 .bow-doc-editor :deep(pre) { margin: 1.25rem 0; padding: 1rem; background: rgb(249 250 251); border: 1px solid rgb(243 244 246); border-radius: 0.5rem; font-size: 0.8125rem; overflow-x: auto; }
-:global(.dark) .bow-doc-editor :deep(pre) { background: rgb(17 24 39); border-color: rgb(31 41 55); }
+.dark .bow-doc-editor :deep(pre) { background: rgb(17 24 39); border-color: rgb(31 41 55); }
 .bow-doc-editor :deep(code) { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8125rem; }
 
 .bow-doc-editor :deep(table) { width: 100%; margin: 1.25rem 0; border-collapse: collapse; font-size: 0.875rem; }
 .bow-doc-editor :deep(th) { text-align: start; font-weight: 600; padding: 0.5rem 0.75rem; border-bottom: 2px solid rgb(229 231 235); }
 .bow-doc-editor :deep(td) { padding: 0.5rem 0.75rem; border-bottom: 1px solid rgb(243 244 246); }
-:global(.dark) .bow-doc-editor :deep(th) { border-color: rgb(55 65 81); }
-:global(.dark) .bow-doc-editor :deep(td) { border-color: rgb(31 41 55); }
+.dark .bow-doc-editor :deep(th) { border-color: rgb(55 65 81); }
+.dark .bow-doc-editor :deep(td) { border-color: rgb(31 41 55); }
 
 /* Selected atom node outline */
 .bow-doc-editor :deep(.ProseMirror-selectednode) { outline: 2px solid rgb(147 197 253); border-radius: 0.5rem; }

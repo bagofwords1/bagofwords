@@ -24,6 +24,13 @@ logger = logging.getLogger(__name__)
 DATA_SOURCES = [
     "netapp_ontap",  # customer-run ONTAP validation; see tools/netapp/README.md
     "brocade",  # Real switch or tools/brocade/simulated_api.py; credentials via integrations.json.
+    # Infra appliance connectors: a real appliance, or the loopback simulator in
+    # tools/<vendor>/simulated_api.py (set <VENDOR>_TEST_URL + credentials; the
+    # simulator needs <VENDOR>_TEST_ALLOW_HTTP=true).
+    "f5_bigip",
+    "checkpoint",
+    "dell_ome",
+    "hpe_oneview",
     "sharepoint_onprem",  # Real SharePoint Server; configure in integrations.json.
     "postgresql",
     "mysql",
@@ -82,6 +89,16 @@ DATA_SOURCES = [
     #                        "auth_source": "LOCAL", "username": "admin",
     #                        "password": "Aria!2024"}}
     "aria_operations",
+    # Remote mode: no vCenter appliance can run in CI (OVA on ESXi + a Broadcom
+    # entitlement). Point VCENTER_TEST_HOST / _USERNAME / _PASSWORD (and
+    # optionally VCENTER_TEST_PORT, VCENTER_TEST_CA_PEM, VCENTER_TEST_VERIFY_SSL)
+    # at a real vCenter or ESXi, or at the vim25 mock
+    # `tools/vcenter/docker-compose.yaml` (mock_vcenter.py, pyVmomi's own wire
+    # serializer) — or use integrations.json:
+    #   {"vcenter": {"enabled": true, "host": "localhost", "port": 8989,
+    #                "username": "bow-ro@vsphere.local", "password": "VMware1!RO",
+    #                "ca_certificate": "<tools/vcenter/.certs/ca.pem contents>"}}
+    "vcenter",
     # Remote mode: no DX NetOps Spectrum OneClick can run in CI (Broadcom
     # entitlement, licensed Docker tarballs), so integrations.json points at
     # either a customer OneClick or the doc-shaped simulator:
@@ -403,6 +420,15 @@ def ds_kwargs(name: str) -> Dict[str, Any]:
             "token": os.environ.get("SPECTRUM_TEST_TOKEN"),
             "verify_ssl": os.environ.get("SPECTRUM_TEST_VERIFY_SSL", "true") != "false",
         }
+    if name == "vcenter" and os.environ.get("VCENTER_TEST_HOST"):
+        return {
+            "host": os.environ["VCENTER_TEST_HOST"],
+            "port": int(os.environ.get("VCENTER_TEST_PORT", "443")),
+            "username": os.environ["VCENTER_TEST_USERNAME"],
+            "password": os.environ["VCENTER_TEST_PASSWORD"],
+            "ca_certificate": os.environ.get("VCENTER_TEST_CA_PEM"),
+            "verify_ssl": os.environ.get("VCENTER_TEST_VERIFY_SSL", "true") != "false",
+        }
     if name == "netapp_ontap" and os.environ.get("NETAPP_URL"):
         return {
             "url": os.environ["NETAPP_URL"],
@@ -410,6 +436,43 @@ def ds_kwargs(name: str) -> Dict[str, Any]:
             "password": os.environ["NETAPP_PASSWORD"],
             "ca_certificate": os.environ.get("NETAPP_CA_PEM"),
             "allow_http": os.environ.get("NETAPP_SIMULATOR") == "true",
+        }
+    if name == "f5_bigip" and os.environ.get("F5_TEST_URL"):
+        return {
+            "url": os.environ["F5_TEST_URL"],
+            "username": os.environ["F5_TEST_USERNAME"],
+            "password": os.environ["F5_TEST_PASSWORD"],
+            "ca_certificate": os.environ.get("F5_TEST_CA_PEM"),
+            "allow_http": os.environ.get("F5_TEST_ALLOW_HTTP") == "true",
+        }
+    if name == "checkpoint" and os.environ.get("CHECKPOINT_TEST_URL"):
+        creds = (
+            {"api_key": os.environ["CHECKPOINT_TEST_API_KEY"]}
+            if os.environ.get("CHECKPOINT_TEST_API_KEY")
+            else {"username": os.environ["CHECKPOINT_TEST_USERNAME"], "password": os.environ["CHECKPOINT_TEST_PASSWORD"]}
+        )
+        return {
+            "url": os.environ["CHECKPOINT_TEST_URL"],
+            **creds,
+            "domain": os.environ.get("CHECKPOINT_TEST_DOMAIN"),
+            "ca_certificate": os.environ.get("CHECKPOINT_TEST_CA_PEM"),
+            "allow_http": os.environ.get("CHECKPOINT_TEST_ALLOW_HTTP") == "true",
+        }
+    if name == "dell_ome" and os.environ.get("OME_TEST_URL"):
+        return {
+            "url": os.environ["OME_TEST_URL"],
+            "username": os.environ["OME_TEST_USERNAME"],
+            "password": os.environ["OME_TEST_PASSWORD"],
+            "ca_certificate": os.environ.get("OME_TEST_CA_PEM"),
+            "allow_http": os.environ.get("OME_TEST_ALLOW_HTTP") == "true",
+        }
+    if name == "hpe_oneview" and os.environ.get("ONEVIEW_TEST_URL"):
+        return {
+            "url": os.environ["ONEVIEW_TEST_URL"],
+            "username": os.environ["ONEVIEW_TEST_USERNAME"],
+            "password": os.environ["ONEVIEW_TEST_PASSWORD"],
+            "ca_certificate": os.environ.get("ONEVIEW_TEST_CA_PEM"),
+            "allow_http": os.environ.get("ONEVIEW_TEST_ALLOW_HTTP") == "true",
         }
     if name == "brocade" and os.environ.get("BROCADE_TEST_URL"):
         return {
@@ -522,7 +585,9 @@ def get_client(ds_name: str, **kwargs):
     Dynamically import and instantiate a data source client.
     Mirrors the logic in DataSourceService._resolve_client_by_type().
     """
-    if ds_name == "netapp_ontap":
+    if ds_name in {"netapp_ontap", "f5_bigip", "checkpoint", "dell_ome", "hpe_oneview"}:
+        # Explicit registry client_path is the contract (CheckPointClient, HpeOneViewClient …
+        # do not follow the TitleCase-from-snake_case convention below).
         from app.schemas.data_source_registry import resolve_client_class
         return resolve_client_class(ds_name)(**kwargs)
     module_name = f"app.data_sources.clients.{ds_name.lower()}_client"

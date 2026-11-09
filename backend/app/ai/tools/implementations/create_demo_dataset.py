@@ -343,6 +343,8 @@ class CreateDemoDatasetTool(Tool):
         yield _snapshot("writing", model=model_label)
         try:
             size = await asyncio.to_thread(write_sqlite, path, spec, result.frames)
+            from app.services import storage
+            await storage.apersist(path, "application/vnd.sqlite3")
         except Exception as e:
             logger.exception("create_demo_dataset: write failed")
             try:

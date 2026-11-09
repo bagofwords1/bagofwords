@@ -33,6 +33,23 @@ from app.settings.logging_config import get_logger
 logger = get_logger(__name__)
 
 _CACHE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "uploads" / "qvd_cache"
+
+
+def _cached(path: Path) -> bool:
+    """Local Parquet present, fetching it from object storage when another pod
+    converted it (keys are content-addressed: hash + mtime + schema version)."""
+    from app.services import storage
+    return storage.ensure_local(path, fresh=False)
+
+
+def _publish(path: Path) -> None:
+    """Share a fresh conversion with every pod; a failed upload only costs a
+    re-conversion elsewhere, so it is logged, not raised."""
+    from app.services import storage
+    try:
+        storage.persist(path)
+    except storage.StorageError as e:
+        logger.warning("qvd: parquet cache not uploaded to object storage: %s", e)
 # Bumped whenever the qvd2parquet converter changes the Parquet schema, so old
 # caches are treated as missing and reconverted instead of served stale.
 #   v2: temporal columns ($date/$timestamp/$time) emitted as DATE/TIMESTAMP/TIME
@@ -337,7 +354,7 @@ class QVDClient(DataSourceClient):
         progress; `cancel_check` is polled so a long convert can be stopped.
         """
         file_hash, cache_path = self._cache_key(filepath)
-        if cache_path.exists():
+        if _cached(cache_path):
             return cache_path
 
         with _PARSE_LOCKS_MUTEX:
@@ -380,13 +397,16 @@ class QVDClient(DataSourceClient):
                 },
             )
             os.replace(tmp_path, cache_path)
+            _publish(cache_path)
 
+        from app.services import storage
         for old in _CACHE_DIR.glob(f"{file_hash}_*.parquet"):
             if old != cache_path:
                 try:
                     old.unlink()
                 except OSError:
                     pass
+                storage.discard(old)
         return cache_path
 
     async def _warm_one(
@@ -400,7 +420,7 @@ class QVDClient(DataSourceClient):
         sem = _get_warmup_semaphore()
         async with sem:
             _, cache_path = self._cache_key(filepath)
-            if cache_path.exists():
+            if await asyncio.to_thread(_cached, cache_path):
                 logger.debug(
                     "qvd.warm.already_fresh",
                     extra={"qvd_file": filepath, "qvd_cache": str(cache_path)},
@@ -456,7 +476,7 @@ class QVDClient(DataSourceClient):
         share one parse task.
         """
         _, cache_path = self._cache_key(filepath)
-        if cache_path.exists():
+        if await asyncio.to_thread(_cached, cache_path):
             return cache_path
 
         lock = _get_inflight_lock()
@@ -574,7 +594,7 @@ class QVDClient(DataSourceClient):
             skipped = 0
             for filepath in files:
                 file_hash, fresh_path = self._cache_key(filepath)
-                if fresh_path.exists():
+                if _cached(fresh_path):
                     parquet = fresh_path
                     logger.debug(
                         "qvd.connect.file.fresh",
@@ -673,7 +693,7 @@ class QVDClient(DataSourceClient):
             cols: List[TableColumn] = []
             try:
                 file_hash, cache_path = self._cache_key(filepath)
-                if cache_path.exists():
+                if _cached(cache_path):
                     fields = self._describe_parquet(cache_path)
                     logger.debug(
                         "qvd.schema.file.parquet",
@@ -695,7 +715,10 @@ class QVDClient(DataSourceClient):
                         )
                 for fname, ftype in fields:
                     cols.append(TableColumn(name=fname, dtype=ftype))
+            except IndexingCancelled:
+                raise
             except Exception as exc:
+                self.mark_discovery_incomplete("qvd catalog")
                 logger.warning(
                     "qvd.schema.file.error",
                     extra={"qvd_file": filepath, "qvd_error": str(exc)},
