@@ -6,7 +6,10 @@ an admin fix a connection. Driver and library messages can echo secrets,
 though (a clone URL with a token in it, a full connection string), so every
 such message goes through ``redact_error`` before it reaches a response.
 Endpoints reachable without that context should return a fixed message
-instead and log the exception.
+instead and log the exception with ``describe_for_log``, which keeps the type
+and frames but not the message. A message can quote client content (prompts,
+tool arguments, bound SQL parameters), so logging ``str(e)`` there would write
+that content to the log.
 """
 from __future__ import annotations
 
