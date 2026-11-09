@@ -1202,7 +1202,15 @@ class InstructionService:
             await self.reference_service.replace_for_instruction(db, instruction.id, instruction_data.references or [], organization, current_ds_ids)
 
         await db.commit()
-        
+
+        # The edit is saved. Capture the ids as plain strings now: a build step
+        # below can roll the session back (``_auto_finalize_build`` does on
+        # failure), which expires every ORM object in it, and reading an
+        # attribute of an expired object afterwards raises MissingGreenlet.
+        instr_id = str(instruction.id)
+        org_id = str(organization.id)
+        user_id = str(current_user.id)
+
         # === Build System Integration ===
         # Create new version if content has changed
         try:
@@ -1214,7 +1222,7 @@ class InstructionService:
                     selectinload(Instruction.labels),
                     selectinload(Instruction.references),
                 )
-                .where(Instruction.id == instruction.id)
+                .where(Instruction.id == instr_id)
             )
             instruction_with_rels = fresh_for_version.scalar_one()
             
@@ -1255,13 +1263,32 @@ class InstructionService:
                     
                     await db.commit()
                     
+                    version_id = str(version.id)
+                    build_id = str(build.id)
+
                     # Always auto-finalize to keep main build in sync
                     # All instructions (including draft/suggested) are in main for UI display
-                    await self._auto_finalize_build(db, build, current_user, user_permissions)
-                    
-                    logger.debug(f"Created version {version.id} for instruction {instruction.id}, added to build {build.id}")
+                    finalized = await self._auto_finalize_build(db, build, current_user, user_permissions)
+
+                    # A failed finalize has rolled the session back: from here
+                    # on use only the plain-string ids captured above.
+                    if finalized:
+                        logger.debug(f"Created version {version_id} for instruction {instr_id}, added to build {build_id}")
+                    else:
+                        logger.warning(
+                            "Instruction %s was saved, but its build %s did not finalize; "
+                            "the edit stays in that build until it is finalized",
+                            instr_id, build_id,
+                        )
+                        # The caller's organization and user share this
+                        # session and were expired with it; reload them so the
+                        # caller can keep using them (the MCP tool reads both
+                        # to build its reply).
+                        for caller_obj in (organization, current_user):
+                            if caller_obj in db:
+                                await db.refresh(caller_obj)
         except Exception as e:
-            logger.warning("Failed to create version for updated instruction %s: %s", instruction.id, describe_for_log(e))
+            logger.warning("Failed to create version for updated instruction %s: %s", instr_id, describe_for_log(e))
             # Don't fail the update if versioning fails
         
         # Re-fetch instruction with proper eager loading to avoid lazy loading issues
@@ -1277,7 +1304,7 @@ class InstructionService:
                 selectinload(Instruction.references),
                 selectinload(Instruction.labels),
             )
-            .where(Instruction.id == instruction.id)
+            .where(Instruction.id == instr_id)
         )
         instruction = fresh_instruction.scalar_one()
 
@@ -1285,9 +1312,9 @@ class InstructionService:
         try:
             await audit_service.log(
                 db=db,
-                organization_id=str(organization.id),
+                organization_id=org_id,
                 action="instruction.updated",
-                user_id=str(current_user.id),
+                user_id=user_id,
                 resource_type="instruction",
                 resource_id=str(instruction.id),
                 details={"title": instruction.title, "category": instruction.category},

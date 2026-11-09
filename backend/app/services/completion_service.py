@@ -3832,7 +3832,19 @@ class CompletionService:
                         session_maker=session_factory,
                         routing_meta=routing_meta,
                     )
-                    await agent.main_execution()
+                    # The live stream serializes tool code by the ambient
+                    # code-visibility decision. An in-app run inherits it from
+                    # the RBAC route that started it; a dispatched run has no
+                    # such route (after an MCP turn it runs in an empty
+                    # context), so decide it here for the queued prompt's
+                    # author.
+                    from app.core.code_visibility import can_view_code, code_visibility
+                    from app.core.permission_resolver import resolve_permissions
+                    head_may_view_code = can_view_code(
+                        await resolve_permissions(session, str(user.id), str(organization.id))
+                    )
+                    with code_visibility(head_may_view_code):
+                        await agent.main_execution()
                     # AgentV2 handles several provider/runtime failures inside
                     # main_execution and persists an error result instead of
                     # raising it to this dispatcher. A machine question wake

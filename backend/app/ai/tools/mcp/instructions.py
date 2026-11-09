@@ -578,7 +578,7 @@ class EditInstructionMCPTool(MCPTool):
         fresh = await svc.get_instruction(db, data.instruction_id, organization, user) or updated
         pending = _pending(fresh)
         status_changed = new_db_status is not None and new_db_status != base_status
-        logger.info("edit_instruction: %s by user %s pending=%s", data.instruction_id, user.id, pending)
+        logger.info("edit_instruction: %s by user %s pending=%s", data.instruction_id, user_id, pending)
         return MCPEditInstructionOutput(
             success=True,
             instruction_id=data.instruction_id,

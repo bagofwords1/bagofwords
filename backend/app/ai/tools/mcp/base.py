@@ -465,8 +465,9 @@ class MCPTool(ABC):
         # In an empty context: the queued prompt was sent in BOW, by its own
         # author, so this request's context variables (the OAuth app origin,
         # the audit context, code visibility, usage attribution) must not
-        # carry over to its run. The dispatcher reads everything it needs
-        # from the database.
+        # carry over to its run. The dispatcher loads the queued prompt, its
+        # author and the report from the database, and sets the run's code
+        # visibility from the author's permissions.
         import contextvars
 
         from app.core.fire_and_forget import spawn

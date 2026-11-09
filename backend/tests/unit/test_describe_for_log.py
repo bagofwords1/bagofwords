@@ -137,3 +137,46 @@ def test_exception_whose_str_raises_is_still_described():
 
     assert line.startswith("Unprintable")
     assert "tests/unit/test_describe_for_log.py:" in line
+
+
+def _deep_recursion_error():
+    """A RecursionError whose ~1000 frames are in a file outside the backend
+    and outside site-packages, the frames that cost the most to place."""
+    namespace = {}
+    exec(compile("def recurse(n):\n    return recurse(n + 1)\n", "/opt/elsewhere/deep.py", "exec"), namespace)
+    return _raised(lambda: namespace["recurse"](0))
+
+
+def test_a_deep_traceback_keeps_its_outer_and_inner_frames():
+    e = _deep_recursion_error()
+    assert isinstance(e, RecursionError)
+
+    line = describe_for_log(e)
+
+    frames = line.split(" at ", 1)[1].split(" > ")
+    assert len(frames) == 41, len(frames)  # 20 outermost, "...", 20 innermost
+    assert frames[20] == "..."
+    assert frames[0].endswith(" _raised")
+    assert all(f.endswith(" recurse") for f in frames[-20:])
+
+
+def test_a_deep_traceback_is_described_quickly():
+    """Logging must not stall the request it reports on: a 1000-frame
+    RecursionError is described in under 50 ms (best of 5 runs, so a busy
+    machine does not make it flaky)."""
+    import time
+
+    e = _deep_recursion_error()
+    depth = 0
+    tb = e.__traceback__
+    while tb is not None:
+        depth, tb = depth + 1, tb.tb_next
+    assert depth >= 900, depth
+
+    timings = []
+    for _ in range(5):
+        start = time.perf_counter()
+        describe_for_log(e)
+        timings.append(time.perf_counter() - start)
+
+    assert min(timings) < 0.050, f"best of 5: {min(timings) * 1000:.1f} ms"

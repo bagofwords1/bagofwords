@@ -221,12 +221,14 @@ def test_failed_create_instruction_logs_neither_title_nor_text(
     )
 
     assert response.status_code == 200, response.text
+    # The leak first: whether the tool reports the failure or raises, the
+    # failed INSERT has been logged by now.
+    leaks = _leaks(caplog, title_marker, text_marker)
+    assert not leaks, f"MCP logs carry the instruction's title or text: {leaks}"
     envelope = response.json()["result"]
     assert envelope["isError"] is False, \
         f"the tool raised instead of reporting the failure: {envelope['content'][0]['text'][:120]}"
     result = json.loads(envelope["content"][0]["text"])
     assert result.get("success") is False, f"the INSERT was expected to fail: {result}"
-    leaks = _leaks(caplog, title_marker, text_marker)
-    assert not leaks, f"MCP logs carry the instruction's title or text: {leaks}"
     assert any("create_instruction" in r.getMessage() and r.levelno >= logging.ERROR
                for r in caplog.records), "the failed create should still be logged"

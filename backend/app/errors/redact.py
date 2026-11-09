@@ -11,6 +11,8 @@ instead and log the exception.
 from __future__ import annotations
 
 import re
+import sysconfig
+import traceback
 from typing import Iterable, Optional
 
 MASK = "***"
@@ -76,22 +78,27 @@ def redact_paths(text: str) -> str:
 _BACKEND_ROOT = __file__.rsplit("/app/errors/", 1)[0] + "/"
 _MAX_FRAMES = 40
 _MAX_CHAIN = 5
+_STDLIB_ROOT = (sysconfig.get_paths().get("stdlib") or "") + "/"
 
 
 def _log_path(filename: str) -> str:
     """A frame's file, relative to the backend or its package directory."""
-    import sysconfig
-
     # Packages first: a virtualenv may live inside the backend directory.
     for marker in ("/site-packages/", "/dist-packages/"):
         if marker in filename:
             return filename.rsplit(marker, 1)[1]
     if filename.startswith(_BACKEND_ROOT):
         return filename[len(_BACKEND_ROOT):]
-    stdlib = sysconfig.get_paths().get("stdlib", "") + "/"
-    if stdlib != "/" and filename.startswith(stdlib):
-        return filename[len(stdlib):]
+    if _STDLIB_ROOT != "/" and filename.startswith(_STDLIB_ROOT):
+        return filename[len(_STDLIB_ROOT):]
     return filename.rsplit("/", 1)[-1]
+
+
+def _format_frames(tb_frames) -> list:
+    return [
+        f"{_log_path(f.filename)}:{f.lineno} {f.name}"
+        for f in traceback.StackSummary.extract(iter(tb_frames), lookup_lines=False)
+    ]
 
 
 def _constraint_name(orig: object) -> Optional[str]:
@@ -140,15 +147,16 @@ def describe_for_log(exc: BaseException) -> str:
     ``file:line func``, outermost first) and the types of the exceptions it
     was raised from or during. Never calls ``str()`` on any exception.
     """
-    import traceback
-
     parts = _describe_one(exc)
-    frames = traceback.StackSummary.extract(traceback.walk_tb(exc.__traceback__), lookup_lines=False)
-    if frames:
-        listed = [f"{_log_path(f.filename)}:{f.lineno} {f.name}" for f in frames]
-        if len(listed) > _MAX_FRAMES:
+    tb_frames = list(traceback.walk_tb(exc.__traceback__))
+    if tb_frames:
+        # Cut to the outermost and innermost frames before formatting any:
+        # a RecursionError carries about a thousand.
+        if len(tb_frames) > _MAX_FRAMES:
             half = _MAX_FRAMES // 2
-            listed = listed[:half] + ["..."] + listed[-half:]
+            listed = _format_frames(tb_frames[:half]) + ["..."] + _format_frames(tb_frames[-half:])
+        else:
+            listed = _format_frames(tb_frames)
         parts.append("at " + " > ".join(listed))
 
     seen = {id(exc)}
