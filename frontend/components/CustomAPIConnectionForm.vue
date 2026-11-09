@@ -345,6 +345,7 @@
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
 import { catalogMessage } from '~/composables/useErrorMessage'
+import { withoutGuessedAuthType } from '~/utils/connectionDestination'
 
 const props = defineProps<{
   editConnection?: any
@@ -368,6 +369,8 @@ const emit = defineEmits<{
 }>()
 
 const { t, te } = useI18n()
+// The auth type the form filled in for a saved row that had none.
+const guessedAuthType = ref<string | null>(null)
 const selectedExisting = ref<any>(null)
 const existingConnections = computed(() => props.existingConnections || [])
 const existingConnectionOptions = computed(() =>
@@ -661,6 +664,7 @@ watch(() => props.editConnection, async (conn) => {
         form.name = detail.name || ''
         form.base_url = config.base_url || ''
         form.auth_type = config.auth_type || (detail.has_credentials ? 'api_key' : 'none')
+        guessedAuthType.value = config.auth_type ? null : form.auth_type
         form.token = ''
         form.username = ''
         form.password = ''
@@ -846,7 +850,7 @@ async function handleSubmit() {
     if (isEditMode.value && props.editConnection) {
       response = await useMyFetch(`/connections/${props.editConnection.id}`, {
         method: 'PUT',
-        body: { name: form.name, config, credentials },
+        body: { name: form.name, config: withoutGuessedAuthType(config, guessedAuthType.value), credentials },
       })
     } else {
       // OAuth-app connections authenticate per user: each user signs in and

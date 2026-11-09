@@ -5,7 +5,17 @@ import {
   CREDENTIALS_REQUIRED_CODE,
   changedDestinationFields,
   needsCredentialReentry,
+  withoutGuessedAuthType,
 } from '../../utils/connectionDestination.ts'
+
+test('a guessed auth type is left out of the save', () => {
+  assert.deepEqual(withoutGuessedAuthType({ base_url: 'u', auth_type: 'none' }, 'none'), { base_url: 'u' })
+})
+
+test('a chosen or saved auth type is kept', () => {
+  assert.deepEqual(withoutGuessedAuthType({ auth_type: 'bearer' }, 'none'), { auth_type: 'bearer' })
+  assert.deepEqual(withoutGuessedAuthType({ auth_type: 'none' }, null), { auth_type: 'none' })
+})
 
 test('a changed host, port or url is reported', () => {
   assert.deepEqual(changedDestinationFields({ host: 'a.example.com', port: 5432 }, { host: 'b.example.com', port: 5432 }), ['host'])

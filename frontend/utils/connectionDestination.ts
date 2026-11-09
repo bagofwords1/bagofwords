@@ -15,6 +15,13 @@ export function changedDestinationFields(saved: Record<string, unknown>, current
   return [...keys].filter(key => DESTINATION_FIELD.test(key) && normalized(saved?.[key]) !== normalized(current?.[key]))
 }
 
+/** The config to save, without an auth type the form only guessed for a row that had none. */
+export function withoutGuessedAuthType(config: Record<string, any>, guessed: string | null): Record<string, any> {
+  if (!guessed || config.auth_type !== guessed) return config
+  const { auth_type: _guessed, ...rest } = config
+  return rest
+}
+
 /** True for the server's refusal asking for the secret to be re-entered. */
 export function needsCredentialReentry(err: any): boolean {
   return (err?.data?.error_code ?? err?.response?._data?.error_code) === CREDENTIALS_REQUIRED_CODE

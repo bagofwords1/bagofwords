@@ -307,8 +307,11 @@
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
 import { catalogMessage } from '~/composables/useErrorMessage'
+import { withoutGuessedAuthType } from '~/utils/connectionDestination'
 
 const { t, te } = useI18n()
+// The auth type the form filled in for a saved row that had none.
+const guessedAuthType = ref<string | null>(null)
 const props = defineProps<{
   editConnection?: any
   existingConnections?: any[]
@@ -481,6 +484,7 @@ watch(() => props.editConnection, async (conn) => {
         form.server_url = config.server_url || ''
         form.transport = config.transport || 'sse'
         form.auth_type = config.auth_type || (detail.has_credentials ? 'bearer' : 'none')
+        guessedAuthType.value = config.auth_type ? null : form.auth_type
         form.token = ''
         form.api_key = ''
         form.api_key_header = config.api_key_header || 'X-API-Key'
@@ -694,7 +698,7 @@ async function handleSubmit() {
 
     let response: any
     if (isEditMode.value && props.editConnection) {
-      const body: Record<string, any> = { name: form.name, config, credentials, auth_policy: authPolicy.value }
+      const body: Record<string, any> = { name: form.name, config: withoutGuessedAuthType(config, guessedAuthType.value), credentials, auth_policy: authPolicy.value }
       if (allowedUserAuthModes.value) body.allowed_user_auth_modes = allowedUserAuthModes.value
       response = await useMyFetch(`/connections/${props.editConnection.id}`, {
         method: 'PUT',
