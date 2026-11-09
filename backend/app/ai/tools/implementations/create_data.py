@@ -578,8 +578,9 @@ def build_view_from_data_model(
             legend=LegendOptions(show=bool(has_multiple_series)),
             defaultFilters=default_filters,
         )
-        # Slightly different axis defaults for time series vs categorical
-        view.axisX = AxisOptions(rotate=45, interval=0)
+        # Leave the category labels to the renderer, which thins them as
+        # categories grow. Stamping interval=0 forced every label onto the axis.
+        view.axisX = AxisOptions(rotate=None, interval=None)
         view.axisY = AxisOptions(show=True, rotate=0, interval=0)
         return ViewSchema(view=view)
 
