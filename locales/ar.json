@@ -2281,7 +2281,8 @@
           "announceNewReportLabel": "الإعلان عن تقارير المحادثات الجديدة",
           "announceNewReportDesc": "عندما تبدأ رسالة تقرير محادثة جديدًا، يرد البوت برسالة \"لقد بدأت تقرير محادثة جديدًا\" مع رابط إليه. أوقف التفعيل لتخطي هذه الرسالة.",
           "announceNewReportEnabled": "تم تفعيل الإعلان عن التقارير الجديدة",
-          "announceNewReportDisabled": "تم إيقاف الإعلان عن التقارير الجديدة"
+          "announceNewReportDisabled": "تم إيقاف الإعلان عن التقارير الجديدة",
+          "loading": "جارٍ التحميل…"
         },
         "slack": {
           "title": "تكامل Slack",
@@ -2375,7 +2376,30 @@
           "disconnectedToast": "تم قطع الاتصال بـWhatsApp",
           "disconnectedToastDesc": "تم قطع تكامل WhatsApp",
           "failedDisconnect": "فشل قطع الاتصال بـWhatsApp",
-          "sessionStalenessDesc": "المدة التي تستمر فيها الدردشة في نفس تقرير المحادثة. الرسائل بعد هذه النافذة تبدأ تقريرًا جديدًا (إرسال \"new\" يبدأ تقريرًا فورًا). الافتراضي: 24 ساعة."
+          "sessionStalenessDesc": "المدة التي تستمر فيها الدردشة في نفس تقرير المحادثة. الرسائل بعد هذه النافذة تبدأ تقريرًا جديدًا (إرسال \"new\" يبدأ تقريرًا فورًا). الافتراضي: 24 ساعة.",
+          "numbersTitle": "الأرقام المتصلة",
+          "addNumber": "ربط رقم",
+          "addNumberTitle": "ربط رقم آخر",
+          "nameLabel": "التسمية",
+          "namePlaceholder": "مثل: المبيعات، المالية",
+          "agentScopeTitle": "الوكلاء على هذا الرقم",
+          "agentScopeDesc": "اختر الوكلاء الذين يرد بهم هذا الرقم. اتركه فارغًا لإتاحة كل الوكلاء الذين يملك المستخدم صلاحية الوصول إليهم.",
+          "agentScopeAll": "يتيح كل الوكلاء الذين يملك المستخدم صلاحية الوصول إليهم",
+          "agentScopeCount": "تم تحديد {count} وكيل",
+          "agentScopeNoAgents": "لا يوجد وكلاء متاحون",
+          "agentScopeSave": "حفظ الوكلاء",
+          "agentScopeSaved": "تم تحديث الوكلاء",
+          "connectedUsersTitle": "المستخدمون المتصلون",
+          "connectedUsersEmpty": "لم يربط أحد هذا الرقم بعد",
+          "verified": "موثَّق",
+          "unverified": "قيد الانتظار",
+          "unknownUser": "غير معروف",
+          "unnamedNumber": "رقم واتساب",
+          "cancel": "إلغاء",
+          "connectedUsersCount": "{count} أشخاص",
+          "usersSearchPlaceholder": "البحث بالاسم أو الرقم",
+          "usersSearchEmpty": "لا يوجد مستخدمون يطابقون بحثك",
+          "webhookSharedNote": "ينطبق عنوان webhook نفسه على جميع أرقامك."
         },
         "email": {
           "title": "صندوق بريد الذكاء الاصطناعي",

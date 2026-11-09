@@ -2602,7 +2602,8 @@
           "announceNewReportLabel": "Announce new conversation reports",
           "announceNewReportDesc": "When a message starts a new conversation report, reply with an \"I've started a new conversation report\" message linking to it. Turn off to skip that message.",
           "announceNewReportEnabled": "New report announcement enabled",
-          "announceNewReportDisabled": "New report announcement disabled"
+          "announceNewReportDisabled": "New report announcement disabled",
+          "loading": "Loading…"
         },
         "slack": {
           "title": "Slack Integration",
@@ -2696,7 +2697,30 @@
           "disconnectedToast": "WhatsApp disconnected",
           "disconnectedToastDesc": "WhatsApp integration disconnected",
           "failedDisconnect": "Failed to disconnect WhatsApp",
-          "sessionStalenessDesc": "How long a chat keeps continuing in the same conversation report. Messages after this window start a fresh report (sending \"new\" starts one immediately). Default: 24 hours."
+          "sessionStalenessDesc": "How long a chat keeps continuing in the same conversation report. Messages after this window start a fresh report (sending \"new\" starts one immediately). Default: 24 hours.",
+          "numbersTitle": "Connected numbers",
+          "addNumber": "Connect a number",
+          "addNumberTitle": "Connect another number",
+          "nameLabel": "Label",
+          "namePlaceholder": "e.g. Sales, Finance",
+          "agentScopeTitle": "Agents on this number",
+          "agentScopeDesc": "Choose which agents this number answers with. Leave empty to expose every agent the user can access.",
+          "agentScopeAll": "Exposes every agent the user can access",
+          "agentScopeCount": "{count} agents selected",
+          "agentScopeNoAgents": "No agents available",
+          "agentScopeSave": "Save agents",
+          "agentScopeSaved": "Agents updated",
+          "connectedUsersTitle": "Connected users",
+          "connectedUsersEmpty": "No one has linked this number yet",
+          "verified": "Verified",
+          "unverified": "Pending",
+          "unknownUser": "Unknown",
+          "unnamedNumber": "WhatsApp number",
+          "cancel": "Cancel",
+          "connectedUsersCount": "{count} people",
+          "usersSearchPlaceholder": "Search by name or number",
+          "usersSearchEmpty": "No users match your search",
+          "webhookSharedNote": "The same webhook URL applies to all your numbers."
         },
         "googleChat": {
           "title": "Google Chat Integration",
