@@ -45,6 +45,7 @@
 					:initialMode="initialMode"
 					:textareaContent="prefill"
 					:compact="isExcel"
+					:docked="!isExcel"
 					@update:modelValue="(v: string) => prefill = v"
 					@update:selectedDataSources="(val: any[]) => currentAgents = val"
 					@update:availableDataSources="(val: any[]) => availableAgents = val"

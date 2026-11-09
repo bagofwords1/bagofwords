@@ -822,6 +822,7 @@
 					@contextCompacted="(result: any) => { if (result?.covers_until_completion_id) compactionWatermarkId = result.covers_until_completion_id }"
 					:hasArtifacts="hasArtifacts"
 					:compact="isExcel"
+					:docked="!isExcel"
 					:queuedPrompts="queuedPrompts"
 					:backgroundWaves="subAgentWaves"
 					@stopSubAgent="stopSubAgent"
