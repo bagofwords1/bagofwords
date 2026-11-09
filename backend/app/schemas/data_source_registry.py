@@ -2847,15 +2847,30 @@ def is_overlay_auth(ds_type: str, auth_mode: str) -> bool:
     return bool(variant and variant.overlay)
 
 
+# Rows for these modes are written by the server (tokens, delegation details),
+# so their keys are not the variant's form fields.
+_SERVER_WRITTEN_AUTH_MODES = frozenset({"oauth", "kerberos_delegated"})
+
+
+def _declared_user_credentials(ds_type: Optional[str], user_creds: dict, auth_mode: str) -> dict:
+    """A personal row's fields the variant declares: a client acts on any field it receives."""
+    entry = REGISTRY.get(ds_type or "")
+    variant = (entry.credentials_auth.by_auth or {}).get(auth_mode) if entry and auth_mode else None
+    if variant is None or auth_mode in _SERVER_WRITTEN_AUTH_MODES:
+        return user_creds
+    return {k: v for k, v in user_creds.items() if k in variant.schema.model_fields}
+
+
 def overlay_system_credentials(connection, user_creds: dict, auth_mode: str) -> dict:
     """Resolve an overlay variant: the user's credentials merged over the
     connection's system credentials.
 
     Empty user values are dropped before the merge so a blank optional field
     cannot clobber a value the system credential provides. Non-overlay modes
-    pass through unchanged, so every resolver can call this unconditionally.
+    keep only their declared fields and are not merged, so every resolver can
+    call this unconditionally.
     """
-    user_creds = user_creds or {}
+    user_creds = _declared_user_credentials(getattr(connection, "type", None), user_creds or {}, auth_mode)
     if not is_overlay_auth(getattr(connection, "type", None), auth_mode):
         return user_creds
     try:

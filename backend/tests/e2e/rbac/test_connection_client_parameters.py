@@ -179,13 +179,189 @@ def test_every_connector_refuses_a_variant_switch_that_leaves_a_stored_secret(te
         saved_auth, new_auth = variants[0], variants[1]
         if set(secret_field_names(conn_type, saved_auth)) <= set(secret_field_names(conn_type, new_auth)):
             continue  # entering the new variant's secrets replaces every stored one
+        destination = _destination_fields(conn_type)[:1]
+        if not destination:
+            continue  # without a host field this would be a same-host switch
+        field = REGISTRY[conn_type].config_schema.model_fields[destination[0]]
         conn = _stored(test_client, world, conn_type, saved_auth)
         junk = {n: "typed-value" for n in secret_field_names(conn_type, new_auth)}
+        body = {"config": {"auth_type": new_auth, destination[0]: _sample(destination[0], field, other=True)}, "credentials": junk}
         with _skip_network():
-            r = _test(test_client, world, {"config": {"auth_type": new_auth}, "credentials": junk}, conn_id=conn["id"])
+            r = _test(test_client, world, body, conn_id=conn["id"])
         if r.status_code != 403:
             failures.append(f"{conn_type}: {saved_auth}->{new_auth}: {r.status_code}")
     assert not failures, failures
+
+
+class _RecordingClient:
+    received: list = []
+
+    def __init__(self, **kwargs):
+        _RecordingClient.received.append(kwargs)
+
+    async def atest_connection(self):
+        return {"success": True, "message": "ok", "connectivity": True}
+
+
+@pytest.fixture
+def recording_client(monkeypatch):
+    _RecordingClient.received = []
+    monkeypatch.setattr("app.services.connection_service.resolve_client_class", lambda _type: _RecordingClient)
+    return _RecordingClient
+
+
+PROM_URL = "https://prom.example.com"
+
+
+@pytest.mark.e2e
+def test_changing_the_auth_method_on_the_same_host_removes_the_old_secret(test_client, world, every_connector_allowed, recording_client):
+    conn = _stored(test_client, world, "prometheus", "bearer", extra_config={"base_url": PROM_URL})
+    with _skip_network():
+        saved = _put(test_client, world, {
+            "config": {"base_url": PROM_URL, "auth_type": "basic"},
+            "credentials": {"username": "u", "password": "typed-pass"},
+        }, conn_id=conn["id"])
+    assert saved.status_code == 200, saved.text
+    r = _test(test_client, world, {}, conn_id=conn["id"])
+    assert r.status_code == 200, r.text
+    assert recording_client.received, "the client was built"
+    built = recording_client.received[-1]
+    assert built["password"] == "typed-pass" and "token" not in built
+
+
+@pytest.mark.e2e
+def test_testing_a_same_host_auth_method_change_does_not_carry_the_old_secret(test_client, world, every_connector_allowed, recording_client):
+    conn = _stored(test_client, world, "prometheus", "bearer", extra_config={"base_url": PROM_URL})
+    r = _test(test_client, world, {
+        "config": {"auth_type": "basic"}, "credentials": {"username": "u", "password": "typed-pass"},
+    }, conn_id=conn["id"])
+    assert r.status_code == 200, r.text
+    built = recording_client.received[-1]
+    assert built["password"] == "typed-pass" and "token" not in built
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("config,credentials", [
+    ({"auth_type": "none"}, {}),
+    ({"auth_type": "basic"}, {"username": "u", "password": ""}),
+    ({"auth_type": "basic"}, {"username": "u", "password": "typed-pass", "use_kerberos": True}),
+], ids=["no-auth", "blank-secret", "extra-field"])
+def test_a_same_host_auth_method_change_still_needs_the_full_secret(test_client, world, every_connector_allowed, config, credentials):
+    conn = _stored(test_client, world, "prometheus", "bearer", extra_config={"base_url": PROM_URL})
+    with _skip_network():
+        r = _test(test_client, world, {"config": config, "credentials": credentials}, conn_id=conn["id"])
+    assert r.status_code == 403, r.text
+
+
+@pytest.mark.e2e
+def test_a_same_host_change_to_a_server_identity_variant_needs_an_admin(test_client, world, every_connector_allowed):
+    conn = _stored(test_client, world, "MSSQL", "userpass", extra_config={"host": "sql.example.com", "port": 1433, "database": "d"})
+    with _skip_network():
+        r = _test(test_client, world, {"config": {"auth_type": "kerberos"}, "credentials": {"use_kerberos": True}}, conn_id=conn["id"])
+    _refused(r, ADMIN_NEEDED)
+
+
+# ── Declared fields that choose who the server acts as ───────────────────
+
+IDENTITY_CREDENTIALS = [
+    "role_arn", "kerberos_principal", "principal", "impersonated_user", "trusted_user", "user_directory", "user_id",
+    "documentum_login", "tenant_id", "member_cid", "partition", "domain", "workspace_domain",
+]
+
+
+@pytest.mark.e2e
+def test_changing_only_a_field_that_chooses_the_identity_is_refused(test_client, world, every_connector_allowed):
+    failures, cases = [], 0
+    for conn_type in sorted(REGISTRY):
+        for auth_type, variant in REGISTRY[conn_type].credentials_auth.by_auth.items():
+            fields = [f for f in IDENTITY_CREDENTIALS if f in variant.schema.model_fields]
+            if not fields or auth_type in ("oauth", "otds_impersonation"):
+                continue
+            conn = _stored(test_client, world, conn_type, auth_type)
+            for field in fields:
+                cases += 1
+                with _skip_network():
+                    r = _test(test_client, world, {"credentials": {field: "other-identity"}}, conn_id=conn["id"])
+                if r.status_code != 403:
+                    failures.append(f"{conn_type}/{auth_type}.{field}: {r.status_code}")
+    assert cases, "the registry declares identity fields"
+    assert not failures, failures
+
+
+@pytest.mark.e2e
+def test_a_role_on_a_server_identity_variant_is_not_saved_by_a_non_admin(test_client, world, every_connector_allowed):
+    conn = _stored(test_client, world, "s3", "aws_role", extra_config={"bucket": "b"},
+                   extra_credentials={"role_arn": "arn:aws:iam::1:role/saved"})
+    with _skip_network():
+        r = _put(test_client, world, {"credentials": {"role_arn": "arn:aws:iam::2:role/other"}}, conn_id=conn["id"])
+    _refused(r, ADMIN_NEEDED)
+
+
+@pytest.mark.e2e
+def test_a_role_with_stored_keys_needs_the_keys_reentered(test_client, world, every_connector_allowed):
+    conn = _stored(test_client, world, "aws_athena", "key", extra_config={"region": "us-east-1", "database": "d"},
+                   extra_credentials={"role_arn": "arn:aws:iam::1:role/saved"})
+    with _skip_network():
+        refused = _test(test_client, world, {"credentials": {"role_arn": "arn:aws:iam::2:role/other"}}, conn_id=conn["id"])
+        _refused(refused, CREDENTIALS_NEEDED)
+        ok = _test(test_client, world, {"credentials": {"role_arn": "arn:aws:iam::2:role/other", "access_key": "typed", "secret_key": "typed-secret"}}, conn_id=conn["id"])
+    assert ok.status_code == 200, ok.text
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("conn_type,auth_type,config,change", [
+    ("snowflake", "userpass", {"account": "a", "warehouse": "w", "database": "d", "role": "saved_role"}, {"role": "other_role"}),
+    ("prometheus", "bearer", {"base_url": PROM_URL, "org_id": "saved"}, {"org_id": "other"}),
+    ("bigquery", "service_account", {"project_id": "saved"}, {"project_id": "other"}),
+], ids=["role", "org", "project"])
+def test_config_fields_that_choose_the_identity_or_tenant_are_refused(test_client, world, every_connector_allowed, conn_type, auth_type, config, change):
+    conn = _stored(test_client, world, conn_type, auth_type, extra_config=config)
+    with _skip_network():
+        r = _test(test_client, world, {"config": change}, conn_id=conn["id"])
+    assert r.status_code == 403, r.text
+
+
+# ── Personal rows saved before these fields were filtered ────────────────
+
+async def _store_old_personal_rows(connection_id, data_source_id, user_id, org_id, legacy):
+    from app.models.user_connection_credentials import UserConnectionCredentials
+    from app.models.user_data_source_credentials import UserDataSourceCredentials
+
+    payload = {"user": "member", "password": "member-pass", "host": "row.example.com"}
+    async with async_session_maker() as db:
+        if legacy:
+            row = UserDataSourceCredentials(data_source_id=data_source_id, user_id=user_id, organization_id=org_id,
+                                            auth_mode="userpass", is_active=True, is_primary=True)
+        else:
+            row = UserConnectionCredentials(connection_id=connection_id, user_id=user_id, organization_id=org_id,
+                                            auth_mode="userpass", is_active=True, is_primary=True)
+        row.encrypt_credentials(payload)
+        db.add(row)
+        await db.commit()
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("legacy", [False, True], ids=["connection-row", "data-source-row"])
+def test_an_older_personal_row_cannot_move_the_connection(test_client, world, driver, invite_user_to_org, legacy):
+    with _skip_network():
+        ds = test_client.post("/api/data_sources", headers=world["ah"], json={
+            "name": f"agent-{uuid.uuid4().hex[:6]}", "connection_ids": [world["conn"]["id"]], "is_public": True,
+            "generate_summary": False, "generate_conversation_starters": False, "generate_ai_rules": False,
+        })
+    assert ds.status_code == 200, ds.text
+    ds_id = ds.json()["id"]
+    member = invite_user_to_org(org_id=world["org_id"], admin_token=world["admin"]["token"])
+    # Direct DB write: the routes no longer store undeclared fields, only older rows can hold them.
+    asyncio.run(_store_old_personal_rows(world["conn"]["id"], ds_id, member["user_id"], world["org_id"], legacy))
+    driver.clear()
+    if legacy:
+        code = "def generate_df(ds_clients, excel_files):\n    return list(ds_clients.values())[0].execute_query('SELECT 1 AS v')\n"
+        r = test_client.post("/api/entities/preview", headers=_hdr(member, world["org_id"]), json={"code": code, "data_source_ids": [ds_id]})
+    else:
+        r = test_client.post(f"/api/connections/{world['conn']['id']}/test-my-credentials", headers=_hdr(member, world["org_id"]))
+    assert r.status_code == 200, r.text
+    assert driver, "the personal login reached the driver"
+    assert all(d["host"] == SAVED_HOST for d in driver), driver
 
 
 @pytest.mark.e2e
@@ -300,7 +476,8 @@ def test_a_server_identity_field_in_config_needs_an_admin(test_client, world, ev
     {"config": {"port": "²"}},
     {"config": {"auth_type": ["x"]}},
     {"credentials": {"auth_type": {"a": 1}}},
-], ids=["superscript-port", "list-auth-type", "dict-credential-auth-type"])
+    {"config": {"port": "9" * 5000}},
+], ids=["superscript-port", "list-auth-type", "dict-credential-auth-type", "huge-port"])
 def test_malformed_values_do_not_fail_the_request(test_client, world, who, body):
     with _skip_network():
         r = _test(test_client, world, body, headers=world[who])

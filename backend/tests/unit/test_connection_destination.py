@@ -119,6 +119,27 @@ def test_a_non_string_auth_type_is_a_change():
     assert destination_view("custom_api", {}, {}) != destination_view("custom_api", {"auth_type": ["x"]}, {})
 
 
+def test_a_port_past_the_integer_conversion_limit_does_not_raise():
+    assert not _same("postgresql", {"host": "h", "port": 5432}, {"host": "h", "port": "9" * 5000})
+
+
+@pytest.mark.parametrize("key", [
+    "role", "org_id", "sap_client", "account_name", "auth_login_domain", "login_provider", "project_id",
+    "site_name", "auth_source", "cluster_identifier",
+])
+def test_config_fields_that_choose_the_identity_or_tenant_are_not_safe_listed(key):
+    assert key not in NON_DESTINATION_CONFIG_KEYS
+
+
+@pytest.mark.parametrize("key", [
+    "role_arn", "kerberos_principal", "principal", "impersonated_user", "trusted_user", "user_directory",
+    "user_id", "documentum_login", "tenant_id", "member_cid", "partition", "domain", "workspace_domain",
+])
+def test_credential_fields_that_choose_the_identity_or_tenant_count(key):
+    config = {"host": "db.example.com"}
+    assert destination_view("postgresql", config, {key: "a"}) != destination_view("postgresql", config, {key: "b"})
+
+
 def test_port_default_comes_from_the_client():
     assert _same("trino", {"host": "h"}, {"host": "h", "port": 443})
     assert not _same("trino", {"host": "h"}, {"host": "h", "port": 8080})

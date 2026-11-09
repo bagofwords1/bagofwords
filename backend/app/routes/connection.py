@@ -62,6 +62,7 @@ from app.services.custom_query_service import custom_query_service, is_accelerab
 from app.services.table_preview_service import table_preview_service, is_previewable_table
 from app.errors import AppError, ErrorCode
 from app.services.connection_destination import (
+    credentials_after_auth_switch,
     destination_changed,
     destination_summary,
     merge_config_overrides,
@@ -856,13 +857,18 @@ async def test_connection(
             used_stored=used_stored, outcome="denied", failure_reason=exc.error_code,
         )
         raise
+    probe_user = current_user if management_requires_user_auth(connection, config_overrides) else None
     result = await connection_service.test_connection(
         db=db,
         connection_id=connection_id,
         organization=organization,
-        current_user=current_user if management_requires_user_auth(connection, config_overrides) else None,
+        current_user=probe_user,
         config_overrides=config_overrides,
         credential_overrides=credential_overrides,
+        # A change of auth method on the same destination must not carry the old method's secret.
+        credential_replacement=(
+            credentials_after_auth_switch(connection, effective_config, credential_overrides) if probe_user is None else None
+        ),
     )
     await _audit_connection_probe(
         db, organization, current_user, "connection.tested", connection, effective_config, credential_overrides,

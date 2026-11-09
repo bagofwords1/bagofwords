@@ -3,7 +3,12 @@ Connection Service - Handles connection-level operations.
 Extracted from DataSourceService for the domain-connection architecture.
 """
 from app.errors import AppError
-from app.services.connection_destination import audit_snapshot, require_destination_binding, scrub_stored_secrets
+from app.services.connection_destination import (
+    audit_snapshot,
+    credentials_after_auth_switch,
+    require_destination_binding,
+    scrub_stored_secrets,
+)
 import os
 import asyncio
 import importlib
@@ -720,6 +725,9 @@ class ConnectionService:
         connection = await self.get_connection(db, connection_id, organization)
         await self.enforce_update_authority(db, connection, current_user, updates)
         before_audit = audit_snapshot(connection)
+        credentials_for_auth_switch = credentials_after_auth_switch(
+            connection, updates["config"] if "config" in updates else connection.config, updates.get("credentials"),
+        )
 
         # Check enterprise license if switching to user_required auth policy
         new_auth_policy = updates.get("auth_policy")
@@ -875,7 +883,10 @@ class ConnectionService:
                 # entire blob when rotating a single secret or identifier.
                 existing = connection.decrypt_credentials() or {}
                 changes = {k: v for k, v in new_credentials.items() if v is not None and v != ""}
-                if changes:
+                if credentials_for_auth_switch is not None:
+                    connection.encrypt_credentials(credentials_for_auth_switch)
+                    connection_changed = True
+                elif changes:
                     connection.encrypt_credentials({**existing, **changes})
                     connection_changed = True
 
@@ -1324,6 +1335,7 @@ class ConnectionService:
         config_overrides: dict = None,
         credential_overrides: dict = None,
         persist: bool = True,
+        credential_replacement: dict = None,
     ) -> dict:
         """Test an existing connection, optionally with override config/credentials.
 
@@ -1344,6 +1356,7 @@ class ConnectionService:
                 db, connection, current_user,
                 config_overrides=config_overrides,
                 credential_overrides=credential_overrides,
+                credential_replacement=credential_replacement,
             )
             connection_status = await client.atest_connection()
 
@@ -2350,8 +2363,12 @@ class ConnectionService:
         current_user: User = None,
         config_overrides: dict = None,
         credential_overrides: dict = None,
+        credential_replacement: dict = None,
     ):
-        """Construct a database client for this connection."""
+        """Construct a database client for this connection.
+
+        ``credential_replacement``, when given, stands in for the connection's
+        stored credentials: nothing else that is stored reaches the client."""
         logger.info(f"construct_client: Building client for connection {connection.id} (type={connection.type})")
         ClientClass = resolve_client_class(connection.type)
         logger.info(f"construct_client: Resolved ClientClass={ClientClass.__name__}")
@@ -2364,7 +2381,10 @@ class ConnectionService:
                     config[k] = v
         logger.info(f"construct_client: Config keys={list(config.keys()) if config else []}")
 
-        creds = await self.resolve_credentials(db, connection, current_user)
+        creds = (
+            dict(credential_replacement) if credential_replacement is not None
+            else await self.resolve_credentials(db, connection, current_user)
+        )
         # Merge credential overrides (non-empty values win, blank keeps saved)
         if credential_overrides:
             for k, v in credential_overrides.items():

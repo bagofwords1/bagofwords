@@ -36,16 +36,16 @@ from app.services.connection_identity import (
 # behaviour. Everything else counts as destination.
 NON_DESTINATION_CONFIG_KEYS = frozenset({
     # Selection within the destination.
-    "account_name", "additional_catalogs", "api_version", "app_filter", "attachment_tables",
-    "auth_login_domain", "auth_source", "boards", "branch", "bucket", "catalog", "classes",
-    "cluster_identifier", "cost_type", "cube_list_process", "cube_schema_process", "data_source",
+    "additional_catalogs", "api_version", "app_filter", "attachment_tables",
+    "boards", "branch", "bucket", "catalog", "classes",
+    "cost_type", "cube_list_process", "cube_schema_process", "data_source",
     "database", "dataset", "default_project_id", "display_values", "drive_name", "file_paths",
     "folder_path", "forms", "group_id", "index_pattern", "indexes", "landscapes", "lists",
-    "log_group_prefix", "login_provider", "mdx_process", "measure_dimension_pattern",
+    "log_group_prefix", "mdx_process", "measure_dimension_pattern",
     "metric_namespaces", "metric_prefix", "namespaces", "notebook_source", "object_types",
-    "objects", "olap_database", "ontology", "org_id", "prefix", "project_id", "repo",
-    "repository", "role", "s3_output_location", "sap_client", "sap_language", "schema", "scope",
-    "service_name", "share", "site_name", "space", "space_filter", "stream_filter",
+    "objects", "olap_database", "ontology", "prefix", "repo",
+    "repository", "s3_output_location", "sap_language", "schema", "scope",
+    "service_name", "share", "space", "space_filter", "stream_filter",
     "table_filter", "tables", "warehouse", "workgroup", "workspaces",
     # Behaviour, limits and presentation.
     "aggregation_limits_observe_only", "allow_downloads", "allow_gds", "allow_secret_files",
@@ -71,13 +71,18 @@ NON_DESTINATION_CONFIG_KEYS = frozenset({
 }) | RUNTIME_CONFIG_KEYS
 
 # Credential fields that decide where a secret goes rather than what it is.
-CREDENTIAL_DESTINATION_KEYS = ("authorize_url", "token_url", "otds_url", "gateway_token_url", "root_ca", "account_id")
+CREDENTIAL_DESTINATION_KEYS = (
+    "authorize_url", "token_url", "otds_url", "gateway_token_url", "root_ca", "account_id",
+    # These choose who the server acts as, or in which tenant, so they compare like a host.
+    "role_arn", "kerberos_principal", "principal", "impersonated_user", "trusted_user", "user_directory",
+    "user_id", "documentum_login", "tenant_id", "member_cid", "partition", "domain", "workspace_domain",
+)
 
 # Values interpolated into a connection string: a delimiter here can move the
 # connection without touching a host field.
 _CONNECTION_STRING_FIELDS = (
-    "database", "schema", "catalog", "service_name", "role", "warehouse", "olap_database", "dataset",
-    "auth_source", "share", "bucket",
+    "database", "schema", "catalog", "service_name", "warehouse", "olap_database", "dataset",
+    "share", "bucket",
 )
 _IDENTITY_FIELDS = ("user", "username")
 _CONNECTION_STRING_DELIMITERS = re.compile(r"[/?#@:;&=\\%]")
@@ -222,7 +227,10 @@ def _normalize(key: str, value: Any) -> Any:
         if key in _HOST_FIELDS or key.endswith("_host") or key.endswith("hostname"):
             return _normalize_hosts(text)
         if text.isdecimal():
-            return int(text)
+            try:
+                return int(text)
+            except ValueError:  # past Python's digit limit for conversion
+                return text
         if text.lower() in ("true", "false"):
             return text.lower() == "true"
         return text
@@ -428,6 +436,10 @@ async def _has_stored_member_logins(db: AsyncSession, connection: Connection, us
     return False
 
 
+def _is_set(value: Any) -> bool:
+    return not _blank(value) and value is not False
+
+
 def _has_fields_outside_variant(conn_type: Optional[str], config: Any, merged: dict, variant) -> bool:
     """True if a set credential or config field is neither the variant's nor the connector's own."""
     entry = _entry(conn_type)
@@ -436,13 +448,42 @@ def _has_fields_outside_variant(conn_type: Optional[str], config: Any, merged: d
     declared = set(variant.schema.model_fields) if variant else set()
     known_config = set(entry.config_schema.model_fields) | NON_DESTINATION_CONFIG_KEYS | {"auth_type"}
 
-    def is_set(value: Any) -> bool:
-        return not _blank(value) and value is not False
-
-    return any(k != "auth_type" and k not in declared and is_set(v) for k, v in merged.items()) or any(
-        k not in known_config and k not in declared and is_set(v) and _client_takes(conn_type, k)
+    return any(k != "auth_type" and k not in declared and _is_set(v) for k, v in merged.items()) or any(
+        k not in known_config and k not in declared and _is_set(v) and _client_takes(conn_type, k)
         for k, v in _as_dict(config).items()
     )
+
+
+def credentials_after_auth_switch(connection: Connection, effective_config: Any, request_credentials: Any) -> Optional[dict]:
+    """The credentials a same-destination change of auth method leaves behind, or None if this is not one.
+
+    Only the auth method may differ, the new variant must take a secret that is
+    not the server's own identity, and every required secret must be in the
+    request. The result drops other variants' stored values, so a client that
+    prefers whichever credential it finds cannot pick up a stale one.
+    """
+    saved = _saved_credentials(connection)
+    if saved is None:
+        return None
+    request = _as_dict(request_credentials)
+    merged = _merged_credentials(saved, request)
+    before = destination_view(connection.type, connection.config, saved)
+    after = destination_view(connection.type, effective_config, merged)
+    if {k for k in set(before) | set(after) if before.get(k) != after.get(k)} != {"auth_type"}:
+        return None
+    new_auth = effective_auth_type(connection.type, effective_config, merged)
+    variant = _variant(connection.type, new_auth)
+    secrets = secret_field_names(connection.type, new_auth)
+    if new_auth == effective_auth_type(connection.type, connection.config, saved):
+        return None
+    if variant is None or new_auth in _AMBIENT_VARIANTS or not secrets:
+        return None
+    fields = variant.schema.model_fields
+    if any(k != "auth_type" and k not in fields and _is_set(v) for k, v in request.items()):
+        return None
+    if any(fields[name].is_required() and _blank(request.get(name)) for name in secrets):
+        return None
+    return {k: v for k, v in merged.items() if k in fields}
 
 
 def _admin_required(message: str) -> AppError:
@@ -462,6 +503,8 @@ async def require_destination_binding(
     if user is None or not destination_changed(connection, effective_config, request_credentials):
         return
     if await can_use_system_credentials(db, user, connection.organization_id):
+        return
+    if credentials_after_auth_switch(connection, effective_config, request_credentials) is not None:
         return
 
     saved = _saved_credentials(connection)
