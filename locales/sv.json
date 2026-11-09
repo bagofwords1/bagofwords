@@ -387,6 +387,7 @@
     "newReport": "Ny rapport",
     "expandSidebar": "Expandera sidopanel",
     "collapseSidebar": "Fäll ihop sidopanel",
+    "resizeSidebar": "Ändra storlek på sidopanel",
     "switchOrganization": "Byt organisation",
     "version": "Version",
     "loggedInAs": "Inloggad som {name}",

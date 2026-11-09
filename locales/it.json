@@ -387,6 +387,7 @@
     "newReport": "Nuovo report",
     "expandSidebar": "Espandi barra laterale",
     "collapseSidebar": "Comprimi barra laterale",
+    "resizeSidebar": "Ridimensiona barra laterale",
     "switchOrganization": "Cambia organizzazione",
     "version": "Versione",
     "loggedInAs": "Connesso come {name}",
