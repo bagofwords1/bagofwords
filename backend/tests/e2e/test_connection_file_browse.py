@@ -266,6 +266,7 @@ def test_preview_converts_office_documents_to_pdf(preview_agent, test_client, mo
 
 from tests.unit.test_documentum_client import dctm, dctm_server  # noqa: E402,F401
 from tests.unit.test_sharepoint_onprem_client import remote  # noqa: E402,F401
+from tests.unit.test_kms_lighthouse_client import kms, kms_server, client as kms_client  # noqa: E402,F401
 
 
 @pytest.fixture
@@ -406,6 +407,31 @@ def test_contract_sharepoint_server(browse_agent, test_client, monkeypatch, remo
     )
     # ids are server-relative URLs; paths are library-prefixed and scope-relative.
     assert all(f["id"].startswith("/sites/research/") for f in body["files"])
+
+
+@pytest.mark.e2e
+def test_contract_kms_lighthouse(browse_agent, test_client, monkeypatch, kms):
+    billing = kms_client(kms).read_raw_bytes("item:301")[0]
+    outside = kms_client(kms).read_raw_bytes("item:279")[0]    # under Accounts, outside folder 10
+    # Independent anchors from the mock's own data, so the byte comparison cannot pass on empty reads.
+    assert "AI text for a billing dispute." in billing.decode("utf-8")
+    assert "AI summary: verify the caller, then reset." in outside.decode("utf-8")
+    _serve(monkeypatch, lambda: kms_client(kms, root_folder_id=10))
+    body = _assert_contract(
+        test_client, browse_agent,
+        # Folder-name paths from the root; same-titled "Forms" folders carry their ids.
+        expected_paths=["Billing dispute.txt", "Billing/Card blocked flow.txt", "Billing/Refund a payment.txt",
+                        "Forms [13]/Change of address form.txt", "Forms [14]/Card replacement form.txt",
+                        "Policy v2.1 - summary.txt"],
+        readable=("Billing dispute.txt", billing),
+        denied=[],    # reads are not root-bounded (ADR-4)
+    )
+    assert {f["id"] for f in body["files"]} == {"item:301", "item:302", "item:303", "item:304", "item:305",
+                                                "scenario:4401"}
+    _, content, headers = browse_agent
+    r = test_client.get(content, params={"file_id": "item:279"}, headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.content == outside
 
 
 @pytest.mark.e2e

@@ -64,6 +64,68 @@ def _scoped_listing(data: Any) -> bool:
     return bool((getattr(data, "folder_id", None) or "").strip().strip("/") or getattr(data, "cursor", None))
 
 
+def _kms_target(runtime_ctx: dict[str, Any], connection_id: str):
+    """``(data_source, connection, active)`` for the kms_lighthouse connection
+    the selection resolves to, or None.
+
+    First exactly the resolver's choice (resolve_file_client): the matchers
+    (connection id, data source id, data source name, connection name) over
+    the active allow-list, then its only active connection; ``active`` is True.
+    Only when that finds nothing are the inactive in-scope entries matched the
+    same way, then the only in-scope connection when none is active, so a
+    turned-off KMS connection or agent can be named as such (``active`` False)."""
+    from ._file_tool_common import FILE_SOURCE_TYPES, attached_file_connections
+    from .agent_focus_common import run_scope_agents
+
+    attached = attached_file_connections(runtime_ctx)
+    in_scope = [(ds, c) for ds in run_scope_agents(runtime_ctx)
+                for c in (ds.connections or []) if c.type in FILE_SOURCE_TYPES]
+    inactive = [(ds, c) for ds, c in in_scope
+                if not (getattr(ds, "is_active", True) and getattr(c, "is_active", True))]
+    sid = str(connection_id or "").strip()
+    low = sid.lower()
+
+    def name(obj) -> str:
+        return (getattr(obj, "name", "") or "").strip().lower()
+
+    def first_match(pairs):
+        for matches in (lambda ds, c: str(c.id) == sid, lambda ds, c: str(ds.id) == sid,
+                        lambda ds, c: bool(low) and name(ds) == low, lambda ds, c: bool(low) and name(c) == low):
+            hit = next(((ds, c) for ds, c in pairs if matches(ds, c)), None)
+            if hit is not None:
+                return hit
+        return None
+
+    target = first_match(attached) or (attached[0] if len(attached) == 1 else None)
+    active = target is not None
+    if target is None:
+        target = first_match(inactive) or (in_scope[0] if not attached and len(in_scope) == 1 else None)
+    if target is None or target[1].type != "kms_lighthouse":
+        return None
+    return target[0], target[1], active
+
+
+def kms_client_error(runtime_ctx: dict[str, Any], connection_id: str, operation: str, client_err: str):
+    """The agent-facing error when a kms_lighthouse connection's client could not
+    be built, or None for any other connection type (their text is unchanged).
+
+    Only when the resolver had no active connection to use does a turned-off
+    connection (or, with the connection active, its agent) get its fixed
+    inactive text; the connection the resolver picked goes through
+    friendly_tool_error, so a missing sign-in reads as the call to Connect."""
+    target = _kms_target(runtime_ctx, connection_id)
+    if target is None:
+        return None
+    _, conn, active = target
+    name = getattr(conn, "name", "") or "this source"
+    if not active:
+        from app.data_sources.clients import kms_lighthouse_client as kc
+        text = kc.INACTIVE_CONNECTION_MESSAGE if not getattr(conn, "is_active", True) else kc.INACTIVE_AGENT_MESSAGE
+        return text.format(name=name)
+    from ._file_tool_common import friendly_tool_error
+    return friendly_tool_error(operation, name, Exception(client_err))
+
+
 class ListFilesTool(Tool):
     # Capability the resolved connection must expose. Overridden by ListEmailsTool
     # so the same listing path backs a mailbox (LIST_EMAILS).
@@ -628,6 +690,14 @@ class ListFilesTool(Tool):
         catalog, why_not = (None, None)
         if client is not None and data.source != "live":
             catalog, why_not = await self._load_catalog(runtime_ctx, client)
+        # KMS Lighthouse has no catalog: without its client every check below
+        # (persist, source='catalog', cursor, the cache path's "Catalog is
+        # empty") would hide why the client failed.
+        kms_err = kms_client_error(runtime_ctx, data.connection_id, self._operation_name, _client_err) \
+            if client is None and _client_err else None
+        if kms_err:
+            yield self._fail(data.connection_id, kms_err)
+            return
         # Persist saves the WHOLE matching set from the catalog — never a live
         # crawl (minutes on a large SharePoint 2010 library) and never a page.
         if getattr(data, "persist", False):

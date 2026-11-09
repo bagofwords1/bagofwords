@@ -430,6 +430,7 @@ def _recover(fake_client, ids):
 def test_automated_probe_alerts_admins_on_down_then_restore(fake_client, outbox):
     ids = _run(_seed(["Sales/Orders"]))
     admin_id = _run(_add_admin(ids["org_id"]))
+    _run(_set_org_alert_email(ids["org_id"], True))  # email is opt-in
 
     # A sustained outage deactivates the shared connection.
     _go_down(fake_client, ids)
@@ -478,6 +479,7 @@ def test_manual_test_never_alerts_but_the_sweep_still_announces(fake_client, out
     still be announced by the next automated probe."""
     ids = _run(_seed(["Sales/Orders"]))
     admin_id = _run(_add_admin(ids["org_id"]))
+    _run(_set_org_alert_email(ids["org_id"], True))  # email is opt-in
 
     fake_client(probe_ok=False)
     for _ in range(3):
@@ -497,6 +499,7 @@ def test_manual_test_never_alerts_but_the_sweep_still_announces(fake_client, out
 def test_flapping_connection_sends_one_down_and_one_restored_email(fake_client, outbox):
     ids = _run(_seed(["Sales/Orders"]))
     admin_id = _run(_add_admin(ids["org_id"]))
+    _run(_set_org_alert_email(ids["org_id"], True))  # email is opt-in
 
     for _ in range(3):  # down / up three times inside the cooldown window
         _go_down(fake_client, ids)
@@ -514,6 +517,7 @@ def test_flapping_connection_sends_one_down_and_one_restored_email(fake_client, 
 def test_failed_down_email_does_not_silence_the_next_outage(fake_client, outbox):
     ids = _run(_seed(["Sales/Orders"]))
     _run(_add_admin(ids["org_id"]))
+    _run(_set_org_alert_email(ids["org_id"], True))  # email is opt-in
 
     outbox.fail_next = 2  # the send and its one retry both fail
     _go_down(fake_client, ids)

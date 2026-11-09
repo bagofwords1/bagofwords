@@ -138,6 +138,8 @@ const excelAddinEnabled = ref(false)
 const whatsappIntegrated = ref(false)
 const whatsappConfig = ref<{ phone_number_id?: string; display_phone_number?: string; verified_name?: string; waba_id?: string } | null>(null)
 const whatsappIntegrationData = ref<any>(null)
+// All connected WhatsApp numbers (an org may connect several, one per agent).
+const whatsappInstances = ref<any[]>([])
 
 const googleChatIntegrated = ref(false)
 const googleChatConfig = ref<{ pubsub_subscription?: string; client_email?: string; project_id?: string } | null>(null)
@@ -211,7 +213,7 @@ const integrations = computed(() => {
       connected: whatsappIntegrated.value,
       kind: 'component',
       component: WhatsApp,
-      props: { integrated: whatsappIntegrated.value, integrationData: whatsappIntegrationData.value },
+      props: { instances: whatsappInstances.value },
       onUpdated: fetchIntegrations,
     },
     {
@@ -291,10 +293,11 @@ async function fetchIntegrations() {
   teamsConfig.value = teams?.platform_config || null
   teamsIntegrationData.value = teams || null
 
-  const whatsapp = integrations.find((i: any) => i.platform_type === 'whatsapp' && i.is_active)
-  whatsappIntegrated.value = !!whatsapp
-  whatsappConfig.value = whatsapp?.platform_config || null
-  whatsappIntegrationData.value = whatsapp || null
+  const whatsappAll = integrations.filter((i: any) => i.platform_type === 'whatsapp' && i.is_active)
+  whatsappInstances.value = whatsappAll
+  whatsappIntegrated.value = whatsappAll.length > 0
+  whatsappConfig.value = whatsappAll[0]?.platform_config || null
+  whatsappIntegrationData.value = whatsappAll[0] || null
 
   const googleChat = integrations.find((i: any) => i.platform_type === 'google_chat' && i.is_active)
   googleChatIntegrated.value = !!googleChat

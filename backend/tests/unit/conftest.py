@@ -16,6 +16,7 @@ without it.
 """
 import asyncio
 from functools import partial
+import logging
 
 import pytest
 
@@ -102,3 +103,35 @@ def pytest_fixture_setup(fixturedef):
     outcome = yield
     if fixturedef.argname == "event_loop" and outcome.excinfo is None:
         fixturedef.addfinalizer(partial(finish_loop_tasks, outcome.get_result()))
+
+
+_KMS_LOGGERS = (
+    "app.data_sources.clients.kms_lighthouse_client",
+    "app.data_sources.clients.kms_lighthouse_diagnostics",
+    "urllib3",
+    "urllib3.connectionpool",
+    "urllib3.connection",
+    "urllib3.util.retry",
+)
+
+
+@pytest.fixture(autouse=True)
+def _kms_loggers_enabled(request):
+    """KMS unit tests assert on logs, and earlier tests in the worker can silence them.
+
+    alembic's ``fileConfig`` disables every logger that exists when it runs, and a
+    level set on ``urllib3`` hides its debug records, so these tests passed or failed
+    by which test came first in the worker.
+    """
+    if not request.node.path.name.startswith("test_kms_lighthouse_"):
+        yield
+        return
+    loggers = [logging.getLogger(name) for name in _KMS_LOGGERS]
+    saved = [(logger.disabled, logger.level) for logger in loggers]
+    for logger in loggers:
+        logger.disabled = False
+        logger.setLevel(logging.NOTSET)
+    yield
+    for logger, (disabled, level) in zip(loggers, saved):
+        logger.disabled = disabled
+        logger.setLevel(level)

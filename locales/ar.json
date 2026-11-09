@@ -120,6 +120,7 @@
     "fileBrowserRetry": "إعادة المحاولة",
     "fileBrowserEmpty": "لا توجد ملفات ضمن نطاق هذا الاتصال.",
     "fileBrowserNoResults": "لا توجد ملفات تطابق “{q}”.",
+    "fileBrowserSummaryKms": "الملفات المعروضة للتصفح: {n} · تحدد أذونات KMS ما يمكن للوكيل البحث عنه وقراءته",
     "fileBrowserSummary": "{n} ملفات ضمن النطاق · يقرأ الوكيل هذه الملفات فقط · تُسجَّل محاولات الوصول المرفوضة",
     "fileBrowserTruncated": "يتم عرض أول {shown} من أصل {total} ملف — ضيّق نطاق الاتصال لتصفح الباقي.",
     "fileBrowserOpenInSource": "فتح في المصدر",
@@ -387,6 +388,7 @@
     "newReport": "تقرير جديد",
     "expandSidebar": "توسيع الشريط الجانبي",
     "collapseSidebar": "طيّ الشريط الجانبي",
+    "resizeSidebar": "تغيير حجم الشريط الجانبي",
     "switchOrganization": "تبديل المؤسسة",
     "version": "الإصدار",
     "loggedInAs": "تم تسجيل الدخول باسم {name}",
@@ -830,7 +832,39 @@
     ],
     "artifactLoadFailed": "تعذر تحميل لوحة المعلومات. حدّث الصفحة للمحاولة مرة أخرى.",
     "deleteUnpublishedDashboards": "ستُحذف أيضًا لوحات المعلومات غير المنشورة فيها: {names}",
-    "deleteLosesUnpublishedChanges": "ستُفقد التغييرات غير المنشورة في لوحات المعلومات هذه (تبقى النسخة المنشورة): {names}"
+    "deleteLosesUnpublishedChanges": "ستُفقد التغييرات غير المنشورة في لوحات المعلومات هذه (تبقى النسخة المنشورة): {names}",
+    "view": {
+      "groupAndSort": "التجميع والفرز",
+      "groupBy": "التجميع حسب",
+      "sortBy": "الفرز حسب",
+      "direction": "الاتجاه",
+      "group": {
+        "date": "التاريخ",
+        "status": "الحالة",
+        "none": "بدون"
+      },
+      "sort": {
+        "updated": "آخر نشاط",
+        "created": "تاريخ الإنشاء",
+        "name": "الاسم"
+      },
+      "dir": {
+        "desc": "تنازلي",
+        "asc": "تصاعدي"
+      },
+      "groups": {
+        "starred": "المميزة بنجمة",
+        "today": "اليوم",
+        "yesterday": "أمس",
+        "previous7": "آخر 7 أيام",
+        "previous30": "آخر 30 يومًا",
+        "older": "أقدم",
+        "needsInput": "بحاجة إلى إدخال",
+        "running": "قيد التشغيل",
+        "queued": "في قائمة الانتظار",
+        "idle": "خامل"
+      }
+    }
   },
   "projects": {
     "title": "المشاريع",
@@ -2248,7 +2282,8 @@
           "announceNewReportLabel": "الإعلان عن تقارير المحادثات الجديدة",
           "announceNewReportDesc": "عندما تبدأ رسالة تقرير محادثة جديدًا، يرد البوت برسالة \"لقد بدأت تقرير محادثة جديدًا\" مع رابط إليه. أوقف التفعيل لتخطي هذه الرسالة.",
           "announceNewReportEnabled": "تم تفعيل الإعلان عن التقارير الجديدة",
-          "announceNewReportDisabled": "تم إيقاف الإعلان عن التقارير الجديدة"
+          "announceNewReportDisabled": "تم إيقاف الإعلان عن التقارير الجديدة",
+          "loading": "جارٍ التحميل…"
         },
         "slack": {
           "title": "تكامل Slack",
@@ -2342,7 +2377,30 @@
           "disconnectedToast": "تم قطع الاتصال بـWhatsApp",
           "disconnectedToastDesc": "تم قطع تكامل WhatsApp",
           "failedDisconnect": "فشل قطع الاتصال بـWhatsApp",
-          "sessionStalenessDesc": "المدة التي تستمر فيها الدردشة في نفس تقرير المحادثة. الرسائل بعد هذه النافذة تبدأ تقريرًا جديدًا (إرسال \"new\" يبدأ تقريرًا فورًا). الافتراضي: 24 ساعة."
+          "sessionStalenessDesc": "المدة التي تستمر فيها الدردشة في نفس تقرير المحادثة. الرسائل بعد هذه النافذة تبدأ تقريرًا جديدًا (إرسال \"new\" يبدأ تقريرًا فورًا). الافتراضي: 24 ساعة.",
+          "numbersTitle": "الأرقام المتصلة",
+          "addNumber": "ربط رقم",
+          "addNumberTitle": "ربط رقم آخر",
+          "nameLabel": "التسمية",
+          "namePlaceholder": "مثل: المبيعات، المالية",
+          "agentScopeTitle": "الوكلاء على هذا الرقم",
+          "agentScopeDesc": "اختر الوكلاء الذين يرد بهم هذا الرقم. اتركه فارغًا لإتاحة كل الوكلاء الذين يملك المستخدم صلاحية الوصول إليهم.",
+          "agentScopeAll": "يتيح كل الوكلاء الذين يملك المستخدم صلاحية الوصول إليهم",
+          "agentScopeCount": "تم تحديد {count} وكيل",
+          "agentScopeNoAgents": "لا يوجد وكلاء متاحون",
+          "agentScopeSave": "حفظ الوكلاء",
+          "agentScopeSaved": "تم تحديث الوكلاء",
+          "connectedUsersTitle": "المستخدمون المتصلون",
+          "connectedUsersEmpty": "لم يربط أحد هذا الرقم بعد",
+          "verified": "موثَّق",
+          "unverified": "قيد الانتظار",
+          "unknownUser": "غير معروف",
+          "unnamedNumber": "رقم واتساب",
+          "cancel": "إلغاء",
+          "connectedUsersCount": "{count} أشخاص",
+          "usersSearchPlaceholder": "البحث بالاسم أو الرقم",
+          "usersSearchEmpty": "لا يوجد مستخدمون يطابقون بحثك",
+          "webhookSharedNote": "ينطبق عنوان webhook نفسه على جميع أرقامك."
         },
         "email": {
           "title": "صندوق بريد الذكاء الاصطناعي",
@@ -4162,6 +4220,7 @@
     "instruction.version_mismatch": "الإصدار لا يخص هذه التعليمة",
     "integration.not_found": "التكامل غير موجود",
     "resource.conflict": "المورد موجود بالفعل أو يتعارض مع الحالة الحالية",
+    "review.stale_main": "تغيّر هذا منذ آخر مرة اطّلعت عليه. حدّث وحاول مرة أخرى.",
     "resource.duplicate": "مورد مكرر",
     "setting.update_failed": "تعذّر تحديث الإعداد",
     "query": {
@@ -4219,7 +4278,11 @@
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
-    "ssh.key_discovery_failed": "تعذر جلب المفتاح. تحقق من اسم الخادم والمنفذ والشبكة، أو أدخل مفتاحًا موثوقًا في الإعدادات المتقدمة."
+    "ssh.key_discovery_failed": "تعذر جلب المفتاح. تحقق من اسم الخادم والمنفذ والشبكة، أو أدخل مفتاحًا موثوقًا في الإعدادات المتقدمة.",
+    "connection.kms_token_format": "يمكن أن يحتوي رمز API الخاص بـ KMS على أحرف وأرقام وعلامات ترقيم عادية فقط، بدون مسافات. انسخه مرة أخرى من KMS Lighthouse والصقه كنص عادي.",
+    "connection.kms_use_connection_credentials": "يتم حفظ بيانات تسجيل الدخول إلى KMS Lighthouse في الاتصال. افتح الاتصال واتصل من هناك.",
+    "connection.kms_only": "ينطبق التشخيص على اتصالات KMS Lighthouse فقط.",
+    "connection.kms_diagnostics_running": "التشخيص قيد التشغيل بالفعل لهذا الاتصال. انتظر حتى ينتهي ثم حاول مرة أخرى."
   },
   "email": {
     "dashboardShare": {
@@ -6750,6 +6813,7 @@
     "oauthEmpty": "OAuth is not configured"
   },
   "tablePreview": {
+    "idle": "اضغط على تشغيل لتحميل الصفوف من المصدر.",
     "loading": "جارٍ تحميل الصفوف…",
     "failed": "تعذّر تحميل معاينة لهذا الجدول.",
     "showing": "عرض {shown} صفوف",
@@ -6770,5 +6834,43 @@
     "subtitle": "صفوف نموذجية من {connection}، تُقرأ مباشرة من المصدر.",
     "close": "إغلاق",
     "button": "معاينة"
+  },
+  "kmsFileScope": {
+    "headerSubtitle": "يحدد المجلد الجذر نقطة بدء التصفح. تحدد أذونات KMS ما يمكن للوكيل البحث عنه وقراءته.",
+    "browsingOnly": "التصفح فقط",
+    "accessNote": "يحدّ المجلد الجذر من التصفح فقط. تحدد أذونات KMS للهوية المتصلة ما يمكن للوكيل البحث عنه وقراءته، بما في ذلك العناصر خارج هذا المجلد. عدّل المجلد الجذر أو الفهرسة من الاتصال نفسه."
+  },
+  "kmsDiagnostics": {
+    "run": "تشغيل التشخيص",
+    "running": "جارٍ تشغيل التشخيص. قد يستغرق ذلك حتى 90 ثانية.",
+    "description": "فحوصات للقراءة فقط للشبكة والشهادة وتسجيل الدخول وسلوك KMS. يرسل تسجيل دخول واحدًا كحد أقصى.",
+    "overallPass": "نجحت الفحوصات التلقائية",
+    "overallWarn": "انتهى مع تحذيرات",
+    "overallFail": "انتهى مع فشل",
+    "manualCheck": "يتبقى فحص يدوي واحد: أعد التشغيل كمستخدم KMS مقيّد وقارن أسماء العناصر.",
+    "failedStage": "فشل في: {stage}",
+    "calls": "{calls} استدعاء في {seconds} ث",
+    "callsUnknown": "توقف بعد {seconds} ث. عدد الاستدعاءات غير معروف.",
+    "copy": "نسخ التقرير",
+    "copied": "تم نسخ التقرير",
+    "copyFailed": "تعذر نسخ التقرير. استخدم تنزيل JSON.",
+    "download": "تنزيل JSON",
+    "reportNote": "يبقى التقرير باللغة الإنجليزية ليمكن إرساله إلى مهندسي BOW. لا يحتوي على محتوى أو أسماء أو كلمات مرور.",
+    "failed": "تعذر تشغيل التشخيص.",
+    "status": {
+      "pass": "نجح",
+      "warn": "تحذير",
+      "fail": "فشل",
+      "info": "معلومات",
+      "skipped": "تم التخطي"
+    },
+    "stage": {
+      "network": "الشبكة",
+      "tls": "TLS",
+      "login": "تسجيل الدخول",
+      "browse": "التصفح",
+      "search": "البحث",
+      "read": "القراءة"
+    }
   }
 }

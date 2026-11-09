@@ -1,5 +1,22 @@
 # Release Notes
 
+## Version 0.0.613 (November 9, 2026)
+- Added multiple WhatsApp numbers per org, each limited to the agents you pick (#1654)
+- Added KMS Lighthouse as a read-only data source (#1618)
+- Added a Group and sort menu to the sidebar's Reports list: group by date or status, sort by updated, created or name (#1653)
+- Added drag-to-resize for the left sidebar, from 200 to 400 px (#1655)
+- Changed table preview to query the source only when you press Run (#1652)
+- Changed connection-alert emails to off by default (#1651) — turn them on in Settings → Email
+- Fixed new charts trying to print every date label on the axis (#1648)
+- Fixed agent-built pages treating a row-limited query result as the full dataset (#1644)
+- Fixed Reload failing for non-admin owners of agents that mix login-free and password connections (#1639)
+- Fixed agent edits such as Polish looping on dashboard sections added with Add to Dashboard (#1392)
+- Fixed "refresh and try again" when accepting a second instruction review card after the first (#1484)
+- Fixed slow SAP Datasphere queries, and catalog refreshes failing when one model can't be read (#1659)
+- Fixed SAP Datasphere treating annotated dimensions such as Year as measures (#1659)
+- Changed SAP Datasphere queries without a row limit to return at most 10,000 rows (#1659)
+- Added an opt-in to index Postgres system schemas (`pg_catalog`, `information_schema`) per connection (#1660) — `include_system_schemas` connection setting (default off)
+
 ## Version 0.0.612 (November 8, 2026)
 - Added F5 BIG-IP as a data source: virtual servers, pools, pool members and stats, nodes, iRules, SSL certificates, HA failover and sync state (#1634)
 - Added Check Point Management as a data source: hosts, networks, groups, services, access and NAT rulebases, gateways, sessions, traffic and audit logs — API key or username/password (#1634)

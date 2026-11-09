@@ -48,8 +48,9 @@ tenant is reserved for a one-time Loop D sign-off (see "Known limits").
 - `frontend/public/data_sources_icons/sap_datasphere.png` (SAP logo) +
   `DataSourceIcon.vue` mapping (removed the old `sap_datasphere → sap_hana`
   alias so the new tile uses its own brand icon).
-- `backend/tests/unit/test_sap_datasphere_client.py` (23 tests, including the
-  `execute_query(query, table_name)` positional contract — see Loop C).
+- `backend/tests/unit/test_sap_datasphere_client.py` (32 tests, including the
+  `execute_query(query, table_name)` positional contract — see Loop C — and the
+  query-time resolution from persisted catalog metadata, see "Hardening").
 - `tools/datasphere/mock_server.py` — identity-aware mock Datasphere: OAuth
   token endpoint + catalog + analytical OData with real server-side aggregation
   and SAP measure annotations in `$metadata`. A DAC-protected model returns an
@@ -65,7 +66,7 @@ Mock the HTTP boundary (a URL-dispatching fake session); runs in a clean sandbox
 ```bash
 cd backend
 export BOW_DATABASE_URL="sqlite:///db/app.db"
-uv run pytest tests/unit/test_sap_datasphere_client.py -q          # 21 passed
+uv run pytest tests/unit/test_sap_datasphere_client.py -q          # 32 passed
 uv run python -c "from app.schemas.data_source_registry import resolve_client_class; print(resolve_client_class('sap_datasphere'))"
 uv run pytest tests/e2e/test_data_source.py tests/e2e/test_connection.py --db=sqlite -q   # 11 passed
 ```
@@ -125,8 +126,8 @@ Run: `tools/agent/sap_datasphere_full_e2e.mjs` (whole flow) or
   successfully. Found 3 tables."
 - `07-indexing-discovered.png` — "Discovered 3 tables in 0s".
 - `08-tables-selected.png` — 3/3 analytic models activated.
-- `13-running.png` — Haiku: "Creating Data · SALES/SalesAnalyticModel".
-- `14-answer.png` — the aggregated revenue-by-country table.
+- `12-question-typed.png` — the question submitted; the aggregated answer
+  (table above) was captured from the run log, not as a screenshot.
 
 ### Bug this loop caught (why UI E2E, not just unit tests)
 
@@ -141,6 +142,32 @@ through the wrapper. Fix: the query builder now leads with the positional OData
 string (`execute_query("$select=…", "Space/Model")`, Power BI's shape), tolerates
 the model name being passed as the first arg, and a regression test locks the
 positional contract.
+
+## Hardening (post-review)
+
+- **No catalog crawl per query.** The client implements
+  `attach_table_metadata`, so the connection layer hands it the persisted
+  `Space/Model → data_url` rows and `execute_query` resolves its target from
+  them (exact, case-insensitive, or unambiguous bare asset name). Before this,
+  every agent code run re-listed the catalog and fetched one `$metadata` per
+  asset.
+- **One unreadable asset no longer blocks the refresh.** A non-2xx `$metadata`
+  (e.g. 403 on a DAC-protected model the technical user can list) is reported
+  through `unindexed_table_prefixes()`; the refresh keeps that model's previous
+  entry and refreshes everything else instead of being rejected outright.
+- **Annotation-first classification.** Explicit `Analytics.Measure` /
+  `Analytics.Dimension` / `AnalyticalContext` annotations (honouring
+  `Bool="false"`) and `sap:aggregation-role` win per property; the numeric-type
+  fallback applies only to models that annotate no measure at all, so an
+  `Edm.Int32` year or ID in an annotated model is a dimension.
+- **Bounded queries.** Without `$top` or `max_rows`, at most
+  `DEFAULT_MAX_ROWS` (10,000) rows are paged back.
+- **Relational views are visible to the agent** (`meta: kind=relational`
+  rendered in the schema, and the query guide explains `$select` does not
+  aggregate on them).
+- `token_url` is validated as an absolute http(s) URL and pre-checked by the
+  egress guard; enabling per-user `oauth` without `authorization_url` is
+  rejected at save time; `scopes` is a real config field.
 
 ## Known limits / follow-ups (Loop D — real tenant)
 

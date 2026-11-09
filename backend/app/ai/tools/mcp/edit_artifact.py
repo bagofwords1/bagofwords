@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.services.artifact_payload import row_count_fields
 from app.ai.tools.mcp.base import MCPTool
 from app.ai.tools.mcp.context import build_rich_context
 from app.ai.llm import LLM
@@ -227,7 +228,7 @@ class EditArtifactMCPTool(MCPTool):
                 "view": view_dict,
                 "data_model_type": (view_dict.get("view") or {}).get("type") or view_dict.get("type"),
                 "columns": raw_columns,
-                "row_count": len(rows),
+                **row_count_fields(step_data),
                 "rows": rows,
                 "dataModel": data_model or {},
             }

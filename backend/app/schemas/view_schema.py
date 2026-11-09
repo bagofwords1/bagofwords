@@ -93,8 +93,9 @@ class Palette(BaseModel):
 class AxisOptions(BaseModel):
     show: bool = True
     label: Optional[str] = None
-    rotate: int = 45
-    interval: int = 0
+    # None (not stored) means automatic: the renderer picks by category count.
+    rotate: Optional[int] = None
+    interval: Optional[int] = None
     format: Optional[str] = None
 
 
@@ -192,8 +193,8 @@ class ScatterPlotView(BaseView):
     size: Optional[str] = None
     colorBy: Optional[str] = None
     palette: Palette = Field(default_factory=Palette)
-    axisX: AxisOptions = Field(default_factory=lambda: AxisOptions(rotate=0))
-    axisY: AxisOptions = Field(default_factory=lambda: AxisOptions(rotate=0))
+    axisX: AxisOptions = Field(default_factory=lambda: AxisOptions(rotate=0, interval=0))
+    axisY: AxisOptions = Field(default_factory=lambda: AxisOptions(rotate=0, interval=0))
     aggregation: Optional[AggregationFn] = None
 
 
@@ -204,8 +205,8 @@ class HeatmapView(BaseView):
     value: str
     colorScheme: Literal["blue", "green", "red", "violet", "orange"] = "blue"
     showValues: bool = True
-    axisX: AxisOptions = Field(default_factory=lambda: AxisOptions(rotate=45))
-    axisY: AxisOptions = Field(default_factory=lambda: AxisOptions(rotate=0))
+    axisX: AxisOptions = Field(default_factory=lambda: AxisOptions(rotate=45, interval=0))
+    axisY: AxisOptions = Field(default_factory=lambda: AxisOptions(rotate=0, interval=0))
     aggregation: Optional[AggregationFn] = None
 
 

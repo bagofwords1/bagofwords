@@ -108,6 +108,7 @@ CASES = [
     # Deployment-owned trust, no ambient environment.
     ("netapp_ontap", lambda u: _client("netapp_ontap_client", "NetAppOntapClient")(url=u, username="u", password="p", allow_http=True)),
     ("documentum", lambda u: _client("documentum_client", "DocumentumClient")(rest_url=u, repository="r", username="u", password="p", allow_http=True)),
+    ("kms_lighthouse", lambda u: _client("kms_lighthouse_client", "KmsLighthouseClient")(base_url=u, username="u", password="p", allow_http=True)),
     ("brocade", lambda u: _client("brocade_client", "BrocadeClient")(url=_https(u), username="u", password="p"), None, NAME),
     ("checkpoint", lambda u: _client("checkpoint_client", "CheckPointClient")(url=_https(u), username="u", password="p"), None, NAME),
     ("dell_ome", lambda u: _client("dell_ome_client", "DellOmeClient")(url=_https(u), username="u", password="p"), None, NAME),
