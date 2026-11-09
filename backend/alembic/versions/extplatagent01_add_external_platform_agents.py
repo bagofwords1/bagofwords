@@ -1,7 +1,7 @@
 """add external_platform_agents (per-instance agent scoping)
 
 Revision ID: extplatagent01
-Revises: auditcontract01
+Revises: rel0611
 Create Date: 2026-11-09 00:00:00.000000
 
 Scopes a single external-platform instance (one WhatsApp number, one Slack
@@ -17,7 +17,7 @@ import sqlalchemy as sa
 
 
 revision: str = 'extplatagent01'
-down_revision: Union[str, None] = 'auditcontract01'
+down_revision: Union[str, None] = 'rel0611'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
