@@ -73,7 +73,7 @@ def test_connection_checks_and_indexing_are_tagged_with_org_and_connection(
     assert all(t["org_id"] == org_id for t in _tags(warehouse)), _tags(warehouse)
     indexing = [t for t in _tags(warehouse) if t["source"] == "indexing"]
     assert indexing, _tags(warehouse)
-    assert all(t["app"] == "bagofwords" and t["org_id"] == org_id for t in indexing)
+    assert all(t["app"] == "bow" and t["org_id"] == org_id for t in indexing)
     assert any(t.get("connection_id") == conn["id"] for t in indexing)
     assert all(t.get("label") == "finance" for t in _tags(warehouse))
 

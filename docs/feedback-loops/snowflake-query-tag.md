@@ -10,7 +10,7 @@ works in both directions.
 ## What a tagged query looks like
 
 ```json
-{"app":"bagofwords","source":"agent","org_id":"…","report_id":"…",
+{"app":"bow","source":"agent","org_id":"…","report_id":"…",
  "completion_id":"…","agent_execution_id":"…","connection_id":"…",
  "data_source_id":"…","user_id":"…","ref_id":"…","label":"finance team"}
 ```

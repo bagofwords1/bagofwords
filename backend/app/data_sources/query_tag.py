@@ -6,7 +6,7 @@ user. Without a tag they cannot tell which report, chat turn or refresh ran a
 query, or what that cost. So every query carries a small JSON tag naming its
 origin:
 
-    {"app":"bagofwords","source":"agent","org_id":"…","report_id":"…",…}
+    {"app":"bow","source":"agent","org_id":"…","report_id":"…",…}
 
 The tag is assembled here, from three ambient layers, narrowest last:
 
@@ -37,7 +37,7 @@ from collections.abc import Iterator
 from contextvars import ContextVar
 from typing import Any
 
-APP_NAME = "bagofwords"
+APP_NAME = "bow"
 
 # The other direction: a client that knows the warehouse's own id for a
 # statement puts it on the frame it returns (`df.attrs[SOURCE_QUERY_ID_ATTR]`),

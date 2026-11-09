@@ -66,7 +66,7 @@ def test_query_history_row_names_the_report_and_turn_that_ran_it(server):
     row = server.rows()[-1]
     assert "FROM orders" in row["query_text"]
     tag = _tag(row)
-    assert tag["app"] == "bagofwords"
+    assert tag["app"] == "bow"
     assert tag["source"] == "agent"
     assert tag["report_id"] == report_id
     assert tag["completion_id"] == completion_id
@@ -76,7 +76,7 @@ def test_query_history_row_names_the_report_and_turn_that_ran_it(server):
 def test_query_without_any_bow_context_is_still_identifiable_as_bow(server):
     _client().execute_query("SELECT COUNT(*) AS n FROM orders")
     tag = _tag(server.rows()[-1])
-    assert tag["app"] == "bagofwords"
+    assert tag["app"] == "bow"
     assert tag["source"] == "system"
     assert "report_id" not in tag
 
@@ -232,10 +232,10 @@ def test_inner_defaults_do_not_override_an_outer_source():
 
 def test_rendered_tag_fits_snowflakes_limit_keeping_the_most_useful_keys():
     long = "a" * 100
-    tag = {"app": "bagofwords", "source": "agent", "report_id": "r-1",
+    tag = {"app": "bow", "source": "agent", "report_id": "r-1",
            **dict.fromkeys(("completion_id", "agent_execution_id", "step_id", "query_id", "entity_id", "release_id", "connection_id", "data_source_id", "user_id", "ref_id", "label"), long)}
     small = render_query_tag(tag, max_chars=200)
     assert len(small) <= 200
     parsed = json.loads(small)
-    assert parsed["app"] == "bagofwords" and parsed["source"] == "agent" and parsed["report_id"] == "r-1"
+    assert parsed["app"] == "bow" and parsed["source"] == "agent" and parsed["report_id"] == "r-1"
     assert len(render_query_tag(tag)) <= MAX_TAG_CHARS
