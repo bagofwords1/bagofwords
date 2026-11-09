@@ -117,7 +117,7 @@
             </div>
           </div>
 
-          <div v-if="credentialsReentryNeeded" role="alert" data-testid="credentials-reentry-notice" class="mb-2 p-2 rounded border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 text-xs text-amber-800 dark:text-amber-300">
+          <div v-if="reentryNoticeVisible" role="alert" data-testid="credentials-reentry-notice" class="mb-2 p-2 rounded border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 text-xs text-amber-800 dark:text-amber-300">
             {{ reentryNotice }}
           </div>
 
@@ -246,7 +246,7 @@ import SSHServerVerification from './SSHServerVerification.vue'
 import MemberIdentityBindings from '@/components/datasources/MemberIdentityBindings.vue'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
 import { catalogMessage } from '~/composables/useErrorMessage'
-import { CREDENTIALS_REQUIRED_CODE, changedDestinationFields, needsCredentialReentry } from '~/utils/connectionDestination'
+import { CREDENTIALS_REQUIRED_CODE, changedDestinationFields, needsCredentialReentry, reentryNoticeResolved } from '~/utils/connectionDestination'
 
 const { isLicensed } = useEnterprise()
 
@@ -521,7 +521,23 @@ function noteCredentialRefusal(err: any) {
   if (!needsCredentialReentry(err)) return
   credentialsReentryNeeded.value = true
   credentialsLocked.value = false
+  refusedFields.value = err?.data?.params?.fields ?? err?.response?._data?.params?.fields ?? []
+  refusedForHostChange.value = changedDestinationFields(savedDestination.value, formData.config).length > 0
+  reentryNoticeVisible.value = true
 }
+// The notice goes away once it has been acted on; the fields stay visible.
+const reentryNoticeVisible = ref(false)
+const refusedFields = ref<string[]>([])
+const refusedForHostChange = ref(false)
+watch([() => formData.credentials, () => formData.config, connectionTestPassed], () => {
+  if (reentryNoticeVisible.value && reentryNoticeResolved({
+    missingFields: refusedFields.value,
+    credentials: formData.credentials,
+    testPassed: connectionTestPassed.value,
+    refusedForHostChange: refusedForHostChange.value,
+    hostStillChanged: changedDestinationFields(savedDestination.value, formData.config).length > 0,
+  })) reentryNoticeVisible.value = false
+}, { deep: true })
 // Editing the host or URL of a connection with locked (saved) credentials
 // unlocks them so the secret can be typed before saving.
 watch(() => formData.config, (config) => {

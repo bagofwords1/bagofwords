@@ -5,8 +5,33 @@ import {
   CREDENTIALS_REQUIRED_CODE,
   changedDestinationFields,
   needsCredentialReentry,
+  reentryNoticeResolved,
   withoutGuessedAuthType,
 } from '../../utils/connectionDestination.ts'
+
+const refused = { missingFields: ['password'], credentials: {}, testPassed: false, refusedForHostChange: true, hostStillChanged: true }
+
+test('the re-entry notice stays while the secret is still missing', () => {
+  assert.equal(reentryNoticeResolved(refused), false)
+  assert.equal(reentryNoticeResolved({ ...refused, credentials: { password: '   ' } }), false)
+})
+
+test('the re-entry notice clears once every asked-for secret is entered', () => {
+  assert.equal(reentryNoticeResolved({ ...refused, credentials: { password: 'typed' } }), true)
+  assert.equal(reentryNoticeResolved({ ...refused, missingFields: ['a', 'b'], credentials: { a: 'typed' } }), false)
+})
+
+test('the re-entry notice clears when a test succeeds', () => {
+  assert.equal(reentryNoticeResolved({ ...refused, testPassed: true }), true)
+})
+
+test('the re-entry notice clears when the host goes back to the saved one', () => {
+  assert.equal(reentryNoticeResolved({ ...refused, hostStillChanged: false }), true)
+})
+
+test('a refusal not caused by a host field is not cleared by the host matching', () => {
+  assert.equal(reentryNoticeResolved({ ...refused, refusedForHostChange: false, hostStillChanged: false }), false)
+})
 
 test('a guessed auth type is left out of the save', () => {
   assert.deepEqual(withoutGuessedAuthType({ base_url: 'u', auth_type: 'none' }, 'none'), { base_url: 'u' })
