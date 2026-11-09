@@ -10,6 +10,8 @@
 - Fixed new charts trying to print every date label on the axis (#1648)
 - Fixed agent-built pages treating a row-limited query result as the full dataset (#1644)
 - Fixed Reload failing for non-admin owners of agents that mix login-free and password connections (#1639)
+- Fixed agent edits such as Polish looping on dashboard sections added with Add to Dashboard (#1392)
+- Fixed "refresh and try again" when accepting a second instruction review card after the first (#1484)
 
 ## Version 0.0.612 (November 8, 2026)
 - Added F5 BIG-IP as a data source: virtual servers, pools, pool members and stats, nodes, iRules, SSL certificates, HA failover and sync state (#1634)
