@@ -428,6 +428,25 @@ def _reject_unsafe_oauth_urls(config, credentials) -> None:
         if isinstance(value, str) and value.strip() and not is_safe_http_url(value.strip()):
             raise HTTPException(status_code=400, detail=f"{key} must be an absolute http(s) URL")
 
+def _require_datasphere_authorize_url(conn_type, config, allowed_user_auth_modes) -> None:
+    """SAP Datasphere per-user sign-in needs the tenant's authorize endpoint;
+    refuse enabling the `oauth` user mode without it at save time instead of
+    failing the first user who clicks Sign in."""
+    if conn_type != "sap_datasphere" or "oauth" not in (allowed_user_auth_modes or []):
+        return
+    if isinstance(config, str):
+        try:
+            config = json.loads(config)
+        except (TypeError, ValueError):
+            config = {}
+    value = (config or {}).get("authorization_url") if isinstance(config, dict) else None
+    if not (isinstance(value, str) and value.strip()):
+        raise HTTPException(
+            status_code=400,
+            detail="SAP Datasphere per-user sign-in requires authorization_url in the connection config.",
+        )
+
+
 def _check_mcp_forwarding(conn_type: Optional[str], config: Any) -> None:
     """400 on a malformed MCP forwarding block (dynamic params) before saving."""
     if conn_type != "mcp" or not isinstance(config, dict):
@@ -461,6 +480,7 @@ class ConnectionService:
     ) -> Connection:
         """Create a new connection with validation."""
         _reject_unsafe_oauth_urls(config, credentials)
+        _require_datasphere_authorize_url(type, config, allowed_user_auth_modes)
         _reject_unsafe_google_keys(credentials)
         _check_network_dir_root(type, config)
 
@@ -693,6 +713,14 @@ class ConnectionService:
         _reject_unsafe_oauth_urls(updates.get("config"), updates.get("credentials"))
         _reject_unsafe_google_keys(updates.get("credentials"))
         connection = await self.get_connection(db, connection_id, organization)
+
+        if "config" in updates or "allowed_user_auth_modes" in updates:
+            _require_datasphere_authorize_url(
+                connection.type,
+                updates.get("config") if "config" in updates else connection.config,
+                updates.get("allowed_user_auth_modes") if "allowed_user_auth_modes" in updates
+                else connection.allowed_user_auth_modes,
+            )
 
         # Check enterprise license if switching to user_required auth policy
         new_auth_policy = updates.get("auth_policy")

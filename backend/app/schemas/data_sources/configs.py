@@ -114,6 +114,12 @@ class SapDatasphereConfig(BaseModel):
         description="Authorize endpoint (needed only for per-user sign-in), e.g. https://<subdomain>.authentication.<region>.hana.ondemand.com/oauth/authorize",
         json_schema_extra={"ui:type": "string"},
     )
+    scopes: Optional[str] = Field(
+        None,
+        title="OAuth Scopes",
+        description="Optional space-separated OAuth scopes sent with the token request. Leave empty for a standard Datasphere OAuth client.",
+        json_schema_extra={"ui:type": "string"},
+    )
     space: Optional[str] = Field(
         None,
         title="Space",
@@ -143,6 +149,13 @@ class SapDatasphereConfig(BaseModel):
     @classmethod
     def _authorization_url_is_http(cls, v):
         return _require_http_url(v, "authorization_url")
+
+    @field_validator("token_url")
+    @classmethod
+    def _token_url_is_http(cls, v):
+        # The technical user's client secret is POSTed here; refuse anything
+        # that is not an absolute http(s) URL.
+        return _require_http_url(v, "token_url")
 
 
 def _require_http_url(v, field: str):
