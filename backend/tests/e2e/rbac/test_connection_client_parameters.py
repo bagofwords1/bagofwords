@@ -92,6 +92,7 @@ def every_connector_allowed(monkeypatch):
 
 @pytest.mark.e2e
 def test_every_connector_refuses_a_destination_field_sent_as_a_credential(test_client, world, every_connector_allowed):
+    # One field per connector here; tests/unit sweeps every field without HTTP.
     failures = []
     for conn_type in sorted(REGISTRY):
         variants = _secret_variants(conn_type)
@@ -99,7 +100,7 @@ def test_every_connector_refuses_a_destination_field_sent_as_a_credential(test_c
             continue
         entry = REGISTRY[conn_type]
         conn = _stored(test_client, world, conn_type, variants[0])
-        for name in _destination_fields(conn_type) + ["auth_type"]:
+        for name in _destination_fields(conn_type)[:1] + ["auth_type"]:
             field = entry.config_schema.model_fields.get(name)
             other_variants = [a for a in entry.credentials_auth.by_auth if a != variants[0]]
             value = _sample(name, field, other=True) if field is not None else (other_variants or ["other-auth"])[0]
@@ -135,7 +136,7 @@ def test_a_row_saved_with_a_destination_credential_compares_where_the_client_goe
     assert driver and all(d["host"] == "row.example.com" for d in driver)
     driver.clear()
     refused = _test(test_client, world, {"credentials": {"host": OTHER_HOST}}, conn_id=conn["id"])
-    _refused(refused, CREDENTIALS_NEEDED)
+    _refused(refused, ADMIN_NEEDED)
     assert driver == []
 
 
@@ -188,14 +189,235 @@ def test_every_connector_refuses_a_variant_switch_that_leaves_a_stored_secret(te
 
 
 @pytest.mark.e2e
-def test_switching_variant_with_every_stored_secret_reentered_saves(test_client, world, every_connector_allowed):
+def test_changing_the_host_with_every_stored_secret_reentered_saves(test_client, world, every_connector_allowed):
     conn = _stored(test_client, world, "prometheus", "bearer", extra_config={"base_url": "https://prom.example.com"})
     with _skip_network():
         r = _put(test_client, world, {
-            "config": {"base_url": "https://other.example.com", "auth_type": "basic"},
-            "credentials": {"token": "typed-token", "username": "u", "password": "typed-pass"},
+            "config": {"base_url": "https://other.example.com", "auth_type": "bearer"},
+            "credentials": {"token": "typed-token"},
         }, conn_id=conn["id"])
     assert r.status_code == 200, r.text
+
+
+# ── Fields that select the server's own identity ─────────────────────────
+
+_FLAG_VALUE = {"role_arn": "arn:aws:iam::1:role/r"}
+
+
+def _identity_flags(conn_type, auth_type):
+    """Fields of the connector's server-identity variants the given variant does not declare."""
+    by_auth = REGISTRY[conn_type].credentials_auth.by_auth
+    declared = set(by_auth[auth_type].schema.model_fields)
+    flags = set()
+    for name, variant in by_auth.items():
+        if name in ADMIN_ONLY_VARIANTS:
+            flags.update(n for n in variant.schema.model_fields if n not in declared)
+    return sorted(flags)
+
+
+def _identity_sweep_cases():
+    cases = []
+    for conn_type in sorted(REGISTRY):
+        variants = _secret_variants(conn_type)
+        if not variants or not _destination_fields(conn_type):
+            continue
+        cases.extend((conn_type, variants[0], flag) for flag in _identity_flags(conn_type, variants[0]))
+    return cases
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("retained", [False, True], ids=["supplied", "retained"])
+def test_every_server_identity_field_needs_an_admin_on_a_changed_destination(test_client, world, every_connector_allowed, retained):
+    cases = _identity_sweep_cases()
+    assert cases, "the registry has connectors with server-identity fields"
+    failures = []
+    for conn_type, auth_type, flag in cases:
+        field = _destination_fields(conn_type)[0]
+        model = REGISTRY[conn_type].config_schema.model_fields[field]
+        flag_value = _FLAG_VALUE.get(flag, True)
+        extra = {flag: flag_value} if retained else None
+        conn = _stored(test_client, world, conn_type, auth_type, extra_credentials=extra)
+        typed = {n: "typed-value" for n in secret_field_names(conn_type, auth_type)}
+        credentials = typed if retained else {**typed, flag: flag_value}
+        with _skip_network():
+            r = _test(test_client, world, {"config": {field: _sample(field, model, other=True)}, "credentials": credentials}, conn_id=conn["id"])
+        if r.status_code != 403 or r.json().get("error_code") != ADMIN_NEEDED:
+            failures.append(f"{conn_type}.{flag}: {r.status_code}")
+    assert not failures, failures
+
+
+@pytest.mark.e2e
+def test_saving_a_server_identity_field_needs_an_admin(test_client, world, every_connector_allowed):
+    conn = _stored(test_client, world, "aws_redshift", "userpass", extra_config={"host": "rs.example.com"})
+    with _skip_network():
+        r = _put(test_client, world, {
+            "config": {"host": OTHER_HOST, "auth_type": "userpass"},
+            "credentials": {"user": "u", "password": "typed-value", "role_arn": "arn:aws:iam::1:role/r"},
+        }, conn_id=conn["id"])
+    _refused(r, ADMIN_NEEDED)
+    assert _saved(test_client, world, conn["id"])["config"]["host"] == "rs.example.com"
+
+
+@pytest.mark.e2e
+def test_server_identity_on_a_connection_with_nothing_stored_needs_an_admin(test_client, world, every_connector_allowed):
+    conn = _stored(test_client, world, "neo4j", "none", extra_config={"uri": "bolt://neo.example.com:7687"})
+    with _skip_network():
+        r = _test(test_client, world, {"config": {"uri": "bolt://other.example.com:7687"}, "credentials": {"use_kerberos": True}}, conn_id=conn["id"])
+    _refused(r, ADMIN_NEEDED)
+
+
+@pytest.mark.e2e
+def test_switching_to_a_server_identity_variant_with_nothing_stored_needs_an_admin(test_client, world, every_connector_allowed):
+    with _skip_network():
+        created = test_client.post("/api/connections", headers=world["ah"], json={
+            "name": f"mssql-{uuid.uuid4().hex[:6]}", "type": "MSSQL",
+            "config": {"host": "sql.example.com", "port": 1433, "database": "d", "auth_type": "userpass"},
+            "credentials": {"user": "u"}, "auth_policy": "system_only",
+        })
+    assert created.status_code == 200, created.text
+    conn = world["grant"](created.json())
+    with _skip_network():
+        r = _test(test_client, world, {"config": {"host": OTHER_HOST, "auth_type": "kerberos"}, "credentials": {"use_kerberos": True}}, conn_id=conn["id"])
+    _refused(r, ADMIN_NEEDED)
+
+
+@pytest.mark.e2e
+def test_a_server_identity_field_in_config_needs_an_admin(test_client, world, every_connector_allowed):
+    conn = _stored(test_client, world, "neo4j", "userpass", extra_config={"uri": "bolt://neo.example.com:7687"})
+    with _skip_network():
+        r = _test(test_client, world, {
+            "config": {"uri": "bolt://other.example.com:7687", "use_kerberos": True},
+            "credentials": {"password": "typed-value", "username": "u"},
+        }, conn_id=conn["id"])
+    _refused(r, ADMIN_NEEDED)
+
+
+# ── Malformed values and client defaults ─────────────────────────────────
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("who", ["h", "ah"])
+@pytest.mark.parametrize("body", [
+    {"config": {"port": "²"}},
+    {"config": {"auth_type": ["x"]}},
+    {"credentials": {"auth_type": {"a": 1}}},
+], ids=["superscript-port", "list-auth-type", "dict-credential-auth-type"])
+def test_malformed_values_do_not_fail_the_request(test_client, world, who, body):
+    with _skip_network():
+        r = _test(test_client, world, body, headers=world[who])
+    assert r.status_code < 500, r.text
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("port,refused", [(8080, True), (443, False)])
+def test_a_row_without_a_port_compares_against_the_client_default(test_client, world, every_connector_allowed, port, refused):
+    conn = _stored(test_client, world, "trino", "userpass", extra_config={"host": "trino.example.com", "catalog": "c"})
+    with _skip_network():
+        r = _test(test_client, world, {"config": {"port": port}}, conn_id=conn["id"])
+    assert (r.status_code == 403) is refused, r.text
+
+
+# ── Personal credentials hold only declared fields ───────────────────────
+
+@pytest.fixture
+def athena_for_members(test_client, world, every_connector_allowed, monkeypatch, create_data_source, invite_user_to_org):
+    monkeypatch.setattr("app.ee.license.is_enterprise_licensed", lambda: True)
+    with _skip_network():
+        ds = create_data_source(
+            name=f"athena-{uuid.uuid4().hex[:6]}", type="aws_athena",
+            config={"region": "us-east-1", "database": "d", "s3_output_location": "s3://saved/out", "auth_type": "default"},
+            credentials={}, auth_policy="user_required", user_token=world["admin"]["token"], org_id=world["org_id"],
+        )
+    assert test_client.put(f"/api/data_sources/{ds['id']}", json={"is_public": True}, headers=world["ah"]).status_code == 200
+    member = invite_user_to_org(org_id=world["org_id"], admin_token=world["admin"]["token"])
+    return {"ds_id": ds["id"], "h": _hdr(member, world["org_id"]), "user_id": member["user_id"]}
+
+
+ATHENA_EXTRAS = {"region": "eu-west-3", "role_arn": "arn:aws:iam::1:role/r", "s3_output_location": "s3://other/out"}
+
+
+def _stored_personal_login(ds_id, user_id):
+    # Direct DB read: the API never returns the stored payload.
+    from sqlalchemy import select
+    from app.models.user_data_source_credentials import UserDataSourceCredentials
+
+    async def _read():
+        async with async_session_maker() as db:
+            rows = await db.execute(select(UserDataSourceCredentials).where(
+                UserDataSourceCredentials.data_source_id == ds_id, UserDataSourceCredentials.user_id == user_id,
+            ))
+            return rows.scalars().first().decrypt_credentials()
+    return asyncio.run(_read())
+
+
+@pytest.mark.e2e
+def test_a_personal_login_stores_only_the_fields_its_variant_declares(test_client, athena_for_members):
+    w = athena_for_members
+    saved = test_client.post(f"/api/data_sources/{w['ds_id']}/my-credentials", headers=w["h"],
+                             json={"auth_mode": "default", "credentials": ATHENA_EXTRAS})
+    assert saved.status_code == 200, saved.text
+    assert not set(ATHENA_EXTRAS) & set(_stored_personal_login(w["ds_id"], w["user_id"]))
+
+    patched = test_client.patch(f"/api/data_sources/{w['ds_id']}/my-credentials", headers=w["h"],
+                                json={"auth_mode": "default", "credentials": ATHENA_EXTRAS})
+    assert patched.status_code == 200, patched.text
+    assert not set(ATHENA_EXTRAS) & set(_stored_personal_login(w["ds_id"], w["user_id"]))
+
+
+@pytest.mark.e2e
+def test_a_personal_login_test_passes_only_declared_fields_to_the_client(test_client, athena_for_members, monkeypatch):
+    w = athena_for_members
+    received = {}
+
+    class RecordingClient:
+        def __init__(self, **kwargs):
+            received.update(kwargs)
+
+        async def atest_connection(self):
+            return {"success": True}
+
+    monkeypatch.setattr("app.services.user_data_source_credentials_service.resolve_client_class", lambda _type: RecordingClient)
+    r = test_client.post(f"/api/data_sources/{w['ds_id']}/my-credentials/test", headers=w["h"],
+                         json={"auth_mode": "default", "credentials": ATHENA_EXTRAS})
+    assert r.status_code == 200, r.text
+    assert received, "the client was built"
+    assert received.get("region") == "us-east-1" and "role_arn" not in received
+    assert received.get("s3_output_location") == "s3://saved/out"
+
+
+# ── In-process engines must not expose stored keys to queries ────────────
+
+DUCKDB_SECRET = "duckdb-stored-secret-marker"
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("sql", [
+    "SELECT current_setting('s3_secret_access_key') AS v",
+    "SELECT secret_string AS v FROM duckdb_secrets()",
+], ids=["current_setting", "duckdb_secrets"])
+def test_a_query_cannot_read_a_stored_duckdb_key(test_client, world, grant_resource, tmp_path, sql):
+    csv_file = tmp_path / "t.csv"
+    csv_file.write_text("a\n1\n")
+    with _skip_network():
+        created = test_client.post("/api/data_sources", headers=world["ah"], json={
+            "name": f"duck-{uuid.uuid4().hex[:6]}", "type": "duckdb",
+            "config": {"uris": str(csv_file), "auth_type": "aws"},
+            "credentials": {"access_key": "AKIDEXAMPLE", "secret_key": DUCKDB_SECRET},
+            "auth_policy": "system_only", "generate_summary": False,
+            "generate_conversation_starters": False, "generate_ai_rules": False,
+        })
+    assert created.status_code == 200, created.text
+    ds_id = created.json()["id"]
+    g = grant_resource(resource_type="data_source", resource_id=ds_id, principal_type="user",
+                       principal_id=world["holder"]["user_id"], permissions=["manage"],
+                       user_token=world["admin"]["token"], org_id=world["org_id"])
+    assert g.status_code == 200, g.text
+    code = (
+        "def generate_df(ds_clients, excel_files):\n"
+        f"    return list(ds_clients.values())[0].execute_query({sql!r})\n"
+    )
+    r = test_client.post("/api/entities/preview", headers=world["h"], json={"code": code, "data_source_ids": [ds_id]})
+    assert r.status_code == 200, r.text
+    assert DUCKDB_SECRET not in r.text
 
 
 # ── 4. Safe-listed fields that a client can read as a location ───────────

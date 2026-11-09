@@ -15,6 +15,7 @@ import base64
 import json
 import socket
 import uuid
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -81,7 +82,11 @@ def world(driver, test_client, bootstrap_admin, invite_user_to_org, create_conne
         }
         spec.update(overrides)
         # Saving a system_only connection validates it; the stub engine has no catalog to read.
-        with _skip_network():
+        # Background indexing from this create must not land in the driver record of the test.
+        with _skip_network(), patch(
+            "app.services.connection_indexing_service.ConnectionIndexingService.start",
+            new_callable=AsyncMock, return_value=None,
+        ):
             return create_connection(**spec, user_token=admin["token"], org_id=org_id)
 
     holder = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
@@ -239,8 +244,7 @@ def test_save_validation_never_runs_for_a_refused_system_only_change(test_client
     driver.clear()
     r = _put(test_client, world, {"config": {"host": OTHER_HOST, "port": 5432, "database": "warehouse"}}, conn_id=conn["id"])
     _refused(r, CREDENTIALS_NEEDED)
-    # Indexing started by the admin's create may still reach the saved host.
-    assert all(d["host"] == SAVED_HOST for d in driver)
+    assert driver == []
     assert _saved(test_client, world, conn["id"])["config"]["host"] == SAVED_HOST
 
 

@@ -1576,7 +1576,8 @@ class ConnectionService:
         if connection.allowed_user_auth_modes and payload.auth_mode not in connection.allowed_user_auth_modes:
             raise AppError.bad_request(ErrorCode.VALIDATION, "Authentication mode is not permitted by this connection")
         try:
-            credentials = variant.schema(**(payload.credentials or {})).model_dump()
+            dumped = variant.schema(**(payload.credentials or {})).model_dump()
+            credentials = {k: v for k, v in dumped.items() if k in variant.schema.model_fields}
         except ValueError:
             raise AppError(ErrorCode.VALIDATION, "The required credential fields are missing or invalid", status_code=422)
         row = await get_user_conn_cred_row(db, connection, user)

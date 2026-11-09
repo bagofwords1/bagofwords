@@ -95,6 +95,35 @@ def test_credential_keys_the_client_uses_as_a_destination_count(conn_type, confi
     assert destination_view(conn_type, config, {}) != destination_view(conn_type, config, credential)
 
 
+def test_every_destination_field_of_every_connector_counts_when_sent_as_a_credential():
+    failures = []
+    for conn_type, entry in REGISTRY.items():
+        config = {"auth_type": entry.credentials_auth.default}
+        for name, field in entry.config_schema.model_fields.items():
+            if name in NON_DESTINATION_CONFIG_KEYS:
+                continue
+            for value in ("other.example.com", 9999, True):
+                if destination_view(conn_type, config, {}) != destination_view(conn_type, config, {name: value}):
+                    break
+            else:
+                failures.append(f"{conn_type}.{name}")
+    assert not failures, failures
+
+
+@pytest.mark.parametrize("config", [{"port": "²"}, {"auth_type": ["x"]}, {"auth_type": {"a": 1}}])
+def test_malformed_values_do_not_raise(config):
+    destination_view("postgresql", config, {"auth_type": {"a": 1}})
+
+
+def test_a_non_string_auth_type_is_a_change():
+    assert destination_view("custom_api", {}, {}) != destination_view("custom_api", {"auth_type": ["x"]}, {})
+
+
+def test_port_default_comes_from_the_client():
+    assert _same("trino", {"host": "h"}, {"host": "h", "port": 443})
+    assert not _same("trino", {"host": "h"}, {"host": "h", "port": 8080})
+
+
 def test_credential_auth_type_counts_as_the_auth_type():
     config = {"base_url": "https://api.example.com", "auth_type": "bearer"}
     assert destination_view("custom_api", config, {}) != destination_view("custom_api", config, {"auth_type": "basic"})

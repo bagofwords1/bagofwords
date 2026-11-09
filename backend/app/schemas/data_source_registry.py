@@ -2824,6 +2824,8 @@ def catalog_ownership_for(ds_type: str, config=None) -> str:
         except ValueError:
             config = None
     auth_type = (config or {}).get("auth_type") if isinstance(config, dict) else None
+    if not isinstance(auth_type, str):
+        auth_type = None
     variant = (entry.credentials_auth.by_auth or {}).get(auth_type or entry.credentials_auth.default)
     if variant and variant.catalog_ownership:
         return variant.catalog_ownership

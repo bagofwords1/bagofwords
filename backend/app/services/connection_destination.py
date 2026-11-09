@@ -13,6 +13,8 @@ from __future__ import annotations
 import base64
 import json
 import re
+import inspect
+from functools import lru_cache
 from typing import Any, Optional
 from urllib.parse import quote, urlsplit
 
@@ -24,7 +26,7 @@ from app.errors import AppError, ErrorCode
 from app.models.connection import RUNTIME_CONFIG_KEYS, Connection
 from app.models.user_connection_credentials import UserConnectionCredentials
 from app.models.user_data_source_credentials import UserDataSourceCredentials
-from app.schemas.data_source_registry import REGISTRY
+from app.schemas.data_source_registry import REGISTRY, resolve_client_class
 from app.services.connection_identity import (
     SERVICE_ACCOUNT_MARKER_MODE,
     can_use_system_credentials,
@@ -118,10 +120,11 @@ def effective_auth_type(conn_type: Optional[str], config: Any, credentials: Any 
     entry = _entry(conn_type)
     by_auth = entry.credentials_auth.by_auth if entry else {}
     credential_auth = _as_dict(credentials).get("auth_type")
-    if credential_auth in by_auth:
+    if isinstance(credential_auth, str) and credential_auth in by_auth:
         return credential_auth
     default = entry.credentials_auth.default if entry else None
-    return _as_dict(config).get("auth_type") or default
+    config_auth = _as_dict(config).get("auth_type")
+    return config_auth if isinstance(config_auth, str) and config_auth else default
 
 
 def _client_config(conn_type: Optional[str], config: dict, credentials: dict) -> dict:
@@ -148,8 +151,40 @@ def _names_a_location(value: Any) -> bool:
     return isinstance(value, str) and ("://" in value or value.strip().startswith("//"))
 
 
+@lru_cache(maxsize=None)
+def _client_defaults(conn_type: str) -> dict:
+    """Constructor defaults: what the client uses when the row omits a field."""
+    try:
+        parameters = inspect.signature(resolve_client_class(conn_type).__init__).parameters.values()
+    except Exception:
+        return {}
+    return {p.name: p.default for p in parameters if p.default not in (inspect.Parameter.empty, None)}
+
+
+@lru_cache(maxsize=None)
+def _client_parameters(conn_type: str) -> Optional[frozenset]:
+    """The client's constructor arguments, or None when it takes anything or cannot be read."""
+    try:
+        parameters = inspect.signature(resolve_client_class(conn_type).__init__).parameters.values()
+    except Exception:
+        return None
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters):
+        return None
+    return frozenset(p.name for p in parameters)
+
+
+def _client_takes(conn_type: str, key: str) -> bool:
+    accepted = _client_parameters(conn_type)
+    return accepted is None or key in accepted
+
+
 def _schema_default(entry, key: str) -> Any:
-    field = entry.config_schema.model_fields.get(key) if entry else None
+    if entry is None:
+        return None
+    client_default = _client_defaults(entry.type).get(key)
+    if client_default is not None:
+        return client_default
+    field = entry.config_schema.model_fields.get(key)
     if field is None or field.default is PydanticUndefined:
         return None
     return field.default
@@ -186,7 +221,7 @@ def _normalize(key: str, value: Any) -> Any:
             return _normalize_url(text)
         if key in _HOST_FIELDS or key.endswith("_host") or key.endswith("hostname"):
             return _normalize_hosts(text)
-        if text.isdigit():
+        if text.isdecimal():
             return int(text)
         if text.lower() in ("true", "false"):
             return text.lower() == "true"
@@ -245,6 +280,8 @@ def destination_view(conn_type: Optional[str], config: Any, credentials: Any = N
     auth_type = effective_auth_type(conn_type, config)
     if auth_type:
         view["auth_type"] = auth_type
+    if config.get("auth_type") is not None and not isinstance(config["auth_type"], str):
+        view["auth_type"] = _normalize("auth_type", config["auth_type"])
     for key in CREDENTIAL_DESTINATION_KEYS:
         normalized = _normalize(key, credentials.get(key))
         if normalized is not None:
@@ -391,6 +428,23 @@ async def _has_stored_member_logins(db: AsyncSession, connection: Connection, us
     return False
 
 
+def _has_fields_outside_variant(conn_type: Optional[str], config: Any, merged: dict, variant) -> bool:
+    """True if a set credential or config field is neither the variant's nor the connector's own."""
+    entry = _entry(conn_type)
+    if entry is None:
+        return True
+    declared = set(variant.schema.model_fields) if variant else set()
+    known_config = set(entry.config_schema.model_fields) | NON_DESTINATION_CONFIG_KEYS | {"auth_type"}
+
+    def is_set(value: Any) -> bool:
+        return not _blank(value) and value is not False
+
+    return any(k != "auth_type" and k not in declared and is_set(v) for k, v in merged.items()) or any(
+        k not in known_config and k not in declared and is_set(v) and _client_takes(conn_type, k)
+        for k, v in _as_dict(config).items()
+    )
+
+
 def _admin_required(message: str) -> AppError:
     return AppError.forbidden(ErrorCode.CONNECTION_ADMIN_REQUIRED, message)
 
@@ -417,17 +471,22 @@ async def require_destination_binding(
         raise _admin_required("Members have saved logins for this connection, so only an organization admin can change its destination.")
 
     request_credentials = _as_dict(request_credentials)
+    merged = _merged_credentials(saved, request_credentials)
+    new_auth = effective_auth_type(connection.type, effective_config, merged)
+    variant = _variant(connection.type, new_auth)
+    # Clients choose how to authenticate from which fields are present, so a
+    # field outside the variant can select the server's own identity.
+    if _has_fields_outside_variant(connection.type, effective_config, merged, variant):
+        raise _admin_required("Only an organization admin can change this connection's destination.")
+    if new_auth in _AMBIENT_VARIANTS:
+        raise _admin_required("Only an organization admin can change this connection's destination.")
     saved_auth = effective_auth_type(connection.type, connection.config, saved)
     if not _stores_secret(connection.type, saved) and saved_auth not in _AMBIENT_VARIANTS:
         return
 
-    new_auth = effective_auth_type(
-        connection.type, effective_config, _merged_credentials(saved, request_credentials)
-    )
-    variant = _variant(connection.type, new_auth)
     new_secrets = secret_field_names(connection.type, new_auth)
     # A variant with no secret to enter still hands the client whatever is stored.
-    if variant is None or new_auth in _AMBIENT_VARIANTS or not new_secrets:
+    if variant is None or not new_secrets:
         raise _admin_required("Only an organization admin can change this connection's destination.")
     fields = variant.schema.model_fields
     # Clients prefer whichever credential they find, so a stored secret from
@@ -440,8 +499,6 @@ async def require_destination_binding(
     if not required:
         raise _admin_required("Only an organization admin can change this connection's destination.")
     missing = sorted(name for name in required if _blank(request_credentials.get(name)))
-    if any(name not in fields for name in missing):
-        raise _admin_required("Only an organization admin can change this connection's destination.")
     if missing:
         raise AppError.forbidden(
             ErrorCode.CONNECTION_CREDENTIALS_REQUIRED,
