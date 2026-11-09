@@ -822,7 +822,39 @@
     ],
     "artifactLoadFailed": "Impossibile caricare la dashboard. Aggiorna la pagina per riprovare.",
     "deleteUnpublishedDashboards": "Verranno eliminate anche le dashboard non pubblicate: {names}",
-    "deleteLosesUnpublishedChanges": "Le modifiche non pubblicate di queste dashboard andranno perse (la versione pubblicata resta): {names}"
+    "deleteLosesUnpublishedChanges": "Le modifiche non pubblicate di queste dashboard andranno perse (la versione pubblicata resta): {names}",
+    "view": {
+      "groupAndSort": "Raggruppa e ordina",
+      "groupBy": "Raggruppa per",
+      "sortBy": "Ordina per",
+      "direction": "Direzione",
+      "group": {
+        "date": "Data",
+        "status": "Stato",
+        "none": "Nessuno"
+      },
+      "sort": {
+        "updated": "Ultima attività",
+        "created": "Creazione",
+        "name": "Nome"
+      },
+      "dir": {
+        "desc": "Decrescente",
+        "asc": "Crescente"
+      },
+      "groups": {
+        "starred": "Preferiti",
+        "today": "Oggi",
+        "yesterday": "Ieri",
+        "previous7": "Ultimi 7 giorni",
+        "previous30": "Ultimi 30 giorni",
+        "older": "Meno recenti",
+        "needsInput": "Richiede attenzione",
+        "running": "In corso",
+        "queued": "In coda",
+        "idle": "Inattivo"
+      }
+    }
   },
   "projects": {
     "title": "Progetti",

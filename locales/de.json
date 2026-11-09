@@ -822,7 +822,39 @@
     ],
     "artifactLoadFailed": "Das Dashboard konnte nicht geladen werden. Bitte lade die Seite erneut.",
     "deleteUnpublishedDashboards": "Nicht veröffentlichte Dashboards darin werden ebenfalls gelöscht: {names}",
-    "deleteLosesUnpublishedChanges": "Nicht veröffentlichte Änderungen an diesen Dashboards gehen verloren (die veröffentlichte Version bleibt): {names}"
+    "deleteLosesUnpublishedChanges": "Nicht veröffentlichte Änderungen an diesen Dashboards gehen verloren (die veröffentlichte Version bleibt): {names}",
+    "view": {
+      "groupAndSort": "Gruppieren und sortieren",
+      "groupBy": "Gruppieren nach",
+      "sortBy": "Sortieren nach",
+      "direction": "Richtung",
+      "group": {
+        "date": "Datum",
+        "status": "Status",
+        "none": "Keine"
+      },
+      "sort": {
+        "updated": "Letzte Aktivität",
+        "created": "Erstellt",
+        "name": "Name"
+      },
+      "dir": {
+        "desc": "Absteigend",
+        "asc": "Aufsteigend"
+      },
+      "groups": {
+        "starred": "Markiert",
+        "today": "Heute",
+        "yesterday": "Gestern",
+        "previous7": "Letzte 7 Tage",
+        "previous30": "Letzte 30 Tage",
+        "older": "Älter",
+        "needsInput": "Eingabe erforderlich",
+        "running": "Läuft",
+        "queued": "In Warteschlange",
+        "idle": "Inaktiv"
+      }
+    }
   },
   "projects": {
     "title": "Projekte",

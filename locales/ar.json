@@ -822,7 +822,39 @@
     ],
     "artifactLoadFailed": "تعذر تحميل لوحة المعلومات. حدّث الصفحة للمحاولة مرة أخرى.",
     "deleteUnpublishedDashboards": "ستُحذف أيضًا لوحات المعلومات غير المنشورة فيها: {names}",
-    "deleteLosesUnpublishedChanges": "ستُفقد التغييرات غير المنشورة في لوحات المعلومات هذه (تبقى النسخة المنشورة): {names}"
+    "deleteLosesUnpublishedChanges": "ستُفقد التغييرات غير المنشورة في لوحات المعلومات هذه (تبقى النسخة المنشورة): {names}",
+    "view": {
+      "groupAndSort": "التجميع والفرز",
+      "groupBy": "التجميع حسب",
+      "sortBy": "الفرز حسب",
+      "direction": "الاتجاه",
+      "group": {
+        "date": "التاريخ",
+        "status": "الحالة",
+        "none": "بدون"
+      },
+      "sort": {
+        "updated": "آخر نشاط",
+        "created": "تاريخ الإنشاء",
+        "name": "الاسم"
+      },
+      "dir": {
+        "desc": "تنازلي",
+        "asc": "تصاعدي"
+      },
+      "groups": {
+        "starred": "المميزة بنجمة",
+        "today": "اليوم",
+        "yesterday": "أمس",
+        "previous7": "آخر 7 أيام",
+        "previous30": "آخر 30 يومًا",
+        "older": "أقدم",
+        "needsInput": "بحاجة إلى إدخال",
+        "running": "قيد التشغيل",
+        "queued": "في قائمة الانتظار",
+        "idle": "خامل"
+      }
+    }
   },
   "projects": {
     "title": "المشاريع",

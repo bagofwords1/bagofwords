@@ -822,7 +822,39 @@
     ],
     "artifactLoadFailed": "Não foi possível carregar o painel. Atualize a página para tentar novamente.",
     "deleteUnpublishedDashboards": "Os painéis não publicados também serão excluídos: {names}",
-    "deleteLosesUnpublishedChanges": "As alterações não publicadas destes painéis serão perdidas (a versão publicada permanece): {names}"
+    "deleteLosesUnpublishedChanges": "As alterações não publicadas destes painéis serão perdidas (a versão publicada permanece): {names}",
+    "view": {
+      "groupAndSort": "Agrupar e ordenar",
+      "groupBy": "Agrupar por",
+      "sortBy": "Ordenar por",
+      "direction": "Direção",
+      "group": {
+        "date": "Data",
+        "status": "Estado",
+        "none": "Nenhum"
+      },
+      "sort": {
+        "updated": "Última atividade",
+        "created": "Criação",
+        "name": "Nome"
+      },
+      "dir": {
+        "desc": "Decrescente",
+        "asc": "Crescente"
+      },
+      "groups": {
+        "starred": "Favoritos",
+        "today": "Hoje",
+        "yesterday": "Ontem",
+        "previous7": "Últimos 7 dias",
+        "previous30": "Últimos 30 dias",
+        "older": "Mais antigos",
+        "needsInput": "Requer atenção",
+        "running": "Em execução",
+        "queued": "Na fila",
+        "idle": "Inativo"
+      }
+    }
   },
   "projects": {
     "title": "Projetos",

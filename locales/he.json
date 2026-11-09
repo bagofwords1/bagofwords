@@ -846,7 +846,39 @@
     "artifactLoadFailed": "לא ניתן לטעון את הגלריה. יש לרענן את הדף ולנסות שוב.",
     "deleteUnpublishedDashboards": "דשבורדים שלא פורסמו יימחקו גם הם: {names}",
     "deleteLosesUnpublishedChanges": "שינויים שלא פורסמו בדשבורדים האלה יאבדו (הגרסה המפורסמת נשארת): {names}",
-    "removedApp": "אפליקציה שהוסרה"
+    "removedApp": "אפליקציה שהוסרה",
+    "view": {
+      "groupAndSort": "קיבוץ ומיון",
+      "groupBy": "קיבוץ לפי",
+      "sortBy": "מיון לפי",
+      "direction": "כיוון",
+      "group": {
+        "date": "תאריך",
+        "status": "סטטוס",
+        "none": "ללא"
+      },
+      "sort": {
+        "updated": "פעילות אחרונה",
+        "created": "תאריך יצירה",
+        "name": "שם"
+      },
+      "dir": {
+        "desc": "יורד",
+        "asc": "עולה"
+      },
+      "groups": {
+        "starred": "מסומנים בכוכב",
+        "today": "היום",
+        "yesterday": "אתמול",
+        "previous7": "7 הימים האחרונים",
+        "previous30": "30 הימים האחרונים",
+        "older": "ישן יותר",
+        "needsInput": "ממתין לקלט",
+        "running": "רץ",
+        "queued": "בתור",
+        "idle": "ללא פעילות"
+      }
+    }
   },
   "projects": {
     "title": "פרויקטים",

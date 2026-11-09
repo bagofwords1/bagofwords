@@ -846,7 +846,39 @@
     "artifactLoadFailed": "No se pudo cargar el panel. Actualiza la página para intentarlo de nuevo.",
     "deleteUnpublishedDashboards": "También se eliminarán sus paneles sin publicar: {names}",
     "deleteLosesUnpublishedChanges": "Se perderán los cambios sin publicar de estos paneles (la versión publicada se mantiene): {names}",
-    "removedApp": "Aplicación eliminada"
+    "removedApp": "Aplicación eliminada",
+    "view": {
+      "groupAndSort": "Agrupar y ordenar",
+      "groupBy": "Agrupar por",
+      "sortBy": "Ordenar por",
+      "direction": "Dirección",
+      "group": {
+        "date": "Fecha",
+        "status": "Estado",
+        "none": "Ninguno"
+      },
+      "sort": {
+        "updated": "Última actividad",
+        "created": "Creación",
+        "name": "Nombre"
+      },
+      "dir": {
+        "desc": "Descendente",
+        "asc": "Ascendente"
+      },
+      "groups": {
+        "starred": "Destacados",
+        "today": "Hoy",
+        "yesterday": "Ayer",
+        "previous7": "Últimos 7 días",
+        "previous30": "Últimos 30 días",
+        "older": "Más antiguos",
+        "needsInput": "Requiere tu respuesta",
+        "running": "En ejecución",
+        "queued": "En cola",
+        "idle": "Inactivos"
+      }
+    }
   },
   "projects": {
     "title": "Proyectos",

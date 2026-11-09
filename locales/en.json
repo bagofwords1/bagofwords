@@ -872,7 +872,39 @@
     "artifactLoadFailed": "Could not load the dashboard. Please refresh to try again.",
     "deleteUnpublishedDashboards": "Unpublished dashboards in it will be deleted too: {names}",
     "deleteLosesUnpublishedChanges": "Unpublished changes to these dashboards will be lost (the published version stays): {names}",
-    "removedApp": "Removed app"
+    "removedApp": "Removed app",
+    "view": {
+      "groupAndSort": "Group and sort",
+      "groupBy": "Group by",
+      "sortBy": "Sort by",
+      "direction": "Direction",
+      "group": {
+        "date": "Date",
+        "status": "Status",
+        "none": "None"
+      },
+      "sort": {
+        "updated": "Last activity",
+        "created": "Created",
+        "name": "Name"
+      },
+      "dir": {
+        "desc": "Descending",
+        "asc": "Ascending"
+      },
+      "groups": {
+        "starred": "Starred",
+        "today": "Today",
+        "yesterday": "Yesterday",
+        "previous7": "Previous 7 days",
+        "previous30": "Previous 30 days",
+        "older": "Older",
+        "needsInput": "Needs input",
+        "running": "Running",
+        "queued": "Queued",
+        "idle": "Idle"
+      }
+    }
   },
   "projects": {
     "title": "Projects",
