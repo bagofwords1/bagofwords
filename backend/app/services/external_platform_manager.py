@@ -34,19 +34,34 @@ class ExternalPlatformManager:
         self.data_source_service = DataSourceService()
 
     async def handle_incoming_message(
-        self, 
-        db: AsyncSession, 
+        self,
+        db: AsyncSession,
         platform_type: str,
         organization_id: str,
-        event_data: Dict[str, Any]
+        event_data: Dict[str, Any],
+        platform_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Handle incoming message from external platform"""
-        
+        """Handle incoming message from external platform.
+
+        ``platform_id`` names the exact instance the webhook already matched by
+        its payload key (phone_number_id / team_id / tenant_id). Passing it is
+        what makes several instances of one type work: without it we fall back
+        to the oldest instance of ``platform_type``, which is correct only when
+        the organization has a single one.
+        """
+
         try:
-            # Get platform
-            platform = await self.platform_service.get_platform_by_type(
-                db, organization_id, platform_type
-            )
+            # Resolve the instance. Prefer the one the webhook matched by key;
+            # fall back to the by-type lookup for single-instance callers.
+            platform = None
+            if platform_id:
+                platform = await self.platform_service.get_platform_by_id_raw(
+                    db, platform_id, organization_id
+                )
+            if platform is None:
+                platform = await self.platform_service.get_platform_by_type(
+                    db, organization_id, platform_type
+                )
             if not platform or not platform.is_active:
                 return {"success": False, "error": "Platform not found or inactive"}
             
@@ -74,7 +89,8 @@ class ExternalPlatformManager:
             
             # Process verified message
             return await self._process_verified_message(
-                db, adapter, processed_data, user_mapping
+                db, adapter, processed_data, user_mapping,
+                platform_id=str(platform.id),
             )
             
         except Exception as e:
@@ -426,6 +442,26 @@ class ExternalPlatformManager:
         )
         return result.scalar_one_or_none()
 
+    async def _apply_agent_scope(
+        self,
+        db: AsyncSession,
+        platform_id: str,
+        data_source_ids: list,
+    ) -> list:
+        """Narrow a data-source list to the instance's agent scope.
+
+        If the instance has no scope configured, the list is returned
+        unchanged (pre-existing behavior). Otherwise it is intersected with the
+        scoped agents — the scope can only *narrow* what the user already has
+        access to, never widen it, since ``data_source_ids`` was already built
+        from the user's accessible agents. Order is preserved.
+        """
+
+        scope = await self.platform_service.get_scope_agent_ids(db, platform_id)
+        if not scope:
+            return data_source_ids
+        return [dsid for dsid in data_source_ids if str(dsid) in scope]
+
     async def _get_or_create_conversation_report(
         self,
         db: AsyncSession,
@@ -435,11 +471,17 @@ class ExternalPlatformManager:
         channel_type: str = None,
         force_new: bool = False,
         max_age_hours: Optional[int] = None,
+        platform_id: Optional[str] = None,
     ) -> Tuple[Any, bool]:
         """
         Get a report for a user if one from the platform exists within the reuse
         window (``max_age_hours``, WhatsApp only — defaults to 24h when not
         passed), otherwise create a new one.
+
+        ``platform_id`` is the instance the message arrived on. A user mapping
+        is shared across every instance of a type (it is keyed by the external
+        user id), so ``user_mapping.platform_id`` only names the instance the
+        user first used. Reuse and agent scope must follow the arrival instance.
 
         For channel mentions (channel_type="channel"), only public data sources are used.
         For DMs (channel_type="im" or None), user's accessible data sources are used
@@ -454,6 +496,7 @@ class ExternalPlatformManager:
         import datetime
 
         report_service = ReportService()
+        instance_id = platform_id or user_mapping.platform_id
 
         # Find a recent report for this user from the same platform
         platform_name = user_mapping.platform_type.capitalize()
@@ -471,7 +514,7 @@ class ExternalPlatformManager:
                 select(Report)
                 .filter(
                     and_(
-                        Report.external_platform_id == user_mapping.platform_id,
+                        Report.external_platform_id == instance_id,
                         Report.organization_id == organization.id,
                         Report.user_id == user.id,
                         Report.created_at >= reuse_cutoff
@@ -494,11 +537,14 @@ class ExternalPlatformManager:
             # DM: user gets public + private data sources they have access to
             data_sources = await self.data_source_service.get_active_data_sources(db, organization, user, channel=platform_type)
 
-        data_source_ids = [data_source.id for data_source in data_sources]
+        data_source_ids = await self._apply_agent_scope(
+            db, instance_id,
+            [data_source.id for data_source in data_sources],
+        )
         report_create_data = ReportCreate(
             title=f"Chat with {user.name} via {platform_name}",
             data_sources=data_source_ids,
-            external_platform_id=user_mapping.platform_id
+            external_platform_id=instance_id
         )
 
         report = await report_service.create_report(
@@ -564,9 +610,15 @@ class ExternalPlatformManager:
         db: AsyncSession,
         adapter: PlatformAdapter,
         processed_data: Dict[str, Any],
-        user_mapping: ExternalUserMapping
+        user_mapping: ExternalUserMapping,
+        platform_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Process message from verified user"""
+        """Process message from verified user.
+
+        ``platform_id`` is the instance the message arrived on; it drives report
+        reuse and agent scope (see ``_get_or_create_conversation_report``).
+        """
+        instance_id = platform_id or user_mapping.platform_id
 
         # Get user and organization
         user = await self.mapping_service.get_user_by_id(db, user_mapping.app_user_id)
@@ -623,7 +675,8 @@ class ExternalPlatformManager:
         # we don't create a completion. The next message reuses this fresh report.
         if self._is_new_conversation_command(platform_type, message_text):
             report, _ = await self._get_or_create_conversation_report(
-                db, organization, user, user_mapping, channel_type, force_new=True
+                db, organization, user, user_mapping, channel_type, force_new=True,
+                platform_id=instance_id,
             )
             report_url = f"{settings.bow_config.base_url}/reports/{report.id}"
             if platform_type == "teams":
@@ -657,7 +710,7 @@ class ExternalPlatformManager:
             # has no completion yet — is still the one this next message
             # continues.
             report = await self._find_recent_platform_report(
-                db, organization.id, user.id, user_mapping.platform_id,
+                db, organization.id, user.id, instance_id,
                 max_age_hours=await self._get_session_max_age_hours(
                     db, organization.id, platform_type
                 ),
@@ -686,6 +739,7 @@ class ExternalPlatformManager:
             report, created = await self._get_or_create_conversation_report(
                 db, organization, user, user_mapping, channel_type,
                 max_age_hours=wa_max_age_hours,
+                platform_id=instance_id,
             )
 
             if created and platform_type != "whatsapp" and await self._get_announce_new_report(
@@ -739,7 +793,9 @@ class ExternalPlatformManager:
                 fresh = await self.data_source_service.get_public_data_sources(db, organization, channel=platform_type)
             else:
                 fresh = await self.data_source_service.get_active_data_sources(db, organization, user, channel=platform_type)
-            fresh_ids = [str(ds.id) for ds in fresh]
+            fresh_ids = await self._apply_agent_scope(
+                db, instance_id, [str(ds.id) for ds in fresh]
+            )
             await ReportService().set_data_sources_for_report(
                 db, report, fresh_ids, user, organization
             )

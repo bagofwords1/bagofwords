@@ -129,6 +129,22 @@ async def test_neo4j_uri_never_contacts_metadata(trap, host, scheme):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("scheme", ["https", "http"])
+@pytest.mark.parametrize("host", METADATA_FORMS)
+async def test_kms_lighthouse_base_url_never_contacts_metadata(trap, host, scheme):
+    """KMS Lighthouse names its destination in `base_url`: the pre-save test
+    refuses the host before the client logs in anywhere."""
+    from app.services.connection_service import ConnectionService
+
+    t = trap()
+    res = await ConnectionService().test_connection_params(
+        "kms_lighthouse", {"base_url": f"{scheme}://{host}/kms/lh/api", "allow_http": True},
+        {"username": "u", "password": "p"})
+    assert res["success"] is False
+    assert t.hits == []
+
+
+@pytest.mark.asyncio
 async def test_connection_to_internal_database_still_attempted_and_blocked_with_flag(trap, monkeypatch):
     from app.services.connection_service import ConnectionService
 

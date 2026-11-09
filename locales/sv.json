@@ -120,6 +120,7 @@
     "fileBrowserRetry": "Försök igen",
     "fileBrowserEmpty": "Inga filer matchar anslutningens omfång.",
     "fileBrowserNoResults": "Inga filer matchar ”{q}”.",
+    "fileBrowserSummaryKms": "{n} filer listade för bläddring · KMS-behörigheterna avgör vad agenten kan söka i och läsa",
     "fileBrowserSummary": "{n} filer i omfånget · agenten läser bara dessa · nekade åtkomster loggas",
     "fileBrowserTruncated": "Visar de första {shown} av {total} filer – begränsa anslutningens omfång för att se resten.",
     "fileBrowserOpenInSource": "Öppna i källan",
@@ -387,6 +388,7 @@
     "newReport": "Ny rapport",
     "expandSidebar": "Expandera sidopanel",
     "collapseSidebar": "Fäll ihop sidopanel",
+    "resizeSidebar": "Ändra storlek på sidopanel",
     "switchOrganization": "Byt organisation",
     "version": "Version",
     "loggedInAs": "Inloggad som {name}",
@@ -830,7 +832,39 @@
     ],
     "artifactLoadFailed": "Det gick inte att läsa in översikten. Uppdatera sidan och försök igen.",
     "deleteUnpublishedDashboards": "Opublicerade instrumentpaneler i den raderas också: {names}",
-    "deleteLosesUnpublishedChanges": "Opublicerade ändringar i dessa instrumentpaneler går förlorade (den publicerade versionen finns kvar): {names}"
+    "deleteLosesUnpublishedChanges": "Opublicerade ändringar i dessa instrumentpaneler går förlorade (den publicerade versionen finns kvar): {names}",
+    "view": {
+      "groupAndSort": "Gruppera och sortera",
+      "groupBy": "Gruppera efter",
+      "sortBy": "Sortera efter",
+      "direction": "Riktning",
+      "group": {
+        "date": "Datum",
+        "status": "Status",
+        "none": "Ingen"
+      },
+      "sort": {
+        "updated": "Senaste aktivitet",
+        "created": "Skapad",
+        "name": "Namn"
+      },
+      "dir": {
+        "desc": "Fallande",
+        "asc": "Stigande"
+      },
+      "groups": {
+        "starred": "Stjärnmärkta",
+        "today": "Idag",
+        "yesterday": "Igår",
+        "previous7": "Senaste 7 dagarna",
+        "previous30": "Senaste 30 dagarna",
+        "older": "Äldre",
+        "needsInput": "Kräver indata",
+        "running": "Körs",
+        "queued": "I kö",
+        "idle": "Inaktiv"
+      }
+    }
   },
   "projects": {
     "title": "Projekt",
@@ -2248,7 +2282,8 @@
           "announceNewReportLabel": "Avisera nya konversationsrapporter",
           "announceNewReportDesc": "När ett meddelande startar en ny konversationsrapport svarar boten med meddelandet \"Jag har startat en ny konversationsrapport\" med en länk. Stäng av för att hoppa över meddelandet.",
           "announceNewReportEnabled": "Avisering om nya rapporter aktiverad",
-          "announceNewReportDisabled": "Avisering om nya rapporter inaktiverad"
+          "announceNewReportDisabled": "Avisering om nya rapporter inaktiverad",
+          "loading": "Laddar…"
         },
         "slack": {
           "title": "Slack-integration",
@@ -2342,7 +2377,30 @@
           "disconnectedToast": "WhatsApp frånkopplad",
           "disconnectedToastDesc": "WhatsApp-integrationen frånkopplad",
           "failedDisconnect": "Det gick inte att koppla från WhatsApp",
-          "sessionStalenessDesc": "Hur länge en chatt fortsätter i samma konversationsrapport. Meddelanden efter detta fönster startar en ny rapport (skicka \"new\" för att starta en direkt). Standard: 24 timmar."
+          "sessionStalenessDesc": "Hur länge en chatt fortsätter i samma konversationsrapport. Meddelanden efter detta fönster startar en ny rapport (skicka \"new\" för att starta en direkt). Standard: 24 timmar.",
+          "numbersTitle": "Anslutna nummer",
+          "addNumber": "Anslut ett nummer",
+          "addNumberTitle": "Anslut ett till nummer",
+          "nameLabel": "Etikett",
+          "namePlaceholder": "t.ex. Försäljning, Ekonomi",
+          "agentScopeTitle": "Agenter på detta nummer",
+          "agentScopeDesc": "Välj vilka agenter detta nummer svarar med. Lämna tomt för att exponera alla agenter som användaren har åtkomst till.",
+          "agentScopeAll": "Exponerar alla agenter som användaren har åtkomst till",
+          "agentScopeCount": "{count} agenter valda",
+          "agentScopeNoAgents": "Inga agenter tillgängliga",
+          "agentScopeSave": "Spara agenter",
+          "agentScopeSaved": "Agenter uppdaterade",
+          "connectedUsersTitle": "Anslutna användare",
+          "connectedUsersEmpty": "Ingen har länkat detta nummer ännu",
+          "verified": "Verifierad",
+          "unverified": "Väntar",
+          "unknownUser": "Okänd",
+          "unnamedNumber": "WhatsApp-nummer",
+          "cancel": "Avbryt",
+          "connectedUsersCount": "{count} personer",
+          "usersSearchPlaceholder": "Sök efter namn eller nummer",
+          "usersSearchEmpty": "Inga användare matchar din sökning",
+          "webhookSharedNote": "Samma webhook-URL gäller för alla dina nummer."
         },
         "email": {
           "title": "AI-brevlåda",
@@ -4164,6 +4222,7 @@
     "instruction.version_mismatch": "Versionen tillhör inte den här instruktionen",
     "integration.not_found": "Integrationen hittades inte",
     "resource.conflict": "Resursen finns redan eller står i konflikt med befintligt tillstånd",
+    "review.stale_main": "Detta har ändrats sedan du senast såg det. Uppdatera och försök igen.",
     "resource.duplicate": "Duplicerad resurs",
     "setting.update_failed": "Det gick inte att uppdatera inställningen",
     "query": {
@@ -4221,7 +4280,11 @@
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
-    "ssh.key_discovery_failed": "Kunde inte hämta nyckeln. Kontrollera värd, port och nätverk eller ange en betrodd nyckel under Avancerat."
+    "ssh.key_discovery_failed": "Kunde inte hämta nyckeln. Kontrollera värd, port och nätverk eller ange en betrodd nyckel under Avancerat.",
+    "connection.kms_token_format": "KMS-API-token får bara innehålla vanliga bokstäver, siffror och skiljetecken, utan mellanslag. Kopiera den igen från KMS Lighthouse och klistra in den som oformaterad text.",
+    "connection.kms_use_connection_credentials": "Inloggningar för KMS Lighthouse sparas på anslutningen. Öppna anslutningen och anslut därifrån.",
+    "connection.kms_only": "Diagnostiken gäller endast KMS Lighthouse-anslutningar.",
+    "connection.kms_diagnostics_running": "Diagnostiken körs redan för den här anslutningen. Vänta tills den är klar och försök sedan igen."
   },
   "email": {
     "dashboardShare": {
@@ -6752,6 +6815,7 @@
     "oauthEmpty": "OAuth is not configured"
   },
   "tablePreview": {
+    "idle": "Tryck på Kör för att läsa in rader från källan.",
     "loading": "Läser in rader…",
     "failed": "Det gick inte att läsa in en förhandsgranskning av tabellen.",
     "showing": "Visar {shown} rader",
@@ -6772,5 +6836,43 @@
     "subtitle": "Exempelrader från {connection}, lästa direkt från källan.",
     "close": "Stäng",
     "button": "Förhandsgranska"
+  },
+  "kmsFileScope": {
+    "headerSubtitle": "Rotmappen anger var bläddringen börjar. KMS-behörigheterna avgör vad agenten kan söka i och läsa.",
+    "browsingOnly": "Endast bläddring",
+    "accessNote": "En rotmapp begränsar endast bläddring. KMS-behörigheterna för den anslutna identiteten avgör vad agenten kan söka i och läsa, även objekt utanför den mappen. Redigera rotmappen eller indexeringen i själva anslutningen."
+  },
+  "kmsDiagnostics": {
+    "run": "Kör diagnostik",
+    "running": "Diagnostiken körs. Det kan ta upp till 90 sekunder.",
+    "description": "Skrivskyddade kontroller av nätverk, certifikat, inloggning och KMS beteende. Skickar högst en inloggning.",
+    "overallPass": "Automatiska kontroller godkändes",
+    "overallWarn": "Klar med varningar",
+    "overallFail": "Klar med ett fel",
+    "manualCheck": "En manuell kontroll återstår: kör igen som en begränsad KMS-användare och jämför elementnamnen.",
+    "failedStage": "Misslyckades vid: {stage}",
+    "calls": "{calls} anrop på {seconds} s",
+    "callsUnknown": "Avbröts efter {seconds} s. Antalet anrop är okänt.",
+    "copy": "Kopiera rapporten",
+    "copied": "Rapporten har kopierats",
+    "copyFailed": "Det gick inte att kopiera rapporten. Använd Ladda ned JSON.",
+    "download": "Ladda ned JSON",
+    "reportNote": "Rapporten förblir på engelska så att den kan skickas till BOW-teknikerna. Den innehåller inget innehåll, inga namn och inga lösenord.",
+    "failed": "Diagnostiken kunde inte köras.",
+    "status": {
+      "pass": "Godkänd",
+      "warn": "Varning",
+      "fail": "Fel",
+      "info": "Info",
+      "skipped": "Hoppades över"
+    },
+    "stage": {
+      "network": "nätverk",
+      "tls": "TLS",
+      "login": "inloggning",
+      "browse": "bläddring",
+      "search": "sökning",
+      "read": "läsning"
+    }
   }
 }

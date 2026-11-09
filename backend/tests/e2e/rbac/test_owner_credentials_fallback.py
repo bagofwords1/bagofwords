@@ -18,7 +18,9 @@ Invariants under test:
 - An org admin who does not own the source, and a holder of
   ``manage_connections``, keep the fallback.
 - Once the owner saves their own login, runs use that login.
-- A source that takes no login can still be reloaded by its non-admin owner.
+- A source that takes no login can still be reloaded by its non-admin owner, and
+  a password source on the same agent does not cost it that result. A caller who
+  can use nothing on the agent keeps the refusal.
 
 PostgreSQL stands in for every user/password connector. Only its engine is
 stubbed, so the whole client runs and each login that reaches the driver is
@@ -73,7 +75,8 @@ def _demote(test_client, admin, owner):
 
 
 @pytest.fixture
-def world(logins, test_client, bootstrap_admin, invite_user_to_org, create_data_source, create_report):
+def world(logins, test_client, bootstrap_admin, invite_user_to_org, create_data_source, create_report,
+          wait_for_connection_indexing):
     """A public per-user Postgres source, its now non-admin owner, and the owner's report."""
     admin = bootstrap_admin()
     org_id = admin["org_id"]
@@ -97,6 +100,8 @@ def world(logins, test_client, bootstrap_admin, invite_user_to_org, create_data_
     seeded = _run(_seed_artifact_graph(report["id"]))
     _run(_set_step_code(seeded["step_ids"][0], _query_code(ds_name)))
 
+    # The first indexing run logs in with the shared login. It must not land after the clear.
+    wait_for_connection_indexing(connection_id=connections[0]["id"], user_token=admin["token"], org_id=org_id)
     logins.clear()
     return {
         "admin": admin, "owner": owner, "owner_h": owner_h, "org_id": org_id, "ds_id": ds["id"], "ds_name": ds_name,
@@ -273,6 +278,23 @@ def test_per_agent_manage_grant_does_not_unlock_the_shared_login(world, logins, 
     assert logins == []
 
 
+@pytest.fixture
+def keys_used(monkeypatch):
+    """Every access key handed to a DuckDB client, in order. The cloud setup itself is stubbed."""
+    from app.data_sources.clients.duckdb_client import DuckDBClient
+
+    seen = []
+    real_init = DuckDBClient.__init__
+
+    def recording_init(self, *args, **kwargs):
+        seen.append(kwargs.get("access_key"))
+        real_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(DuckDBClient, "__init__", recording_init)
+    monkeypatch.setattr(DuckDBClient, "_configure_httpfs", lambda self, con: None)
+    return seen
+
+
 def _sqlite_source(_tmp_path):
     return "sqlite", {"database": str(CHINOOK_PATH)}
 
@@ -307,21 +329,10 @@ def test_non_admin_owner_can_reload_a_source_that_takes_no_login(
 
 @pytest.mark.e2e
 def test_reload_keeps_a_stored_secret_of_a_loginless_type_from_a_non_admin_owner(
-    tmp_path, monkeypatch, test_client, bootstrap_admin, invite_user_to_org, create_data_source,
+    tmp_path, keys_used, test_client, bootstrap_admin, invite_user_to_org, create_data_source,
+    wait_for_connection_indexing,
 ):
     """DuckDB can run with no login or with shared cloud keys. With keys it is an ordinary shared source."""
-    from app.data_sources.clients.duckdb_client import DuckDBClient
-
-    keys_used = []
-    real_init = DuckDBClient.__init__
-
-    def recording_init(self, *args, **kwargs):
-        keys_used.append(kwargs.get("access_key"))
-        real_init(self, *args, **kwargs)
-
-    monkeypatch.setattr(DuckDBClient, "__init__", recording_init)
-    monkeypatch.setattr(DuckDBClient, "_configure_httpfs", lambda self, con: None)
-
     _, config = _duckdb_source(tmp_path)
     admin = bootstrap_admin()
     org_id = admin["org_id"]
@@ -333,12 +344,149 @@ def test_reload_keeps_a_stored_secret_of_a_loginless_type_from_a_non_admin_owner
     assert admin_reload.status_code == 200, admin_reload.text
     assert "shared-key" in keys_used, "the stored keys must reach the client for an admin, or this test proves nothing"
     _demote(test_client, admin, owner)
+    wait_for_connection_indexing(connection_id=ds["connections"][0]["id"], user_token=admin["token"], org_id=org_id)
     keys_used.clear()
 
     reloaded = test_client.get(f"/api/data_sources/{ds['id']}/refresh_schema", headers=_headers(owner["token"], org_id))
 
     assert reloaded.status_code == 403, reloaded.text
     assert "shared-key" not in keys_used, "a non-admin Reload reached the stored keys"
+
+
+DUCKDB_KEYS = {"access_key": "shared-key", "secret_key": "not-a-real-secret"}
+
+
+@pytest.fixture
+def team(test_client, bootstrap_admin, invite_user_to_org, create_connection, wait_for_connection_indexing):
+    """An org admin, an owner who is an admin until demoted, and builders for their agent.
+
+    Building the agent waits out each connection's first indexing run, which uses the stored
+    credentials, so a recorder cleared afterwards sees only the action under test.
+    """
+    admin = bootstrap_admin()
+    org_id = admin["org_id"]
+    owner = invite_user_to_org(org_id=org_id, admin_token=admin["token"], role="admin")
+
+    def connection(ds_type, config, credentials=None):
+        return create_connection(name=f"{ds_type} {uuid.uuid4().hex[:8]}", type=ds_type, config=config,
+                                 credentials=credentials or {}, auth_policy="user_required",
+                                 user_token=owner["token"], org_id=org_id)
+
+    def password_connection():
+        return connection("postgresql", {"host": "localhost", "port": 5432, "database": "warehouse"},
+                          {"user": SHARED_LOGIN, "password": "not-a-real-password"})
+
+    def agent(*connections):
+        created = test_client.post(
+            "/api/data_sources",
+            json={"name": f"Mixed {uuid.uuid4().hex[:8]}", "connection_ids": [c["id"] for c in connections],
+                  "is_public": True, "generate_summary": False, "generate_conversation_starters": False,
+                  "generate_ai_rules": False},
+            headers=_headers(owner["token"], org_id),
+        )
+        assert created.status_code == 200, created.text
+        for linked in connections:
+            wait_for_connection_indexing(connection_id=linked["id"], user_token=admin["token"], org_id=org_id)
+        return created.json()
+
+    def reload_as(user, agent_id):
+        return test_client.get(f"/api/data_sources/{agent_id}/refresh_schema", headers=_headers(user["token"], org_id))
+
+    return {
+        "admin": admin, "owner": owner, "org_id": org_id, "connection": connection,
+        "password_connection": password_connection, "agent": agent, "reload_as": reload_as,
+    }
+
+
+def _table_names(response):
+    return {table["name"].lower() for table in response.json()}
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize(
+    "source, expected_table, no_login_first",
+    [(_sqlite_source, "album", True), (_sqlite_source, "album", False), (_duckdb_source, "orders", True)],
+    ids=["sqlite-listed-first", "sqlite-listed-last", "duckdb-without-keys"],
+)
+def test_reload_keeps_a_no_login_catalog_when_another_connection_needs_a_login(
+    source, expected_table, no_login_first, tmp_path, logins, team, test_client,
+):
+    """The password connection's missing login must not cost the owner the connection that needs none."""
+    ds_type, config = source(tmp_path)
+    no_login = team["connection"](ds_type, config)
+    password = team["password_connection"]()
+    linked = [no_login, password] if no_login_first else [password, no_login]
+    agent = team["agent"](*linked)
+    _demote(test_client, team["admin"], team["owner"])
+    headers = _headers(team["owner"]["token"], team["org_id"])
+
+    reloaded = team["reload_as"](team["owner"], agent["id"])
+
+    assert reloaded.status_code == 200, reloaded.text
+    assert any(expected_table in name for name in _table_names(reloaded)), _table_names(reloaded)
+
+    source_view = test_client.get(f"/api/data_sources/{agent['id']}", headers=headers)
+    assert source_view.status_code == 200, source_view.text
+    listed = test_client.get("/api/connections", headers=headers)
+    assert listed.status_code == 200, listed.text
+    for route, connections in {"data source": source_view.json()["connections"], "connection list": listed.json()}.items():
+        status = next(c for c in connections if c["id"] == password["id"])["user_status"]
+        assert status["effective_auth"] == "none", (route, status)
+        assert status["uses_fallback"] is False, (route, status)
+        assert status["has_user_credentials"] is False, (route, status)
+
+
+@pytest.mark.e2e
+def test_reload_of_a_no_login_catalog_beside_stored_duckdb_keys_never_uses_the_keys(tmp_path, keys_used, team, test_client):
+    no_login = team["connection"](*_sqlite_source(tmp_path))
+    with_keys = team["connection"](*_duckdb_source(tmp_path), DUCKDB_KEYS)
+    agent = team["agent"](no_login, with_keys)
+    admin_reload = team["reload_as"](team["admin"], agent["id"])
+    assert admin_reload.status_code == 200, admin_reload.text
+    assert "shared-key" in keys_used, "the stored keys must reach the client for an admin, or this test proves nothing"
+    _demote(test_client, team["admin"], team["owner"])
+    keys_used.clear()
+
+    reloaded = team["reload_as"](team["owner"], agent["id"])
+
+    assert reloaded.status_code == 200, reloaded.text
+    assert any("album" in name for name in _table_names(reloaded)), _table_names(reloaded)
+    assert "shared-key" not in keys_used, "a non-admin Reload reached the stored keys"
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("other", ["password", "duckdb-with-keys"])
+def test_reload_keeps_the_refusal_when_every_connection_needs_a_login(other, tmp_path, logins, keys_used, team, test_client):
+    """DuckDB holding keys counts as needing a login here: it has a secret to protect."""
+    second = (
+        team["password_connection"]() if other == "password"
+        else team["connection"](*_duckdb_source(tmp_path), DUCKDB_KEYS)
+    )
+    agent = team["agent"](team["password_connection"](), second)
+    _demote(test_client, team["admin"], team["owner"])
+    keys_used.clear()
+
+    reloaded = team["reload_as"](team["owner"], agent["id"])
+
+    assert reloaded.status_code == 403, reloaded.text
+    assert "shared-key" not in keys_used, "a non-admin Reload reached the stored keys"
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("with_password", [True, False], ids=["mixed-agent", "no-login-only-agent"])
+def test_reload_keeps_the_refusal_for_a_member_who_can_use_nothing_on_the_agent(
+    with_password, tmp_path, logins, team, test_client, invite_user_to_org,
+):
+    """A public agent lets a plain member reach Reload, but the catalog is only the owner's to display."""
+    connections = [team["connection"](*_sqlite_source(tmp_path))]
+    if with_password:
+        connections.append(team["password_connection"]())
+    agent = team["agent"](*connections)
+    member = invite_user_to_org(org_id=team["org_id"], admin_token=team["admin"]["token"])
+
+    reloaded = team["reload_as"](member, agent["id"])
+
+    assert reloaded.status_code == 403, reloaded.text
 
 
 @pytest.mark.e2e

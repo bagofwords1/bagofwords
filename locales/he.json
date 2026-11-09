@@ -135,6 +135,7 @@
     "fileBrowserRetry": "נסה שוב",
     "fileBrowserEmpty": "אין קבצים שתואמים להיקף של החיבור.",
     "fileBrowserNoResults": "לא נמצאו קבצים עבור “{q}”.",
+    "fileBrowserSummaryKms": "{n} קבצים מוצגים לדפדוף · ההרשאות ב-KMS קובעות מה הסוכן יכול לחפש ולקרוא",
     "fileBrowserSummary": "{n} קבצים בהיקף · הסוכן קורא רק אותם · גישה לקבצים אחרים נחסמת ונרשמת",
     "fileBrowserTruncated": "מוצגים {shown} הקבצים הראשונים מתוך {total} — צמצם את ההיקף של החיבור כדי לראות את השאר.",
     "fileBrowserOpenInSource": "פתיחה במקור",
@@ -409,6 +410,7 @@
     "newReport": "דוח חדש",
     "expandSidebar": "הרחבת סרגל הצד",
     "collapseSidebar": "כיווץ סרגל הצד",
+    "resizeSidebar": "שינוי רוחב סרגל הצד",
     "switchOrganization": "החלפת ארגון",
     "version": "גרסה",
     "loggedInAs": "מחובר/ת בתור {name}",
@@ -854,7 +856,39 @@
     "artifactLoadFailed": "לא ניתן לטעון את הגלריה. יש לרענן את הדף ולנסות שוב.",
     "deleteUnpublishedDashboards": "דשבורדים שלא פורסמו יימחקו גם הם: {names}",
     "deleteLosesUnpublishedChanges": "שינויים שלא פורסמו בדשבורדים האלה יאבדו (הגרסה המפורסמת נשארת): {names}",
-    "removedApp": "אפליקציה שהוסרה"
+    "removedApp": "אפליקציה שהוסרה",
+    "view": {
+      "groupAndSort": "קיבוץ ומיון",
+      "groupBy": "קיבוץ לפי",
+      "sortBy": "מיון לפי",
+      "direction": "כיוון",
+      "group": {
+        "date": "תאריך",
+        "status": "סטטוס",
+        "none": "ללא"
+      },
+      "sort": {
+        "updated": "פעילות אחרונה",
+        "created": "תאריך יצירה",
+        "name": "שם"
+      },
+      "dir": {
+        "desc": "יורד",
+        "asc": "עולה"
+      },
+      "groups": {
+        "starred": "מסומנים בכוכב",
+        "today": "היום",
+        "yesterday": "אתמול",
+        "previous7": "7 הימים האחרונים",
+        "previous30": "30 הימים האחרונים",
+        "older": "ישן יותר",
+        "needsInput": "ממתין לקלט",
+        "running": "רץ",
+        "queued": "בתור",
+        "idle": "ללא פעילות"
+      }
+    }
   },
   "projects": {
     "title": "פרויקטים",
@@ -2494,7 +2528,8 @@
           "announceNewReportLabel": "הכרזה על דוחות שיחה חדשים",
           "announceNewReportDesc": "כאשר הודעה פותחת דוח שיחה חדש, הבוט משיב בהודעת \"פתחתי דוח שיחה חדש\" עם קישור. כבו כדי לדלג על ההודעה.",
           "announceNewReportEnabled": "הכרזה על דוחות חדשים הופעלה",
-          "announceNewReportDisabled": "הכרזה על דוחות חדשים כובתה"
+          "announceNewReportDisabled": "הכרזה על דוחות חדשים כובתה",
+          "loading": "טוען…"
         },
         "slack": {
           "title": "אינטגרציית Slack",
@@ -2588,7 +2623,30 @@
           "disconnectedToast": "WhatsApp נותק",
           "disconnectedToastDesc": "אינטגרציית WhatsApp נותקה",
           "failedDisconnect": "ניתוק WhatsApp נכשל",
-          "sessionStalenessDesc": "כמה זמן שיחה ממשיכה באותו דוח שיחה. הודעות לאחר חלון זה יפתחו דוח חדש (שליחת \"חדש\" פותחת דוח מיד). ברירת מחדל: 24 שעות."
+          "sessionStalenessDesc": "כמה זמן שיחה ממשיכה באותו דוח שיחה. הודעות לאחר חלון זה יפתחו דוח חדש (שליחת \"חדש\" פותחת דוח מיד). ברירת מחדל: 24 שעות.",
+          "numbersTitle": "מספרים מחוברים",
+          "addNumber": "חיבור מספר",
+          "addNumberTitle": "חיבור מספר נוסף",
+          "nameLabel": "תווית",
+          "namePlaceholder": "לדוגמה: מכירות, כספים",
+          "agentScopeTitle": "סוכנים במספר הזה",
+          "agentScopeDesc": "בחרו באילו סוכנים המספר הזה עונה. השאירו ריק כדי לחשוף כל סוכן שהמשתמש מורשה אליו.",
+          "agentScopeAll": "חושף כל סוכן שהמשתמש מורשה אליו",
+          "agentScopeCount": "{count} סוכנים נבחרו",
+          "agentScopeNoAgents": "אין סוכנים זמינים",
+          "agentScopeSave": "שמירת סוכנים",
+          "agentScopeSaved": "הסוכנים עודכנו",
+          "connectedUsersTitle": "משתמשים מחוברים",
+          "connectedUsersEmpty": "אף אחד עדיין לא קישר את המספר הזה",
+          "verified": "מאומת",
+          "unverified": "ממתין",
+          "unknownUser": "לא ידוע",
+          "unnamedNumber": "מספר ווצאפ",
+          "cancel": "ביטול",
+          "connectedUsersCount": "{count} אנשים",
+          "usersSearchPlaceholder": "חיפוש לפי שם או מספר",
+          "usersSearchEmpty": "אין משתמשים שתואמים את החיפוש",
+          "webhookSharedNote": "אותה כתובת webhook תקפה לכל המספרים שלך."
         },
         "email": {
           "title": "תיבת דואר של ה-AI",
@@ -4519,6 +4577,7 @@
     "instruction.version_mismatch": "הגרסה אינה שייכת להנחיה הזו",
     "integration.not_found": "האינטגרציה לא נמצאה",
     "resource.conflict": "המשאב כבר קיים או סותר את המצב הקיים",
+    "review.stale_main": "זה השתנה מאז שצפית בו לאחרונה. רעננו ונסו שוב.",
     "resource.duplicate": "משאב כפול",
     "setting.update_failed": "עדכון ההגדרה נכשל",
     "query": {
@@ -4594,7 +4653,11 @@
     "INSTRUCTION_APPLICATIONS_INVALID": "יש לבחור יישומים קיימים בארגון הזה",
     "APPLICATION_AGENT_FORBIDDEN": "ליישום אין גישה לסוכן הזה",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "יש לנהל יישומים ישירות ב-BOW",
-    "ssh.key_discovery_failed": "לא ניתן לקבל את מפתח השרת. בדקו את שם השרת, הפורט והגישה לרשת, או הזינו מפתח מהימן בהגדרות המתקדמות."
+    "ssh.key_discovery_failed": "לא ניתן לקבל את מפתח השרת. בדקו את שם השרת, הפורט והגישה לרשת, או הזינו מפתח מהימן בהגדרות המתקדמות.",
+    "connection.kms_token_format": "אסימון ה-API של KMS יכול להכיל רק אותיות, ספרות וסימני פיסוק רגילים, ללא רווחים. העתיקו אותו שוב מ-KMS Lighthouse והדביקו אותו כטקסט רגיל.",
+    "connection.kms_use_connection_credentials": "פרטי ההתחברות ל-KMS Lighthouse נשמרים בחיבור. פתחו את החיבור והתחברו משם.",
+    "connection.kms_only": "האבחון חל רק על חיבורי KMS Lighthouse.",
+    "connection.kms_diagnostics_running": "האבחון כבר פועל עבור החיבור הזה. המתינו לסיומו ונסו שוב."
   },
   "email": {
     "dashboardShare": {
@@ -7383,6 +7446,7 @@
     "oauthEmpty": "לא הוגדר OAuth"
   },
   "tablePreview": {
+    "idle": "לחצו על הרצה כדי לטעון שורות מהמקור.",
     "loading": "טוען שורות…",
     "failed": "לא ניתן לטעון תצוגה מקדימה של הטבלה.",
     "showing": "מוצגות {shown} שורות",
@@ -7403,5 +7467,43 @@
     "subtitle": "שורות לדוגמה מ-{connection}, נקראות ישירות מהמקור.",
     "close": "סגירה",
     "button": "תצוגה מקדימה"
+  },
+  "kmsFileScope": {
+    "headerSubtitle": "תיקיית הבסיס קובעת מאיפה מתחיל הדפדוף. ההרשאות ב-KMS קובעות מה הסוכן יכול לחפש ולקרוא.",
+    "browsingOnly": "דפדוף בלבד",
+    "accessNote": "תיקיית בסיס מגבילה דפדוף בלבד. ההרשאות ב-KMS של הזהות המחוברת קובעות מה הסוכן יכול לחפש ולקרוא, כולל פריטים מחוץ לתיקייה זו. אפשר לערוך את תיקיית הבסיס או את האינדוקס בחיבור עצמו."
+  },
+  "kmsDiagnostics": {
+    "run": "הרצת אבחון",
+    "running": "האבחון רץ. זה עשוי להימשך עד 90 שניות.",
+    "description": "בדיקות לקריאה בלבד של הרשת, האישור, הכניסה והתנהגות KMS. נשלחת כניסה אחת לכל היותר.",
+    "overallPass": "הבדיקות האוטומטיות עברו",
+    "overallWarn": "הסתיים עם אזהרות",
+    "overallFail": "הסתיים עם כשל",
+    "manualCheck": "נותרה בדיקה ידנית אחת: הריצו שוב כמשתמש KMS מוגבל והשוו את שמות הרכיבים.",
+    "failedStage": "נכשל בשלב: {stage}",
+    "calls": "{calls} קריאות ב-{seconds} שניות",
+    "callsUnknown": "הופסק אחרי {seconds} שניות. מספר הקריאות אינו ידוע.",
+    "copy": "העתקת הדוח",
+    "copied": "הדוח הועתק",
+    "copyFailed": "לא ניתן להעתיק את הדוח. השתמשו בהורדת JSON.",
+    "download": "הורדת JSON",
+    "reportNote": "הדוח נשאר באנגלית כדי שאפשר יהיה לשלוח אותו למהנדסי BOW. אין בו תוכן, שמות או סיסמאות.",
+    "failed": "לא ניתן היה להריץ את האבחון.",
+    "status": {
+      "pass": "עבר",
+      "warn": "אזהרה",
+      "fail": "נכשל",
+      "info": "מידע",
+      "skipped": "דולג"
+    },
+    "stage": {
+      "network": "רשת",
+      "tls": "TLS",
+      "login": "כניסה",
+      "browse": "עיון",
+      "search": "חיפוש",
+      "read": "קריאה"
+    }
   }
 }

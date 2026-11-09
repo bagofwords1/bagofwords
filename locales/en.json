@@ -136,6 +136,7 @@
     "fileBrowserRetry": "Try again",
     "fileBrowserEmpty": "No files match this connection's scope.",
     "fileBrowserNoResults": "No files match “{q}”.",
+    "fileBrowserSummaryKms": "{n} files listed for browsing · KMS permissions decide what the agent can search and read",
     "fileBrowserSummary": "{n} files in scope · the agent reads only these · denials are audited",
     "fileBrowserTruncated": "Showing the first {shown} of {total} files — narrow the connection's scope to browse the rest.",
     "fileBrowserOpenInSource": "Open in source",
@@ -426,6 +427,7 @@
     "newReport": "New report",
     "expandSidebar": "Expand sidebar",
     "collapseSidebar": "Collapse sidebar",
+    "resizeSidebar": "Resize sidebar",
     "switchOrganization": "Switch organization",
     "version": "Version",
     "loggedInAs": "Logged in as {name}",
@@ -880,7 +882,39 @@
     "artifactLoadFailed": "Could not load the dashboard. Please refresh to try again.",
     "deleteUnpublishedDashboards": "Unpublished dashboards in it will be deleted too: {names}",
     "deleteLosesUnpublishedChanges": "Unpublished changes to these dashboards will be lost (the published version stays): {names}",
-    "removedApp": "Removed app"
+    "removedApp": "Removed app",
+    "view": {
+      "groupAndSort": "Group and sort",
+      "groupBy": "Group by",
+      "sortBy": "Sort by",
+      "direction": "Direction",
+      "group": {
+        "date": "Date",
+        "status": "Status",
+        "none": "None"
+      },
+      "sort": {
+        "updated": "Last activity",
+        "created": "Created",
+        "name": "Name"
+      },
+      "dir": {
+        "desc": "Descending",
+        "asc": "Ascending"
+      },
+      "groups": {
+        "starred": "Starred",
+        "today": "Today",
+        "yesterday": "Yesterday",
+        "previous7": "Previous 7 days",
+        "previous30": "Previous 30 days",
+        "older": "Older",
+        "needsInput": "Needs input",
+        "running": "Running",
+        "queued": "Queued",
+        "idle": "Idle"
+      }
+    }
   },
   "projects": {
     "title": "Projects",
@@ -2569,7 +2603,8 @@
           "announceNewReportLabel": "Announce new conversation reports",
           "announceNewReportDesc": "When a message starts a new conversation report, reply with an \"I've started a new conversation report\" message linking to it. Turn off to skip that message.",
           "announceNewReportEnabled": "New report announcement enabled",
-          "announceNewReportDisabled": "New report announcement disabled"
+          "announceNewReportDisabled": "New report announcement disabled",
+          "loading": "Loading…"
         },
         "slack": {
           "title": "Slack Integration",
@@ -2663,7 +2698,30 @@
           "disconnectedToast": "WhatsApp disconnected",
           "disconnectedToastDesc": "WhatsApp integration disconnected",
           "failedDisconnect": "Failed to disconnect WhatsApp",
-          "sessionStalenessDesc": "How long a chat keeps continuing in the same conversation report. Messages after this window start a fresh report (sending \"new\" starts one immediately). Default: 24 hours."
+          "sessionStalenessDesc": "How long a chat keeps continuing in the same conversation report. Messages after this window start a fresh report (sending \"new\" starts one immediately). Default: 24 hours.",
+          "numbersTitle": "Connected numbers",
+          "addNumber": "Connect a number",
+          "addNumberTitle": "Connect another number",
+          "nameLabel": "Label",
+          "namePlaceholder": "e.g. Sales, Finance",
+          "agentScopeTitle": "Agents on this number",
+          "agentScopeDesc": "Choose which agents this number answers with. Leave empty to expose every agent the user can access.",
+          "agentScopeAll": "Exposes every agent the user can access",
+          "agentScopeCount": "{count} agents selected",
+          "agentScopeNoAgents": "No agents available",
+          "agentScopeSave": "Save agents",
+          "agentScopeSaved": "Agents updated",
+          "connectedUsersTitle": "Connected users",
+          "connectedUsersEmpty": "No one has linked this number yet",
+          "verified": "Verified",
+          "unverified": "Pending",
+          "unknownUser": "Unknown",
+          "unnamedNumber": "WhatsApp number",
+          "cancel": "Cancel",
+          "connectedUsersCount": "{count} people",
+          "usersSearchPlaceholder": "Search by name or number",
+          "usersSearchEmpty": "No users match your search",
+          "webhookSharedNote": "The same webhook URL applies to all your numbers."
         },
         "googleChat": {
           "title": "Google Chat Integration",
@@ -4581,6 +4639,7 @@
     "instruction.version_mismatch": "Version does not belong to this instruction",
     "integration.not_found": "Integration not found",
     "resource.conflict": "Resource already exists or conflicts with existing state",
+    "review.stale_main": "This changed since you last viewed it. Refresh and try again.",
     "resource.duplicate": "Duplicate resource",
     "setting.update_failed": "Failed to update setting",
     "query.failed_silently": "A query failed but the generated code returned an empty result instead of reporting it",
@@ -4654,7 +4713,11 @@
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
-    "ssh.key_discovery_failed": "Could not fetch the server key. Check the hostname, port and network access, or enter a trusted key under Advanced."
+    "ssh.key_discovery_failed": "Could not fetch the server key. Check the hostname, port and network access, or enter a trusted key under Advanced.",
+    "connection.kms_token_format": "The KMS API token can contain only plain letters, digits and punctuation, with no spaces. Copy it again from KMS Lighthouse and paste it as plain text.",
+    "connection.kms_use_connection_credentials": "KMS Lighthouse sign-ins are saved on the connection. Open the connection and connect from there.",
+    "connection.kms_only": "Diagnostics apply to KMS Lighthouse connections only.",
+    "connection.kms_diagnostics_running": "Diagnostics are already running for this connection. Wait for them to finish, then try again."
   },
   "email": {
     "dashboardShare": {
@@ -7392,6 +7455,7 @@
     "oauthEmpty": "OAuth is not configured"
   },
   "tablePreview": {
+    "idle": "Press Run to load rows from the source.",
     "loading": "Loading rows…",
     "failed": "Could not load a preview of this table.",
     "showing": "Showing {shown} rows",
@@ -7412,5 +7476,43 @@
     "subtitle": "Sample rows from {connection}, read live from the source.",
     "close": "Close",
     "button": "Preview"
+  },
+  "kmsFileScope": {
+    "headerSubtitle": "The root folder sets where browsing starts. KMS permissions decide what the agent can search and read.",
+    "browsingOnly": "Browsing only",
+    "accessNote": "A root folder limits browsing only. KMS permissions for the connected identity decide what the agent can search and read, including items outside that folder. Edit the root folder or indexing on the connection itself."
+  },
+  "kmsDiagnostics": {
+    "run": "Run diagnostics",
+    "running": "Running diagnostics. This can take up to 90 seconds.",
+    "description": "Read-only checks of the network, certificate, login and KMS behaviour. Sends one login at most.",
+    "overallPass": "Automatic checks passed",
+    "overallWarn": "Finished with warnings",
+    "overallFail": "Finished with a failure",
+    "manualCheck": "One manual check remains: run this again as a restricted KMS user and compare the element names.",
+    "failedStage": "Failed at: {stage}",
+    "calls": "{calls} calls in {seconds} s",
+    "callsUnknown": "Cut off after {seconds} s. The number of calls is unknown.",
+    "copy": "Copy report",
+    "copied": "Report copied",
+    "copyFailed": "Could not copy the report. Use Download JSON.",
+    "download": "Download JSON",
+    "reportNote": "The report stays in English so it can be sent to the BOW engineers. It holds no content, names or passwords.",
+    "failed": "Diagnostics could not run.",
+    "status": {
+      "pass": "Pass",
+      "warn": "Warning",
+      "fail": "Fail",
+      "info": "Info",
+      "skipped": "Skipped"
+    },
+    "stage": {
+      "network": "network",
+      "tls": "TLS",
+      "login": "login",
+      "browse": "browse",
+      "search": "search",
+      "read": "read"
+    }
   }
 }

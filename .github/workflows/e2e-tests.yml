@@ -354,8 +354,41 @@ jobs:
         OPENAI_API_KEY_TEST: ${{ secrets.OPENAI_API_KEY_TEST }}
       run: npx playwright test --workers=2
 
-    - name: Upload Playwright report
+    # Reports hold the page text and the test's network traffic. Keep configured
+    # values out of them, and don't upload anything that couldn't be cleaned.
+    - name: Clean up Playwright report
+      id: report
       if: failure()
+      working-directory: ./frontend
+      env:
+        REPORT_VALUE: ${{ secrets.OPENAI_API_KEY_TEST }}
+      run: |
+        rm -f test-results/onboarding-*/trace.zip test-results/onboarding-*/*.png test-results/onboarding-*/*.webm tests/config/debug-*.png
+        python3 - <<'PY'
+        import os, pathlib, sys, zipfile
+
+        value = os.environ.get("REPORT_VALUE", "").encode()
+        files = [p for root in ("test-results", "tests/config") for p in pathlib.Path(root).rglob("*") if p.is_file()]
+
+        def in_zip(path):
+            with zipfile.ZipFile(path) as z:
+                return any(value in z.read(name) for name in z.namelist())
+
+        if value:
+            for path in files:
+                if path.suffix == ".zip":
+                    if in_zip(path):
+                        path.unlink()
+                elif value in path.read_bytes():
+                    path.write_bytes(path.read_bytes().replace(value, b"***"))
+            for path in files:
+                if path.exists() and (value in path.read_bytes() or (path.suffix == ".zip" and in_zip(path))):
+                    sys.exit(f"could not clean {path}")
+        PY
+        echo "clean=true" >> "$GITHUB_OUTPUT"
+
+    - name: Upload Playwright report
+      if: failure() && steps.report.outputs.clean == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: playwright-report

@@ -11,7 +11,7 @@ from app.models.user import User
 from app.models.organization import Organization
 from app.models.data_source import DataSource
 from app.models.user_data_source_credentials import UserDataSourceCredentials
-from app.errors.redact import redact_error
+from app.errors.redact import credentials_error_detail, redact_error
 from app.schemas.user_data_source_credentials_schema import (
     UserDataSourceCredentialsCreate,
     UserDataSourceCredentialsUpdate,
@@ -27,7 +27,7 @@ import json
 def _declared_fields(schema_cls, validated, ds_type: str) -> dict:
     """A personal login's stored fields: only those its variant declares, even
     for schemas that allow extras, since a client acts on any field it receives."""
-    dumped = validated.model_dump(exclude_unset=ds_type.lower() not in ("mssql", "neo4j"))
+    dumped = validated.model_dump(exclude_unset=ds_type.lower() not in ("mssql", "neo4j", "kms_lighthouse"))
     return {k: v for k, v in dumped.items() if k in schema_cls.model_fields}
 
 
@@ -371,7 +371,14 @@ class UserDataSourceCredentialsService:
             validated = schema_cls(**(payload.credentials or {}))
             payload.credentials = _declared_fields(schema_cls, validated, ds_type)
         except Exception as e:
-            raise HTTPException(status_code=422, detail=f"Invalid credentials: {redact_error(e)}")
+            if ds_type == "kms_lighthouse":
+                # The token-format rule gets its typed, localized code (as on save).
+                from app.errors import ErrorCode
+                from app.services.connection_service import ConnectionService
+                kms_error = ConnectionService._kms_credentials_error(e)
+                if kms_error.error_code == ErrorCode.CONNECTION_KMS_TOKEN_FORMAT.value:
+                    raise kms_error
+            raise HTTPException(status_code=422, detail=credentials_error_detail(e))
 
         # Build client with provided creds without persisting. For an overlay
         # variant the user's payload is only their identity fields, so the
@@ -408,7 +415,16 @@ class UserDataSourceCredentialsService:
         
         if not ds_type:
             raise HTTPException(status_code=400, detail="Data source has no connection")
-        
+
+        # KMS reads a member's login from the connection-level row only, so a row
+        # saved here would show "Connected" while every browse asks to connect.
+        if ds_type == "kms_lighthouse":
+            from app.errors import AppError, ErrorCode
+            raise AppError.bad_request(
+                ErrorCode.CONNECTION_KMS_USE_CONNECTION_CREDENTIALS,
+                f"KMS Lighthouse credentials are saved on the connection: use POST /api/connections/{connection.id}/my-credentials",
+            )
+
         # Policy: auth_mode must be a user-scope mode the connection allows
         variant = self._user_auth_variant(ds_type, allowed_user_auth_modes, payload.auth_mode)
 
@@ -418,7 +434,7 @@ class UserDataSourceCredentialsService:
             validated = schema_cls(**(payload.credentials or {}))
             payload.credentials = _declared_fields(schema_cls, validated, ds_type)
         except Exception as e:
-            raise HTTPException(status_code=422, detail=f"Invalid credentials: {redact_error(e)}")
+            raise HTTPException(status_code=422, detail=credentials_error_detail(e))
 
         # Kerberos SSO rows persist an explicit UPN: fill a blank principal from
         # the login identity at save time so resolvers never see an empty one.
@@ -516,7 +532,7 @@ class UserDataSourceCredentialsService:
             try:
                 validated = schema_cls(**(payload.credentials or {}))
             except Exception as e:
-                raise HTTPException(status_code=422, detail=f"Invalid credentials: {redact_error(e)}")
+                raise HTTPException(status_code=422, detail=credentials_error_detail(e))
             row.auth_mode = payload.auth_mode
             row.encrypt_credentials(_declared_fields(schema_cls, validated, ds_type))
 
@@ -530,7 +546,7 @@ class UserDataSourceCredentialsService:
             try:
                 validated = schema_cls(**payload.credentials)
             except Exception as e:
-                raise HTTPException(status_code=422, detail=f"Invalid credentials: {redact_error(e)}")
+                raise HTTPException(status_code=422, detail=credentials_error_detail(e))
             row.encrypt_credentials(_declared_fields(schema_cls, validated, ds_type))
 
         if payload.is_active is not None:

@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # SOURCE OF TRUTH: Data sources to test
 # =============================================================================
+# kms_lighthouse is deliberately absent: it has no catalog (get_schemas() returns []),
+# so _run_connection_test's table-count assertion can never pass. Verify it with
+# tools/kms_lighthouse/mock_kms_server.py and its unit/e2e tests.
 DATA_SOURCES = [
     "netapp_ontap",  # customer-run ONTAP validation; see tools/netapp/README.md
     "brocade",  # Real switch or tools/brocade/simulated_api.py; credentials via integrations.json.

@@ -135,6 +135,7 @@
     "fileBrowserRetry": "Reintentar",
     "fileBrowserEmpty": "Ningún archivo coincide con el alcance de esta conexión.",
     "fileBrowserNoResults": "Ningún archivo coincide con “{q}”.",
+    "fileBrowserSummaryKms": "{n} archivos listados para navegar · los permisos de KMS deciden qué puede buscar y leer el agente",
     "fileBrowserSummary": "{n} archivos en el alcance · el agente solo lee estos · los accesos denegados se auditan",
     "fileBrowserTruncated": "Se muestran los primeros {shown} de {total} archivos: acota el alcance de la conexión para ver el resto.",
     "fileBrowserOpenInSource": "Abrir en el origen",
@@ -409,6 +410,7 @@
     "newReport": "Nuevo informe",
     "expandSidebar": "Expandir barra lateral",
     "collapseSidebar": "Contraer barra lateral",
+    "resizeSidebar": "Redimensionar barra lateral",
     "switchOrganization": "Cambiar de organización",
     "version": "Versión",
     "loggedInAs": "Sesión iniciada como {name}",
@@ -854,7 +856,39 @@
     "artifactLoadFailed": "No se pudo cargar el panel. Actualiza la página para intentarlo de nuevo.",
     "deleteUnpublishedDashboards": "También se eliminarán sus paneles sin publicar: {names}",
     "deleteLosesUnpublishedChanges": "Se perderán los cambios sin publicar de estos paneles (la versión publicada se mantiene): {names}",
-    "removedApp": "Aplicación eliminada"
+    "removedApp": "Aplicación eliminada",
+    "view": {
+      "groupAndSort": "Agrupar y ordenar",
+      "groupBy": "Agrupar por",
+      "sortBy": "Ordenar por",
+      "direction": "Dirección",
+      "group": {
+        "date": "Fecha",
+        "status": "Estado",
+        "none": "Ninguno"
+      },
+      "sort": {
+        "updated": "Última actividad",
+        "created": "Creación",
+        "name": "Nombre"
+      },
+      "dir": {
+        "desc": "Descendente",
+        "asc": "Ascendente"
+      },
+      "groups": {
+        "starred": "Destacados",
+        "today": "Hoy",
+        "yesterday": "Ayer",
+        "previous7": "Últimos 7 días",
+        "previous30": "Últimos 30 días",
+        "older": "Más antiguos",
+        "needsInput": "Requiere tu respuesta",
+        "running": "En ejecución",
+        "queued": "En cola",
+        "idle": "Inactivos"
+      }
+    }
   },
   "projects": {
     "title": "Proyectos",
@@ -2494,7 +2528,8 @@
           "announceNewReportLabel": "Anunciar nuevos informes de conversación",
           "announceNewReportDesc": "Cuando un mensaje inicia un nuevo informe de conversación, el bot responde con un mensaje \"He iniciado un nuevo informe de conversación\" con un enlace. Desactívalo para omitir ese mensaje.",
           "announceNewReportEnabled": "Anuncio de nuevos informes activado",
-          "announceNewReportDisabled": "Anuncio de nuevos informes desactivado"
+          "announceNewReportDisabled": "Anuncio de nuevos informes desactivado",
+          "loading": "Cargando…"
         },
         "slack": {
           "title": "Integración con Slack",
@@ -2588,7 +2623,30 @@
           "disconnectedToast": "WhatsApp desconectado",
           "disconnectedToastDesc": "Integración con WhatsApp desconectada",
           "failedDisconnect": "No se pudo desconectar WhatsApp",
-          "sessionStalenessDesc": "Cuánto tiempo un chat continúa en el mismo informe de conversación. Los mensajes posteriores a esta ventana inician un informe nuevo (enviar \"new\" lo inicia de inmediato). Predeterminado: 24 horas."
+          "sessionStalenessDesc": "Cuánto tiempo un chat continúa en el mismo informe de conversación. Los mensajes posteriores a esta ventana inician un informe nuevo (enviar \"new\" lo inicia de inmediato). Predeterminado: 24 horas.",
+          "numbersTitle": "Números conectados",
+          "addNumber": "Conectar un número",
+          "addNumberTitle": "Conectar otro número",
+          "nameLabel": "Etiqueta",
+          "namePlaceholder": "p. ej. Ventas, Finanzas",
+          "agentScopeTitle": "Agentes en este número",
+          "agentScopeDesc": "Elige con qué agentes responde este número. Déjalo vacío para exponer todos los agentes a los que el usuario tiene acceso.",
+          "agentScopeAll": "Expone todos los agentes a los que el usuario tiene acceso",
+          "agentScopeCount": "{count} agentes seleccionados",
+          "agentScopeNoAgents": "No hay agentes disponibles",
+          "agentScopeSave": "Guardar agentes",
+          "agentScopeSaved": "Agentes actualizados",
+          "connectedUsersTitle": "Usuarios conectados",
+          "connectedUsersEmpty": "Nadie ha vinculado este número todavía",
+          "verified": "Verificado",
+          "unverified": "Pendiente",
+          "unknownUser": "Desconocido",
+          "unnamedNumber": "Número de WhatsApp",
+          "cancel": "Cancelar",
+          "connectedUsersCount": "{count} personas",
+          "usersSearchPlaceholder": "Buscar por nombre o número",
+          "usersSearchEmpty": "Ningún usuario coincide con tu búsqueda",
+          "webhookSharedNote": "La misma URL de webhook se aplica a todos tus números."
         },
         "email": {
           "title": "Buzón de IA",
@@ -4519,6 +4577,7 @@
     "instruction.version_mismatch": "La versión no pertenece a esta instrucción",
     "integration.not_found": "Integración no encontrada",
     "resource.conflict": "El recurso ya existe o entra en conflicto con el estado actual",
+    "review.stale_main": "Esto cambió desde la última vez que lo viste. Actualiza e inténtalo de nuevo.",
     "resource.duplicate": "Recurso duplicado",
     "setting.update_failed": "No se pudo actualizar la configuración",
     "query": {
@@ -4594,7 +4653,11 @@
     "INSTRUCTION_APPLICATIONS_INVALID": "Selecciona aplicaciones existentes en esta organización",
     "APPLICATION_AGENT_FORBIDDEN": "La aplicación no tiene acceso a este agente",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Administra las aplicaciones directamente en BOW",
-    "ssh.key_discovery_failed": "No se pudo obtener la clave. Compruebe el servidor, puerto y red, o introduzca una clave fiable en Avanzado."
+    "ssh.key_discovery_failed": "No se pudo obtener la clave. Compruebe el servidor, puerto y red, o introduzca una clave fiable en Avanzado.",
+    "connection.kms_token_format": "El token de API de KMS solo puede contener letras, dígitos y signos de puntuación simples, sin espacios. Cópialo de nuevo desde KMS Lighthouse y pégalo como texto sin formato.",
+    "connection.kms_use_connection_credentials": "Los inicios de sesión de KMS Lighthouse se guardan en la conexión. Abre la conexión y conéctate desde allí.",
+    "connection.kms_only": "El diagnóstico solo se aplica a las conexiones de KMS Lighthouse.",
+    "connection.kms_diagnostics_running": "El diagnóstico ya se está ejecutando para esta conexión. Espere a que termine e inténtelo de nuevo."
   },
   "email": {
     "dashboardShare": {
@@ -7363,6 +7426,7 @@
     "oauthEmpty": "OAuth no está configurado"
   },
   "tablePreview": {
+    "idle": "Pulsa Ejecutar para cargar filas desde el origen.",
     "loading": "Cargando filas…",
     "failed": "No se pudo cargar una vista previa de esta tabla.",
     "showing": "Mostrando {shown} filas",
@@ -7383,5 +7447,43 @@
     "subtitle": "Filas de ejemplo de {connection}, leídas en vivo desde el origen.",
     "close": "Cerrar",
     "button": "Vista previa"
+  },
+  "kmsFileScope": {
+    "headerSubtitle": "La carpeta raíz indica dónde empieza la navegación. Los permisos de KMS deciden qué puede buscar y leer el agente.",
+    "browsingOnly": "Solo navegación",
+    "accessNote": "Una carpeta raíz limita solo la navegación. Los permisos de KMS de la identidad conectada deciden qué puede buscar y leer el agente, incluidos los elementos fuera de esa carpeta. Edita la carpeta raíz o la indexación en la propia conexión."
+  },
+  "kmsDiagnostics": {
+    "run": "Ejecutar diagnóstico",
+    "running": "Ejecutando el diagnóstico. Puede tardar hasta 90 segundos.",
+    "description": "Comprobaciones de solo lectura de la red, el certificado, el inicio de sesión y el comportamiento de KMS. Envía como máximo un inicio de sesión.",
+    "overallPass": "Las comprobaciones automáticas se superaron",
+    "overallWarn": "Finalizado con advertencias",
+    "overallFail": "Finalizado con un error",
+    "manualCheck": "Queda una comprobación manual: vuelva a ejecutarlo como usuario de KMS restringido y compare los nombres de los elementos.",
+    "failedStage": "Falló en: {stage}",
+    "calls": "{calls} llamadas en {seconds} s",
+    "callsUnknown": "Interrumpido tras {seconds} s. Se desconoce el número de llamadas.",
+    "copy": "Copiar informe",
+    "copied": "Informe copiado",
+    "copyFailed": "No se pudo copiar el informe. Usa Descargar JSON.",
+    "download": "Descargar JSON",
+    "reportNote": "El informe se mantiene en inglés para poder enviarlo a los ingenieros de BOW. No contiene contenido, nombres ni contraseñas.",
+    "failed": "No se pudo ejecutar el diagnóstico.",
+    "status": {
+      "pass": "Correcto",
+      "warn": "Advertencia",
+      "fail": "Error",
+      "info": "Información",
+      "skipped": "Omitido"
+    },
+    "stage": {
+      "network": "red",
+      "tls": "TLS",
+      "login": "inicio de sesión",
+      "browse": "navegación",
+      "search": "búsqueda",
+      "read": "lectura"
+    }
   }
 }

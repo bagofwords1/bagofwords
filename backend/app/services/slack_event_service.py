@@ -178,6 +178,7 @@ async def handle_slack_event(db: AsyncSession, event_data: Dict[str, Any]) -> Di
                 logger.debug("SLACK: setStatus failed: %s", e)
 
     result = await platform_manager.handle_incoming_message(
-        db, "slack", platform.organization_id, event_data
+        db, "slack", platform.organization_id, event_data,
+        platform_id=str(platform.id),
     )
     return {"ok": True, "result": result}

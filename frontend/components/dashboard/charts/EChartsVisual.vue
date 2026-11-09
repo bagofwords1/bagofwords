@@ -10,6 +10,7 @@
 </template>
 
 <script setup lang="ts">
+import { autoAxisLabels, resolveAxisLabels } from '~/utils/chartAxisLabels'
 import { toRefs, ref, watch, computed, inject } from 'vue'
 import { CHAT_VIZ_TEXT_PX, applyChatChartText } from '~/utils/chatVizText'
 const colorMode = useColorMode()
@@ -181,13 +182,7 @@ function getAxisLabelConfig(numCategories: number): AxisLabelConfig {
 function baseAxisLabelConfig(numCategories: number): AxisLabelConfig {
   // Check view.view (new v2 schema)
   const viewV2 = props.view?.view
-  if (viewV2?.axisX) {
-    return {
-      rotate: viewV2.axisX.rotate ?? 45,
-      interval: viewV2.axisX.interval ?? 0,
-      hideOverlap: true
-    }
-  }
+  if (viewV2?.axisX) return resolveAxisLabels(viewV2.axisX, numCategories)
   
   // Check legacy view settings
   const viewInterval = props.view?.xAxisLabelInterval
@@ -203,16 +198,7 @@ function baseAxisLabelConfig(numCategories: number): AxisLabelConfig {
     }
   }
   
-  // Default heuristics based on category count
-  if (numCategories > 50) return { interval: Math.max(1, Math.floor(numCategories / 20)), rotate: 45, hideOverlap: true }
-  if (numCategories > 25) return { interval: 1, rotate: 45, hideOverlap: true }
-  if (numCategories > 10) return { interval: 1, rotate: 45, hideOverlap: true }
-  if (numCategories > 5) return { interval: 0, rotate: 45, hideOverlap: true }
-  // Keep labels upright for a handful of categories, but still let ECharts drop
-  // any that would overlap — otherwise long category names (or a narrow/mobile
-  // chart) render on top of each other. On a wide desktop chart they all fit, so
-  // nothing is hidden and the appearance is unchanged.
-  return { interval: 0, rotate: 0, hideOverlap: true }
+  return autoAxisLabels(numCategories)
 }
 
 function hexToRGBA(hex: string, alpha: number): string {

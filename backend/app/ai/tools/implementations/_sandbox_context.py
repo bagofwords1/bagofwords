@@ -62,7 +62,8 @@ TOKEN UTILITIES (Tailwind classes that follow the theme; prefer these over raw c
 DATA ACCESS:
   const data = useArtifactData();           // null while loading → render <LoadingSpinner/>; then { report, visualizations, files, current_user }
   const sales = vizById("<uuid>");          // ID-KEYED, MANDATORY: copy the uuid from the `id` of each viz in YOUR VISUALIZATIONS. Never viz[N].
-  sales.rows                                 // Sample vs full data: the prompt shows a ≤100-row SAMPLE; runtime `rows` may still be capped by the organization limit; compare rows.length to row_count/info.total_rows before aggregating. Full-population KPIs require backend aggregates when rows are partial
+  sales.rows                                 // Sample vs full data: the prompt shows a ≤100-row SAMPLE; at runtime `rows` holds loaded_row_count rows
+  sales.row_count, sales.truncated           // row_count is the query's real size. truncated: true means `rows` is only part of the result: never compute totals, KPIs, rankings or trends from those rows, and if you show them say "showing {rows.length} of {row_count}". Full-population figures need a query that aggregates in the database
   sales.columns                              // [{ field, headerName, dtype, unique_count }] — read cells as row[column.field]
   Aggregate with reduce/Map; never hardcode values; guard nullish values before string methods: String(v ?? '').
 

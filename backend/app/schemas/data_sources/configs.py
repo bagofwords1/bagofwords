@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import re
 from typing import Optional, List, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 # PostgreSQL
@@ -114,6 +115,12 @@ class SapDatasphereConfig(BaseModel):
         description="Authorize endpoint (needed only for per-user sign-in), e.g. https://<subdomain>.authentication.<region>.hana.ondemand.com/oauth/authorize",
         json_schema_extra={"ui:type": "string"},
     )
+    scopes: Optional[str] = Field(
+        None,
+        title="OAuth Scopes",
+        description="Optional space-separated OAuth scopes sent with the token request. Leave empty for a standard Datasphere OAuth client.",
+        json_schema_extra={"ui:type": "string"},
+    )
     space: Optional[str] = Field(
         None,
         title="Space",
@@ -143,6 +150,13 @@ class SapDatasphereConfig(BaseModel):
     @classmethod
     def _authorization_url_is_http(cls, v):
         return _require_http_url(v, "authorization_url")
+
+    @field_validator("token_url")
+    @classmethod
+    def _token_url_is_http(cls, v):
+        # The technical user's client secret is POSTed here; refuse anything
+        # that is not an absolute http(s) URL.
+        return _require_http_url(v, "token_url")
 
 
 def _require_http_url(v, field: str):
@@ -322,6 +336,12 @@ class PostgreSQLConfig(BaseModel):
         False,
         title="Index stored procedures & functions",
         description="Also index procedures and functions with their source. The agent reads their logic and may call functions inside queries; use a read-only database account.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    include_system_schemas: bool = Field(
+        False,
+        title="Index system catalog",
+        description="Also index pg_catalog and information_schema (pg_stat_activity, pg_locks, ...) so the agent can answer questions about the database itself.",
         json_schema_extra={"ui:type": "boolean"},
     )
 
@@ -2996,6 +3016,109 @@ class DocumentumImpersonationCredentials(BaseModel):
     documentum_login: str = Field(..., min_length=1, title="Documentum login",
         description="Your Documentum user (user_login_name), e.g. jane.doe@corp.example.com or jdoe@Corp. Usually your work email or UPN.",
         json_schema_extra={"ui:type": "string"})
+
+
+# KMS Lighthouse (knowledge articles and decision-tree scenarios, read-only file connector).
+class KmsLighthouseConfig(BaseModel):
+    base_url: str = Field(
+        ...,
+        title="KMS Lighthouse URL",
+        description="Tenant base URL, e.g. https://example.lighthouse-cloud.com (the API prefix may be included).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    api_prefix: str = Field(
+        "/kms/lh/api",
+        title="API path prefix",
+        description="Path of the KMS public API under the base URL. Change it only if your tenant serves the API elsewhere.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    layout_id: Optional[int] = Field(
+        None, ge=1, title="Layout ID",
+        description="Optional KMS layout that search is limited to. Leave blank to search every layout the identity can see.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    root_folder_id: Optional[int] = Field(
+        None, ge=0, title="Root folder ID",
+        description=(
+            "Optional KMS folder that browsing starts from. It limits browsing only: search and reads "
+            "cover everything the identity can see in KMS."
+        ),
+        json_schema_extra={"ui:type": "number"},
+    )
+    include_offline: bool = Field(
+        False, title="Include offline content",
+        description="Also show articles and scenarios that are not Online (drafts, offline). Off by default.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    max_results: int = Field(
+        200, ge=1, le=1000, title="Max results",
+        description="Upper bound on articles and scenarios returned by one search or listing.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    allow_http: bool = Field(False, title="Allow HTTP (test labs only)",
+        description="Allow unencrypted HTTP for an isolated lab. Use HTTPS with a trusted certificate for customer deployments.",
+        json_schema_extra={"ui:type": "boolean"})
+    # No catalog (live only): keeps the index_mode consumers reporting "Live".
+    index_mode: str = Field("none", title="Indexing", json_schema_extra={"ui:hidden": True})
+
+    @field_validator("index_mode")
+    @classmethod
+    def _live_only(cls, value):
+        if value != "none":
+            raise ValueError("KMS Lighthouse connections are live only (no indexing).")
+        return value
+
+
+class KmsLighthouseUserPassCredentials(BaseModel):
+    """A KMS Lighthouse login (username and password)."""
+    # A validation error must not echo the rejected input (it may be the password).
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    username: str = Field(..., min_length=1, title="Username",
+        description="KMS Lighthouse login name.", json_schema_extra={"ui:type": "string"})
+    password: str = Field(..., min_length=1, title="Password",
+        description=("This login relies on an undocumented KMS call that sends the password in the URL, where "
+                     "KMS, a firewall or a proxy can log it. Use an API token when you can."),
+        json_schema_extra={"ui:type": "password"})
+
+    @field_validator("username", "password")
+    @classmethod
+    def _not_blank(cls, value):
+        if not value.strip():
+            raise ValueError("Enter a value, not only spaces.")
+        return value
+
+    @field_validator("username")
+    @classmethod
+    def _trim_username(cls, value):
+        # A copied login name may carry stray spaces; the password is kept exactly as typed.
+        return value.strip()
+
+
+# Visible ASCII only: a token goes into an HTTP header as-is. Use fullmatch
+# (\Z, not $: `$` also matches before a trailing newline).
+KMS_TOKEN_RE = re.compile(r"\A[\x21-\x7e]+\Z")
+KMS_TOKEN_FORMAT_MESSAGE = (
+    "The KMS API token can contain only plain letters, digits and punctuation, with no spaces. "
+    "Copy it again from KMS Lighthouse and paste it as plain text."
+)
+
+
+class KmsLighthouseTokenCredentials(BaseModel):
+    """A pasted KMS Lighthouse API token, sent as a Bearer token."""
+    # A validation error must not echo the rejected token.
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    api_token: str = Field(..., min_length=1, title="API token",
+        description="KMS Lighthouse access token for this identity.", json_schema_extra={"ui:type": "password"})
+
+    @field_validator("api_token")
+    @classmethod
+    def _plain_token(cls, value):
+        value = value.strip()
+        if not KMS_TOKEN_RE.fullmatch(value):
+            raise ValueError(KMS_TOKEN_FORMAT_MESSAGE)
+        return value
 
 
 # SharePoint Lists (Microsoft Graph — same auth as SharePoint, but surfaces

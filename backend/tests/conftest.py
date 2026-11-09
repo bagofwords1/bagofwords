@@ -200,6 +200,19 @@ def disable_telemetry_for_tests():
 
 
 @pytest.fixture(scope="function", autouse=True)
+def _restore_default_event_loop_policy():
+    """Undo the uvloop policy a test's real uvicorn server installs.
+
+    uvicorn's default loop setup makes uvloop the event loop of the whole
+    process, so every later TestClient request gets a uvloop loop, and that
+    native memory is not given back: one golden-file test of the dashboards
+    suite grew a worker by 544 MB under uvloop and 19 MB without it.
+    """
+    yield
+    asyncio.set_event_loop_policy(None)
+
+
+@pytest.fixture(scope="function", autouse=True)
 def no_default_skills(request, monkeypatch):
     """Start every organization empty unless the test asks for the defaults.
 
@@ -481,6 +494,28 @@ def _dispose_async_engine():
         loop.close()
     except Exception as e:
         print(f"Warning: Failed to dispose engine: {e}")
+    _stop_abandoned_sqlite_threads()
+
+
+def _stop_abandoned_sqlite_threads():
+    """Stop the aiosqlite threads of connections finished requests left open.
+
+    Each TestClient request has its own event loop, and closing it cuts off
+    fire-and-forget tasks such as the welcome email before their session can
+    close. The connection's thread then waits forever, holding its SQLite
+    memory: about one per registered user, and over 1 MB of worker memory
+    each. No request is running here and the database is about to be replaced,
+    so any connection still open belongs to a request that has ended. Stopping
+    (not closing) lets the thread finish what it is doing first; SQLite must
+    not be closed from outside while its thread is using it.
+    """
+    import threading
+
+    from aiosqlite.core import Connection
+
+    for thread in threading.enumerate():
+        if isinstance(thread, Connection):
+            thread._stop_running()
 
 
 def _pg_admin_engine(sync_url):
