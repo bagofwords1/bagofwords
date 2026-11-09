@@ -15,6 +15,7 @@
 - Fixed slow SAP Datasphere queries, and catalog refreshes failing when one model can't be read (#1659)
 - Fixed SAP Datasphere treating annotated dimensions such as Year as measures (#1659)
 - Changed SAP Datasphere queries without a row limit to return at most 10,000 rows (#1659)
+- Added an opt-in to index Postgres system schemas (`pg_catalog`, `information_schema`) per connection (#1660) — `include_system_schemas` connection setting (default off)
 
 ## Version 0.0.612 (November 8, 2026)
 - Added F5 BIG-IP as a data source: virtual servers, pools, pool members and stats, nodes, iRules, SSL certificates, HA failover and sync state (#1634)
