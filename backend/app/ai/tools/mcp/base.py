@@ -462,6 +462,16 @@ class MCPTool(ABC):
         # its policy drains only after a successful turn. Spawned, so the MCP
         # response does not wait on the queue claim; the dispatcher opens its
         # own session and starts the queued run as a task of its own.
+        # In an empty context: the queued prompt was sent in BOW, by its own
+        # author, so this request's context variables (the OAuth app origin,
+        # the audit context, code visibility, usage attribution) must not
+        # carry over to its run. The dispatcher reads everything it needs
+        # from the database.
+        import contextvars
+
         from app.core.fire_and_forget import spawn
         from app.services.completion_service import CompletionService
-        spawn(CompletionService().start_next_queued_if_idle(report_id, system_completion_id))
+        spawn(
+            CompletionService().start_next_queued_if_idle(report_id, system_completion_id),
+            context=contextvars.Context(),
+        )

@@ -48,6 +48,7 @@ from app.ai.context.builders.instruction_context_builder import InstructionConte
 from app.core.main_build import resolve_main_build_id
 from app.core.telemetry import telemetry
 from app.ee.audit.service import audit_service
+from app.errors.redact import describe_for_log
 from app.models.completion import Completion
 from app.models.report import Report
 from sqlalchemy import select, func, or_, and_, literal
@@ -237,7 +238,7 @@ class InstructionService:
 
             logger.info(f"Created version {version_id} for instruction {instr_id}, added to build {target_build_id}")
         except Exception as e:
-            logger.warning(f"Failed to create version for instruction {instr_id}: {e}")
+            logger.warning("Failed to create version for instruction %s: %s", instr_id, describe_for_log(e))
             # Roll back so the session is clean for the cleanup/return below.
             try:
                 await db.rollback()
@@ -1260,7 +1261,7 @@ class InstructionService:
                     
                     logger.debug(f"Created version {version.id} for instruction {instruction.id}, added to build {build.id}")
         except Exception as e:
-            logger.warning(f"Failed to create version for updated instruction {instruction.id}: {e}")
+            logger.warning("Failed to create version for updated instruction %s: %s", instruction.id, describe_for_log(e))
             # Don't fail the update if versioning fails
         
         # Re-fetch instruction with proper eager loading to avoid lazy loading issues

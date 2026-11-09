@@ -194,3 +194,39 @@ def test_failed_saved_query_run_is_logged_without_the_values_in_its_error(
     assert not leaks, f"MCP logs carry values from the saved query's run: {leaks}"
     assert any("describe_entity" in r.getMessage() and r.levelno >= logging.WARNING
                for r in caplog.records), "the failed run should still be logged"
+
+
+@pytest.mark.e2e
+def test_failed_create_instruction_logs_neither_title_nor_text(
+    monkeypatch, caplog, test_client, mcp_owner, db_backend,
+):
+    """create_instruction with a title longer than its column (String(255))
+    fails at the INSERT on Postgres. A DB error's text carries the statement's
+    bound parameters, so the log names the failure, not the title or text."""
+    if db_backend == "sqlite":
+        pytest.skip("SQLite does not enforce VARCHAR lengths, so the INSERT succeeds")
+    title_marker = _marker("title-secret")
+    text_marker = _marker("text-secret")
+    title = (title_marker + " ") * 20
+    assert len(title) > 255
+    _capture_app_logs(monkeypatch, caplog)
+
+    response = test_client.post(
+        "/api/mcp",
+        json={"jsonrpc": "2.0", "id": 11, "method": "tools/call", "params": {
+            "name": "create_instruction",
+            "arguments": {"text": f"Always {text_marker}.", "title": title},
+        }},
+        headers={"X-API-Key": mcp_owner["api_key"]},
+    )
+
+    assert response.status_code == 200, response.text
+    envelope = response.json()["result"]
+    assert envelope["isError"] is False, \
+        f"the tool raised instead of reporting the failure: {envelope['content'][0]['text'][:120]}"
+    result = json.loads(envelope["content"][0]["text"])
+    assert result.get("success") is False, f"the INSERT was expected to fail: {result}"
+    leaks = _leaks(caplog, title_marker, text_marker)
+    assert not leaks, f"MCP logs carry the instruction's title or text: {leaks}"
+    assert any("create_instruction" in r.getMessage() and r.levelno >= logging.ERROR
+               for r in caplog.records), "the failed create should still be logged"
