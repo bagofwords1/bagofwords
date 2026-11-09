@@ -98,6 +98,8 @@ _SECRET_NAME = re.compile(
     re.IGNORECASE,
 )
 _NOT_SECRET_NAMES = frozenset({"root_ca", "certificate", "client_cert", "api_key_header"})
+# Service-account keys may arrive as the parsed JSON object rather than its text.
+_JSON_SECRET_FIELDS = frozenset({"credentials_json", "service_account_json"})
 
 # Variants that use the server's own identity, so there is no secret to re-enter.
 _AMBIENT_VARIANTS = frozenset({"default", "aws_default", "aws_role", "arn", "managed_identity", "kerberos", "kerberos_delegated"})
@@ -486,6 +488,34 @@ def credentials_after_auth_switch(connection: Connection, effective_config: Any,
     return {k: v for k, v in merged.items() if k in fields}
 
 
+def _text_credential_fields(conn_type: Optional[str]) -> set[str]:
+    """Credential fields every variant of the connector declares as plain text."""
+    entry = _entry(conn_type)
+    text: set[str] = set()
+    other: set[str] = set()
+    if entry:
+        for variant in entry.credentials_auth.by_auth.values():
+            for name, field in variant.schema.model_fields.items():
+                annotation = str(field.annotation)
+                (text if "str" in annotation and "bool" not in annotation and "int" not in annotation else other).add(name)
+    return text - other
+
+
+def reject_non_text_credentials(conn_type: Optional[str], credentials: Any) -> None:
+    """Refuse a credential field holding anything but text. Clients test these
+    fields for truth, so a falsy value reads as absent and can fall through to
+    the server's own identity. None and "" still mean "keep the saved value"."""
+    text_fields = _text_credential_fields(conn_type) | _stored_secret_keys(conn_type)
+    invalid = sorted(
+        key for key, value in _as_dict(credentials).items()
+        if value is not None and not isinstance(value, str)
+        and (key in text_fields or _is_secret_field(key))
+        and not (key in _JSON_SECRET_FIELDS and isinstance(value, dict) and value)
+    )
+    if invalid:
+        raise AppError.bad_request(ErrorCode.VALIDATION, f"Credential fields must be text: {', '.join(invalid)}")
+
+
 def _admin_required(message: str) -> AppError:
     return AppError.forbidden(ErrorCode.CONNECTION_ADMIN_REQUIRED, message)
 
@@ -500,6 +530,7 @@ async def require_destination_binding(
     member_logins_bind: bool = False,
 ) -> None:
     """Raise unless ``user`` may send ``connection``'s credentials to ``effective_config``."""
+    reject_non_text_credentials(connection.type, request_credentials)
     if user is None or not destination_changed(connection, effective_config, request_credentials):
         return
     if await can_use_system_credentials(db, user, connection.organization_id):

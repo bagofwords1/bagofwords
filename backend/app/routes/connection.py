@@ -66,6 +66,7 @@ from app.services.connection_destination import (
     destination_changed,
     destination_summary,
     merge_config_overrides,
+    reject_non_text_credentials,
     require_destination_binding,
 )
 from app.services.member_attributes import require_attribute_admin
@@ -765,6 +766,7 @@ async def test_connection_tool(
         connection = await connection_service.get_connection(db, data.connection_id, organization)
         if data.type != connection.type:
             raise AppError.bad_request(ErrorCode.VALIDATION, "type does not match the saved connection")
+        reject_non_text_credentials(connection.type, data.credentials)
     else:
         await require_org_permission(
             db, str(current_user.id), str(organization.id), "create_connections",

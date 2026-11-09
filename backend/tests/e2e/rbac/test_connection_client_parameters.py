@@ -321,6 +321,104 @@ def test_config_fields_that_choose_the_identity_or_tenant_are_refused(test_clien
     assert r.status_code == 403, r.text
 
 
+# ── Secret fields hold text: a client treats anything falsy as absent ────
+
+_NOT_A_SECRET = [0, False, [], {}]
+
+
+def _rejected(response):
+    assert response.status_code == 400, response.text
+    assert response.json()["error_code"] == "validation", response.text
+
+
+@pytest.mark.e2e
+def test_every_secret_field_of_every_connector_rejects_a_non_text_value(test_client, world, every_connector_allowed):
+    # One value per field here; tests/unit sweeps every value on every field without HTTP.
+    failures, cases = [], 0
+    for conn_type in sorted(REGISTRY):
+        variants = _secret_variants(conn_type)
+        if not variants:
+            continue
+        conn = _stored(test_client, world, conn_type, variants[0])
+        secrets = sorted({name for variant in variants for name in secret_field_names(conn_type, variant)})
+        for position, name in enumerate(secrets):
+            value = _NOT_A_SECRET[position % len(_NOT_A_SECRET)]
+            cases += 1
+            with _skip_network():
+                r = _test(test_client, world, {"credentials": {name: value}}, conn_id=conn["id"])
+            if r.status_code != 400 or r.json().get("error_code") != "validation":
+                failures.append(f"{conn_type}.{name}={value!r}: {r.status_code}")
+    assert cases, "the registry declares secret fields"
+    assert not failures, failures
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("value", _NOT_A_SECRET, ids=["zero", "false", "list", "dict"])
+def test_saving_a_non_text_secret_is_rejected_for_an_unchanged_destination(test_client, world, every_connector_allowed, value):
+    conn = _stored(test_client, world, "s3", "aws_keys", extra_config={"bucket": "b"})
+    with _skip_network():
+        _rejected(_put(test_client, world, {"credentials": {"secret_key": value}}, conn_id=conn["id"]))
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("value", _NOT_A_SECRET, ids=["zero", "false", "list", "dict"])
+def test_a_changed_destination_with_non_text_secrets_is_rejected(test_client, world, every_connector_allowed, value):
+    conn = _stored(test_client, world, "s3", "aws_keys", extra_config={"bucket": "b"})
+    body = {"config": {"bucket": "b", "endpoint_url": "https://s3.other.example.com", "auth_type": "aws_keys"},
+            "credentials": {"access_key": value, "secret_key": value, "session_token": value}}
+    with _skip_network():
+        _rejected(_test(test_client, world, body, conn_id=conn["id"]))
+        _rejected(_put(test_client, world, body, conn_id=conn["id"]))
+    assert "endpoint_url" not in _saved(test_client, world, conn["id"])["config"]
+
+
+@pytest.mark.e2e
+def test_the_data_source_route_rejects_a_non_text_secret(test_client, world, managed_agent):
+    with _skip_network():
+        _rejected(test_client.put(f"/api/data_sources/{managed_agent}", json={"credentials": {"password": 0}}, headers=world["h"]))
+
+
+@pytest.mark.e2e
+def test_the_tool_test_route_rejects_a_non_text_secret(test_client, world, every_connector_allowed):
+    conn = _stored(test_client, world, "custom_api", "bearer", extra_config={"base_url": "https://api.example.com", "endpoints": []})
+    with _skip_network():
+        _rejected(test_client.post("/api/connections/test-tool", headers=world["h"], json={
+            "type": "custom_api", "config": {}, "credentials": {"token": 0}, "tool_name": "x", "arguments": {},
+            "connection_id": conn["id"],
+        }))
+
+
+@pytest.mark.e2e
+def test_an_org_admin_gets_the_same_validation(test_client, world, every_connector_allowed):
+    conn = _stored(test_client, world, "s3", "aws_keys", extra_config={"bucket": "b"})
+    with _skip_network():
+        _rejected(_test(test_client, world, {"credentials": {"secret_key": 0}}, conn_id=conn["id"], headers=world["ah"]))
+        _rejected(_put(test_client, world, {"credentials": {"secret_key": 0}}, conn_id=conn["id"], headers=world["ah"]))
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("credentials", [None, {}, {"secret_key": ""}, {"secret_key": None}, {"secret_key": "typed-secret", "access_key": "AK"}],
+                         ids=["none", "empty", "blank-string", "null", "text"])
+def test_as_saved_and_text_values_still_pass(test_client, world, every_connector_allowed, credentials):
+    conn = _stored(test_client, world, "s3", "aws_keys", extra_config={"bucket": "b"})
+    body = {} if credentials is None else {"credentials": credentials}
+    with _skip_network():
+        r = _test(test_client, world, body, conn_id=conn["id"])
+    assert r.status_code == 200, r.text
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("conn_type,auth_type,field", [
+    ("bigquery", "service_account", "credentials_json"),
+    ("google_drive", "service_account", "service_account_json"),
+])
+def test_a_service_account_object_is_still_accepted(test_client, world, every_connector_allowed, conn_type, auth_type, field):
+    conn = _stored(test_client, world, conn_type, auth_type, extra_config={"project_id": "p"} if conn_type == "bigquery" else None)
+    with _skip_network():
+        r = _test(test_client, world, {"credentials": {field: json.loads(SECRET_JSON)}}, conn_id=conn["id"])
+    assert r.status_code == 200, r.text
+
+
 # ── Personal rows saved before these fields were filtered ────────────────
 
 async def _store_old_personal_rows(connection_id, data_source_id, user_id, org_id, legacy):
@@ -391,6 +489,15 @@ def _identity_flags(conn_type, auth_type):
     return sorted(flags)
 
 
+def _flag_value(conn_type, flag):
+    """A value of the field's own type: true for a switch, text otherwise."""
+    for variant in REGISTRY[conn_type].credentials_auth.by_auth.values():
+        field = variant.schema.model_fields.get(flag)
+        if field is not None:
+            return True if "bool" in str(field.annotation) else _FLAG_VALUE.get(flag, "identity-value")
+    return True
+
+
 def _identity_sweep_cases():
     cases = []
     for conn_type in sorted(REGISTRY):
@@ -410,7 +517,7 @@ def test_every_server_identity_field_needs_an_admin_on_a_changed_destination(tes
     for conn_type, auth_type, flag in cases:
         field = _destination_fields(conn_type)[0]
         model = REGISTRY[conn_type].config_schema.model_fields[field]
-        flag_value = _FLAG_VALUE.get(flag, True)
+        flag_value = _flag_value(conn_type, flag)
         extra = {flag: flag_value} if retained else None
         conn = _stored(test_client, world, conn_type, auth_type, extra_credentials=extra)
         typed = {n: "typed-value" for n in secret_field_names(conn_type, auth_type)}

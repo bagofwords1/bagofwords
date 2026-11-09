@@ -2,12 +2,41 @@
 import pytest
 
 from app.schemas.data_source_registry import REGISTRY
+from app.errors import AppError
 from app.services.connection_destination import (
     NON_DESTINATION_CONFIG_KEYS,
     destination_summary,
     destination_view,
+    reject_non_text_credentials,
     secret_field_names,
 )
+
+
+@pytest.mark.parametrize("value", [0, False, [], {}, 1, True, ["x"], {"a": 1}])
+def test_every_secret_field_rejects_every_non_text_value(value):
+    for conn_type, entry in REGISTRY.items():
+        for auth_type in entry.credentials_auth.by_auth:
+            for name in secret_field_names(conn_type, auth_type):
+                if name in ("credentials_json", "service_account_json") and isinstance(value, dict) and value:
+                    continue
+                with pytest.raises(AppError):
+                    reject_non_text_credentials(conn_type, {name: value})
+
+
+def test_a_non_text_access_key_is_rejected_because_clients_test_it_for_truth():
+    with pytest.raises(AppError):
+        reject_non_text_credentials("s3", {"access_key": 0})
+
+
+@pytest.mark.parametrize("credentials", [None, {}, {"password": ""}, {"password": None}, {"password": "text"}, {"use_kerberos": True}])
+def test_keep_saved_and_text_values_are_accepted(credentials):
+    reject_non_text_credentials("neo4j", credentials)
+
+
+def test_a_service_account_object_is_accepted():
+    reject_non_text_credentials("bigquery", {"credentials_json": {"type": "service_account"}})
+    with pytest.raises(AppError):
+        reject_non_text_credentials("bigquery", {"credentials_json": {}})
 
 
 def _same(conn_type, a, b, creds=None):
