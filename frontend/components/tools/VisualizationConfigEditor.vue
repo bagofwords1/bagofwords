@@ -788,7 +788,7 @@ function initFromView(view: any, step: any) {
     // v2 axis options (read from nested or flat legacy)
     xAxisVisible: v.axisX?.show ?? v.xAxisVisible ?? true,
     xAxisRotate: v.axisX?.rotate ?? v.xAxisLabelRotate ?? 45,
-    xAxisInterval: v.axisX?.interval ?? v.xAxisLabelInterval ?? 0,
+    xAxisInterval: v.axisX?.interval ?? v.xAxisLabelInterval ?? null,
     yAxisVisible: v.axisY?.show ?? v.yAxisVisible ?? true,
     yAxisRotate: v.axisY?.rotate ?? 0,
     yAxisInterval: v.axisY?.interval ?? 0,
@@ -966,7 +966,7 @@ function toViewPayload() {
     view.axisX = {
       show: local.xAxisVisible ?? true,
       rotate: local.xAxisRotate ?? 45,
-      interval: local.xAxisInterval ?? 0,
+      interval: local.xAxisInterval ?? undefined, // Auto: stored as nothing
     }
     view.axisY = {
       show: local.yAxisVisible ?? true,
