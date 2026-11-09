@@ -4,6 +4,7 @@
       <button
         ref="triggerEl"
         type="button"
+        data-testid="reports-view-menu-trigger"
         @click.stop="toggle"
         :aria-label="$t('reports.view.groupAndSort')"
         :aria-haspopup="true"
