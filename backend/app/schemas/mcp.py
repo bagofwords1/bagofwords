@@ -537,8 +537,12 @@ class MCPEditInstructionInput(BaseModel):
 class MCPEditInstructionOutput(BaseModel):
     success: bool
     instruction_id: Optional[str] = None
-    build_status: Optional[str] = Field(default=None, description="approved (live) or pending_approval")
+    build_status: Optional[str] = Field(
+        default=None,
+        description="approved (live), pending_approval, or draft (saved but not live: its build did not finalize)",
+    )
     requires_approval: bool = False
+    note: Optional[str] = Field(default=None, description="Set when the edit is saved but not live")
     previous_text: Optional[str] = None
     new_text: Optional[str] = Field(default=None, description="Full text after the edit — anchor your next edit on it")
     previous_status: Optional[str] = None

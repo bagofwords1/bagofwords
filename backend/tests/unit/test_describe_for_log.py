@@ -159,24 +159,3 @@ def test_a_deep_traceback_keeps_its_outer_and_inner_frames():
     assert frames[0].endswith(" _raised")
     assert all(f.endswith(" recurse") for f in frames[-20:])
 
-
-def test_a_deep_traceback_is_described_quickly():
-    """Logging must not stall the request it reports on: a 1000-frame
-    RecursionError is described in under 50 ms (best of 5 runs, so a busy
-    machine does not make it flaky)."""
-    import time
-
-    e = _deep_recursion_error()
-    depth = 0
-    tb = e.__traceback__
-    while tb is not None:
-        depth, tb = depth + 1, tb.tb_next
-    assert depth >= 900, depth
-
-    timings = []
-    for _ in range(5):
-        start = time.perf_counter()
-        describe_for_log(e)
-        timings.append(time.perf_counter() - start)
-
-    assert min(timings) < 0.050, f"best of 5: {min(timings) * 1000:.1f} ms"

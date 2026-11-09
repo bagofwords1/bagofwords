@@ -577,13 +577,17 @@ class EditInstructionMCPTool(MCPTool):
 
         fresh = await svc.get_instruction(db, data.instruction_id, organization, user) or updated
         pending = _pending(fresh)
+        # A build that stayed draft (its finalize failed) holds a saved edit
+        # that is not live yet.
+        not_live = getattr(fresh, "current_build_status", None) == "draft"
         status_changed = new_db_status is not None and new_db_status != base_status
         logger.info("edit_instruction: %s by user %s pending=%s", data.instruction_id, user_id, pending)
         return MCPEditInstructionOutput(
             success=True,
             instruction_id=data.instruction_id,
-            build_status="pending_approval" if pending else "approved",
-            requires_approval=pending,
+            build_status="draft" if not_live else ("pending_approval" if pending else "approved"),
+            requires_approval=pending or not_live,
+            note="Saved, but not live yet: its build did not finalize." if not_live else None,
             previous_text=current_text if new_text is not None else None,
             new_text=fresh.text if new_text is not None else None,
             previous_status=DB_TO_STATUS.get(base_status) if status_changed else None,
