@@ -18,7 +18,8 @@ export interface AxisLabelConfig {
 
 export function autoAxisLabels(numCategories: number): AxisLabelConfig {
   if (numCategories > 50) return { interval: Math.max(1, Math.floor(numCategories / 20)), rotate: 45, hideOverlap: true };
-  if (numCategories > 10) return { interval: 1, rotate: 45, hideOverlap: true };
+  // Up to 18 rotated labels fit even in a 360px column; past that they collide.
+  if (numCategories > 18) return { interval: 1, rotate: 45, hideOverlap: true };
   if (numCategories > 5) return { interval: 0, rotate: 45, hideOverlap: true };
   // Upright for a handful of categories; ECharts still drops any that overlap
   // on a narrow chart, and on a wide one nothing is hidden.

@@ -9,7 +9,9 @@ new Function('exports', 'module', ts.transpileModule(fs.readFileSync(new URL('ut
 const { autoAxisLabels: auto, resolveAxisLabels: resolve } = m.exports;
 
 assert.deepEqual(auto(60), { interval: 3, rotate: 45, hideOverlap: true }, '60 categories print every 4th label');
-assert.equal(auto(12).interval, 1);
+assert.equal(auto(12).interval, 0, '12 labels fit, even in a narrow column');
+assert.equal(auto(18).interval, 0);
+assert.equal(auto(19).interval, 1, 'past 18, rotated labels collide in a narrow column');
 assert.equal(auto(8).interval, 0);
 assert.equal(auto(4).rotate, 0, 'a handful of labels stay upright');
 
@@ -27,4 +29,6 @@ assert.match(read('components/dashboard/charts/EChartsVisual.vue'), /resolveAxis
 const editor = read('components/tools/VisualizationConfigEditor.vue');
 assert.doesNotMatch(editor, /interval: local\.xAxisInterval \?\? 0/, 'choosing Auto must not save "show all"');
 assert.match(editor, /xAxisInterval: v\.axisX\?\.interval \?\? v\.xAxisLabelInterval \?\? null/, 'a chart with nothing stored opens on Auto');
+assert.doesNotMatch(editor, /rotate: local\.xAxisRotate \?\? 45/, 'choosing Auto must not save 45 degrees');
+assert.match(editor, /xAxisRotate: v\.axisX\?\.rotate \?\? v\.xAxisLabelRotate \?\? null/, 'a chart with nothing stored opens on Auto rotation');
 console.log('PASS: both renderers and the chart editor follow it');
