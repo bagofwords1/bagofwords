@@ -1,10 +1,11 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, delete
 from fastapi import HTTPException
-from typing import List, Optional
+from typing import List, Optional, Set
 import json
 
 from app.models.external_platform import ExternalPlatform
+from app.models.external_platform_agent import ExternalPlatformAgent
 from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.external_platform_schema import (
@@ -104,21 +105,167 @@ class ExternalPlatformService:
         return platform
     
     async def get_platform_by_type(
-        self, 
-        db: AsyncSession, 
+        self,
+        db: AsyncSession,
         organization_id: str,
         platform_type: str
     ) -> Optional[ExternalPlatform]:
-        """Get platform by type for an organization"""
-        
+        """Get a single platform of this type for an organization.
+
+        An organization may now hold several platforms of the same type (e.g.
+        multiple WhatsApp numbers). This helper keeps the single-instance
+        contract that outbound paths rely on (notifications, MCP, Excel): it
+        returns the oldest matching platform and never raises when more than
+        one exists. Inbound dispatch resolves the *specific* instance by its
+        payload key instead — see ``get_platforms_by_type`` and the webhooks.
+        """
+
+        stmt = (
+            select(ExternalPlatform)
+            .where(
+                and_(
+                    ExternalPlatform.organization_id == organization_id,
+                    ExternalPlatform.platform_type == platform_type
+                )
+            )
+            .order_by(ExternalPlatform.created_at.asc())
+            .limit(1)
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_platform_by_id_raw(
+        self,
+        db: AsyncSession,
+        platform_id: str,
+        organization_id: str
+    ) -> Optional[ExternalPlatform]:
+        """Fetch one platform ORM row by id, scoped to the org; None if absent.
+
+        Unlike ``get_platform_by_id`` this takes the org id as a string and
+        returns ``None`` instead of raising, so inbound dispatch can resolve
+        the instance the webhook matched without turning a miss into a 404.
+        """
+
         stmt = select(ExternalPlatform).where(
             and_(
-                ExternalPlatform.organization_id == organization_id,
-                ExternalPlatform.platform_type == platform_type
+                ExternalPlatform.id == platform_id,
+                ExternalPlatform.organization_id == organization_id
             )
         )
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_platforms_by_type(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        platform_type: str
+    ) -> List[ExternalPlatform]:
+        """Get every platform of this type for an organization (oldest first).
+
+        Used wherever multiple instances of one channel type must be
+        considered together — listing WhatsApp numbers, or matching an inbound
+        event against the right instance by its payload key.
+        """
+
+        stmt = (
+            select(ExternalPlatform)
+            .where(
+                and_(
+                    ExternalPlatform.organization_id == organization_id,
+                    ExternalPlatform.platform_type == platform_type
+                )
+            )
+            .order_by(ExternalPlatform.created_at.asc())
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    # ------------------------------------------------------------------
+    # Per-instance agent scoping
+    # ------------------------------------------------------------------
+
+    async def get_scope_agent_ids(
+        self, db: AsyncSession, platform_id: str
+    ) -> Set[str]:
+        """Return the set of agent (data source) ids this instance is scoped to.
+
+        An empty set means "not scoped" — the instance exposes everything the
+        messaging user can access on the channel (the pre-existing behavior).
+        """
+
+        stmt = select(ExternalPlatformAgent.data_source_id).where(
+            ExternalPlatformAgent.platform_id == platform_id
+        )
+        result = await db.execute(stmt)
+        return {str(row) for row in result.scalars().all()}
+
+    async def filter_org_data_source_ids(
+        self, db: AsyncSession, organization_id: str, data_source_ids: List[str]
+    ) -> List[str]:
+        """Keep only ids that are data sources of this organization.
+
+        Preserves the caller's order and de-duplicates. Used to validate an
+        agent-scope request so cross-org or stale ids never reach the table.
+        """
+
+        from app.models.data_source import DataSource
+
+        wanted = [str(d) for d in (data_source_ids or [])]
+        if not wanted:
+            return []
+        stmt = select(DataSource.id).where(
+            and_(
+                DataSource.organization_id == organization_id,
+                DataSource.id.in_(wanted),
+            )
+        )
+        result = await db.execute(stmt)
+        valid = {str(row) for row in result.scalars().all()}
+        seen: Set[str] = set()
+        ordered: List[str] = []
+        for d in wanted:
+            if d in valid and d not in seen:
+                seen.add(d)
+                ordered.append(d)
+        return ordered
+
+    async def set_scope_agents(
+        self,
+        db: AsyncSession,
+        platform: ExternalPlatform,
+        data_source_ids: List[str],
+    ) -> Set[str]:
+        """Replace the instance's agent scope with ``data_source_ids``.
+
+        Passing an empty list clears the scope (back to exposing everything the
+        user can access). Ids are de-duplicated; this does not widen access —
+        resolution still intersects with the messaging user's own agents.
+        """
+
+        await db.execute(
+            delete(ExternalPlatformAgent).where(
+                ExternalPlatformAgent.platform_id == platform.id
+            )
+        )
+        wanted = []
+        seen: Set[str] = set()
+        for ds_id in data_source_ids or []:
+            ds_id = str(ds_id)
+            if ds_id in seen:
+                continue
+            seen.add(ds_id)
+            wanted.append(ds_id)
+            db.add(
+                ExternalPlatformAgent(
+                    organization_id=platform.organization_id,
+                    platform_id=platform.id,
+                    data_source_id=ds_id,
+                )
+            )
+        await db.commit()
+        return set(wanted)
     
     async def update_platform(
         self, 
@@ -858,8 +1005,15 @@ class ExternalPlatformService:
         app_secret: str,
         verify_token: str,
         current_user: User,
+        name: Optional[str] = None,
     ) -> ExternalPlatformSchema:
-        """Create a WhatsApp Cloud API platform with proper configuration."""
+        """Create a WhatsApp Cloud API platform with proper configuration.
+
+        An organization may connect several numbers (one per agent/purpose).
+        What must stay unique is the ``phone_number_id``: it is the webhook's
+        routing key, so two instances sharing it would make inbound routing
+        ambiguous. A different number is always allowed.
+        """
         # Test the credentials by fetching the phone number metadata
         test_result = await self._test_whatsapp_token(access_token, phone_number_id)
         if not test_result.get("success"):
@@ -868,12 +1022,12 @@ class ExternalPlatformService:
                 detail=f"Invalid WhatsApp credentials: {test_result.get('error')}",
             )
 
-        existing_platform = await self.get_platform_by_type(db, organization.id, "whatsapp")
-        if existing_platform:
-            raise HTTPException(
-                status_code=400,
-                detail="WhatsApp integration already exists for this organization",
-            )
+        for existing in await self.get_platforms_by_type(db, organization.id, "whatsapp"):
+            if (existing.platform_config or {}).get("phone_number_id") == phone_number_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="This WhatsApp number is already connected to this organization",
+                )
 
         info = test_result.get("info", {})
         platform_config = {
@@ -881,6 +1035,7 @@ class ExternalPlatformService:
             "waba_id": waba_id,
             "display_phone_number": info.get("display_phone_number"),
             "verified_name": info.get("verified_name"),
+            "name": name,
         }
 
         credentials = {

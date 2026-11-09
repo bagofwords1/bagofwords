@@ -2224,7 +2224,8 @@
           "announceNewReportLabel": "Annuncia i nuovi report di conversazione",
           "announceNewReportDesc": "Quando un messaggio avvia un nuovo report di conversazione, il bot risponde con un messaggio \"Ho avviato un nuovo report di conversazione\" con un link. Disattiva per saltare questo messaggio.",
           "announceNewReportEnabled": "Annuncio dei nuovi report attivato",
-          "announceNewReportDisabled": "Annuncio dei nuovi report disattivato"
+          "announceNewReportDisabled": "Annuncio dei nuovi report disattivato",
+          "loading": "Caricamento…"
         },
         "slack": {
           "title": "Integrazione Slack",
@@ -2318,7 +2319,30 @@
           "disconnectedToast": "WhatsApp disconnesso",
           "disconnectedToastDesc": "Integrazione WhatsApp disconnessa",
           "failedDisconnect": "Impossibile disconnettere WhatsApp",
-          "sessionStalenessDesc": "Per quanto tempo una chat continua nello stesso report di conversazione. I messaggi oltre questa finestra avviano un nuovo report (inviare \"new\" ne avvia uno subito). Predefinito: 24 ore."
+          "sessionStalenessDesc": "Per quanto tempo una chat continua nello stesso report di conversazione. I messaggi oltre questa finestra avviano un nuovo report (inviare \"new\" ne avvia uno subito). Predefinito: 24 ore.",
+          "numbersTitle": "Numeri collegati",
+          "addNumber": "Collega un numero",
+          "addNumberTitle": "Collega un altro numero",
+          "nameLabel": "Etichetta",
+          "namePlaceholder": "es. Vendite, Finanza",
+          "agentScopeTitle": "Agenti su questo numero",
+          "agentScopeDesc": "Scegli con quali agenti risponde questo numero. Lascia vuoto per esporre tutti gli agenti a cui l'utente ha accesso.",
+          "agentScopeAll": "Espone tutti gli agenti a cui l'utente ha accesso",
+          "agentScopeCount": "{count} agenti selezionati",
+          "agentScopeNoAgents": "Nessun agente disponibile",
+          "agentScopeSave": "Salva agenti",
+          "agentScopeSaved": "Agenti aggiornati",
+          "connectedUsersTitle": "Utenti collegati",
+          "connectedUsersEmpty": "Nessuno ha ancora collegato questo numero",
+          "verified": "Verificato",
+          "unverified": "In attesa",
+          "unknownUser": "Sconosciuto",
+          "unnamedNumber": "Numero WhatsApp",
+          "cancel": "Annulla",
+          "connectedUsersCount": "{count} persone",
+          "usersSearchPlaceholder": "Cerca per nome o numero",
+          "usersSearchEmpty": "Nessun utente corrisponde alla ricerca",
+          "webhookSharedNote": "Lo stesso URL webhook vale per tutti i tuoi numeri."
         },
         "email": {
           "title": "Casella di posta IA",

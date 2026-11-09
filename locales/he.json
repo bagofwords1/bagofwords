@@ -2459,7 +2459,8 @@
           "announceNewReportLabel": "הכרזה על דוחות שיחה חדשים",
           "announceNewReportDesc": "כאשר הודעה פותחת דוח שיחה חדש, הבוט משיב בהודעת \"פתחתי דוח שיחה חדש\" עם קישור. כבו כדי לדלג על ההודעה.",
           "announceNewReportEnabled": "הכרזה על דוחות חדשים הופעלה",
-          "announceNewReportDisabled": "הכרזה על דוחות חדשים כובתה"
+          "announceNewReportDisabled": "הכרזה על דוחות חדשים כובתה",
+          "loading": "טוען…"
         },
         "slack": {
           "title": "אינטגרציית Slack",
@@ -2553,7 +2554,30 @@
           "disconnectedToast": "WhatsApp נותק",
           "disconnectedToastDesc": "אינטגרציית WhatsApp נותקה",
           "failedDisconnect": "ניתוק WhatsApp נכשל",
-          "sessionStalenessDesc": "כמה זמן שיחה ממשיכה באותו דוח שיחה. הודעות לאחר חלון זה יפתחו דוח חדש (שליחת \"חדש\" פותחת דוח מיד). ברירת מחדל: 24 שעות."
+          "sessionStalenessDesc": "כמה זמן שיחה ממשיכה באותו דוח שיחה. הודעות לאחר חלון זה יפתחו דוח חדש (שליחת \"חדש\" פותחת דוח מיד). ברירת מחדל: 24 שעות.",
+          "numbersTitle": "מספרים מחוברים",
+          "addNumber": "חיבור מספר",
+          "addNumberTitle": "חיבור מספר נוסף",
+          "nameLabel": "תווית",
+          "namePlaceholder": "לדוגמה: מכירות, כספים",
+          "agentScopeTitle": "סוכנים במספר הזה",
+          "agentScopeDesc": "בחרו באילו סוכנים המספר הזה עונה. השאירו ריק כדי לחשוף כל סוכן שהמשתמש מורשה אליו.",
+          "agentScopeAll": "חושף כל סוכן שהמשתמש מורשה אליו",
+          "agentScopeCount": "{count} סוכנים נבחרו",
+          "agentScopeNoAgents": "אין סוכנים זמינים",
+          "agentScopeSave": "שמירת סוכנים",
+          "agentScopeSaved": "הסוכנים עודכנו",
+          "connectedUsersTitle": "משתמשים מחוברים",
+          "connectedUsersEmpty": "אף אחד עדיין לא קישר את המספר הזה",
+          "verified": "מאומת",
+          "unverified": "ממתין",
+          "unknownUser": "לא ידוע",
+          "unnamedNumber": "מספר ווצאפ",
+          "cancel": "ביטול",
+          "connectedUsersCount": "{count} אנשים",
+          "usersSearchPlaceholder": "חיפוש לפי שם או מספר",
+          "usersSearchEmpty": "אין משתמשים שתואמים את החיפוש",
+          "webhookSharedNote": "אותה כתובת webhook תקפה לכל המספרים שלך."
         },
         "email": {
           "title": "תיבת דואר של ה-AI",

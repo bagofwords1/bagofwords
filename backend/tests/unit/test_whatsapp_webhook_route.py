@@ -42,8 +42,10 @@ def _install_route_stubs():
     class ExternalPlatformManager:
         last_call = None
 
-        async def handle_incoming_message(self, db, platform_type, org_id, event_data):
-            type(self).last_call = (platform_type, org_id, event_data)
+        async def handle_incoming_message(
+            self, db, platform_type, org_id, event_data, platform_id=None
+        ):
+            type(self).last_call = (platform_type, org_id, event_data, platform_id)
             return {"success": True, "action": "message_processed"}
 
     epm_mod.ExternalPlatformManager = ExternalPlatformManager
@@ -71,7 +73,8 @@ def _install_route_stubs():
     class ExternalPlatform:
         platform_type = "whatsapp"
 
-        def __init__(self, config, credentials, org_id="org-1"):
+        def __init__(self, config, credentials, org_id="org-1", id="plat-1"):
+            self.id = id
             self.platform_config = config
             self._credentials = credentials
             self.organization_id = org_id
@@ -287,9 +290,12 @@ def test_post_valid_text_message_dispatches(client):
     assert r.status_code == 200
     assert r.json()["ok"] is True
     assert ExternalPlatformManager.last_call is not None
-    platform_type, org_id, event = ExternalPlatformManager.last_call
+    platform_type, org_id, event, platform_id = ExternalPlatformManager.last_call
     assert platform_type == "whatsapp"
     assert org_id == "org-1"
+    # The webhook matched the instance by phone_number_id and must hand its id
+    # to dispatch, so routing picks the right number when several are connected.
+    assert platform_id == "plat-1"
     assert event["entry"][0]["changes"][0]["value"]["messages"][0]["text"]["body"] == "hello"
 
 
@@ -345,7 +351,7 @@ def test_post_deduplication(client, monkeypatch):
 
     calls = []
 
-    async def _tracking(self, db, pt, oid, ev):
+    async def _tracking(self, db, pt, oid, ev, platform_id=None):
         calls.append(ev["entry"][0]["changes"][0]["value"]["messages"][0]["id"])
         return {"success": True}
 

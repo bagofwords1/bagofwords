@@ -2224,7 +2224,8 @@
           "announceNewReportLabel": "Сообщать о новых отчётах диалога",
           "announceNewReportDesc": "Когда сообщение создаёт новый отчёт диалога, бот отвечает сообщением «Я начал новый отчёт диалога» со ссылкой. Отключите, чтобы пропустить это сообщение.",
           "announceNewReportEnabled": "Уведомление о новых отчётах включено",
-          "announceNewReportDisabled": "Уведомление о новых отчётах отключено"
+          "announceNewReportDisabled": "Уведомление о новых отчётах отключено",
+          "loading": "Загрузка…"
         },
         "slack": {
           "title": "Интеграция со Slack",
@@ -2318,7 +2319,30 @@
           "disconnectedToast": "WhatsApp отключён",
           "disconnectedToastDesc": "Интеграция с WhatsApp отключена",
           "failedDisconnect": "Не удалось отключить WhatsApp",
-          "sessionStalenessDesc": "Как долго чат продолжается в одном отчёте-разговоре. Сообщения после этого окна начинают новый отчёт (команда \"new\" начинает его сразу). По умолчанию: 24 часа."
+          "sessionStalenessDesc": "Как долго чат продолжается в одном отчёте-разговоре. Сообщения после этого окна начинают новый отчёт (команда \"new\" начинает его сразу). По умолчанию: 24 часа.",
+          "numbersTitle": "Подключённые номера",
+          "addNumber": "Подключить номер",
+          "addNumberTitle": "Подключить ещё номер",
+          "nameLabel": "Метка",
+          "namePlaceholder": "напр. Продажи, Финансы",
+          "agentScopeTitle": "Агенты на этом номере",
+          "agentScopeDesc": "Выберите, какими агентами отвечает этот номер. Оставьте пустым, чтобы были доступны все агенты, к которым у пользователя есть доступ.",
+          "agentScopeAll": "Доступны все агенты, к которым у пользователя есть доступ",
+          "agentScopeCount": "Выбрано агентов: {count}",
+          "agentScopeNoAgents": "Нет доступных агентов",
+          "agentScopeSave": "Сохранить агентов",
+          "agentScopeSaved": "Агенты обновлены",
+          "connectedUsersTitle": "Подключённые пользователи",
+          "connectedUsersEmpty": "Этот номер ещё никто не привязал",
+          "verified": "Подтверждён",
+          "unverified": "Ожидает",
+          "unknownUser": "Неизвестно",
+          "unnamedNumber": "Номер WhatsApp",
+          "cancel": "Отмена",
+          "connectedUsersCount": "{count} чел.",
+          "usersSearchPlaceholder": "Поиск по имени или номеру",
+          "usersSearchEmpty": "Нет пользователей, соответствующих запросу",
+          "webhookSharedNote": "Один и тот же URL webhook применяется ко всем вашим номерам."
         },
         "email": {
           "title": "ИИ-почта",

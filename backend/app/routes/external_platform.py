@@ -18,6 +18,7 @@ from app.schemas.external_platform_schema import (
     WhatsAppConfig,
     EmailConfig,
     GoogleChatConfig,
+    PlatformAgentScope,
 )
 from app.models.external_platform import ExternalPlatform
 from app.ee.audit.service import audit_service
@@ -124,6 +125,44 @@ async def test_integration(
         db, platform_id, organization
     )
 
+@router.get("/settings/integrations/{platform_id}/agents", response_model=PlatformAgentScope)
+@requires_permission('manage_settings', model=ExternalPlatform)
+async def get_integration_agent_scope(
+    platform_id: str,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """List the agents this instance is scoped to (empty = exposes all)."""
+    # Resolve within the org (404 otherwise) before reading the scope.
+    await external_platform_service.get_platform_by_id(db, platform_id, organization)
+    agent_ids = await external_platform_service.get_scope_agent_ids(db, platform_id)
+    return PlatformAgentScope(agent_ids=sorted(agent_ids))
+
+@router.put("/settings/integrations/{platform_id}/agents", response_model=PlatformAgentScope)
+@requires_permission('manage_settings', model=ExternalPlatform)
+async def set_integration_agent_scope(
+    platform_id: str,
+    data: PlatformAgentScope,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Replace the instance's agent scope.
+
+    Only agents belonging to the organization are stored; unknown ids are
+    dropped. An empty list clears the scope (exposes everything the messaging
+    user can access).
+    """
+    platform = await external_platform_service.get_platform_by_id(
+        db, platform_id, organization
+    )
+    valid_ids = await external_platform_service.filter_org_data_source_ids(
+        db, organization.id, data.agent_ids
+    )
+    saved = await external_platform_service.set_scope_agents(db, platform, valid_ids)
+    return PlatformAgentScope(agent_ids=sorted(saved))
+
 @router.post("/settings/integrations/slack", response_model=ExternalPlatformSchema)
 @requires_permission('manage_settings')
 async def create_slack_integration(
@@ -174,6 +213,7 @@ async def create_whatsapp_integration(
         data.app_secret,
         data.verify_token,
         current_user,
+        name=data.name,
     )
     try:
         await audit_service.log(

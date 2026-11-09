@@ -2224,7 +2224,8 @@
           "announceNewReportLabel": "Neue Konversationsberichte ankündigen",
           "announceNewReportDesc": "Wenn eine Nachricht einen neuen Konversationsbericht startet, antwortet der Bot mit einer Nachricht „Ich habe einen neuen Konversationsbericht gestartet“ samt Link. Deaktivieren, um diese Nachricht zu überspringen.",
           "announceNewReportEnabled": "Ankündigung neuer Berichte aktiviert",
-          "announceNewReportDisabled": "Ankündigung neuer Berichte deaktiviert"
+          "announceNewReportDisabled": "Ankündigung neuer Berichte deaktiviert",
+          "loading": "Wird geladen…"
         },
         "slack": {
           "title": "Slack-Integration",
@@ -2318,7 +2319,30 @@
           "disconnectedToast": "WhatsApp getrennt",
           "disconnectedToastDesc": "WhatsApp-Integration getrennt",
           "failedDisconnect": "WhatsApp konnte nicht getrennt werden",
-          "sessionStalenessDesc": "Wie lange ein Chat im selben Konversationsbericht fortgesetzt wird. Nachrichten nach diesem Zeitfenster starten einen neuen Bericht (mit \"new\" sofort). Standard: 24 Stunden."
+          "sessionStalenessDesc": "Wie lange ein Chat im selben Konversationsbericht fortgesetzt wird. Nachrichten nach diesem Zeitfenster starten einen neuen Bericht (mit \"new\" sofort). Standard: 24 Stunden.",
+          "numbersTitle": "Verbundene Nummern",
+          "addNumber": "Nummer verbinden",
+          "addNumberTitle": "Weitere Nummer verbinden",
+          "nameLabel": "Bezeichnung",
+          "namePlaceholder": "z. B. Vertrieb, Finanzen",
+          "agentScopeTitle": "Agenten für diese Nummer",
+          "agentScopeDesc": "Wählen Sie, mit welchen Agenten diese Nummer antwortet. Leer lassen, um alle Agenten verfügbar zu machen, auf die der Benutzer Zugriff hat.",
+          "agentScopeAll": "Stellt alle Agenten bereit, auf die der Benutzer Zugriff hat",
+          "agentScopeCount": "{count} Agenten ausgewählt",
+          "agentScopeNoAgents": "Keine Agenten verfügbar",
+          "agentScopeSave": "Agenten speichern",
+          "agentScopeSaved": "Agenten aktualisiert",
+          "connectedUsersTitle": "Verbundene Benutzer",
+          "connectedUsersEmpty": "Noch niemand hat diese Nummer verknüpft",
+          "verified": "Verifiziert",
+          "unverified": "Ausstehend",
+          "unknownUser": "Unbekannt",
+          "unnamedNumber": "WhatsApp-Nummer",
+          "cancel": "Abbrechen",
+          "connectedUsersCount": "{count} Personen",
+          "usersSearchPlaceholder": "Nach Name oder Nummer suchen",
+          "usersSearchEmpty": "Keine Benutzer entsprechen deiner Suche",
+          "webhookSharedNote": "Dieselbe Webhook-URL gilt für alle deine Nummern."
         },
         "email": {
           "title": "KI-Postfach",

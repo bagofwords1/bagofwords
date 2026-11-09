@@ -2224,7 +2224,8 @@
           "announceNewReportLabel": "Avisera nya konversationsrapporter",
           "announceNewReportDesc": "När ett meddelande startar en ny konversationsrapport svarar boten med meddelandet \"Jag har startat en ny konversationsrapport\" med en länk. Stäng av för att hoppa över meddelandet.",
           "announceNewReportEnabled": "Avisering om nya rapporter aktiverad",
-          "announceNewReportDisabled": "Avisering om nya rapporter inaktiverad"
+          "announceNewReportDisabled": "Avisering om nya rapporter inaktiverad",
+          "loading": "Laddar…"
         },
         "slack": {
           "title": "Slack-integration",
@@ -2318,7 +2319,30 @@
           "disconnectedToast": "WhatsApp frånkopplad",
           "disconnectedToastDesc": "WhatsApp-integrationen frånkopplad",
           "failedDisconnect": "Det gick inte att koppla från WhatsApp",
-          "sessionStalenessDesc": "Hur länge en chatt fortsätter i samma konversationsrapport. Meddelanden efter detta fönster startar en ny rapport (skicka \"new\" för att starta en direkt). Standard: 24 timmar."
+          "sessionStalenessDesc": "Hur länge en chatt fortsätter i samma konversationsrapport. Meddelanden efter detta fönster startar en ny rapport (skicka \"new\" för att starta en direkt). Standard: 24 timmar.",
+          "numbersTitle": "Anslutna nummer",
+          "addNumber": "Anslut ett nummer",
+          "addNumberTitle": "Anslut ett till nummer",
+          "nameLabel": "Etikett",
+          "namePlaceholder": "t.ex. Försäljning, Ekonomi",
+          "agentScopeTitle": "Agenter på detta nummer",
+          "agentScopeDesc": "Välj vilka agenter detta nummer svarar med. Lämna tomt för att exponera alla agenter som användaren har åtkomst till.",
+          "agentScopeAll": "Exponerar alla agenter som användaren har åtkomst till",
+          "agentScopeCount": "{count} agenter valda",
+          "agentScopeNoAgents": "Inga agenter tillgängliga",
+          "agentScopeSave": "Spara agenter",
+          "agentScopeSaved": "Agenter uppdaterade",
+          "connectedUsersTitle": "Anslutna användare",
+          "connectedUsersEmpty": "Ingen har länkat detta nummer ännu",
+          "verified": "Verifierad",
+          "unverified": "Väntar",
+          "unknownUser": "Okänd",
+          "unnamedNumber": "WhatsApp-nummer",
+          "cancel": "Avbryt",
+          "connectedUsersCount": "{count} personer",
+          "usersSearchPlaceholder": "Sök efter namn eller nummer",
+          "usersSearchEmpty": "Inga användare matchar din sökning",
+          "webhookSharedNote": "Samma webhook-URL gäller för alla dina nummer."
         },
         "email": {
           "title": "AI-brevlåda",

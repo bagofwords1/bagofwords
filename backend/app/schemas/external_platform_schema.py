@@ -33,6 +33,16 @@ class ExternalPlatformSchema(ExternalPlatformBase):
     class Config:
         from_attributes = True
 
+
+class PlatformAgentScope(BaseModel):
+    """The set of agents (data sources) a platform instance is scoped to.
+
+    Empty ``agent_ids`` means the instance is not scoped and exposes every
+    agent the messaging user can access on the channel.
+    """
+
+    agent_ids: List[str] = Field(default_factory=list)
+
 class SlackConfig(BaseModel):
     """Slack integration config.
 
@@ -83,6 +93,9 @@ class WhatsAppConfig(BaseModel):
     app_secret: str
     verify_token: str
     webhook_url: Optional[str] = None
+    # Admin-facing label so several numbers are told apart in the UI
+    # (e.g. "Sales", "Finance"). Optional; falls back to the verified name.
+    name: Optional[str] = None
 
 class EmailConfig(BaseModel):
     """Email integration config.
