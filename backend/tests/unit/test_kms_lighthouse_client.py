@@ -835,7 +835,7 @@ def test_debug_logs_never_contain_credentials_or_query(kms, caplog, monkeypatch)
     outside = "outside-" + uuid.uuid4().hex
     with requests.Session() as plain:
         plain.trust_env = False
-        plain.get(f"{kms['base_url']}{mock.PREFIX}/sessionInfo?probe={outside}", timeout=5)
+        plain.get(f"{kms['base_url']}{mock.PREFIX}/sessionInfo/{outside}", timeout=5)
     assert any(r.name.startswith("urllib3") and outside in r.getMessage() for r in caplog.records)
 
 
@@ -938,7 +938,7 @@ def test_urllib3_gate_is_per_thread(kms, caplog):
         assert mock.HELD["arrived"].wait(5)
         with requests.Session() as plain:
             plain.trust_env = False
-            plain.get(f"{kms['base_url']}{mock.PREFIX}/sessionInfo?probe={outside}", timeout=5)
+            plain.get(f"{kms['base_url']}{mock.PREFIX}/sessionInfo/{outside}", timeout=5)
     finally:
         mock.HELD["release"].set()
         worker.join(10)

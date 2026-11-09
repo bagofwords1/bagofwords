@@ -38,6 +38,7 @@ from urllib.parse import unquote, urlsplit
 
 import requests
 import urllib3
+from app.core.egress import pinned_session
 
 from app.data_sources.clients.base import Capability, DataSourceClient, SearchStopped
 from app.data_sources.clients._file_source_common import DocumentText, FileTooLargeError, GlobScopeError
@@ -1918,7 +1919,7 @@ class KmsLighthouseClient(DataSourceClient):
 
     # ------------------------------------------------------------------ auth
     def _new_session(self) -> requests.Session:
-        session = requests.Session()
+        session = pinned_session()
         session.trust_env = False
         session.verify = os.environ.get("REQUESTS_CA_BUNDLE") or True
         session.headers["Accept"] = "application/json"
