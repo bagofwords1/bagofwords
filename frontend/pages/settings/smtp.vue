@@ -164,8 +164,8 @@ const currentUserEmail = computed(() => (authData.value as any)?.email || '')
 // Org-wide "connection down/restored" alert emails. Independent of the SMTP
 // form: own fetch, saves immediately on toggle. Inbox notifications are
 // always on; this only governs the email nudge.
-const connAlertsEmail = ref(true)
-const connAlertsInitial = ref(true)
+const connAlertsEmail = ref(false)
+const connAlertsInitial = ref(false)
 const connAlertsSaving = ref(false)
 
 const form = reactive({
@@ -260,9 +260,9 @@ async function load() {
   try {
     const ca = await useMyFetch('/api/organization/connection-alerts')
     const cav = ca.data.value as any
-    connAlertsEmail.value = cav?.email_enabled ?? true
+    connAlertsEmail.value = cav?.email_enabled ?? false
     connAlertsInitial.value = connAlertsEmail.value
-  } catch { /* leave default (on) */ }
+  } catch { /* leave default (off) */ }
   loaded.value = true
 }
 

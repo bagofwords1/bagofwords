@@ -1309,11 +1309,11 @@ class OrganizationSettingsService:
         """Whether this org sends 'connection is down/back' alert emails.
 
         The in-app inbox notification is always delivered; this governs only
-        the email nudge layered on top. Default on."""
+        the email nudge layered on top. Default off — an admin opts in."""
         from app.services.connection_alerts import EMAIL_ENABLED_KEY
         settings = await self.get_settings(db, organization, current_user)
         raw = (settings.config or {}).get(EMAIL_ENABLED_KEY)
-        return {"email_enabled": True if raw is None else bool(raw)}
+        return {"email_enabled": False if raw is None else bool(raw)}
 
     async def update_connection_alerts(
         self,
