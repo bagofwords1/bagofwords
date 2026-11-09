@@ -85,6 +85,26 @@ def test_summary_never_carries_userinfo_or_secrets():
     assert "hunter2" not in str(summary)
 
 
+@pytest.mark.parametrize("conn_type,config,credential", [
+    ("postgresql", {"host": "db.example.com"}, {"host": "other.example.com"}),
+    ("custom_api", {"base_url": "https://api.example.com"}, {"base_url": "https://other.example.com"}),
+    ("netsuite", {}, {"account_id": "other"}),
+    ("custom_api", {"base_url": "https://api.example.com"}, {"not_a_declared_field": "x"}),
+])
+def test_credential_keys_the_client_uses_as_a_destination_count(conn_type, config, credential):
+    assert destination_view(conn_type, config, {}) != destination_view(conn_type, config, credential)
+
+
+def test_credential_auth_type_counts_as_the_auth_type():
+    config = {"base_url": "https://api.example.com", "auth_type": "bearer"}
+    assert destination_view("custom_api", config, {}) != destination_view("custom_api", config, {"auth_type": "basic"})
+
+
+def test_summary_does_not_carry_undeclared_credential_values():
+    summary = destination_summary("custom_api", {"base_url": "https://api.example.com"}, {"not_a_declared_field": "hunter2"})
+    assert "hunter2" not in str(summary)
+
+
 def test_summary_strips_url_userinfo_and_query():
     summary = destination_summary("custom_api", {"base_url": "https://u:hunter2@api.example.com/v1?token=hunter2"}, {})
     assert "hunter2" not in str(summary)

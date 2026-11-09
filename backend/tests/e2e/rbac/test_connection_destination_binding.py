@@ -239,7 +239,8 @@ def test_save_validation_never_runs_for_a_refused_system_only_change(test_client
     driver.clear()
     r = _put(test_client, world, {"config": {"host": OTHER_HOST, "port": 5432, "database": "warehouse"}}, conn_id=conn["id"])
     _refused(r, CREDENTIALS_NEEDED)
-    assert driver == []
+    # Indexing started by the admin's create may still reach the saved host.
+    assert all(d["host"] == SAVED_HOST for d in driver)
     assert _saved(test_client, world, conn["id"])["config"]["host"] == SAVED_HOST
 
 

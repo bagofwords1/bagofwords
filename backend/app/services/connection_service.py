@@ -693,7 +693,7 @@ class ConnectionService:
         if (
             current_user is not None
             and updates.get("auth_policy") == "system_only"
-            and connection.auth_policy == "user_required"
+            and (connection.auth_policy or "system_only") != "system_only"
             and not await can_use_system_credentials(db, current_user, connection.organization_id)
         ):
             raise AppError.forbidden(

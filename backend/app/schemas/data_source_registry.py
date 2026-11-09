@@ -2860,7 +2860,10 @@ def overlay_system_credentials(connection, user_creds: dict, auth_mode: str) -> 
         base = connection.decrypt_credentials() or {}
     except Exception:
         base = {}
-    layered = {k: v for k, v in user_creds.items() if v is not None and v != ""}
+    # Only the variant's own fields are the user's to contribute: anything else
+    # in the row must not reach the client over the system credentials.
+    declared = REGISTRY[connection.type].credentials_auth.by_auth[auth_mode].schema.model_fields
+    layered = {k: v for k, v in user_creds.items() if k in declared and v is not None and v != ""}
     return {**base, **layered}
 
 

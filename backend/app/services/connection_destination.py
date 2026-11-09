@@ -69,12 +69,13 @@ NON_DESTINATION_CONFIG_KEYS = frozenset({
 }) | RUNTIME_CONFIG_KEYS
 
 # Credential fields that decide where a secret goes rather than what it is.
-CREDENTIAL_DESTINATION_KEYS = ("authorize_url", "token_url", "otds_url", "gateway_token_url", "root_ca")
+CREDENTIAL_DESTINATION_KEYS = ("authorize_url", "token_url", "otds_url", "gateway_token_url", "root_ca", "account_id")
 
 # Values interpolated into a connection string: a delimiter here can move the
 # connection without touching a host field.
 _CONNECTION_STRING_FIELDS = (
     "database", "schema", "catalog", "service_name", "role", "warehouse", "olap_database", "dataset",
+    "auth_source", "share", "bucket",
 )
 _IDENTITY_FIELDS = ("user", "username")
 _CONNECTION_STRING_DELIMITERS = re.compile(r"[/?#@:;&=\\%]")
@@ -92,7 +93,7 @@ _SECRET_NAME = re.compile(
 _NOT_SECRET_NAMES = frozenset({"root_ca", "certificate", "client_cert", "api_key_header"})
 
 # Variants that use the server's own identity, so there is no secret to re-enter.
-_AMBIENT_VARIANTS = frozenset({"default", "aws_default", "aws_role", "managed_identity", "kerberos"})
+_AMBIENT_VARIANTS = frozenset({"default", "aws_default", "aws_role", "arn", "managed_identity", "kerberos", "kerberos_delegated"})
 
 
 def _as_dict(value: Any) -> dict:
@@ -112,10 +113,39 @@ def _entry(conn_type: Optional[str]):
     return REGISTRY.get(conn_type or "")
 
 
-def effective_auth_type(conn_type: Optional[str], config: Any) -> Optional[str]:
+def effective_auth_type(conn_type: Optional[str], config: Any, credentials: Any = None) -> Optional[str]:
+    """The auth variant in effect. A credential ``auth_type`` wins when it names a variant."""
     entry = _entry(conn_type)
+    by_auth = entry.credentials_auth.by_auth if entry else {}
+    credential_auth = _as_dict(credentials).get("auth_type")
+    if credential_auth in by_auth:
+        return credential_auth
     default = entry.credentials_auth.default if entry else None
     return _as_dict(config).get("auth_type") or default
+
+
+def _client_config(conn_type: Optional[str], config: dict, credentials: dict) -> dict:
+    """``config`` as the client receives it: credentials overlaid on the config fields they name."""
+    entry = _entry(conn_type)
+    fields = entry.config_schema.model_fields if entry else {}
+    merged = dict(config)
+    for key, value in credentials.items():
+        if value is not None and (key == "auth_type" or key in fields):
+            merged[key] = value
+    return merged
+
+
+def _declared_credential_keys(conn_type: Optional[str]) -> set[str]:
+    entry = _entry(conn_type)
+    keys: set[str] = set()
+    if entry:
+        for variant in entry.credentials_auth.by_auth.values():
+            keys.update(variant.schema.model_fields)
+    return keys
+
+
+def _names_a_location(value: Any) -> bool:
+    return isinstance(value, str) and ("://" in value or value.strip().startswith("//"))
 
 
 def _schema_default(entry, key: str) -> Any:
@@ -187,9 +217,10 @@ def _off_host_values(config: dict) -> list[str]:
 
 
 def destination_view(conn_type: Optional[str], config: Any, credentials: Any = None) -> dict:
-    """The normalized fields that decide where a connection's credentials go."""
-    config = _as_dict(config)
+    """The normalized fields that decide where a connection's credentials go,
+    compared on what the client actually receives."""
     credentials = _as_dict(credentials)
+    config = _client_config(conn_type, _as_dict(config), credentials)
     entry = _entry(conn_type)
     view: dict[str, Any] = {}
     keys = set(config) | (set(entry.config_schema.model_fields) if entry else set())
@@ -200,7 +231,9 @@ def destination_view(conn_type: Optional[str], config: Any, credentials: Any = N
         if value is None:
             value = _schema_default(entry, key)
         if key in NON_DESTINATION_CONFIG_KEYS:
-            if key in _CONNECTION_STRING_FIELDS and isinstance(value, str) and _CONNECTION_STRING_DELIMITERS.search(value):
+            if _names_a_location(value):
+                view[f"scope:{key}"] = _normalize(key, value)
+            elif key in _CONNECTION_STRING_FIELDS and isinstance(value, str) and _CONNECTION_STRING_DELIMITERS.search(value):
                 view[f"scope:{key}"] = value.strip()
             continue
         normalized = _normalize(key, value)
@@ -220,6 +253,12 @@ def destination_view(conn_type: Optional[str], config: Any, credentials: Any = N
         value = credentials.get(key)
         if isinstance(value, str) and _CONNECTION_STRING_DELIMITERS.search(value):
             view[f"identity:{key}"] = value
+    if entry:
+        declared = _declared_credential_keys(conn_type) | set(entry.config_schema.model_fields) | {"auth_type"}
+        for key, value in credentials.items():
+            # A client takes any constructor argument, so an undeclared key may be one.
+            if key not in declared and not _blank(value):
+                view[f"undeclared:{key}"] = _normalize(key, value)
     return view
 
 
@@ -241,11 +280,11 @@ def _sanitize_for_audit(value: Any) -> Any:
 
 def destination_summary(conn_type: Optional[str], config: Any, credentials: Any = None) -> dict:
     """The destination in a form safe for an audit row: no secrets, no userinfo."""
-    config = _as_dict(config)
     credentials = _as_dict(credentials)
+    config = _client_config(conn_type, _as_dict(config), credentials)
     summary: dict[str, Any] = {}
     for key, value in destination_view(conn_type, config, credentials).items():
-        if key.startswith(("scope:", "identity:")) or key == "off_host":
+        if key.startswith(("scope:", "identity:", "undeclared:")) or key == "off_host":
             continue
         name = key.split(":", 1)[1] if key.startswith("credential:") else key
         raw = credentials.get(name) if key.startswith("credential:") else config.get(name, value)
@@ -309,15 +348,18 @@ def _saved_credentials(connection: Connection) -> Optional[dict]:
         return None
 
 
+def _merged_credentials(saved: dict, request_credentials: Any) -> dict:
+    """Blank values keep the saved ones, the same merge a test or a save performs."""
+    return {
+        **saved,
+        **{k: v for k, v in _as_dict(request_credentials).items() if v is not None and v != ""},
+    }
+
+
 def destination_changed(connection: Connection, effective_config: Any, request_credentials: Any) -> bool:
     saved_credentials = _saved_credentials(connection) or {}
-    request_credentials = _as_dict(request_credentials)
-    merged_credentials = {
-        **saved_credentials,
-        **{k: v for k, v in request_credentials.items() if v is not None and v != ""},
-    }
     return destination_view(connection.type, connection.config, saved_credentials) != destination_view(
-        connection.type, effective_config, merged_credentials
+        connection.type, effective_config, _merged_credentials(saved_credentials, request_credentials)
     )
 
 
@@ -375,24 +417,31 @@ async def require_destination_binding(
         raise _admin_required("Members have saved logins for this connection, so only an organization admin can change its destination.")
 
     request_credentials = _as_dict(request_credentials)
-    saved_auth = effective_auth_type(connection.type, connection.config)
+    saved_auth = effective_auth_type(connection.type, connection.config, saved)
     if not _stores_secret(connection.type, saved) and saved_auth not in _AMBIENT_VARIANTS:
         return
 
-    new_auth = effective_auth_type(connection.type, effective_config)
-    if new_auth == "none":
-        return
+    new_auth = effective_auth_type(
+        connection.type, effective_config, _merged_credentials(saved, request_credentials)
+    )
     variant = _variant(connection.type, new_auth)
-    if variant is None or new_auth in _AMBIENT_VARIANTS:
+    new_secrets = secret_field_names(connection.type, new_auth)
+    # A variant with no secret to enter still hands the client whatever is stored.
+    if variant is None or new_auth in _AMBIENT_VARIANTS or not new_secrets:
         raise _admin_required("Only an organization admin can change this connection's destination.")
     fields = variant.schema.model_fields
-    required = [
-        name for name in secret_field_names(connection.type, new_auth)
-        if fields[name].is_required() or not _blank(saved.get(name))
-    ]
+    # Clients prefer whichever credential they find, so a stored secret from
+    # another variant must be replaced too, not left behind.
+    secret_keys = _stored_secret_keys(connection.type)
+    required = {name for name in new_secrets if fields[name].is_required()} | {
+        key for key, value in saved.items()
+        if not _blank(value) and (key in secret_keys or _is_secret_field(key))
+    }
     if not required:
         raise _admin_required("Only an organization admin can change this connection's destination.")
-    missing = [name for name in required if _blank(request_credentials.get(name))]
+    missing = sorted(name for name in required if _blank(request_credentials.get(name)))
+    if any(name not in fields for name in missing):
+        raise _admin_required("Only an organization admin can change this connection's destination.")
     if missing:
         raise AppError.forbidden(
             ErrorCode.CONNECTION_CREDENTIALS_REQUIRED,
@@ -409,6 +458,13 @@ def audit_snapshot(connection: Connection) -> dict:
     }
 
 
+def _encoded_forms(value: str) -> set[str]:
+    raw = value.encode()
+    padded = base64.b64encode(raw).decode()
+    urlsafe = base64.urlsafe_b64encode(raw).decode()
+    return {padded, padded.rstrip("="), urlsafe, urlsafe.rstrip("="), raw.hex()}
+
+
 def scrub_stored_secrets(text: Any, credentials: Any, conn_type: Optional[str]) -> Any:
     """Remove credential values, in the forms a server would echo, from ``text``."""
     credentials = _as_dict(credentials)
@@ -423,12 +479,12 @@ def scrub_stored_secrets(text: Any, credentials: Any, conn_type: Optional[str]) 
         return text
     variants: set[str] = set()
     for value in secrets:
-        encoded = base64.b64encode(value.encode()).decode()
-        variants.update({value, encoded, quote(value, safe=""), json.dumps(value)[1:-1]})
+        variants.update({value, quote(value, safe=""), quote(value), json.dumps(value)[1:-1]})
+        variants.update(_encoded_forms(value))
     username = credentials.get("username") or credentials.get("user")
     if isinstance(username, str):
         for value in secrets:
-            variants.add(base64.b64encode(f"{username}:{value}".encode()).decode())
+            variants.update(_encoded_forms(f"{username}:{value}"))
     for variant in sorted(variants, key=len, reverse=True):
         text = text.replace(variant, "***")
     return text

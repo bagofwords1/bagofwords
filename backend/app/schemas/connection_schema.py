@@ -12,6 +12,14 @@ from app.schemas.base import UTCDatetime
 MAX_QUERY_TIMEOUT_SECONDS = 3600
 MAX_CONCURRENT_QUERIES = 100
 
+AUTH_POLICIES = ("system_only", "user_required")
+
+
+def validate_auth_policy(value: Optional[str]) -> Optional[str]:
+    if value is not None and value not in AUTH_POLICIES:
+        raise ValueError(f"auth_policy must be one of {AUTH_POLICIES}")
+    return value
+
 
 class ConnectionCreate(BaseModel):
     """Schema for creating a new database connection."""
@@ -23,6 +31,8 @@ class ConnectionCreate(BaseModel):
     allowed_user_auth_modes: Optional[list] = None
     # member_mapped per-user auth: {credential_field: member_attribute_key}
     member_bindings: Optional[Dict[str, str]] = None
+
+    _check_auth_policy = validator("auth_policy", allow_reuse=True)(validate_auth_policy)
 
 
 class ConnectionUpdate(BaseModel):
@@ -55,6 +65,8 @@ class ConnectionUpdate(BaseModel):
     # Per-connection on/off switch for down/restored alert emails, gated under
     # the org toggle (effective = org AND this).
     alert_emails_enabled: Optional[bool] = None
+
+    _check_auth_policy = validator("auth_policy", allow_reuse=True)(validate_auth_policy)
 
     @validator("query_timeout_seconds")
     def _validate_query_timeout(cls, v):

@@ -80,6 +80,7 @@ from datetime import datetime
 import json
 from app.schemas.git_repository_schema import GitRepositorySchema
 from app.schemas.base import OptionalUTCDatetime, UTCDatetime
+from app.schemas.connection_schema import validate_auth_policy
 
 
 class DataSourceMembershipSchema(BaseModel):
@@ -400,6 +401,7 @@ class DataSourceCreate(DataSourceBase):
     config: Optional[dict] = None  # Connection config, will be validated based on the type
     credentials: Optional[dict] = None  # Will be validated based on the data source type
     auth_policy: str = "system_only"
+    _check_auth_policy = validator("auth_policy", allow_reuse=True)(validate_auth_policy)
     allowed_user_auth_modes: Optional[List[str]] = None
     # member_mapped per-user auth: {credential_field: member_attribute_key}
     member_bindings: Optional[Dict[str, str]] = None
@@ -530,6 +532,7 @@ class DataSourceUpdate(DataSourceBase):
     config: Optional[dict] = None
     credentials: Optional[dict] = None
     auth_policy: Optional[str] = None
+    _check_auth_policy = validator("auth_policy", allow_reuse=True)(validate_auth_policy)
 
     class Config:
         from_attributes = True

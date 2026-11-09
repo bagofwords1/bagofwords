@@ -412,6 +412,9 @@ class UserDataSourceCredentialsService:
             validated = schema_cls(**(payload.credentials or {}))
             if ds_type.lower() in ("mssql", "neo4j"):
                 payload.credentials = validated.model_dump()
+            else:
+                # Keep only the variant's declared fields, not the raw payload.
+                payload.credentials = validated.model_dump(exclude_unset=True)
         except Exception as e:
             raise HTTPException(status_code=422, detail=f"Invalid credentials: {redact_error(e)}")
 
@@ -509,11 +512,11 @@ class UserDataSourceCredentialsService:
             # Validate new credentials
             schema_cls = variant.schema
             try:
-                schema_cls(**(payload.credentials or {}))
+                validated = schema_cls(**(payload.credentials or {}))
             except Exception as e:
                 raise HTTPException(status_code=422, detail=f"Invalid credentials: {redact_error(e)}")
             row.auth_mode = payload.auth_mode
-            row.encrypt_credentials(payload.credentials or {})
+            row.encrypt_credentials(validated.model_dump(exclude_unset=True))
 
         if payload.credentials and not payload.auth_mode:
             # Validate against current auth_mode
@@ -523,10 +526,10 @@ class UserDataSourceCredentialsService:
             if schema_cls is None:
                 raise HTTPException(status_code=400, detail="Cannot validate credentials for current auth_mode")
             try:
-                schema_cls(**payload.credentials)
+                validated = schema_cls(**payload.credentials)
             except Exception as e:
                 raise HTTPException(status_code=422, detail=f"Invalid credentials: {redact_error(e)}")
-            row.encrypt_credentials(payload.credentials)
+            row.encrypt_credentials(validated.model_dump(exclude_unset=True))
 
         if payload.is_active is not None:
             row.is_active = bool(payload.is_active)
