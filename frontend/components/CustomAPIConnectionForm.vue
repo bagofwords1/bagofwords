@@ -344,6 +344,7 @@
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
+import { catalogMessage } from '~/composables/useErrorMessage'
 
 const props = defineProps<{
   editConnection?: any
@@ -366,7 +367,7 @@ const emit = defineEmits<{
   (e: 'cancel'): void
 }>()
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const selectedExisting = ref<any>(null)
 const existingConnections = computed(() => props.existingConnections || [])
 const existingConnectionOptions = computed(() =>
@@ -723,7 +724,8 @@ const submitError = ref<string | null>(null)
 // Extract a human-readable message from a useMyFetch error (FetchError) or a
 // thrown exception. `detail` is what FastAPI returns for HTTPException.
 function errorMessage(err: any, fallback: string): string {
-  return err?.data?.detail || err?.message || fallback
+  const payload = err?.data ?? err?.response?._data ?? {}
+  return (payload.error_code ? catalogMessage(payload, t, te) : null) || payload.detail || err?.message || fallback
 }
 
 // Clear the inline submit error — and any stale test result — as soon as the

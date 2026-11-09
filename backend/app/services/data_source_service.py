@@ -3457,6 +3457,10 @@ class DataSourceService:
                     status_code=403,
                     detail="You don't have permission to modify this connection",
                 )
+            from app.services.connection_service import ConnectionService
+            conn_svc = ConnectionService()
+            connection_row = await conn_svc.get_connection(db, str(data_source_db.connections[0].id), organization)
+            await conn_svc.enforce_update_authority(db, connection_row, current_user, connection_updates)
 
         # Handle membership updates
         newly_added_member_ids: List[str] = []

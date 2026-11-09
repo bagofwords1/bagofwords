@@ -67,6 +67,10 @@ class ErrorCode(str, Enum):
     CONVERSATION_LIMIT = "conversation.limit"
     CONVERSATION_NO_AGENTS = "conversation.no_agents"
 
+    # Connections
+    CONNECTION_CREDENTIALS_REQUIRED = "connection.credentials_required"
+    CONNECTION_ADMIN_REQUIRED = "connection.admin_required"
+
     # Licensing / features
     FEATURE_LOCKED = "feature.locked"
     ENTERPRISE_REQUIRED = "license.enterprise_required"

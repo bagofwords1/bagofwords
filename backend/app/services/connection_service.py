@@ -3,6 +3,7 @@ Connection Service - Handles connection-level operations.
 Extracted from DataSourceService for the domain-connection architecture.
 """
 from app.errors import AppError
+from app.services.connection_destination import audit_snapshot, require_destination_binding, scrub_stored_secrets
 import os
 import asyncio
 import importlib
@@ -681,6 +682,30 @@ class ConnectionService:
         )
         return result.scalars().all()
 
+    async def enforce_update_authority(
+        self, db: AsyncSession, connection: Connection, current_user: User, updates: dict
+    ) -> None:
+        """Runs before any write or credential use: a changed destination needs the
+        secret re-entered or an org admin, and turning off per-user auth needs an admin."""
+        from app.errors import ErrorCode
+        from app.services.connection_identity import can_use_system_credentials
+
+        if (
+            current_user is not None
+            and updates.get("auth_policy") == "system_only"
+            and connection.auth_policy == "user_required"
+            and not await can_use_system_credentials(db, current_user, connection.organization_id)
+        ):
+            raise AppError.forbidden(
+                ErrorCode.CONNECTION_ADMIN_REQUIRED, "Only an organization admin can turn off per-user sign-in."
+            )
+        await require_destination_binding(
+            db, connection, current_user,
+            effective_config=updates["config"] if "config" in updates else connection.config,
+            request_credentials=updates.get("credentials"),
+            member_logins_bind=True,
+        )
+
     async def update_connection(
         self,
         db: AsyncSession,
@@ -693,6 +718,8 @@ class ConnectionService:
         _reject_unsafe_oauth_urls(updates.get("config"), updates.get("credentials"))
         _reject_unsafe_google_keys(updates.get("credentials"))
         connection = await self.get_connection(db, connection_id, organization)
+        await self.enforce_update_authority(db, connection, current_user, updates)
+        before_audit = audit_snapshot(connection)
 
         # Check enterprise license if switching to user_required auth policy
         new_auth_policy = updates.get("auth_policy")
@@ -906,6 +933,7 @@ class ConnectionService:
 
             # Audit log
             try:
+                after_audit = audit_snapshot(connection)
                 await audit_service.log(
                     db=db,
                     organization_id=str(organization.id),
@@ -913,7 +941,12 @@ class ConnectionService:
                     user_id=str(current_user.id),
                     resource_type="connection",
                     resource_id=str(connection_id),
-                    details={"name": connection.name},
+                    details={
+                        "name": connection.name,
+                        "before": before_audit,
+                        "after": after_audit,
+                        "destination_changed": before_audit["destination"] != after_audit["destination"],
+                    },
                 )
             except Exception:
                 pass
@@ -1102,10 +1135,11 @@ class ConnectionService:
             preview = data if isinstance(data, str) else json.dumps(
                 data, ensure_ascii=False, default=str, indent=2
             )
-            preview = preview or ""
+            # A server may echo the request back; a test never returns the credentials it used.
+            preview = scrub_stored_secrets(preview or "", credentials, data_source_type)
             return {
                 "success": bool(result.get("success")),
-                "error": result.get("error"),
+                "error": scrub_stored_secrets(result.get("error"), credentials, data_source_type),
                 "content_type": result.get("content_type"),
                 "data_preview": preview[:4000],
                 "truncated": len(preview) > 4000,
@@ -1115,7 +1149,7 @@ class ConnectionService:
         except Exception as e:
             return {
                 "success": False,
-                "error": str(e),
+                "error": scrub_stored_secrets(str(e), credentials, data_source_type),
                 "content_type": "text",
                 "data_preview": "",
                 "truncated": False,

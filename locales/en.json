@@ -4562,6 +4562,8 @@
     "organization.required": "Organization ID header missing",
     "api_key.invalid": "Invalid or expired API key",
     "mcp.disabled": "MCP integration is not enabled for this organization",
+    "connection.credentials_required": "You changed where this connection points. Enter its credentials again to test or save this change.",
+    "connection.admin_required": "Only an organization admin can make this change to the connection.",
     "mcp.dynamic_params_invalid": "Dynamic params must be a JSON object of at most 8 KB, with non-empty keys.",
     "feature.locked": "Feature cannot be modified",
     "license.enterprise_required": "This feature requires an enterprise license.",

@@ -4500,6 +4500,8 @@
     "organization.required": "חסרה כותרת מזהה הארגון",
     "api_key.invalid": "מפתח API לא תקף או שפג תוקפו",
     "mcp.disabled": "אינטגרציית MCP אינה מופעלת בארגון זה",
+    "connection.credentials_required": "שינית את היעד של החיבור הזה. יש להזין שוב את פרטי ההתחברות כדי לבדוק או לשמור את השינוי.",
+    "connection.admin_required": "רק מנהל הארגון יכול לבצע את השינוי הזה בחיבור.",
     "mcp.dynamic_params_invalid": "פרמטרים דינמיים חייבים להיות אובייקט JSON בגודל של עד 8KB, עם מפתחות לא ריקים.",
     "feature.locked": "לא ניתן לשנות תכונה זו",
     "license.enterprise_required": "התכונה דורשת רישיון ארגוני.",

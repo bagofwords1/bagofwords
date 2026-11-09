@@ -61,6 +61,12 @@ from app.schemas.custom_query_schema import (
 from app.services.custom_query_service import custom_query_service, is_accelerable_type
 from app.services.table_preview_service import table_preview_service, is_previewable_table
 from app.errors import AppError, ErrorCode
+from app.services.connection_destination import (
+    destination_changed,
+    destination_summary,
+    merge_config_overrides,
+    require_destination_binding,
+)
 from app.services.member_attributes import require_attribute_admin
 from app.services.member_identity import (
     member_mapped,
@@ -749,25 +755,38 @@ async def test_connection_tool(
     saved connection it needs ``manage_connection`` on THAT connection, since it
     runs with the connection's stored credentials."""
     import json as _json
+    connection = None
     if data.connection_id:
         await check_resource_permissions(
             db, str(current_user.id), str(organization.id),
             "connection", [str(data.connection_id)], "manage_connection",
         )
+        connection = await connection_service.get_connection(db, data.connection_id, organization)
+        if data.type != connection.type:
+            raise AppError.bad_request(ErrorCode.VALIDATION, "type does not match the saved connection")
     else:
         await require_org_permission(
             db, str(current_user.id), str(organization.id), "create_connections",
         )
     config = data.config or {}
     credentials = data.credentials or {}
-    if data.connection_id and not credentials:
+    used_stored = False
+    if connection is not None and not credentials:
         # Edit mode: the form doesn't hold the saved secret, so merge the
         # stored connection underneath what the form sent.
-        connection = await connection_service.get_connection(db, data.connection_id, organization)
         stored_config = connection.config
         if isinstance(stored_config, str):
             stored_config = _json.loads(stored_config or "{}")
         config = {**(stored_config or {}), **config}
+        used_stored = True
+        try:
+            await require_destination_binding(db, connection, current_user, effective_config=config)
+        except AppError as exc:
+            await _audit_connection_probe(
+                db, organization, current_user, "connection.tool_tested", connection, config, credentials,
+                used_stored=True, outcome="denied", failure_reason=exc.error_code, tool_name=data.tool_name,
+            )
+            raise
         if connection.credentials:
             credentials = connection.decrypt_credentials()
     result = await connection_service.test_tool_params(
@@ -777,7 +796,38 @@ async def test_connection_tool(
         tool_name=data.tool_name,
         arguments=data.arguments,
     )
+    await _audit_connection_probe(
+        db, organization, current_user, "connection.tool_tested", connection, config, credentials,
+        used_stored=used_stored, outcome="success" if result.get("success") else "failure",
+        tool_name=data.tool_name, conn_type=data.type,
+    )
     return result
+
+
+async def _audit_connection_probe(
+    db: AsyncSession, organization: Organization, current_user: User, action: str, connection,
+    effective_config, request_credentials, *, used_stored: bool, outcome: str,
+    failure_reason: Optional[str] = None, tool_name: Optional[str] = None, conn_type: Optional[str] = None,
+) -> None:
+    """Who probed which destination with which kind of credential. Details carry no secrets."""
+    resolved_type = conn_type or (connection.type if connection is not None else None)
+    details: dict = {
+        "connection_name": connection.name if connection is not None else None,
+        "destination": destination_summary(resolved_type, effective_config, request_credentials),
+        "used_stored_credentials": used_stored,
+    }
+    if connection is not None:
+        details["destination_changed"] = destination_changed(connection, effective_config, request_credentials)
+    if tool_name:
+        details["tool_name"] = tool_name
+    try:
+        await audit_service.log(
+            db=db, organization_id=str(organization.id), action=action, user_id=str(current_user.id),
+            resource_type="connection", resource_id=str(connection.id) if connection is not None else None,
+            details=details, outcome=outcome, failure_reason=failure_reason,
+        )
+    except Exception:
+        pass
 
 
 @router.post("/{connection_id}/test", response_model=ConnectionTestResult)
@@ -792,15 +842,33 @@ async def test_connection(
     """Test management credentials independently of the caller's query identity."""
     from app.services.connection_identity import management_requires_user_auth
     connection = await connection_service.get_connection(db, connection_id, organization)
+    config_overrides = overrides.config if overrides else None
+    credential_overrides = overrides.credentials if overrides else None
+    effective_config = merge_config_overrides(connection.config, config_overrides)
+    used_stored = not credential_overrides
+    try:
+        await require_destination_binding(
+            db, connection, current_user, effective_config=effective_config, request_credentials=credential_overrides,
+        )
+    except AppError as exc:
+        await _audit_connection_probe(
+            db, organization, current_user, "connection.tested", connection, effective_config, credential_overrides,
+            used_stored=used_stored, outcome="denied", failure_reason=exc.error_code,
+        )
+        raise
     result = await connection_service.test_connection(
         db=db,
         connection_id=connection_id,
         organization=organization,
-        current_user=current_user if management_requires_user_auth(connection, overrides.config if overrides else None) else None,
-        config_overrides=overrides.config if overrides else None,
-        credential_overrides=overrides.credentials if overrides else None,
+        current_user=current_user if management_requires_user_auth(connection, config_overrides) else None,
+        config_overrides=config_overrides,
+        credential_overrides=credential_overrides,
     )
-    
+    await _audit_connection_probe(
+        db, organization, current_user, "connection.tested", connection, effective_config, credential_overrides,
+        used_stored=used_stored, outcome="success" if result.get("success") else "failure",
+    )
+
     return ConnectionTestResult(
         success=result.get("success", False),
         message=result.get("message", ""),

@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.613 (November 9, 2026)
+- Changed saved connections so a changed destination requires re-entering credentials or an org admin, and turning off per-user auth requires an admin
+
 ## Version 0.0.612 (November 8, 2026)
 - Added F5 BIG-IP as a data source: virtual servers, pools, pool members and stats, nodes, iRules, SSL certificates, HA failover and sync state (#1634)
 - Added Check Point Management as a data source: hosts, networks, groups, services, access and NAT rulebases, gateways, sessions, traffic and audit logs — API key or username/password (#1634)

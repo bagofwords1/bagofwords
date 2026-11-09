@@ -4145,6 +4145,8 @@
     "organization.required": "En-tête d'ID d'organisation manquant",
     "api_key.invalid": "Clé API invalide ou expirée",
     "mcp.disabled": "L'intégration MCP n'est pas activée pour cette organisation",
+    "connection.credentials_required": "Vous avez modifié la destination de cette connexion. Saisissez à nouveau ses identifiants pour tester ou enregistrer ce changement.",
+    "connection.admin_required": "Seul un administrateur de l'organisation peut effectuer cette modification de la connexion.",
     "mcp.dynamic_params_invalid": "Les paramètres dynamiques doivent être un objet JSON de 8 Ko maximum, sans clé vide.",
     "feature.locked": "Cette fonctionnalité ne peut pas être modifiée",
     "license.enterprise_required": "Cette fonctionnalité nécessite une licence enterprise.",

@@ -4145,6 +4145,8 @@
     "organization.required": "ترويسة معرّف المؤسسة مفقودة",
     "api_key.invalid": "مفتاح API غير صالح أو منتهي الصلاحية",
     "mcp.disabled": "تكامل MCP غير مفعّل لهذه المؤسسة",
+    "connection.credentials_required": "لقد غيّرت وجهة هذا الاتصال. أدخل بيانات الاعتماد مرة أخرى لاختبار هذا التغيير أو حفظه.",
+    "connection.admin_required": "لا يمكن إلا لمسؤول المؤسسة إجراء هذا التغيير على الاتصال.",
     "mcp.dynamic_params_invalid": "يجب أن تكون المعلمات الديناميكية كائن JSON بحجم 8 كيلوبايت كحد أقصى، دون مفاتيح فارغة.",
     "feature.locked": "لا يمكن تعديل هذه الميزة",
     "license.enterprise_required": "تتطلب هذه الميزة ترخيص enterprise.",
