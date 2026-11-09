@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div :style="{ '--sidebar-w': sidebarWidth + 'px' }">
     <!-- Fixed global onboarding banner shown above everything.
          Desktop-only: on mobile it clutters the top and steals height from
          full-height views (the report chat prompt box gets clipped). -->
@@ -57,13 +57,37 @@
   <aside id="separator-sidebar"
     ref="sidebarEl"
     :class="[
-      'fixed start-0 z-50 sm:z-40 bg-gray-50 dark:bg-gray-950 transition-transform duration-300 sm:transition-all sm:translate-x-0 sm:rtl:translate-x-0 border-e border-gray-200/80 dark:border-gray-800',
+      'fixed start-0 z-50 sm:z-40 bg-gray-50 dark:bg-gray-950 transition-transform duration-300 sm:translate-x-0 sm:rtl:translate-x-0 border-e border-gray-200/80 dark:border-gray-800',
+      isResizingSidebar ? '' : 'sm:transition-all',
       mobileOpen ? 'translate-x-0 rtl:translate-x-0' : '-translate-x-full rtl:translate-x-full',
-      isCollapsed ? 'sm:w-14' : 'sm:w-60',
+      isCollapsed ? 'sm:w-14' : 'sidebar-resizable',
       mobileOpen ? 'w-72' : 'w-60',
       showTopBanner ? 'top-0 sm:top-10 bottom-0' : 'top-0 bottom-0'
     ]"
     aria-label="Sidebar">
+    <!-- Drag-to-resize handle, on the sidebar's inner (border-e) edge. Logical
+         `end-0` puts it on the right in LTR and the left in RTL automatically;
+         the drag math flips with the locale in onHandlePointerDown. Desktop and
+         expanded only — collapsed is a fixed icon rail, mobile is a drawer. -->
+    <div
+      v-if="!isCollapsed && !mobileOpen"
+      class="sidebar-resize-handle no-press hidden sm:block absolute top-0 end-0 h-full w-1.5 -me-0.5 z-50 cursor-col-resize group"
+      role="separator"
+      aria-orientation="vertical"
+      tabindex="0"
+      :aria-label="$t('nav.resizeSidebar')"
+      :aria-valuenow="sidebarWidth"
+      :aria-valuemin="SIDEBAR_MIN_WIDTH"
+      :aria-valuemax="SIDEBAR_MAX_WIDTH"
+      @pointerdown="onHandlePointerDown"
+      @keydown="onHandleKeydown"
+      @dblclick="resetSidebarWidth"
+    >
+      <span
+        class="absolute top-0 end-0 h-full w-px bg-transparent group-hover:bg-blue-400/70 dark:group-hover:bg-blue-500/70 group-focus-visible:bg-blue-500 transition-colors"
+        :class="isResizingSidebar ? '!bg-blue-500' : ''"
+      ></span>
+    </div>
     <button v-if="isCollapsed" @click="toggleSidebar"
           class="flex items-center justify-center w-full px-2 py-2 -mb-4 rounded-lg bg-gray-50 dark:bg-gray-950 text-gray-700 dark:text-gray-300 hover:text-blue-500 transition-colors">
             <UTooltip :text="$t('nav.expandSidebar')" :popper="{ placement: tooltipPlacement }">
@@ -546,7 +570,7 @@
 
   </aside>
 
-  <div :class="['min-h-dvh transition-all duration-300', isCollapsed ? 'sm:ms-14' : 'sm:ms-60', contentPadClass]">
+  <div :class="['min-h-dvh', isResizingSidebar ? '' : 'transition-all duration-300', isCollapsed ? 'sm:ms-14' : 'content-offset-resizable', contentPadClass]">
     <UNotifications />
 
     <slot />
@@ -973,9 +997,60 @@
   // "effective" computeds, which force expanded while the mobile drawer is open.
   // On desktop mobileOpen is always false, so they equal the raw values and the
   // desktop rendering is unchanged.
-  const { isCollapsed: rawCollapsed, showText: rawShowText, toggle: toggleSidebar, mobileOpen, openMobile, closeMobile } = useSidebar()
+  const {
+    isCollapsed: rawCollapsed, showText: rawShowText, toggle: toggleSidebar,
+    mobileOpen, openMobile, closeMobile,
+    width: sidebarWidth, isResizing: isResizingSidebar,
+    loadWidth: loadSidebarWidth, setWidth: setSidebarWidth,
+    saveWidth: saveSidebarWidth, resetWidth: resetSidebarWidth
+  } = useSidebar()
   const isCollapsed = computed(() => mobileOpen.value ? false : rawCollapsed.value)
   const showText = computed(() => mobileOpen.value ? true : rawShowText.value)
+
+  // Restore the saved desktop width on the client (SSR rendered the default).
+  onMounted(() => loadSidebarWidth())
+
+  // Drag-to-resize the sidebar. Pointer events with capture so the drag keeps
+  // tracking even when the pointer leaves the thin handle; body user-select is
+  // suppressed so dragging doesn't select text. In RTL the sidebar sits on the
+  // right, so a rightward drag should shrink it — hence delta = -dx.
+  const onHandlePointerDown = (e: PointerEvent) => {
+    if (isCollapsed.value || mobileOpen.value) return
+    e.preventDefault()
+    const handle = e.currentTarget as HTMLElement
+    const startX = e.clientX
+    const startW = sidebarWidth.value
+    const rtl = typeof document !== 'undefined' && document.documentElement.dir === 'rtl'
+    isResizingSidebar.value = true
+    try { handle.setPointerCapture(e.pointerId) } catch {}
+    document.body.style.userSelect = 'none'
+
+    const onMove = (ev: PointerEvent) => {
+      const dx = ev.clientX - startX
+      setSidebarWidth(startW + (rtl ? -dx : dx))
+    }
+    const onUp = () => {
+      isResizingSidebar.value = false
+      document.body.style.userSelect = ''
+      try { handle.releasePointerCapture(e.pointerId) } catch {}
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      saveSidebarWidth()
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
+  // Arrow keys nudge the width (Shift = bigger step). Flipped in RTL so that
+  // "left" always means "toward the screen edge the sidebar hugs".
+  const onHandleKeydown = (e: KeyboardEvent) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+    e.preventDefault()
+    const rtl = typeof document !== 'undefined' && document.documentElement.dir === 'rtl'
+    const step = (e.shiftKey ? 24 : 8) * (e.key === 'ArrowRight' ? 1 : -1) * (rtl ? -1 : 1)
+    setSidebarWidth(sidebarWidth.value + step)
+    saveSidebarWidth()
+  }
 
   // Mobile chrome. The report-detail page is full-height (h-dvh) and ships its
   // own ReportHeader, so we suppress the global mobile bar there to avoid a
@@ -1739,6 +1814,20 @@ const createNewReport = () => {
     animation: none;
     background-image: none;
     -webkit-text-fill-color: currentColor;
+  }
+}
+
+/* Resizable sidebar (desktop, expanded). The width lives in the --sidebar-w
+   custom property set inline on the layout root; the aside reads it for its
+   width and the content wrapper for its start margin, so the two move together.
+   Guarded to sm+ so the mobile drawer (w-72 / w-60) is untouched, and only the
+   expanded state carries these classes — collapsed keeps the fixed w-14 rail. */
+@media (min-width: 640px) {
+  .sidebar-resizable {
+    width: var(--sidebar-w, 240px);
+  }
+  .content-offset-resizable {
+    margin-inline-start: var(--sidebar-w, 240px);
   }
 }
 </style>

@@ -426,6 +426,7 @@
     "newReport": "New report",
     "expandSidebar": "Expand sidebar",
     "collapseSidebar": "Collapse sidebar",
+    "resizeSidebar": "Resize sidebar",
     "switchOrganization": "Switch organization",
     "version": "Version",
     "loggedInAs": "Logged in as {name}",
