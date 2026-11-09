@@ -642,6 +642,9 @@ CONNECTION_HOST_KEYS = ("host", "hostname", "server", "server_hostname")
 CONNECTION_URL_KEYS = (
     "url", "base_url", "server_url", "site_url", "instance_url", "api_url",
     "cluster_url", "endpoint_url", "sts_endpoint_url",
+    # OAuth token endpoints the backend POSTs client secrets to (SAP Datasphere,
+    # custom OAuth APIs) are egress targets like any other server URL.
+    "token_url",
 )
 # Keys that hold a host only in some forms (Salesforce ``domain`` is
 # "login" / "acme" or a full host), or that only one connector uses (Neo4j's
