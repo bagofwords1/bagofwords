@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import lazyload
 
+from app.services.artifact_payload import partial_data_used, partial_data_warning
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import (
@@ -401,6 +402,9 @@ class EditArtifactTool(Tool):
             available=await artifact_verification_available(runtime_ctx, str(new_artifact.id)),
         )
 
+        # An edit can add a cut dataset, so the planner hears about it here too.
+        partial_data = partial_data_used(artifact_data.get("visualizations", []), new_code) if artifact.mode == "page" else []
+
         yield ToolEndEvent(
             type="tool.end",
             payload={
@@ -425,6 +429,7 @@ class EditArtifactTool(Tool):
                         f"Applied {len(data.edits)} mechanical edit(s) to artifact '{new_artifact.title}' — now v{version_number}. "
                         "Contracts verified. "
                         + ("Render validated. " if screenshot_b64 or artifact.mode == "slides" else "Render preview unavailable. ")
+                        + partial_data_warning(partial_data)
                         + ("Review the attached static screenshot within the visual-refinement budget; it cannot certify interactions." if review_images else "")
                     ),
                     "artifact_id": str(new_artifact.id),

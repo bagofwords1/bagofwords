@@ -218,7 +218,10 @@ class GetVisualizationMCPTool(MCPTool):
 
 
 # What the ui://artifact app's ARTIFACT_DATA carries per chart.
-_ARTIFACT_VIZ_KEYS = ("id", "title", "view", "rows", "columns", "withheld", "dataModel", "stepStatus")
+_ARTIFACT_VIZ_KEYS = (
+    "id", "title", "view", "rows", "columns", "withheld", "dataModel", "stepStatus",
+    "row_count", "loaded_row_count", "truncated",
+)
 
 
 class GetArtifactDataMCPTool(MCPTool):

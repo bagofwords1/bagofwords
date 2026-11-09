@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import lazyload, selectinload
 
+from app.services.artifact_payload import row_count_fields
 from app.ai.tools.artifact_read_budget import budget_artifact_read
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
@@ -451,7 +452,7 @@ class ReadArtifactTool(Tool):
                         "data_model_type": (view_dict.get("view") or {}).get("type") or view_dict.get("type"),
                         "columns": raw_columns,
                         "column_info": column_info,
-                        "row_count": len(rows),
+                        **row_count_fields(step_data),
                         "rows": rows,
                         "dataModel": data_model or {},
                     }
