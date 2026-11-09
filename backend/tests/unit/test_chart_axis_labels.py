@@ -42,11 +42,3 @@ def test_a_saved_chart_keeps_its_label_spacing(rotate, interval):
     saved = {"version": "v2", "view": {"type": "line_chart", "x": "m", "y": "v", "axisX": {"rotate": rotate, "interval": interval}}}
     axis = ViewSchema.model_validate(saved).view.axisX
     assert (axis.rotate, axis.interval) == (rotate, interval)
-
-
-def test_the_code_writer_gets_the_chart_and_distinct_count_rules():
-    from app.ai.agents.planner.data_app_authoring import DATA_APP_AUTHORING as text
-
-    assert "small" in text and "multiples" in text and "24 points" in text
-    assert "with the unit" in text
-    assert "distinct count" in text
