@@ -12,6 +12,9 @@
 - Fixed Reload failing for non-admin owners of agents that mix login-free and password connections (#1639)
 - Fixed agent edits such as Polish looping on dashboard sections added with Add to Dashboard (#1392)
 - Fixed "refresh and try again" when accepting a second instruction review card after the first (#1484)
+- Fixed slow SAP Datasphere queries, and catalog refreshes failing when one model can't be read (#1659)
+- Fixed SAP Datasphere treating annotated dimensions such as Year as measures (#1659)
+- Changed SAP Datasphere queries without a row limit to return at most 10,000 rows (#1659)
 
 ## Version 0.0.612 (November 8, 2026)
 - Added F5 BIG-IP as a data source: virtual servers, pools, pool members and stats, nodes, iRules, SSL certificates, HA failover and sync state (#1634)
