@@ -1513,6 +1513,17 @@ class ConnectionService:
                     pass
             return {"success": False, "message": str(e)}
 
+    @staticmethod
+    def _kms_credentials_error(exc: ValueError):
+        """The 422 for a rejected KMS Lighthouse member login: the token-format rule
+        gets its own code; anything else lists `field: message` pairs."""
+        from app.errors import AppError, ErrorCode
+        from app.errors.redact import credentials_error_detail, validation_reasons
+        from app.schemas.data_sources.configs import KMS_TOKEN_FORMAT_MESSAGE
+        if any(message == KMS_TOKEN_FORMAT_MESSAGE for _, message in validation_reasons(exc)):
+            return AppError(ErrorCode.CONNECTION_KMS_TOKEN_FORMAT, KMS_TOKEN_FORMAT_MESSAGE, status_code=422)
+        return AppError(ErrorCode.VALIDATION, credentials_error_detail(exc), status_code=422)
+
     async def save_windows_user_credentials(self, db, connection, user, payload) -> dict:
         """Canonical per-user credential storage for user-required connections
         whose members supply their own identity (SharePoint Server NTLM,
@@ -1535,7 +1546,7 @@ class ConnectionService:
         manual = (
             variant is not None and "user" in (variant.scopes or [])
             and payload.auth_mode not in ("oauth", "kerberos", KERBEROS_SSO_MODE)
-            and connection.type in ("sharepoint_onprem", "documentum")
+            and connection.type in ("sharepoint_onprem", "documentum", "kms_lighthouse")
         )
         if connection.auth_policy != "user_required" or not manual:
             raise AppError.bad_request(ErrorCode.VALIDATION, "This connection does not accept manual user credentials")
@@ -1543,7 +1554,9 @@ class ConnectionService:
             raise AppError.bad_request(ErrorCode.VALIDATION, "Authentication mode is not permitted by this connection")
         try:
             credentials = variant.schema(**(payload.credentials or {})).model_dump()
-        except ValueError:
+        except ValueError as e:
+            if connection.type == "kms_lighthouse":
+                raise self._kms_credentials_error(e)
             raise AppError(ErrorCode.VALIDATION, "The required credential fields are missing or invalid", status_code=422)
         row = await get_user_conn_cred_row(db, connection, user)
         if row is None:

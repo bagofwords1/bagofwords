@@ -120,6 +120,7 @@
     "fileBrowserRetry": "Försök igen",
     "fileBrowserEmpty": "Inga filer matchar anslutningens omfång.",
     "fileBrowserNoResults": "Inga filer matchar ”{q}”.",
+    "fileBrowserSummaryKms": "{n} filer listade för bläddring · KMS-behörigheterna avgör vad agenten kan söka i och läsa",
     "fileBrowserSummary": "{n} filer i omfånget · agenten läser bara dessa · nekade åtkomster loggas",
     "fileBrowserTruncated": "Visar de första {shown} av {total} filer – begränsa anslutningens omfång för att se resten.",
     "fileBrowserOpenInSource": "Öppna i källan",
@@ -4276,7 +4277,11 @@
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
-    "ssh.key_discovery_failed": "Kunde inte hämta nyckeln. Kontrollera värd, port och nätverk eller ange en betrodd nyckel under Avancerat."
+    "ssh.key_discovery_failed": "Kunde inte hämta nyckeln. Kontrollera värd, port och nätverk eller ange en betrodd nyckel under Avancerat.",
+    "connection.kms_token_format": "KMS-API-token får bara innehålla vanliga bokstäver, siffror och skiljetecken, utan mellanslag. Kopiera den igen från KMS Lighthouse och klistra in den som oformaterad text.",
+    "connection.kms_use_connection_credentials": "Inloggningar för KMS Lighthouse sparas på anslutningen. Öppna anslutningen och anslut därifrån.",
+    "connection.kms_only": "Diagnostiken gäller endast KMS Lighthouse-anslutningar.",
+    "connection.kms_diagnostics_running": "Diagnostiken körs redan för den här anslutningen. Vänta tills den är klar och försök sedan igen."
   },
   "email": {
     "dashboardShare": {
@@ -6828,5 +6833,43 @@
     "subtitle": "Exempelrader från {connection}, lästa direkt från källan.",
     "close": "Stäng",
     "button": "Förhandsgranska"
+  },
+  "kmsFileScope": {
+    "headerSubtitle": "Rotmappen anger var bläddringen börjar. KMS-behörigheterna avgör vad agenten kan söka i och läsa.",
+    "browsingOnly": "Endast bläddring",
+    "accessNote": "En rotmapp begränsar endast bläddring. KMS-behörigheterna för den anslutna identiteten avgör vad agenten kan söka i och läsa, även objekt utanför den mappen. Redigera rotmappen eller indexeringen i själva anslutningen."
+  },
+  "kmsDiagnostics": {
+    "run": "Kör diagnostik",
+    "running": "Diagnostiken körs. Det kan ta upp till 90 sekunder.",
+    "description": "Skrivskyddade kontroller av nätverk, certifikat, inloggning och KMS beteende. Skickar högst en inloggning.",
+    "overallPass": "Automatiska kontroller godkändes",
+    "overallWarn": "Klar med varningar",
+    "overallFail": "Klar med ett fel",
+    "manualCheck": "En manuell kontroll återstår: kör igen som en begränsad KMS-användare och jämför elementnamnen.",
+    "failedStage": "Misslyckades vid: {stage}",
+    "calls": "{calls} anrop på {seconds} s",
+    "callsUnknown": "Avbröts efter {seconds} s. Antalet anrop är okänt.",
+    "copy": "Kopiera rapporten",
+    "copied": "Rapporten har kopierats",
+    "copyFailed": "Det gick inte att kopiera rapporten. Använd Ladda ned JSON.",
+    "download": "Ladda ned JSON",
+    "reportNote": "Rapporten förblir på engelska så att den kan skickas till BOW-teknikerna. Den innehåller inget innehåll, inga namn och inga lösenord.",
+    "failed": "Diagnostiken kunde inte köras.",
+    "status": {
+      "pass": "Godkänd",
+      "warn": "Varning",
+      "fail": "Fel",
+      "info": "Info",
+      "skipped": "Hoppades över"
+    },
+    "stage": {
+      "network": "nätverk",
+      "tls": "TLS",
+      "login": "inloggning",
+      "browse": "bläddring",
+      "search": "sökning",
+      "read": "läsning"
+    }
   }
 }

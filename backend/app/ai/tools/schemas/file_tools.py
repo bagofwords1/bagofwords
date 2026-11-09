@@ -94,6 +94,8 @@ class ListFilesInput(BaseModel):
         description=(
             "Optional folder: an id returned by a previous list_files call, or for "
             "SharePoint a folder path relative to the library ('Finance/2026'). "
+            "For KMS Lighthouse, pass the folder part of an entry's path (for example 'Folder/Subfolder'); "
+            "paths start below the connection's root folder when one is set. "
             "Leave blank to use the connection's configured root."
         ),
     )

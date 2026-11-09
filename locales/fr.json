@@ -120,6 +120,7 @@
     "fileBrowserRetry": "Réessayer",
     "fileBrowserEmpty": "Aucun fichier ne correspond au périmètre de cette connexion.",
     "fileBrowserNoResults": "Aucun fichier ne correspond à « {q} ».",
+    "fileBrowserSummaryKms": "{n} fichiers listés pour la navigation · les autorisations KMS déterminent ce que l'agent peut rechercher et lire",
     "fileBrowserSummary": "{n} fichiers dans le périmètre · l'agent ne lit que ceux-ci · les refus sont audités",
     "fileBrowserTruncated": "Affichage des {shown} premiers fichiers sur {total} — restreignez le périmètre de la connexion pour voir le reste.",
     "fileBrowserOpenInSource": "Ouvrir dans la source",
@@ -4276,7 +4277,11 @@
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
-    "ssh.key_discovery_failed": "Impossible de récupérer la clé. Vérifiez l’hôte, le port et le réseau, ou saisissez une clé fiable dans les paramètres avancés."
+    "ssh.key_discovery_failed": "Impossible de récupérer la clé. Vérifiez l’hôte, le port et le réseau, ou saisissez une clé fiable dans les paramètres avancés.",
+    "connection.kms_token_format": "Le jeton d'API KMS ne peut contenir que des lettres, des chiffres et des signes de ponctuation simples, sans espaces. Copiez-le à nouveau depuis KMS Lighthouse et collez-le en texte brut.",
+    "connection.kms_use_connection_credentials": "Les identifiants KMS Lighthouse sont enregistrés sur la connexion. Ouvrez la connexion et connectez-vous depuis celle-ci.",
+    "connection.kms_only": "Le diagnostic s'applique uniquement aux connexions KMS Lighthouse.",
+    "connection.kms_diagnostics_running": "Un diagnostic est déjà en cours pour cette connexion. Attendez qu'il se termine, puis réessayez."
   },
   "email": {
     "dashboardShare": {
@@ -6828,5 +6833,43 @@
     "subtitle": "Lignes d'exemple de {connection}, lues en direct depuis la source.",
     "close": "Fermer",
     "button": "Aperçu"
+  },
+  "kmsFileScope": {
+    "headerSubtitle": "Le dossier racine définit où commence la navigation. Les autorisations KMS déterminent ce que l'agent peut rechercher et lire.",
+    "browsingOnly": "Navigation uniquement",
+    "accessNote": "Un dossier racine limite uniquement la navigation. Les autorisations KMS de l'identité connectée déterminent ce que l'agent peut rechercher et lire, y compris les éléments hors de ce dossier. Modifiez le dossier racine ou l'indexation dans la connexion elle-même."
+  },
+  "kmsDiagnostics": {
+    "run": "Lancer le diagnostic",
+    "running": "Diagnostic en cours. Cela peut prendre jusqu'à 90 secondes.",
+    "description": "Vérifications en lecture seule du réseau, du certificat, de la connexion et du comportement de KMS. Envoie au plus une connexion.",
+    "overallPass": "Les vérifications automatiques ont réussi",
+    "overallWarn": "Terminé avec des avertissements",
+    "overallFail": "Terminé avec un échec",
+    "manualCheck": "Il reste une vérification manuelle : relancez avec un utilisateur KMS restreint et comparez les noms des éléments.",
+    "failedStage": "Échec à l'étape : {stage}",
+    "calls": "{calls} appels en {seconds} s",
+    "callsUnknown": "Interrompu après {seconds} s. Le nombre d'appels est inconnu.",
+    "copy": "Copier le rapport",
+    "copied": "Rapport copié",
+    "copyFailed": "Impossible de copier le rapport. Utilisez Télécharger le JSON.",
+    "download": "Télécharger le JSON",
+    "reportNote": "Le rapport reste en anglais pour pouvoir être envoyé aux ingénieurs BOW. Il ne contient ni contenu, ni noms, ni mots de passe.",
+    "failed": "Le diagnostic n'a pas pu être lancé.",
+    "status": {
+      "pass": "Réussi",
+      "warn": "Avertissement",
+      "fail": "Échec",
+      "info": "Info",
+      "skipped": "Ignoré"
+    },
+    "stage": {
+      "network": "réseau",
+      "tls": "TLS",
+      "login": "connexion",
+      "browse": "navigation",
+      "search": "recherche",
+      "read": "lecture"
+    }
   }
 }

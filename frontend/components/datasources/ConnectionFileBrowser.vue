@@ -99,7 +99,7 @@
           </div>
         </div>
         <div class="mt-1.5 text-2xs text-ink-muted">
-          {{ $t('agentsPage.fileBrowserSummary', { n: total }) }}
+          {{ $t(connectionType === 'kms_lighthouse' ? 'agentsPage.fileBrowserSummaryKms' : 'agentsPage.fileBrowserSummary', { n: total }) }}
         </div>
         <div v-if="total > files.length" class="mt-1 text-2xs text-amber-700 dark:text-amber-300">
           {{ $t('agentsPage.fileBrowserTruncated', { shown: files.length, total }) }}
@@ -116,7 +116,7 @@ import {
   type BrowseFile,
 } from '~/utils/fileTree'
 
-const props = defineProps<{ dsId: string; connectionId: string }>()
+const props = defineProps<{ dsId: string; connectionId: string; connectionType?: string }>()
 const { locale } = useI18n()
 
 // The endpoint walks the whole scope on every call, so fetch it once, up to

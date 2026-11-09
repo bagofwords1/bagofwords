@@ -82,6 +82,13 @@
                         </template>
                     </div>
                 </div>
+
+                <!-- KMS on-site diagnostics: same permission as Edit -->
+                <KmsDiagnosticsPanel
+                    v-if="canManageConnections && connectionType === 'kms_lighthouse'"
+                    :key="connectionId"
+                    :connection-id="connectionId"
+                />
             </div>
         </div>
     </div>
@@ -127,6 +134,7 @@
 // data from was renamed away in 6f352fbdb, so the page loads its own data.
 definePageMeta({ auth: true })
 import ConnectForm from '~/components/datasources/ConnectForm.vue'
+import KmsDiagnosticsPanel from '~/components/datasources/KmsDiagnosticsPanel.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import Spinner from '~/components/Spinner.vue'
 import { useCan } from '~/composables/usePermissions'
@@ -143,6 +151,8 @@ const { data: currentUser } = useAuth()
 const { organization } = useOrganization()
 
 const { t } = useI18n()
+const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 
 // The data source (agent) this connection belongs to. GET /data_sources/{id}
 // omits connection config for view-only members, so `config` is only ever
@@ -290,7 +300,16 @@ function openAddCredentials() {
 async function disconnectUserCredentials() {
   if (!dsId.value) return
   try {
-    await useMyFetch(`/data_sources/${dsId.value}/my-credentials`, { method: 'DELETE' })
+    // KMS keeps a member's login on the connection row that runtime reads, so
+    // Disconnect clears it there (as ConnectionDetailModal does).
+    const endpoint = connectionType.value === 'kms_lighthouse' && connectionId.value
+      ? `/connections/${connectionId.value}/my-credentials`
+      : `/data_sources/${dsId.value}/my-credentials`
+    const { error } = await useMyFetch(endpoint, { method: 'DELETE' })
+    // KMS: a failed DELETE says so instead of leaving "Connected" unexplained.
+    if (error.value && connectionType.value === 'kms_lighthouse') {
+      toast.add({ title: getErrorMessage(error.value, t('data.failed')), color: 'red' })
+    }
     await fetchIntegration()
   } catch (e) {
     // no-op

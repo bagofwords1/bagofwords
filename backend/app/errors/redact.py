@@ -59,6 +59,28 @@ def redact_error(exc: object, secrets: Optional[Iterable[str]] = None, max_len: 
     return text
 
 
+def validation_reasons(exc: object) -> list[tuple[str, str]]:
+    """``(field, message)`` for each error of a pydantic ``ValidationError``, [] for anything else.
+
+    Read from the error list with the input left out: the text of the exception
+    quotes the input and cuts it anywhere, even mid-key, so nothing can mask it.
+    """
+    errors = getattr(exc, "errors", None)
+    if not callable(errors):
+        return []
+    return [(".".join(str(part) for part in error.get("loc", ())),
+             str(error.get("msg", "")).removeprefix("Value error, "))
+            for error in errors(include_input=False, include_url=False, include_context=False)]
+
+
+def credentials_error_detail(exc: object) -> str:
+    """The 422 detail for credentials a schema rejected: field names and rule messages, never the typed values."""
+    reasons = "; ".join(f"{field}: {message}" if field else message for field, message in validation_reasons(exc))
+    if not reasons:
+        return "The required credential fields are missing or invalid"
+    return f"Invalid credentials: {redact_error(reasons)}"
+
+
 # An absolute POSIX path of two or more segments; keep only the last one.
 _ABS_PATH = re.compile(r"(?<![\w:/.])/(?:[\w.\-]+/)+([\w.\-]+)")
 

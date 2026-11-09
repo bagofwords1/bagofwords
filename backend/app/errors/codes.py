@@ -111,6 +111,11 @@ class ErrorCode(str, Enum):
     DATA_SOURCE_NOT_FOUND = "data_source.not_found"
     DATA_SOURCE_IN_USE = "data_source.in_use"
     CONNECTION_NOT_FOUND = "connection.not_found"
+    # KMS Lighthouse member credentials (raised only for type kms_lighthouse)
+    CONNECTION_KMS_TOKEN_FORMAT = "connection.kms_token_format"
+    CONNECTION_KMS_USE_CONNECTION_CREDENTIALS = "connection.kms_use_connection_credentials"
+    CONNECTION_KMS_ONLY = "connection.kms_only"
+    CONNECTION_KMS_DIAGNOSTICS_RUNNING = "connection.kms_diagnostics_running"
     CONNECTION_TABLE_NOT_FOUND = "connection.table_not_found"
     TABLE_PREVIEW_UNSUPPORTED = "connection.table_preview_unsupported"
     TABLE_PREVIEW_FAILED = "connection.table_preview_failed"

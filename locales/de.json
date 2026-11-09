@@ -120,6 +120,7 @@
     "fileBrowserRetry": "Erneut versuchen",
     "fileBrowserEmpty": "Keine Dateien im Bereich dieser Verbindung.",
     "fileBrowserNoResults": "Keine Dateien passen zu „{q}“.",
+    "fileBrowserSummaryKms": "{n} Dateien zum Blättern aufgelistet · die KMS-Berechtigungen bestimmen, was der Agent suchen und lesen kann",
     "fileBrowserSummary": "{n} Dateien im Bereich · der Agent liest nur diese · verweigerte Zugriffe werden protokolliert",
     "fileBrowserTruncated": "Die ersten {shown} von {total} Dateien werden angezeigt – schränken Sie den Bereich der Verbindung ein, um den Rest zu sehen.",
     "fileBrowserOpenInSource": "In der Quelle öffnen",
@@ -4276,7 +4277,11 @@
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
-    "ssh.key_discovery_failed": "Schlüssel konnte nicht abgerufen werden. Prüfen Sie Host, Port und Netzwerk oder geben Sie unter Erweitert einen vertrauenswürdigen Schlüssel ein."
+    "ssh.key_discovery_failed": "Schlüssel konnte nicht abgerufen werden. Prüfen Sie Host, Port und Netzwerk oder geben Sie unter Erweitert einen vertrauenswürdigen Schlüssel ein.",
+    "connection.kms_token_format": "Das KMS-API-Token darf nur einfache Buchstaben, Ziffern und Satzzeichen enthalten, ohne Leerzeichen. Kopieren Sie es erneut aus KMS Lighthouse und fügen Sie es als reinen Text ein.",
+    "connection.kms_use_connection_credentials": "KMS-Lighthouse-Anmeldungen werden in der Verbindung gespeichert. Öffnen Sie die Verbindung und verbinden Sie sich dort.",
+    "connection.kms_only": "Die Diagnose gilt nur für KMS Lighthouse-Verbindungen.",
+    "connection.kms_diagnostics_running": "Für diese Verbindung läuft bereits eine Diagnose. Warten Sie, bis sie abgeschlossen ist, und versuchen Sie es dann erneut."
   },
   "email": {
     "dashboardShare": {
@@ -6828,5 +6833,43 @@
     "subtitle": "Beispielzeilen aus {connection}, live aus der Quelle gelesen.",
     "close": "Schließen",
     "button": "Vorschau"
+  },
+  "kmsFileScope": {
+    "headerSubtitle": "Der Stammordner legt fest, wo das Blättern beginnt. Die KMS-Berechtigungen bestimmen, was der Agent suchen und lesen kann.",
+    "browsingOnly": "Nur zum Blättern",
+    "accessNote": "Ein Stammordner begrenzt nur das Blättern. Die KMS-Berechtigungen der verbundenen Identität bestimmen, was der Agent suchen und lesen kann, auch Elemente außerhalb dieses Ordners. Bearbeiten Sie den Stammordner oder die Indizierung in der Verbindung selbst."
+  },
+  "kmsDiagnostics": {
+    "run": "Diagnose ausführen",
+    "running": "Diagnose läuft. Das kann bis zu 90 Sekunden dauern.",
+    "description": "Schreibgeschützte Prüfungen von Netzwerk, Zertifikat, Anmeldung und KMS-Verhalten. Sendet höchstens eine Anmeldung.",
+    "overallPass": "Automatische Prüfungen bestanden",
+    "overallWarn": "Mit Warnungen abgeschlossen",
+    "overallFail": "Mit einem Fehler abgeschlossen",
+    "manualCheck": "Eine manuelle Prüfung bleibt offen: Führen Sie dies erneut als eingeschränkter KMS-Benutzer aus und vergleichen Sie die Elementnamen.",
+    "failedStage": "Fehlgeschlagen bei: {stage}",
+    "calls": "{calls} Aufrufe in {seconds} s",
+    "callsUnknown": "Nach {seconds} s abgebrochen. Die Anzahl der Aufrufe ist unbekannt.",
+    "copy": "Bericht kopieren",
+    "copied": "Bericht kopiert",
+    "copyFailed": "Der Bericht konnte nicht kopiert werden. Verwenden Sie JSON herunterladen.",
+    "download": "JSON herunterladen",
+    "reportNote": "Der Bericht bleibt auf Englisch, damit er an die BOW-Techniker gesendet werden kann. Er enthält keine Inhalte, Namen oder Passwörter.",
+    "failed": "Die Diagnose konnte nicht ausgeführt werden.",
+    "status": {
+      "pass": "Bestanden",
+      "warn": "Warnung",
+      "fail": "Fehler",
+      "info": "Info",
+      "skipped": "Übersprungen"
+    },
+    "stage": {
+      "network": "Netzwerk",
+      "tls": "TLS",
+      "login": "Anmeldung",
+      "browse": "Durchsuchen",
+      "search": "Suche",
+      "read": "Lesen"
+    }
   }
 }

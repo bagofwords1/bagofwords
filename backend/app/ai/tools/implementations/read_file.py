@@ -462,7 +462,7 @@ class ReadFileTool(Tool):
                     runtime_ctx, str(fallback.id), self._required_capability
                 )
                 if err:
-                    yield self._fail_read(data, err)
+                    yield self._fail_read(data, self._kms_client_error(runtime_ctx, str(fallback.id), err) or err)
                     return
                 # Own the choice: the cache key, the output and the UI all read
                 # connection_id, and a blank one would misreport a connector read
@@ -480,6 +480,7 @@ class ReadFileTool(Tool):
                 runtime_ctx, data.connection_id, self._required_capability
             )
             if err:
+                err = self._kms_client_error(runtime_ctx, data.connection_id, err) or err
                 yield ToolEndEvent(type="tool.end", payload={
                     "output": {
                         "success": False,
@@ -1119,6 +1120,11 @@ class ReadFileTool(Tool):
             f"{self._operation_name} call with connection_id set to the source it "
             f"came from. Do NOT re-run list_files. Attached source(s): {choices}."
         )
+
+    def _kms_client_error(self, runtime_ctx: Dict[str, Any], connection_id: str, err: str) -> Optional[str]:
+        """KMS Lighthouse only: the same client-build text list_files gives (Connect, or inactive)."""
+        from .list_files import kms_client_error
+        return kms_client_error(runtime_ctx, connection_id, self._operation_name, err)
 
     def _fail_read(self, data, err: str) -> ToolEndEvent:
         return ToolEndEvent(type="tool.end", payload={

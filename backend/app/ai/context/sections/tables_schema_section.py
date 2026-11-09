@@ -75,6 +75,9 @@ class FileScopeItem(BaseModel):
     # boundary is the user's OAuth account — for those we render no <scope> and
     # no "else denied" language, because neither would be true.
     enforces_scope: bool = True
+    # Connector-specific browsing guidance, rendered as <note> after <usage>.
+    # None for every connector without one, so their descriptors are unchanged.
+    note: Optional[str] = None
 
 
 def _render_powerbi_cloud_metadata_xml(t: PromptTable) -> str:
@@ -782,6 +785,8 @@ class TablesSchemaContext(ContextSection):
                          "read_file to read (use offset/length for large files). "
                          "No content search on this connection — discover by filename." + denial)
             inner.append(xml_tag("usage", usage))
+            if fs.note:
+                inner.append(xml_tag("note", xml_escape(fs.note)))
             attrs = {"name": fs.name, "type": fs.type, "kind": "files"}
             if fs.connection_id:
                 attrs["id"] = fs.connection_id

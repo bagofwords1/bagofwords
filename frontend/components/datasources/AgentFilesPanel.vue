@@ -40,12 +40,13 @@
         <span class="font-mono text-gray-700 dark:text-gray-300 break-all">{{ baseOf(conn) }}</span>
         <span class="text-ink-muted">Scope</span>
         <div>
-          <template v-if="globsOf(conn).length"><code v-for="g in globsOf(conn)" :key="g" class="inline-block mr-1.5 mb-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-100 dark:border-blue-800">{{ g }}</code></template>
+          <span v-if="conn.type === 'kms_lighthouse'" class="text-gray-500 italic">{{ $t('kmsFileScope.browsingOnly') }}</span>
+          <template v-else-if="globsOf(conn).length"><code v-for="g in globsOf(conn)" :key="g" class="inline-block mr-1.5 mb-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-100 dark:border-blue-800">{{ g }}</code></template>
           <span v-else class="text-gray-500 italic">whole path</span>
         </div>
       </div>
       <div class="mt-3 border-t border-gray-100 dark:border-gray-800 pt-3">
-        <ConnectionFileBrowser :ds-id="dsId" :connection-id="conn.id" />
+        <ConnectionFileBrowser :ds-id="dsId" :connection-id="conn.id" :connection-type="conn.type" />
       </div>
     </section>
 

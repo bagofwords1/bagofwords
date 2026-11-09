@@ -120,6 +120,7 @@
     "fileBrowserRetry": "Riprova",
     "fileBrowserEmpty": "Nessun file corrisponde all'ambito di questa connessione.",
     "fileBrowserNoResults": "Nessun file corrisponde a “{q}”.",
+    "fileBrowserSummaryKms": "{n} file elencati per la navigazione · le autorizzazioni KMS decidono cosa l'agente può cercare e leggere",
     "fileBrowserSummary": "{n} file nell'ambito · l'agente legge solo questi · gli accessi negati vengono registrati",
     "fileBrowserTruncated": "Vengono mostrati i primi {shown} di {total} file: restringi l'ambito della connessione per vedere il resto.",
     "fileBrowserOpenInSource": "Apri nella sorgente",
@@ -4276,7 +4277,11 @@
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
-    "ssh.key_discovery_failed": "Impossibile recuperare la chiave. Controlla host, porta e rete oppure inserisci una chiave attendibile nelle impostazioni avanzate."
+    "ssh.key_discovery_failed": "Impossibile recuperare la chiave. Controlla host, porta e rete oppure inserisci una chiave attendibile nelle impostazioni avanzate.",
+    "connection.kms_token_format": "Il token API di KMS può contenere solo lettere, cifre e segni di punteggiatura semplici, senza spazi. Copialo di nuovo da KMS Lighthouse e incollalo come testo semplice.",
+    "connection.kms_use_connection_credentials": "Gli accessi a KMS Lighthouse vengono salvati nella connessione. Apri la connessione e connettiti da lì.",
+    "connection.kms_only": "La diagnostica si applica solo alle connessioni KMS Lighthouse.",
+    "connection.kms_diagnostics_running": "La diagnostica è già in esecuzione per questa connessione. Attendi che termini, quindi riprova."
   },
   "email": {
     "dashboardShare": {
@@ -6828,5 +6833,43 @@
     "subtitle": "Righe di esempio da {connection}, lette in tempo reale dalla sorgente.",
     "close": "Chiudi",
     "button": "Anteprima"
+  },
+  "kmsFileScope": {
+    "headerSubtitle": "La cartella radice stabilisce da dove parte la navigazione. Le autorizzazioni KMS decidono cosa l'agente può cercare e leggere.",
+    "browsingOnly": "Solo navigazione",
+    "accessNote": "Una cartella radice limita solo la navigazione. Le autorizzazioni KMS dell'identità connessa decidono cosa l'agente può cercare e leggere, compresi gli elementi fuori da quella cartella. Modifica la cartella radice o l'indicizzazione nella connessione stessa."
+  },
+  "kmsDiagnostics": {
+    "run": "Esegui diagnostica",
+    "running": "Diagnostica in corso. Può richiedere fino a 90 secondi.",
+    "description": "Controlli di sola lettura su rete, certificato, accesso e comportamento di KMS. Invia al massimo un accesso.",
+    "overallPass": "Controlli automatici superati",
+    "overallWarn": "Terminato con avvisi",
+    "overallFail": "Terminato con un errore",
+    "manualCheck": "Resta un controllo manuale: esegui di nuovo come utente KMS con limitazioni e confronta i nomi degli elementi.",
+    "failedStage": "Non riuscito in: {stage}",
+    "calls": "{calls} chiamate in {seconds} s",
+    "callsUnknown": "Interrotto dopo {seconds} s. Il numero di chiamate è sconosciuto.",
+    "copy": "Copia report",
+    "copied": "Report copiato",
+    "copyFailed": "Impossibile copiare il report. Usa Scarica JSON.",
+    "download": "Scarica JSON",
+    "reportNote": "Il report resta in inglese per poterlo inviare ai tecnici BOW. Non contiene contenuti, nomi o password.",
+    "failed": "Impossibile eseguire la diagnostica.",
+    "status": {
+      "pass": "Superato",
+      "warn": "Avviso",
+      "fail": "Errore",
+      "info": "Info",
+      "skipped": "Saltato"
+    },
+    "stage": {
+      "network": "rete",
+      "tls": "TLS",
+      "login": "accesso",
+      "browse": "navigazione",
+      "search": "ricerca",
+      "read": "lettura"
+    }
   }
 }
