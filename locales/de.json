@@ -6750,6 +6750,7 @@
     "oauthEmpty": "OAuth is not configured"
   },
   "tablePreview": {
+    "idle": "Auf „Ausführen“ klicken, um Zeilen aus der Quelle zu laden.",
     "loading": "Zeilen werden geladen…",
     "failed": "Vorschau dieser Tabelle konnte nicht geladen werden.",
     "showing": "{shown} Zeilen angezeigt",

@@ -6750,6 +6750,7 @@
     "oauthEmpty": "OAuth is not configured"
   },
   "tablePreview": {
+    "idle": "اضغط على تشغيل لتحميل الصفوف من المصدر.",
     "loading": "جارٍ تحميل الصفوف…",
     "failed": "تعذّر تحميل معاينة لهذا الجدول.",
     "showing": "عرض {shown} صفوف",

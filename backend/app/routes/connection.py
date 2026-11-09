@@ -32,6 +32,7 @@ from app.schemas.connection_schema import (
     ConnectionDetailSchema,
     ConnectionTableSchema,
     ConnectionTablePreviewSchema,
+    ConnectionTablePreviewSqlSchema,
     ConnectionTestOverride,
     ConnectionTestResult,
     ConnectionToolTestRequest,
@@ -1448,6 +1449,29 @@ async def get_connection_completions(
     """
     connection = await connection_service.get_connection(db, connection_id, organization)
     return await table_preview_service.completions(db, connection)
+
+
+@router.get(
+    "/{connection_id}/tables/{table_id}/preview/sql",
+    response_model=ConnectionTablePreviewSqlSchema,
+)
+@requires_resource_permission('connection', 'manage_connection')
+async def preview_connection_table_sql(
+    connection_id: str,
+    table_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """The preview query for one table, built from the catalog but *not run*.
+
+    The modal fetches this on open so it can show what would run; the source is
+    only queried once the manager presses Run (GET .../preview). No row data is
+    read here, so there is nothing to audit.
+    """
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    table = await table_preview_service.get_table(db, connection, table_id)
+    return table_preview_service.sql_only(connection, table)
 
 
 @router.get(

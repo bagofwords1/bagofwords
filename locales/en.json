@@ -7390,6 +7390,7 @@
     "oauthEmpty": "OAuth is not configured"
   },
   "tablePreview": {
+    "idle": "Press Run to load rows from the source.",
     "loading": "Loading rows…",
     "failed": "Could not load a preview of this table.",
     "showing": "Showing {shown} rows",

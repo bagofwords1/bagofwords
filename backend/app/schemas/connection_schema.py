@@ -243,6 +243,20 @@ class ConnectionTablePreviewSchema(BaseModel):
     total_rows: Optional[int] = None
 
 
+class ConnectionTablePreviewSqlSchema(BaseModel):
+    """The preview query for a table, built from the catalog without running it.
+
+    Lets the preview modal show *what would run* when it opens, so the source is
+    only queried once the manager presses Run — no automatic hit on open.
+    """
+    table_id: str
+    table_name: str
+    language: str = "sql"
+    sql: str
+    base_sql: str
+    row_limit: int
+
+
 class ConnectionTestOverride(BaseModel):
     """Optional overrides when testing a connection with new (unsaved) values."""
     config: Optional[dict] = None
