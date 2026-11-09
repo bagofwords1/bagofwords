@@ -71,3 +71,30 @@ def redact_paths(text: str) -> str:
     act on ("slide.pptx not found").
     """
     return _ABS_PATH.sub(lambda m: m.group(1), text)
+
+
+def describe_for_log(exc: BaseException) -> str:
+    """An exception as a log line without its message.
+
+    For paths that handle content a client sent (prompts, tool arguments,
+    queries and their rows): the message of a pydantic error quotes the
+    submitted input, and driver or conversion errors quote cells. Keeps what
+    is structural: the type, an HTTP status, which fields failed validation
+    and the frame that raised.
+    """
+    import traceback
+
+    from fastapi import HTTPException
+    from pydantic import ValidationError
+
+    parts = [type(exc).__name__]
+    if isinstance(exc, HTTPException):
+        parts.append(str(exc.status_code))
+    if isinstance(exc, ValidationError):
+        fields = [f"{tuple(e['loc'])!r}:{e['type']}" for e in exc.errors(include_input=False, include_url=False)]
+        parts.append("[" + ", ".join(fields) + "]")
+    frames = traceback.extract_tb(exc.__traceback__)
+    if frames:
+        last = frames[-1]
+        parts.append(f"at {last.filename.rsplit('/', 1)[-1]}:{last.lineno} in {last.name}")
+    return " ".join(parts)

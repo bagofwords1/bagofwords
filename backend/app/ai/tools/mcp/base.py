@@ -449,8 +449,19 @@ class MCPTool(ABC):
         # Update system completion
         system_completion.status = "success" if success else "error"
         system_completion.completion = {"content": summary}
+        report_id = str(system_completion.report_id)
+        system_completion_id = str(system_completion.id)
 
         await db.commit()
         # Diagnosis rollup, as finish_agent_execution does for agent-loop runs.
         from app.services.diagnosis.rollup import refresh_after_run
         await refresh_after_run(db, str(agent_execution.id))
+
+        # An in-app prompt sent with queue_if_busy may be waiting behind this
+        # turn. Dispatch the report's queue as the end of an in-app run does;
+        # its policy drains only after a successful turn. Spawned, so the MCP
+        # response does not wait on the queue claim; the dispatcher opens its
+        # own session and starts the queued run as a task of its own.
+        from app.core.fire_and_forget import spawn
+        from app.services.completion_service import CompletionService
+        spawn(CompletionService().start_next_queued_if_idle(report_id, system_completion_id))
