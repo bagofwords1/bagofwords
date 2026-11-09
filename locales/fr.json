@@ -6750,6 +6750,7 @@
     "oauthEmpty": "OAuth is not configured"
   },
   "tablePreview": {
+    "idle": "Appuyez sur Exécuter pour charger les lignes depuis la source.",
     "loading": "Chargement des lignes…",
     "failed": "Impossible de charger un aperçu de cette table.",
     "showing": "{shown} lignes affichées",

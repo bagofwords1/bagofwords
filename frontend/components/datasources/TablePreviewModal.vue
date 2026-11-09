@@ -23,7 +23,7 @@
       <div v-if="sqlDraft !== null" class="px-5 pb-3">
         <SqlEditor
           v-model="sqlDraft"
-          :language="preview?.language || 'sql'"
+          :language="preview?.language || sqlLanguage || 'sql'"
           :read-only="!canEdit"
           :connection-id="canEdit ? connectionId : undefined"
           :min-height="44"
@@ -152,6 +152,25 @@
             </table>
           </div>
         </template>
+
+        <!-- Query loaded, nothing run yet: the source is touched only on Run. -->
+        <div
+          v-else-if="sqlDraft !== null"
+          class="flex flex-col items-center justify-center gap-2 py-12 text-xs text-ink-muted"
+          data-testid="table-preview-idle"
+        >
+          <span>{{ t('tablePreview.idle') }}</span>
+          <UButton
+            size="2xs"
+            icon="i-heroicons-play"
+            :loading="loading"
+            :disabled="!(sqlDraft || '').trim()"
+            data-testid="table-preview-idle-run"
+            @click="runQuery"
+          >
+            {{ t('tablePreview.run') }}
+          </UButton>
+        </div>
       </div>
 
       <!-- Footer -->
@@ -236,6 +255,9 @@ const tableSql = ref<string | null>(null)
 // The same query without its row bound, for building a custom table.
 const tableBaseSql = ref<string | null>(null)
 const sqlDraft = ref<string | null>(null)
+// The editor language for this table, known from the SQL-only load before any
+// rows arrive, so DAX/HogQL highlight correctly on open (not just after a run).
+const sqlLanguage = ref<string>('sql')
 // Which table the state above belongs to. Compared on every open, so a
 // different table never inherits the last one's edit — whether or not the
 // modal was open when the parent switched tables.
@@ -267,6 +289,34 @@ function fail(seq: number, err: any) {
   if (seq !== requestSeq) return
   if (isSignInRequired(err)) needsSignIn.value = true
   else errorMessage.value = getErrorMessage(err, t('tablePreview.failed'))
+}
+
+// Opening the modal fetches only the query (built from the catalog, no source
+// round-trip) so the editor shows what would run. The source is not queried
+// until the manager presses Run — see runQuery/load.
+async function loadSql() {
+  if (!props.connectionId || !props.tableId) return
+  const seq = ++requestSeq
+  errorMessage.value = ''
+  needsSignIn.value = false
+  try {
+    const { data, error } = await useMyFetch(
+      `/connections/${props.connectionId}/tables/${props.tableId}/preview/sql`,
+      { method: 'GET' },
+    )
+    if (seq !== requestSeq) return
+    if (error.value) {
+      fail(seq, error.value)
+    } else {
+      const r = data.value as any
+      tableSql.value = r.sql
+      tableBaseSql.value = r.base_sql || null
+      sqlDraft.value = r.sql
+      sqlLanguage.value = r.language || 'sql'
+    }
+  } catch (e) {
+    fail(seq, e)
+  }
 }
 
 async function load() {
@@ -345,13 +395,16 @@ watch(
   ([open, connectionId, tableId]) => {
     if (!open || !connectionId || !tableId) return
     const key = `${connectionId}:${tableId}`
-    if (loadedFor.value === key && (preview.value || loading.value)) return
+    // Keep whatever this table already has (its query, or a run's rows) so
+    // reopening the same table neither refetches nor re-runs.
+    if (loadedFor.value === key && (preview.value || sqlDraft.value !== null)) return
     loadedFor.value = key
     tableSql.value = null
     tableBaseSql.value = null
     sqlDraft.value = null
     preview.value = null
-    load()
+    // Only the query — no rows, no source hit — until the manager presses Run.
+    loadSql()
   },
   { immediate: true },
 )

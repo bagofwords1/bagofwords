@@ -6750,6 +6750,7 @@
     "oauthEmpty": "OAuth is not configured"
   },
   "tablePreview": {
+    "idle": "Tryck på Kör för att läsa in rader från källan.",
     "loading": "Läser in rader…",
     "failed": "Det gick inte att läsa in en förhandsgranskning av tabellen.",
     "showing": "Visar {shown} rader",
