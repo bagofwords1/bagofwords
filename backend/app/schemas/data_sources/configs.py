@@ -324,6 +324,12 @@ class PostgreSQLConfig(BaseModel):
         description="Also index procedures and functions with their source. The agent reads their logic and may call functions inside queries; use a read-only database account.",
         json_schema_extra={"ui:type": "boolean"},
     )
+    include_system_schemas: bool = Field(
+        False,
+        title="Include system catalog (pg_catalog, information_schema)",
+        description="Also index Postgres's own catalog tables and views, such as pg_stat_activity, pg_locks and pg_stat_user_tables, so the agent can answer questions about the database itself. Adds a few hundred objects; narrow with the Schema field or deactivate unneeded ones afterwards.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
 
 
 # SQLite (local file database)
