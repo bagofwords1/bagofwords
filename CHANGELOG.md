@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.614 (November 10, 2026)
+- Fixed KMS Lighthouse saving a wrong member password or API token as "Connected"; Save now checks it with KMS and the page names the KMS account
+
 ## Version 0.0.613 (November 9, 2026)
 - Added multiple WhatsApp numbers per org, each limited to the agents you pick (#1654)
 - Added KMS Lighthouse as a read-only data source (#1618)

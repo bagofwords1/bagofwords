@@ -114,6 +114,9 @@ class DataSourceUserStatus(BaseModel):
     effective_auth: Literal["user", "system", "none"] = "none"
     uses_fallback: bool = False
     credentials_id: Optional[str] = None
+    # The account name the source reported when the member's login was checked
+    # (KMS Lighthouse member logins); None when no check named one.
+    account_identity: Optional[str] = None
     # Admin query-identity toggle (delegated/OBO connections only).
     # query_identity: which identity the user's queries run under — "self" (their own
     #   delegated token) or "service_account" (the connection's system/principal creds).

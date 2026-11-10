@@ -4283,7 +4283,9 @@
     "connection.kms_token_format": "KMS-API-token får bara innehålla vanliga bokstäver, siffror och skiljetecken, utan mellanslag. Kopiera den igen från KMS Lighthouse och klistra in den som oformaterad text.",
     "connection.kms_use_connection_credentials": "Inloggningar för KMS Lighthouse sparas på anslutningen. Öppna anslutningen och anslut därifrån.",
     "connection.kms_only": "Diagnostiken gäller endast KMS Lighthouse-anslutningar.",
-    "connection.kms_diagnostics_running": "Diagnostiken körs redan för den här anslutningen. Vänta tills den är klar och försök sedan igen."
+    "connection.kms_diagnostics_running": "Diagnostiken körs redan för den här anslutningen. Vänta tills den är klar och försök sedan igen.",
+    "connection.kms_login_rejected": "KMS Lighthouse godkände inte den här inloggningen, så den sparades inte. Kontrollera användarnamnet och lösenordet, eller API-token, och försök igen.",
+    "connection.kms_login_paused": "KMS Lighthouse nekade nyligen den här inloggningen, så nya försök med den är pausade i några minuter och den sparades inte. Kontrollera inloggningen eller försök igen senare."
   },
   "email": {
     "dashboardShare": {
@@ -6379,7 +6381,9 @@
     "noConnection": "Den här agenten har ingen anslutning än.",
     "notFound": "Anslutningen kunde inte hittas.",
     "forbidden": "Du har inte åtkomst till den här anslutningen.",
-    "loadFailed": "Det gick inte att läsa in anslutningen. Försök igen senare."
+    "loadFailed": "Det gick inte att läsa in anslutningen. Försök igen senare.",
+    "connected": "Ansluten",
+    "connectedAs": "Ansluten som {identity}"
   },
   "trackedChanges": {
     "noChanges": "Inga ändringar"

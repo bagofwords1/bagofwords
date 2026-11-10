@@ -4283,7 +4283,9 @@
     "connection.kms_token_format": "يمكن أن يحتوي رمز API الخاص بـ KMS على أحرف وأرقام وعلامات ترقيم عادية فقط، بدون مسافات. انسخه مرة أخرى من KMS Lighthouse والصقه كنص عادي.",
     "connection.kms_use_connection_credentials": "يتم حفظ بيانات تسجيل الدخول إلى KMS Lighthouse في الاتصال. افتح الاتصال واتصل من هناك.",
     "connection.kms_only": "ينطبق التشخيص على اتصالات KMS Lighthouse فقط.",
-    "connection.kms_diagnostics_running": "التشخيص قيد التشغيل بالفعل لهذا الاتصال. انتظر حتى ينتهي ثم حاول مرة أخرى."
+    "connection.kms_diagnostics_running": "التشخيص قيد التشغيل بالفعل لهذا الاتصال. انتظر حتى ينتهي ثم حاول مرة أخرى.",
+    "connection.kms_login_rejected": "لم يقبل KMS Lighthouse بيانات تسجيل الدخول هذه، لذا لم يتم حفظها. تحقق من اسم المستخدم وكلمة المرور، أو من رمز API، ثم حاول مرة أخرى.",
+    "connection.kms_login_paused": "رفض KMS Lighthouse بيانات تسجيل الدخول هذه مؤخرًا، لذا أُوقفت المحاولات الجديدة بها لبضع دقائق ولم يتم حفظها. تحقق من بيانات تسجيل الدخول أو حاول مرة أخرى لاحقًا."
   },
   "email": {
     "dashboardShare": {
@@ -6379,7 +6381,9 @@
     "noConnection": "لا يملك هذا الوكيل اتصالًا بعد.",
     "notFound": "تعذّر العثور على هذا الاتصال.",
     "forbidden": "ليس لديك صلاحية الوصول إلى هذا الاتصال.",
-    "loadFailed": "تعذّر تحميل الاتصال. حاول مرة أخرى لاحقًا."
+    "loadFailed": "تعذّر تحميل الاتصال. حاول مرة أخرى لاحقًا.",
+    "connected": "متصل",
+    "connectedAs": "متصل باسم {identity}"
   },
   "trackedChanges": {
     "noChanges": "لا توجد تغييرات"

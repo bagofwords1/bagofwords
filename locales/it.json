@@ -4283,7 +4283,9 @@
     "connection.kms_token_format": "Il token API di KMS può contenere solo lettere, cifre e segni di punteggiatura semplici, senza spazi. Copialo di nuovo da KMS Lighthouse e incollalo come testo semplice.",
     "connection.kms_use_connection_credentials": "Gli accessi a KMS Lighthouse vengono salvati nella connessione. Apri la connessione e connettiti da lì.",
     "connection.kms_only": "La diagnostica si applica solo alle connessioni KMS Lighthouse.",
-    "connection.kms_diagnostics_running": "La diagnostica è già in esecuzione per questa connessione. Attendi che termini, quindi riprova."
+    "connection.kms_diagnostics_running": "La diagnostica è già in esecuzione per questa connessione. Attendi che termini, quindi riprova.",
+    "connection.kms_login_rejected": "KMS Lighthouse non ha accettato queste credenziali, quindi non sono state salvate. Controlla nome utente e password, oppure il token API, e riprova.",
+    "connection.kms_login_paused": "KMS Lighthouse ha rifiutato di recente queste credenziali, quindi i nuovi tentativi sono sospesi per alcuni minuti e non sono state salvate. Controlla le credenziali o riprova più tardi."
   },
   "email": {
     "dashboardShare": {
@@ -6379,7 +6381,9 @@
     "noConnection": "Questo agente non ha ancora una connessione.",
     "notFound": "Impossibile trovare questa connessione.",
     "forbidden": "Non hai accesso a questa connessione.",
-    "loadFailed": "Impossibile caricare la connessione. Riprova più tardi."
+    "loadFailed": "Impossibile caricare la connessione. Riprova più tardi.",
+    "connected": "Connesso",
+    "connectedAs": "Connesso come {identity}"
   },
   "trackedChanges": {
     "noChanges": "Nessuna modifica"
