@@ -1825,6 +1825,102 @@ def test_run_on_my_behalf_loads_other_steps_as_the_viewer(
         assert marker not in served.text, f"query {qid} served the owner's slice to the viewer"
 
 
+LOAD_STEP_NAMING_CODE = """
+# reads {plain}
+def generate_df(ds_clients, excel_files):
+    return load_step('{step_id}')
+"""
+
+
+def _report_with_a_step_loading_a_row_filtered_step(test_client, create_report, bootstrap_admin,
+                                                     invite_user_to_org):
+    """An unattached report: step A names a source with a row-filtered
+    relation, step B names a plain source and load_step()s A, step C names
+    the plain source only. Returns (admin, viewer, report, (A, B, C) query
+    ids, (A, B, C) step ids)."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal", n_queries=3,
+    )
+    rls_id = _run(_attach_rls_relation(report["id"], attach=False, buildable=True))
+    plain_id = _run(_attach_source_with_connection(report["id"], "system_only", attach=False))
+    rls_name, plain_name = _run(_source_name(rls_id)), _run(_source_name(plain_id))
+    a, b, c = seeded["step_ids"]
+    _run(_set_step_code(a, f"# reads {rls_name}\n{GOOD_CODE}"))
+    _run(_set_step_code(b, LOAD_STEP_NAMING_CODE.format(plain=plain_name, step_id=a)))
+    _run(_set_step_code(c, f"# reads {plain_name}\n{GOOD_CODE}"))
+    return admin, viewer, report, seeded["query_ids"], seeded["step_ids"]
+
+
+@pytest.mark.e2e
+def test_a_step_reads_the_sources_of_the_steps_it_loads(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """A step that load_step()s a step over a row-filtered relation holds that
+    step's rows as the owner saw them: its snapshot is withheld from a viewer
+    like the loaded step's. A plain step loading nothing is still served."""
+    admin, viewer, report, (qa, qb, qc), _ = _report_with_a_step_loading_a_row_filtered_step(
+        test_client, create_report, bootstrap_admin, invite_user_to_org)
+
+    for qid in (qa, qb):
+        step = _public_step(test_client, report["id"], qid, token=viewer["token"])
+        assert step["snapshot_withheld"] is True, qid
+        assert not (step["data"] or {}).get("rows"), qid
+    plain = _public_step(test_client, report["id"], qc, token=viewer["token"])
+    assert plain["snapshot_withheld"] is False
+    assert {r["month"] for r in plain["data"]["rows"]} == {"stale"}
+
+
+@pytest.mark.e2e
+def test_a_creator_result_of_a_step_loading_a_row_filtered_step_is_not_served(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    admin, viewer, report, (qa, qb, qc), (sa, sb, sc) = _report_with_a_step_loading_a_row_filtered_step(
+        test_client, create_report, bootstrap_admin, invite_user_to_org)
+    # Seeded directly: viewer runs here no longer execute as the creator, but
+    # a result stored before that remains.
+    _run(_seed_viewer_result(sb, viewer["email"], executed_as="creator"))
+
+    step = _public_step(test_client, report["id"], qb, token=viewer["token"])
+    assert not (step["data"] or {}).get("rows"), step["data"]
+
+    resp = test_client.post(
+        f"/api/queries/{qb}/run", json={"mode": "viewer", "params": {}},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["cached"] is False, resp.json()
+    assert "mine" not in resp.text
+
+
+async def _clear_default_step(query_id: str) -> str:
+    """A legacy query with no default step: what it serves is its latest
+    successful step (query_service.get_default_step_for_query)."""
+    async with async_session_maker() as db:
+        query = await db.get(Query, query_id)
+        step_id = str(query.default_step_id)
+        query.default_step_id = None
+        await db.commit()
+        return step_id
+
+
+@pytest.mark.e2e
+def test_a_query_without_a_default_step_counts_the_step_it_serves(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal", n_queries=2,
+    )
+    plain_id = _run(_attach_source_with_connection(report["id"], "system_only", attach=False))
+    rls_id = _run(_attach_rls_relation(report["id"], attach=False))
+    _run(_set_step_code(seeded["step_ids"][0], f"# reads {_run(_source_name(plain_id))}\n{GOOD_CODE}"))
+    _run(_set_step_code(seeded["step_ids"][1], f"# reads {_run(_source_name(rls_id))}\n{GOOD_CODE}"))
+    _run(_clear_default_step(seeded["query_ids"][1]))
+
+    assert _report_flags(test_client, report["id"], owner, admin["org_id"])[0] is True
+
+
 SOURCE_BOUND_CODE = """
 def generate_df(ds_clients, excel_files):
     client = ds_clients["Delegated:delegated"]
