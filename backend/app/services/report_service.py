@@ -887,9 +887,13 @@ class ReportService:
         # Credential shape drives the share dialog: user-scoped sources show
         # the 'run on my behalf' toggle (hidden otherwise — it's a no-op on
         # system-only credentials), RLS presence disables it.
-        from app.services.viewer_data_policy import has_rls_relations, has_user_scoped_connections
-        report_schema.has_rls = await has_rls_relations(db, str(report.id))
-        report_schema.has_user_scoped = await has_user_scoped_connections(db, str(report.id))
+        # The run sources are resolved once for both flags.
+        from app.services.viewer_data_policy import (
+            _any_rls_relation, _any_user_scoped_connection, report_run_data_source_ids,
+        )
+        run_source_ids = await report_run_data_source_ids(db, str(report.id))
+        report_schema.has_rls = await _any_rls_relation(db, run_source_ids)
+        report_schema.has_user_scoped = await _any_user_scoped_connection(db, run_source_ids)
         from app.services.public_sharing_policy import public_sharing_allowed
         report_schema.public_sharing_allowed = await public_sharing_allowed(db, report.organization_id)
 

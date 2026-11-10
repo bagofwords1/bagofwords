@@ -520,6 +520,11 @@ async def filter_run(db, artifact: Artifact, release: ArtifactRelease, query: Qu
         floor = upstream
     fresh = (existing is not None and existing.status == "success" and not request.force_refresh
              and (floor is None or existing.last_run_at is None or existing.last_run_at >= floor))
+    if fresh:
+        # A result run under the owner's credentials over an RLS source is
+        # the owner's slice: run again.
+        from app.services.dashboard_data import release_creator_result_holds_owner_slice
+        fresh = not await release_creator_result_holds_owner_slice(db, existing, release)
     if fresh and not release.bow_source_access:
         return {"data": existing.data or {}, "applied_params": resolved, "cached": True, "status": "success",
                 "step_id": str(step.id)}

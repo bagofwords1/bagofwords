@@ -35,6 +35,7 @@ class ExecContext:
         release=None,
         loadables_user=None,
         fresh_rows=None,
+        row_filter_user=None,
     ):
         self._organization = organization
         self._organization_id = organization_id
@@ -44,6 +45,11 @@ class ExecContext:
         # Whose identity load_entity resolves as; None: the credential user,
         # as it always was for a conversation.
         self.loadables_user = loadables_user
+        # Whose identity the row-level security of accelerated relations
+        # filters for when the core builds its own clients; None: the
+        # loadables user, else the credential user. A viewer's result run
+        # under the owner's credentials sets the viewer.
+        self.row_filter_user = row_filter_user
         self.report = report
         self.release = release
         # A refresh keeps each copy's new rows until every copy ran (phase 6):

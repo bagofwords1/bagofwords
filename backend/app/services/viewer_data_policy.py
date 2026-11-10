@@ -161,15 +161,25 @@ async def resolve_step_data(
 
 async def creator_result_holds_owner_slice(db: AsyncSession, row: Any, report_id: Any) -> bool:
     """True when a viewer's stored result ran under the owner's credentials
-    ('creator') on a report that reads a row-filtered relation: its rows are
-    the owner's slice, so it is not that viewer's result to serve. Creator
-    runs are refused on such reports, but a result stored before the report
-    counted as one (or before the relation turned on its filter) remains.
-    Cheap for every other row: the relation check runs only for a creator
-    result."""
+    ('creator') on a report that, as of now, reads a row-filtered relation
+    (has_rls_relations): its rows were filtered for the owner, so it is not
+    that viewer's result to serve. Viewer runs on such a report no longer
+    execute as the creator; this covers results stored under creator
+    credentials before that, e.g. on a report with no attached sources,
+    which the check did not count until then.
+
+    Only a creator result pays for the relation check. The answer is kept per
+    report on the session (db.info) -- this is called once per step a page
+    reads. Only the read paths that serve stored results use it (step reads,
+    the query run's cache); decisions that write (set_visibility, fork, the
+    run identity) call has_rls_relations directly and never read the memo."""
     if getattr(row, "executed_as", None) != "creator" or not report_id:
         return False
-    return await has_rls_relations(db, str(report_id))
+    memo = db.info.setdefault("_creator_result_rls", {})
+    key = str(report_id)
+    if key not in memo:
+        memo[key] = await has_rls_relations(db, key)
+    return memo[key]
 
 
 async def _default_params_fingerprint(db: AsyncSession, step: Any, report: Any, user: Any) -> Optional[str]:
@@ -297,10 +307,9 @@ async def org_sources_named_in_code(
     return _named_in_code(await _org_data_sources(db, organization_id), code)
 
 
-async def report_steps_code(db: AsyncSession, report_id: str) -> str | None:
-    """The code of every step of the report, joined with newlines; None when
-    none has code. Steps belong to the report through their widget or their
-    query (app/services/row_owner.py)."""
+async def _report_step_codes(db: AsyncSession, report_id: str) -> list[str]:
+    """The non-empty code of every step of the report. Steps belong to the
+    report through their widget or their query (app/services/row_owner.py)."""
     from sqlalchemy import or_
     from app.models.query import Query
     from app.models.step import Step
@@ -312,15 +321,40 @@ async def report_steps_code(db: AsyncSession, report_id: str) -> str | None:
             Step.query_id.in_(select(Query.id).where(Query.report_id == str(report_id))),
         ))
     )).scalars().all()
-    return "\n".join(c for c in codes if c) or None
+    return [c for c in codes if c and c.strip()]
+
+
+async def report_steps_code(db: AsyncSession, report_id: str) -> str | None:
+    """The code of every step of the report, joined with newlines; None when
+    none has code."""
+    return "\n".join(await _report_step_codes(db, report_id)) or None
+
+
+def fallback_ds_ids_for_codes(rows: list, codes: list[str]) -> list[str]:
+    """The organization sources (rows: (id, name)) a set of steps runs on,
+    decided per step as the page decides it (snapshot_withheld_for_viewers
+    with that step's code): each step counts the sources its own code names,
+    or every source when it names none. The union over the steps; every
+    source when no step has code. A step naming a plain source therefore
+    never narrows a sibling step that reaches its clients without naming
+    them."""
+    all_ids = [str(r[0]) for r in rows]
+    if not codes:
+        return all_ids
+    picked: set[str] = set()
+    for code in codes:
+        picked.update(_named_in_code(rows, code) or all_ids)
+        if len(picked) == len(all_ids):
+            break
+    return [i for i in all_ids if i in picked]
 
 
 async def report_run_data_source_ids(db: AsyncSession, report_id: str) -> list[str]:
     """The data sources a report's runs use: the attached ones, else the
-    organization's sources its steps' code names, else all of the
-    organization's (QueryService._report_data_sources builds clients for the
-    whole organization set). The same rule as release_run_data_source_ids for
-    a published dashboard."""
+    organization's, step by step (fallback_ds_ids_for_codes) --
+    QueryService._report_data_sources builds clients for the whole
+    organization set. The same rule as release_run_data_source_ids for a
+    published dashboard."""
     ds_ids = await _report_data_source_ids(db, report_id)
     if ds_ids:
         return ds_ids
@@ -330,7 +364,8 @@ async def report_run_data_source_ids(db: AsyncSession, report_id: str) -> list[s
     )).scalar_one_or_none()
     if not org_id:
         return []
-    return await _org_fallback_ds_ids(db, org_id, await report_steps_code(db, report_id))
+    return fallback_ds_ids_for_codes(
+        await _org_data_sources(db, org_id), await _report_step_codes(db, report_id))
 
 
 async def _report_data_source_ids(db: AsyncSession, report_id: str) -> list[str]:

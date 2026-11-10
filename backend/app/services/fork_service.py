@@ -254,8 +254,11 @@ class ForkService:
 
         # Check user has access to all data sources: the attached ones, or for
         # a report with none attached (it runs on the organization's sources),
-        # the organization sources its code names. Only those: a source the
-        # code never names is not one the fork would read.
+        # the organization sources its code names. Only those. What keeps a
+        # source's rows and code from the forker is the copy rule in
+        # _duplicate_assets (no rows over RLS or per-user sources, no code
+        # over per-user ones), not this check; refusing for every source in
+        # the organization would block forking such reports org-wide.
         from app.core.permission_resolver import user_can_access_data_source
         sources = list(report.data_sources)
         if not sources:
@@ -791,11 +794,13 @@ class ForkService:
         viz_id_map: Dict[str, str] = {}
 
         # Whether the source report's step rows are credential-differentiated
-        # to the source owner and so must not be copied into the fork:
-        #   - user-scoped connections (auth_policy != system_only) — fork
-        #     eligibility already blocks these, so this is normally False; it's
-        #     defense-in-depth for the detached-source edge (a user_required
-        #     source removed from the report after its steps were materialized).
+        # to the source owner and so must not be copied into the fork. Asked
+        # of the sources the report runs on (attached, else the
+        # organization's, step by step — report_run_data_source_ids):
+        #   - user-scoped connections (auth_policy != system_only) — such a
+        #     report is forkable (see check_eligibility); the fork gets no
+        #     rows and no code, and hydrate_fork fills in what the forker's
+        #     own credentials can run.
         #   - RLS relations — the shared snapshot is the OWNER's row slice of a
         #     shared system_only materialization, so copying it hands the
         #     forker rows their own identity would never return. These live on
