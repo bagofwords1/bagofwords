@@ -8,6 +8,7 @@ reaches the log, also when the request fails to validate or the tool fails.
 Real: routes, auth, MCP tools, services, DB. Nothing is mocked; the logs are
 read through caplog attached to the ``app`` logger tree.
 """
+import hashlib
 import json
 import logging
 import secrets
@@ -151,8 +152,13 @@ def test_failed_oauth_token_is_logged_without_any_token_characters(
     needles = {secret_part[i:i + 4] for i in range(len(secret_part) - 3)}
     leaks = _leaks(caplog, *needles)
     assert not leaks, f"MCP logs carry token characters: {leaks}"
-    assert any(r.levelno >= logging.WARNING and "oauth" in r.getMessage().lower()
-               for r in _mcp_records(caplog)), "the failed OAuth validation should still be logged"
+    failures = [r.getMessage() for r in _mcp_records(caplog)
+                if r.levelno >= logging.WARNING and "oauth" in r.getMessage().lower()]
+    assert failures, "the failed OAuth validation should still be logged"
+    # A fingerprint of the whole token matches repeated failures from one
+    # client without any token character: the first 8 hex of its sha256.
+    fingerprint = hashlib.sha256(token.encode()).hexdigest()[:8]
+    assert any(f"(token fp={fingerprint})" in m for m in failures), failures
 
 
 @pytest.mark.e2e
@@ -232,3 +238,87 @@ def test_failed_create_instruction_logs_neither_title_nor_text(
     assert result.get("success") is False, f"the INSERT was expected to fail: {result}"
     assert any("create_instruction" in r.getMessage() and r.levelno >= logging.ERROR
                for r in caplog.records), "the failed create should still be logged"
+
+
+def _h(token, org_id):
+    return {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+
+def _latest_turn(test_client, mcp_owner):
+    """(AgentExecution id, config_json) of the report's latest turn, read the
+    way an org admin reads them: the Console conversation names the turn's
+    run, and the run's trace carries its config."""
+    headers = _h(mcp_owner["token"], mcp_owner["org_id"])
+    conversation = test_client.get(
+        f"/api/console/reports/{mcp_owner['report_id']}/conversation", headers=headers)
+    assert conversation.status_code == 200, conversation.text
+    ae_id = conversation.json()["turns"][-1]["agent_execution_id"]
+    assert ae_id, conversation.json()["turns"][-1]
+    trace = test_client.get(f"/api/console/agent_executions/{ae_id}", headers=headers)
+    assert trace.status_code == 200, trace.text
+    return ae_id, trace.json()["agent_execution"]["config_json"] or {}
+
+
+def _call_get_context(test_client, mcp_owner, request_id, transport="json"):
+    """Call get_context; return the JSON-RPC response payload."""
+    accept = "application/json" + (", text/event-stream" if transport == "sse" else "")
+    response = test_client.post(
+        "/api/mcp",
+        json={"jsonrpc": "2.0", "id": request_id, "method": "tools/call", "params": {
+            "name": "get_context", "arguments": {"report_id": mcp_owner["report_id"]},
+        }},
+        headers={"X-API-Key": mcp_owner["api_key"], "Accept": accept},
+    )
+    assert response.status_code == 200, response.text
+    if transport == "sse":
+        payload = json.loads(response.text.split("data: ", 1)[1].split("\n", 1)[0])
+    else:
+        payload = response.json()
+    assert payload["result"]["isError"] is False, payload
+    return payload
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("transport", ["json", "sse"])
+@pytest.mark.parametrize("request_id", [7, 4242, "req-a1"])
+def test_mcp_turn_is_linked_to_its_json_rpc_request_id(
+    request_id, transport, monkeypatch, caplog, test_client, mcp_owner,
+):
+    """The stored turn keeps the request's JSON-RPC id, and an app log line
+    names both the id (which a client reuses across connections) and the
+    AgentExecution id (the durable key), with the tool and the outcome."""
+    _capture_app_logs(monkeypatch, caplog)
+
+    _call_get_context(test_client, mcp_owner, request_id, transport)
+
+    ae_id, config = _latest_turn(test_client, mcp_owner)
+    assert config.get("source") == "mcp" and config.get("tool") == "get_context", config
+    assert config.get("jsonrpc_id") == request_id, config
+    linked = [r.getMessage() for r in caplog.records
+              if r.name.startswith("app.") and ae_id in r.getMessage()
+              and f"id={request_id!r}" in r.getMessage()]
+    assert linked, f"no app log line pairs id={request_id!r} with {ae_id}: " \
+        f"{[r.getMessage() for r in caplog.records]}"
+    assert any("get_context" in m and "success" in m for m in linked), linked
+
+
+@pytest.mark.e2e
+def test_long_json_rpc_request_id_is_stored_and_logged_capped(
+    monkeypatch, caplog, test_client, mcp_owner,
+):
+    """The client picks the id and config_json is not encrypted: a string id
+    is kept to its first 64 characters, in the row and in every log line."""
+    request_id = _marker("rpc-id") + "-" + "x" * 80
+    assert len(request_id) > 64
+    _capture_app_logs(monkeypatch, caplog)
+
+    payload = _call_get_context(test_client, mcp_owner, request_id)
+
+    # The response still echoes the client's id, as JSON-RPC requires.
+    assert payload["id"] == request_id
+    ae_id, config = _latest_turn(test_client, mcp_owner)
+    assert config.get("jsonrpc_id") == request_id[:64], config
+    leaks = _leaks(caplog, request_id)
+    assert not leaks, f"MCP logs carry the whole request id: {leaks}"
+    assert any(ae_id in r.getMessage() and repr(request_id[:64]) in r.getMessage()
+               for r in caplog.records), [r.getMessage() for r in caplog.records]
