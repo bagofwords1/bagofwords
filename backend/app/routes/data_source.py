@@ -3,7 +3,7 @@ import asyncio
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Body, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_async_db, release_request_db
-from typing import Optional, List, Union
+from typing import Literal, Optional, List, Union
 
 from app.ee.audit.service import audit_service
 
@@ -511,22 +511,28 @@ async def add_data_source_member(
         pass
     return result
 
-@router.delete("/data_sources/{data_source_id}/members/{user_id}", status_code=204)
+@router.delete("/data_sources/{data_source_id}/members/{principal_id}", status_code=204)
 @requires_resource_permission('data_source', 'manage')
 async def remove_data_source_member(
     data_source_id: str,
-    user_id: str,
+    principal_id: str,
     http_request: Request,
+    principal_type: Literal["user", "group", "role"] = Query(
+        "user", description="Kind of member to remove; defaults to user for older clients."
+    ),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
-    result = await data_source_service.remove_data_source_member(db, data_source_id, user_id, organization, current_user)
+    result = await data_source_service.remove_data_source_member(
+        db, data_source_id, principal_id, organization, current_user, principal_type=principal_type,
+    )
     try:
         await audit_service.log(
             db=db, organization_id=organization.id, action="data_source.member_removed",
             user_id=current_user.id, resource_type="data_source", resource_id=str(data_source_id),
-            details={"user_id": str(user_id)}, request=http_request,
+            details={"principal_type": principal_type, "principal_id": str(principal_id)},
+            request=http_request,
         )
     except Exception:
         pass

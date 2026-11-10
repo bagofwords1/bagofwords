@@ -745,13 +745,19 @@ async function updateMemberPermissions(m: MemberGrant, newPerms: string[]) {
 
 async function removeMember(m: MemberGrant) {
     const dsId = props.agentId
-    try {
-        await useMyFetch(`/data_sources/${dsId}/members/${m.principal_id}`, { method: 'DELETE' })
-        members.value = members.value.filter(x => x.grant_id !== m.grant_id)
-        toast?.add?.({ title: 'Member removed' })
-    } catch {
+    // useMyFetch reports HTTP failures via `error`, it does not throw — so the
+    // row is only dropped once the server confirms the delete.
+    const { error } = await useMyFetch(`/data_sources/${dsId}/members/${m.principal_id}`, {
+        method: 'DELETE',
+        query: { principal_type: m.principal_type || 'user' },
+    })
+    if (error?.value) {
         toast?.add?.({ title: 'Failed to remove member', color: 'red' })
+        await loadMembers()
+        return
     }
+    members.value = members.value.filter(x => x.grant_id !== m.grant_id)
+    toast?.add?.({ title: 'Member removed' })
 }
 
 // ── Add member modal ────────────────────────────────────────────────────
