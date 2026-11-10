@@ -4285,7 +4285,8 @@
     "connection.kms_only": "O diagnóstico aplica-se apenas a ligações KMS Lighthouse.",
     "connection.kms_diagnostics_running": "O diagnóstico já está em curso para esta ligação. Aguarde que termine e tente novamente.",
     "connection.kms_login_rejected": "O KMS Lighthouse não aceitou este início de sessão, por isso não foi guardado. Verifique o nome de utilizador e a palavra-passe, ou o token de API, e tente novamente.",
-    "connection.kms_login_paused": "O KMS Lighthouse recusou recentemente este início de sessão, por isso as novas tentativas com ele estão em pausa durante alguns minutos e não foi guardado. Verifique o início de sessão ou tente novamente mais tarde."
+    "connection.kms_login_paused": "O KMS Lighthouse recusou recentemente este início de sessão, por isso as novas tentativas com ele estão em pausa durante alguns minutos e não foi guardado. Verifique o início de sessão ou tente novamente mais tarde.",
+    "connection.kms_session_refused": "O KMS Lighthouse aceitou o início de sessão, mas recusou a sessão correspondente, por isso não pode ser usado e não foi guardado. Pergunte ao administrador do KMS se esta conta pode usar a API do KMS."
   },
   "email": {
     "dashboardShare": {

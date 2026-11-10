@@ -4285,7 +4285,8 @@
     "connection.kms_only": "La diagnostica si applica solo alle connessioni KMS Lighthouse.",
     "connection.kms_diagnostics_running": "La diagnostica è già in esecuzione per questa connessione. Attendi che termini, quindi riprova.",
     "connection.kms_login_rejected": "KMS Lighthouse non ha accettato queste credenziali, quindi non sono state salvate. Controlla nome utente e password, oppure il token API, e riprova.",
-    "connection.kms_login_paused": "KMS Lighthouse ha rifiutato di recente queste credenziali, quindi i nuovi tentativi sono sospesi per alcuni minuti e non sono state salvate. Controlla le credenziali o riprova più tardi."
+    "connection.kms_login_paused": "KMS Lighthouse ha rifiutato di recente queste credenziali, quindi i nuovi tentativi sono sospesi per alcuni minuti e non sono state salvate. Controlla le credenziali o riprova più tardi.",
+    "connection.kms_session_refused": "KMS Lighthouse ha accettato queste credenziali ma ne ha rifiutato la sessione, quindi non possono essere usate e non sono state salvate. Chiedi all'amministratore di KMS se questo account può usare l'API di KMS."
   },
   "email": {
     "dashboardShare": {

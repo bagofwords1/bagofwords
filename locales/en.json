@@ -4718,7 +4718,8 @@
     "connection.kms_only": "Diagnostics apply to KMS Lighthouse connections only.",
     "connection.kms_diagnostics_running": "Diagnostics are already running for this connection. Wait for them to finish, then try again.",
     "connection.kms_login_rejected": "KMS Lighthouse did not accept this login, so it was not saved. Check the username and password, or the API token, and try again.",
-    "connection.kms_login_paused": "KMS Lighthouse recently refused this login, so new attempts with it are paused for a few minutes and it was not saved. Check the login, or try again later."
+    "connection.kms_login_paused": "KMS Lighthouse recently refused this login, so new attempts with it are paused for a few minutes and it was not saved. Check the login, or try again later.",
+    "connection.kms_session_refused": "KMS Lighthouse accepted the login but refused its session, so it cannot be used and was not saved. Ask the KMS administrator whether this account may use the KMS API."
   },
   "email": {
     "dashboardShare": {

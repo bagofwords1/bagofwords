@@ -4658,7 +4658,8 @@
     "connection.kms_only": "האבחון חל רק על חיבורי KMS Lighthouse.",
     "connection.kms_diagnostics_running": "האבחון כבר פועל עבור החיבור הזה. המתינו לסיומו ונסו שוב.",
     "connection.kms_login_rejected": "KMS Lighthouse לא קיבל את פרטי ההתחברות האלה, ולכן הם לא נשמרו. בדקו את שם המשתמש והסיסמה, או את אסימון ה-API, ונסו שוב.",
-    "connection.kms_login_paused": "KMS Lighthouse דחה לאחרונה את פרטי ההתחברות האלה, ולכן ניסיונות נוספים איתם מושהים לכמה דקות והם לא נשמרו. בדקו את פרטי ההתחברות או נסו שוב מאוחר יותר."
+    "connection.kms_login_paused": "KMS Lighthouse דחה לאחרונה את פרטי ההתחברות האלה, ולכן ניסיונות נוספים איתם מושהים לכמה דקות והם לא נשמרו. בדקו את פרטי ההתחברות או נסו שוב מאוחר יותר.",
+    "connection.kms_session_refused": "KMS Lighthouse קיבל את פרטי ההתחברות אבל דחה את הסשן שלהם, ולכן אי אפשר להשתמש בהם והם לא נשמרו. פנו למנהל ה-KMS כדי לבדוק אם החשבון הזה רשאי להשתמש ב-API של KMS."
   },
   "email": {
     "dashboardShare": {

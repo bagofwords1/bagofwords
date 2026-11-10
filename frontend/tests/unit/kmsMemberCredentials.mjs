@@ -70,7 +70,7 @@ assert.ok(!r.saveError.includes('dummy tok3n'), 'never the typed token')
 assert.deepEqual(r.emitted, [], 'a failed save keeps the modal open')
 
 // A login KMS refused on Save (or one still paused after a refusal): the localized reason, modal open.
-for (const code of ['connection.kms_login_rejected', 'connection.kms_login_paused']) {
+for (const code of ['connection.kms_login_rejected', 'connection.kms_login_paused', 'connection.kms_session_refused']) {
   r = await save('kms_lighthouse', { data: { error_code: code, status_code: 422,
     detail: 'KMS Lighthouse did not accept the API token; it may be wrong or no longer valid.' } })
   assert.ok(en.errors[code], `${code} has a catalog line`)
@@ -328,7 +328,7 @@ for (const locale of ['en', 'es', 'he', 'fr', 'sv', 'ar', 'ru', 'de', 'pt', 'it'
   const connection = catalog.integrationConnection
   assert.ok(connection?.connected?.trim(), `${locale} has the neutral connected line`)
   assert.ok(connection?.connectedAs?.includes('{identity}'), `${locale} names the identity in the connected line`)
-  for (const code of ['connection.kms_login_rejected', 'connection.kms_login_paused']) {
+  for (const code of ['connection.kms_login_rejected', 'connection.kms_login_paused', 'connection.kms_session_refused']) {
     assert.ok(catalog.errors?.[code]?.trim(), `${locale} has ${code}`)
     if (locale !== 'en') assert.notEqual(catalog.errors[code], en.errors[code], `${locale} ${code} is translated`)
   }

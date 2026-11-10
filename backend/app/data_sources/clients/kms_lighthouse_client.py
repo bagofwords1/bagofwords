@@ -2255,9 +2255,12 @@ class KmsLighthouseClient(DataSourceClient):
         except (KmsError, GlobScopeError) as exc:
             logger.info("kms_lighthouse test_connection failed: %s", getattr(exc, "kind", "error"))
             result = {"success": False, "message": str(exc)}
-            if getattr(exc, "kind", None) == "auth":
-                # KMS refused this login, or a recent refusal holds it: a caller saving
-                # a member's login must not store it.
+            # The login cannot be used: a caller saving a member's login must not store it.
+            # "rejected" is a wrong password or token; "session_refused" is KMS taking the
+            # password but refusing (or never giving) a session; "held" is a recent rejection.
+            if str(exc) in (_SESSION_REFUSED, _NO_SESSION):
+                result["login_refused"] = "session_refused"
+            elif getattr(exc, "kind", None) == "auth":
                 result["login_refused"] = "held" if str(exc) == _HELD_AUTH else "rejected"
             return result
         except Exception as exc:

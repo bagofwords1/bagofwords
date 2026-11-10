@@ -4285,7 +4285,8 @@
     "connection.kms_only": "Le diagnostic s'applique uniquement aux connexions KMS Lighthouse.",
     "connection.kms_diagnostics_running": "Un diagnostic est déjà en cours pour cette connexion. Attendez qu'il se termine, puis réessayez.",
     "connection.kms_login_rejected": "KMS Lighthouse n'a pas accepté cet identifiant, il n'a donc pas été enregistré. Vérifiez le nom d'utilisateur et le mot de passe, ou le jeton d'API, puis réessayez.",
-    "connection.kms_login_paused": "KMS Lighthouse a récemment refusé cet identifiant : les nouvelles tentatives sont suspendues pendant quelques minutes et il n'a pas été enregistré. Vérifiez l'identifiant ou réessayez plus tard."
+    "connection.kms_login_paused": "KMS Lighthouse a récemment refusé cet identifiant : les nouvelles tentatives sont suspendues pendant quelques minutes et il n'a pas été enregistré. Vérifiez l'identifiant ou réessayez plus tard.",
+    "connection.kms_session_refused": "KMS Lighthouse a accepté cet identifiant mais a refusé sa session : il ne peut donc pas être utilisé et n'a pas été enregistré. Demandez à l'administrateur KMS si ce compte peut utiliser l'API KMS."
   },
   "email": {
     "dashboardShare": {

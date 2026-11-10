@@ -63,6 +63,27 @@ def test_a_login_kms_rejects_is_refused_and_nothing_is_stored(
 
 
 @pytest.mark.e2e
+@pytest.mark.parametrize("switch,value", [("session_expiry", "immediate"), ("login_mode", "none")],
+                         ids=["session_refused", "no_session"])
+def test_a_login_kms_accepts_without_a_usable_session_is_refused_as_a_session_problem(
+    kms, test_client, create_user, login_user, whoami, create_data_source, switch, value,
+):
+    """KMS took the password but refused (or never gave) the session: not a wrong password, so the
+    member is not told to check it; nothing is stored either."""
+    ds_id, conn_id, bob_h = _setup(kms, test_client, create_user, login_user, whoami, create_data_source)
+    kms["mock"].STATE[switch] = value
+    bob_pass = kms["mock"].USERS["bob"]["password"]
+
+    r = _save(test_client, conn_id, bob_h, "userpass", {"username": "bob", "password": bob_pass})
+
+    assert r.status_code == 422, r.text
+    assert r.json()["error_code"] == "connection.kms_session_refused", r.json()
+    assert bob_pass not in r.text
+    assert kms["mock"].STATE["accepted_logins"] >= 1, "KMS accepted the password"
+    assert _status(test_client, ds_id, bob_h)["has_user_credentials"] is False
+
+
+@pytest.mark.e2e
 def test_a_refused_login_keeps_the_login_saved_before_it(
     kms, test_client, create_user, login_user, whoami, create_data_source,
 ):

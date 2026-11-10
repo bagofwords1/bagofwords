@@ -1653,8 +1653,10 @@ class ConnectionService:
         Returns ``{"identity": ...}`` when KMS accepted it, and None when KMS could
         not decide (unreachable, an error, an admin-side setting): that login is
         saved unchecked, as every login was before. Raises a typed 422 when KMS
-        refused it, or when a refusal of the same login is still held (the client
-        sends no login then), so a retried Save cannot lock the KMS account.
+        refused it, when it accepted it but refused its session (a KMS-side account
+        setting, not a wrong password), or when a refusal of the same login is still
+        held (the client sends no login then), so a retried Save cannot lock the KMS
+        account.
         """
         import json
         from app.core.egress import acheck_connection_params
@@ -1676,7 +1678,9 @@ class ConnectionService:
         outcome = outcome if isinstance(outcome, dict) else {}
         refused = outcome.get("login_refused")
         if refused:
-            code = ErrorCode.CONNECTION_KMS_LOGIN_PAUSED if refused == "held" else ErrorCode.CONNECTION_KMS_LOGIN_REJECTED
+            code = {"held": ErrorCode.CONNECTION_KMS_LOGIN_PAUSED,
+                    "session_refused": ErrorCode.CONNECTION_KMS_SESSION_REFUSED}.get(
+                        refused, ErrorCode.CONNECTION_KMS_LOGIN_REJECTED)
             raise AppError(code, outcome.get("message") or "KMS Lighthouse did not accept this login.", status_code=422)
         if not outcome.get("success"):
             return None

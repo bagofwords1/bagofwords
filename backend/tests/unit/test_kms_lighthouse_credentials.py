@@ -182,7 +182,8 @@ def test_the_kms_error_codes_have_messages_in_every_maintained_catalog(locale):
 
     errors = json.loads((_LOCALES / f"{locale}.json").read_text(encoding="utf-8"))["errors"]
     for code in (ErrorCode.CONNECTION_KMS_TOKEN_FORMAT, ErrorCode.CONNECTION_KMS_USE_CONNECTION_CREDENTIALS,
-                 ErrorCode.CONNECTION_KMS_LOGIN_REJECTED, ErrorCode.CONNECTION_KMS_LOGIN_PAUSED):
+                 ErrorCode.CONNECTION_KMS_LOGIN_REJECTED, ErrorCode.CONNECTION_KMS_LOGIN_PAUSED,
+                 ErrorCode.CONNECTION_KMS_SESSION_REFUSED):
         message = errors.get(code.value)
         assert isinstance(message, str) and message.strip(), (locale, code.value)
         assert "{" not in message, (locale, code.value)

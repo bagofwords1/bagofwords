@@ -4285,7 +4285,8 @@
     "connection.kms_only": "Diagnostiken gäller endast KMS Lighthouse-anslutningar.",
     "connection.kms_diagnostics_running": "Diagnostiken körs redan för den här anslutningen. Vänta tills den är klar och försök sedan igen.",
     "connection.kms_login_rejected": "KMS Lighthouse godkände inte den här inloggningen, så den sparades inte. Kontrollera användarnamnet och lösenordet, eller API-token, och försök igen.",
-    "connection.kms_login_paused": "KMS Lighthouse nekade nyligen den här inloggningen, så nya försök med den är pausade i några minuter och den sparades inte. Kontrollera inloggningen eller försök igen senare."
+    "connection.kms_login_paused": "KMS Lighthouse nekade nyligen den här inloggningen, så nya försök med den är pausade i några minuter och den sparades inte. Kontrollera inloggningen eller försök igen senare.",
+    "connection.kms_session_refused": "KMS Lighthouse godkände inloggningen men nekade dess session, så den kan inte användas och sparades inte. Fråga KMS-administratören om det här kontot får använda KMS-API:t."
   },
   "email": {
     "dashboardShare": {
