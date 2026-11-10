@@ -841,9 +841,15 @@ class ContextCompactionService:
                 new_summary["opening_request"] = opening
             # Keep what the summarizer kept, plus every durable event folded so
             # far (the previous summary's list carries the older ones).
-            prior_feedback = list((summary or {}).get("user_feedback") or [])
-            if prior_feedback and not new_summary.get("user_feedback"):
-                new_summary["user_feedback"] = prior_feedback
+            # Union, never the summarizer's choice: earlier entries' event rows
+            # are already behind the previous watermark, so a model that
+            # returns only the newest rejection must not erase older ones.
+            merged: list = []
+            for item in list((summary or {}).get("user_feedback") or []) + list(new_summary.get("user_feedback") or []):
+                item = str(item)
+                if item and item not in merged:
+                    merged.append(item)
+            new_summary["user_feedback"] = merged
             new_summary = _merge_durable_events(new_summary, chunk)
             new_summary = _enforce_summary_budget(new_summary, budget.summary_max)
 

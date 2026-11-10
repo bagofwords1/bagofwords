@@ -966,3 +966,30 @@ async def test_durable_events_survive_compaction_with_or_without_the_summarizer(
         await _svc().compact(db, report, org, _model(), mode="manual", force=True)
     state = await _state(db, report.id)
     assert "User rejected the suggestion to exclude refunds" in render_summary_for_prompt(state.summary_json)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model_feedback", [["only the newest: REJECTION_B"], ["REJECTION_B", "something else"]])
+async def test_earlier_feedback_survives_a_summarizer_that_returns_a_subset(db, model_feedback):
+    """A later fold whose summarizer returns a NON-empty feedback list that
+    omits an older rejection must not erase it: its event row is already
+    behind the previous watermark, so the stored list is its only home."""
+    from app.ai.context.session_events import EVENT_DURABLE
+    kind = sorted(EVENT_DURABLE)[0]
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, 20)
+    await _add_event(db, report, kind, "REJECTION_A: do not exclude refunds", minute=5)
+    llm_patch, _ = _mock_llm(SUMMARY)
+    with llm_patch:
+        await _svc().compact(db, report, org, _model(), mode="manual", force=True)
+
+    await _add_turns(db, report, user, 20, start=100)
+    await _add_event(db, report, kind, "REJECTION_B: do not drop cancelled orders", minute=105)
+    second = dict(SUMMARY, user_feedback=model_feedback)
+    llm_patch2, _ = _mock_llm(second)
+    with llm_patch2:
+        result = await _svc().compact(db, report, org, _model(), mode="manual", force=True)
+    assert result["status"] == "compacted"
+    rendered = render_summary_for_prompt((await _state(db, report.id)).summary_json)
+    assert "REJECTION_A: do not exclude refunds" in rendered
+    assert "REJECTION_B: do not drop cancelled orders" in rendered
