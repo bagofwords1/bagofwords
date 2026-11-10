@@ -39,10 +39,18 @@ def bind_jsonrpc_id(request_id: Any) -> Optional[Union[str, int]]:
     """Bind this request's JSON-RPC id and return the form that may be stored
     and logged. The client chooses the id and config_json is not encrypted,
     so only a str (its first 64 characters) or an int (64-bit) is kept;
-    anything else is None."""
+    anything else is None. A str must also encode as UTF-8 and be printable:
+    a lone surrogate (valid JSON) would break rendering the stored turn, and
+    control characters would reach the logs raw."""
     value: Optional[Union[str, int]] = None
     if isinstance(request_id, str):
-        value = request_id[:JSONRPC_ID_MAX_CHARS]
+        capped = request_id[:JSONRPC_ID_MAX_CHARS]
+        try:
+            capped.encode("utf-8")
+        except UnicodeEncodeError:
+            capped = None
+        if capped is not None and capped.isprintable():
+            value = capped
     elif isinstance(request_id, int) and not isinstance(request_id, bool) \
             and -(2 ** 63) <= request_id < 2 ** 63:
         value = request_id

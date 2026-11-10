@@ -322,3 +322,40 @@ def test_long_json_rpc_request_id_is_stored_and_logged_capped(
     assert not leaks, f"MCP logs carry the whole request id: {leaks}"
     assert any(ae_id in r.getMessage() and repr(request_id[:64]) in r.getMessage()
                for r in caplog.records), [r.getMessage() for r in caplog.records]
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("request_id", ["\ud800", "a\x1b[31m"],
+                         ids=["lone-surrogate", "control-chars"])
+def test_unrenderable_json_rpc_request_id_is_stored_and_logged_as_none(
+    request_id, monkeypatch, caplog, test_client, mcp_owner,
+):
+    """A string id that is not UTF-8 encodable (a lone surrogate, which JSON
+    allows) or not printable (control characters) is neither stored nor
+    logged: the turn keeps jsonrpc_id None and its Console trace renders.
+
+    Sent over SSE: the plain JSON response echoes the id, and rendering a lone
+    surrogate there fails whatever the server stores. The body is raw bytes
+    from json.dumps, whose ensure_ascii writes the surrogate as an escape."""
+    _capture_app_logs(monkeypatch, caplog)
+    body = json.dumps({"jsonrpc": "2.0", "id": request_id, "method": "tools/call", "params": {
+        "name": "get_context", "arguments": {"report_id": mcp_owner["report_id"]},
+    }}).encode("ascii")
+
+    response = test_client.post(
+        "/api/mcp", content=body,
+        headers={"X-API-Key": mcp_owner["api_key"], "Content-Type": "application/json",
+                 "Accept": "application/json, text/event-stream"},
+    )
+
+    assert response.status_code == 200, response.text
+    payload = json.loads(response.text.split("data: ", 1)[1].split("\n", 1)[0])
+    assert payload["result"]["isError"] is False, payload
+    # _latest_turn asserts the Console trace endpoint answers 200.
+    ae_id, config = _latest_turn(test_client, mcp_owner)
+    assert config.get("source") == "mcp" and config.get("tool") == "get_context", config
+    assert "jsonrpc_id" in config and config["jsonrpc_id"] is None, config
+    leaks = _leaks(caplog, request_id)
+    assert not leaks, f"MCP logs carry the raw request id: {leaks}"
+    assert any(ae_id in r.getMessage() and "id=None" in r.getMessage()
+               for r in caplog.records), [r.getMessage() for r in caplog.records]
