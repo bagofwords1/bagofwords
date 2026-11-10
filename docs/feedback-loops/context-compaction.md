@@ -106,9 +106,12 @@ when there are no line boundaries (`test_trim_cuts_single_line_history_*`).
   optional body, summary route owner-only.
 - `frontend/tests/unit/slashCommands.mjs`: what counts as a command, menu
   matching, `/compact` arguments.
-- Full `tests/unit`: 14,789 passed. The 200 failures are pre-existing sandbox
-  issues (`libodbc.so.2` missing, proxy CA bundle) in SharePoint/OBO/Fabric
-  tests that never import this code.
+- Full `tests/unit`: 14,796 passed. All 206 failures are sandbox
+  environment issues in code this change doesn't touch: `libodbc.so.2`
+  missing, the proxy CA bundle (SharePoint/OBO/Fabric), and no headless
+  Chromium build for `test_artifact_precompile`.
+- `yarn build` (production, `NODE_OPTIONS=--max-old-space-size=4096` as in
+  CI): passes.
 
 ## Not covered live
 
