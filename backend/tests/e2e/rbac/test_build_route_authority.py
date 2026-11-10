@@ -98,15 +98,44 @@ def _live_text(test_client, admin, org_id, instruction_id):
     return None
 
 
+async def _stage_pending_global_build(org_id, author_id, text):
+    """Stage a GLOBAL instruction in a pending (non-main) build as a non-admin.
+
+    Authoring a global through POST /instructions is gated to org admins, so a
+    per-agent manager can no longer seed this state via the route. It still
+    arises legitimately from the AI knowledge-harness / self-learning flows,
+    which call the service directly: a non-admin's build is submitted for
+    approval and, because it changes a global, left pending (never auto-promoted).
+    We reproduce exactly that pending-global build by calling the service with the
+    proposer as author. Returns the new instruction id."""
+    from app.dependencies import async_session_maker
+    from app.models.organization import Organization
+    from app.models.user import User
+    from app.schemas.instruction_schema import InstructionCreate
+    from app.services.instruction_service import InstructionService
+
+    async with async_session_maker() as db:
+        org = await db.get(Organization, org_id)
+        author = await db.get(User, author_id)
+        schema = await InstructionService().create_instruction(
+            db,
+            InstructionCreate(text=text, status="published", category="general", data_source_ids=[]),
+            current_user=author, organization=org, force_global=True,
+        )
+        await db.commit()
+        return str(schema.id)
+
+
 # ────────────────────────────────────────────────────────────────────
 # Write ops on builds that change a GLOBAL instruction
 # ────────────────────────────────────────────────────────────────────
 
 
 @pytest.mark.e2e
+@pytest.mark.asyncio
 @pytest.mark.parametrize("main_has_scoped_instruction", [False, True])
 @pytest.mark.parametrize("action", ["publish", "reject", "submit"])
-def test_per_agent_manager_cannot_act_on_build_changing_global(
+async def test_per_agent_manager_cannot_act_on_build_changing_global(
     test_client, world, action, main_has_scoped_instruction
 ):
     """Changing a global instruction needs org-level authority, whatever else is in the snapshot.
@@ -119,23 +148,26 @@ def test_per_agent_manager_cannot_act_on_build_changing_global(
     if main_has_scoped_instruction:
         _create_instruction(test_client, admin, org_id, "ds_a rule", [world["ds_a"]["id"]])
 
-    # A per-agent manager proposes an org-wide rule. It can't go live on their
-    # own authority, so it waits in a pending build for an org-level reviewer.
-    g = _create_instruction(test_client, world["proposer"], org_id, f"GLOBAL {uuid.uuid4().hex}", [])
-    build = _pending_build_for(test_client, admin, org_id, g["id"])
+    # A pending build that changes an org-wide rule (staged by the AI harness /
+    # self-learning flow for a non-admin — see the helper). It can't go live on a
+    # per-agent manager's authority, so it waits for an org-level reviewer.
+    g_id = await _stage_pending_global_build(
+        org_id, world["proposer"]["user_id"], f"GLOBAL {uuid.uuid4().hex}"
+    )
+    build = _pending_build_for(test_client, admin, org_id, g_id)
 
     actor = world["manager_a"]  # manage_instructions on ds_a only
     body = {"reason": "nope"} if action == "reject" else None
     r = test_client.post(f"/api/builds/{build['id']}/{action}", json=body,
                          headers=_hdr(actor["token"], org_id))
     assert r.status_code == 403, f"{action}: {r.status_code} {r.text}"
-    assert _live_text(test_client, admin, org_id, g["id"]) is None, "global went live"
+    assert _live_text(test_client, admin, org_id, g_id) is None, "global went live"
 
     # An org-level manager still can.
     if action == "publish":
         ok = test_client.post(f"/api/builds/{build['id']}/publish", headers=_hdr(admin["token"], org_id))
         assert ok.status_code == 200, ok.text
-        assert _live_text(test_client, admin, org_id, g["id"]) is not None
+        assert _live_text(test_client, admin, org_id, g_id) is not None
 
 
 @pytest.mark.e2e
