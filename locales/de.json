@@ -4319,7 +4319,10 @@
     "connection.kms_token_format": "Das KMS-API-Token darf nur einfache Buchstaben, Ziffern und Satzzeichen enthalten, ohne Leerzeichen. Kopieren Sie es erneut aus KMS Lighthouse und fügen Sie es als reinen Text ein.",
     "connection.kms_use_connection_credentials": "KMS-Lighthouse-Anmeldungen werden in der Verbindung gespeichert. Öffnen Sie die Verbindung und verbinden Sie sich dort.",
     "connection.kms_only": "Die Diagnose gilt nur für KMS Lighthouse-Verbindungen.",
-    "connection.kms_diagnostics_running": "Für diese Verbindung läuft bereits eine Diagnose. Warten Sie, bis sie abgeschlossen ist, und versuchen Sie es dann erneut."
+    "connection.kms_diagnostics_running": "Für diese Verbindung läuft bereits eine Diagnose. Warten Sie, bis sie abgeschlossen ist, und versuchen Sie es dann erneut.",
+    "connection.kms_login_rejected": "KMS Lighthouse hat diese Anmeldung nicht akzeptiert, daher wurde sie nicht gespeichert. Prüfen Sie Benutzername und Passwort oder das API-Token und versuchen Sie es erneut.",
+    "connection.kms_login_paused": "KMS Lighthouse hat diese Anmeldung kürzlich abgelehnt. Neue Versuche damit sind für einige Minuten pausiert, und sie wurde nicht gespeichert. Prüfen Sie die Anmeldung oder versuchen Sie es später erneut.",
+    "connection.kms_session_refused": "KMS Lighthouse hat die Anmeldung akzeptiert, aber ihre Sitzung abgelehnt. Sie kann daher nicht verwendet werden und wurde nicht gespeichert. Fragen Sie den KMS-Administrator, ob dieses Konto die KMS-API verwenden darf."
   },
   "email": {
     "dashboardShare": {
@@ -6416,7 +6419,9 @@
     "noConnection": "Dieser Agent hat noch keine Verbindung.",
     "notFound": "Diese Verbindung wurde nicht gefunden.",
     "forbidden": "Sie haben keinen Zugriff auf diese Verbindung.",
-    "loadFailed": "Die Verbindung konnte nicht geladen werden. Versuchen Sie es später erneut."
+    "loadFailed": "Die Verbindung konnte nicht geladen werden. Versuchen Sie es später erneut.",
+    "connected": "Verbunden",
+    "connectedAs": "Verbunden als {identity}"
   },
   "trackedChanges": {
     "noChanges": "Keine Änderungen"

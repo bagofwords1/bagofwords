@@ -1621,6 +1621,10 @@ class ConnectionService:
             if connection.type == "kms_lighthouse":
                 raise self._kms_credentials_error(e)
             raise AppError(ErrorCode.VALIDATION, "The required credential fields are missing or invalid", status_code=422)
+        checked = None
+        if connection.type == "kms_lighthouse":
+            # Raises when KMS refuses the login, before anything is stored.
+            checked = await self._check_kms_member_login(connection, payload.auth_mode, credentials)
         row = await get_user_conn_cred_row(db, connection, user)
         if row is None:
             row = UserConnectionCredentials(connection_id=str(connection.id), user_id=str(user.id),
@@ -1628,9 +1632,59 @@ class ConnectionService:
         row.auth_mode = payload.auth_mode
         row.last_used_at = None
         row.encrypt_credentials(credentials)
+        result = {"success": True, "auth_mode": payload.auth_mode}
+        if connection.type == "kms_lighthouse":
+            # The identity belongs to this login only: a new login drops the old one.
+            metadata = {k: v for k, v in (row.metadata_json or {}).items() if k != "verified_identity"}
+            identity = checked.get("identity") if checked else None
+            if identity:
+                metadata["verified_identity"] = identity
+            row.metadata_json = metadata
+            if checked is not None:
+                row.last_used_at = datetime.utcnow()
+            result.update(verified=checked is not None, identity=identity)
         db.add(row)
         await db.commit()
-        return {"success": True, "auth_mode": payload.auth_mode}
+        return result
+
+    async def _check_kms_member_login(self, connection, auth_mode: str, credentials: dict) -> dict | None:
+        """Log in to KMS once with a member's login before it is saved.
+
+        Returns ``{"identity": ...}`` when KMS accepted it, and None when KMS could
+        not decide (unreachable, an error, an admin-side setting): that login is
+        saved unchecked, as every login was before. Raises a typed 422 when KMS
+        refused it, when it accepted it but refused its session (a KMS-side account
+        setting, not a wrong password), or when a refusal of the same login is still
+        held (the client sends no login then), so a retried Save cannot lock the KMS
+        account.
+        """
+        import json
+        from app.core.egress import acheck_connection_params
+        from app.errors import AppError, ErrorCode
+        from app.schemas.data_source_registry import overlay_system_credentials
+        config = connection.config
+        if isinstance(config, str):
+            config = json.loads(config or "{}")
+        config = config or {}
+        creds = overlay_system_credentials(connection, credentials, auth_mode)
+        try:
+            await acheck_connection_params(connection.type, {**config, **creds})
+            client = self._resolve_client_by_type(data_source_type=connection.type, config=config, credentials=creds)
+            outcome = await client.atest_connection()
+        except Exception as exc:
+            # The class name only: the text may hold a URL or a secret.
+            logger.info("kms_lighthouse member login not checked: %s", type(exc).__name__)
+            return None
+        outcome = outcome if isinstance(outcome, dict) else {}
+        refused = outcome.get("login_refused")
+        if refused:
+            code = {"held": ErrorCode.CONNECTION_KMS_LOGIN_PAUSED,
+                    "session_refused": ErrorCode.CONNECTION_KMS_SESSION_REFUSED}.get(
+                        refused, ErrorCode.CONNECTION_KMS_LOGIN_REJECTED)
+            raise AppError(code, outcome.get("message") or "KMS Lighthouse did not accept this login.", status_code=422)
+        if not outcome.get("success"):
+            return None
+        return {"identity": (outcome.get("details") or {}).get("identity")}
 
     async def delete_user_credentials(
         self,

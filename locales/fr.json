@@ -4319,7 +4319,10 @@
     "connection.kms_token_format": "Le jeton d'API KMS ne peut contenir que des lettres, des chiffres et des signes de ponctuation simples, sans espaces. Copiez-le à nouveau depuis KMS Lighthouse et collez-le en texte brut.",
     "connection.kms_use_connection_credentials": "Les identifiants KMS Lighthouse sont enregistrés sur la connexion. Ouvrez la connexion et connectez-vous depuis celle-ci.",
     "connection.kms_only": "Le diagnostic s'applique uniquement aux connexions KMS Lighthouse.",
-    "connection.kms_diagnostics_running": "Un diagnostic est déjà en cours pour cette connexion. Attendez qu'il se termine, puis réessayez."
+    "connection.kms_diagnostics_running": "Un diagnostic est déjà en cours pour cette connexion. Attendez qu'il se termine, puis réessayez.",
+    "connection.kms_login_rejected": "KMS Lighthouse n'a pas accepté cet identifiant, il n'a donc pas été enregistré. Vérifiez le nom d'utilisateur et le mot de passe, ou le jeton d'API, puis réessayez.",
+    "connection.kms_login_paused": "KMS Lighthouse a récemment refusé cet identifiant : les nouvelles tentatives sont suspendues pendant quelques minutes et il n'a pas été enregistré. Vérifiez l'identifiant ou réessayez plus tard.",
+    "connection.kms_session_refused": "KMS Lighthouse a accepté cet identifiant mais a refusé sa session : il ne peut donc pas être utilisé et n'a pas été enregistré. Demandez à l'administrateur KMS si ce compte peut utiliser l'API KMS."
   },
   "email": {
     "dashboardShare": {
@@ -6416,7 +6419,9 @@
     "noConnection": "Cet agent n'a pas encore de connexion.",
     "notFound": "Cette connexion est introuvable.",
     "forbidden": "Vous n'avez pas accès à cette connexion.",
-    "loadFailed": "Impossible de charger la connexion. Réessayez plus tard."
+    "loadFailed": "Impossible de charger la connexion. Réessayez plus tard.",
+    "connected": "Connecté",
+    "connectedAs": "Connecté en tant que {identity}"
   },
   "trackedChanges": {
     "noChanges": "Aucune modification"

@@ -4752,7 +4752,10 @@
     "connection.kms_token_format": "The KMS API token can contain only plain letters, digits and punctuation, with no spaces. Copy it again from KMS Lighthouse and paste it as plain text.",
     "connection.kms_use_connection_credentials": "KMS Lighthouse sign-ins are saved on the connection. Open the connection and connect from there.",
     "connection.kms_only": "Diagnostics apply to KMS Lighthouse connections only.",
-    "connection.kms_diagnostics_running": "Diagnostics are already running for this connection. Wait for them to finish, then try again."
+    "connection.kms_diagnostics_running": "Diagnostics are already running for this connection. Wait for them to finish, then try again.",
+    "connection.kms_login_rejected": "KMS Lighthouse did not accept this login, so it was not saved. Check the username and password, or the API token, and try again.",
+    "connection.kms_login_paused": "KMS Lighthouse recently refused this login, so new attempts with it are paused for a few minutes and it was not saved. Check the login, or try again later.",
+    "connection.kms_session_refused": "KMS Lighthouse accepted the login but refused its session, so it cannot be used and was not saved. Ask the KMS administrator whether this account may use the KMS API."
   },
   "email": {
     "dashboardShare": {
@@ -6961,7 +6964,9 @@
     "noConnection": "This agent has no connection yet.",
     "notFound": "This connection could not be found.",
     "forbidden": "You don't have access to this connection.",
-    "loadFailed": "Failed to load the connection. Try again later."
+    "loadFailed": "Failed to load the connection. Try again later.",
+    "connected": "Connected",
+    "connectedAs": "Connected as {identity}"
   },
   "dashboardCollab": {
     "presence": {

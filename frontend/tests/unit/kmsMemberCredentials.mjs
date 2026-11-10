@@ -69,6 +69,16 @@ assert.equal(r.saveError, en.errors['connection.kms_token_format'], 'a 422 shows
 assert.ok(!r.saveError.includes('dummy tok3n'), 'never the typed token')
 assert.deepEqual(r.emitted, [], 'a failed save keeps the modal open')
 
+// A login KMS refused on Save (or one still paused after a refusal): the localized reason, modal open.
+for (const code of ['connection.kms_login_rejected', 'connection.kms_login_paused', 'connection.kms_session_refused']) {
+  r = await save('kms_lighthouse', { data: { error_code: code, status_code: 422,
+    detail: 'KMS Lighthouse did not accept the API token; it may be wrong or no longer valid.' } })
+  assert.ok(en.errors[code], `${code} has a catalog line`)
+  assert.equal(r.saveError, en.errors[code], `a refused login shows the localized ${code} line`)
+  assert.ok(!r.saveError.includes('dummy tok3n'), 'never the typed token')
+  assert.deepEqual(r.emitted, [], 'a refused login keeps the modal open')
+}
+
 r = await save('kms_lighthouse', null)
 assert.equal(r.saveError, null)
 assert.deepEqual(r.emitted, ['saved', 'update:modelValue'], 'a good save closes the modal')
@@ -151,6 +161,21 @@ await disconnect('kms_lighthouse', { statusCode: 500, data: {} })
 assert.equal(toasts[0].title, en.data.failed, 'with no reason the toast says the action failed')
 await disconnect('postgresql', deleteFailed)
 assert.deepEqual(toasts, [], 'other types keep the silent Disconnect')
+
+// ---------------------------------------------------------------- integration page connected state
+// The connected line names the account the source reported, never the BOW user.
+assert.ok(pageFns.has('connectedLabel'), 'the page labels the connected state from the member status')
+const connectedLabel = (status) => new Function('computed', 'connectionUserStatus', 't',
+  `${js([pageFns.get('connectedLabel')])}\nreturn connectedLabel`)(Vue.computed, ref(status), t).value
+assert.equal(connectedLabel({ has_user_credentials: true, account_identity: 'bob.billing' }),
+  t('integrationConnection.connectedAs', { identity: 'bob.billing' }), 'the reported identity is named')
+assert.ok(connectedLabel({ has_user_credentials: true, account_identity: 'bob.billing' }).includes('bob.billing'))
+for (const status of [{ has_user_credentials: true }, { has_user_credentials: true, account_identity: null },
+  { has_user_credentials: true, account_identity: '' }]) {
+  assert.equal(connectedLabel(status), en.integrationConnection.connected, 'with no reported identity: no name at all')
+}
+assert.doesNotMatch(page, /connectedUserDisplay|Connected as \{\{/, 'the BOW user name is not shown as the connected account')
+assert.match(parse(page).descriptor.template.content, /\{\{ connectedLabel \}\}/, 'the connected line renders the label')
 
 // ---------------------------------------------------------------- file-scope card
 const scope = read('../../components/datasources/FileSourceScope.vue')
@@ -300,6 +325,13 @@ for (const locale of ['en', 'es', 'he', 'fr', 'sv', 'ar', 'ru', 'de', 'pt', 'it'
   assert.ok(summary?.includes('{n}'), `${locale} has the KMS summary with its count`)
   assert.doesNotMatch(summary, /\|/, `${locale}: a bare "|" would split the summary into plural forms`)
   if (locale !== 'en') assert.notEqual(summary, en.agentsPage.fileBrowserSummaryKms, `${locale} summary is translated`)
+  const connection = catalog.integrationConnection
+  assert.ok(connection?.connected?.trim(), `${locale} has the neutral connected line`)
+  assert.ok(connection?.connectedAs?.includes('{identity}'), `${locale} names the identity in the connected line`)
+  for (const code of ['connection.kms_login_rejected', 'connection.kms_login_paused', 'connection.kms_session_refused']) {
+    assert.ok(catalog.errors?.[code]?.trim(), `${locale} has ${code}`)
+    if (locale !== 'en') assert.notEqual(catalog.errors[code], en.errors[code], `${locale} ${code} is translated`)
+  }
 }
 
 // ---------------------------------------------------------------- diagnostics panel

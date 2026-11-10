@@ -4692,7 +4692,10 @@
     "connection.kms_token_format": "El token de API de KMS solo puede contener letras, dígitos y signos de puntuación simples, sin espacios. Cópialo de nuevo desde KMS Lighthouse y pégalo como texto sin formato.",
     "connection.kms_use_connection_credentials": "Los inicios de sesión de KMS Lighthouse se guardan en la conexión. Abre la conexión y conéctate desde allí.",
     "connection.kms_only": "El diagnóstico solo se aplica a las conexiones de KMS Lighthouse.",
-    "connection.kms_diagnostics_running": "El diagnóstico ya se está ejecutando para esta conexión. Espere a que termine e inténtelo de nuevo."
+    "connection.kms_diagnostics_running": "El diagnóstico ya se está ejecutando para esta conexión. Espere a que termine e inténtelo de nuevo.",
+    "connection.kms_login_rejected": "KMS Lighthouse no aceptó este inicio de sesión, así que no se guardó. Comprueba el usuario y la contraseña, o el token de API, y vuelve a intentarlo.",
+    "connection.kms_login_paused": "KMS Lighthouse rechazó este inicio de sesión hace poco, así que los nuevos intentos con él están en pausa unos minutos y no se guardó. Revisa el inicio de sesión o vuelve a intentarlo más tarde.",
+    "connection.kms_session_refused": "KMS Lighthouse aceptó el inicio de sesión pero rechazó su sesión, así que no se puede usar y no se guardó. Pregunta al administrador de KMS si esta cuenta puede usar la API de KMS."
   },
   "email": {
     "dashboardShare": {
@@ -6932,7 +6935,9 @@
     "noConnection": "Este agente aún no tiene ninguna conexión.",
     "notFound": "No se encontró esta conexión.",
     "forbidden": "No tienes acceso a esta conexión.",
-    "loadFailed": "No se pudo cargar la conexión. Inténtalo de nuevo más tarde."
+    "loadFailed": "No se pudo cargar la conexión. Inténtalo de nuevo más tarde.",
+    "connected": "Conectado",
+    "connectedAs": "Conectado como {identity}"
   },
   "dashboardCollab": {
     "presence": {

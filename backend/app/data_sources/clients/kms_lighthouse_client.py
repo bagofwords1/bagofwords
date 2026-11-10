@@ -2243,16 +2243,26 @@ class KmsLighthouseClient(DataSourceClient):
                 return {"success": False, "reachable": True, "message": _EMPTY_ROOT.format(root=self.root_folder_id)}
             if self._layout_refused():
                 return {"success": False, "reachable": True, "message": _BAD_LAYOUT.format(layout=self.layout_id)}
-            identity = identity or (self._username if self.auth_method == "userpass" else "the API token's account")
+            # ``details.identity`` is a KMS account name or None, never a stand-in.
+            identity = identity or (self._username if self.auth_method == "userpass" else None)
+            named = identity or "the API token's account"
             return {
                 "success": True,
-                "message": f"Connected to KMS Lighthouse at {self.host} as {identity}.",
+                "message": f"Connected to KMS Lighthouse at {self.host} as {named}.",
                 "details": {"host": self.host, "identity": identity, "auth_method": self.auth_method,
                             "root_folder_id": self.root_folder_id},
             }
         except (KmsError, GlobScopeError) as exc:
             logger.info("kms_lighthouse test_connection failed: %s", getattr(exc, "kind", "error"))
-            return {"success": False, "message": str(exc)}
+            result = {"success": False, "message": str(exc)}
+            # The login cannot be used: a caller saving a member's login must not store it.
+            # "rejected" is a wrong password or token; "session_refused" is KMS taking the
+            # password but refusing (or never giving) a session; "held" is a recent rejection.
+            if str(exc) in (_SESSION_REFUSED, _NO_SESSION):
+                result["login_refused"] = "session_refused"
+            elif getattr(exc, "kind", None) == "auth":
+                result["login_refused"] = "held" if str(exc) == _HELD_AUTH else "rejected"
+            return result
         except Exception as exc:
             # The class name only: the exception text may hold a URL or a secret.
             logger.warning("kms_lighthouse test_connection failed unexpectedly: %s", type(exc).__name__)
