@@ -19,6 +19,8 @@ from app.schemas.external_platform_schema import (
     EmailConfig,
     GoogleChatConfig,
     PlatformAgentScope,
+    PlatformChannel,
+    PlatformChannelList,
 )
 from app.models.external_platform import ExternalPlatform
 from app.ee.audit.service import audit_service
@@ -129,14 +131,21 @@ async def test_integration(
 @requires_permission('manage_settings', model=ExternalPlatform)
 async def get_integration_agent_scope(
     platform_id: str,
+    channel: str = "",
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
 ):
-    """List the agents this instance is scoped to (empty = exposes all)."""
+    """List the agents a scope key is scoped to (empty = exposes all).
+
+    ``channel`` selects the key: empty (default) is the connection default; a
+    channel id reads that one channel's scope.
+    """
     # Resolve within the org (404 otherwise) before reading the scope.
     await external_platform_service.get_platform_by_id(db, platform_id, organization)
-    agent_ids = await external_platform_service.get_scope_agent_ids(db, platform_id)
+    agent_ids = await external_platform_service.get_scope_agent_ids(
+        db, platform_id, channel
+    )
     return PlatformAgentScope(agent_ids=sorted(agent_ids))
 
 @router.put("/settings/integrations/{platform_id}/agents", response_model=PlatformAgentScope)
@@ -144,15 +153,19 @@ async def get_integration_agent_scope(
 async def set_integration_agent_scope(
     platform_id: str,
     data: PlatformAgentScope,
+    channel: str = "",
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
 ):
-    """Replace the instance's agent scope.
+    """Replace a scope key's agent set.
 
-    Only agents belonging to the organization are stored; unknown ids are
-    dropped. An empty list clears the scope (exposes everything the messaging
-    user can access).
+    ``channel`` selects the key: empty (default) is the connection default; a
+    channel id scopes that one channel. Only agents belonging to the
+    organization are stored; unknown ids are dropped. An empty list clears that
+    key (exposes everything the messaging user can access for it). When a
+    channel is given, it is also registered/relabeled in the discovered-channel
+    list so a hand-added channel shows up in the picker.
     """
     platform = await external_platform_service.get_platform_by_id(
         db, platform_id, organization
@@ -160,8 +173,49 @@ async def set_integration_agent_scope(
     valid_ids = await external_platform_service.filter_org_data_source_ids(
         db, organization.id, data.agent_ids
     )
-    saved = await external_platform_service.set_scope_agents(db, platform, valid_ids)
+    if channel:
+        # Manual-add / relabel: make sure the channel is in the picker.
+        await external_platform_service.record_seen_channel(
+            db, organization.id, platform_id, channel,
+            name=data.channel_name, overwrite_name=bool(data.channel_name),
+        )
+    saved = await external_platform_service.set_scope_agents(
+        db, platform, valid_ids, external_channel_id=channel
+    )
     return PlatformAgentScope(agent_ids=sorted(saved))
+
+@router.get(
+    "/settings/integrations/{platform_id}/channels",
+    response_model=PlatformChannelList,
+)
+@requires_permission('manage_settings', model=ExternalPlatform)
+async def list_integration_channels(
+    platform_id: str,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Discovered channels for an instance, each with its agent scope.
+
+    Also returns the connection-default scope, so the channel-routing UI can
+    render everything in one read.
+    """
+    await external_platform_service.get_platform_by_id(db, platform_id, organization)
+    scope_map = await external_platform_service.get_scope_map(db, platform_id)
+    channels = await external_platform_service.list_channels(db, platform_id)
+    return PlatformChannelList(
+        default_agent_ids=sorted(scope_map.get("", set())),
+        channels=[
+            PlatformChannel(
+                external_channel_id=ch.external_channel_id,
+                name=ch.name,
+                channel_type=ch.channel_type,
+                last_seen_at=ch.last_seen_at,
+                agent_ids=sorted(scope_map.get(ch.external_channel_id, set())),
+            )
+            for ch in channels
+        ],
+    )
 
 @router.post("/settings/integrations/slack", response_model=ExternalPlatformSchema)
 @requires_permission('manage_settings')

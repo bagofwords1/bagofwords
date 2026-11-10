@@ -86,12 +86,18 @@ class SlackAdapter(PlatformAdapter):
         is_thread_reply = thread_ts is not None and thread_ts != message_ts
         effective_thread_ts = thread_ts if is_thread_reply else message_ts
 
+        # Per-channel agent routing key: the Slack channel id, but only for real
+        # channels — DMs (im) stay unaffected and fall back to the connection
+        # default. Distinct from channel_id, which is the reply target.
+        routing_channel_id = channel_id if channel_type == "channel" else None
+
         return {
             "platform_type": "slack",
             "external_user_id": event.get("user"),
             "external_message_id": message_ts,
             "channel_id": channel_id,
             "channel_type": channel_type,
+            "routing_channel_id": routing_channel_id,
             "message_text": event.get("text", ""),
             "message_type": event_type,
             "timestamp": message_ts,

@@ -2496,7 +2496,19 @@
           "socketStep3": "Event Subscriptions ← הפעל אירועים (ללא צורך ב-Request URL) והירשם ל: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
           "socketStep4": "Agents ← הפעל את \"Agent experience\" עבור חלונית העוזר המובנית, מתן שמות לשרשורים והצעות פרומפטים",
           "socketStep5": "App Home ← הפעל את לשונית ההודעות ואפשר למשתמשים לשלוח הודעות",
-          "socketStep6": "Install App ← התקן בסביבת העבודה והעתק את ה-Bot User OAuth Token ‏(xoxb-…)"
+          "socketStep6": "Install App ← התקן בסביבת העבודה והעתק את ה-Bot User OAuth Token ‏(xoxb-…)",
+          "channelRoutingTitle": "ניתוב ערוצים לסוכנים",
+          "channelRoutingDesc": "כוונו ערוץ לסוכנים מסוימים. ערוץ ללא מיפוי משתמש בברירת‑המחדל של החיבור; ללא ברירת‑מחדל הוא חושף כל מה שהמשתמש מורשה לגשת אליו. הניתוב רק מצמצם גישה — הוא לעולם לא מעניק יותר ממה שלמשתמש כבר יש.",
+          "connectionDefaultLabel": "ברירת‑מחדל לחיבור",
+          "connectionDefaultDesc": "משמשת לערוצים ללא מיפוי משלהם.",
+          "channelPickerPlaceholder": "בחרו סוכנים…",
+          "channelScopeSave": "שמירה",
+          "channelScopeSaved": "ניתוב הערוצים עודכן",
+          "noChannelsYet": "אין עדין ערוצים. תייגו את הבוט בערוץ והוא יופיע כאן, או הוסיפו ערוץ לפי מזהה למטה.",
+          "addChannelTitle": "הוספת ערוץ לפי מזהה",
+          "addChannelIdPlaceholder": "מזהה ערוץ (C…)",
+          "addChannelNamePlaceholder": "תוית (אופציונלי)",
+          "addChannelButton": "הוספה"
         },
         "teams": {
           "title": "אינטגרציית Teams",

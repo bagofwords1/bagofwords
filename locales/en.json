@@ -2571,7 +2571,19 @@
           "socketStep3": "Event Subscriptions → enable events (no Request URL needed) and subscribe to: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
           "socketStep4": "Agents → turn ON \"Agent experience\" for the native assistant pane, thread naming, and suggested prompts",
           "socketStep5": "App Home → enable the Messages tab and allow users to send messages",
-          "socketStep6": "Install App → install to your workspace and copy the Bot User OAuth Token (xoxb-…)"
+          "socketStep6": "Install App → install to your workspace and copy the Bot User OAuth Token (xoxb-…)",
+          "channelRoutingTitle": "Channel → agent routing",
+          "channelRoutingDesc": "Point a channel at specific agents. A channel with none mapped uses the connection default; with no default it exposes everything the user can access. Routing only narrows access — it never grants more than a user already has.",
+          "connectionDefaultLabel": "Connection default",
+          "connectionDefaultDesc": "Used for channels without their own mapping.",
+          "channelPickerPlaceholder": "Choose agents…",
+          "channelScopeSave": "Save",
+          "channelScopeSaved": "Channel routing updated",
+          "noChannelsYet": "No channels yet. Mention the bot in a channel and it will show up here, or add one by id below.",
+          "addChannelTitle": "Add a channel by id",
+          "addChannelIdPlaceholder": "Channel id (C…)",
+          "addChannelNamePlaceholder": "Label (optional)",
+          "addChannelButton": "Add"
         },
         "teams": {
           "title": "Teams Integration",

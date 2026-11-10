@@ -446,17 +446,22 @@ class ExternalPlatformManager:
         db: AsyncSession,
         platform_id: str,
         data_source_ids: list,
+        routing_channel_id: Optional[str] = None,
     ) -> list:
-        """Narrow a data-source list to the instance's agent scope.
+        """Narrow a data-source list to the resolved agent scope.
 
-        If the instance has no scope configured, the list is returned
-        unchanged (pre-existing behavior). Otherwise it is intersected with the
-        scoped agents — the scope can only *narrow* what the user already has
-        access to, never widen it, since ``data_source_ids`` was already built
-        from the user's accessible agents. Order is preserved.
+        ``routing_channel_id`` selects the scope: a channel's own rows win, else
+        the ``""`` connection-default rows, else nothing. If the resolved scope
+        is empty, the list is returned unchanged (pre-existing behavior).
+        Otherwise it is intersected with the scoped agents — the scope can only
+        *narrow* what the user already has access to, never widen it, since
+        ``data_source_ids`` was already built from the user's accessible agents.
+        Order is preserved.
         """
 
-        scope = await self.platform_service.get_scope_agent_ids(db, platform_id)
+        scope = await self.platform_service.resolve_scope_agent_ids(
+            db, platform_id, routing_channel_id
+        )
         if not scope:
             return data_source_ids
         return [dsid for dsid in data_source_ids if str(dsid) in scope]
@@ -470,6 +475,7 @@ class ExternalPlatformManager:
         channel_type: str = None,
         force_new: bool = False,
         max_age_hours: Optional[int] = None,
+        routing_channel_id: Optional[str] = None,
     ) -> Tuple[Any, bool]:
         """
         Get a report for a user if one from the platform exists within the reuse
@@ -532,6 +538,7 @@ class ExternalPlatformManager:
         data_source_ids = await self._apply_agent_scope(
             db, user_mapping.platform_id,
             [data_source.id for data_source in data_sources],
+            routing_channel_id=routing_channel_id,
         )
         report_create_data = ReportCreate(
             title=f"Chat with {user.name} via {platform_name}",
@@ -638,7 +645,28 @@ class ExternalPlatformManager:
         message_ts = processed_data.get("message_ts")
         channel_id = processed_data.get("channel_id")
         channel_type = processed_data.get("channel_type")
+        # Stable per-channel key for agent routing (Slack event.channel / Teams
+        # channelData.channel.id). Distinct from channel_id, which is the reply
+        # target. Only set by adapters that support channel->agent routing;
+        # None elsewhere, which resolves to the connection default.
+        routing_channel_id = processed_data.get("routing_channel_id")
         is_thread_reply = processed_data.get("is_thread_reply", False)
+
+        # Discover-on-traffic: remember channels the bot is used in so the
+        # settings UI can offer a channel->agent picker without extra OAuth
+        # scopes. Best-effort — must never break message handling.
+        if routing_channel_id:
+            try:
+                await self.platform_service.record_seen_channel(
+                    db,
+                    organization.id,
+                    user_mapping.platform_id,
+                    routing_channel_id,
+                    name=processed_data.get("channel_name"),
+                    channel_type=channel_type,
+                )
+            except Exception as e:
+                print(f"record_seen_channel failed (non-fatal): {e}")
 
         # Add eyes reaction to show we're processing
         if channel_id and message_ts:
@@ -661,7 +689,8 @@ class ExternalPlatformManager:
         # we don't create a completion. The next message reuses this fresh report.
         if self._is_new_conversation_command(platform_type, message_text):
             report, _ = await self._get_or_create_conversation_report(
-                db, organization, user, user_mapping, channel_type, force_new=True
+                db, organization, user, user_mapping, channel_type, force_new=True,
+                routing_channel_id=routing_channel_id,
             )
             report_url = f"{settings.bow_config.base_url}/reports/{report.id}"
             if platform_type == "teams":
@@ -724,6 +753,7 @@ class ExternalPlatformManager:
             report, created = await self._get_or_create_conversation_report(
                 db, organization, user, user_mapping, channel_type,
                 max_age_hours=wa_max_age_hours,
+                routing_channel_id=routing_channel_id,
             )
 
             if created and platform_type != "whatsapp" and await self._get_announce_new_report(
@@ -778,7 +808,8 @@ class ExternalPlatformManager:
             else:
                 fresh = await self.data_source_service.get_active_data_sources(db, organization, user, channel=platform_type)
             fresh_ids = await self._apply_agent_scope(
-                db, user_mapping.platform_id, [str(ds.id) for ds in fresh]
+                db, user_mapping.platform_id, [str(ds.id) for ds in fresh],
+                routing_channel_id=routing_channel_id,
             )
             await ReportService().set_data_sources_for_report(
                 db, report, fresh_ids, user, organization
