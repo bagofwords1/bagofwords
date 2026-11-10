@@ -191,6 +191,65 @@ async def test_cancelled_refresh_waits_for_source_and_discards_unpublished_file(
         assert sandbox.artifacts() == {Path(old_path)}
 
 
+async def test_a_cancel_after_the_swap_leaves_the_refresh_published(sandbox, monkeypatch):
+    """The request is cancelled while the refresh finishes up after its swap
+    committed (the activation sync): the table serves the new extract, and
+    neither the table nor the run is recorded as cancelled."""
+    from sqlalchemy import select
+
+    from app.models.custom_table_run import CustomTableRun
+
+    entered, hold = asyncio.Event(), asyncio.Event()
+    original = CustomQueryService._sync_activations
+
+    async def held_sync(self, db, cq):
+        entered.set()
+        await hold.wait()
+        return await original(self, db, cq)
+
+    monkeypatch.setattr(CustomQueryService, "_sync_activations", held_sync)
+    async with async_session_maker() as db:
+        connection, table = await sandbox.load(db)
+        task = asyncio.create_task(sandbox.service.refresh(db, connection, table))
+        await asyncio.wait_for(entered.wait(), 30)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    async with async_session_maker() as db:
+        _, table = await sandbox.load(db)
+        assert table.last_refresh_status == "ok", table.last_refresh_error
+        assert table.last_refresh_error is None
+        assert sandbox.artifacts() == {Path(table.artifact_path)}
+        statuses = (await db.execute(select(CustomTableRun.status).where(
+            CustomTableRun.connection_table_id == sandbox.table_id))).scalars().all()
+        assert statuses == ["success"]
+
+
+async def test_a_refresh_purges_viewer_results_once_done_with_the_table(sandbox, monkeypatch):
+    """The viewer results a new extract outdates are purged after the
+    refresh has deleted the previous file and released the table's lock."""
+    import app.services.viewer_result_freshness as freshness
+
+    previous: dict = {}
+    seen: list = []
+
+    async def record(db, *, relation_id):
+        lock = artifacts.artifact_dir(sandbox.connection_id) / f".table-{sandbox.table_id}.lock"
+        with artifacts._try_lock(lock) as free:
+            seen.append({"relation": relation_id, "lock_free": free,
+                         "previous_file_left": Path(previous["path"]).exists() if previous else None})
+        return 0
+
+    monkeypatch.setattr(freshness, "purge_relation_results", record)
+    async with async_session_maker() as db:
+        connection, table = await sandbox.load(db)
+        await sandbox.service.refresh(db, connection, table)
+        previous["path"] = table.artifact_path
+        seen.clear()
+        await sandbox.service.refresh(db, connection, table)
+    assert seen == [{"relation": sandbox.table_id, "lock_free": True, "previous_file_left": False}]
+
+
 async def test_cancelled_request_stops_the_extractor_at_the_next_batch(sandbox):
     """The abort hook ends a scan early instead of waiting out the source."""
     from app.data_sources.clients.sqlite_client import SqliteClient

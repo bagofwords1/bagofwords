@@ -42,6 +42,12 @@ from app.models.resource_grant import ResourceGrant
 from app.models.role_assignment import RoleAssignment
 from app.models.usage_policy import UsagePolicyAssignment
 from app.models.user import User
+# A membership change outdates the changed members' stored results (their
+# groups feed the row filters compiled for them): each write purges them,
+# last, once it committed and its response is built. The identity provider's
+# push waits on it, so with the short budget.
+from app.services import viewer_result_freshness
+from app.services.viewer_result_freshness import QUICK_PURGE_BUDGET_SECONDS
 
 PROVIDER_NAME = "scim"
 
@@ -410,20 +416,27 @@ class ScimGroupService:
                 "invalidValue",
             )
 
-    async def _set_members(self, db: AsyncSession, group_id: str, target: Set[str]) -> None:
+    async def _set_members(self, db: AsyncSession, group_id: str, target: Set[str]) -> Set[str]:
+        """Make the group's members `target`; returns the users whose
+        membership changed (added, removed or restored)."""
         rows = (
             await db.execute(select(GroupMembership).where(GroupMembership.group_id == group_id))
         ).scalars().all()
         by_user = {str(r.user_id): r for r in rows if r.user_id}
+        changed: Set[str] = set()
         for user_id, row in by_user.items():
             if user_id not in target:
                 await db.delete(row)
+                changed.add(user_id)
         for user_id in target:
             row = by_user.get(user_id)
             if row is None:
                 db.add(GroupMembership(group_id=group_id, user_id=user_id))
+                changed.add(user_id)
             elif row.deleted_at is not None:
                 row.deleted_at = None
+                changed.add(user_id)
+        return changed
 
     async def _commit(self, db: AsyncSession) -> None:
         try:
@@ -453,10 +466,13 @@ class ScimGroupService:
         )
         db.add(group)
         await db.flush()
-        await self._set_members(db, str(group.id), member_ids)
+        changed = await self._set_members(db, str(group.id), member_ids)
         await self._commit(db)
         await db.refresh(group)
-        return await self._render(db, group, base_url)
+        rendered = await self._render(db, group, base_url)
+        await viewer_result_freshness.purge_members_results(
+            db, organization_id=str(organization_id), user_ids=changed, budget_seconds=QUICK_PURGE_BUDGET_SECONDS)
+        return rendered
 
     async def replace_group(
         self,
@@ -478,14 +494,18 @@ class ScimGroupService:
         }
         group.name = name
         group.external_id = data.externalId
+        changed: Set[str] = set()
         if member_ids != current:
-            await self._set_members(db, str(group.id), member_ids)
+            changed = await self._set_members(db, str(group.id), member_ids)
             # As in PATCH: a membership-only change leaves the row untouched,
             # so bump it for meta.lastModified.
             group.updated_at = datetime.utcnow()
         await self._commit(db)
         await db.refresh(group)
-        return await self._render(db, group, base_url)
+        rendered = await self._render(db, group, base_url)
+        await viewer_result_freshness.purge_members_results(
+            db, organization_id=str(organization_id), user_ids=changed, budget_seconds=QUICK_PURGE_BUDGET_SECONDS)
+        return rendered
 
     async def patch_group(
         self,
@@ -511,16 +531,20 @@ class ScimGroupService:
 
         group.name = state.name
         group.external_id = state.external_id
+        changed: Set[str] = set()
         if state.member_ids != current:
-            await self._set_members(db, str(group.id), state.member_ids)
+            changed = await self._set_members(db, str(group.id), state.member_ids)
             # Membership-only patches leave the row untouched; bump it so
             # meta.lastModified reflects the change.
             group.updated_at = datetime.utcnow()
         await self._commit(db)
         await db.refresh(group)
-        return await self._render(
+        rendered = await self._render(
             db, group, base_url, include_members=_wants_members(attributes, excluded_attributes)
         )
+        await viewer_result_freshness.purge_members_results(
+            db, organization_id=str(organization_id), user_ids=changed, budget_seconds=QUICK_PURGE_BUDGET_SECONDS)
+        return rendered
 
     async def delete_group(self, db: AsyncSession, organization_id: str, group_id: str) -> None:
         group = await self._get(db, organization_id, group_id)
@@ -550,5 +574,11 @@ class ScimGroupService:
             .where(UsagePolicyAssignment.principal_type == "group")
             .where(UsagePolicyAssignment.principal_id == group.id)
         )
+        members = (
+            await db.execute(select(GroupMembership.user_id).where(
+                GroupMembership.group_id == group.id, GroupMembership.user_id.is_not(None)))
+        ).scalars().all()
         await db.delete(group)  # GroupMemberships go with it (cascade)
         await db.commit()
+        await viewer_result_freshness.purge_members_results(
+            db, organization_id=str(organization_id), user_ids=members, budget_seconds=QUICK_PURGE_BUDGET_SECONDS)

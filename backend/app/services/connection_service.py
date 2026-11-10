@@ -837,7 +837,11 @@ class ConnectionService:
         current_user: User,
         **updates,
     ) -> Connection:
-        """Update a connection."""
+        """Update a connection.
+
+        A change to its auth policy outdates viewers' results stored under
+        the previous one: the caller purges them, last, once it has written
+        every audit row of its request (purge_results_of_previous_auth_policy)."""
         _reject_unsafe_oauth_urls(updates.get("config"), updates.get("credentials"))
         _reject_unsafe_google_keys(updates.get("credentials"))
         connection = await self.get_connection(db, connection_id, organization)
@@ -1089,6 +1093,18 @@ class ConnectionService:
                 status_code=409,
                 detail="Another connection with this name already exists."
             )
+
+    @staticmethod
+    async def purge_results_of_previous_auth_policy(db: AsyncSession, connection_id: str,
+                                                    organization: Organization) -> None:
+        """Viewers' stored results run under the connection's previous auth
+        policy (viewer_result_freshness): refused at read, and purged here,
+        last (in a session of its own), except each viewer's latest of each
+        step."""
+        from app.services.viewer_result_freshness import purge_connection_results, purge_quietly
+
+        await purge_quietly(db, purge_connection_results, connection_id=str(connection_id),
+                            organization_id=str(organization.id))
 
     async def delete_connection(
         self,
