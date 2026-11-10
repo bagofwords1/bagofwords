@@ -3,7 +3,7 @@ RBAC service — CRUD for roles, groups, role assignments, and resource grants.
 """
 import logging
 from typing import List, Optional
-from sqlalchemy import select, func, and_, or_, delete
+from sqlalchemy import select, func, and_, or_, delete, update
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -26,6 +26,17 @@ from app.schemas.rbac_schema import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Built-in system roles an enterprise org may customize by materializing an
+# editable per-org override (see RBACService._materialize_system_role_override).
+# v1: the default `member` role only — `admin` and any other system role stay
+# locked, since editing `admin` carries full-admin lockout risk.
+CUSTOMIZABLE_SYSTEM_ROLES = frozenset({"member"})
+
+# Names reserved for the built-in roles: a custom role may not take one, so the
+# built-ins (and their per-org overrides) stay unambiguous in the UI and in the
+# unique (organization_id, name) index.
+RESERVED_ROLE_NAMES = frozenset({"member", "admin"})
 
 
 class RBACService:
@@ -123,7 +134,18 @@ class RBACService:
             conditions.append(Role.organization_id == org_id)
 
         result = await db.execute(select(Role).where(*conditions).order_by(Role.is_system.desc(), Role.name))
-        roles = result.scalars().all()
+        roles = list(result.scalars().all())
+        # Hide a global system row that this org has overridden with an editable
+        # copy, so the member role appears exactly once (the editable override),
+        # not twice. Keyed on the override's base name, not on display name.
+        overridden = {
+            r.overrides_system_role for r in roles if r.overrides_system_role
+        }
+        if overridden:
+            roles = [
+                r for r in roles
+                if not (r.is_system and r.organization_id is None and r.name in overridden)
+            ]
         # Bulk fetch role-scoped resource grants
         role_ids = [r.id for r in roles]
         grants_by_role = await self._fetch_role_grants(db, role_ids)
@@ -154,6 +176,11 @@ class RBACService:
     async def create_role(
         self, db: AsyncSession, org_id: str, data: RoleCreate, actor_id: Optional[str] = None,
     ) -> RoleSchema:
+        if (data.name or "").strip().lower() in RESERVED_ROLE_NAMES:
+            raise HTTPException(
+                status_code=422,
+                detail=f"'{data.name}' is a reserved built-in role name",
+            )
         await self._assert_can_grant(
             db, org_id, actor_id, permissions=data.permissions or [],
             resource_grants=data.resource_grants or [], action="role.create",
@@ -178,13 +205,22 @@ class RBACService:
         actor_id: Optional[str] = None,
     ) -> RoleSchema:
         role = await self._get_role(db, org_id, role_id)
-        if role.is_system:
-            raise HTTPException(status_code=403, detail="Cannot modify system roles")
 
+        # Escalation guard runs first, before any materialization side effect:
+        # a forbidden edit must not leave a freshly-created override behind.
         await self._assert_can_grant(
             db, org_id, actor_id, permissions=data.permissions or [],
             resource_grants=data.resource_grants or [], action="role.update",
         )
+
+        if role.is_system:
+            # v1: only the built-in `member` role is customizable. Editing it
+            # materializes a per-org editable override and applies the edit to
+            # that copy; `admin` and every other system role stay locked.
+            if role.name not in CUSTOMIZABLE_SYSTEM_ROLES:
+                raise HTTPException(status_code=403, detail="Cannot modify system roles")
+            role = await self._materialize_system_role_override(db, org_id, role)
+            role_id = role.id
 
         # Reject unknown strings before the lockout check reasons about them.
         if data.permissions is not None:
@@ -197,7 +233,10 @@ class RBACService:
             if had_full_admin and not will_have_full_admin:
                 await assert_full_admin_exists(db, org_id, exclude_role_id=role_id)
 
-        if data.name is not None:
+        # An override of a built-in role keeps its canonical name, so the legacy
+        # resolver net and the provisioning paths keep resolving it by name;
+        # only permissions and description are customizable.
+        if data.name is not None and not role.overrides_system_role:
             role.name = data.name
         if data.description is not None:
             role.description = data.description
@@ -212,6 +251,55 @@ class RBACService:
         await db.refresh(role)
         grants = (await self._fetch_role_grants(db, [role.id])).get(role.id, [])
         return self._role_to_schema(role, grants)
+
+    async def _materialize_system_role_override(
+        self, db: AsyncSession, org_id: str, system_role: Role,
+    ) -> Role:
+        """Return this org's editable override of a built-in system role,
+        creating it on first use.
+
+        The global system row (``organization_id IS NULL``) is shared by every
+        org and must never be edited in place. Instead the first edit copies it
+        into an org-scoped, ``is_system=False`` row tagged with
+        ``overrides_system_role`` and re-points this org's existing assignments
+        (users, groups and pending invites alike) from the global row to the
+        copy, so the admin's edits reach current members immediately. Idempotent:
+        a second edit finds and reuses the existing override. Does NOT commit —
+        the caller's transaction commits.
+        """
+        existing = (await db.execute(
+            select(Role).where(
+                Role.organization_id == org_id,
+                Role.overrides_system_role == system_role.name,
+                Role.deleted_at.is_(None),
+            )
+        )).scalar_one_or_none()
+        if existing is not None:
+            return existing
+
+        override = Role(
+            organization_id=org_id,
+            name=system_role.name,
+            description=system_role.description,
+            permissions=list(system_role.permissions or []),
+            is_system=False,
+            overrides_system_role=system_role.name,
+        )
+        db.add(override)
+        await db.flush()
+
+        # Re-point every current assignment of the global row in THIS org to the
+        # override. Covers principal_type user/group/membership in one statement.
+        await db.execute(
+            update(RoleAssignment)
+            .where(
+                RoleAssignment.organization_id == org_id,
+                RoleAssignment.role_id == system_role.id,
+                RoleAssignment.deleted_at.is_(None),
+            )
+            .values(role_id=override.id)
+        )
+        return override
 
     async def _sync_role_grants(
         self, db: AsyncSession, org_id: str, role_id: str,
@@ -260,6 +348,12 @@ class RBACService:
         return out
 
     def _role_to_schema(self, role: Role, grants: List[RoleResourceGrantOutput]) -> RoleSchema:
+        # A built-in `member` row is editable (the edit materializes an override)
+        # but never deletable; its override is editable but not deletable either
+        # (there is no "delete the member role"); every other system role is
+        # neither; ordinary custom roles are both.
+        is_customizable_builtin = role.is_system and role.name in CUSTOMIZABLE_SYSTEM_ROLES
+        is_override = bool(role.overrides_system_role)
         return RoleSchema(
             id=role.id,
             name=role.name,
@@ -268,12 +362,22 @@ class RBACService:
             resource_grants=grants,
             organization_id=role.organization_id,
             is_system=role.is_system,
+            overrides_system_role=role.overrides_system_role,
+            is_editable=(not role.is_system) or is_customizable_builtin,
+            is_deletable=(not role.is_system) and not is_override,
         )
 
     async def delete_role(self, db: AsyncSession, org_id: str, role_id: str) -> None:
         role = await self._get_role(db, org_id, role_id)
         if role.is_system:
             raise HTTPException(status_code=403, detail="Cannot delete system roles")
+        if role.overrides_system_role:
+            # A customized built-in (e.g. the member override) can be re-edited
+            # but not removed — deleting it would strand this org's assignments.
+            raise HTTPException(
+                status_code=403,
+                detail="Cannot delete a built-in role; edit its permissions instead",
+            )
 
         # If role had full_admin_access, check lockout
         if isinstance(role.permissions, list) and FULL_ADMIN in role.permissions:
