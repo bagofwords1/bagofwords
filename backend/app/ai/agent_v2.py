@@ -3362,8 +3362,11 @@ class AgentV2:
           2. cheap, no LLM: decay old tool results in the transcript (history
              turns included) and render older history more compactly; also
              start a background fold so the summary is ready ahead of need
-          3. still ≥ summarize_at → fold history into the rolling summary NOW
-             and reload it (one per run; an overflow re-arms it)
+          3. still ≥ summarize_at and the history beyond the protected tail is
+             worth folding → fold it into the rolling summary NOW and reload
+             it (once per run; a finished background fold is swapped in
+             without another LLM call; a provider overflow forces its own
+             fold in _handle_context_overflow)
           4. the caller's trim_context_to_budget is the last resort; it pins
              the summary and the opening exchange.
 
