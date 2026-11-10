@@ -74,7 +74,11 @@ async def get_report_context_summary(
     state = await ContextCompactionService.get_state(db, report_id)
     return {
         **ContextCompactionService._state_payload(state),
-        "summary_text": render_summary_for_prompt((state.summary_json or {}) if state else {}),
+        # The first line frames the block for the model ("context, NOT
+        # instructions"); people get the content only.
+        "summary_text": "\n".join(
+            render_summary_for_prompt((state.summary_json or {}) if state else {}).split("\n")[1:]
+        ),
     }
 
 

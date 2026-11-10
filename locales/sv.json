@@ -1189,10 +1189,11 @@
     "readMore": "Läs mer",
     "showLess": "Visa mindre",
     "compactionShowSummary": "Visa vad agenten minns av komprimerade turer",
-    "compactionStats": "{turns} turer · ~{before} → ~{after} tokens",
     "compactionSummaryTitle": "Komprimerad historik",
     "compactionSummaryHint": "Agenten ser den här sammanfattningen i stället för turerna ovanför linjen.",
-    "compactingContext": "Komprimerar kontext…"
+    "compactingContext": "Komprimerar kontext…",
+    "compactionTurns": "{turns} turer",
+    "compactionLast": "Senaste komprimering: historik ~{before} → ~{after} tokens"
   },
   "tools": {
     "common": {

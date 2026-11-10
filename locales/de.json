@@ -1189,10 +1189,11 @@
     "readMore": "Mehr lesen",
     "showLess": "Weniger anzeigen",
     "compactionShowSummary": "Zeigen, was der Agent aus komprimierten Runden weiß",
-    "compactionStats": "{turns} Runden · ~{before} → ~{after} Tokens",
     "compactionSummaryTitle": "Komprimierter Verlauf",
     "compactionSummaryHint": "Der Agent sieht diese Zusammenfassung statt der Runden oberhalb der Linie.",
-    "compactingContext": "Kontext wird komprimiert…"
+    "compactingContext": "Kontext wird komprimiert…",
+    "compactionTurns": "{turns} Runden",
+    "compactionLast": "Letzte Komprimierung: Verlauf ~{before} → ~{after} Tokens"
   },
   "tools": {
     "common": {

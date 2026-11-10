@@ -2137,6 +2137,23 @@ class AgentV2:
                 logger.warning(f"Failed to build context during token estimation: {e}", exc_info=True)
             prompt_text = await self._build_planner_prompt_text()
             prompt_tokens = count_tokens(prompt_text, getattr(self.model, "model_id", None))
+            # The rendered text leaves out what the provider also counts — the
+            # tool catalog above all, tens of thousands of tokens. The usage
+            # bar must agree with the governor and the provider, so apply the
+            # report's calibrated token anchor when one exists.
+            try:
+                pi = getattr(self, "_last_estimate_planner_input", None)
+                if pi is not None and self.report is not None:
+                    from app.services.context_compaction_service import ContextCompactionService
+                    state = await ContextCompactionService.get_state(self.db, str(self.report_id))
+                    offset = ContextCompactionService.anchor_offset(state)
+                    if offset is not None:
+                        measured = TokenAnchor(offset=offset, known=True).measure(
+                            estimate_planner_input_tokens(pi)
+                        )
+                        prompt_tokens = max(prompt_tokens, measured)
+            except Exception:
+                logger.debug("estimate anchor calibration skipped", exc_info=True)
 
             model_limit = getattr(self.model, "context_window_tokens", None)
             remaining_tokens = None
@@ -3225,6 +3242,7 @@ class AgentV2:
                         "trigger": mode,
                         "covers_until_completion_id": result.get("covers_until_completion_id"),
                         "compacted_turns": result.get("compacted_turns"),
+                        "covered_turns": result.get("covered_turns"),
                         "tokens_compacted": result.get("tokens_compacted"),
                         "tokens_compacted_total": result.get("tokens_compacted_total"),
                         "history_tokens_before": result.get("history_tokens_before"),
@@ -3320,6 +3338,18 @@ class AgentV2:
         except Exception:
             logger.debug("[context] anchor persist skipped", exc_info=True)
 
+    def _history_tokens(self, planner_input) -> int:
+        """Estimated size of cross-turn history in this request: the rendered
+        conversation section plus the transcript's rehydrated history turns."""
+        from app.ai.context.context_budget import estimate_text_tokens
+        total = estimate_text_tokens(getattr(planner_input, "messages_context", None) or "")
+        try:
+            k = int(getattr(self.transcript, "history_turn_count", 0) or 0)
+            total += sum(t.tokens() for t in self.transcript.turns[:k])
+        except Exception:
+            pass
+        return total
+
     async def _govern_context(self, planner_input, messages_section=None) -> dict:
         """The context budget ladder, run before every planner request.
 
@@ -3348,19 +3378,44 @@ class AgentV2:
                 stats["after"] = n
                 return stats
 
-            # Rung 2a — prepare ahead (non-blocking).
-            self._schedule_background_fold()
+            # How much history is there to fold at all? The fixed prompt
+            # (system prompt, tools, schemas) can sit above the thresholds on
+            # its own — folding an empty history would only flash a
+            # "Compacting…" row and spend nothing useful.
+            history_tokens = self._history_tokens(planner_input)
+            # A fold keeps the protected tail and replaces the rest with a
+            # summary of up to summary_max tokens — it only pays off when the
+            # history beyond the tail is clearly bigger than that. Without
+            # this, a prompt held high by its fixed part (system prompt, tool
+            # catalog) folds two turns on every request for no gain and adds
+            # an LLM round-trip before each reply.
+            excess = history_tokens - budget.tail_tokens
+            fold_min = max(budget.summary_max, int(budget.usable * 0.1))
+            worth_sync = excess >= fold_min or (n >= budget.usable and excess > 0)
+            worth_bg = excess >= fold_min // 2
 
-            # Rung 2b — transcript decay toward the target.
+            # Rung 2a — prepare ahead (non-blocking).
+            if worth_bg:
+                self._schedule_background_fold()
+
+            # Rung 2b — decay old tool results in the transcript. Aim to get
+            # back under the cheap threshold, but never strip more than ~40%
+            # per request unless the prompt would not fit at all: when the
+            # fixed prompt alone is over the threshold, decaying this run's
+            # own tool results to nothing would not fix it.
             transcript = getattr(planner_input, "transcript", None)
             if transcript is not None and getattr(transcript, "turns", None):
                 t_tokens = transcript.tokens()
                 rest = max(n - t_tokens, 0)
-                t_budget = max(budget.target - rest, 1)
-                t_stats = transcript.fit_to_budget(t_budget)
-                if t_stats.get("digested") or t_stats.get("dropped") or t_stats.get("images_released"):
-                    stats["rungs"].append("transcript_decay")
-                n = self._ctx_anchor.measure(estimate_planner_input_tokens(planner_input))
+                if n >= budget.usable:
+                    t_budget = max(budget.usable - rest, 1)
+                else:
+                    t_budget = max(budget.cheap_at - rest, int(t_tokens * 0.6), 1)
+                if t_budget < t_tokens:
+                    t_stats = transcript.fit_to_budget(t_budget)
+                    if t_stats.get("digested") or t_stats.get("dropped") or t_stats.get("images_released"):
+                        stats["rungs"].append("transcript_decay")
+                    n = self._ctx_anchor.measure(estimate_planner_input_tokens(planner_input))
 
             # Rung 2c — render older history more compactly.
             if messages_section is not None and n >= budget.cheap_at:
@@ -3372,8 +3427,12 @@ class AgentV2:
                         break
 
             # Rung 3 — fold now.
-            if n >= budget.summarize_at and (not self._sync_fold_done or self._history_reload_pending):
-                if self._history_reload_pending and self._sync_fold_done:
+            if n >= budget.summarize_at and (
+                self._history_reload_pending or (worth_sync and not self._sync_fold_done)
+            ):
+                if self._history_reload_pending:
+                    # A background fold already moved the watermark: swap the
+                    # folded turns out of this request — no LLM call needed.
                     view = await self._reload_history_after_fold()
                     result = {"status": "reloaded"}
                 else:
@@ -3391,9 +3450,9 @@ class AgentV2:
             stats["after"] = n
             logger.info(
                 "[context] governor window=%d usable=%d cheap_at=%d summarize_at=%d "
-                "tokens %d -> %d rungs=%s anchor_offset=%s",
+                "tokens %d -> %d history=%d rungs=%s anchor_offset=%s",
                 budget.window, budget.usable, budget.cheap_at, budget.summarize_at,
-                stats["before"], n, ",".join(stats["rungs"]) or "-",
+                stats["before"], n, history_tokens, ",".join(stats["rungs"]) or "-",
                 self._ctx_anchor.offset if self._ctx_anchor.known else "n/a",
             )
         except Exception:
@@ -5867,9 +5926,19 @@ class AgentV2:
                         # The context budget ladder: decay, fold, then the
                         # last-resort trim below — all against one budget.
                         await self._govern_context(planner_input, messages_section)
+                        # The trim estimates only the variable fields; the
+                        # anchor offset is the fixed prompt it cannot see
+                        # (system prompt, tool catalog). Shrink its window by
+                        # that much so it measures what the provider counts.
+                        _trim_window = _ctx_window
+                        if self._ctx_anchor.known and self._ctx_anchor.offset > 0:
+                            _trim_window = max(
+                                (_ctx_window or DEFAULT_TOKEN_BUDGET) - self._ctx_anchor.offset,
+                                16_000,
+                            )
                         trim_context_to_budget(
                             planner_input,
-                            model_context_window=_ctx_window,
+                            model_context_window=_trim_window,
                         )
                         # What we are about to send, by our estimate — paired
                         # with the provider's prompt_tokens to calibrate.
@@ -8728,6 +8797,7 @@ class AgentV2:
             model_context_window=getattr(self.model, "context_window_tokens", None),
         )
 
+        self._last_estimate_planner_input = planner_input
         return self.planner.prompt_builder.build_prompt(planner_input)
 
     def _publish_context_metadata_to_view(self, view=None):

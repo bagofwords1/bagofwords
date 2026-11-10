@@ -30,10 +30,10 @@ CHEAP_RATIO = 0.60       # decay old tool output / history rendering (no LLM)
 SUMMARIZE_RATIO = 0.75   # fold history into the rolling summary (LLM)
 TARGET_RATIO = 0.40      # aim here after compacting (batches folds → cache-friendly)
 
-# Protected recent tail (tokens): 2.5% of the window clamped 10k..25k, but
+# Protected recent tail (tokens): 2.5% of the window clamped 2k..25k, but
 # never more than a fifth of the usable window (small/overridden windows).
 TAIL_RATIO = 0.025
-TAIL_MIN = 10_000
+TAIL_MIN = 2_000
 TAIL_MAX = 25_000
 TAIL_MAX_SHARE_OF_USABLE = 0.20
 

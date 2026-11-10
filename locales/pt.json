@@ -1189,10 +1189,11 @@
     "readMore": "Ler mais",
     "showLess": "Mostrar menos",
     "compactionShowSummary": "Ver o que o agente lembra dos turnos compactados",
-    "compactionStats": "{turns} turnos · ~{before} → ~{after} tokens",
     "compactionSummaryTitle": "Histórico compactado",
     "compactionSummaryHint": "O agente vê este resumo em vez dos turnos acima da linha.",
-    "compactingContext": "Compactando contexto…"
+    "compactingContext": "Compactando contexto…",
+    "compactionTurns": "{turns} turnos",
+    "compactionLast": "Última compactação: histórico ~{before} → ~{after} tokens"
   },
   "tools": {
     "common": {

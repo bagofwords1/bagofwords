@@ -1189,10 +1189,11 @@
     "readMore": "Lire la suite",
     "showLess": "Réduire",
     "compactionShowSummary": "Voir ce dont l'agent se souvient des échanges compactés",
-    "compactionStats": "{turns} échanges · ~{before} → ~{after} jetons",
     "compactionSummaryTitle": "Historique compacté",
     "compactionSummaryHint": "L'agent voit ce résumé à la place des échanges au-dessus de la ligne.",
-    "compactingContext": "Compaction du contexte…"
+    "compactingContext": "Compaction du contexte…",
+    "compactionTurns": "{turns} échanges",
+    "compactionLast": "Dernière compaction : historique ~{before} → ~{after} jetons"
   },
   "tools": {
     "common": {

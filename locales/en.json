@@ -1245,10 +1245,11 @@
     "readMore": "Read more",
     "showLess": "Show less",
     "compactionShowSummary": "Show what the agent remembers from compacted turns",
-    "compactionStats": "{turns} turns · ~{before} → ~{after} tokens",
     "compactionSummaryTitle": "Compacted history",
     "compactionSummaryHint": "The agent sees this summary instead of the turns above the line.",
-    "compactingContext": "Compacting context…"
+    "compactingContext": "Compacting context…",
+    "compactionTurns": "{turns} turns",
+    "compactionLast": "Last compaction: history ~{before} → ~{after} tokens"
   },
   "tools": {
     "common": {

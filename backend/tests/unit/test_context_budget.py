@@ -158,6 +158,7 @@ def _agent(window: int, *, anchor_offset: int = 0):
     agent._history_reload_pending = False
     agent._compaction_attempted = False
     agent._schedule_background_fold = MagicMock()
+    agent.transcript = SimpleNamespace(turns=[], history_turn_count=0)
     agent.context_hub = MagicMock()
     agent.context_hub.get_view.return_value = SimpleNamespace(warm=SimpleNamespace(messages=None))
     return agent
@@ -186,7 +187,7 @@ def test_governor_decays_history_before_folding():
     agent = _agent(100_000)
     agent._sync_fold = AsyncMock()
     b = budget_for(agent.model)
-    items = [MessageItem(role="system", timestamp="10:00", text=f"Tool: x → query_id: q-{i} " + "z" * 3_000) for i in range(40)]
+    items = [MessageItem(role="system", timestamp="10:00", text=f"Tool: x → query_id: q-{i} " + "z" * 7_000) for i in range(40)]
     sec = MessagesSection(items=items)
     pi = SimpleNamespace(messages_context=sec.render(), transcript=None, past_observations=None)
     # Size the anchor so the full render lands between cheap and summarize.
@@ -224,15 +225,64 @@ def test_governor_folds_synchronously_once_per_run_when_over_summarize():
 
 def test_governor_measures_with_anchor():
     """A prompt whose estimate looks small but whose provider-reported size
-    is large (big static prompt) still triggers the ladder."""
+    is large (big fixed prompt) still triggers the ladder."""
     agent = _agent(100_000)
     agent._sync_fold = AsyncMock(return_value={"status": "nothing_to_compact"})
     b = budget_for(agent.model)
-    agent._ctx_anchor = TokenAnchor(offset=b.summarize_at + 1_000, known=True)
-    pi = _planner_input(300)
+    pi = _planner_input((b.tail_tokens + max(b.summary_max, int(b.usable * 0.1))) * 3 + 300)  # history worth folding
+    est = estimate_planner_input_tokens(pi)
+    assert est < b.cheap_at
+    agent._ctx_anchor = TokenAnchor(offset=b.summarize_at + 1_000 - est, known=True)
     asyncio.run(agent._govern_context(pi, None))
     agent._schedule_background_fold.assert_called_once()
     agent._sync_fold.assert_awaited_once()
+
+
+def test_governor_skips_a_fold_that_would_not_pay_off():
+    """Over budget mostly because of the fixed prompt, with only a little
+    history beyond the tail: no synchronous fold (it would add an LLM
+    round-trip before every reply and save almost nothing)."""
+    agent = _agent(100_000)
+    agent._sync_fold = AsyncMock()
+    b = budget_for(agent.model)
+    pi = _planner_input((b.tail_tokens + 500) * 3)
+    est = estimate_planner_input_tokens(pi)
+    agent._ctx_anchor = TokenAnchor(offset=b.summarize_at + 2_000 - est, known=True)
+    asyncio.run(agent._govern_context(pi, None))
+    agent._sync_fold.assert_not_called()
+
+
+def test_governor_uses_a_finished_background_fold_without_another_llm_call():
+    agent = _agent(100_000)
+    agent._sync_fold = AsyncMock()
+    agent._sync_fold_done = True
+    agent._history_reload_pending = True
+    folded = MessagesSection(items=[MessageItem(role="user", text="recent")], history_summary="bg summary")
+
+    async def _reload():
+        agent._history_reload_pending = False
+        return SimpleNamespace(warm=SimpleNamespace(messages=folded))
+
+    agent._reload_history_after_fold = AsyncMock(side_effect=_reload)
+    b = budget_for(agent.model)
+    pi = _planner_input((b.summarize_at + 5_000) * 3)
+    asyncio.run(agent._govern_context(pi, None))
+    agent._reload_history_after_fold.assert_awaited_once()
+    agent._sync_fold.assert_not_called()
+    assert "bg summary" in pi.messages_context
+
+
+def test_governor_never_folds_an_empty_history():
+    """When the fixed prompt alone is over budget there is nothing to fold:
+    no fold, no background task, no "Compacting…" event."""
+    agent = _agent(100_000)
+    agent._sync_fold = AsyncMock()
+    b = budget_for(agent.model)
+    agent._ctx_anchor = TokenAnchor(offset=b.usable, known=True)
+    pi = _planner_input(300)
+    asyncio.run(agent._govern_context(pi, None))
+    agent._schedule_background_fold.assert_not_called()
+    agent._sync_fold.assert_not_called()
 
 
 @pytest.mark.parametrize("with_summary", [False, True])

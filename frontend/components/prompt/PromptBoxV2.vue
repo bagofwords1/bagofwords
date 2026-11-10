@@ -1388,6 +1388,8 @@ function setCompactStatus(phase: CompactPhase, message?: string, degraded = fals
 
 function dismissCompactStatus() {
     pendingCompact.value = null
+    if (compactRetryTimer) { clearTimeout(compactRetryTimer); compactRetryTimer = null }
+    compactRetryAttempt = 0
     setCompactStatus('idle')
 }
 
@@ -1412,13 +1414,18 @@ async function compactContext(args: CompactArgs = {}) {
         if (errorValue) {
             const status = errorValue?.statusCode || errorValue?.status || errorValue?.response?.status
             if (status === 409) {
-                // A run started (e.g. a queued prompt) — try again when idle.
+                // The server still sees a run: either the next queued prompt
+                // started, or the run that just ended is still wrapping up
+                // server-side. Stay pending and retry — on the next idle
+                // transition, and on a backoff while the composer is idle.
                 pendingCompact.value = args
                 setCompactStatus('pending')
+                scheduleCompactRetry()
                 return
             }
             throw errorValue
         }
+        compactRetryAttempt = 0
         const result = (response as any)?.data?.value
         if (result?.status === 'compacted') {
             // Tell the page so the transcript's watermark-anchored divider
@@ -1452,12 +1459,36 @@ async function compactContext(args: CompactArgs = {}) {
 }
 
 // Fire a deferred /compact once the run that blocked it is over.
-watch(() => props.latestInProgressCompletion, (running) => {
-    if (running || !pendingCompact.value) return
+let compactRetryTimer: ReturnType<typeof setTimeout> | null = null
+let compactRetryAttempt = 0
+const COMPACT_RETRY_MAX = 8
+
+function firePendingCompact() {
+    if (props.latestInProgressCompletion || !pendingCompact.value || isCompacting.value) return
     const args = pendingCompact.value
     pendingCompact.value = null
+    compactContext(args)
+}
+
+function scheduleCompactRetry() {
+    if (compactRetryTimer) clearTimeout(compactRetryTimer)
+    if (compactRetryAttempt >= COMPACT_RETRY_MAX) {
+        compactRetryAttempt = 0
+        pendingCompact.value = null
+        setCompactStatus('error', t('prompt.slash.compact.failed'))
+        return
+    }
+    const delay = Math.min(1500 * Math.pow(1.6, compactRetryAttempt), 15000)
+    compactRetryAttempt++
+    compactRetryTimer = setTimeout(() => { compactRetryTimer = null; firePendingCompact() }, delay)
+}
+
+watch(() => props.latestInProgressCompletion, (running) => {
+    if (running || !pendingCompact.value) return
+    compactRetryAttempt = 0
     // Give the server a beat to mark the execution finished.
-    setTimeout(() => { compactContext(args) }, 600)
+    if (compactRetryTimer) clearTimeout(compactRetryTimer)
+    compactRetryTimer = setTimeout(() => { compactRetryTimer = null; firePendingCompact() }, 800)
 })
 
 function runSlashCommand(cmd: ParsedSlashCommand) {

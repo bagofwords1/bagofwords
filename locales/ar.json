@@ -1189,10 +1189,11 @@
     "readMore": "اقرأ المزيد",
     "showLess": "عرض أقل",
     "compactionShowSummary": "عرض ما يتذكره الوكيل من الأدوار المضغوطة",
-    "compactionStats": "{turns} أدوار · ~{before} ← ~{after} رمز",
     "compactionSummaryTitle": "السجل المضغوط",
     "compactionSummaryHint": "يرى الوكيل هذا الملخص بدلاً من الأدوار فوق الخط.",
-    "compactingContext": "جارٍ ضغط السياق…"
+    "compactingContext": "جارٍ ضغط السياق…",
+    "compactionTurns": "{turns} أدوار",
+    "compactionLast": "آخر ضغط: السجل ~{before} ← ~{after} رمز"
   },
   "tools": {
     "common": {

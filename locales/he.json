@@ -1219,10 +1219,11 @@
     "readMore": "קרא עוד",
     "showLess": "הצג פחות",
     "compactionShowSummary": "הצגת מה שהסוכן זוכר מהתורות שנדחסו",
-    "compactionStats": "{turns} תורות · ~{before} ← ~{after} טוקנים",
     "compactionSummaryTitle": "היסטוריה דחוסה",
     "compactionSummaryHint": "הסוכן רואה את הסיכום הזה במקום התורות שמעל הקו.",
-    "compactingContext": "דוחס את ההקשר…"
+    "compactingContext": "דוחס את ההקשר…",
+    "compactionTurns": "{turns} תורות",
+    "compactionLast": "דחיסה אחרונה: היסטוריה ~{before} ← ~{after} טוקנים"
   },
   "tools": {
     "common": {

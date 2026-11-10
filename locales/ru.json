@@ -1189,10 +1189,11 @@
     "readMore": "Подробнее",
     "showLess": "Свернуть",
     "compactionShowSummary": "Показать, что агент помнит о сжатых ходах",
-    "compactionStats": "ходов: {turns} · ~{before} → ~{after} токенов",
     "compactionSummaryTitle": "Сжатая история",
     "compactionSummaryHint": "Агент видит эту сводку вместо ходов над линией.",
-    "compactingContext": "Сжатие контекста…"
+    "compactingContext": "Сжатие контекста…",
+    "compactionTurns": "ходов: {turns}",
+    "compactionLast": "Последнее сжатие: история ~{before} → ~{after} токенов"
   },
   "tools": {
     "common": {

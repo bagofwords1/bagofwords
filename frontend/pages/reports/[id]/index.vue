@@ -679,12 +679,15 @@
 										v-if="compactionInfo && compactionInfo.turns"
 										class="normal-case tracking-normal font-mono"
 										data-testid="compaction-divider-stats"
-									>· {{ responseT('reportView.compactionStats', { turns: compactionInfo.turns, before: fmtTokensShort(compactionInfo.before), after: fmtTokensShort(compactionInfo.after) }) }}</span>
+									>· {{ responseT('reportView.compactionTurns', { turns: compactionInfo.turns }) }}</span>
 								</button>
 								<template #panel>
 									<div class="w-[min(28rem,90vw)] max-h-80 overflow-y-auto p-3 text-xs" data-testid="compaction-summary-panel">
 										<div class="font-medium text-gray-900 dark:text-white mb-1">{{ responseT('reportView.compactionSummaryTitle') }}</div>
 										<p class="text-ink-muted mb-2">{{ responseT('reportView.compactionSummaryHint') }}</p>
+										<p v-if="compactionInfo?.before != null && compactionInfo?.after != null" class="text-ink-muted mb-2 font-mono text-2xs" data-testid="compaction-last-stats">
+											{{ responseT('reportView.compactionLast', { before: fmtTokensShort(compactionInfo.before), after: fmtTokensShort(compactionInfo.after) }) }}
+										</p>
 										<p v-if="compactionInfo?.degraded" class="text-amber-600 dark:text-amber-400 mb-2">{{ responseT('prompt.slash.compact.degraded') }}</p>
 										<div v-if="compactionSummaryLoading" class="flex items-center gap-2 text-ink-muted"><Spinner class="w-3 h-3" /></div>
 										<pre v-else class="whitespace-pre-wrap font-sans text-gray-700 dark:text-gray-300 leading-relaxed" dir="auto">{{ compactionSummary || '—' }}</pre>
@@ -1997,7 +2000,8 @@ function applyCompactionResult(result: any) {
 	if (!result) return
 	if (result.covers_until_completion_id) compactionWatermarkId.value = result.covers_until_completion_id
 	compactionInfo.value = {
-		turns: result.covered_turns ?? result.compacted_turns,
+		// Everything above the line (cumulative) vs. what the last fold did.
+		turns: result.covered_turns ?? ((compactionInfo.value?.turns || 0) + (result.compacted_turns || 0)),
 		before: result.history_tokens_before ?? result.last_tokens_before ?? null,
 		after: result.history_tokens_after ?? result.last_tokens_after ?? null,
 		degraded: !!result.degraded,
@@ -4555,7 +4559,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			// Rolling context compaction ran: move the watermark-anchored
 			// divider and refresh the usage popover (compacted counter +
 			// context bar) without waiting for a reload.
-			applyCompactionResult({ ...payload, covered_turns: undefined })
+			applyCompactionResult(payload)
 			promptBoxRef.value?.refreshContextEstimate?.(true)
 			break
 

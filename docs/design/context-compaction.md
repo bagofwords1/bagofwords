@@ -1,6 +1,6 @@
 # Context compaction: one budget, one ladder, `/compact`
 
-Status: plan (single PR) · Owner: agent runtime · Related:
+Status: implemented (single PR) · Owner: agent runtime · Related:
 `docs/design/agent-context-durability-plan.md` (§6 compaction ordering)
 
 ## 1. Problem
@@ -82,7 +82,7 @@ class ContextBudget:
     cheap_at: int        # 0.60 * usable  → run the cheap step
     summarize_at: int    # 0.75 * usable  → run the LLM fold
     target: int          # 0.40 * usable  → aim here after compacting
-    tail_tokens: int     # clamp(0.025 * window, 10_000, 25_000)
+    tail_tokens: int     # clamp(0.025 * window, 2_000, 25_000), ≤ 20% of usable
     summary_max: int     # clamp(0.05 * window, 2_000, 12_000)
 
 def budget_for(model) -> ContextBudget: ...
@@ -99,19 +99,24 @@ def budget_for(model) -> ContextBudget: ...
   top of `budget_for()`. The ratio constants in
   `context_compaction_service.py` are removed.
 
-**Token count ("anchor + delta").**
-`measure(planner_input) -> int`:
-1. If this run has a provider-reported `prompt_tokens` from the previous
-   planner call, use it plus an estimate of only what was added since then
-   (new transcript parts and observations).
-2. Otherwise, use the persisted `ReportContextState.last_prompt_tokens` plus the
-   estimate of turns added after `last_prompt_completion_id`.
-3. Otherwise, estimate the fully built prompt (`count_tokens` over the rendered
-   prompt, the same path as `estimate_prompt_tokens`).
+**Token count ("anchor + delta").** `estimate_planner_input_tokens()` is a
+cheap estimate of the variable part of the prompt: the free-text
+`PlannerInput` fields plus the larger of the transcript and the JSON
+observations (they describe the same steps on the two prompt paths). After
+every planner call, the provider's `prompt_tokens` and our estimate of that same
+request give an **offset**. That offset is mostly the fixed prompt we never
+estimate: system prompt, tool catalog, file schemas. `TokenAnchor.measure()` is
+estimate + offset, floored at half the estimate.
 
-`_record_planner_token_metadata_from_decision` also writes
-`last_prompt_tokens` / `last_prompt_completion_id` to `ReportContextState`, so
-the next run starts with the real number.
+- The offset is persisted on `ReportContextState.last_prompt_tokens` and
+  `last_prompt_estimate` at the end of each run, so a run's first request is
+  measured from reality too.
+- Without any anchor, the estimate alone is used. The overflow path still
+  catches an under-count.
+
+Measured live: the fixed prompt of this app is about 44k tokens (system prompt
++ tools + one CSV schema). That is why a percentage-of-window trigger on a
+history render alone could never be right.
 
 ### 3.2 The ladder (`ContextGovernor`, new, in `context_budget.py`)
 
@@ -121,24 +126,27 @@ replaces that call, the build-time scheduler and the overflow handler's ad-hoc
 levers.
 
 ```
-n = measure()
+n = measure();  history = rendered conversation + rehydrated history turns
 if n <  cheap_at:      send
-1. CHEAP (no LLM, not persisted)
-   - transcript: Transcript.fit_to_budget(target)       # existing ladder
-   - history:    older tool digests → id-only stubs,
-                 images released, oldest-first, outside tail
-   n = measure();  if n < summarize_at: send
-2. FOLD (LLM, persisted)
-   - context_compaction_service.compact(mode="auto_sync")
-     with a timeout (default 45s); emits context.compacting / context.compacted
-   - rebuild the messages section past the new watermark
-   n = measure();  if n < usable: send
+1. CHEAP (no LLM)
+   - prepare ahead: background fold (once per run, only if history ≥ tail)
+   - transcript: Transcript.fit_to_budget() toward cheap_at, at most ~40% of
+     the transcript per request unless the prompt would not fit at all
+   - history render: decay_level 1, then 2 (older messages minified; ids kept)
+2. FOLD (LLM, persisted) — only when n ≥ summarize_at AND history ≥ tail_tokens
+   - context_compaction_service.compact(mode="auto_sync"), emits
+     context.compacting / context.compacted
+   - reload the messages section AND the transcript's rehydrated history prefix
+     (it was loaded before the fold and still holds the folded turns)
 3. LAST RESORT (lossy, logged)
-   - trim_context_to_budget with the summary + opening exchange PINNED,
-     dropping whole oldest turns of the detailed window, not chars
+   - trim_context_to_budget: <history_summary> and <opening_exchange> pinned,
+     conversation trimmed by whole oldest lines
 send
 ```
 
+- **Nothing to fold, nothing to show.** When the fixed prompt alone is over a
+  threshold and history is small, the governor neither folds nor schedules a
+  background fold. The user never sees a pointless "Compacting…" row.
 - **Prepare ahead.** When `n` crosses `cheap_at` at the end of a run, schedule
   the existing background fold (reuse `_run_auto_compaction`). In most cases
   the watermark has already advanced before the next request reaches
@@ -179,8 +187,9 @@ decay level instead of char-slicing. Ids always survive, so `read_query`,
   If the scope still does not fit, fold in **chunks**, oldest first. Each
   chunk updates the rolling summary and advances the watermark, so a partial
   success is kept.
-- **Output cap.** Pass `max_output_tokens = summary_max * 1.5`. This adds that
-  kwarg to `LLM.inference`; `inference_stream` already has it.
+- **Output size.** Enforced after the call: the rendered summary is trimmed
+  to `summary_max`, with entities trimmed last. A 60s timeout bounds the call
+  itself; on timeout the deterministic fallback runs.
 - **Retry.** On unparseable JSON, retry once with a "return only the JSON
   object" corrective suffix.
 - **Deterministic fallback.** If the LLM fails or times out, build the summary
@@ -248,15 +257,22 @@ decay level instead of char-slicing. Ids always survive, so `read_query`,
 - **SSE events.**
   - `context.compacting {trigger}`: shows a transient "Compacting context…" row
     in the stream.
-  - `context.compacted`: now also carries `tokens_before`, `tokens_after`,
-    `method`, `degraded` and `trigger`.
+  - `context.compacted`: now also carries `status`, `trigger`,
+    `history_tokens_before`, `history_tokens_after`, `method` and `degraded`.
+    A synchronous attempt that folded nothing sends a non-`compacted` status,
+    which only clears the row.
   - Handled in `frontend/pages/reports/[id]/index.vue` (the existing
     `context.compacted` case near line 4480).
 - **Divider** (`index.vue` ~line 663): reads
-  `Compacted {turns} turns · {before} → {after}`. Clicking it opens a popover
-  with the rendered summary. It shows a warning icon when `degraded`.
-- **Usage popover.** The `compacted · Nk` counter stays. Add "Last compacted
-  {relative time} ({method})".
+  `Compacted history above · {turns} turns · ~{before} → ~{after} tokens`
+  (history tokens folded → summary size). Clicking it opens a popover with the
+  summary exactly as the agent sees it (`GET /api/reports/{id}/context/summary`,
+  owner-only like the transcript). It shows a warning icon when `degraded`.
+- **Composer receipt.** It shows the *whole prompt* before → after, from the
+  estimate the usage popover already fetches. It falls back to history tokens
+  when the estimate is unavailable.
+- **Usage popover.** The `compacted · Nk` counter and the Compact button stay;
+  the button runs the same path as `/compact`.
 - **Strings.** New strings go under `prompt.*` / `reportView.*` in **all ten**
   `locales/*.json` (identical shape; Hebrew vocabulary rules apply).
 
@@ -268,7 +284,7 @@ Migration `ctxcomp02_context_budget_fields` (down_revision = current head) on
 | Column | Type | Purpose |
 |---|---|---|
 | `last_prompt_tokens` | Integer, null | provider-reported anchor |
-| `last_prompt_completion_id` | String(36), null | which turn the anchor belongs to |
+| `last_prompt_estimate` | Integer, null | our estimate of that same request (offset = tokens − estimate) |
 | `failure_count` | Integer, default 0 | cooldown ladder |
 | `cooldown_until` | DateTime, null | auto-mode backoff |
 | `last_method` | String(16), null | llm / llm_retry / fallback |
@@ -307,7 +323,6 @@ manual tail rule.
   - bounded and chunked input, output cap, retry, fallback, grow guard,
     cooldown
   - new summary keys and telemetry
-- `app/ai/llm/llm.py`: `max_output_tokens` on `inference`.
 - `app/routes/completion.py`, `app/schemas/completion_v2_schema.py`: the
   request body and the extra response/state fields.
 - `app/models/report_context_state.py` + alembic migration.

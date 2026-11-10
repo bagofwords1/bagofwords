@@ -1189,10 +1189,11 @@
     "readMore": "Leggi di più",
     "showLess": "Mostra meno",
     "compactionShowSummary": "Mostra cosa ricorda l'agente dei turni compattati",
-    "compactionStats": "{turns} turni · ~{before} → ~{after} token",
     "compactionSummaryTitle": "Cronologia compattata",
     "compactionSummaryHint": "L'agente vede questo riepilogo al posto dei turni sopra la linea.",
-    "compactingContext": "Compattazione del contesto…"
+    "compactingContext": "Compattazione del contesto…",
+    "compactionTurns": "{turns} turni",
+    "compactionLast": "Ultima compattazione: cronologia ~{before} → ~{after} token"
   },
   "tools": {
     "common": {
