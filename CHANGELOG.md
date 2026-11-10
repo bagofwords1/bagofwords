@@ -1,5 +1,16 @@
 # Release Notes
 
+## Version 0.0.614 (November 10, 2026)
+- Added per-channel agent routing for Slack: map each channel to its own agents, with channels listed automatically once the bot is used there (#1670)
+- Added a default role for new members, set once in Settings → Members (#1669)
+- Added editing the built-in member role's permissions per organization, for enterprise admins (#1673)
+- Added agents per scheduled task: each task runs on the agents it shows, and picking them no longer changes the report's agents (#1647)
+- Added a `/health/ready` readiness endpoint that checks the database and scheduler; `/health` now also returns version and uptime (#1663)
+- Fixed removing a group or role from an agent's members, which said "Member removed" but kept their access (#1672)
+- Fixed agent managers being able to create global instructions; only org admins can now (#1671)
+- Fixed SharePoint refreshes dropping a library's files when a scoped folder's name contains "404" (#1664)
+- Fixed in-app prompts queued behind an MCP turn not starting when it finished, and MCP logs recording request contents (#1666)
+
 ## Version 0.0.613 (November 9, 2026)
 - Added multiple WhatsApp numbers per org, each limited to the agents you pick (#1654)
 - Added KMS Lighthouse as a read-only data source (#1618)
