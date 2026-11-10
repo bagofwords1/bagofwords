@@ -928,3 +928,41 @@ async def test_window_fold_leaves_room_in_the_live_window(db, max_tail_rows):
     assert result["status"] == "compacted"
     kept = 60 - PROTECT_FIRST_N - result["compacted_turns"]
     assert 2 <= kept <= max_tail_rows
+
+
+async def _add_event(db, report, kind, content, minute):
+    from app.ai.context.session_events import EVENT_ROLE
+    e = Completion(prompt={"content": content}, completion={}, status="success", model="event",
+                   role=EVENT_ROLE, message_type=kind, report_id=str(report.id))
+    db.add(e)
+    await db.flush()
+    e.created_at = datetime(2026, 1, 1) + timedelta(minutes=minute, seconds=30)
+    await db.commit()
+    return e
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("llm_fails", [True, False])
+async def test_durable_events_survive_compaction_with_or_without_the_summarizer(db, llm_fails):
+    """Feedback and rejections have no other home once folded: they must be in
+    the stored summary whether the LLM summarized or the fallback ran."""
+    from app.ai.context.session_events import EVENT_DURABLE
+    kind = sorted(EVENT_DURABLE)[0]
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, 20)
+    await _add_event(db, report, kind, "User rejected the suggestion to exclude refunds", minute=5)
+    llm_patch, _ = (_mock_llm(side_effect=RuntimeError("down")) if llm_fails else _mock_llm(SUMMARY))
+    with llm_patch:
+        result = await _svc().compact(db, report, org, _model(), mode="manual", force=True)
+    assert result["status"] == "compacted"
+    state = await _state(db, report.id)
+    rendered = render_summary_for_prompt(state.summary_json)
+    assert "User rejected the suggestion to exclude refunds" in rendered
+
+    # And it is still there after a later fold that does not see the event again.
+    await _add_turns(db, report, user, 20, start=100)
+    llm_patch2, _ = _mock_llm(SUMMARY)
+    with llm_patch2:
+        await _svc().compact(db, report, org, _model(), mode="manual", force=True)
+    state = await _state(db, report.id)
+    assert "User rejected the suggestion to exclude refunds" in render_summary_for_prompt(state.summary_json)

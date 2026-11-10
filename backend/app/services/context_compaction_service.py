@@ -123,8 +123,11 @@ def _assistant_text(c) -> str:
 _SUMMARY_KEYS = (
     "goal", "constraints_preferences", "progress", "key_decisions",
     "entities", "pending_user_asks", "errors_and_fixes", "next_steps",
-    "critical_context",
+    "critical_context", "user_feedback",
 )
+# Bounds for durable session events carried verbatim in the summary.
+USER_FEEDBACK_MAX_ITEMS = 20
+USER_FEEDBACK_MAX_CHARS = 400
 
 
 def _strip_code_fences(text: str) -> str:
@@ -212,6 +215,10 @@ def render_summary_for_prompt(summary_json: dict) -> str:
         if ent_lines:
             lines.append("Existing assets (reference by id, do NOT recreate):")
             lines.extend("  " + l for l in ent_lines)
+    feedback = summary_json.get("user_feedback") or []
+    if feedback:
+        lines.append("User feedback & rejections (verbatim — do not repeat what was rejected):")
+        lines.extend("  " + str(f) for f in feedback)
     asks = summary_json.get("pending_user_asks") or []
     if asks:
         lines.append("User asks (verbatim, oldest first): " + " | ".join(f'"{a}"' for a in asks))
@@ -257,6 +264,9 @@ def _enforce_summary_budget(summary: dict, max_tokens: int) -> dict:
             vals = progress.get(key)
             while isinstance(vals, list) and len(vals) > 1 and _rendered_tokens(summary) > max_tokens:
                 vals.pop(0 if key == "done" else -1)
+    feedback = summary.get("user_feedback")
+    while isinstance(feedback, list) and len(feedback) > 3 and _rendered_tokens(summary) > max_tokens:
+        feedback.pop(0)
     entities = summary.get("entities")
     while isinstance(entities, list) and len(entities) > 10 and _rendered_tokens(summary) > max_tokens:
         entities.pop(0)
@@ -294,6 +304,7 @@ Return ONLY a JSON object with exactly these keys:
 - "errors_and_fixes": array of strings — errors hit and how they were resolved (or that they were not)
 - "next_steps": array of strings — explicitly pending work
 - "critical_context": array of strings — important values, caveats, exact numbers the user may ask about again
+- "user_feedback": array of strings — the user's feedback and every rejected suggestion/instruction/build, near verbatim; carry the previous list forward
 
 Rules:
 - Merge the previous summary with the new turns; move finished items from in_progress to done; drop items that are clearly superseded.
@@ -307,6 +318,41 @@ _ENTITY_ID_RE = re.compile(
     r"\b(query|viz|widget|artifact|file|step|visualization)[ _]?id[\"']?\s*[:=]\s*[\"']?([A-Za-z0-9][A-Za-z0-9\-]{7,})",
     re.IGNORECASE,
 )
+
+
+def _event_text(row) -> str:
+    """A session event's one-line ledger text (prompt.content / summary)."""
+    try:
+        p = row.prompt or {}
+        if isinstance(p, dict):
+            return str(p.get("content") or p.get("summary") or "").strip()
+        return str(p or "").strip()
+    except Exception:
+        return ""
+
+
+def _merge_durable_events(summary: dict, scope_rows: list) -> dict:
+    """Carry durable session events (feedback, instruction/build rejections)
+    verbatim into ``user_feedback``. They have no other home in context once
+    they fall behind the watermark, so this is programmatic — like
+    opening_request — and never left to the summarizer (or to the fallback
+    when the summarizer is down)."""
+    lines = [str(x) for x in (summary.get("user_feedback") or []) if x]
+    for r in scope_rows:
+        if getattr(r, "role", None) != EVENT_ROLE:
+            continue
+        kind = getattr(r, "message_type", "") or ""
+        if not is_event_kind_durable(kind):
+            continue
+        text = _event_text(r)
+        if not text:
+            continue
+        line = f"[{kind}] " + text[:USER_FEEDBACK_MAX_CHARS] + ("…" if len(text) > USER_FEEDBACK_MAX_CHARS else "")
+        if line not in lines:
+            lines.append(line)
+    if lines:
+        summary["user_feedback"] = lines[-USER_FEEDBACK_MAX_ITEMS:]
+    return summary
 
 
 def _fallback_summary(previous: dict, scope_rows: list, digests_text: str) -> dict:
@@ -793,6 +839,12 @@ class ContextCompactionService:
             # trimmed to its budget with entities sacrificed last.
             if opening:
                 new_summary["opening_request"] = opening
+            # Keep what the summarizer kept, plus every durable event folded so
+            # far (the previous summary's list carries the older ones).
+            prior_feedback = list((summary or {}).get("user_feedback") or [])
+            if prior_feedback and not new_summary.get("user_feedback"):
+                new_summary["user_feedback"] = prior_feedback
+            new_summary = _merge_durable_events(new_summary, chunk)
             new_summary = _enforce_summary_budget(new_summary, budget.summary_max)
 
             # Grow guard: a summary larger than the previous summary plus the

@@ -470,7 +470,7 @@ from app.ai.context.builders.observation_context_builder import ObservationConte
 from app.ai.context.parts import ToolCallPart
 from app.ai.context.result_parts import build_result_part
 from app.ai.context.transcript import Transcript
-from app.ai.context.context_budget import TokenAnchor, budget_for, estimate_planner_input_tokens
+from app.ai.context.context_budget import TokenAnchor, budget_for, estimate_planner_input_tokens, total_input_tokens
 from app.ai.registry import ToolRegistry, ToolCatalogFilter
 from app.schemas.ai.planner import PlannerInput, ToolDescriptor
 from app.schemas.sse_schema import SSEEvent
@@ -8879,7 +8879,13 @@ class AgentV2:
                 self._sub_agent_tokens_used += int(_total or 0)
             if prompt_tokens is None:
                 return
-            prompt_tokens = int(prompt_tokens or 0)
+            # Total context the provider processed (Anthropic reports cache
+            # reads/writes outside prompt_tokens) — what the usage meter and
+            # the context budget's anchor must both see.
+            prompt_tokens = total_input_tokens(
+                token_usage,
+                provider=getattr(getattr(self.model, "provider", None), "provider_type", None),
+            ) or int(prompt_tokens or 0)
             self._last_planner_prompt_tokens = prompt_tokens
             try:
                 self._ctx_anchor.record(prompt_tokens, getattr(self, "_last_request_estimate", None))

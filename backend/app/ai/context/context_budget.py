@@ -165,6 +165,26 @@ def estimate_planner_input_tokens(planner_input: Any) -> int:
     return total + max(obs, transcript_tokens)
 
 
+def total_input_tokens(token_usage: Any, provider: Optional[str] = None) -> Optional[int]:
+    """The whole prompt the provider processed, cache included.
+
+    Anthropic reports ``prompt_tokens`` without the cached part — cache reads
+    and writes come in separate fields — while the other providers include
+    it. Same normalization as RunEfficiency.add_planner_usage and
+    LLM._quota_total_tokens; without it, a well-cached request looks tiny and
+    the context budget would stop seeing most of the prompt."""
+    if token_usage is None:
+        return None
+    prompt = getattr(token_usage, "prompt_tokens", None)
+    if prompt is None:
+        return None
+    total = int(prompt or 0)
+    if provider == "anthropic":
+        total += int(getattr(token_usage, "cache_read_tokens", 0) or 0)
+        total += int(getattr(token_usage, "cache_creation_tokens", 0) or 0)
+    return total
+
+
 class TokenAnchor:
     """Provider-reported size of the last request vs. our estimate of it."""
 

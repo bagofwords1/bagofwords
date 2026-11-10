@@ -360,3 +360,30 @@ def test_trim_keeps_the_end_of_an_oversized_newest_message(answer_chars):
     assert len(out) < len(text)
     assert "SUMMARY" in out
     assert "NEWEST_RESULT_SENTINEL" in out
+
+
+@pytest.mark.parametrize("cache_read,cache_write", [(150_000, 0), (0, 150_000), (100_000, 40_000)])
+def test_anthropic_cached_input_counts_toward_the_measured_prompt(cache_read, cache_write):
+    """Anthropic reports cache reads/writes outside prompt_tokens; the anchor
+    must calibrate against the whole prompt the provider processed."""
+    from app.ai.context.context_budget import total_input_tokens
+    usage = SimpleNamespace(prompt_tokens=5_000, cache_read_tokens=cache_read, cache_creation_tokens=cache_write)
+    total = 5_000 + cache_read + cache_write
+    assert total_input_tokens(usage, "anthropic") == total
+    # Other providers already include the cache in prompt_tokens.
+    assert total_input_tokens(SimpleNamespace(prompt_tokens=total, cache_read_tokens=cache_read), "openai") == total
+
+    import app.ai.agent_v2 as agent_v2_mod
+    agent = _agent(200_000)
+    agent._ctx_anchor = TokenAnchor()
+    agent._last_request_estimate = 60_000
+    agent._last_planner_prompt_tokens = None
+    agent._run_efficiency = MagicMock()
+    agent._is_sub_agent = False
+    agent.model.provider = SimpleNamespace(provider_type="anthropic")
+    agent.context_hub.metadata = SimpleNamespace(section_sizes={}, total_tokens=0)
+    agent._publish_context_metadata_to_view = MagicMock()
+    decision = SimpleNamespace(metrics=SimpleNamespace(token_usage=usage))
+    agent._record_planner_token_metadata_from_decision(decision)
+    assert agent._last_planner_prompt_tokens == total
+    assert agent._ctx_anchor.measure(60_000) == total
