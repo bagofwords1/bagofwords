@@ -22,7 +22,14 @@ branch_labels = None
 depends_on = None
 
 
+def _has_column() -> bool:
+    return any(c["name"] == "overrides_system_role" for c in sa.inspect(op.get_bind()).get_columns("roles"))
+
+
 def upgrade() -> None:
+    # Idempotent: the dashboard test corpus applies this unstamped.
+    if _has_column():
+        return
     op.add_column(
         "roles",
         sa.Column("overrides_system_role", sa.String(length=50), nullable=True),
@@ -30,4 +37,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if not _has_column():
+        return
     op.drop_column("roles", "overrides_system_role")

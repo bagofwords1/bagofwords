@@ -19,11 +19,20 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _has_column() -> bool:
+    return any(c["name"] == "data_source_ids" for c in sa.inspect(op.get_bind()).get_columns("scheduled_prompts"))
+
+
 def upgrade() -> None:
+    # Idempotent: the dashboard test corpus applies this unstamped.
+    if _has_column():
+        return
     with op.batch_alter_table('scheduled_prompts') as batch_op:
         batch_op.add_column(sa.Column('data_source_ids', sa.JSON(), nullable=True))
 
 
 def downgrade() -> None:
+    if not _has_column():
+        return
     with op.batch_alter_table('scheduled_prompts') as batch_op:
         batch_op.drop_column('data_source_ids')
