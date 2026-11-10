@@ -267,7 +267,9 @@ class DescribeEntityMCPTool(MCPTool):
                     applied_params = dict(run["applied_params"] or {}) or None
                     rows_source = "cache" if run.get("cached") else "executed"
                 except Exception as e:
-                    logger.exception("describe_entity run failed for %s: %s", entity.id, e)
+                    # By type only: run errors quote the values they failed on.
+                    from app.errors.redact import describe_for_log
+                    logger.error("describe_entity run failed for %s: %s", entity.id, describe_for_log(e))
                     error_message = f"Running the saved query failed: {str(e)[:300]}"
                     # Never fall back to a snapshot that is withheld from this
                     # reader, or that answers different parameter values.
