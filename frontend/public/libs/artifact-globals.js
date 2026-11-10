@@ -1587,15 +1587,15 @@
     }
     var infoBtn = (props.info && props.viz) ? h('div', { key: 'i', className: 'absolute top-0 z-10 ' + (isRtl ? 'left-0' : 'right-0') }, h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc })) : null;
     var empty = !cols.length || !baseRows.length;
-    // A one-column grid whose track is minmax(0, 1fr): the table adds nothing to its
-    // parent's minimum width, so in a grid or flex cell without min-width: 0 a wide
-    // table scrolls inside its box instead of widening the cell and the page, while a
-    // parent that sizes to its content still gets the table's natural width.
-    var rootStyle = { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)' };
-    if (props.style) { for (var rk in props.style) rootStyle[rk] = props.style[rk]; }
-    return h('div', { dir: dir, 'data-testid': 'bow-datatable', className: 'relative' + (props.className ? ' ' + props.className : ''), style: rootStyle },
+    // The body sits in a one-column grid whose track is minmax(0, 1fr): the table adds
+    // nothing to its parent's minimum width, so in a grid or flex cell without
+    // min-width: 0 a wide table scrolls inside its box instead of widening the cell and
+    // the page, while a parent that sizes to its content still gets the table's natural
+    // width. It is an inner wrapper so the root's own classes (hidden, md:block,
+    // print:hidden) still decide whether the table shows.
+    return h('div', { dir: dir, 'data-testid': 'bow-datatable', className: 'relative' + (props.className ? ' ' + props.className : ''), style: props.style },
       empty ? [infoBtn, h('div', { key: 'e', className: DT.empty }, props.emptyText || L.empty)]
-        : [infoBtn, toolbar, h('div', { key: 'scroll', className: 'bow-dt-scroll overflow-auto', style: { maxHeight: maxHeight } }, h('table', { className: DT.table }, [thead, tbody])), footer]);
+        : [infoBtn, h('div', { key: 'body', style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)' } }, [toolbar, h('div', { key: 'scroll', className: 'bow-dt-scroll overflow-auto', style: { maxHeight: maxHeight } }, h('table', { className: DT.table }, [thead, tbody])), footer])]);
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1644,10 +1644,13 @@
         var rect = btnRef.current.getBoundingClientRect();
         var spaceBelow = window.innerHeight - rect.bottom;
         var top = spaceBelow > 200 ? rect.bottom + 4 : rect.top - 4;
-        var width = Math.max(rect.width, 200);
         // Keep the list on screen: a control near the right edge (often the first one
-        // in RTL) would otherwise push a 200px list past it.
-        var left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+        // in RTL) would otherwise push a 200px list past it. Never wider than the
+        // viewport, and the 8px gutter only when there is room for it.
+        var vw = window.innerWidth;
+        var width = Math.min(Math.max(rect.width, 200), vw);
+        var gutter = vw - width >= 16 ? 8 : 0;
+        var left = Math.max(gutter, Math.min(rect.left, vw - width - gutter));
         setPos({ top: top, left: left, width: width, anchor: spaceBelow > 200 ? 'below' : 'above' });
       }
       reposition();

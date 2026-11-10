@@ -2,6 +2,7 @@
 //  - on a phone, a wide table in a grid or flex cell without min-width: 0
 //    scrolls inside its own box (LTR and RTL). Before, the cell grew to the
 //    table's width and the whole page scrolled sideways;
+//  - a visibility class on the table (hidden md:block) still decides whether it shows;
 //  - a parent that sizes to its content (inline-block, a flex item that does
 //    not grow, a centred column, a chat bubble, a table cell) still gets the
 //    table's full width instead of a collapsed strip.
@@ -40,6 +41,7 @@ function App() {
       <div className="flex flex-col items-center"><div data-case="centred column"><DataTable viz={viz} /></div></div>
       <div className="flex flex-col"><div className="self-start max-w-[85%]" data-case="chat bubble"><p>Here you go:</p><DataTable viz={viz} /></div></div>
       <table><tbody><tr><td data-case="table cell"><DataTable viz={viz} /></td></tr></tbody></table>
+      <div id="hidden-case"><DataTable viz={viz} className="hidden md:block" /></div>
     </div>
   );
 }
@@ -61,7 +63,7 @@ async function render(browser,width,code,expected){
    const f=document.createElement('iframe');f.style.width=width+'px';f.style.height='880px';f.style.border='0';f.srcdoc=html;document.body.appendChild(f);
   },{code,width,WIDE,SMALL,wideRows,wideCols,smallRows,smallCols});
   const frame=page.frames().find(f=>f.parentFrame());
-  await frame.waitForFunction(n=>document.querySelectorAll('.bow-dt-scroll table').length===n,expected,{timeout:30000});
+  await frame.waitForFunction(n=>document.querySelectorAll('.bow-dt-scroll table').length>=n,expected,{timeout:30000});
   return {page,frame};
 }
 const browser=await chromium.launch({headless:true, executablePath:CHROME_PATH});
@@ -81,6 +83,16 @@ try{
   await page.close();
  }
  const {page,frame}=await render(browser,960,fitApp,5);
+ // A visibility class on the table still wins: hidden below md, shown from md (768px) up.
+ const shownAt960=await frame.evaluate(()=>getComputedStyle(document.querySelector('#hidden-case [data-testid="bow-datatable"]')).display);
+ assert.notEqual(shownAt960,'none','className="hidden md:block" shows the table at 960px');
+ await page.setViewportSize({width:600,height:900});
+ await page.evaluate(()=>{document.querySelector('iframe').style.width='600px'});
+ await frame.waitForFunction(()=>innerWidth<700,null,{timeout:10000});
+ const shownAt600=await frame.evaluate(()=>getComputedStyle(document.querySelector('#hidden-case [data-testid="bow-datatable"]')).display);
+ assert.equal(shownAt600,'none','className="hidden md:block" hides the table below 768px');
+ await page.evaluate(()=>{document.querySelector('iframe').style.width='960px'});
+ await frame.waitForFunction(()=>innerWidth>=900,null,{timeout:10000});
  const fit=await frame.evaluate(()=>[...document.querySelectorAll('[data-case]')].map(c=>{const b=c.querySelector('.bow-dt-scroll');const t=b.querySelector('table');return [c.dataset.case,b.clientWidth,t.getBoundingClientRect().width]}));
  for(const [name,box,table] of fit){
   assert.ok(table>150,`${name}: the table has real columns (${table})`);

@@ -17,6 +17,7 @@ function App() {
       <FilterSelect label="Region" single placeholder="All regions" options={['EMEA','APAC','AMER']}
         selected={region ? [region] : []} onChange={a => { window.__last = a; setRegion(a[0] ?? null); }} />
       <p id="state">{region ?? 'ALL'}</p>
+      <div id="full"><FilterSelect label="Full" wrapperClassName="w-full" options={['One','Two']} selected={[]} onChange={() => {}} /></div>
     </div>
   );
 }
@@ -39,6 +40,13 @@ try{
  const frame=page.frames().find(f=>f.parentFrame());
  await frame.waitForSelector('button[aria-haspopup="listbox"]',{timeout:30000});
  assert.equal(await frame.getAttribute('button[aria-haspopup="listbox"]','aria-label'),'Region: EMEA','the button names its label and value');
+ // A full-width control in an unpadded page: the list stays inside the viewport.
+ await frame.evaluate(()=>{document.body.style.margin='0';document.querySelector('#full').parentElement.style.padding='0'});
+ await frame.click('#full button[aria-haspopup="listbox"]');
+ const full=await (await frame.waitForSelector('body > div[style*="position: fixed"]')).evaluate(el=>{const r=el.getBoundingClientRect();return {left:r.left,right:r.right,vw:window.innerWidth}});
+ assert.ok(full.left>=0&&full.right<=full.vw+0.5,`a full-width list stays on screen (${full.left}..${full.right} of ${full.vw})`);
+ await frame.click('#full button[aria-haspopup="listbox"]');
+ await frame.waitForFunction(()=>!document.querySelector('body > div[style*="position: fixed"]'));
  await frame.click('button[aria-haspopup="listbox"]');
  const list=await frame.waitForSelector('body > div[style*="position: fixed"]');
  const box=await list.evaluate(el=>{const r=el.getBoundingClientRect();return {left:r.left,right:r.right,vw:window.innerWidth}});
