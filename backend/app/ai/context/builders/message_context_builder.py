@@ -990,6 +990,11 @@ class MessageContextBuilder:
         # keep the long-standing rendered Tool: lines and pay no transcript
         # assembly cost.
         self.use_durable_transcript = False
+        # Completions whose tool turns must NOT be rebuilt into the durable
+        # transcript — the agent's own in-progress completion when it reloads
+        # history mid-run: its calls already live in the run's transcript, and
+        # replaying them twice duplicates provider call ids.
+        self.durable_exclude_completion_ids: set = set()
 
     def get_durable_transcript(self):
         """Return the native tool turns from the latest live-window build."""
@@ -2153,7 +2158,11 @@ class MessageContextBuilder:
         if role_filter:
             completions_to_process = [c for c in completions_to_process if c.role in role_filter]
 
-        completions_to_process = completions_to_process[-max_messages:]
+        # The compaction fold path asks for exactly these rows: every one of
+        # them is about to fall behind the watermark, so none may be sliced
+        # away here (they would vanish from history without being summarized).
+        if completion_ids is None:
+            completions_to_process = completions_to_process[-max_messages:]
 
         # Steering rows targeting a STILL-RUNNING completion reach the planner
         # via <steering_updates> — including them here too would duplicate
@@ -2351,7 +2360,10 @@ class MessageContextBuilder:
                     self._durable_transcript,
                     self._durable_tool_execution_ids,
                 ) = build_durable_transcript(
-                    completions=completions_to_process,
+                    completions=[
+                        c for c in completions_to_process
+                        if str(getattr(c, "id", "")) not in self.durable_exclude_completion_ids
+                    ],
                     blocks_by_completion=blocks_by_completion,
                     tool_exec_by_id=tool_exec_by_id,
                     allow_llm_see_data=allow_llm_see_data,

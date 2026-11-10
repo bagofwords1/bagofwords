@@ -164,6 +164,10 @@ def _trim_messages_keep_pinned(text: str, keep_ratio: float) -> str:
         return text
     marker = "<conversation>"
     idx = text.find(marker)
+    if idx < 0 and text.lstrip().startswith(("<history_summary>", "<opening_exchange>")):
+        # Only pinned blocks (summary / opening exchange), no live window:
+        # nothing here may be cut.
+        return text
     if idx < 0:
         pinned, body, open_tag, close_tag = "", text, "", ""
     else:

@@ -298,3 +298,26 @@ def test_trim_cuts_single_line_history_without_touching_summary(with_summary):
     assert len(out) < len(text)
     assert "NEWEST" in out and "OLDEST" not in out
     assert ("SUMMARY-SENTINEL" in out) == with_summary
+
+
+def test_governor_keeps_sub_agents_isolated_from_report_history():
+    """A child's prompt carries no report conversation. Budget pressure must
+    never put the parent's history back, nor fold the parent's report."""
+    agent = _agent(100_000)
+    agent._is_sub_agent = True
+    agent._sync_fold = AsyncMock()
+    b = budget_for(agent.model)
+    parent = MessagesSection(items=[MessageItem(role="user", text="PARENT_ONLY_REQUEST " + "x" * 9000)])
+    agent._ctx_anchor = TokenAnchor(offset=b.usable, known=True)
+    pi = SimpleNamespace(messages_context="", transcript=None, past_observations=None)
+    asyncio.run(agent._govern_context(pi, parent))
+    assert pi.messages_context == ""
+    agent._schedule_background_fold.assert_not_called()
+    agent._sync_fold.assert_not_called()
+
+
+def test_trim_never_cuts_a_summary_only_history():
+    summary = "<history_summary>\nSUMMARY-SENTINEL " + ("fact " * 3000) + "\n</history_summary>"
+    pi = SimpleNamespace(messages_context=summary, past_observations=None, last_observation=None)
+    trim_context_to_budget(pi, model_context_window=12_000)
+    assert pi.messages_context == summary

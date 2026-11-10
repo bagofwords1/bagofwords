@@ -3172,7 +3172,8 @@ class AgentV2:
         # — not race a background task. Bounded per run; each attempt runs
         # against the tightened factor above.
         self._overflow_attempts = int(getattr(self, "_overflow_attempts", 0) or 0) + 1
-        if self._overflow_attempts <= MAX_OVERFLOW_COMPACTIONS:
+        # A sub-agent has no report history in its prompt to fold.
+        if self._overflow_attempts <= MAX_OVERFLOW_COMPACTIONS and not getattr(self, "_is_sub_agent", False):
             logger.info(
                 "[agent] context overflow %d/%d: forcing synchronous compaction",
                 self._overflow_attempts, MAX_OVERFLOW_COMPACTIONS,
@@ -3271,6 +3272,16 @@ class AgentV2:
         the messages section (summary + post-watermark window) and the
         rehydrated history prefix of the in-run transcript, which was loaded
         before the fold and still holds the folded turns in detail."""
+        # This run's own completion is already represented, live, in the
+        # transcript suffix (with its images and provider state); rebuilding
+        # it from the DB too would replay every call of this run twice.
+        try:
+            if self.system_completion_id:
+                self.context_hub.message_builder.durable_exclude_completion_ids = {
+                    str(self.system_completion_id)
+                }
+        except Exception:
+            pass
         await self.context_hub.refresh_warm()
         view = self.context_hub.get_view()
         self._history_reload_pending = False
@@ -3313,6 +3324,10 @@ class AgentV2:
         if self._ctx_anchor_loaded or not self.report:
             return
         self._ctx_anchor_loaded = True
+        if getattr(self, "_is_sub_agent", False):
+            # The report's anchor measures the PARENT's prompt; a child
+            # calibrates from its own first request instead.
+            return
         try:
             from app.services.context_compaction_service import ContextCompactionService
             async with self._session_maker() as session:
@@ -3385,7 +3400,11 @@ class AgentV2:
             # (system prompt, tools, schemas) can sit above the thresholds on
             # its own — folding an empty history would only flash a
             # "Compacting…" row and spend nothing useful.
-            history_tokens = self._history_tokens(planner_input)
+            # A sub-agent never sees the report's conversation
+            # (_apply_sub_agent_planner_input clears it on purpose): it gets
+            # transcript budgeting only — no history re-render, no report fold.
+            is_child = bool(getattr(self, "_is_sub_agent", False))
+            history_tokens = 0 if is_child else self._history_tokens(planner_input)
             # A fold keeps the protected tail and replaces the rest with a
             # summary of up to summary_max tokens — it only pays off when the
             # history beyond the tail is clearly bigger than that. Without
@@ -3394,8 +3413,8 @@ class AgentV2:
             # an LLM round-trip before each reply.
             excess = history_tokens - budget.tail_tokens
             fold_min = max(budget.summary_max, int(budget.usable * 0.1))
-            worth_sync = excess >= fold_min or (n >= budget.usable and excess > 0)
-            worth_bg = excess >= fold_min // 2
+            worth_sync = (not is_child) and (excess >= fold_min or (n >= budget.usable and excess > 0))
+            worth_bg = (not is_child) and excess >= fold_min // 2
 
             # Rung 2a — prepare ahead (non-blocking).
             if worth_bg:
@@ -3421,7 +3440,7 @@ class AgentV2:
                     n = self._ctx_anchor.measure(estimate_planner_input_tokens(planner_input))
 
             # Rung 2c — render older history more compactly.
-            if messages_section is not None and n >= budget.cheap_at:
+            if messages_section is not None and n >= budget.cheap_at and not is_child:
                 for level in (1, 2):
                     planner_input.messages_context = messages_section.render(decay_level=level)
                     stats["rungs"].append(f"history_decay_{level}")
@@ -3430,7 +3449,7 @@ class AgentV2:
                         break
 
             # Rung 3 — fold now.
-            if n >= budget.summarize_at and (
+            if n >= budget.summarize_at and not is_child and (
                 self._history_reload_pending or (worth_sync and not self._sync_fold_done)
             ):
                 if self._history_reload_pending:

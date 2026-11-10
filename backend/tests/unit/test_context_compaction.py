@@ -782,3 +782,104 @@ async def test_background_compaction_emits_sse_event(db):
     assert event.data["method"] == "llm"
     # A background fold leaves the in-run transcript to be swapped later.
     assert agent._history_reload_pending is True
+
+
+async def _tool_completion(db, report, user, org, *, role_status, call_id, tool_name, minute, content="ok"):
+    """A system completion that ran one tool (block + execution persisted)."""
+    c = Completion(
+        prompt={"content": ""}, completion={"content": content}, status=role_status,
+        model="test", role="system", message_type="ai_completion", report_id=str(report.id),
+    )
+    db.add(c)
+    await db.flush()
+    c.created_at = datetime(2026, 1, 1) + timedelta(minutes=minute)
+    ex = AgentExecution(completion_id=str(c.id), organization_id=str(org.id), user_id=str(user.id),
+                        report_id=str(report.id), status="success" if role_status == "success" else "in_progress")
+    db.add(ex)
+    await db.flush()
+    te = ToolExecution(agent_execution_id=str(ex.id), tool_name=tool_name, tool_action="query",
+                       arguments_json={"q": call_id}, status="success", success=True,
+                       result_summary=f"{tool_name} done", result_json={"success": True},
+                       provider_call_id=call_id)
+    db.add(te)
+    await db.flush()
+    db.add(CompletionBlock(completion_id=str(c.id), agent_execution_id=str(ex.id), source_type="tool",
+                           tool_execution_id=str(te.id), block_index=0, title=tool_name, status="completed"))
+    await db.commit()
+    return c
+
+
+def _call_ids(transcript):
+    from app.ai.context.parts import ToolCallPart
+    return [p.id for t in transcript.turns for p in t.parts if isinstance(p, ToolCallPart)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("current_calls", [1, 3])
+async def test_mid_run_history_reload_keeps_each_call_once(db, current_calls):
+    """Reloading history after a fold must not replay this run's own tool
+    calls a second time (they already live in the run's transcript)."""
+    from types import SimpleNamespace
+    import app.ai.agent_v2 as agent_v2_mod
+    from app.ai.context.builders.message_context_builder import MessageContextBuilder
+    from app.ai.context.parts import ToolCallPart, ToolResultPart
+    from app.ai.context.transcript import Transcript
+
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, 1)  # earlier ask
+    await _tool_completion(db, report, user, org, role_status="success", call_id="call_history",
+                           tool_name="create_data", minute=1)
+    await _add_turns(db, report, user, 1, start=2)  # this run's ask
+    current = await _tool_completion(db, report, user, org, role_status="in_progress",
+                                     call_id="call_current_0", tool_name="create_data", minute=3)
+
+    org_loaded = (await db.execute(select(Organization).where(Organization.id == str(org.id)))).unique().scalar_one()
+    builder = MessageContextBuilder(db, org_loaded, report)
+    builder.use_durable_transcript = True
+
+    agent = object.__new__(agent_v2_mod.AgentV2)
+    agent.system_completion_id = str(current.id)
+    agent._is_sub_agent = False
+    agent._history_reload_pending = True
+
+    async def _refresh():
+        await builder.build(max_messages=40)
+    agent.context_hub = SimpleNamespace(
+        message_builder=builder, refresh_warm=_refresh,
+        get_view=lambda: SimpleNamespace(warm=SimpleNamespace(messages=None)),
+    )
+    # Live transcript: rehydrated history prefix + this run's calls (live objects).
+    await builder.build(max_messages=40)
+    durable = builder.get_durable_transcript()
+    live_ids = [f"call_current_{i}" for i in range(current_calls)]
+    agent.transcript = Transcript()
+    agent.transcript.turns = [t for t in durable.turns
+                              if not any(isinstance(p, ToolCallPart) and p.id.startswith("call_current") for p in t.parts)]
+    agent.transcript.history_turn_count = len(agent.transcript.turns)
+    agent.transcript.add_assistant_step(calls=[ToolCallPart(id=i, tool_name="create_data") for i in live_ids])
+    agent.transcript.add_tool_results([ToolResultPart(call_id=i, tool_name="create_data", content="ok") for i in live_ids])
+
+    await agent._reload_history_after_fold()
+
+    ids = _call_ids(agent.transcript)
+    assert sorted(ids) == sorted(set(ids)), ids
+    assert "call_history" in ids
+    assert [i for i in ids if i.startswith("call_current")] == live_ids
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("n_turns", [30, 61])
+async def test_fold_input_contains_every_folded_row(db, n_turns):
+    """Every row behind the new watermark reaches the summarizer — none may be
+    sliced away by the live-window message cap on the fold path."""
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, n_turns, content="Unique ask number {i} about revenue")
+    llm_patch, instance = _mock_llm(SUMMARY)
+    with llm_patch:
+        result = await _svc().compact(db, report, org, _model(), mode="manual", force=True,
+                                      budget_model=_model(200_000))
+    assert result["status"] == "compacted"
+    prompts = "\n".join(c[0][0] for c in instance.inference.call_args_list)
+    folded_user_turns = [i for i in range(PROTECT_FIRST_N, n_turns - 2 * MANUAL_KEEP_EXCHANGES) if i % 2 == 0]
+    missing = [i for i in folded_user_turns if f"Unique ask number {i} about" not in prompts]
+    assert missing == [], f"rows folded without reaching the summarizer: {missing}"
