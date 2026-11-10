@@ -694,6 +694,22 @@
         "network": "El reconocimiento de voz necesita conexión a la red.",
         "failed": "La entrada de voz falló. Inténtalo de nuevo."
       }
+    },
+    "slash": {
+      "menuTitle": "Comandos",
+      "compact": {
+        "description": "Resume los turnos anteriores para liberar contexto",
+        "usage": "/compact · /compact <enfoque> · /compact keep 4",
+        "pending": "Se compactará cuando el agente termine esta ejecución",
+        "running": "Compactando contexto…",
+        "doneContext": "{turns} turnos compactados · contexto ~{before} → ~{after} tokens",
+        "doneHistory": "{turns} turnos compactados · historial ~{before} → ~{after} tokens",
+        "alreadyRunning": "La compactación ya está en curso",
+        "failed": "No se pudo compactar el contexto",
+        "degraded": "resumen de respaldo (sin resumen del modelo)",
+        "cancel": "Cancelar",
+        "dismiss": "Descartar"
+      }
     }
   },
   "reports": {
@@ -1201,7 +1217,12 @@
       "scopeHint": "Se aplica a tus conversaciones en este navegador."
     },
     "readMore": "Leer más",
-    "showLess": "Mostrar menos"
+    "showLess": "Mostrar menos",
+    "compactionShowSummary": "Ver lo que el agente recuerda de los turnos compactados",
+    "compactionStats": "{turns} turnos · ~{before} → ~{after} tokens",
+    "compactionSummaryTitle": "Historial compactado",
+    "compactionSummaryHint": "El agente ve este resumen en lugar de los turnos sobre la línea.",
+    "compactingContext": "Compactando contexto…"
   },
   "tools": {
     "common": {

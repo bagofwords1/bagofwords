@@ -694,6 +694,22 @@
         "network": "זיהוי הדיבור דורש חיבור לרשת.",
         "failed": "הקלט הקולי נכשל. נסו שוב."
       }
+    },
+    "slash": {
+      "menuTitle": "פקודות",
+      "compact": {
+        "description": "סיכום תורות קודמים כדי לפנות הקשר",
+        "usage": "/compact · /compact <מיקוד> · /compact keep 4",
+        "pending": "הדחיסה תתבצע כשהסוכן יסיים את ההרצה הנוכחית",
+        "running": "דוחס את ההקשר…",
+        "doneContext": "נדחסו {turns} תורות · הקשר ~{before} ← ~{after} טוקנים",
+        "doneHistory": "נדחסו {turns} תורות · היסטוריה ~{before} ← ~{after} טוקנים",
+        "alreadyRunning": "דחיסה כבר מתבצעת",
+        "failed": "לא ניתן היה לדחוס את ההקשר",
+        "degraded": "סיכום חלופי (ללא סיכום מודל)",
+        "cancel": "ביטול",
+        "dismiss": "סגירה"
+      }
     }
   },
   "reports": {
@@ -1201,7 +1217,12 @@
       "scopeHint": "חל על השיחות שלך בדפדפן זה."
     },
     "readMore": "קרא עוד",
-    "showLess": "הצג פחות"
+    "showLess": "הצג פחות",
+    "compactionShowSummary": "הצגת מה שהסוכן זוכר מהתורות שנדחסו",
+    "compactionStats": "{turns} תורות · ~{before} ← ~{after} טוקנים",
+    "compactionSummaryTitle": "היסטוריה דחוסה",
+    "compactionSummaryHint": "הסוכן רואה את הסיכום הזה במקום התורות שמעל הקו.",
+    "compactingContext": "דוחס את ההקשר…"
   },
   "tools": {
     "common": {

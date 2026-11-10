@@ -419,6 +419,10 @@ _CONTEXT_OVERFLOW_PATTERNS = (
 )
 
 
+# Synchronous folds an overflow may force in one run.
+MAX_OVERFLOW_COMPACTIONS = 3
+
+
 def _shrunk_context_factor(current: float, provider_message: Optional[str]) -> float:
     """Next trim-budget factor after a context_length rejection.
 
@@ -466,6 +470,7 @@ from app.ai.context.builders.observation_context_builder import ObservationConte
 from app.ai.context.parts import ToolCallPart
 from app.ai.context.result_parts import build_result_part
 from app.ai.context.transcript import Transcript
+from app.ai.context.context_budget import TokenAnchor, budget_for, estimate_planner_input_tokens
 from app.ai.registry import ToolRegistry, ToolCatalogFilter
 from app.schemas.ai.planner import PlannerInput, ToolDescriptor
 from app.schemas.sse_schema import SSEEvent
@@ -910,6 +915,17 @@ class AgentV2:
         # awaited at end of turn so the write/SSE can't be lost to task GC.
         self._compaction_attempted: bool = False
         self._compaction_task: Optional[asyncio.Task] = None
+        # Context governor state (see _govern_context): the token anchor that
+        # calibrates our estimate against the provider-reported prompt size,
+        # the estimate of the request just sent, one synchronous fold per run
+        # (re-armed by an overflow), and whether a background fold landed
+        # whose result the in-run transcript has not picked up yet.
+        self._ctx_anchor = TokenAnchor()
+        self._ctx_anchor_loaded: bool = False
+        self._last_request_estimate: Optional[int] = None
+        self._sync_fold_done: bool = False
+        self._history_reload_pending: bool = False
+        self._overflow_attempts: int = 0
 
         # Single dedicated write session for the entire agent run.
         # When BOW_AGENT_SINGLE_WRITE_SESSION is set, main_execution opens
@@ -3134,32 +3150,39 @@ class AgentV2:
         except Exception:
             logger.warning("[agent] overflow transcript decay failed", exc_info=True)
 
-        if not getattr(self, "_compaction_attempted", False):
-            self._compaction_attempted = True
-            logger.info("[agent] context overflow: forcing synchronous compaction")
+        # Fold history synchronously too: the provider just proved the prompt
+        # is too big, so the retry must plan against the compacted transcript
+        # — not race a background task. Bounded per run; each attempt runs
+        # against the tightened factor above.
+        self._overflow_attempts = int(getattr(self, "_overflow_attempts", 0) or 0) + 1
+        if self._overflow_attempts <= MAX_OVERFLOW_COMPACTIONS:
+            logger.info(
+                "[agent] context overflow %d/%d: forcing synchronous compaction",
+                self._overflow_attempts, MAX_OVERFLOW_COMPACTIONS,
+            )
             try:
-                await self._run_auto_compaction(force=True)
+                await self._sync_fold(mode="overflow")
             except Exception:
                 logger.warning("[agent] overflow compaction failed", exc_info=True)
 
-    async def _run_auto_compaction(self, force: bool = False):
-        """Background body of the build-time compaction trigger: fold turns
-        older than the protected tail into the report's rolling summary
-        (ContextCompactionService). Runs concurrently with the agent loop in
-        its own DB session (report and organization re-fetched by id —
-        self.report/self.organization may be detached, same pitfall as title
-        generation); later context builds pick up the advanced watermark.
-        ``force=True`` (the context-overflow path) bypasses the service's own
-        threshold checks — the provider already proved the transcript is too
-        big. Fail-open: any error logs and leaves rendering exactly as today."""
+    async def _run_auto_compaction(self, force: bool = False, mode: str = "auto_bg") -> dict:
+        """Fold turns older than the protected tail into the report's rolling
+        summary (ContextCompactionService). Runs in its own DB session
+        (report and organization re-fetched by id — self.report /
+        self.organization may be detached, same pitfall as title generation),
+        so it can overlap the agent loop; later context builds pick up the
+        advanced watermark. The small model writes the summary; self.model —
+        the model that receives the prompt — sizes it. Fail-open: any error
+        logs and leaves rendering exactly as it was."""
         import logging
         logger = logging.getLogger(__name__)
+        result: dict = {"status": "skipped"}
         try:
             if not self.report:
-                return
+                return result
             model = self.small_model or self.model
             if model is None:
-                return
+                return result
             from app.services.context_compaction_service import context_compaction_service
             from app.models.organization import Organization
             report_id = str(self.report_id)
@@ -3178,35 +3201,204 @@ class AgentV2:
                         select(Organization).where(Organization.id == organization_id)
                     )).scalar_one_or_none()
                 if report is None or organization is None:
-                    return
+                    return result
                 result = await context_compaction_service.compact(
-                    session, report, organization, model, force=force,
+                    session, report, organization, model,
+                    force=force, mode=mode, budget_model=self.model or model,
                 )
                 if result.get("status") == "compacted":
                     logger.info(
-                        f"Auto-compacted report {report_id}: "
+                        f"Auto-compacted report {report_id} ({mode}): "
                         f"{result.get('compacted_turns')} turns, ~{result.get('tokens_compacted')} tokens"
                     )
+                    if mode == "auto_bg":
+                        # The in-run transcript still carries the folded turns
+                        # in detail; the governor swaps them out when it needs
+                        # the room.
+                        self._history_reload_pending = True
                     # Live visibility: the kickoff SSE stream is still open here
                     # (event_queue.finish() runs after main_execution returns),
                     # so the page can move the watermark-anchored divider and
                     # refresh the usage popover without a reload.
-                    if self.event_queue:
-                        try:
-                            await self.event_queue.put(SSEEvent(
-                                event="context.compacted",
-                                completion_id=str(self.system_completion_id) if self.system_completion else None,
-                                data={
-                                    "covers_until_completion_id": result.get("covers_until_completion_id"),
-                                    "compacted_turns": result.get("compacted_turns"),
-                                    "tokens_compacted": result.get("tokens_compacted"),
-                                    "tokens_compacted_total": result.get("tokens_compacted_total"),
-                                },
-                            ))
-                        except Exception as e:
-                            logger.warning(f"Failed to emit context.compacted event: {e}")
+                    await self._emit_compaction_event("context.compacted", {
+                        "status": "compacted",
+                        "trigger": mode,
+                        "covers_until_completion_id": result.get("covers_until_completion_id"),
+                        "compacted_turns": result.get("compacted_turns"),
+                        "tokens_compacted": result.get("tokens_compacted"),
+                        "tokens_compacted_total": result.get("tokens_compacted_total"),
+                        "history_tokens_before": result.get("history_tokens_before"),
+                        "history_tokens_after": result.get("history_tokens_after"),
+                        "method": result.get("method"),
+                        "degraded": result.get("degraded"),
+                    })
         except Exception as e:
             logger.warning(f"Auto compaction skipped: {e}")
+        return result
+
+    async def _emit_compaction_event(self, event: str, data: dict) -> None:
+        if not self.event_queue:
+            return
+        try:
+            await self.event_queue.put(SSEEvent(
+                event=event,
+                completion_id=str(self.system_completion_id) if self.system_completion else None,
+                data=data,
+            ))
+        except Exception as e:
+            logger.warning(f"Failed to emit {event} event: {e}")
+
+    async def _reload_history_after_fold(self):
+        """After the watermark moved, rebuild the history the planner sees:
+        the messages section (summary + post-watermark window) and the
+        rehydrated history prefix of the in-run transcript, which was loaded
+        before the fold and still holds the folded turns in detail."""
+        await self.context_hub.refresh_warm()
+        view = self.context_hub.get_view()
+        self._history_reload_pending = False
+        if getattr(self, "_is_sub_agent", False):
+            return view
+        try:
+            durable = self.context_hub.message_builder.get_durable_transcript()
+            k = int(getattr(self.transcript, "history_turn_count", 0) or 0)
+            new_turns = list(durable.turns) if durable is not None else []
+            self.transcript.turns = new_turns + self.transcript.turns[k:]
+            self.transcript.history_turn_count = len(new_turns)
+        except Exception:
+            logger.warning("[context] transcript history reload failed", exc_info=True)
+        return view
+
+    async def _sync_fold(self, mode: str = "auto_sync") -> dict:
+        """Fold history now, before the next request, and reload it.
+
+        A background fold already in flight is awaited instead of racing it
+        (the service would coalesce to already_running anyway)."""
+        bg = getattr(self, "_compaction_task", None)
+        if bg is not None and not bg.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(bg), timeout=60)
+            except Exception as e:
+                logger.warning(f"[context] background fold did not finish in time: {e}")
+        await self._emit_compaction_event("context.compacting", {"trigger": mode})
+        result = await self._run_auto_compaction(force=True, mode=mode)
+        status = result.get("status")
+        if status != "compacted":
+            # Clear the transient "Compacting…" row; nothing moved.
+            await self._emit_compaction_event("context.compacted", {"status": status, "trigger": mode})
+        if status == "compacted" or self._history_reload_pending:
+            await self._reload_history_after_fold()
+        return result
+
+    async def _load_ctx_anchor(self) -> None:
+        """Seed the token anchor from the last request of a previous run, so
+        the first request of this run is measured from reality too."""
+        if self._ctx_anchor_loaded or not self.report:
+            return
+        self._ctx_anchor_loaded = True
+        try:
+            from app.services.context_compaction_service import ContextCompactionService
+            async with self._session_maker() as session:
+                state = await ContextCompactionService.get_state(session, str(self.report_id))
+                offset = ContextCompactionService.anchor_offset(state)
+            if offset is not None and not self._ctx_anchor.known:
+                self._ctx_anchor = TokenAnchor(offset=offset, known=True)
+        except Exception:
+            logger.debug("[context] anchor load skipped", exc_info=True)
+
+    async def _persist_ctx_anchor(self) -> None:
+        if not self.report or self._last_planner_prompt_tokens is None or self._last_request_estimate is None:
+            return
+        if getattr(self, "_is_sub_agent", False):
+            return
+        try:
+            from app.services.context_compaction_service import ContextCompactionService
+            async with self._session_maker() as session:
+                await ContextCompactionService.record_prompt_anchor(
+                    session, str(self.report_id),
+                    self._last_planner_prompt_tokens, self._last_request_estimate,
+                )
+        except Exception:
+            logger.debug("[context] anchor persist skipped", exc_info=True)
+
+    async def _govern_context(self, planner_input, messages_section=None) -> dict:
+        """The context budget ladder, run before every planner request.
+
+        One budget (budget_for(self.model)), one measurement (estimate of the
+        planner input + the provider-calibrated anchor offset), rungs from
+        cheapest information loss to most expensive, stopping as soon as the
+        prompt fits:
+
+          1. below cheap_at → send as is
+          2. cheap, no LLM: decay old tool results in the transcript (history
+             turns included) and render older history more compactly; also
+             start a background fold so the summary is ready ahead of need
+          3. still ≥ summarize_at → fold history into the rolling summary NOW
+             and reload it (one per run; an overflow re-arms it)
+          4. the caller's trim_context_to_budget is the last resort; it pins
+             the summary and the opening exchange.
+
+        Fail-open: any error leaves the planner input as built."""
+        stats = {"before": None, "after": None, "rungs": []}
+        try:
+            await self._load_ctx_anchor()
+            budget = budget_for(self.model, factor=getattr(self, "_context_budget_factor", 1.0))
+            n = self._ctx_anchor.measure(estimate_planner_input_tokens(planner_input))
+            stats["before"] = n
+            if n < budget.cheap_at:
+                stats["after"] = n
+                return stats
+
+            # Rung 2a — prepare ahead (non-blocking).
+            self._schedule_background_fold()
+
+            # Rung 2b — transcript decay toward the target.
+            transcript = getattr(planner_input, "transcript", None)
+            if transcript is not None and getattr(transcript, "turns", None):
+                t_tokens = transcript.tokens()
+                rest = max(n - t_tokens, 0)
+                t_budget = max(budget.target - rest, 1)
+                t_stats = transcript.fit_to_budget(t_budget)
+                if t_stats.get("digested") or t_stats.get("dropped") or t_stats.get("images_released"):
+                    stats["rungs"].append("transcript_decay")
+                n = self._ctx_anchor.measure(estimate_planner_input_tokens(planner_input))
+
+            # Rung 2c — render older history more compactly.
+            if messages_section is not None and n >= budget.cheap_at:
+                for level in (1, 2):
+                    planner_input.messages_context = messages_section.render(decay_level=level)
+                    stats["rungs"].append(f"history_decay_{level}")
+                    n = self._ctx_anchor.measure(estimate_planner_input_tokens(planner_input))
+                    if n < budget.cheap_at:
+                        break
+
+            # Rung 3 — fold now.
+            if n >= budget.summarize_at and (not self._sync_fold_done or self._history_reload_pending):
+                if self._history_reload_pending and self._sync_fold_done:
+                    view = await self._reload_history_after_fold()
+                    result = {"status": "reloaded"}
+                else:
+                    self._sync_fold_done = True
+                    result = await self._sync_fold(mode="auto_sync")
+                    view = self.context_hub.get_view()
+                stats["rungs"].append(f"fold:{result.get('status')}")
+                new_section = getattr(getattr(view, "warm", None), "messages", None)
+                if new_section is not None:
+                    messages_section = new_section
+                    planner_input.messages_context = new_section.render(
+                        decay_level=2 if "history_decay_2" in stats["rungs"] else (1 if "history_decay_1" in stats["rungs"] else 0)
+                    )
+                n = self._ctx_anchor.measure(estimate_planner_input_tokens(planner_input))
+            stats["after"] = n
+            logger.info(
+                "[context] governor window=%d usable=%d cheap_at=%d summarize_at=%d "
+                "tokens %d -> %d rungs=%s anchor_offset=%s",
+                budget.window, budget.usable, budget.cheap_at, budget.summarize_at,
+                stats["before"], n, ",".join(stats["rungs"]) or "-",
+                self._ctx_anchor.offset if self._ctx_anchor.known else "n/a",
+            )
+        except Exception:
+            logger.warning("[context] governor failed; sending the prompt as built", exc_info=True)
+        return stats
 
     def _checkins_enabled(self) -> bool:
         """Agent check-ins org setting (lab, off by default). Checked first so a
@@ -5672,10 +5864,16 @@ class AgentV2:
                                 "[agent] trimming context to shrunk window %s (factor %.2f)",
                                 _ctx_window, _ctx_factor,
                             )
+                        # The context budget ladder: decay, fold, then the
+                        # last-resort trim below — all against one budget.
+                        await self._govern_context(planner_input, messages_section)
                         trim_context_to_budget(
                             planner_input,
                             model_context_window=_ctx_window,
                         )
+                        # What we are about to send, by our estimate — paired
+                        # with the provider's prompt_tokens to calibrate.
+                        self._last_request_estimate = estimate_planner_input_tokens(planner_input)
                         # Kick off early scoring in background without blocking the loop (isolated DB session).
                         # Only on the first planner step: this scores the *initial* instructions/context
                         # effectiveness for the turn. It previously fired every iteration, doing N redundant
@@ -8098,6 +8296,8 @@ class AgentV2:
                     await asyncio.wait_for(asyncio.shield(_compaction_task), timeout=45)
                 except Exception as e:
                     logger.warning(f"Background compaction still pending at turn end: {e}")
+            # Carry this run's calibrated token anchor to the next run.
+            await self._persist_ctx_anchor()
 
         except Exception as e:
             # Handle errors and finish execution with error status
@@ -8561,6 +8761,10 @@ class AgentV2:
                 return
             prompt_tokens = int(prompt_tokens or 0)
             self._last_planner_prompt_tokens = prompt_tokens
+            try:
+                self._ctx_anchor.record(prompt_tokens, getattr(self, "_last_request_estimate", None))
+            except Exception:
+                pass
             metadata = self.context_hub.metadata
             section_sizes = dict(metadata.section_sizes or {})
             section_sizes["_planner_prompt_total"] = prompt_tokens
@@ -8593,40 +8797,28 @@ class AgentV2:
                 span.set_attribute("report.id", str(self.report_id))
             await self.context_hub.refresh_warm()
             view = self.context_hub.get_view()
-            # Compaction rides on context assembly: every agent-path warm build
-            # checks the window against the token budget and, at most once per
-            # run, schedules a background fold. Detection only — the build
-            # returns the uncompacted view; a later build picks up the
-            # advanced watermark. (Passive builds — estimate endpoint, title,
-            # follow-ups — never come through here, so they can't trigger.)
-            self._maybe_schedule_compaction(view)
+            # Compaction is decided by the context governor right before each
+            # planner request (_govern_context), against the measured prompt —
+            # not here, against a rendering of one section.
             return view
 
-    def _maybe_schedule_compaction(self, view) -> None:
-        """Threshold check + background scheduling, once per run. Fail-open."""
+    def _schedule_background_fold(self) -> None:
+        """Prepare ahead: start one background fold per run once the prompt
+        crosses the cheap threshold, so the summary is usually ready before a
+        request ever reaches the summarize threshold. Fail-open."""
         if getattr(self, "_compaction_attempted", False):
             return
         try:
-            from app.services.context_compaction_service import (
-                compaction_budgets, MESSAGES_WINDOW,
-            )
-            messages = getattr(getattr(view, "warm", None), "messages", None)
-            if messages is None:
-                return
-            rendered = messages.render() or ""
-            item_count = len(getattr(messages, "items", []) or [])
-            budgets = compaction_budgets(self.small_model or self.model)
-            if (len(rendered) // 4) < budgets["trigger_tokens"] and item_count < MESSAGES_WINDOW:
-                return
             self._compaction_attempted = True
             # Strong reference on self — a bare create_task is only weakly
             # held by the loop and can be GC'd mid-flight (the title-generation
             # lesson). main_execution awaits it before the stream closes.
             self._compaction_task = asyncio.create_task(
-                self._run_auto_compaction(), name="agent.context_compaction"
+                self._run_auto_compaction(force=False, mode="auto_bg"),
+                name="agent.context_compaction",
             )
         except Exception as e:
-            logger.debug(f"Compaction trigger check skipped: {e}")
+            logger.debug(f"Background fold scheduling skipped: {e}")
 
     async def _build_context_traced(self, phase: str, *, loop_index: int | None = None):
         with tracer.start_as_current_span("agent.context_build") as span:

@@ -673,6 +673,22 @@
         "network": "Taligenkänning kräver en nätverksanslutning.",
         "failed": "Röstinmatningen misslyckades. Försök igen."
       }
+    },
+    "slash": {
+      "menuTitle": "Kommandon",
+      "compact": {
+        "description": "Sammanfatta äldre turer för att frigöra kontext",
+        "usage": "/compact · /compact <fokus> · /compact keep 4",
+        "pending": "Komprimeras när agenten har kört klart",
+        "running": "Komprimerar kontext…",
+        "doneContext": "{turns} turer komprimerade · kontext ~{before} → ~{after} tokens",
+        "doneHistory": "{turns} turer komprimerade · historik ~{before} → ~{after} tokens",
+        "alreadyRunning": "Komprimering pågår redan",
+        "failed": "Kunde inte komprimera kontexten",
+        "degraded": "reservsammanfattning (ingen modellsammanfattning)",
+        "cancel": "Avbryt",
+        "dismiss": "Stäng"
+      }
     }
   },
   "reports": {
@@ -1171,7 +1187,12 @@
       "scopeHint": "Gäller dina konversationer i den här webbläsaren."
     },
     "readMore": "Läs mer",
-    "showLess": "Visa mindre"
+    "showLess": "Visa mindre",
+    "compactionShowSummary": "Visa vad agenten minns av komprimerade turer",
+    "compactionStats": "{turns} turer · ~{before} → ~{after} tokens",
+    "compactionSummaryTitle": "Komprimerad historik",
+    "compactionSummaryHint": "Agenten ser den här sammanfattningen i stället för turerna ovanför linjen.",
+    "compactingContext": "Komprimerar kontext…"
   },
   "tools": {
     "common": {

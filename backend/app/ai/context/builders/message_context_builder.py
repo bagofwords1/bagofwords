@@ -2752,6 +2752,7 @@ class MessageContextBuilder:
                         text=text,
                     ))
             items = head_items + items
+            return MessagesSection(items=items, history_summary=summary_text, head_count=len(head_items))
 
         return MessagesSection(items=items, history_summary=summary_text)
     
