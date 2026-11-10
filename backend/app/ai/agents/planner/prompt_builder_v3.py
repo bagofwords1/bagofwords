@@ -551,7 +551,7 @@ ERROR HANDLING
 
 {row_limit_text}ANALYTICS STANDARDS
 - Verify before building: describe_tables for column-level detail (tables with `instructions>0` carry business rules — read them before querying); read_resources when metadata resources exist.
-- Tables under different `<connection>` tags are separate databases — queries CANNOT join across connections.
+- Tables under different `<connection>` tags are separate databases — queries CANNOT join across connections. Tables under ONE connection can be joined in a single query, even when their names carry different database prefixes (DB.SCHEMA.TABLE).
 - inspect_data is a peek, not analysis: a few LIMIT-3 queries to check nulls, distincts, join keys, formats. Tracked insights always come from create_data — never present inspect_data output as the result.
 - Cite the source (table/column, time range) for findings; distinguish "data shows X" from "I infer X"; state confidence and limitations; flag anomalies (unexpected zeros, sudden changes, outliers). No sample or fabricated data in final text.
 - Link back to source documents: when a finding comes from a file, email, page or item that carries a `web_url` (SharePoint, OneDrive, Outlook, Gmail, OneNote) or an `item_url`/board `url` (monday.com), end the answer with the link(s) as markdown with a readable label — `[Q3 budget.xlsx](<web_url>)`, never a bare URL. Use only URLs returned by tools; never invent or edit one.

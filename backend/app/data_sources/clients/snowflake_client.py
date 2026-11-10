@@ -42,6 +42,29 @@ def _remember_query_id(conn, cursor, statement, parameters, context, executemany
         conn.info[_LAST_QUERY_ID_KEY] = str(qid)
 
 
+def _identifier_key(name: str) -> str:
+    """An identifier the way Snowflake stores it: unquoted names are upper
+    case, a double-quoted name keeps its case (minus the quotes)."""
+    name = name.strip()
+    if len(name) >= 2 and name.startswith('"') and name.endswith('"'):
+        return name[1:-1].replace('""', '"')
+    return name.upper()
+
+
+def _split_list(raw) -> List[str]:
+    """Comma-separated config value -> stripped entries, first spelling of
+    each identifier kept."""
+    if not isinstance(raw, str):
+        return []
+    out, seen = [], set()
+    for part in raw.split(","):
+        part = part.strip()
+        if part and _identifier_key(part) not in seen:
+            seen.add(_identifier_key(part))
+            out.append(part)
+    return out
+
+
 class SnowflakeClient(DataSourceClient):
 
     # Rendered into codegen prompts (<connection_clients>) so generated queries
@@ -82,26 +105,35 @@ class SnowflakeClient(DataSourceClient):
         # Delegated per-user OAuth token (Snowflake OAuth security integration).
         # When set, the token carries the identity — no user/password/keypair.
         self.access_token = access_token
-        self.database = database
-        # Accept comma-separated schemas in the existing `schema` field
+        # `database` may list several databases, comma-separated. The first is
+        # the session's default database; the agent can join tables across all
+        # of them in one query, because they share this account, role and
+        # warehouse. As typed (used in SQL) and as Snowflake names them (used in
+        # table names).
+        self._databases = _split_list(database) or ([database] if database else [])
+        self._database_names = [_identifier_key(d) for d in self._databases]
+        self.database = self._databases[0] if self._databases else database
+        # One database: tables are `SCHEMA.TABLE`, exactly as before. Several:
+        # every table is `DATABASE.SCHEMA.TABLE`, so no name depends on which
+        # database happens to be the default.
+        self._multi_database = len(self._databases) > 1
+        # Accept comma-separated schemas in the existing `schema` field.
+        # `DB.SCHEMA` limits that database; a plain `SCHEMA` belongs to the
+        # default database. A database with no entry is read in full.
         # Normalize to uppercase per Snowflake INFORMATION_SCHEMA behavior
         self.schema = schema
-        self._schemas = []
-        if isinstance(self.schema, str) and self.schema.strip():
-            parts = [s.strip() for s in self.schema.split(",") if s.strip()]
-            # Dedupe while preserving order
-            seen = set()
-            for p in parts:
-                up = p.upper()
-                if up not in seen:
-                    seen.add(up)
-                    self._schemas.append(up)
-        # Primary schema for connection string (fall back to provided single schema)
-        self._primary_schema = (
-            self._schemas[0]
-            if self._schemas
-            else (self.schema.upper() if isinstance(self.schema, str) and self.schema else None)
-        )
+        self._schema_filter: Dict[str, List[str]] = {}
+        default_name = self._database_names[0] if self._database_names else None
+        for entry in _split_list(schema):
+            db_part, dot, schema_part = entry.partition(".")
+            if dot and _identifier_key(db_part) in self._database_names and schema_part.strip():
+                target, schema_name = _identifier_key(db_part), schema_part.strip().upper()
+            else:
+                target, schema_name = default_name, entry.upper()
+            bucket = self._schema_filter.setdefault(target, [])
+            if schema_name not in bucket:
+                bucket.append(schema_name)
+        self._schemas = list(self._schema_filter.get(default_name, []))
         self.warehouse = warehouse
 
     # Declared rather than sniffed from a URI: the engine is built from a URL
@@ -281,13 +313,15 @@ class SnowflakeClient(DataSourceClient):
 
     def get_tables(self) -> List[Table]:
         """Get tables with graceful fallback if enriched query fails, plus semantic views."""
-        try:
-            tables = self._get_tables_enriched()
-        except IndexingCancelled:
-            raise
-        except Exception:
-            # Fallback to basic query without comments
-            tables = self._get_tables_basic()
+        tables: List[Table] = []
+        for db_sql, db_name in zip(self._databases, self._database_names, strict=True):
+            try:
+                tables.extend(self._get_tables_enriched(db_sql, db_name))
+            except IndexingCancelled:
+                raise
+            except Exception:
+                # Fallback to basic query without comments
+                tables.extend(self._get_tables_basic(db_sql, db_name))
 
         # Append semantic views (failures here should not affect regular tables)
         try:
@@ -299,6 +333,42 @@ class SnowflakeClient(DataSourceClient):
             pass
 
         return tables
+
+    @property
+    def table_scope_default_database(self) -> Optional[str]:
+        """Two-part names (stored or in agent SQL) resolve in this database."""
+        return self._database_names[0] if self._database_names else None
+
+    @property
+    def table_scope_enforce_databases(self) -> bool:
+        """Refuse tables from databases outside this connection. Connections
+        with several databases are new, so nothing saved depends on the old
+        lenient matching; single-database connections log it for now."""
+        return self._multi_database
+
+    def _table_name(self, db_name: str, schema: str, table: str) -> str:
+        if self._multi_database:
+            return f"{db_name}.{schema}.{table}"
+        return f"{schema}.{table}"
+
+    def _table_meta(self, db_name: str, schema: str) -> Dict:
+        return {"schema": schema, "database": db_name}
+
+    def table_name_aliases(self, name: str) -> List[str]:
+        """The name this table had with the other naming style.
+
+        Adding a second database renames `SCHEMA.TABLE` to
+        `DEFAULT_DB.SCHEMA.TABLE` (and removing it renames it back). The schema
+        refresh uses this to rename the stored table in place, so agents keep
+        their table selection, instructions and history.
+        """
+        default = self.table_scope_default_database
+        if not default:
+            return []
+        prefix = f"{default}."
+        if self._multi_database:
+            return [name[len(prefix):]] if name.startswith(prefix) and name.count(".") >= 2 else []
+        return [prefix + name]
 
     @staticmethod
     def _key_list(raw) -> List[str]:
@@ -361,7 +431,14 @@ class SnowflakeClient(DataSourceClient):
         """Discover Snowflake semantic views and their columns/measures/dimensions."""
         discovery_phase('reading_semantic_views')
         tables = []
-        schemas = self._schemas if self._schemas else ([self._primary_schema] if self._primary_schema else [])
+        for db_sql, db_name in zip(self._databases, self._database_names, strict=True):
+            tables.extend(self._get_semantic_views_in(db_sql, db_name))
+        return tables
+
+    def _get_semantic_views_in(self, db_sql: str, db_name: str) -> List[Table]:
+        """Semantic views of one database."""
+        tables = []
+        schemas = self._schema_filter.get(db_name, [])
 
         with self.connect() as conn:
             # Collect all semantic view rows
@@ -370,7 +447,7 @@ class SnowflakeClient(DataSourceClient):
                 # No schema filter — discover at database level
                 try:
                     sv_results = conn.execute(
-                        text(f"SHOW SEMANTIC VIEWS IN DATABASE {self.database}")
+                        text(f"SHOW SEMANTIC VIEWS IN DATABASE {db_sql}")
                     ).fetchall()
                 except IndexingCancelled:
                     raise
@@ -381,7 +458,7 @@ class SnowflakeClient(DataSourceClient):
                 for schema in schemas:
                     try:
                         rows = conn.execute(
-                            text(f"SHOW SEMANTIC VIEWS IN SCHEMA {self.database}.{schema}")
+                            text(f"SHOW SEMANTIC VIEWS IN SCHEMA {db_sql}.{schema}")
                         ).fetchall()
                         sv_results.extend(rows)
                     except IndexingCancelled:
@@ -393,7 +470,7 @@ class SnowflakeClient(DataSourceClient):
             for sv_row in discovery_items(sv_results, 'semantic_views', label=lambda row: str(row[0])):
                 view_name = sv_row[1]  # name
                 sv_schema = sv_row[3]  # schema_name
-                fqn = f"{sv_schema}.{view_name}"
+                fqn = self._table_name(db_name, sv_schema, view_name)
 
                 # DESC SEMANTIC VIEW returns property rows with columns:
                 #   (object_kind, object_name, parent_entity, property, property_value)
@@ -403,7 +480,7 @@ class SnowflakeClient(DataSourceClient):
                 description = None
                 try:
                     desc_results = conn.execute(
-                        text(f"DESC SEMANTIC VIEW {self.database}.{sv_schema}.{view_name}")
+                        text(f"DESC SEMANTIC VIEW {db_sql}.{sv_schema}.{view_name}")
                     ).fetchall()
 
                     # Group properties by (object_kind, object_name).
@@ -478,7 +555,7 @@ class SnowflakeClient(DataSourceClient):
                 except Exception:
                     pass
 
-                sv_meta = {"schema": sv_schema, "type": "semantic_view"}
+                sv_meta = {**self._table_meta(db_name, sv_schema), "type": "semantic_view"}
                 model = self._build_semantic_model_meta(logical_tables, relationships)
                 if model:
                     sv_meta["semantic_model"] = model
@@ -497,25 +574,26 @@ class SnowflakeClient(DataSourceClient):
 
         return tables
 
-    def _get_tables_enriched(self) -> List[Table]:
-        """Get tables with column/table comments. May fail on older Snowflake versions."""
+    def _schema_where(self, db_name: str, column: str, params: Dict) -> str:
+        """`WHERE` clause limiting one database to its configured schemas."""
+        schemas = self._schema_filter.get(db_name, [])
+        if not schemas:
+            return ""
+        in_keys = []
+        for idx, sch in enumerate(schemas):
+            key = f"s{idx}"
+            in_keys.append(f":{key}")
+            params[key] = sch
+        return f" WHERE {column} IN ({', '.join(in_keys)})"
+
+    def _get_tables_enriched(self, db_sql: str, db_name: str) -> List[Table]:
+        """Get one database's tables with column/table comments. May fail on
+        older Snowflake versions."""
         discovery_phase('reading_columns')
         tables = {}
         with self.connect() as conn:
             params = {}
-            where_clauses = []
-            if self._schemas:
-                in_keys = []
-                for idx, sch in enumerate(self._schemas):
-                    key = f"s{idx}"
-                    in_keys.append(f":{key}")
-                    params[key] = sch
-                where_clauses.append(f"c.table_schema IN ({', '.join(in_keys)})")
-            elif self._primary_schema:
-                params["schema"] = self._primary_schema
-                where_clauses.append("c.table_schema = :schema")
-
-            where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+            where_sql = self._schema_where(db_name, "c.table_schema", params)
             sql = text(f"""
                 SELECT
                     c.table_schema,
@@ -524,8 +602,8 @@ class SnowflakeClient(DataSourceClient):
                     c.data_type,
                     c.comment AS column_comment,
                     t.comment AS table_comment
-                FROM {self.database}.INFORMATION_SCHEMA.COLUMNS c
-                LEFT JOIN {self.database}.INFORMATION_SCHEMA.TABLES t
+                FROM {db_sql}.INFORMATION_SCHEMA.COLUMNS c
+                LEFT JOIN {db_sql}.INFORMATION_SCHEMA.TABLES t
                     ON c.table_schema = t.table_schema AND c.table_name = t.table_name
                 {where_sql}
                 ORDER BY c.table_schema, c.table_name, c.ordinal_position
@@ -536,15 +614,14 @@ class SnowflakeClient(DataSourceClient):
             for row in discovery_items(results, 'columns', label=lambda row: '.'.join(str(v) for v in row[:3])):
                 table_schema, table_name, column_name, data_type, col_comment, tbl_comment = row
                 key = (table_schema, table_name)
-                fqn = f"{table_schema}.{table_name}"
                 if key not in tables:
                     tables[key] = Table(
-                        name=fqn,
+                        name=self._table_name(db_name, table_schema, table_name),
                         description=tbl_comment,
                         columns=[],
                         pks=None,
                         fks=None,
-                        metadata_json={"schema": table_schema}
+                        metadata_json=self._table_meta(db_name, table_schema),
                     )
                 tables[key].columns.append(TableColumn(
                     name=column_name,
@@ -552,32 +629,20 @@ class SnowflakeClient(DataSourceClient):
                     description=col_comment
                 ))
 
-            self._attach_foreign_keys(conn, tables)
+            self._attach_foreign_keys(conn, tables, db_name)
 
         return list(tables.values())
 
-    def _get_tables_basic(self) -> List[Table]:
-        """Get tables without comments (original query - always works)."""
+    def _get_tables_basic(self, db_sql: str, db_name: str) -> List[Table]:
+        """Get one database's tables without comments (original query - always works)."""
         discovery_phase('metadata_fallback')
         tables = {}
         with self.connect() as conn:
             params = {}
-            where_clauses = []
-            if self._schemas:
-                in_keys = []
-                for idx, sch in enumerate(self._schemas):
-                    key = f"s{idx}"
-                    in_keys.append(f":{key}")
-                    params[key] = sch
-                where_clauses.append(f"table_schema IN ({', '.join(in_keys)})")
-            elif self._primary_schema:
-                params["schema"] = self._primary_schema
-                where_clauses.append("table_schema = :schema")
-
-            where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+            where_sql = self._schema_where(db_name, "table_schema", params)
             sql = text(f"""
                 SELECT table_schema, table_name, column_name, data_type
-                FROM {self.database}.INFORMATION_SCHEMA.COLUMNS
+                FROM {db_sql}.INFORMATION_SCHEMA.COLUMNS
                 {where_sql}
                 ORDER BY table_schema, table_name, ordinal_position
             """)
@@ -587,35 +652,73 @@ class SnowflakeClient(DataSourceClient):
             for row in discovery_items(results, 'columns', label=lambda row: '.'.join(str(v) for v in row[:3])):
                 table_schema, table_name, column_name, data_type = row
                 key = (table_schema, table_name)
-                fqn = f"{table_schema}.{table_name}"
                 if key not in tables:
                     tables[key] = Table(
-                        name=fqn, columns=[], pks=None, fks=None, metadata_json={"schema": table_schema}
+                        name=self._table_name(db_name, table_schema, table_name), columns=[], pks=None, fks=None,
+                        metadata_json=self._table_meta(db_name, table_schema),
                     )
                 tables[key].columns.append(TableColumn(name=column_name, dtype=data_type))
 
-            self._attach_foreign_keys(conn, tables)
+            self._attach_foreign_keys(conn, tables, db_name)
 
         return list(tables.values())
 
-    def _attach_foreign_keys(self, conn, tables) -> None:
-        """Populate `fks` on the tables just collected.
+    def _attach_foreign_keys(self, conn, tables, db_name: str) -> None:
+        """Populate `fks` on one database's tables just collected.
 
-        `name_fn` mirrors the `f"{table_schema}.{table_name}"` this client uses
-        for `Table.name` — the two must agree or downstream resolution, which is
-        an exact string match, drops every edge without complaining.
+        `name_fn` mirrors `_table_name` — the two must agree or downstream
+        resolution, which is an exact string match, drops every edge without
+        complaining.
 
         Snowflake declares foreign keys but does not enforce them, so most
         warehouses have none to find. Reflecting costs one call per schema and
         returns whatever was actually declared.
         """
+        if not tables:
+            return
+        # The dialect reflects `DB.SCHEMA` (so a database other than the
+        # session's default reads its own keys) and reports table names the
+        # SQLAlchemy way, lower-cased, while INFORMATION_SCHEMA gives them upper
+        # case. Match on the upper-cased (schema, table) pair, then name the
+        # edge after the table actually collected.
+        db_sql = self._databases[self._database_names.index(db_name)]
+
+        def key_fn(schema, table):
+            return (str(schema or "").split(".")[-1].upper(), str(table or "").upper())
+
+        by_key = {key_fn(schema, table): t for (schema, table), t in tables.items()}
+
+        def name_fn(schema, table):
+            hit = by_key.get(key_fn(schema, table))
+            if hit is not None:
+                return hit.name
+            return self._table_name(db_name, str(schema).split(".")[-1].upper(), str(table).upper())
+
+        schemas = self._schema_filter.get(db_name) or sorted({schema for schema, _ in tables})
         attach_foreign_keys(
             conn,
-            tables,
-            self._schemas or None,
-            lambda schema, table: f"{schema}.{table}",
+            by_key,
+            [f"{db_sql}.{schema}" for schema in schemas],
+            name_fn,
+            key_fn=key_fn,
         )
+        # Column names come back lower-cased too: spell them (and type them)
+        # as the collected columns do.
+        by_name = {t.name: t for t in tables.values()}
+        for table in tables.values():
+            for fk in table.fks or []:
+                self._match_column(fk.column, table)
+                self._match_column(fk.references_column, by_name.get(fk.references_name))
 
+    @staticmethod
+    def _match_column(column: TableColumn, table: Optional[Table]) -> None:
+        if table is None or column is None:
+            return
+        for col in table.columns or []:
+            if col.name.upper() == str(column.name).upper():
+                column.name = col.name
+                column.dtype = column.dtype or col.dtype
+                return
     def get_schema(self, table: str, schema: str) -> Table:
         """Return Table."""
         with self.connect() as conn:
@@ -642,6 +745,24 @@ class SnowflakeClient(DataSourceClient):
         try:
             with self.connect() as conn:
                 conn.execute(text("SELECT 1"))
+                if self._multi_database:
+                    # A join needs this role to read every listed database, so
+                    # a missing grant shows up now rather than mid-chat.
+                    unreadable = []
+                    for db_sql in self._databases:
+                        try:
+                            conn.execute(text(f"SELECT 1 FROM {db_sql}.INFORMATION_SCHEMA.SCHEMATA LIMIT 1"))
+                        except Exception:
+                            unreadable.append(db_sql)
+                    if unreadable:
+                        return {
+                            "success": False,
+                            "message": (
+                                "Connected, but this role cannot read database(s): "
+                                f"{', '.join(unreadable)}. Grant USAGE on them, or remove "
+                                "them from the Database field."
+                            ),
+                        }
                 return {
                     "success": True,
                     "message": "Successfully connected to database"
@@ -654,8 +775,18 @@ class SnowflakeClient(DataSourceClient):
 
     @property
     def description(self):
+        if self._multi_database:
+            where = (
+                f"Snowflake databases {', '.join(self._database_names)} on account {self.account} "
+                f"(default database: {self._database_names[0]}).\n"
+                "Every table here is named DATABASE.SCHEMA.TABLE. Always write that full name in SQL. "
+                "Tables from these databases can be joined in ONE query on this client; Snowflake runs "
+                "the join, so do not query them separately and merge in pandas.\n"
+            )
+        else:
+            where = f"Snowflake database {self.database} on account {self.account}.\n"
         return (
-            f"Snowflake database {self.database} on account {self.account}.\n"
+            where +
             "This database may contain Snowflake Semantic Views. "
             "Semantic views use the SEMANTIC_VIEW() function instead of regular SQL:\n"
             "- Query with: SELECT * FROM SEMANTIC_VIEW(view_name DIMENSIONS ... METRICS ...)\n"
