@@ -307,6 +307,7 @@
                         @update:availableDataSources="onAvailableDataSources"
                         @update:autoMode="(val: boolean) => emit('update:autoMode', val)"
                         :reportId="report_id"
+                        :persistSelection="persistSelection"
                         :project-name="currentProject?.name || ''"
                         :project-default-ids="projectDefaultAgents.map((d: any) => d.id)"
                     />
