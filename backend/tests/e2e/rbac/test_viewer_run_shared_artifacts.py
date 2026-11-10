@@ -1700,7 +1700,7 @@ def test_a_step_naming_no_source_counts_every_organization_source(
     """Each step runs on the organization sources its own code names, or on
     all of them when it names none. A sibling step naming a plain source does
     not narrow a step that reaches its clients without naming them: the
-    report counts as reading the sensitive source, and a fork copies none of
+    report counts as reading the row-filtered or per-user source, and a fork copies none of
     that step's rows (nor, over a per-user connection, its code)."""
     admin, owner, viewer, report, seeded = _shared_report(
         test_client, create_report, bootstrap_admin, invite_user_to_org,

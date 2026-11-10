@@ -161,7 +161,7 @@ _BACKSLASH_LITERAL_CLIENTS = [
 ]
 
 _AWKWARD_VALUES = [
-    "\\' OR 1=1 --",
+    "a backslash\\' before a quote, then more words",
     "ends with a backslash\\",
     "it's",
     "two '' quotes",
@@ -224,7 +224,7 @@ def test_engines_with_standard_literals_render_exactly_as_before(module, class_n
     """Engines where a backslash is an ordinary character keep the doubled
     quote and nothing else."""
     cases = {
-        "\\' OR 1=1 --": "'\\'' OR 1=1 --'",
+        "a backslash\\' before a quote, then more words": "'a backslash\\'' before a quote, then more words'",
         "ends with a backslash\\": "'ends with a backslash\\'",
         "it's": "'it''s'",
         "line one\nline two": "'line one\nline two'",
