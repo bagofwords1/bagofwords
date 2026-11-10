@@ -100,9 +100,13 @@ COMPONENTS (all globals; `className` MERGES with the defaults — layout classes
   <DataTable viz={…} rows={filtered} columns={[{field:'album_title',headerName:'Album'},…] } pageSize={15} density="compact" searchable striped sortable exportable selectable onRowClick={(row)=>…}
     Pass `columns` with a readable `headerName` (and only the columns worth showing) whenever the raw field names are database-shaped
     (TOTALDURATIONMS, unit_price); the table title-cases what it can but cannot invent "Duration" from "TOTALDURATIONMILLISECONDS".
-             renderCell={(value,row,col)=>node|null} format={(n,col)=>string} maxHeight={400} />  — optional table: sort, paginate, RTL, CSV, print-safe.
+             renderCell={(value,row,col)=>node|null} format={(n,col)=>string} maxHeight={400} />  — sort, paginate, RTL, CSV, print-safe.
   <FilterBar onReset={resetFilters}> <FilterSelect label options selected onChange single searchable placeholder /> <FilterSearch label value onChange placeholder /> (FilterSearch onChange receives the text string, not an event)
              <FilterDateRange label value onChange type="date|month|datetime-local" /> </FilterBar>
+  CONTROLS: build every table, search box and dropdown from these. DataTable for rows (renderCell for custom cells, onRowClick to open a
+    detail), FilterSearch for a search box, FilterSelect for choosing from options (single for one value; searchable for long lists).
+    They work on their own, outside a FilterBar. Do not write <table>, <select> or a search <input> yourself: these follow dark mode,
+    RTL and narrow screens. Plain inputs are for form fields a user fills in.
   <Segmented options={[{value,label,icon}]} value onChange />   <Badge tone="neutral|accent|positive|warning|negative|inverse|outline" icon dot>…</Badge>
   <Delta value={0.12} ratio invert chip label="" />  (ratio/pct: value is a share, 0.12 → +12.0%)   <Sparkline data={[…]} height={32} color="var(--bow-accent)" area endpoint />
   <ProgressBar value={0.72} tone="accent|positive|warning|negative|ink" />   <Icon name="<lucide name, kebab-case>" size={16} strokeWidth={2} />

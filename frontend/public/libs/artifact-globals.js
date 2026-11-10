@@ -328,7 +328,7 @@
       ':where(#root :is(a[href], button, summary, [role="button"], [role="tab"], [role="menuitem"], [tabindex]:not([tabindex="-1"])):focus-visible) { outline: 2px solid var(--bow-accent); outline-offset: 2px; }',
       '#root ::selection { background: color-mix(in srgb, var(--bow-accent) 22%, transparent); }',
       '@media (prefers-reduced-motion: reduce) { #root * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }',
-      '@media print { .bow-dt-offpage { display: table-row !important; } .bow-dt-chrome { display: none !important; } .bow-dt-scroll { max-height: none !important; overflow: visible !important; } }'
+      '@media print { .bow-dt-offpage { display: table-row !important; } .bow-dt-chrome { display: none !important; } .bow-dt-scroll { max-height: none !important; overflow: visible !important; contain: none !important; } }'
     ].join('\n');
     (document.head || document.documentElement).appendChild(st);
   })();
@@ -1587,9 +1587,11 @@
     }
     var infoBtn = (props.info && props.viz) ? h('div', { key: 'i', className: 'absolute top-0 z-10 ' + (isRtl ? 'left-0' : 'right-0') }, h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc })) : null;
     var empty = !cols.length || !baseRows.length;
+    // The scroll box is `contain: inline-size`, so a wide table scrolls inside it even in a
+    // grid or flex cell without min-width: 0, instead of widening the cell and the page.
     return h('div', { dir: dir, 'data-testid': 'bow-datatable', className: 'relative' + (props.className ? ' ' + props.className : ''), style: props.style },
       empty ? [infoBtn, h('div', { key: 'e', className: DT.empty }, props.emptyText || L.empty)]
-        : [infoBtn, toolbar, h('div', { key: 'scroll', className: 'bow-dt-scroll overflow-auto', style: { maxHeight: maxHeight } }, h('table', { className: DT.table }, [thead, tbody])), footer]);
+        : [infoBtn, toolbar, h('div', { key: 'scroll', className: 'bow-dt-scroll overflow-auto', style: { maxHeight: maxHeight, contain: 'inline-size' } }, h('table', { className: DT.table }, [thead, tbody])), footer]);
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
