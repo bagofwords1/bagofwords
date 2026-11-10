@@ -87,18 +87,28 @@
         </div>
 
         <!-- Channel -> agent routing -->
-        <div class="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 mb-4">
-          <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.integrations.channels.slack.channelRoutingTitle') }}</h3>
-          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">{{ $t('settings.integrations.channels.slack.channelRoutingDesc') }}</p>
+        <div class="rounded-xl border border-gray-200 dark:border-gray-700 p-4 mb-4">
+          <div class="flex items-center gap-2 mb-0.5">
+            <UIcon name="i-heroicons-arrows-right-left" class="w-4 h-4 text-ink-muted" />
+            <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ $t('settings.integrations.channels.slack.channelRoutingTitle') }}</h3>
+          </div>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-4 leading-relaxed">{{ $t('settings.integrations.channels.slack.channelRoutingDesc') }}</p>
 
-          <div v-if="agentsLoading || channelsLoading" class="text-xs text-ink-muted">{{ $t('settings.integrations.channels.common.loading') }}</div>
+          <div v-if="agentsLoading || channelsLoading" class="flex items-center gap-2 text-xs text-ink-muted py-3">
+            <UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 animate-spin" />
+            {{ $t('settings.integrations.channels.common.loading') }}
+          </div>
           <template v-else>
             <!-- Connection default -->
-            <div class="flex items-center gap-2 py-2 border-b border-gray-200 dark:border-gray-700">
+            <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 p-3 flex items-center gap-3">
               <div class="flex-1 min-w-0">
-                <div class="text-sm font-medium">{{ $t('settings.integrations.channels.slack.connectionDefaultLabel') }}</div>
-                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('settings.integrations.channels.slack.connectionDefaultDesc') }}</div>
+                <div class="text-sm font-medium flex items-center gap-1.5">
+                  <UIcon name="i-heroicons-globe-alt" class="w-3.5 h-3.5 text-ink-muted shrink-0" />
+                  {{ $t('settings.integrations.channels.slack.connectionDefaultLabel') }}
+                </div>
+                <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('settings.integrations.channels.slack.connectionDefaultDesc') }}</div>
               </div>
+              <UIcon v-if="savedKey==='__default__'" name="i-heroicons-check-circle-20-solid" class="w-4 h-4 text-green-500 shrink-0" />
               <USelectMenu
                 v-model="defaultSel"
                 :options="allAgents"
@@ -107,42 +117,43 @@
                 option-attribute="name"
                 value-attribute="id"
                 :placeholder="$t('settings.integrations.channels.slack.channelPickerPlaceholder')"
-                class="w-44 shrink-0"
+                class="w-48 shrink-0"
+                @change="saveDefault"
               />
-              <UButton size="xs" color="gray" :loading="savingKey==='__default__'" @click="saveDefault">{{ $t('settings.integrations.channels.slack.channelScopeSave') }}</UButton>
             </div>
 
-            <!-- Discovered channels -->
-            <div v-if="!channels.length" class="text-xs text-ink-muted py-3">{{ $t('settings.integrations.channels.slack.noChannelsYet') }}</div>
-            <div
-              v-for="ch in channels"
-              :key="ch.external_channel_id"
-              class="flex items-center gap-2 py-2 border-b border-gray-100 dark:border-gray-800"
-            >
-              <div class="flex-1 min-w-0">
-                <div class="text-sm truncate">{{ ch.name || ch.external_channel_id }}</div>
-                <div class="text-xs font-mono text-gray-400 truncate">{{ ch.external_channel_id }}</div>
+            <!-- Channels -->
+            <div class="mt-4">
+              <div class="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1.5">
+                {{ $t('settings.integrations.channels.slack.channelsHeading') }}<span v-if="channels.length"> ({{ channels.length }})</span>
               </div>
-              <USelectMenu
-                v-model="channelSel[ch.external_channel_id]"
-                :options="allAgents"
-                multiple
-                searchable
-                option-attribute="name"
-                value-attribute="id"
-                :placeholder="$t('settings.integrations.channels.slack.channelPickerPlaceholder')"
-                class="w-44 shrink-0"
-              />
-              <UButton size="xs" color="gray" :loading="savingKey===ch.external_channel_id" @click="saveChannel(ch)">{{ $t('settings.integrations.channels.slack.channelScopeSave') }}</UButton>
-            </div>
-
-            <!-- Manual add -->
-            <div class="mt-3">
-              <div class="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{{ $t('settings.integrations.channels.slack.addChannelTitle') }}</div>
-              <div class="flex items-center gap-2">
-                <input v-model="newChannelId" :placeholder="$t('settings.integrations.channels.slack.addChannelIdPlaceholder')" class="flex-1 min-w-0 border rounded px-2 py-1 text-sm dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500" />
-                <input v-model="newChannelName" :placeholder="$t('settings.integrations.channels.slack.addChannelNamePlaceholder')" class="flex-1 min-w-0 border rounded px-2 py-1 text-sm dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500" />
-                <UButton size="xs" color="gray" :disabled="!newChannelId.trim()" @click="addChannel">{{ $t('settings.integrations.channels.slack.addChannelButton') }}</UButton>
+              <div v-if="!channels.length" class="rounded-lg border border-dashed border-gray-200 dark:border-gray-700 text-xs text-ink-muted px-3 py-4 text-center">
+                {{ $t('settings.integrations.channels.slack.noChannelsYet') }}
+              </div>
+              <div v-else class="rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-800">
+                <div
+                  v-for="ch in channels"
+                  :key="ch.external_channel_id"
+                  class="flex items-center gap-3 p-3 bg-white dark:bg-gray-800/50"
+                >
+                  <UIcon name="i-heroicons-hashtag" class="w-3.5 h-3.5 text-ink-muted shrink-0" />
+                  <div class="flex-1 min-w-0">
+                    <div class="text-sm truncate">{{ ch.name || ch.external_channel_id }}</div>
+                    <div class="text-[11px] font-mono text-gray-400 truncate">{{ ch.external_channel_id }}</div>
+                  </div>
+                  <UIcon v-if="savedKey===ch.external_channel_id" name="i-heroicons-check-circle-20-solid" class="w-4 h-4 text-green-500 shrink-0" />
+                  <USelectMenu
+                    v-model="channelSel[ch.external_channel_id]"
+                    :options="allAgents"
+                    multiple
+                    searchable
+                    option-attribute="name"
+                    value-attribute="id"
+                    :placeholder="$t('settings.integrations.channels.slack.channelPickerPlaceholder')"
+                    class="w-48 shrink-0"
+                    @change="() => saveChannel(ch)"
+                  />
+                </div>
               </div>
             </div>
           </template>
@@ -316,9 +327,13 @@
   const channels = ref<any[]>([])
   const defaultSel = ref<string[]>([])
   const channelSel = ref<Record<string, string[]>>({})
-  const savingKey = ref<string | null>(null)
-  const newChannelId = ref('')
-  const newChannelName = ref('')
+  const savedKey = ref<string | null>(null)
+  let _savedTimer: any = null
+  function _flagSaved(key: string) {
+    savedKey.value = key
+    clearTimeout(_savedTimer)
+    _savedTimer = setTimeout(() => { if (savedKey.value === key) savedKey.value = null }, 1800)
+  }
 
   async function loadAgents() {
     agentsLoading.value = true
@@ -359,37 +374,19 @@
     return res.status.value === 'success'
   }
 
-  function _routingToast(ok: boolean) {
-    toast.add(ok
-      ? { title: t('settings.integrations.channels.slack.channelScopeSaved'), color: 'green' }
-      : { title: t('settings.integrations.channels.common.failedToUpdateSetting'), color: 'red' })
-  }
-
+  // Autosave on selection change (USelectMenu emits `change` only on user
+  // action, not on the programmatic v-model set during load). A brief inline
+  // check confirms the save; only failures raise a toast.
   async function saveDefault() {
-    savingKey.value = '__default__'
     const ok = await putScope('', defaultSel.value)
-    savingKey.value = null
-    _routingToast(ok)
+    if (ok) _flagSaved('__default__')
+    else toast.add({ title: t('settings.integrations.channels.common.failedToUpdateSetting'), color: 'red' })
   }
 
   async function saveChannel(ch: any) {
-    savingKey.value = ch.external_channel_id
     const ok = await putScope(ch.external_channel_id, channelSel.value[ch.external_channel_id] || [])
-    savingKey.value = null
-    _routingToast(ok)
-  }
-
-  async function addChannel() {
-    const cid = newChannelId.value.trim()
-    if (!cid) return
-    const ok = await putScope(cid, [], newChannelName.value.trim() || undefined)
-    if (ok) {
-      newChannelId.value = ''
-      newChannelName.value = ''
-      await loadChannels()
-    } else {
-      toast.add({ title: t('settings.integrations.channels.common.failedToUpdateSetting'), color: 'red' })
-    }
+    if (ok) _flagSaved(ch.external_channel_id)
+    else toast.add({ title: t('settings.integrations.channels.common.failedToUpdateSetting'), color: 'red' })
   }
 
   onMounted(() => { if (props.integrated) { loadAnnounceNewReport(); loadRouting() } })

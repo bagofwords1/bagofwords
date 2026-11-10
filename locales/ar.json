@@ -2267,13 +2267,8 @@
           "connectionDefaultLabel": "الإعداد الافتراضي للاتصال",
           "connectionDefaultDesc": "يُستخدم للقنوات التي ليس لها تعيين خاص.",
           "channelPickerPlaceholder": "اختر الوكلاء…",
-          "channelScopeSave": "حفظ",
-          "channelScopeSaved": "تم تحديث توجيه القنوات",
           "noChannelsYet": "لا توجد قنوات بعد. اذكر البوت في قناة وسيظهر هنا، أو أضف قناة بالمعرّف أدناه.",
-          "addChannelTitle": "إضافة قناة بالمعرّف",
-          "addChannelIdPlaceholder": "معرّف القناة (C…)",
-          "addChannelNamePlaceholder": "تسمية (اختياري)",
-          "addChannelButton": "إضافة"
+          "channelsHeading": "القنوات"
         },
         "teams": {
           "title": "تكامل Teams",

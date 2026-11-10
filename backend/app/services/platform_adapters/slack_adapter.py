@@ -203,6 +203,47 @@ class SlackAdapter(PlatformAdapter):
             print(f"Error getting Slack user info: {e}")
             return {}
     
+    async def get_channel_info(self, channel_id: str) -> Dict[str, Any]:
+        """Fetch a Slack channel's human name for the routing UI.
+
+        Inbound ``app_mention``/``message`` events carry only the channel id,
+        so channel discovery has nothing to label a channel with. This asks
+        Slack once (``conversations.info``) so the panel can show ``#sales``
+        instead of ``C0CGJSY1HHS``. Requires the ``channels:read`` scope (and
+        ``groups:read`` for private channels). Best-effort: any failure
+        (missing scope, bot not in channel) returns ``{}`` and the id stays the
+        label — discovery must never break on this.
+        """
+        try:
+            bot_token = self.credentials.get("bot_token")
+            if not bot_token:
+                return {}
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"https://slack.com/api/conversations.info?channel={channel_id}",
+                    headers={"Authorization": f"Bearer {bot_token}"}
+                )
+
+                if response.status_code == 200:
+                    result = response.json()
+                    if result.get("ok"):
+                        ch = result.get("channel", {})
+                        name = ch.get("name")
+                        return {
+                            "id": ch.get("id"),
+                            # Store with the leading '#' so the UI reads naturally.
+                            "name": f"#{name}" if name else None,
+                            "is_private": ch.get("is_private", False),
+                        }
+                    print(f"get_channel_info not ok for {channel_id}: {result.get('error')}")
+
+                return {}
+
+        except Exception as e:
+            print(f"Error getting Slack channel info: {e}")
+            return {}
+
     async def verify_webhook_signature(self, request_body: bytes, signature: str, timestamp: str) -> bool:
         """Verify Slack webhook signature"""
         

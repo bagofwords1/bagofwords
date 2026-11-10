@@ -653,10 +653,19 @@ class ExternalPlatformManager:
         is_thread_reply = processed_data.get("is_thread_reply", False)
 
         # Discover-on-traffic: remember channels the bot is used in so the
-        # settings UI can offer a channel->agent picker without extra OAuth
-        # scopes. Best-effort — must never break message handling.
+        # settings UI can offer a channel->agent picker. Best-effort — must
+        # never break message handling. If the adapter can resolve a human
+        # channel name (Slack's conversations.info), hand that resolver in so a
+        # freshly discovered channel is labelled ``#sales`` instead of its id;
+        # it is consulted only once per channel (see record_seen_channel).
         if routing_channel_id:
             try:
+                name_fetcher = getattr(adapter, "get_channel_info", None)
+
+                async def _resolve_channel_name(cid):
+                    info = await name_fetcher(cid)
+                    return (info or {}).get("name")
+
                 await self.platform_service.record_seen_channel(
                     db,
                     organization.id,
@@ -664,6 +673,7 @@ class ExternalPlatformManager:
                     routing_channel_id,
                     name=processed_data.get("channel_name"),
                     channel_type=channel_type,
+                    name_fetcher=_resolve_channel_name if name_fetcher else None,
                 )
             except Exception as e:
                 print(f"record_seen_channel failed (non-fatal): {e}")

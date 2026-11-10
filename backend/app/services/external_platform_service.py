@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, delete
 from fastapi import HTTPException
-from typing import List, Optional, Set
+from typing import Any, List, Optional, Set
 import json
 
 from app.models.external_platform import ExternalPlatform
@@ -340,6 +340,7 @@ class ExternalPlatformService:
         name: Optional[str] = None,
         channel_type: Optional[str] = None,
         overwrite_name: bool = False,
+        name_fetcher: Optional[Any] = None,
     ):
         """Upsert a channel the bot just saw (or an admin is adding by hand).
 
@@ -348,6 +349,12 @@ class ExternalPlatformService:
         ``last_seen_at``. Returns the normalized channel id, or None for an
         empty id. Caller should treat failures as best-effort — discovery must
         never break message handling.
+
+        ``name_fetcher`` is an optional ``async (channel_id) -> Optional[str]``
+        used to resolve a human name when none is known yet (Slack events carry
+        only the id). It is awaited at most once per channel — only when no name
+        was passed and none is stored — so the live lookup never repeats on
+        every message. Any failure is swallowed and the id stays the label.
         """
         from app.models.external_platform_channel import ExternalPlatformChannel
         import datetime
@@ -366,6 +373,15 @@ class ExternalPlatformService:
                 )
             )
         ).scalar_one_or_none()
+
+        # Resolve a name once, on first sighting: ask Slack only when we have
+        # no name from the caller and none on record. Best-effort — a missing
+        # scope or API hiccup just leaves the id as the label.
+        if name_fetcher is not None and not name and not (existing and existing.name):
+            try:
+                name = await name_fetcher(channel_id)
+            except Exception as e:
+                print(f"record_seen_channel name_fetcher failed (non-fatal): {e}")
 
         now = datetime.datetime.utcnow()
         if existing:

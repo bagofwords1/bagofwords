@@ -2267,13 +2267,8 @@
           "connectionDefaultLabel": "Verbindungsstandard",
           "connectionDefaultDesc": "Wird für Kanäle ohne eigene Zuordnung verwendet.",
           "channelPickerPlaceholder": "Agenten auswählen…",
-          "channelScopeSave": "Speichern",
-          "channelScopeSaved": "Kanal-Routing aktualisiert",
           "noChannelsYet": "Noch keine Kanäle. Erwähnen Sie den Bot in einem Kanal, damit er hier erscheint, oder fügen Sie unten einen per ID hinzu.",
-          "addChannelTitle": "Kanal per ID hinzufügen",
-          "addChannelIdPlaceholder": "Kanal-ID (C…)",
-          "addChannelNamePlaceholder": "Bezeichnung (optional)",
-          "addChannelButton": "Hinzufügen"
+          "channelsHeading": "Kanäle"
         },
         "teams": {
           "title": "Teams-Integration",

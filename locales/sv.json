@@ -2267,13 +2267,8 @@
           "connectionDefaultLabel": "Anslutningens standard",
           "connectionDefaultDesc": "Används för kanaler utan egen mappning.",
           "channelPickerPlaceholder": "Välj agenter…",
-          "channelScopeSave": "Spara",
-          "channelScopeSaved": "Kanalrouting uppdaterad",
           "noChannelsYet": "Inga kanaler ännu. Nämn boten i en kanal så visas den här, eller lägg till en via id nedan.",
-          "addChannelTitle": "Lägg till en kanal via id",
-          "addChannelIdPlaceholder": "Kanal-id (C…)",
-          "addChannelNamePlaceholder": "Etikett (valfritt)",
-          "addChannelButton": "Lägg till"
+          "channelsHeading": "Kanaler"
         },
         "teams": {
           "title": "Teams-integration",

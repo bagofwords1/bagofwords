@@ -2502,13 +2502,8 @@
           "connectionDefaultLabel": "ברירת‑מחדל לחיבור",
           "connectionDefaultDesc": "משמשת לערוצים ללא מיפוי משלהם.",
           "channelPickerPlaceholder": "בחרו סוכנים…",
-          "channelScopeSave": "שמירה",
-          "channelScopeSaved": "ניתוב הערוצים עודכן",
           "noChannelsYet": "אין עדין ערוצים. תייגו את הבוט בערוץ והוא יופיע כאן, או הוסיפו ערוץ לפי מזהה למטה.",
-          "addChannelTitle": "הוספת ערוץ לפי מזהה",
-          "addChannelIdPlaceholder": "מזהה ערוץ (C…)",
-          "addChannelNamePlaceholder": "תוית (אופציונלי)",
-          "addChannelButton": "הוספה"
+          "channelsHeading": "ערוצים"
         },
         "teams": {
           "title": "אינטגרציית Teams",

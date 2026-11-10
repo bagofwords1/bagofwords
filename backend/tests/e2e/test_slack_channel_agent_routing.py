@@ -251,3 +251,56 @@ def test_channel_scope_requires_manage_settings(
         json={"agent_ids": []}, headers=_headers(member_token, org_id),
     )
     assert r.status_code == 403
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_discovered_channel_name_is_resolved_once(
+    mock_slack_probe, create_user, login_user, whoami, test_client
+):
+    """A channel's human name is resolved from the adapter exactly once.
+
+    Slack events carry only the channel id, so discovery labels a channel by
+    asking the adapter (``conversations.info``) on first sighting. That lookup
+    must fire only when no name is known yet, and must not repeat on every
+    later message — otherwise each channel mention would cost an extra Slack
+    call. Here we drive ``record_seen_channel`` directly with a counting
+    fetcher and lock both halves of that contract.
+    """
+    from app.services.external_platform_service import ExternalPlatformService
+    from app.dependencies import async_session_maker
+
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    platform_id = _connect_slack(test_client, token, org_id)
+
+    svc = ExternalPlatformService()
+    calls = []
+
+    async def fetcher(cid):
+        calls.append(cid)
+        return "#sales"
+
+    chan = "C_NAME_" + uuid.uuid4().hex[:6]
+
+    # First sighting: no name passed and none stored -> resolve it once.
+    async with async_session_maker() as db:
+        await svc.record_seen_channel(
+            db, org_id, platform_id, chan,
+            channel_type="channel", name_fetcher=fetcher,
+        )
+    assert calls == [chan]
+
+    async with async_session_maker() as db:
+        rows = await svc.list_channels(db, platform_id)
+    row = next(c for c in rows if c.external_channel_id == chan)
+    assert row.name == "#sales"
+
+    # Second sighting: a name is already on record -> fetcher is NOT consulted.
+    async with async_session_maker() as db:
+        await svc.record_seen_channel(
+            db, org_id, platform_id, chan,
+            channel_type="channel", name_fetcher=fetcher,
+        )
+    assert calls == [chan]

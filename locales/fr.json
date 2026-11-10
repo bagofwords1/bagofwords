@@ -2267,13 +2267,8 @@
           "connectionDefaultLabel": "Par défaut de la connexion",
           "connectionDefaultDesc": "Utilisé pour les canaux sans mappage propre.",
           "channelPickerPlaceholder": "Choisir des agents…",
-          "channelScopeSave": "Enregistrer",
-          "channelScopeSaved": "Routage des canaux mis à jour",
           "noChannelsYet": "Aucun canal pour l'instant. Mentionnez le bot dans un canal et il apparaîtra ici, ou ajoutez-en un par id ci-dessous.",
-          "addChannelTitle": "Ajouter un canal par id",
-          "addChannelIdPlaceholder": "Id du canal (C…)",
-          "addChannelNamePlaceholder": "Libellé (facultatif)",
-          "addChannelButton": "Ajouter"
+          "channelsHeading": "Canaux"
         },
         "teams": {
           "title": "Intégration Teams",

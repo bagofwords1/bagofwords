@@ -2577,13 +2577,8 @@
           "connectionDefaultLabel": "Connection default",
           "connectionDefaultDesc": "Used for channels without their own mapping.",
           "channelPickerPlaceholder": "Choose agents…",
-          "channelScopeSave": "Save",
-          "channelScopeSaved": "Channel routing updated",
           "noChannelsYet": "No channels yet. Mention the bot in a channel and it will show up here, or add one by id below.",
-          "addChannelTitle": "Add a channel by id",
-          "addChannelIdPlaceholder": "Channel id (C…)",
-          "addChannelNamePlaceholder": "Label (optional)",
-          "addChannelButton": "Add"
+          "channelsHeading": "Channels"
         },
         "teams": {
           "title": "Teams Integration",

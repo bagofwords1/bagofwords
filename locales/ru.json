@@ -2267,13 +2267,8 @@
           "connectionDefaultLabel": "По умолчанию для подключения",
           "connectionDefaultDesc": "Используется для каналов без собственного сопоставления.",
           "channelPickerPlaceholder": "Выбрать агентов…",
-          "channelScopeSave": "Сохранить",
-          "channelScopeSaved": "Маршрутизация каналов обновлена",
           "noChannelsYet": "Пока нет каналов. Упомяните бота в канале, и он появится здесь, или добавьте канал по id ниже.",
-          "addChannelTitle": "Добавить канал по id",
-          "addChannelIdPlaceholder": "Id канала (C…)",
-          "addChannelNamePlaceholder": "Метка (необязательно)",
-          "addChannelButton": "Добавить"
+          "channelsHeading": "Каналы"
         },
         "teams": {
           "title": "Интеграция с Teams",
