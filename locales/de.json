@@ -2323,7 +2323,14 @@
           "socketStep3": "Event Subscriptions → Ereignisse aktivieren (keine Request URL nötig) und abonnieren: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
           "socketStep4": "Agents → „Agent experience“ EINSCHALTEN für den nativen Assistenzbereich, die Thread-Benennung und Prompt-Vorschläge",
           "socketStep5": "App Home → den Messages-Tab aktivieren und Nachrichten von Nutzenden erlauben",
-          "socketStep6": "Install App → in deinem Workspace installieren und das Bot User OAuth Token kopieren (xoxb-…)"
+          "socketStep6": "Install App → in deinem Workspace installieren und das Bot User OAuth Token kopieren (xoxb-…)",
+          "channelRoutingTitle": "Kanal → Agent-Routing",
+          "channelRoutingDesc": "Leiten Sie einen Kanal an bestimmte Agenten weiter. Ein Kanal ohne Zuordnung nutzt den Verbindungsstandard; ohne Standard stellt er alles bereit, worauf der Benutzer zugreifen kann. Das Routing schränkt den Zugriff nur ein – es gewährt nie mehr, als der Benutzer bereits hat.",
+          "connectionDefaultLabel": "Verbindungsstandard",
+          "connectionDefaultDesc": "Wird für Kanäle ohne eigene Zuordnung verwendet.",
+          "channelPickerPlaceholder": "Agenten auswählen…",
+          "noChannelsYet": "Noch keine Kanäle. Erwähnen Sie den Bot in einem Kanal, damit er hier erscheint, oder fügen Sie unten einen per ID hinzu.",
+          "channelsHeading": "Kanäle"
         },
         "teams": {
           "title": "Teams-Integration",

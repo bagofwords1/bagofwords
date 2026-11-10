@@ -2323,7 +2323,14 @@
           "socketStep3": "Event Subscriptions → ative os eventos (sem Request URL) e assine: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
           "socketStep4": "Agents → ative \"Agent experience\" para o painel nativo de assistente, a nomeação de threads e os prompts sugeridos",
           "socketStep5": "App Home → ative a aba Messages e permita que os usuários enviem mensagens",
-          "socketStep6": "Install App → instale no seu workspace e copie o Bot User OAuth Token (xoxb-…)"
+          "socketStep6": "Install App → instale no seu workspace e copie o Bot User OAuth Token (xoxb-…)",
+          "channelRoutingTitle": "Roteamento de canal → agente",
+          "channelRoutingDesc": "Direcione um canal para agentes específicos. Um canal sem mapeamento usa o padrão da conexão; sem padrão, ele expõe tudo o que o usuário pode acessar. O roteamento apenas restringe o acesso, nunca concede mais do que o usuário já tem.",
+          "connectionDefaultLabel": "Padrão da conexão",
+          "connectionDefaultDesc": "Usado para canais sem mapeamento próprio.",
+          "channelPickerPlaceholder": "Escolher agentes…",
+          "noChannelsYet": "Ainda não há canais. Mencione o bot em um canal e ele aparecerá aqui, ou adicione um por id abaixo.",
+          "channelsHeading": "Canais"
         },
         "teams": {
           "title": "Integração com o Teams",
