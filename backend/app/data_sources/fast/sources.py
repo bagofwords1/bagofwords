@@ -37,8 +37,43 @@ logger = logging.getLogger(__name__)
 DUCKDB_MAX_DECIMAL_PRECISION = 38
 
 
-def arrow_table(columns: dict):
+def declared_decimals(description) -> dict:
+    """{column: (precision, scale)} for the decimals a DB-API description declares.
+
+    Without this, a decimal's Arrow type is inferred from the values in each
+    batch: `numeric(12,2)` holding nothing over 99,999.99 becomes
+    decimal(7,2), the artifact's column is created that narrow, and the first
+    later batch with a larger value fails the whole refresh. The declared type
+    is the same for every batch and every refresh.
+
+    Only a usable declaration counts — what DuckDB can store, scale within
+    precision. Drivers report "undeclared" in their own ways (psycopg2 gives
+    65535 for a bare NUMERIC, oracledb 0/-127, some give None), and all of them
+    fall outside that range; such a column keeps the inferred type, and the
+    extractor widens it if a later batch needs more room.
+    """
+    out = {}
+    for d in description or ():
+        try:
+            name, precision, scale = d[0], d[4], d[5]
+        except (IndexError, TypeError, KeyError):
+            continue
+        if not (isinstance(precision, int) and isinstance(scale, int)):
+            continue
+        if isinstance(precision, bool) or isinstance(scale, bool):
+            continue
+        if 0 < precision <= DUCKDB_MAX_DECIMAL_PRECISION and 0 <= scale <= precision:
+            out[str(name)] = (precision, scale)
+    return out
+
+
+def arrow_table(columns: dict, decimals: dict | None = None):
     """Build a pyarrow Table the artifact can actually accept.
+
+    ``decimals`` (see `declared_decimals`) gives a decimal column the type its
+    source declares instead of the narrowest one this batch's values fit. A
+    batch whose values do not fit the declaration keeps its inferred type
+    rather than being rounded or refused.
 
     Oracle is the reason this exists. A NUMBER declared without precision — which
     is what `AVG(x)` and most arithmetic produce — comes back as a decimal of
@@ -54,6 +89,20 @@ def arrow_table(columns: dict):
     import pyarrow as pa
 
     tbl = pa.Table.from_pydict(columns)
+    for name, (precision, scale) in (decimals or {}).items():
+        i = tbl.schema.get_field_index(name)
+        if i < 0 or not pa.types.is_decimal(tbl.schema.field(i).type):
+            continue
+        declared = pa.decimal128(precision, scale)
+        if tbl.schema.field(i).type == declared:
+            continue
+        try:
+            tbl = tbl.set_column(i, pa.field(name, declared), tbl.column(i).cast(declared))
+        except pa.ArrowInvalid:
+            # A driver under-reported the declaration. Keep the exact inferred
+            # type; the extractor widens the column to hold both.
+            logger.info("extraction.decimal_declaration_too_narrow",
+                        extra={"column": name, "declared": str(declared)})
     over = [
         f.name for f in tbl.schema
         if pa.types.is_decimal(f.type) and f.type.precision > DUCKDB_MAX_DECIMAL_PRECISION
@@ -183,6 +232,9 @@ class SqlAlchemySource:
                 stream_results=True, yield_per=batch_rows
             ).execute(text(sql))
             colnames = list(result.keys())
+            decimals = declared_decimals(
+                getattr(getattr(result, "cursor", None), "description", None)
+            )
             emitted = False
             while True:
                 batch = result.fetchmany(batch_rows)
@@ -190,7 +242,8 @@ class SqlAlchemySource:
                     break
                 emitted = True
                 yield arrow_table(
-                    {name: [r[i] for r in batch] for i, name in enumerate(colnames)}
+                    {name: [r[i] for r in batch] for i, name in enumerate(colnames)},
+                    decimals,
                 )
             if not emitted:
                 # Zero rows: still emit the shape so the relation exists.

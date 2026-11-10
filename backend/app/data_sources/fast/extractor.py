@@ -214,6 +214,65 @@ def _arrow_type_name(t: pa.DataType) -> str:
     return str(t)
 
 
+def _wider(held: pa.DataType, incoming: pa.DataType) -> pa.DataType | None:
+    """The column type that holds both `held` and `incoming` values, if a change is needed.
+
+    The artifact's columns are created from the FIRST batch. Where a source
+    cannot declare a type up front, that batch's values decide it, and a later
+    batch can carry values the column cannot hold:
+
+      * a decimal with more integer digits fails the INSERT outright
+        ("value is out of range"), losing the whole refresh;
+      * a column that was all NULL in the first batch is created INTEGER, and
+        later decimals are silently cast into it — 4321.09 is stored as 4321.
+
+    Returns None when the held type already fits (or the pair is not one this
+    reconciles; DuckDB's own INSERT cast then applies, loudly on failure).
+    """
+    if held == incoming:
+        return None
+    if pa.types.is_null(held) and not pa.types.is_null(incoming):
+        return incoming
+    if pa.types.is_decimal(held) and pa.types.is_decimal(incoming):
+        from app.data_sources.fast.sources import DUCKDB_MAX_DECIMAL_PRECISION
+
+        scale = max(held.scale, incoming.scale)
+        digits = max(held.precision - held.scale, incoming.precision - incoming.scale)
+        if digits + scale == held.precision and scale == held.scale:
+            return None
+        if digits + scale > DUCKDB_MAX_DECIMAL_PRECISION:
+            # No exact decimal holds both; same last resort as `arrow_table`.
+            return pa.float64()
+        return pa.decimal128(digits + scale, scale)
+    if pa.types.is_decimal(held) and pa.types.is_floating(incoming):
+        # A later batch already widened to float by `arrow_table`.
+        return pa.float64()
+    return None
+
+
+def _widen_for(con, safe_rel: str, schema: pa.Schema, tbl: pa.Table) -> pa.Schema:
+    """Alter the artifact's columns so `tbl` (registered as bow_batch) fits exactly."""
+    for i, incoming in enumerate(tbl.schema):
+        if i >= len(schema):
+            break
+        target = _wider(schema.field(i).type, incoming.type)
+        if target is None:
+            continue
+        con.register("bow_type", pa.table({"c": pa.array([], type=target)}))
+        try:
+            sql_type = con.execute(
+                "SELECT column_type FROM (DESCRIBE SELECT * FROM bow_type)"
+            ).fetchone()[0]
+        finally:
+            con.unregister("bow_type")
+        column = schema.field(i).name.replace('"', '""')
+        con.execute(f'ALTER TABLE "{safe_rel}" ALTER COLUMN "{column}" TYPE {sql_type}')
+        logger.info("extraction.column_widened",
+                    extra={"column": schema.field(i).name, "type": str(target)})
+        schema = schema.set(i, pa.field(schema.field(i).name, target))
+    return schema
+
+
 def extract_to_artifact(
     client,
     sql: str,
@@ -269,6 +328,7 @@ def extract_to_artifact(
             # Peak memory is O(batch), independent of result size, and a
             # source whose API is already Arrow (BigQuery) pays no conversion.
             first = True
+            held: pa.Schema | None = None
             batches = src.stream_batches(sql, BATCH_ROWS)
             try:
                 for tbl in batches:
@@ -284,12 +344,10 @@ def extract_to_artifact(
                         con.execute(
                             f'CREATE TABLE "{safe_rel}" AS SELECT * FROM bow_batch'
                         )
-                        columns = [
-                            {"name": f.name, "dtype": _arrow_type_name(f.type)}
-                            for f in tbl.schema
-                        ]
+                        held = tbl.schema
                         first = False
                     elif tbl.num_rows:
+                        held = _widen_for(con, safe_rel, held, tbl)
                         con.execute(
                             f'INSERT INTO "{safe_rel}" SELECT * FROM bow_batch'
                         )
@@ -300,6 +358,10 @@ def extract_to_artifact(
                             f"Artifact exceeded the "
                             f"{max_bytes / (1024**3):.1f} GB limit and was aborted."
                         )
+                columns = [
+                    {"name": f.name, "dtype": _arrow_type_name(f.type)}
+                    for f in held
+                ] if held is not None else []
             finally:
                 # Closing the generator runs its cleanup — for BigQuery that
                 # cancels the still-running (still-billing) job. Without this,
