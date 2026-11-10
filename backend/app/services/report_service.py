@@ -1377,7 +1377,8 @@ class ReportService:
 
         return report
 
-    async def _rerun_target_steps(self, db: AsyncSession, query_ids: list[str]) -> tuple[list[tuple[str, str]], int]:
+    async def _rerun_target_steps(self, db: AsyncSession, query_ids: list[str], *,
+                                  quiet: bool = False) -> tuple[list[tuple[str, str]], int]:
         """Resolve which step a report rerun must re-execute for each query:
         the same step the dashboard renders (mirrors
         query_service.get_default_step_for_query, which must stay in sync) —
@@ -1435,7 +1436,8 @@ class ReportService:
                 _add(step_row[0], step_row[1])
             else:
                 unresolved += 1
-                logger.warning(f"No step found for query {qid}; counting as failed")
+                if not quiet:  # read paths (policy checks) only ask; a rerun logs it
+                    logger.warning(f"No step found for query {qid}; counting as failed")
         return targets, unresolved
 
     async def _load_report_for_rerun(self, db: AsyncSession, report_id: str) -> Report:

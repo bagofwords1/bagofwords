@@ -199,49 +199,70 @@ async def creator_result_holds_owner_slice(
     return ds_ids is None or await _any_rls_relation(db, ds_ids)
 
 
-def _step_like(step_id, code, slug=None, title=None, created_at=None) -> Any:
-    """A query-shaped stand-in for dashboard_copy.load_step_closure, carrying
-    only the step columns it reads (never Step.data)."""
-    from types import SimpleNamespace
-    step = SimpleNamespace(id=step_id, code=code, status="success", slug=slug, title=title,
-                           created_at=created_at)
-    return SimpleNamespace(id=step_id, default_step_id=step_id, deleted_at=None, default_step=step)
+def may_load_steps(code: str | None) -> bool:
+    """Whether `code` can call load_step. Python reads identifiers in NFKC
+    form (`load＿step` is `load_step`), so the text is normalized first."""
+    import unicodedata
+    return bool(code) and "load_step" in unicodedata.normalize("NFKC", code)
 
 
 async def _loadable_steps(db: AsyncSession, scope) -> list:
-    """The steps load_step can reach in `scope` (a Query filter: a report's
-    queries or a release's copies): their successful default steps, deleted
-    queries included -- what LoadablesResolver resolves."""
+    """(id, code, slug, title) of every successful step of the queries in
+    `scope` (a Query filter: a report's queries or a release's copies),
+    deleted queries included. Not only the current default steps: a stored
+    snapshot was built from whichever step its load_step() reference matched
+    then, which may since have been superseded by a newer run."""
     from app.models.query import Query
     from app.models.step import Step
 
-    rows = (await db.execute(
-        select(Step.id, Step.code, Step.slug, Step.title, Step.created_at)
-        .join(Query, Query.default_step_id == Step.id)
+    return (await db.execute(
+        select(Step.id, Step.code, Step.slug, Step.title)
+        .join(Query, Query.id == Step.query_id)
         .where(scope, Step.status == "success")
     )).all()
-    return [_step_like(*r) for r in rows]
 
 
 async def loaded_step_codes(db: AsyncSession, code: str | None, scope) -> list[str]:
     """`code` plus the code of every step it load_step()s, transitively,
-    among the steps load_step reaches in `scope` (_loadable_steps). [] for no
-    code. Code that never calls load_step costs no query."""
+    among the steps of `scope` (_loadable_steps). [] for no code. Code that
+    cannot call load_step (may_load_steps) costs no query."""
     if not code or not code.strip():
         return []
-    if "load_step" not in code:
+    if not may_load_steps(code):
         return [code]
     return closure_codes(await _loadable_steps(db, scope), [code])
 
 
 def closure_codes(loadable: list, codes: list[str]) -> list[str]:
-    """`codes` plus the code of every loadable step they reach through
-    load_step, transitively (dashboard_copy.load_step_closure)."""
-    from app.services.dashboard_copy import load_step_closure
+    """`codes` plus the code of every step of `loadable` ((id, code, slug,
+    title) rows) they reach through load_step, transitively. A reference
+    counts every step it can match -- by id, by slug or by title, any of them
+    current or not -- so a match is never missed. A reached step with no code
+    is returned as "" (it names no source, so all of them count)."""
+    from collections import defaultdict
+    from app.ai.code_execution.loadables import extract_loadable_refs
 
-    start = [_step_like(f"start-{i}", c) for i, c in enumerate(codes)]
-    reached = load_step_closure(loadable, start)[len(start):]
-    return list(codes) + [q.default_step.code for q in reached if (q.default_step.code or "").strip()]
+    by_ref: dict[str, list] = defaultdict(list)
+    for row in loadable:
+        by_ref[str(row[0])].append(row)
+        for key in (row[2], row[3]):
+            if key:
+                by_ref[str(key).lower()].append(row)
+
+    out = list(codes)
+    seen: set[str] = set()
+    todo = [c for c in codes if may_load_steps(c)]
+    while todo:
+        refs, _ = extract_loadable_refs(todo.pop())
+        for ref in refs:
+            for row in by_ref.get(str(ref), []) + by_ref.get(str(ref).lower(), []):
+                if str(row[0]) in seen:
+                    continue
+                seen.add(str(row[0]))
+                out.append(row[1] or "")
+                if may_load_steps(row[1]):
+                    todo.append(row[1])
+    return out
 
 
 async def _default_params_fingerprint(db: AsyncSession, step: Any, report: Any, user: Any) -> Optional[str]:
@@ -374,11 +395,11 @@ async def _report_step_codes(db: AsyncSession, report_id: str) -> list[str]:
     the steps those load_step(). For each live query of the report -- its own
     (Query.report_id) or, for a legacy query, its widget's (as
     app/services/row_owner.py finds the owner) -- the step a rerun executes
-    and the page renders (ReportService._rerun_target_steps: the default
-    step, else the latest successful step, else the latest step), then every
-    step load_step reaches from them (loaded_step_codes' closure). Earlier
-    attempts (a failed run's step, a superseded version) are neither served
-    nor run, so they do not count."""
+    (ReportService._rerun_target_steps, which mirrors
+    get_default_step_for_query), then every step load_step reaches from
+    them (closure_codes). Earlier attempts (a failed run's step, a
+    superseded version) are neither served nor run, so they do not count
+    unless a served step's load_step() reference reaches them."""
     from sqlalchemy import or_
     from app.models.query import Query
     from app.models.widget import Widget
@@ -391,9 +412,9 @@ async def _report_step_codes(db: AsyncSession, report_id: str) -> list[str]:
             Query.deleted_at.is_(None),
         )
     )).scalars().all()
-    targets, _ = await ReportService()._rerun_target_steps(db, [str(q) for q in query_ids])
+    targets, _ = await ReportService()._rerun_target_steps(db, [str(q) for q in query_ids], quiet=True)
     codes = [c for _, c in targets if c and c.strip()]
-    if not any("load_step" in c for c in codes):
+    if not any(may_load_steps(c) for c in codes):
         return codes
     return closure_codes(await _loadable_steps(db, Query.report_id == str(report_id)), codes)
 

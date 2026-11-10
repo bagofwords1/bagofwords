@@ -140,6 +140,21 @@ def test_a_result_from_the_owners_credentials_over_rls_is_not_an_export_of_the_r
 
 
 @pytest.mark.e2e
+def test_a_readers_own_run_beside_a_refused_result_on_the_same_chart_still_exports(
+        corpus, corpus_rows, test_client, no_vendor_libs, pdf_pages):
+    """Only the refused result is set aside: the reader's own run of the same
+    chart (another filter value) still counts as their run."""
+    aid, release = _published(corpus, corpus_rows, test_client, "rls/dash")
+    _own_run(corpus, corpus_rows, release, "member", "mine")
+    corpus_rows.insert("step_user_results", step_id=_copy_step(corpus_rows, release),
+                       user_id=corpus.cast.id("member"), organization_id=corpus.cast.org_id, report_id=None,
+                       status="success", executed_as="creator", params_fingerprint="other-values",
+                       data={"rows": [{"מי": "owner-slice"}], "columns": [{"field": "מי"}]})
+    resp = test_client.get(f"/api/d/{aid}/export/html", headers=as_(corpus, "member"))
+    assert resp.status_code == 200, resp.text
+
+
+@pytest.mark.e2e
 @pytest.mark.parametrize("fmt", ["html", "pdf"])
 def test_a_reader_of_a_personal_dashboard_exports_their_own_rows(
         corpus, corpus_rows, test_client, no_vendor_libs, pdf_pages, fmt):

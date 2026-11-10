@@ -115,3 +115,28 @@ async def test_credential_scoped_follows_code_named_source(db):
     ) is False
     # memo keyed per (report, code) — both answers cached
     assert len([k for k in memo if isinstance(k, tuple)]) == 2
+
+
+# ── what a step reaches through load_step (pure) ───────────────────────────
+
+def test_a_load_step_call_spelled_with_a_full_width_underscore_is_followed():
+    from app.services.viewer_data_policy import closure_codes, may_load_steps
+
+    code = "def generate_df(ds_clients, excel_files):\n    return load＿step('b-1')\n"
+    assert may_load_steps(code)
+    loadable = [("b-1", "ds_clients['Warehouse RLS:c']", "b-slug", "B")]
+    assert "ds_clients['Warehouse RLS:c']" in closure_codes(loadable, [code])
+
+
+def test_a_reference_reaches_every_step_it_can_match():
+    """By id, slug or title, current or superseded: every match counts, and a
+    matched step with no code is returned as '' (all sources count for it)."""
+    from app.services.viewer_data_policy import closure_codes
+
+    loadable = [
+        ("old-b", "names RLS", "b-old", "Sales"),
+        ("new-b", "names plain", "b-new", "Sales"),
+        ("c", None, "c-slug", "C"),
+    ]
+    reached = closure_codes(loadable, ["load_step('sales')", "load_step('c-slug')"])
+    assert {"names RLS", "names plain", ""} <= set(reached)

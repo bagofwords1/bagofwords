@@ -1921,6 +1921,52 @@ def test_a_query_without_a_default_step_counts_the_step_it_serves(
     assert _report_flags(test_client, report["id"], owner, admin["org_id"])[0] is True
 
 
+async def _replace_default_step(query_id: str, code: str):
+    """The query's next successful run: a new step (new id and slug) becomes
+    its default. Seeded directly: through the API this is a builder run, which
+    needs the custom-code permission and a reachable source."""
+    async with async_session_maker() as db:
+        query = await db.get(Query, query_id)
+        step = Step(title="Next run", slug=f"next-{uuid.uuid4().hex[:8]}", status="success",
+                    widget_id=query.widget_id, query_id=query.id, code=code, data=STALE_DATA)
+        db.add(step)
+        await db.flush()
+        query.default_step_id = step.id
+        await db.commit()
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("case", ["loaded_step_superseded", "full_width_underscore", "loaded_step_has_no_code"])
+def test_a_step_loading_a_row_filtered_step_stays_withheld(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, case,
+):
+    """Step A names a plain source and load_step()s B, whose sources include a
+    row-filtered relation, so A's snapshot holds B's rows as the owner saw
+    them and stays withheld from a viewer -- also when B's query has since run
+    a new step naming only the plain source (A's snapshot still holds the old
+    B), when the call is spelled with a full-width underscore (Python reads
+    `load＿step` as `load_step`), and when B has no code to name a source
+    (so all the organization's sources count)."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal", n_queries=2,
+    )
+    rls_name = _run(_source_name(_run(_attach_rls_relation(report["id"], attach=False))))
+    plain_name = _run(_source_name(_run(_attach_source_with_connection(
+        report["id"], "system_only", attach=False))))
+    (qa, qb), (sa, sb) = seeded["query_ids"], seeded["step_ids"]
+    call = "load＿step" if case == "full_width_underscore" else "load_step"
+    _run(_set_step_code(sa, f"# reads {plain_name}\ndef generate_df(ds_clients, excel_files):\n"
+                            f"    return {call}('{sb}')\n"))
+    _run(_set_step_code(sb, "" if case == "loaded_step_has_no_code" else f"# reads {rls_name}\n{GOOD_CODE}"))
+    if case == "loaded_step_superseded":
+        _run(_replace_default_step(qb, f"# reads {plain_name}\n{GOOD_CODE}"))
+
+    step = _public_step(test_client, report["id"], qa, token=viewer["token"])
+    assert step["snapshot_withheld"] is True
+    assert not (step["data"] or {}).get("rows")
+
+
 SOURCE_BOUND_CODE = """
 def generate_df(ds_clients, excel_files):
     client = ds_clients["Delegated:delegated"]
