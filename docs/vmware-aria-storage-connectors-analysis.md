@@ -8,7 +8,7 @@
 customer running **VMware Aria Operations 8.18.0** with **Hitachi, NetApp,
 Infinidat and IBM** storage behind it. **Everything is on-premises** — no
 vendor SaaS (Storage Insights, InfiniVerse, Clear Sight, BlueXP/DII) is in
-play, and Bag of Words itself will run inside the customer's network. This
+play, and BOW itself will run inside the customer's network. This
 doc answers: what APIs exist, what each would let the agent see, how they map
 onto our infra-connector pattern, and what to build first.
 

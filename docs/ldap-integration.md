@@ -1,6 +1,6 @@
 # LDAP / Active Directory Integration
 
-Bag of Words supports LDAP and Active Directory for two purposes:
+BOW supports LDAP and Active Directory for two purposes:
 
 1. **Authentication** — Users sign in with their LDAP credentials instead of a local password
 2. **Group Sync** — LDAP groups are automatically synced into the application, managing org membership and access control

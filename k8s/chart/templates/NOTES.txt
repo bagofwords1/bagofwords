@@ -1,4 +1,4 @@
-Bag of Words has been deployed to namespace "{{ .Release.Namespace }}" as release "{{ .Release.Name }}".
+BOW has been deployed to namespace "{{ .Release.Namespace }}" as release "{{ .Release.Name }}".
 
 Host: https://{{ .Values.host }}
 
