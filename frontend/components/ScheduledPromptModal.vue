@@ -46,6 +46,11 @@
                         <dd class="text-xs text-gray-700 dark:text-gray-300" data-testid="view-agents">
                             <span v-if="viewAgents.length">{{ viewAgents.map((a) => a.name).join(', ') }}</span>
                             <span v-else class="text-ink-muted">{{ $t('scheduledPrompt.noAgents') }}</span>
+                            <span
+                                v-if="!hasOwnAgents"
+                                class="block text-ink-muted"
+                                data-testid="view-agents-inherited"
+                            >{{ $t('scheduledPrompt.agentsFromReport') }}</span>
                         </dd>
                     </div>
                     <div v-if="viewFiles.length" class="flex items-start gap-2">
@@ -431,7 +436,9 @@ const initialModel = computed(() => props.scheduledPrompt?.prompt?.model_id || p
 // A new task starts at Default: the host report's level is not copied, so a
 // scheduled run's cost is chosen here on purpose.
 const initialEffort = computed(() => props.scheduledPrompt?.prompt?.reasoning_effort || '')
-const initialDataSources = computed(() => props.initialDataSources || [])
+// A task with its own agents opens with them; one without starts from the
+// report's (what its runs use until it gets its own).
+const initialDataSources = computed(() => taskAgents.value ?? (props.initialDataSources || []))
 
 const taskTitle = ref<string>(props.scheduledPrompt?.title || '')
 const isActive = ref(props.scheduledPrompt?.is_active ?? true)
@@ -483,10 +490,22 @@ function formatRunDate(value?: string): string {
 }
 
 // ── Run spec shown as facts in the summary ─────────────────────────────────
-// Agents and files live on the report the schedule runs against; mode and model
-// live on the prompt (they are what actually executes), falling back to the
-// report's own defaults.
+// Agents are the task's own when it has them, else the report's; files live
+// on the report; mode and model live on the prompt (they are what actually
+// executes), falling back to the report's own defaults.
 const viewAgents = ref<any[]>([])
+// The task's own agents as objects (null = it runs on the report's agents).
+const taskAgents = ref<any[] | null>(null)
+const hasOwnAgents = computed(() => !!props.scheduledPrompt?.data_source_ids?.length)
+
+async function fetchTaskAgents() {
+    const ids: string[] = props.scheduledPrompt?.data_source_ids || []
+    if (!ids.length) { taskAgents.value = null; return }
+    const { data } = await useMyFetch('/data_sources/active').catch(() => ({ data: ref(null) }) as any)
+    const byId = new Map(((data?.value as any[]) || []).map((d: any) => [String(d.id), d]))
+    // An agent the owner can no longer use is skipped by the run too.
+    taskAgents.value = ids.map((id) => byId.get(String(id))).filter(Boolean)
+}
 const viewFiles = ref<any[]>([])
 const viewModels = ref<any[]>([])
 const viewReportMode = ref<string>('')
@@ -500,7 +519,8 @@ async function fetchViewDetails() {
         viewModels.value.length ? Promise.resolve(null) : useMyFetch('/llm/models?is_enabled=true').catch(() => null),
     ])
     const r = (rep as any)?.data?.value
-    viewAgents.value = r?.data_sources || []
+    await fetchTaskAgents()
+    viewAgents.value = taskAgents.value ?? (r?.data_sources || [])
     viewReportMode.value = r?.mode || ''
     viewReportModelId.value = r?.model_id || ''
     viewFiles.value = ((files as any)?.data?.value as any[]) || []
@@ -781,24 +801,22 @@ function buildNotificationSubscribers(): Subscriber[] | null {
     return null
 }
 
-// Scheduled runs execute against the report, so the agents/data sources the run
-// will use come from `report.data_sources` — not the prompt. Keep them in sync
-// with what's selected in the modal so the run hits the chosen data sources.
-// (model + mode live on the prompt; files are uploaded to the report already.)
-async function syncReportDataSources() {
+// The agents picked in the form belong to this task: its runs use them, and
+// the report's own agents (what chats and other tasks use) stay as they are.
+// An empty pick means "the report's agents".
+function selectedAgentIds(): string[] {
     const box = promptBoxRef.value
-    const ids = ((box?.getDataSources?.() as any[]) || []).map((d: any) => d?.id).filter(Boolean)
-    // Guard against the modal's async data-source hydration: an empty list here
-    // usually means "not loaded yet", so don't wipe the report's data sources.
-    if (ids.length === 0) return
-    try {
-        await useMyFetch(`/api/reports/${props.reportId}`, {
-            method: 'PUT',
-            body: { data_sources: ids },
-        })
-    } catch {
-        // Best-effort: the scheduled prompt still saves; surface nothing here.
-    }
+    return ((box?.getDataSources?.() as any[]) || []).map((d: any) => d?.id).filter(Boolean)
+}
+
+// A task that follows the report's agents keeps following them when the pick
+// is left as the report's: a later change on the report then still reaches it.
+function taskAgentsField(): { data_source_ids?: string[] } {
+    const picked = selectedAgentIds()
+    const reportIds = (props.initialDataSources || []).map((d: any) => d?.id).filter(Boolean)
+    const same = picked.length === reportIds.length && picked.every((id) => reportIds.includes(id))
+    if (!hasOwnAgents.value && same) return {}
+    return { data_source_ids: picked }
 }
 
 // Persist the current form state (create or update) and return the raw fetch
@@ -807,10 +825,6 @@ async function persistScheduledPrompt(
     prompt: { content: string; mentions?: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null },
     overrides: { run_once_at?: string; is_active?: boolean } = {},
 ) {
-    // Apply data-source selection to the report first so an immediate "Run now"
-    // (which reads report.data_sources at trigger time) uses the chosen agents.
-    await syncReportDataSources()
-
     const body: any = {
         prompt,
         // Always a string: empty clears the title (falls back to report title).
@@ -821,6 +835,7 @@ async function persistScheduledPrompt(
         ...(!isEditing.value || isActive.value !== props.scheduledPrompt?.is_active ? { is_active: isActive.value } : {}),
         spawn_new_report: spawnNewReport.value,
         notification_subscribers: buildNotificationSubscribers(),
+        ...taskAgentsField(),
         ...overrides,
     }
 

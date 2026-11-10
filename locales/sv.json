@@ -5562,7 +5562,8 @@
     "modeChat": "Chatt",
     "modelAuto": "Auto",
     "noAgents": "Inga",
-    "project": "Projekt"
+    "project": "Projekt",
+    "agentsFromReport": "Använder rapportens agenter"
   },
   "errorPage": {
     "notFoundTitle": "404",

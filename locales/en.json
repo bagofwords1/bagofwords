@@ -6094,7 +6094,8 @@
     "modeChat": "Chat",
     "modelAuto": "Auto",
     "noAgents": "None",
-    "project": "Project"
+    "project": "Project",
+    "agentsFromReport": "Uses the report's agents"
   },
   "errorPage": {
     "notFoundTitle": "404",

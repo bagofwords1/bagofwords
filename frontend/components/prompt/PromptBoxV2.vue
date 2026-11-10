@@ -1237,6 +1237,16 @@ async function loadModels() {
 }
 
 async function hydrateReportDataSources(reportId?: string, { showSpinner = true } = {}) {
+    // A box that does not persist its selection (the scheduled-task form)
+    // edits its caller's agents, not the report's: a task with its own agents
+    // must open with them, and re-reading the report would silently swap them
+    // for the report's on save.
+    if (!props.persistSelection) {
+        selectedDataSources.value = [...(props.initialSelectedDataSources || [])]
+        hasBootstrappedFromInitial.value = selectedDataSources.value.length > 0
+        isHydratingDataSources.value = false
+        return
+    }
     if (!reportId) {
         selectedDataSources.value = []
         if (showSpinner) isHydratingDataSources.value = false

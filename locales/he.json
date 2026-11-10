@@ -6023,7 +6023,8 @@
     "modeChat": "צ'אט",
     "modelAuto": "אוטומטי",
     "noAgents": "ללא",
-    "project": "פרויקט"
+    "project": "פרויקט",
+    "agentsFromReport": "משתמש בסוכנים של הדוח"
   },
   "errorPage": {
     "notFoundTitle": "404",
