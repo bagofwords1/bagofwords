@@ -36,6 +36,10 @@ ALLOWED = {
     "services/checkin_service.py": 4,                    # the conversation's steps for check-ins
     "services/console_service.py": 4,                    # console metrics per conversation
     "services/identity_taint.py": 2,                     # load_step targets inside a conversation
+    # The steps a conversation serves, to decide which sources it runs on
+    # (legacy queries belong to it through their widget); a published
+    # dashboard's copies are decided by dashboard_data's release rule.
+    "services/viewer_data_policy.py": 1,
     # "The latest step of this query's widget" when the default step is
     # missing, on paths guard_route closes to copies (a copy's "None" matches
     # nothing); the rerun picks the query's own steps when there is no widget.
