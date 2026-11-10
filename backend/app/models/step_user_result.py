@@ -54,5 +54,17 @@ class StepUserResult(BaseSchema):
 
     last_run_at = Column(DateTime, nullable=True)
 
+    # What the run read, as app/services/viewer_result_freshness.py stamps it
+    # before the run: the identity mode, the auth policy of each connection
+    # behind the step's sources, each accelerated relation's extract and row
+    # policy, the row filter compiled for this viewer, and the viewer's
+    # identity when the step is identity-scoped. `source_stamp` is the hash a
+    # read compares with the current one; `source_refs` lists the connection
+    # and relation versions in plain text, so a change to one finds the rows
+    # it outdates. NULL on a wait for input, and on rows stored before
+    # vrstamp01.
+    source_stamp = Column(String(64), nullable=True)
+    source_refs = Column(Text, nullable=True)
+
     step = relationship("Step", lazy="selectin")
     user = relationship("User", lazy="selectin")
