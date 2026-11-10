@@ -528,6 +528,7 @@ class StepService:
         db_clients: Optional[dict] = None,
         organization=None,
         organization_settings=None,
+        stamp: Optional[dict] = None,
     ):
         """Re-execute a step's saved code for a shared-artifact viewer.
 
@@ -539,6 +540,10 @@ class StepService:
         viewer the result row belongs to. Execution errors are persisted on
         the row (status='error') instead of raised, so the viewer sees why
         their run failed.
+
+        `stamp`: what this run reads (viewer_result_freshness.stamp_columns),
+        taken by a caller that passes prebuilt `db_clients` before it built
+        them; computed here otherwise.
         """
         from app.ai.code_execution.query_params import params_fingerprint
         from app.models.step_user_result import StepUserResult
@@ -549,7 +554,16 @@ class StepService:
         await assert_read(db, access, run_user)
         if access:
             credential_user = run_user
-            executed_as = "viewer"
+            if executed_as != "viewer":
+                executed_as, stamp = "viewer", None  # a stamp taken under the other mode
+        # What this run reads, stamped before it runs (viewer_result_freshness):
+        # a change racing the run leaves the result stale, never current.
+        if stamp is None:
+            from app.services.viewer_result_freshness import stamp_columns
+            stamp = await stamp_columns(
+                db, step, user_id=str(run_user.id), organization_id=str(report.organization_id),
+                executed_as=executed_as, report_id=str(report.id),
+            )
 
         # What this viewer last ran this step with. They may hold one row per
         # parameter combination (the table's unique key includes the
@@ -642,7 +656,7 @@ class StepService:
             params_fingerprint=fingerprint, status=status,
             status_reason=status_reason, data=data, executed_as=executed_as,
             applied_params=dict(params) if params else None,
-            last_run_at=datetime.utcnow(),
+            last_run_at=datetime.utcnow(), **stamp,
         )
 
     async def get_steps_by_widget(self, db: AsyncSession, widget_id: str):

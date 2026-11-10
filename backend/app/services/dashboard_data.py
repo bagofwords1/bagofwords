@@ -154,6 +154,12 @@ async def resolve_release_step(db, step: Step, artifact: Artifact, release: Arti
             # The owner's slice is not the reader's; their newest run as
             # themselves (if any) still is. The rule is the copy's, asked once.
             row = (await db.execute(newest.where(_not_run_as_creator()))).scalars().first()
+        if row is not None and row.status == "success" and not needs_input_names(row.data):
+            # A run that read what has since changed (viewer_result_freshness):
+            # as if the reader had no result. A wait for input is not judged.
+            from app.services.viewer_result_freshness import viewer_result_current
+            if not await viewer_result_current(db, row, step, release=release):
+                row = None
         if row is not None:
             viewer_result = {
                 "status": row.status,

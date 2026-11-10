@@ -277,8 +277,32 @@ async def _reader_input_wait(db, step: Step, artifact, release, user, *, lookup,
     return names
 
 
+async def _load_copy(db, step_id: str, release):
+    return (await db.execute(
+        select(Step).options(lazyload("*"), selectinload(Step.query).options(lazyload("*")))
+        .join(Query, Query.id == Step.query_id)
+        .where(Step.id == str(step_id), Query.artifact_release_id == str(release.id))
+    )).scalar_one_or_none()
+
+
+async def _copy_stamps(db, targets, release, *, run_user, executed_as) -> dict:
+    """What each copy's run reads (viewer_result_freshness), stamped before
+    the run builds any client: a change landing while the clients are built
+    or earlier copies run leaves the later results stale, never current
+    (stamps_before_clients; one that fails, _run_copy stamps then)."""
+    from app.services.viewer_result_freshness import stamps_before_clients
+
+    async def load(step_id):
+        return await _load_copy(db, step_id, release)
+
+    return await stamps_before_clients(db, targets, load, user_id=str(run_user.id),
+                                       organization_id=str(release.organization_id),
+                                       executed_as=executed_as, release=release)
+
+
 async def _run_copy(db, step_id: str, artifact, release, *, run_user, credential_user, executed_as,
-                    ctx, db_clients, sources: list, source_errors: list[dict], lookup, resolved_waits) -> str:
+                    ctx, db_clients, sources: list, source_errors: list[dict], lookup, resolved_waits,
+                    stamp: dict | None = None) -> str:
     """StepService.run_step_to_user_result for one copy: the reader's own row.
 
     A copy that needs a required input the reader never gave does not run,
@@ -286,7 +310,8 @@ async def _run_copy(db, step_id: str, artifact, release, *, run_user, credential
     inputs): the reader's row waits for it ("needs_input"), unless a source
     the copy uses failed for them -- then that failure's row, so its gate
     shows -- or another of its params fails to resolve (D3), whose error is
-    stored as on a run."""
+    stored as on a run. `stamp`: what the run reads, taken before the
+    release's clients were built (_copy_stamps)."""
     from app.ai.code_execution.query_params import missing_required_inputs, params_fingerprint
     from app.models.step_user_result import StepUserResult
     from app.services.access_errors import (CREDENTIALS_REQUIRED_REASON, NO_ACCESS_REASON, is_access_denied,
@@ -298,13 +323,17 @@ async def _run_copy(db, step_id: str, artifact, release, *, run_user, credential
     # A dependency checked earlier may now be rerun. Never reuse its prior
     # wait after a failed or interrupted write; resolve the stored row again.
     resolved_waits.pop(str(step_id), None)
-    step = (await db.execute(
-        select(Step).options(lazyload("*"), selectinload(Step.query).options(lazyload("*")))
-        .join(Query, Query.id == Step.query_id)
-        .where(Step.id == str(step_id), Query.artifact_release_id == str(release.id))
-    )).scalar_one_or_none()
+    step = await _load_copy(db, step_id, release)
     if step is None:
         return "error"
+    from app.services.viewer_result_freshness import stamp_columns, wait_stamp
+
+    if stamp is None:
+        # Not stamped before the clients were built (that failed): now,
+        # still before this copy runs.
+        stamp = await stamp_columns(db, step, user_id=str(run_user.id),
+                                    organization_id=str(release.organization_id),
+                                    executed_as=executed_as, release=release)
     prior = (await db.execute(
         select(StepUserResult).options(lazyload("*")).where(
             StepUserResult.step_id == str(step.id), StepUserResult.user_id == str(run_user.id))
@@ -346,6 +375,8 @@ async def _run_copy(db, step_id: str, artifact, release, *, run_user, credential
             status="error" if reason else "success", status_reason=reason,
             data=None if reason else needs_input_frame(None, waiting),
             executed_as=executed_as, applied_params=None, last_run_at=datetime.utcnow(),
+            # A wait is not judged as a run; a stored error is not served.
+            **(stamp if reason else wait_stamp()),
         )
         if reason is None:
             resolved_waits[str(step.id)] = waiting
@@ -368,7 +399,7 @@ async def _run_copy(db, step_id: str, artifact, release, *, run_user, credential
         db, step_id=str(step.id), user_id=str(run_user.id), organization_id=str(release.organization_id),
         report_id=None, params_fingerprint=params_fingerprint(params), status=status, status_reason=reason,
         data=data, executed_as=executed_as, applied_params=dict(params) if params else None,
-        last_run_at=datetime.utcnow(),
+        last_run_at=datetime.utcnow(), **stamp,
     )
     if status == "success":
         resolved_waits[str(step.id)] = needs_input_names(data)
@@ -399,6 +430,10 @@ async def viewer_run(db, artifact: Artifact, release: ArtifactRelease, caller) -
     if not sources:
         sources = await accessible_agents(db, organization, credential_user)
     sources = [ds for ds in sources if DataSourceService.is_execution_live(ds)]
+    targets, unrunnable = await ReportService()._rerun_target_steps(db, await _needed_query_ids(db, release))
+    # What a chart loads runs first, so it loads the reader's fresh rows.
+    targets = await in_dependency_order(db, release, targets)
+    stamps = await _copy_stamps(db, targets, release, run_user=caller, executed_as=identity)
     ds_service = DataSourceService()
     db_clients: dict = {}
     errors: list[dict] = []
@@ -421,9 +456,6 @@ async def viewer_run(db, artifact: Artifact, release: ArtifactRelease, caller) -
     files = await release_files(db, release)
     ctx = ExecContext.from_release(release, data_sources=sources, files=files, credential_user=credential_user,
                                    reader=caller, organization=organization, organization_settings=org_settings)
-    targets, unrunnable = await ReportService()._rerun_target_steps(db, await _needed_query_ids(db, release))
-    # What a chart loads runs first, so it loads the reader's fresh rows.
-    targets = await in_dependency_order(db, release, targets)
     # Both caches belong to this reader's run only. Each stored result above
     # replaces its wait, so downstream copies observe the freshly run value.
     lookup = await release_step_lookup(db, str(release.id))
@@ -438,7 +470,7 @@ async def viewer_run(db, artifact: Artifact, release: ArtifactRelease, caller) -
             status = await _run_copy(db, step_id, artifact, release, run_user=caller,
                                      credential_user=credential_user, executed_as=identity, ctx=ctx,
                                      db_clients=db_clients, sources=sources, source_errors=errors,
-                                     lookup=lookup, resolved_waits=resolved_waits)
+                                     lookup=lookup, resolved_waits=resolved_waits, stamp=stamps.get(str(step_id)))
         except Exception as e:
             logger.warning("Dashboard viewer run failed for step %s: %s", step_id, e)
             status = "error"
@@ -481,7 +513,6 @@ async def filter_run(db, artifact: Artifact, release: ArtifactRelease, query: Qu
                                             needs_credentials)
     from app.services.dashboard_data import default_step
     from app.services.data_source_service import DataSourceService
-    from app.services.identity_taint import step_identity_scope
     from app.services.query_service import QueryService, _no_access_code
     from app.services.viewer_result_store import store_viewer_result
 
@@ -508,15 +539,12 @@ async def filter_run(db, artifact: Artifact, release: ArtifactRelease, query: Qu
     from app.services.viewer_result_store import find_viewer_result
     existing = await find_viewer_result(
         db, step_id=step.id, user_id=caller.id, params_fingerprint=fingerprint)
-    try:
-        _, upstream = await step_identity_scope(db, step)
-    except Exception:
-        upstream = None
-    floor = step.updated_at
-    if upstream is not None and (floor is None or upstream > floor):
-        floor = upstream
+    from app.services.viewer_result_freshness import stamp_columns, viewer_result_current
+
+    # Not served once the copy or a loaded upstream refreshed past it, or
+    # what its run read changed (viewer_result_freshness).
     fresh = (existing is not None and existing.status == "success" and not request.force_refresh
-             and (floor is None or existing.last_run_at is None or existing.last_run_at >= floor))
+             and await viewer_result_current(db, existing, step, release=release))
     if fresh:
         # A result run under the owner's credentials over an RLS source is
         # the owner's slice: run again.
@@ -527,6 +555,12 @@ async def filter_run(db, artifact: Artifact, release: ArtifactRelease, query: Qu
                 "step_id": str(step.id)}
 
     _, credential_user = await run_identity(db, artifact, release, caller, refuse_strangers=False)
+    executed_as = "creator" if str(credential_user.id) != str(caller.id) else "viewer"
+    # Stamped before any client is built: a change racing this run leaves the
+    # stored result stale, never current. With the identity the params were
+    # bound from: a change to the reader's groups since then shows as one.
+    stamp = await stamp_columns(db, step, user_id=str(caller.id), organization_id=str(release.organization_id),
+                                executed_as=executed_as, release=release, identity=identity)
     sources = await release_data_sources(db, release) or await _org_data_sources(db, release.organization_id)
     ds_service = DataSourceService()
     clients: dict = {}
@@ -585,8 +619,7 @@ async def filter_run(db, artifact: Artifact, release: ArtifactRelease, query: Qu
             db, step_id=str(step.id), user_id=str(caller.id), organization_id=str(release.organization_id),
             report_id=None, params_fingerprint=fingerprint, status="success", status_reason=None, data=df,
             applied_params=dict(resolved) if resolved else None,
-            executed_as="creator" if str(credential_user.id) != str(caller.id) else "viewer",
-            last_run_at=datetime.utcnow())
+            executed_as=executed_as, last_run_at=datetime.utcnow(), **stamp)
         return {"data": df or {}, "applied_params": resolved, "cached": False, "status": "success",
                 "step_id": str(step.id)}
     return {"data": {}, "applied_params": resolved, "cached": False, "status": "error", "error": reason,

@@ -28,6 +28,7 @@ from app.models.user import User
 from app.services.artifact_chat_service import artifact_chat_service
 from app.services.report_service import ReportService
 from tests.e2e.test_html_export_offline import _seed
+from tests.fixtures.viewer_result_stamp import stamp_for
 
 pytestmark = pytest.mark.e2e
 
@@ -118,6 +119,7 @@ async def _record_viewer_run(report_id: str, viewer: User, rows: list[dict]) -> 
             .where(Query.report_id == report_id)
         )).scalars().first()
         org_id = (await db.get(Report, report_id)).organization_id
+        stamp = await stamp_for(step_id, viewer.id)  # what the run would store
         db.add(StepUserResult(
             step_id=str(step_id), user_id=str(viewer.id), status="success",
             organization_id=str(org_id), report_id=str(report_id),
@@ -125,7 +127,7 @@ async def _record_viewer_run(report_id: str, viewer: User, rows: list[dict]) -> 
             params_fingerprint="", executed_as="viewer",
             # Naive UTC: StepUserResult.last_run_at is a bare DateTime, and
             # Postgres rejects an aware value for it (sqlite accepts either).
-            last_run_at=datetime.now(UTC).replace(tzinfo=None),
+            last_run_at=datetime.now(UTC).replace(tzinfo=None), **stamp,
         ))
         await db.commit()
 

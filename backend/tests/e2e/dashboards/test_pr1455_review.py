@@ -126,14 +126,17 @@ async def _seed_reader_results(release_id: str, user_id: str, organization_id: s
     from app.models.query import Query
     from app.models.step import Step
     from app.models.step_user_result import StepUserResult
+    from tests.fixtures.viewer_result_stamp import stamp_for
 
     async with async_session_maker() as db:
         steps = (await db.execute(select(Step.id).join(Query, Query.default_step_id == Step.id)
                                   .where(Query.artifact_release_id == release_id))).scalars().all()
+    stamps = {str(s): await stamp_for(s, user_id, "creator") for s in steps}  # what each run would store
+    async with async_session_maker() as db:
         for step_id in steps:
             db.add(StepUserResult(step_id=str(step_id), user_id=user_id, organization_id=organization_id,
                                   status="success", data=_rows_of(marker), executed_as="creator",
-                                  params_fingerprint="", last_run_at=datetime.utcnow()))
+                                  params_fingerprint="", last_run_at=datetime.utcnow(), **stamps[str(step_id)]))
         await db.commit()
         return len(steps)
 
