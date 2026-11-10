@@ -14,6 +14,7 @@ from app.schemas.organization_settings_schema import (
     FeatureConfig,
     FeatureState,
     SignupPolicySchema,
+    DefaultMemberRoleSchema,
 )
 from datetime import datetime
 import logging
@@ -752,6 +753,74 @@ class OrganizationSettingsService:
             allowed_domains=normalized_domains,
             auto_invite_role=role_name,
         )
+
+    async def get_default_member_role(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+    ) -> DefaultMemberRoleSchema:
+        """Return the org-wide default role for new members (defaults to member)."""
+        settings = await self.get_settings(db, organization, current_user)
+        raw = (settings.config or {}).get("default_member_role")
+        role = str(raw).strip() if raw and str(raw).strip() else "member"
+        return DefaultMemberRoleSchema(role=role)
+
+    async def update_default_member_role(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        role: str,
+    ) -> DefaultMemberRoleSchema:
+        """Validate and persist the org-wide default member role.
+
+        The role must name an existing system role or a role owned by this
+        organization (same rule as the signup policy's auto_invite_role). This
+        is a core setting — unlike signup_policy it is not gated behind the
+        enterprise ``domain_signup`` feature.
+        """
+        from app.models.role import Role
+        from sqlalchemy import or_, and_
+
+        role_name = (role or "").strip() or "member"
+        role_res = await db.execute(
+            select(Role).where(
+                Role.name == role_name,
+                Role.deleted_at.is_(None),
+                or_(
+                    and_(Role.is_system == True, Role.organization_id.is_(None)),
+                    Role.organization_id == organization.id,
+                ),
+            )
+        )
+        if not role_res.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail=f"Role '{role_name}' not found")
+
+        settings = await self.get_settings(db, organization, current_user)
+        current_config = dict(settings.config or {})
+        current_config["default_member_role"] = role_name
+        settings.config = current_config
+        settings.updated_at = datetime.utcnow()
+        flag_modified(settings, "config")
+        db.add(settings)
+        await db.commit()
+        await db.refresh(settings)
+
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                user_id=str(current_user.id),
+                action="settings.default_member_role_updated",
+                resource_type="organization_settings",
+                resource_id=str(settings.id),
+                details={"default_member_role": role_name},
+            )
+        except Exception:
+            pass
+
+        return DefaultMemberRoleSchema(role=role_name)
 
     async def get_entra_profile_sync(
         self,
@@ -1567,3 +1636,21 @@ class OrganizationSettingsService:
             pass
 
         return settings
+
+
+async def resolve_default_member_role(db: AsyncSession, organization_id: str) -> str:
+    """Return the org-wide default member role, falling back to "member".
+
+    Lightweight read keyed by org id (mirrors auth._org_signup_policy): no
+    permission check and no settings-sync side effects, so it is safe to call
+    on the invite/add-member path. Consumed by organization_service.add_member
+    when the caller does not pick a role explicitly.
+    """
+    res = await db.execute(
+        select(OrganizationSettings).where(
+            OrganizationSettings.organization_id == organization_id
+        )
+    )
+    settings = res.scalar_one_or_none()
+    raw = (settings.config or {}).get("default_member_role") if settings else None
+    return str(raw).strip() if raw and str(raw).strip() else "member"

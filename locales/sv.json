@@ -2714,7 +2714,11 @@
       "attributesInviteHint": "Valfritt. Identifierar medlemmen i andra system, t.ex. Qlik-användare eller databasroll.",
       "attributesSaved": "Attributen sparades",
       "attributesSaveFailed": "Det gick inte att spara attributen",
-      "importAttributesHint": "Lägg till {column}-kolumner för att ange attribut, t.ex. {example}. En tom cell lämnar attributet oförändrat."
+      "importAttributesHint": "Lägg till {column}-kolumner för att ange attribut, t.ex. {example}. En tom cell lämnar attributet oförändrat.",
+      "defaultRoleHint": "Förifyller rollen när du lägger till eller bjuder in en medlem.",
+      "defaultRoleSaved": "Standardroll sparad",
+      "defaultRoleFailed": "Det gick inte att spara standardrollen",
+      "defaultRoleShort": "Standardroll"
     },
     "organizationName": "Organisationens namn",
     "organizationIcon": "Organisationens ikon",

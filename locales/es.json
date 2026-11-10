@@ -2960,7 +2960,11 @@
       "attributesInviteHint": "Opcional. Identifica a este miembro en otros sistemas, p. ej. su usuario de Qlik o su rol de base de datos.",
       "attributesSaved": "Atributos guardados",
       "attributesSaveFailed": "No se pudieron guardar los atributos",
-      "importAttributesHint": "Añade columnas {column} para definir atributos, p. ej. {example}. Una celda vacía deja ese atributo sin cambios."
+      "importAttributesHint": "Añade columnas {column} para definir atributos, p. ej. {example}. Una celda vacía deja ese atributo sin cambios.",
+      "defaultRoleHint": "Rellena el rol al añadir o invitar a un miembro.",
+      "defaultRoleSaved": "Rol predeterminado guardado",
+      "defaultRoleFailed": "No se pudo guardar el rol predeterminado",
+      "defaultRoleShort": "Rol predeterminado"
     },
     "organizationName": "Nombre de la organización",
     "organizationIcon": "Icono de la organización",

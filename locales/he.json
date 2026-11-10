@@ -2960,7 +2960,11 @@
       "attributesInviteHint": "אופציונלי. מזהה את החבר במערכות אחרות, למשל משתמש ה-Qlik או תפקיד מסד הנתונים שלו.",
       "attributesSaved": "המאפיינים נשמרו",
       "attributesSaveFailed": "שמירת המאפיינים נכשלה",
-      "importAttributesHint": "הוסיפו עמודות {column} כדי להגדיר מאפיינים, למשל {example}. תא ריק משאיר את המאפיין ללא שינוי."
+      "importAttributesHint": "הוסיפו עמודות {column} כדי להגדיר מאפיינים, למשל {example}. תא ריק משאיר את המאפיין ללא שינוי.",
+      "defaultRoleHint": "קובע מראש את התפקיד בעת הוספה או הזמנה של חבר.",
+      "defaultRoleSaved": "תפקיד ברירת המחדל נשמר",
+      "defaultRoleFailed": "שמירת תפקיד ברירת המחדל נכשלה",
+      "defaultRoleShort": "תפקיד ברירת מחדל"
     },
     "organizationName": "שם הארגון",
     "organizationIcon": "אייקון הארגון",

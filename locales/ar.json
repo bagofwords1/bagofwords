@@ -2714,7 +2714,11 @@
       "attributesInviteHint": "اختياري. يعرّف هذا العضو في أنظمة أخرى، مثل مستخدم Qlik أو دور قاعدة البيانات.",
       "attributesSaved": "تم حفظ السمات",
       "attributesSaveFailed": "تعذّر حفظ السمات",
-      "importAttributesHint": "أضف أعمدة {column} لتعيين السمات، مثل {example}. الخلية الفارغة تترك السمة دون تغيير."
+      "importAttributesHint": "أضف أعمدة {column} لتعيين السمات، مثل {example}. الخلية الفارغة تترك السمة دون تغيير.",
+      "defaultRoleHint": "يملأ الدور مسبقًا عند إضافة عضو أو دعوته.",
+      "defaultRoleSaved": "تم حفظ الدور الافتراضي",
+      "defaultRoleFailed": "تعذر حفظ الدور الافتراضي",
+      "defaultRoleShort": "الدور الافتراضي"
     },
     "organizationName": "اسم المؤسسة",
     "organizationIcon": "أيقونة المؤسسة",

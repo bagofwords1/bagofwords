@@ -359,6 +359,15 @@ class OrganizationService:
         Only org bootstrap (the creator becoming the first admin, before any
         membership exists to resolve) passes ``False``.
         """
+        # Resolve the org-wide default when the caller didn't pick a role
+        # explicitly (the "Add member" modal pre-fills from here; an API caller
+        # that omits role gets the org default). Falls back to "member".
+        if not (membership_data.role or "").strip():
+            from app.services.organization_settings_service import resolve_default_member_role
+            membership_data.role = await resolve_default_member_role(
+                db, str(membership_data.organization_id)
+            )
+
         if enforce_role_guard:
             await self._assert_can_invite_with_role(
                 db, str(membership_data.organization_id), current_user, membership_data.role or "member"
