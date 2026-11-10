@@ -1,14 +1,14 @@
 <template>
   <div>
     <div v-if="connectRequired" class="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 rounded px-2 py-1.5">
-      {{ $t('agentsPage.fileBrowserConnectRequired') }}
+      {{ isMessages ? $t('agentsPage.fileBrowserConnectRequiredMessages') : $t('agentsPage.fileBrowserConnectRequired') }}
     </div>
     <template v-else>
       <div ref="toolbarEl" class="flex items-center gap-2 mb-2">
         <nav class="flex items-center gap-0.5 min-w-0 flex-1 text-xs overflow-x-auto">
           <button type="button" class="shrink-0 px-1 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800"
                   :class="segments.length ? 'text-gray-500 dark:text-gray-400' : 'font-medium text-gray-800 dark:text-gray-200'"
-                  @click="goTo([])">{{ $t('agentsPage.fileBrowserRoot') }}</button>
+                  @click="goTo([])">{{ isMessages ? $t('agentsPage.fileBrowserRootMessages') : $t('agentsPage.fileBrowserRoot') }}</button>
           <template v-for="(seg, i) in segments" :key="i">
             <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 shrink-0 text-gray-300 dark:text-gray-600 rtl:rotate-180" />
             <button type="button" class="shrink-0 max-w-[160px] truncate px-1 py-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800"
@@ -34,7 +34,7 @@
         <template v-else>
         <div class="relative w-44 shrink-0">
           <UIcon name="i-heroicons-magnifying-glass" class="absolute start-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-muted pointer-events-none" />
-          <input v-model="query" type="search" :placeholder="$t('agentsPage.fileBrowserSearch')"
+          <input v-model="query" type="search" :placeholder="isMessages ? $t('agentsPage.fileBrowserSearchMessages') : $t('agentsPage.fileBrowserSearch')"
                  class="w-full h-7 ps-7 pe-2 text-xs rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
         <button type="button" :disabled="loading" :title="$t('agentsPage.fileBrowserRefresh')"
@@ -49,7 +49,7 @@
            take a while; say so rather than render an empty browser. -->
       <ConnectionFilePreview v-if="opened" :key="opened.id" :ds-id="dsId" :connection-id="connectionId" :file="opened" @ready="revealPreview" />
       <div v-else-if="loading && !loaded" class="text-xs text-ink-muted py-2 flex items-center gap-1.5">
-        <UIcon name="i-heroicons-arrow-path" class="w-3 h-3 animate-spin" />{{ $t('agentsPage.loadingFiles') }}
+        <UIcon name="i-heroicons-arrow-path" class="w-3 h-3 animate-spin" />{{ isMessages ? $t('agentsPage.loadingMessages') : $t('agentsPage.loadingFiles') }}
       </div>
       <div v-else-if="error !== null" class="text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 rounded px-2 py-1.5 flex items-start justify-between gap-2">
         <span class="min-w-0 break-words">{{ $t('agentsPage.fileBrowserError') }} {{ error }}</span>
@@ -61,9 +61,9 @@
             <button v-for="d in contents.folders" :key="'d:' + d.name" type="button"
                     class="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-start hover:bg-gray-50 dark:hover:bg-gray-800/60"
                     @click="goTo(d.segments)">
-              <UIcon name="i-heroicons-folder" class="w-3.5 h-3.5 shrink-0 text-amber-500" />
-              <span class="flex-1 min-w-0 truncate text-gray-800 dark:text-gray-200">{{ d.name }}</span>
-              <span class="shrink-0 text-ink-muted">{{ $t('agentsPage.countFiles', { n: d.fileCount }, d.fileCount) }}</span>
+              <UIcon :name="isMessages ? 'i-heroicons-chat-bubble-left-right' : 'i-heroicons-folder'" class="w-3.5 h-3.5 shrink-0" :class="isMessages ? 'text-indigo-500' : 'text-amber-500'" />
+              <span class="flex-1 min-w-0 truncate text-gray-800 dark:text-gray-200"><bdi>{{ d.name }}</bdi></span>
+              <span class="shrink-0 text-ink-muted">{{ isMessages ? $t('agentsPage.countMessages', { n: d.fileCount }, d.fileCount) : $t('agentsPage.countFiles', { n: d.fileCount }, d.fileCount) }}</span>
               <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 shrink-0 text-gray-300 dark:text-gray-600 rtl:rotate-180" />
             </button>
           </template>
@@ -73,7 +73,7 @@
                class="group flex items-center gap-2 px-2.5 py-1.5 text-xs"
                :class="previewSupported && 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 focus:outline-none focus-visible:bg-gray-50 dark:focus-visible:bg-gray-800/60'"
                @click="previewSupported && openPreview(f)" @keydown.enter="previewSupported && openPreview(f)">
-            <UIcon :name="fileIcon(f.mime_type, fileName(f))" class="w-3.5 h-3.5 shrink-0 text-ink-muted" />
+            <UIcon :name="isMessages ? 'i-heroicons-chat-bubble-bottom-center-text' : fileIcon(f.mime_type, fileName(f))" class="w-3.5 h-3.5 shrink-0 text-ink-muted" />
             <div class="flex-1 min-w-0">
               <!-- <bdi>: a file name or "4.1 KB" keeps its own direction on an RTL page. -->
               <div class="truncate text-gray-700 dark:text-gray-300" :title="fullPath(f)"><bdi>{{ fileName(f) }}</bdi></div>
@@ -82,7 +82,7 @@
                       class="block max-w-full truncate text-2xs text-ink-muted hover:text-blue-600 dark:hover:text-blue-400"
                       @click.stop="goTo(parentOf(f))" @keydown.enter.stop>{{ parentOf(f).join(' / ') }}</button>
             </div>
-            <span class="shrink-0 w-16 text-end tabular-nums text-ink-muted"><bdi>{{ formatBytes(f.size) }}</bdi></span>
+            <span v-if="!isMessages" class="shrink-0 w-16 text-end tabular-nums text-ink-muted"><bdi>{{ formatBytes(f.size) }}</bdi></span>
             <span class="shrink-0 w-24 text-end text-ink-muted hidden sm:inline">{{ formatDate(f.modified_at) }}</span>
             <a v-if="isWebUrl(f.web_url)" :href="f.web_url" target="_blank" rel="noopener noreferrer" :title="$t('agentsPage.fileBrowserOpenInSource')"
                class="shrink-0 text-gray-300 dark:text-gray-600 hover:text-blue-600 dark:hover:text-blue-400 opacity-0 group-hover:opacity-100 focus:opacity-100"
@@ -92,14 +92,14 @@
             <span v-else class="shrink-0 w-3.5" />
           </div>
           <div v-if="searching && results.length === 0" class="px-2.5 py-3 text-xs text-ink-muted italic">
-            {{ $t('agentsPage.fileBrowserNoResults', { q: query.trim() }) }}
+            {{ isMessages ? $t('agentsPage.fileBrowserNoResultsMessages', { q: query.trim() }) : $t('agentsPage.fileBrowserNoResults', { q: query.trim() }) }}
           </div>
           <div v-else-if="files.length === 0" class="px-2.5 py-3 text-xs text-ink-muted italic">
-            {{ $t('agentsPage.fileBrowserEmpty') }}
+            {{ isMessages ? $t('agentsPage.fileBrowserEmptyMessages') : $t('agentsPage.fileBrowserEmpty') }}
           </div>
         </div>
         <div class="mt-1.5 text-2xs text-ink-muted">
-          {{ $t(connectionType === 'kms_lighthouse' ? 'agentsPage.fileBrowserSummaryKms' : 'agentsPage.fileBrowserSummary', { n: total }) }}
+          {{ connectionType === 'kms_lighthouse' ? $t('agentsPage.fileBrowserSummaryKms', { n: total }) : live ? $t('agentsPage.fileBrowserSummaryLive', { n: total }) : $t('agentsPage.fileBrowserSummary', { n: total }) }}
         </div>
         <div v-if="total > files.length" class="mt-1 text-2xs text-amber-700 dark:text-amber-300">
           {{ $t('agentsPage.fileBrowserTruncated', { shown: files.length, total }) }}
@@ -130,6 +130,16 @@ const loaded = ref(false)
 const error = ref<string | null>(null)
 const connectRequired = ref(false)
 const previewSupported = ref(true)
+// The connector's own nouns (Outlook / Gmail / Teams list "messages") and
+// whether it is read live per user with nothing stored. Known from the type
+// before the first response so the loading line is already worded right.
+const MESSAGE_TYPES = ['outlook_mail', 'gmail_mail', 'teams_messages']
+const nouns = ref<string[] | null>(null)
+const liveFromServer = ref<boolean | null>(null)
+const isMessages = computed(() =>
+  nouns.value ? nouns.value[1] === 'messages' : MESSAGE_TYPES.includes(props.connectionType || ''))
+const live = computed(() =>
+  liveFromServer.value ?? MESSAGE_TYPES.includes(props.connectionType || ''))
 const segments = ref<string[]>([])
 const query = ref('')
 const opened = ref<BrowseFile | null>(null)
@@ -139,7 +149,12 @@ const current = computed(() => folderAt(tree.value, segments.value) || tree.valu
 const contents = computed(() => folderContents(current.value))
 const searching = computed(() => query.value.trim().length > 0)
 const results = computed(() => searchFiles(files.value, query.value))
-const shownFiles = computed(() => (searching.value ? results.value : contents.value.files))
+// Messages read as a conversation — newest first — not alphabetically like files.
+const byNewest = (list: BrowseFile[]) => [...list].sort((a: any, b: any) => String(b.modified_at || '').localeCompare(String(a.modified_at || '')))
+const shownFiles = computed(() => {
+  const list = searching.value ? results.value : contents.value.files
+  return isMessages.value ? byNewest(list) : list
+})
 
 const fullPath = (f: BrowseFile) => pathSegments(f).join('/')
 const parentOf = (f: BrowseFile) => pathSegments(f).slice(0, -1)
@@ -200,6 +215,8 @@ async function load() {
     const d: any = res.data.value || {}
     connectRequired.value = !!d.connect_required
     previewSupported.value = d.preview_supported !== false
+    nouns.value = Array.isArray(d.catalog_nouns) && d.catalog_nouns.length === 2 ? d.catalog_nouns : null
+    liveFromServer.value = typeof d.live === 'boolean' ? d.live : null
     files.value = d.files || []
     total.value = d.total ?? files.value.length
     loaded.value = true

@@ -236,7 +236,7 @@ const connectionAsDataSource = computed(() =>
 // the SQL-flavored enterprise sections (auto-reindex, rate limit). Distinct
 // from data_shape: OneDrive is files-shaped but still integration-managed.
 const _INTEGRATION_TYPES = [
-  'mcp', 'custom_api', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail',
+  'mcp', 'custom_api', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail', 'teams_messages',
 ]
 const isIntegrationManaged = computed(() => _INTEGRATION_TYPES.includes(props.connection?.type))
 

@@ -1037,7 +1037,7 @@ class SchemaContextBuilder:
         "sharepoint_onprem",
         "documentum",
         "network_dir", "s3", "sharepoint", "onedrive", "google_drive",
-        "outlook_mail", "gmail_mail", "onenote",
+        "outlook_mail", "gmail_mail", "onenote", "teams_messages",
         "github_repo", "gitlab_repo", "bitbucket_repo",
         "kms_lighthouse",
     }
@@ -1050,10 +1050,12 @@ class SchemaContextBuilder:
         # over paging the whole catalog.
         "onenote",
         "kms_lighthouse",
+        # Teams: Microsoft Search over chatMessage, as the signed-in user.
+        "teams_messages",
     }
     # Token-scoped sources: no admin-side path/glob boundary — the user's OAuth
     # account IS the scope. Everything else enforces a path/glob scope.
-    _TOKEN_SCOPED_TYPES = {"onedrive", "google_drive", "outlook_mail", "gmail_mail"}
+    _TOKEN_SCOPED_TYPES = {"onedrive", "google_drive", "outlook_mail", "gmail_mail", "teams_messages"}
 
     async def _stamp_index_times(self, file_scopes) -> None:
         """Attach each file scope's last completed shared index time, so the

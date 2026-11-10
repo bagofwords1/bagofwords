@@ -443,7 +443,7 @@ const showCustomApiEditModal = ref(false)
 const showIntegrationEditModal = ref(false)
 // Integration-managed types whose config is NOT the SQL-flavored ConnectForm
 // shape. Same routing as ConnectionDetailModal.openEdit.
-const _INTEGRATION_TYPES = ['onedrive', 'google_drive', 'outlook_mail', 'gmail_mail']
+const _INTEGRATION_TYPES = ['onedrive', 'google_drive', 'outlook_mail', 'gmail_mail', 'teams_messages']
 async function openEditModal(conn: any) {
     editingConnection.value = conn
     editingDetails.value = null

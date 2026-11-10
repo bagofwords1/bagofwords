@@ -179,6 +179,7 @@ from app.schemas.data_sources.configs import (
     OneNoteConfig,
     OneNoteCredentials,
     OutlookMailConfig,
+    TeamsMessagesConfig,
     GoogleDriveConfig,
     GoogleDriveCredentials,
     GoogleDriveServiceAccountCredentials,
@@ -2231,6 +2232,36 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         # Messages reuse the existing file-payload transport internally, while
         # capability gating exposes the mail-named agent tools.
         client_path="app.data_sources.clients.graph_mail_client.GraphMailClient",
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="per_user",
+        ui_form="integration",
+        catalog_nouns=("message", "messages"),
+    ),
+    "teams_messages": DataSourceRegistryEntry(
+        type="teams_messages",
+        category="services",
+        title="Microsoft Teams",
+        description="Search and read Microsoft Teams channel conversations and chats, live, with each user's own access — nothing is copied or indexed.",
+        config_schema=TeamsMessagesConfig,
+        credentials_auth=AuthOptions(
+            default="service_principal",
+            by_auth={
+                "service_principal": AuthVariant(
+                    title="Entra ID App (Service Principal)",
+                    schema=OneDriveCredentials,
+                    scopes=["system", "user"],
+                ),
+                "oauth": AuthVariant(
+                    title="Sign in with Microsoft",
+                    schema=OAuthDelegatedCredentials,
+                    scopes=["user"],
+                ),
+            },
+        ),
+        # Messages reuse the file-payload transport internally (like Outlook);
+        # capability gating exposes the chat-named agent tools instead.
+        client_path="app.data_sources.clients.graph_teams_client.GraphTeamsClient",
         is_document_based=True,
         data_shape="files",
         catalog_ownership="per_user",

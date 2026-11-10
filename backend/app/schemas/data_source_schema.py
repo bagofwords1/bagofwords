@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Literal
 
 
 from app.schemas.agent_icon import (
@@ -293,6 +293,8 @@ class DataSourceSchema(DataSourceBase, AgentIconTokenMixin):
     conversation_starters: Optional[list] = None
     is_active: bool
     is_public: bool = False
+    # Stored agent/connector choice; None = derived from the connections.
+    kind: Optional[str] = None
     # Manager-set publishing lifecycle: "published" | "draft" | "disabled".
     # Distinct from is_active (connection health).
     publish_status: str = "published"
@@ -367,9 +369,15 @@ class DataSourceListItemSchema(AgentIconTokenMixin):
     # glance that a tool call read a cached relation rather than the source.
     cached_tables: List[str] = []
 
-    # True when every connection is a tool provider (mcp/custom_api, i.e.
-    # data_shape="tools"). Lets /agents surface these as "connectors" — a
-    # lightweight, often private, tools-only data source — vs analytical agents.
+    # "agent" | "connector" (app/services/data_source_kind.py): the explicit
+    # admin/create-flow choice, else derived from the connection types.
+    # Connectors are each person's own accounts/tools (Gmail, Outlook, Teams,
+    # personal Drive, MCP presets) — listed in the prompt box's connectors menu,
+    # never in the agent picker.
+    kind: str = "agent"
+    # The stored value (None = derived) so settings can show "default".
+    kind_explicit: Optional[str] = None
+    # Kept for older clients: kind == "connector".
     is_connector: bool = False
     # Catalog key for a known connector (e.g. "notion", "monday"), so the UI can
     # render the provider's icon instead of the generic MCP glyph. None otherwise.
@@ -398,6 +406,9 @@ class DataSourceCreate(DataSourceBase):
     2. Link to existing connection: Provide connection_id (single connection)
     3. Link to multiple connections: Provide connection_ids (array)
     """
+    # "agent" (New agent flow) or "connector" (the connector forms' "make
+    # available to everyone" checkbox). Omitted → derived from the connections.
+    kind: Optional[Literal["agent", "connector"]] = None
     # Option 1: Connection-related fields (will be used to create Connection)
     type: Optional[str] = None  # Connection type: e.g., "postgresql", "bigquery", "netsuite"
     config: Optional[dict] = None  # Connection config, will be validated based on the type
@@ -464,6 +475,8 @@ class DataSourceCreate(DataSourceBase):
 class DataSourceUpdate(DataSourceBase):
     """Schema for updating a DataSource (Domain). Connection updates are delegated to Connection."""
     name: Optional[str] = None
+    # "agent" | "connector" to set explicitly, "auto" to go back to the derived default.
+    kind: Optional[Literal["agent", "connector", "auto"]] = None
     description: Optional[str] = None
     summary: Optional[str] = None
     context: Optional[str] = None
