@@ -1614,6 +1614,7 @@
       "toggleQueries": "שאילתות",
       "toggleFullCode": "קוד מלא",
       "sentRequest": "נשלח בפועל למקור הנתונים",
+      "sourceQueryId": "מזהה השאילתה במקור הנתונים",
       "attempts": "ניסיונות ({count})",
       "addToSpreadsheet": "הוסף לגיליון",
       "addToSpreadsheetTitle": "הוסף נתונים לגיליון Excel",

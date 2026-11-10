@@ -7,6 +7,7 @@ from typing import Any, List, Optional
 
 from app.data_sources.clients.progress import CancelCheck, ProgressCallback
 from app.data_sources.clients.discovery import DiscoveryClient, require_complete_discovery
+from app.data_sources.query_tag import query_tag_defaults
 
 
 class Capability(str, Enum):
@@ -184,7 +185,9 @@ class DataSourceClient(DiscoveryClient, ABC):
             with ephemeral():
                 return self.test_connection()
 
-        return await asyncio.to_thread(_probe)
+        # Warehouse query tag (app/data_sources/query_tag.py): a health probe.
+        with query_tag_defaults(source="connection_test"):
+            return await asyncio.to_thread(_probe)
 
     async def aget_schemas(
         self,
@@ -217,7 +220,9 @@ class DataSourceClient(DiscoveryClient, ABC):
             kwargs["prior_catalog"] = prior_catalog
         if prior_tables and _accepts_kwarg(self.get_schemas, "prior_tables"):
             kwargs["prior_tables"] = prior_tables
-        result = await asyncio.to_thread(self.get_schemas, **kwargs)
+        # Warehouse query tag (app/data_sources/query_tag.py): catalog reads.
+        with query_tag_defaults(source="indexing"):
+            result = await asyncio.to_thread(self.get_schemas, **kwargs)
         return require_complete_discovery(self, result)
 
     async def aget_schema(self, table_name):

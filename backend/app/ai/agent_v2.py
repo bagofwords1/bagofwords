@@ -499,6 +499,7 @@ from app.services.instruction_usage_service import InstructionUsageService
 from app.ai.llm.types import ImageInput
 from app.ai.llm.image_utils import normalize_image_input
 from app.ai.llm.usage_attribution import set_usage_attribution, reset_usage_attribution, get_usage_attribution
+from app.data_sources.query_tag import set_query_tag_scope, reset_query_tag_scope
 from app.ai.agents.planner.run_efficiency import RunEfficiency, enabled as run_efficiency_enabled
 from app.ai.llm.header_injection import (
     QuestionAgents,
@@ -4926,6 +4927,14 @@ class AgentV2:
                 "baseline_model_id": str(_attr_baseline) if _attr_baseline else None,
             }
         )
+        # Tag the warehouse queries this run sends (Snowflake QUERY_TAG, see
+        # app/data_sources/query_tag.py) with the run's reply completion, so a
+        # warehouse admin can find this exact turn. Org/user/report/run id come
+        # from the usage attribution above.
+        _query_tag_token = set_query_tag_scope(
+            source="agent_eval" if getattr(self, "is_eval_run", False) else "agent",
+            completion_id=str(self.system_completion_id) if self.system_completion_id else None,
+        )
         # Stamp the caller's identity for LLM header injection: providers with
         # header_injection rules (additional_config) resolve user.email /
         # membership.attr:* against this when their clients are constructed, so
@@ -8177,6 +8186,7 @@ class AgentV2:
                 logger.debug("Browser execution cleanup failed", exc_info=True)
             # Drop the ambient LLM usage attribution set at run start.
             reset_usage_attribution(_attribution_token)
+            reset_query_tag_scope(_query_tag_token)
             if _identity_token is not None:
                 reset_llm_identity(_identity_token)
             # Single-writer mode: drop the self._writes alias. self.db's

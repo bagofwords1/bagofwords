@@ -434,7 +434,12 @@ import { computed, ref, watch, defineAsyncComponent, inject, onMounted, onUnmoun
 import { useRoute } from 'vue-router'
 import { useMyFetch } from '~/composables/useMyFetch'
 import { cardHydrationRequest, deriveViewerRun } from '~/utils/viewerRunHydration'
-import { withSentRequests, withSentRequestsAppended } from '~/utils/sentRequests'
+import {
+  withSentRequests,
+  withSentRequestsAppended,
+  withSourceQueryIds,
+  withSourceQueryIdsAppended,
+} from '~/utils/sentRequests'
 import RenderVisual from '../RenderVisual.vue'
 import RenderTable from '../RenderTable.vue'
 import Spinner from '../Spinner.vue'
@@ -1174,18 +1179,28 @@ const displayedCode = computed(() => {
   if (showFullCode.value || !hasExecutedQueries.value) {
     // The request actually sent, when the connector rewrote the query, follows
     // the code as a comment (the editor is read-only; Edit uses step.code).
-    return withSentRequestsAppended(
-      effectiveStep.value?.code || '',
+    // The source's own query ids follow as one more comment block.
+    return withSourceQueryIdsAppended(
+      withSentRequestsAppended(
+        effectiveStep.value?.code || '',
+        queryTimings.value,
+        t('tools.widgetPreview.sentRequest'),
+      ),
       queryTimings.value,
-      t('tools.widgetPreview.sentRequest'),
+      t('tools.widgetPreview.sourceQueryId'),
     )
   }
   // Each executed query, followed by the request actually sent when the
   // connector rewrote it, separated by blank lines.
-  return withSentRequests(
-    executedQueries.value,
+  // Then the source's own id for the query, when it reported one.
+  return withSourceQueryIds(
+    withSentRequests(
+      executedQueries.value,
+      queryTimings.value,
+      t('tools.widgetPreview.sentRequest'),
+    ),
     queryTimings.value,
-    t('tools.widgetPreview.sentRequest'),
+    t('tools.widgetPreview.sourceQueryId'),
   ).join('\n\n')
 })
 

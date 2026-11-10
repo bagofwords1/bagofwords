@@ -1543,6 +1543,7 @@
       "toggleQueries": "Frågor",
       "toggleFullCode": "Fullständig kod",
       "sentRequest": "Skickat till datakällan",
+      "sourceQueryId": "Fråge-ID i datakällan",
       "attempts": "Försök ({count})",
       "addToSpreadsheet": "Lägg till i kalkylblad",
       "addToSpreadsheetTitle": "Lägg till data i Excel-kalkylblad",

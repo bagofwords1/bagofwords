@@ -1543,6 +1543,7 @@
       "toggleQueries": "Запросы",
       "toggleFullCode": "Полный код",
       "sentRequest": "Отправлено в источник данных",
+      "sourceQueryId": "ID запроса в источнике данных",
       "attempts": "Попытки ({count})",
       "addToSpreadsheet": "Добавить в таблицу",
       "addToSpreadsheetTitle": "Добавить данные в таблицу Excel",

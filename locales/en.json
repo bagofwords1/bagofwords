@@ -1712,6 +1712,7 @@
       "toggleQueries": "Queries",
       "toggleFullCode": "Full Code",
       "sentRequest": "Sent to the data source",
+      "sourceQueryId": "Query ID in the data source",
       "attempts": "Attempts ({count})",
       "addToSpreadsheet": "Add to Spreadsheet",
       "addToSpreadsheetTitle": "Add data to Excel spreadsheet",
