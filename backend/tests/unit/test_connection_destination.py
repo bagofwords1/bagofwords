@@ -169,6 +169,25 @@ def test_credential_fields_that_choose_the_identity_or_tenant_count(key):
     assert destination_view("postgresql", config, {key: "a"}) != destination_view("postgresql", config, {key: "b"})
 
 
+@pytest.mark.parametrize("conn_type,saved,changed", [
+    ("postgresql", {"host": "h", "include_system_schemas": False}, {"include_system_schemas": True}),
+    ("kms_lighthouse", {"base_url": "https://kms.example.com"}, {"include_offline": True}),
+    ("kms_lighthouse", {"base_url": "https://kms.example.com"}, {"layout_id": 7}),
+    ("kms_lighthouse", {"base_url": "https://kms.example.com"}, {"root_folder_id": 12}),
+    ("kms_lighthouse", {"base_url": "https://kms.example.com"}, {"max_results": 50}),
+    ("snowflake", {"account": "a"}, {"query_tag_enabled": False}),
+    ("snowflake", {"account": "a"}, {"query_tag_label": "finance team"}),
+    ("documentum", {"rest_url": "https://dctm.example.com/rest"}, {"root_path": "/Finance"}),
+])
+def test_catalog_filters_and_tags_are_not_a_destination_change(conn_type, saved, changed):
+    assert _same(conn_type, saved, {**saved, **changed})
+
+
+def test_the_kms_api_prefix_stays_a_destination():
+    saved = {"base_url": "https://kms.example.com"}
+    assert not _same("kms_lighthouse", saved, {**saved, "api_prefix": ".other.example.com/x"})
+
+
 def test_port_default_comes_from_the_client():
     assert _same("trino", {"host": "h"}, {"host": "h", "port": 443})
     assert not _same("trino", {"host": "h"}, {"host": "h", "port": 8080})

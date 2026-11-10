@@ -202,12 +202,88 @@ class _RecordingClient:
     async def atest_connection(self):
         return {"success": True, "message": "ok", "connectivity": True}
 
+    def test_connection(self):
+        return {"success": True, "message": "ok", "connectivity": True}
+
+    async def aget_schemas(self):
+        return [{"name": "t"}]
+
 
 @pytest.fixture
 def recording_client(monkeypatch):
+    """Stands in for the connector client: the save-time validation (which
+    resolves through the registry) and the runtime build both record what they
+    were handed."""
     _RecordingClient.received = []
     monkeypatch.setattr("app.services.connection_service.resolve_client_class", lambda _type: _RecordingClient)
+    monkeypatch.setattr("app.schemas.data_source_registry.resolve_client_class", lambda _type: _RecordingClient)
     return _RecordingClient
+
+
+def _stored_credentials(connection_id):
+    # Direct DB read: no route returns stored secrets, and the point is what is kept.
+    async def _read():
+        async with async_session_maker() as db:
+            return (await db.get(Connection, connection_id)).decrypt_credentials() or {}
+    return asyncio.run(_read())
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("body_credentials", ["omitted", "empty"])
+def test_switching_auth_method_without_credentials_drops_the_old_secret(
+    test_client, world, every_connector_allowed, recording_client, body_credentials,
+):
+    conn = _stored(test_client, world, "druid", "token", extra_config={"host": "druid.example.com", "port": 8082})
+    assert "token" in _stored_credentials(conn["id"])
+    body = {"config": {**_saved(test_client, world, conn["id"])["config"], "auth_type": "userpass"}}
+    if body_credentials == "empty":
+        body["credentials"] = {}
+    saved = _put(test_client, world, body, conn_id=conn["id"])
+    assert saved.status_code == 200, saved.text
+    assert "token" not in _stored_credentials(conn["id"])
+
+    recording_client.received.clear()
+    r = _test(test_client, world, {}, conn_id=conn["id"])
+    assert r.status_code == 200, r.text
+    assert recording_client.received and "token" not in recording_client.received[-1]
+
+
+def _switch_cases_without_required_secrets():
+    """Connectors whose other auth method needs no secret typed, so a save can switch with none."""
+    cases = []
+    for conn_type in sorted(REGISTRY):
+        by_auth = REGISTRY[conn_type].credentials_auth.by_auth
+        variants = _secret_variants(conn_type)
+        for target in variants:
+            fields = by_auth[target].schema.model_fields
+            # aws_role runs as the server's identity, so it stays admin-only.
+            if target in ADMIN_ONLY_VARIANTS + ["aws_role"] or any(
+                fields[n].is_required() for n in secret_field_names(conn_type, target)
+            ):
+                continue
+            saved = next((v for v in variants if v != target), None)
+            if saved:
+                cases.append((conn_type, saved, target))
+                break
+    return cases
+
+
+@pytest.mark.e2e
+def test_every_switch_that_needs_no_new_secret_keeps_only_the_new_method_fields(
+    test_client, world, every_connector_allowed, recording_client,
+):
+    cases = _switch_cases_without_required_secrets()
+    assert cases, "the registry has auth methods whose secrets are optional"
+    failures = []
+    for conn_type, saved_auth, target in cases:
+        conn = _stored(test_client, world, conn_type, saved_auth)
+        config = {**_saved(test_client, world, conn["id"])["config"], "auth_type": target}
+        r = _put(test_client, world, {"config": config}, conn_id=conn["id"])
+        declared = set(REGISTRY[conn_type].credentials_auth.by_auth[target].schema.model_fields)
+        left = set(_stored_credentials(conn["id"])) - declared
+        if r.status_code != 200 or left:
+            failures.append(f"{conn_type} {saved_auth}->{target}: {r.status_code} kept {sorted(left)}")
+    assert not failures, failures
 
 
 PROM_URL = "https://prom.example.com"
@@ -319,6 +395,16 @@ def test_config_fields_that_choose_the_identity_or_tenant_are_refused(test_clien
     with _skip_network():
         r = _test(test_client, world, {"config": change}, conn_id=conn["id"])
     assert r.status_code == 403, r.text
+
+
+# ── Catalog toggles stay with the grant holder ───────────────────────────
+
+@pytest.mark.e2e
+def test_indexing_system_schemas_is_not_a_destination_change(test_client, world, driver):
+    saved = _saved(test_client, world)["config"]
+    r = _put(test_client, world, {"config": {**saved, "include_system_schemas": True}})
+    assert r.status_code == 200, r.text
+    assert _saved(test_client, world)["config"]["include_system_schemas"] is True
 
 
 # ── Secret fields hold text: a client treats anything falsy as absent ────
@@ -462,15 +548,42 @@ def test_an_older_personal_row_cannot_move_the_connection(test_client, world, dr
     assert all(d["host"] == SAVED_HOST for d in driver), driver
 
 
+@pytest.fixture
+def api_requests(monkeypatch):
+    """Requests the Custom API client sent while testing reachability; only the HTTP edge is stubbed."""
+    calls = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        calls.append({"host": request.url.host, "authorization": request.headers.get("authorization")})
+        return httpx.Response(200)
+
+    def fake_pinned_client(policy=None, **kwargs):
+        return httpx.Client(transport=httpx.MockTransport(respond), timeout=kwargs.get("timeout"))
+
+    monkeypatch.setattr("app.data_sources.clients.custom_api_client.pinned_client", fake_pinned_client)
+    return calls
+
+
 @pytest.mark.e2e
-def test_changing_the_host_with_every_stored_secret_reentered_saves(test_client, world, every_connector_allowed):
-    conn = _stored(test_client, world, "prometheus", "bearer", extra_config={"base_url": "https://prom.example.com"})
-    with _skip_network():
-        r = _put(test_client, world, {
-            "config": {"base_url": "https://other.example.com", "auth_type": "bearer"},
-            "credentials": {"token": "typed-token"},
-        }, conn_id=conn["id"])
+def test_changing_the_host_with_every_stored_secret_reentered_saves(test_client, world, api_requests):
+    created = test_client.post("/api/connections", headers=world["ah"], json={
+        "name": f"api-{uuid.uuid4().hex[:6]}", "type": "custom_api",
+        "config": {"base_url": "https://api.example.com", "auth_type": "bearer", "endpoints": []},
+        "credentials": {"token": "stored-token"}, "auth_policy": "system_only",
+    })
+    assert created.status_code == 200, created.text
+    conn = world["grant"](created.json())
+    api_requests.clear()
+
+    r = _put(test_client, world, {
+        "config": {"base_url": "https://other.example.com", "auth_type": "bearer", "endpoints": []},
+        "credentials": {"token": "typed-token"},
+    }, conn_id=conn["id"])
     assert r.status_code == 200, r.text
+    assert _saved(test_client, world, conn["id"])["config"]["base_url"] == "https://other.example.com"
+    # The save validated the new host with the typed secret, and the stored one never went there.
+    assert {"host": "other.example.com", "authorization": "Bearer typed-token"} in api_requests
+    assert not any(c["authorization"] == "Bearer stored-token" for c in api_requests)
 
 
 # ── Fields that select the server's own identity ─────────────────────────

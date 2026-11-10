@@ -57,7 +57,13 @@ NON_DESTINATION_CONFIG_KEYS = frozenset({
     "discovery_window_hours", "enable_attachments", "enable_shell", "encoding", "endpoints",
     "graph_depth", "has_header", "header_injection", "headers", "history_window_days", "icon",
     "include_advanced", "include_globs", "include_hidden", "include_tags", "include_v1",
-    "index_content", "index_mode", "index_routines", "infer_schema_from_data", "inspection_mode",
+    "index_content", "index_mode", "index_routines", "include_system_schemas", "infer_schema_from_data", "inspection_mode",
+    # Catalog filters and query tags, checked in their clients: none of them
+    # reaches a host, port or URL (KMS ids and limits parse as integers, the
+    # Snowflake label is restricted to a plain character set, the Documentum
+    # root is a quoted DQL literal).
+    "include_offline", "layout_id", "root_folder_id", "max_results",
+    "query_tag_enabled", "query_tag_label", "root_path",
     "linux_shell", "log_tail_default", "log_tail_max", "max_aggregation_buckets",
     "max_aggregation_depth", "max_aggregations", "max_calls_per_minute", "max_catalog_objects",
     "max_concurrency", "max_crd_tables", "max_file_mb", "max_file_size_mb", "max_items",

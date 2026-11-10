@@ -922,20 +922,22 @@ class ConnectionService:
                     merged.pop(key, None)
             connection.config = json.dumps(merged)
 
-        if "credentials" in updates:
-            new_credentials = updates.pop("credentials")
-            if new_credentials:
-                # Credential edits are partial updates, like test overrides:
-                # omitted/blank values keep the saved value. Never replace the
-                # entire blob when rotating a single secret or identifier.
-                existing = connection.decrypt_credentials() or {}
-                changes = {k: v for k, v in new_credentials.items() if v is not None and v != ""}
-                if credentials_for_auth_switch is not None:
-                    connection.encrypt_credentials(credentials_for_auth_switch)
-                    connection_changed = True
-                elif changes:
-                    connection.encrypt_credentials({**existing, **changes})
-                    connection_changed = True
+        new_credentials = updates.pop("credentials", None)
+        if credentials_for_auth_switch is not None:
+            # A change of auth method keeps only the new method's fields, with or
+            # without credentials in the request: a client that prefers whichever
+            # credential it finds must not pick up the previous method's secret.
+            connection.encrypt_credentials(credentials_for_auth_switch)
+            connection_changed = True
+        elif new_credentials:
+            # Credential edits are partial updates, like test overrides:
+            # omitted/blank values keep the saved value. Never replace the
+            # entire blob when rotating a single secret or identifier.
+            existing = connection.decrypt_credentials() or {}
+            changes = {k: v for k, v in new_credentials.items() if v is not None and v != ""}
+            if changes:
+                connection.encrypt_credentials({**existing, **changes})
+                connection_changed = True
 
         if connection_changed:
             # Drop pooled engines for the PREVIOUS config while it is still on
