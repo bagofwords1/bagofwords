@@ -993,3 +993,93 @@ async def test_earlier_feedback_survives_a_summarizer_that_returns_a_subset(db, 
     rendered = render_summary_for_prompt((await _state(db, report.id)).summary_json)
     assert "REJECTION_A: do not exclude refunds" in rendered
     assert "REJECTION_B: do not drop cancelled orders" in rendered
+
+
+async def _add_child_rows(db, report, user, minute, goal="CHILD_GOAL internal sub-agent task"):
+    """A hidden sub-agent exchange on the parent report (trigger_source='sub_agent')."""
+    rows = []
+    for j, role in enumerate(("user", "system")):
+        c = Completion(
+            prompt={"content": goal if role == "user" else ""},
+            completion={"content": "child answer"} if role == "system" else {},
+            status="success", model="test", role=role, message_type="ai_completion",
+            report_id=str(report.id), user_id=str(user.id) if role == "user" else None,
+            trigger_source="sub_agent",
+        )
+        db.add(c)
+        await db.flush()
+        c.created_at = datetime(2026, 1, 1) + timedelta(minutes=minute, seconds=10 + j)
+        rows.append(c)
+    await db.commit()
+    return rows
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("llm_fails", [False, True])
+async def test_sub_agent_rows_never_count_as_parent_turns(db, llm_fails):
+    """keep-N, can_compact, the folded scope and the fallback's user asks must
+    see only the parent conversation — never hidden sub-agent completions."""
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, 20)
+    # Child exchanges interleaved inside the last parent exchanges.
+    for m in (15, 17, 18):
+        await _add_child_rows(db, report, user, minute=m)
+    llm_patch, instance = (_mock_llm(side_effect=RuntimeError("down")) if llm_fails else _mock_llm(SUMMARY))
+    with llm_patch:
+        result = await _svc().compact(db, report, org, _model(), mode="manual", force=True, keep=2)
+    assert result["status"] == "compacted"
+    # Exactly the parent rows minus the opening exchange and the last 2 parent exchanges.
+    assert result["compacted_turns"] == _manual_scope_size(20, 2)
+    if not llm_fails:
+        assert "CHILD_GOAL" not in instance.inference.call_args[0][0]
+    state = await _state(db, report.id)
+    assert "CHILD_GOAL" not in render_summary_for_prompt(state.summary_json)
+
+    # can_compact counts parent exchanges only: 2 parent exchanges left + many child rows.
+    ui = await ContextCompactionService.get_ui_state(db, str(report.id))
+    assert ui["can_compact"] is False
+
+
+@pytest.mark.asyncio
+async def test_first_state_creation_race_keeps_both_anchor_and_summary(db):
+    """The end-of-run anchor write can create the state row while a first
+    fold is summarizing; the fold must update that row, not fail on a second
+    INSERT."""
+    org, report, user = await _seed_report(db)
+    report_id = str(report.id)
+    await _add_turns(db, report, user, 20)
+    svc = _svc()
+    original = svc._summarize
+
+    async def _summarize_after_anchor_write(llm, prompt, timeout_s):
+        maker = async_sessionmaker(db.bind, class_=AsyncSession, expire_on_commit=False)
+        async with maker() as other:
+            await ContextCompactionService.record_prompt_anchor(other, report_id, 31_000, 22_000)
+        return await original(llm, prompt, timeout_s)
+
+    svc._summarize = _summarize_after_anchor_write
+    llm_patch, _ = _mock_llm(SUMMARY)
+    with llm_patch:
+        result = await svc.compact(db, report, org, _model(), mode="manual", force=True)
+    assert result["status"] == "compacted", result
+    state = await _state(db, report_id)
+    assert ContextCompactionService.anchor_offset(state) == 9_000
+    assert state.summary_json.get("goal") == SUMMARY["goal"]
+    assert state.covers_until_completion_id == result["covers_until_completion_id"]
+
+
+@pytest.mark.asyncio
+async def test_tightened_overflow_budget_lets_a_second_fold_make_progress(db):
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, 60)
+    llm_patch, _ = _mock_llm(SUMMARY)
+    with llm_patch:
+        first = await _svc().compact(db, report, org, _model(), mode="overflow", force=True,
+                                     budget_model=_model(20_000))
+        again = await _svc().compact(db, report, org, _model(), mode="overflow", force=True,
+                                     budget_model=_model(20_000))
+        tighter = await _svc().compact(db, report, org, _model(), mode="overflow", force=True,
+                                       budget_model=_model(20_000), budget_factor=0.2)
+    assert first["status"] == "compacted"
+    assert again["status"] == "nothing_to_compact"
+    assert tighter["status"] == "compacted" and tighter["compacted_turns"] > 0
