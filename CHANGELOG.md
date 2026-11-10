@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.614 (November 10, 2026)
+- Added Cisco ACI (APIC) as a read-only data source: fabric nodes, faults, events, audit log, interfaces, vPC, BGP/IS-IS/OSPF, endpoints, tenants, EPGs, contracts, firmware and health — certificate or username/password
+
 ## Version 0.0.613 (November 9, 2026)
 - Added multiple WhatsApp numbers per org, each limited to the agents you pick (#1654)
 - Added KMS Lighthouse as a read-only data source (#1618)
