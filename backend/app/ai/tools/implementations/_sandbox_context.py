@@ -103,10 +103,12 @@ COMPONENTS (all globals; `className` MERGES with the defaults — layout classes
              renderCell={(value,row,col)=>node|null} format={(n,col)=>string} maxHeight={400} />  — sort, paginate, RTL, CSV, print-safe.
   <FilterBar onReset={resetFilters}> <FilterSelect label options selected onChange single searchable placeholder /> <FilterSearch label value onChange placeholder /> (FilterSearch onChange receives the text string, not an event)
              <FilterDateRange label value onChange type="date|month|datetime-local" /> </FilterBar>
-  CONTROLS: build every table, search box and dropdown from these. DataTable for rows (renderCell for custom cells, onRowClick to open a
-    detail), FilterSearch for a search box, FilterSelect for choosing from options (single for one value; searchable for long lists).
-    They work on their own, outside a FilterBar. Do not write <table>, <select> or a search <input> yourself: these follow dark mode,
-    RTL and narrow screens. Plain inputs are for form fields a user fills in.
+  CONTROLS: build record tables, search boxes and filter dropdowns from these. DataTable for rows of records (renderCell for custom cells,
+    onRowClick to open a detail), FilterSearch for a search box, FilterSelect for choosing from options (single for one value, searchable
+    for long lists; onChange always receives an array: read a[0], and [] means All). They work on their own, outside a FilterBar.
+    Do not hand-write a <table>, <select> or search <input> for these: the components follow dark mode, RTL and narrow screens.
+    A hand-written <table> is for what DataTable cannot show (a totals row, a pivot, grouped headers), inside overflow-x-auto.
+    Inputs and selects in a form the user fills in are fine.
   <Segmented options={[{value,label,icon}]} value onChange />   <Badge tone="neutral|accent|positive|warning|negative|inverse|outline" icon dot>…</Badge>
   <Delta value={0.12} ratio invert chip label="" />  (ratio/pct: value is a share, 0.12 → +12.0%)   <Sparkline data={[…]} height={32} color="var(--bow-accent)" area endpoint />
   <ProgressBar value={0.72} tone="accent|positive|warning|negative|ink" />   <Icon name="<lucide name, kebab-case>" size={16} strokeWidth={2} />
@@ -164,7 +166,7 @@ SANDBOX_RUNTIME_OBSERVATION = (
     "filtering; filterRows(rows, fieldMap?) remaps column names), "
     "<EChart option=... height=N viz=... /> (themed ECharts wrapper — all chart types), "
     "components: PageHeader, KPICard (title, value, delta, deltaPct, deltaLabel, spark, icon, variant, size), "
-    "SectionCard (title, subtitle, eyebrow, actions, variant, padding), DataTable (optional table renderer: sort, "
+    "SectionCard (title, subtitle, eyebrow, actions, variant, padding), DataTable (table for rows of records: sort, "
     "paginate, RTL, CSV, print-safe), FilterBar, FilterSelect (single/multi, searchable), FilterSearch, FilterDateRange, "
     "Segmented, Badge, Delta, Sparkline, ProgressBar, Icon, Eyebrow, Divider, EmptyState, LoadingSpinner, BowFile, "
     "Modal and Drawer (animated overlays: open, onClose, title, footer; focus trap, Escape), Tabs (items with content; "
