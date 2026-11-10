@@ -445,11 +445,24 @@ class SnowflakeKeypairCredentials(BaseModel):
 class SnowflakeConfig(BaseModel):
     account: str = Field(..., title="Account", description="The unique account identifier. For example: ABCDEF-GHIJKL", json_schema_extra={"ui:type": "string"})
     warehouse: str = Field(..., title="Warehouse", description="", json_schema_extra={"ui:type": "string"})
-    database: str = Field(..., title="Database", description="", json_schema_extra={"ui:type": "string"})
+    database: str = Field(
+        ...,
+        title="Database",
+        description=(
+            "Database, or a comma-separated list of databases on this account. The first is the "
+            "default. With more than one, tables are named DATABASE.SCHEMA.TABLE and the agent can "
+            "join across them in one query."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
     schema: Optional[str] = Field(
         None,
         title="Schema",
-        description="Optional schema or comma-separated list of schemas (leave empty to index the whole database)",
+        description=(
+            "Optional schema or comma-separated list of schemas (leave empty to index the whole database). "
+            "With several databases, write DATABASE.SCHEMA; a plain SCHEMA belongs to the first database, "
+            "and a database with no entry is indexed in full."
+        ),
         json_schema_extra={"ui:type": "string"},
     )
     role: Optional[str] = Field(

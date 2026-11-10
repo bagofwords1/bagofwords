@@ -3313,9 +3313,14 @@ class DataSourceService:
         )).all()
         if not rows:
             return
+        # Clients that name tables `schema.table` inside a default database
+        # (Snowflake) say which one, so a table from another database can't
+        # pass for an enabled table with the same schema and name.
         setattr(client, TABLE_SCOPE_ATTR, TableScope.from_names(
             active=[name for name, is_active in rows if is_active],
             inactive=[name for name, is_active in rows if not is_active],
+            default_database=getattr(client, "table_scope_default_database", None),
+            enforce_databases=bool(getattr(client, "table_scope_enforce_databases", True)),
         ))
 
     def _attach_client_quota_metadata(self, client, data_source: DataSource, connection, client_key: str) -> None:

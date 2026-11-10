@@ -123,6 +123,8 @@ SPECS: dict[str, PreviewSpec] = {
 _NAMESPACE_CHAINS = (
     ("catalog", "schema"),
     ("project", "dataset"),
+    # Snowflake with several databases: "DATABASE.SCHEMA.TABLE".
+    ("database", "schema"),
     ("schema",),
     ("database",),
     ("dataset",),
