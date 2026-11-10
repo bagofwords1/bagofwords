@@ -3425,7 +3425,7 @@ class OutlookMailConfig(BaseModel):
 class TeamsMessagesConfig(BaseModel):
     """Microsoft Teams needs no admin-side scope: each user's Microsoft sign-in
     decides which channels and chats are visible, and messages are always
-    searched live (nothing is copied into Bag of Words)."""
+    searched live (nothing is copied into BOW)."""
     pass
 
 
