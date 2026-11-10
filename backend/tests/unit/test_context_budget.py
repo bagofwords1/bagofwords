@@ -387,3 +387,42 @@ def test_anthropic_cached_input_counts_toward_the_measured_prompt(cache_read, ca
     agent._record_planner_token_metadata_from_decision(decision)
     assert agent._last_planner_prompt_tokens == total
     assert agent._ctx_anchor.measure(60_000) == total
+
+
+def test_persisted_anchor_is_one_requests_actual_and_estimate():
+    """A later request that never reports usage (stopped run) must not pair
+    its estimate with the previous request's actual."""
+    import app.ai.agent_v2 as agent_v2_mod
+    from app.services.context_compaction_service import ContextCompactionService
+
+    agent = _agent(200_000)
+    agent._ctx_anchor = TokenAnchor()
+    agent._ctx_anchor_pair = None
+    agent._last_planner_prompt_tokens = None
+    agent._run_efficiency = MagicMock()
+    agent._is_sub_agent = False
+    agent.report_id = "r1"
+    agent.model.provider = SimpleNamespace(provider_type="openai")
+    agent.context_hub.metadata = SimpleNamespace(section_sizes={}, total_tokens=0)
+    agent._publish_context_metadata_to_view = MagicMock()
+
+    agent._last_request_estimate = 20_000  # request A
+    agent._record_planner_token_metadata_from_decision(
+        SimpleNamespace(metrics=SimpleNamespace(token_usage=SimpleNamespace(prompt_tokens=64_000)))
+    )
+    agent._last_request_estimate = 45_000  # request B: stopped, no usage
+
+    class _S:
+        async def __aenter__(self):
+            return "session"
+        async def __aexit__(self, *a):
+            return False
+    agent._session_maker = lambda: _S()
+    calls = []
+
+    async def _record(session, report_id, tokens, estimate):
+        calls.append((tokens, estimate))
+    from unittest.mock import patch
+    with patch.object(ContextCompactionService, "record_prompt_anchor", side_effect=_record):
+        asyncio.run(agent._persist_ctx_anchor())
+    assert calls == [(64_000, 20_000)]

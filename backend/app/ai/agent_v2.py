@@ -923,6 +923,8 @@ class AgentV2:
         self._ctx_anchor = TokenAnchor()
         self._ctx_anchor_loaded: bool = False
         self._last_request_estimate: Optional[int] = None
+        # (provider prompt tokens, our estimate) of the same completed request.
+        self._ctx_anchor_pair: Optional[tuple] = None
         self._sync_fold_done: bool = False
         self._history_reload_pending: bool = False
         self._overflow_attempts: int = 0
@@ -3226,6 +3228,7 @@ class AgentV2:
                     session, report, organization, model,
                     force=force, mode=mode, budget_model=self.model or model,
                     max_tail_rows=max_tail_rows,
+                    budget_factor=float(getattr(self, "_context_budget_factor", 1.0) or 1.0),
                 )
                 if result.get("status") == "compacted":
                     logger.info(
@@ -3342,7 +3345,8 @@ class AgentV2:
             logger.debug("[context] anchor load skipped", exc_info=True)
 
     async def _persist_ctx_anchor(self) -> None:
-        if not self.report or self._last_planner_prompt_tokens is None or self._last_request_estimate is None:
+        pair = getattr(self, "_ctx_anchor_pair", None)
+        if not self.report or not pair:
             return
         if getattr(self, "_is_sub_agent", False):
             return
@@ -3350,8 +3354,7 @@ class AgentV2:
             from app.services.context_compaction_service import ContextCompactionService
             async with self._session_maker() as session:
                 await ContextCompactionService.record_prompt_anchor(
-                    session, str(self.report_id),
-                    self._last_planner_prompt_tokens, self._last_request_estimate,
+                    session, str(self.report_id), pair[0], pair[1],
                 )
         except Exception:
             logger.debug("[context] anchor persist skipped", exc_info=True)
@@ -8888,7 +8891,13 @@ class AgentV2:
             ) or int(prompt_tokens or 0)
             self._last_planner_prompt_tokens = prompt_tokens
             try:
-                self._ctx_anchor.record(prompt_tokens, getattr(self, "_last_request_estimate", None))
+                _est = getattr(self, "_last_request_estimate", None)
+                self._ctx_anchor.record(prompt_tokens, _est)
+                if _est is not None:
+                    # The pair from THIS completed request — what gets
+                    # persisted. A later request that never reports usage
+                    # must not pair its estimate with this actual.
+                    self._ctx_anchor_pair = (int(prompt_tokens), int(_est))
             except Exception:
                 pass
             metadata = self.context_hub.metadata

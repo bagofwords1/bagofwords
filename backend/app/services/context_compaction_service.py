@@ -76,6 +76,16 @@ COOLDOWN_STEPS_S = (60, 300, 900)
 MODES = ("auto_bg", "auto_sync", "overflow", "manual")
 
 
+def _parent_rows_only(stmt):
+    """Exclude hidden sub-agent completions (trigger_source='sub_agent'),
+    NULL-safe — the same rule the message builder applies, so the fold, the
+    exchange counts behind keep-N and can_compact, and the protected head all
+    see exactly the conversation the agent sees."""
+    return stmt.filter(
+        (Completion.trigger_source.is_(None)) | (Completion.trigger_source != "sub_agent")
+    )
+
+
 def compaction_budgets(llm_model) -> dict:
     """Token budgets for one model (the model that RECEIVES the prompt).
 
@@ -465,6 +475,45 @@ class ContextCompactionService:
         return bool(result.scalar() or 0)
 
     @classmethod
+    async def get_or_create_state(cls, db: AsyncSession, report_id: str) -> ReportContextState:
+        """The report's state row, created if missing — safely under a race.
+
+        The anchor writer (end of run) and a background fold can both find no
+        row and both create one; report_id is unique, so a plain INSERT from
+        the loser would fail its whole transaction (losing a summary or the
+        anchor). INSERT … ON CONFLICT DO NOTHING, then re-read: whoever lost
+        the race updates the winner's row instead."""
+        state = await cls.get_state(db, report_id)
+        if state is not None:
+            return state
+        import uuid as _uuid
+        values = {
+            "id": str(_uuid.uuid4()),
+            "report_id": str(report_id),
+            "summary_json": {},
+            "covered_turns": 0,
+            "tokens_compacted_total": 0,
+            "failure_count": 0,
+            "degraded": False,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+        }
+        dialect = db.get_bind().dialect.name
+        if dialect == "postgresql":
+            from sqlalchemy.dialects.postgresql import insert as _insert
+        else:
+            from sqlalchemy.dialects.sqlite import insert as _insert
+        await db.execute(
+            _insert(ReportContextState).values(**values).on_conflict_do_nothing(index_elements=["report_id"])
+        )
+        state = (await db.execute(
+            select(ReportContextState)
+            .where(ReportContextState.report_id == str(report_id))
+            .execution_options(populate_existing=True)
+        )).scalar_one()
+        return state
+
+    @classmethod
     async def record_prompt_anchor(
         cls, db: AsyncSession, report_id: str, prompt_tokens: Optional[int], estimate: Optional[int]
     ) -> None:
@@ -472,10 +521,7 @@ class ContextCompactionService:
         same request, so the next run measures from reality (anchor+delta)."""
         if not prompt_tokens or estimate is None:
             return
-        state = await cls.get_state(db, report_id)
-        if state is None:
-            state = ReportContextState(report_id=str(report_id), summary_json={})
-            db.add(state)
+        state = await cls.get_or_create_state(db, report_id)
         state.last_prompt_tokens = int(prompt_tokens)
         state.last_prompt_estimate = int(estimate)
         await db.commit()
@@ -492,7 +538,7 @@ class ContextCompactionService:
 
     @staticmethod
     async def _post_watermark_rows(db: AsyncSession, report_id: str, state) -> list:
-        query = (
+        query = _parent_rows_only(
             select(Completion)
             .filter(Completion.report_id == str(report_id))
             .filter(Completion.deleted_at.is_(None))
@@ -527,14 +573,14 @@ class ContextCompactionService:
     async def _opening_request(db: AsyncSession, report_id: str) -> Optional[str]:
         """The report's first user ask, verbatim (truncated) — stored in the
         summary programmatically so recall never depends on the summarizer."""
-        row = (await db.execute(
+        row = (await db.execute(_parent_rows_only(
             select(Completion)
             .filter(Completion.report_id == str(report_id))
             .filter(Completion.deleted_at.is_(None))
             .filter(Completion.role == 'user')
             .order_by(Completion.created_at.asc())
             .limit(1)
-        )).scalars().first()
+        ))).scalars().first()
         if row is None:
             return None
         content = _user_text(row)
@@ -545,14 +591,14 @@ class ContextCompactionService:
     @staticmethod
     async def _head_completion_ids(db: AsyncSession, report_id: str) -> list:
         """Ids of the report's protected opening exchange (never folded)."""
-        rows = (await db.execute(
+        rows = (await db.execute(_parent_rows_only(
             select(Completion.id)
             .filter(Completion.report_id == str(report_id))
             .filter(Completion.deleted_at.is_(None))
             .filter(Completion.message_type != COMPACTION_MESSAGE_TYPE)
             .order_by(Completion.created_at.asc())
             .limit(PROTECT_FIRST_N)
-        )).scalars().all()
+        ))).scalars().all()
         return [str(r) for r in rows]
 
     @staticmethod
@@ -686,6 +732,7 @@ class ContextCompactionService:
         budget_model=None,
         timeout_s: Optional[float] = None,
         max_tail_rows: Optional[int] = None,
+        budget_factor: float = 1.0,
     ) -> dict:
         """Fold turns older than the protected tail into the rolling summary.
 
@@ -715,6 +762,7 @@ class ContextCompactionService:
                     budget_model=budget_model or llm_model,
                     timeout_s=timeout_s if timeout_s is not None else SUMMARIZER_TIMEOUT_S,
                     max_tail_rows=max_tail_rows,
+                    budget_factor=budget_factor,
                 )
             except Exception as e:
                 logger.error(f"Context compaction failed for report {report_id}: {e}", exc_info=True)
@@ -747,9 +795,13 @@ class ContextCompactionService:
         self, db, report, organization, llm_model, *,
         force: bool, mode: str, instructions: Optional[str], keep: Optional[int],
         budget_model, timeout_s: float, max_tail_rows: Optional[int] = None,
+        budget_factor: float = 1.0,
     ) -> dict:
         report_id = str(report.id)
-        budget = budget_for(budget_model)
+        # After a provider overflow the agent tightens its budget; the fold's
+        # protected tail must shrink with it, or a second overflow fold finds
+        # nothing to compact.
+        budget = budget_for(budget_model, factor=budget_factor)
         state = await self.get_state(db, report_id)
         scope, kept, rows = await self._load_scope(
             db, report_id, state, mode=mode, keep=keep, tail_tokens=budget.tail_tokens,
@@ -867,10 +919,11 @@ class ContextCompactionService:
                     }
                 break
 
-            # Commit this chunk: summary + watermark move together.
+            # Commit this chunk: summary + watermark move together. The row may
+            # have been created meanwhile (anchor write at end of run) — never
+            # a second INSERT.
             if state is None:
-                state = ReportContextState(report_id=report_id, summary_json={})
-                db.add(state)
+                state = await self.get_or_create_state(db, report_id)
             state.summary_json = new_summary
             state.covers_until_completion_id = str(chunk[-1].id)
             state.covered_turns = (state.covered_turns or 0) + len(chunk)
