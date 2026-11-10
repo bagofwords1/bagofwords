@@ -100,12 +100,10 @@ class InspectDataMCPTool(MCPTool):
         
         if not allow_llm_see_data:
             try:
-                from app.ee.audit.service import audit_service
-                await audit_service.log(
-                    db=db,
-                    organization_id=str(organization.id),
+                from app.ee.audit.tool_audit import queue_tool_audit
+                queue_tool_audit(
+                    {"user": user, "organization": organization},
                     action="tool.access_blocked_by_policy",
-                    user_id=str(user.id),
                     resource_type="report",
                     resource_id=str(report.id),
                     details={"tool": "mcp.inspect_data", "policy": "allow_llm_see_data"},
@@ -139,12 +137,10 @@ class InspectDataMCPTool(MCPTool):
         # Check if we have connected data sources
         if not rich_ctx.ds_clients:
             try:
-                from app.ee.audit.service import audit_service
-                await audit_service.log(
-                    db=db,
-                    organization_id=str(organization.id),
+                from app.ee.audit.tool_audit import queue_tool_audit
+                queue_tool_audit(
+                    {"user": user, "organization": organization},
                     action="tool.data_query_failed",
-                    user_id=str(user.id),
                     resource_type="report",
                     resource_id=str(report.id),
                     details={"tool": "mcp.inspect_data", "error_type": "no_data_sources"},
@@ -234,12 +230,10 @@ class InspectDataMCPTool(MCPTool):
                 _vtype = e["payload"].get("violation_type", "unknown")
                 _action = "security.unsafe_code_blocked" if _vtype == "unsafe_python" else "security.unsafe_sql_blocked"
                 try:
-                    from app.ee.audit.service import audit_service
-                    await audit_service.log(
-                        db=db,
-                        organization_id=str(organization.id),
+                    from app.ee.audit.tool_audit import queue_tool_audit
+                    queue_tool_audit(
+                        {"user": user, "organization": organization},
                         action=_action,
-                        user_id=str(user.id),
                         resource_type="report",
                         resource_id=str(report.id),
                         details={
@@ -271,15 +265,13 @@ class InspectDataMCPTool(MCPTool):
 
         # Audit: success or failure
         try:
-            from app.ee.audit.service import audit_service
+            from app.ee.audit.tool_audit import queue_tool_audit
             _tables = [t for g in (rich_ctx.tables_by_source or []) for t in (g.get("tables") or [])]
             _ds_ids = list({str(g.get("data_source_id")) for g in (rich_ctx.tables_by_source or []) if g.get("data_source_id")})
             if success:
-                await audit_service.log(
-                    db=db,
-                    organization_id=str(organization.id),
+                queue_tool_audit(
+                    {"user": user, "organization": organization},
                     action="tool.data_queried",
-                    user_id=str(user.id),
                     resource_type="report",
                     resource_id=str(report.id),
                     details={
@@ -290,11 +282,9 @@ class InspectDataMCPTool(MCPTool):
                     },
                 )
             else:
-                await audit_service.log(
-                    db=db,
-                    organization_id=str(organization.id),
+                queue_tool_audit(
+                    {"user": user, "organization": organization},
                     action="tool.data_query_failed",
-                    user_id=str(user.id),
                     resource_type="report",
                     resource_id=str(report.id),
                     details={

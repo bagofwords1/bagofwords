@@ -258,6 +258,15 @@ class DescribeEntityMCPTool(MCPTool):
             if not (entity.code or "").strip():
                 error_message = "This saved query has no code to run."
             else:
+                from app.ee.audit.tool_audit import audit_actor_ctx, queue_tool_audit
+                # Read before the run: a failed run can roll the session back.
+                audit_ctx = audit_actor_ctx(user, organization)
+                entity_id = str(entity.id)
+                audit_details = {
+                    "tool": "mcp.describe_entity",
+                    "data_source_ids": [str(ds.id) for ds in (entity.data_sources or [])],
+                    "parameter_names": sorted(request_values),
+                }
                 try:
                     from app.services.entity_service import EntityService
                     run = await EntityService().run_entity_for_user(
@@ -266,8 +275,22 @@ class DescribeEntityMCPTool(MCPTool):
                     grid = run["data"] or {}
                     applied_params = dict(run["applied_params"] or {}) or None
                     rows_source = "cache" if run.get("cached") else "executed"
+                    # The same data-read event as an in-app query; a cache hit
+                    # still hands rows to this caller.
+                    queue_tool_audit(
+                        audit_ctx, "tool.data_queried", resource_type="entity", resource_id=entity_id,
+                        details={
+                            **audit_details, "cached": bool(run.get("cached")),
+                            "row_count": len((grid or {}).get("rows") or []),
+                        },
+                    )
                 except Exception as e:
-                    logger.exception("describe_entity run failed for %s: %s", entity.id, e)
+                    queue_tool_audit(
+                        audit_ctx, "tool.data_query_failed", resource_type="entity", resource_id=entity_id,
+                        details={**audit_details, "error_type": type(e).__name__},
+                        outcome="failure",
+                    )
+                    logger.exception("describe_entity run failed for %s: %s", entity_id, e)
                     error_message = f"Running the saved query failed: {str(e)[:300]}"
                     # Never fall back to a snapshot that is withheld from this
                     # reader, or that answers different parameter values.

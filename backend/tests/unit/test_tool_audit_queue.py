@@ -222,3 +222,31 @@ async def _stat_at_least(key, n):
 
 async def _count_is(org_id, n):
     return await _count(org_id) == n
+
+
+@pytest.mark.asyncio
+async def test_queue_tool_audit_never_waits_and_loses_nothing_past_capacity(db_ctl, monkeypatch):
+    """The non-blocking producer (MCP server): the call returns at once, even
+    when the queue is full and the database is slow; every event is still
+    written exactly once."""
+    from app.core import fire_and_forget
+
+    monkeypatch.setattr(ta, "_QUEUE_MAXSIZE", 10)
+    db_ctl.latency = 0.01
+    org_id = await _org_id()
+    await ta.start_tool_audit_worker()
+    try:
+        n = 60
+        for i in range(n):
+            # A plain call, not a coroutine: nothing for the caller to await.
+            assert ta.queue_tool_audit(_ctx(org_id), "tool.mcp_server_call", None, None, {"i": i}) is None
+        # Overflow went to background tasks instead of making the caller wait.
+        overflow = [t for t in fire_and_forget._pending_tasks if not t.done()]
+        assert overflow, "a full queue should hand the wait to background tasks"
+        await asyncio.gather(*overflow)
+        await ta.drain_tool_audit_queue(timeout=60)
+    finally:
+        await ta.stop_tool_audit_worker(timeout=60)
+
+    assert ta.get_tool_audit_queue_stats()["dropped"] == 0
+    assert await _count(org_id) == n

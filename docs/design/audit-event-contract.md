@@ -168,6 +168,8 @@ Every event records `details.observation`, the strongest fact the server has:
 | `GET /api/files/{id}/content` | `file.downloaded` | existing; a cached read is not distinguishable server-side |
 | `GET /api/enterprise/audit/export` | `audit_log.exported` | existing: format, row count, filters |
 | Agent tools | `tool.data_queried`, `tool.data_query_failed` (outcome failure) | every executed query under the content policy, `row_count` |
+| `POST /api/mcp` `tools/call` | `tool.mcp_server_call` | one per call: `details.tool` (`mcp.<name>`), `transport` (`json` / `sse`), the OAuth app (`origin_app_type`, `origin_app_id`) when it came through one, the report when the result names one; outcome `success`, `failure` (`error_type` when it raised or the client disconnected) or `denied` (`permission_denied`). Never the arguments or the result. Queued in the background (`queue_tool_audit`), so the call never waits on it |
+| MCP `execute_mcp`, `describe_entity` (saved-query run) | `tool.mcp_executed`; `tool.data_queried` / `tool.data_query_failed` | the same events as the in-app tools, with `details.tool` `mcp.execute_mcp` / `mcp.describe_entity` |
 
 `report.published` / `report.unpublished` is recorded once, by the service,
 with request context from the ambient audit context.

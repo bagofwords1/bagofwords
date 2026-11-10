@@ -550,3 +550,54 @@ async def log_tool_audit(
         await enqueue_event(event)
     except Exception:
         logger.warning("log_tool_audit failed", exc_info=True)
+
+
+def audit_actor_ctx(user: Any, organization: Any) -> Dict[str, Any]:
+    """A runtime_ctx holding plain copies of the actor and organization.
+
+    Take it before work that may roll the session back: a rollback expires
+    the ORM objects, and reading them then fails (and loses the event).
+    """
+    from types import SimpleNamespace
+
+    return {
+        "user": SimpleNamespace(
+            id=str(user.id), email=getattr(user, "email", None), name=getattr(user, "name", None),
+        ) if user is not None else None,
+        "organization": SimpleNamespace(id=str(organization.id)) if organization is not None else None,
+    }
+
+
+def queue_tool_audit(
+    runtime_ctx: Dict[str, Any],
+    action: str,
+    resource_type: Optional[str] = None,
+    resource_id: Optional[str] = None,
+    details: Optional[dict] = None,
+    *,
+    outcome: Optional[str] = None,
+    failure_reason: Optional[str] = None,
+) -> None:
+    """``log_tool_audit`` that never makes the caller wait.
+
+    For request paths that must not block on auditing (the MCP server). The
+    event is built now, while the caller's ORM objects and audit context are
+    in scope, and put on the durable queue. If the queue is full, the
+    backpressure wait (and inline write) of ``enqueue_event`` runs in a
+    background task instead of in the caller. Never raises.
+    """
+    try:
+        event = _build_event(runtime_ctx, action, resource_type, resource_id, details, outcome, failure_reason)
+        if event is None:
+            return
+        queue = _ensure_worker()
+        try:
+            queue.put_nowait(event)
+            _stats["enqueued"] += 1
+            return
+        except asyncio.QueueFull:
+            pass
+        from app.core.fire_and_forget import spawn
+        spawn(enqueue_event(event))
+    except Exception:
+        logger.warning("queue_tool_audit failed", exc_info=True)

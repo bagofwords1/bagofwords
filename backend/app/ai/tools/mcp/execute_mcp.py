@@ -13,6 +13,7 @@ from typing import Any, Dict, List
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.tools.mcp.base import MCPTool
+from app.ee.audit.tool_audit import audit_actor_ctx, queue_tool_audit
 from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.mcp import MCPExecuteToolInput, MCPExecuteToolOutput
@@ -84,8 +85,14 @@ class ExecuteMCPMCPTool(MCPTool):
         organization: Organization,
     ) -> Dict[str, Any]:
         input_data = MCPExecuteToolInput(**args)
+        audit_ctx = audit_actor_ctx(user, organization)
 
         if not await self._enable_mcp_tools(db, organization):
+            queue_tool_audit(
+                audit_ctx, "tool.access_blocked_by_policy", resource_type="data_source",
+                resource_id=input_data.data_source_id,
+                details={"tool": "mcp.execute_mcp", "tool_name": input_data.tool_name, "policy": "enable_mcp_tools"},
+            )
             return MCPExecuteToolOutput(
                 success=False,
                 error_message="MCP tools are disabled for this organization.",
@@ -105,6 +112,20 @@ class ExecuteMCPMCPTool(MCPTool):
             arguments=input_data.arguments,
             connection_id=input_data.connection_id,
             current_user=user,
+        )
+        # Same event as the in-app execute_mcp: which external tool ran, on
+        # which agent and connection. Never the arguments or the result.
+        queue_tool_audit(
+            audit_ctx, "tool.mcp_executed", resource_type="data_source",
+            resource_id=input_data.data_source_id,
+            details={
+                "tool": "mcp.execute_mcp",
+                "tool_name": input_data.tool_name,
+                "connection_id": input_data.connection_id,
+                "connection_name": result.connection_name,
+                "content_type": result.content_type,
+            },
+            outcome="success" if result.success else "failure",
         )
 
         if not result.success:

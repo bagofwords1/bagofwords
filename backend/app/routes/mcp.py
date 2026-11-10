@@ -134,6 +134,51 @@ def _check_mcp_enabled(organization: Organization):
         raise HTTPException(status_code=403, detail="MCP integration is not enabled for this organization")
 
 
+MCP_TOOL_CALL_ACTION = "tool.mcp_server_call"
+
+
+def _tool_result_failed(result: Any) -> bool:
+    """MCP tools report most failures in their result, not by raising."""
+    if not isinstance(result, dict):
+        return False
+    if result.get("success") is False:
+        return True
+    return bool(result.get("error")) and result.get("success") is not True
+
+
+def _audit_tool_call(
+    audit_ctx: dict,
+    tool_name: str,
+    outcome: str,
+    *,
+    transport: str,
+    result: Any = None,
+    error_type: Optional[str] = None,
+) -> None:
+    """One audit event per tools/call, queued in the background so the call
+    never waits on it. Names the tool, outcome, transport and the OAuth app
+    it came through; never the arguments or the result, which carry prompts
+    and data."""
+    from app.core.request_origin import current as current_origin
+    from app.ee.audit.tool_audit import queue_tool_audit
+
+    details: dict[str, Any] = {"tool": f"mcp.{tool_name}", "transport": transport}
+    origin = current_origin()
+    if origin is not None:
+        details["origin_app_type"], details["origin_app_id"] = origin
+    if error_type:
+        details["error_type"] = error_type
+    report_id = result.get("report_id") if isinstance(result, dict) else None
+    queue_tool_audit(
+        audit_ctx,
+        MCP_TOOL_CALL_ACTION,
+        resource_type="report" if report_id else None,
+        resource_id=str(report_id) if report_id else None,
+        details=details,
+        outcome=outcome,
+    )
+
+
 def _mcp_response(content: Any, status_code: int = 200) -> JSONResponse:
     """Create a JSONResponse with MCP-Protocol-Version header."""
     response = JSONResponse(content, status_code=status_code)
@@ -389,6 +434,10 @@ async def mcp_endpoint(
         logger.info(f"MCP tools/call Accept header: '{accept_header}', use_sse={use_sse}")
 
         tool = tool_class()
+        # Taken before the tool runs: a tool that rolls back expires the ORM objects.
+        from app.ee.audit.tool_audit import audit_actor_ctx
+        audit_ctx = audit_actor_ctx(user, organization)
+        transport = "sse" if use_sse else "json"
 
         # Same gate as tools/list, enforced at call time: hiding a tool is not
         # access control, a client can call any name it likes. Each tool still
@@ -396,6 +445,7 @@ async def mcp_endpoint(
         required = tool.required_ds_permission
         if required and not await _holds_permission_anywhere(db, user, organization, required):
             logger.warning("MCP tools/call %s refused for user %s: lacks %s", tool_name, user.id, required)
+            _audit_tool_call(audit_ctx, tool_name, "denied", transport=transport, error_type="permission_denied")
             return _mcp_response(jsonrpc_response(request.id, {
                 "content": [{"type": "text", "text": f"Permission denied: {tool_name} needs '{required}' on at least one agent."}],
                 "isError": True,
@@ -405,12 +455,17 @@ async def mcp_endpoint(
             # Non-streaming fallback: return plain JSON as before
             try:
                 result = await tool.execute(arguments, db, user, organization)
+                _audit_tool_call(
+                    audit_ctx, tool_name, "failure" if _tool_result_failed(result) else "success",
+                    transport=transport, result=result,
+                )
                 return _mcp_response(jsonrpc_response(request.id, {
                     "content": [{"type": "text", "text": json.dumps(result)}],
                     "isError": False,
                 }))
             except Exception as e:
                 logger.exception(f"Tool execution error: {e}")
+                _audit_tool_call(audit_ctx, tool_name, "failure", transport=transport, error_type=type(e).__name__)
                 return _mcp_response(jsonrpc_response(request.id, {
                     "content": [{"type": "text", "text": str(e)}],
                     "isError": True,
@@ -419,6 +474,7 @@ async def mcp_endpoint(
         # SSE streaming: send progress heartbeats every 5s while tool executes
         async def _sse_tool_stream():
             tool_task = asyncio.create_task(tool.execute(arguments, db, user, organization))
+            audited = False
 
             try:
                 while not tool_task.done():
@@ -432,6 +488,11 @@ async def mcp_endpoint(
 
                 # Tool finished — get result
                 result = tool_task.result()
+                _audit_tool_call(
+                    audit_ctx, tool_name, "failure" if _tool_result_failed(result) else "success",
+                    transport=transport, result=result,
+                )
+                audited = True
                 final_response = jsonrpc_response(request.id, {
                     "content": [{"type": "text", "text": json.dumps(result)}],
                     "isError": False,
@@ -442,11 +503,19 @@ async def mcp_endpoint(
                 logger.exception(f"Tool execution error (SSE): {e}")
                 if not tool_task.done():
                     tool_task.cancel()
+                _audit_tool_call(audit_ctx, tool_name, "failure", transport=transport, error_type=type(e).__name__)
+                audited = True
                 error_response = jsonrpc_response(request.id, {
                     "content": [{"type": "text", "text": str(e)}],
                     "isError": True,
                 })
                 yield f"event: message\ndata: {json.dumps(error_response)}\n\n"
+            finally:
+                if not audited:
+                    # The client went away before the result. The tool keeps
+                    # running; record the call so it is not missing.
+                    _audit_tool_call(audit_ctx, tool_name, "failure", transport=transport,
+                                     error_type="client_disconnected")
 
         return StreamingResponse(
             _sse_tool_stream(),
