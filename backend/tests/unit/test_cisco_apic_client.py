@@ -504,3 +504,54 @@ def test_every_table_reads_from_the_simulator(client, sim):
         frame = client.execute_query({"table": name, "limit": 5000})
         assert len(frame) > 0, name
         assert frame["dn"].notna().all() and frame["dn"].is_unique, name
+
+
+# ----------------------------------------------------------------------------- planner ergonomics (found in a live agent run)
+def test_derived_columns_can_be_filtered_like_properties(client, sim):
+    full = client.execute_query({"table": "interface_status", "limit": 1000})
+    for flt, expected in (
+        ({"node": 303}, full[full["node"] == 303]),
+        ({"node": {"op": "in", "value": [301, 304]}}, full[full["node"].isin([301, 304])]),
+        ({"node": {"op": "ne", "value": 303}}, full[full["node"] != 303]),
+        ({"pod": 1}, full[full["pod"] == 1]),
+        ({"parent_dn": "topology/pod-1/node-303/sys/phys-[eth1/50]"}, full[full["parent_dn"] == "topology/pod-1/node-303/sys/phys-[eth1/50]"]),
+        ({"parent_dn": {"op": "contains", "value": "phys-[eth1/5"}}, full[full["parent_dn"].str.contains("phys-[eth1/5", regex=False)]),
+    ):
+        got = client.execute_query({"table": "interface_status", "filter": flt, "limit": 1000})
+        assert sorted(got["dn"]) == sorted(expected["dn"]) and len(got) > 0, flt
+
+
+def test_parent_dn_filter_finds_the_children_of_one_object(client, sim):
+    provided = client.execute_query({"table": "epg_provided_contracts", "filter": {"parent_dn": "uni/tn-retail/ap-checkout/epg-db"}})
+    assert list(provided["tnVzBrCPName"]) == ["app-to-db"]
+    with pytest.raises(ApicQueryError) as e:
+        client.execute_query({"table": "epgs", "filter": {"parent_dn": {"op": "gt", "value": "x"}}})
+    assert e.value.code == "InvalidQuery"
+
+
+@pytest.mark.parametrize(
+    "query,suggested",
+    [
+        ({"table": "epgs", "fields": ["dn", "tenantId"]}, None),
+        ({"table": "interface_status", "filter": {"operst": "down"}}, "operSt"),
+        ({"table": "faults", "sort": ["serverity desc"]}, "severity"),
+    ],
+)
+def test_unknown_property_errors_name_the_valid_properties(client, sim, query, suggested):
+    with pytest.raises(ApicQueryError) as e:
+        client.execute_query(query)
+    message = str(e.value)
+    assert e.value.code == "InvalidQuery" and "Main properties:" in message and "parent_dn" in message
+    assert suggested is None or f"Did you mean {suggested}" in message
+    assert sim.log == []
+
+
+def test_limit_error_says_limit_is_not_a_preview_size(client, sim):
+    with pytest.raises(ApicQueryError) as e:
+        client.execute_query({"table": "events", "lookback": "2h", "limit": 3})
+    assert e.value.code == "ResultLimitExceeded" and "limit is 3" in str(e.value) and "drop limit" in str(e.value)
+
+
+def test_every_model_property_is_filterable_even_when_unset(client, sim):
+    # baseEpgDn is a real fvCEp property that the simulated endpoints leave unset.
+    assert client.execute_query({"table": "endpoints", "filter": {"baseEpgDn": "uni/tn-retail/ap-checkout/epg-db"}}).empty

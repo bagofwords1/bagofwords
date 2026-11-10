@@ -53,6 +53,7 @@ import threading
 import time
 from datetime import UTC, datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qsl, unquote, urlsplit
 
 APIC_VERSION = "6.2(1g)"
@@ -523,6 +524,11 @@ class Simulator:
         self.now = datetime.now(UTC).replace(microsecond=0)
         self.mo = build_fabric(self.now)
         self.props = {cls: set().union(*(set(o) for o in objs)) | {"dn"} for cls, objs in self.mo.items()}
+        # A real APIC knows every model property of a class, not just the ones seeded here.
+        catalog = Path(__file__).resolve().parents[2] / "backend/app/data_sources/clients/cisco_apic/catalog.json"
+        if catalog.exists():
+            for table in json.loads(catalog.read_text())["tables"].values():
+                self.props.setdefault(table["class"], {"dn"}).update(table["fields"])
         self.sessions: dict[str, dict] = {}
         self.lock = threading.Lock()
         self.log: list[tuple[str, str]] = []

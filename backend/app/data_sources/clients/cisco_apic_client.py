@@ -18,6 +18,7 @@ construction.
 from __future__ import annotations
 
 import base64
+import difflib
 import json
 import re
 import tempfile
@@ -39,8 +40,8 @@ from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.progress import discovery_items, discovery_progress
 
 _LIMIT_MSG = (
-    "Result exceeds limit, which is a complete-result ceiling rather than a preview: raise limit (up to max_rows) "
-    "or narrow filters/node/lookback, then preview with pandas .head(n). Nothing was truncated."
+    "limit is a complete-result ceiling, not a preview size: drop limit (the default is max_rows) and use "
+    ".head(n) on the DataFrame, or narrow filter/node/lookback. Nothing was returned or truncated."
 )
 
 
@@ -112,6 +113,28 @@ def _split_dn(dn):
             current.append(ch)
     parts.append("".join(current))
     return parts
+
+
+def _derived(dn):
+    """pod, node and parent_dn for a DN (bracket-aware)."""
+    m = re.match(r"topology/pod-([0-9]+)(?:/node-([0-9]+))?", dn or "")
+    parts = _split_dn(dn or "")
+    return {
+        "pod": int(m.group(1)) if m else None,
+        "node": int(m.group(2)) if m and m.group(2) else None,
+        "parent_dn": "/".join(parts[:-1]) if len(parts) > 1 else None,
+    }
+
+
+def _unknown_property(name, table, prop):
+    """An actionable error: the sandbox has no get_schema, so name the valid properties."""
+    close = difflib.get_close_matches(prop, list(table["fields"]) + list(_DERIVED), n=4, cutoff=0.5)
+    hint = f" Did you mean {', '.join(close)}?" if close else ""
+    return ApicQueryError(
+        "InvalidQuery",
+        f"Unknown property {prop!r} for table {name}.{hint} Main properties: {', '.join(table['default_fields'])}; "
+        f"plus pod, node, parent_dn. fields \"*\" returns all {len(table['fields'])} properties.",
+    )
 
 
 class CiscoApicClient(DataSourceClient):
@@ -266,8 +289,8 @@ Examples:
 Filters run on the APIC (query-target-filter): a scalar means eq; {{"op":..,"value":..}} with eq, ne, gt, ge, lt, le, in (list), contains (substring of the text). Values are compared as the APIC stores them: enums are lowercase words (critical, major, up, down, established), yes/no flags are "yes"/"no", numbers and times compare numerically.
 lookback ("30m","24h","7d") or start_time/end_time (ISO-8601 with timezone) apply to the table's time column. fault_history, events, audit_log, health_history and fabric_health_history always use a window: the last 24h when none is given (see _bow_window_start/_bow_window_end).
 node (int or list of up to 20 ints) and optional pod (default 1) read a switch-resident class from those nodes only; it is faster and avoids a fabric-wide fan-out.
-fields: list of class properties or "*"; omitted fields select a compact RCA projection. sort: list of "property asc|desc". limit is a complete-result ceiling (fails with ResultLimitExceeded, never truncates).
-Every row has pod, node (when the dn is under topology/pod-<p>/node-<n>) and parent_dn (the dn minus its last part: the object a fault, health score, interface status, contract or binding belongs to). Times are UTC.
+fields: list of class properties or "*"; omitted fields select a compact RCA projection. sort: list of "property asc|desc". Do not pass limit to preview: it is a complete-result ceiling (fails with ResultLimitExceeded, never truncates); omit it and use .head(n).
+Every row has pod, node (when the dn is under topology/pod-<p>/node-<n>) and parent_dn (the dn minus its last part: the object a fault, health score, interface status, contract or binding belongs to); you can filter on all three. Times are UTC.
 RCA tips: faults + events + audit_log in the incident window first; a config change shortly before symptoms is a prime suspect; interface_status.operStQual and bgp_peers.lastFlapTs explain link/peer failures; compare switch_firmware versions across nodes; contracts -> contract_subjects -> subject_filters -> filter_entries show which ports a contract permits, epg_provided_contracts / epg_consumed_contracts show who uses it.
 Faults, fault history, events, audit log and statistics tables are readable only by accounts with admin read access on the APIC: a read-all account gets 0 rows there, which is not evidence of a healthy fabric.
 No raw URLs, DNs paths, POST/DELETE, subscriptions or configuration changes: the client cannot send a mutating request."""
@@ -580,35 +603,81 @@ No raw URLs, DNs paths, POST/DELETE, subscriptions or configuration changes: the
         return value
 
     def _terms(self, name, table, filters):
-        """APIC filter expressions, plus exact substring checks that `contains` re-applies locally."""
+        """APIC filter expressions, plus row predicates re-applied locally.
+
+        `contains` and the derived columns (pod, node, parent_dn) are sent to the APIC as a
+        superset `wcard` on the property or dn and checked exactly on the returned rows.
+        """
         cls = table["class"]
         terms, local = [], []
         for prop, spec in filters.items():
-            if prop not in table["fields"]:
-                raise ApicQueryError("InvalidQuery", f"Unknown filter property {prop}. Use get_schema('{name}') for the class properties.")
-            ftype = table["fields"][prop]["type"]
+            if prop not in table["fields"] and prop not in _DERIVED:
+                raise _unknown_property(name, table, prop)
             if isinstance(spec, dict):
                 if set(spec) != {"op", "value"}:
                     raise ApicQueryError("InvalidQuery", "Comparisons use {op, value}.")
                 op, value = spec["op"], spec["value"]
             else:
                 op, value = "eq", spec
+            if op not in _OPS | {"in", "contains"}:
+                raise ApicQueryError("InvalidQuery", "Unknown operator; use eq, ne, gt, ge, lt, le, in or contains.")
+            if op == "in" and (not isinstance(value, list) or not 1 <= len(value) <= 20):
+                raise ApicQueryError("InvalidQuery", "in requires a list of 1-20 values.")
+            if op == "contains" and (not isinstance(value, str) or not value):
+                raise ApicQueryError("InvalidQuery", "contains requires a non-empty string.")
+            if prop in _DERIVED:
+                term, predicate = self._derived_filter(cls, prop, op, value)
+                if term:
+                    terms.append(term)
+                local.append(predicate)
+                continue
+            ftype = table["fields"][prop]["type"]
             if op == "in":
-                if not isinstance(value, list) or not 1 <= len(value) <= 20:
-                    raise ApicQueryError("InvalidQuery", "in requires a list of 1-20 values.")
                 parts = [f'eq({cls}.{prop},"{self._value(ftype, v)}")' for v in value]
                 terms.append(parts[0] if len(parts) == 1 else f"or({','.join(parts)})")
             elif op == "contains":
-                if not isinstance(value, str) or not value:
-                    raise ApicQueryError("InvalidQuery", "contains requires a non-empty string.")
                 literal = self._literal(value)
                 terms.append(f'wcard({cls}.{prop},"{self._wcard_pattern(literal)}")')
-                local.append((prop, literal))
-            elif op in _OPS:
-                terms.append(f'{op}({cls}.{prop},"{self._value(ftype, value)}")')
+                local.append(lambda r, p=prop, t=literal: t in str(r.get(p, "")))
             else:
-                raise ApicQueryError("InvalidQuery", "Unknown operator; use eq, ne, gt, ge, lt, le, in or contains.")
+                terms.append(f'{op}({cls}.{prop},"{self._value(ftype, value)}")')
         return terms, local
+
+    def _derived_filter(self, cls, prop, op, value):
+        """Server-side superset term (or None) and the exact local predicate for pod/node/parent_dn."""
+        values = value if op == "in" else [value]
+        if prop in {"pod", "node"}:
+            nums = [self._integer(v, prop, 0, 16000) for v in values] if op != "contains" else None
+            if nums is None:
+                raise ApicQueryError("InvalidQuery", f"{prop} is a number; use eq, ne, gt, ge, lt, le or in.")
+            pattern = (lambda n: f"topology/pod-{n}/") if prop == "pod" else (lambda n: f"/node-{n}/")
+            wc = [f'wcard({cls}.dn,"{pattern(n)}")' for n in nums]
+            term = (wc[0] if len(wc) == 1 else f"or({','.join(wc)})") if op in {"eq", "in"} else None
+
+            def predicate(r, p=prop, o=op, ns=nums):
+                actual = _derived(r.get("dn"))[p]
+                if actual is None:
+                    return o == "ne"
+                return {"eq": actual == ns[0], "in": actual in ns, "ne": actual != ns[0], "gt": actual > ns[0],
+                        "ge": actual >= ns[0], "lt": actual < ns[0], "le": actual <= ns[0]}[o]
+
+            return term, predicate
+        texts = [self._literal(v) for v in values]
+        if op in {"gt", "ge", "lt", "le"}:
+            raise ApicQueryError("InvalidQuery", "parent_dn takes eq, ne, in or contains.")
+        if op in {"eq", "in"}:
+            wc = [f'wcard({cls}.dn,"{self._wcard_pattern(t + "/")}")' for t in texts]
+            term = wc[0] if len(wc) == 1 else f"or({','.join(wc)})"
+        elif op == "contains":
+            term = f'wcard({cls}.dn,"{self._wcard_pattern(texts[0])}")'
+        else:
+            term = None
+
+        def predicate(r, o=op, ts=texts):
+            actual = _derived(r.get("dn"))["parent_dn"] or ""
+            return {"eq": actual == ts[0], "in": actual in ts, "ne": actual != ts[0], "contains": ts[0] in actual}[o]
+
+        return term, predicate
 
     @staticmethod
     def _wcard_pattern(text):
@@ -677,6 +746,10 @@ No raw URLs, DNs paths, POST/DELETE, subscriptions or configuration changes: the
         pod = self._integer(spec.get("pod", 1), "pod", 1, 255)
         return [f"topology/pod-{pod}/node-{self._integer(n, 'node', 1, 16000)}" for n in dict.fromkeys(nodes)]
 
+    @staticmethod
+    def _table_name(table):
+        return next(k for k, v in _catalog()["tables"].items() if v is table)
+
     def _fields(self, requested, table):
         if requested == "*" or requested == ["*"]:
             return list(table["fields"])
@@ -687,7 +760,7 @@ No raw URLs, DNs paths, POST/DELETE, subscriptions or configuration changes: the
             if name in _META or name in _DERIVED:
                 continue
             if name not in table["fields"]:
-                raise ApicQueryError("InvalidQuery", f"Unknown property {name}; use get_schema for the class properties.")
+                raise _unknown_property(self._table_name(table), table, name)
             out.append(name)
         return list(dict.fromkeys(["dn"] + out))
 
@@ -702,8 +775,10 @@ No raw URLs, DNs paths, POST/DELETE, subscriptions or configuration changes: the
         terms = []
         for term in order:
             parts = term.split()
-            if not 1 <= len(parts) <= 2 or parts[0] not in table["fields"] or (len(parts) == 2 and parts[1] not in {"asc", "desc"}):
-                raise ApicQueryError("InvalidQuery", "Invalid sort property or direction.")
+            if not 1 <= len(parts) <= 2 or (len(parts) == 2 and parts[1] not in {"asc", "desc"}):
+                raise ApicQueryError("InvalidQuery", "sort entries are 'property asc|desc'.")
+            if parts[0] not in table["fields"]:
+                raise _unknown_property(self._table_name(table), table, parts[0])
             terms.append(f"{table['class']}.{parts[0]}|{parts[1] if len(parts) == 2 else 'asc'}")
         return ",".join(terms)
 
@@ -758,7 +833,9 @@ No raw URLs, DNs paths, POST/DELETE, subscriptions or configuration changes: the
                         raise ApicQueryError("InvalidResponse", "The APIC response has no valid totalCount.")
                     total = int(total)
                     if page == 0 and len(records) + total > limit:
-                        raise ApicQueryError("ResultLimitExceeded", f"The APIC reports {total} matching objects. " + _LIMIT_MSG)
+                        raise ApicQueryError(
+                            "ResultLimitExceeded", f"The APIC reports {total} matching objects but limit is {limit}. " + _LIMIT_MSG
+                        )
                     batch = self._rows(body, cls)
                     records.extend(batch)
                     if len(records) > limit:
@@ -772,7 +849,7 @@ No raw URLs, DNs paths, POST/DELETE, subscriptions or configuration changes: the
 
         try:
             records = self._with_failover(run)
-            records = [r for r in records if all(text in str(r.get(prop, "")) for prop, text in local)]
+            records = [r for r in records if all(predicate(r) for predicate in local)]
             self._availability[name] = "available" if records else ("empty_or_admin_only" if table["admin_read_only"] else "empty")
         except ApicQueryError as e:
             self._availability[name] = {403: "permission_denied", 400: "rejected"}.get(e.status, e.code)
@@ -783,12 +860,7 @@ No raw URLs, DNs paths, POST/DELETE, subscriptions or configuration changes: the
         rows = []
         for record in records:
             row = {k: record.get(k) if record.get(k) != "" or table["fields"][k]["type"] == "string" else None for k in fields}
-            dn = record.get("dn") or ""
-            m = re.match(r"topology/pod-([0-9]+)(?:/node-([0-9]+))?", dn)
-            row["pod"] = int(m.group(1)) if m else None
-            row["node"] = int(m.group(2)) if m and m.group(2) else None
-            parts = _split_dn(dn)
-            row["parent_dn"] = "/".join(parts[:-1]) if len(parts) > 1 else None
+            row.update(_derived(record.get("dn")))
             rows.append(row)
         meta = {
             "_bow_apic": self._apic,
