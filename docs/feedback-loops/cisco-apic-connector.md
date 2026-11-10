@@ -119,22 +119,13 @@ certificate connection never logged in and sent no POST, PUT or DELETE.
   and a pointer to `get_tables()` (regression test
   `test_sql_text_gets_a_json_example_instead_of_running`).
 
-### Not run: the natural-language agent pass
+### Natural-language agent pass (GPT-6 Luna)
 
-An Anthropic provider (Claude Haiku 5.5) was configured and a free-text
-incident question was sent. The provider answered *"credit balance is too
-low"*: the sandbox key has no credit, and no other LLM credential was
-available. So an LLM driving the connector end to end was **not observed**.
+The first try with Claude Haiku 5.5 failed at the provider: the sandbox key had
+no credit. The run was repeated with OpenAI GPT-6 Luna as the org default.
 
-What was verified instead is the path that agent run would take, live through
-the UI:
-- registry;
-- stored, encrypted certificate credentials;
-- client construction;
-- the code runner's `ds_clients`;
-- the simulator.
-
-To finish the loop, rerun Loop C with a funded key and this prompt:
+Steps: connect through the UI with certificate auth, select 59/59 tables,
+create the agent, then send this prompt:
 
 > Since about 40 minutes ago the checkout app servers (EPG app, tenant retail)
 > can't reach their PostgreSQL database (EPG db). Investigate the ACI fabric:
@@ -143,11 +134,48 @@ To finish the loop, rerun Loop C with a funded key and this prompt:
 > the most likely root cause with evidence, and list other problems you find
 > that are not the cause.
 
-Expected: the root cause is the `app-to-db` contract's `postgres` filter now
-permitting 5433 (an audit-log change by `netops-jlee` at −38 min). The uplink
-optic on leaf 303 (redundancy lost, not the cause), the BGP flap on `corp-wan`
-(external, unrelated), the leaf 302 version drift and the spine 201 PSU are
-side findings.
+**Result (about 7 minutes, 3 sub-agents)**
+
+**Most likely root cause: PostgreSQL filter port changed.** The audit log
+records `netops-jlee` changing both destination-port bounds on
+`uni/tn-retail/flt-postgres/e-pg-5432` from postgresql to 5433, about 13
+minutes before the reported outage. A targeted query confirmed the filter
+entry now matches 5433 only.
+
+Luna also reported:
+- the db endpoints 10.10.30.21–23 attach on db-vpc, leaf pair 303–304;
+- the app-to-db contract links are intact;
+- the BGP peer 10.200.0.5 flap on node 304 is a separate issue, not the cause;
+- the EPG db health fault and the zoning update are consequences of the
+  change;
+- the `corp-wan` description edit is unrelated.
+
+It **missed the leaf 303 uplink optic failure**. It said itself that a broad
+events query and a link-health review did not complete.
+
+**What the run's tool log exposed (fixed in `3875b098`, each with a regression test)**
+
+1. Filters on `parent_dn`, `node` and `pod` were rejected, although the schema
+   lists them. They are now filterable: a superset `wcard` on `dn` at the
+   APIC, then an exact check on the returned rows.
+2. Wrong property guesses (`tenantId`, `adminSt`, `state`, `tDn`) got
+   "use get_schema", which the code sandbox does not offer. The error now
+   names close matches and the table's main properties.
+3. The model passed small `limit` values as a preview size and hit
+   `ResultLimitExceeded` eight times. That is how the uplink evidence was lost.
+   The ceiling semantics stay (never truncate), but the error now says
+   "limit is N … drop limit and use .head(n)", and the description says so up
+   front.
+4. The simulator rejected `baseEpgDn`, a real `fvCEp` property it had not
+   seeded. It now accepts every model property of a class, as an APIC does.
+
+Platform-side, not connector logic:
+- the model guessed `ds_clients` keys (`'ACI Fabric'`, `'ACI Fabric:DC1'`);
+- sub-agent `read_sub_agent` repeats.
+
+**Not yet observed:** a second Luna run on the fixed build. A sandbox
+restart regenerates `BOW_ENCRYPTION_KEY` and invalidates stored
+credentials; set a stable key before rerunning.
 
 ## Faithfulness limits (see `tools/cisco_apic/SOURCES.md`)
 
