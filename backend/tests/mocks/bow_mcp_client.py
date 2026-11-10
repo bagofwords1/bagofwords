@@ -1,4 +1,4 @@
-"""A small, transport-agnostic MCP client for the Bag of Words ``/api/mcp`` endpoint.
+"""A small, transport-agnostic MCP client for the BOW ``/api/mcp`` endpoint.
 
 It speaks the same JSON-RPC 2.0 the real clients (Claude Code, Cursor, Claude
 Web) send, so tests and sandbox scripts exercise the exact wire contract:

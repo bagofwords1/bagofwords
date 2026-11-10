@@ -3972,7 +3972,7 @@
       "mecm": [
         {
           "title": "Ge kontot läsbehörighet i Configuration Manager",
-          "body": "Gå till Administration > Security > Administrative Users i konsolen, lägg till kontot (eller dess AD-grupp) och tilldela rollen Read-only Analyst. Kontots säkerhetsomfång och samlingar avgör vad Bag of Words kan se."
+          "body": "Gå till Administration > Security > Administrative Users i konsolen, lägg till kontot (eller dess AD-grupp) och tilldela rollen Read-only Analyst. Kontots säkerhetsomfång och samlingar avgör vad BOW kan se."
         },
         {
           "title": "Kontrollera att administrationstjänsten svarar",
@@ -6796,7 +6796,7 @@
       "notPublished": "Det här har inte publicerats ännu. Det visas här när det har publicerats.",
       "notFound": "Det här är inte tillgängligt. Det kanske inte har publicerats ännu, eller så har det tagits bort.",
       "denied": "Du har inte åtkomst till det här. Be ägaren att dela det med dig.",
-      "notAllowed": "Det här är inte aktiverat för det här programmet. En redigerare kan tillåta det i dess inställningar för inbäddning i Bag of Words.",
+      "notAllowed": "Det här är inte aktiverat för det här programmet. En redigerare kan tillåta det i dess inställningar för inbäddning i BOW.",
       "failed": "Det gick inte att läsa in. Försök igen om en stund."
     }
   },

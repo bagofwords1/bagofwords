@@ -45,7 +45,7 @@ Expose port 443 and mount the certificate directory read-only in
 ## Live answers through proxies
 
 Chat answers stream to the browser as they are written. Any proxy between the
-browser and Bag of Words must pass those responses through instead of holding
+browser and BOW must pass those responses through instead of holding
 them until they end, or users see each answer appear all at once:
 
 - Do not compress `text/event-stream` responses. The included Caddyfile already

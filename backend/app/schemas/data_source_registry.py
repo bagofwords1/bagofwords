@@ -899,7 +899,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         setup_guide=[
             SetupStep(
                 title="Give the account read access in Configuration Manager",
-                body="In the console go to Administration > Security > Administrative Users, add the account (or its AD group) and assign the Read-only Analyst role. Its security scopes and collections decide what Bag of Words can see.",
+                body="In the console go to Administration > Security > Administrative Users, add the account (or its AD group) and assign the Read-only Analyst role. Its security scopes and collections decide what BOW can see.",
             ),
             SetupStep(
                 title="Check the administration service answers",
@@ -1226,7 +1226,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         }),
         setup_guide=[
             SetupStep(
-                title="Starburst Galaxy: create a role for Bag of Words",
+                title="Starburst Galaxy: create a role for BOW",
                 body="In Galaxy go to Access control > Roles and privileges and add a role (for example bagofwords). Under Add privileges grant it Use cluster on the cluster, and Select from table on every catalog or schema the agent should see.",
             ),
             SetupStep(
@@ -1235,7 +1235,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             ),
             SetupStep(
                 title="Starburst Galaxy: copy the connection details",
-                body="Open the cluster's Connection info (Partner connect > Other clients). Host is <account>-<cluster>.trino.galaxy.starburst.io and the port is 443 over HTTPS. If the cluster restricts client IPs, allow this Bag of Words instance's address.",
+                body="Open the cluster's Connection info (Partner connect > Other clients). Host is <account>-<cluster>.trino.galaxy.starburst.io and the port is 443 over HTTPS. If the cluster restricts client IPs, allow this BOW instance's address.",
             ),
             SetupStep(
                 title="Starburst Enterprise: use the TLS coordinator",

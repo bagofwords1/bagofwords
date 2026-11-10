@@ -3972,7 +3972,7 @@
       "mecm": [
         {
           "title": "Accorder au compte l'accès en lecture dans Configuration Manager",
-          "body": "Dans la console, allez dans Administration > Security > Administrative Users, ajoutez le compte (ou son groupe AD) et attribuez-lui le rôle Read-only Analyst. Ses étendues de sécurité et ses regroupements déterminent ce que Bag of Words peut voir."
+          "body": "Dans la console, allez dans Administration > Security > Administrative Users, ajoutez le compte (ou son groupe AD) et attribuez-lui le rôle Read-only Analyst. Ses étendues de sécurité et ses regroupements déterminent ce que BOW peut voir."
         },
         {
           "title": "Vérifier que le service d'administration répond",
@@ -6796,7 +6796,7 @@
       "notPublished": "Ce contenu n'a pas encore été publié. Il apparaîtra ici dès qu'il sera publié.",
       "notFound": "Ce contenu n'est pas disponible. Il n'a peut-être pas encore été publié, ou il a été supprimé.",
       "denied": "Vous n'avez pas accès à ce contenu. Demandez à son propriétaire de le partager avec vous.",
-      "notAllowed": "Ce contenu n'est pas activé pour cette application. Un éditeur peut l'autoriser dans ses paramètres d'intégration dans Bag of Words.",
+      "notAllowed": "Ce contenu n'est pas activé pour cette application. Un éditeur peut l'autoriser dans ses paramètres d'intégration dans BOW.",
       "failed": "Impossible de charger ce contenu. Réessayez dans un instant."
     }
   },

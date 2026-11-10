@@ -461,7 +461,7 @@ class SnowflakeConfig(BaseModel):
     query_tag_enabled: bool = Field(
         True,
         title="Tag queries",
-        description="Set a JSON QUERY_TAG on every query (report, conversation turn, run and user IDs) so admins can match QUERY_HISTORY rows to Bag of Words sessions. Turn off if you already set your own QUERY_TAG.",
+        description="Set a JSON QUERY_TAG on every query (report, conversation turn, run and user IDs) so admins can match QUERY_HISTORY rows to BOW sessions. Turn off if you already set your own QUERY_TAG.",
         json_schema_extra={"ui:type": "boolean"},
     )
     query_tag_label: Optional[str] = Field(
@@ -878,7 +878,7 @@ class MecmKerberosCredentials(BaseModel):
         title="Service principal",
         description=(
             "Optional service-account principal (svc_bow@CONTOSO.COM). Administrators mount "
-            "krb5.conf and the client keytab (KRB5_CLIENT_KTNAME) on the Bag of Words server. "
+            "krb5.conf and the client keytab (KRB5_CLIENT_KTNAME) on the BOW server. "
             "Requests run as this account, not as the signed-in user."
         ),
         json_schema_extra={"ui:type": "string"},

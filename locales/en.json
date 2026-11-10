@@ -4366,7 +4366,7 @@
       "mecm": [
         {
           "title": "Give the account read access in Configuration Manager",
-          "body": "In the console go to Administration > Security > Administrative Users, add the account (or its AD group) and assign the Read-only Analyst role. Its security scopes and collections decide what Bag of Words can see."
+          "body": "In the console go to Administration > Security > Administrative Users, add the account (or its AD group) and assign the Read-only Analyst role. Its security scopes and collections decide what BOW can see."
         },
         {
           "title": "Check the administration service answers",
@@ -7360,7 +7360,7 @@
       "notPublished": "This hasn't been published yet. It will appear here once it's published.",
       "notFound": "This isn't available. It may not be published yet, or it was removed.",
       "denied": "You don't have access to this. Ask its owner to share it with you.",
-      "notAllowed": "This isn't enabled for this application. An editor can allow it in its Embed settings in Bag of Words.",
+      "notAllowed": "This isn't enabled for this application. An editor can allow it in its Embed settings in BOW.",
       "failed": "This couldn't be loaded. Try again in a moment."
     },
     "signin": {

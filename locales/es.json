@@ -4304,7 +4304,7 @@
       "mecm": [
         {
           "title": "Concede a la cuenta acceso de lectura en Configuration Manager",
-          "body": "En la consola ve a Administration > Security > Administrative Users, agrega la cuenta (o su grupo de AD) y asígnale el rol Read-only Analyst. Sus ámbitos de seguridad y colecciones deciden lo que Bag of Words puede ver."
+          "body": "En la consola ve a Administration > Security > Administrative Users, agrega la cuenta (o su grupo de AD) y asígnale el rol Read-only Analyst. Sus ámbitos de seguridad y colecciones deciden lo que BOW puede ver."
         },
         {
           "title": "Comprueba que el servicio de administración responde",
@@ -7331,7 +7331,7 @@
       "notPublished": "Esto aún no se ha publicado. Aparecerá aquí cuando se publique.",
       "notFound": "Esto no está disponible. Puede que aún no se haya publicado o que se haya eliminado.",
       "denied": "No tienes acceso a esto. Pide a su propietario que lo comparta contigo.",
-      "notAllowed": "Esto no está habilitado para esta aplicación. Un editor puede permitirlo en su configuración de Insertar en Bag of Words.",
+      "notAllowed": "Esto no está habilitado para esta aplicación. Un editor puede permitirlo en su configuración de Insertar en BOW.",
       "failed": "No se pudo cargar. Inténtalo de nuevo en un momento."
     },
     "signin": {
