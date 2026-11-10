@@ -62,6 +62,7 @@ from app.schemas.data_sources.configs import (
     CheckPointConfig, CheckPointUserPassCredentials, CheckPointApiKeyCredentials,
     DellOmeConfig, DellOmeCredentials,
     HpeOneViewConfig, HpeOneViewCredentials,
+    CiscoApicConfig, CiscoApicCertificateCredentials, CiscoApicPasswordCredentials,
     NetAppOntapCredentials,
     ServiceNowConfig,
     ZabbixConfig,
@@ -1032,6 +1033,20 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "userpass": AuthVariant(title="Username / Password", schema=HpeOneViewCredentials, scopes=["system", "user"]),
         }),
         client_path="app.data_sources.clients.hpe_oneview_client.HpeOneViewClient",
+        version="beta",
+    ),
+    "cisco_apic": DataSourceRegistryEntry(
+        type="cisco_apic",
+        category="infra",
+        title="Cisco ACI (APIC)",
+        description="Investigate data center fabric incidents with read-only fabric nodes, faults, events, audit log, interfaces, vPC, BGP/IS-IS/OSPF adjacencies, endpoints, tenants, EPGs, contracts, firmware and health via the APIC REST API. Simulator-verified; customer validation required.",
+        config_schema=CiscoApicConfig,
+        credentials_auth=AuthOptions(default="certificate", by_auth={
+            # Signature auth is for local service users; one shared identity.
+            "certificate": AuthVariant(title="Certificate (signed requests)", schema=CiscoApicCertificateCredentials, scopes=["system"]),
+            "userpass": AuthVariant(title="Username / Password", schema=CiscoApicPasswordCredentials, scopes=["system", "user"]),
+        }),
+        client_path="app.data_sources.clients.cisco_apic_client.CiscoApicClient",
         version="beta",
     ),
     "kubernetes": DataSourceRegistryEntry(

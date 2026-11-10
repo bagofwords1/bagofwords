@@ -4776,6 +4776,27 @@ class HpeOneViewConfig(BaseModel):
     allow_http: bool = Field(False, title="Allow HTTP for a simulator", description="Only enable for an isolated simulated API. Real appliances should use HTTPS.")
 
 
+class CiscoApicCertificateCredentials(BaseModel):
+    username: str = Field(..., title="Username", description="Local APIC user with the read-all role (add admin read access to see faults, events, audit log and statistics). Certificate authentication opens no session and writes no login records.")
+    certificate_name: str = Field(..., title="Certificate name", description="Name of the X.509 certificate attached to that user on the APIC (Admin > AAA > Users > user > User Certificates).")
+    private_key: str = Field(..., title="Private key (PEM)", description="Unencrypted RSA private key (2048 bits or more) matching the attached certificate. Every request is signed with it; it never leaves the server.", json_schema_extra={"ui:type": "textarea"})
+
+
+class CiscoApicPasswordCredentials(BaseModel):
+    username: str = Field(..., title="Username", description="APIC user with the read-all role (add admin read access to see faults, events, audit log and statistics). For a remote (LDAP, RADIUS, TACACS+) user, set the login domain on the connection.")
+    password: str = Field(..., title="Password", json_schema_extra={"ui:type": "password"})
+
+
+class CiscoApicConfig(BaseModel):
+    url: str = Field(..., title="APIC URL", description="Origin of one APIC controller, for example https://apic1.example.com.")
+    fallback_urls: Optional[str] = Field(None, title="Other APIC controllers", description="Optional comma-separated origins of the other controllers in the cluster, tried in order when the first one is unreachable.")
+    login_domain: Optional[str] = Field(None, title="Login domain", description="AAA login domain for remote users with password authentication (sent as apic:<domain>\\<user>). Leave empty for local users.")
+    ca_certificate: Optional[str] = Field(None, title="Trusted CA certificate", description="Optional PEM CA certificate for the APIC. Certificate verification is always enabled.", json_schema_extra={"ui:type": "textarea"})
+    timeout: int = Field(30, ge=1, le=120, title="Request timeout (seconds)")
+    max_rows: int = Field(10000, ge=1, le=100000, title="Maximum complete result rows", description="Queries exceeding this ceiling fail explicitly; they never return silently truncated evidence.")
+    allow_http: bool = Field(False, title="Allow HTTP for a simulator", description="Only enable for an isolated simulated API. Real controllers should use HTTPS.")
+
+
 class GitRepoConfig(BaseModel):
     """One repository, read-only: the agent lists, searches and reads its files.
 
@@ -4985,6 +5006,10 @@ __all__ = [
     "CustomAPIBasicCredentials",
     "CustomAPIKeyCredentials",
     "CustomAPIOAuthAppCredentials",
+    # Cisco APIC
+    "CiscoApicConfig",
+    "CiscoApicCertificateCredentials",
+    "CiscoApicPasswordCredentials",
     # Browser
     "BrowserConfig",
     "BrowserNoAuthCredentials",
