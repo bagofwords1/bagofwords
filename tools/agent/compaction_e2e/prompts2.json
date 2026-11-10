@@ -1,0 +1,7 @@
+[
+ "Now show revenue by category and month as a full table (4 categories × 12 months) with month-over-month change.",
+ "For the West region only, list every product with units, revenue, average price and return rate.",
+ "Compare H1 vs H2 revenue for every product, with absolute and percent change, sorted by change.",
+ "Which customers ordered in at least 10 different months? Show them with order count and total revenue.",
+ "Show the 30 largest single orders with date, region, product, units and revenue."
+]

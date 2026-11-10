@@ -64,20 +64,12 @@ class ServiceAccountService:
         return role
 
     async def _default_member_role(self, db: AsyncSession, org_id: str) -> Role:
-        return await self._resolve_system_role(db, "member")
-
-    async def _resolve_system_role(self, db: AsyncSession, name: str) -> Role:
-        result = await db.execute(
-            select(Role).where(
-                Role.name == name,
-                Role.is_system == True,
-                Role.organization_id.is_(None),
-                Role.deleted_at.is_(None),
-            )
-        )
-        role = result.scalar_one_or_none()
+        # Honor a per-org member override so a default service account inherits
+        # the org's customized member permissions, not the shipped default.
+        from app.core.permission_resolver import resolve_assignable_system_role
+        role = await resolve_assignable_system_role(db, org_id, "member")
         if not role:
-            raise HTTPException(status_code=500, detail=f"System role '{name}' missing")
+            raise HTTPException(status_code=500, detail="System role 'member' missing")
         return role
 
     async def _assert_creator_can_grant(self, db: AsyncSession, creator: User, org_id: str, role: Role) -> None:

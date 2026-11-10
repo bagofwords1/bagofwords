@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Independent audit log collector used to verify Bag of Words audit streams.
+"""Independent audit log collector used to verify BOW audit streams.
 
 Behaves like a real SIEM intake, not like the application's own mock:
   * HTTPS webhook intake  POST /webhook        Authorization: Bearer <token>, HMAC (X-BOW-Timestamp/X-BOW-Signature)

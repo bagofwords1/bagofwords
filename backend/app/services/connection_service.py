@@ -1778,6 +1778,52 @@ class ConnectionService:
 
         return visible
 
+    async def _rename_user_overlays(self, db: AsyncSession, connection_id: str, renamed) -> None:
+        """Carry table renames to the per-user visibility rows, which store the
+        name too, so a user's schema shows the new name before their next sync.
+        A user who already has a row under the new name keeps that one."""
+        from sqlalchemy import exists, update
+        from sqlalchemy.orm import aliased
+
+        from app.models.user_connection_overlay import UserConnectionTable as UCT
+        from app.models.user_data_source_overlay import UserDataSourceTable as UDT
+
+        has_rows = (await db.execute(select(UCT.id).where(UCT.connection_id == connection_id).limit(1))).first() \
+            or (await db.execute(select(UDT.id).where(UDT.connection_id == connection_id).limit(1))).first()
+        if not has_rows:
+            return
+        other_uct, other_udt = aliased(UCT), aliased(UDT)
+        for old, new in renamed:
+            await db.execute(
+                update(UCT)
+                .where(
+                    UCT.connection_id == connection_id,
+                    UCT.table_name == old,
+                    ~exists().where(
+                        other_uct.connection_id == UCT.connection_id,
+                        other_uct.user_id == UCT.user_id,
+                        other_uct.table_name == new,
+                    ),
+                )
+                .values(table_name=new)
+                .execution_options(synchronize_session=False)
+            )
+            await db.execute(
+                update(UDT)
+                .where(
+                    UDT.connection_id == connection_id,
+                    UDT.table_name == old,
+                    ~exists().where(
+                        other_udt.data_source_id == UDT.data_source_id,
+                        other_udt.user_id == UDT.user_id,
+                        other_udt.connection_id == UDT.connection_id,
+                        other_udt.table_name == new,
+                    ),
+                )
+                .values(table_name=new)
+                .execution_options(synchronize_session=False)
+            )
+
     async def refresh_schema(self, db: AsyncSession, connection: Connection, current_user: User = None,
                              progress_callback=None, introspection: str = "full",
                              keep_fresh_tables: bool = True, diagnostics_hook=None) -> List[ConnectionTable]:
@@ -2249,6 +2295,33 @@ class ConnectionService:
                         existing_tables.pop(row.name, None)
                         row.name = name
                     existing_tables[name] = row
+
+            # A client whose table naming follows its config (Snowflake: one
+            # database names tables SCHEMA.TABLE, several name them
+            # DATABASE.SCHEMA.TABLE) reports the name a table had in the other
+            # style. Rename that row in place instead of creating a new one and
+            # pruning the old: agents keep their selection, instructions and
+            # history, which all point at the row, not the name.
+            _aliases = getattr(client, "table_name_aliases", None)
+            renamed: list[tuple[str, str]] = []
+            if callable(_aliases):
+                for name in list(incoming):
+                    if name in existing_tables:
+                        continue
+                    try:
+                        candidates = _aliases(name)
+                    except Exception:
+                        candidates = []
+                    for alias in candidates if isinstance(candidates, (list, tuple)) else []:
+                        row = existing_tables.get(alias)
+                        if row is not None and alias not in incoming:
+                            existing_tables.pop(alias)
+                            row.name = name
+                            existing_tables[name] = row
+                            renamed.append((alias, name))
+                            break
+            if renamed:
+                await self._rename_user_overlays(db, connection_id_str, renamed)
 
             # An unread part that already has tables keeps them, so its
             # error/empty placeholder row (named after the part itself) is not

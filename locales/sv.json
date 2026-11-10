@@ -673,6 +673,22 @@
         "network": "Taligenkänning kräver en nätverksanslutning.",
         "failed": "Röstinmatningen misslyckades. Försök igen."
       }
+    },
+    "slash": {
+      "menuTitle": "Kommandon",
+      "compact": {
+        "description": "Sammanfatta äldre turer för att frigöra kontext",
+        "usage": "/compact · /compact <fokus> · /compact keep 4",
+        "pending": "Komprimeras när agenten har kört klart",
+        "running": "Komprimerar kontext…",
+        "doneContext": "{turns} turer komprimerade · kontext ~{before} → ~{after} tokens",
+        "doneHistory": "{turns} turer komprimerade · historik ~{before} → ~{after} tokens",
+        "alreadyRunning": "Komprimering pågår redan",
+        "failed": "Kunde inte komprimera kontexten",
+        "degraded": "reservsammanfattning (ingen modellsammanfattning)",
+        "cancel": "Avbryt",
+        "dismiss": "Stäng"
+      }
     }
   },
   "reports": {
@@ -1171,7 +1187,13 @@
       "scopeHint": "Gäller dina konversationer i den här webbläsaren."
     },
     "readMore": "Läs mer",
-    "showLess": "Visa mindre"
+    "showLess": "Visa mindre",
+    "compactionShowSummary": "Visa vad agenten minns av komprimerade turer",
+    "compactionSummaryTitle": "Komprimerad historik",
+    "compactionSummaryHint": "Agenten ser den här sammanfattningen i stället för turerna ovanför linjen.",
+    "compactingContext": "Komprimerar kontext…",
+    "compactionTurns": "{turns} turer",
+    "compactionLast": "Senaste komprimering: historik ~{before} → ~{after} tokens"
   },
   "tools": {
     "common": {
@@ -1991,6 +2013,9 @@
     "noRolesFound": "Inga roller hittades",
     "noRolesHint": "Skapa en roll för att hantera behörigheter.",
     "system": "system",
+    "default": "Standard",
+    "defaultRoleHint": "Detta är en inbyggd roll. Dess namn är fast – anpassa dess behörigheter nedan.",
+    "edit": "Redigera",
     "fullAdmin": "Fullständig administratör",
     "permissionsCount": "{n} behörigheter",
     "editRole": "Redigera roll",
@@ -2252,7 +2277,7 @@
       "integrate": "Integrera",
       "setup": "Konfigurera",
       "excelAddinName": "Excel-tillägg",
-      "excelAddinDescription": "Sidladda Bag of Words-tillägget direkt från den här instansen",
+      "excelAddinDescription": "Sidladda BOW-tillägget direkt från den här instansen",
       "mcpName": "BOW MCP-server",
       "mcpDescription": "Aktivera MCP-slutpunkten för integration med AI-assistenter som Cursor, Claude eller andra",
       "channels": {
@@ -2320,7 +2345,14 @@
           "socketStep3": "Event Subscriptions → aktivera händelser (ingen Request URL behövs) och prenumerera på: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
           "socketStep4": "Agents → slå PÅ ”Agent experience” för den inbyggda assistentpanelen, trådnamn och föreslagna prompter",
           "socketStep5": "App Home → aktivera fliken Messages och låt användare skicka meddelanden",
-          "socketStep6": "Install App → installera i din arbetsyta och kopiera Bot User OAuth Token (xoxb-…)"
+          "socketStep6": "Install App → installera i din arbetsyta och kopiera Bot User OAuth Token (xoxb-…)",
+          "channelRoutingTitle": "Kanal → agent-routing",
+          "channelRoutingDesc": "Rikta en kanal till specifika agenter. En kanal utan mappning använder anslutningens standard; utan standard exponerar den allt som användaren har åtkomst till. Routing begränsar bara åtkomsten – den ger aldrig mer än vad användaren redan har.",
+          "connectionDefaultLabel": "Anslutningens standard",
+          "connectionDefaultDesc": "Används för kanaler utan egen mappning.",
+          "channelPickerPlaceholder": "Välj agenter…",
+          "noChannelsYet": "Inga kanaler ännu. Nämn boten i en kanal så visas den här, eller lägg till en via id nedan.",
+          "channelsHeading": "Kanaler"
         },
         "teams": {
           "title": "Teams-integration",
@@ -2547,9 +2579,9 @@
           "trustedConnecting": "Connecting to your trusted app…",
           "authorizationLoading": "Checking the authorization request…",
           "authorizationError": "Unable to authorize",
-          "goBack": "Go back to Bag of Words",
+          "goBack": "Go back to BOW",
           "authorizationTitle": "Authorize access",
-          "wantsAccess": "{name} wants to access your Bag of Words account.",
+          "wantsAccess": "{name} wants to access your BOW account.",
           "permissionsRequested": "Permissions requested",
           "appPermission": "Create and read reports, run completions, and use artifacts under your existing BOW permissions.",
           "mcpPermission": "Use the MCP tool surface under your existing BOW permissions.",
@@ -2574,7 +2606,7 @@
         },
         "excel": {
           "title": "Excel-tillägg",
-          "subtitle": "Sidladda Bag of Words-tillägget direkt från denna instans.",
+          "subtitle": "Sidladda BOW-tillägget direkt från denna instans.",
           "loading": "Laddar...",
           "setup": "Konfiguration",
           "step1": "Ladda ner manifestfilen nedan",
@@ -2624,7 +2656,7 @@
           "title": "Integration med Google Chat"
         }
       },
-      "emptyTitle": "Få Bag of Words att fungera med dina verktyg",
+      "emptyTitle": "Få BOW att fungera med dina verktyg",
       "emptySubtitle": "Anslut Slack, Teams, e-post med mera så att ditt team kan nå AI-analytikern där de redan arbetar. Välj en integration för att komma igång.",
       "selectHint": "Välj en integration",
       "slackDescription": "Låt ditt team chatta med AI-analytikern från Slack-kanaler och DM.",
@@ -2714,14 +2746,18 @@
       "attributesInviteHint": "Valfritt. Identifierar medlemmen i andra system, t.ex. Qlik-användare eller databasroll.",
       "attributesSaved": "Attributen sparades",
       "attributesSaveFailed": "Det gick inte att spara attributen",
-      "importAttributesHint": "Lägg till {column}-kolumner för att ange attribut, t.ex. {example}. En tom cell lämnar attributet oförändrat."
+      "importAttributesHint": "Lägg till {column}-kolumner för att ange attribut, t.ex. {example}. En tom cell lämnar attributet oförändrat.",
+      "defaultRoleHint": "Förifyller rollen när du lägger till eller bjuder in en medlem.",
+      "defaultRoleSaved": "Standardroll sparad",
+      "defaultRoleFailed": "Det gick inte att spara standardrollen",
+      "defaultRoleShort": "Standardroll"
     },
     "organizationName": "Organisationens namn",
     "organizationIcon": "Organisationens ikon",
     "uploadIcon": "Ladda upp ikon",
     "iconConstraints": "PNG/JPEG, ≤ 512 KB.",
     "aiAnalystName": "AI-analytikerns namn",
-    "showCredit": "Visa ”Made with Bag of words”-credit",
+    "showCredit": "Visa ”Made with BOW”-credit",
     "language": {
       "title": "Språk",
       "description": "Anger standardspråket för hela organisationen. Användare kommer att se gränssnittet på det här språket och AI:n svarar på det.",
@@ -3948,7 +3984,7 @@
         },
         {
           "title": "Skriv ut åtkomstfilen",
-          "body": "Spara som print_access_file.sh och kör. Skriptet väntar på token och skriver sedan ut en fristående fil (API-serverns URL, klustrets CA, token). Verifiera med: kubectl --kubeconfig access.yaml get nodes. Om server-URL:en är privat för ditt nätverk, ändra den till adressen som denna Bag of Words-instans kan nå."
+          "body": "Spara som print_access_file.sh och kör. Skriptet väntar på token och skriver sedan ut en fristående fil (API-serverns URL, klustrets CA, token). Verifiera med: kubectl --kubeconfig access.yaml get nodes. Om server-URL:en är privat för ditt nätverk, ändra den till adressen som denna BOW-instans kan nå."
         },
         {
           "title": "Klistra in nedan och testa anslutningen",
@@ -3958,7 +3994,7 @@
       "mecm": [
         {
           "title": "Ge kontot läsbehörighet i Configuration Manager",
-          "body": "Gå till Administration > Security > Administrative Users i konsolen, lägg till kontot (eller dess AD-grupp) och tilldela rollen Read-only Analyst. Kontots säkerhetsomfång och samlingar avgör vad Bag of Words kan se."
+          "body": "Gå till Administration > Security > Administrative Users i konsolen, lägg till kontot (eller dess AD-grupp) och tilldela rollen Read-only Analyst. Kontots säkerhetsomfång och samlingar avgör vad BOW kan se."
         },
         {
           "title": "Kontrollera att administrationstjänsten svarar",
@@ -4798,7 +4834,7 @@
   "onboarding": {
     "loading": "Laddar...",
     "skip": "Hoppa över introduktion",
-    "welcome": "Välkommen till Bag of words! 🎉",
+    "welcome": "Välkommen till BOW! 🎉",
     "welcomeSubtitle": "Chatta med dina data, kör djupanalyser och skapa instrumentpaneler på några sekunder",
     "next": "Nästa",
     "fallbackTitle": "Kom igång",
@@ -4808,7 +4844,7 @@
     "intro1": "Att komma igång går snabbt: anslut bara din modell och din datakälla, så är du redo att ställa din första fråga.",
     "intro2": "👉 Nu sätter vi igång!",
     "steps": {
-      "onboardingTitle": "Välkommen till Bag of words! 🎉",
+      "onboardingTitle": "Välkommen till BOW! 🎉",
       "onboardingDescription": "Chatta med dina data, kör djupanalyser och skapa instrumentpaneler på några sekunder",
       "onboardingButton": "Välkommen",
       "llmTitle": "Konfigurera LLM",
@@ -5418,8 +5454,8 @@
     }
   },
   "mcpServerModal": {
-    "title": "Bag of words MCP-server",
-    "subtitle": "Anslut Claude, Cursor eller valfri MCP-klient för att fråga dina data via Bag of words MCP-server.",
+    "title": "BOW MCP-server",
+    "subtitle": "Anslut Claude, Cursor eller valfri MCP-klient för att fråga dina data via BOW MCP-server.",
     "loading": "Laddar...",
     "tabMcpClients": "MCP-klienter",
     "tabOauth": "OAuth",
@@ -5558,7 +5594,8 @@
     "modeChat": "Chatt",
     "modelAuto": "Auto",
     "noAgents": "Inga",
-    "project": "Projekt"
+    "project": "Projekt",
+    "agentsFromReport": "Använder rapportens agenter"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -6781,7 +6818,7 @@
       "notPublished": "Det här har inte publicerats ännu. Det visas här när det har publicerats.",
       "notFound": "Det här är inte tillgängligt. Det kanske inte har publicerats ännu, eller så har det tagits bort.",
       "denied": "Du har inte åtkomst till det här. Be ägaren att dela det med dig.",
-      "notAllowed": "Det här är inte aktiverat för det här programmet. En redigerare kan tillåta det i dess inställningar för inbäddning i Bag of Words.",
+      "notAllowed": "Det här är inte aktiverat för det här programmet. En redigerare kan tillåta det i dess inställningar för inbäddning i BOW.",
       "failed": "Det gick inte att läsa in. Försök igen om en stund."
     }
   },

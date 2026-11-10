@@ -673,6 +673,22 @@
         "network": "يحتاج التعرف على الكلام إلى اتصال بالشبكة.",
         "failed": "فشل الإدخال الصوتي. يرجى المحاولة مرة أخرى."
       }
+    },
+    "slash": {
+      "menuTitle": "الأوامر",
+      "compact": {
+        "description": "تلخيص الأدوار الأقدم لتحرير السياق",
+        "usage": "/compact · /compact <التركيز> · /compact keep 4",
+        "pending": "سيتم الضغط عندما ينتهي الوكيل من هذا التشغيل",
+        "running": "جارٍ ضغط السياق…",
+        "doneContext": "تم ضغط {turns} أدوار · السياق ~{before} ← ~{after} رمز",
+        "doneHistory": "تم ضغط {turns} أدوار · السجل ~{before} ← ~{after} رمز",
+        "alreadyRunning": "الضغط قيد التشغيل بالفعل",
+        "failed": "تعذّر ضغط السياق",
+        "degraded": "ملخص احتياطي (بدون ملخص من النموذج)",
+        "cancel": "إلغاء",
+        "dismiss": "إغلاق"
+      }
     }
   },
   "reports": {
@@ -1171,7 +1187,13 @@
       "scopeHint": "ينطبق على محادثاتك في هذا المتصفح."
     },
     "readMore": "اقرأ المزيد",
-    "showLess": "عرض أقل"
+    "showLess": "عرض أقل",
+    "compactionShowSummary": "عرض ما يتذكره الوكيل من الأدوار المضغوطة",
+    "compactionSummaryTitle": "السجل المضغوط",
+    "compactionSummaryHint": "يرى الوكيل هذا الملخص بدلاً من الأدوار فوق الخط.",
+    "compactingContext": "جارٍ ضغط السياق…",
+    "compactionTurns": "{turns} أدوار",
+    "compactionLast": "آخر ضغط: السجل ~{before} ← ~{after} رمز"
   },
   "tools": {
     "common": {
@@ -1991,6 +2013,9 @@
     "noRolesFound": "لا توجد أدوار",
     "noRolesHint": "أنشئ دورًا لإدارة الصلاحيات.",
     "system": "النظام",
+    "default": "افتراضي",
+    "defaultRoleHint": "هذا دور مدمج. اسمه ثابت — خصّص أذوناته في الأسفل.",
+    "edit": "تعديل",
     "fullAdmin": "مسؤول كامل",
     "permissionsCount": "{n} صلاحية",
     "editRole": "تعديل الدور",
@@ -2252,7 +2277,7 @@
       "integrate": "ربط",
       "setup": "إعداد",
       "excelAddinName": "إضافة Excel",
-      "excelAddinDescription": "حمّل إضافة Bag of Words مباشرة من هذا الإصدار",
+      "excelAddinDescription": "حمّل إضافة BOW مباشرة من هذا الإصدار",
       "mcpName": "خادم BOW MCP",
       "mcpDescription": "تفعيل نقطة نهاية MCP للتكامل مع مساعدي الذكاء الاصطناعي مثل Cursor وClaude وغيرها",
       "channels": {
@@ -2320,7 +2345,14 @@
           "socketStep3": "Event Subscriptions ← فعّل الأحداث (دون حاجة إلى Request URL) واشترك في: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
           "socketStep4": "Agents ← فعّل \"Agent experience\" للحصول على لوحة المساعد الأصلية وتسمية المحادثات والاقتراحات",
           "socketStep5": "App Home ← فعّل تبويب Messages واسمح للمستخدمين بإرسال الرسائل",
-          "socketStep6": "Install App ← ثبّت التطبيق في مساحة عملك وانسخ Bot User OAuth Token ‏(xoxb-…)"
+          "socketStep6": "Install App ← ثبّت التطبيق في مساحة عملك وانسخ Bot User OAuth Token ‏(xoxb-…)",
+          "channelRoutingTitle": "توجيه القناة إلى الوكيل",
+          "channelRoutingDesc": "وجّه قناة إلى وكلاء محددين. القناة بدون تعيين تستخدم الإعداد الافتراضي للاتصال؛ وبدون إعداد افتراضي تكشف كل ما يمكن للمستخدم الوصول إليه. التوجيه يضيّق الوصول فقط ولا يمنح أبدًا أكثر مما لدى المستخدم بالفعل.",
+          "connectionDefaultLabel": "الإعداد الافتراضي للاتصال",
+          "connectionDefaultDesc": "يُستخدم للقنوات التي ليس لها تعيين خاص.",
+          "channelPickerPlaceholder": "اختر الوكلاء…",
+          "noChannelsYet": "لا توجد قنوات بعد. اذكر البوت في قناة وسيظهر هنا، أو أضف قناة بالمعرّف أدناه.",
+          "channelsHeading": "القنوات"
         },
         "teams": {
           "title": "تكامل Teams",
@@ -2547,9 +2579,9 @@
           "trustedConnecting": "Connecting to your trusted app…",
           "authorizationLoading": "Checking the authorization request…",
           "authorizationError": "Unable to authorize",
-          "goBack": "Go back to Bag of Words",
+          "goBack": "Go back to BOW",
           "authorizationTitle": "Authorize access",
-          "wantsAccess": "{name} wants to access your Bag of Words account.",
+          "wantsAccess": "{name} wants to access your BOW account.",
           "permissionsRequested": "Permissions requested",
           "appPermission": "Create and read reports, run completions, and use artifacts under your existing BOW permissions.",
           "mcpPermission": "Use the MCP tool surface under your existing BOW permissions.",
@@ -2574,7 +2606,7 @@
         },
         "excel": {
           "title": "وظيفة Excel الإضافية",
-          "subtitle": "حمّل وظيفة Bag of Words الإضافية مباشرةً من هذا المثيل.",
+          "subtitle": "حمّل وظيفة BOW الإضافية مباشرةً من هذا المثيل.",
           "loading": "جارٍ التحميل...",
           "setup": "الإعداد",
           "step1": "نزّل ملف manifest أدناه",
@@ -2624,7 +2656,7 @@
           "title": "التكامل مع Google Chat"
         }
       },
-      "emptyTitle": "اجعل Bag of Words يعمل مع أدواتك",
+      "emptyTitle": "اجعل BOW يعمل مع أدواتك",
       "emptySubtitle": "اربط Slack وTeams والبريد الإلكتروني والمزيد ليتمكن فريقك من الوصول إلى محلل الذكاء الاصطناعي حيث يعملون بالفعل. اختر تكاملاً للبدء.",
       "selectHint": "اختر تكاملاً",
       "slackDescription": "دع فريقك يتحدث مع محلل الذكاء الاصطناعي من قنوات Slack والرسائل المباشرة.",
@@ -2714,14 +2746,18 @@
       "attributesInviteHint": "اختياري. يعرّف هذا العضو في أنظمة أخرى، مثل مستخدم Qlik أو دور قاعدة البيانات.",
       "attributesSaved": "تم حفظ السمات",
       "attributesSaveFailed": "تعذّر حفظ السمات",
-      "importAttributesHint": "أضف أعمدة {column} لتعيين السمات، مثل {example}. الخلية الفارغة تترك السمة دون تغيير."
+      "importAttributesHint": "أضف أعمدة {column} لتعيين السمات، مثل {example}. الخلية الفارغة تترك السمة دون تغيير.",
+      "defaultRoleHint": "يملأ الدور مسبقًا عند إضافة عضو أو دعوته.",
+      "defaultRoleSaved": "تم حفظ الدور الافتراضي",
+      "defaultRoleFailed": "تعذر حفظ الدور الافتراضي",
+      "defaultRoleShort": "الدور الافتراضي"
     },
     "organizationName": "اسم المؤسسة",
     "organizationIcon": "أيقونة المؤسسة",
     "uploadIcon": "رفع أيقونة",
     "iconConstraints": "PNG/JPEG، ≤ 512 ك.ب.",
     "aiAnalystName": "اسم محلل الذكاء الاصطناعي",
-    "showCredit": "عرض ملاحظة \"Made with Bag of words\"",
+    "showCredit": "عرض ملاحظة \"Made with BOW\"",
     "language": {
       "title": "اللغة",
       "description": "تحدد اللغة الافتراضية للمؤسسة بأكملها. سيرى المستخدمون الواجهة بهذه اللغة وسيرد الذكاء الاصطناعي بها.",
@@ -3948,7 +3984,7 @@
         },
         {
           "title": "طباعة ملف الوصول",
-          "body": "احفظه باسم print_access_file.sh وشغّله. ينتظر الرمز ثم يطبع ملفًا واحدًا مستقلًا (عنوان خادم API، وCA العنقود، والرمز). تحقق منه عبر: kubectl --kubeconfig access.yaml get nodes. إذا كان عنوان الخادم خاصًا بشبكتك، فعدّله إلى العنوان الذي يمكن لهذه النسخة من Bag of Words الوصول إليه."
+          "body": "احفظه باسم print_access_file.sh وشغّله. ينتظر الرمز ثم يطبع ملفًا واحدًا مستقلًا (عنوان خادم API، وCA العنقود، والرمز). تحقق منه عبر: kubectl --kubeconfig access.yaml get nodes. إذا كان عنوان الخادم خاصًا بشبكتك، فعدّله إلى العنوان الذي يمكن لهذه النسخة من BOW الوصول إليه."
         },
         {
           "title": "الصقه أدناه واختبر الاتصال",
@@ -3958,7 +3994,7 @@
       "mecm": [
         {
           "title": "امنح الحساب صلاحية القراءة في Configuration Manager",
-          "body": "في وحدة التحكم انتقل إلى Administration > Security > Administrative Users، وأضف الحساب (أو مجموعة AD الخاصة به) وامنحه دور Read-only Analyst. تحدد نطاقات الأمان والمجموعات الخاصة به ما يمكن لـ Bag of Words رؤيته."
+          "body": "في وحدة التحكم انتقل إلى Administration > Security > Administrative Users، وأضف الحساب (أو مجموعة AD الخاصة به) وامنحه دور Read-only Analyst. تحدد نطاقات الأمان والمجموعات الخاصة به ما يمكن لـ BOW رؤيته."
         },
         {
           "title": "تحقّق من استجابة خدمة الإدارة",
@@ -4798,7 +4834,7 @@
   "onboarding": {
     "loading": "جارٍ التحميل...",
     "skip": "تخطي الإعداد",
-    "welcome": "مرحبًا بك في Bag of words! 🎉",
+    "welcome": "مرحبًا بك في BOW! 🎉",
     "welcomeSubtitle": "تحدّث مع بياناتك، وشغّل تحليلات متعمقة، وأنشئ لوحات تحكم في ثوانٍ",
     "next": "التالي",
     "fallbackTitle": "ابدأ",
@@ -4808,7 +4844,7 @@
     "intro1": "البدء سريع: فقط اربط نموذجك ومصدر بياناتك، وستكون جاهزًا لطرح أول سؤال.",
     "intro2": "👉 لنبدأ الإعداد!",
     "steps": {
-      "onboardingTitle": "مرحبًا بك في Bag of words! 🎉",
+      "onboardingTitle": "مرحبًا بك في BOW! 🎉",
       "onboardingDescription": "تحدّث مع بياناتك، وشغّل تحليلات متعمقة، وأنشئ لوحات تحكم في ثوانٍ",
       "onboardingButton": "أهلًا بك",
       "llmTitle": "إعداد نموذج اللغة",
@@ -5418,8 +5454,8 @@
     }
   },
   "mcpServerModal": {
-    "title": "خادم Bag of words MCP",
-    "subtitle": "اربط Claude أو Cursor أو أي عميل MCP للاستعلام عن بياناتك عبر خادم Bag of words MCP.",
+    "title": "خادم BOW MCP",
+    "subtitle": "اربط Claude أو Cursor أو أي عميل MCP للاستعلام عن بياناتك عبر خادم BOW MCP.",
     "loading": "جارٍ التحميل...",
     "tabMcpClients": "عملاء MCP",
     "tabOauth": "OAuth",
@@ -5558,7 +5594,8 @@
     "modeChat": "محادثة",
     "modelAuto": "تلقائي",
     "noAgents": "لا شيء",
-    "project": "مشروع"
+    "project": "مشروع",
+    "agentsFromReport": "يستخدم وكلاء التقرير"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -6781,7 +6818,7 @@
       "notPublished": "لم يُنشر هذا المحتوى بعد. سيظهر هنا بعد نشره.",
       "notFound": "هذا المحتوى غير متاح. ربما لم يُنشر بعد، أو تمت إزالته.",
       "denied": "ليس لديك حق الوصول إلى هذا المحتوى. اطلب من مالكه مشاركته معك.",
-      "notAllowed": "هذا المحتوى غير مفعّل لهذا التطبيق. يمكن للمحرر السماح به من إعدادات التضمين الخاصة به في Bag of Words.",
+      "notAllowed": "هذا المحتوى غير مفعّل لهذا التطبيق. يمكن للمحرر السماح به من إعدادات التضمين الخاصة به في BOW.",
       "failed": "تعذّر تحميل هذا المحتوى. حاول مرة أخرى بعد قليل."
     }
   },

@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.services.artifact_payload import row_count_fields
 from app.ai.tools.mcp.base import MCPTool
+from app.errors.redact import describe_for_log
 from app.ai.tools.mcp.context import build_rich_context
 from app.ai.llm import LLM
 from app.models.user import User
@@ -190,7 +191,8 @@ class CreateArtifactMCPTool(MCPTool):
                 usage_scope_ref_id=str(report.id),
             )
         except Exception as e:
-            logger.exception("LLM inference failed for create_artifact")
+            # A provider error can quote the prompt, which carries the client's request.
+            logger.error("LLM inference failed for create_artifact: %s", describe_for_log(e))
             await self._finish_tracking(
                 db, tracking, success=False,
                 summary=f"Code generation failed: {str(e)}"

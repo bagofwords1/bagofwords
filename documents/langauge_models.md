@@ -1,6 +1,6 @@
 # Language Models
 
-Bag of words allows users to integrate to a variety of language models. 
+BOW allows users to integrate to a variety of language models. 
 
 ## Overview
 

@@ -24,6 +24,7 @@ from app.models.user import User
 from app.models.organization import Organization
 from app.core.permission_resolver import resolve_permissions
 from app.services.instruction_service import InstructionService
+from app.errors.redact import describe_for_log
 from fastapi import HTTPException
 
 from app.services.instruction_authority import (
@@ -410,13 +411,16 @@ class CreateInstructionMCPTool(MCPTool):
             data_source_ids=ds_ids,
             status="published",
         )
+        # A failed commit expires the session's objects; read the id now.
+        user_id = str(user.id)
         try:
             result = await svc.create_instruction(
                 db=db, instruction_data=instruction_data, current_user=user,
                 organization=organization, force_global=True,
             )
         except Exception as e:
-            logger.exception(f"create_instruction failed for user {user.id}: {e}")
+            # A DB error's text carries the title and text as bound parameters.
+            logger.error("create_instruction failed for user %s: %s", user_id, describe_for_log(e))
             return MCPCreateInstructionOutput(
                 success=False, requires_approval=False, error_message=_refusal(e),
             ).model_dump()
@@ -558,13 +562,15 @@ class EditInstructionMCPTool(MCPTool):
             "data_source_ids": data.data_source_ids,
         }
         update = InstructionUpdate(**{k: v for k, v in changes.items() if v is not None})
+        # A failed commit expires the session's objects; read the id now.
+        user_id = str(user.id)
         try:
             updated = await svc.update_instruction(db, data.instruction_id, update, organization, user)
         except HTTPException as e:
-            logger.info("edit_instruction %s by %s refused: %s", data.instruction_id, user.id, e.detail)
+            logger.info("edit_instruction %s by %s refused: %s", data.instruction_id, user_id, e.detail)
             return fail(_refusal(e), "permission_denied" if e.status_code == 403 else "invalid_input")
         except Exception as e:
-            logger.exception("edit_instruction %s by %s failed: %s", data.instruction_id, user.id, e)
+            logger.error("edit_instruction %s by %s failed: %s", data.instruction_id, user_id, describe_for_log(e))
             return fail(_refusal(e), "edit_failed")
         if updated is None:
             return fail(NOT_FOUND, "not_found")
@@ -572,7 +578,7 @@ class EditInstructionMCPTool(MCPTool):
         fresh = await svc.get_instruction(db, data.instruction_id, organization, user) or updated
         pending = _pending(fresh)
         status_changed = new_db_status is not None and new_db_status != base_status
-        logger.info("edit_instruction: %s by user %s pending=%s", data.instruction_id, user.id, pending)
+        logger.info("edit_instruction: %s by user %s pending=%s", data.instruction_id, user_id, pending)
         return MCPEditInstructionOutput(
             success=True,
             instruction_id=data.instruction_id,
@@ -625,7 +631,7 @@ class DeleteInstructionMCPTool(MCPTool):
                 organization=organization, current_user=user,
             )
         except Exception as e:
-            logger.exception(f"delete_instruction failed for {input_data.instruction_id}: {e}")
+            logger.error("delete_instruction failed for %s: %s", input_data.instruction_id, describe_for_log(e))
             return MCPDeleteInstructionOutput(success=False, error_message=_refusal(e)).model_dump()
         logger.info("delete_instruction: %s by user %s", input_data.instruction_id, user.id)
         return MCPDeleteInstructionOutput(success=bool(success)).model_dump()

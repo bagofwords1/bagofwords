@@ -1,7 +1,7 @@
 [project]
 name = "bagofwords"
 version = "0.1.0"
-description = "Bag of Words — AI data tool backend"
+description = "BOW — AI data tool backend"
 authors = []
 requires-python = ">=3.12,<3.15"
 dependencies = [

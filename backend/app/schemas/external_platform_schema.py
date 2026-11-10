@@ -35,13 +35,35 @@ class ExternalPlatformSchema(ExternalPlatformBase):
 
 
 class PlatformAgentScope(BaseModel):
-    """The set of agents (data sources) a platform instance is scoped to.
+    """The set of agents (data sources) a scope key is scoped to.
 
-    Empty ``agent_ids`` means the instance is not scoped and exposes every
-    agent the messaging user can access on the channel.
+    The scope key is chosen by the ``channel`` query param on the route: empty
+    is the connection default, a channel id scopes that one channel. Empty
+    ``agent_ids`` means that key is not scoped and exposes every agent the
+    messaging user can access on the channel. ``channel_name`` is an optional
+    admin label applied to the channel when setting its scope (ignored for the
+    connection default).
     """
 
     agent_ids: List[str] = Field(default_factory=list)
+    channel_name: Optional[str] = None
+
+
+class PlatformChannel(BaseModel):
+    """A discovered channel plus its current agent scope, for the picker."""
+
+    external_channel_id: str
+    name: Optional[str] = None
+    channel_type: Optional[str] = None
+    last_seen_at: Optional[datetime] = None
+    agent_ids: List[str] = Field(default_factory=list)
+
+
+class PlatformChannelList(BaseModel):
+    """Everything the channel-routing UI needs for one instance in one read."""
+
+    default_agent_ids: List[str] = Field(default_factory=list)
+    channels: List[PlatformChannel] = Field(default_factory=list)
 
 class SlackConfig(BaseModel):
     """Slack integration config.
@@ -120,7 +142,7 @@ class EmailConfig(BaseModel):
 
     # --- Outbound / mailbox identity ---
     from_address: Optional[str] = None  # the mailbox; defaults to smtp_username
-    from_name: Optional[str] = "Bag of words Analyst"
+    from_name: Optional[str] = "BOW Analyst"
     smtp_host: Optional[str] = None  # required for password; defaulted for OAuth
     smtp_port: Optional[int] = None
     smtp_username: Optional[str] = None

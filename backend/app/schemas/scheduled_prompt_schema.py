@@ -24,6 +24,8 @@ class ScheduledPromptCreate(BaseModel):
     # fresh report per run.
     spawn_new_report: Optional[bool] = False
     notification_subscribers: Optional[List[NotificationSubscriber]] = None
+    # Agents this task's runs use. None/omitted = the host report's agents.
+    data_source_ids: Optional[List[str]] = None
 
     @field_validator("prompt", mode="after")
     @classmethod
@@ -46,6 +48,8 @@ class ScheduledPromptUpdate(BaseModel):
     is_active: Optional[bool] = None
     spawn_new_report: Optional[bool] = None
     notification_subscribers: Optional[List[NotificationSubscriber]] = None
+    # None = unchanged; [] = back to the host report's agents.
+    data_source_ids: Optional[List[str]] = None
 
     @field_validator("prompt", mode="after")
     @classmethod
@@ -74,6 +78,8 @@ class ScheduledPromptSchema(BaseModel):
     # list without opening it. Derived, not stored.
     last_run_status: Optional[str] = None
     notification_subscribers: Optional[list] = None
+    # The task's own agents; None = it runs on the host report's agents.
+    data_source_ids: Optional[List[str]] = None
     created_at: datetime
     updated_at: datetime
 

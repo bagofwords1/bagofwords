@@ -42,9 +42,9 @@ _MANIFEST_TEMPLATE = """\
            xsi:type="TaskPaneApp">
   <Id>5a276b40-1c05-4b22-921f-db43fa0e5590</Id>
   <Version>1.0.0.0</Version>
-  <ProviderName>Bag of Words</ProviderName>
+  <ProviderName>BOW</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
-  <DisplayName DefaultValue="Bag of Words"/>
+  <DisplayName DefaultValue="BOW"/>
   <Description DefaultValue="Chat with your data and paste AI-generated analysis directly into Excel."/>
   <IconUrl DefaultValue="{base_url}/icons/excel/icon-32.png"/>
   <HighResolutionIconUrl DefaultValue="{base_url}/icons/excel/icon-80.png"/>
@@ -110,13 +110,13 @@ _MANIFEST_TEMPLATE = """\
         <bt:Url id="Taskpane.Url" DefaultValue="{base_url}/excel/taskpane.html"/>
       </bt:Urls>
       <bt:ShortStrings>
-        <bt:String id="GetStarted.Title" DefaultValue="Welcome to Bag of Words for Excel"/>
+        <bt:String id="GetStarted.Title" DefaultValue="Welcome to BOW for Excel"/>
         <bt:String id="BowCommandsGroup.Label" DefaultValue="BOW"/>
         <bt:String id="BowTaskpaneButton.Label" DefaultValue="BOW"/>
       </bt:ShortStrings>
       <bt:LongStrings>
-        <bt:String id="GetStarted.Description" DefaultValue="Open the Bag of Words task pane to chat with your data."/>
-        <bt:String id="BowTaskpaneButton.Tooltip" DefaultValue="Open Bag of Words and bring AI analysis into your spreadsheet."/>
+        <bt:String id="GetStarted.Description" DefaultValue="Open the BOW task pane to chat with your data."/>
+        <bt:String id="BowTaskpaneButton.Tooltip" DefaultValue="Open BOW and bring AI analysis into your spreadsheet."/>
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>
@@ -156,7 +156,7 @@ def _build_taskpane_html(base_url: str) -> str:
     <meta charset="UTF-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Bag of Words</title>
+    <title>BOW</title>
     <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1.1/hosted/office.js"></script>
     <style>
         html, body {{ margin: 0; padding: 0; width: 100%; height: 100%;
@@ -188,13 +188,13 @@ def _build_taskpane_html(base_url: str) -> str:
     </style>
 </head>
 <body>
-    <iframe id="web-app-frame" title="Bag of Words"></iframe>
-    <button type="button" id="settings-toggle" title="Configure Bag of Words URL"
-            aria-label="Configure Bag of Words URL">&#9881;</button>
+    <iframe id="web-app-frame" title="BOW"></iframe>
+    <button type="button" id="settings-toggle" title="Configure BOW URL"
+            aria-label="Configure BOW URL">&#9881;</button>
     <div class="overlay" id="error-overlay" hidden>
         <div class="panel">
-            <h2 class="error-text">Can&rsquo;t reach Bag of Words</h2>
-            <p id="error-message">We couldn&rsquo;t load the Bag of Words web app.</p>
+            <h2 class="error-text">Can&rsquo;t reach BOW</h2>
+            <p id="error-message">We couldn&rsquo;t load the BOW web app.</p>
             <div class="button-row">
                 <button type="button" class="secondary" id="error-configure">Configure URL</button>
                 <button type="button" class="primary" id="error-retry">Retry</button>
@@ -203,8 +203,8 @@ def _build_taskpane_html(base_url: str) -> str:
     </div>
     <div class="overlay" id="settings-overlay" hidden>
         <form class="panel" id="settings-form">
-            <h2>Bag of Words URL</h2>
-            <p>Point the add-in at your Bag of Words instance.</p>
+            <h2>BOW URL</h2>
+            <p>Point the add-in at your BOW instance.</p>
             <label for="settings-url-input">URL</label>
             <input type="url" id="settings-url-input" required placeholder="{base_url}" />
             <div class="button-row">
@@ -289,7 +289,7 @@ def _build_taskpane_html(base_url: str) -> str:
       setInterval(function() {{ postToApp({{ type: "excelInitialized" }}); }}, 5000);
     }});
     f.addEventListener("error", function() {{
-      showError("Couldn\\u2019t load Bag of Words from " + currentAppUrl);
+      showError("Couldn\\u2019t load BOW from " + currentAppUrl);
     }});
     setTimeout(function() {{ if (!loaded) showError("Loading is taking longer than expected."); }}, 15000);
   }}

@@ -33,6 +33,10 @@ class ScheduledPrompt(BaseSchema):
     is_active = Column(Boolean, nullable=False, default=True)
     last_run_at = Column(DateTime, nullable=True, default=None)
     notification_subscribers = Column(JSON, nullable=True, default=None)  # [{type, id/address}]
+    # The agents this task's runs use, as data source ids. NULL = the host
+    # report's agents (the behavior before tasks had their own). Each run
+    # re-checks access, so an agent the task's owner lost is skipped.
+    data_source_ids = Column(JSON, nullable=True, default=None)
 
     report = relationship("Report", back_populates="scheduled_prompts", lazy='selectin')
     user = relationship("User", lazy='select')

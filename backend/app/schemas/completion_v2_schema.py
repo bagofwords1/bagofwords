@@ -1,4 +1,4 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from app.utils.reasoning_effort import normalize_effort
 from app.utils.request_metadata import validate_request_metadata
@@ -132,6 +132,13 @@ class CompactionStateSchema(BaseModel):
     # Fold boundary: the transcript renders the compaction divider directly
     # after this completion (state-derived — there are no divider rows).
     covers_until_completion_id: Optional[str] = None
+    # Last compaction outcome: method (llm | llm_retry | fallback), whether
+    # the summary is a deterministic fallback, and history tokens it folded
+    # (before) vs. the summary that replaced them (after).
+    last_method: Optional[str] = None
+    degraded: bool = False
+    last_tokens_before: Optional[int] = None
+    last_tokens_after: Optional[int] = None
 
 
 class CompletionContextEstimateSchema(BaseModel):
@@ -278,3 +285,9 @@ class CompletionsV2Response(BaseModel):
     compaction: Optional[CompactionStateSchema] = None
 
 
+class CompactContextRequest(BaseModel):
+    """Optional body for POST /context/compact (the composer's /compact)."""
+    # Focus for the summary: "/compact focus on the churn numbers".
+    instructions: Optional[str] = Field(default=None, max_length=800)
+    # User exchanges kept verbatim ("/compact keep 4"); default 2.
+    keep: Optional[int] = Field(default=None, ge=1, le=20)

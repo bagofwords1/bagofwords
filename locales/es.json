@@ -694,6 +694,22 @@
         "network": "El reconocimiento de voz necesita conexión a la red.",
         "failed": "La entrada de voz falló. Inténtalo de nuevo."
       }
+    },
+    "slash": {
+      "menuTitle": "Comandos",
+      "compact": {
+        "description": "Resume los turnos anteriores para liberar contexto",
+        "usage": "/compact · /compact <enfoque> · /compact keep 4",
+        "pending": "Se compactará cuando el agente termine esta ejecución",
+        "running": "Compactando contexto…",
+        "doneContext": "{turns} turnos compactados · contexto ~{before} → ~{after} tokens",
+        "doneHistory": "{turns} turnos compactados · historial ~{before} → ~{after} tokens",
+        "alreadyRunning": "La compactación ya está en curso",
+        "failed": "No se pudo compactar el contexto",
+        "degraded": "resumen de respaldo (sin resumen del modelo)",
+        "cancel": "Cancelar",
+        "dismiss": "Descartar"
+      }
     }
   },
   "reports": {
@@ -1201,7 +1217,13 @@
       "scopeHint": "Se aplica a tus conversaciones en este navegador."
     },
     "readMore": "Leer más",
-    "showLess": "Mostrar menos"
+    "showLess": "Mostrar menos",
+    "compactionShowSummary": "Ver lo que el agente recuerda de los turnos compactados",
+    "compactionSummaryTitle": "Historial compactado",
+    "compactionSummaryHint": "El agente ve este resumen en lugar de los turnos sobre la línea.",
+    "compactingContext": "Compactando contexto…",
+    "compactionTurns": "{turns} turnos",
+    "compactionLast": "Última compactación: historial ~{before} → ~{after} tokens"
   },
   "tools": {
     "common": {
@@ -2167,6 +2189,9 @@
     "noRolesFound": "No se encontraron roles",
     "noRolesHint": "Crea un rol para gestionar los permisos.",
     "system": "sistema",
+    "default": "Predeterminado",
+    "defaultRoleHint": "Este es un rol integrado. Su nombre es fijo: personaliza sus permisos abajo.",
+    "edit": "Editar",
     "fullAdmin": "Administrador total",
     "permissionsCount": "{n} permisos",
     "editRole": "Editar rol",
@@ -2498,7 +2523,7 @@
       "integrate": "Integrar",
       "setup": "Configurar",
       "excelAddinName": "Complemento de Excel",
-      "excelAddinDescription": "Carga lateral del complemento de Bag of Words directamente desde esta instancia",
+      "excelAddinDescription": "Carga lateral del complemento de BOW directamente desde esta instancia",
       "mcpName": "Servidor MCP de BOW",
       "mcpDescription": "Habilita el endpoint MCP para la integración con asistentes de IA como Cursor, Claude u otros",
       "channels": {
@@ -2566,7 +2591,14 @@
           "socketStep3": "Event Subscriptions → activa los eventos (sin Request URL) y suscríbete a: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
           "socketStep4": "Agents → activa \"Agent experience\" para el panel nativo de asistente, el nombrado de hilos y las sugerencias de prompts",
           "socketStep5": "App Home → activa la pestaña Messages y permite que los usuarios envíen mensajes",
-          "socketStep6": "Install App → instálala en tu espacio de trabajo y copia el Bot User OAuth Token (xoxb-…)"
+          "socketStep6": "Install App → instálala en tu espacio de trabajo y copia el Bot User OAuth Token (xoxb-…)",
+          "channelRoutingTitle": "Enrutamiento de canal → agente",
+          "channelRoutingDesc": "Dirige un canal a agentes específicos. Un canal sin asignación usa el valor predeterminado de la conexión; sin predeterminado, expone todo lo que el usuario puede acceder. El enrutamiento solo restringe el acceso, nunca otorga más de lo que el usuario ya tiene.",
+          "connectionDefaultLabel": "Predeterminado de la conexión",
+          "connectionDefaultDesc": "Se usa para canales sin asignación propia.",
+          "channelPickerPlaceholder": "Elegir agentes…",
+          "noChannelsYet": "Aún no hay canales. Menciona al bot en un canal y aparecerá aquí, o añade uno por id abajo.",
+          "channelsHeading": "Canales"
         },
         "teams": {
           "title": "Integración con Teams",
@@ -2793,9 +2825,9 @@
           "trustedConnecting": "Conectando con tu aplicación de confianza…",
           "authorizationLoading": "Comprobando la solicitud de autorización…",
           "authorizationError": "No se puede autorizar",
-          "goBack": "Volver a Bag of Words",
+          "goBack": "Volver a BOW",
           "authorizationTitle": "Autorizar acceso",
-          "wantsAccess": "{name} quiere acceder a tu cuenta de Bag of Words.",
+          "wantsAccess": "{name} quiere acceder a tu cuenta de BOW.",
           "permissionsRequested": "Permisos solicitados",
           "appPermission": "Crear y leer informes, ejecutar completaciones y usar artefactos según tus permisos actuales de BOW.",
           "mcpPermission": "Usar las herramientas MCP según tus permisos actuales de BOW.",
@@ -2820,7 +2852,7 @@
         },
         "excel": {
           "title": "Complemento de Excel",
-          "subtitle": "Carga el complemento de Bag of Words directamente desde esta instancia.",
+          "subtitle": "Carga el complemento de BOW directamente desde esta instancia.",
           "loading": "Cargando...",
           "setup": "Configuración",
           "step1": "Descarga el archivo de manifiesto que aparece abajo",
@@ -2870,7 +2902,7 @@
           "title": "Integración con Google Chat"
         }
       },
-      "emptyTitle": "Haz que Bag of Words funcione con tus herramientas",
+      "emptyTitle": "Haz que BOW funcione con tus herramientas",
       "emptySubtitle": "Conecta Slack, Teams, correo y más para que tu equipo pueda acceder al analista de IA donde ya trabaja. Elige una integración para empezar.",
       "selectHint": "Selecciona una integración",
       "slackDescription": "Permite que tu equipo converse con el analista de IA desde canales y mensajes directos de Slack.",
@@ -2960,14 +2992,18 @@
       "attributesInviteHint": "Opcional. Identifica a este miembro en otros sistemas, p. ej. su usuario de Qlik o su rol de base de datos.",
       "attributesSaved": "Atributos guardados",
       "attributesSaveFailed": "No se pudieron guardar los atributos",
-      "importAttributesHint": "Añade columnas {column} para definir atributos, p. ej. {example}. Una celda vacía deja ese atributo sin cambios."
+      "importAttributesHint": "Añade columnas {column} para definir atributos, p. ej. {example}. Una celda vacía deja ese atributo sin cambios.",
+      "defaultRoleHint": "Rellena el rol al añadir o invitar a un miembro.",
+      "defaultRoleSaved": "Rol predeterminado guardado",
+      "defaultRoleFailed": "No se pudo guardar el rol predeterminado",
+      "defaultRoleShort": "Rol predeterminado"
     },
     "organizationName": "Nombre de la organización",
     "organizationIcon": "Icono de la organización",
     "uploadIcon": "Subir icono",
     "iconConstraints": "PNG/JPEG, ≤ 512 KB.",
     "aiAnalystName": "Nombre del analista de IA",
-    "showCredit": "Mostrar crédito «Made with Bag of words»",
+    "showCredit": "Mostrar crédito «Made with BOW»",
     "workspacePlaceholder": "Nombre del espacio",
     "changeIcon": "Cambiar icono",
     "uploadIconButton": "Subir icono",
@@ -4280,7 +4316,7 @@
         },
         {
           "title": "Imprime el archivo de acceso",
-          "body": "Guárdalo como print_access_file.sh y ejecútalo. Espera el token y luego imprime un único archivo autocontenido (URL del servidor API, CA del clúster, token). Verifícalo con: kubectl --kubeconfig access.yaml get nodes. Si la URL del servidor es privada de tu red, cámbiala por la dirección que esta instancia de Bag of Words puede alcanzar."
+          "body": "Guárdalo como print_access_file.sh y ejecútalo. Espera el token y luego imprime un único archivo autocontenido (URL del servidor API, CA del clúster, token). Verifícalo con: kubectl --kubeconfig access.yaml get nodes. Si la URL del servidor es privada de tu red, cámbiala por la dirección que esta instancia de BOW puede alcanzar."
         },
         {
           "title": "Pégalo abajo y prueba la conexión",
@@ -4290,7 +4326,7 @@
       "mecm": [
         {
           "title": "Concede a la cuenta acceso de lectura en Configuration Manager",
-          "body": "En la consola ve a Administration > Security > Administrative Users, agrega la cuenta (o su grupo de AD) y asígnale el rol Read-only Analyst. Sus ámbitos de seguridad y colecciones deciden lo que Bag of Words puede ver."
+          "body": "En la consola ve a Administration > Security > Administrative Users, agrega la cuenta (o su grupo de AD) y asígnale el rol Read-only Analyst. Sus ámbitos de seguridad y colecciones deciden lo que BOW puede ver."
         },
         {
           "title": "Comprueba que el servicio de administración responde",
@@ -5236,7 +5272,7 @@
   "onboarding": {
     "loading": "Cargando...",
     "skip": "Omitir introducción",
-    "welcome": "¡Bienvenido a Bag of words! 🎉",
+    "welcome": "¡Bienvenido a BOW! 🎉",
     "welcomeSubtitle": "Conversa con tus datos, realiza análisis profundos y crea paneles en segundos",
     "next": "Siguiente",
     "fallbackTitle": "Empezar",
@@ -5246,7 +5282,7 @@
     "intro1": "Comenzar es rápido: conecta tu modelo y tu fuente de datos, y estarás listo para hacer tu primera pregunta.",
     "intro2": "👉 ¡Vamos a configurarlo!",
     "steps": {
-      "onboardingTitle": "¡Bienvenido a Bag of words! 🎉",
+      "onboardingTitle": "¡Bienvenido a BOW! 🎉",
       "onboardingDescription": "Conversa con tus datos, realiza análisis profundos y crea paneles en segundos",
       "onboardingButton": "Bienvenida",
       "llmTitle": "Configurar LLM",
@@ -5859,8 +5895,8 @@
     }
   },
   "mcpServerModal": {
-    "title": "Servidor MCP de Bag of words",
-    "subtitle": "Conecta Claude, Cursor o cualquier cliente MCP para consultar tus datos a través del servidor MCP de Bag of words.",
+    "title": "Servidor MCP de BOW",
+    "subtitle": "Conecta Claude, Cursor o cualquier cliente MCP para consultar tus datos a través del servidor MCP de BOW.",
     "loading": "Cargando...",
     "tabMcpClients": "Clientes MCP",
     "tabOauth": "OAuth",
@@ -5999,7 +6035,8 @@
     "modeChat": "Chat",
     "modelAuto": "Auto",
     "noAgents": "Ninguno",
-    "project": "Proyecto"
+    "project": "Proyecto",
+    "agentsFromReport": "Usa los agentes del informe"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -7316,7 +7353,7 @@
       "notPublished": "Esto aún no se ha publicado. Aparecerá aquí cuando se publique.",
       "notFound": "Esto no está disponible. Puede que aún no se haya publicado o que se haya eliminado.",
       "denied": "No tienes acceso a esto. Pide a su propietario que lo comparta contigo.",
-      "notAllowed": "Esto no está habilitado para esta aplicación. Un editor puede permitirlo en su configuración de Insertar en Bag of Words.",
+      "notAllowed": "Esto no está habilitado para esta aplicación. Un editor puede permitirlo en su configuración de Insertar en BOW.",
       "failed": "No se pudo cargar. Inténtalo de nuevo en un momento."
     },
     "signin": {

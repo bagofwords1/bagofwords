@@ -1,6 +1,6 @@
 # Qlik Sense Enterprise on Windows (on-prem) connector
 
-Bag of Words could read Qlik in two shapes — `.qvd` files and Qlik **Cloud** —
+BOW could read Qlik in two shapes — `.qvd` files and Qlik **Cloud** —
 and neither reaches a Qlik Sense Enterprise on Windows (QSEoW) site. The two
 Qlik products share the Engine protocol and nothing else: discovery, auth, the
 grouping concept and the WebSocket endpoint all differ, so the on-prem path is a

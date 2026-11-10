@@ -35,6 +35,11 @@ def _cols(*names):
     [
         ("postgresql", _table("public.orders", {"schema": "public"}), '"public"."orders"'),
         ("snowflake", _table("SALES.ORDERS", {"schema": "SALES"}), '"SALES"."ORDERS"'),
+        # One database: SCHEMA.TABLE even though the database is recorded.
+        ("snowflake", _table("SALES.ORDERS", {"schema": "SALES", "database": "DB_A"}), '"SALES"."ORDERS"'),
+        # Several databases on one connection: DATABASE.SCHEMA.TABLE.
+        ("snowflake", _table("DB_B.CRM.CUSTOMERS", {"schema": "CRM", "database": "DB_B"}), '"DB_B"."CRM"."CUSTOMERS"'),
+        ("ms_fabric", _table("dbo.orders", {"schema": "dbo", "database": "lake"}), "[dbo].[orders]"),
         ("oracledb", _table("HR.EMPLOYEES", {"schema": "HR"}), '"HR"."EMPLOYEES"'),
         ("mssql", _table("dbo.Order Lines", {"schema": "dbo"}), "[dbo].[Order Lines]"),
         ("MSSQL", _table("dbo.t", {"schema": "dbo"}), "[dbo].[t]"),

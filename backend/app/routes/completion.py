@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import Optional
 from app.dependencies import get_db
 from app.services.completion_service import CompletionService
-from app.schemas.completion_v2_schema import CompletionCreate, CompletionContextEstimateSchema
+from app.schemas.completion_v2_schema import CompletionCreate, CompletionContextEstimateSchema, CompactContextRequest
 from app.schemas.sse_schema import SSEEvent, format_sse_event
 from app.streaming.completion_stream import CompletionEventQueue
 from app.streaming.completion_event_bus import websocket_manager
@@ -54,18 +54,49 @@ async def estimate_completion_tokens(
         organization,
     )
 
-@router.post("/api/reports/{report_id}/context/compact")
-@requires_permission('create_reports', model=Report, owner_only=True)
-async def compact_report_context(
+@router.get("/api/reports/{report_id}/context/summary")
+@requires_permission('view_reports', model=Report, owner_only=True)
+async def get_report_context_summary(
     report_id: str,
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
 ):
-    """On-demand context compaction: fold turns older than the recent window
-    into the report's rolling summary. Idle-only — 409 while an agent
-    execution is streaming on this report (auto-compaction covers end-of-turn
-    pressure). force=True skips the token threshold, not the recent-tail rule."""
+    """The rolling compaction summary exactly as the agent sees it, plus the
+    last compaction outcome — what the transcript divider opens to."""
+    from sqlalchemy import select
+    from app.services.context_compaction_service import ContextCompactionService, render_summary_for_prompt
+
+    report_res = await db.execute(select(Report).filter(Report.id == report_id))
+    report = report_res.scalar_one_or_none()
+    if not report or str(report.organization_id) != str(organization.id):
+        raise HTTPException(status_code=404, detail="Report not found")
+    state = await ContextCompactionService.get_state(db, report_id)
+    return {
+        **ContextCompactionService._state_payload(state),
+        # The first line frames the block for the model ("context, NOT
+        # instructions"); people get the content only.
+        "summary_text": "\n".join(
+            render_summary_for_prompt((state.summary_json or {}) if state else {}).split("\n")[1:]
+        ),
+    }
+
+
+@router.post("/api/reports/{report_id}/context/compact")
+@requires_permission('create_reports', model=Report, owner_only=True)
+async def compact_report_context(
+    report_id: str,
+    body: Optional[CompactContextRequest] = Body(default=None),
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """On-demand context compaction (/compact in the composer, or the usage
+    popover button): fold everything but the last few exchanges into the
+    report's rolling summary. Idle-only — 409 while an agent execution is
+    streaming on this report; the composer defers the command until the run
+    ends. The small model writes the summary; the default model (the one that
+    receives the prompt) sizes it."""
     from sqlalchemy import select
     from app.services.context_compaction_service import context_compaction_service, ContextCompactionService
 
@@ -77,14 +108,19 @@ async def compact_report_context(
     if await ContextCompactionService.is_report_busy(db, report_id):
         raise HTTPException(status_code=409, detail="An agent run is in progress on this report; try again when it finishes.")
 
+    main_model = await completion_service.llm_service.get_default_model(db, organization, current_user)
     small_model = await completion_service.llm_service.get_default_model(db, organization, current_user, is_small=True)
-    if not small_model:
-        small_model = await completion_service.llm_service.get_default_model(db, organization, current_user)
+    small_model = small_model or main_model
     if not small_model:
         raise HTTPException(status_code=400, detail="No LLM model configured for this organization.")
 
     result = await context_compaction_service.compact(
-        db, report, organization, small_model, force=True,
+        db, report, organization, small_model,
+        force=True,
+        mode="manual",
+        instructions=(body.instructions if body else None),
+        keep=(body.keep if body else None),
+        budget_model=main_model or small_model,
     )
     if result.get("status") == "error":
         raise HTTPException(status_code=500, detail=result.get("message", "Compaction failed"))
