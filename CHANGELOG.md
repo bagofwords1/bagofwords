@@ -11,6 +11,7 @@
 - Fixed SharePoint refreshes dropping a library's files when a scoped folder's name contains "404" (#1664)
 - Fixed in-app prompts queued behind an MCP turn not starting when it finished, and MCP logs recording request contents (#1666)
 - Fixed custom API tool calls failing with "tool/plan_type mismatch" or "Input should be a valid dictionary"; an unknown tool now gets a list of the tools the agent can call (#1645)
+- Added a Skills category to the @ mention menu; Instructions now lists only instructions (#1676)
 
 ## Version 0.0.613 (November 9, 2026)
 - Added multiple WhatsApp numbers per org, each limited to the agents you pick (#1654)
