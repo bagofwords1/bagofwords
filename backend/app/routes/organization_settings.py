@@ -18,6 +18,7 @@ from app.schemas.organization_settings_schema import (
     OrganizationSettingsSchema,
     OrganizationSettingsUpdate,
     SignupPolicySchema,
+    DefaultMemberRoleSchema,
 )
 
 router = APIRouter(tags=["organization_settings"])
@@ -198,6 +199,29 @@ async def update_signup_policy(
     organization: Organization = Depends(get_current_organization),
 ):
     return await settings_service.update_signup_policy(db, organization, current_user, policy)
+
+
+@router.get("/organization/default-member-role", response_model=DefaultMemberRoleSchema)
+@requires_permission('full_admin_access')
+async def get_default_member_role(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    return await settings_service.get_default_member_role(db, organization, current_user)
+
+
+@router.put("/organization/default-member-role", response_model=DefaultMemberRoleSchema)
+@requires_permission('full_admin_access')
+async def update_default_member_role(
+    payload: DefaultMemberRoleSchema,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    return await settings_service.update_default_member_role(
+        db, organization, current_user, payload.role
+    )
 
 
 # --- Entra ID profile / job-info sync (identity providers page) -----------

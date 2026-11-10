@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, delete
 from fastapi import HTTPException
-from typing import List, Optional, Set
+from typing import Any, List, Optional, Set
 import json
 
 from app.models.external_platform import ExternalPlatform
@@ -187,19 +187,51 @@ class ExternalPlatformService:
     # ------------------------------------------------------------------
 
     async def get_scope_agent_ids(
-        self, db: AsyncSession, platform_id: str
+        self,
+        db: AsyncSession,
+        platform_id: str,
+        external_channel_id: str = "",
     ) -> Set[str]:
-        """Return the set of agent (data source) ids this instance is scoped to.
+        """Return the agent (data source) ids a scope row set is scoped to.
 
-        An empty set means "not scoped" — the instance exposes everything the
-        messaging user can access on the channel (the pre-existing behavior).
+        ``external_channel_id`` selects which rows: ``""`` (the default) reads
+        the connection-default / per-instance scope; a real channel id reads
+        that one channel's scope. An empty result means "not scoped" for that
+        key — expose everything the messaging user can access (pre-existing
+        behavior).
         """
 
         stmt = select(ExternalPlatformAgent.data_source_id).where(
-            ExternalPlatformAgent.platform_id == platform_id
+            and_(
+                ExternalPlatformAgent.platform_id == platform_id,
+                ExternalPlatformAgent.external_channel_id == (external_channel_id or ""),
+            )
         )
         result = await db.execute(stmt)
         return {str(row) for row in result.scalars().all()}
+
+    async def resolve_scope_agent_ids(
+        self,
+        db: AsyncSession,
+        platform_id: str,
+        routing_channel_id: Optional[str] = None,
+    ) -> Set[str]:
+        """Resolve the effective agent scope for an incoming message.
+
+        Most-specific wins: if ``routing_channel_id`` is given and that channel
+        has its own scope rows, use them; otherwise fall back to the ``""``
+        connection-default scope; an empty result means unscoped (expose
+        everything the user can access). The scope only ever *narrows* the
+        caller's list — it is intersected with the user's own access downstream.
+        """
+
+        if routing_channel_id:
+            channel_scope = await self.get_scope_agent_ids(
+                db, platform_id, routing_channel_id
+            )
+            if channel_scope:
+                return channel_scope
+        return await self.get_scope_agent_ids(db, platform_id, "")
 
     async def filter_org_data_source_ids(
         self, db: AsyncSession, organization_id: str, data_source_ids: List[str]
@@ -236,17 +268,25 @@ class ExternalPlatformService:
         db: AsyncSession,
         platform: ExternalPlatform,
         data_source_ids: List[str],
+        external_channel_id: str = "",
     ) -> Set[str]:
-        """Replace the instance's agent scope with ``data_source_ids``.
+        """Replace one scope key's agent set with ``data_source_ids``.
 
-        Passing an empty list clears the scope (back to exposing everything the
-        user can access). Ids are de-duplicated; this does not widen access —
-        resolution still intersects with the messaging user's own agents.
+        ``external_channel_id`` picks the key: ``""`` (the default) sets the
+        connection-default / per-instance scope; a real channel id sets that one
+        channel's scope. Passing an empty list clears that key (back to exposing
+        everything the user can access *for that key*). Ids are de-duplicated;
+        this does not widen access — resolution still intersects with the
+        messaging user's own agents.
         """
 
+        channel_key = external_channel_id or ""
         await db.execute(
             delete(ExternalPlatformAgent).where(
-                ExternalPlatformAgent.platform_id == platform.id
+                and_(
+                    ExternalPlatformAgent.platform_id == platform.id,
+                    ExternalPlatformAgent.external_channel_id == channel_key,
+                )
             )
         )
         wanted = []
@@ -261,12 +301,120 @@ class ExternalPlatformService:
                 ExternalPlatformAgent(
                     organization_id=platform.organization_id,
                     platform_id=platform.id,
+                    external_channel_id=channel_key,
                     data_source_id=ds_id,
                 )
             )
         await db.commit()
         return set(wanted)
-    
+
+    async def get_scope_map(
+        self, db: AsyncSession, platform_id: str
+    ) -> dict:
+        """Return ``{external_channel_id: {agent_id, ...}}`` for every scope row.
+
+        ``""`` is the connection-default key. Lets the settings UI render the
+        default plus every channel's scope from a single read.
+        """
+
+        stmt = select(
+            ExternalPlatformAgent.external_channel_id,
+            ExternalPlatformAgent.data_source_id,
+        ).where(ExternalPlatformAgent.platform_id == platform_id)
+        rows = (await db.execute(stmt)).all()
+        out: dict = {}
+        for channel, ds in rows:
+            out.setdefault(channel or "", set()).add(str(ds))
+        return out
+
+    # ------------------------------------------------------------------
+    # Discovered channels (discover-on-traffic)
+    # ------------------------------------------------------------------
+
+    async def record_seen_channel(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        platform_id: str,
+        external_channel_id: str,
+        name: Optional[str] = None,
+        channel_type: Optional[str] = None,
+        overwrite_name: bool = False,
+        name_fetcher: Optional[Any] = None,
+    ):
+        """Upsert a channel the bot just saw (or an admin is adding by hand).
+
+        Fills in ``name``/``channel_type`` only when still empty, unless
+        ``overwrite_name`` is set (the admin relabel path). Refreshes
+        ``last_seen_at``. Returns the normalized channel id, or None for an
+        empty id. Caller should treat failures as best-effort — discovery must
+        never break message handling.
+
+        ``name_fetcher`` is an optional ``async (channel_id) -> Optional[str]``
+        used to resolve a human name when none is known yet (Slack events carry
+        only the id). It is awaited at most once per channel — only when no name
+        was passed and none is stored — so the live lookup never repeats on
+        every message. Any failure is swallowed and the id stays the label.
+        """
+        from app.models.external_platform_channel import ExternalPlatformChannel
+        import datetime
+
+        channel_id = (external_channel_id or "").strip()
+        if not channel_id:
+            return None
+
+        existing = (
+            await db.execute(
+                select(ExternalPlatformChannel).where(
+                    and_(
+                        ExternalPlatformChannel.platform_id == platform_id,
+                        ExternalPlatformChannel.external_channel_id == channel_id,
+                    )
+                )
+            )
+        ).scalar_one_or_none()
+
+        # Resolve a name once, on first sighting: ask Slack only when we have
+        # no name from the caller and none on record. Best-effort — a missing
+        # scope or API hiccup just leaves the id as the label.
+        if name_fetcher is not None and not name and not (existing and existing.name):
+            try:
+                name = await name_fetcher(channel_id)
+            except Exception as e:
+                print(f"record_seen_channel name_fetcher failed (non-fatal): {e}")
+
+        now = datetime.datetime.utcnow()
+        if existing:
+            existing.last_seen_at = now
+            if name and (overwrite_name or not existing.name):
+                existing.name = name
+            if channel_type and not existing.channel_type:
+                existing.channel_type = channel_type
+        else:
+            db.add(
+                ExternalPlatformChannel(
+                    organization_id=organization_id,
+                    platform_id=platform_id,
+                    external_channel_id=channel_id,
+                    name=name,
+                    channel_type=channel_type,
+                    last_seen_at=now,
+                )
+            )
+        await db.commit()
+        return channel_id
+
+    async def list_channels(self, db: AsyncSession, platform_id: str) -> List:
+        """All channels discovered on an instance, most-recently-seen first."""
+        from app.models.external_platform_channel import ExternalPlatformChannel
+
+        stmt = (
+            select(ExternalPlatformChannel)
+            .where(ExternalPlatformChannel.platform_id == platform_id)
+            .order_by(ExternalPlatformChannel.last_seen_at.desc())
+        )
+        return list((await db.execute(stmt)).scalars().all())
+
     async def update_platform(
         self, 
         db: AsyncSession, 

@@ -673,6 +673,22 @@
         "network": "Для распознавания речи нужно сетевое подключение.",
         "failed": "Голосовой ввод не удался. Попробуйте ещё раз."
       }
+    },
+    "slash": {
+      "menuTitle": "Команды",
+      "compact": {
+        "description": "Сжать старые ходы, чтобы освободить контекст",
+        "usage": "/compact · /compact <фокус> · /compact keep 4",
+        "pending": "Сжатие выполнится, когда агент завершит текущий запуск",
+        "running": "Сжатие контекста…",
+        "doneContext": "Сжато ходов: {turns} · контекст ~{before} → ~{after} токенов",
+        "doneHistory": "Сжато ходов: {turns} · история ~{before} → ~{after} токенов",
+        "alreadyRunning": "Сжатие уже выполняется",
+        "failed": "Не удалось сжать контекст",
+        "degraded": "резервная сводка (без сводки модели)",
+        "cancel": "Отмена",
+        "dismiss": "Закрыть"
+      }
     }
   },
   "reports": {
@@ -1171,7 +1187,13 @@
       "scopeHint": "Применяется к вашим беседам в этом браузере."
     },
     "readMore": "Подробнее",
-    "showLess": "Свернуть"
+    "showLess": "Свернуть",
+    "compactionShowSummary": "Показать, что агент помнит о сжатых ходах",
+    "compactionSummaryTitle": "Сжатая история",
+    "compactionSummaryHint": "Агент видит эту сводку вместо ходов над линией.",
+    "compactingContext": "Сжатие контекста…",
+    "compactionTurns": "ходов: {turns}",
+    "compactionLast": "Последнее сжатие: история ~{before} → ~{after} токенов"
   },
   "tools": {
     "common": {
@@ -1991,6 +2013,9 @@
     "noRolesFound": "Роли не найдены",
     "noRolesHint": "Создайте роль для управления разрешениями.",
     "system": "система",
+    "default": "По умолчанию",
+    "defaultRoleHint": "Это встроенная роль. Её имя фиксировано — настройте её разрешения ниже.",
+    "edit": "Редактировать",
     "fullAdmin": "Полный администратор",
     "permissionsCount": "{n} разрешений",
     "editRole": "Редактировать роль",
@@ -2252,7 +2277,7 @@
       "integrate": "Интегрировать",
       "setup": "Настроить",
       "excelAddinName": "Надстройка Excel",
-      "excelAddinDescription": "Установите надстройку Bag of Words напрямую из этого экземпляра",
+      "excelAddinDescription": "Установите надстройку BOW напрямую из этого экземпляра",
       "mcpName": "Сервер BOW MCP",
       "mcpDescription": "Включите конечную точку MCP для интеграции с ИИ-ассистентами, такими как Cursor, Claude и другими",
       "channels": {
@@ -2320,7 +2345,14 @@
           "socketStep3": "Event Subscriptions → включите события (Request URL не нужен) и подпишитесь на: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
           "socketStep4": "Agents → включите «Agent experience» для встроенной панели ассистента, названий тредов и подсказок",
           "socketStep5": "App Home → включите вкладку Messages и разрешите пользователям отправлять сообщения",
-          "socketStep6": "Install App → установите приложение в рабочее пространство и скопируйте Bot User OAuth Token (xoxb-…)"
+          "socketStep6": "Install App → установите приложение в рабочее пространство и скопируйте Bot User OAuth Token (xoxb-…)",
+          "channelRoutingTitle": "Маршрутизация канал → агент",
+          "channelRoutingDesc": "Направьте канал к определённым агентам. Канал без сопоставления использует значение по умолчанию для подключения; без значения по умолчанию он открывает всё, к чему у пользователя есть доступ. Маршрутизация только сужает доступ и никогда не даёт больше, чем у пользователя уже есть.",
+          "connectionDefaultLabel": "По умолчанию для подключения",
+          "connectionDefaultDesc": "Используется для каналов без собственного сопоставления.",
+          "channelPickerPlaceholder": "Выбрать агентов…",
+          "noChannelsYet": "Пока нет каналов. Упомяните бота в канале, и он появится здесь, или добавьте канал по id ниже.",
+          "channelsHeading": "Каналы"
         },
         "teams": {
           "title": "Интеграция с Teams",
@@ -2547,9 +2579,9 @@
           "trustedConnecting": "Connecting to your trusted app…",
           "authorizationLoading": "Checking the authorization request…",
           "authorizationError": "Unable to authorize",
-          "goBack": "Go back to Bag of Words",
+          "goBack": "Go back to BOW",
           "authorizationTitle": "Authorize access",
-          "wantsAccess": "{name} wants to access your Bag of Words account.",
+          "wantsAccess": "{name} wants to access your BOW account.",
           "permissionsRequested": "Permissions requested",
           "appPermission": "Create and read reports, run completions, and use artifacts under your existing BOW permissions.",
           "mcpPermission": "Use the MCP tool surface under your existing BOW permissions.",
@@ -2574,7 +2606,7 @@
         },
         "excel": {
           "title": "Надстройка Excel",
-          "subtitle": "Загрузите надстройку Bag of Words напрямую из этого экземпляра.",
+          "subtitle": "Загрузите надстройку BOW напрямую из этого экземпляра.",
           "loading": "Загрузка...",
           "setup": "Настройка",
           "step1": "Скачайте файл манифеста ниже",
@@ -2624,7 +2656,7 @@
           "title": "Интеграция с Google Chat"
         }
       },
-      "emptyTitle": "Настройте работу Bag of Words с вашими инструментами",
+      "emptyTitle": "Настройте работу BOW с вашими инструментами",
       "emptySubtitle": "Подключите Slack, Teams, почту и другое, чтобы ваша команда могла обращаться к ИИ-аналитику там, где она уже работает. Выберите интеграцию, чтобы начать.",
       "selectHint": "Выберите интеграцию",
       "slackDescription": "Позвольте вашей команде общаться с ИИ-аналитиком в каналах и личных сообщениях Slack.",
@@ -2714,14 +2746,18 @@
       "attributesInviteHint": "Необязательно. Идентифицирует участника в других системах, например пользователя Qlik или роль базы данных.",
       "attributesSaved": "Атрибуты сохранены",
       "attributesSaveFailed": "Не удалось сохранить атрибуты",
-      "importAttributesHint": "Добавьте столбцы {column}, чтобы задать атрибуты, например {example}. Пустая ячейка оставляет атрибут без изменений."
+      "importAttributesHint": "Добавьте столбцы {column}, чтобы задать атрибуты, например {example}. Пустая ячейка оставляет атрибут без изменений.",
+      "defaultRoleHint": "Подставляет роль при добавлении или приглашении участника.",
+      "defaultRoleSaved": "Роль по умолчанию сохранена",
+      "defaultRoleFailed": "Не удалось сохранить роль по умолчанию",
+      "defaultRoleShort": "Роль по умолчанию"
     },
     "organizationName": "Название организации",
     "organizationIcon": "Иконка организации",
     "uploadIcon": "Загрузить иконку",
     "iconConstraints": "PNG/JPEG, ≤ 512 КБ.",
     "aiAnalystName": "Имя ИИ-аналитика",
-    "showCredit": "Показать ссылку «Made with Bag of words»",
+    "showCredit": "Показать ссылку «Made with BOW»",
     "language": {
       "title": "Язык",
       "description": "Устанавливает язык по умолчанию для всей организации. Пользователи увидят интерфейс на этом языке, и ИИ будет отвечать на нём.",
@@ -3948,7 +3984,7 @@
         },
         {
           "title": "Выведите файл доступа",
-          "body": "Сохраните как print_access_file.sh и запустите. Скрипт дождётся токена и выведет один самодостаточный файл (URL API-сервера, CA кластера, токен). Проверьте: kubectl --kubeconfig access.yaml get nodes. Если URL сервера доступен только из вашей сети, замените его на адрес, до которого может достучаться этот экземпляр Bag of Words."
+          "body": "Сохраните как print_access_file.sh и запустите. Скрипт дождётся токена и выведет один самодостаточный файл (URL API-сервера, CA кластера, токен). Проверьте: kubectl --kubeconfig access.yaml get nodes. Если URL сервера доступен только из вашей сети, замените его на адрес, до которого может достучаться этот экземпляр BOW."
         },
         {
           "title": "Вставьте ниже и проверьте подключение",
@@ -3958,7 +3994,7 @@
       "mecm": [
         {
           "title": "Выдайте учетной записи доступ на чтение в Configuration Manager",
-          "body": "В консоли откройте Administration > Security > Administrative Users, добавьте учетную запись (или ее группу AD) и назначьте роль Read-only Analyst. Ее области безопасности и коллекции определяют, что видит Bag of Words."
+          "body": "В консоли откройте Administration > Security > Administrative Users, добавьте учетную запись (или ее группу AD) и назначьте роль Read-only Analyst. Ее области безопасности и коллекции определяют, что видит BOW."
         },
         {
           "title": "Проверьте, что служба администрирования отвечает",
@@ -4798,7 +4834,7 @@
   "onboarding": {
     "loading": "Загрузка...",
     "skip": "Пропустить онбординг",
-    "welcome": "Добро пожаловать в Bag of words! 🎉",
+    "welcome": "Добро пожаловать в BOW! 🎉",
     "welcomeSubtitle": "Общайтесь с данными, проводите глубокий анализ и создавайте дашборды за секунды",
     "next": "Далее",
     "fallbackTitle": "Начать",
@@ -4808,7 +4844,7 @@
     "intro1": "Начать просто: подключите модель и источник данных, и вы будете готовы задать первый вопрос.",
     "intro2": "👉 Давайте всё настроим!",
     "steps": {
-      "onboardingTitle": "Добро пожаловать в Bag of words! 🎉",
+      "onboardingTitle": "Добро пожаловать в BOW! 🎉",
       "onboardingDescription": "Общайтесь с данными, проводите глубокий анализ и создавайте дашборды за секунды",
       "onboardingButton": "Добро пожаловать",
       "llmTitle": "Настроить LLM",
@@ -5418,8 +5454,8 @@
     }
   },
   "mcpServerModal": {
-    "title": "MCP-сервер Bag of words",
-    "subtitle": "Подключите Claude, Cursor или любой MCP-клиент для запросов к вашим данным через MCP-сервер Bag of words.",
+    "title": "MCP-сервер BOW",
+    "subtitle": "Подключите Claude, Cursor или любой MCP-клиент для запросов к вашим данным через MCP-сервер BOW.",
     "loading": "Загрузка...",
     "tabMcpClients": "MCP-клиенты",
     "tabOauth": "OAuth",
@@ -5558,7 +5594,8 @@
     "modeChat": "Чат",
     "modelAuto": "Авто",
     "noAgents": "Нет",
-    "project": "Проект"
+    "project": "Проект",
+    "agentsFromReport": "Использует агентов отчёта"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -6781,7 +6818,7 @@
       "notPublished": "Это ещё не опубликовано. Оно появится здесь после публикации.",
       "notFound": "Это недоступно. Возможно, оно ещё не опубликовано или было удалено.",
       "denied": "У вас нет доступа к этому. Попросите владельца предоставить вам доступ.",
-      "notAllowed": "Это не включено для этого приложения. Редактор может разрешить это в настройках встраивания в Bag of Words.",
+      "notAllowed": "Это не включено для этого приложения. Редактор может разрешить это в настройках встраивания в BOW.",
       "failed": "Не удалось загрузить. Повторите попытку через минуту."
     }
   },

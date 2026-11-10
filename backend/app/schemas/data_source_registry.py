@@ -62,6 +62,7 @@ from app.schemas.data_sources.configs import (
     CheckPointConfig, CheckPointUserPassCredentials, CheckPointApiKeyCredentials,
     DellOmeConfig, DellOmeCredentials,
     HpeOneViewConfig, HpeOneViewCredentials,
+    CiscoApicConfig, CiscoApicCertificateCredentials, CiscoApicPasswordCredentials,
     NetAppOntapCredentials,
     ServiceNowConfig,
     ZabbixConfig,
@@ -506,7 +507,7 @@ def _entry_visible(entry: DataSourceRegistryEntry) -> bool:
 # shows the admin the exact manifest they are about to apply (a cluster-wide
 # read-only role deserves to be read before it is granted) instead of pointing
 # at a remote file. Pinned to the file by a unit test.
-KUBERNETES_RBAC_MANIFEST = r"""# Bag of Words — Kubernetes connector access.
+KUBERNETES_RBAC_MANIFEST = r"""# BOW — Kubernetes connector access.
 #
 # Creates a service account with CLUSTER-WIDE READ-ONLY access (cluster-admin
 # minus the write verbs) and a long-lived token Secret. One wildcard rule, so
@@ -568,7 +569,7 @@ type: kubernetes.io/service-account-token
 """
 
 KUBERNETES_PRINT_ACCESS_FILE_SCRIPT = r"""#!/usr/bin/env bash
-# Prints the Bag of Words cluster access file for the bagofwords-reader service account.
+# Prints the BOW cluster access file for the bagofwords-reader service account.
 set -euo pipefail
 NS="${BOW_NAMESPACE:-bagofwords}"; SECRET="${BOW_SECRET:-bagofwords-reader-token}"
 TOKEN=""
@@ -899,7 +900,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         setup_guide=[
             SetupStep(
                 title="Give the account read access in Configuration Manager",
-                body="In the console go to Administration > Security > Administrative Users, add the account (or its AD group) and assign the Read-only Analyst role. Its security scopes and collections decide what Bag of Words can see.",
+                body="In the console go to Administration > Security > Administrative Users, add the account (or its AD group) and assign the Read-only Analyst role. Its security scopes and collections decide what BOW can see.",
             ),
             SetupStep(
                 title="Check the administration service answers",
@@ -1034,6 +1035,20 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         client_path="app.data_sources.clients.hpe_oneview_client.HpeOneViewClient",
         version="beta",
     ),
+    "cisco_apic": DataSourceRegistryEntry(
+        type="cisco_apic",
+        category="infra",
+        title="Cisco ACI (APIC)",
+        description="Investigate data center fabric incidents with read-only fabric nodes, faults, events, audit log, interfaces, vPC, BGP/IS-IS/OSPF adjacencies, endpoints, tenants, EPGs, contracts, firmware and health via the APIC REST API. Simulator-verified; customer validation required.",
+        config_schema=CiscoApicConfig,
+        credentials_auth=AuthOptions(default="certificate", by_auth={
+            # Signature auth is for local service users; one shared identity.
+            "certificate": AuthVariant(title="Certificate (signed requests)", schema=CiscoApicCertificateCredentials, scopes=["system"]),
+            "userpass": AuthVariant(title="Username / Password", schema=CiscoApicPasswordCredentials, scopes=["system", "user"]),
+        }),
+        client_path="app.data_sources.clients.cisco_apic_client.CiscoApicClient",
+        version="beta",
+    ),
     "kubernetes": DataSourceRegistryEntry(
         type="kubernetes",
         category="infra",
@@ -1055,7 +1070,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             ),
             SetupStep(
                 title="Print the access file",
-                body="Save this as print_access_file.sh and run it. It waits for the token, then prints one self-contained file (API server URL, cluster CA, token). Verify it with: kubectl --kubeconfig access.yaml get nodes. If the server URL is private to your network, edit it to the address this Bag of Words instance can reach.",
+                body="Save this as print_access_file.sh and run it. It waits for the token, then prints one self-contained file (API server URL, cluster CA, token). Verify it with: kubectl --kubeconfig access.yaml get nodes. If the server URL is private to your network, edit it to the address this BOW instance can reach.",
                 code=KUBERNETES_PRINT_ACCESS_FILE_SCRIPT,
             ),
             SetupStep(
@@ -1226,7 +1241,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         }),
         setup_guide=[
             SetupStep(
-                title="Starburst Galaxy: create a role for Bag of Words",
+                title="Starburst Galaxy: create a role for BOW",
                 body="In Galaxy go to Access control > Roles and privileges and add a role (for example bagofwords). Under Add privileges grant it Use cluster on the cluster, and Select from table on every catalog or schema the agent should see.",
             ),
             SetupStep(
@@ -1235,7 +1250,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             ),
             SetupStep(
                 title="Starburst Galaxy: copy the connection details",
-                body="Open the cluster's Connection info (Partner connect > Other clients). Host is <account>-<cluster>.trino.galaxy.starburst.io and the port is 443 over HTTPS. If the cluster restricts client IPs, allow this Bag of Words instance's address.",
+                body="Open the cluster's Connection info (Partner connect > Other clients). Host is <account>-<cluster>.trino.galaxy.starburst.io and the port is 443 over HTTPS. If the cluster restricts client IPs, allow this BOW instance's address.",
             ),
             SetupStep(
                 title="Starburst Enterprise: use the TLS coordinator",

@@ -10,6 +10,7 @@ Organization is derived from the API key or OAuth token.
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -28,6 +29,8 @@ from app.dependencies import get_async_db, require_mcp_enabled, get_current_orga
 from app.models.user import User
 from app.models.organization import Organization
 from app.ai.tools.mcp import get_mcp_tool, list_mcp_tools
+from app.ai.tools.mcp.base import bind_jsonrpc_id
+from app.errors.redact import describe_for_log
 from app.settings.config import settings
 
 logger = logging.getLogger(__name__)
@@ -96,7 +99,11 @@ async def mcp_auth(
 
                 set_origin(OAUTH_APP, str(context.client.id))
                 return await _authed(context.user, context.organization)
-            logger.warning("OAuth token validation failed for token starting with: %s...", token[:16])
+            # No token characters: past the public bow_oauth_ prefix they are
+            # secret. A short sha256 fingerprint matches repeated failures of
+            # one token without revealing any of it.
+            fingerprint = hashlib.sha256(token.encode()).hexdigest()[:8]
+            logger.warning("MCP OAuth token validation failed (token fp=%s)", fingerprint)
 
         # 3b. API key via Bearer
         if token.startswith("bow_") and not token.startswith("bow_oauth_"):
@@ -312,19 +319,22 @@ async def mcp_endpoint(
     user, organization = auth
     _check_mcp_enabled(organization)
 
-    # Parse raw body
+    # Logs name the request (method, tool, id) and errors by type only: the
+    # body, tool arguments and error messages carry what the client sent.
     try:
         body = await raw_request.json()
-        logger.info(f"MCP request body: {body}")
     except Exception as e:
-        logger.error(f"Failed to parse MCP request: {e}")
+        logger.error("Failed to parse MCP request: %s", describe_for_log(e))
         return _mcp_response(jsonrpc_error(None, -32700, f"Parse error: {str(e)}"))
 
     try:
         request = JsonRpcRequest(**body)
     except Exception as e:
-        logger.error(f"Invalid JSON-RPC request: {e}")
+        logger.error("Invalid JSON-RPC request: %s", describe_for_log(e))
         return _mcp_response(jsonrpc_error(None, -32600, f"Invalid request: {str(e)}"))
+    # The id as stored on the turn and logged (capped); responses echo request.id.
+    log_id = bind_jsonrpc_id(request.id)
+    logger.info("MCP request method=%r id=%r", request.method, log_id)
 
     if request.method == "initialize":
         return _mcp_response(jsonrpc_response(request.id, {
@@ -386,7 +396,7 @@ async def mcp_endpoint(
         # Check if client supports SSE streaming
         accept_header = raw_request.headers.get("accept", "")
         use_sse = "text/event-stream" in accept_header
-        logger.info(f"MCP tools/call Accept header: '{accept_header}', use_sse={use_sse}")
+        logger.info("MCP tools/call %r id=%r use_sse=%s", tool_name, log_id, use_sse)
 
         tool = tool_class()
 
@@ -410,7 +420,7 @@ async def mcp_endpoint(
                     "isError": False,
                 }))
             except Exception as e:
-                logger.exception(f"Tool execution error: {e}")
+                logger.error("MCP tools/call %r id=%r failed: %s", tool_name, log_id, describe_for_log(e))
                 return _mcp_response(jsonrpc_response(request.id, {
                     "content": [{"type": "text", "text": str(e)}],
                     "isError": True,
@@ -439,7 +449,7 @@ async def mcp_endpoint(
                 yield f"event: message\ndata: {json.dumps(final_response)}\n\n"
 
             except Exception as e:
-                logger.exception(f"Tool execution error (SSE): {e}")
+                logger.error("MCP tools/call %r id=%r failed (SSE): %s", tool_name, log_id, describe_for_log(e))
                 if not tool_task.done():
                     tool_task.cancel()
                 error_response = jsonrpc_response(request.id, {

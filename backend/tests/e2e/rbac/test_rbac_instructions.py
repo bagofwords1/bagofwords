@@ -69,8 +69,13 @@ def test_create_instruction_matrix(test_client, ins_world):
     """Validate the create matrix in one shot.
 
     admin            → can create on ds_a, ds_b, and global (no ds)
-    ds_a_author      → can create on ds_a, denied on ds_b, allowed without ds (has grant)
+    ds_a_author      → can create on ds_a, denied on ds_b, denied global (no ds)
     member           → denied everywhere (no manage_instructions grant at all)
+
+    Authoring a global (empty data_source_ids) applies to every agent, so it
+    stays an org-level capability — a per-agent grant does not confer it. This
+    matches POST /instructions/global, the PUT re-scope gate and the MCP create
+    tool; the plain create route is gated the same way via require_scope_authority.
     """
     org_id = ins_world["org_id"]
     ds_a_id = ins_world["ds_a"]["id"]
@@ -83,7 +88,7 @@ def test_create_instruction_matrix(test_client, ins_world):
         ("admin", [], 200),
         ("ds_a_author", [ds_a_id], 200),
         ("ds_a_author", [ds_b_id], 403),
-        ("ds_a_author", [], 200),
+        ("ds_a_author", [], 403),  # global is org-level — a per-agent grant can't author one
         ("member", [ds_a_id], 403),
         ("member", [ds_b_id], 403),
         ("member", [], 403),

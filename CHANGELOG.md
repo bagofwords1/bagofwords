@@ -1,5 +1,22 @@
 # Release Notes
 
+## Version 0.0.614 (November 10, 2026)
+- Added per-channel agent routing for Slack: map each channel to its own agents, with channels listed automatically once the bot is used there (#1670)
+- Added a default role for new members, set once in Settings → Members (#1669)
+- Added editing the built-in member role's permissions per organization, for enterprise admins (#1673)
+- Added agents per scheduled task: each task runs on the agents it shows, and picking them no longer changes the report's agents (#1647)
+- Added a `/health/ready` readiness endpoint that checks the database and scheduler; `/health` now also returns version and uptime (#1663)
+- Fixed removing a group or role from an agent's members, which said "Member removed" but kept their access (#1672)
+- Fixed agent managers being able to create global instructions; only org admins can now (#1671)
+- Fixed SharePoint refreshes dropping a library's files when a scoped folder's name contains "404" (#1664)
+- Fixed in-app prompts queued behind an MCP turn not starting when it finished, and MCP logs recording request contents (#1666)
+- Fixed custom API tool calls failing with "tool/plan_type mismatch" or "Input should be a valid dictionary"; an unknown tool now gets a list of the tools the agent can call (#1645)
+- Added a Skills category to the @ mention menu; Instructions now lists only instructions (#1676)
+- Renamed "Bag of Words" to "BOW" in the app, emails, connector help and docs (#1382)
+- Added joining tables across several databases in one Snowflake connection (#1678) — list them comma-separated in the Database field
+- Added Cisco ACI (APIC) as a read-only data source: fabric nodes, faults, events, audit log, interfaces, vPC, BGP/IS-IS/OSPF, endpoints, tenants, EPGs, contracts, firmware and health — certificate or username/password (#1679)
+- Added `/compact [focus | keep N]` to the prompt box, and the agent now keeps long conversations within the model's context before each request, without losing earlier summaries (#1677)
+
 ## Version 0.0.613 (November 9, 2026)
 - Added multiple WhatsApp numbers per org, each limited to the agents you pick (#1654)
 - Added KMS Lighthouse as a read-only data source (#1618)

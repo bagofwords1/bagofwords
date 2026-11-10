@@ -1,0 +1,38 @@
+import { open, shot, BASE, DIR } from './lib.mjs'
+import { typeInComposer, send } from './chat.mjs'
+import fs from 'node:fs'
+const rid = fs.readFileSync(DIR + 'report_id', 'utf8').trim()
+const { browser, page } = await open({ scale: 2 })
+await page.goto(BASE + '/reports/' + rid)
+await page.waitForSelector('[contenteditable="true"]', { timeout: 120000 })
+await page.waitForTimeout(4000)
+// usage popover number before
+await typeInComposer(page, 'Show revenue and units by region and category for Q4 only, full table.')
+await send(page)
+await page.waitForSelector('[data-testid="stop-button"]', { timeout: 60000 })
+await page.waitForTimeout(1500)
+await typeInComposer(page, '/compact keep 1')
+await page.keyboard.press('Enter')
+await page.waitForSelector('[data-testid="compact-status"][data-phase="pending"]', { timeout: 10000 })
+console.log('pending chip:', await page.innerText('[data-testid="compact-status"]'))
+console.log('stop button still visible (run continues):', await page.locator('[data-testid="stop-button"]').count())
+await shot(page, '08-compact-pending')
+// the command must not have become a chat message
+await page.waitForSelector('[data-testid="compact-status"][data-phase="running"], [data-testid="compact-status"][data-phase="done"]', { timeout: 600000 })
+console.log('run finished, compact started at', new Date().toISOString())
+await page.waitForSelector('[data-testid="compact-status"][data-phase="done"], [data-testid="compact-status"][data-phase="nothing"], [data-testid="compact-status"][data-phase="error"]', { timeout: 180000 })
+console.log('final:', await page.getAttribute('[data-testid="compact-status"]', 'data-phase'), '|', await page.innerText('[data-testid="compact-status"]'))
+await shot(page, '08-compact-after-run')
+const bubbles = await page.locator('text=/compact keep 1').count()
+console.log('"/compact keep 1" rendered as a chat message:', bubbles)
+const div = page.locator('[data-testid="compaction-divider"]')
+await div.first().scrollIntoViewIfNeeded(); await page.waitForTimeout(500)
+console.log('divider:', (await div.first().innerText()).replace(/\s+/g, ' '))
+await page.click('[data-testid="compaction-divider-button"]')
+await page.waitForSelector('[data-testid="compaction-summary-panel"]')
+await page.waitForTimeout(1500)
+await shot(page, '08-summary-popover')
+console.log('panel head:', (await page.innerText('[data-testid="compaction-summary-panel"]')).slice(0, 300).replace(/\n/g, ' | '))
+// usage popover
+await page.keyboard.press('Escape')
+await browser.close()

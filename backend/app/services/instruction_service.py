@@ -48,6 +48,7 @@ from app.ai.context.builders.instruction_context_builder import InstructionConte
 from app.core.main_build import resolve_main_build_id
 from app.core.telemetry import telemetry
 from app.ee.audit.service import audit_service
+from app.errors.redact import describe_for_log
 from app.models.completion import Completion
 from app.models.report import Report
 from sqlalchemy import select, func, or_, and_, literal
@@ -237,7 +238,7 @@ class InstructionService:
 
             logger.info(f"Created version {version_id} for instruction {instr_id}, added to build {target_build_id}")
         except Exception as e:
-            logger.warning(f"Failed to create version for instruction {instr_id}: {e}")
+            logger.warning("Failed to create version for instruction %s: %s", instr_id, describe_for_log(e))
             # Roll back so the session is clean for the cleanup/return below.
             try:
                 await db.rollback()
@@ -1260,7 +1261,7 @@ class InstructionService:
                     
                     logger.debug(f"Created version {version.id} for instruction {instruction.id}, added to build {build.id}")
         except Exception as e:
-            logger.warning(f"Failed to create version for updated instruction {instruction.id}: {e}")
+            logger.warning("Failed to create version for updated instruction %s: %s", instruction.id, describe_for_log(e))
             # Don't fail the update if versioning fails
         
         # Re-fetch instruction with proper eager loading to avoid lazy loading issues
@@ -5687,6 +5688,9 @@ class InstructionService:
         """
         from app.models.instruction_build import InstructionBuild
 
+        # A failure below rolls the session back and expires ``build``; the
+        # handlers log only this plain-string id, never an ORM attribute.
+        build_id = str(build.id)
         try:
             # Only finalize if still in draft state
             if build.status != 'draft':
@@ -5735,7 +5739,7 @@ class InstructionService:
                         why="A non-admin proposed this instruction change — review and accept or run an eval.",
                     )
                 except Exception as e:  # noqa: BLE001
-                    logger.warning(f"review: failed to emit suggestion for build {build.id}: {e}")
+                    logger.warning("review: failed to emit suggestion for build %s: %s", build_id, describe_for_log(e))
 
             # Self Learning: a user manually proposing an instruction change is a
             # suggestion-creation site — run each affected agent's policy. Scoped
@@ -5751,10 +5755,11 @@ class InstructionService:
                         user_id=str(current_user.id) if current_user else None,
                     )
                 except Exception as e:  # noqa: BLE001
-                    logger.warning(f"Self Learning schedule failed for build {build.id}: {e}")
+                    logger.warning("Self Learning schedule failed for build %s: %s", build_id, describe_for_log(e))
             return True
         except Exception as e:
-            logger.warning(f"Failed to auto-finalize build {build.id}: {e}")
+            # A DB error's text carries bound parameters (the instruction text).
+            logger.warning("Failed to auto-finalize build %s: %s", build_id, describe_for_log(e))
             # Roll back so the session is usable again (a swallowed error would
             # otherwise leave an aborted Postgres transaction).
             try:

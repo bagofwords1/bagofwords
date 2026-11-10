@@ -401,6 +401,15 @@ const props = defineProps({
         type: String,
         default: () => '',
     },
+    // Whether an agent toggle writes the selection back to the report
+    // (PUT /reports/{id}). True on a real report's composer; false when the
+    // selector lives in a context that borrows the report's id for files and
+    // mentions but must NOT rewrite the report's agents — e.g. the scheduled
+    // task form, where the pick belongs to the task, not the report.
+    persistSelection: {
+        type: Boolean,
+        default: true,
+    },
     // When set, only show data sources the user has this permission on
     // (either org-wide or via a per-DS resource grant).
     permission: {
@@ -657,7 +666,7 @@ watch(() => props.selectedDataSources, (newVal: any[]) => {
 
 async function persistSelectionIfReport() {
     try {
-        if (!props.reportId) return
+        if (!props.reportId || !props.persistSelection) return
         const ids = internalSelectedDataSources.value.map((x: any) => x.id)
         await useMyFetch(`/reports/${props.reportId}`, {
             method: 'PUT',

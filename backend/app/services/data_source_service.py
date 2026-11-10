@@ -3329,9 +3329,14 @@ class DataSourceService:
         )).all()
         if not rows:
             return
+        # Clients that name tables `schema.table` inside a default database
+        # (Snowflake) say which one, so a table from another database can't
+        # pass for an enabled table with the same schema and name.
         setattr(client, TABLE_SCOPE_ATTR, TableScope.from_names(
             active=[name for name, is_active in rows if is_active],
             inactive=[name for name, is_active in rows if not is_active],
+            default_database=getattr(client, "table_scope_default_database", None),
+            enforce_databases=bool(getattr(client, "table_scope_enforce_databases", True)),
         ))
 
     def _attach_client_quota_metadata(self, client, data_source: DataSource, connection, client_key: str) -> None:
@@ -6530,45 +6535,51 @@ class DataSourceService:
 
         return DataSourceMembershipSchema.from_orm(membership)
 
-    async def remove_data_source_member(self, db: AsyncSession, data_source_id: str, user_id: str, organization: Organization, current_user: User):
-        """Remove a user from data source membership.
-        Deletes from both DataSourceMembership (legacy) and ResourceGrant (RBAC).
-        """
-        # Get data source to verify it exists
-        data_source = await self.get_data_source(db, data_source_id, organization)
+    async def remove_data_source_member(
+        self,
+        db: AsyncSession,
+        data_source_id: str,
+        principal_id: str,
+        organization: Organization,
+        current_user: User,
+        principal_type: str = PRINCIPAL_TYPE_USER,
+    ):
+        """Remove a member (user, group or role) from a data source.
 
-        # Find and delete legacy membership
-        result = await db.execute(
+        Deletes the RBAC ResourceGrant (what the members list is built from) and
+        the legacy DataSourceMembership row, matched on the full
+        (principal_type, principal_id) key. Either may exist without the other:
+        role grants and grants written via /resource-grants or agent YAML have
+        no legacy row, and roles have no legacy representation at all. 404 only
+        when neither exists.
+        """
+        from app.models.resource_grant import ResourceGrant
+
+        await self.get_data_source(db, data_source_id, organization)
+
+        grants = (await db.execute(
+            select(ResourceGrant).where(
+                ResourceGrant.organization_id == str(organization.id),
+                ResourceGrant.resource_type == "data_source",
+                ResourceGrant.resource_id == data_source_id,
+                ResourceGrant.principal_type == principal_type,
+                ResourceGrant.principal_id == principal_id,
+                ResourceGrant.deleted_at.is_(None),
+            )
+        )).scalars().all()
+        memberships = (await db.execute(
             select(DataSourceMembership).filter(
                 DataSourceMembership.data_source_id == data_source_id,
-                DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
-                DataSourceMembership.principal_id == user_id
+                DataSourceMembership.principal_type == principal_type,
+                DataSourceMembership.principal_id == principal_id,
             )
-        )
-        membership = result.scalar_one_or_none()
-        if not membership:
+        )).scalars().all()
+
+        if not grants and not memberships:
             raise HTTPException(status_code=404, detail="Membership not found")
 
-        await db.delete(membership)
-
-        # Also delete resource_grant (RBAC path)
-        try:
-            from app.models.resource_grant import ResourceGrant
-            grant_result = await db.execute(
-                select(ResourceGrant).where(
-                    ResourceGrant.resource_type == "data_source",
-                    ResourceGrant.resource_id == data_source_id,
-                    ResourceGrant.principal_type == PRINCIPAL_TYPE_USER,
-                    ResourceGrant.principal_id == user_id,
-                    ResourceGrant.deleted_at.is_(None),
-                )
-            )
-            grant = grant_result.scalar_one_or_none()
-            if grant:
-                await db.delete(grant)
-        except Exception:
-            pass  # Don't break if resource_grants table doesn't exist yet
-
+        for row in (*grants, *memberships):
+            await db.delete(row)
         await db.commit()
         return {"message": "Member removed successfully"}
 

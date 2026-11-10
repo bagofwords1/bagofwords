@@ -1,8 +1,10 @@
 """Base class for MCP tools."""
 
 import datetime
+import logging
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Optional, TypedDict
+from contextvars import ContextVar
+from typing import Dict, Any, List, Optional, TypedDict, Union
 
 from sqlalchemy import select, and_
 from sqlalchemy.exc import IntegrityError
@@ -20,6 +22,40 @@ from app.models.agent_execution import AgentExecution
 from app.models.external_platform import ExternalPlatform
 from app.models.external_user_mapping import ExternalUserMapping
 from app.models.completion_block import CompletionBlock
+
+logger = logging.getLogger(__name__)
+
+# The JSON-RPC id of the /api/mcp request being handled. Set by the route
+# (bind_jsonrpc_id) for each request, read when a tool records its turn, so a
+# stored turn and its log lines name the request that made it. A ContextVar
+# rather than an execute() argument: every tool's signature stays as it is,
+# and work started in a fresh context (the queued-prompt drain) sees None.
+_jsonrpc_id: ContextVar[Optional[Union[str, int]]] = ContextVar("bow_mcp_jsonrpc_id", default=None)
+
+JSONRPC_ID_MAX_CHARS = 64
+
+
+def bind_jsonrpc_id(request_id: Any) -> Optional[Union[str, int]]:
+    """Bind this request's JSON-RPC id and return the form that may be stored
+    and logged. The client chooses the id and config_json is not encrypted,
+    so only a str (its first 64 characters) or an int (64-bit) is kept;
+    anything else is None. A str must also encode as UTF-8 and be printable:
+    a lone surrogate (valid JSON) would break rendering the stored turn, and
+    control characters would reach the logs raw."""
+    value: Optional[Union[str, int]] = None
+    if isinstance(request_id, str):
+        capped = request_id[:JSONRPC_ID_MAX_CHARS]
+        try:
+            capped.encode("utf-8")
+        except UnicodeEncodeError:
+            capped = None
+        if capped is not None and capped.isprintable():
+            value = capped
+    elif isinstance(request_id, int) and not isinstance(request_id, bool) \
+            and -(2 ** 63) <= request_id < 2 ** 63:
+        value = request_id
+    _jsonrpc_id.set(value)
+    return value
 
 
 class TrackingContext(TypedDict):
@@ -366,7 +402,7 @@ class MCPTool(ABC):
             report_id=str(report.id),
             status="in_progress",
             started_at=datetime.datetime.utcnow(),
-            config_json={"source": "mcp", "tool": tool_name},
+            config_json={"source": "mcp", "tool": tool_name, "jsonrpc_id": _jsonrpc_id.get()},
             bow_version=settings.PROJECT_VERSION,
         )
         db.add(agent_execution)
@@ -449,8 +485,38 @@ class MCPTool(ABC):
         # Update system completion
         system_completion.status = "success" if success else "error"
         system_completion.completion = {"content": summary}
+        report_id = str(system_completion.report_id)
+        system_completion_id = str(system_completion.id)
+        agent_execution_id = str(agent_execution.id)
+        jsonrpc_id = (agent_execution.config_json or {}).get("jsonrpc_id")
 
         await db.commit()
+        # Pairs the client's request id (reused across its connections) with
+        # the durable AgentExecution id. The id was capped when it was bound.
+        logger.info(
+            "MCP turn %s (tool %r) for request id=%r ended: %s",
+            agent_execution_id, self.name, jsonrpc_id, "success" if success else "error",
+        )
         # Diagnosis rollup, as finish_agent_execution does for agent-loop runs.
         from app.services.diagnosis.rollup import refresh_after_run
         await refresh_after_run(db, str(agent_execution.id))
+
+        # An in-app prompt sent with queue_if_busy may be waiting behind this
+        # turn. Dispatch the report's queue as the end of an in-app run does;
+        # its policy drains only after a successful turn. Spawned, so the MCP
+        # response does not wait on the queue claim; the dispatcher opens its
+        # own session and starts the queued run as a task of its own.
+        # In an empty context: the queued prompt was sent in BOW, by its own
+        # author, so this request's context variables (the OAuth app origin,
+        # the audit context, code visibility, usage attribution) must not
+        # carry over to its run. The dispatcher loads the queued prompt, its
+        # author and the report from the database, and sets the run's code
+        # visibility from the author's permissions.
+        import contextvars
+
+        from app.core.fire_and_forget import spawn
+        from app.services.completion_service import CompletionService
+        spawn(
+            CompletionService().start_next_queued_if_idle(report_id, system_completion_id),
+            context=contextvars.Context(),
+        )

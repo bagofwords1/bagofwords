@@ -6,11 +6,16 @@ an admin fix a connection. Driver and library messages can echo secrets,
 though (a clone URL with a token in it, a full connection string), so every
 such message goes through ``redact_error`` before it reaches a response.
 Endpoints reachable without that context should return a fixed message
-instead and log the exception.
+instead and log the exception with ``describe_for_log``, which keeps the type
+and frames but not the message. A message can quote client content (prompts,
+tool arguments, bound SQL parameters), so logging ``str(e)`` there would write
+that content to the log.
 """
 from __future__ import annotations
 
 import re
+import sysconfig
+import traceback
 from typing import Iterable, Optional
 
 MASK = "***"
@@ -93,3 +98,103 @@ def redact_paths(text: str) -> str:
     act on ("slide.pptx not found").
     """
     return _ABS_PATH.sub(lambda m: m.group(1), text)
+
+
+_BACKEND_ROOT = __file__.rsplit("/app/errors/", 1)[0] + "/"
+_MAX_FRAMES = 40
+_MAX_CHAIN = 5
+_STDLIB_ROOT = (sysconfig.get_paths().get("stdlib") or "") + "/"
+
+
+def _log_path(filename: str) -> str:
+    """A frame's file, relative to the backend or its package directory."""
+    # Packages first: a virtualenv may live inside the backend directory.
+    for marker in ("/site-packages/", "/dist-packages/"):
+        if marker in filename:
+            return filename.rsplit(marker, 1)[1]
+    if filename.startswith(_BACKEND_ROOT):
+        return filename[len(_BACKEND_ROOT):]
+    if _STDLIB_ROOT != "/" and filename.startswith(_STDLIB_ROOT):
+        return filename[len(_STDLIB_ROOT):]
+    return filename.rsplit("/", 1)[-1]
+
+
+def _format_frames(tb_frames) -> list:
+    return [
+        f"{_log_path(f.filename)}:{f.lineno} {f.name}"
+        for f in traceback.StackSummary.extract(iter(tb_frames), lookup_lines=False)
+    ]
+
+
+def _constraint_name(orig: object) -> Optional[str]:
+    """The constraint a driver error names: asyncpg sets it on the error (the
+    SQLAlchemy adapter keeps that as ``__cause__``), psycopg2 on ``diag``."""
+    for source in (orig, getattr(orig, "diag", None), getattr(orig, "__cause__", None)):
+        name = getattr(source, "constraint_name", None) if source is not None else None
+        if isinstance(name, str) and name:
+            return name
+    return None
+
+
+def _describe_one(exc: BaseException) -> list:
+    from pydantic import ValidationError
+    from sqlalchemy.exc import DBAPIError
+    from starlette.exceptions import HTTPException
+
+    parts = [type(exc).__name__]
+    if isinstance(exc, HTTPException):
+        parts.append(str(exc.status_code))
+    if isinstance(exc, ValidationError):
+        fields = [f"{tuple(e['loc'])!r}:{e['type']}" for e in exc.errors(include_input=False, include_url=False)]
+        parts.append(f"{exc.title}[" + ", ".join(fields) + "]")
+    if isinstance(exc, DBAPIError) and exc.orig is not None:
+        orig = exc.orig
+        driver = type(orig).__name__
+        inner = getattr(orig, "__cause__", None)
+        if inner is not None and type(inner).__name__ != driver:
+            driver += f"({type(inner).__name__})"
+        parts.append(f"orig={driver}")
+        constraint = _constraint_name(orig)
+        if constraint:
+            parts.append(f"constraint={constraint}")
+    return parts
+
+
+def describe_for_log(exc: BaseException) -> str:
+    """An exception as a log line without its message.
+
+    For paths that handle content a client sent (prompts, tool arguments,
+    queries and their rows): the message of a pydantic error quotes the
+    submitted input, a DB error carries the statement's bound parameters, and
+    driver or conversion errors quote cells. Keeps what is structural: the
+    type, an HTTP status, the model and fields that failed validation, the
+    driver error and the constraint, every frame (repo-relative
+    ``file:line func``, outermost first) and the types of the exceptions it
+    was raised from or during. Never calls ``str()`` on any exception.
+    """
+    parts = _describe_one(exc)
+    tb_frames = list(traceback.walk_tb(exc.__traceback__))
+    if tb_frames:
+        # Cut to the outermost and innermost frames before formatting any:
+        # a RecursionError carries about a thousand.
+        if len(tb_frames) > _MAX_FRAMES:
+            half = _MAX_FRAMES // 2
+            listed = _format_frames(tb_frames[:half]) + ["..."] + _format_frames(tb_frames[-half:])
+        else:
+            listed = _format_frames(tb_frames)
+        parts.append("at " + " > ".join(listed))
+
+    seen = {id(exc)}
+    current = exc
+    for _ in range(_MAX_CHAIN):
+        if current.__cause__ is not None:
+            current, how = current.__cause__, "caused by"
+        elif current.__context__ is not None and not current.__suppress_context__:
+            current, how = current.__context__, "during"
+        else:
+            break
+        if id(current) in seen:
+            break
+        seen.add(id(current))
+        parts.append(f"; {how} " + " ".join(_describe_one(current)))
+    return " ".join(parts)

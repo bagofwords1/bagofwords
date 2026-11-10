@@ -1,15 +1,17 @@
-"""Rolling context compaction — service invariants (window-derived geometry).
+"""Rolling context compaction — service contract.
 
-Covers the critical invariants:
-  - budgets derive from the model window (conversation → trigger → tail → summary cap)
-  - protected tail is token-measured with a completion-count floor
-  - the opening exchange is never folded; opening_request is set programmatically
-  - watermark advance is atomic with summary + totals
+What the service promises, independent of when the governor calls it:
+  - the opening exchange is never folded; opening_request comes from the DB
+  - manual /compact keeps the last N user exchanges verbatim (default 2)
+  - auto modes keep at least one exchange plus a token tail sized by the
+    model that RECEIVES the prompt, not the summarizer
+  - summary + watermark + totals move together, chunk by chunk
   - entity ids must survive verbatim (hallucinated ids dropped)
-  - fail-open: summarizer errors leave state untouched
-  - compaction markers are excluded from future scope
-  - message context builder renders summary + head + post-watermark window
-  - the build-time trigger emits context.compacted from the background task
+  - a summarizer that fails, times out or returns junk never blocks
+    compaction: one corrective retry, then a deterministic summary that keeps
+    user asks and ids; auto modes then back off from the LLM
+  - a summary that would grow the history is never committed
+  - focus instructions reach the summarizer as data
 """
 from __future__ import annotations
 
@@ -22,7 +24,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import event
+from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 # Import the same model modules alembic/env.py registers so Base.metadata
@@ -45,17 +47,16 @@ from app.ai.persisted_summary import build_tool_context_summary
 
 from app.services.context_compaction_service import (
     COMPACTION_MESSAGE_TYPE,
-    DEFAULT_MODEL_WINDOW,
-    MESSAGES_WINDOW,
+    MANUAL_KEEP_EXCHANGES,
     PROTECT_FIRST_N,
-    PROTECT_LAST_MIN,
     ContextCompactionService,
-    compaction_budgets,
     _enforce_summary_budget,
     _parse_summary_json,
     _validate_entities,
     render_summary_for_prompt,
 )
+
+pytestmark = pytest.mark.db
 
 
 # ------------------------------------------------------------------ fixtures
@@ -81,7 +82,7 @@ async def _seed_report(db: AsyncSession):
     user = User(name="U", email=f"u-{uuid.uuid4()}@x.dev", hashed_password="x")
     db.add(user)
     await db.flush()
-    org = Organization(name="Org")
+    org = Organization(name=f"Org-{uuid.uuid4()}")
     db.add(org)
     await db.flush()
     report = Report(title="R", slug=f"r-{uuid.uuid4()}", user_id=str(user.id), organization_id=str(org.id))
@@ -102,7 +103,7 @@ async def _add_turns(db, report, user, n, *, start=0, content="What is revenue f
         role = "user" if i % 2 == 0 else "system"
         c = Completion(
             prompt={"content": content.format(i=start + i) if role == "user" else ""},
-            completion={"content": f"Answer {start + i}"} if role == "system" else {},
+            completion={"content": f"Answer {start + i}. " + "Revenue rose in the north region; churn held flat. " * 6} if role == "system" else {},
             status="success",
             model="test",
             role=role,
@@ -119,18 +120,21 @@ async def _add_turns(db, report, user, n, *, start=0, content="What is revenue f
 
 
 def _model(window: int | None = 1000):
-    """LLM-model stand-in with an explicit context window. window=1000 makes
-    the token tail budget (~12 tokens) negligible, so the PROTECT_LAST_MIN
-    count floor binds and scope arithmetic is deterministic."""
+    """LLM-model stand-in with an explicit context window. A tiny window keeps
+    the token tail small so scope arithmetic is driven by the exchange rules."""
     m = MagicMock()
     m.context_window_tokens = window
     return m
 
 
-def _mock_llm(response_json: dict):
-    """Patch the LLM class the service imports; .inference returns canned JSON."""
+def _mock_llm(response_json=None, *, side_effect=None):
+    """Patch the LLM class the service imports; .inference returns canned
+    JSON (or follows ``side_effect``)."""
     instance = MagicMock()
-    instance.inference.return_value = json.dumps(response_json)
+    if side_effect is not None:
+        instance.inference.side_effect = side_effect
+    else:
+        instance.inference.return_value = json.dumps(response_json)
     cls = MagicMock(return_value=instance)
     return patch("app.ai.llm.LLM", cls), instance
 
@@ -144,9 +148,11 @@ SUMMARY = {
     "critical_context": [],
 }
 
-# Foldable rows given N total turns: minus protected head, minus tail floor.
-def _scope_size(n_turns: int) -> int:
-    return n_turns - PROTECT_FIRST_N - PROTECT_LAST_MIN
+
+def _manual_scope_size(n_turns: int, keep: int = MANUAL_KEEP_EXCHANGES) -> int:
+    """Foldable rows for n alternating user/system turns under the manual
+    rule: minus the opening exchange, minus the last ``keep`` exchanges."""
+    return n_turns - PROTECT_FIRST_N - 2 * keep
 
 
 def _svc():
@@ -154,154 +160,354 @@ def _svc():
     return ContextCompactionService()
 
 
-# ------------------------------------------------------------------ geometry
+async def _state(db, report_id):
+    """Fresh read of the state row (the service commits on its own path)."""
+    return (await db.execute(
+        select(ReportContextState)
+        .where(ReportContextState.report_id == str(report_id))
+        .execution_options(populate_existing=True)
+    )).scalar_one_or_none()
 
 
-def test_budgets_derive_from_model_window():
-    b = compaction_budgets(_model(200_000))
-    assert b == {
-        "window": 200_000,
-        "conversation_tokens": 25_000,
-        "trigger_tokens": 12_500,
-        "tail_tokens": 2_500,
-        "summary_max_tokens": 10_000,
-    }
-    # No window → default
-    assert compaction_budgets(_model(None))["window"] == DEFAULT_MODEL_WINDOW
-    # Small windows keep the summary floor
-    assert compaction_budgets(_model(20_000))["summary_max_tokens"] == 2_000
+# ------------------------------------------------------------------ scope
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("n_turns,keep", [(12, None), (30, None), (30, 1), (40, 5)])
+async def test_manual_keeps_last_exchanges_and_opening(db, n_turns, keep):
+    org, report, user = await _seed_report(db)
+    rows = await _add_turns(db, report, user, n_turns)
+    want_keep = keep or MANUAL_KEEP_EXCHANGES
+    llm_patch, instance = _mock_llm(SUMMARY)
+    with llm_patch:
+        result = await _svc().compact(db, report, org, _model(), mode="manual", force=True, keep=keep)
+
+    assert result["status"] == "compacted"
+    assert result["compacted_turns"] == _manual_scope_size(n_turns, want_keep)
+    # The watermark is the last folded row: the turn right before the kept exchanges.
+    assert result["covers_until_completion_id"] == str(rows[n_turns - 2 * want_keep - 1].id)
+    prompt = instance.inference.call_args[0][0]
+    assert f"Answer {n_turns - 1}" not in prompt               # kept tail stays out
+    assert "What is revenue for month 0?" not in prompt         # opening exchange stays out
+    state = await _state(db, report.id)
+    assert "What is revenue for month 0?" in state.summary_json["opening_request"]
+
+
+@pytest.mark.asyncio
+async def test_nothing_to_compact_when_only_kept_exchanges_exist(db):
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, PROTECT_FIRST_N + 2 * MANUAL_KEEP_EXCHANGES)
+    result = await _svc().compact(db, report, org, _model(), mode="manual", force=True)
+    assert result["status"] == "nothing_to_compact"
+    assert await _state(db, report.id) is None
+
+
+@pytest.mark.asyncio
+async def test_auto_tail_is_sized_by_the_receiving_model(db):
+    """The summarizer's window never sizes the tail: a small summarizer
+    paired with a large receiving model keeps more history verbatim."""
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, 60)
+    small = _model(1000)
+
+    llm_patch, _ = _mock_llm(SUMMARY)
+    with llm_patch:
+        tight = await _svc().compact(db, report, org, small, force=True, mode="auto_sync", budget_model=_model(1000))
+
+    org2, report2, user2 = await _seed_report(db)
+    await _add_turns(db, report2, user2, 60)
+    llm_patch2, _ = _mock_llm(SUMMARY)
+    with llm_patch2:
+        roomy = await _svc().compact(db, report2, org2, small, force=True, mode="auto_sync", budget_model=_model(30_000))
+
+    assert tight["status"] == "compacted"
+    assert roomy.get("compacted_turns", 0) < tight["compacted_turns"]
+
+
+@pytest.mark.asyncio
+async def test_auto_always_keeps_the_newest_exchange(db):
+    org, report, user = await _seed_report(db)
+    rows = await _add_turns(db, report, user, 20)
+    llm_patch, instance = _mock_llm(SUMMARY)
+    with llm_patch:
+        result = await _svc().compact(db, report, org, _model(400), force=True, mode="auto_sync")
+    assert result["status"] == "compacted"
+    newest_user = rows[-2]
+    prompt = instance.inference.call_args[0][0]
+    assert _user_content(newest_user) not in prompt
+
+
+def _user_content(c):
+    return c.prompt["content"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("window", [20_000, 200_000])
+async def test_unforced_auto_skips_when_scope_is_negligible(db, window):
+    """A background fold is pointless when the tail already covers (nearly)
+    everything; it must not call the summarizer."""
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, 10)
+    llm_patch, instance = _mock_llm(SUMMARY)
+    with llm_patch:
+        result = await _svc().compact(db, report, org, _model(window), force=False, mode="auto_bg")
+    assert result["status"] in ("below_threshold", "nothing_to_compact"), result
+    instance.inference.assert_not_called()
+    assert await _state(db, report.id) is None
+
+
+# ------------------------------------------------------------------ commit
+
+
+@pytest.mark.asyncio
+async def test_compact_advances_watermark_and_totals_without_marker_rows(db):
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, 30)
+    llm_patch, _ = _mock_llm(SUMMARY)
+    with llm_patch:
+        result = await _svc().compact(db, report, org, _model(), mode="manual", force=True)
+
+    state = await _state(db, report.id)
+    assert state.covers_until_completion_id == result["covers_until_completion_id"]
+    assert state.covered_turns == result["compacted_turns"] > 0
+    assert state.tokens_compacted_total > 0
+    assert state.last_method == "llm" and state.degraded is False
+    assert state.last_tokens_before >= state.last_tokens_after > 0
+    assert state.summary_json["goal"] == SUMMARY["goal"]
+    markers = (await db.execute(
+        select(Completion).where(Completion.message_type == COMPACTION_MESSAGE_TYPE)
+    )).scalars().all()
+    assert markers == []
+    # Immediately recompacting finds nothing: only kept exchanges remain.
+    again = await _svc().compact(db, report, org, _model(), mode="manual", force=True)
+    assert again["status"] == "nothing_to_compact"
+
+
+@pytest.mark.asyncio
+async def test_builder_renders_summary_opening_exchange_and_window(db):
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, 30)
+    llm_patch, _ = _mock_llm(SUMMARY)
+    with llm_patch:
+        await _svc().compact(db, report, org, _model(), mode="manual", force=True)
+
+    org_loaded = (await db.execute(select(Organization).where(Organization.id == str(org.id)))).unique().scalar_one()
+    from app.ai.context.builders.message_context_builder import MessageContextBuilder
+    builder = MessageContextBuilder(db, org_loaded, report)
+    section = await builder.build(max_messages=40)
+    rendered = section.render()
+
+    assert "<history_summary>" in rendered and "Track monthly revenue" in rendered
+    # Opening exchange renders in its own pinned block, ahead of the window.
+    opening = rendered.split("<opening_exchange>")[1].split("</opening_exchange>")[0]
+    assert "What is revenue for month 0?" in opening
+    conversation = rendered.split("<conversation>")[1]
+    assert "What is revenue for month 4?" not in rendered   # folded middle
+    assert "Answer 29" in conversation                      # recent tail
+
+    text = await builder.build_context(max_messages=40)
+    assert "Track monthly revenue" in text
+    assert "What is revenue for month 0?" in text
+    assert "What is revenue for month 4?" not in text
+
+
+@pytest.mark.asyncio
+async def test_focus_instructions_reach_summarizer_as_data(db):
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, 20)
+    focus = "focus on the churn numbers " + "x" * 2000
+    llm_patch, instance = _mock_llm(SUMMARY)
+    with llm_patch:
+        await _svc().compact(db, report, org, _model(), mode="manual", force=True, instructions=focus)
+    prompt = instance.inference.call_args[0][0]
+    assert "focus on the churn numbers" in prompt
+    # Capped, and quoted as data rather than spliced raw.
+    assert "x" * 900 not in prompt
+    assert json.dumps(focus[:20])[:-1] in prompt
+
+
+# ------------------------------------------------------------------ resilience
+
+
+@pytest.mark.asyncio
+async def test_unparseable_output_is_retried_once(db):
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, 20)
+    llm_patch, instance = _mock_llm(side_effect=["this is not json", json.dumps(SUMMARY)])
+    with llm_patch:
+        result = await _svc().compact(db, report, org, _model(), mode="manual", force=True)
+    assert result["status"] == "compacted"
+    assert result["method"] == "llm_retry"
+    assert result["degraded"] is False
+    assert instance.inference.call_count == 2
+    assert "not valid JSON" in instance.inference.call_args_list[1][0][0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [RuntimeError("LLM down"), ["junk", "still junk"]])
+async def test_summarizer_failure_falls_back_without_losing_asks_or_ids(db, failure):
+    org, report, user = await _seed_report(db)
+    real_id = "3f0f3a52-aaaa-bbbb-cccc-00000000abcd"
+    await _add_turns(db, report, user, 20, content="Build chart {i} query_id: " + real_id)
+    llm_patch, _ = _mock_llm(side_effect=failure)
+    with llm_patch:
+        result = await _svc().compact(db, report, org, _model(), mode="manual", force=True)
+
+    assert result["status"] == "compacted"
+    assert result["method"] == "fallback" and result["degraded"] is True
+    state = await _state(db, report.id)
+    assert state.covers_until_completion_id == result["covers_until_completion_id"]
+    rendered = render_summary_for_prompt(state.summary_json)
+    assert "Build chart 2 query_id" in rendered          # a folded user ask, verbatim
+    assert real_id in rendered                           # ids survive
+    assert state.failure_count == 1 and state.cooldown_until is not None
+
+
+@pytest.mark.asyncio
+async def test_cooldown_skips_llm_in_auto_but_not_manual(db):
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, 20)
+    llm_patch, _ = _mock_llm(side_effect=RuntimeError("down"))
+    with llm_patch:
+        await _svc().compact(db, report, org, _model(), mode="manual", force=True)
+
+    await _add_turns(db, report, user, 20, start=100)
+    llm_patch2, instance2 = _mock_llm(SUMMARY)
+    with llm_patch2:
+        auto = await _svc().compact(db, report, org, _model(), mode="auto_sync", force=True)
+    assert auto["status"] == "compacted" and auto["method"] == "fallback"
+    instance2.inference.assert_not_called()
+
+    await _add_turns(db, report, user, 20, start=200)
+    llm_patch3, instance3 = _mock_llm(SUMMARY)
+    with llm_patch3:
+        manual = await _svc().compact(db, report, org, _model(), mode="manual", force=True)
+    assert manual["method"] == "llm"
+    instance3.inference.assert_called()
+    state = await _state(db, report.id)
+    assert state.failure_count == 0 and state.cooldown_until is None
+
+
+@pytest.mark.asyncio
+async def test_large_scope_is_folded_in_chunks_oldest_first(db):
+    org, report, user = await _seed_report(db)
+    big = "Question {i}: " + ("detail " * 900)
+    rows = await _add_turns(db, report, user, 24, content=big)
+    llm_patch, instance = _mock_llm(SUMMARY)
+    with llm_patch:
+        # A 4k-window summarizer gets ~2k-token chunks.
+        result = await _svc().compact(db, report, org, _model(4000), mode="manual", force=True, budget_model=_model(200_000))
+    assert result["status"] == "compacted"
+    assert result["chunks"] > 1
+    assert instance.inference.call_count == result["chunks"]
+    for call in instance.inference.call_args_list:
+        assert len(call[0][0]) < 4000 * 3 + 6000  # bounded input (+ prompt scaffolding)
+    assert result["covers_until_completion_id"] == str(rows[24 - 2 * MANUAL_KEEP_EXCHANGES - 1].id)
+
+
+@pytest.mark.asyncio
+async def test_summary_that_would_grow_history_is_refused(db):
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, 10, content="hi {i}")
+    bloated = dict(SUMMARY)
+    bloated["goal"] = "g " * 4000  # goal is never trimmed by the budget pass
+    llm_patch, _ = _mock_llm(bloated)
+    with llm_patch:
+        result = await _svc().compact(db, report, org, _model(200_000), mode="manual", force=True)
+    assert result["status"] == "refused_grow"
+    assert await _state(db, report.id) is None
+
+
+@pytest.mark.asyncio
+async def test_hallucinated_entity_ids_are_dropped(db):
+    org, report, user = await _seed_report(db)
+    real_id = "3f0f3a52-aaaa-bbbb-cccc-000000000001"
+    await _add_turns(
+        db, report, user, 30,
+        content="Chart for month {i} [query: " + real_id + "]",
+    )
+    summary = dict(SUMMARY)
+    summary["entities"] = [
+        {"type": "query", "id": real_id, "title": "Revenue", "state": "created"},
+        {"type": "widget", "id": "11111111-dead-beef-0000-999999999999", "title": "Ghost", "state": "?"},
+    ]
+    llm_patch, _ = _mock_llm(summary)
+    with llm_patch:
+        result = await _svc().compact(db, report, org, _model(), mode="manual", force=True)
+    assert result["status"] == "compacted"
+    state = await _state(db, report.id)
+    assert [e["id"] for e in state.summary_json["entities"]] == [real_id]
+
+
+@pytest.mark.asyncio
+async def test_legacy_markers_excluded_from_scope(db):
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, 30)
+    db.add(Completion(
+        prompt={"content": ""},
+        completion={"content": "Compacted 2 turns (~70 tokens)"},
+        status="success", model="system", role="system",
+        message_type=COMPACTION_MESSAGE_TYPE, report_id=str(report.id),
+    ))
+    await db.commit()
+    llm_patch, instance = _mock_llm(SUMMARY)
+    with llm_patch:
+        first = await _svc().compact(db, report, org, _model(), mode="manual", force=True)
+    assert first["compacted_turns"] == _manual_scope_size(30)
+    assert "Compacted 2 turns" not in instance.inference.call_args[0][0]
+
+
+@pytest.mark.asyncio
+async def test_get_ui_state_can_compact_follows_manual_rule(db):
+    org, report, user = await _seed_report(db)
+    ui = await ContextCompactionService.get_ui_state(db, str(report.id))
+    assert ui["can_compact"] is False and ui["tokens_compacted_total"] == 0
+
+    await _add_turns(db, report, user, PROTECT_FIRST_N + 2 * MANUAL_KEEP_EXCHANGES)
+    ui = await ContextCompactionService.get_ui_state(db, str(report.id))
+    assert ui["can_compact"] is False  # only the opening + kept exchanges
+
+    await _add_turns(db, report, user, 2, start=100)
+    ui = await ContextCompactionService.get_ui_state(db, str(report.id))
+    assert ui["can_compact"] is True
+
+
+@pytest.mark.asyncio
+async def test_prompt_anchor_round_trips(db):
+    org, report, user = await _seed_report(db)
+    await ContextCompactionService.record_prompt_anchor(db, str(report.id), 31_000, 22_000)
+    state = await _state(db, report.id)
+    assert ContextCompactionService.anchor_offset(state) == 9_000
+    # An anchor-only state is not a compaction: nothing renders, no watermark.
+    ui = await ContextCompactionService.get_ui_state(db, str(report.id))
+    assert ui["covers_until_completion_id"] is None and ui["covered_turns"] == 0
+
+
+# ------------------------------------------------------------------ parsing
+
+
+def test_parse_summary_json_strips_fences_and_unknown_keys():
+    parsed = _parse_summary_json('```json\n{"goal": "g", "junk": 1}\n```')
+    assert parsed == {"goal": "g"}
+    assert _parse_summary_json("not json at all {{{") in (None, {})
+
+
+def test_validate_entities_requires_verbatim_id():
+    s = {"entities": [{"id": "abc-1"}, {"id": "zzz-9"}]}
+    out = _validate_entities(s, "digest mentioning abc-1 only")
+    assert [e["id"] for e in out["entities"]] == ["abc-1"]
 
 
 def test_summary_budget_enforcement_trims_entities_last():
     summary = {
         "goal": "g",
-        "opening_request": "first ask",
-        "critical_context": [f"note {i} " * 30 for i in range(50)],
+        "critical_context": ["c" * 400 for _ in range(30)],
+        "pending_user_asks": ["a" * 200 for _ in range(10)],
         "entities": [{"type": "query", "id": f"id-{i}", "title": "t"} for i in range(30)],
     }
-    out = _enforce_summary_budget(summary, 300)
-    assert out["goal"] == "g" and out["opening_request"] == "first ask"
-    assert len(out["critical_context"]) < 50
-    assert len(out["entities"]) >= 10  # ids sacrificed last, never below 10
-
-
-# ------------------------------------------------------------------ service
-
-
-@pytest.mark.asyncio
-async def test_nothing_to_compact_below_protected_floor(db):
-    org, report, user = await _seed_report(db)
-    await _add_turns(db, report, user, PROTECT_FIRST_N + PROTECT_LAST_MIN)
-    result = await _svc().compact(db, report, org, _model(), force=True)
-    assert result["status"] == "nothing_to_compact"
-    assert await ContextCompactionService.get_state(db, str(report.id)) is None
-
-
-@pytest.mark.asyncio
-async def test_token_tail_protects_more_than_count_floor(db):
-    """With a big window the token tail budget (2.5k) swallows a tiny
-    conversation entirely — nothing to fold even when forced."""
-    org, report, user = await _seed_report(db)
-    await _add_turns(db, report, user, 40)
-    result = await _svc().compact(db, report, org, _model(200_000), force=True)
-    assert result["status"] == "nothing_to_compact"
-
-
-@pytest.mark.asyncio
-async def test_auto_below_threshold_but_force_compacts(db):
-    org, report, user = await _seed_report(db)
-    await _add_turns(db, report, user, 20)
-    svc = _svc()
-
-    # window=5000 → trigger ~312 tokens (above this tiny conversation's ~190)
-    # while the tail budget (~62 tokens) is under the 12-row floor, so scope
-    # exists but the auto threshold doesn't fire.
-    model = _model(5000)
-    result = await svc.compact(db, report, org, model, force=False)
-    assert result["status"] == "below_threshold"
-
-    # Force skips the threshold, not the protected tail
-    llm_patch, _ = _mock_llm(SUMMARY)
-    with llm_patch:
-        result = await svc.compact(db, report, org, model, force=True)
-    assert result["status"] == "compacted"
-    assert result["compacted_turns"] == _scope_size(20)
-
-
-@pytest.mark.asyncio
-async def test_compact_advances_watermark_totals_and_marker(db):
-    org, report, user = await _seed_report(db)
-    rows = await _add_turns(db, report, user, 30)
-    n_scope = _scope_size(30)  # 16
-    scope_expected = rows[PROTECT_FIRST_N : PROTECT_FIRST_N + n_scope]
-
-    llm_patch, instance = _mock_llm(SUMMARY)
-    with llm_patch:
-        result = await _svc().compact(db, report, org, _model(), force=True)
-
-    assert result["status"] == "compacted"
-    state = await ContextCompactionService.get_state(db, str(report.id))
-    assert state is not None
-    assert state.covers_until_completion_id == str(scope_expected[-1].id)
-    assert state.covered_turns == n_scope
-    assert state.tokens_compacted_total > 0
-    assert result["tokens_compacted_total"] == state.tokens_compacted_total
-    # The result exposes the watermark so the UI can anchor the divider
-    assert result["covers_until_completion_id"] == str(scope_expected[-1].id)
-    assert state.summary_json["goal"] == SUMMARY["goal"]
-    # Opening request captured programmatically from the first user turn
-    assert "What is revenue for month 0?" in state.summary_json["opening_request"]
-
-    # No marker completions — the divider is state-derived, not an event row
-    from sqlalchemy import select
-    markers = (await db.execute(
-        select(Completion).where(
-            Completion.report_id == str(report.id),
-            Completion.message_type == COMPACTION_MESSAGE_TYPE,
-        )
-    )).scalars().all()
-    assert markers == []
-
-    # The summarizer saw the scope digests — not the protected head, not the tail
-    prompt_sent = instance.inference.call_args[0][0]
-    assert "Answer 3" in prompt_sent
-    assert "Answer 1\"" not in prompt_sent  # head system turn stays out
-    assert "Answer 19" not in prompt_sent   # protected tail stays out
-
-    # Immediately recompacting finds nothing (tail is protected)
-    again = await _svc().compact(db, report, org, _model(), force=True)
-    assert again["status"] == "nothing_to_compact"
-
-
-@pytest.mark.asyncio
-async def test_builder_renders_summary_head_and_window(db):
-    org, report, user = await _seed_report(db)
-    await _add_turns(db, report, user, 30)
-    llm_patch, _ = _mock_llm(SUMMARY)
-    with llm_patch:
-        await _svc().compact(db, report, org, _model(), force=True)
-
-    from sqlalchemy import select
-    org_loaded = (await db.execute(select(Organization).where(Organization.id == str(org.id)))).unique().scalar_one()
-    from app.ai.context.builders.message_context_builder import MessageContextBuilder
-    builder = MessageContextBuilder(db, org_loaded, report)
-    section = await builder.build(max_messages=MESSAGES_WINDOW)
-    rendered = section.render()
-
-    # head (2) + protected tail (12), summary attached
-    assert len(section.items) == PROTECT_FIRST_N + PROTECT_LAST_MIN
-    assert "<history_summary>" in rendered
-    assert "Track monthly revenue" in rendered
-    assert "What is revenue for month 0?" in rendered      # protected head, minified
-    assert "What is revenue for month 4?" not in rendered  # folded middle
-    assert "Answer 29" in rendered                          # recent tail
-
-    # build_context (legacy string path) behaves the same
-    text = await builder.build_context(max_messages=MESSAGES_WINDOW)
-    assert "Track monthly revenue" in text
-    assert "[Opening exchange]" in text
-    assert "What is revenue for month 0?" in text
-    assert "What is revenue for month 4?" not in text
+    out = _enforce_summary_budget(summary, 1500)
+    assert len(out["entities"]) == 30
+    assert len(out["critical_context"]) < 30
 
 
 @pytest.mark.asyncio
@@ -403,7 +609,7 @@ async def test_auto_compaction_receives_exact_model_visible_tool_observation(db)
     compacted_summary["critical_context"] = [exact_fact, instruction_text]
     llm_patch, instance = _mock_llm(compacted_summary)
     with llm_patch:
-        result = await _svc().compact(db, report, org, _model(), force=False)
+        result = await _svc().compact(db, report, org, _model(), force=False, mode="auto_bg")
 
     assert result["status"] == "compacted"
     summarizer_prompt = instance.inference.call_args[0][0]
@@ -523,121 +729,17 @@ async def test_message_builder_does_not_hydrate_report_step_data(db):
     )
 
 
-@pytest.mark.asyncio
-async def test_hallucinated_entity_ids_are_dropped(db):
-    org, report, user = await _seed_report(db)
-    real_id = "3f0f3a52-aaaa-bbbb-cccc-000000000001"
-    await _add_turns(
-        db, report, user, 30,
-        content="Chart for month {i} [query: " + real_id + "]",
-    )
-    summary = dict(SUMMARY)
-    summary["entities"] = [
-        {"type": "query", "id": real_id, "title": "Revenue", "state": "created"},
-        {"type": "widget", "id": "11111111-dead-beef-0000-999999999999", "title": "Ghost", "state": "?"},
-    ]
-    llm_patch, _ = _mock_llm(summary)
-    with llm_patch:
-        result = await _svc().compact(db, report, org, _model(), force=True)
-    assert result["status"] == "compacted"
-    state = await ContextCompactionService.get_state(db, str(report.id))
-    ids = [e["id"] for e in state.summary_json["entities"]]
-    assert ids == [real_id]
-    assert real_id in render_summary_for_prompt(state.summary_json)
-
-
-@pytest.mark.asyncio
-async def test_summarizer_failure_is_fail_open(db):
-    org, report, user = await _seed_report(db)
-    report_id = str(report.id)  # captured before compact — its rollback expires ORM objects
-    await _add_turns(db, report, user, 30)
-
-    instance = MagicMock()
-    instance.inference.side_effect = RuntimeError("LLM down")
-    with patch("app.ai.llm.LLM", MagicMock(return_value=instance)):
-        result = await _svc().compact(db, report, org, _model(), force=True)
-
-    assert result["status"] == "error"
-    assert await ContextCompactionService.get_state(db, report_id) is None
-    from sqlalchemy import select
-    markers = (await db.execute(
-        select(Completion).where(Completion.message_type == COMPACTION_MESSAGE_TYPE)
-    )).scalars().all()
-    assert markers == []
-
-
-@pytest.mark.asyncio
-async def test_legacy_markers_excluded_from_scope(db):
-    org, report, user = await _seed_report(db)
-    await _add_turns(db, report, user, 30)
-    # Legacy marker row from an early build — must never be folded or counted
-    legacy = Completion(
-        prompt={"content": ""},
-        completion={"content": "Compacted 2 turns (~70 tokens)"},
-        status="success", model="system", role="system",
-        message_type=COMPACTION_MESSAGE_TYPE, report_id=str(report.id),
-    )
-    db.add(legacy)
-    await db.commit()
-
-    llm_patch, instance = _mock_llm(SUMMARY)
-    svc = _svc()
-    with llm_patch:
-        first = await svc.compact(db, report, org, _model(), force=True)
-    assert first["compacted_turns"] == _scope_size(30)
-    assert "Compacted 2 turns" not in instance.inference.call_args[0][0]
-
-    await _add_turns(db, report, user, 20, start=100)
-    llm_patch2, instance2 = _mock_llm(SUMMARY)
-    with llm_patch2:
-        second = await svc.compact(db, report, org, _model(), force=True)
-    assert second["status"] == "compacted"
-    # post-watermark: 12 kept + 20 new = 32 rows (legacy marker excluded,
-    # head behind the watermark already) → fold all but the 12-row tail floor
-    assert second["compacted_turns"] == 20
-    state = await ContextCompactionService.get_state(db, str(report.id))
-    assert state.covered_turns == _scope_size(30) + 20
-    assert "Compacted 2 turns" not in instance2.inference.call_args[0][0]
-
-
-@pytest.mark.asyncio
-async def test_get_ui_state_can_compact(db):
-    org, report, user = await _seed_report(db)
-    ui = await ContextCompactionService.get_ui_state(db, str(report.id))
-    assert ui["can_compact"] is False
-    assert ui["tokens_compacted_total"] == 0
-
-    await _add_turns(db, report, user, PROTECT_FIRST_N + PROTECT_LAST_MIN + 1)
-    ui = await ContextCompactionService.get_ui_state(db, str(report.id))
-    assert ui["can_compact"] is True
-
-
-# ------------------------------------------------------------------ parsing
-
-
-def test_parse_summary_json_strips_fences_and_unknown_keys():
-    parsed = _parse_summary_json('```json\n{"goal": "g", "junk": 1}\n```')
-    assert parsed == {"goal": "g"}
-    assert _parse_summary_json("not json at all {{{") in (None, {})
-
-
-def test_validate_entities_requires_verbatim_id():
-    s = {"entities": [{"id": "abc-1"}, {"id": "zzz-9"}]}
-    out = _validate_entities(s, "digest mentioning abc-1 only")
-    assert [e["id"] for e in out["entities"]] == ["abc-1"]
-
-
 # ------------------------------------------------------------------ agent
 
 
 @pytest.mark.asyncio
 async def test_background_compaction_emits_sse_event(db):
-    """_run_auto_compaction (the build-time trigger's background body) emits
-    context.compacted on the live event queue when the service compacts."""
+    """_run_auto_compaction emits context.compacted on the live event queue
+    when the service compacts, carrying what the divider needs."""
     import app.ai.agent_v2 as agent_v2_mod
 
     org, report, user = await _seed_report(db)
-    await _add_turns(db, report, user, 10)
+    await _add_turns(db, report, user, 4)
 
     agent = object.__new__(agent_v2_mod.AgentV2)
     agent.report = report
@@ -649,6 +751,7 @@ async def test_background_compaction_emits_sse_event(db):
     agent.system_completion_id = "sys-1"
     agent.event_queue = MagicMock()
     agent.event_queue.put = AsyncMock()
+    agent._history_reload_pending = False
 
     class _Maker:
         def __call__(self):
@@ -661,62 +764,322 @@ async def test_background_compaction_emits_sse_event(db):
 
     llm_patch, _ = _mock_llm(SUMMARY)
     with llm_patch:
-        await agent._run_auto_compaction()
+        await agent._run_auto_compaction(force=True, mode="auto_sync")
+    agent.event_queue.put.assert_not_called()  # nothing foldable yet
 
-    # 10 turns are inside head+tail protection → nothing folds → no event
-    agent.event_queue.put.assert_not_called()
-
-    # Cross the threshold and re-run
-    await _add_turns(db, report, user, 20, start=100)
+    await _add_turns(db, report, user, 30, start=100)
     llm_patch2, _ = _mock_llm(SUMMARY)
     with llm_patch2:
-        await agent._run_auto_compaction()
+        await agent._run_auto_compaction(force=True, mode="auto_bg")
 
     agent.event_queue.put.assert_called_once()
     event = agent.event_queue.put.call_args[0][0]
     assert event.event == "context.compacted"
-    # Watermark id so the page can anchor the divider without a reload
-    state = await ContextCompactionService.get_state(db, str(report.id))
+    state = await _state(db, report.id)
     assert event.data["covers_until_completion_id"] == str(state.covers_until_completion_id)
     assert event.data["tokens_compacted_total"] > 0
+    assert event.data["history_tokens_before"] > event.data["history_tokens_after"] > 0
+    assert event.data["method"] == "llm"
+    # A background fold leaves the in-run transcript to be swapped later.
+    assert agent._history_reload_pending is True
 
 
-def test_maybe_schedule_compaction_triggers_once():
-    """The build-time detector schedules at most one background task per run
-    and only when the rendered window crosses the budget."""
-    import asyncio
+async def _tool_completion(db, report, user, org, *, role_status, call_id, tool_name, minute, content="ok"):
+    """A system completion that ran one tool (block + execution persisted)."""
+    c = Completion(
+        prompt={"content": ""}, completion={"content": content}, status=role_status,
+        model="test", role="system", message_type="ai_completion", report_id=str(report.id),
+    )
+    db.add(c)
+    await db.flush()
+    c.created_at = datetime(2026, 1, 1) + timedelta(minutes=minute)
+    ex = AgentExecution(completion_id=str(c.id), organization_id=str(org.id), user_id=str(user.id),
+                        report_id=str(report.id), status="success" if role_status == "success" else "in_progress")
+    db.add(ex)
+    await db.flush()
+    te = ToolExecution(agent_execution_id=str(ex.id), tool_name=tool_name, tool_action="query",
+                       arguments_json={"q": call_id}, status="success", success=True,
+                       result_summary=f"{tool_name} done", result_json={"success": True},
+                       provider_call_id=call_id)
+    db.add(te)
+    await db.flush()
+    db.add(CompletionBlock(completion_id=str(c.id), agent_execution_id=str(ex.id), source_type="tool",
+                           tool_execution_id=str(te.id), block_index=0, title=tool_name, status="completed"))
+    await db.commit()
+    return c
+
+
+def _call_ids(transcript):
+    from app.ai.context.parts import ToolCallPart
+    return [p.id for t in transcript.turns for p in t.parts if isinstance(p, ToolCallPart)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("current_calls", [1, 3])
+async def test_mid_run_history_reload_keeps_each_call_once(db, current_calls):
+    """Reloading history after a fold must not replay this run's own tool
+    calls a second time (they already live in the run's transcript)."""
+    from types import SimpleNamespace
     import app.ai.agent_v2 as agent_v2_mod
+    from app.ai.context.builders.message_context_builder import MessageContextBuilder
+    from app.ai.context.parts import ToolCallPart, ToolResultPart
+    from app.ai.context.transcript import Transcript
+
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, 1)  # earlier ask
+    await _tool_completion(db, report, user, org, role_status="success", call_id="call_history",
+                           tool_name="create_data", minute=1)
+    await _add_turns(db, report, user, 1, start=2)  # this run's ask
+    current = await _tool_completion(db, report, user, org, role_status="in_progress",
+                                     call_id="call_current_0", tool_name="create_data", minute=3)
+
+    org_loaded = (await db.execute(select(Organization).where(Organization.id == str(org.id)))).unique().scalar_one()
+    builder = MessageContextBuilder(db, org_loaded, report)
+    builder.use_durable_transcript = True
 
     agent = object.__new__(agent_v2_mod.AgentV2)
-    agent._compaction_attempted = False
-    agent._compaction_task = None
-    agent.model = _model(200_000)
-    agent.small_model = _model(200_000)
-    agent._run_auto_compaction = AsyncMock()
+    agent.system_completion_id = str(current.id)
+    agent._is_sub_agent = False
+    agent._history_reload_pending = True
 
-    def _view(rendered: str, n_items: int):
-        messages = MagicMock()
-        messages.render.return_value = rendered
-        messages.items = [MagicMock()] * n_items
-        view = MagicMock()
-        view.warm.messages = messages
-        return view
+    async def _refresh():
+        await builder.build(max_messages=40)
+    agent.context_hub = SimpleNamespace(
+        message_builder=builder, refresh_warm=_refresh,
+        get_view=lambda: SimpleNamespace(warm=SimpleNamespace(messages=None)),
+    )
+    # Live transcript: rehydrated history prefix + this run's calls (live objects).
+    await builder.build(max_messages=40)
+    durable = builder.get_durable_transcript()
+    live_ids = [f"call_current_{i}" for i in range(current_calls)]
+    agent.transcript = Transcript()
+    agent.transcript.turns = [t for t in durable.turns
+                              if not any(isinstance(p, ToolCallPart) and p.id.startswith("call_current") for p in t.parts)]
+    agent.transcript.history_turn_count = len(agent.transcript.turns)
+    agent.transcript.add_assistant_step(calls=[ToolCallPart(id=i, tool_name="create_data") for i in live_ids])
+    agent.transcript.add_tool_results([ToolResultPart(call_id=i, tool_name="create_data", content="ok") for i in live_ids])
 
-    async def _run():
-        # Under budget: no task
-        agent._maybe_schedule_compaction(_view("small window", 4))
-        assert agent._compaction_task is None and agent._compaction_attempted is False
+    await agent._reload_history_after_fold()
 
-        # Over token budget (12.5k tokens ≈ 50k chars): schedules once
-        agent._maybe_schedule_compaction(_view("x" * 60_000, 20))
-        assert agent._compaction_attempted is True
-        assert agent._compaction_task is not None
-        await agent._compaction_task
+    ids = _call_ids(agent.transcript)
+    assert sorted(ids) == sorted(set(ids)), ids
+    assert "call_history" in ids
+    assert [i for i in ids if i.startswith("call_current")] == live_ids
 
-        # Second trigger in the same run is a no-op
-        first_task = agent._compaction_task
-        agent._maybe_schedule_compaction(_view("x" * 60_000, 20))
-        assert agent._compaction_task is first_task
 
-    asyncio.run(_run())
-    agent._run_auto_compaction.assert_awaited_once()
+@pytest.mark.asyncio
+@pytest.mark.parametrize("n_turns", [30, 61])
+async def test_fold_input_contains_every_folded_row(db, n_turns):
+    """Every row behind the new watermark reaches the summarizer — none may be
+    sliced away by the live-window message cap on the fold path."""
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, n_turns, content="Unique ask number {i} about revenue")
+    llm_patch, instance = _mock_llm(SUMMARY)
+    with llm_patch:
+        result = await _svc().compact(db, report, org, _model(), mode="manual", force=True,
+                                      budget_model=_model(200_000))
+    assert result["status"] == "compacted"
+    prompts = "\n".join(c[0][0] for c in instance.inference.call_args_list)
+    folded_user_turns = [i for i in range(PROTECT_FIRST_N, n_turns - 2 * MANUAL_KEEP_EXCHANGES) if i % 2 == 0]
+    missing = [i for i in folded_user_turns if f"Unique ask number {i} about" not in prompts]
+    assert missing == [], f"rows folded without reaching the summarizer: {missing}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("n_turns", [42, 57])
+async def test_live_window_reports_rows_it_drops_and_keeps_the_opening_ask(db, n_turns):
+    """Past the live window's row cap, rows are in neither the window nor a
+    summary. The builder must say so (so the governor folds them) and keep the
+    opening ask visible meanwhile."""
+    from app.ai.context.builders.message_context_builder import MessageContextBuilder
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, n_turns, content="Short ask {i}")
+    org_loaded = (await db.execute(select(Organization).where(Organization.id == str(org.id)))).unique().scalar_one()
+    section = await MessageContextBuilder(db, org_loaded, report).build(max_messages=40)
+    # A trailing user row is the ask being answered now, not history.
+    trailing_user = (n_turns - 1) % 2 == 0
+    assert section.dropped_count == n_turns - 40 - (1 if trailing_user else 0)
+    rendered = section.render()
+    assert "Short ask 0" in rendered.split("<opening_exchange>")[1]
+
+
+@pytest.mark.asyncio
+async def test_live_window_reports_nothing_dropped_when_it_fits(db):
+    from app.ai.context.builders.message_context_builder import MessageContextBuilder
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, 30)
+    org_loaded = (await db.execute(select(Organization).where(Organization.id == str(org.id)))).unique().scalar_one()
+    section = await MessageContextBuilder(db, org_loaded, report).build(max_messages=40)
+    assert section.dropped_count == 0
+    assert "<opening_exchange>" not in section.render()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("max_tail_rows", [10, 20])
+async def test_window_fold_leaves_room_in_the_live_window(db, max_tail_rows):
+    """A window-exhaustion fold keeps at most ~max_tail_rows verbatim even
+    when the token tail would protect everything."""
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, 60, content="Short ask {i}")
+    llm_patch, _ = _mock_llm(SUMMARY)
+    with llm_patch:
+        result = await _svc().compact(db, report, org, _model(), mode="auto_sync", force=True,
+                                      budget_model=_model(1_000_000), max_tail_rows=max_tail_rows)
+    assert result["status"] == "compacted"
+    kept = 60 - PROTECT_FIRST_N - result["compacted_turns"]
+    assert 2 <= kept <= max_tail_rows
+
+
+async def _add_event(db, report, kind, content, minute):
+    from app.ai.context.session_events import EVENT_ROLE
+    e = Completion(prompt={"content": content}, completion={}, status="success", model="event",
+                   role=EVENT_ROLE, message_type=kind, report_id=str(report.id))
+    db.add(e)
+    await db.flush()
+    e.created_at = datetime(2026, 1, 1) + timedelta(minutes=minute, seconds=30)
+    await db.commit()
+    return e
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("llm_fails", [True, False])
+async def test_durable_events_survive_compaction_with_or_without_the_summarizer(db, llm_fails):
+    """Feedback and rejections have no other home once folded: they must be in
+    the stored summary whether the LLM summarized or the fallback ran."""
+    from app.ai.context.session_events import EVENT_DURABLE
+    kind = sorted(EVENT_DURABLE)[0]
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, 20)
+    await _add_event(db, report, kind, "User rejected the suggestion to exclude refunds", minute=5)
+    llm_patch, _ = (_mock_llm(side_effect=RuntimeError("down")) if llm_fails else _mock_llm(SUMMARY))
+    with llm_patch:
+        result = await _svc().compact(db, report, org, _model(), mode="manual", force=True)
+    assert result["status"] == "compacted"
+    state = await _state(db, report.id)
+    rendered = render_summary_for_prompt(state.summary_json)
+    assert "User rejected the suggestion to exclude refunds" in rendered
+
+    # And it is still there after a later fold that does not see the event again.
+    await _add_turns(db, report, user, 20, start=100)
+    llm_patch2, _ = _mock_llm(SUMMARY)
+    with llm_patch2:
+        await _svc().compact(db, report, org, _model(), mode="manual", force=True)
+    state = await _state(db, report.id)
+    assert "User rejected the suggestion to exclude refunds" in render_summary_for_prompt(state.summary_json)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model_feedback", [["only the newest: REJECTION_B"], ["REJECTION_B", "something else"]])
+async def test_earlier_feedback_survives_a_summarizer_that_returns_a_subset(db, model_feedback):
+    """A later fold whose summarizer returns a NON-empty feedback list that
+    omits an older rejection must not erase it: its event row is already
+    behind the previous watermark, so the stored list is its only home."""
+    from app.ai.context.session_events import EVENT_DURABLE
+    kind = sorted(EVENT_DURABLE)[0]
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, 20)
+    await _add_event(db, report, kind, "REJECTION_A: do not exclude refunds", minute=5)
+    llm_patch, _ = _mock_llm(SUMMARY)
+    with llm_patch:
+        await _svc().compact(db, report, org, _model(), mode="manual", force=True)
+
+    await _add_turns(db, report, user, 20, start=100)
+    await _add_event(db, report, kind, "REJECTION_B: do not drop cancelled orders", minute=105)
+    second = dict(SUMMARY, user_feedback=model_feedback)
+    llm_patch2, _ = _mock_llm(second)
+    with llm_patch2:
+        result = await _svc().compact(db, report, org, _model(), mode="manual", force=True)
+    assert result["status"] == "compacted"
+    rendered = render_summary_for_prompt((await _state(db, report.id)).summary_json)
+    assert "REJECTION_A: do not exclude refunds" in rendered
+    assert "REJECTION_B: do not drop cancelled orders" in rendered
+
+
+async def _add_child_rows(db, report, user, minute, goal="CHILD_GOAL internal sub-agent task"):
+    """A hidden sub-agent exchange on the parent report (trigger_source='sub_agent')."""
+    rows = []
+    for j, role in enumerate(("user", "system")):
+        c = Completion(
+            prompt={"content": goal if role == "user" else ""},
+            completion={"content": "child answer"} if role == "system" else {},
+            status="success", model="test", role=role, message_type="ai_completion",
+            report_id=str(report.id), user_id=str(user.id) if role == "user" else None,
+            trigger_source="sub_agent",
+        )
+        db.add(c)
+        await db.flush()
+        c.created_at = datetime(2026, 1, 1) + timedelta(minutes=minute, seconds=10 + j)
+        rows.append(c)
+    await db.commit()
+    return rows
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("llm_fails", [False, True])
+async def test_sub_agent_rows_never_count_as_parent_turns(db, llm_fails):
+    """keep-N, can_compact, the folded scope and the fallback's user asks must
+    see only the parent conversation — never hidden sub-agent completions."""
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, 20)
+    # Child exchanges interleaved inside the last parent exchanges.
+    for m in (15, 17, 18):
+        await _add_child_rows(db, report, user, minute=m)
+    llm_patch, instance = (_mock_llm(side_effect=RuntimeError("down")) if llm_fails else _mock_llm(SUMMARY))
+    with llm_patch:
+        result = await _svc().compact(db, report, org, _model(), mode="manual", force=True, keep=2)
+    assert result["status"] == "compacted"
+    # Exactly the parent rows minus the opening exchange and the last 2 parent exchanges.
+    assert result["compacted_turns"] == _manual_scope_size(20, 2)
+    if not llm_fails:
+        assert "CHILD_GOAL" not in instance.inference.call_args[0][0]
+    state = await _state(db, report.id)
+    assert "CHILD_GOAL" not in render_summary_for_prompt(state.summary_json)
+
+    # can_compact counts parent exchanges only: 2 parent exchanges left + many child rows.
+    ui = await ContextCompactionService.get_ui_state(db, str(report.id))
+    assert ui["can_compact"] is False
+
+
+@pytest.mark.asyncio
+async def test_first_state_creation_race_keeps_both_anchor_and_summary(db):
+    """The end-of-run anchor write can create the state row while a first
+    fold is summarizing; the fold must update that row, not fail on a second
+    INSERT."""
+    org, report, user = await _seed_report(db)
+    report_id = str(report.id)
+    await _add_turns(db, report, user, 20)
+    svc = _svc()
+    original = svc._summarize
+
+    async def _summarize_after_anchor_write(llm, prompt, timeout_s):
+        maker = async_sessionmaker(db.bind, class_=AsyncSession, expire_on_commit=False)
+        async with maker() as other:
+            await ContextCompactionService.record_prompt_anchor(other, report_id, 31_000, 22_000)
+        return await original(llm, prompt, timeout_s)
+
+    svc._summarize = _summarize_after_anchor_write
+    llm_patch, _ = _mock_llm(SUMMARY)
+    with llm_patch:
+        result = await svc.compact(db, report, org, _model(), mode="manual", force=True)
+    assert result["status"] == "compacted", result
+    state = await _state(db, report_id)
+    assert ContextCompactionService.anchor_offset(state) == 9_000
+    assert state.summary_json.get("goal") == SUMMARY["goal"]
+    assert state.covers_until_completion_id == result["covers_until_completion_id"]
+
+
+@pytest.mark.asyncio
+async def test_tightened_overflow_budget_lets_a_second_fold_make_progress(db):
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, 60)
+    llm_patch, _ = _mock_llm(SUMMARY)
+    with llm_patch:
+        first = await _svc().compact(db, report, org, _model(), mode="overflow", force=True,
+                                     budget_model=_model(20_000))
+        again = await _svc().compact(db, report, org, _model(), mode="overflow", force=True,
+                                     budget_model=_model(20_000))
+        tighter = await _svc().compact(db, report, org, _model(), mode="overflow", force=True,
+                                       budget_model=_model(20_000), budget_factor=0.2)
+    assert first["status"] == "compacted"
+    assert again["status"] == "nothing_to_compact"
+    assert tighter["status"] == "compacted" and tighter["compacted_turns"] > 0

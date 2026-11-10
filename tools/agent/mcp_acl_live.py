@@ -131,7 +131,7 @@ BUILDER_TOOLS = {
     "delete_instruction", "describe_tables", "edit_schema",
 }
 SYSTEM = (
-    "You are an assistant connected to a Bag of Words workspace through its MCP tools. "
+    "You are an assistant connected to a BOW workspace through its MCP tools. "
     "Do the user's task with the tools. If a tool refuses, do not look for a way around it: "
     "stop and tell the user plainly what was refused and why. Finish with one short summary line: "
     "'DONE: ...' only if the task was carried out, otherwise 'REFUSED: ...' — also when you lack "

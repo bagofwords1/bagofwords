@@ -445,11 +445,24 @@ class SnowflakeKeypairCredentials(BaseModel):
 class SnowflakeConfig(BaseModel):
     account: str = Field(..., title="Account", description="The unique account identifier. For example: ABCDEF-GHIJKL", json_schema_extra={"ui:type": "string"})
     warehouse: str = Field(..., title="Warehouse", description="", json_schema_extra={"ui:type": "string"})
-    database: str = Field(..., title="Database", description="", json_schema_extra={"ui:type": "string"})
+    database: str = Field(
+        ...,
+        title="Database",
+        description=(
+            "Database, or a comma-separated list of databases on this account. The first is the "
+            "default. With more than one, tables are named DATABASE.SCHEMA.TABLE and the agent can "
+            "join across them in one query."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
     schema: Optional[str] = Field(
         None,
         title="Schema",
-        description="Optional schema or comma-separated list of schemas (leave empty to index the whole database)",
+        description=(
+            "Optional schema or comma-separated list of schemas (leave empty to index the whole database). "
+            "With several databases, write DATABASE.SCHEMA; a plain SCHEMA belongs to the first database, "
+            "and a database with no entry is indexed in full."
+        ),
         json_schema_extra={"ui:type": "string"},
     )
     role: Optional[str] = Field(
@@ -461,7 +474,7 @@ class SnowflakeConfig(BaseModel):
     query_tag_enabled: bool = Field(
         True,
         title="Tag queries",
-        description="Set a JSON QUERY_TAG on every query (report, conversation turn, run and user IDs) so admins can match QUERY_HISTORY rows to Bag of Words sessions. Turn off if you already set your own QUERY_TAG.",
+        description="Set a JSON QUERY_TAG on every query (report, conversation turn, run and user IDs) so admins can match QUERY_HISTORY rows to BOW sessions. Turn off if you already set your own QUERY_TAG.",
         json_schema_extra={"ui:type": "boolean"},
     )
     query_tag_label: Optional[str] = Field(
@@ -878,7 +891,7 @@ class MecmKerberosCredentials(BaseModel):
         title="Service principal",
         description=(
             "Optional service-account principal (svc_bow@CONTOSO.COM). Administrators mount "
-            "krb5.conf and the client keytab (KRB5_CLIENT_KTNAME) on the Bag of Words server. "
+            "krb5.conf and the client keytab (KRB5_CLIENT_KTNAME) on the BOW server. "
             "Requests run as this account, not as the signed-in user."
         ),
         json_schema_extra={"ui:type": "string"},
@@ -3813,7 +3826,7 @@ class QlikSenseOnPremCertCredentials(BaseModel):
     """Client-certificate (mutual TLS) auth for QRS and the Engine API.
 
     Export the certificate from the QMC: Certificates > enter the machine name
-    running Bag of Words > format "Platform independent PEM-format" > Export.
+    running BOW > format "Platform independent PEM-format" > Export.
     The bundle contains client.pem, client_key.pem and root.pem.
 
     A Qlik client certificate is admin-equivalent — it can act as any user on
@@ -4763,6 +4776,27 @@ class HpeOneViewConfig(BaseModel):
     allow_http: bool = Field(False, title="Allow HTTP for a simulator", description="Only enable for an isolated simulated API. Real appliances should use HTTPS.")
 
 
+class CiscoApicCertificateCredentials(BaseModel):
+    username: str = Field(..., title="Username", description="Local APIC user with the read-all role (add admin read access to see faults, events, audit log and statistics). Certificate authentication opens no session and writes no login records.")
+    certificate_name: str = Field(..., title="Certificate name", description="Name of the X.509 certificate attached to that user on the APIC (Admin > AAA > Users > user > User Certificates).")
+    private_key: str = Field(..., title="Private key (PEM)", description="Unencrypted RSA private key (2048 bits or more) matching the attached certificate. Every request is signed with it; it never leaves the server.", json_schema_extra={"ui:type": "textarea"})
+
+
+class CiscoApicPasswordCredentials(BaseModel):
+    username: str = Field(..., title="Username", description="APIC user with the read-all role (add admin read access to see faults, events, audit log and statistics). For a remote (LDAP, RADIUS, TACACS+) user, set the login domain on the connection.")
+    password: str = Field(..., title="Password", json_schema_extra={"ui:type": "password"})
+
+
+class CiscoApicConfig(BaseModel):
+    url: str = Field(..., title="APIC URL", description="Origin of one APIC controller, for example https://apic1.example.com.")
+    fallback_urls: Optional[str] = Field(None, title="Other APIC controllers", description="Optional comma-separated origins of the other controllers in the cluster, tried in order when the first one is unreachable.")
+    login_domain: Optional[str] = Field(None, title="Login domain", description="AAA login domain for remote users with password authentication (sent as apic:<domain>\\<user>). Leave empty for local users.")
+    ca_certificate: Optional[str] = Field(None, title="Trusted CA certificate", description="Optional PEM CA certificate for the APIC. Certificate verification is always enabled.", json_schema_extra={"ui:type": "textarea"})
+    timeout: int = Field(30, ge=1, le=120, title="Request timeout (seconds)")
+    max_rows: int = Field(10000, ge=1, le=100000, title="Maximum complete result rows", description="Queries exceeding this ceiling fail explicitly; they never return silently truncated evidence.")
+    allow_http: bool = Field(False, title="Allow HTTP for a simulator", description="Only enable for an isolated simulated API. Real controllers should use HTTPS.")
+
+
 class GitRepoConfig(BaseModel):
     """One repository, read-only: the agent lists, searches and reads its files.
 
@@ -4972,6 +5006,10 @@ __all__ = [
     "CustomAPIBasicCredentials",
     "CustomAPIKeyCredentials",
     "CustomAPIOAuthAppCredentials",
+    # Cisco APIC
+    "CiscoApicConfig",
+    "CiscoApicCertificateCredentials",
+    "CiscoApicPasswordCredentials",
     # Browser
     "BrowserConfig",
     "BrowserNoAuthCredentials",

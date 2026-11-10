@@ -1,16 +1,16 @@
 ---
 name: bagofwords
-description: Query, visualize, and analyze data in a Bag of Words (BOW) workspace via the bagofwords MCP tools. Use for creating reports, running tracked queries, and building dashboards.
+description: Query, visualize, and analyze data in a BOW workspace via the bagofwords MCP tools. Use for creating reports, running tracked queries, and building dashboards.
 ---
 
-# Bag of Words (BOW) Analytics
+# BOW Analytics
 
 BOW is a data-analytics workspace connected to the organization's databases and
 files. You drive it through the `bagofwords` MCP tools. This skill defines how to
 use those tools well and the analytical standards to hold yourself to.
 
 > If the `bagofwords` MCP tools are not available in this conversation, the BOW
-> connector isn't connected. Tell the user to connect the Bag of Words connector
+> connector isn't connected. Tell the user to connect the BOW connector
 > first, then retry — don't attempt to answer data questions without it.
 
 ## Core workflow

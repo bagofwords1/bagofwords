@@ -37,7 +37,7 @@ paging-link handling).
    Configuration Manager Evaluation Lab Kit (Hyper-V) also works.
 2. **Network.** The template's network security group allows only RDP. Open
    TCP 443 on the primary site server (`<prefix>PS01`, which hosts the SMS
-   Provider) to the address Bag of Words connects from — or run Bag of Words
+   Provider) to the address BOW connects from — or run BOW
    inside the same virtual network.
 3. **Account.** In the console: Administration › Security › Administrative
    Users › Add, pick an AD account and give it **Read-only Analyst**.
