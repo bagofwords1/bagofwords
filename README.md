@@ -182,6 +182,7 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | Priority ERP | Business app |
 | Outlook Mail | Business app |
 | Gmail | Business app |
+| Browser (scoped web pages) | Web |
 | Elasticsearch | Search and observability |
 | OpenSearch | Search and observability |
 | Splunk | Search and observability |
@@ -190,13 +191,22 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | Prometheus | Monitoring and observability |
 | AWS CloudWatch | Monitoring and observability |
 | VMware Aria Operations | Monitoring and observability |
+| DX NetOps Spectrum | Monitoring and observability |
 | CrowdStrike Falcon | Security |
+| Check Point Management | Security |
 | Jaeger | Tracing and observability |
 | Kubernetes | Infrastructure |
 | Microsoft Configuration Manager (SCCM) | Infrastructure |
 | NetApp ONTAP | Infrastructure |
 | Brocade Fabric OS | Infrastructure |
 | Microsoft Intune | Infrastructure |
+| VMware vCenter / ESXi | Infrastructure |
+| Cisco ACI (APIC) | Infrastructure |
+| F5 BIG-IP | Infrastructure |
+| Dell OpenManage Enterprise | Infrastructure |
+| HPE OneView | Infrastructure |
+| Remote Server (SSH) | Infrastructure |
+| Windows Logs (SMB) | Infrastructure |
 | Tableau | BI tool |
 | Power BI | BI tool |
 | Power BI Report Server | BI tool |
@@ -207,11 +217,13 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | Sisense | BI tool |
 | Oracle BI | BI tool |
 | Infor OLAP | BI tool |
+| Infor EPM (Application Engine) | BI tool |
 | Microsoft Analysis Services | BI tool |
 | SAP BusinessObjects | BI tool |
 | SAP BW (XMLA) | BI tool |
 | SAP Datasphere | BI tool |
 | Timbr AI | Semantic layer |
+| Timbr A2A | Semantic layer |
 | Files and Directories | Files |
 | Amazon S3 | Files |
 | CSV | Files |
@@ -223,6 +235,9 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | Google Drive | Files |
 | OpenText Documentum | Files |
 | KMS Lighthouse | Files |
+| GitHub (code) | Code |
+| GitLab (code) | Code |
+| Bitbucket (code) | Code |
 
 ### Connect Tools Through MCP
 
