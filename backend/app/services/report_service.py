@@ -1915,9 +1915,11 @@ class ReportService:
         run_agents = await resolve_run_agents(db, organization, credential_user, report)
         for data_source in run_agents:
             try:
+                # Rows filter for the viewer whose result this is, also when
+                # the owner's credentials run it.
                 ds_clients = await ds_service.construct_clients(
                     db, data_source, current_user=credential_user,
-                    connection_errors=connection_errors,
+                    connection_errors=connection_errors, row_filter_user=current_user,
                 )
                 db_clients.update(ds_clients)
             except Exception as e:

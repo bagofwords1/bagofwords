@@ -19,6 +19,10 @@ from urllib.parse import quote_plus
 
 class MariadbClient(DataSourceClient):
 
+    # A backslash escapes inside string literals here and '' is a quote too:
+    # parameter values double both (app/ai/code_execution/query_params.py).
+    sql_literal_style = "doubled"
+
     # Rendered into codegen prompts (<connection_clients>) so generated queries
     # express time windows with the engine's own relative date functions instead
     # of literal dates that go stale when saved code is re-executed.

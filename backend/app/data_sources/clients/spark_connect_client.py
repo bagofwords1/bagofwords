@@ -111,6 +111,12 @@ class SparkConnectClient(DataSourceClient):
     in-process engine (e.g. DuckDB) on the BOW server itself.
     """
 
+    # Inside a string literal '' is not a quote here and a backslash escapes
+    # (assumes the default spark.sql.parser.escapedStringLiterals=false):
+    # parameter values double the backslash and write a quote as \'
+    # (app/ai/code_execution/query_params.py).
+    sql_literal_style = "backslash"
+
     def __init__(
         self,
         host: str,

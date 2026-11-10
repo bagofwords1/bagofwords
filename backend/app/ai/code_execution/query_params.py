@@ -288,9 +288,28 @@ def missing_required_inputs(specs: List[ParamSpec], values: Optional[Dict[str, A
 # Safe SQL rendering
 # ---------------------------------------------------------------------------
 
-# Clients whose string literals treat backslash as an escape character by
-# default; both ' and \ must be escaped there.
-_BACKSLASH_DIALECT_CLIENTS = {"MysqlClient", "MariadbClient", "MariaDBClient"}
+# How a string value is written as a SQL literal. Each client class declares
+# its engine's style as `sql_literal_style` (DataSourceClient); the run's
+# query wrapper reads it off the client instance, so a subclass inherits it.
+#
+# - "standard": a quote is doubled ('it''s'); a backslash is an ordinary
+#   character. Postgres, DuckDB, SQL Server, Oracle, Trino/Presto/Athena,
+#   Teradata, SQLite, Druid.
+# - "doubled": the quote is doubled AND a backslash is doubled. For engines
+#   that read a backslash as an escape inside strings but also accept '' as
+#   a quote (MySQL, MariaDB, Snowflake, ClickHouse, Redshift). It stays one
+#   literal if the server turns backslash escapes off, too.
+# - "backslash": a backslash is doubled, then a quote is written \'. For
+#   engines where '' is not a quote inside a string at all (BigQuery,
+#   Databricks, Spark — for the last two, under the default
+#   spark.sql.parser.escapedStringLiterals=false).
+LITERAL_STYLE_STANDARD = "standard"
+LITERAL_STYLE_DOUBLED = "doubled"
+LITERAL_STYLE_BACKSLASH = "backslash"
+_LITERAL_STYLES = {LITERAL_STYLE_STANDARD, LITERAL_STYLE_DOUBLED, LITERAL_STYLE_BACKSLASH}
+
+# The style for callers that only pass `client_type_name` (kept for them).
+_DOUBLED_STYLE_CLIENT_NAMES = {"MysqlClient", "MariadbClient", "MariaDBClient"}
 
 # T-SQL clients: a plain 'literal' is a varchar in the database's default
 # collation, so any character outside that code page is silently replaced by
@@ -303,8 +322,17 @@ _UNICODE_PREFIX_CLIENTS = {"MSSQLClient", "MsFabricClient"}
 _PLACEHOLDER_RE = re.compile(r"(?<![:\w]):([a-zA-Z_][a-zA-Z0-9_]*)")
 
 
+def _quote_string(s: str, literal_style: str) -> str:
+    if literal_style == LITERAL_STYLE_BACKSLASH:
+        return s.replace("\\", "\\\\").replace("'", "\\'")
+    s = s.replace("'", "''")
+    if literal_style == LITERAL_STYLE_DOUBLED:
+        s = s.replace("\\", "\\\\")
+    return s
+
+
 def _render_literal(
-    value: Any, *, backslash_dialect: bool, unicode_prefix: bool = False
+    value: Any, *, literal_style: str, unicode_prefix: bool = False
 ) -> str:
     if value is None:
         return "NULL"
@@ -325,16 +353,13 @@ def _render_literal(
             return "(NULL)"
         return "(" + ", ".join(
             _render_literal(
-                v, backslash_dialect=backslash_dialect, unicode_prefix=unicode_prefix
+                v, literal_style=literal_style, unicode_prefix=unicode_prefix
             )
             for v in items
         ) + ")"
     if isinstance(value, dict):
         raise ParamError("object values cannot be rendered into SQL directly")
-    s = str(value)
-    s = s.replace("'", "''")
-    if backslash_dialect:
-        s = s.replace("\\", "\\\\")
+    s = _quote_string(str(value), literal_style)
     prefix = "N" if (unicode_prefix and not s.isascii()) else ""
     return prefix + "'" + s + "'"
 
@@ -344,6 +369,7 @@ def render_sql_with_params(
     values: Dict[str, Any],
     *,
     client_type_name: str = "",
+    literal_style: Optional[str] = None,
 ) -> str:
     """Substitute `:name` placeholders in `sql` with safely rendered literals.
 
@@ -352,8 +378,18 @@ def render_sql_with_params(
     in every statement. Values only, never identifiers: the placeholder must
     not be quoted or backticked context-sensitively — we replace the token
     wherever it appears as `:name`.
+
+    `literal_style` is the engine's string-literal style (see
+    LITERAL_STYLE_*; the client's `sql_literal_style`). Without it the style
+    is derived from `client_type_name` as before.
     """
-    backslash = client_type_name in _BACKSLASH_DIALECT_CLIENTS
+    if literal_style is None:
+        literal_style = (
+            LITERAL_STYLE_DOUBLED if client_type_name in _DOUBLED_STYLE_CLIENT_NAMES
+            else LITERAL_STYLE_STANDARD
+        )
+    elif literal_style not in _LITERAL_STYLES:
+        raise ParamError(f"unknown SQL literal style: {literal_style!r}")
     unicode_prefix = client_type_name in _UNICODE_PREFIX_CLIENTS
 
     missing: List[str] = []
@@ -364,7 +400,7 @@ def render_sql_with_params(
             missing.append(name)
             return m.group(0)
         return _render_literal(
-            values[name], backslash_dialect=backslash, unicode_prefix=unicode_prefix
+            values[name], literal_style=literal_style, unicode_prefix=unicode_prefix
         )
 
     rendered = _PLACEHOLDER_RE.sub(_sub, sql)

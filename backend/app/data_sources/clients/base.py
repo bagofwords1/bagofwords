@@ -121,6 +121,12 @@ class DataSourceClient(DiscoveryClient, ABC):
     # sources (mail, files, metrics APIs).
     relative_date_hint: Optional[str] = None
 
+    # How a query parameter's string value is written as a literal in this
+    # engine's SQL (app/ai/code_execution/query_params.py, LITERAL_STYLE_*):
+    # "standard" doubles the quote; engines that read a backslash as an
+    # escape inside strings override it with "doubled" or "backslash".
+    sql_literal_style: str = "standard"
+
     # When True, listing files live from the source is cheap enough to do on
     # every list_files call (local FS walk, bounded S3 LIST) — so list_files
     # reads the live per-connection client instead of the shared, per-data-

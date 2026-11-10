@@ -980,6 +980,9 @@ class QueryCapturingClientWrapper:
                     query = render_sql_with_params(
                         query, param_values,
                         client_type_name=type(self._original).__name__,
+                        # Read off the instance so a subclass keeps its
+                        # engine's string-literal style.
+                        literal_style=getattr(self._original, "sql_literal_style", None),
                     )
         if query is _NO_QUERY:
             capture = _describe_keyword_call(kwargs)

@@ -106,6 +106,10 @@ async def resolve_step_data(
         row = (await db.execute(
             stmt.order_by(StepUserResult.last_run_at.desc())
         )).scalars().first()
+        if row is not None and await creator_result_holds_owner_slice(
+            db, row, report.id if report is not None else step_report_id
+        ):
+            row = None
         if row is not None:
             from app.services.access_errors import viewer_error_code
             viewer_result = {
@@ -153,6 +157,19 @@ async def resolve_step_data(
     if withheld:
         return StepDataResolution(data={}, withheld=True, viewer_result=viewer_result)
     return StepDataResolution(data=shared, viewer_result=viewer_result)
+
+
+async def creator_result_holds_owner_slice(db: AsyncSession, row: Any, report_id: Any) -> bool:
+    """True when a viewer's stored result ran under the owner's credentials
+    ('creator') on a report that reads a row-filtered relation: its rows are
+    the owner's slice, so it is not that viewer's result to serve. Creator
+    runs are refused on such reports, but a result stored before the report
+    counted as one (or before the relation turned on its filter) remains.
+    Cheap for every other row: the relation check runs only for a creator
+    result."""
+    if getattr(row, "executed_as", None) != "creator" or not report_id:
+        return False
+    return await has_rls_relations(db, str(report_id))
 
 
 async def _default_params_fingerprint(db: AsyncSession, step: Any, report: Any, user: Any) -> Optional[str]:
@@ -244,20 +261,76 @@ async def _org_fallback_ds_ids(
     a delegated Power BI source); with no code to inspect, all org sources
     count — over-withholding is the safe direction.
     """
+    rows = await _org_data_sources(db, organization_id)
+    hits = _named_in_code(rows, code)
+    if hits:
+        return hits
+    return [str(r[0]) for r in rows]
+
+
+async def _org_data_sources(db: AsyncSession, organization_id: str | None) -> list:
+    """(id, name) of the organization's live data sources."""
     if not organization_id:
         return []
     from app.models.data_source import DataSource
-    rows = (await db.execute(
+    return (await db.execute(
         select(DataSource.id, DataSource.name).where(
             DataSource.organization_id == str(organization_id),
             DataSource.deleted_at.is_(None),
         )
     )).all()
-    if code:
-        hits = [str(r[0]) for r in rows if r[1] and str(r[1]) in code]
-        if hits:
-            return hits
-    return [str(r[0]) for r in rows]
+
+
+def _named_in_code(rows: list, code: str | None) -> list[str]:
+    """Ids of the (id, name) rows whose name the code contains — how generated
+    code reaches a source (`ds_clients["<data source name>:<connection>"]`)."""
+    if not code:
+        return []
+    return [str(r[0]) for r in rows if r[1] and str(r[1]) in code]
+
+
+async def org_sources_named_in_code(
+    db: AsyncSession, organization_id: str | None, code: str | None
+) -> list[str]:
+    """Ids of the organization's data sources the code names — and only
+    those: unlike _org_fallback_ds_ids, code naming none gives none."""
+    return _named_in_code(await _org_data_sources(db, organization_id), code)
+
+
+async def report_steps_code(db: AsyncSession, report_id: str) -> str | None:
+    """The code of every step of the report, joined with newlines; None when
+    none has code. Steps belong to the report through their widget or their
+    query (app/services/row_owner.py)."""
+    from sqlalchemy import or_
+    from app.models.query import Query
+    from app.models.step import Step
+    from app.models.widget import Widget
+
+    codes = (await db.execute(
+        select(Step.code).where(or_(
+            Step.widget_id.in_(select(Widget.id).where(Widget.report_id == str(report_id))),
+            Step.query_id.in_(select(Query.id).where(Query.report_id == str(report_id))),
+        ))
+    )).scalars().all()
+    return "\n".join(c for c in codes if c) or None
+
+
+async def report_run_data_source_ids(db: AsyncSession, report_id: str) -> list[str]:
+    """The data sources a report's runs use: the attached ones, else the
+    organization's sources its steps' code names, else all of the
+    organization's (QueryService._report_data_sources builds clients for the
+    whole organization set). The same rule as release_run_data_source_ids for
+    a published dashboard."""
+    ds_ids = await _report_data_source_ids(db, report_id)
+    if ds_ids:
+        return ds_ids
+    from app.models.report import Report
+    org_id = (await db.execute(
+        select(Report.organization_id).where(Report.id == str(report_id))
+    )).scalar_one_or_none()
+    if not org_id:
+        return []
+    return await _org_fallback_ds_ids(db, org_id, await report_steps_code(db, report_id))
 
 
 async def _report_data_source_ids(db: AsyncSession, report_id: str) -> list[str]:
@@ -329,17 +402,19 @@ async def _any_rls_relation(db: AsyncSession, data_source_ids: list[str]) -> boo
 
 
 async def has_user_scoped_connections(db: AsyncSession, report_id: str) -> bool:
-    """True when any connection behind the report's data sources resolves
-    credentials per user (anything but system_only)."""
-    return await _any_user_scoped_connection(db, await _report_data_source_ids(db, report_id))
+    """True when any connection behind the data sources the report runs on
+    (report_run_data_source_ids) resolves credentials per user (anything but
+    system_only)."""
+    return await _any_user_scoped_connection(db, await report_run_data_source_ids(db, report_id))
 
 
 async def has_rls_relations(db: AsyncSession, report_id: str) -> bool:
     """True when the report reads an accelerated relation with row-level
     security enabled — the shared Step.data snapshot is then the OWNER's row
     slice and must be withheld from other viewers exactly as a user_required
-    source would be."""
-    return await _any_rls_relation(db, await _report_data_source_ids(db, report_id))
+    source would be. Asked of the data sources the report runs on
+    (report_run_data_source_ids), attached or not."""
+    return await _any_rls_relation(db, await report_run_data_source_ids(db, report_id))
 
 
 async def entity_data_withheld(

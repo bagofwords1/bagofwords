@@ -819,6 +819,11 @@ class QueryService:
                 or existing.last_run_at >= freshness_floor
             )
         )
+        if cache_fresh:
+            # A result run under the owner's credentials on a report that
+            # reads a row-filtered relation is the owner's slice: run again.
+            from app.services.viewer_data_policy import creator_result_holds_owner_slice
+            cache_fresh = not await creator_result_holds_owner_slice(db, existing, step_report)
         from app.services.bow_source_access import report_access, assert_read
         bow_access = await report_access(db, await query_report_id(db, q))
         await assert_read(db, bow_access, caller)
@@ -874,8 +879,11 @@ class QueryService:
             try:
                 # Each connection builds on its own: a viewer missing one
                 # connection's credential still gets its sibling connections.
+                # Row-level security filters for the caller, whoever's
+                # credentials run (View-as keeps filtering for the caller).
                 ds_conns = await ds_service.construct_clients(
                     db, ds, current_user=credential_user, connection_errors=[],
+                    row_filter_user=caller,
                 )
                 ds_clients.update(ds_conns)
             except Exception as e:

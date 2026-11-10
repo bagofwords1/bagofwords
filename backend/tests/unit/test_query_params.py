@@ -127,6 +127,127 @@ def test_render_non_finite_rejected():
 
 
 # ---------------------------------------------------------------------------
+# String literals per dialect, through the run's query wrapper
+# ---------------------------------------------------------------------------
+
+# (client module, client class, sqlglot dialect). The second group's engines
+# read a backslash inside a string literal as an escape character.
+# (MsFabricClient is left out: its module needs the ODBC driver to import.)
+_STANDARD_LITERAL_CLIENTS = [
+    ("postgresql_client", "PostgresqlClient", "postgres"),
+    ("duckdb_client", "DuckDBClient", "duckdb"),
+    ("mssql_client", "MSSQLClient", "tsql"),
+    ("oracledb_client", "OracledbClient", "oracle"),
+    ("trino_client", "TrinoClient", "trino"),
+    ("presto_client", "PrestoClient", "presto"),
+    # Athena runs queries on its Trino engine, whose string literals have no
+    # backslash escapes; sqlglot's "athena" dialect also accepts a backslash
+    # escape (it covers Athena's Hive DDL engine too), so the query is read in
+    # the Trino grammar.
+    ("aws_athena_client", "AwsAthenaClient", "trino"),
+    ("teradata_client", "TeradataClient", "teradata"),
+    ("sqlite_client", "SqliteClient", "sqlite"),
+    ("druid_client", "DruidClient", "druid"),
+]
+_BACKSLASH_LITERAL_CLIENTS = [
+    ("mysql_client", "MysqlClient", "mysql"),
+    ("mariadb_client", "MariadbClient", "mysql"),
+    ("snowflake_client", "SnowflakeClient", "snowflake"),
+    ("clickhouse_client", "ClickhouseClient", "clickhouse"),
+    ("aws_redshift_client", "AwsRedshiftClient", "redshift"),
+    ("bigquery_client", "BigqueryClient", "bigquery"),
+    ("databricks_sql_client", "DatabricksSqlClient", "databricks"),
+    ("spark_connect_client", "SparkConnectClient", "spark"),
+]
+
+_AWKWARD_VALUES = [
+    "\\' OR 1=1 --",
+    "ends with a backslash\\",
+    "it's",
+    "two '' quotes",
+    "line one\nline two",
+    "double \\\\ backslash",
+]
+
+
+def _recording_client(module: str, class_name: str, *, keep_name: bool = False):
+    """A subclass of the real client class that records the SQL it is handed
+    instead of reaching a database. Being a subclass under its own name also
+    checks that the literal style is inherited, not looked up by class name;
+    `keep_name` gives it the real class's name (what the identity check reads
+    the SQL grammar from)."""
+    import importlib
+
+    import pandas as pd
+
+    base = getattr(importlib.import_module(f"app.data_sources.clients.{module}"), class_name)
+
+    def __init__(self):
+        self.received = []
+
+    def execute_query(self, sql, *args, **kwargs):
+        self.received.append(sql)
+        return pd.DataFrame({"ok": [1]})
+
+    name = class_name if keep_name else "RecordingClient"
+    return type(name, (base,), {"__init__": __init__, "execute_query": execute_query})()
+
+
+def _sql_received(module: str, class_name: str, sql: str, value, captured=None, **kw) -> str:
+    from app.ai.code_execution.code_execution import QueryCapturingClientWrapper
+
+    client = _recording_client(module, class_name, **kw)
+    QueryCapturingClientWrapper(client, captured if captured is not None else [], [],
+                                query_timeout_seconds=30).execute_query(sql, params={"v": value})
+    (received,) = client.received
+    return received
+
+
+@pytest.mark.parametrize("module,class_name,dialect", _STANDARD_LITERAL_CLIENTS + _BACKSLASH_LITERAL_CLIENTS)
+@pytest.mark.parametrize("value", _AWKWARD_VALUES)
+def test_a_string_param_stays_one_string_literal_in_its_engines_grammar(module, class_name, dialect, value):
+    """Whatever the value holds (quotes, backslashes, a newline), the engine
+    reads it back as exactly one string literal equal to the value: nothing of
+    it is left outside the literal to be read as SQL."""
+    from sqlglot.dialects.dialect import Dialect
+    from sqlglot.tokens import TokenType
+
+    rendered = _sql_received(module, class_name, ":v", value)
+    tokens = Dialect.get_or_raise(dialect).tokenize(rendered)
+    assert [t.token_type for t in tokens] in ([TokenType.STRING], [TokenType.NATIONAL_STRING]), (
+        f"{class_name}: {rendered!r} tokenizes as {[(t.token_type, t.text) for t in tokens]}")
+    assert tokens[0].text == value
+
+
+@pytest.mark.parametrize("module,class_name,dialect", _STANDARD_LITERAL_CLIENTS)
+def test_engines_with_standard_literals_render_exactly_as_before(module, class_name, dialect):
+    """Engines where a backslash is an ordinary character keep the doubled
+    quote and nothing else."""
+    cases = {
+        "\\' OR 1=1 --": "'\\'' OR 1=1 --'",
+        "ends with a backslash\\": "'ends with a backslash\\'",
+        "it's": "'it''s'",
+        "line one\nline two": "'line one\nline two'",
+        "double \\\\ backslash": "'double \\\\ backslash'",
+    }
+    for value, literal in cases.items():
+        assert _sql_received(module, class_name, "SELECT * FROM t WHERE a = :v", value) == (
+            "SELECT * FROM t WHERE a = " + literal)
+
+
+@pytest.mark.parametrize("module,class_name,dialect", _STANDARD_LITERAL_CLIENTS + _BACKSLASH_LITERAL_CLIENTS)
+def test_an_identity_value_with_a_quote_still_verifies_as_applied(module, class_name, dialect):
+    """The identity check reads the executed SQL in the engine's grammar; a
+    quote in the identity value (a surname, a department) must still be found
+    as the value the query filters on."""
+    specs = _specs({"name": "v", "type": "string", "source": "identity"})
+    captured: list = []
+    _sql_received(module, class_name, "SELECT * FROM t WHERE owner = :v", "O'Brien",
+                  captured=captured, keep_name=True)
+    assert verify_identity_binds_in_queries(captured, {"v": "O'Brien"}, specs) is None
+
+
+# ---------------------------------------------------------------------------
 # Resolution
 # ---------------------------------------------------------------------------
 

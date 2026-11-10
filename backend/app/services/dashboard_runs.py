@@ -405,8 +405,10 @@ async def viewer_run(db, artifact: Artifact, release: ArtifactRelease, caller) -
     connection_errors: list = []
     for ds in sources:
         try:
+            # Rows filter for the reader, also under the owner's credentials.
             db_clients.update(await ds_service.construct_clients(
-                db, ds, current_user=credential_user, connection_errors=connection_errors))
+                db, ds, current_user=credential_user, connection_errors=connection_errors,
+                row_filter_user=caller))
         except Exception as e:
             # Its charts still get a client that fails with the cause, not a
             # bare missing key (construct_clients attaches the stand-ins).
@@ -530,7 +532,7 @@ async def filter_run(db, artifact: Artifact, release: ArtifactRelease, query: Qu
     for ds in sources:
         try:
             clients.update(await ds_service.construct_clients(db, ds, current_user=credential_user,
-                                                              connection_errors=[]))
+                                                              connection_errors=[], row_filter_user=caller))
         except Exception as e:
             source_errors.append(str(getattr(e, "detail", None) or e))
             if needs_credentials(e):

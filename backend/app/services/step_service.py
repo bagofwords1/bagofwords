@@ -363,7 +363,13 @@ class StepService:
             ds_service = DataSourceService()
             db_clients = {}
             for data_source in ctx.data_sources:
-                ds_clients = await ds_service.construct_clients(db, data_source, current_user=ctx.credential_user)
+                # Row-level security filters for whose identity this run
+                # resolves (a published dashboard's reader), the same user
+                # load_entity resolves as below.
+                ds_clients = await ds_service.construct_clients(
+                    db, data_source, current_user=ctx.credential_user,
+                    row_filter_user=ctx.loadables_user or ctx.credential_user,
+                )
                 db_clients.update(ds_clients)
 
         excel_files = ctx.files

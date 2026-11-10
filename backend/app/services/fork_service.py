@@ -252,9 +252,21 @@ class ForkService:
         # `user_can_access_data_source` — auth_policy only ever described HOW a
         # connection authenticates, never who is entitled to it.
 
-        # Check user has access to all data sources
+        # Check user has access to all data sources: the attached ones, or for
+        # a report with none attached (it runs on the organization's sources),
+        # the organization sources its code names. Only those: a source the
+        # code never names is not one the fork would read.
         from app.core.permission_resolver import user_can_access_data_source
-        for ds in report.data_sources:
+        sources = list(report.data_sources)
+        if not sources:
+            from app.services.viewer_data_policy import org_sources_named_in_code, report_steps_code
+            named = await org_sources_named_in_code(
+                db, report.organization_id, await report_steps_code(db, str(report.id)))
+            if named:
+                sources = (await db.execute(
+                    select(DataSource).where(DataSource.id.in_(named))
+                )).scalars().all()
+        for ds in sources:
             if ds.is_public:
                 continue
             if not await user_can_access_data_source(
