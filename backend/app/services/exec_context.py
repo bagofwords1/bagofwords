@@ -35,21 +35,18 @@ class ExecContext:
         release=None,
         loadables_user=None,
         fresh_rows=None,
-        row_filter_user=None,
     ):
         self._organization = organization
         self._organization_id = organization_id
         self._organization_settings = organization_settings
         # Whose data-source credentials the run uses.
         self.credential_user = credential_user
-        # Whose identity load_entity resolves as; None: the credential user,
-        # as it always was for a conversation.
+        # Whose identity load_step/load_entity resolve as, and whom the
+        # row-level security of clients the core builds filters for; None:
+        # the credential user, as it always was for a conversation's own run.
+        # A viewer's or reader's run sets them, also under the owner's
+        # credentials.
         self.loadables_user = loadables_user
-        # Whose identity the row-level security of accelerated relations
-        # filters for when the core builds its own clients; None: the
-        # loadables user, else the credential user. A viewer's result run
-        # under the owner's credentials sets the viewer.
-        self.row_filter_user = row_filter_user
         self.report = report
         self.release = release
         # A refresh keeps each copy's new rows until every copy ran (phase 6):

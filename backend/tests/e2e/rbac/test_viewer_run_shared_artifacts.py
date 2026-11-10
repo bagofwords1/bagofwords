@@ -1733,6 +1733,98 @@ def test_a_step_naming_no_source_counts_every_organization_source(
         assert not (fstep.get("code") or "").strip(), "the fork carried the source SQL"
 
 
+async def _add_superseded_step(query_id: str, code: str):
+    """A failed earlier attempt of the query, no longer its default step.
+    Seeded directly: a failed builder run leaves one behind, and producing it
+    through the API needs the custom-code permission and a failing source."""
+    async with async_session_maker() as db:
+        query = await db.get(Query, query_id)
+        db.add(Step(
+            title="Earlier attempt", slug=f"earlier-{uuid.uuid4().hex[:8]}", status="error",
+            widget_id=query.widget_id, query_id=query.id, code=code,
+            created_at=datetime.utcnow() - timedelta(days=1),
+        ))
+        await db.commit()
+
+
+@pytest.mark.e2e
+def test_only_the_steps_a_report_serves_decide_its_run_sources(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """A failed earlier attempt that is no longer any query's step does not
+    run and is not served, so it does not widen the sources the report runs
+    on: a plain report stays plain and 'run on my behalf' stays available."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    plain_id = _run(_attach_source_with_connection(report["id"], "system_only", attach=False))
+    _run(_attach_rls_relation(report["id"], attach=False))
+    _run(_set_step_code(seeded["step_ids"][0], f"# reads {_run(_source_name(plain_id))}\n{GOOD_CODE}"))
+    _run(_add_superseded_step(seeded["query_ids"][0], UNNAMED_SOURCES_CODE))
+
+    assert _report_flags(test_client, report["id"], owner, admin["org_id"])[0] is False
+    resp = test_client.put(
+        f"/api/reports/{report['id']}/visibility/artifact",
+        json={"visibility": "internal", "run_identity": "creator"},
+        headers=_headers(owner["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.text
+
+
+def _identity_spec(name: str) -> dict:
+    return {"name": name, "type": "string", "label": name, "default": None, "required": False,
+            "source": "identity", "identity_binding": "viewer.email",
+            "options": None, "options_source": None, "strict_options": False}
+
+
+async def _set_step_data(step_id: str, data: dict):
+    async with async_session_maker() as db:
+        step = await db.get(Step, step_id)
+        step.data = data
+        await db.commit()
+
+
+LOAD_STEP_CODE = """
+def generate_df(ds_clients, excel_files):
+    return load_step('{step_id}')
+"""
+
+
+@pytest.mark.e2e
+def test_run_on_my_behalf_loads_other_steps_as_the_viewer(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """Under the owner's credentials, a step that load_step()s an
+    identity-parameter step still reads it as the viewer: the viewer's result
+    never holds the owner's slice of the step it loads."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal", n_queries=2,
+    )
+    resp = test_client.put("/api/organization/settings",
+                           json={"config": {"enable_load_step": {"value": True}}},
+                           headers=_headers(admin["token"], admin["org_id"]))
+    assert resp.status_code == 200, resp.text
+    scoped_q, loader_q = seeded["query_ids"]
+    scoped_step, loader_step = seeded["step_ids"]
+    marker = f"owner-slice-{uuid.uuid4().hex[:6]}"
+    _run(_set_query_params(scoped_q, [_identity_spec("UserEmail")]))
+    _run(_set_step_data(scoped_step, {"rows": [{"month": marker, "revenue": 1}],
+                                      "columns": [{"field": "month"}, {"field": "revenue"}]}))
+    _run(_set_step_code(loader_step, LOAD_STEP_CODE.format(step_id=scoped_step)))
+    _set_artifact_visibility(test_client, report["id"], owner, "internal", run_identity="creator")
+
+    resp = test_client.post(f"/api/r/{report['id']}/run", headers=_headers(viewer["token"]))
+    assert resp.status_code == 200, resp.json()
+    assert resp.json()["executed_as"] == "creator"
+    for qid in (scoped_q, loader_q):
+        served = test_client.get(f"/api/r/{report['id']}/queries/{qid}/step",
+                                 headers=_headers(viewer["token"]))
+        assert served.status_code == 200, served.text
+        assert marker not in served.text, f"query {qid} served the owner's slice to the viewer"
+
+
 SOURCE_BOUND_CODE = """
 def generate_df(ds_clients, excel_files):
     client = ds_clients["Delegated:delegated"]

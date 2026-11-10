@@ -107,7 +107,7 @@ async def resolve_step_data(
             stmt.order_by(StepUserResult.last_run_at.desc())
         )).scalars().first()
         if row is not None and await creator_result_holds_owner_slice(
-            db, row, report.id if report is not None else step_report_id
+            db, row, report.id if report is not None else step_report_id, getattr(step, "code", None)
         ):
             row = None
         if row is not None:
@@ -159,27 +159,34 @@ async def resolve_step_data(
     return StepDataResolution(data=shared, viewer_result=viewer_result)
 
 
-async def creator_result_holds_owner_slice(db: AsyncSession, row: Any, report_id: Any) -> bool:
-    """True when a viewer's stored result ran under the owner's credentials
-    ('creator') on a report that, as of now, reads a row-filtered relation
-    (has_rls_relations): its rows were filtered for the owner, so it is not
-    that viewer's result to serve. Viewer runs on such a report no longer
-    execute as the creator; this covers results stored under creator
-    credentials before that, e.g. on a report with no attached sources,
-    which the check did not count until then.
+async def step_run_data_source_ids(db: AsyncSession, report_id: str, code: str | None) -> list[str]:
+    """The data sources one step of a report runs on: the report's attached
+    ones, else the organization sources the step's code names (all of them
+    when it names none) -- the per-step rule snapshot_withheld_for_viewers
+    applies."""
+    ds_ids = await _report_data_source_ids(db, report_id)
+    if ds_ids:
+        return ds_ids
+    from app.models.report import Report
+    org_id = (await db.execute(
+        select(Report.organization_id).where(Report.id == str(report_id))
+    )).scalar_one_or_none()
+    return await _org_fallback_ds_ids(db, org_id, code)
 
-    Only a creator result pays for the relation check. The answer is kept per
-    report on the session (db.info) -- this is called once per step a page
-    reads. Only the read paths that serve stored results use it (step reads,
-    the query run's cache); decisions that write (set_visibility, fork, the
-    run identity) call has_rls_relations directly and never read the memo."""
+
+async def creator_result_holds_owner_slice(
+    db: AsyncSession, row: Any, report_id: Any, code: str | None
+) -> bool:
+    """True when a viewer's stored result ran under the owner's credentials
+    (executed_as 'creator') for a step whose own sources include a
+    row-filtered relation (step_run_data_source_ids with that step's `code`):
+    its rows were filtered for the owner, so they are not that viewer's to
+    serve or reuse. Asked afresh on every call, so a change to the sources or
+    their filters is seen at once; any other row returns False without a
+    query."""
     if getattr(row, "executed_as", None) != "creator" or not report_id:
         return False
-    memo = db.info.setdefault("_creator_result_rls", {})
-    key = str(report_id)
-    if key not in memo:
-        memo[key] = await has_rls_relations(db, key)
-    return memo[key]
+    return await _any_rls_relation(db, await step_run_data_source_ids(db, str(report_id), code))
 
 
 async def _default_params_fingerprint(db: AsyncSession, step: Any, report: Any, user: Any) -> Optional[str]:
@@ -308,18 +315,40 @@ async def org_sources_named_in_code(
 
 
 async def _report_step_codes(db: AsyncSession, report_id: str) -> list[str]:
-    """The non-empty code of every step of the report. Steps belong to the
-    report through their widget or their query (app/services/row_owner.py)."""
-    from sqlalchemy import or_
+    """The non-empty code of the steps the report serves and runs: each live
+    query's default step, plus the default steps of deleted queries those
+    load_step() -- what a fork copies (dashboard_copy.load_step_closure) --
+    and legacy widget steps that have no query. Earlier attempts (a failed
+    run's step, a superseded version) are neither served nor run, so they
+    do not count."""
+    from types import SimpleNamespace
+
     from app.models.query import Query
     from app.models.step import Step
     from app.models.widget import Widget
+    from app.services.dashboard_copy import load_step_closure
 
-    codes = (await db.execute(
-        select(Step.code).where(or_(
+    rows = (await db.execute(
+        select(Query.id, Query.deleted_at, Query.default_step_id,
+               Step.id, Step.code, Step.status, Step.slug, Step.title, Step.created_at)
+        .outerjoin(Step, Step.id == Query.default_step_id)
+        .where(Query.report_id == str(report_id))
+    )).all()
+    queries = [
+        SimpleNamespace(
+            id=r[0], deleted_at=r[1], default_step_id=r[2],
+            default_step=SimpleNamespace(id=r[3], code=r[4], status=r[5], slug=r[6], title=r[7],
+                                         created_at=r[8]) if r[3] is not None else None,
+        )
+        for r in rows
+    ]
+    served = load_step_closure(queries, [q for q in queries if q.deleted_at is None])
+    codes = [q.default_step.code for q in served if q.default_step is not None]
+    codes += (await db.execute(
+        select(Step.code).where(
+            Step.query_id.is_(None),
             Step.widget_id.in_(select(Widget.id).where(Widget.report_id == str(report_id))),
-            Step.query_id.in_(select(Query.id).where(Query.report_id == str(report_id))),
-        ))
+        )
     )).scalars().all()
     return [c for c in codes if c and c.strip()]
 

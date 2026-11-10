@@ -823,7 +823,7 @@ class QueryService:
             # A result run under the owner's credentials on a report that
             # reads a row-filtered relation is the owner's slice: run again.
             from app.services.viewer_data_policy import creator_result_holds_owner_slice
-            cache_fresh = not await creator_result_holds_owner_slice(db, existing, step_report)
+            cache_fresh = not await creator_result_holds_owner_slice(db, existing, step_report, step.code)
         from app.services.bow_source_access import report_access, assert_read
         bow_access = await report_access(db, await query_report_id(db, q))
         await assert_read(db, bow_access, caller)

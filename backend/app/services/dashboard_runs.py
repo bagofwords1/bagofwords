@@ -524,7 +524,7 @@ async def filter_run(db, artifact: Artifact, release: ArtifactRelease, query: Qu
         # A result run under the owner's credentials over an RLS source is
         # the owner's slice: run again.
         from app.services.dashboard_data import release_creator_result_holds_owner_slice
-        fresh = not await release_creator_result_holds_owner_slice(db, existing, release)
+        fresh = not await release_creator_result_holds_owner_slice(db, existing, release, step.code)
     if fresh and not release.bow_source_access:
         return {"data": existing.data or {}, "applied_params": resolved, "cached": True, "status": "success",
                 "step_id": str(step.id)}
