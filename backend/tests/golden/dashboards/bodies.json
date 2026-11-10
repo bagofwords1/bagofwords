@@ -620,26 +620,6 @@
   },
   "viewer_result": null
  },
- "025674be17745024": [
-  {
-   "created_at": "<ts>",
-   "cron_schedule": "0 7 * * *",
-   "id": "<sched_prompt_spawn/prompt>",
-   "is_active": true,
-   "last_run_at": null,
-   "last_run_status": null,
-   "next_run_at": null,
-   "notification_subscribers": null,
-   "prompt": {
-    "content": "דוח יומי"
-   },
-   "report_id": "<sched_prompt_spawn>",
-   "run_once_at": null,
-   "spawn_new_report": true,
-   "title": "דוח יומי",
-   "updated_at": "<ts>"
-  }
- ],
  "0287ff2a3a80ea0e": {
   "applied_params": null,
   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
@@ -6763,26 +6743,6 @@
   "user_id": "<user:owner>",
   "version": 1
  },
- "18db0efcc2bb8a72": [
-  {
-   "created_at": "<ts>",
-   "cron_schedule": "0 9 * * 0",
-   "id": "<sched_prompt/prompt>",
-   "is_active": true,
-   "last_run_at": null,
-   "last_run_status": null,
-   "next_run_at": null,
-   "notification_subscribers": null,
-   "prompt": {
-    "content": "תסכם את השבוע"
-   },
-   "report_id": "<sched_prompt>",
-   "run_once_at": null,
-   "spawn_new_report": false,
-   "title": "סיכום שבועי",
-   "updated_at": "<ts>"
-  }
- ],
  "18fb9672d30335f7": {
   "id": "<refs_in_code/q_base/viz>",
   "query_id": "<refs_in_code/q_base>",
@@ -14112,6 +14072,27 @@
    }
   ]
  },
+ "31bc54be1d818ede": [
+  {
+   "created_at": "<ts>",
+   "cron_schedule": "0 9 * * 0",
+   "data_source_ids": null,
+   "id": "<sched_prompt/prompt>",
+   "is_active": true,
+   "last_run_at": null,
+   "last_run_status": null,
+   "next_run_at": null,
+   "notification_subscribers": null,
+   "prompt": {
+    "content": "תסכם את השבוע"
+   },
+   "report_id": "<sched_prompt>",
+   "run_once_at": null,
+   "spawn_new_report": false,
+   "title": "סיכום שבועי",
+   "updated_at": "<ts>"
+  }
+ ],
  "31bf886d9c8c8dcb": {
   "applied_params": null,
   "code": "def generate_df(ds_clients, excel_files, load_step):\n    return load_step('בסיס')\n",
@@ -36771,6 +36752,27 @@
   ],
   "widget_id": "<dash_deleted_version/q_sales/widget>"
  },
+ "79ec1f462e84de76": [
+  {
+   "created_at": "<ts>",
+   "cron_schedule": "0 7 * * *",
+   "data_source_ids": null,
+   "id": "<sched_prompt_spawn/prompt>",
+   "is_active": true,
+   "last_run_at": null,
+   "last_run_status": null,
+   "next_run_at": null,
+   "notification_subscribers": null,
+   "prompt": {
+    "content": "דוח יומי"
+   },
+   "report_id": "<sched_prompt_spawn>",
+   "run_once_at": null,
+   "spawn_new_report": true,
+   "title": "דוח יומי",
+   "updated_at": "<ts>"
+  }
+ ],
  "7a0e6b265c5418d8": {
   "artifact_id": "<orphans/dash>",
   "compiled_js": null,
