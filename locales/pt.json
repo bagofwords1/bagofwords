@@ -2714,7 +2714,11 @@
       "attributesInviteHint": "Opcional. Identifica este membro em outros sistemas, ex.: seu usuário do Qlik ou papel no banco de dados.",
       "attributesSaved": "Atributos salvos",
       "attributesSaveFailed": "Falha ao salvar os atributos",
-      "importAttributesHint": "Adicione colunas {column} para definir atributos, ex.: {example}. Uma célula vazia mantém o atributo inalterado."
+      "importAttributesHint": "Adicione colunas {column} para definir atributos, ex.: {example}. Uma célula vazia mantém o atributo inalterado.",
+      "defaultRoleHint": "Preenche a função ao adicionar ou convidar um membro.",
+      "defaultRoleSaved": "Função padrão salva",
+      "defaultRoleFailed": "Falha ao salvar a função padrão",
+      "defaultRoleShort": "Função padrão"
     },
     "organizationName": "Nome da organização",
     "organizationIcon": "Ícone da organização",

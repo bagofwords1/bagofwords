@@ -3023,7 +3023,11 @@
       "attributesInviteHint": "Optional. Identifies this member in other systems, e.g. their Qlik user or database role.",
       "attributesSaved": "Attributes saved",
       "attributesSaveFailed": "Failed to save attributes",
-      "importAttributesHint": "Add {column} columns to set member attributes, e.g. {example}. An empty cell leaves that attribute unchanged."
+      "importAttributesHint": "Add {column} columns to set member attributes, e.g. {example}. An empty cell leaves that attribute unchanged.",
+      "defaultRoleHint": "Pre-fills the role when adding or inviting a member.",
+      "defaultRoleSaved": "Default role saved",
+      "defaultRoleFailed": "Failed to save default role",
+      "defaultRoleShort": "Default role"
     },
     "organizationName": "Organization name",
     "organizationIcon": "Organization icon",

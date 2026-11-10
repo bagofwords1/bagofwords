@@ -2714,7 +2714,11 @@
       "attributesInviteHint": "Facoltativo. Identifica il membro in altri sistemi, es. il suo utente Qlik o il ruolo nel database.",
       "attributesSaved": "Attributi salvati",
       "attributesSaveFailed": "Impossibile salvare gli attributi",
-      "importAttributesHint": "Aggiungi colonne {column} per impostare gli attributi, es. {example}. Una cella vuota lascia l'attributo invariato."
+      "importAttributesHint": "Aggiungi colonne {column} per impostare gli attributi, es. {example}. Una cella vuota lascia l'attributo invariato.",
+      "defaultRoleHint": "Precompila il ruolo quando aggiungi o inviti un membro.",
+      "defaultRoleSaved": "Ruolo predefinito salvato",
+      "defaultRoleFailed": "Impossibile salvare il ruolo predefinito",
+      "defaultRoleShort": "Ruolo predefinito"
     },
     "organizationName": "Nome dell'organizzazione",
     "organizationIcon": "Icona dell'organizzazione",
