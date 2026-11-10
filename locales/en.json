@@ -711,6 +711,22 @@
         "network": "Speech recognition needs a network connection.",
         "failed": "Voice input failed. Please try again."
       }
+    },
+    "slash": {
+      "menuTitle": "Commands",
+      "compact": {
+        "description": "Summarize older turns to free up context",
+        "usage": "/compact · /compact <focus> · /compact keep 4",
+        "pending": "Will compact when the agent finishes this run",
+        "running": "Compacting context…",
+        "doneContext": "Compacted {turns} turns · context ~{before} → ~{after} tokens",
+        "doneHistory": "Compacted {turns} turns · history ~{before} → ~{after} tokens",
+        "alreadyRunning": "Compaction is already running",
+        "failed": "Couldn't compact the context",
+        "degraded": "fallback summary (no model summary)",
+        "cancel": "Cancel",
+        "dismiss": "Dismiss"
+      }
     }
   },
   "exports": {
@@ -1227,7 +1243,13 @@
       "scopeHint": "Applies to your conversations in this browser."
     },
     "readMore": "Read more",
-    "showLess": "Show less"
+    "showLess": "Show less",
+    "compactionShowSummary": "Show what the agent remembers from compacted turns",
+    "compactionSummaryTitle": "Compacted history",
+    "compactionSummaryHint": "The agent sees this summary instead of the turns above the line.",
+    "compactingContext": "Compacting context…",
+    "compactionTurns": "{turns} turns",
+    "compactionLast": "Last compaction: history ~{before} → ~{after} tokens"
   },
   "tools": {
     "common": {

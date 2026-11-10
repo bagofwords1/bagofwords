@@ -673,6 +673,22 @@
         "network": "يحتاج التعرف على الكلام إلى اتصال بالشبكة.",
         "failed": "فشل الإدخال الصوتي. يرجى المحاولة مرة أخرى."
       }
+    },
+    "slash": {
+      "menuTitle": "الأوامر",
+      "compact": {
+        "description": "تلخيص الأدوار الأقدم لتحرير السياق",
+        "usage": "/compact · /compact <التركيز> · /compact keep 4",
+        "pending": "سيتم الضغط عندما ينتهي الوكيل من هذا التشغيل",
+        "running": "جارٍ ضغط السياق…",
+        "doneContext": "تم ضغط {turns} أدوار · السياق ~{before} ← ~{after} رمز",
+        "doneHistory": "تم ضغط {turns} أدوار · السجل ~{before} ← ~{after} رمز",
+        "alreadyRunning": "الضغط قيد التشغيل بالفعل",
+        "failed": "تعذّر ضغط السياق",
+        "degraded": "ملخص احتياطي (بدون ملخص من النموذج)",
+        "cancel": "إلغاء",
+        "dismiss": "إغلاق"
+      }
     }
   },
   "reports": {
@@ -1171,7 +1187,13 @@
       "scopeHint": "ينطبق على محادثاتك في هذا المتصفح."
     },
     "readMore": "اقرأ المزيد",
-    "showLess": "عرض أقل"
+    "showLess": "عرض أقل",
+    "compactionShowSummary": "عرض ما يتذكره الوكيل من الأدوار المضغوطة",
+    "compactionSummaryTitle": "السجل المضغوط",
+    "compactionSummaryHint": "يرى الوكيل هذا الملخص بدلاً من الأدوار فوق الخط.",
+    "compactingContext": "جارٍ ضغط السياق…",
+    "compactionTurns": "{turns} أدوار",
+    "compactionLast": "آخر ضغط: السجل ~{before} ← ~{after} رمز"
   },
   "tools": {
     "common": {

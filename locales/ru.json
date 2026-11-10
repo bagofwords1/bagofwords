@@ -673,6 +673,22 @@
         "network": "Для распознавания речи нужно сетевое подключение.",
         "failed": "Голосовой ввод не удался. Попробуйте ещё раз."
       }
+    },
+    "slash": {
+      "menuTitle": "Команды",
+      "compact": {
+        "description": "Сжать старые ходы, чтобы освободить контекст",
+        "usage": "/compact · /compact <фокус> · /compact keep 4",
+        "pending": "Сжатие выполнится, когда агент завершит текущий запуск",
+        "running": "Сжатие контекста…",
+        "doneContext": "Сжато ходов: {turns} · контекст ~{before} → ~{after} токенов",
+        "doneHistory": "Сжато ходов: {turns} · история ~{before} → ~{after} токенов",
+        "alreadyRunning": "Сжатие уже выполняется",
+        "failed": "Не удалось сжать контекст",
+        "degraded": "резервная сводка (без сводки модели)",
+        "cancel": "Отмена",
+        "dismiss": "Закрыть"
+      }
     }
   },
   "reports": {
@@ -1171,7 +1187,13 @@
       "scopeHint": "Применяется к вашим беседам в этом браузере."
     },
     "readMore": "Подробнее",
-    "showLess": "Свернуть"
+    "showLess": "Свернуть",
+    "compactionShowSummary": "Показать, что агент помнит о сжатых ходах",
+    "compactionSummaryTitle": "Сжатая история",
+    "compactionSummaryHint": "Агент видит эту сводку вместо ходов над линией.",
+    "compactingContext": "Сжатие контекста…",
+    "compactionTurns": "ходов: {turns}",
+    "compactionLast": "Последнее сжатие: история ~{before} → ~{after} токенов"
   },
   "tools": {
     "common": {

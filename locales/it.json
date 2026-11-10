@@ -673,6 +673,22 @@
         "network": "Il riconoscimento vocale richiede una connessione di rete.",
         "failed": "L'input vocale non è riuscito. Riprova."
       }
+    },
+    "slash": {
+      "menuTitle": "Comandi",
+      "compact": {
+        "description": "Riassumi i turni precedenti per liberare contesto",
+        "usage": "/compact · /compact <focus> · /compact keep 4",
+        "pending": "La compattazione avverrà quando l'agente avrà finito questa esecuzione",
+        "running": "Compattazione del contesto…",
+        "doneContext": "{turns} turni compattati · contesto ~{before} → ~{after} token",
+        "doneHistory": "{turns} turni compattati · cronologia ~{before} → ~{after} token",
+        "alreadyRunning": "Compattazione già in corso",
+        "failed": "Impossibile compattare il contesto",
+        "degraded": "riepilogo di riserva (senza riepilogo del modello)",
+        "cancel": "Annulla",
+        "dismiss": "Chiudi"
+      }
     }
   },
   "reports": {
@@ -1171,7 +1187,13 @@
       "scopeHint": "Si applica alle tue conversazioni in questo browser."
     },
     "readMore": "Leggi di più",
-    "showLess": "Mostra meno"
+    "showLess": "Mostra meno",
+    "compactionShowSummary": "Mostra cosa ricorda l'agente dei turni compattati",
+    "compactionSummaryTitle": "Cronologia compattata",
+    "compactionSummaryHint": "L'agente vede questo riepilogo al posto dei turni sopra la linea.",
+    "compactingContext": "Compattazione del contesto…",
+    "compactionTurns": "{turns} turni",
+    "compactionLast": "Ultima compattazione: cronologia ~{before} → ~{after} token"
   },
   "tools": {
     "common": {

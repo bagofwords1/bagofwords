@@ -15,6 +15,7 @@
 - Renamed "Bag of Words" to "BOW" in the app, emails, connector help and docs (#1382)
 - Added joining tables across several databases in one Snowflake connection (#1678) — list them comma-separated in the Database field
 - Added Cisco ACI (APIC) as a read-only data source: fabric nodes, faults, events, audit log, interfaces, vPC, BGP/IS-IS/OSPF, endpoints, tenants, EPGs, contracts, firmware and health — certificate or username/password (#1679)
+- Added `/compact [focus | keep N]` to the prompt box, and the agent now keeps long conversations within the model's context before each request, without losing earlier summaries (#1677)
 
 ## Version 0.0.613 (November 9, 2026)
 - Added multiple WhatsApp numbers per org, each limited to the agents you pick (#1654)

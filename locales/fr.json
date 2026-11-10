@@ -673,6 +673,22 @@
         "network": "La reconnaissance vocale nécessite une connexion réseau.",
         "failed": "La saisie vocale a échoué. Veuillez réessayer."
       }
+    },
+    "slash": {
+      "menuTitle": "Commandes",
+      "compact": {
+        "description": "Résumer les échanges plus anciens pour libérer du contexte",
+        "usage": "/compact · /compact <sujet> · /compact keep 4",
+        "pending": "La compaction aura lieu quand l'agent aura terminé cette exécution",
+        "running": "Compaction du contexte…",
+        "doneContext": "{turns} échanges compactés · contexte ~{before} → ~{after} jetons",
+        "doneHistory": "{turns} échanges compactés · historique ~{before} → ~{after} jetons",
+        "alreadyRunning": "Une compaction est déjà en cours",
+        "failed": "Impossible de compacter le contexte",
+        "degraded": "résumé de secours (sans résumé du modèle)",
+        "cancel": "Annuler",
+        "dismiss": "Fermer"
+      }
     }
   },
   "reports": {
@@ -1171,7 +1187,13 @@
       "scopeHint": "S'applique à vos conversations dans ce navigateur."
     },
     "readMore": "Lire la suite",
-    "showLess": "Réduire"
+    "showLess": "Réduire",
+    "compactionShowSummary": "Voir ce dont l'agent se souvient des échanges compactés",
+    "compactionSummaryTitle": "Historique compacté",
+    "compactionSummaryHint": "L'agent voit ce résumé à la place des échanges au-dessus de la ligne.",
+    "compactingContext": "Compaction du contexte…",
+    "compactionTurns": "{turns} échanges",
+    "compactionLast": "Dernière compaction : historique ~{before} → ~{after} jetons"
   },
   "tools": {
     "common": {

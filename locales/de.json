@@ -673,6 +673,22 @@
         "network": "Die Spracherkennung benötigt eine Netzwerkverbindung.",
         "failed": "Die Spracheingabe ist fehlgeschlagen. Bitte versuchen Sie es erneut."
       }
+    },
+    "slash": {
+      "menuTitle": "Befehle",
+      "compact": {
+        "description": "Ältere Runden zusammenfassen, um Kontext freizugeben",
+        "usage": "/compact · /compact <Fokus> · /compact keep 4",
+        "pending": "Wird komprimiert, sobald der Agent diesen Lauf beendet",
+        "running": "Kontext wird komprimiert…",
+        "doneContext": "{turns} Runden komprimiert · Kontext ~{before} → ~{after} Tokens",
+        "doneHistory": "{turns} Runden komprimiert · Verlauf ~{before} → ~{after} Tokens",
+        "alreadyRunning": "Komprimierung läuft bereits",
+        "failed": "Kontext konnte nicht komprimiert werden",
+        "degraded": "Ersatzzusammenfassung (ohne Modellzusammenfassung)",
+        "cancel": "Abbrechen",
+        "dismiss": "Schließen"
+      }
     }
   },
   "reports": {
@@ -1171,7 +1187,13 @@
       "scopeHint": "Gilt für Ihre Unterhaltungen in diesem Browser."
     },
     "readMore": "Mehr lesen",
-    "showLess": "Weniger anzeigen"
+    "showLess": "Weniger anzeigen",
+    "compactionShowSummary": "Zeigen, was der Agent aus komprimierten Runden weiß",
+    "compactionSummaryTitle": "Komprimierter Verlauf",
+    "compactionSummaryHint": "Der Agent sieht diese Zusammenfassung statt der Runden oberhalb der Linie.",
+    "compactingContext": "Kontext wird komprimiert…",
+    "compactionTurns": "{turns} Runden",
+    "compactionLast": "Letzte Komprimierung: Verlauf ~{before} → ~{after} Tokens"
   },
   "tools": {
     "common": {
