@@ -3183,7 +3183,9 @@ class AgentV2:
             except Exception:
                 logger.warning("[agent] overflow compaction failed", exc_info=True)
 
-    async def _run_auto_compaction(self, force: bool = False, mode: str = "auto_bg") -> dict:
+    async def _run_auto_compaction(
+        self, force: bool = False, mode: str = "auto_bg", max_tail_rows: Optional[int] = None,
+    ) -> dict:
         """Fold turns older than the protected tail into the report's rolling
         summary (ContextCompactionService). Runs in its own DB session
         (report and organization re-fetched by id — self.report /
@@ -3223,6 +3225,7 @@ class AgentV2:
                 result = await context_compaction_service.compact(
                     session, report, organization, model,
                     force=force, mode=mode, budget_model=self.model or model,
+                    max_tail_rows=max_tail_rows,
                 )
                 if result.get("status") == "compacted":
                     logger.info(
@@ -3297,7 +3300,7 @@ class AgentV2:
             logger.warning("[context] transcript history reload failed", exc_info=True)
         return view
 
-    async def _sync_fold(self, mode: str = "auto_sync") -> dict:
+    async def _sync_fold(self, mode: str = "auto_sync", max_tail_rows: Optional[int] = None) -> dict:
         """Fold history now, before the next request, and reload it.
 
         A background fold already in flight is awaited instead of racing it
@@ -3309,7 +3312,7 @@ class AgentV2:
             except Exception as e:
                 logger.warning(f"[context] background fold did not finish in time: {e}")
         await self._emit_compaction_event("context.compacting", {"trigger": mode})
-        result = await self._run_auto_compaction(force=True, mode=mode)
+        result = await self._run_auto_compaction(force=True, mode=mode, max_tail_rows=max_tail_rows)
         status = result.get("status")
         if status != "compacted":
             # Clear the transient "Compacting…" row; nothing moved.
@@ -3392,6 +3395,31 @@ class AgentV2:
             budget = budget_for(self.model, factor=getattr(self, "_context_budget_factor", 1.0))
             n = self._ctx_anchor.measure(estimate_planner_input_tokens(planner_input))
             stats["before"] = n
+
+            # Window exhaustion, independent of tokens: the live window has a
+            # row cap, and rows past it are in neither the window nor the
+            # summary. A long conversation of short turns never reaches the
+            # token thresholds, so without this the oldest unsummarized turns
+            # (the opening ask among them) would silently fall away. Fold them
+            # now, keeping at most half a window verbatim so the fold makes room.
+            dropped = int(getattr(messages_section, "dropped_count", 0) or 0) if messages_section is not None else 0
+            if dropped > 0 and not getattr(self, "_is_sub_agent", False) and not self._sync_fold_done:
+                self._sync_fold_done = True
+                result = await self._sync_fold(
+                    mode="auto_sync",
+                    max_tail_rows=max(DEFAULT_CONTEXT_LIMITS["messages_max"] // 2, 2),
+                )
+                stats["rungs"].append(f"fold_window:{result.get('status')}")
+                new_section = getattr(getattr(self.context_hub.get_view(), "warm", None), "messages", None)
+                if new_section is not None:
+                    messages_section = new_section
+                    planner_input.messages_context = new_section.render()
+                n = self._ctx_anchor.measure(estimate_planner_input_tokens(planner_input))
+                logger.info(
+                    "[context] governor window full: %d row(s) past the live window, fold=%s",
+                    dropped, result.get("status"),
+                )
+
             if n < budget.cheap_at:
                 stats["after"] = n
                 return stats

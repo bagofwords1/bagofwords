@@ -177,7 +177,9 @@ def _trim_messages_keep_pinned(text: str, keep_ratio: float) -> str:
         end = rest.rfind(close)
         body = rest[:end] if end >= 0 else rest
         open_tag, close_tag = marker, (close if end >= 0 else "")
-    lines = body.split("\n")
+    # Trailing blank lines are formatting, not content: they must never take
+    # the newest message's place in the kept tail.
+    lines = body.rstrip("\n").split("\n")
     nonempty = [l for l in lines if l.strip()]
     if len(nonempty) <= 1:
         # One giant line (or unstructured text): no line boundary to cut at,
@@ -186,20 +188,26 @@ def _trim_messages_keep_pinned(text: str, keep_ratio: float) -> str:
             return text
         new_body = _trim_text_tail(body, keep_ratio, "conversation")
         return f"{pinned}{open_tag}{new_body}{close_tag}" if open_tag else pinned + new_body
-    budget_chars = int(len(body) * keep_ratio)
+    budget_chars = max(int(len(body) * keep_ratio), 1)
     kept: list = []
     size = 0
     for line in reversed(lines):
-        if kept and size + len(line) + 1 > budget_chars:
+        if not kept:
+            if len(line) + 1 > budget_chars:
+                # The newest message alone is over budget: keep its end
+                # (where the answer lands) rather than losing it entirely.
+                kept.append("…" + line[-(budget_chars - 1):] if budget_chars > 1 else line[-1:])
+                break
+        elif size + len(line) + 1 > budget_chars:
             break
         kept.append(line)
         size += len(line) + 1
     kept.reverse()
-    if len(kept) >= len(lines):
-        kept = lines[1:]
+    if kept == lines:
+        kept = lines[1:]  # always make progress
     dropped = len(lines) - len(kept)
     note = f"... ({dropped} older conversation line(s) trimmed to fit context budget)"
-    new_body = "\n".join([note] + kept)
+    new_body = "\n".join([note] + kept) + "\n"
     if open_tag:
         return f"{pinned}{open_tag}{new_body}{close_tag}"
     return new_body

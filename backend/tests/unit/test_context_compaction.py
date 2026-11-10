@@ -883,3 +883,48 @@ async def test_fold_input_contains_every_folded_row(db, n_turns):
     folded_user_turns = [i for i in range(PROTECT_FIRST_N, n_turns - 2 * MANUAL_KEEP_EXCHANGES) if i % 2 == 0]
     missing = [i for i in folded_user_turns if f"Unique ask number {i} about" not in prompts]
     assert missing == [], f"rows folded without reaching the summarizer: {missing}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("n_turns", [42, 57])
+async def test_live_window_reports_rows_it_drops_and_keeps_the_opening_ask(db, n_turns):
+    """Past the live window's row cap, rows are in neither the window nor a
+    summary. The builder must say so (so the governor folds them) and keep the
+    opening ask visible meanwhile."""
+    from app.ai.context.builders.message_context_builder import MessageContextBuilder
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, n_turns, content="Short ask {i}")
+    org_loaded = (await db.execute(select(Organization).where(Organization.id == str(org.id)))).unique().scalar_one()
+    section = await MessageContextBuilder(db, org_loaded, report).build(max_messages=40)
+    # A trailing user row is the ask being answered now, not history.
+    trailing_user = (n_turns - 1) % 2 == 0
+    assert section.dropped_count == n_turns - 40 - (1 if trailing_user else 0)
+    rendered = section.render()
+    assert "Short ask 0" in rendered.split("<opening_exchange>")[1]
+
+
+@pytest.mark.asyncio
+async def test_live_window_reports_nothing_dropped_when_it_fits(db):
+    from app.ai.context.builders.message_context_builder import MessageContextBuilder
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, 30)
+    org_loaded = (await db.execute(select(Organization).where(Organization.id == str(org.id)))).unique().scalar_one()
+    section = await MessageContextBuilder(db, org_loaded, report).build(max_messages=40)
+    assert section.dropped_count == 0
+    assert "<opening_exchange>" not in section.render()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("max_tail_rows", [10, 20])
+async def test_window_fold_leaves_room_in_the_live_window(db, max_tail_rows):
+    """A window-exhaustion fold keeps at most ~max_tail_rows verbatim even
+    when the token tail would protect everything."""
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, 60, content="Short ask {i}")
+    llm_patch, _ = _mock_llm(SUMMARY)
+    with llm_patch:
+        result = await _svc().compact(db, report, org, _model(), mode="auto_sync", force=True,
+                                      budget_model=_model(1_000_000), max_tail_rows=max_tail_rows)
+    assert result["status"] == "compacted"
+    kept = 60 - PROTECT_FIRST_N - result["compacted_turns"]
+    assert 2 <= kept <= max_tail_rows

@@ -38,6 +38,10 @@ class MessagesSection(ContextSection):
     # own <opening_exchange> block ahead of <conversation> so the last-resort
     # trim can pin them alongside the summary.
     head_count: int = 0
+    # Rows past the compaction watermark that the live window's row cap left
+    # out: in neither the window nor the summary. Not rendered — the agent's
+    # governor folds them so they reach the summary.
+    dropped_count: int = 0
 
     def render(self, decay_level: int = 0) -> str:
         """Render the history.

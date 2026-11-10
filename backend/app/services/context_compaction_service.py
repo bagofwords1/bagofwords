@@ -510,7 +510,10 @@ class ContextCompactionService:
         return [str(r) for r in rows]
 
     @staticmethod
-    def _split_tail(foldable: list, *, mode: str, keep: Optional[int], tail_tokens: int) -> int:
+    def _split_tail(
+        foldable: list, *, mode: str, keep: Optional[int], tail_tokens: int,
+        max_tail_rows: Optional[int] = None,
+    ) -> int:
         """Index in ``foldable`` where the protected tail starts.
 
         Manual: the last ``keep`` user exchanges (default 2), nothing more —
@@ -541,13 +544,20 @@ class ContextCompactionService:
                 seen_users += 1
             if seen_users >= AUTO_MIN_EXCHANGES and r.role == "user" and tokens >= tail_tokens:
                 break
+            # A window-exhaustion fold must leave room in the live window:
+            # stop at a user turn once the tail holds max_tail_rows.
+            if (
+                max_tail_rows and seen_users >= AUTO_MIN_EXCHANGES and r.role == "user"
+                and (n - i) >= max_tail_rows
+            ):
+                break
         if seen_users < AUTO_MIN_EXCHANGES:
             return 0
         return split
 
     async def _load_scope(
         self, db: AsyncSession, report_id: str, state: Optional[ReportContextState],
-        *, mode: str, keep: Optional[int], tail_tokens: int,
+        *, mode: str, keep: Optional[int], tail_tokens: int, max_tail_rows: Optional[int] = None,
     ):
         """Completions past the watermark, ascending. Returns (scope, kept, rows)
         where scope = turns to fold into the summary, kept = the protected
@@ -565,7 +575,9 @@ class ContextCompactionService:
         conv = [r for r in rows if r.role != EVENT_ROLE]
         foldable = [r for r in conv if str(r.id) not in head_ids]
 
-        split = self._split_tail(foldable, mode=mode, keep=keep, tail_tokens=tail_tokens)
+        split = self._split_tail(
+            foldable, mode=mode, keep=keep, tail_tokens=tail_tokens, max_tail_rows=max_tail_rows,
+        )
         kept = foldable[split:]
         conv_scope = foldable[:split]
         if not conv_scope:
@@ -627,6 +639,7 @@ class ContextCompactionService:
         keep: Optional[int] = None,
         budget_model=None,
         timeout_s: Optional[float] = None,
+        max_tail_rows: Optional[int] = None,
     ) -> dict:
         """Fold turns older than the protected tail into the rolling summary.
 
@@ -655,6 +668,7 @@ class ContextCompactionService:
                     force=force, mode=mode, instructions=instructions, keep=keep,
                     budget_model=budget_model or llm_model,
                     timeout_s=timeout_s if timeout_s is not None else SUMMARIZER_TIMEOUT_S,
+                    max_tail_rows=max_tail_rows,
                 )
             except Exception as e:
                 logger.error(f"Context compaction failed for report {report_id}: {e}", exc_info=True)
@@ -686,13 +700,14 @@ class ContextCompactionService:
     async def _compact_inner(
         self, db, report, organization, llm_model, *,
         force: bool, mode: str, instructions: Optional[str], keep: Optional[int],
-        budget_model, timeout_s: float,
+        budget_model, timeout_s: float, max_tail_rows: Optional[int] = None,
     ) -> dict:
         report_id = str(report.id)
         budget = budget_for(budget_model)
         state = await self.get_state(db, report_id)
         scope, kept, rows = await self._load_scope(
             db, report_id, state, mode=mode, keep=keep, tail_tokens=budget.tail_tokens,
+            max_tail_rows=max_tail_rows,
         )
         if not scope:
             return {"status": "nothing_to_compact", **self._state_payload(state)}

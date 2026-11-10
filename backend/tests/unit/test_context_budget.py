@@ -321,3 +321,42 @@ def test_trim_never_cuts_a_summary_only_history():
     pi = SimpleNamespace(messages_context=summary, past_observations=None, last_observation=None)
     trim_context_to_budget(pi, model_context_window=12_000)
     assert pi.messages_context == summary
+
+
+def test_governor_folds_when_the_live_window_drops_rows_even_under_budget():
+    """Short turns never reach the token thresholds; a full live window must
+    still trigger a fold, or the oldest turns vanish unsummarized."""
+    agent = _agent(200_000)
+    folded = MessagesSection(items=[MessageItem(role="user", text="recent")], history_summary="window summary")
+
+    async def _fake_fold(mode="auto_sync", max_tail_rows=None):
+        assert max_tail_rows and max_tail_rows > 0
+        agent.context_hub.get_view.return_value = SimpleNamespace(warm=SimpleNamespace(messages=folded))
+        return {"status": "compacted"}
+
+    agent._sync_fold = AsyncMock(side_effect=_fake_fold)
+    section = MessagesSection(items=[MessageItem(role="user", text="hi")], dropped_count=3)
+    pi = _planner_input(300)
+    asyncio.run(agent._govern_context(pi, section))
+    agent._sync_fold.assert_awaited_once()
+    assert "window summary" in pi.messages_context
+
+    # A child never folds the parent's window.
+    child = _agent(200_000)
+    child._is_sub_agent = True
+    child._sync_fold = AsyncMock()
+    asyncio.run(child._govern_context(_planner_input(300), section))
+    child._sync_fold.assert_not_called()
+
+
+@pytest.mark.parametrize("answer_chars", [6_000, 40_000])
+def test_trim_keeps_the_end_of_an_oversized_newest_message(answer_chars):
+    summary = "<history_summary>\nSUMMARY\n</history_summary>\n"
+    body = "User (10:00): short question\nAssistant (10:01): " + ("x" * answer_chars) + " NEWEST_RESULT_SENTINEL\n"
+    text = summary + "<conversation>\n" + body + "</conversation>"
+    pi = SimpleNamespace(messages_context=text, past_observations=None, last_observation=None)
+    trim_context_to_budget(pi, model_context_window=10_000)
+    out = pi.messages_context
+    assert len(out) < len(text)
+    assert "SUMMARY" in out
+    assert "NEWEST_RESULT_SENTINEL" in out
