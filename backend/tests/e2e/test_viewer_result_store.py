@@ -18,7 +18,6 @@ Run:
     uv run pytest tests/e2e/test_viewer_result_store.py -v
 """
 import asyncio
-import re
 import uuid
 from datetime import datetime
 
@@ -31,8 +30,11 @@ from app.models.step import Step
 from app.models.step_user_result import StepUserResult
 from app.services.viewer_result_store import store_viewer_result
 
-# A statement that reads the steps or users table (not step_user_results).
-_RELATED_TABLE = re.compile(r"\b(steps|users)\b", re.IGNORECASE)
+# Every statement storing a result may touch only step_user_results: the
+# upsert and the re-select. Anything else (steps, users, queries, reports...)
+# is the relationship fan-out this guards against.
+def _other_tables(statements):
+    return [s for s in statements if "step_user_results" not in s.lower()]
 
 
 def _run(coro):
@@ -105,8 +107,8 @@ def test_returned_row_has_new_values_without_loading_step_or_user(world):
     assert values == {"status": "success", "data": _frame(3),
                       "applied_params": {"Year": "2023"}, "fingerprint": "fp-a"}
     assert {"step", "user"} <= unloaded
-    related = [s for s in statements if _RELATED_TABLE.search(s)]
-    assert related == [], related
+    assert _other_tables(statements) == [], statements
+    assert len(statements) == 2, statements  # the upsert and the re-select
 
 
 @pytest.mark.e2e
@@ -139,4 +141,4 @@ def test_upsert_updates_the_slot_and_refreshes_a_held_instance(world):
                          "applied_params": {"Year": "2024"}}
     assert other_slot == {"distinct_id": True, "data": _frame(1)}
     assert count == 2
-    assert [s for s in statements if _RELATED_TABLE.search(s)] == []
+    assert _other_tables(statements) == [], statements
