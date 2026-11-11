@@ -205,6 +205,16 @@ def test_an_open_window_still_fills_both_placeholders(dialect, kind):
     assert "{{" not in out and "None" not in out
 
 
+@pytest.mark.parametrize("dialect", sorted(incremental._FAMILY))
+def test_an_open_lower_bound_is_older_than_any_real_row(dialect):
+    """Year 1 must be written with four digits: an engine reads '1-01-01' as
+    2001, and every row older than that silently drops out of the load."""
+    import re
+    out = incremental.render_sql("SELECT * FROM t WHERE c >= {{since}}", dialect, "c", "timestamp", Window())
+    (year,) = re.findall(r"'(\d+)-\d\d-\d\d[ T]", out)
+    assert len(year) == 4 and int(year) <= 1970
+
+
 def test_sql_server_literals_are_typed_and_never_ansi_timestamp():
     naive = incremental.literal("tsql", datetime(2026, 3, 1, 2, 0, 0, 123456))
     assert naive == "CAST('2026-03-01T02:00:00.123456' AS datetime2)"

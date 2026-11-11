@@ -175,6 +175,21 @@ def test_sql_server_parses_showplan_xml():
     assert (est.rows, est.width_bytes) == (8400000, 137)
 
 
+@pytest.mark.parametrize("max_columns", [1, 2, 5])
+def test_sql_server_width_guessed_for_max_columns_does_not_refuse_the_table(max_columns):
+    """The optimizer prices every (MAX) column at a flat ~4 KB. Half a million
+    rows with two short notes columns must not read as 4 GB."""
+    from app.data_sources.fast import extractor
+    width = 60 + max_columns * sql_dialect.MSSQL_LOB_ASSUMED_BYTES
+    plan = MSSQL_PLAN.replace('AvgRowSize="137"', f'AvgRowSize="{width}"').replace("8400000", "560000")
+    est = sql_dialect.explain_mssql(FakeConn([FakeResult(), FakeResult(scalar=plan), FakeResult()]),
+                                    "SELECT * FROM orders")
+    assert est.rows == 560000 and est.total_bytes is None and "MAX" in est.note
+    extractor.check_budget(est)        # the row estimate still guards; the made-up size does not
+    with pytest.raises(extractor.ExtractionRefused):
+        extractor.check_budget(est, max_rows=1000)
+
+
 def test_sql_server_always_turns_showplan_back_off():
     """SHOWPLAN_XML makes the session return plans instead of results. Leaving
     it on would break every subsequent query on that pooled connection."""

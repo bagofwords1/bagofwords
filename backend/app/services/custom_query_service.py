@@ -156,6 +156,11 @@ def next_run_at(cq_id: str):
         return None
 
 
+# How long one run keeps loading windows before it pauses and hands the rest
+# to the next run. Each window still has the extractor's own ceiling.
+LOAD_RUN_BUDGET_SECONDS = extractor.DEFAULT_MAX_SECONDS
+
+
 class _SourceError(Exception):
     """Something the source (or reading from it) raised, to be shown to the
     admin as the refresh's error."""
@@ -209,6 +214,7 @@ class _Run:
 
     def snapshot(self) -> None:
         cq = self.cq
+        self.table_id = str(cq.id)
         self.connection_id = str(self.connection.id)
         self.name = cq.name
         self.sql = cq.definition_sql or ""
@@ -248,7 +254,7 @@ class _Run:
         ]
 
     def over_budget(self) -> bool:
-        return time.monotonic() - self.started > extractor.DEFAULT_MAX_SECONDS
+        return time.monotonic() - self.started > LOAD_RUN_BUDGET_SECONDS
 
     def elapsed_ms(self) -> int:
         return int((time.monotonic() - self.started) * 1000)
@@ -1008,7 +1014,9 @@ class CustomQueryService:
         that only moves with a published artifact)."""
         await run.db.execute(
             update(ConnectionTable)
-            .where(ConnectionTable.id == run.cq.id, ConnectionTable.deleted_at.is_(None))
+            # By captured id: after a rollback the ORM row is expired, and
+            # touching it here would mean a lazy load.
+            .where(ConnectionTable.id == run.table_id, ConnectionTable.deleted_at.is_(None))
             .values(refresh_state=dict(run.state) or None)
             .execution_options(synchronize_session=False)
         )
@@ -1036,7 +1044,9 @@ class CustomQueryService:
             # "running" committed with nothing to write a terminal state.
             cq.last_refresh_status = "running"
             await db.commit()
-            run.run_id = await runs.start(
+            # The run keeps its own id even if the history row cannot be
+            # written: rows are stamped with it either way.
+            await runs.start(
                 connection_table_id=str(cq.id), organization_id=str(connection.organization_id),
                 trigger=run.trigger,
                 mode=RUN_MODE_INCREMENTAL if decision == "increment" else RUN_MODE_FULL,
@@ -1115,11 +1125,15 @@ class CustomQueryService:
             except BaseException:
                 # A file that failed its checks is not worth resuming into.
                 run.state.pop("load", None)
-                with suppress(Exception):
+                try:
                     await db.rollback()
                     await self._save_state(run)
+                except Exception:
+                    logger.exception("custom_query.load_state.clear_failed")
                 raise
-            outcome.rows_read = int(load.get("rows") or 0)
+            # What this run read; a resumed load's earlier windows are on the
+            # runs that loaded them.
+            outcome.rows_read = run.rows_read
             outcome.rows_inserted = outcome.row_count
             await self._publish(run, outcome, full=True)
 

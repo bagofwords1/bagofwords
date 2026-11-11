@@ -372,7 +372,7 @@ def cap_checkpoint(observed: Any, now_utc: datetime) -> Any:
     return observed
 
 
-def plan_chunks(lo: Any, hi: Any, total_rows: int, *, target_rows: int = CHUNK_TARGET_ROWS,
+def plan_chunks(lo: Any, hi: Any, total_rows: int, *, target_rows: Optional[int] = None,
                 max_chunks: int = MAX_CHUNKS, include_nulls: bool = True) -> List[Window]:
     """Split a first load over [lo, hi] into windows of roughly `target_rows`.
 
@@ -384,7 +384,7 @@ def plan_chunks(lo: Any, hi: Any, total_rows: int, *, target_rows: int = CHUNK_T
     kind = kind_of(lo)
     if lo is None or hi is None or kind != kind_of(hi) or kind == KIND_TEXT or not total_rows:
         return [last]
-    count = max(1, min(max_chunks, math.ceil(total_rows / max(1, target_rows))))
+    count = max(1, min(max_chunks, math.ceil(total_rows / max(1, target_rows or CHUNK_TARGET_ROWS))))
     if count == 1 or lo >= hi:
         return [last]
 
@@ -526,9 +526,11 @@ def literal(family: str, value: Any) -> str:
     aware = value.tzinfo is not None
     if aware:
         value = value.astimezone(timezone.utc).replace(tzinfo=None)
-    text = value.strftime("%Y-%m-%d %H:%M:%S.%f")
+    # isoformat, not strftime: strftime does not zero-pad a year below 1000,
+    # and an engine reads '1-01-01' as 2001.
+    text = value.isoformat(sep=" ", timespec="microseconds")
     if family == "tsql":
-        iso = value.strftime("%Y-%m-%dT%H:%M:%S.%f")
+        iso = value.isoformat(sep="T", timespec="microseconds")
         return (f"CAST('{iso}+00:00' AS datetimeoffset)" if aware
                 else f"CAST('{iso}' AS datetime2)")
     if family == "sqlite":
