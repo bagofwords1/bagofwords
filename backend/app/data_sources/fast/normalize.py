@@ -15,9 +15,9 @@ came before it. That is reconciled against the stored table by the loader.
 import json
 import logging
 import uuid
+from collections.abc import Sequence
 from datetime import date, datetime, time
 from decimal import Decimal
-from typing import List, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ DUCKDB_MAX_DECIMAL_PRECISION = 38
 RESERVED_PREFIX = "_bow_"
 
 
-def clean_names(names: Sequence) -> List[str]:
+def clean_names(names: Sequence) -> list[str]:
     """Column names a DuckDB table can actually hold, in the same order.
 
     A result set is allowed things a table is not: an expression with no name
@@ -37,7 +37,7 @@ def clean_names(names: Sequence) -> List[str]:
     names differing only in case. Building a table straight from those either
     fails or — worse — keeps one column and silently drops the other.
     """
-    out: List[str] = []
+    out: list[str] = []
     seen = set()
     for i, raw in enumerate(names):
         name = str(raw).strip() if raw is not None else ""

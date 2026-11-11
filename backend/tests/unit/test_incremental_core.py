@@ -2,7 +2,7 @@
 loader, with no application database and no source engine."""
 import json
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pyarrow as pa
@@ -17,7 +17,7 @@ from app.data_sources.fast.normalize import clean_names, rows_to_arrow
 
 CURSOR_VALUES = [
     datetime(2026, 3, 1, 2, 0, 0, 123456),
-    datetime(2026, 3, 1, 2, 0, tzinfo=timezone.utc),
+    datetime(2026, 3, 1, 2, 0, tzinfo=UTC),
     datetime(2026, 3, 1, 5, 0, tzinfo=timezone(timedelta(hours=3))),
     date(2024, 2, 29),
     0, -7, 2 ** 62, Decimal("12.50"),
@@ -180,8 +180,8 @@ def test_checkpoint_never_runs_ahead_of_now():
     now = datetime(2026, 11, 11, 12, 0)
     assert incremental.cap_checkpoint(datetime(2099, 1, 1), now) == now
     assert incremental.cap_checkpoint(datetime(2026, 1, 1), now) == datetime(2026, 1, 1)
-    aware = incremental.cap_checkpoint(datetime(2099, 1, 1, tzinfo=timezone.utc), now)
-    assert aware == now.replace(tzinfo=timezone.utc) and aware.tzinfo is not None
+    aware = incremental.cap_checkpoint(datetime(2099, 1, 1, tzinfo=UTC), now)
+    assert aware == now.replace(tzinfo=UTC) and aware.tzinfo is not None
     assert incremental.cap_checkpoint(date(2099, 1, 1), now) == date(2026, 11, 12)
     assert incremental.cap_checkpoint(10 ** 12, now) == 10 ** 12
     assert incremental.cap_checkpoint(None, now) is None
@@ -232,9 +232,6 @@ def test_definition_hash_changes_with_what_decides_the_rows_and_only_that():
 
 
 # -- writing a window into SQL --------------------------------------------------
-
-FAMILIES = sorted({f for f in incremental._FAMILY.values()})
-
 
 @pytest.mark.parametrize("dialect", sorted(incremental._FAMILY))
 @pytest.mark.parametrize("value", CURSOR_VALUES)
@@ -317,8 +314,8 @@ def test_probe_measures_the_whole_result_in_one_statement():
 def test_a_json_request_gets_the_window_in_its_own_fields():
     decl = {"start": "start_time", "end": "end_time", "format": "epoch_ms", "clears": ["duration_in_mins"]}
     spec = json.dumps({"table": "metrics", "stat_key": ["cpu|usage"], "duration_in_mins": 60})
-    lo = datetime(2026, 1, 1, tzinfo=timezone.utc)
-    now = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    lo = datetime(2026, 1, 1, tzinfo=UTC)
+    now = datetime(2026, 1, 2, tzinfo=UTC)
     body = json.loads(incremental.render_json(spec, decl, Window(lo=lo), now_utc=now))
     assert body == {"table": "metrics", "stat_key": ["cpu|usage"],
                     "start_time": 1767225600000, "end_time": 1767312000000}

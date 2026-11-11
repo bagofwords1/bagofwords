@@ -222,7 +222,9 @@
       </div>
 
       <!-- ============ CACHE ============ -->
-      <div v-show="tab === 'settings'">
+      <!-- Scrolls inside the modal: with the refresh options open this tab is
+           taller than a laptop screen, and the footer must stay reachable. -->
+      <div v-show="tab === 'settings'" class="max-h-[62vh] overflow-y-auto pe-1" data-testid="cq-settings">
         <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
           How often BOW re-runs this query against the source and refreshes the
           local copy. Between refreshes, agents read the cached data.
@@ -542,7 +544,8 @@
               </div>
               <div v-if="selectedRun.rendered_query" data-testid="cq-run-query">
                 <div class="text-2xs font-medium mb-1">Query sent to the source</div>
-                <pre class="text-2xs font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-md p-2 overflow-auto max-h-32 whitespace-pre-wrap">{{ selectedRun.rendered_query }}</pre>
+                <!-- A query reads left to right in every UI language. -->
+                <pre dir="ltr" class="text-start text-2xs font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-md p-2 overflow-auto max-h-32 whitespace-pre-wrap">{{ selectedRun.rendered_query }}</pre>
               </div>
             </div>
           </div>

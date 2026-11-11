@@ -24,7 +24,7 @@ import pytest_asyncio
 from fastapi import HTTPException
 from sqlalchemy import select
 
-from app.data_sources.fast import artifacts, extractor, incremental, rls
+from app.data_sources.fast import artifacts, incremental, rls
 from app.data_sources.fast import events as table_events
 from app.dependencies import async_session_maker
 from app.models.connection import Connection
@@ -658,7 +658,8 @@ async def test_lineage_columns_never_reach_a_query_or_the_column_list(lab):
         client = CustomQueryService.build_fast_client(identity_rows, identity=rls.ANONYMOUS)
         frame = client.execute_query("SELECT * FROM copy")
         assert list(frame.columns) == COLUMNS.split(", ")
-        with pytest.raises(Exception):
+        import duckdb
+        with pytest.raises(duckdb.Error):
             client.execute_query("SELECT _bow_run_id FROM copy")
     # They are there for us: each row names the run that wrote it.
     run_ids = {r["id"] for r in await lab.runs()}

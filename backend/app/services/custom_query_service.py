@@ -113,8 +113,12 @@ UNVERIFIED_TYPES = {"ms_fabric", "sybase"}
 # (fast/sources.py RequestSource). A client opts in by declaring
 # INCREMENTAL_WINDOW. Aria Operations was run against the repo's mock Suite
 # API (tools/aria_operations), not a live appliance.
+#
+# Kept apart from ACCELERABLE_TYPES on purpose: that list promises things only
+# a query language can give — a cost estimate before running, a table preview
+# to start a custom table from — and code and tests rely on that promise.
 REQUEST_TYPES = {"aria_operations"}
-ACCELERABLE_TYPES = VERIFIED_TYPES | UNVERIFIED_TYPES | REQUEST_TYPES
+ACCELERABLE_TYPES = VERIFIED_TYPES | UNVERIFIED_TYPES
 
 
 def is_accelerable_type(conn_type) -> bool:
@@ -124,7 +128,8 @@ def is_accelerable_type(conn_type) -> bool:
     "MSSQL" — the registry's one uppercase key — so a literal membership test
     against these lowercase sets silently excluded every SQL Server connection.
     """
-    return (conn_type or "").lower() in ACCELERABLE_TYPES
+    kind = (conn_type or "").lower()
+    return kind in ACCELERABLE_TYPES or kind in REQUEST_TYPES
 
 _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 

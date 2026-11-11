@@ -26,9 +26,9 @@ import json
 import math
 import re
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any, List, Optional
+from typing import Any
 
 MODE_FULL = "full"        # every refresh rebuilds the whole table (the default)
 MODE_APPEND = "append"    # no key: rows at/after the window start are replaced
@@ -69,7 +69,7 @@ class IncrementalConfigError(ValueError):
 # Typed cursor values
 # --------------------------------------------------------------------------
 
-def kind_of(value: Any) -> Optional[str]:
+def kind_of(value: Any) -> str | None:
     """Which cursor kind a value read from the source or our copy is."""
     if value is None or isinstance(value, bool):
         return None
@@ -86,7 +86,7 @@ def kind_of(value: Any) -> Optional[str]:
     return None
 
 
-def encode(value: Any) -> Optional[dict]:
+def encode(value: Any) -> dict | None:
     """A cursor value as JSON that decodes back to the same typed value."""
     kind = kind_of(value)
     if kind is None:
@@ -94,7 +94,7 @@ def encode(value: Any) -> Optional[dict]:
     if kind == KIND_TIMESTAMP:
         aware = value.tzinfo is not None
         if aware:
-            value = value.astimezone(timezone.utc)
+            value = value.astimezone(UTC)
         return {"kind": kind, "value": value.replace(tzinfo=None).isoformat(timespec="microseconds"),
                 "tz": aware}
     if kind == KIND_DATE:
@@ -113,7 +113,7 @@ def decode(data: Any) -> Any:
         if kind == KIND_TIMESTAMP:
             parsed = datetime.fromisoformat(str(raw))
             if data.get("tz"):
-                return parsed.replace(tzinfo=timezone.utc)
+                return parsed.replace(tzinfo=UTC)
             return parsed.replace(tzinfo=None)
         if kind == KIND_DATE:
             return date.fromisoformat(str(raw))
@@ -155,19 +155,19 @@ class RefreshConfig:
     """How one custom table refreshes. Stored as JSON on the row."""
 
     mode: str = MODE_FULL
-    cursor_column: Optional[str] = None
+    cursor_column: str | None = None
     # Only needed before the first load when the query carries placeholders;
     # afterwards the kind is read off the data itself.
-    cursor_kind: Optional[str] = None
+    cursor_kind: str | None = None
     unique_key: tuple = ()
-    lookback_seconds: Optional[int] = None      # timestamps / dates
-    lookback_units: Optional[int] = None        # numeric cursors
-    initial_value: Optional[str] = None
-    grain: Optional[str] = None                 # align the window start (rollups)
-    full_refresh_every_days: Optional[int] = DEFAULT_FULL_REFRESH_DAYS
+    lookback_seconds: int | None = None      # timestamps / dates
+    lookback_units: int | None = None        # numeric cursors
+    initial_value: str | None = None
+    grain: str | None = None                 # align the window start (rollups)
+    full_refresh_every_days: int | None = DEFAULT_FULL_REFRESH_DAYS
     # Refuse to publish when the row count falls by more than this share.
     # None turns the guard off (tables that legitimately shrink).
-    row_drop_guard_pct: Optional[int] = None
+    row_drop_guard_pct: int | None = None
 
     @property
     def incremental(self) -> bool:
@@ -181,7 +181,7 @@ class RefreshConfig:
         return cls.from_dict({**raw, "mode": mode})
 
     @classmethod
-    def from_dict(cls, raw: Optional[dict]) -> "RefreshConfig":
+    def from_dict(cls, raw: dict | None) -> "RefreshConfig":
         raw = raw or {}
         key = raw.get("unique_key") or ()
         if isinstance(key, str):
@@ -253,7 +253,7 @@ class RefreshConfig:
             )
 
 
-def _int_or_none(value) -> Optional[int]:
+def _int_or_none(value) -> int | None:
     if value in (None, ""):
         return None
     try:
@@ -262,7 +262,7 @@ def _int_or_none(value) -> Optional[int]:
         return None
 
 
-def definition_hash(sql: str, target: Optional[dict], config: RefreshConfig) -> str:
+def definition_hash(sql: str, target: dict | None, config: RefreshConfig) -> str:
     """Fingerprint of everything that decides which rows belong in the table.
 
     A stored checkpoint only means something for the definition it was taken
@@ -323,7 +323,7 @@ def lookback_of(config: RefreshConfig, kind: str):
     return None
 
 
-def truncate(value: Any, grain: Optional[str]) -> Any:
+def truncate(value: Any, grain: str | None) -> Any:
     """`value` moved back to the start of its hour / day / month."""
     if not grain or value is None:
         return value
@@ -363,7 +363,7 @@ def cap_checkpoint(observed: Any, now_utc: datetime) -> Any:
     """
     if isinstance(observed, datetime):
         if observed.tzinfo is not None:
-            limit = now_utc if now_utc.tzinfo else now_utc.replace(tzinfo=timezone.utc)
+            limit = now_utc if now_utc.tzinfo else now_utc.replace(tzinfo=UTC)
         else:
             limit = now_utc.replace(tzinfo=None)
         return min(observed, limit)
@@ -372,8 +372,8 @@ def cap_checkpoint(observed: Any, now_utc: datetime) -> Any:
     return observed
 
 
-def plan_chunks(lo: Any, hi: Any, total_rows: int, *, target_rows: Optional[int] = None,
-                max_chunks: int = MAX_CHUNKS, include_nulls: bool = True) -> List[Window]:
+def plan_chunks(lo: Any, hi: Any, total_rows: int, *, target_rows: int | None = None,
+                max_chunks: int = MAX_CHUNKS, include_nulls: bool = True) -> list[Window]:
     """Split a first load over [lo, hi] into windows of roughly `target_rows`.
 
     The windows partition the range: each is half-open and the last is
@@ -422,8 +422,8 @@ def midpoint(lo: Any, hi: Any) -> Any:
 
 
 def plan_by_density(lo: Any, hi: Any, total_rows: int, count_between, *,
-                    target_rows: Optional[int] = None, max_chunks: int = MAX_CHUNKS,
-                    max_probes: int = 64, include_nulls: bool = True) -> List[Window]:
+                    target_rows: int | None = None, max_chunks: int = MAX_CHUNKS,
+                    max_probes: int = 64, include_nulls: bool = True) -> list[Window]:
     """Cut a first load into windows of roughly `target_rows`, by where the
     rows actually are.
 
@@ -544,11 +544,11 @@ _FAMILY_MIN = {
 }
 
 
-def family_of(dialect: Optional[str]) -> Optional[str]:
+def family_of(dialect: str | None) -> str | None:
     return _FAMILY.get((dialect or "").lower())
 
 
-def dialect_for(client) -> Optional[str]:
+def dialect_for(client) -> str | None:
     """The SQL dialect a client's queries are written in, if it speaks SQL."""
     from app.ai.code_execution.sql_guard import CLIENT_DIALECTS
     from app.data_sources.fast import sql_dialect
@@ -556,7 +556,7 @@ def dialect_for(client) -> Optional[str]:
     return CLIENT_DIALECTS.get(type(client).__name__) or sql_dialect.dialect_of(client) or None
 
 
-def uses_placeholders(sql: Optional[str]) -> bool:
+def uses_placeholders(sql: str | None) -> bool:
     return bool(_SINCE.search(sql or "") or _UNTIL.search(sql or ""))
 
 
@@ -605,7 +605,7 @@ def literal(family: str, value: Any) -> str:
 
     aware = value.tzinfo is not None
     if aware:
-        value = value.astimezone(timezone.utc).replace(tzinfo=None)
+        value = value.astimezone(UTC).replace(tzinfo=None)
     # isoformat, not strftime: strftime does not zero-pad a year below 1000,
     # and an engine reads '1-01-01' as 2001.
     text = value.isoformat(sep=" ", timespec="microseconds")
@@ -636,11 +636,11 @@ def _sentinel(family: str, kind: str, top: bool, like: Any = None) -> Any:
     else:
         value = _FAMILY_MIN.get(family, {}).get(kind, _MIN.get(kind))
     if isinstance(value, datetime) and isinstance(like, datetime) and like.tzinfo is not None:
-        value = value.replace(tzinfo=timezone.utc)
+        value = value.replace(tzinfo=UTC)
     return value
 
 
-def render_sql(sql: str, dialect: Optional[str], column: str, kind: Optional[str],
+def render_sql(sql: str, dialect: str | None, column: str, kind: str | None,
                window: Window) -> str:
     """The admin's query restricted to `window`, in the source's own SQL.
 
@@ -683,8 +683,8 @@ def render_sql(sql: str, dialect: Optional[str], column: str, kind: Optional[str
     return f"SELECT * FROM ({inner}) bow_sub WHERE {predicate}"
 
 
-def count_sql(sql: str, dialect: Optional[str], column: str, kind: Optional[str],
-              window: Window) -> Optional[str]:
+def count_sql(sql: str, dialect: str | None, column: str, kind: str | None,
+              window: Window) -> str | None:
     """How many rows of the result fall in `window`, as one statement."""
     if family_of(dialect) is None:
         return None
@@ -694,7 +694,7 @@ def count_sql(sql: str, dialect: Optional[str], column: str, kind: Optional[str]
     return f"SELECT COUNT(*) FROM ({inner}) bow_cnt"
 
 
-def probe_sql(sql: str, dialect: Optional[str], column: str, kind: Optional[str]) -> Optional[str]:
+def probe_sql(sql: str, dialect: str | None, column: str, kind: str | None) -> str | None:
     """One aggregate over the whole result: min, max, rows, rows with a cursor.
 
     It sizes a first load before any rows move. None when the source cannot
@@ -714,14 +714,14 @@ def probe_sql(sql: str, dialect: Optional[str], column: str, kind: Optional[str]
 # Connectors that take a JSON request instead of SQL
 # --------------------------------------------------------------------------
 
-def json_window_of(client) -> Optional[dict]:
+def json_window_of(client) -> dict | None:
     """A client's declared window fields, e.g.
     ``{"start": "start_time", "end": "end_time", "format": "epoch_ms"}``."""
     decl = getattr(client, "INCREMENTAL_WINDOW", None)
     return decl if isinstance(decl, dict) and decl.get("start") else None
 
 
-def json_bucket(decl: dict, body: dict) -> Optional[int]:
+def json_bucket(decl: dict, body: dict) -> int | None:
     """The width of one result row's time bucket for this request, in the
     window's own unit, when the connector rolls points up (else None)."""
     bucket = decl.get("bucket")
@@ -758,12 +758,12 @@ def align_window(client, spec: str, window: Window, config: "RefreshConfig") -> 
 
 def _json_value(value: Any, fmt: str):
     if isinstance(value, datetime):
-        aware = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        aware = value if value.tzinfo else value.replace(tzinfo=UTC)
         if fmt == "epoch_ms":
             return int(aware.timestamp() * 1000)
         if fmt == "epoch_s":
             return int(aware.timestamp())
-        return aware.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return aware.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     if isinstance(value, date):
         return _json_value(datetime(value.year, value.month, value.day), fmt)
     if isinstance(value, Decimal):
@@ -771,7 +771,7 @@ def _json_value(value: Any, fmt: str):
     return value
 
 
-def render_json(spec: str, decl: dict, window: Window, now_utc: Optional[datetime] = None) -> str:
+def render_json(spec: str, decl: dict, window: Window, now_utc: datetime | None = None) -> str:
     """The admin's JSON request with the window written into its own fields."""
     try:
         body = json.loads(spec) if isinstance(spec, str) else dict(spec)
@@ -787,13 +787,13 @@ def render_json(spec: str, decl: dict, window: Window, now_utc: Optional[datetim
         body.pop(field, None)
     if window.lo is not None:
         body[decl["start"]] = _json_value(window.lo, fmt)
-    end = window.hi if window.hi is not None else (now_utc or datetime.now(timezone.utc))
+    end = window.hi if window.hi is not None else (now_utc or datetime.now(UTC))
     if decl.get("end"):
         body[decl["end"]] = _json_value(end, fmt)
     return json.dumps(body)
 
 
-def render(client, sql: str, column: str, kind: Optional[str], window: Window) -> str:
+def render(client, sql: str, column: str, kind: str | None, window: Window) -> str:
     """`sql` restricted to `window`, however this client expresses that."""
     decl = json_window_of(client)
     if decl is not None:

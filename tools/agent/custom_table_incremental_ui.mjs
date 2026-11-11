@@ -98,7 +98,11 @@ try {
     await page.click('[data-testid="cq-tab-runs"]');
     await page.locator('[data-testid="cq-run-success"]').first().waitFor({ timeout: 15000 });
     await page.waitForTimeout(600);
-    const before = await page.locator('[data-testid^="cq-run-"]:not([data-testid="cq-run-detail"]):not([data-testid="cq-run-query"]):not([data-testid="cq-run-events"]):not([data-testid="cq-run-chunks"]):not([data-testid="cq-run-error"])').count();
+    const rows = 'tr[data-testid^="cq-run-"]';
+    const before = await page.locator(rows).count();
+    // The first load is the oldest run: the one that created the table.
+    await page.locator(rows).filter({ hasText: 'Created' }).first().click();
+    await page.locator('[data-testid="cq-run-chunks"]').waitFor({ timeout: 10000 }).catch(() => {});
     const detail = await page.textContent('[data-testid="cq-run-detail"]');
     check('the first load is in the history', before >= 1 && /Read from source/.test(detail));
     check('the first load shows its chunks', await page.locator('[data-testid="cq-run-chunks"]').count() === 1);
@@ -107,9 +111,9 @@ try {
 
     // --- Refresh now: an incremental run appears --------------------------------
     await page.click('[data-testid="cq-refresh-now"]');
-    await page.waitForFunction((n) => document.querySelectorAll('tr[data-testid^="cq-run-"]').length > n, before, { timeout: 120000 });
+    await page.waitForFunction(([sel, n]) => document.querySelectorAll(sel).length > n, [rows, before], { timeout: 120000 });
     await page.waitForTimeout(800);
-    const top = page.locator('tr[data-testid^="cq-run-"]').first();
+    const top = page.locator(rows).first();
     const topText = await top.textContent();
     check('a manual refresh adds an incremental run', /Manual/.test(topText) && /New rows/.test(topText) && /OK/.test(topText), topText.replace(/\s+/g, ' ').trim());
     await top.click();

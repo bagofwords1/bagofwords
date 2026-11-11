@@ -20,10 +20,10 @@ import logging
 import time
 import uuid
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any
 
 from app.data_sources.fast import artifacts, incremental
 from app.data_sources.fast.extractor import ExtractionAborted, PublishCheckFailed
@@ -55,7 +55,7 @@ class Limits:
     max_rows: int
     max_bytes: int
     deadline: float                                   # time.monotonic() value
-    should_abort: Optional[Callable[[], bool]] = None
+    should_abort: Callable[[], bool] | None = None
     max_seconds: int = 0
 
     def check(self) -> None:
@@ -83,7 +83,7 @@ def _is_nested(type_name: str) -> bool:
 class ArtifactWriter:
     """A writable encrypted DuckDB file holding one relation."""
 
-    def __init__(self, path, key: str, relation: str, run_id: str, loaded_at: Optional[datetime] = None):
+    def __init__(self, path, key: str, relation: str, run_id: str, loaded_at: datetime | None = None):
         self.path = Path(path)
         self.key = key
         self.relation = relation
@@ -115,19 +115,19 @@ class ArtifactWriter:
 
     # -- catalog -----------------------------------------------------------
 
-    def exists(self, table: Optional[str] = None) -> bool:
+    def exists(self, table: str | None = None) -> bool:
         row = self.con.execute(
             "SELECT 1 FROM duckdb_tables() WHERE database_name = 'artifact' AND table_name = ?",
             [table or self.relation],
         ).fetchone()
         return row is not None
 
-    def describe(self, table: Optional[str] = None) -> list:
+    def describe(self, table: str | None = None) -> list:
         """[(name, duckdb type)] of a table, in order."""
         rows = self.con.execute(f"DESCRIBE {_q(table or self.relation)}").fetchall()
         return [(r[0], r[1]) for r in rows]
 
-    def data_columns(self, table: Optional[str] = None) -> list:
+    def data_columns(self, table: str | None = None) -> list:
         return [name for name, _t in self.describe(table) if name not in HIDDEN_COLUMNS]
 
     def columns(self) -> list:
@@ -139,7 +139,7 @@ class ArtifactWriter:
         ).fetch_arrow_table().schema
         return [{"name": f.name, "dtype": str(f.type)} for f in schema]
 
-    def count(self, table: Optional[str] = None) -> int:
+    def count(self, table: str | None = None) -> int:
         return int(self.con.execute(f"SELECT count(*) FROM {_q(table or self.relation)}").fetchone()[0])
 
     # -- seeding from the previous artifact --------------------------------
@@ -272,7 +272,7 @@ class ArtifactWriter:
         self._last_schema[table] = (signature, select)
         return select
 
-    def load(self, batches: Iterable, limits: Limits, *, table: Optional[str] = None,
+    def load(self, batches: Iterable, limits: Limits, *, table: str | None = None,
              hidden: bool = True, strict_columns: bool = False, rows_before: int = 0) -> int:
         """Append every batch to `table` inside one transaction.
 
@@ -335,7 +335,7 @@ class ArtifactWriter:
 
     # -- folding an increment in -------------------------------------------
 
-    def _require(self, names: Iterable[str], what: str, table: Optional[str] = None) -> list:
+    def _require(self, names: Iterable[str], what: str, table: str | None = None) -> list:
         have = {c.lower(): c for c in self.data_columns(table)}
         resolved = []
         for name in names:
@@ -348,7 +348,7 @@ class ArtifactWriter:
             resolved.append(actual)
         return resolved
 
-    def collapse_duplicates(self, keys: Iterable[str], cursor: str, table: Optional[str] = None) -> int:
+    def collapse_duplicates(self, keys: Iterable[str], cursor: str, table: str | None = None) -> int:
         """Keep one row per key — the one with the highest cursor."""
         table = table or self.relation
         keys = self._require(keys, "key column", table)
@@ -494,7 +494,7 @@ def load_window(source, sql: str, part_path, key: str, relation: str, run_id: st
         return writer.load(source.stream_batches(sql, batch_rows), limits, rows_before=rows_before)
 
 
-def _check_row_drop(config: incremental.RefreshConfig, previous_rows: Optional[int], rows: int) -> None:
+def _check_row_drop(config: incremental.RefreshConfig, previous_rows: int | None, rows: int) -> None:
     pct = config.row_drop_guard_pct
     if not pct or not previous_rows or previous_rows < ROW_DROP_GUARD_MIN_ROWS:
         return
@@ -509,7 +509,7 @@ def _check_row_drop(config: incremental.RefreshConfig, previous_rows: Optional[i
 
 
 def finalize(part_path, key: str, relation: str, config: incremental.RefreshConfig, *,
-             previous_rows: Optional[int] = None, outcome: Optional[LoadOutcome] = None,
+             previous_rows: int | None = None, outcome: LoadOutcome | None = None,
              run_id: str = "", collapse: bool = True) -> LoadOutcome:
     """Measure a finished part file, check it, and give it its final name."""
     part_path = Path(part_path)
@@ -563,7 +563,7 @@ def finalize(part_path, key: str, relation: str, config: incremental.RefreshConf
 def apply_increment(source, sql: str, previous_path: str, previous_key: str, relation: str,
                     connection_id: str, run_id: str, config: incremental.RefreshConfig,
                     window: incremental.Window, limits: Limits, *, batch_rows: int,
-                    previous_rows: Optional[int] = None, wrapped: bool = False) -> LoadOutcome:
+                    previous_rows: int | None = None, wrapped: bool = False) -> LoadOutcome:
     """Copy the served artifact forward and fold one window of rows into it."""
     part_path, key = new_part(connection_id)
     outcome = LoadOutcome()

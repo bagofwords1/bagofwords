@@ -1,4 +1,15 @@
-from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Index, Integer, JSON, PrimaryKeyConstraint, String, Text
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    PrimaryKeyConstraint,
+    String,
+    Text,
+)
 
 from app.models.base import BaseSchema
 

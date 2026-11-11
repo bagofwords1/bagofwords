@@ -1,6 +1,8 @@
 # Custom tables: run history, incremental refresh, normalization — plan
 
-Status: **plan approved; implementation in progress**. Scope agreed: build phases 1–3 now; phase 4
+Status: **phases 1–3 implemented** (see "As built" below; results in
+`docs/feedback-loops/custom-table-incremental-refresh.md`). Phase 4 is not
+built. Scope agreed: build phases 1–3 now; phase 4
 (transform layer over DuckDB) is future work, but every phase below must leave
 the door open for it (see "Phase-4 readiness").
 
@@ -8,6 +10,32 @@ Verification follows `.agents/skills/sandbox-feedback-loop/SKILL.md`: each
 phase ships a deterministic Loop A (no external services) and a live Loop B
 against real Postgres and SQL Server engines in Docker. Results are recorded in
 `docs/feedback-loops/custom-table-incremental-refresh.md`.
+
+---
+
+## As built — where the implementation differs from the plan below
+
+The plan is kept as written; these are the places the work taught us
+something and the code went another way.
+
+| Plan | Built | Why |
+|---|---|---|
+| Window values passed as bound parameters | Rendered as **typed literals** per dialect (`incremental.literal`), from values we produce (datetime / date / number); text cursors are charset-checked | One text serves the read-only guard, the cost estimate, the preview, the extraction and the run log — the log shows exactly what ran. Estimators (`SHOWPLAN_XML`, `EXPLAIN`) do not all accept parameters. |
+| Modes `append`, `merge`, `replace_window` | Two: **merge** (by key) and **append**, where append *replaces the tail* (deletes rows at/after the window start, inserts what was read) | Tail replacement makes append idempotent without a key, so `replace_window` is the same operation with a `grain`. |
+| Refuse incremental when the cursor has NULLs | NULL-cursor rows are **carried**: a wrapped query fetches them with the open-ended window on every run; the count is logged | Refusing would block ordinary messy tables. A query that places its own filter excludes them by its own predicate, which the UI says. |
+| A schema change on an increment fails the run | The run **rebuilds in full** and logs why; a type that merely widens is altered in place | A table that errors every hour until someone notices is worse than one slow refresh. |
+| Chunks cut evenly between min and max | Chunks planned **by row density** (`plan_by_density`): the busiest window is halved and counted until none exceeds the target | Two outlier rows (1970, 2099) stretched the range until one chunk held the whole table. |
+| Duplicate keys reject merge at setup | Rows sharing a key **collapse to the newest**, with a warning on the run | Checking uniqueness up front means a full scan of the source; the collapse is what an upsert means, and it is reported. |
+| `CustomTableRun.connection_table_id` as a foreign key | A soft reference | Custom tables are soft-deleted and history is purged by age. |
+| Run statuses include `skipped`, `interrupted` stored | `partial` (a load paused part-way) is stored; `interrupted` is derived for a run that stopped reporting | Nothing produces a skipped run: a queued refresh waits. |
+| Loop B measures 1 / 2 / 5 / 10 GiB incl. object storage | Local copy-forward measured to 1.77 GiB (~7 s/GiB) | No object store in the sandbox; the larger points are still owed before the cap is raised. |
+| PR slicing 1a–5 | One branch, built in that order | — |
+
+Also added beyond the plan: the row-drop guard is on by default (50 %) for new
+tables only; a paused load schedules its own continuation; request-type
+connectors align windows to their rollup bucket; and three defects in the
+existing full-refresh path were fixed (types fixed by the first batch,
+duplicate column names dropped, SQL Server `(MAX)` width estimate).
 
 ---
 

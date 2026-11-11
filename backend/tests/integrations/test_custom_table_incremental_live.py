@@ -19,7 +19,6 @@ import json
 import os
 import time
 import uuid
-from contextlib import contextmanager
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -337,7 +336,7 @@ async def test_merge_follows_a_large_messy_table(lab):
     assert run["rows_inserted"] == inserted
     assert run["rows_updated"] == touched + 2      # + the late arrival, + the no-cursor edit
     assert run["rows_read"] < total / 20
-    by_id = dict(await lab.copy("SELECT id, status FROM copy WHERE id IN (5, 6, 7, 8) OR id = %d" % null_id))
+    by_id = dict(await lab.copy(f"SELECT id, status FROM copy WHERE id IN (5, 6, 7, 8) OR id = {int(null_id)}"))
     assert by_id[5] == "late-inside" and by_id[null_id] == "no-cursor-edit"
     assert by_id[6] != "late-outside", "a change older than the lookback waits for a full refresh"
     assert 7 in by_id and 8 in by_id, "an increment cannot see a deletion"
@@ -400,7 +399,7 @@ async def test_a_filter_placed_by_the_admin_is_filled_in_the_engines_own_sql(lab
            f"WHERE updated_at >= {{{{since}}}} AND updated_at < {{{{until}}}}")
     await lab.table(sql, "merge", **merge_settings(cursor_kind="timestamp", lookback_seconds=3600))
     with patch.object(incremental, "CHUNK_TARGET_ROWS", 150_000):
-        table = await lab.refresh()
+        await lab.refresh()
     with_cursor = e.one(f"SELECT COUNT(*), SUM(id) FROM {e.orders} WHERE updated_at IS NOT NULL")
     assert tuple(_num(v) for v in (await lab.copy("SELECT COUNT(*), SUM(id) FROM copy"))[0]) == \
         tuple(_num(v) for v in with_cursor)
