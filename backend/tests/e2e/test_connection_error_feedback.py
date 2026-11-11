@@ -90,14 +90,16 @@ async def _probe(ids):
 
 
 def _leaks(message, ident):
-    lowered = message.lower()
-    return [k for k, v in ident.items() if v.lower() in lowered]
+    """The secrets found in ``message``. The host and user are not secrets:
+    they are the admin's own settings and what the message must still name."""
+    return [k for k in ("password",) if ident[k] in message]
 
 
 def _driver_error(ident):
+    # The password is echoed bare, in no shape a pattern would recognise.
     return (
         f"could not connect to {ident['host']} ({ident['ip']}) as {ident['user']} "
-        f"password={ident['password']} on behalf of {ident['email']}"
+        f"using {ident['password']} on behalf of {ident['email']}"
     )
 
 
@@ -117,7 +119,7 @@ def install_client(monkeypatch):
 
 @pytest.mark.e2e
 @pytest.mark.parametrize("exc_type", [ConnectionError, TimeoutError, KeyError, RuntimeError])
-def test_failed_probe_names_the_error_without_identity(install_client, exc_type):
+def test_failed_probe_names_the_error_without_the_password(install_client, exc_type):
     ident = _identity()
     ids = _run(_seed(ident))
 
@@ -133,6 +135,7 @@ def test_failed_probe_names_the_error_without_identity(install_client, exc_type)
     assert result["success"] is False
     assert exc_type.__name__ in result["message"]
     assert _leaks(result["message"], ident) == []
+    assert ident["host"] in result["message"]
 
 
 @pytest.mark.e2e
@@ -150,7 +153,7 @@ def test_failure_message_reported_by_client_is_redacted(install_client):
 
     result = _run(_probe(ids))
     assert result["success"] is False
-    assert result["message"]
+    assert ident["host"] in result["message"]
     assert _leaks(result["message"], ident) == []
 
 
@@ -199,3 +202,36 @@ def test_agent_sync_survives_duplicate_catalog_names(names):
     rows = _run(_sync())
     # Every catalog name reaches the agent, once.
     assert sorted(rows) == sorted(set(names))
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("linked", [0, 1])
+def test_a_duplicate_name_keeps_the_table_the_agent_already_has(linked):
+    """Of two catalog rows sharing a name, whichever the agent already links
+    to is the one synced: no second same-named table appears beside it."""
+    ids = _run(_seed(_identity(), table_names=["orders", "orders"]))
+
+    async def _sync():
+        async with async_session_maker() as db:
+            twins = (await db.execute(
+                select(ConnectionTable).where(ConnectionTable.connection_id == ids["conn_id"])
+                .order_by(ConnectionTable.created_at, ConnectionTable.id)
+            )).scalars().all()
+            # No API produces a duplicate-name catalog (the service refuses
+            # it); older installs hold them, so the link is written directly.
+            existing = DataSourceTable(
+                name="orders", datasource_id=ids["ds_id"], connection_table_id=twins[linked].id,
+                is_active=True, columns=[], pks=[], fks=[], no_rows=0, metadata_json={})
+            db.add(existing)
+            await db.commit()
+            existing_id = existing.id
+            conn = await db.get(Connection, ids["conn_id"])
+            ds = await db.get(DataSource, ids["ds_id"])
+            await DataSourceService().sync_domain_tables_from_connection(
+                db, ds, conn, max_auto_select=None)
+            rows = (await db.execute(
+                select(DataSourceTable.id).where(DataSourceTable.datasource_id == ids["ds_id"])
+            )).scalars().all()
+            return existing_id, rows
+    existing_id, rows = _run(_sync())
+    assert rows == [existing_id]

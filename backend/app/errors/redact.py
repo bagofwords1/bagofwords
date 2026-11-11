@@ -202,107 +202,65 @@ def describe_for_log(exc: BaseException) -> str:
 
 # ── User-facing error text ──────────────────────────────────────────────────
 # What an admin sees in the connection-status log and test result. It has to
-# say *what* failed clearly enough to act on, without the server's identity
-# (hosts, IPs, filesystem layout, internal ids) or anybody's credentials or
-# identity (emails, usernames) in it.
+# say *what* failed clearly enough to act on, so the host, port, user and
+# table names a driver reports stay: they are the admin's own settings and
+# the thing to fix. Only credentials are masked (``redact_error``), plus the
+# server's directory layout (``redact_paths``).
 
-_EMAIL = re.compile(r"(?i)\b[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}\b")
-_IPV4 = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])")
-# Full (>= 4 groups) or compressed ("::") IPv6. A bare "10:29:54" timestamp
-# has 3 groups and no "::", so it is left alone.
-_IPV6 = re.compile(
-    r"(?i)(?<![\w:])(?:(?:[0-9a-f]{1,4}:){3,7}[0-9a-f]{1,4}"
-    r"|(?:[0-9a-f]{1,4}:){1,6}:(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4})*)?"
-    r"|::(?:[0-9a-f]{1,4}:)*[0-9a-f]{1,4})(?![\w:])"
+# Keys whose values are secrets, wherever they sit.
+_SECRET_KEY = re.compile(
+    r"(?i)(password|passwd|pwd|passphrase|secret|token|credential|"
+    r"api[_\-]?key|access[_\-]?key|private[_\-]?key)"
 )
-# A bare hostname ("could not resolve bi01.corp.example.net"). Limited to
-# common public/intranet TLDs so dotted identifiers the admin needs —
-# schema.table, table.column, file.py — are left alone.
-_HOSTNAME = re.compile(
-    r"(?i)(?<![\w.\-])(?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+"
-    r"(?:com|net|org|io|gov|edu|mil|biz|info|local|localdomain|internal|corp|lan|intra|"
-    r"cloud|il|uk|de|fr|nl|ca|au|ru|cn|jp|br|eu|ch|se|pl)(?![\w\-])"
+# Keys of the credentials blob that are not secrets: who signs in and how.
+_NOT_SECRET_KEY = re.compile(
+    r"(?i)(user|login|email|account|role|tenant|domain|host|port|database|schema|"
+    r"warehouse|region|scope|mode|type|_id$|^id$)"
 )
-_UUID = re.compile(r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
-# The host part of any URL: scheme://host[:port]
-_URL_HOST = re.compile(r"(?P<scheme>[a-zA-Z][a-zA-Z0-9+.\-]*://)(?:\*\*\*@)?(?P<host>\[[^\]\s]+\]|[^/\s:?#'\"]+)")
 
-# Config keys whose values identify the server or a person.
-_IDENTITY_KEY = re.compile(
-    r"(?i)(host|server|endpoint|url|uri|dsn|domain|tenant|account|username|user_?id|login|email|principal)"
-)
+
+def _is_secret_key(key: str, in_credentials: bool) -> bool:
+    if re.search(r"(?i)(_id|_type)$", key):
+        return False
+    if _SECRET_KEY.search(key):
+        return True
+    return in_credentials and not _NOT_SECRET_KEY.search(key)
 
 
 def connection_secrets(config: object = None, credentials: object = None) -> list:
-    """Values of a connection that must never appear in a user-facing message.
+    """A connection's secret values: passwords, tokens, keys.
 
-    Every credential string (passwords, tokens, keys) plus the config values
-    that identify the server or a person (host, URL, account, username …).
-    For a URL value, its host is listed too, since a driver usually echoes
-    only the host.
+    Passed to ``redact_error`` so a driver that echoes one in a shape the
+    patterns don't recognise is still masked. Everything in the credentials
+    blob counts unless its key names an identity or a mode (``user``,
+    ``client_id``, ``auth_type``); in the config, only keys that name a secret.
     """
-    from urllib.parse import urlparse
+    out: set = set()
 
-    out: list = []
-
-    def _walk(obj, key_ok):
+    def _walk(obj, secret: bool, in_credentials: bool):
         if isinstance(obj, dict):
             for k, v in obj.items():
-                _walk(v, key_ok(str(k)))
+                _walk(v, _is_secret_key(str(k), in_credentials), in_credentials)
         elif isinstance(obj, (list, tuple)):
             for v in obj:
-                _walk(v, key_ok)
-        elif isinstance(obj, str) and key_ok is True and obj.strip():
-            value = obj.strip()
-            out.append(value)
-            if "://" in value:
-                try:
-                    host = urlparse(value).hostname
-                except ValueError:
-                    host = None
-                if host:
-                    out.append(host)
+                _walk(v, secret, in_credentials)
+        elif isinstance(obj, str) and secret and obj.strip():
+            out.add(obj.strip())
 
-    # Every credential value is secret, whatever its key.
-    _walk(credentials or {}, lambda _k: True)
-    _walk(config or {}, lambda k: bool(_IDENTITY_KEY.search(k)))
+    _walk(credentials or {}, False, True)
+    _walk(config or {}, False, False)
     # Longest first so a value is masked before any shorter value inside it.
-    return sorted({s for s in out if len(s) >= 3}, key=len, reverse=True)
-
-
-def _mask_identity(text: str, secrets: Iterable[str]) -> str:
-    for s in secrets:
-        if not s or not isinstance(s, str):
-            continue
-        if len(s) >= 4 and not s.isalnum():
-            # Passwords, tokens, hosts, emails: mask wherever they appear.
-            text = re.sub(re.escape(s), MASK, text, flags=re.IGNORECASE)
-        else:
-            # Short / plain-word values ("admin", "db1") only as whole words,
-            # so "admin" doesn't turn "administrator" into "***istrator".
-            text = re.sub(rf"(?<![\w]){re.escape(s)}(?![\w])", MASK, text, flags=re.IGNORECASE)
-    return text
+    return sorted(out, key=len, reverse=True)
 
 
 def sanitize_user_message(text: object, secrets: Optional[Iterable[str]] = None,
                           max_len: int = MAX_LEN) -> str:
-    """Mask credentials, server identity and personal identity in ``text``."""
+    """``text`` with credentials masked, server paths trimmed, length capped."""
     text = "" if text is None else str(text)
-    secrets = list(secrets or ())
-    text = _mask_identity(text, secrets)
-    # Credentials in URLs / headers / key=value pairs (no length cap yet).
-    text = redact_error(text, max_len=10**9)
-    text = _URL_HOST.sub(lambda m: f"{m.group('scheme')}{MASK}", text)
-    text = _EMAIL.sub(MASK, text)
-    text = _HOSTNAME.sub(MASK, text)
-    text = _UUID.sub(MASK, text)
-    text = _IPV4.sub(MASK, text)
-    text = _IPV6.sub(MASK, text)
-    text = redact_paths(text)
-    text = text.strip()
-    if len(text) > max_len:
-        text = text[:max_len] + "…"
-    return text
+    # Bound the work first: the patterns are applied to the whole text, and a
+    # driver can hand back a page of HTML or a megabyte of SQL.
+    text = text[: max_len * 4]
+    return redact_paths(redact_error(text, secrets, max_len=max_len)).strip()
 
 
 def _message_of(exc: BaseException) -> str:
@@ -339,9 +297,8 @@ def user_facing_error(exc: BaseException, secrets: Optional[Iterable[str]] = Non
 
     ``Type: message``, followed by the exception it was raised from (drivers
     often wrap the useful error: ``OperationalError … caused by
-    ConnectionRefusedError …``). Credentials, hosts, IPs, emails, internal
-    ids and filesystem paths are masked; ``secrets`` are the connection's own
-    values (see ``connection_secrets``), masked wherever they appear.
+    ConnectionRefusedError …``). Credentials are masked; ``secrets`` are the
+    connection's own (see ``connection_secrets``), masked wherever they appear.
     """
     parts = [_label(exc)]
     seen = {id(exc)}

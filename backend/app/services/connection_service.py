@@ -1468,9 +1468,9 @@ class ConnectionService:
     @staticmethod
     def _error_secrets(connection: Connection, config_overrides: dict = None,
                        credential_overrides: dict = None) -> list:
-        """Values to mask out of a test/indexing error shown to the admin:
-        the connection's credentials and server/identity config, stored and
-        as overridden by the form. Best-effort; patterns still apply when a
+        """Secret values to mask out of a test/indexing error shown to the
+        admin: the connection's passwords, tokens and keys, stored and as
+        overridden by the form. Best-effort; patterns still apply when a
         blob can't be read."""
         import json as _json
         from app.errors.redact import connection_secrets
@@ -1497,7 +1497,7 @@ class ConnectionService:
         """Redact a client's failure message before it reaches the UI.
 
         Clients put the driver's own text in ``message`` (that's what makes it
-        actionable), and drivers echo hosts, users and connection strings.
+        actionable), and drivers echo connection strings and tokens.
         Success messages are ours ("Connected. Found N tables") and kept."""
         from app.errors.redact import sanitize_user_message
 

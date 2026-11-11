@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 
 def _connection_secrets(connection) -> list:
-    """The connection's credential and server/identity values, masked out of
+    """The connection's secret values (passwords, tokens, keys), masked out of
     any error text written to the run's log. Read once, right after the
     connection loads: a failed refresh rolls the session back and expires it."""
     from app.services.connection_service import ConnectionService
@@ -676,6 +676,9 @@ class ConnectionIndexingService:
             except Exception:
                 logger.debug("indexing.event_append_failed", exc_info=True)
 
+        # Set once the connection loads; empty until then, so the last-ditch
+        # handler below can always build a message.
+        run_secrets: list = []
         try:
             async with _new_session() as db:
                 row = await db.get(ConnectionIndexing, indexing_id)
@@ -1228,7 +1231,7 @@ class ConnectionIndexingService:
                 pass
         except Exception as exc:  # pragma: no cover — last-ditch guard
             logger.exception("indexing.run.crash", extra={"indexing_id": indexing_id})
-            failure = _failure_message("Indexing failed", None, exc, locals().get("run_secrets") or [])
+            failure = _failure_message("Indexing failed", None, exc, run_secrets)
             # Without this the log just stops: the admin saw progress lines
             # and then nothing, with no reason anywhere on the screen.
             await _append_event("error", None, failure)

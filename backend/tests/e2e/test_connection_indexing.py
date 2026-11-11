@@ -385,26 +385,24 @@ def test_short_discovery_stages_remain_in_activity_log(
 
 @pytest.mark.e2e
 @pytest.mark.parametrize("phase, exc_factory", [
-    ("syncing_agents", lambda ident: KeyError(ident["uuid"])),
+    ("syncing_agents", lambda ident: KeyError(ident["host"])),
     ("catalog", lambda ident: ConnectionError(
-        f"could not reach {ident['host']} ({ident['ip']}) as {ident['email']}")),
+        f"could not reach https://svc:{ident['secret']}@{ident['host']}/api")),
 ])
 def test_failed_run_logs_a_readable_redacted_reason(
     create_connection, test_client, create_user, login_user, whoami, monkeypatch, phase, exc_factory,
 ):
     """A failed run's log and error say where it stopped and what the error
-    was (its type, so even ``KeyError('…')`` reads as something), but never a
-    host, IP, email or internal id."""
+    was (its type, so even ``KeyError('…')`` reads as something) and name the
+    host the admin has to fix, but never a credential."""
     import uuid as _uuid
     from app.services.connection_service import ConnectionService
 
     _skip_if_no_chinook()
     s = _uuid.uuid4().hex[:6]
     ident = {
-        "uuid": str(_uuid.uuid4()),
         "host": f"bi-{s}.intra.example.net",
-        "ip": f"10.1.{int(s[:2], 16)}.{int(s[2:4], 16)}",
-        "email": f"ops.{s}@example.net",
+        "secret": f"Pw-{_uuid.uuid4().hex}",
     }
     exc = exc_factory(ident)
 
@@ -429,5 +427,5 @@ def test_failed_run_logs_a_readable_redacted_reason(
     assert errors, final['events']
     for text in errors + [final['error']]:
         assert type(exc).__name__ in text, text
-        for value in ident.values():
-            assert value.lower() not in text.lower(), (value, text)
+        assert ident["host"] in text, text
+        assert ident["secret"] not in text, text

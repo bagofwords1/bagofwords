@@ -7094,9 +7094,14 @@ class DataSourceService:
         # existing user-contributed row. Never adopt that row or its selection.
         scoped_existing = {r.name: r for r in existing_rows if belongs_here(r)}
         from copy import deepcopy
+        # Keyed by name, so of several ConnectionTable rows sharing one (see
+        # below) the last wins. Put a row the agent already links to last:
+        # keeping an unlinked twin instead would add a second, same-named
+        # table to the agent beside the one users already selected.
+        payload_tables = sorted(conn_tables, key=lambda t: t.id in existing_by_conn_table_id)
         domain_payloads = reconcile_powerbi_names(
             {t.name: {"id": t.id, "metadata_json": t.metadata_json, "fks": deepcopy(t.fks or [])}
-             for t in conn_tables},
+             for t in payload_tables},
             scoped_existing,
         )
         domain_names = {payload["id"]: name for name, payload in domain_payloads.items()}
@@ -7106,8 +7111,9 @@ class DataSourceService:
         # the service layer, not the DB — older installs have duplicates). The
         # name map keeps one of them; the others have no domain name, and
         # looking them up crashed the whole agent sync with a bare
-        # ``KeyError: '<table id>'``. Sync the one kept; the duplicates stay
-        # in ``conn_tables`` so rows already linked to them are not deactivated.
+        # ``KeyError: '<table id>'``. Sync the one kept (an already-linked one
+        # when there is one); the duplicates stay in ``conn_tables`` so rows
+        # already linked to them are not deactivated.
         sync_tables = [t for t in conn_tables if t.id in domain_names]
         if len(sync_tables) != len(conn_tables):
             logger.warning(
