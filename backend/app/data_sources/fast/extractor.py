@@ -21,13 +21,9 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Optional
-
-import pyarrow as pa
-import pyarrow.compute as pc
+from typing import Any, Optional
 
 from app.data_sources.fast import artifacts, sql_dialect
-from app.data_sources.fast.sources import DUCKDB_MAX_DECIMAL_PRECISION
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +51,10 @@ class ExtractionRefused(Exception):
 
 class ExtractionAborted(Exception):
     """Raised mid-flight when a hard cap is breached."""
+
+
+class PublishCheckFailed(ExtractionAborted):
+    """The new artifact was built but must not replace the one being served."""
 
 
 @dataclass
@@ -97,11 +97,26 @@ class Estimate:
 
 @dataclass
 class ExtractResult:
-    row_count: int = 0
-    columns: list = field(default_factory=list)
+    """What one finished artifact holds and how it got there."""
+
     artifact_path: str = ""
     artifact_key: str = ""
     artifact_bytes: int = 0
+    row_count: int = 0
+    columns: list = field(default_factory=list)
+    # What the run moved: rows the source returned, and what that did to the
+    # table (an increment can insert, update and delete in one run).
+    rows_read: int = 0
+    rows_inserted: int = 0
+    rows_updated: int = 0
+    rows_deleted: int = 0
+    # Incremental tables: the highest cursor value now held, and how many rows
+    # have none.
+    max_cursor: Any = None
+    null_cursor_rows: int = 0
+    collapsed_duplicates: int = 0
+    schema_fingerprint: str = ""
+    notes: list = field(default_factory=list)
     elapsed_ms: int = 0
 
 
@@ -212,153 +227,6 @@ def preview(client, sql: str, limit: int = PREVIEW_ROW_LIMIT) -> tuple[list, lis
     return src.preview(sql, limit)
 
 
-def _arrow_type_name(t: pa.DataType) -> str:
-    return str(t)
-
-
-def _integer_digits(t: pa.DataType) -> int:
-    """Decimal digits that hold every value of integer type `t` (19 for int64)."""
-    top = 2 ** t.bit_width - 1 if pa.types.is_unsigned_integer(t) else 2 ** (t.bit_width - 1)
-    return len(str(top))
-
-
-def _value_digits(col) -> int:
-    """Decimal digits of the largest magnitude in integer column `col`; 0 if all NULL."""
-    if col.null_count == len(col):
-        return 0
-    bounds = pc.min_max(col)
-    return max(len(str(abs(bounds[k].as_py()))) for k in ("min", "max"))
-
-
-def _exact_decimal(digits: int, scale: int) -> pa.DataType:
-    """decimal(digits + scale, scale), or float64 when DuckDB has no such decimal."""
-    if digits + scale > DUCKDB_MAX_DECIMAL_PRECISION:
-        return pa.float64()
-    return pa.decimal128(digits + scale, scale)
-
-
-def _wider(held: pa.DataType, incoming: pa.DataType, held_digits: int | None = None,
-           incoming_digits: int | None = None) -> pa.DataType | None:
-    """The column type that holds both `held` and `incoming` values, if a change is needed.
-
-    The artifact's columns are created from the FIRST batch. Where a source
-    cannot declare a type up front, that batch's values decide it, and a later
-    batch can carry values the column cannot hold:
-
-      * a decimal with more integer digits fails the INSERT outright
-        ("value is out of range"), losing the whole refresh;
-      * a column that was all NULL in the first batch is created INTEGER, and
-        later decimals are silently cast into it — 4321.09 is stored as 4321;
-      * a column of whole numbers (Oracle's bare NUMBER returns int when there
-        is no fraction) is created BIGINT, and later decimals or floats are
-        rounded into it the same way.
-
-    Past 38 digits no DuckDB decimal holds both, and the answer is float64:
-    the column becomes approximate, rows already written included.
-
-    Where one side is an integer column, `held_digits` / `incoming_digits` are
-    the digits its values actually have (see `_value_digits`). Sizing it by its
-    type instead — 19 digits for any int64 — would ask for DECIMAL(39,20) to
-    add the integer 1 to a DECIMAL(21,20) that already holds it, and past 38
-    that is float64: exact rows made approximate for nothing.
-
-    Returns None when the held type already holds `incoming`, or for a pair
-    this does not reconcile (say, text arriving in a numeric column). DuckDB's
-    implicit INSERT cast then applies: it raises on a value that does not
-    convert, but it is not guaranteed to be lossless.
-    """
-    if held == incoming or pa.types.is_null(incoming):
-        return None
-    if pa.types.is_null(held):
-        return incoming
-    if pa.types.is_decimal(held) and pa.types.is_decimal(incoming):
-        scale = max(held.scale, incoming.scale)
-        digits = max(held.precision - held.scale, incoming.precision - incoming.scale)
-        if digits + scale == held.precision and scale == held.scale:
-            return None
-        return _exact_decimal(digits, scale)
-    if pa.types.is_integer(held) and pa.types.is_decimal(incoming):
-        held_digits = _integer_digits(held) if held_digits is None else held_digits
-        return _exact_decimal(max(held_digits, incoming.precision - incoming.scale),
-                              incoming.scale)
-    if pa.types.is_decimal(held) and pa.types.is_integer(incoming):
-        incoming_digits = (_integer_digits(incoming) if incoming_digits is None
-                           else incoming_digits)
-        digits = max(held.precision - held.scale, incoming_digits)
-        if digits == held.precision - held.scale:
-            return None
-        return _exact_decimal(digits, held.scale)
-    if (pa.types.is_decimal(held) or pa.types.is_integer(held)) and pa.types.is_floating(incoming):
-        # A float, or a decimal `arrow_table` already widened to float.
-        return pa.float64()
-    return None
-
-
-def _sql_type(t: pa.DataType) -> str | None:
-    """DuckDB's name for a type `_wider` makes up. None for a type it copied
-    from the batch (a column NULL until now), which DuckDB names itself."""
-    if pa.types.is_decimal(t):
-        return f"DECIMAL({t.precision},{t.scale})"
-    if t == pa.float64():
-        return "DOUBLE"
-    return None
-
-
-def _integer_columns_digits(tbl: pa.Table) -> dict:
-    """{position: digits of its largest value} for `tbl`'s integer columns."""
-    return {i: _value_digits(tbl.column(i)) for i, f in enumerate(tbl.schema)
-            if pa.types.is_integer(f.type)}
-
-
-def _widen_for(con, safe_rel: str, stored_names: list, schema: pa.Schema,
-               tbl: pa.Table, int_digits: dict) -> pa.Schema:
-    """Alter the artifact's columns so `tbl` (registered as bow_batch) fits exactly.
-
-    `int_digits` is {position: digits of the largest value stored so far} for
-    the artifact's integer columns (see `_wider`); it is kept up to date here.
-
-    `stored_names` are the artifact's own column names, by position: DuckDB
-    compares names case-insensitively and renames a repeat at CREATE
-    (`Amount`, `amount` are stored as `Amount`, `amount_1`), so the batch's
-    names cannot address a column.
-    """
-    batch_types = None
-    for i, incoming in enumerate(tbl.schema):
-        if i >= len(schema):
-            break
-        held = schema.field(i).type
-        incoming_digits = (_value_digits(tbl.column(i))
-                           if pa.types.is_integer(incoming.type) else None)
-        target = _wider(held, incoming.type, int_digits.get(i), incoming_digits)
-        if pa.types.is_integer(target or held):
-            if incoming_digits is not None:
-                int_digits[i] = max(int_digits.get(i, 0), incoming_digits)
-        else:
-            int_digits.pop(i, None)
-        if target is None:
-            continue
-        sql_type = _sql_type(target)
-        if sql_type is None:
-            if batch_types is None:
-                batch_types = [r[0] for r in con.execute(
-                    "SELECT column_type FROM (DESCRIBE SELECT * FROM bow_batch)"
-                ).fetchall()]
-            sql_type = batch_types[i]
-        column = stored_names[i].replace('"', '""')
-        con.execute(f'ALTER TABLE "{safe_rel}" ALTER COLUMN "{column}" TYPE {sql_type}')
-        if target == pa.float64() and not pa.types.is_null(held):
-            # The exact values already written are converted too. Rare (it
-            # needs more than 38 significant digits, or a float among exact
-            # numbers), and worth knowing about when it happens.
-            logger.warning("extraction.column_became_approximate",
-                           extra={"column": schema.field(i).name, "from_type": str(held)})
-        else:
-            logger.info("extraction.column_widened",
-                        extra={"column": schema.field(i).name, "type": str(target)})
-        schema = schema.set(i, pa.field(schema.field(i).name, target))
-    return schema
-
-
 def extract_to_artifact(
     client,
     sql: str,
@@ -369,8 +237,11 @@ def extract_to_artifact(
     max_bytes: int = DEFAULT_MAX_BYTES,
     max_seconds: int = DEFAULT_MAX_SECONDS,
     should_abort: Callable[[], bool] | None = None,
+    run_id: str | None = None,
+    config=None,
+    previous_rows: int | None = None,
 ) -> ExtractResult:
-    """Stream `sql` into a fresh encrypted DuckDB artifact.
+    """Stream `sql` into a fresh encrypted DuckDB artifact — a full load.
 
     Writes to a `.tmp` sibling and atomically renames on success, so a crashed
     or aborted refresh can never leave a half-written artifact in place. The
@@ -382,120 +253,47 @@ def extract_to_artifact(
     sources that bill for it). A caller whose request was cancelled uses this
     to stop the source within one batch instead of waiting out the full scan.
     """
+    from app.data_sources.fast import incremental, loader
+
     started = time.monotonic()
     src = _source(client, sql)
-    key = artifacts.new_artifact_key()
-    final_path = artifacts.new_artifact_path(connection_id)
-    tmp_path = final_path.with_suffix(".tmp")
-
-    row_count = 0
-    columns: list = []
-    con = None
-
-    def _elapsed_guard():
-        if should_abort is not None and should_abort():
-            raise ExtractionAborted(
-                "Refresh was cancelled before it completed; "
-                "the previous data is still being served."
-            )
-        if time.monotonic() - started > max_seconds:
-            raise ExtractionAborted(
-                f"Refresh exceeded the {max_seconds}s limit and was aborted; "
-                f"the previous data is still being served."
-            )
-
+    if src is None:
+        src = _FallbackSource(client, max_rows)
+    run_id = run_id or loader.new_run_id()
+    config = config or incremental.RefreshConfig()
+    part_path, key = loader.new_part(connection_id)
+    limits = loader.Limits(max_rows=max_rows, max_bytes=max_bytes,
+                           deadline=started + max_seconds, should_abort=should_abort,
+                           max_seconds=max_seconds)
     try:
-        con = artifacts.connect_encrypted(tmp_path, key)
-        safe_rel = relation_name.replace('"', '""')
-
-        if src is not None:
-            # --- streaming path -------------------------------------------
-            # Arrow batches from the source, appended straight into DuckDB.
-            # Peak memory is O(batch), independent of result size, and a
-            # source whose API is already Arrow (BigQuery) pays no conversion.
-            first = True
-            held: pa.Schema | None = None
-            stored_names: list = []
-            int_digits: dict = {}
-            batches = src.stream_batches(sql, BATCH_ROWS)
-            try:
-                for tbl in batches:
-                    _elapsed_guard()
-                    row_count += tbl.num_rows
-                    if row_count > max_rows:
-                        raise ExtractionAborted(
-                            f"Query returned more than the {max_rows:,}-row limit "
-                            f"for a custom table and was aborted."
-                        )
-                    con.register("bow_batch", tbl)
-                    if first:
-                        con.execute(
-                            f'CREATE TABLE "{safe_rel}" AS SELECT * FROM bow_batch'
-                        )
-                        held = tbl.schema
-                        int_digits = _integer_columns_digits(tbl)
-                        stored_names = [d[0] for d in con.execute(
-                            f'SELECT * FROM "{safe_rel}" LIMIT 0'
-                        ).description]
-                        first = False
-                    elif tbl.num_rows:
-                        held = _widen_for(con, safe_rel, stored_names, held, tbl, int_digits)
-                        con.execute(
-                            f'INSERT INTO "{safe_rel}" SELECT * FROM bow_batch'
-                        )
-                    con.unregister("bow_batch")
-
-                    if artifacts.artifact_size(str(tmp_path)) > max_bytes:
-                        raise ExtractionAborted(
-                            f"Artifact exceeded the "
-                            f"{max_bytes / (1024**3):.1f} GB limit and was aborted."
-                        )
-                columns = [
-                    {"name": f.name, "dtype": _arrow_type_name(f.type)}
-                    for f in held
-                ] if held is not None else []
-            finally:
-                # Closing the generator runs its cleanup — for BigQuery that
-                # cancels the still-running (still-billing) job. Without this,
-                # aborting on a cap would leave the source working for nobody.
-                batches.close()
-        else:
-            # --- fallback for clients we cannot stream ----------------------
-            # Bounded by an injected row limit so a non-streaming client still
-            # cannot pull an unbounded result into memory. Unreachable for the
-            # dialects in ACCELERABLE_TYPES, all of which stream.
-            bounded, _ = sql_dialect.bounded_sql(sql, max_rows, "")
-            df = client.execute_query(bounded)
-            row_count = len(df)
-            tbl = pa.Table.from_pandas(df, preserve_index=False)
-            con.register("bow_batch", tbl)
-            con.execute(f'CREATE TABLE "{safe_rel}" AS SELECT * FROM bow_batch')
-            con.unregister("bow_batch")
-            columns = [
-                {"name": f.name, "dtype": _arrow_type_name(f.type)}
-                for f in tbl.schema
-            ]
-
-        con.close()
-        con = None
-        tmp_path.replace(final_path)
-        # Object storage: every pod serves this extract, not just this one.
-        from app.services import storage
-        storage.persist(final_path)
-
-        return ExtractResult(
-            row_count=row_count,
-            columns=columns,
-            artifact_path=str(final_path),
-            artifact_key=key,
-            artifact_bytes=artifacts.artifact_size(str(final_path)),
-            elapsed_ms=int((time.monotonic() - started) * 1000),
-        )
+        read = loader.load_window(src, sql, part_path, key, relation_name, run_id, limits,
+                                  batch_rows=BATCH_ROWS)
+        outcome = loader.finalize(part_path, key, relation_name, config,
+                                  previous_rows=previous_rows, run_id=run_id)
     except BaseException:
-        if con is not None:
-            try:
-                con.close()
-            except Exception:
-                pass
-        artifacts.delete_artifact(str(tmp_path))
+        loader.discard_part(part_path)
         raise
+    outcome.rows_read = read
+    outcome.rows_inserted = outcome.row_count
+    outcome.elapsed_ms = int((time.monotonic() - started) * 1000)
+    return outcome
+
+
+class _FallbackSource:
+    """A client we cannot stream: one bounded `execute_query`.
+
+    Bounded by an injected row limit so it still cannot pull an unbounded
+    result into memory. Unreachable for the dialects in ACCELERABLE_TYPES, all
+    of which stream.
+    """
+
+    def __init__(self, client, max_rows: int):
+        self.client = client
+        self.max_rows = max_rows
+
+    def stream_batches(self, sql: str, batch_rows: int):
+        import pyarrow as pa
+
+        bounded, _ = sql_dialect.bounded_sql(sql, self.max_rows, "")
+        df = self.client.execute_query(bounded)
+        yield pa.Table.from_pandas(df, preserve_index=False)

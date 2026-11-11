@@ -246,9 +246,17 @@ def source_for(client) -> Optional[ExtractionSource]:
     from app.data_sources.fast import sql_dialect
 
     dialect = sql_dialect.dialect_of(client)
-    if not dialect:
-        return None
-    return SqlAlchemySource(client, dialect)
+    if dialect:
+        return SqlAlchemySource(client, dialect)
+
+    from app.data_sources.fast import incremental
+
+    declared = incremental.json_window_of(client)
+    if declared is not None:
+        return RequestSource(client, declared)
+    if callable(getattr(client, "execute_query", None)):
+        return QuerySource(client)
+    return None
 
 
 # --------------------------------------------------------------------------
@@ -331,6 +339,8 @@ class SqlAlchemySource:
         from sqlalchemy import text
 
         with self._open() as conn:
+            from app.data_sources.fast.normalize import rows_to_arrow
+
             result = conn.execution_options(
                 stream_results=True, yield_per=batch_rows
             ).execute(text(sql))
@@ -350,13 +360,12 @@ class SqlAlchemySource:
                 if not batch:
                     break
                 emitted = True
-                yield arrow_table(
-                    [(name, [r[i] for r in batch]) for i, name in enumerate(colnames)],
-                    decimals,
-                )
+                # By position, so two columns sharing a name are both kept;
+                # with the declared decimals, so every batch gets one type.
+                yield rows_to_arrow(colnames, batch, decimals)
             if not emitted:
                 # Zero rows: still emit the shape so the relation exists.
-                yield arrow_table([(c, []) for c in colnames], decimals)
+                yield rows_to_arrow(colnames, [], decimals)
 
     # -- helpers ---------------------------------------------------------
 
@@ -374,3 +383,173 @@ class SqlAlchemySource:
                 step()
             except Exception:
                 pass
+
+
+# --------------------------------------------------------------------------
+# Connectors that answer a JSON request, not SQL
+# --------------------------------------------------------------------------
+
+class QuerySource:
+    """Drives any client through the one thing every connector has:
+    `execute_query(query)` returning a DataFrame.
+
+    This is what makes every queryable connector cacheable. It knows nothing
+    about the query's language, so it cannot bound a preview at the source,
+    estimate a cost, or stream: the connector runs the query as its agent
+    would, with the connector's own row limits, and the result is stored.
+    A connector that deserves better than that gets a source of its own.
+    """
+
+    def __init__(self, client):
+        self.client = client
+
+    def estimate(self, sql: str):
+        from app.data_sources.fast.extractor import Estimate
+
+        return Estimate(supported=False, note="this source cannot estimate a query before running it")
+
+    def preview(self, sql: str, limit: int):
+        df = self.client.execute_query(sql).head(limit)
+        cols = [{"name": str(c), "dtype": str(df[c].dtype)} for c in df.columns]
+        return cols, df.astype(object).where(df.notna(), None).values.tolist()
+
+    def stream_batches(self, sql: str, batch_rows: int):
+        from app.data_sources.fast.normalize import rows_to_arrow
+
+        df = self.client.execute_query(sql)
+        columns = [str(c) for c in df.columns]
+        if not columns:
+            raise RuntimeError(
+                "This query returned no rows and no columns, so the table has no "
+                "shape to be created with."
+            )
+        rows = df.astype(object).where(df.notna(), None).values.tolist()
+        if not rows:
+            yield rows_to_arrow(columns, [])
+            return
+        for i in range(0, len(rows), batch_rows):
+            yield rows_to_arrow(columns, rows[i:i + batch_rows])
+
+
+class RequestSource:
+    """Drives a client whose "query" is a JSON request with a time window.
+
+    Monitoring and metrics APIs do not speak SQL: the query is an object
+    naming what to fetch and from when to when, and `execute_query` answers
+    with a DataFrame. A client opts in by declaring where its request takes
+    that window (`INCREMENTAL_WINDOW`), which is everything needed to
+    materialize it — and to refresh it incrementally.
+
+    Such APIs also cap what one request returns, and truncate without saying
+    so. A response at the declared ceiling is therefore never trusted: its
+    window is halved and both halves fetched, until every response is under
+    the ceiling. Reaching the end of the batches means the result is whole.
+    """
+
+    MAX_REQUESTS = 2000
+
+    def __init__(self, client, declared: dict):
+        self.client = client
+        self.declared = declared
+
+    def estimate(self, sql: str):
+        from app.data_sources.fast.extractor import Estimate
+
+        return Estimate(supported=False, note="this source cannot estimate a request before running it")
+
+    def _body(self, spec: str) -> dict:
+        import json
+
+        body = json.loads(spec) if isinstance(spec, str) else dict(spec)
+        if not isinstance(body, dict):
+            raise ValueError("The query must be a JSON object.")
+        return body
+
+    def _run(self, body: dict):
+        import json
+
+        return self.client.execute_query(json.dumps(body))
+
+    def preview(self, sql: str, limit: int):
+        body = self._body(sql)
+        field = self.declared.get("limit")
+        if field:
+            body[field] = min(int(body.get(field) or limit), limit)
+        df = self._run(body).head(limit)
+        cols = [{"name": str(c), "dtype": str(df[c].dtype)} for c in df.columns]
+        return cols, df.astype(object).where(df.notna(), None).values.tolist()
+
+    def stream_batches(self, sql: str, batch_rows: int):
+        from app.data_sources.fast.normalize import rows_to_arrow
+
+        body = self._body(sql)
+        ceiling = int(self.declared.get("row_ceiling") or 0)
+        limit_field = self.declared.get("limit")
+        if ceiling and limit_field:
+            body[limit_field] = ceiling
+        start, end = self.declared.get("start"), self.declared.get("end")
+
+        pending = [body]
+        requests = 0
+        columns = None
+        emitted = False
+        while pending:
+            current = pending.pop()
+            requests += 1
+            if requests > self.MAX_REQUESTS:
+                raise RuntimeError(
+                    f"Extraction did not converge after {self.MAX_REQUESTS} requests."
+                )
+            df = self._run(current)
+            if columns is None and len(df.columns):
+                columns = [str(c) for c in df.columns]
+            if ceiling and len(df) >= ceiling:
+                from app.data_sources.fast import incremental
+
+                lo, hi = current.get(start), current.get(end)
+                mid = _midpoint(lo, hi, incremental.json_bucket(self.declared, current))
+                if mid is None:
+                    raise RuntimeError(
+                        f"This source returns at most {ceiling:,} rows per request and "
+                        f"this one is at that limit, with no time window left to split. "
+                        f"Narrow the request (fewer objects or metrics) or give it an "
+                        f"explicit start and end."
+                    )
+                # The halves share no instant; processed oldest first. Where
+                # the API includes its end bound, the left half stops one
+                # unit short of the cut.
+                left_end = mid - 1 if self.declared.get("end_inclusive") and isinstance(mid, int) else mid
+                pending.append({**current, start: mid})
+                pending.append({**current, end: left_end})
+                continue
+            if not len(df):
+                continue
+            rows = df.astype(object).where(df.notna(), None).values.tolist()
+            for i in range(0, len(rows), batch_rows):
+                emitted = True
+                yield rows_to_arrow([str(c) for c in df.columns], rows[i:i + batch_rows])
+        if not emitted:
+            if not columns:
+                raise RuntimeError(
+                    "This request returned no rows and no columns, so the table has no "
+                    "shape to be created with. Widen the time window or check the request."
+                )
+            # Zero rows: still emit the shape so the relation exists.
+            yield rows_to_arrow(columns, [])
+
+
+def _midpoint(lo, hi, bucket=None):
+    """Where to cut a numeric window in two, or None when it cannot be cut.
+
+    When the API rolls points up into buckets, the cut lands on a bucket
+    boundary: cutting inside one would return it twice, each half built from
+    part of its points.
+    """
+    if isinstance(lo, bool) or isinstance(hi, bool):
+        return None
+    if not isinstance(lo, (int, float)) or not isinstance(hi, (int, float)):
+        return None
+    mid = (lo + hi) // 2 if isinstance(lo, int) and isinstance(hi, int) else (lo + hi) / 2
+    if bucket:
+        mid = int(mid // bucket * bucket)
+    return mid if lo < mid < hi else None

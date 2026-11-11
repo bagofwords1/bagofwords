@@ -37,7 +37,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 
-from app.data_sources.fast import artifacts, extractor
+from app.data_sources.fast import artifacts, extractor, loader
 from app.data_sources.fast.sybase_source import SybaseSource
 
 BATCH = extractor.BATCH_ROWS
@@ -198,11 +198,15 @@ def extract(tmp_path):
             res = extractor.extract_to_artifact(client, sql, rel, "conn")
             con = artifacts.connect_encrypted(res.artifact_path, res.artifact_key, read_only=True)
             try:
-                rows = con.execute(f'SELECT * FROM "{rel}" ORDER BY 1').fetchall()
+                # The data columns only: the loader also stores its own
+                # `_bow_run_id` / `_bow_loaded_at` on every row.
                 types = con.execute(
                     "SELECT column_name, data_type FROM information_schema.columns "
-                    f"WHERE table_name = '{rel}' ORDER BY ordinal_position"
+                    f"WHERE table_name = '{rel}' AND column_name NOT LIKE '\\_bow\\_%' ESCAPE '\\' "
+                    "ORDER BY ordinal_position"
                 ).fetchall()
+                cols = ", ".join('"' + n.replace('"', '""') + '"' for n, _ in types)
+                rows = con.execute(f'SELECT {cols} FROM "{rel}" ORDER BY 1').fetchall()
             finally:
                 con.close()
         return res, rows, types
@@ -238,8 +242,9 @@ def _matches(dtype: str, stored: str) -> bool:
     if dtype.startswith("decimal128("):
         p, s = (int(x) for x in dtype[len("decimal128("):-1].split(","))
         return stored == f"DECIMAL({p},{s})"
+    # A column NULL in every row is stored INTEGER and reported as such (int32).
     return {"double": "DOUBLE", "int64": "BIGINT", "string": "VARCHAR",
-            "null": "INTEGER"}.get(dtype) == stored
+            "null": "INTEGER", "int32": "INTEGER"}.get(dtype) == stored
 
 
 def _assert_columns_match(res, types):
@@ -396,9 +401,10 @@ def test_a_column_that_outgrows_38_digits_becomes_double_with_a_warning(extract,
                                                                          first, later):
     # alembic's fileConfig disables every logger that exists when an earlier test
     # in the worker runs migrations, so the warning would reach no handler.
-    monkeypatch.setattr(extractor.logger, "disabled", False)
+    # The loader reconciles each batch against the stored table, so it logs this.
+    monkeypatch.setattr(loader.logger, "disabled", False)
     batches = _one_column([[first], [later]])
-    with caplog.at_level(logging.INFO, logger=extractor.logger.name):
+    with caplog.at_level(logging.INFO, logger=loader.logger.name):
         res, stored, types = extract(_Client([_desc("id"), _desc("amount", 65535, 65535)],
                                              batches=batches))
     assert types[1] == ("amount", "DOUBLE")

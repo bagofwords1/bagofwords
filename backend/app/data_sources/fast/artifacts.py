@@ -117,15 +117,15 @@ def artifact_size(path: Optional[str]) -> int:
 
 
 @contextmanager
-def try_refresh_lock(connection_id: str):
-    """Coordinate writers/GC across processes sharing the artifact volume.
+def _try_lock(path: Path):
+    """A non-blocking kernel lock on `path`; yields whether it was acquired.
 
     Keep the inode across releases; process exit releases the kernel lock. Use
     the pinned filelock implementation with no soft-lock fallback: a soft lock
     cannot provide the crash-release guarantee required by artifact maintenance.
     """
     lock = FileLock(
-        artifact_dir(connection_id) / ".refresh.lock",
+        path,
         preserve_lock_file=True,
         fallback_to_soft=False,
         thread_local=False,
@@ -141,6 +141,66 @@ def try_refresh_lock(connection_id: str):
         lock.release()
 
 
+def try_refresh_lock(connection_id: str):
+    """Coordinate writers/GC across processes sharing the artifact volume."""
+    return _try_lock(artifact_dir(connection_id) / ".refresh.lock")
+
+
+# A refresh waiting for the volume says so with a marker file, touched while
+# it waits. A long load that gives the volume up between its windows looks for
+# them, so a sibling table's refresh gets in rather than losing every race to
+# a holder that re-acquires at once.
+_WAITING_PREFIX = ".waiting-"
+_WAITING_FRESH_SECONDS = 5.0
+
+
+def has_waiters(connection_id: str) -> bool:
+    """Whether another refresh is currently queued for this connection's volume."""
+    now = time.time()
+    try:
+        for path in artifact_dir(connection_id).iterdir():
+            if not path.name.startswith(_WAITING_PREFIX):
+                continue
+            try:
+                if now - path.stat().st_mtime <= _WAITING_FRESH_SECONDS:
+                    return True
+                path.unlink()       # left behind by a process that died waiting
+            except OSError:
+                continue
+    except OSError:
+        return False
+    return False
+
+
+@asynccontextmanager
+async def table_lock(connection_id: str, table_id: str):
+    """One refresh of a given custom table at a time, across workers.
+
+    Held for the whole run, including the gaps in which a chunked load gives
+    the connection's volume lock up — without it a scheduled tick for the same
+    table could start a second load beside the first. Queued callers wait.
+    """
+    path = artifact_dir(connection_id) / f".table-{table_id}.lock"
+    delay = 0.05
+    while True:
+        with _try_lock(path) as acquired:
+            if acquired:
+                yield
+                return
+        await asyncio.sleep(delay)
+        delay = min(delay * 2, 1.0)
+
+
+def forget_table_lock(connection_id: str, table_id: str) -> None:
+    """Remove a deleted table's lock file, unless a run still holds it."""
+    path = artifact_dir(connection_id) / f".table-{table_id}.lock"
+    if not path.exists():
+        return
+    with _try_lock(path) as free:
+        if free:
+            _unlink_quietly(path)
+
+
 @asynccontextmanager
 async def refresh_lock(connection_id: str, timeout: float | None = None):
     """Serialize refreshes of one connection across workers sharing the volume.
@@ -154,20 +214,41 @@ async def refresh_lock(connection_id: str, timeout: float | None = None):
     """
     deadline = None if timeout is None else time.monotonic() + timeout
     delay = 0.05
-    while True:
-        with try_refresh_lock(connection_id) as acquired:
-            if acquired:
-                yield
-                return
-        if deadline is None:
-            await asyncio.sleep(delay)
-        else:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                # Existing localized conflict response; no hard-coded UI message.
-                raise AppError.conflict()
-            await asyncio.sleep(min(delay, remaining))
-        delay = min(delay * 2, 1.0)
+    marker = None
+    try:
+        while True:
+            with try_refresh_lock(connection_id) as acquired:
+                if acquired:
+                    if marker is not None:
+                        _unlink_quietly(marker)
+                        marker = None
+                    yield
+                    return
+            if marker is None:
+                marker = artifact_dir(connection_id) / f"{_WAITING_PREFIX}{uuid.uuid4().hex}"
+            try:
+                marker.touch()
+            except OSError:
+                pass
+            if deadline is None:
+                await asyncio.sleep(delay)
+            else:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    # Existing localized conflict response; no hard-coded UI message.
+                    raise AppError.conflict()
+                await asyncio.sleep(min(delay, remaining))
+            delay = min(delay * 2, 1.0)
+    finally:
+        if marker is not None:
+            _unlink_quietly(marker)
+
+
+def _unlink_quietly(path: Path) -> None:
+    try:
+        path.unlink()
+    except OSError:
+        pass
 
 
 def protected_paths(references: list[str]) -> set[tuple[str, str]]:

@@ -329,7 +329,24 @@ def _records_to_df(records: List[Dict[str, Any]], expected_columns: List[str]) -
     return df[ordered]
 
 
+def _salesforce_extraction_source(client):
+    from app.data_sources.fast.salesforce_source import SalesforceSource
+
+    return SalesforceSource(client)
+
+
 class SalesforceClient(DataSourceClient):
+    # Custom tables: SOQL paged to the end rather than capped at MAX_ROWS,
+    # and a refresh window written into the query's own WHERE clause
+    # (app/data_sources/fast/salesforce_source.py).
+    EXTRACTION_SOURCE = staticmethod(_salesforce_extraction_source)
+
+    @staticmethod
+    def render_window(query, column, kind, window):
+        from app.data_sources.fast.salesforce_source import window_soql
+
+        return window_soql(query, column, kind, window)
+
     def __init__(
         self,
         username: Optional[str] = None,
