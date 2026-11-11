@@ -630,6 +630,41 @@ def json_window_of(client) -> Optional[dict]:
     return decl if isinstance(decl, dict) and decl.get("start") else None
 
 
+def json_bucket(decl: dict, body: dict) -> Optional[int]:
+    """The width of one result row's time bucket for this request, in the
+    window's own unit, when the connector rolls points up (else None)."""
+    bucket = decl.get("bucket")
+    if callable(bucket):
+        try:
+            bucket = bucket(body)
+        except Exception:
+            return None
+    return int(bucket) if isinstance(bucket, (int, float)) and bucket > 0 else None
+
+
+def align_window(client, spec: str, window: Window, config: "RefreshConfig") -> Window:
+    """Start an incremental window on a whole bucket, at least one bucket back.
+
+    A connector that rolls points up returns one row per bucket. Reading from
+    the middle of a bucket would rebuild that row from part of its points, and
+    the newest bucket is still filling when it is first read — so the window
+    starts on a boundary and always re-reads the last complete-looking bucket.
+    """
+    decl = json_window_of(client)
+    if decl is None or not isinstance(window.lo, int) or isinstance(window.lo, bool):
+        return window
+    try:
+        body = json.loads(spec) if isinstance(spec, str) else dict(spec)
+    except (TypeError, ValueError):
+        return window
+    bucket = json_bucket(decl, body if isinstance(body, dict) else {})
+    if not bucket:
+        return window
+    lookback = config.lookback_units or 0
+    lo = window.lo + lookback - max(lookback, bucket)
+    return Window(lo=lo // bucket * bucket, hi=window.hi, include_nulls=window.include_nulls)
+
+
 def _json_value(value: Any, fmt: str):
     if isinstance(value, datetime):
         aware = value if value.tzinfo else value.replace(tzinfo=timezone.utc)

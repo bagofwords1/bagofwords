@@ -512,3 +512,146 @@ def test_row_drop_guard(volume, previous, now, guard, blocked):
         assert f"{previous:,}" in str(error.value)
     else:
         assert loader.finalize(part, key, "t", config, previous_rows=previous, run_id="r").row_count == now
+
+
+# -- connectors that take a JSON request -------------------------------------------
+
+class FakeMetricsApi:
+    """An API holding one point per `step` ms, that returns at most `ceiling`
+    rows per request and — like the real ones — truncates without saying so."""
+
+    INCREMENTAL_WINDOW = {"start": "start_time", "end": "end_time", "format": "epoch_ms",
+                          "clears": ["duration_in_mins"], "limit": "limit", "row_ceiling": 100}
+
+    def __init__(self, first=0, last=10_000, step=10, burst_at=None):
+        self.points = list(range(first, last, step))
+        if burst_at is not None:
+            self.points += [burst_at] * 150        # more rows at one instant than a response holds
+        self.requests = []
+
+    def execute_query(self, query):
+        import pandas as pd
+        body = json.loads(query)
+        self.requests.append(body)
+        lo, hi = body.get("start_time", float("-inf")), body.get("end_time", float("inf"))
+        rows = sorted(p for p in self.points if lo <= p < hi)[: body.get("limit", 100)]
+        return pd.DataFrame({"timestamp": rows, "value": [p / 2 for p in rows]},
+                            columns=["timestamp", "value"])
+
+
+class BucketedApi(FakeMetricsApi):
+    """Like the real metrics APIs: the end bound is inclusive, and points are
+    rolled up into buckets — one row per bucket, summed."""
+
+    BUCKET = 50
+    INCREMENTAL_WINDOW = {**FakeMetricsApi.INCREMENTAL_WINDOW, "end_inclusive": True,
+                          "bucket": lambda body: BucketedApi.BUCKET}
+
+    def execute_query(self, query):
+        import pandas as pd
+        body = json.loads(query)
+        self.requests.append(body)
+        lo, hi = body.get("start_time", float("-inf")), body.get("end_time", float("inf"))
+        buckets = {}
+        for p in self.points:
+            if lo <= p <= hi:
+                buckets[p // self.BUCKET * self.BUCKET] = buckets.get(p // self.BUCKET * self.BUCKET, 0) + 1
+        rows = sorted(buckets.items())[: body.get("limit", 100)]
+        return pd.DataFrame(rows, columns=["timestamp", "value"])
+
+    def truth(self, lo, hi) -> dict:
+        out = {}
+        for p in self.points:
+            if lo <= p <= hi:
+                out[p // self.BUCKET * self.BUCKET] = out.get(p // self.BUCKET * self.BUCKET, 0) + 1
+        return out
+
+
+@pytest.mark.parametrize("window", [(0, 9_999), (0, 30_000), (1_050, 8_849)])
+def test_splitting_a_rolled_up_window_never_cuts_a_bucket_or_repeats_one(window):
+    api = BucketedApi(last=30_000)
+    spec = json.dumps({"start_time": window[0], "end_time": window[1]})
+    got = {}
+    for batch in _request_source(api).stream_batches(spec, 40):
+        for t, v in zip(batch.column("timestamp").to_pylist(), batch.column("value").to_pylist()):
+            assert t not in got, f"bucket {t} was returned twice"
+            got[t] = v
+    assert got == api.truth(*window)
+    assert len(api.requests) > 1, "the window was actually split"
+
+
+def test_an_incremental_read_of_a_rolled_up_api_starts_on_a_whole_bucket():
+    api = BucketedApi()
+    spec = json.dumps({"table": "metrics"})
+    config = RefreshConfig.from_dict({"mode": "append", "cursor_column": "timestamp", "cursor_kind": "number",
+                                      "lookback_units": 120})
+    window = incremental.align_window(api, spec, incremental.incremental_window(1_000, config), config)
+    assert window.lo == 850 and window.lo % BucketedApi.BUCKET == 0
+    # With no lookback configured, the newest bucket — still filling when it
+    # was first read — is read again all the same.
+    none = RefreshConfig.from_dict({**config.to_dict(), "mode": "append", "lookback_units": 0})
+    assert incremental.align_window(api, spec, incremental.incremental_window(1_000, none), none).lo == 950
+    # A SQL source has no buckets to align to.
+    assert incremental.align_window(object(), "SELECT 1", Window(lo=1_003), config).lo == 1_003
+
+
+def _request_source(api):
+    from app.data_sources.fast.sources import source_for
+    return source_for(api)
+
+
+@pytest.mark.parametrize("window", [(0, 10_000), (2_500, 7_777), (0, 500), (9_990, 10_000)])
+def test_a_capped_api_is_read_in_windows_that_return_every_row_once(window):
+    api = FakeMetricsApi()
+    spec = json.dumps({"table": "metrics", "start_time": window[0], "end_time": window[1]})
+    got = [t for batch in _request_source(api).stream_batches(spec, 40) for t in batch.column("timestamp").to_pylist()]
+    assert sorted(got) == [p for p in api.points if window[0] <= p < window[1]]
+    assert len(got) == len(set(got)), "no row arrived twice"
+    assert all(r["limit"] == 100 for r in api.requests), "every request asks for a full page"
+
+
+def test_a_capped_api_that_cannot_be_split_further_fails_instead_of_truncating():
+    api = FakeMetricsApi(burst_at=5_000)
+    spec = json.dumps({"table": "metrics", "start_time": 0, "end_time": 10_000})
+    with pytest.raises(RuntimeError) as error:
+        list(_request_source(api).stream_batches(spec, 40))
+    assert "at most 100 rows per request" in str(error.value)
+    # …and so does a request at the ceiling that names no window at all.
+    with pytest.raises(RuntimeError):
+        list(_request_source(FakeMetricsApi()).stream_batches(json.dumps({"table": "metrics"}), 40))
+
+
+def test_an_empty_api_response_still_gives_the_table_its_shape():
+    api = FakeMetricsApi()
+    (batch,) = _request_source(api).stream_batches(json.dumps({"start_time": 50_000, "end_time": 60_000}), 40)
+    assert batch.num_rows == 0 and batch.schema.names == ["timestamp", "value"]
+
+
+def test_previewing_an_api_request_asks_for_only_a_page():
+    api = FakeMetricsApi()
+    cols, rows = _request_source(api).preview(json.dumps({"table": "metrics", "limit": 5000}), 7)
+    assert [c["name"] for c in cols] == ["timestamp", "value"] and len(rows) == 7
+    assert api.requests == [{"table": "metrics", "limit": 7}]
+
+
+def test_an_api_table_can_be_incremented_from_its_checkpoint(volume):
+    api = FakeMetricsApi(last=1_000)
+    config = RefreshConfig.from_dict({"mode": "append", "cursor_column": "timestamp", "cursor_kind": "number",
+                                      "lookback_units": 30})
+    source = _request_source(api)
+    first = incremental.render(api, json.dumps({"table": "metrics", "duration_in_mins": 60}),
+                               "timestamp", "number", Window(lo=0))
+    part, key = loader.new_part("conn")
+    loader.load_window(source, first, part, key, "t", "run-1", limits(), batch_rows=40)
+    base = loader.finalize(part, key, "t", config, run_id="run-1")
+    assert base.row_count == 100 and base.max_cursor == 990
+
+    api.points += list(range(1_000, 1_200, 10))
+    window = incremental.incremental_window(base.max_cursor, config)
+    rendered = incremental.render(api, json.dumps({"table": "metrics", "duration_in_mins": 60}),
+                                  "timestamp", "number", window)
+    assert json.loads(rendered)["start_time"] == 960 and "duration_in_mins" not in rendered
+    outcome = loader.apply_increment(source, rendered, base.artifact_path, base.artifact_key, "t", "conn",
+                                     "run-2", config, window, limits(), batch_rows=40, wrapped=False)
+    assert [r[0] for r in read(outcome, "SELECT timestamp FROM t ORDER BY 1")] == api.points
+    assert outcome.rows_read == 24, "only the lookback and the new points were fetched"

@@ -544,3 +544,91 @@ async def test_sql_server_timestamps_finer_than_a_microsecond_are_not_lost_at_th
         assert [r[0] for r in await lab.copy("SELECT id FROM copy ORDER BY id")] == [1, 2, 3, 4]
     finally:
         e.run("DROP TABLE dbo.ticks")
+
+
+# -- a connector that is not SQL at all: Aria Operations (vROps) -----------------------
+
+ARIA_URL = os.environ.get("INCR_LOOP_ARIA_URL")      # tools/aria_operations/mock_suite_api.py
+STAT_KEYS = ["cpu|usage_average", "mem|usage_average", "virtualDisk|totalLatency",
+             "virtualDisk|totalReadLatency", "virtualDisk|totalWriteLatency"]
+FIVE_MIN_MS = 5 * 60 * 1000
+
+
+@pytest_asyncio.fixture
+async def aria(tmp_path):
+    if not ARIA_URL:
+        pytest.skip("INCR_LOOP_ARIA_URL not set")
+    root = tmp_path / "fast"
+    with patch.object(artifacts, "_ARTIFACT_ROOT", root):
+        async with async_session_maker() as db:
+            org = Organization(name=f"Aria {uuid.uuid4().hex[:8]}")
+            db.add(org)
+            await db.flush()
+            connection = Connection(name="Aria Operations", type="aria_operations", organization_id=org.id,
+                                    config={"url": ARIA_URL, "verify_ssl": False})
+            connection.encrypt_credentials({
+                "username": os.environ.get("INCR_LOOP_ARIA_USER", "admin"),
+                "password": os.environ.get("INCR_LOOP_ARIA_PASSWORD", "Aria!2024"),
+            })
+            db.add(connection)
+            await db.commit()
+            connection_id = connection.id
+        lab = Lab(root, None, connection_id)
+        lab.engine = type("Aria", (), {"name": "aria_operations"})()
+        yield lab
+
+
+def _aria_client():
+    from app.data_sources.clients.aria_operations_client import AriaOperationsClient
+    return AriaOperationsClient(url=ARIA_URL, username=os.environ.get("INCR_LOOP_ARIA_USER", "admin"),
+                                password=os.environ.get("INCR_LOOP_ARIA_PASSWORD", "Aria!2024"),
+                                verify_ssl=False)
+
+
+async def test_metrics_from_a_json_api_load_in_windows_and_then_only_the_new_points(aria):
+    """Twenty-five days of metrics for fifty series is far more than one
+    response holds. The load must split itself without cutting a rollup bucket
+    in two, and the next refresh must ask for the last hour, not the month."""
+    bucket = 15 * 60 * 1000
+    request = {"table": "metrics", "resource_kind": "VirtualMachine", "stat_key": STAT_KEYS,
+               "interval": "MINUTES", "interval_quantifier": 15, "rollup": "AVG", "duration_in_mins": 60}
+    now = int(time.time() * 1000)
+    start = (now - 25 * 86_400_000) // 86_400_000 * 86_400_000
+    await aria.table(json.dumps(request), "append", cursor_column="timestamp", cursor_kind="number",
+                     initial_value=str(start), lookback_units=3_600_000)
+    table = await aria.refresh("first_load")
+    first = await aria.last_run()
+    assert first["status"] == "success" and table.no_rows > 100_000
+    sent = json.loads(first["rendered_query"])
+    assert sent["start_time"] == start and "duration_in_mins" not in sent
+
+    shape = ("SELECT COUNT(DISTINCT resourceId || statKey), MIN(timestamp), MAX(timestamp), COUNT(*), "
+             "COUNT(DISTINCT resourceId || statKey || CAST(timestamp AS VARCHAR)) FROM copy")
+    series, lo, hi, points, distinct = (await aria.copy(shape))[0]
+    assert series == 10 * len(STAT_KEYS) and lo == start
+    assert points == distinct, "a bucket was returned by both halves of a split"
+    assert points == series * ((hi - lo) // bucket + 1), "a truncated response would leave gaps"
+
+    # The values are the API's own: every complete day, compared with that day
+    # asked for directly (well under one response).
+    direct = {k: v for k, v in request.items() if k != "duration_in_mins"}
+    client = _aria_client()
+    for day in range(start, start + 24 * 86_400_000, 4 * 86_400_000):
+        theirs = client.execute_query(json.dumps({**direct, "limit": 50_000, "start_time": day,
+                                                  "end_time": day + 86_400_000 - 1}))
+        ours = await aria.copy(f"SELECT COUNT(*), SUM(value) FROM copy "
+                               f"WHERE timestamp >= {day} AND timestamp < {day + 86_400_000}")
+        assert ours[0][0] == len(theirs) == series * 96
+        assert round(ours[0][1], 1) == round(float(theirs["value"].sum()), 1)
+
+    table = await aria.refresh("increment")
+    run = await aria.last_run()
+    assert run["mode"] == "incremental" and run["status"] == "success"
+    asked = json.loads(run["rendered_query"])
+    assert asked["start_time"] == hi - 3_600_000 and asked["start_time"] % bucket == 0
+    assert run["rows_read"] <= series * 6, "an hour of buckets, not twenty-five days"
+    _series, _lo, hi2, points2, distinct2 = (await aria.copy(shape))[0]
+    assert points2 == distinct2 >= points and hi2 >= hi, "re-reading the last hour duplicated nothing"
+    assert points2 == series * ((hi2 - lo) // bucket + 1)
+    aria.note(rows=points, first_load_seconds=aria.timings["first_load"],
+              increment_seconds=aria.timings["increment"], increment_rows_read=run["rows_read"])

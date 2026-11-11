@@ -109,7 +109,12 @@ VERIFIED_TYPES = {"postgresql", "mariadb", "mysql", "sqlite", "snowflake",
                   "bigquery", "mssql", "oracledb", "posthog", "powerbi",
                   "clickhouse"}
 UNVERIFIED_TYPES = {"ms_fabric", "sybase"}
-ACCELERABLE_TYPES = VERIFIED_TYPES | UNVERIFIED_TYPES
+# Connectors whose query is a JSON request with a time window rather than SQL
+# (fast/sources.py RequestSource). A client opts in by declaring
+# INCREMENTAL_WINDOW. Aria Operations was run against the repo's mock Suite
+# API (tools/aria_operations), not a live appliance.
+REQUEST_TYPES = {"aria_operations"}
+ACCELERABLE_TYPES = VERIFIED_TYPES | UNVERIFIED_TYPES | REQUEST_TYPES
 
 
 def is_accelerable_type(conn_type) -> bool:
@@ -1281,6 +1286,7 @@ class CustomQueryService:
     def _work_increment(self, run: "_Run"):
         checkpoint = incremental.decode(run.state.get("checkpoint"))
         window = incremental.incremental_window(checkpoint, run.config)
+        window = incremental.align_window(run.client, run.sql, window, run.config)
         run.window_from = window.lo
         try:
             rendered = self._render(run, window)
