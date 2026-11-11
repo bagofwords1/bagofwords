@@ -4144,6 +4144,7 @@
     "saving": "Guardando…",
     "saveAndContinue": "Guardar y continuar",
     "requestFailed": "La solicitud falló",
+    "errorWithReference": "{message} (referencia de soporte: {id})",
     "unexpectedError": "Error inesperado",
     "errorTitle": "Error",
     "updateConnectionFailed": "No se pudo actualizar la conexión",

@@ -4216,6 +4216,7 @@
     "saving": "Saving…",
     "saveAndContinue": "Save and Continue",
     "requestFailed": "Request failed",
+    "errorWithReference": "{message} (support reference: {id})",
     "unexpectedError": "Unexpected error",
     "errorTitle": "Error",
     "updateConnectionFailed": "Failed to update connection",

@@ -198,3 +198,161 @@ def describe_for_log(exc: BaseException) -> str:
         seen.add(id(current))
         parts.append(f"; {how} " + " ".join(_describe_one(current)))
     return " ".join(parts)
+
+
+# ── User-facing error text ──────────────────────────────────────────────────
+# What an admin sees in the connection-status log and test result. It has to
+# say *what* failed clearly enough to act on, without the server's identity
+# (hosts, IPs, filesystem layout, internal ids) or anybody's credentials or
+# identity (emails, usernames) in it.
+
+_EMAIL = re.compile(r"(?i)\b[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}\b")
+_IPV4 = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])")
+# Full (>= 4 groups) or compressed ("::") IPv6. A bare "10:29:54" timestamp
+# has 3 groups and no "::", so it is left alone.
+_IPV6 = re.compile(
+    r"(?i)(?<![\w:])(?:(?:[0-9a-f]{1,4}:){3,7}[0-9a-f]{1,4}"
+    r"|(?:[0-9a-f]{1,4}:){1,6}:(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4})*)?"
+    r"|::(?:[0-9a-f]{1,4}:)*[0-9a-f]{1,4})(?![\w:])"
+)
+# A bare hostname ("could not resolve bi01.corp.example.net"). Limited to
+# common public/intranet TLDs so dotted identifiers the admin needs —
+# schema.table, table.column, file.py — are left alone.
+_HOSTNAME = re.compile(
+    r"(?i)(?<![\w.\-])(?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)+"
+    r"(?:com|net|org|io|gov|edu|mil|biz|info|local|localdomain|internal|corp|lan|intra|"
+    r"cloud|il|uk|de|fr|nl|ca|au|ru|cn|jp|br|eu|ch|se|pl)(?![\w\-])"
+)
+_UUID = re.compile(r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
+# The host part of any URL: scheme://host[:port]
+_URL_HOST = re.compile(r"(?P<scheme>[a-zA-Z][a-zA-Z0-9+.\-]*://)(?:\*\*\*@)?(?P<host>\[[^\]\s]+\]|[^/\s:?#'\"]+)")
+
+# Config keys whose values identify the server or a person.
+_IDENTITY_KEY = re.compile(
+    r"(?i)(host|server|endpoint|url|uri|dsn|domain|tenant|account|username|user_?id|login|email|principal)"
+)
+
+
+def connection_secrets(config: object = None, credentials: object = None) -> list:
+    """Values of a connection that must never appear in a user-facing message.
+
+    Every credential string (passwords, tokens, keys) plus the config values
+    that identify the server or a person (host, URL, account, username …).
+    For a URL value, its host is listed too, since a driver usually echoes
+    only the host.
+    """
+    from urllib.parse import urlparse
+
+    out: list = []
+
+    def _walk(obj, key_ok):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                _walk(v, key_ok(str(k)))
+        elif isinstance(obj, (list, tuple)):
+            for v in obj:
+                _walk(v, key_ok)
+        elif isinstance(obj, str) and key_ok is True and obj.strip():
+            value = obj.strip()
+            out.append(value)
+            if "://" in value:
+                try:
+                    host = urlparse(value).hostname
+                except ValueError:
+                    host = None
+                if host:
+                    out.append(host)
+
+    # Every credential value is secret, whatever its key.
+    _walk(credentials or {}, lambda _k: True)
+    _walk(config or {}, lambda k: bool(_IDENTITY_KEY.search(k)))
+    # Longest first so a value is masked before any shorter value inside it.
+    return sorted({s for s in out if len(s) >= 3}, key=len, reverse=True)
+
+
+def _mask_identity(text: str, secrets: Iterable[str]) -> str:
+    for s in secrets:
+        if not s or not isinstance(s, str):
+            continue
+        if len(s) >= 4 and not s.isalnum():
+            # Passwords, tokens, hosts, emails: mask wherever they appear.
+            text = re.sub(re.escape(s), MASK, text, flags=re.IGNORECASE)
+        else:
+            # Short / plain-word values ("admin", "db1") only as whole words,
+            # so "admin" doesn't turn "administrator" into "***istrator".
+            text = re.sub(rf"(?<![\w]){re.escape(s)}(?![\w])", MASK, text, flags=re.IGNORECASE)
+    return text
+
+
+def sanitize_user_message(text: object, secrets: Optional[Iterable[str]] = None,
+                          max_len: int = MAX_LEN) -> str:
+    """Mask credentials, server identity and personal identity in ``text``."""
+    text = "" if text is None else str(text)
+    secrets = list(secrets or ())
+    text = _mask_identity(text, secrets)
+    # Credentials in URLs / headers / key=value pairs (no length cap yet).
+    text = redact_error(text, max_len=10**9)
+    text = _URL_HOST.sub(lambda m: f"{m.group('scheme')}{MASK}", text)
+    text = _EMAIL.sub(MASK, text)
+    text = _HOSTNAME.sub(MASK, text)
+    text = _UUID.sub(MASK, text)
+    text = _IPV4.sub(MASK, text)
+    text = _IPV6.sub(MASK, text)
+    text = redact_paths(text)
+    text = text.strip()
+    if len(text) > max_len:
+        text = text[:max_len] + "…"
+    return text
+
+
+def _message_of(exc: BaseException) -> str:
+    from starlette.exceptions import HTTPException
+
+    if isinstance(exc, HTTPException):
+        detail = exc.detail
+        return detail if isinstance(detail, str) else str(detail)
+    message = getattr(exc, "message", None)
+    if isinstance(message, str) and message:
+        return message
+    if isinstance(exc, KeyError) and exc.args:
+        return f"missing key {exc.args[0]!r}"
+    return str(exc)
+
+
+def _label(exc: BaseException) -> str:
+    """``Type: message`` — the type is what makes ``KeyError: 'x'`` or an empty
+    ``TimeoutError()`` intelligible. Our own exceptions (and HTTP errors)
+    already speak plainly, so they keep just the message."""
+    from starlette.exceptions import HTTPException
+
+    message = _message_of(exc).strip()
+    own = type(exc).__module__.startswith("app.") or isinstance(exc, HTTPException)
+    if own and message:
+        return message
+    name = type(exc).__name__
+    return f"{name}: {message}" if message else f"{name} (no details provided)"
+
+
+def user_facing_error(exc: BaseException, secrets: Optional[Iterable[str]] = None,
+                      max_len: int = MAX_LEN) -> str:
+    """An exception as one clear, safe line for the admin who triggered it.
+
+    ``Type: message``, followed by the exception it was raised from (drivers
+    often wrap the useful error: ``OperationalError … caused by
+    ConnectionRefusedError …``). Credentials, hosts, IPs, emails, internal
+    ids and filesystem paths are masked; ``secrets`` are the connection's own
+    values (see ``connection_secrets``), masked wherever they appear.
+    """
+    parts = [_label(exc)]
+    seen = {id(exc)}
+    current = exc
+    for _ in range(2):
+        nxt = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
+        if nxt is None or id(nxt) in seen:
+            break
+        seen.add(id(nxt))
+        label = _label(nxt)
+        if label and label not in " ".join(parts):
+            parts.append(f"caused by {label}")
+        current = nxt
+    return sanitize_user_message("; ".join(parts), secrets, max_len=max_len)
