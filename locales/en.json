@@ -7597,5 +7597,35 @@
       "search": "search",
       "read": "read"
     }
+  },
+  "agentAccess": {
+    "addMember": "Add member",
+    "membersHint": "Members can query this agent. Assign additional permissions below.",
+    "everyone": "Everyone in the organization",
+    "query": "Can query",
+    "manage": "Can manage",
+    "custom": "Custom access",
+    "ownerHint": "The owner can always manage this agent.",
+    "editFor": "Edit access for {name}",
+    "removeHint": "Removes explicit membership and permissions. Public, group or organization access may still apply.",
+    "remove": "Remove",
+    "noMembers": "No explicit members yet.",
+    "addTo": "Add people to {name}",
+    "thisAgent": "this agent",
+    "who": "Who",
+    "access": "Access",
+    "advanced": "Advanced permissions",
+    "cancel": "Cancel",
+    "saving": "Saving…",
+    "save": "Save",
+    "queryHint": "Ask this agent questions",
+    "manageHint": "Configure the agent and manage its members",
+    "addCount": "Add {count}",
+    "add": "Add",
+    "updated": "Permissions updated",
+    "updateFailed": "Failed to update permissions",
+    "addIncomplete": "Some memberships or permissions could not be saved. Review the member list and retry.",
+    "added": "Members added",
+    "addFailed": "Failed to add members"
   }
 }

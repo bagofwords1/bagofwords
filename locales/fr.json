@@ -6957,5 +6957,35 @@
       "search": "recherche",
       "read": "lecture"
     }
+  },
+  "agentAccess": {
+    "addMember": "Ajouter un membre",
+    "membersHint": "Les membres peuvent interroger cet agent. Attribuez des permissions supplémentaires ci-dessous.",
+    "everyone": "Toute l’organisation",
+    "query": "Peut interroger",
+    "manage": "Peut gérer",
+    "custom": "Accès personnalisé",
+    "ownerHint": "Le propriétaire peut toujours gérer cet agent.",
+    "editFor": "Modifier l’accès de {name}",
+    "removeHint": "Supprime l’adhésion et les permissions explicites. L’accès public, de groupe ou d’organisation peut subsister.",
+    "remove": "Retirer",
+    "noMembers": "Aucun membre explicite.",
+    "addTo": "Ajouter des personnes à {name}",
+    "thisAgent": "cet agent",
+    "who": "Qui",
+    "access": "Accès",
+    "advanced": "Permissions avancées",
+    "cancel": "Annuler",
+    "saving": "Enregistrement…",
+    "save": "Enregistrer",
+    "queryHint": "Poser des questions à cet agent",
+    "manageHint": "Configurer l’agent et gérer ses membres",
+    "addCount": "Ajouter {count}",
+    "add": "Ajouter",
+    "updated": "Permissions mises à jour",
+    "updateFailed": "Échec de la mise à jour des permissions",
+    "addIncomplete": "Certaines adhésions ou permissions n’ont pas été enregistrées. Vérifiez la liste et réessayez.",
+    "added": "Membres ajoutés",
+    "addFailed": "Échec de l’ajout des membres"
   }
 }

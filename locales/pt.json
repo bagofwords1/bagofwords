@@ -6957,5 +6957,35 @@
       "search": "pesquisa",
       "read": "leitura"
     }
+  },
+  "agentAccess": {
+    "addMember": "Adicionar membro",
+    "membersHint": "Os membros podem consultar este agente. Atribua permissões adicionais abaixo.",
+    "everyone": "Todos na organização",
+    "query": "Pode consultar",
+    "manage": "Pode gerir",
+    "custom": "Acesso personalizado",
+    "ownerHint": "O proprietário pode sempre gerir este agente.",
+    "editFor": "Editar acesso de {name}",
+    "removeHint": "Remove a associação e as permissões explícitas. O acesso público, de grupo ou da organização pode continuar ativo.",
+    "remove": "Remover",
+    "noMembers": "Ainda não há membros explícitos.",
+    "addTo": "Adicionar pessoas a {name}",
+    "thisAgent": "este agente",
+    "who": "Quem",
+    "access": "Acesso",
+    "advanced": "Permissões avançadas",
+    "cancel": "Cancelar",
+    "saving": "A guardar…",
+    "save": "Guardar",
+    "queryHint": "Fazer perguntas a este agente",
+    "manageHint": "Configurar o agente e gerir os seus membros",
+    "addCount": "Adicionar {count}",
+    "add": "Adicionar",
+    "updated": "Permissões atualizadas",
+    "updateFailed": "Não foi possível atualizar as permissões",
+    "addIncomplete": "Algumas associações ou permissões não foram guardadas. Reveja a lista e tente novamente.",
+    "added": "Membros adicionados",
+    "addFailed": "Não foi possível adicionar membros"
   }
 }

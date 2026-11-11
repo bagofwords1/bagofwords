@@ -6957,5 +6957,35 @@
       "search": "sökning",
       "read": "läsning"
     }
+  },
+  "agentAccess": {
+    "addMember": "Lägg till medlem",
+    "membersHint": "Medlemmar kan fråga agenten. Tilldela ytterligare behörigheter nedan.",
+    "everyone": "Alla i organisationen",
+    "query": "Kan fråga",
+    "manage": "Kan hantera",
+    "custom": "Anpassad åtkomst",
+    "ownerHint": "Ägaren kan alltid hantera agenten.",
+    "editFor": "Redigera åtkomst för {name}",
+    "removeHint": "Tar bort uttryckligt medlemskap och behörigheter. Offentlig åtkomst eller åtkomst via grupp eller organisation kan kvarstå.",
+    "remove": "Ta bort",
+    "noMembers": "Inga uttryckliga medlemmar ännu.",
+    "addTo": "Lägg till personer i {name}",
+    "thisAgent": "den här agenten",
+    "who": "Vem",
+    "access": "Åtkomst",
+    "advanced": "Avancerade behörigheter",
+    "cancel": "Avbryt",
+    "saving": "Sparar…",
+    "save": "Spara",
+    "queryHint": "Ställ frågor till agenten",
+    "manageHint": "Konfigurera agenten och hantera dess medlemmar",
+    "addCount": "Lägg till {count}",
+    "add": "Lägg till",
+    "updated": "Behörigheter uppdaterade",
+    "updateFailed": "Kunde inte uppdatera behörigheter",
+    "addIncomplete": "Vissa medlemskap eller behörigheter kunde inte sparas. Granska listan och försök igen.",
+    "added": "Medlemmar tillagda",
+    "addFailed": "Kunde inte lägga till medlemmar"
   }
 }
