@@ -240,12 +240,28 @@ class TeamsAdapter(PlatformAdapter):
         else:
             thread_ts = event_data.get("id")
 
+        # Per-channel routing key: the STABLE channel id lives in
+        # ``channelData.channel.id`` (e.g. "19:...@thread.tacv2"), distinct from
+        # ``conversation.id`` which is thread-scoped (it carries
+        # ";messageid=<root>"). Only team channels carry ``channelData.channel``
+        # — personal chats and ad-hoc group chats don't, so they yield ``None``
+        # and fall back to the connection default (mirrors Slack DMs). ``team.id``
+        # + the activity ``serviceUrl`` later let us resolve the channel's
+        # display name via the Bot Connector (see ``get_channel_info``).
+        teams_channel = channel_data.get("channel") or {}
+        teams_team = channel_data.get("team") or {}
+        routing_channel_id = teams_channel.get("id")
+        routing_channel_name = teams_channel.get("name")
+
         return {
             "platform_type": "teams",
             "external_user_id": from_user.get("id"),
             "external_message_id": event_data.get("id"),
             "channel_id": conversation.get("id"),
             "channel_type": channel_type,
+            "routing_channel_id": routing_channel_id,
+            "channel_name": routing_channel_name,
+            "teams_team_id": teams_team.get("id"),
             "message_text": text,
             "message_type": activity_type,
             "timestamp": event_data.get("timestamp"),
@@ -363,6 +379,50 @@ class TeamsAdapter(PlatformAdapter):
             return {}
         except Exception as e:
             print(f"TEAMS: Error getting user info: {e}")
+            return {}
+
+    async def get_channel_info(self, channel_id: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Resolve a Teams channel's display name for the routing UI.
+
+        Teams activities carry only the channel id (``channelData.channel.id``),
+        so discovery has nothing to label a channel with. The Bot Connector
+        lists a team's channels — id + name — using the bot's own credentials
+        (``GET {serviceUrl}/v3/teams/{teamId}/conversations``), which is the
+        Teams analogue of Slack's ``conversations.info`` and needs **no extra
+        Graph consent**. The team id (``channelData.team.id``) and the activity
+        ``serviceUrl`` come in via ``context`` (the processed message dict).
+        Best-effort: any failure returns ``{}`` and the id stays the label. The
+        General channel's name can come back empty (localization) — treated as
+        "no name", so it shows its id until relabeled.
+        """
+        try:
+            context = context or {}
+            team_id = context.get("teams_team_id")
+            service_url = context.get("service_url") or self.service_url
+            if not team_id:
+                return {}
+
+            token = await self._get_access_token()
+            if not token:
+                return {}
+
+            url = f"{service_url.rstrip('/')}/v3/teams/{team_id}/conversations"
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.get(
+                    url,
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                if response.status_code == 200:
+                    conversations = (response.json() or {}).get("conversations", []) or []
+                    for ch in conversations:
+                        if ch.get("id") == channel_id:
+                            name = ch.get("name")
+                            return {"id": channel_id, "name": name or None}
+                    return {}
+                print(f"TEAMS: get_channel_info failed: {response.status_code} - {response.text[:200]}")
+            return {}
+        except Exception as e:
+            print(f"TEAMS: Error getting channel info: {e}")
             return {}
 
     async def send_verification_message(self, channel_id: str, email: str, token: str) -> bool:

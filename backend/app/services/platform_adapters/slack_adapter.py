@@ -203,8 +203,12 @@ class SlackAdapter(PlatformAdapter):
             print(f"Error getting Slack user info: {e}")
             return {}
     
-    async def get_channel_info(self, channel_id: str) -> Dict[str, Any]:
+    async def get_channel_info(self, channel_id: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Fetch a Slack channel's human name for the routing UI.
+
+        ``context`` (the processed message dict) is accepted for a uniform
+        resolver signature across adapters — Slack needs nothing from it (the
+        bot token alone resolves the name), Teams uses it for team id/serviceUrl.
 
         Inbound ``app_mention``/``message`` events carry only the channel id,
         so channel discovery has nothing to label a channel with. This asks
