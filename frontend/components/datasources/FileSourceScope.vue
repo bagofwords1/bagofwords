@@ -102,7 +102,8 @@ const baseOf = (c: any) => {
     const root = g.root_folder_id != null && g.root_folder_id !== '' ? 'folder ' + g.root_folder_id : ''
     return [g.base_url, root].filter(Boolean).join(' / ')
   }
-  if (g.bucket) return `s3://${g.bucket}/${g.prefix || ''}`
+  if (c.type === 'azure_blob' && g.container) return `az://${g.account_name ? g.account_name + '/' : ''}${g.container}/${g.prefix || ''}`
+  if (g.bucket) return `${c.type === 'gcs' ? 'gs' : 's3'}://${g.bucket}/${g.prefix || ''}`
   return g.root_path || ''
 }
 const globsOf = (c: any) => {

@@ -11,6 +11,17 @@ from app.schemas.data_sources.remote_server import (
 )
 
 # Import provider Config/Credentials from the provider module
+from app.schemas.data_sources.cloud_storage import (
+    AzureBlobAccountKeyCredentials,
+    AzureBlobConfig,
+    AzureBlobConnectionStringCredentials,
+    AzureBlobDefaultCredentials,
+    AzureBlobSasCredentials,
+    AzureBlobServicePrincipalCredentials,
+    GCSConfig,
+    GCSDefaultCredentials,
+    GCSServiceAccountCredentials,
+)
 from app.schemas.data_sources.configs import (
     # Configs
     PostgreSQLConfig,
@@ -1843,6 +1854,86 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         # the single source of truth for everyone (like a SharePoint library),
         # so the catalog is shared. Community tier (no license gate) — a bucket
         # is treated like a plain directory, same as network_dir.
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="shared",
+        version="beta",
+    ),
+    "gcs": DataSourceRegistryEntry(
+        type="gcs",
+        category="files",
+        title="Google Cloud Storage",
+        description=(
+            "Browse and read files from a Google Cloud Storage bucket. Reads inside "
+            "PDF, Word, PowerPoint, Excel, CSV and email files, and can attach "
+            "objects to a report. Large objects can be read in byte-range windows."
+        ),
+        config_schema=GCSConfig,
+        credentials_auth=AuthOptions(
+            default="service_account",
+            by_auth={
+                "service_account": AuthVariant(
+                    title="Service Account Key",
+                    schema=GCSServiceAccountCredentials,
+                    scopes=["system"],
+                ),
+                "adc": AuthVariant(
+                    title="Application Default Credentials",
+                    schema=GCSDefaultCredentials,
+                    scopes=["system"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.gcs_client.GCSClient",
+        # Same shape as s3: one admin-scoped bucket/prefix is the catalog of
+        # truth for everyone; community tier like network_dir.
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="shared",
+        version="beta",
+    ),
+    "azure_blob": DataSourceRegistryEntry(
+        type="azure_blob",
+        category="files",
+        title="Azure Blob Storage",
+        description=(
+            "Browse and read files from an Azure Blob Storage container (Data Lake "
+            "Storage Gen2 included). Reads inside PDF, Word, PowerPoint, Excel, CSV "
+            "and email files, and can attach objects to a report. Large objects can "
+            "be read in byte-range windows."
+        ),
+        config_schema=AzureBlobConfig,
+        credentials_auth=AuthOptions(
+            default="connection_string",
+            by_auth={
+                "connection_string": AuthVariant(
+                    title="Connection String",
+                    schema=AzureBlobConnectionStringCredentials,
+                    scopes=["system"],
+                ),
+                "account_key": AuthVariant(
+                    title="Account Key",
+                    schema=AzureBlobAccountKeyCredentials,
+                    scopes=["system"],
+                ),
+                "sas": AuthVariant(
+                    title="SAS Token",
+                    schema=AzureBlobSasCredentials,
+                    scopes=["system"],
+                ),
+                "service_principal": AuthVariant(
+                    title="Service Principal",
+                    schema=AzureBlobServicePrincipalCredentials,
+                    scopes=["system"],
+                ),
+                "managed_identity": AuthVariant(
+                    title="Managed Identity",
+                    schema=AzureBlobDefaultCredentials,
+                    scopes=["system"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.azure_blob_client.AzureBlobClient",
         is_document_based=True,
         data_shape="files",
         catalog_ownership="shared",

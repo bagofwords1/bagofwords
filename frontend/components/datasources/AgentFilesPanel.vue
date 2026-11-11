@@ -76,7 +76,8 @@ const baseOf = (c: any) => {
   const g = cfg(c)
   if (c.type === 'sharepoint_onprem') return [g.site_url, g.drive_name, g.folder_path].filter(Boolean).join(' / ')
   if (c.type === 'documentum') return [g.rest_url, g.repository, g.root_path].filter(Boolean).join(' / ')
-  return g.bucket ? `s3://${g.bucket}/${g.prefix || ''}` : (g.root_path || '—')
+  if (c.type === 'azure_blob' && g.container) return `az://${g.account_name ? g.account_name + '/' : ''}${g.container}/${g.prefix || ''}`
+  return g.bucket ? `${c.type === 'gcs' ? 'gs' : 's3'}://${g.bucket}/${g.prefix || ''}` : (g.root_path || '—')
 }
 const globsOf = (c: any) => String(cfg(c).include_globs || '').split(/[,\n]/).map((s) => s.trim()).filter(Boolean)
 // Live per-user sources (mailboxes, Teams) keep no catalog at all: every list,
