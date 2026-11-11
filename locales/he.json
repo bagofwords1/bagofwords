@@ -4144,6 +4144,7 @@
     "saving": "שומר…",
     "saveAndContinue": "שמירה והמשך",
     "requestFailed": "הבקשה נכשלה",
+    "errorWithReference": "{message} (מזהה לתמיכה: {id})",
     "unexpectedError": "שגיאה לא צפויה",
     "errorTitle": "שגיאה",
     "updateConnectionFailed": "עדכון החיבור נכשל",

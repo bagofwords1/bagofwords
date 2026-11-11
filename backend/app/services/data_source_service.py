@@ -7101,13 +7101,27 @@ class DataSourceService:
         )
         domain_names = {payload["id"]: name for name, payload in domain_payloads.items()}
         domain_fks = {payload["id"]: payload["fks"] for payload in domain_payloads.values()}
+        # The payloads are keyed by name, and a connection can hold more than
+        # one ConnectionTable row with the same name (that uniqueness lives in
+        # the service layer, not the DB — older installs have duplicates). The
+        # name map keeps one of them; the others have no domain name, and
+        # looking them up crashed the whole agent sync with a bare
+        # ``KeyError: '<table id>'``. Sync the one kept; the duplicates stay
+        # in ``conn_tables`` so rows already linked to them are not deactivated.
+        sync_tables = [t for t in conn_tables if t.id in domain_names]
+        if len(sync_tables) != len(conn_tables):
+            logger.warning(
+                "sync_domain_tables_from_connection: skipped %d duplicate-name "
+                "ConnectionTable row(s) for connection %s",
+                len(conn_tables) - len(sync_tables), connection_id_str,
+            )
         unlinked_by_identity = {
             powerbi_identity(r.metadata_json): r for r in existing_rows
             if r.connection_table_id is None and belongs_here(r)
             and powerbi_identity(r.metadata_json) is not None
         }
 
-        total_tables = len(conn_tables)
+        total_tables = len(sync_tables)
 
         # Determine initial activation:
         # - If max_auto_select is None: all tables start inactive (user must select)
@@ -7120,7 +7134,7 @@ class DataSourceService:
             should_activate = total_tables <= max_auto_select
             needs_smart_selection = total_tables > max_auto_select
 
-        for conn_table in conn_tables:
+        for conn_table in sync_tables:
             domain_name = domain_names[conn_table.id]
             if conn_table.id in existing_by_conn_table_id:
                 # Update existing - refresh schema data (preserves is_active)
