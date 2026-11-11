@@ -2356,14 +2356,7 @@
           "socketStep3": "Event Subscriptions ← فعّل الأحداث (دون حاجة إلى Request URL) واشترك في: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
           "socketStep4": "Agents ← فعّل \"Agent experience\" للحصول على لوحة المساعد الأصلية وتسمية المحادثات والاقتراحات",
           "socketStep5": "App Home ← فعّل تبويب Messages واسمح للمستخدمين بإرسال الرسائل",
-          "socketStep6": "Install App ← ثبّت التطبيق في مساحة عملك وانسخ Bot User OAuth Token ‏(xoxb-…)",
-          "channelRoutingTitle": "توجيه القناة إلى الوكيل",
-          "channelRoutingDesc": "وجّه قناة إلى وكلاء محددين. القناة بدون تعيين تستخدم الإعداد الافتراضي للاتصال؛ وبدون إعداد افتراضي تكشف كل ما يمكن للمستخدم الوصول إليه. التوجيه يضيّق الوصول فقط ولا يمنح أبدًا أكثر مما لدى المستخدم بالفعل.",
-          "connectionDefaultLabel": "الإعداد الافتراضي للاتصال",
-          "connectionDefaultDesc": "يُستخدم للقنوات التي ليس لها تعيين خاص.",
-          "channelPickerPlaceholder": "اختر الوكلاء…",
-          "noChannelsYet": "لا توجد قنوات بعد. اذكر البوت في قناة وسيظهر هنا، أو أضف قناة بالمعرّف أدناه.",
-          "channelsHeading": "القنوات"
+          "socketStep6": "Install App ← ثبّت التطبيق في مساحة عملك وانسخ Bot User OAuth Token ‏(xoxb-…)"
         },
         "teams": {
           "title": "تكامل Teams",
@@ -2665,6 +2658,15 @@
           "subscriptionPlaceholder": "projects/<project>/subscriptions/<name>",
           "subtitle": "إعداد وإدارة التكامل مع Google Chat لمؤسستك",
           "title": "التكامل مع Google Chat"
+        },
+        "routing": {
+          "title": "توجيه القناة إلى الوكيل",
+          "desc": "وجّه قناة إلى وكلاء محددين. القناة بدون تعيين تستخدم الإعداد الافتراضي للاتصال؛ وبدون إعداد افتراضي تكشف كل ما يمكن للمستخدم الوصول إليه. التوجيه يضيّق الوصول فقط ولا يمنح أبدًا أكثر مما لدى المستخدم بالفعل.",
+          "connectionDefaultLabel": "الإعداد الافتراضي للاتصال",
+          "connectionDefaultDesc": "يُستخدم للقنوات التي ليس لها تعيين خاص.",
+          "pickerPlaceholder": "اختر الوكلاء…",
+          "channelsHeading": "القنوات",
+          "noChannelsYet": "لا توجد قنوات بعد. اذكر البوت في قناة وسيظهر هنا، أو أضف قناة بالمعرّف أدناه."
         }
       },
       "emptyTitle": "اجعل BOW يعمل مع أدواتك",

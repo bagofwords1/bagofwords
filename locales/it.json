@@ -2356,14 +2356,7 @@
           "socketStep3": "Event Subscriptions → abilita gli eventi (senza Request URL) e iscriviti a: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
           "socketStep4": "Agents → attiva \"Agent experience\" per il pannello assistente nativo, la denominazione dei thread e i prompt suggeriti",
           "socketStep5": "App Home → abilita la scheda Messages e consenti agli utenti di inviare messaggi",
-          "socketStep6": "Install App → installala nel tuo spazio di lavoro e copia il Bot User OAuth Token (xoxb-…)",
-          "channelRoutingTitle": "Instradamento canale → agente",
-          "channelRoutingDesc": "Indirizza un canale verso agenti specifici. Un canale senza mappatura usa l'impostazione predefinita della connessione; senza predefinito, espone tutto ciò a cui l'utente può accedere. L'instradamento restringe solo l'accesso, non concede mai più di quanto l'utente già possiede.",
-          "connectionDefaultLabel": "Predefinito della connessione",
-          "connectionDefaultDesc": "Usato per i canali senza una propria mappatura.",
-          "channelPickerPlaceholder": "Scegli agenti…",
-          "noChannelsYet": "Ancora nessun canale. Menziona il bot in un canale e apparirà qui, oppure aggiungine uno per id qui sotto.",
-          "channelsHeading": "Canali"
+          "socketStep6": "Install App → installala nel tuo spazio di lavoro e copia il Bot User OAuth Token (xoxb-…)"
         },
         "teams": {
           "title": "Integrazione Teams",
@@ -2665,6 +2658,15 @@
           "subscriptionPlaceholder": "projects/<project>/subscriptions/<name>",
           "subtitle": "Configura e gestisci l'integrazione con Google Chat per la tua organizzazione",
           "title": "Integrazione con Google Chat"
+        },
+        "routing": {
+          "title": "Instradamento canale → agente",
+          "desc": "Indirizza un canale verso agenti specifici. Un canale senza mappatura usa l'impostazione predefinita della connessione; senza predefinito, espone tutto ciò a cui l'utente può accedere. L'instradamento restringe solo l'accesso, non concede mai più di quanto l'utente già possiede.",
+          "connectionDefaultLabel": "Predefinito della connessione",
+          "connectionDefaultDesc": "Usato per i canali senza una propria mappatura.",
+          "pickerPlaceholder": "Scegli agenti…",
+          "channelsHeading": "Canali",
+          "noChannelsYet": "Ancora nessun canale. Menziona il bot in un canale e apparirà qui, oppure aggiungine uno per id qui sotto."
         }
       },
       "emptyTitle": "Fai funzionare BOW con i tuoi strumenti",

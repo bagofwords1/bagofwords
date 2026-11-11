@@ -2356,14 +2356,7 @@
           "socketStep3": "Event Subscriptions → activez les événements (aucune Request URL nécessaire) et abonnez-vous à : message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
           "socketStep4": "Agents → activez « Agent experience » pour le volet d'assistant natif, le nommage des fils et les prompts suggérés",
           "socketStep5": "App Home → activez l'onglet Messages et autorisez les utilisateurs à envoyer des messages",
-          "socketStep6": "Install App → installez l'app dans votre espace de travail et copiez le Bot User OAuth Token (xoxb-…)",
-          "channelRoutingTitle": "Routage canal → agent",
-          "channelRoutingDesc": "Dirigez un canal vers des agents spécifiques. Un canal sans mappage utilise la valeur par défaut de la connexion ; sans valeur par défaut, il expose tout ce à quoi l'utilisateur a accès. Le routage ne fait que restreindre l'accès, il n'accorde jamais plus que ce que l'utilisateur possède déjà.",
-          "connectionDefaultLabel": "Par défaut de la connexion",
-          "connectionDefaultDesc": "Utilisé pour les canaux sans mappage propre.",
-          "channelPickerPlaceholder": "Choisir des agents…",
-          "noChannelsYet": "Aucun canal pour l'instant. Mentionnez le bot dans un canal et il apparaîtra ici, ou ajoutez-en un par id ci-dessous.",
-          "channelsHeading": "Canaux"
+          "socketStep6": "Install App → installez l'app dans votre espace de travail et copiez le Bot User OAuth Token (xoxb-…)"
         },
         "teams": {
           "title": "Intégration Teams",
@@ -2665,6 +2658,15 @@
           "subscriptionPlaceholder": "projects/<project>/subscriptions/<name>",
           "subtitle": "Configurez et gérez l'intégration Google Chat pour votre organisation",
           "title": "Intégration Google Chat"
+        },
+        "routing": {
+          "title": "Routage canal → agent",
+          "desc": "Dirigez un canal vers des agents spécifiques. Un canal sans mappage utilise la valeur par défaut de la connexion ; sans valeur par défaut, il expose tout ce à quoi l'utilisateur a accès. Le routage ne fait que restreindre l'accès, il n'accorde jamais plus que ce que l'utilisateur possède déjà.",
+          "connectionDefaultLabel": "Par défaut de la connexion",
+          "connectionDefaultDesc": "Utilisé pour les canaux sans mappage propre.",
+          "pickerPlaceholder": "Choisir des agents…",
+          "channelsHeading": "Canaux",
+          "noChannelsYet": "Aucun canal pour l'instant. Mentionnez le bot dans un canal et il apparaîtra ici, ou ajoutez-en un par id ci-dessous."
         }
       },
       "emptyTitle": "Faites fonctionner BOW avec vos outils",
