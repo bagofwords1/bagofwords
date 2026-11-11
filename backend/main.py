@@ -637,6 +637,22 @@ async def startup_event():
             logger.info("Scheduled job: purge_old_runs (dashboard refresh history) @ 03:30 daily")
         except Exception as e:
             logger.error(f"Failed to schedule refresh history purge job: {e}")
+        # A custom table's run history keeps 30 days (cqruns01).
+        try:
+            from app.services.custom_table_runs import purge_old_runs as purge_custom_table_runs
+            scheduler.add_job(
+                purge_custom_table_runs,
+                trigger="cron",
+                hour=3,
+                minute=40,
+                id="purge_custom_table_runs_daily",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=3600,
+            )
+        except Exception as e:
+            logger.error(f"Failed to schedule custom table run history purge job: {e}")
 
     # Agent check-ins: fail rows left in 'running' by a restart/crash mid-run.
     if is_scheduler_leader:

@@ -2372,14 +2372,7 @@
           "socketStep3": "Event Subscriptions → ative os eventos (sem Request URL) e assine: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
           "socketStep4": "Agents → ative \"Agent experience\" para o painel nativo de assistente, a nomeação de threads e os prompts sugeridos",
           "socketStep5": "App Home → ative a aba Messages e permita que os usuários enviem mensagens",
-          "socketStep6": "Install App → instale no seu workspace e copie o Bot User OAuth Token (xoxb-…)",
-          "channelRoutingTitle": "Roteamento de canal → agente",
-          "channelRoutingDesc": "Direcione um canal para agentes específicos. Um canal sem mapeamento usa o padrão da conexão; sem padrão, ele expõe tudo o que o usuário pode acessar. O roteamento apenas restringe o acesso, nunca concede mais do que o usuário já tem.",
-          "connectionDefaultLabel": "Padrão da conexão",
-          "connectionDefaultDesc": "Usado para canais sem mapeamento próprio.",
-          "channelPickerPlaceholder": "Escolher agentes…",
-          "noChannelsYet": "Ainda não há canais. Mencione o bot em um canal e ele aparecerá aqui, ou adicione um por id abaixo.",
-          "channelsHeading": "Canais"
+          "socketStep6": "Install App → instale no seu workspace e copie o Bot User OAuth Token (xoxb-…)"
         },
         "teams": {
           "title": "Integração com o Teams",
@@ -2681,6 +2674,15 @@
           "subscriptionPlaceholder": "projects/<project>/subscriptions/<name>",
           "subtitle": "Configure e gerencie a integração com o Google Chat para sua organização",
           "title": "Integração com o Google Chat"
+        },
+        "routing": {
+          "title": "Roteamento de canal → agente",
+          "desc": "Direcione um canal para agentes específicos. Um canal sem mapeamento usa o padrão da conexão; sem padrão, ele expõe tudo o que o usuário pode acessar. O roteamento apenas restringe o acesso, nunca concede mais do que o usuário já tem.",
+          "connectionDefaultLabel": "Padrão da conexão",
+          "connectionDefaultDesc": "Usado para canais sem mapeamento próprio.",
+          "pickerPlaceholder": "Escolher agentes…",
+          "channelsHeading": "Canais",
+          "noChannelsYet": "Ainda não há canais. Mencione o bot em um canal e ele aparecerá aqui, ou adicione um por id abaixo."
         }
       },
       "emptyTitle": "Faça o BOW funcionar com suas ferramentas",
@@ -6785,6 +6787,8 @@
     "tabViewers": "Leitores",
     "tabData": "Dados",
     "viewersDesc": "O que recebem as pessoas com quem você compartilha.",
+    "widgetInfoTitle": "Mostrar detalhes nos widgets",
+    "widgetInfoDesc": "Adiciona um ícone ⓘ a cada widget que abre os seus dados, código e cálculo.",
     "dataDesc": "As consultas por trás deste painel.",
     "unsaved": "Alterações não salvas",
     "tabGeneral": "Geral",
@@ -6971,5 +6975,35 @@
       "search": "pesquisa",
       "read": "leitura"
     }
+  },
+  "agentAccess": {
+    "addMember": "Adicionar membro",
+    "membersHint": "Os membros podem consultar este agente. Atribua permissões adicionais abaixo.",
+    "everyone": "Todos na organização",
+    "query": "Pode consultar",
+    "manage": "Pode gerir",
+    "custom": "Acesso personalizado",
+    "ownerHint": "O proprietário pode sempre gerir este agente.",
+    "editFor": "Editar acesso de {name}",
+    "removeHint": "Remove a associação e as permissões explícitas. O acesso público, de grupo ou da organização pode continuar ativo.",
+    "remove": "Remover",
+    "noMembers": "Ainda não há membros explícitos.",
+    "addTo": "Adicionar pessoas a {name}",
+    "thisAgent": "este agente",
+    "who": "Quem",
+    "access": "Acesso",
+    "advanced": "Permissões avançadas",
+    "cancel": "Cancelar",
+    "saving": "A guardar…",
+    "save": "Guardar",
+    "queryHint": "Fazer perguntas a este agente",
+    "manageHint": "Configurar o agente e gerir os seus membros",
+    "addCount": "Adicionar {count}",
+    "add": "Adicionar",
+    "updated": "Permissões atualizadas",
+    "updateFailed": "Não foi possível atualizar as permissões",
+    "addIncomplete": "Algumas associações ou permissões não foram guardadas. Reveja a lista e tente novamente.",
+    "added": "Membros adicionados",
+    "addFailed": "Não foi possível adicionar membros"
   }
 }

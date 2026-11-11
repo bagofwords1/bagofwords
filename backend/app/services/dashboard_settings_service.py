@@ -298,6 +298,7 @@ async def _audit(db, organization, user, artifact, action, details) -> None:
 def get_settings(artifact) -> dict:
     return {"shared_run_identity": artifact.shared_run_identity,
             "include_data_tab": bool(artifact.include_data_tab),
+            "show_widget_info": bool(getattr(artifact, "show_widget_info", False)),
             "bow_credit": bool(getattr(artifact, "bow_credit", True)),
             "chat_enabled": bool(artifact.chat_enabled),
             "chat_data_source_ids": artifact.chat_data_source_ids,
@@ -415,6 +416,8 @@ async def set_settings(db, artifact, changes: dict, *, current_user: User, organ
         artifact.shared_run_identity = identity
     if changes.get("include_data_tab") is not None:
         artifact.include_data_tab = bool(changes["include_data_tab"])
+    if changes.get("show_widget_info") is not None:
+        artifact.show_widget_info = bool(changes["show_widget_info"])
     if changes.get("bow_credit") is not None:
         artifact.bow_credit = bool(changes["bow_credit"])
     if changes.get("chat_enabled") is not None:

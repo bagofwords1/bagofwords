@@ -242,7 +242,7 @@ class SchemaContextBuilder:
     Builds database schema context for agent execution as a structured object.
     """
     
-    def __init__(self, db: AsyncSession, data_sources: List[DataSource], organization: Organization, report: Report, user=None, organization_settings=None, mode=None):
+    def __init__(self, db: AsyncSession, data_sources: List[DataSource], organization: Organization, report: Report, user=None, organization_settings=None, mode=None, include_bow_history=False):
         self.db = db
         # The conversation switched off "mcp" (report.tools): advertising its
         # MCP tools would only send the planner into refused calls. Derived
@@ -252,6 +252,7 @@ class SchemaContextBuilder:
         self.organization = organization
         self.report = report
         self.mode = mode if mode is not None else getattr(report, "mode", None)
+        self.include_bow_history = include_bow_history
         self.data_sources = data_sources
         self.user = user
         # Needed to resolve native MCP registration the same way the planner
@@ -951,8 +952,8 @@ class SchemaContextBuilder:
                 )
             )
 
-        # Built-in source is a capability of training, not a persisted agent.
-        if self.mode == "training" and self.user is not None and not connection_ids:
+        # Built-in history is available in training and authenticated MCP contexts.
+        if (self.mode == "training" or self.include_bow_history) and self.user is not None and not connection_ids:
             from app.core.console_access import resolve_console_scope
             from app.services.bow_source_service import catalog, column_type
             from app.schemas.bow_source_schema import SOURCE_ID

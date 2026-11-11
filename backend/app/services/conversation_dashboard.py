@@ -128,6 +128,7 @@ async def report_fields(db, report, dashboard) -> dict:
         "refresh_on_view": bool(dashboard.refresh_on_view),
         "shared_run_identity": dashboard.shared_run_identity or "viewer",
         "include_data_tab": bool(dashboard.include_data_tab),
+        "show_widget_info": bool(dashboard.show_widget_info),
         "artifact_chat_enabled": bool(dashboard.chat_enabled),
         "artifact_chat_data_source_ids": dashboard.chat_data_source_ids,
         "artifact_chat_model_id": dashboard.chat_model_id,

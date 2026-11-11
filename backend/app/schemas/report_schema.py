@@ -160,6 +160,9 @@ class ReportSchema(ReportBase):
     # Show the Data tab (the queries behind the report) to viewers of the
     # shared artifact page. Artifact sharing only.
     include_data_tab: bool = True
+    # The per-widget ⓘ provenance popover (Data / Code / Calculation) on the
+    # shared artifact page and the in-app editor. Off by default; per dashboard.
+    show_widget_info: bool = False
     # Chat on the shared artifact page /r/{id}. This schema also serves the
     # public GET /r/{id}, so the shared page reads the flag directly.
     artifact_chat_enabled: bool = False

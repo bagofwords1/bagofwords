@@ -63,6 +63,9 @@
           </label>
         </div>
 
+        <!-- Channel -> agent routing (shared with Slack) -->
+        <ChannelAgentRouting :integration-id="integrationData?.id" :integrated="integrated" />
+
         <!-- Conversation session staleness -->
         <div class="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 mb-4">
           <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.integrations.channels.common.sessionStalenessTitle') }}</h3>

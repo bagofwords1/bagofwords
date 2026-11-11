@@ -91,6 +91,13 @@ class PowerBIClient(DataSourceClient):
 
         return PowerBISource(client)
 
+    @staticmethod
+    def render_window(query, column, kind, window):
+        """A custom table's refresh window, written into its DAX."""
+        from app.data_sources.fast.powerbi_source import window_dax
+
+        return window_dax(query, column, kind, window)
+
     def __init__(
         self,
         tenant_id: str = None,

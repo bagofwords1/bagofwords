@@ -151,7 +151,7 @@
           :rename="canRename ? renameTo : undefined"
           :resources-available="resourcesAvailable && !verificationPreview"
           :show-analytics="(isReportOwner || dashboardCaps.includes('analytics')) && !verificationPreview"
-          @history-changed="onHistoryChanged" />
+          @history-changed="onHistoryChanged" @saved="onSettingsSaved" />
 
         <!-- Everything used less than daily lives behind one ⋯ with labelled
              rows: rename, every export (download), full screen, new tab.
@@ -1919,6 +1919,15 @@ function onHistoryChanged() {
   loadDashboardMeta(true);
 }
 
+// Viewer settings saved: re-render the canvas for the display-only ones that
+// show on it. The per-widget ⓘ (show_widget_info) flips window.__BOW_INFO in
+// the iframe, so updating reportData rebuilds the srcdoc live — no reload.
+function onSettingsSaved(settings: any) {
+  if (settings && typeof settings.show_widget_info === 'boolean' && reportData.value) {
+    reportData.value = { ...reportData.value, show_widget_info: settings.show_widget_info };
+  }
+}
+
 // --- Rename the dashboard ------------------------------------------------
 // "The dashboard" is two records to the user: the report (its card on
 // /dashboards, the sidebar entry, the browser tab) and the selected artifact
@@ -2824,7 +2833,10 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
       reportData.value = {
         id: reportSnapshot.id,
         title: reportSnapshot.title,
-        theme: reportSnapshot.theme_name || reportSnapshot.report_theme_name
+        theme: reportSnapshot.theme_name || reportSnapshot.report_theme_name,
+        // The per-widget ⓘ provenance popover (per dashboard). The report read
+        // overlays the dashboard's value (conversation_dashboard.report_fields).
+        show_widget_info: !!reportSnapshot.show_widget_info,
       };
       reportDataSources = reportSnapshot.data_sources || [];
     }
@@ -3423,6 +3435,8 @@ function frameIframeOptions(seed: any, artifactCode: string) {
     loadingLabel: t('artifactFrame.loadingArtifact'),
     reactBuild: 'development' as const,
     colorMode: artifactColorMode,
+    // The per-widget ⓘ provenance popover, off by default (per dashboard).
+    showWidgetInfo: !!reportData.value?.show_widget_info,
     // Used only when its key matches artifactCode (artifactIframe.ts), so an
     // artifactCode prop override or a stale selection always compiles in-frame.
     precompiled: { js: selectedArtifact.value?.compiled_js, key: selectedArtifact.value?.compiled_js_key },

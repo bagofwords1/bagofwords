@@ -54,6 +54,98 @@ class SapHanaCredentials(BaseModel):
     password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
 
 
+class Db2Credentials(BaseModel):
+    user: str = Field(
+        ...,
+        title="User",
+        description="Database user (on z/OS, the RACF user ID). Use an account with read-only access.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
+
+
+class Db2Config(BaseModel):
+    host: str = Field(..., title="Host", description="Db2 server hostname or IP address.", json_schema_extra={"ui:type": "string"})
+    port: int = Field(
+        50000,
+        ge=1,
+        le=65535,
+        title="Port",
+        description="50000 on LUW, 446 on z/OS.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    database: str = Field(
+        ...,
+        title="Database",
+        description="Database name on Db2 LUW; the location name on Db2 for z/OS; the relational database (RDB) name on IBM i.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    schema: Optional[str] = Field(
+        None,
+        title="Schema",
+        description="Optional schema or comma-separated list of schemas to index (on IBM i, libraries). Leave empty to index every non-system schema.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    platform: str = Field(
+        "auto",
+        title="Db2 product",
+        description="auto detects the product on connect. Set luw (Linux/Unix/Windows, Db2 on Cloud), zos (mainframe) or ibmi (IBM i / AS/400) to force it.",
+        json_schema_extra={"ui:type": "select", "ui:options": ["auto", "luw", "zos", "ibmi"]},
+    )
+    ssl: bool = Field(
+        False,
+        title="Use TLS",
+        description="Connect over TLS (SECURITY=SSL). Point Port at the server's TLS port.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    ssl_ca: Optional[str] = Field(
+        None,
+        title="CA Certificate (PEM)",
+        description="Certificate authority that signed the Db2 server certificate, pasted as PEM text. Needed when TLS is on and the certificate is signed by an internal CA.",
+        json_schema_extra={"ui:type": "textarea"},
+    )
+
+
+class IbmiCredentials(BaseModel):
+    user: str = Field(
+        ...,
+        title="User profile",
+        description="IBM i user profile. Use a profile with read-only authority to the libraries you index.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
+
+
+class IbmiConfig(BaseModel):
+    host: str = Field(..., title="Host", description="IBM i hostname or IP address. The system needs IBM's Mapepire server (once: yum install mapepire-server, then sc start mapepire).", json_schema_extra={"ui:type": "string"})
+    port: int = Field(
+        8076,
+        ge=1,
+        le=65535,
+        title="Mapepire port",
+        description="Mapepire port, 8076 by default.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    schema: Optional[str] = Field(
+        None,
+        title="Libraries",
+        description="Optional library (schema) or comma-separated list of libraries to index. Leave empty to index every non-system library.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify TLS certificate",
+        description="Check the Mapepire server certificate. Mapepire generates a self-signed certificate unless one is installed — paste it below, or turn this off for a trusted network.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    ssl_ca: Optional[str] = Field(
+        None,
+        title="Server Certificate (PEM)",
+        description="Certificate (or CA) to trust for the Mapepire server, pasted as PEM text.",
+        json_schema_extra={"ui:type": "textarea"},
+    )
+
+
 class SapHanaConfig(BaseModel):
     host: str = Field(
         ...,
