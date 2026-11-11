@@ -3546,19 +3546,15 @@ class NetworkDirConfig(BaseModel):
         "fulltext",
         title="Indexing",
         description=(
-            "How much to store about the files, and so how well the agent can "
-            "search them. Live → nothing is stored; the agent lists and reads "
-            "the source every time (freshest; search is by file name plus a "
-            "slow scan). File list → stores names, sizes and dates (fast "
-            "listing, no content search). Keywords → also stores up to 50 "
-            "keywords per file, taken from the start of its text (finds files "
-            "by topic). Full text → also stores a search index of every word "
-            "in every file (PDF, Word, PowerPoint, Excel, CSV, text, email): "
-            "the agent finds exact words, IDs and phrases anywhere in a file, "
-            "ranked, with the page or sheet they are on. The index holds the "
-            "words and where they appear, not the files, and is removed with "
-            "the connection. Only changed files are re-read on each index "
-            "run. Reads are always live."
+            "How much to store about the files — and so how well the agent "
+            "can search them. Live: nothing stored; search is by file name "
+            "plus a slow scan of the source. File list: names, sizes and "
+            "dates. Keywords: also up to 50 keywords per file, from the start "
+            "of its text. Full text: also a search index of every word in "
+            "every file (PDF, Office, CSV, text, email), so the agent finds "
+            "exact words, IDs and phrases anywhere, with the page or sheet. "
+            "The index holds the words, not the files, and is removed with "
+            "the connection. Only changed files are re-read."
         ),
         json_schema_extra={
             "ui:type": "select",
@@ -3679,17 +3675,15 @@ class S3Config(BaseModel):
         "fulltext",
         title="Indexing",
         description=(
-            "How much to store about the objects, and so how well the agent "
-            "can search them. Live → nothing is stored; list and read go to "
-            "the bucket every time (best for huge or volatile buckets). Object "
-            "list → stores keys, sizes and dates. Keywords → also stores up to "
-            "50 keywords per object, taken from the start of its text. Full "
-            "text → also stores a search index of every word in every object: "
-            "the agent finds exact words, IDs and phrases anywhere in a file, "
-            "ranked, with the page or sheet they are on. The index holds the "
-            "words and where they appear, not the objects, and is removed "
-            "with the connection. Only changed objects are downloaded again on "
-            "each index run. Reads are always live."
+            "How much to store about the objects — and so how well the agent "
+            "can search them. Live: nothing stored; list and read go to the "
+            "bucket every time. Object list: keys, sizes and dates. Keywords: "
+            "also up to 50 keywords per object, from the start of its text. "
+            "Full text: also a search index of every word in every object, "
+            "so the agent finds exact words, IDs and phrases anywhere, with "
+            "the page or sheet. The index holds the words, not the objects, "
+            "and is removed with the connection. Only changed objects are "
+            "downloaded again."
         ),
         json_schema_extra={
             "ui:type": "select",

@@ -1095,6 +1095,12 @@ class ConnectionService:
             # function on a concurrent-write FK violation.
             _invalidate_engine_pool(connection)
 
+            # The connection's full-text index goes with it. Removed here
+            # rather than left to the foreign key: SQLite does not enforce
+            # cascades in this app, and its FTS rows hang off no key at all.
+            from app.services.file_index_store import FileIndexStore
+            await FileIndexStore(db).clear(str(connection.id))
+
             # Agents that existed only through this connection were deleted
             # above, through the agent delete; any left here share another
             # connection and only lose this link (domain_connection cascade).

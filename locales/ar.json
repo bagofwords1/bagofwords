@@ -1799,6 +1799,22 @@
       "filesSkippedSingular": "تم تخطّي {count} ملف ({reasons})",
       "filesSkippedPlural": "تم تخطّي {count} ملفات ({reasons})"
     },
+    "searchFiles": {
+      "foundIn": "موجود في:",
+      "fileName": "اسم الملف",
+      "page": "الصفحة {n}",
+      "sheet": "الورقة {name}",
+      "offset": "الموضع {n}",
+      "partlyIndexed": "مفهرس جزئيًا فقط (حد الحجم)",
+      "noText": "لا يوجد نص قابل للبحث (ممسوح ضوئيًا أو ثنائي)",
+      "notIndexed": "تعذّرت الفهرسة",
+      "indexFulltext": "فهرس النص الكامل",
+      "indexKeywords": "فهرس الكلمات المفتاحية",
+      "indexNames": "تطابق مع اسم الملف",
+      "liveScan": "فحص مباشر",
+      "plusLiveScan": "{index} + فحص مباشر",
+      "indexedAt": "تمت الفهرسة {when}"
+    },
     "listAgentExecutions": {
       "empty": "لم يتم العثور على عمليات تشغيل",
       "failed": "تعذّر تحميل عمليات تشغيل الوكيل",

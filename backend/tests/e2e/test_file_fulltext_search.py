@@ -100,6 +100,7 @@ def share(create_connection, test_client, create_user, login_user, whoami, tmp_p
 
     class Share:
         root = tmp_path
+        headers = None
 
         def connect(self, index_mode: str = "fulltext", expect: str = "completed", **config):
             conn = create_connection(
@@ -133,6 +134,7 @@ def share(create_connection, test_client, create_user, login_user, whoami, tmp_p
         def index_rows(self) -> dict:
             return asyncio.run(_index_rows(self.conn_id))
 
+    Share.headers = headers
     return Share()
 
 
@@ -369,6 +371,30 @@ def test_leaving_the_fulltext_tier_removes_the_index(share):
     assert share.index_rows() == {}
     # The keyword tier answers now (or the live scan behind it).
     assert share.search("hesperine")["index"] != "fulltext"
+
+
+def test_deleting_the_connection_removes_its_index(share, test_client):
+    (share.root / "a.txt").write_text("alpha mentions the quillonby clause. " + _filler())
+    share.connect()
+    assert share.index_rows()
+
+    r = test_client.delete(f"/api/connections/{share.conn_id}", headers=share.headers)
+    assert r.status_code in (200, 204), r.text
+
+    async def leftovers():
+        from sqlalchemy import func, select
+
+        from app.dependencies import async_session_maker
+        from app.models.file_index import FileIndexFile, FileIndexSection
+
+        async with async_session_maker() as db:
+            files = (await db.execute(select(func.count()).select_from(FileIndexFile).where(
+                FileIndexFile.connection_id == share.conn_id))).scalar_one()
+            sections = (await db.execute(select(func.count()).select_from(FileIndexSection).where(
+                FileIndexSection.connection_id == share.conn_id))).scalar_one()
+            return files, sections
+
+    assert asyncio.run(leftovers()) == (0, 0)
 
 
 def test_search_is_answered_in_the_database_not_by_loading_the_catalog(share):

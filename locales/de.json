@@ -1799,6 +1799,22 @@
       "filesSkippedSingular": "{count} Datei übersprungen ({reasons})",
       "filesSkippedPlural": "{count} Dateien übersprungen ({reasons})"
     },
+    "searchFiles": {
+      "foundIn": "Gefunden in:",
+      "fileName": "Dateiname",
+      "page": "Seite {n}",
+      "sheet": "Blatt {name}",
+      "offset": "Position {n}",
+      "partlyIndexed": "Nur teilweise indexiert (Größenlimit)",
+      "noText": "Kein durchsuchbarer Text (gescannt oder binär)",
+      "notIndexed": "Konnte nicht indexiert werden",
+      "indexFulltext": "Volltextindex",
+      "indexKeywords": "Stichwortindex",
+      "indexNames": "Treffer im Dateinamen",
+      "liveScan": "Live-Suche",
+      "plusLiveScan": "{index} + Live-Suche",
+      "indexedAt": "indexiert {when}"
+    },
     "listAgentExecutions": {
       "empty": "Keine Ausführungen gefunden",
       "failed": "Agentenausführungen konnten nicht geladen werden",

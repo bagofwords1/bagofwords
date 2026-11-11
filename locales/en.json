@@ -1925,6 +1925,22 @@
       "filesSkippedSingular": "{count} file skipped ({reasons})",
       "filesSkippedPlural": "{count} files skipped ({reasons})"
     },
+    "searchFiles": {
+      "foundIn": "Found in:",
+      "fileName": "file name",
+      "page": "page {n}",
+      "sheet": "sheet {name}",
+      "offset": "offset {n}",
+      "partlyIndexed": "Only partly indexed (size limit)",
+      "noText": "No searchable text (scanned or binary)",
+      "notIndexed": "Could not be indexed",
+      "indexFulltext": "Full-text index",
+      "indexKeywords": "Keyword index",
+      "indexNames": "File name match",
+      "liveScan": "Live scan",
+      "plusLiveScan": "{index} + live scan",
+      "indexedAt": "indexed {when}"
+    },
     "readFile": {
       "reading": "Reading {name}…",
       "read": "Read {name}",

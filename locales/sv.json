@@ -1799,6 +1799,22 @@
       "filesSkippedSingular": "{count} fil hoppades över ({reasons})",
       "filesSkippedPlural": "{count} filer hoppades över ({reasons})"
     },
+    "searchFiles": {
+      "foundIn": "Hittades i:",
+      "fileName": "filnamn",
+      "page": "sida {n}",
+      "sheet": "blad {name}",
+      "offset": "position {n}",
+      "partlyIndexed": "Endast delvis indexerad (storleksgräns)",
+      "noText": "Ingen sökbar text (skannad eller binär)",
+      "notIndexed": "Kunde inte indexeras",
+      "indexFulltext": "Fulltextindex",
+      "indexKeywords": "Nyckelordsindex",
+      "indexNames": "Träff på filnamn",
+      "liveScan": "Livesökning",
+      "plusLiveScan": "{index} + livesökning",
+      "indexedAt": "indexerad {when}"
+    },
     "listAgentExecutions": {
       "empty": "Inga körningar hittades",
       "failed": "Det gick inte att läsa in agentens körningar",

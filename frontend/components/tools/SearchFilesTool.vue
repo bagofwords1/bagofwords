@@ -64,8 +64,8 @@
                 </template>
                 <template v-else>
                 <div v-if="f.path" class="text-chat-3"><span class="text-ink-muted">Path:</span> {{ f.path }}</div>
-                <div v-if="matchLabels(f).length" class="text-chat-3"><span class="text-ink-muted">Found in:</span> {{ matchLabels(f).join(', ') }}</div>
-                <div v-else-if="Array.isArray(f.matches)" class="text-chat-3"><span class="text-ink-muted">Found in:</span> file name</div>
+                <div v-if="matchLabels(f).length" class="text-chat-3"><span class="text-ink-muted">{{ t('tools.searchFiles.foundIn') }}</span> {{ matchLabels(f).join(', ') }}</div>
+                <div v-else-if="Array.isArray(f.matches)" class="text-chat-3"><span class="text-ink-muted">{{ t('tools.searchFiles.foundIn') }}</span> {{ t('tools.searchFiles.fileName') }}</div>
                 <div v-if="indexStatusNote(f)" class="text-chat-3 text-amber-600 dark:text-amber-400">{{ indexStatusNote(f) }}</div>
                 <div v-if="f.mime_type" class="text-chat-3"><span class="text-ink-muted">Type:</span> {{ f.mime_type }}</div>
                 <div v-if="f.modified_at" class="text-chat-3"><span class="text-ink-muted">Modified:</span> {{ f.modified_at }}</div>
@@ -105,6 +105,7 @@ interface ToolExecution {
 }
 
 const props = defineProps<{ toolExecution: ToolExecution; dataSources?: any[] }>()
+const { t } = useResponseI18n()
 // files / emails / pages — same card, source-appropriate noun.
 const noun = computed(() => fileToolNoun(props.toolExecution?.tool_name))
 // Chat messages show their text, thread and conversation instead of file metadata.
@@ -141,17 +142,17 @@ const errorMessage = computed(() => toolErrorText(props.toolExecution?.result_js
 function matchLabels(f: any): string[] {
   const ms = Array.isArray(f?.matches) ? f.matches : []
   return ms.map((m: any) => {
-    if (m.kind === 'page') return `page ${m.page}`
-    if (m.kind === 'sheet') return `sheet ${m.sheet}`
-    if (m.kind === 'chars' || m.kind === 'bytes') return `offset ${Number(m.offset || 0).toLocaleString()}`
+    if (m.kind === 'page') return t('tools.searchFiles.page', { n: m.page })
+    if (m.kind === 'sheet') return t('tools.searchFiles.sheet', { name: m.sheet })
+    if (m.kind === 'chars' || m.kind === 'bytes') return t('tools.searchFiles.offset', { n: Number(m.offset || 0).toLocaleString() })
     return ''
   }).filter(Boolean)
 }
 
 function indexStatusNote(f: any): string {
-  if (f?.index_status === 'partial') return 'Only partly indexed (size limit)'
-  if (f?.index_status === 'no_text') return 'No searchable text (scanned or binary)'
-  if (f?.index_status === 'error') return 'Could not be indexed'
+  if (f?.index_status === 'partial') return t('tools.searchFiles.partlyIndexed')
+  if (f?.index_status === 'no_text') return t('tools.searchFiles.noText')
+  if (f?.index_status === 'error') return t('tools.searchFiles.notIndexed')
   return ''
 }
 
@@ -159,11 +160,14 @@ function indexStatusNote(f: any): string {
 // keyword match or a live scan.
 const indexNote = computed(() => {
   const rj = props.toolExecution?.result_json || {}
-  const how = ({ fulltext: 'Full-text index', keywords: 'Keyword index', names: 'File name match' } as any)[rj.index]
-    || (rj.source === 'live' ? 'Live scan' : '')
-  if (!how) return ''
-  const parts = [how + (rj.source === 'catalog+live' ? ' + live scan' : '')]
-  if (rj.indexed_at) parts.push(`indexed ${String(rj.indexed_at).replace('T', ' ').replace('Z', ' UTC')}`)
+  const key = ({ fulltext: 'indexFulltext', keywords: 'indexKeywords', names: 'indexNames' } as any)[rj.index]
+    || (rj.source === 'live' ? 'liveScan' : '')
+  if (!key) return ''
+  const how = t(`tools.searchFiles.${key}`)
+  const parts = [rj.source === 'catalog+live' ? t('tools.searchFiles.plusLiveScan', { index: how }) : how]
+  if (rj.indexed_at) {
+    parts.push(t('tools.searchFiles.indexedAt', { when: String(rj.indexed_at).replace('T', ' ').replace('Z', ' UTC') }))
+  }
   return parts.join(' · ')
 })
 

@@ -1799,6 +1799,22 @@
       "filesSkippedSingular": "{count} file saltato ({reasons})",
       "filesSkippedPlural": "{count} file saltati ({reasons})"
     },
+    "searchFiles": {
+      "foundIn": "Trovato in:",
+      "fileName": "nome del file",
+      "page": "pagina {n}",
+      "sheet": "foglio {name}",
+      "offset": "posizione {n}",
+      "partlyIndexed": "Indicizzato solo in parte (limite di dimensione)",
+      "noText": "Nessun testo ricercabile (scansione o binario)",
+      "notIndexed": "Impossibile indicizzare",
+      "indexFulltext": "Indice full-text",
+      "indexKeywords": "Indice per parole chiave",
+      "indexNames": "Corrispondenza sul nome del file",
+      "liveScan": "Scansione in tempo reale",
+      "plusLiveScan": "{index} + scansione in tempo reale",
+      "indexedAt": "indicizzato {when}"
+    },
     "listAgentExecutions": {
       "empty": "Nessuna esecuzione trovata",
       "failed": "Caricamento delle esecuzioni dell'agente non riuscito",

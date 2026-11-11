@@ -1838,6 +1838,22 @@
       "filesSkippedSingular": "קובץ {count} דולג ({reasons})",
       "filesSkippedPlural": "{count} קבצים דולגו ({reasons})"
     },
+    "searchFiles": {
+      "foundIn": "נמצא ב:",
+      "fileName": "שם הקובץ",
+      "page": "עמוד {n}",
+      "sheet": "גיליון {name}",
+      "offset": "מיקום {n}",
+      "partlyIndexed": "אונדקס חלקית בלבד (מגבלת גודל)",
+      "noText": "אין טקסט לחיפוש (סרוק או בינארי)",
+      "notIndexed": "לא ניתן היה לאנדקס",
+      "indexFulltext": "אינדקס טקסט מלא",
+      "indexKeywords": "אינדקס מילות מפתח",
+      "indexNames": "התאמה לפי שם קובץ",
+      "liveScan": "סריקה חיה",
+      "plusLiveScan": "{index} + סריקה חיה",
+      "indexedAt": "אונדקס {when}"
+    },
     "webFetch": {
       "fetching": "מאחזר",
       "fetched": "אוחזר",
