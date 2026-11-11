@@ -118,6 +118,9 @@ class ErrorCode(str, Enum):
     ACCESS_REQUEST_ALREADY_DECIDED = "access_request.already_decided"
     FILE_NOT_FOUND = "file.not_found"
     FILE_IN_USE = "file.in_use"
+    # System logs (Settings → System logs) are instance-wide
+    SYSTEM_LOGS_INSTANCE_ADMIN_REQUIRED = "system_logs.instance_admin_required"
+    SYSTEM_LOGS_INVALID_RANGE = "system_logs.invalid_range"
     DATA_SOURCE_NOT_FOUND = "data_source.not_found"
     DATA_SOURCE_IN_USE = "data_source.in_use"
     CONNECTION_NOT_FOUND = "connection.not_found"
