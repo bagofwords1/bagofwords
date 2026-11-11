@@ -78,6 +78,76 @@ def test_a_range_that_cannot_be_cut_is_one_open_window(lo, hi, rows):
     assert incremental.plan_chunks(lo, hi, rows) == [Window(None, None, True)]
 
 
+def _density_plan(values, target, **kwargs):
+    values = sorted(values)
+    probes = []
+
+    def count_between(a, b):
+        probes.append((a, b))
+        return sum(1 for v in values if a <= v < b)
+
+    windows = incremental.plan_by_density(values[0], values[-1], len(values), count_between,
+                                          target_rows=target, **kwargs)
+    sizes = []
+    for w in windows:
+        sizes.append(sum(1 for v in values if (w.lo is None or v >= w.lo) and (w.hi is None or v < w.hi)))
+    return windows, sizes, probes
+
+
+@pytest.mark.parametrize("values,target", [
+    # Two outliers a century apart, everything else inside two months.
+    ([datetime(1970, 1, 1), datetime(2099, 1, 1)]
+     + [datetime(2026, 9, 1) + timedelta(minutes=7 * i) for i in range(12_000)], 1_000),
+    # Most rows recent: a curve, not a line.
+    ([int(1_000_000 * (1 - (1 - i / 20_000) ** 3)) for i in range(20_000)], 1_500),
+    # Evenly spread: nothing special to find.
+    (list(range(0, 50_000, 5)), 1_000),
+    # Dates, with a gap of years in the middle.
+    ([date(2015, 1, 1) + timedelta(days=i % 300) for i in range(3_000)]
+     + [date(2026, 1, 1) + timedelta(days=i % 200) for i in range(9_000)], 800),
+])
+def test_chunks_follow_where_the_rows_are_not_how_wide_the_range_is(values, target):
+    windows, sizes, probes = _density_plan(values, target)
+    assert sum(sizes) == len(values), "every row is in exactly one window"
+    assert windows[0].lo is None and windows[-1].hi is None
+    for left, right in zip(windows, windows[1:]):
+        assert left.hi == right.lo
+    assert len(windows) > 1 and max(sizes) <= 2 * target, f"a window holds {max(sizes)} rows"
+    # No chunk is wasted on emptiness: almost-empty neighbours were merged.
+    assert sum(1 for n in sizes if n < target / 10) <= 2
+    assert len(probes) <= 64
+    assert [w.include_nulls for w in windows].count(True) == 1 and windows[-1].include_nulls
+
+
+def test_rows_that_share_one_cursor_value_stay_in_one_window():
+    values = [5] * 5_000 + list(range(6, 1_006))
+    windows, sizes, _probes = _density_plan(values, 500)
+    assert sum(sizes) == len(values) and max(sizes) >= 5_000, "a tie cannot be cut, and is not lost"
+
+
+@pytest.mark.parametrize("values,target", [([1, 2, 3], 100), ([7] * 50, 10), (["a", "b"] * 50, 10)])
+def test_a_small_or_uncuttable_load_is_one_window_and_costs_no_probe(values, target):
+    windows, _sizes, probes = _density_plan(values, target)
+    assert windows == [Window(None, None, True)] and probes == []
+
+
+def test_the_probe_budget_bounds_the_planning_cost():
+    values = list(range(1_000_000))
+    _windows, sizes, probes = _density_plan(values, 10, max_probes=20)
+    assert len(probes) == 20 and sum(sizes) == len(values)
+
+
+def test_a_query_without_an_upper_placeholder_cannot_be_loaded_in_windows():
+    assert incremental.can_bound_above("SELECT * FROM t")
+    assert incremental.can_bound_above("SELECT * FROM t WHERE c >= {{since}} AND c < {{until}}")
+    assert not incremental.can_bound_above("SELECT * FROM t WHERE c >= {{since}}")
+
+
+def test_counting_a_window_is_one_statement_over_the_windowed_query():
+    sql = incremental.count_sql("SELECT * FROM t;", "postgres", "c", None, Window(lo=1, hi=9))
+    assert sql == 'SELECT COUNT(*) FROM (SELECT * FROM (SELECT * FROM t) bow_sub WHERE "c" >= 1 AND "c" < 9) bow_cnt'
+
+
 def test_lookback_is_applied_at_read_time_in_the_cursors_own_unit():
     config = RefreshConfig(mode="merge", cursor_column="c", unique_key=("id",), lookback_seconds=3600,
                            lookback_units=50)

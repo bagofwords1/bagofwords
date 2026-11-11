@@ -402,6 +402,86 @@ def plan_chunks(lo: Any, hi: Any, total_rows: int, *, target_rows: Optional[int]
     return windows
 
 
+def midpoint(lo: Any, hi: Any) -> Any:
+    """A value strictly between two cursor values, or None if there is none."""
+    kind = kind_of(lo)
+    if kind is None or kind != kind_of(hi) or kind == KIND_TEXT:
+        return None
+    try:
+        if kind == KIND_TIMESTAMP:
+            mid = lo + (hi - lo) / 2
+        elif kind == KIND_DATE:
+            mid = lo + timedelta(days=(hi - lo).days // 2)
+        elif isinstance(lo, int) and isinstance(hi, int):
+            mid = (lo + hi) // 2
+        else:
+            mid = (Decimal(str(lo)) + Decimal(str(hi))) / 2
+    except (OverflowError, ArithmeticError, TypeError):
+        return None
+    return mid if lo < mid < hi else None
+
+
+def plan_by_density(lo: Any, hi: Any, total_rows: int, count_between, *,
+                    target_rows: Optional[int] = None, max_chunks: int = MAX_CHUNKS,
+                    max_probes: int = 64, include_nulls: bool = True) -> List[Window]:
+    """Cut a first load into windows of roughly `target_rows`, by where the
+    rows actually are.
+
+    Cutting the range evenly only works when rows are spread evenly, and real
+    cursor columns are not: most rows are recent, and a single row stamped
+    1970 or 2099 stretches the range until one "chunk" holds the whole table.
+    So the busiest window is halved, its halves counted (`count_between(lo,
+    hi)` is rows with lo <= cursor < hi), and again, until none is over the
+    target or the probe budget is spent. Neighbours that are nearly empty are
+    then merged back together.
+    """
+    target = max(1, target_rows or CHUNK_TARGET_ROWS)
+    last = Window(lo=None, hi=None, include_nulls=include_nulls)
+    if lo is None or hi is None or not total_rows or total_rows <= target or midpoint(lo, hi) is None:
+        return [last]
+
+    # Segments are [a, b) with a known row count; the final one also holds `hi`.
+    segments = [[lo, hi, total_rows, True]]
+    probes = 0
+    while probes < max_probes and len(segments) < max_chunks:
+        index = max(range(len(segments)), key=lambda i: segments[i][2] if segments[i][3] else -1)
+        a, b, n, splittable = segments[index]
+        if not splittable or n <= target:
+            break
+        mid = midpoint(a, b)
+        if mid is None:
+            segments[index][3] = False      # every row shares one value: cannot be cut
+            continue
+        probes += 1
+        left = int(count_between(a, mid))
+        left = max(0, min(n, left))
+        segments[index:index + 1] = [[a, mid, left, True], [mid, b, n - left, True]]
+
+    merged = [segments[0][:3]]
+    for a, b, n, _s in segments[1:]:
+        if merged[-1][2] + n <= target:
+            merged[-1][1], merged[-1][2] = b, merged[-1][2] + n
+        else:
+            merged.append([a, b, n])
+    if len(merged) == 1:
+        return [last]
+    windows = []
+    for i, (a, b, _n) in enumerate(merged):
+        first, final = i == 0, i == len(merged) - 1
+        windows.append(Window(lo=None if first else a, hi=None if final else b,
+                              include_nulls=include_nulls and final))
+    return windows
+
+
+def can_bound_above(sql: str) -> bool:
+    """Whether a window's upper bound can be written into this query.
+
+    A query that places only `{{since}}` has nowhere to put one, so it cannot
+    be loaded in windows: each would return everything above its start.
+    """
+    return not uses_placeholders(sql) or bool(_UNTIL.search(sql or ""))
+
+
 def _edges(lo, hi, count: int, kind: str) -> list:
     """`count + 1` strictly increasing boundaries from lo to hi (fewer if the
     range is too narrow to cut that finely)."""
@@ -601,6 +681,17 @@ def render_sql(sql: str, dialect: Optional[str], column: str, kind: Optional[str
     if window.include_nulls:
         predicate = f"({predicate}) OR {col} IS NULL"
     return f"SELECT * FROM ({inner}) bow_sub WHERE {predicate}"
+
+
+def count_sql(sql: str, dialect: Optional[str], column: str, kind: Optional[str],
+              window: Window) -> Optional[str]:
+    """How many rows of the result fall in `window`, as one statement."""
+    if family_of(dialect) is None:
+        return None
+    from app.data_sources.fast.sql_dialect import strip_trailing_semicolon
+
+    inner = strip_trailing_semicolon(render_sql(sql, dialect, column, kind, window))
+    return f"SELECT COUNT(*) FROM ({inner}) bow_cnt"
 
 
 def probe_sql(sql: str, dialect: Optional[str], column: str, kind: Optional[str]) -> Optional[str]:

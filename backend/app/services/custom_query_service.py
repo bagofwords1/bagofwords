@@ -617,10 +617,11 @@ class CustomQueryService:
 
         if not (definition_sql or "").strip():
             raise HTTPException(status_code=400, detail="Query cannot be empty")
-        if refresh_config is None:
-            # New tables get the row-drop guard; ones that predate it keep
-            # refreshing exactly as they did.
-            refresh_config = {"row_drop_guard_pct": incremental.DEFAULT_ROW_DROP_GUARD_PCT}
+        refresh_config = dict(refresh_config or {})
+        # New tables get the row-drop guard unless the admin said otherwise
+        # (an explicit null turns it off); ones that predate it keep
+        # refreshing exactly as they did.
+        refresh_config.setdefault("row_drop_guard_pct", incremental.DEFAULT_ROW_DROP_GUARD_PCT)
         config = self.refresh_settings(refresh_mode, refresh_config, definition_sql)
 
         cq = ConnectionTable(
@@ -1229,7 +1230,7 @@ class CustomQueryService:
                         )
                     if start is not None and incremental.kind_of(lo) == incremental.kind_of(start):
                         lo = max(lo, start) if _comparable(lo, start) else lo
-                    windows = incremental.plan_chunks(lo, hi, total, include_nulls=run.wrapped)
+                    windows = self._plan_windows(run, lo, hi, total)
                     if start is not None and windows:
                         first = windows[0]
                         windows[0] = incremental.Window(lo=start, hi=first.hi, include_nulls=first.include_nulls)
@@ -1255,6 +1256,29 @@ class CustomQueryService:
             "rows": 0,
             "windows": [{**w.to_json(), "status": "pending", "rows": None} for w in windows],
         }
+
+    def _plan_windows(self, run: "_Run", lo, hi, total: int) -> list:
+        """Windows for a load of `total` rows spanning [lo, hi]."""
+        whole = [incremental.Window(lo=None, hi=None, include_nulls=run.wrapped)]
+        if not incremental.can_bound_above(run.sql):
+            if total > incremental.CHUNK_TARGET_ROWS:
+                run.note("The query has {{since}} but no {{until}}, so it loads as one window. "
+                         "Add `AND <column> < {{until}}` to load it in chunks.", "warning")
+            return whole
+        dialect = incremental.dialect_for(run.client)
+        column, kind = run.config.cursor_column, run.cursor_kind
+
+        def count_between(a, b) -> int:
+            sql = incremental.count_sql(run.sql, dialect, column, kind, incremental.Window(lo=a, hi=b))
+            _cols, rows = self._source(run, sql).preview(sql, 1)
+            return int(rows[0][0] or 0)
+
+        try:
+            return incremental.plan_by_density(lo, hi, total, count_between, include_nulls=run.wrapped)
+        except Exception as e:
+            run.note(f"Could not measure where the rows are ({str(e)[:200]}); "
+                     f"cutting the range evenly instead.", "warning")
+            return incremental.plan_chunks(lo, hi, total, include_nulls=run.wrapped)
 
     def _work_window(self, run: "_Run", index: int) -> tuple:
         load = run.load

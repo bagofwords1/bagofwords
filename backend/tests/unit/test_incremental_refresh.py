@@ -186,20 +186,22 @@ def small_chunks(rows: int = 10):
 
 
 @contextmanager
-def source_fails_after(queries: int):
-    """Let `queries` extraction queries through, then fail every later one."""
-    from app.data_sources.clients.sqlite_client import SqliteClient
-    original, seen = SqliteClient.extraction_connect, {"n": 0}
+def source_fails_after(loads: int):
+    """Let `loads` row-loading queries through, then fail every later one.
 
-    @contextmanager
-    def flaky(client):
+    Sizing and costing queries are not counted: what is interrupted is the
+    moving of rows, wherever in the load that happens to be.
+    """
+    from app.data_sources.fast.sources import SqlAlchemySource
+    original, seen = SqlAlchemySource.stream_batches, {"n": 0}
+
+    def flaky(self, sql, batch_rows):
         seen["n"] += 1
-        if seen["n"] > queries:
+        if seen["n"] > loads:
             raise ConnectionError("source went away")
-        with original(client) as connection:
-            yield connection
+        return original(self, sql, batch_rows)
 
-    with patch.object(SqliteClient, "extraction_connect", flaky):
+    with patch.object(SqlAlchemySource, "stream_batches", flaky):
         yield seen
 
 
@@ -310,7 +312,8 @@ async def test_a_first_load_is_cut_into_windows_that_cover_the_source_once(lab):
         table = await lab.refresh()
     await lab.matches_source()
     run = (await lab.runs())[0]
-    assert run["chunks_total"] == run["chunks_done"] == 10
+    assert run["chunks_total"] == run["chunks_done"] >= 8
+    assert max(c["rows"] for c in run["chunks"]) <= 20, "no window holds most of the table"
     assert sum(c["rows"] for c in run["chunks"]) == run["rows_read"] == 95 == table.no_rows
     assert table.refresh_state.get("load") is None
     assert table.refresh_state["checkpoint"] == {"kind": "number", "value": "95"}
@@ -321,8 +324,8 @@ async def test_a_load_that_fails_part_way_resumes_instead_of_starting_over(lab):
     lab.shop.add(60)
     await lab.table()
     with small_chunks(10):
-        # Two queries cost and size the load, three windows load, the next fails.
-        with source_fails_after(5), pytest.raises(HTTPException) as error:
+        # Three windows load, the next fails.
+        with source_fails_after(3), pytest.raises(HTTPException) as error:
             await lab.refresh()
         assert "source went away" in str(error.value.detail)
         table = await lab.row()
@@ -335,7 +338,7 @@ async def test_a_load_that_fails_part_way_resumes_instead_of_starting_over(lab):
         await lab.refresh()
     await lab.matches_source()
     resumed, failed = (await lab.runs())[:2]
-    assert failed["status"] == "failed" and failed["chunks_done"] == 3
+    assert failed["status"] == "failed" and failed["chunks_done"] == 3 < failed["chunks_total"]
     assert resumed["status"] == "success"
     assert any("Continuing" in e["message"] for e in resumed["events"])
     # Only the windows that were not finished are read again.
@@ -349,18 +352,19 @@ async def test_a_load_over_its_time_budget_pauses_and_the_next_run_continues_it(
     with small_chunks(10), patch.object(custom_query_service, "LOAD_RUN_BUDGET_SECONDS", -1), \
             patch.object(lab.service, "_schedule_resume") as resume:
         statuses = []
-        for _ in range(10):
+        for _ in range(40):
             table = await lab.refresh()
             statuses.append(table.last_refresh_status)
             if table.last_refresh_status == "ok":
                 break
-        # Each run makes progress on exactly one of the five windows, then yields.
-        assert statuses == ["partial"] * 4 + ["ok"]
-        assert resume.call_count == 4
+        # Each run makes progress on exactly one window, then yields.
+        windows = len(statuses)
+        assert windows >= 4 and statuses == ["partial"] * (windows - 1) + ["ok"]
+        assert resume.call_count == windows - 1
     await lab.matches_source()
     runs = await lab.runs()
-    assert [r["status"] for r in runs] == ["success"] + ["partial"] * 4
-    assert [r["chunks_done"] for r in runs] == [5, 4, 3, 2, 1]
+    assert [r["status"] for r in runs] == ["success"] + ["partial"] * (windows - 1)
+    assert [r["chunks_done"] for r in runs] == list(range(windows, 0, -1))
     assert sum(r["rows_read"] for r in runs) == 50, "no window was read twice"
 
 
@@ -372,7 +376,7 @@ async def test_a_paused_load_shows_its_progress_on_the_table(lab):
             patch.object(lab.service, "_schedule_resume"):
         schema = CustomQuerySchema.from_model(await lab.refresh())
     progress = schema.load_progress
-    assert (progress["windows_total"], progress["windows_done"], progress["source_rows"]) == (3, 1, 30)
+    assert progress["windows_total"] > 2 and (progress["windows_done"], progress["source_rows"]) == (1, 30)
     assert 0 < progress["rows"] < 30
     assert schema.refresh_mode == "merge" and schema.checkpoint is None
 
