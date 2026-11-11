@@ -1,6 +1,7 @@
 # File connector search & indexing — plan
 
-Status: proposal (not implemented)
+Status: proposal (not implemented). Revision 2 — updated after a second review
+against the code; changes from revision 1 are listed at the end.
 
 ## Problem
 
@@ -14,19 +15,29 @@ index that misses a lot:
   stored.
 - Body tokens with **digits are dropped**, so IDs and invoice numbers inside
   documents are unsearchable (`_keywords.py:17-21`).
+- Matching is **whole-word only**. Hebrew attaches prefixes to words
+  (ב/ה/ל/ו/ש/מ/כ), so a search for "חוזה" does not match a file that says
+  "בחוזה".
 - `search_files` **loads the whole catalog into Python** and scores token
-  overlap (`search_files.py:49-91,277`). It doesn't rank by relevance and returns
-  no snippets. The agent gets file names only.
+  overlap (`search_files.py:49-91,277`). It doesn't rank by relevance and
+  returns no location inside the file. The agent gets file names only.
 - Google Drive, Graph (SharePoint Online/OneDrive) and Documentum build
-  **metadata only**, so their content is searched only through a live provider
-  fallback. That fallback runs when the index finds nothing or `deep=true`
+  **metadata only**. Their content is searched only through a live provider
+  fallback that runs when the index finds nothing or `deep=true`
   (`search_files.py:321`). Graph uses the weak `/search(q=)` endpoint
   (`graph_drive_client.py:1291`).
-- Catalogs are **capped at 10k files** (`network_dir_client.py:194`), but
-  enterprise customers have 50k+.
-- Per-user SharePoint on-prem / Documentum connections **skip the index** and
-  always go live (`search_files.py:280`). Per-user catalogs
-  (`user_connection_tables`) are not read by `search_files`.
+- Catalog size is capped per connection by `max_catalog_objects`: default
+  5,000 (10,000 for network drives), and at most 50,000 on the connectors that
+  bound it (`configs.py:2653-3392`). Enterprise customers have 50k+ files.
+- Per-user SharePoint on-prem / Documentum connections **skip the index on
+  purpose** and always go live (`search_files.py:280`): the shared catalog was
+  crawled as one identity and must not stand in for the caller's.
+- Per-user catalogs (`user_connection_tables`) are refreshed **only when the
+  user signs in**; the scheduled sweep skips them
+  (`scheduled_reindex.py:132-136`). `search_files` does not read them.
+- An indexing run has a **4 h hard timeout** and a 15 min idle timeout
+  (`connection_indexing_service.py:203-204`), and a failed run keeps the prior
+  catalog but not partial progress.
 - Bugs:
   - OneNote writes keywords under `"onenote"`, which is missing from
     `_FILE_METADATA_KEYS` (`search_files.py:43`).
@@ -36,11 +47,12 @@ index that misses a lot:
 ## Goals
 
 - Find the right files for an agent's question, including exact IDs, phrases
-  and words deep in the body.
+  and words deep in the body, in English and Hebrew.
 - Scale to **50k+ files per connection** and **per-user access** without storage
   multiplying by the number of users.
-- Avoid storing readable copies of customer documents by default.
-- Work on both Postgres and SQLite (both are supported deployments).
+- Store as little customer content as the chosen mode needs, and say plainly
+  what each mode stores.
+- Work on Postgres (production) and SQLite (local dev).
 - Let admins choose the cost/quality trade-off per connection.
 
 ## Decision: indexing mode is a per-connection choice (a ladder)
@@ -50,85 +62,153 @@ index that misses a lot:
 defined in `_file_source_common.py:22-25`). Google Drive doesn't have it.
 We turn it into a clear ladder; each mode includes everything below it.
 
-| Mode (form label) | Stored | Search capability | Rough size @ 50k files |
-|---|---|---|---|
-| **Live** (`none`) | nothing | name match + live grep | 0 |
-| **File list** (`metadata`) | name, path, size, dates | name/path search (see open question on source search) | tiny |
-| **Keywords** (`keywords`; today's `content`) | ≤50 keywords per file | basic topic match | a few MB |
-| **Full text** (`fulltext`, new) | searchable terms + positions per **section**, no readable text | exact words, phrases, IDs; ranked; section location | a few hundred MB to ~1 GB |
-| **Semantic** (`semantic`, new, later) | full text + chunk embeddings | also matches by meaning | +~1–4 GB vectors; needs embedding provider |
+| Form label | Stored value | Stored | Search capability | Rough size @ 50k files |
+|---|---|---|---|---|
+| **Live** | `none` | nothing | name match + live grep | 0 |
+| **File list** | `metadata` | name, path, size, dates | names from our list; content through the source's own search where it has one | tiny |
+| **Keywords** | `content` (unchanged) | ≤50 keywords per file | basic topic match | a few MB |
+| **Full text** | `fulltext` (new) | every word of every **section**, with positions | exact words, phrases, IDs; ranked; location in the file | a few hundred MB to ~1 GB (estimate, to be measured) |
+| **Semantic** | `semantic` (later) | full text + chunk embeddings | also matches by meaning | +~1–4 GB vectors; needs embedding provider |
 
 Rules:
 
-- **Migration:** existing `content` connections map to `keywords`, so nothing
-  changes on upgrade.
+- **No rename of stored values.** `content` is compared in ~23 places across
+  11 files (for example `schema_context_builder.py:1136`). It keeps its value
+  and only gets the form label "Keywords". Existing connections don't change.
 - **Defaults:**
   - network drive / S3 → Full text;
   - Drive / OneDrive / SharePoint Online → File list;
-  - SharePoint on-prem → Full text with a service account, File list with
-    per-user auth.
+  - SharePoint on-prem / Documentum → Full text with a service account, File
+    list with per-user auth (until the per-user phase ships).
 - **The form shows,** for each mode, one line on what's stored and what search
-  can do. After the first scan, it shows an estimate (index size, build time).
-- **`search_files` stays one tool** and adapts to the connection's mode. There
-  are no hidden fallbacks between modes.
+  can do. After the first scan it shows an estimate (index size, build time).
+  Semantic is not shown until it exists.
+- **`search_files` stays one tool** and adapts to the connection's mode.
+
+### What "Full text" stores — stated honestly
+
+A full-text index holds every word and its position. The original text can be
+largely rebuilt from it. So:
+
+- The index is treated as **customer content**: same tenant isolation, deleted
+  with the connection, covered by the same retention rules.
+- The form says "stores a searchable index of the words in your files", not
+  "stores nothing readable".
+- Word positions are kept because phrase search needs them.
+- What we still don't keep: the original files, their layout, images, or a
+  second copy per user.
+
+## Source search for Drive / Microsoft 365 (File list mode)
+
+The code already treats these connectors as having native search
+(`_NATIVE_SEARCH_TYPES`, `schema_context_builder.py:1043`), but
+`search_files` only calls it as a fallback. Proposed (needs sign-off):
+
+- In File list mode, `search_files` **always** runs the source's content
+  search and merges it with name matches from our list.
+- Graph moves from `/search(q=)` to `/search/query`: KQL filters, highlighted
+  snippets, relevance ranking, results trimmed to the user.
+- A per-user rate limiter (Graph allows ~10 requests/sec per user) and a clear
+  "slow down" result the agent can act on.
+- Drive returns ranked files with no snippets; the agent reads the top hits.
+
+Without this, Drive and Microsoft 365 customers get no improvement unless they
+switch to Full text, which means downloading every file.
 
 ## Full text mode — design
 
 **Sections, not RAG chunks.** A file is split into sections: one PDF page, one
 sheet, one slide, or ~3k chars of other text. Per section we store:
 
-- `file_id`, `section_no`, location (page / sheet / char range);
-- a full-text vector of the section's terms;
-- `content_hash`.
+- `file_id`, `section_no`, `content_hash`;
+- the location **in `read_file` coordinates**: PDF page, sheet name, or
+  character offset into the extracted text, so the agent can read exactly that
+  part (`file_tools.py:255-290` already supports page, `sheet` and `offset`);
+- the full-text vector of the section's normalized terms.
 
-We don't store readable text by default. A per-connector option may store it
-where live reads are slow or rate-limited (OneNote already stores text).
+**One tokenizer, in Python, for both databases.** We normalize text ourselves
+and hand the databases pre-tokenized terms, so matching behaves the same on
+Postgres and SQLite:
+
+- lowercase, Unicode word split, numbers and ID-like tokens kept
+  (`PO-48213` → `po-48213`, `po`, `48213`);
+- light English stemming (reuse `ai/context/keyword_match.py:stem`);
+- Hebrew: index each word and, when it starts with a one-letter prefix and at
+  least 3 letters remain, also its prefix-stripped form. The same rule is
+  applied to queries. To be validated on Hebrew test queries for false matches.
 
 **Engine (no new service):**
 
-- **Postgres:** `tsvector` column + GIN index. Use the `simple` config, since
-  there is no Hebrew stemmer; optionally add `pg_trgm` for partial matches.
-- **SQLite:** FTS5 contentless table (`content=''`), `unicode61` tokenizer.
-- Ranking is BM25 / `ts_rank` at section level. Files rank by their best
-  section, with a small boost for filename/path matches (keep today's boost).
-- Numbers are kept as terms.
+- **Postgres:** `tsvector` column (`simple` config over our terms) + GIN index;
+  ranking with `ts_rank_cd`.
+- **SQLite:** FTS5 contentless table with `contentless_delete=1` (needs SQLite
+  ≥ 3.43); ranking with `bm25()`.
+- The two rank differently (Postgres has no built-in BM25). Quality is judged
+  on Postgres; SQLite must return the same matches but not the same order.
+- Sections of ~3k chars stay far below Postgres's limits (1 MB per `tsvector`,
+  positions up to 16,383).
+
+**Query semantics:**
+
+- All words must match first; if nothing matches, retry with any word.
+- Quoted text is a phrase.
+- Files rank by their best section, plus a boost for filename/path matches
+  (keep today's boost).
 
 **Coverage:**
 
 - Index all extracted text, not a prefix sample.
 - Keep a sanity cap for pathological files (giant logs/exports) and flag those
   files as `partially_indexed` so the agent knows.
-- Sections also keep each entry under Postgres's 1 MB `tsvector` limit.
+- Files with no extractable text (scanned PDFs, images) are flagged
+  `no_text`, so "not found" isn't read as "doesn't exist".
 
-**Incremental updates:**
+**Building and updating the index:**
 
+- **Resumable.** Sections are committed per file as the run goes. A run that
+  times out or fails keeps what it finished; the next run skips files whose
+  content hash is already indexed. A 50k-file first build will not fit in one
+  4 h run on slow sources.
 - Re-index a file only when it changes: size+mtime / etag / content hash. Reuse
   the existing `prior_catalog` path and add it to S3.
 - Use provider change feeds where they exist (Graph `delta`, Drive
   `changes.list`) so frequent syncs stay cheap.
-- Remove sections when a file is deleted at the source.
-
-**Per-user access:**
-
-- Content is indexed **once per file**, keyed by file id + content hash, no
-  matter how many users can see it.
-- Per user we store only the **visible file ids**. We already build this list
-  at sign-in (per-user catalog sync).
-- Search = shared section index filtered by the caller's visible file ids.
-- Snippets and `read_file` always fetch live with the **user's own
-  credentials**. So a stale ACL list can at worst reveal a file name, never
-  content.
-- Open question: who reads content the first time — a service account, or the
-  first user who can see the file (later users reuse it via content hash)?
+- Remove sections when a file is deleted at the source. A rename or move
+  updates the path without re-extracting.
+- Raise the `max_catalog_objects` ceiling for Full text connections and show
+  "N of M files indexed" when the cap is hit.
 
 **What the agent gets back from `search_files`:**
 
-- Ranked files (id, name, path, modified, url) plus their **top 2–3 sections**:
-  location, and a snippet fetched live from the source for the top N files.
-- A `partially_indexed` / `indexed_at` note where relevant.
-- The agent then drills in with `grep_files` / `read_file` on the few files that
-  look right. This is the "search, then read the exact lines" loop used by
-  OpenClaw, Hermes and OpenCode.
+- Ranked files (id, name, path, modified, url), each with its **top 2–3
+  sections**: location and the matched terms.
+- **No live snippet fetch during search.** Downloading and extracting several
+  files per search is too slow for an agent that searches many times per
+  question. The agent calls `read_file` on the section it wants.
+- `partially_indexed` / `no_text` / `indexed_at` notes where relevant.
+- `grep_files` (network drive / S3 only) and `read_file` are the drill-down
+  tools.
+
+## Per-user access — last phase, gated on a security review
+
+Today per-user connections bypass the shared index deliberately. Using the
+index for them changes a security decision, so it ships last and only after
+review. Design:
+
+- Content is indexed **once per file** by the connection's crawl identity,
+  keyed by file id + content hash. Connections with no crawl identity
+  (personal OneDrive / Drive) cannot use Full text; they use source search.
+- Per user we store only the **visible file ids** (the per-user catalog we
+  already build).
+- Search = shared section index, filtered by the caller's visible file ids.
+- **Verify before returning.** For the top N results, check access live with
+  the caller's own credentials (a metadata call) and drop anything denied. A
+  stale list then cannot leak even a file name.
+- **Refresh.** Per-user lists are refreshed on a schedule where we hold a
+  refreshable credential, not only at sign-in. A list older than a set age is
+  not used; search falls back to live.
+- `read_file` keeps enforcing access live, as today.
+- Admin opt-in per connection; default stays live search.
 
 ## Semantic mode — later, opt-in
 
@@ -141,43 +221,70 @@ Only build this if the test set shows that searches by meaning are missed.
   optional recency boost on `modified_at`.
 - Embeddings are cached by chunk hash, so unchanged text is never re-embedded.
   Falls back to Full text when no embedding provider is configured.
-- Same per-user model: embed once per file, filter by visible file ids.
+- Same access model as Full text.
 
 ## Work plan
 
-1. **Quick fixes**
-   - Keep digits in body keywords (`_keywords.py`).
+1. **Test set and baseline.** 30–50 real queries with expected files (English
+   and Hebrew), run against a large connection on Postgres. A script reports
+   how many queries return the right file in the top 10. Measure today's
+   search first.
+2. **Quick fixes**
    - Add `"onenote"` to `_FILE_METADATA_KEYS`.
    - Use `prior_catalog` in S3 `get_schemas`.
-   - Raise / remove the 10k `max_catalog_objects` cap.
-2. **Test set.** 30–50 real queries with expected files, run against a large
-   connection, with a script that reports recall@10. Measure today's search as
-   the baseline.
-3. **Mode ladder in config + form.**
-   - Add `keywords` / `fulltext` (and reserve `semantic`) and migrate
-     `content` → `keywords`.
-   - Add `index_mode` to Google Drive.
-   - Write the per-mode descriptions and defaults.
-4. **Full text index.**
-   - Section table + Postgres/SQLite FTS, incremental updates, deletes.
-   - Change `search_files` to query in SQL and return ranked files + sections.
-5. **Per-user filtering.** Shared content index + per-user visible file ids, so
-   per-user SharePoint on-prem / Documentum can use the index.
-6. **Measure** keywords vs full text on the test set; decide on Semantic.
+   - Keep digits in body keywords (`_keywords.py`).
+3. **Source search in File list mode** (if approved): always-on, Graph
+   `/search/query`, rate limiter.
+4. **Full text for shared connections.**
+   - Section table, shared tokenizer, Postgres/SQLite FTS.
+   - Resumable build, incremental updates, deletes.
+   - `search_files` queries in SQL and returns ranked files + sections.
+   - Network drive and S3 first, then SharePoint on-prem and Documentum with a
+     service account.
+5. **Form.** `fulltext` option, "Keywords" label for `content`, per-mode
+   descriptions, defaults, size/time estimate, `index_mode` on Google Drive.
+6. **Per-user filtering,** after security review.
+7. **Measure** each step on the test set; decide on Semantic.
+
+## Sandbox feedback loop
+
+Follow `.agents/skills/sandbox-feedback-loop/SKILL.md`; the doc lands in
+`docs/feedback-loops/`.
+
+**Loop A — deterministic, no credentials.** Seed a local folder as a
+network-drive connection and drive everything through the real `search_files`
+tool with pytest, on SQLite and with `--db=postgres`. Each case fails on
+current code for the stated reason and passes after the change.
+
+| Case | Seeded data | Fails today because |
+|---|---|---|
+| Deep match | long document, unique word on the last page | only the first 200k chars are sampled |
+| ID in body | `PO-48213` appears only inside a file | body digits are dropped |
+| Ranking | one file about a topic, 20 that mention it once | no relevance ranking |
+| Location | term on page 7 of a PDF / on the second sheet | results carry no location |
+| Phrase | exact phrase in one file, same words scattered in another | no phrase search |
+| Hebrew prefix | file contains "בחוזה", query is "חוזה" | whole-word match only |
+| File changed | edit a file, re-index | new word found, old word gone, unchanged files not re-read |
+| File deleted | delete a file, re-index | it must disappear from results |
+| Interrupted build | stop indexing halfway, run again | finished files are kept and not re-read |
+| No text | scanned PDF | flagged `no_text`, not silently missing |
+| Per-user (phase 6) | two users, one cannot see file X | X never appears for that user, not even its name; also after access is revoked without a re-sync |
+| Scale | 50k small generated files | search must not load the whole catalog, and must stay under a time limit |
+
+The headline number is the share of test-set queries with the right file in
+the top 10, before and after.
+
+**Loop B — optional, real LLM.** Ask the agent a question whose answer sits
+deep in one file and check it finds that file within a few tool calls.
 
 ## Open questions
 
-- **Source search in File list mode.** Should `search_files` call the
-  provider's own content search for Drive / M365 (and SharePoint on-prem when
-  the farm has search)?
-  - If not, their content is only searchable through Full text, which means
-    downloading every file and hitting their rate limits.
-  - Research notes are below. Graph `/search/query` and SharePoint on-prem
-    `/_api/search/query` fit agentic use well. Drive returns no snippets.
-- Who reads content first for per-user connections (service account vs first
-  user)?
-- Is storing readable section text acceptable as an opt-in, and for which
-  connectors?
+- Sign-off on source search in File list mode (recommended above).
+- Sign-off on the per-user design and its security review.
+- The Hebrew prefix rule: does it produce too many false matches? Decide from
+  the Hebrew test queries.
+- Real index size and build time at 50k files: measure in step 4 before
+  setting defaults.
 
 ## Not doing
 
@@ -193,6 +300,24 @@ Only build this if the test set shows that searches by meaning are missed.
   for 50k files with Claude Haiku 5.5, batch vs standard), but the value is
   unproven, and some customers can't send content to an LLM. Revisit after the
   test set.
+- **A separate native-search tool.** Source search lives inside `search_files`.
+
+## Changes in revision 2
+
+- "No readable text stored" replaced by an honest statement: the full-text
+  index is customer content.
+- Stored value `content` is kept (label "Keywords") instead of being renamed.
+- One Python tokenizer for both databases, with Hebrew prefix handling.
+- Search returns section locations in `read_file` coordinates; no live snippet
+  fetch.
+- Index builds are resumable; scanned files are flagged.
+- Per-user search moved to a last, security-gated phase with verify-before-
+  return and scheduled list refresh; content is crawled by the connection's
+  crawl identity.
+- Source search for Drive / Microsoft 365 is a recommended decision instead of
+  an open question.
+- Catalog cap corrected: per-connection setting, default 5k–10k, max 50k.
+- Baseline measurement moved to step 1; test cases added.
 
 ## Appendix: research notes
 
@@ -205,6 +330,7 @@ Sources were read from code (shallow clones) and official docs in Nov 2026.
   `pg_trgm`.
 - Hybrid score `0.7·vec + 0.3·BM25` (BM25 rescaled per query), MMR (λ 0.7),
   30-day temporal decay; top 6 results, 700-char snippets.
+- Keyword search requires all terms first, then retries with any term.
 - Embedding cache keyed by chunk hash. Falls back to FTS-only when there's no
   embedding provider.
 - Two agent tools: `memory_search` → `memory_get(path, lines)`.
@@ -249,7 +375,7 @@ Sources were read from code (shallow clones) and official docs in Nov 2026.
   freshness.
 - Agentic search is run by its own trained planner model.
 
-**Provider search APIs** (for the open question):
+**Provider search APIs:**
 
 - **Graph `/search/query`:**
   - KQL with path/filetype/date filters, highlighted snippets, relevance
