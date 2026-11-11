@@ -33,6 +33,20 @@ from app.schemas.data_sources.nosql import (
     CouchbaseCredentials,
     DynamoDBConfig,
 )
+from app.schemas.data_sources.lakehouse import (
+    DremioConfig,
+    DremioPasswordCredentials,
+    DremioTokenCredentials,
+    HiveConfig,
+    HiveLdapCredentials,
+    HiveNoAuthCredentials,
+    IcebergAwsDefaultCredentials,
+    IcebergAwsKeyCredentials,
+    IcebergBearerCredentials,
+    IcebergConfig,
+    IcebergNoAuthCredentials,
+    IcebergOAuthCredentials,
+)
 from app.schemas.data_sources.configs import (
     # Configs
     PostgreSQLConfig,
@@ -1466,6 +1480,58 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         client_path="app.data_sources.clients.mongodb_client.MongodbClient",
         is_document_based=True,
         data_shape="objects",
+    ),
+    "iceberg": DataSourceRegistryEntry(
+        type="iceberg",
+        title="Apache Iceberg",
+        description=(
+            "Iceberg lakehouse tables through their catalog — Iceberg REST (Polaris, Nessie, "
+            "Gravitino, Lakekeeper, Unity …), AWS Glue or Amazon S3 Tables — queried read-only "
+            "with SQL, with partition pruning and time travel."
+        ),
+        config_schema=IcebergConfig,
+        credentials_auth=AuthOptions(
+            default="oauth2",
+            by_auth={
+                "oauth2": AuthVariant(title="OAuth2 Client Credentials", schema=IcebergOAuthCredentials, scopes=["system"]),
+                "bearer": AuthVariant(title="Bearer Token", schema=IcebergBearerCredentials, scopes=["system", "user"]),
+                "none": AuthVariant(title="No Authentication", schema=IcebergNoAuthCredentials, scopes=["system"]),
+                "aws_keys": AuthVariant(title="AWS Access Key (Glue / S3 Tables)", schema=IcebergAwsKeyCredentials, scopes=["system"]),
+                "aws_default": AuthVariant(title="AWS Default Chain (Glue / S3 Tables)", schema=IcebergAwsDefaultCredentials, scopes=["system"]),
+            },
+        ),
+        client_path="app.data_sources.clients.iceberg_client.IcebergClient",
+        version="beta",
+    ),
+    "dremio": DataSourceRegistryEntry(
+        type="dremio",
+        title="Dremio",
+        description="Lakehouse query engine and semantic layer (Dremio Software or Dremio Cloud), queried read-only with SQL.",
+        config_schema=DremioConfig,
+        credentials_auth=AuthOptions(
+            default="token",
+            by_auth={
+                "token": AuthVariant(title="Personal Access Token", schema=DremioTokenCredentials, scopes=["system", "user"]),
+                "userpass": AuthVariant(title="Username / Password", schema=DremioPasswordCredentials, scopes=["system", "user"]),
+            },
+        ),
+        client_path="app.data_sources.clients.dremio_client.DremioClient",
+        version="beta",
+    ),
+    "hive": DataSourceRegistryEntry(
+        type="hive",
+        title="Apache Hive / Impala",
+        description="Hadoop SQL engines over HiveServer2 — Apache Hive, Apache Impala or Spark Thrift Server — queried read-only.",
+        config_schema=HiveConfig,
+        credentials_auth=AuthOptions(
+            default="none",
+            by_auth={
+                "none": AuthVariant(title="No Authentication", schema=HiveNoAuthCredentials, scopes=["system"]),
+                "ldap": AuthVariant(title="LDAP Username / Password", schema=HiveLdapCredentials, scopes=["system", "user"]),
+            },
+        ),
+        client_path="app.data_sources.clients.hive_client.HiveClient",
+        version="beta",
     ),
     "dynamodb": DataSourceRegistryEntry(
         type="dynamodb",

@@ -59,6 +59,9 @@ CLIENT_DIALECTS = {
     "DuckDBClient": "duckdb",
     "TeradataClient": "teradata",
     "DruidClient": "druid",
+    "IcebergClient": "duckdb",
+    "DremioClient": "dremio",
+    "HiveClient": "hive",
 }
 
 # Statements sqlglot leaves as an opaque Command that are still reads.
