@@ -33,17 +33,20 @@ def _has_column(table: str) -> bool:
 
 
 def upgrade() -> None:
+    # Native ADD/DROP COLUMN, not batch_alter_table (as dashlist01): on SQLite
+    # batch mode can rebuild the table -- always for a drop, and for an add
+    # whose default is a SQL expression such as sa.false() -- and with foreign
+    # keys on, dropping the old table cascades into every child
+    # (artifact_host_applications, ...). A constant default keeps it one ALTER.
     for table in ("reports", "artifacts"):
         if _has_column(table):
             continue
-        with op.batch_alter_table(table) as batch:
-            batch.add_column(sa.Column("show_widget_info", sa.Boolean(), nullable=False,
-                                       server_default=sa.false()))
+        op.add_column(table, sa.Column("show_widget_info", sa.Boolean(), nullable=False,
+                                       server_default="0"))
 
 
 def downgrade() -> None:
     for table in ("artifacts", "reports"):
         if not _has_column(table):
             continue
-        with op.batch_alter_table(table) as batch:
-            batch.drop_column("show_widget_info")
+        op.drop_column(table, "show_widget_info")
