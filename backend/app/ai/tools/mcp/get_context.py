@@ -119,7 +119,9 @@ class GetContextTool(MCPTool):
         "queries (agreed metric/model definitions) and the instructions that apply in this "
         "report ('always' rules with their text; the rest listed for read_instruction). "
         "Useful for searching or explaining metadata. "
-        "Optionally filter by regex patterns. "
+        "Optionally filter by regex patterns. Authorized agent managers also see builtin:bow "
+        "tables bow.runs and bow.tool_calls for usage, historical prompts, and execution analysis "
+        "through create_data, scoped to their management permissions. "
         "Agents may also expose external tools (MCP servers / custom APIs), listed here by name only — "
         "call list_agent_tools to get their full input schemas before invoking them with execute_mcp."
     )
@@ -171,7 +173,7 @@ class GetContextTool(MCPTool):
         )
         
         # Build schema context
-        schema_builder = SchemaContextBuilder(db, data_sources, organization, report, user)
+        schema_builder = SchemaContextBuilder(db, data_sources, organization, report, user, include_bow_history=True)
         schemas = await schema_builder.build(
             with_stats=True,
             top_k=20,

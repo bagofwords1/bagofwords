@@ -60,7 +60,7 @@ Permissions are enforced by the service and cannot be supplied or changed by cod
         self._bow_access = None
         self._writer_db, self._writer_lock = writer_db, writer_lock
         self._tasks = set()
-        # runs / tool_calls stay a training capability (plus saved BOW reports);
+        # runs / tool_calls require training or MCP context (plus saved BOW reports);
         # Agent List datasets are available wherever the client is installed.
         self._allow_history = allow_history
 
@@ -104,7 +104,7 @@ Permissions are enforced by the service and cannot be supplied or changed by cod
                         from app.services.agent_lists.bow_lists import query_list
                         return await query_list(db, org, user, request)
                     if not self._allow_history:
-                        raise PermissionError("BOW run history (runs/tool_calls) is only available in training mode")
+                        raise PermissionError("BOW run history (runs/tool_calls) requires an authorized training or MCP context")
                     saved = (await db.scalar(select(ArtifactRelease.bow_source_access)
                                              .where(ArtifactRelease.id == self._release_id))
                              if self._release_id else await report_access(db, self._report_id))
@@ -130,7 +130,7 @@ Permissions are enforced by the service and cannot be supplied or changed by cod
 
 
 async def install_bow_client(db, organization, user, report, clients, *, mode=None, allow_saved=True, writer_lock=None,
-                             release=None):
+                             release=None, include_bow_history=False):
     """Used by initial execution and every saved-query runner; no cached grants.
     `release`: a published dashboard's run, scoped to its release instead of a
     conversation."""
@@ -143,7 +143,7 @@ async def install_bow_client(db, organization, user, report, clients, *, mode=No
         saved = await report_access(db, getattr(report, "id", None))
     if user is None or organization is None:
         return
-    history = (mode or getattr(report, "mode", None)) == "training" or bool(saved and allow_saved)
+    history = (mode or getattr(report, "mode", None)) == "training" or include_bow_history or bool(saved and allow_saved)
     if history:
         try:
             await resolve_console_scope(db, organization, user)
