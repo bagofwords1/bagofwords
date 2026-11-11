@@ -373,7 +373,7 @@ added, and the reasons are worth carrying forward.
   timestamps. The service principal bypasses Power BI's own RLS, which is why the
   `system_only` gate matters here; the platform's row policies apply on the copy.
 - **Column types come from the source's declaration, then widen; they never
-  narrow or round** (`sources.declared_decimals`, `extractor._wider`). The
+  narrow or round** (`sources.declared_decimals`, `loader._wider`). The
   artifact's columns are created from the first 50,000-row batch, so a type
   inferred from values broke later batches: `numeric(12,2)` stored as
   DECIMAL(7,2) failed the refresh on the first larger value, and a column
@@ -388,7 +388,7 @@ added, and the reasons are worth carrying forward.
   undeclared
   or under-declared column is ALTERed to the narrowest exact type that holds
   both batches. Past 38 digits no DuckDB decimal holds both, so the column
-  becomes DOUBLE, rows already written included, and the extractor logs the
+  becomes DOUBLE, rows already written included, and the loader logs the
   WARNING `extraction.column_became_approximate` (`column`, `from_type`).
   Repeated column names (`a.id, b.id`) are stored as `id`, `id_1`, as DuckDB
   itself names a case-only repeat, and `columns` reports those stored names.
