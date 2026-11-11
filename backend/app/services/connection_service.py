@@ -347,7 +347,7 @@ def _invalidate_engine_pool(connection) -> None:
         allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
         client = ClientClass(**allowed)
         for attr in ("pg_uri", "mysql_uri", "mariadb_uri", "sql_server_uri",
-                     "oracle_uri", "trino_uri", "presto_uri", "teradata_uri"):
+                     "oracle_uri", "trino_uri", "presto_uri", "teradata_uri", "db2_uri"):
             uri = getattr(client, attr, None)
             if uri:
                 n = dispose_for_uri(uri)
