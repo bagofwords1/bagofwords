@@ -4,7 +4,8 @@ These tests pin three contracts that the FastAPI-serves-everything PR
 introduced (or changed) and that have no other regression coverage:
 
   * ``GET /health`` — used by k8s probes, the docker HEALTHCHECK, and the
-    Playwright CI wait loop. Must always return 200 + ``{"status":"ok"}``.
+    Playwright CI wait loop. Must always return 200 with ``status == "ok"``
+    (the body also carries version/uptime fields; see ``test_health.py``).
   * ``GET /mcp`` and ``POST /mcp`` at the *root* — external MCP clients
     (Claude Code, Cursor, Claude Web) connect to ``<base>/mcp`` directly.
     The path used to exist via the Nuxt proxy rewrite ``/mcp → /api/mcp``;
@@ -25,7 +26,7 @@ import pytest
 def test_health_endpoint(test_client):
     response = test_client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json()["status"] == "ok"
 
 
 @pytest.mark.e2e

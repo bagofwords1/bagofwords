@@ -9,6 +9,9 @@ from app.data_sources.clients.powerbi_client import PowerBIClient
 
 
 class Tenant:
+    def mount(self, prefix, adapter):
+        pass
+
     def __init__(self, models):
         self.models = models
         self.hidden = False

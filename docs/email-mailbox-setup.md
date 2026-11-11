@@ -1,6 +1,6 @@
 # Connecting the AI Analyst Mailbox (Microsoft 365 & Google Workspace)
 
-This guide walks an **administrator** through giving the Bag of words (BOW) AI
+This guide walks an **administrator** through giving the BOW AI
 analyst its own mailbox (e.g. `analyst@acme.com`) so it can **send** answers and
 notifications and (optionally) **receive** questions by email.
 

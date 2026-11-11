@@ -71,6 +71,50 @@ def _preview(test_client, ctx, table_id, *, token=None, conn_id=None):
     )
 
 
+def _preview_sql(test_client, ctx, table_id, *, token=None, conn_id=None):
+    return test_client.get(
+        f"/api/connections/{conn_id or ctx['conn']['id']}/tables/{table_id}/preview/sql",
+        headers=_headers(token or ctx["token"], ctx["org_id"]),
+    )
+
+
+@pytest.mark.e2e
+def test_preview_sql_returns_the_query_without_running_it(test_client, sqlite_connection):
+    """The modal opens on this endpoint: it serves the query built from the
+    catalog and never touches the source — so it still answers after the source
+    table is gone, the moment the executing /preview would fail."""
+    ctx = sqlite_connection()
+    table = ctx["tables"]["customers"]
+
+    res = _preview_sql(test_client, ctx, table["id"])
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["table_id"] == table["id"]
+    assert body["language"] == "sql"
+    assert "customers" in body["sql"]
+    assert "*" not in body["sql"]           # the catalog's columns are named
+    assert "customers" in body["base_sql"]  # the unbounded starting query
+    assert "rows" not in body               # SQL only — no data was read
+    assert body["row_limit"] >= 1
+
+    # Prove nothing ran against the source: drop the table, the SQL endpoint
+    # still answers (built from the catalog) while /preview now fails.
+    con = sqlite3.connect(str(ctx["db_path"]))
+    con.execute("DROP TABLE customers")
+    con.commit()
+    con.close()
+    assert _preview_sql(test_client, ctx, table["id"]).status_code == 200
+    assert _preview(test_client, ctx, table["id"]).status_code == 400
+
+
+@pytest.mark.e2e
+def test_preview_sql_needs_manage_connection(test_client, sqlite_connection, invite_user_to_org):
+    ctx = sqlite_connection()
+    member = invite_user_to_org(org_id=ctx["org_id"], admin_token=ctx["token"])
+    res = _preview_sql(test_client, ctx, ctx["tables"]["customers"]["id"], token=member["token"])
+    assert res.status_code == 403, res.text
+
+
 @pytest.mark.e2e
 def test_manager_sees_real_columns_and_rows(test_client, sqlite_connection):
     ctx = sqlite_connection()

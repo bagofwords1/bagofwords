@@ -3,6 +3,7 @@ from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ForeignKey, ServiceFormatter
 from typing import List, Dict, Optional
 import requests
+from app.core.egress import pinned_request, pinned_session
 import pandas as pd
 import logging
 
@@ -73,7 +74,7 @@ class SisenseClient(DataSourceClient):
         if self._http and self._access_token:
             return
 
-        self._http = requests.Session()
+        self._http = pinned_session()
 
         if self.api_token:
             self._access_token = self.api_token
@@ -85,7 +86,7 @@ class SisenseClient(DataSourceClient):
             "password": self.password,
         }
 
-        resp = requests.post(url, data=payload, timeout=30)
+        resp = pinned_request("POST", url, data=payload, timeout=30)
         if resp.status_code >= 300:
             raise RuntimeError(f"Failed to authenticate with Sisense: HTTP {resp.status_code} {resp.text}")
 

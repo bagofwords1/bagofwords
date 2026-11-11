@@ -21,12 +21,15 @@ from app.schemas.data_source_registry import (
 
 
 def _ds_is_connector(d) -> bool:
-    """True when every connection on a data source is a tool provider
-    (mcp / custom_api, data_shape="tools"). Such a data source is a
-    "connector": a lightweight, tools-only source surfaced in /agents."""
-    tps = tool_provider_types()
-    conns = getattr(d, "connections", None) or []
-    return bool(conns) and all(getattr(c, "type", None) in tps for c in conns)
+    """True when the data source is a connector (each person's own account or
+    tools), not an agent — see app/services/data_source_kind.py."""
+    from app.services.data_source_kind import is_connector
+    return is_connector(d)
+
+
+def _ds_kind(d) -> str:
+    from app.services.data_source_kind import data_source_kind
+    return data_source_kind(d)
 
 
 def _conn_connector_key(conn):
@@ -674,6 +677,7 @@ class DataSourceService:
         is_public = data_source_dict.pop("is_public", False)
         use_llm_sync = data_source_dict.pop("use_llm_sync", False)
         channel_availability = data_source_dict.pop("channel_availability", None)
+        kind = data_source_dict.pop("kind", None)
         member_user_ids = data_source_dict.pop("member_user_ids", [])
         member_bindings = data_source_dict.pop("member_bindings", None)
         auth_policy = data_source_dict.get("auth_policy", "system_only")
@@ -831,7 +835,8 @@ class DataSourceService:
             "is_public": is_public,
             "use_llm_sync": use_llm_sync,
             "channel_availability": channel_availability,
-            "owner_user_id": current_user.id
+            "owner_user_id": current_user.id,
+            "kind": kind,
         }
         
         # Create the data source instance
@@ -1587,6 +1592,8 @@ class DataSourceService:
                 connections=connections_list,
                 cached_tables=cached_by_ds.get(str(d.id), []),
                 is_connector=_ds_is_connector(d),
+                kind=_ds_kind(d),
+                kind_explicit=getattr(d, "kind", None),
                 connector_key=_ds_connector_key(d),
                 # Legacy fields from first connection for backward compatibility
                 type=conn.type if conn else None,
@@ -1838,6 +1845,8 @@ class DataSourceService:
                 connections=connections_list,
                 cached_tables=cached_by_ds.get(str(d.id), []),
                 is_connector=_ds_is_connector(d),
+                kind=_ds_kind(d),
+                kind_explicit=getattr(d, "kind", None),
                 connector_key=_ds_connector_key(d),
                 # Legacy fields from first connection for backward compatibility
                 type=conn.type if conn else None,
@@ -1955,6 +1964,8 @@ class DataSourceService:
                 connections=connections_list,
                 cached_tables=cached_by_ds.get(str(d.id), []),
                 is_connector=_ds_is_connector(d),
+                kind=_ds_kind(d),
+                kind_explicit=getattr(d, "kind", None),
                 connector_key=_ds_connector_key(d),
                 type=conn.type if conn else None,
                 auth_policy=auth_policy,
@@ -2603,7 +2614,11 @@ class DataSourceService:
                 }
 
             # Step 2: Validate schema access by attempting to get tables
-            schema_status = await self._avalidate_schema_access(client)
+            # Warehouse query tag: this catalog read is part of a connection
+            # check, not indexing (app/data_sources/query_tag.py).
+            from app.data_sources.query_tag import query_tag_defaults
+            with query_tag_defaults(source="connection_test"):
+                schema_status = await self._avalidate_schema_access(client)
             
             # Combine results
             if not schema_status.get("success"):
@@ -2731,7 +2746,7 @@ class DataSourceService:
         if not row:
             # No data-source-level creds — delegate to the connection-level resolver,
             # the single source of truth for delegated/OBO tokens, the admin
-            # query-identity toggle, OAuth refresh, the legacy owner/admin system
+            # query-identity toggle, OAuth refresh, the legacy admin system
             # fallback, and the "connect required" 403.
             from app.services.connection_service import ConnectionService
             return await ConnectionService().resolve_credentials(db, conn, current_user)
@@ -3309,9 +3324,14 @@ class DataSourceService:
         )).all()
         if not rows:
             return
+        # Clients that name tables `schema.table` inside a default database
+        # (Snowflake) say which one, so a table from another database can't
+        # pass for an enabled table with the same schema and name.
         setattr(client, TABLE_SCOPE_ATTR, TableScope.from_names(
             active=[name for name, is_active in rows if is_active],
             inactive=[name for name, is_active in rows if not is_active],
+            default_database=getattr(client, "table_scope_default_database", None),
+            enforce_databases=bool(getattr(client, "table_scope_enforce_databases", True)),
         ))
 
     def _attach_client_quota_metadata(self, client, data_source: DataSource, connection, client_key: str) -> None:
@@ -3382,7 +3402,7 @@ class DataSourceService:
             # Connection-level resolution. ConnectionService.resolve_credentials is the
             # single source of truth: it handles delegated/OBO tokens, the admin
             # query-identity toggle (service account vs self), OAuth refresh, the legacy
-            # owner/admin system fallback for non-delegated connections, and the
+            # admin system fallback for non-delegated connections, and the
             # "connect required" 403 for a self-identity user with no token.
             from app.services.connection_service import ConnectionService
             return await ConnectionService().resolve_credentials(db, connection, current_user)
@@ -3490,6 +3510,12 @@ class DataSourceService:
         # Handle primary_instruction_id explicitly (allow None to clear it)
         if 'primary_instruction_id' in update_data:
             data_source_db.primary_instruction_id = update_data.pop('primary_instruction_id')
+
+        # Agent/connector: "auto" clears the explicit choice (derived again).
+        if 'kind' in update_data:
+            _kind = update_data.pop('kind')
+            if _kind is not None:
+                data_source_db.kind = None if _kind == "auto" else _kind
 
         # Handle icon explicitly so an explicit null clears the custom-icon
         # override (the generic loop below skips None values).
@@ -3884,11 +3910,11 @@ class DataSourceService:
 
         Returns one of:
           'user'   — the user has their own active credentials (use their overlay)
-          'system' — owner/admin using the service-account fallback (full catalog)
+          'system' — admin using the service-account fallback (full catalog)
           'none'   — no proven access (use nothing)
 
         Fails closed to 'none' so a stale overlay can't keep serving tables after
-        access is lost. Owner/admin reliably classify as 'system', so the closed
+        access is lost. Admins reliably classify as 'system', so the closed
         default never hides the canonical catalog from them.
         """
         try:
@@ -4230,8 +4256,9 @@ class DataSourceService:
         # tables) is kept.
         _FILE_SOURCE_TYPES = [
             "network_dir", "s3", "sharepoint", "sharepoint_onprem", "documentum", "onedrive", "google_drive",
-            "outlook_mail", "gmail_mail",
+            "outlook_mail", "gmail_mail", "teams_messages",
             "github_repo", "gitlab_repo", "bitbucket_repo",
+            "kms_lighthouse",
         ]
         _file_ct_subq = None
         # Per-user file catalogs (OneDrive, Outlook, personal Drive) have no
@@ -6318,16 +6345,27 @@ class DataSourceService:
         """
         from app.services.access_errors import CredentialsRequiredError
 
-        if current_user is not None and self._per_user_catalog_connections(data_source):
+        per_user_connections = self._per_user_catalog_connections(data_source)
+        if current_user is not None and per_user_connections:
             try:
                 await self.get_user_data_source_schema(
                     db=db, data_source=data_source, user=current_user,
                     prefetched_tables=prefetched_tables,
                     force_refresh=True,
                 )
-            except CredentialsRequiredError:
-                # A tokenless caller can still use the system catalog. Other
-                # discovery/publication failures must propagate, not look successful.
+            except HTTPException as e:
+                # A tokenless caller can still use the system catalog, and so can a
+                # refused caller who may see a connection that takes no login: it has
+                # nothing to connect, whatever the agent's other connections need.
+                # Other discovery/publication failures must propagate, not look
+                # successful.
+                if not isinstance(e, CredentialsRequiredError) and not (
+                    e.status_code == 403
+                    and await self._caller_sees_a_no_login_connection(
+                        db, data_source, current_user, per_user_connections
+                    )
+                ):
+                    raise
                 # Degrading here is deliberate (a live fetch against the user's
                 # token can fail for reasons we can't fix), but stay loud: a
                 # swallowed error reads downstream as an empty overlay, which is
@@ -6345,6 +6383,20 @@ class DataSourceService:
             current_user=current_user,
         )
 
+    async def _caller_sees_a_no_login_connection(
+        self, db: AsyncSession, data_source: DataSource, current_user: User, connections: list,
+    ) -> bool:
+        """True if one of `connections` takes no login and this caller's catalog includes it.
+
+        Only decides whether a refusal stands: no credential is resolved here. A
+        member the classifier denies gets nothing from the connection, so for
+        them the refusal is the honest answer rather than an empty success.
+        """
+        from app.services.connection_identity import takes_no_login
+
+        open_ids, overlay_ids, _ = await self.classify_connection_access(db, data_source, current_user)
+        visible_ids = {*open_ids, *overlay_ids}
+        return any(str(c.id) in visible_ids and takes_no_login(c) for c in connections)
 
     async def get_metadata_resources(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User = None):
         result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
@@ -6495,45 +6547,51 @@ class DataSourceService:
 
         return DataSourceMembershipSchema.from_orm(membership)
 
-    async def remove_data_source_member(self, db: AsyncSession, data_source_id: str, user_id: str, organization: Organization, current_user: User):
-        """Remove a user from data source membership.
-        Deletes from both DataSourceMembership (legacy) and ResourceGrant (RBAC).
-        """
-        # Get data source to verify it exists
-        data_source = await self.get_data_source(db, data_source_id, organization)
+    async def remove_data_source_member(
+        self,
+        db: AsyncSession,
+        data_source_id: str,
+        principal_id: str,
+        organization: Organization,
+        current_user: User,
+        principal_type: str = PRINCIPAL_TYPE_USER,
+    ):
+        """Remove a member (user, group or role) from a data source.
 
-        # Find and delete legacy membership
-        result = await db.execute(
+        Deletes the RBAC ResourceGrant (what the members list is built from) and
+        the legacy DataSourceMembership row, matched on the full
+        (principal_type, principal_id) key. Either may exist without the other:
+        role grants and grants written via /resource-grants or agent YAML have
+        no legacy row, and roles have no legacy representation at all. 404 only
+        when neither exists.
+        """
+        from app.models.resource_grant import ResourceGrant
+
+        await self.get_data_source(db, data_source_id, organization)
+
+        grants = (await db.execute(
+            select(ResourceGrant).where(
+                ResourceGrant.organization_id == str(organization.id),
+                ResourceGrant.resource_type == "data_source",
+                ResourceGrant.resource_id == data_source_id,
+                ResourceGrant.principal_type == principal_type,
+                ResourceGrant.principal_id == principal_id,
+                ResourceGrant.deleted_at.is_(None),
+            )
+        )).scalars().all()
+        memberships = (await db.execute(
             select(DataSourceMembership).filter(
                 DataSourceMembership.data_source_id == data_source_id,
-                DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
-                DataSourceMembership.principal_id == user_id
+                DataSourceMembership.principal_type == principal_type,
+                DataSourceMembership.principal_id == principal_id,
             )
-        )
-        membership = result.scalar_one_or_none()
-        if not membership:
+        )).scalars().all()
+
+        if not grants and not memberships:
             raise HTTPException(status_code=404, detail="Membership not found")
 
-        await db.delete(membership)
-
-        # Also delete resource_grant (RBAC path)
-        try:
-            from app.models.resource_grant import ResourceGrant
-            grant_result = await db.execute(
-                select(ResourceGrant).where(
-                    ResourceGrant.resource_type == "data_source",
-                    ResourceGrant.resource_id == data_source_id,
-                    ResourceGrant.principal_type == PRINCIPAL_TYPE_USER,
-                    ResourceGrant.principal_id == user_id,
-                    ResourceGrant.deleted_at.is_(None),
-                )
-            )
-            grant = grant_result.scalar_one_or_none()
-            if grant:
-                await db.delete(grant)
-        except Exception:
-            pass  # Don't break if resource_grants table doesn't exist yet
-
+        for row in (*grants, *memberships):
+            await db.delete(row)
         await db.commit()
         return {"message": "Member removed successfully"}
 

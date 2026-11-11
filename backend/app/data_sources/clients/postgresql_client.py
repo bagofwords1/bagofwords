@@ -24,11 +24,21 @@ class PostgresqlClient(DataSourceClient):
     # of literal dates that go stale when saved code is re-executed.
     relative_date_hint = "Relative dates (PostgreSQL): CURRENT_DATE, CURRENT_DATE - INTERVAL '7 days', date_trunc('month', CURRENT_DATE); the clock is the DB server's."
 
+    # Schemas the crawl skips unless `include_system_schemas` is set. These hold
+    # Postgres's own catalog (pg_catalog) and the SQL-standard views over it
+    # (information_schema); BOW's schema context normally stands in for them.
+    SYSTEM_SCHEMAS = ("information_schema", "pg_catalog")
+
     def __init__(self, host, port, database, user, password="", schema=None, sslmode="prefer",
-                 index_routines: bool = False):
+                 index_routines: bool = False, include_system_schemas: bool = False):
         self.host = host
         # Opt-in routine indexing (see app.data_sources.routines).
         self.index_routines = bool(index_routines)
+        # Opt-in crawl of pg_catalog / information_schema tables and views, for
+        # agents that monitor the database itself (pg_stat_activity, pg_locks,
+        # pg_stat_user_tables, ...). Off, those schemas never appear in the
+        # catalog, so there is nothing for an admin to activate later.
+        self.include_system_schemas = bool(include_system_schemas)
         self.port = port
         self.database = database
         self.user = user
@@ -46,6 +56,13 @@ class PostgresqlClient(DataSourceClient):
                 if low not in seen:
                     seen.add(low)
                     self._schemas.append(low)
+
+    def _system_schema_filter(self, column: str) -> List[str]:
+        """WHERE clauses that hide system schemas, or none when they are opted in."""
+        if self.include_system_schemas:
+            return []
+        quoted = ", ".join(f"'{name}'" for name in self.SYSTEM_SCHEMAS)
+        return [f"{column} NOT IN ({quoted})"]
 
     @cached_property
     def pg_uri(self):
@@ -117,7 +134,7 @@ class PostgresqlClient(DataSourceClient):
             params = {"database": self.database}
             where_clauses = [
                 "c.table_catalog = :database",
-                "c.table_schema NOT IN ('information_schema', 'pg_catalog')",
+                *self._system_schema_filter("c.table_schema"),
             ]
             if self._schemas:
                 in_keys = []
@@ -189,7 +206,7 @@ class PostgresqlClient(DataSourceClient):
         params = {}
         where_clauses = [
             "c.relkind = 'm'",
-            "n.nspname NOT IN ('information_schema', 'pg_catalog')",
+            *self._system_schema_filter("n.nspname"),
         ]
         if self._schemas:
             in_keys = []
@@ -263,7 +280,7 @@ class PostgresqlClient(DataSourceClient):
                 params = {"database": self.database}
                 where_clauses = [
                     "table_catalog = :database",
-                    "table_schema NOT IN ('information_schema', 'pg_catalog')",
+                    *self._system_schema_filter("table_schema"),
                 ]
                 if self._schemas:
                     in_keys = []

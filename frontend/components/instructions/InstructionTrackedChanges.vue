@@ -141,6 +141,7 @@
 <script setup lang="ts">
 import { ref, shallowRef, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { isReviewConflict, sameSelection, selectionStillValid, type ReviewUnit } from '~/utils/reviewRetry'
 import {
   buildMentionMatcher,
   parseMentionSegments,
@@ -439,7 +440,14 @@ watch(contentEl, (next, previous) => {
 // `silent` swaps the hunk data in place WITHOUT flipping `loading` (which would
 // blank the pane to a "Loading…" placeholder). Used after accept/reject so the
 // view updates the resolved hunk away smoothly instead of flickering.
-async function load(opts: { silent?: boolean } = {}) {
+// `emitState: false` suppresses the `empty`/`error` emits (NOT the data swap or
+// `loadError`). postResolve's internal retry reload uses it: those emits are a
+// state signal hosts act on — `EditInstructionTool` answers `empty` by marking
+// the card ACCEPTED — and an internal reload that happens to find the pane empty
+// (a not-retried or twice-failed conflict) must not mislabel a failed resolve as
+// an accepted one. The deliberate post-success reloads in _resolve/resolveAll
+// emit normally (and emit `changed` to the host first).
+async function load(opts: { silent?: boolean; emitState?: boolean } = {}) {
   if (!props.instructionId) return
   if (!opts.silent) loading.value = true
   try {
@@ -468,8 +476,10 @@ async function load(opts: { silent?: boolean } = {}) {
   // a failed fetch made hosts resolve the change away on nothing more than a
   // dropped request — KnowledgeGroup marks it rejected, and the chat's
   // EditInstructionTool marks it ACCEPTED.
-  if (loadError.value) emit('error')
-  else if (!totalHunks.value) emit('empty')
+  if (opts.emitState !== false) {
+    if (loadError.value) emit('error')
+    else if (!totalHunks.value) emit('empty')
+  }
   // Fires when the pane has real content (or knows it has none) — hosts use
   // it to keep their previous stable view up until this exact moment instead
   // of showing this component's own "Loading…" placeholder.
@@ -477,19 +487,81 @@ async function load(opts: { silent?: boolean } = {}) {
 }
 defineExpose({ reload: (opts?: { silent?: boolean }) => load(opts), resolveAll: (mode: 'accept' | 'reject') => resolveAll(mode) })
 
+// Every unit on screen, as the resolve routes name them, WITH the rendered text
+// the reviewer is seeing. `before`/`after` let the retry guards tell a drifted
+// hunk (same key, text re-anchored to main's current region) from the one that
+// was clicked; field changes bind their value into the key, so they carry none.
+function onScreenUnits(): ReviewUnit[] {
+  return [...actionableHunks.value, ...fieldChanges.value].map(h => ({
+    build_id: h.build_id, key: h.key, before: h.before, after: h.after,
+  }))
+}
+
+// POST a resolve naming the main build/version this pane last loaded. The
+// server refuses (409) once main has moved — and main moves whenever ANY
+// instruction is accepted, so in a session with several review cards the
+// second card's accept failed on nothing but the first card's. Clicking again
+// resent the same stale ids and failed again; only a reload helped.
+//
+// On a stale-main 409 (isReviewConflict — NOT the invalid-selection 409): reload
+// silently, and if the reviewer is still looking at what they acted on, send the
+// same decision once more against the current main. The "still looking at" test
+// differs by call site — a single hunk needs only that unit present
+// (selectionStillValid), "Accept/Reject all" needs the whole set unchanged
+// (sameSelection, via `exact`). If it changed, keep the fresh state and let them
+// decide again. One retry only: a second 409 is reported like any other failure.
+//
+// The retry reload passes `emitState: false` so it does not fire `empty`/`error`
+// at the host: this is an internal step, not a state change, and emitting here
+// would let a host mark a still-failing card as accepted (see `load`). The
+// post-success reload is done by the callers, which emit `changed` first.
+async function postResolve(
+  url: string, body: Record<string, any>, units: ReviewUnit[],
+  opts: { exact?: boolean } = {},
+): Promise<void> {
+  const send = () => useMyFetch(url, {
+    method: 'POST',
+    body: { ...body, against_main_build_id: mainBuildId.value, against_main_version_id: mainVersionId.value },
+  })
+  let { error } = await send()
+  if (error.value && isReviewConflict(error.value)) {
+    // Reload to catch up to the new main, then resend ONCE — but only if the
+    // reload actually advanced main and the reviewer is still looking at the
+    // same units with the same text. `useMyFetch` dedupes in-flight GETs, so a
+    // reload can join an older request that predates the move and come back
+    // still stale; comparing main_build_id before/after is the retry's real
+    // precondition ("main moved, and we've now caught up") and guards that too.
+    const staleMain = mainBuildId.value
+    await load({ silent: true, emitState: false })
+    const moved = mainBuildId.value !== staleMain
+    const onScreen = onScreenUnits()
+    const stillValid = opts.exact ? sameSelection(units, onScreen) : selectionStillValid(units, onScreen)
+    if (!loadError.value && moved && stillValid) ({ error } = await send())
+  }
+  if (error.value) {
+    // The retry reload ran with `emitState: false`, so the host never heard the
+    // state it would have emitted. We are about to throw (the caller toasts and
+    // does NOT reload again), so emit the pane's true state now — otherwise a
+    // host card sits "pending" over a pane that has already reloaded to empty or
+    // error, and the toast tells the reviewer to refresh something that already
+    // refreshed. If hunks remain, the pane stays pending and the `loaded` emit
+    // `load` always fires is the correct signal, so emit neither here.
+    if (loadError.value) emit('error')
+    else if (!totalHunks.value) emit('empty')
+    throw new Error((error.value as any)?.data?.detail || 'Failed')
+  }
+}
+
 async function _resolve(seg: any, action: 'accept' | 'reject') {
   const top = scrollEl.value?.scrollTop ?? 0
   resolving.value = seg.key
   try {
-    const url = `/api/instructions/${props.instructionId}/hunks/${action}`
-    const body = {
-      build_id: seg.build_id,
-      hunk_key: seg.key,
-      against_main_build_id: mainBuildId.value,
-      against_main_version_id: mainVersionId.value,
-    }
-    const { error } = await useMyFetch(url, { method: 'POST', body })
-    if (error.value) throw new Error((error.value as any)?.data?.detail || 'Failed')
+    const unit = { build_id: seg.build_id, key: seg.key, before: seg.before, after: seg.after }
+    await postResolve(
+      `/api/instructions/${props.instructionId}/hunks/${action}`,
+      { build_id: seg.build_id, hunk_key: seg.key },
+      [unit],
+    )
     // Tell the host BEFORE reloading ourselves — see resolveAll.
     emit('changed')
     await load({ silent: true })
@@ -507,14 +579,13 @@ async function resolveAll(mode: 'accept' | 'reject') {
     // Submit the exact action units represented on screen. The server validates
     // every pair against this main version and never discovers extra pending
     // builds during the mutation.
-    const url = `/api/instructions/${props.instructionId}/hunks/${mode}-all`
-    const body = {
-      against_main_build_id: mainBuildId.value,
-      against_main_version_id: mainVersionId.value,
-      hunks: [...actionableHunks.value, ...fieldChanges.value].map(h => ({ build_id: h.build_id, hunk_key: h.key })),
-    }
-    const { error } = await useMyFetch(url, { method: 'POST', body })
-    if (error.value) throw new Error((error.value as any)?.data?.detail || 'Failed')
+    const units = onScreenUnits()
+    await postResolve(
+      `/api/instructions/${props.instructionId}/hunks/${mode}-all`,
+      { hunks: units.map(u => ({ build_id: u.build_id, hunk_key: u.key })) },
+      units,
+      { exact: true },
+    )
     // Tell the host the resolve landed BEFORE reloading ourselves. Reloading
     // first emits `empty`/`error` on the way, and every host answers those by
     // dropping this pane — so by the time `changed` was reached it was being

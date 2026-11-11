@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.services.artifact_libs import get_inline_scripts
+from app.services.artifact_payload import row_count_fields
 
 logger = logging.getLogger(__name__)
 
@@ -291,6 +292,7 @@ class ThumbnailService:
                         "view": viz.view or {},
                         "rows": step.data.get("rows", []) if step and step.data else [],
                         "columns": step.data.get("columns", []) if step and step.data else [],
+                        **row_count_fields(step.data if step else None),
                         "dataModel": step.data_model or {} if step else {},
                     })
 
@@ -381,6 +383,7 @@ class ThumbnailService:
                     "view": viz.view or {},
                     "rows": (step.data or {}).get("rows", []) if step is not None else [],
                     "columns": (step.data or {}).get("columns", []) if step is not None else [],
+                    **row_count_fields(step.data if step is not None else None),
                     "dataModel": (step.data_model or {}) if step is not None else {},
                 } for viz, query, step in rows]
                 html_content = self._build_thumbnail_html(

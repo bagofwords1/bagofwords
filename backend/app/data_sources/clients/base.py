@@ -7,6 +7,7 @@ from typing import Any, List, Optional
 
 from app.data_sources.clients.progress import CancelCheck, ProgressCallback
 from app.data_sources.clients.discovery import DiscoveryClient, require_complete_discovery
+from app.data_sources.query_tag import query_tag_defaults
 
 
 class Capability(str, Enum):
@@ -60,6 +61,16 @@ class Capability(str, Enum):
     READ_NOTE = "read_note"
     SEARCH_NOTES = "search_notes"
     GREP_NOTES = "grep_notes"
+
+    # Chat capabilities — the Microsoft Teams client declares these INSTEAD OF
+    # the file capabilities, for the same reason mail and notes do. A chat
+    # message is one line of a conversation, so the read verb returns the
+    # whole THREAD around a message (a lone "yes, ship it" means nothing), and
+    # the browse verb is scoped by conversation (a channel or a chat), not by
+    # folder.
+    LIST_CHAT_MESSAGES = "list_chat_messages"
+    READ_CHAT_THREAD = "read_chat_thread"
+    SEARCH_CHAT_MESSAGES = "search_chat_messages"
 
     # Browser capability — declared by the `browser` connection client. Gates
     # the agent-callable browser tools (browser_navigate / browser_snapshot /
@@ -184,7 +195,9 @@ class DataSourceClient(DiscoveryClient, ABC):
             with ephemeral():
                 return self.test_connection()
 
-        return await asyncio.to_thread(_probe)
+        # Warehouse query tag (app/data_sources/query_tag.py): a health probe.
+        with query_tag_defaults(source="connection_test"):
+            return await asyncio.to_thread(_probe)
 
     async def aget_schemas(
         self,
@@ -222,7 +235,9 @@ class DataSourceClient(DiscoveryClient, ABC):
         # to this sink while they walk (see services/file_index_store.py).
         if section_sink is not None and _accepts_kwarg(self.get_schemas, "section_sink"):
             kwargs["section_sink"] = section_sink
-        result = await asyncio.to_thread(self.get_schemas, **kwargs)
+        # Warehouse query tag (app/data_sources/query_tag.py): catalog reads.
+        with query_tag_defaults(source="indexing"):
+            result = await asyncio.to_thread(self.get_schemas, **kwargs)
         return require_complete_discovery(self, result)
 
     async def aget_schema(self, table_name):

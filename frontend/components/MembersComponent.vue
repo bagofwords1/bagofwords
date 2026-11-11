@@ -17,6 +17,21 @@
                 </div>
             </div>
             <div class="flex items-center justify-end gap-2 w-full md:w-auto">
+                <div
+                    v-if="useCan('full_admin_access') && availableRoles.length"
+                    class="flex items-center gap-1.5 me-1"
+                    :title="$t('settings.members.defaultRoleHint')"
+                >
+                    <span class="text-xs text-ink-muted whitespace-nowrap">{{ $t('settings.members.defaultRoleShort') }}</span>
+                    <USelectMenu
+                        v-model="defaultMemberRole"
+                        :options="availableRoles.map(r => r.name)"
+                        size="xs"
+                        class="w-32"
+                        :loading="defaultRoleSaving"
+                        @update:model-value="saveDefaultRole"
+                    />
+                </div>
                 <UButton
                     v-if="useCan('add_organization_members')"
                     color="gray"
@@ -1243,7 +1258,7 @@ onMounted(async () => {
     try {
         const response = await useMyFetch(`/organizations/${organizationId}/members`)
         members.value = (response.data.value || []) as Member[]
-        await Promise.all([loadAvailableRoles(), loadGroups(), loadUsagePolicies()])
+        await Promise.all([loadAvailableRoles(), loadGroups(), loadUsagePolicies(), loadDefaultMemberRole()])
     } finally {
         isLoading.value = false
     }
@@ -1258,6 +1273,43 @@ watch(showQuotaColumn, (enabled) => {
 // Group pre-assignment in the invite modal is enterprise-gated (same feature
 // flag the Groups manager uses) and requires group-management permission.
 const canManageGroups = computed(() => hasFeature('custom_roles') && useCan('manage_groups'))
+
+// Org-wide default role for new members. Pre-fills the invite modal and is
+// editable inline (above the table) by admins who can manage member roles.
+const defaultMemberRole = ref('member')
+const defaultRoleSaving = ref(false)
+
+async function loadDefaultMemberRole() {
+    try {
+        const { data } = await useMyFetch('/organization/default-member-role')
+        const role = (data.value as any)?.role
+        if (role) {
+            defaultMemberRole.value = role
+            inviteForm.value.role = role
+        }
+    } catch {
+        // Fall back to 'member' — e.g. the caller can't read the setting.
+    }
+}
+
+async function saveDefaultRole(role: string) {
+    if (!role) return
+    defaultRoleSaving.value = true
+    try {
+        const { error } = await useMyFetch('/organization/default-member-role', {
+            method: 'PUT',
+            body: { role },
+        })
+        if (error.value) throw error.value
+        inviteForm.value.role = role
+        toast.add({ title: t('settings.members.defaultRoleSaved'), color: 'green' })
+    } catch (e: any) {
+        const msg = e?.data?.detail || t('settings.members.defaultRoleFailed')
+        toast.add({ title: msg, color: 'red' })
+    } finally {
+        defaultRoleSaving.value = false
+    }
+}
 
 const inviteModalOpen = ref(false)
 const inviteLoading = ref(false)
@@ -1619,7 +1671,7 @@ const inviteMember = async () => {
             color: 'green'
         })
 
-        inviteForm.value = { email: '', role: 'member', group_ids: [], quota_policy_id: null, custom_attributes: {}, organization_id: organizationId }
+        inviteForm.value = { email: '', role: defaultMemberRole.value || 'member', group_ids: [], quota_policy_id: null, custom_attributes: {}, organization_id: organizationId }
         inviteEditorKey.value++
         inviteModalOpen.value = false
     } catch (error) {

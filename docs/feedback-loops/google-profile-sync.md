@@ -101,7 +101,7 @@ Steps and evidence:
 
    DB check: `memberships.profile_attributes = {"displayName": "Bow Demo",
    "jobTitle": "Head of Data", "department": "Analytics",
-   "organization": "Bag of Words"}` — the People API `organizations[primary]`
+   "organization": "BOW"}` — the People API `organizations[primary]`
    entry correctly flattened.
 3. **Preview:** Settings → Identity Provider now renders **live sample
    values** next to each checkbox (from the stored token via
@@ -110,7 +110,7 @@ Steps and evidence:
    shows `POST https://api.anthropic.com/v1/messages 200`), asking *"What do
    you know about me from my directory profile attributes?"* answered with
    exactly the synced values — Display Name "Bow Demo", Job Title "Head of
-   Data", Department "Analytics", Organization "Bag of Words" — proving the
+   Data", Department "Analytics", Organization "BOW" — proving the
    attributes reached the planner's `<user_profile>` block.
 
 ### UI evidence

@@ -12,6 +12,7 @@ from tests.e2e.rbac.conftest import (  # noqa: F401  (pytest fixtures)
     sqlite_data_source,
 )
 from tests.fixtures.dashboard_corpus.build import build_corpus, remove_corpus_files
+from tests.fixtures.dashboard_corpus.reuse import CorpusStore
 from tests.fixtures.dashboard_corpus.rows import Rows
 
 
@@ -24,46 +25,54 @@ def corpus_rows():
         rows.close()
 
 
+@pytest.fixture(scope="session")
+def corpus_store(db_backend, alembic_config, db_template):
+    store = CorpusStore(db_backend, alembic_config, db_template)
+    yield store
+    store.close()
+
+
 @pytest.fixture
 def corpus(test_client, create_user, login_user, whoami, sqlite_data_source,  # noqa: F811
            create_project, update_project, upsert_project_member, remove_project_member,
-           delete_project, enterprise_license, corpus_rows):  # noqa: F811
-    """The full corpus on a fresh database (see tests/fixtures/dashboard_corpus)."""
-    built = build_corpus({
+           delete_project, enterprise_license, corpus_rows, corpus_store):  # noqa: F811
+    """The full corpus, a copy of its own for this test (see
+    tests/fixtures/dashboard_corpus and its reuse.py)."""
+    built = corpus_store.get(corpus_rows, migrate=False, build=lambda: build_corpus({
         "test_client": test_client, "create_user": create_user, "login_user": login_user,
         "whoami": whoami, "sqlite_data_source": sqlite_data_source,
         "create_project": create_project, "update_project": update_project,
         "upsert_project_member": upsert_project_member,
         "remove_project_member": remove_project_member, "delete_project": delete_project,
-    }, corpus_rows)
+    }, corpus_rows))
     try:
         yield built
     finally:
-        _remove_migrated_release_files(corpus_rows)
-        remove_corpus_files(built)
+        _remove_migrated_release_files(corpus_rows, keep=corpus_store.kept_release_ids())
+        remove_corpus_files(built, keep=corpus_store.kept_files())
 
 
 @pytest.fixture
 def migrated_corpus(test_client, create_user, login_user, whoami, sqlite_data_source,  # noqa: F811
                     create_project, update_project, upsert_project_member, remove_project_member,
-                    delete_project, enterprise_license, corpus_rows):  # noqa: F811
+                    delete_project, enterprise_license, corpus_rows, corpus_store):  # noqa: F811
     """The corpus after the data migration (phase 9): the same rows, upgraded
     through every revision, as a customer's database after the upgrade."""
-    built = build_corpus({
+    built = corpus_store.get(corpus_rows, migrate=True, build=lambda: build_corpus({
         "test_client": test_client, "create_user": create_user, "login_user": login_user,
         "whoami": whoami, "sqlite_data_source": sqlite_data_source,
         "create_project": create_project, "update_project": update_project,
         "upsert_project_member": upsert_project_member,
         "remove_project_member": remove_project_member, "delete_project": delete_project,
-    }, corpus_rows, migrate=True)
+    }, corpus_rows, migrate=True))
     try:
         yield built
     finally:
-        _remove_migrated_release_files(corpus_rows)
-        remove_corpus_files(built)
+        _remove_migrated_release_files(corpus_rows, keep=corpus_store.kept_release_ids())
+        remove_corpus_files(built, keep=corpus_store.kept_files())
 
 
-def _remove_migrated_release_files(corpus_rows) -> None:
+def _remove_migrated_release_files(corpus_rows, keep: set[str]) -> None:
     """The files of every release in the corpus database -- the data
     migration's copies among them (a test upgrading a `corpus` itself makes
     some too): uploads/ is shared by every test run."""
@@ -78,7 +87,7 @@ def _remove_migrated_release_files(corpus_rows) -> None:
             ids = [str(r[0]) for r in conn.execute(text("SELECT id FROM artifact_releases"))]
     except Exception:  # the database is already gone: nothing to read
         return
-    remove_release_files(ids)
+    remove_release_files(set(ids) - keep)
 
 
 @pytest.fixture(autouse=True)

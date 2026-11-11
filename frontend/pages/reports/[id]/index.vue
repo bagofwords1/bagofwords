@@ -665,13 +665,42 @@
 							data-testid="compaction-divider"
 						>
 							<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
-							<span class="flex items-center gap-1.5 text-chat-3 text-ink-muted uppercase tracking-wider" :title="responseT('prompt.compactTooltip')">
-								<Icon name="heroicons:archive-box-arrow-down" class="w-3 h-3" />
-								{{ responseT('prompt.compactedHistoryAbove') }}
-							</span>
+							<UPopover :popper="{ placement: 'bottom' }" @update:open="(o: boolean) => { if (o) loadCompactionSummary() }">
+								<button
+									type="button"
+									data-testid="compaction-divider-button"
+									class="flex items-center gap-1.5 text-chat-3 text-ink-muted uppercase tracking-wider hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+									:title="responseT('reportView.compactionShowSummary')"
+									@click="loadCompactionSummary"
+								>
+									<Icon :name="compactionInfo?.degraded ? 'heroicons:exclamation-triangle' : 'heroicons:archive-box-arrow-down'" class="w-3 h-3" :class="compactionInfo?.degraded ? 'text-amber-500' : ''" />
+									{{ responseT('prompt.compactedHistoryAbove') }}
+									<span
+										v-if="compactionInfo && compactionInfo.turns"
+										class="normal-case tracking-normal font-mono"
+										data-testid="compaction-divider-stats"
+									>· {{ responseT('reportView.compactionTurns', { turns: compactionInfo.turns }) }}</span>
+								</button>
+								<template #panel>
+									<div class="w-[min(28rem,90vw)] max-h-80 overflow-y-auto p-3 text-xs" data-testid="compaction-summary-panel">
+										<div class="font-medium text-gray-900 dark:text-white mb-1">{{ responseT('reportView.compactionSummaryTitle') }}</div>
+										<p class="text-ink-muted mb-2">{{ responseT('reportView.compactionSummaryHint') }}</p>
+										<p v-if="compactionInfo?.before != null && compactionInfo?.after != null" class="text-ink-muted mb-2 font-mono text-2xs" data-testid="compaction-last-stats">
+											{{ responseT('reportView.compactionLast', { before: fmtTokensShort(compactionInfo.before), after: fmtTokensShort(compactionInfo.after) }) }}
+										</p>
+										<p v-if="compactionInfo?.degraded" class="text-amber-600 dark:text-amber-400 mb-2">{{ responseT('prompt.slash.compact.degraded') }}</p>
+										<div v-if="compactionSummaryLoading" class="flex items-center gap-2 text-ink-muted"><Spinner class="w-3 h-3" /></div>
+										<pre v-else class="whitespace-pre-wrap font-sans text-gray-700 dark:text-gray-300 leading-relaxed" dir="auto">{{ compactionSummary || '—' }}</pre>
+									</div>
+								</template>
+							</UPopover>
 							<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
 						</div>
 					</ResponseLanguageScope>
+					<li v-if="compactingNow" data-testid="compacting-indicator" class="flex items-center gap-2 my-3 text-xs text-ink-muted" role="status">
+						<Spinner class="w-3 h-3" />
+						{{ $t('reportView.compactingContext') }}
+					</li>
 			</ul>
 			<div v-else-if="!completionsLoaded" class="mt-32 flex items-center justify-center text-ink-muted">
 				<Spinner class="w-4 h-4 me-2" />
@@ -819,7 +848,7 @@
 						@approveTrainingBuild="onApproveTrainingBuild"
 						@discardTrainingBuild="onDiscardTrainingBuild"
 						@discardTrainingInstruction="onDiscardTrainingInstruction"
-					@contextCompacted="(result: any) => { if (result?.covers_until_completion_id) compactionWatermarkId = result.covers_until_completion_id }"
+					@contextCompacted="applyCompactionResult"
 					:hasArtifacts="hasArtifacts"
 					:compact="isExcel"
 					:queuedPrompts="queuedPrompts"
@@ -1959,6 +1988,46 @@ const summarySubAgents = ref<any[]>([])
 // right after this completion. State-derived (from the completions payload,
 // the context.compacted SSE, and manual compaction responses).
 const compactionWatermarkId = ref<string | null>(null)
+// Last compaction outcome for the divider label (turns, history tokens
+// before → after, fallback flag) and the live "Compacting context…" row the
+// agent's synchronous fold shows while it runs.
+const compactionInfo = ref<{ turns?: number, before?: number | null, after?: number | null, degraded?: boolean } | null>(null)
+const compactingNow = ref(false)
+const compactionSummary = ref<string | null>(null)
+const compactionSummaryLoading = ref(false)
+
+function applyCompactionResult(result: any) {
+	if (!result) return
+	if (result.covers_until_completion_id) compactionWatermarkId.value = result.covers_until_completion_id
+	compactionInfo.value = {
+		// Everything above the line (cumulative) vs. what the last fold did.
+		turns: result.covered_turns ?? ((compactionInfo.value?.turns || 0) + (result.compacted_turns || 0)),
+		before: result.history_tokens_before ?? result.last_tokens_before ?? null,
+		after: result.history_tokens_after ?? result.last_tokens_after ?? null,
+		degraded: !!result.degraded,
+	}
+	compactionSummary.value = null
+}
+
+function fmtTokensShort(n: number | null | undefined): string {
+	if (n == null || !Number.isFinite(Number(n))) return '—'
+	const v = Number(n)
+	if (v >= 1000) return `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k`
+	return String(Math.round(v))
+}
+
+async function loadCompactionSummary() {
+	if (compactionSummary.value !== null || compactionSummaryLoading.value) return
+	compactionSummaryLoading.value = true
+	try {
+		const { data } = await useMyFetch(`/reports/${report_id}/context/summary`, { method: 'GET' })
+		compactionSummary.value = ((data.value as any)?.summary_text || '').trim()
+	} catch {
+		compactionSummary.value = ''
+	} finally {
+		compactionSummaryLoading.value = false
+	}
+}
 
 const pendingTrainingBuild = ref<{ id: string; status: string; total_instructions: number } | null>(null)
 const pendingTrainingBuildDiff = ref<{ added_lines: number; removed_lines: number } | null>(null)
@@ -3150,6 +3219,7 @@ function getToolComponent(toolName: string) {
 			return ReadExcelAsCsvTool
 		case 'search_files':
 		case 'search_email':
+		case 'search_chat_messages':
 		case 'search_notes':
 			return SearchFilesTool
 		case 'grep_files':
@@ -3157,10 +3227,12 @@ function getToolComponent(toolName: string) {
 			return GrepFilesTool
 		case 'list_files':
 		case 'list_emails':
+		case 'list_chat_messages':
 		case 'list_notes':
 			return ListFilesTool
 		case 'read_file':
 		case 'read_email':
+		case 'read_chat_thread':
 		case 'read_note':
 			return ReadFileTool
 		case 'generate_image':
@@ -4477,17 +4549,25 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			}
 			break
 
+		case 'context.compacting':
+			// The agent is folding history synchronously before its next
+			// request — show it, so a pause in the stream has an explanation.
+			compactingNow.value = true
+			break
+
 		case 'context.compacted':
-			// Rolling context compaction ran (background, mid-run): move the
-			// watermark-anchored divider and refresh the usage popover
-			// (compacted counter + context bar) without waiting for a reload.
-			if (payload?.covers_until_completion_id) {
-				compactionWatermarkId.value = payload.covers_until_completion_id
-			}
+			compactingNow.value = false
+			// A synchronous attempt that moved nothing just clears the row.
+			if (payload?.status && payload.status !== 'compacted') break
+			// Rolling context compaction ran: move the watermark-anchored
+			// divider and refresh the usage popover (compacted counter +
+			// context bar) without waiting for a reload.
+			applyCompactionResult(payload)
 			promptBoxRef.value?.refreshContextEstimate?.(true)
 			break
 
 		case 'completion.finished':
+			compactingNow.value = false
 			const completionStatus = (payload && typeof payload.status === 'string') ? payload.status : null
 			// A turn that launched sub-agents ends while they run: pick the wave up now.
 			loadSubAgents().catch(() => {})
@@ -4808,6 +4888,7 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 		}
 		// Place the compaction boundary from server state
 		compactionWatermarkId.value = response?.compaction?.covers_until_completion_id || null
+		if (response?.compaction?.covers_until_completion_id) applyCompactionResult(response.compaction)
         await nextTick()
         followScrollToBottom()
 		if (!skipEstimate) {

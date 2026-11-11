@@ -272,7 +272,8 @@ class ArtifactChatService:
                     "title": v.get("title"),
                     "columns": [] if v.get("withheld") else (v.get("columns") or []),
                     "rows": [] if v.get("withheld") else (v.get("rows") or [])[:MAX_CONTEXT_ROWS_PER_VIZ],
-                    "total_rows": 0 if v.get("withheld") else len(v.get("rows") or []),
+                    # The query's real size, not the rows the org limit kept.
+                    "total_rows": 0 if v.get("withheld") else v.get("row_count", len(v.get("rows") or [])),
                     "withheld": bool(v.get("withheld")),
                 }
                 for v in viz_payload

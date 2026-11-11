@@ -7,6 +7,7 @@ by unioning all roles assigned directly or via groups.
 The resolver is cached per-request on request.state to avoid repeated queries.
 """
 import logging
+from typing import Optional
 from dataclasses import dataclass, field
 from sqlalchemy import select, and_, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -239,6 +240,42 @@ async def assert_principal_belongs_to_org(db: AsyncSession, user, org_id: str) -
         raise HTTPException(status_code=403, detail="User is not a member of this organization")
 
 
+async def resolve_assignable_system_role(
+    db: AsyncSession, org_id: str, role_name: str,
+) -> Optional[Role]:
+    """Return the ``Role`` row an assignment for the built-in ``role_name`` in
+    ``org_id`` should target.
+
+    An enterprise org may customize a built-in role (currently only ``member``)
+    by materializing an editable, org-scoped override (see
+    ``rbac_service._materialize_system_role_override``). When such an override
+    exists it is the role members of that org should hold, so that the admin's
+    permission edits actually reach them; otherwise the global system row is the
+    default shared by every org.
+
+    This is the single point every assignment-creating path resolves through
+    (invite acceptance, SCIM/LDAP/OIDC/SAML provisioning, service accounts, the
+    org-service helpers), so a materialized override is honored everywhere.
+    """
+    override = (await db.execute(
+        select(Role).where(
+            Role.organization_id == org_id,
+            Role.overrides_system_role == role_name,
+            Role.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+    if override is not None:
+        return override
+    return (await db.execute(
+        select(Role).where(
+            Role.name == role_name,
+            Role.is_system == True,
+            Role.organization_id.is_(None),
+            Role.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+
+
 async def ensure_system_role_assignment(
     db: AsyncSession, org_id: str, user_id: str, role_name: str,
 ) -> None:
@@ -247,18 +284,11 @@ async def ensure_system_role_assignment(
 
     Used by provisioning paths (SCIM/LDAP/OIDC) that create a ``Membership`` so
     the user gets a real ``role_assignment`` instead of relying on the resolver's
-    transitional legacy-role net.
+    transitional legacy-role net. Honors a per-org override of the role.
     """
     from app.models.role_assignment import RoleAssignment
 
-    role = (await db.execute(
-        select(Role).where(
-            Role.name == role_name,
-            Role.is_system == True,
-            Role.organization_id.is_(None),
-            Role.deleted_at.is_(None),
-        )
-    )).scalar_one_or_none()
+    role = await resolve_assignable_system_role(db, org_id, role_name)
     if not role:
         return
     existing = (await db.execute(
@@ -674,10 +704,17 @@ async def _resolve_permissions_inner(
             org_permissions.add(FULL_ADMIN)
             role_names.append("admin")
         elif legacy_role == "member":
-            # Currently a no-op on top of the baseline (the member seed *is* the
-            # baseline), but kept explicit so this net stays correct if the two
-            # ever diverge.
-            org_permissions.update(DEFAULT_MEMBER_PERMISSIONS)
+            # Prefer a per-org member override if the org has customized the
+            # member role: an assignment-less member must still see the admin's
+            # edits, not the shipped default. Falls back to DEFAULT_MEMBER_
+            # PERMISSIONS (which equals the baseline, so this is otherwise a
+            # no-op on top of the baseline grant above).
+            override = await resolve_assignable_system_role(db, org_id, "member")
+            if override is not None and override.organization_id is not None \
+                    and isinstance(override.permissions, list):
+                org_permissions.update(override.permissions)
+            else:
+                org_permissions.update(DEFAULT_MEMBER_PERMISSIONS)
             role_names.append("member")
 
     # 4. Fetch resource grants (user, groups, and roles the user has)

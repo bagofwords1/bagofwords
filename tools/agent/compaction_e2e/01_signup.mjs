@@ -1,0 +1,16 @@
+import { open, shot, BASE, DIR } from './lib.mjs'
+const { browser, ctx, page } = await open({ state: false })
+await page.goto(BASE + '/users/sign-up')
+await page.waitForSelector('#email', { timeout: 120000 })
+await page.fill('#name', 'Dana Analyst')
+await page.fill('#email', 'dana@example.com')
+await page.fill('#password', 'Password123!')
+await page.click('button[type=submit]')
+await page.waitForURL(/onboarding|\/$/, { timeout: 120000 })
+await page.waitForTimeout(3000)
+await shot(page, '01-onboarding')
+const skip = page.getByText('Skip onboarding')
+if (await skip.count()) { await skip.first().click(); await page.waitForTimeout(2000) }
+await ctx.storageState({ path: DIR + 'state.json' })
+await shot(page, '01-after-skip')
+await browser.close()

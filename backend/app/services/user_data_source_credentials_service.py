@@ -11,7 +11,7 @@ from app.models.user import User
 from app.models.organization import Organization
 from app.models.data_source import DataSource
 from app.models.user_data_source_credentials import UserDataSourceCredentials
-from app.errors.redact import redact_error
+from app.errors.redact import credentials_error_detail, redact_error
 from app.schemas.user_data_source_credentials_schema import (
     UserDataSourceCredentialsCreate,
     UserDataSourceCredentialsUpdate,
@@ -139,25 +139,11 @@ class UserDataSourceCredentialsService:
 
         row = await self.get_primary_active_row(db, data_source, user)
         if not row:
-            # Owner/admin fallback possible; owner/admin can use system creds or empty creds (e.g., SQLite)
-            is_owner = str(getattr(data_source, "owner_user_id", "")) == str(getattr(user, "id", ""))
-            
-            # Admin-level access: full_admin or per-DS `manage` grant
-            has_update_perm = False
-            try:
-                from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
-                resolved = await resolve_permissions(
-                    db, str(user.id), str(getattr(data_source, "organization_id", ""))
-                )
-                has_update_perm = (
-                    FULL_ADMIN in resolved.org_permissions
-                    or resolved.has_resource_permission("data_source", str(data_source.id), "manage")
-                )
-            except Exception:
-                has_update_perm = False
-            
-            # Owner/admin can use the connection even without stored credentials (e.g., SQLite)
-            if is_owner or has_update_perm:
+            # Admin fallback possible; an admin can use system creds or empty creds (e.g., SQLite).
+            # Owning the data source grants nothing: this must match resolve_credentials.
+            from app.services.connection_identity import can_use_system_credentials
+            # An admin can use the connection even without stored credentials (e.g., SQLite)
+            if await can_use_system_credentials(db, user, getattr(data_source, "organization_id", "")):
                 conn = "unknown"
                 last_checked = None
                 if live_test:
@@ -324,42 +310,16 @@ class UserDataSourceCredentialsService:
                     connection=user_conn_status,
                     effective_auth="user",
                     last_checked_at=conn_cred.last_used_at,
+                    account_identity=(conn_cred.metadata_json or {}).get("verified_identity") or None,
                 )
 
         if not row:
-            # Owner/admin fallback: owner/admin can use system creds (e.g., SQLite)
-            is_owner = False
-            has_update_perm = False
-
-            # Ownership: the given data_source, or — when only a connection is in
-            # scope (the /connections list) — any data source linked to it.
-            try:
-                if data_source is not None:
-                    owner_candidates = [data_source]
-                else:
-                    owner_candidates = list(getattr(connection, "data_sources", []) or [])
-            except Exception:
-                owner_candidates = [data_source] if data_source is not None else []
-            for ds in owner_candidates:
-                if ds is not None and str(getattr(ds, "owner_user_id", "")) == str(getattr(user, "id", "")):
-                    is_owner = True
-                    break
-
-            # Admin-level access: org-wide full_admin / manage_connections (no
-            # data_source needed) or a per-DS `manage` grant.
-            try:
-                from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
-                org_id = getattr(data_source, "organization_id", None) or getattr(connection, "organization_id", None)
-                resolved = await resolve_permissions(db, str(user.id), str(org_id))
-                has_update_perm = (
-                    FULL_ADMIN in resolved.org_permissions
-                    or resolved.has_org_permission("manage_connections")
-                    or (data_source is not None and resolved.has_resource_permission("data_source", str(data_source.id), "manage"))
-                )
-            except Exception:
-                has_update_perm = False
-
-            if is_owner or has_update_perm:
+            # Admin fallback: an admin can use system creds (e.g., SQLite). Owning a
+            # data source grants nothing: this must match resolve_credentials. A per-DS
+            # `manage` grant does not count either: resolve_credentials refuses it.
+            from app.services.connection_identity import can_use_system_credentials
+            org_id = getattr(data_source, "organization_id", None) or getattr(connection, "organization_id", None)
+            if await can_use_system_credentials(db, user, org_id):
                 return DataSourceUserStatus(
                     has_user_credentials=False,
                     connection=get_cached_status(),
@@ -403,10 +363,19 @@ class UserDataSourceCredentialsService:
         schema_cls = variant.schema
         try:
             validated = schema_cls(**(payload.credentials or {}))
-            if ds_type.lower() == "mssql":
+            # KMS: only the validated fields reach the client, so a member's
+            # extra keys cannot override the connection's config (e.g. base_url).
+            if ds_type.lower() in ("mssql", "neo4j", "kms_lighthouse"):
                 payload.credentials = validated.model_dump()
         except Exception as e:
-            raise HTTPException(status_code=422, detail=f"Invalid credentials: {redact_error(e)}")
+            if ds_type == "kms_lighthouse":
+                # The token-format rule gets its typed, localized code (as on save).
+                from app.errors import ErrorCode
+                from app.services.connection_service import ConnectionService
+                kms_error = ConnectionService._kms_credentials_error(e)
+                if kms_error.error_code == ErrorCode.CONNECTION_KMS_TOKEN_FORMAT.value:
+                    raise kms_error
+            raise HTTPException(status_code=422, detail=credentials_error_detail(e))
 
         # Build client with provided creds without persisting. For an overlay
         # variant the user's payload is only their identity fields, so the
@@ -443,7 +412,16 @@ class UserDataSourceCredentialsService:
         
         if not ds_type:
             raise HTTPException(status_code=400, detail="Data source has no connection")
-        
+
+        # KMS reads a member's login from the connection-level row only, so a row
+        # saved here would show "Connected" while every browse asks to connect.
+        if ds_type == "kms_lighthouse":
+            from app.errors import AppError, ErrorCode
+            raise AppError.bad_request(
+                ErrorCode.CONNECTION_KMS_USE_CONNECTION_CREDENTIALS,
+                f"KMS Lighthouse credentials are saved on the connection: use POST /api/connections/{connection.id}/my-credentials",
+            )
+
         # Policy: auth_mode must be a user-scope mode the connection allows
         variant = self._user_auth_variant(ds_type, allowed_user_auth_modes, payload.auth_mode)
 
@@ -451,10 +429,10 @@ class UserDataSourceCredentialsService:
         schema_cls = variant.schema
         try:
             validated = schema_cls(**(payload.credentials or {}))
-            if ds_type.lower() == "mssql":
+            if ds_type.lower() in ("mssql", "neo4j"):
                 payload.credentials = validated.model_dump()
         except Exception as e:
-            raise HTTPException(status_code=422, detail=f"Invalid credentials: {redact_error(e)}")
+            raise HTTPException(status_code=422, detail=credentials_error_detail(e))
 
         # Kerberos SSO rows persist an explicit UPN: fill a blank principal from
         # the login identity at save time so resolvers never see an empty one.
@@ -552,7 +530,7 @@ class UserDataSourceCredentialsService:
             try:
                 schema_cls(**(payload.credentials or {}))
             except Exception as e:
-                raise HTTPException(status_code=422, detail=f"Invalid credentials: {redact_error(e)}")
+                raise HTTPException(status_code=422, detail=credentials_error_detail(e))
             row.auth_mode = payload.auth_mode
             row.encrypt_credentials(payload.credentials or {})
 
@@ -566,7 +544,7 @@ class UserDataSourceCredentialsService:
             try:
                 schema_cls(**payload.credentials)
             except Exception as e:
-                raise HTTPException(status_code=422, detail=f"Invalid credentials: {redact_error(e)}")
+                raise HTTPException(status_code=422, detail=credentials_error_detail(e))
             row.encrypt_credentials(payload.credentials)
 
         if payload.is_active is not None:

@@ -1,0 +1,3498 @@
+{
+ "allowed_commands": [
+  "keepalive",
+  "login",
+  "logout",
+  "show-access-layers",
+  "show-access-rulebase",
+  "show-address-ranges",
+  "show-api-versions",
+  "show-changes",
+  "show-domains",
+  "show-gateways-and-servers",
+  "show-groups",
+  "show-hosts",
+  "show-last-published-session",
+  "show-logs",
+  "show-nat-rulebase",
+  "show-networks",
+  "show-packages",
+  "show-service-groups",
+  "show-services-tcp",
+  "show-services-udp",
+  "show-session",
+  "show-sessions",
+  "show-simple-gateways",
+  "show-task",
+  "show-tasks",
+  "show-threat-rulebase",
+  "show-unused-objects",
+  "show-vpn-communities-meshed",
+  "show-vpn-communities-star"
+ ],
+ "contract": "1.9.1",
+ "sha256": "bf5e0c182e872b770a43f8f4e306dc578b1529af76405a0edc6af2df3ac4af99",
+ "source": "Check Point Management API reference (R81.20 JHF Take 43 = v1.9.1; verified against v2 / R82 data) \u2014 see tools/checkpoint/SOURCES.md",
+ "tables": {
+  "access_layers": {
+   "command": "show-access-layers",
+   "container": "access-layers",
+   "controls": [
+    "search",
+    "order_by"
+   ],
+   "description": "Access control layers (ordered rulebases referenced by packages).",
+   "details_level": "full",
+   "extra_body": {},
+   "fields": {
+    "applications-and-url-filtering": {
+     "description": "Application & URL filtering enabled.",
+     "type": "boolean"
+    },
+    "color": {
+     "description": "Object color.",
+     "type": "string"
+    },
+    "comments": {
+     "description": "Object comments.",
+     "type": "string"
+    },
+    "content-awareness": {
+     "description": "Content awareness enabled.",
+     "type": "boolean"
+    },
+    "detect-using-x-forward-for": {
+     "description": "Use X-Forwarded-For header.",
+     "type": "boolean"
+    },
+    "domain.domain-type": {
+     "description": "domain or data domain (Check Point predefined data).",
+     "type": "string"
+    },
+    "domain.name": {
+     "description": "Name of the domain holding the object (SMC User on a single-domain server).",
+     "type": "string"
+    },
+    "domain.uid": {
+     "description": "UID of the domain holding the object.",
+     "type": "string"
+    },
+    "firewall": {
+     "description": "Firewall blade enabled on the layer.",
+     "type": "boolean"
+    },
+    "icon": {
+     "description": "Object icon path.",
+     "type": "string"
+    },
+    "implicit-cleanup-action": {
+     "description": "drop or accept for traffic matching no rule.",
+     "type": "string"
+    },
+    "meta-info.creation-time.iso-8601": {
+     "description": "Creation time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.creation-time.posix": {
+     "description": "Creation time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.creator": {
+     "description": "Administrator who created the object.",
+     "type": "string"
+    },
+    "meta-info.last-modifier": {
+     "description": "Administrator who last modified the object.",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.iso-8601": {
+     "description": "Last modification time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.posix": {
+     "description": "Last modification time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.lock": {
+     "description": "unlocked, locked by current session or locked by other session.",
+     "type": "string"
+    },
+    "meta-info.validation-state": {
+     "description": "Validation state (ok, warning, error).",
+     "type": "string"
+    },
+    "mobile-access": {
+     "description": "Mobile access enabled.",
+     "type": "boolean"
+    },
+    "name": {
+     "description": "Object name, unique in the domain.",
+     "type": "string"
+    },
+    "parent-layer": {
+     "description": "Parent layer for inline layers.",
+     "type": "string"
+    },
+    "read-only": {
+     "description": "True when the object cannot be edited by the current session.",
+     "type": "boolean"
+    },
+    "shared": {
+     "description": "Layer shared between packages.",
+     "type": "boolean"
+    },
+    "tags": {
+     "description": "Tag objects (uid/name/type) attached to the object.",
+     "type": "json"
+    },
+    "type": {
+     "description": "Object type as reported by the API.",
+     "type": "string"
+    },
+    "uid": {
+     "description": "Object unique identifier.",
+     "type": "string"
+    }
+   },
+   "kind": "objects",
+   "notes": "",
+   "order_fields": [
+    "name"
+   ],
+   "parents": []
+  },
+  "access_rules": {
+   "command": "show-access-rulebase",
+   "container": "rulebase",
+   "controls": [
+    "search",
+    "package",
+    "show_hits"
+   ],
+   "description": "Flattened access rulebase of one layer: sections, rule numbers and names resolved through the objects dictionary.",
+   "details_level": "standard",
+   "extra_body": {
+    "show-as-ranges": false,
+    "use-object-dictionary": true
+   },
+   "fields": {
+    "action": {
+     "description": "Accept, Drop, Reject, Ask, Inform, Apply Layer, ... resolved from the objects dictionary.",
+     "type": "string"
+    },
+    "action.uid": {
+     "description": "Action object UID.",
+     "type": "string"
+    },
+    "comments": {
+     "description": "Rule comments.",
+     "type": "string"
+    },
+    "content": {
+     "description": "Content (data) column object names.",
+     "type": "json"
+    },
+    "content-direction": {
+     "description": "Direction the content inspection applies to.",
+     "type": "string"
+    },
+    "content-negate": {
+     "description": "Content column negated.",
+     "type": "boolean"
+    },
+    "custom-fields.field-1": {
+     "description": "Custom field 1.",
+     "type": "string"
+    },
+    "custom-fields.field-2": {
+     "description": "Custom field 2.",
+     "type": "string"
+    },
+    "custom-fields.field-3": {
+     "description": "Custom field 3.",
+     "type": "string"
+    },
+    "destination": {
+     "description": "Destination object names.",
+     "type": "json"
+    },
+    "destination-negate": {
+     "description": "Destination column negated.",
+     "type": "boolean"
+    },
+    "destination.types": {
+     "description": "Destination object types.",
+     "type": "json"
+    },
+    "destination.uids": {
+     "description": "Destination object UIDs.",
+     "type": "json"
+    },
+    "domain.name": {
+     "description": "Domain holding the rule.",
+     "type": "string"
+    },
+    "enabled": {
+     "description": "False for disabled rules; disabled rules never match traffic.",
+     "type": "boolean"
+    },
+    "hits.first-date.iso-8601": {
+     "description": "First hit in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "hits.first-date.posix": {
+     "description": "First hit as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "hits.last-date.iso-8601": {
+     "description": "Last hit in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "hits.last-date.posix": {
+     "description": "Last hit as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "hits.level": {
+     "description": "Hit level (zero, low, medium, high, very high).",
+     "type": "string"
+    },
+    "hits.percentage": {
+     "description": "Share of hits relative to the layer.",
+     "type": "string"
+    },
+    "hits.value": {
+     "description": "Hit count (only when hits are returned by the server).",
+     "type": "integer"
+    },
+    "inline-layer": {
+     "description": "Name of the inline layer applied by this rule, if any.",
+     "type": "string"
+    },
+    "inline-layer.uid": {
+     "description": "Inline layer UID.",
+     "type": "string"
+    },
+    "install-on": {
+     "description": "Install-on target names (Policy Targets means every package target).",
+     "type": "json"
+    },
+    "layer": {
+     "description": "Access layer name queried (explicit parent).",
+     "type": "string"
+    },
+    "layer.uid": {
+     "description": "UID of the queried layer.",
+     "type": "string"
+    },
+    "meta-info.creation-time.iso-8601": {
+     "description": "Creation time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.creation-time.posix": {
+     "description": "Creation time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.creator": {
+     "description": "Creator.",
+     "type": "string"
+    },
+    "meta-info.last-modifier": {
+     "description": "Last modifier.",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.iso-8601": {
+     "description": "Last modification time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.posix": {
+     "description": "Last modification time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.lock": {
+     "description": "Lock state.",
+     "type": "string"
+    },
+    "name": {
+     "description": "Rule name (may be empty).",
+     "type": "string"
+    },
+    "rule-number": {
+     "description": "Position of the rule in the layer (1-based).",
+     "type": "integer"
+    },
+    "section": {
+     "description": "Section name the rule belongs to; empty for rules under the global section.",
+     "type": "string"
+    },
+    "section.uid": {
+     "description": "Section UID.",
+     "type": "string"
+    },
+    "service": {
+     "description": "Service & application object names.",
+     "type": "json"
+    },
+    "service-negate": {
+     "description": "Service column negated.",
+     "type": "boolean"
+    },
+    "service.types": {
+     "description": "Service object types.",
+     "type": "json"
+    },
+    "service.uids": {
+     "description": "Service object UIDs.",
+     "type": "json"
+    },
+    "source": {
+     "description": "Source object names resolved through the objects dictionary.",
+     "type": "json"
+    },
+    "source-negate": {
+     "description": "Source column negated.",
+     "type": "boolean"
+    },
+    "source.types": {
+     "description": "Source object types (host, network, group, CpmiAnyObject, ...).",
+     "type": "json"
+    },
+    "source.uids": {
+     "description": "Source object UIDs.",
+     "type": "json"
+    },
+    "time": {
+     "description": "Time object names.",
+     "type": "json"
+    },
+    "track": {
+     "description": "Track setting name (None, Log, Detailed Log, Extended Log, Alert, ...).",
+     "type": "string"
+    },
+    "track-alert": {
+     "description": "Alert type when track is an alert.",
+     "type": "string"
+    },
+    "track.uid": {
+     "description": "Track object UID.",
+     "type": "string"
+    },
+    "type": {
+     "description": "access-rule.",
+     "type": "string"
+    },
+    "uid": {
+     "description": "Rule UID.",
+     "type": "string"
+    },
+    "vpn": {
+     "description": "VPN column object names.",
+     "type": "json"
+    }
+   },
+   "kind": "rulebase",
+   "notes": "Rules are returned in rulebase order (rule-number ascending). Rule numbers restart inside inline layers; query an inline layer by its own name. search maps to the server-side rulebase filter.",
+   "order_fields": [
+    "name"
+   ],
+   "parents": [
+    "layer"
+   ]
+  },
+  "address_ranges": {
+   "command": "show-address-ranges",
+   "container": "objects",
+   "controls": [
+    "search",
+    "order_by"
+   ],
+   "description": "Address range objects (first-last IP) in the domain.",
+   "details_level": "full",
+   "extra_body": {
+    "show-membership": true
+   },
+   "fields": {
+    "color": {
+     "description": "Object color.",
+     "type": "string"
+    },
+    "comments": {
+     "description": "Object comments.",
+     "type": "string"
+    },
+    "domain.domain-type": {
+     "description": "domain or data domain (Check Point predefined data).",
+     "type": "string"
+    },
+    "domain.name": {
+     "description": "Name of the domain holding the object (SMC User on a single-domain server).",
+     "type": "string"
+    },
+    "domain.uid": {
+     "description": "UID of the domain holding the object.",
+     "type": "string"
+    },
+    "groups": {
+     "description": "Groups this object is a member of (requires show-membership; may be empty).",
+     "type": "json"
+    },
+    "icon": {
+     "description": "Object icon path.",
+     "type": "string"
+    },
+    "ipv4-address-first": {
+     "description": "First IPv4 address.",
+     "type": "string"
+    },
+    "ipv4-address-last": {
+     "description": "Last IPv4 address.",
+     "type": "string"
+    },
+    "ipv6-address-first": {
+     "description": "First IPv6 address.",
+     "type": "string"
+    },
+    "ipv6-address-last": {
+     "description": "Last IPv6 address.",
+     "type": "string"
+    },
+    "meta-info.creation-time.iso-8601": {
+     "description": "Creation time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.creation-time.posix": {
+     "description": "Creation time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.creator": {
+     "description": "Administrator who created the object.",
+     "type": "string"
+    },
+    "meta-info.last-modifier": {
+     "description": "Administrator who last modified the object.",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.iso-8601": {
+     "description": "Last modification time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.posix": {
+     "description": "Last modification time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.lock": {
+     "description": "unlocked, locked by current session or locked by other session.",
+     "type": "string"
+    },
+    "meta-info.validation-state": {
+     "description": "Validation state (ok, warning, error).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Object name, unique in the domain.",
+     "type": "string"
+    },
+    "nat-settings.auto-rule": {
+     "description": "Automatic NAT rule generation enabled.",
+     "type": "boolean"
+    },
+    "nat-settings.hide-behind": {
+     "description": "gateway or ip-address for hide NAT.",
+     "type": "string"
+    },
+    "nat-settings.install-on": {
+     "description": "Gateway that applies the automatic NAT.",
+     "type": "string"
+    },
+    "nat-settings.ipv4-address": {
+     "description": "Translated IPv4 address for automatic NAT.",
+     "type": "string"
+    },
+    "nat-settings.method": {
+     "description": "NAT method (hide or static) when auto-rule is on.",
+     "type": "string"
+    },
+    "read-only": {
+     "description": "True when the object cannot be edited by the current session.",
+     "type": "boolean"
+    },
+    "tags": {
+     "description": "Tag objects (uid/name/type) attached to the object.",
+     "type": "json"
+    },
+    "type": {
+     "description": "Object type as reported by the API.",
+     "type": "string"
+    },
+    "uid": {
+     "description": "Object unique identifier.",
+     "type": "string"
+    }
+   },
+   "kind": "objects",
+   "notes": "",
+   "order_fields": [
+    "name"
+   ],
+   "parents": []
+  },
+  "api_versions": {
+   "command": "show-api-versions",
+   "container": "supported-versions",
+   "controls": [],
+   "description": "API versions supported by the management server (one row per version).",
+   "details_level": "full",
+   "extra_body": {},
+   "fields": {
+    "current": {
+     "description": "True for the server's latest version.",
+     "type": "boolean"
+    },
+    "version": {
+     "description": "API version string.",
+     "type": "string"
+    }
+   },
+   "kind": "api_versions",
+   "notes": "",
+   "order_fields": [
+    "name"
+   ],
+   "parents": []
+  },
+  "audit_logs": {
+   "command": "show-logs",
+   "container": "logs",
+   "controls": [
+    "search",
+    "lookback",
+    "start_time",
+    "end_time",
+    "time_frame",
+    "log_servers"
+   ],
+   "description": "Management audit trail (logins, publishes, object changes, policy installs).",
+   "details_level": "full",
+   "dynamic_fields": true,
+   "extra_body": {},
+   "fields": {
+    "action": {
+     "description": "Audit action.",
+     "type": "string"
+    },
+    "additional_info": {
+     "description": "Additional information.",
+     "type": "string"
+    },
+    "administrator": {
+     "description": "Administrator name.",
+     "type": "string"
+    },
+    "application": {
+     "description": "Application.",
+     "type": "string"
+    },
+    "audit_status": {
+     "description": "Success or Failure.",
+     "type": "string"
+    },
+    "blade": {
+     "description": "Blade (SmartConsole, WEB_API, Mgmt).",
+     "type": "string"
+    },
+    "client_ip": {
+     "description": "Client IP address.",
+     "type": "string"
+    },
+    "fieldschanges": {
+     "description": "Changed fields.",
+     "type": "string"
+    },
+    "id": {
+     "description": "Record id.",
+     "type": "string"
+    },
+    "index_time": {
+     "description": "Index time.",
+     "type": "string"
+    },
+    "log_uid": {
+     "description": "Log UID.",
+     "type": "string"
+    },
+    "machine": {
+     "description": "Client machine.",
+     "type": "string"
+    },
+    "marker": {
+     "description": "Log marker.",
+     "type": "string"
+    },
+    "objectname": {
+     "description": "Object name.",
+     "type": "string"
+    },
+    "objecttable": {
+     "description": "Object table.",
+     "type": "string"
+    },
+    "objecttype": {
+     "description": "Object type.",
+     "type": "string"
+    },
+    "operation": {
+     "description": "Operation (Log In, Log Out, Publish, Modify Object, Install Policy, ...).",
+     "type": "string"
+    },
+    "operation_number": {
+     "description": "Operation number.",
+     "type": "string"
+    },
+    "orig": {
+     "description": "Origin IP.",
+     "type": "string"
+    },
+    "origin": {
+     "description": "Management server.",
+     "type": "string"
+    },
+    "product": {
+     "description": "Product.",
+     "type": "string"
+    },
+    "sequencenum": {
+     "description": "Sequence number.",
+     "type": "string"
+    },
+    "session_name": {
+     "description": "Session name.",
+     "type": "string"
+    },
+    "session_uid": {
+     "description": "Session UID.",
+     "type": "string"
+    },
+    "severity": {
+     "description": "Severity.",
+     "type": "string"
+    },
+    "subject": {
+     "description": "Subject (Object Manipulation, Session Management, ...).",
+     "type": "string"
+    },
+    "time": {
+     "description": "Audit time in ISO 8601 (UTC).",
+     "type": "string"
+    },
+    "type": {
+     "description": "Log.",
+     "type": "string"
+    },
+    "uid": {
+     "description": "Object UID.",
+     "type": "string"
+    },
+    "user": {
+     "description": "User.",
+     "type": "string"
+    }
+   },
+   "kind": "logs",
+   "log_type": "audit",
+   "notes": "",
+   "order_fields": [
+    "name"
+   ],
+   "parents": []
+  },
+  "changes": {
+   "command": "show-changes",
+   "container": "tasks",
+   "controls": [
+    "lookback",
+    "start_time",
+    "end_time",
+    "from_session",
+    "to_session",
+    "limit_sessions"
+   ],
+   "description": "Published changes between sessions or dates: one row per added, modified or deleted object.",
+   "details_level": "full",
+   "extra_body": {},
+   "fields": {
+    "object.name": {
+     "description": "Object name (new name for modified).",
+     "type": "string"
+    },
+    "object.type": {
+     "description": "Object type.",
+     "type": "string"
+    },
+    "object.uid": {
+     "description": "Object UID.",
+     "type": "string"
+    },
+    "old-object.name": {
+     "description": "Previous name for modified objects.",
+     "type": "string"
+    },
+    "operation": {
+     "description": "added, modified or deleted.",
+     "type": "string"
+    },
+    "session.domain-info.name": {
+     "description": "Domain.",
+     "type": "string"
+    },
+    "session.publish-time.iso-8601": {
+     "description": "Publish time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "session.publish-time.posix": {
+     "description": "Publish time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "session.session-uid": {
+     "description": "Publishing session UID.",
+     "type": "string"
+    },
+    "session.user-name": {
+     "description": "Publisher.",
+     "type": "string"
+    },
+    "task-id": {
+     "description": "show-changes task UID.",
+     "type": "string"
+    }
+   },
+   "kind": "changes",
+   "notes": "show-changes runs as a task; the connector polls show-task until it completes (bounded by the query deadline).",
+   "order_fields": [
+    "name"
+   ],
+   "parents": []
+  },
+  "domains": {
+   "command": "show-domains",
+   "container": "objects",
+   "controls": [
+    "search",
+    "order_by"
+   ],
+   "description": "Domains (one on a Security Management Server, many on a Multi-Domain Server).",
+   "details_level": "full",
+   "extra_body": {},
+   "fields": {
+    "color": {
+     "description": "Object color.",
+     "type": "string"
+    },
+    "comments": {
+     "description": "Object comments.",
+     "type": "string"
+    },
+    "domain-type": {
+     "description": "domain, global domain, ...",
+     "type": "string"
+    },
+    "domain.domain-type": {
+     "description": "domain or data domain (Check Point predefined data).",
+     "type": "string"
+    },
+    "domain.name": {
+     "description": "Name of the domain holding the object (SMC User on a single-domain server).",
+     "type": "string"
+    },
+    "domain.uid": {
+     "description": "UID of the domain holding the object.",
+     "type": "string"
+    },
+    "global-domain-assignments": {
+     "description": "Global domain assignments.",
+     "type": "json"
+    },
+    "icon": {
+     "description": "Object icon path.",
+     "type": "string"
+    },
+    "meta-info.creation-time.iso-8601": {
+     "description": "Creation time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.creation-time.posix": {
+     "description": "Creation time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.creator": {
+     "description": "Administrator who created the object.",
+     "type": "string"
+    },
+    "meta-info.last-modifier": {
+     "description": "Administrator who last modified the object.",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.iso-8601": {
+     "description": "Last modification time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.posix": {
+     "description": "Last modification time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.lock": {
+     "description": "unlocked, locked by current session or locked by other session.",
+     "type": "string"
+    },
+    "meta-info.validation-state": {
+     "description": "Validation state (ok, warning, error).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Object name, unique in the domain.",
+     "type": "string"
+    },
+    "read-only": {
+     "description": "True when the object cannot be edited by the current session.",
+     "type": "boolean"
+    },
+    "servers": {
+     "description": "Domain servers (name, ipv4-address, type, active).",
+     "type": "json"
+    },
+    "tags": {
+     "description": "Tag objects (uid/name/type) attached to the object.",
+     "type": "json"
+    },
+    "type": {
+     "description": "Object type as reported by the API.",
+     "type": "string"
+    },
+    "uid": {
+     "description": "Object unique identifier.",
+     "type": "string"
+    }
+   },
+   "kind": "objects",
+   "notes": "",
+   "order_fields": [
+    "name"
+   ],
+   "parents": []
+  },
+  "gateways_and_servers": {
+   "command": "show-gateways-and-servers",
+   "container": "objects",
+   "controls": [
+    "order_by"
+   ],
+   "description": "Every Check Point gateway, cluster, cluster member and management/log server with version, blades and installed policy.",
+   "details_level": "full",
+   "extra_body": {},
+   "fields": {
+    "cluster-member-names": {
+     "description": "Member names for clusters.",
+     "type": "json"
+    },
+    "color": {
+     "description": "Object color.",
+     "type": "string"
+    },
+    "comments": {
+     "description": "Object comments.",
+     "type": "string"
+    },
+    "domain.domain-type": {
+     "description": "domain or data domain (Check Point predefined data).",
+     "type": "string"
+    },
+    "domain.name": {
+     "description": "Name of the domain holding the object (SMC User on a single-domain server).",
+     "type": "string"
+    },
+    "domain.uid": {
+     "description": "UID of the domain holding the object.",
+     "type": "string"
+    },
+    "groups": {
+     "description": "Groups this object is a member of (requires show-membership; may be empty).",
+     "type": "json"
+    },
+    "hardware": {
+     "description": "Appliance model or Open server.",
+     "type": "string"
+    },
+    "icon": {
+     "description": "Object icon path.",
+     "type": "string"
+    },
+    "interfaces": {
+     "description": "Interfaces (interface-name, ipv4-address, ipv4-mask-length, topology).",
+     "type": "json"
+    },
+    "ipv4-address": {
+     "description": "Main IPv4 address.",
+     "type": "string"
+    },
+    "ipv6-address": {
+     "description": "Main IPv6 address.",
+     "type": "string"
+    },
+    "management-blades.compliance": {
+     "description": "Management blade compliance enabled.",
+     "type": "boolean"
+    },
+    "management-blades.endpoint-policy": {
+     "description": "Management blade endpoint-policy enabled.",
+     "type": "boolean"
+    },
+    "management-blades.identity-awareness": {
+     "description": "Management blade identity-awareness enabled.",
+     "type": "boolean"
+    },
+    "management-blades.identity-logging": {
+     "description": "Management blade identity-logging enabled.",
+     "type": "boolean"
+    },
+    "management-blades.logging-and-status": {
+     "description": "Management blade logging-and-status enabled.",
+     "type": "boolean"
+    },
+    "management-blades.monitoring": {
+     "description": "Management blade monitoring enabled.",
+     "type": "boolean"
+    },
+    "management-blades.network-policy-management": {
+     "description": "Management blade network-policy-management enabled.",
+     "type": "boolean"
+    },
+    "management-blades.secondary": {
+     "description": "Management blade secondary enabled.",
+     "type": "boolean"
+    },
+    "management-blades.smart-event-correlation": {
+     "description": "Management blade smart-event-correlation enabled.",
+     "type": "boolean"
+    },
+    "management-blades.smart-event-server": {
+     "description": "Management blade smart-event-server enabled.",
+     "type": "boolean"
+    },
+    "meta-info.creation-time.iso-8601": {
+     "description": "Creation time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.creation-time.posix": {
+     "description": "Creation time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.creator": {
+     "description": "Administrator who created the object.",
+     "type": "string"
+    },
+    "meta-info.last-modifier": {
+     "description": "Administrator who last modified the object.",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.iso-8601": {
+     "description": "Last modification time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.posix": {
+     "description": "Last modification time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.lock": {
+     "description": "unlocked, locked by current session or locked by other session.",
+     "type": "string"
+    },
+    "meta-info.validation-state": {
+     "description": "Validation state (ok, warning, error).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Object name, unique in the domain.",
+     "type": "string"
+    },
+    "network-security-blades.anti-bot": {
+     "description": "anti-bot blade enabled.",
+     "type": "boolean"
+    },
+    "network-security-blades.anti-spam": {
+     "description": "anti-spam blade enabled.",
+     "type": "boolean"
+    },
+    "network-security-blades.anti-virus": {
+     "description": "anti-virus blade enabled.",
+     "type": "boolean"
+    },
+    "network-security-blades.application-control": {
+     "description": "application-control blade enabled.",
+     "type": "boolean"
+    },
+    "network-security-blades.content-awareness": {
+     "description": "content-awareness blade enabled.",
+     "type": "boolean"
+    },
+    "network-security-blades.data-loss-prevention": {
+     "description": "data-loss-prevention blade enabled.",
+     "type": "boolean"
+    },
+    "network-security-blades.firewall": {
+     "description": "firewall blade enabled.",
+     "type": "boolean"
+    },
+    "network-security-blades.identity-awareness": {
+     "description": "identity-awareness blade enabled.",
+     "type": "boolean"
+    },
+    "network-security-blades.ips": {
+     "description": "ips blade enabled.",
+     "type": "boolean"
+    },
+    "network-security-blades.mobile-access": {
+     "description": "mobile-access blade enabled.",
+     "type": "boolean"
+    },
+    "network-security-blades.monitoring": {
+     "description": "monitoring blade enabled.",
+     "type": "boolean"
+    },
+    "network-security-blades.qos": {
+     "description": "qos blade enabled.",
+     "type": "boolean"
+    },
+    "network-security-blades.site-to-site-vpn": {
+     "description": "site-to-site-vpn blade enabled.",
+     "type": "boolean"
+    },
+    "network-security-blades.threat-emulation": {
+     "description": "threat-emulation blade enabled.",
+     "type": "boolean"
+    },
+    "network-security-blades.threat-extraction": {
+     "description": "threat-extraction blade enabled.",
+     "type": "boolean"
+    },
+    "network-security-blades.url-filtering": {
+     "description": "url-filtering blade enabled.",
+     "type": "boolean"
+    },
+    "network-security-blades.zero-phishing": {
+     "description": "zero-phishing blade enabled.",
+     "type": "boolean"
+    },
+    "operating-system": {
+     "description": "Operating system (Gaia).",
+     "type": "string"
+    },
+    "policy.access-policy-installation-date.iso-8601": {
+     "description": "Access policy installation time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "policy.access-policy-installation-date.posix": {
+     "description": "Access policy installation time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "policy.access-policy-installed": {
+     "description": "An access policy is installed.",
+     "type": "boolean"
+    },
+    "policy.access-policy-name": {
+     "description": "Installed access policy package.",
+     "type": "string"
+    },
+    "policy.access-policy-revision": {
+     "description": "Revision object of the installed access policy.",
+     "type": "json"
+    },
+    "policy.threat-policy-installation-date.iso-8601": {
+     "description": "Threat policy installation time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "policy.threat-policy-installation-date.posix": {
+     "description": "Threat policy installation time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "policy.threat-policy-installed": {
+     "description": "A threat policy is installed.",
+     "type": "boolean"
+    },
+    "policy.threat-policy-name": {
+     "description": "Installed threat policy package.",
+     "type": "string"
+    },
+    "read-only": {
+     "description": "True when the object cannot be edited by the current session.",
+     "type": "boolean"
+    },
+    "sic-status": {
+     "description": "communicating, uninitialized, ...",
+     "type": "string"
+    },
+    "tags": {
+     "description": "Tag objects (uid/name/type) attached to the object.",
+     "type": "json"
+    },
+    "type": {
+     "description": "Object type as reported by the API.",
+     "type": "string"
+    },
+    "uid": {
+     "description": "Object unique identifier.",
+     "type": "string"
+    },
+    "version": {
+     "description": "Software version (for example R81.20).",
+     "type": "string"
+    },
+    "vpn-encryption-domain": {
+     "description": "VPN domain mode.",
+     "type": "string"
+    }
+   },
+   "kind": "objects",
+   "notes": "Blade flags are absent (null) when a blade is off; treat null as false only for Check Point gateways.",
+   "order_fields": [
+    "name"
+   ],
+   "parents": []
+  },
+  "group_members": {
+   "command": "show-groups",
+   "container": "objects",
+   "controls": [
+    "search",
+    "order_by"
+   ],
+   "description": "One row per (group, direct member): flattened membership for joins with hosts/networks/rules.",
+   "details_level": "full",
+   "extra_body": {
+    "dereference-group-members": true
+   },
+   "fields": {
+    "group.name": {
+     "description": "Group name.",
+     "type": "string"
+    },
+    "group.uid": {
+     "description": "Group UID.",
+     "type": "string"
+    },
+    "member.ipv4-address": {
+     "description": "Member IPv4 address when it is a host.",
+     "type": "string"
+    },
+    "member.ipv4-address-first": {
+     "description": "First address when the member is an address range.",
+     "type": "string"
+    },
+    "member.ipv4-address-last": {
+     "description": "Last address when the member is an address range.",
+     "type": "string"
+    },
+    "member.mask-length4": {
+     "description": "Member prefix length when it is a network.",
+     "type": "integer"
+    },
+    "member.name": {
+     "description": "Member name.",
+     "type": "string"
+    },
+    "member.subnet4": {
+     "description": "Member subnet when it is a network.",
+     "type": "string"
+    },
+    "member.type": {
+     "description": "Member type (host, network, group, address-range, ...).",
+     "type": "string"
+    },
+    "member.uid": {
+     "description": "Member UID.",
+     "type": "string"
+    }
+   },
+   "kind": "group_members",
+   "notes": "",
+   "order_fields": [
+    "name"
+   ],
+   "parents": []
+  },
+  "groups": {
+   "command": "show-groups",
+   "container": "objects",
+   "controls": [
+    "search",
+    "order_by"
+   ],
+   "description": "Network object groups with their direct members (nested groups stay as group members).",
+   "details_level": "full",
+   "extra_body": {
+    "dereference-group-members": true,
+    "show-membership": true
+   },
+   "fields": {
+    "color": {
+     "description": "Object color.",
+     "type": "string"
+    },
+    "comments": {
+     "description": "Object comments.",
+     "type": "string"
+    },
+    "domain.domain-type": {
+     "description": "domain or data domain (Check Point predefined data).",
+     "type": "string"
+    },
+    "domain.name": {
+     "description": "Name of the domain holding the object (SMC User on a single-domain server).",
+     "type": "string"
+    },
+    "domain.uid": {
+     "description": "UID of the domain holding the object.",
+     "type": "string"
+    },
+    "groups": {
+     "description": "Groups this object is a member of (requires show-membership; may be empty).",
+     "type": "json"
+    },
+    "icon": {
+     "description": "Object icon path.",
+     "type": "string"
+    },
+    "member-count": {
+     "description": "Number of direct members (derived).",
+     "type": "integer"
+    },
+    "members": {
+     "description": "Direct members (uid, name, type, ipv4-address/subnet4 when the member carries one).",
+     "type": "json"
+    },
+    "meta-info.creation-time.iso-8601": {
+     "description": "Creation time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.creation-time.posix": {
+     "description": "Creation time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.creator": {
+     "description": "Administrator who created the object.",
+     "type": "string"
+    },
+    "meta-info.last-modifier": {
+     "description": "Administrator who last modified the object.",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.iso-8601": {
+     "description": "Last modification time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.posix": {
+     "description": "Last modification time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.lock": {
+     "description": "unlocked, locked by current session or locked by other session.",
+     "type": "string"
+    },
+    "meta-info.validation-state": {
+     "description": "Validation state (ok, warning, error).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Object name, unique in the domain.",
+     "type": "string"
+    },
+    "read-only": {
+     "description": "True when the object cannot be edited by the current session.",
+     "type": "boolean"
+    },
+    "tags": {
+     "description": "Tag objects (uid/name/type) attached to the object.",
+     "type": "json"
+    },
+    "type": {
+     "description": "Object type as reported by the API.",
+     "type": "string"
+    },
+    "uid": {
+     "description": "Object unique identifier.",
+     "type": "string"
+    }
+   },
+   "kind": "objects",
+   "notes": "",
+   "order_fields": [
+    "name"
+   ],
+   "parents": []
+  },
+  "hosts": {
+   "command": "show-hosts",
+   "container": "objects",
+   "controls": [
+    "search",
+    "order_by"
+   ],
+   "description": "Host objects (single IP addresses) in the domain.",
+   "details_level": "full",
+   "extra_body": {
+    "show-membership": true
+   },
+   "fields": {
+    "color": {
+     "description": "Object color.",
+     "type": "string"
+    },
+    "comments": {
+     "description": "Object comments.",
+     "type": "string"
+    },
+    "domain.domain-type": {
+     "description": "domain or data domain (Check Point predefined data).",
+     "type": "string"
+    },
+    "domain.name": {
+     "description": "Name of the domain holding the object (SMC User on a single-domain server).",
+     "type": "string"
+    },
+    "domain.uid": {
+     "description": "UID of the domain holding the object.",
+     "type": "string"
+    },
+    "groups": {
+     "description": "Groups this object is a member of (requires show-membership; may be empty).",
+     "type": "json"
+    },
+    "host-servers.dns-server": {
+     "description": "Host marked as DNS server.",
+     "type": "boolean"
+    },
+    "host-servers.mail-server": {
+     "description": "Host marked as mail server.",
+     "type": "boolean"
+    },
+    "host-servers.web-server": {
+     "description": "Host marked as web server.",
+     "type": "boolean"
+    },
+    "icon": {
+     "description": "Object icon path.",
+     "type": "string"
+    },
+    "interfaces": {
+     "description": "Host interfaces (name, subnet4, mask-length4).",
+     "type": "json"
+    },
+    "ipv4-address": {
+     "description": "IPv4 address.",
+     "type": "string"
+    },
+    "ipv6-address": {
+     "description": "IPv6 address.",
+     "type": "string"
+    },
+    "meta-info.creation-time.iso-8601": {
+     "description": "Creation time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.creation-time.posix": {
+     "description": "Creation time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.creator": {
+     "description": "Administrator who created the object.",
+     "type": "string"
+    },
+    "meta-info.last-modifier": {
+     "description": "Administrator who last modified the object.",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.iso-8601": {
+     "description": "Last modification time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.posix": {
+     "description": "Last modification time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.lock": {
+     "description": "unlocked, locked by current session or locked by other session.",
+     "type": "string"
+    },
+    "meta-info.validation-state": {
+     "description": "Validation state (ok, warning, error).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Object name, unique in the domain.",
+     "type": "string"
+    },
+    "nat-settings.auto-rule": {
+     "description": "Automatic NAT rule generation enabled.",
+     "type": "boolean"
+    },
+    "nat-settings.hide-behind": {
+     "description": "gateway or ip-address for hide NAT.",
+     "type": "string"
+    },
+    "nat-settings.install-on": {
+     "description": "Gateway that applies the automatic NAT.",
+     "type": "string"
+    },
+    "nat-settings.ipv4-address": {
+     "description": "Translated IPv4 address for automatic NAT.",
+     "type": "string"
+    },
+    "nat-settings.method": {
+     "description": "NAT method (hide or static) when auto-rule is on.",
+     "type": "string"
+    },
+    "read-only": {
+     "description": "True when the object cannot be edited by the current session.",
+     "type": "boolean"
+    },
+    "tags": {
+     "description": "Tag objects (uid/name/type) attached to the object.",
+     "type": "json"
+    },
+    "type": {
+     "description": "Object type as reported by the API.",
+     "type": "string"
+    },
+    "uid": {
+     "description": "Object unique identifier.",
+     "type": "string"
+    }
+   },
+   "kind": "objects",
+   "notes": "",
+   "order_fields": [
+    "name"
+   ],
+   "parents": []
+  },
+  "last_published_session": {
+   "command": "show-last-published-session",
+   "container": "",
+   "controls": [],
+   "description": "The most recently published session (configuration revision).",
+   "details_level": "full",
+   "extra_body": {},
+   "fields": {
+    "application": {
+     "description": "Application.",
+     "type": "string"
+    },
+    "changes": {
+     "description": "Published changes.",
+     "type": "integer"
+    },
+    "description": {
+     "description": "Session description.",
+     "type": "string"
+    },
+    "domain.name": {
+     "description": "Domain.",
+     "type": "string"
+    },
+    "last-login-time.iso-8601": {
+     "description": "Last login in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "last-login-time.posix": {
+     "description": "Last login as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "name": {
+     "description": "Object name, unique in the domain.",
+     "type": "string"
+    },
+    "publish-time.iso-8601": {
+     "description": "Publish time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "publish-time.posix": {
+     "description": "Publish time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "state": {
+     "description": "published.",
+     "type": "string"
+    },
+    "type": {
+     "description": "Object type as reported by the API.",
+     "type": "string"
+    },
+    "uid": {
+     "description": "Object unique identifier.",
+     "type": "string"
+    },
+    "user-name": {
+     "description": "Publisher.",
+     "type": "string"
+    }
+   },
+   "kind": "singleton",
+   "notes": "",
+   "order_fields": [
+    "name"
+   ],
+   "parents": []
+  },
+  "logs": {
+   "command": "show-logs",
+   "container": "logs",
+   "controls": [
+    "search",
+    "lookback",
+    "start_time",
+    "end_time",
+    "time_frame",
+    "log_servers"
+   ],
+   "description": "Traffic and threat logs from the log server (SmartView query language in search).",
+   "details_level": "full",
+   "dynamic_fields": true,
+   "extra_body": {},
+   "fields": {
+    "action": {
+     "description": "Accept, Drop, Reject, Prevent, Detect, Key Install, ...",
+     "type": "string"
+    },
+    "blade": {
+     "description": "Blade (Firewall, IPS, VPN, Application Control, ...).",
+     "type": "string"
+    },
+    "bytes": {
+     "description": "Total bytes.",
+     "type": "string"
+    },
+    "calc_desc": {
+     "description": "Human readable summary.",
+     "type": "string"
+    },
+    "confidence_level": {
+     "description": "Threat confidence.",
+     "type": "string"
+    },
+    "conn_direction": {
+     "description": "Connection direction.",
+     "type": "string"
+    },
+    "description": {
+     "description": "Log description.",
+     "type": "string"
+    },
+    "dst": {
+     "description": "Destination IP.",
+     "type": "string"
+    },
+    "dst_user_name": {
+     "description": "Destination user.",
+     "type": "string"
+    },
+    "i_f_dir": {
+     "description": "inbound or outbound.",
+     "type": "string"
+    },
+    "i_f_name": {
+     "description": "Interface name.",
+     "type": "string"
+    },
+    "id": {
+     "description": "Log record id.",
+     "type": "string"
+    },
+    "index_time": {
+     "description": "Index time.",
+     "type": "string"
+    },
+    "layer_name": {
+     "description": "Matched layer name.",
+     "type": "string"
+    },
+    "layer_uuid": {
+     "description": "Matched layer UID.",
+     "type": "string"
+    },
+    "log_uid": {
+     "description": "Log UID.",
+     "type": "string"
+    },
+    "marker": {
+     "description": "Log marker.",
+     "type": "string"
+    },
+    "orig": {
+     "description": "Origin IP.",
+     "type": "string"
+    },
+    "orig_log_server": {
+     "description": "Log server IP.",
+     "type": "string"
+    },
+    "origin": {
+     "description": "Gateway or server that produced the log.",
+     "type": "string"
+    },
+    "policy": {
+     "description": "Policy name.",
+     "type": "string"
+    },
+    "policy_date": {
+     "description": "Policy installation date.",
+     "type": "string"
+    },
+    "policy_name": {
+     "description": "Policy package.",
+     "type": "string"
+    },
+    "product": {
+     "description": "Product name.",
+     "type": "string"
+    },
+    "product_family": {
+     "description": "Network, Threat, Access, ...",
+     "type": "string"
+    },
+    "protection_name": {
+     "description": "Protection name (threat blades).",
+     "type": "string"
+    },
+    "protection_type": {
+     "description": "Protection type.",
+     "type": "string"
+    },
+    "proto": {
+     "description": "IP protocol number.",
+     "type": "string"
+    },
+    "received_bytes": {
+     "description": "Bytes received.",
+     "type": "string"
+    },
+    "rule": {
+     "description": "Matched rule number.",
+     "type": "string"
+    },
+    "rule_name": {
+     "description": "Matched rule name.",
+     "type": "string"
+    },
+    "rule_uid": {
+     "description": "Matched rule UID.",
+     "type": "string"
+    },
+    "s_port": {
+     "description": "Source port.",
+     "type": "string"
+    },
+    "sent_bytes": {
+     "description": "Bytes sent.",
+     "type": "string"
+    },
+    "sequencenum": {
+     "description": "Sequence number.",
+     "type": "string"
+    },
+    "service": {
+     "description": "Destination port.",
+     "type": "string"
+    },
+    "service_id": {
+     "description": "Service object name.",
+     "type": "string"
+    },
+    "severity": {
+     "description": "Informational, Low, Medium, High, Critical.",
+     "type": "string"
+    },
+    "src": {
+     "description": "Source IP.",
+     "type": "string"
+    },
+    "src_user_name": {
+     "description": "Source user.",
+     "type": "string"
+    },
+    "time": {
+     "description": "Log time in ISO 8601 (UTC).",
+     "type": "string"
+    },
+    "type": {
+     "description": "Log, Correlated, ...",
+     "type": "string"
+    },
+    "user": {
+     "description": "User.",
+     "type": "string"
+    },
+    "verdict": {
+     "description": "Threat verdict.",
+     "type": "string"
+    }
+   },
+   "kind": "logs",
+   "log_type": "logs",
+   "notes": "Log records carry arbitrary extra keys; request them by name in fields. Values are strings as returned by the log server.",
+   "order_fields": [
+    "name"
+   ],
+   "parents": []
+  },
+  "nat_rules": {
+   "command": "show-nat-rulebase",
+   "container": "rulebase",
+   "controls": [
+    "search"
+   ],
+   "description": "Flattened NAT rulebase of one package (manual and automatically generated rules).",
+   "details_level": "standard",
+   "extra_body": {
+    "use-object-dictionary": true
+   },
+   "fields": {
+    "auto-generated": {
+     "description": "Generated from object NAT settings.",
+     "type": "boolean"
+    },
+    "comments": {
+     "description": "Rule comments.",
+     "type": "string"
+    },
+    "domain.name": {
+     "description": "Domain holding the rule.",
+     "type": "string"
+    },
+    "enabled": {
+     "description": "Rule enabled.",
+     "type": "boolean"
+    },
+    "install-on": {
+     "description": "Install-on target names.",
+     "type": "json"
+    },
+    "meta-info.creation-time.iso-8601": {
+     "description": "Creation time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.creation-time.posix": {
+     "description": "Creation time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.creator": {
+     "description": "Creator.",
+     "type": "string"
+    },
+    "meta-info.last-modifier": {
+     "description": "Last modifier.",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.iso-8601": {
+     "description": "Last modification time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.posix": {
+     "description": "Last modification time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.lock": {
+     "description": "Lock state.",
+     "type": "string"
+    },
+    "method": {
+     "description": "static, hide or nat64/nat46.",
+     "type": "string"
+    },
+    "name": {
+     "description": "Rule name.",
+     "type": "string"
+    },
+    "original-destination": {
+     "description": "Original destination name.",
+     "type": "string"
+    },
+    "original-destination.uid": {
+     "description": "Original destination UID.",
+     "type": "string"
+    },
+    "original-service": {
+     "description": "Original service name.",
+     "type": "string"
+    },
+    "original-service.uid": {
+     "description": "Original service UID.",
+     "type": "string"
+    },
+    "original-source": {
+     "description": "Original source name.",
+     "type": "string"
+    },
+    "original-source.uid": {
+     "description": "Original source UID.",
+     "type": "string"
+    },
+    "package": {
+     "description": "Policy package queried (explicit parent).",
+     "type": "string"
+    },
+    "rule-number": {
+     "description": "Position in the NAT rulebase.",
+     "type": "integer"
+    },
+    "rulebase.uid": {
+     "description": "NAT layer UID.",
+     "type": "string"
+    },
+    "section": {
+     "description": "Section name (Manual Lower Rules, Automatic Generated Rules : ...); empty for global rules.",
+     "type": "string"
+    },
+    "section.uid": {
+     "description": "Section UID.",
+     "type": "string"
+    },
+    "translated-destination": {
+     "description": "Translated destination name.",
+     "type": "string"
+    },
+    "translated-destination.uid": {
+     "description": "Translated destination UID.",
+     "type": "string"
+    },
+    "translated-service": {
+     "description": "Translated service name.",
+     "type": "string"
+    },
+    "translated-service.uid": {
+     "description": "Translated service UID.",
+     "type": "string"
+    },
+    "translated-source": {
+     "description": "Translated source name (Original = unchanged).",
+     "type": "string"
+    },
+    "translated-source.uid": {
+     "description": "Translated source UID.",
+     "type": "string"
+    },
+    "type": {
+     "description": "nat-rule / rule.",
+     "type": "string"
+    },
+    "uid": {
+     "description": "Rule UID.",
+     "type": "string"
+    }
+   },
+   "kind": "rulebase",
+   "notes": "",
+   "order_fields": [
+    "name"
+   ],
+   "parents": [
+    "package"
+   ]
+  },
+  "networks": {
+   "command": "show-networks",
+   "container": "objects",
+   "controls": [
+    "search",
+    "order_by"
+   ],
+   "description": "Network objects (subnets) in the domain.",
+   "details_level": "full",
+   "extra_body": {
+    "show-membership": true
+   },
+   "fields": {
+    "broadcast": {
+     "description": "allow or disallow broadcast address inclusion.",
+     "type": "string"
+    },
+    "color": {
+     "description": "Object color.",
+     "type": "string"
+    },
+    "comments": {
+     "description": "Object comments.",
+     "type": "string"
+    },
+    "domain.domain-type": {
+     "description": "domain or data domain (Check Point predefined data).",
+     "type": "string"
+    },
+    "domain.name": {
+     "description": "Name of the domain holding the object (SMC User on a single-domain server).",
+     "type": "string"
+    },
+    "domain.uid": {
+     "description": "UID of the domain holding the object.",
+     "type": "string"
+    },
+    "groups": {
+     "description": "Groups this object is a member of (requires show-membership; may be empty).",
+     "type": "json"
+    },
+    "icon": {
+     "description": "Object icon path.",
+     "type": "string"
+    },
+    "mask-length4": {
+     "description": "IPv4 prefix length.",
+     "type": "integer"
+    },
+    "mask-length6": {
+     "description": "IPv6 prefix length.",
+     "type": "integer"
+    },
+    "meta-info.creation-time.iso-8601": {
+     "description": "Creation time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.creation-time.posix": {
+     "description": "Creation time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.creator": {
+     "description": "Administrator who created the object.",
+     "type": "string"
+    },
+    "meta-info.last-modifier": {
+     "description": "Administrator who last modified the object.",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.iso-8601": {
+     "description": "Last modification time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.posix": {
+     "description": "Last modification time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.lock": {
+     "description": "unlocked, locked by current session or locked by other session.",
+     "type": "string"
+    },
+    "meta-info.validation-state": {
+     "description": "Validation state (ok, warning, error).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Object name, unique in the domain.",
+     "type": "string"
+    },
+    "nat-settings.auto-rule": {
+     "description": "Automatic NAT rule generation enabled.",
+     "type": "boolean"
+    },
+    "nat-settings.hide-behind": {
+     "description": "gateway or ip-address for hide NAT.",
+     "type": "string"
+    },
+    "nat-settings.install-on": {
+     "description": "Gateway that applies the automatic NAT.",
+     "type": "string"
+    },
+    "nat-settings.ipv4-address": {
+     "description": "Translated IPv4 address for automatic NAT.",
+     "type": "string"
+    },
+    "nat-settings.method": {
+     "description": "NAT method (hide or static) when auto-rule is on.",
+     "type": "string"
+    },
+    "read-only": {
+     "description": "True when the object cannot be edited by the current session.",
+     "type": "boolean"
+    },
+    "subnet-mask": {
+     "description": "IPv4 network mask.",
+     "type": "string"
+    },
+    "subnet4": {
+     "description": "IPv4 network address.",
+     "type": "string"
+    },
+    "subnet6": {
+     "description": "IPv6 network address.",
+     "type": "string"
+    },
+    "tags": {
+     "description": "Tag objects (uid/name/type) attached to the object.",
+     "type": "json"
+    },
+    "type": {
+     "description": "Object type as reported by the API.",
+     "type": "string"
+    },
+    "uid": {
+     "description": "Object unique identifier.",
+     "type": "string"
+    }
+   },
+   "kind": "objects",
+   "notes": "",
+   "order_fields": [
+    "name"
+   ],
+   "parents": []
+  },
+  "packages": {
+   "command": "show-packages",
+   "container": "packages",
+   "controls": [
+    "search",
+    "order_by"
+   ],
+   "description": "Policy packages: which layers they contain and where they are installed.",
+   "details_level": "full",
+   "extra_body": {},
+   "fields": {
+    "access": {
+     "description": "Access control policy enabled.",
+     "type": "boolean"
+    },
+    "access-layers": {
+     "description": "Access layers (uid, name) in order.",
+     "type": "json"
+    },
+    "color": {
+     "description": "Object color.",
+     "type": "string"
+    },
+    "comments": {
+     "description": "Object comments.",
+     "type": "string"
+    },
+    "desktop-security": {
+     "description": "Desktop security policy enabled.",
+     "type": "boolean"
+    },
+    "domain.domain-type": {
+     "description": "domain or data domain (Check Point predefined data).",
+     "type": "string"
+    },
+    "domain.name": {
+     "description": "Name of the domain holding the object (SMC User on a single-domain server).",
+     "type": "string"
+    },
+    "domain.uid": {
+     "description": "UID of the domain holding the object.",
+     "type": "string"
+    },
+    "https-inspection-policy": {
+     "description": "HTTPS inspection policy enabled.",
+     "type": "boolean"
+    },
+    "icon": {
+     "description": "Object icon path.",
+     "type": "string"
+    },
+    "installation-targets": {
+     "description": "Installation targets: the string all or a list of gateway objects.",
+     "type": "json"
+    },
+    "installation-targets-revision": {
+     "description": "Per target: target-name, target-uid and the revision installed.",
+     "type": "json"
+    },
+    "meta-info.creation-time.iso-8601": {
+     "description": "Creation time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.creation-time.posix": {
+     "description": "Creation time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.creator": {
+     "description": "Administrator who created the object.",
+     "type": "string"
+    },
+    "meta-info.last-modifier": {
+     "description": "Administrator who last modified the object.",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.iso-8601": {
+     "description": "Last modification time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.posix": {
+     "description": "Last modification time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.lock": {
+     "description": "unlocked, locked by current session or locked by other session.",
+     "type": "string"
+    },
+    "meta-info.validation-state": {
+     "description": "Validation state (ok, warning, error).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Object name, unique in the domain.",
+     "type": "string"
+    },
+    "nat-policy": {
+     "description": "NAT policy enabled.",
+     "type": "boolean"
+    },
+    "qos": {
+     "description": "QoS policy enabled.",
+     "type": "boolean"
+    },
+    "read-only": {
+     "description": "True when the object cannot be edited by the current session.",
+     "type": "boolean"
+    },
+    "tags": {
+     "description": "Tag objects (uid/name/type) attached to the object.",
+     "type": "json"
+    },
+    "threat-layers": {
+     "description": "Threat layers (uid, name).",
+     "type": "json"
+    },
+    "threat-prevention": {
+     "description": "Threat prevention policy enabled.",
+     "type": "boolean"
+    },
+    "type": {
+     "description": "Object type as reported by the API.",
+     "type": "string"
+    },
+    "uid": {
+     "description": "Object unique identifier.",
+     "type": "string"
+    },
+    "vpn-traditional-mode": {
+     "description": "VPN traditional mode.",
+     "type": "boolean"
+    }
+   },
+   "kind": "objects",
+   "notes": "",
+   "order_fields": [
+    "name"
+   ],
+   "parents": []
+  },
+  "service_groups": {
+   "command": "show-service-groups",
+   "container": "objects",
+   "controls": [
+    "search",
+    "order_by"
+   ],
+   "description": "Service groups with their direct members.",
+   "details_level": "full",
+   "extra_body": {
+    "dereference-group-members": true,
+    "show-membership": true
+   },
+   "fields": {
+    "color": {
+     "description": "Object color.",
+     "type": "string"
+    },
+    "comments": {
+     "description": "Object comments.",
+     "type": "string"
+    },
+    "domain.domain-type": {
+     "description": "domain or data domain (Check Point predefined data).",
+     "type": "string"
+    },
+    "domain.name": {
+     "description": "Name of the domain holding the object (SMC User on a single-domain server).",
+     "type": "string"
+    },
+    "domain.uid": {
+     "description": "UID of the domain holding the object.",
+     "type": "string"
+    },
+    "groups": {
+     "description": "Groups this object is a member of (requires show-membership; may be empty).",
+     "type": "json"
+    },
+    "icon": {
+     "description": "Object icon path.",
+     "type": "string"
+    },
+    "member-count": {
+     "description": "Number of direct members (derived).",
+     "type": "integer"
+    },
+    "members": {
+     "description": "Direct member services (uid, name, type, port).",
+     "type": "json"
+    },
+    "meta-info.creation-time.iso-8601": {
+     "description": "Creation time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.creation-time.posix": {
+     "description": "Creation time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.creator": {
+     "description": "Administrator who created the object.",
+     "type": "string"
+    },
+    "meta-info.last-modifier": {
+     "description": "Administrator who last modified the object.",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.iso-8601": {
+     "description": "Last modification time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.posix": {
+     "description": "Last modification time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.lock": {
+     "description": "unlocked, locked by current session or locked by other session.",
+     "type": "string"
+    },
+    "meta-info.validation-state": {
+     "description": "Validation state (ok, warning, error).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Object name, unique in the domain.",
+     "type": "string"
+    },
+    "read-only": {
+     "description": "True when the object cannot be edited by the current session.",
+     "type": "boolean"
+    },
+    "tags": {
+     "description": "Tag objects (uid/name/type) attached to the object.",
+     "type": "json"
+    },
+    "type": {
+     "description": "Object type as reported by the API.",
+     "type": "string"
+    },
+    "uid": {
+     "description": "Object unique identifier.",
+     "type": "string"
+    }
+   },
+   "kind": "objects",
+   "notes": "",
+   "order_fields": [
+    "name"
+   ],
+   "parents": []
+  },
+  "services_tcp": {
+   "command": "show-services-tcp",
+   "container": "objects",
+   "controls": [
+    "search",
+    "order_by"
+   ],
+   "description": "TCP service objects.",
+   "details_level": "full",
+   "extra_body": {
+    "show-membership": true
+   },
+   "fields": {
+    "aggressive-aging.default-timeout": {
+     "description": "Aggressive aging default timeout in seconds.",
+     "type": "integer"
+    },
+    "aggressive-aging.enable": {
+     "description": "Aggressive aging enabled.",
+     "type": "boolean"
+    },
+    "aggressive-aging.timeout": {
+     "description": "Aggressive aging timeout in seconds.",
+     "type": "integer"
+    },
+    "aggressive-aging.use-default-timeout": {
+     "description": "Aggressive aging uses the default timeout.",
+     "type": "boolean"
+    },
+    "color": {
+     "description": "Object color.",
+     "type": "string"
+    },
+    "comments": {
+     "description": "Object comments.",
+     "type": "string"
+    },
+    "domain.domain-type": {
+     "description": "domain or data domain (Check Point predefined data).",
+     "type": "string"
+    },
+    "domain.name": {
+     "description": "Name of the domain holding the object (SMC User on a single-domain server).",
+     "type": "string"
+    },
+    "domain.uid": {
+     "description": "UID of the domain holding the object.",
+     "type": "string"
+    },
+    "groups": {
+     "description": "Groups this object is a member of (requires show-membership; may be empty).",
+     "type": "json"
+    },
+    "icon": {
+     "description": "Object icon path.",
+     "type": "string"
+    },
+    "keep-connections-open-after-policy-installation": {
+     "description": "Keep established connections after policy install.",
+     "type": "boolean"
+    },
+    "match-by-protocol-signature": {
+     "description": "Match by protocol signature instead of port only.",
+     "type": "boolean"
+    },
+    "match-for-any": {
+     "description": "Service participates in rules whose service column is Any.",
+     "type": "boolean"
+    },
+    "meta-info.creation-time.iso-8601": {
+     "description": "Creation time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.creation-time.posix": {
+     "description": "Creation time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.creator": {
+     "description": "Administrator who created the object.",
+     "type": "string"
+    },
+    "meta-info.last-modifier": {
+     "description": "Administrator who last modified the object.",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.iso-8601": {
+     "description": "Last modification time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.posix": {
+     "description": "Last modification time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.lock": {
+     "description": "unlocked, locked by current session or locked by other session.",
+     "type": "string"
+    },
+    "meta-info.validation-state": {
+     "description": "Validation state (ok, warning, error).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Object name, unique in the domain.",
+     "type": "string"
+    },
+    "port": {
+     "description": "Destination port or port range, for example 443 or 1024-65535.",
+     "type": "string"
+    },
+    "protocol": {
+     "description": "Protocol signature associated with the service.",
+     "type": "string"
+    },
+    "read-only": {
+     "description": "True when the object cannot be edited by the current session.",
+     "type": "boolean"
+    },
+    "session-timeout": {
+     "description": "Virtual session timeout in seconds.",
+     "type": "integer"
+    },
+    "source-port": {
+     "description": "Source port restriction, empty when any.",
+     "type": "string"
+    },
+    "sync-connections-on-cluster": {
+     "description": "Synchronize connections between cluster members.",
+     "type": "boolean"
+    },
+    "tags": {
+     "description": "Tag objects (uid/name/type) attached to the object.",
+     "type": "json"
+    },
+    "type": {
+     "description": "Object type as reported by the API.",
+     "type": "string"
+    },
+    "uid": {
+     "description": "Object unique identifier.",
+     "type": "string"
+    },
+    "use-default-session-timeout": {
+     "description": "Whether the global default timeout applies.",
+     "type": "boolean"
+    }
+   },
+   "kind": "objects",
+   "notes": "",
+   "order_fields": [
+    "name"
+   ],
+   "parents": []
+  },
+  "services_udp": {
+   "command": "show-services-udp",
+   "container": "objects",
+   "controls": [
+    "search",
+    "order_by"
+   ],
+   "description": "UDP service objects.",
+   "details_level": "full",
+   "extra_body": {
+    "show-membership": true
+   },
+   "fields": {
+    "accept-replies": {
+     "description": "Accept UDP replies for the connection.",
+     "type": "boolean"
+    },
+    "aggressive-aging.default-timeout": {
+     "description": "Aggressive aging default timeout in seconds.",
+     "type": "integer"
+    },
+    "aggressive-aging.enable": {
+     "description": "Aggressive aging enabled.",
+     "type": "boolean"
+    },
+    "aggressive-aging.timeout": {
+     "description": "Aggressive aging timeout in seconds.",
+     "type": "integer"
+    },
+    "aggressive-aging.use-default-timeout": {
+     "description": "Aggressive aging uses the default timeout.",
+     "type": "boolean"
+    },
+    "color": {
+     "description": "Object color.",
+     "type": "string"
+    },
+    "comments": {
+     "description": "Object comments.",
+     "type": "string"
+    },
+    "domain.domain-type": {
+     "description": "domain or data domain (Check Point predefined data).",
+     "type": "string"
+    },
+    "domain.name": {
+     "description": "Name of the domain holding the object (SMC User on a single-domain server).",
+     "type": "string"
+    },
+    "domain.uid": {
+     "description": "UID of the domain holding the object.",
+     "type": "string"
+    },
+    "groups": {
+     "description": "Groups this object is a member of (requires show-membership; may be empty).",
+     "type": "json"
+    },
+    "icon": {
+     "description": "Object icon path.",
+     "type": "string"
+    },
+    "keep-connections-open-after-policy-installation": {
+     "description": "Keep established connections after policy install.",
+     "type": "boolean"
+    },
+    "match-by-protocol-signature": {
+     "description": "Match by protocol signature instead of port only.",
+     "type": "boolean"
+    },
+    "match-for-any": {
+     "description": "Service participates in rules whose service column is Any.",
+     "type": "boolean"
+    },
+    "meta-info.creation-time.iso-8601": {
+     "description": "Creation time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.creation-time.posix": {
+     "description": "Creation time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.creator": {
+     "description": "Administrator who created the object.",
+     "type": "string"
+    },
+    "meta-info.last-modifier": {
+     "description": "Administrator who last modified the object.",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.iso-8601": {
+     "description": "Last modification time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.posix": {
+     "description": "Last modification time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.lock": {
+     "description": "unlocked, locked by current session or locked by other session.",
+     "type": "string"
+    },
+    "meta-info.validation-state": {
+     "description": "Validation state (ok, warning, error).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Object name, unique in the domain.",
+     "type": "string"
+    },
+    "port": {
+     "description": "Destination port or port range, for example 443 or 1024-65535.",
+     "type": "string"
+    },
+    "protocol": {
+     "description": "Protocol signature associated with the service.",
+     "type": "string"
+    },
+    "read-only": {
+     "description": "True when the object cannot be edited by the current session.",
+     "type": "boolean"
+    },
+    "session-timeout": {
+     "description": "Virtual session timeout in seconds.",
+     "type": "integer"
+    },
+    "source-port": {
+     "description": "Source port restriction, empty when any.",
+     "type": "string"
+    },
+    "sync-connections-on-cluster": {
+     "description": "Synchronize connections between cluster members.",
+     "type": "boolean"
+    },
+    "tags": {
+     "description": "Tag objects (uid/name/type) attached to the object.",
+     "type": "json"
+    },
+    "type": {
+     "description": "Object type as reported by the API.",
+     "type": "string"
+    },
+    "uid": {
+     "description": "Object unique identifier.",
+     "type": "string"
+    },
+    "use-default-session-timeout": {
+     "description": "Whether the global default timeout applies.",
+     "type": "boolean"
+    }
+   },
+   "kind": "objects",
+   "notes": "",
+   "order_fields": [
+    "name"
+   ],
+   "parents": []
+  },
+  "session": {
+   "command": "show-session",
+   "container": "",
+   "controls": [],
+   "description": "The connector's own read-only session as seen by the server (identity check).",
+   "details_level": "full",
+   "extra_body": {},
+   "fields": {
+    "api-server-version": {
+     "description": "api-server-version from login.",
+     "type": "string"
+    },
+    "application": {
+     "description": "WEB_API.",
+     "type": "string"
+    },
+    "changes": {
+     "description": "Pending changes (0).",
+     "type": "integer"
+    },
+    "connection-mode": {
+     "description": "read only.",
+     "type": "string"
+    },
+    "description": {
+     "description": "Session description.",
+     "type": "string"
+    },
+    "domain.name": {
+     "description": "Domain.",
+     "type": "string"
+    },
+    "in-work": {
+     "description": "Connected.",
+     "type": "boolean"
+    },
+    "ip-address": {
+     "description": "Client IP seen by the server.",
+     "type": "string"
+    },
+    "last-login-time.iso-8601": {
+     "description": "Last login in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "last-login-time.posix": {
+     "description": "Last login as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "locks": {
+     "description": "Locks (0).",
+     "type": "integer"
+    },
+    "login.standby": {
+     "description": "Management server is standby.",
+     "type": "boolean"
+    },
+    "login.url": {
+     "description": "Web API URL reported by login.",
+     "type": "string"
+    },
+    "name": {
+     "description": "Object name, unique in the domain.",
+     "type": "string"
+    },
+    "read-only": {
+     "description": "Must be true.",
+     "type": "boolean"
+    },
+    "session-timeout": {
+     "description": "Idle timeout.",
+     "type": "integer"
+    },
+    "state": {
+     "description": "Session state.",
+     "type": "string"
+    },
+    "type": {
+     "description": "Object type as reported by the API.",
+     "type": "string"
+    },
+    "uid": {
+     "description": "Object unique identifier.",
+     "type": "string"
+    },
+    "user-name": {
+     "description": "Logged in administrator.",
+     "type": "string"
+    }
+   },
+   "kind": "singleton",
+   "notes": "",
+   "order_fields": [
+    "name"
+   ],
+   "parents": []
+  },
+  "sessions": {
+   "command": "show-sessions",
+   "container": "objects",
+   "controls": [
+    "search",
+    "order_by",
+    "view_published_sessions"
+   ],
+   "description": "Management sessions (open, published, expired) with locks and pending changes.",
+   "details_level": "full",
+   "extra_body": {},
+   "fields": {
+    "application": {
+     "description": "SmartConsole, WEB_API, ...",
+     "type": "string"
+    },
+    "changes": {
+     "description": "Number of unpublished changes.",
+     "type": "integer"
+    },
+    "comments": {
+     "description": "Session comments.",
+     "type": "string"
+    },
+    "connection-mode": {
+     "description": "read write or read only.",
+     "type": "string"
+    },
+    "description": {
+     "description": "Session description.",
+     "type": "string"
+    },
+    "domain.name": {
+     "description": "Domain.",
+     "type": "string"
+    },
+    "email": {
+     "description": "Administrator email.",
+     "type": "string"
+    },
+    "expired-session": {
+     "description": "Session expired.",
+     "type": "boolean"
+    },
+    "in-work": {
+     "description": "Session currently connected.",
+     "type": "boolean"
+    },
+    "ip-address": {
+     "description": "Client IP address.",
+     "type": "string"
+    },
+    "last-login-time.iso-8601": {
+     "description": "Last login in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "last-login-time.posix": {
+     "description": "Last login as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "last-logout-time.iso-8601": {
+     "description": "Last logout in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "last-logout-time.posix": {
+     "description": "Last logout as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "locks": {
+     "description": "Number of objects locked by the session.",
+     "type": "integer"
+    },
+    "name": {
+     "description": "Object name, unique in the domain.",
+     "type": "string"
+    },
+    "publish-time.iso-8601": {
+     "description": "Publish time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "publish-time.posix": {
+     "description": "Publish time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "read-only": {
+     "description": "Session opened read-only.",
+     "type": "boolean"
+    },
+    "session-timeout": {
+     "description": "Idle timeout in seconds.",
+     "type": "integer"
+    },
+    "state": {
+     "description": "open, published, discarded, ...",
+     "type": "string"
+    },
+    "type": {
+     "description": "Object type as reported by the API.",
+     "type": "string"
+    },
+    "uid": {
+     "description": "Object unique identifier.",
+     "type": "string"
+    },
+    "user-name": {
+     "description": "Administrator who owns the session.",
+     "type": "string"
+    }
+   },
+   "kind": "objects",
+   "notes": "Stale locks: state open, in-work false, locks > 0 and an old last-login-time.",
+   "order_fields": [
+    "name"
+   ],
+   "parents": []
+  },
+  "simple_gateways": {
+   "command": "show-simple-gateways",
+   "container": "objects",
+   "controls": [
+    "search",
+    "order_by"
+   ],
+   "description": "Simple (single) gateway objects with blade flags and logging settings.",
+   "details_level": "full",
+   "extra_body": {},
+   "fields": {
+    "anti-bot": {
+     "description": "Anti-Bot blade.",
+     "type": "boolean"
+    },
+    "anti-virus": {
+     "description": "Anti-Virus blade.",
+     "type": "boolean"
+    },
+    "application-control": {
+     "description": "Application Control blade.",
+     "type": "boolean"
+    },
+    "color": {
+     "description": "Object color.",
+     "type": "string"
+    },
+    "comments": {
+     "description": "Object comments.",
+     "type": "string"
+    },
+    "content-awareness": {
+     "description": "Content Awareness blade.",
+     "type": "boolean"
+    },
+    "domain.domain-type": {
+     "description": "domain or data domain (Check Point predefined data).",
+     "type": "string"
+    },
+    "domain.name": {
+     "description": "Name of the domain holding the object (SMC User on a single-domain server).",
+     "type": "string"
+    },
+    "domain.uid": {
+     "description": "UID of the domain holding the object.",
+     "type": "string"
+    },
+    "dynamic-ip": {
+     "description": "Dynamic IP address.",
+     "type": "boolean"
+    },
+    "enable-https-inspection": {
+     "description": "HTTPS inspection enabled.",
+     "type": "boolean"
+    },
+    "firewall": {
+     "description": "Firewall blade.",
+     "type": "boolean"
+    },
+    "groups": {
+     "description": "Groups this object is a member of (requires show-membership; may be empty).",
+     "type": "json"
+    },
+    "hardware": {
+     "description": "Hardware model.",
+     "type": "string"
+    },
+    "hit-count": {
+     "description": "Hit count tracking.",
+     "type": "boolean"
+    },
+    "icon": {
+     "description": "Object icon path.",
+     "type": "string"
+    },
+    "identity-awareness": {
+     "description": "Identity Awareness blade.",
+     "type": "boolean"
+    },
+    "interfaces": {
+     "description": "Interfaces (name, ipv4-address, ipv4-mask-length, topology).",
+     "type": "json"
+    },
+    "ips": {
+     "description": "IPS blade.",
+     "type": "boolean"
+    },
+    "ipv4-address": {
+     "description": "Main IPv4 address.",
+     "type": "string"
+    },
+    "ipv6-address": {
+     "description": "Main IPv6 address.",
+     "type": "string"
+    },
+    "meta-info.creation-time.iso-8601": {
+     "description": "Creation time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.creation-time.posix": {
+     "description": "Creation time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.creator": {
+     "description": "Administrator who created the object.",
+     "type": "string"
+    },
+    "meta-info.last-modifier": {
+     "description": "Administrator who last modified the object.",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.iso-8601": {
+     "description": "Last modification time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.posix": {
+     "description": "Last modification time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.lock": {
+     "description": "unlocked, locked by current session or locked by other session.",
+     "type": "string"
+    },
+    "meta-info.validation-state": {
+     "description": "Validation state (ok, warning, error).",
+     "type": "string"
+    },
+    "monitoring": {
+     "description": "Monitoring blade.",
+     "type": "boolean"
+    },
+    "name": {
+     "description": "Object name, unique in the domain.",
+     "type": "string"
+    },
+    "os-name": {
+     "description": "Operating system.",
+     "type": "string"
+    },
+    "read-only": {
+     "description": "True when the object cannot be edited by the current session.",
+     "type": "boolean"
+    },
+    "save-logs-locally": {
+     "description": "Logs saved locally.",
+     "type": "boolean"
+    },
+    "send-logs-to-backup-server": {
+     "description": "Backup log servers.",
+     "type": "json"
+    },
+    "send-logs-to-server": {
+     "description": "Log servers.",
+     "type": "json"
+    },
+    "sic-name": {
+     "description": "SIC DN.",
+     "type": "string"
+    },
+    "sic-state": {
+     "description": "SIC trust state.",
+     "type": "string"
+    },
+    "tags": {
+     "description": "Tag objects (uid/name/type) attached to the object.",
+     "type": "json"
+    },
+    "threat-emulation": {
+     "description": "Threat Emulation blade.",
+     "type": "boolean"
+    },
+    "threat-extraction": {
+     "description": "Threat Extraction blade.",
+     "type": "boolean"
+    },
+    "type": {
+     "description": "Object type as reported by the API.",
+     "type": "string"
+    },
+    "uid": {
+     "description": "Object unique identifier.",
+     "type": "string"
+    },
+    "url-filtering": {
+     "description": "URL Filtering blade.",
+     "type": "boolean"
+    },
+    "version": {
+     "description": "Gateway software version.",
+     "type": "string"
+    },
+    "vpn": {
+     "description": "IPsec VPN blade.",
+     "type": "boolean"
+    }
+   },
+   "kind": "objects",
+   "notes": "",
+   "order_fields": [
+    "name"
+   ],
+   "parents": []
+  },
+  "tasks": {
+   "command": "show-tasks",
+   "container": "tasks",
+   "controls": [
+    "status",
+    "initiator",
+    "lookback",
+    "start_time",
+    "end_time",
+    "order_by"
+   ],
+   "description": "Management tasks (policy installation, publish, show-changes, ...) with progress and status.",
+   "details_level": "full",
+   "extra_body": {},
+   "fields": {
+    "domain.name": {
+     "description": "Domain.",
+     "type": "string"
+    },
+    "last-update-time.iso-8601": {
+     "description": "Last update in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "last-update-time.posix": {
+     "description": "Last update as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "name": {
+     "description": "Object name, unique in the domain.",
+     "type": "string"
+    },
+    "progress-description": {
+     "description": "Progress text.",
+     "type": "string"
+    },
+    "progress-percentage": {
+     "description": "Progress 0-100.",
+     "type": "integer"
+    },
+    "start-time.iso-8601": {
+     "description": "Start time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "start-time.posix": {
+     "description": "Start time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "status": {
+     "description": "succeeded, failed, in progress, partially succeeded.",
+     "type": "string"
+    },
+    "suppressed": {
+     "description": "Task hidden from the UI.",
+     "type": "boolean"
+    },
+    "task-details": {
+     "description": "Task specific details.",
+     "type": "json"
+    },
+    "task-id": {
+     "description": "Task UID used by show-task.",
+     "type": "string"
+    },
+    "task-name": {
+     "description": "Task name.",
+     "type": "string"
+    },
+    "type": {
+     "description": "Object type as reported by the API.",
+     "type": "string"
+    },
+    "uid": {
+     "description": "Object unique identifier.",
+     "type": "string"
+    }
+   },
+   "kind": "objects",
+   "notes": "",
+   "order_fields": [
+    "name"
+   ],
+   "parents": []
+  },
+  "threat_rules": {
+   "command": "show-threat-rulebase",
+   "container": "rulebase",
+   "controls": [
+    "search",
+    "package"
+   ],
+   "description": "Flattened threat prevention rulebase of one layer.",
+   "details_level": "standard",
+   "extra_body": {
+    "use-object-dictionary": true
+   },
+   "fields": {
+    "action": {
+     "description": "Threat profile name applied.",
+     "type": "string"
+    },
+    "action.uid": {
+     "description": "Profile UID.",
+     "type": "string"
+    },
+    "comments": {
+     "description": "Rule comments.",
+     "type": "string"
+    },
+    "destination": {
+     "description": "Destination object names.",
+     "type": "json"
+    },
+    "destination-negate": {
+     "description": "Destination negated.",
+     "type": "boolean"
+    },
+    "domain.name": {
+     "description": "Domain.",
+     "type": "string"
+    },
+    "enabled": {
+     "description": "Rule enabled.",
+     "type": "boolean"
+    },
+    "exceptions": {
+     "description": "Exception rules (uid, name) attached.",
+     "type": "json"
+    },
+    "install-on": {
+     "description": "Install-on target names.",
+     "type": "json"
+    },
+    "layer": {
+     "description": "Threat layer name queried (explicit parent).",
+     "type": "string"
+    },
+    "layer.uid": {
+     "description": "Layer UID.",
+     "type": "string"
+    },
+    "meta-info.last-modifier": {
+     "description": "Last modifier.",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.iso-8601": {
+     "description": "Last modification time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.posix": {
+     "description": "Last modification time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "name": {
+     "description": "Rule name.",
+     "type": "string"
+    },
+    "protected-scope": {
+     "description": "Protected scope object names.",
+     "type": "json"
+    },
+    "protected-scope-negate": {
+     "description": "Protected scope negated.",
+     "type": "boolean"
+    },
+    "rule-number": {
+     "description": "Position in the layer.",
+     "type": "integer"
+    },
+    "section": {
+     "description": "Section name.",
+     "type": "string"
+    },
+    "section.uid": {
+     "description": "Section UID.",
+     "type": "string"
+    },
+    "service": {
+     "description": "Service object names.",
+     "type": "json"
+    },
+    "service-negate": {
+     "description": "Service negated.",
+     "type": "boolean"
+    },
+    "source": {
+     "description": "Source object names.",
+     "type": "json"
+    },
+    "source-negate": {
+     "description": "Source negated.",
+     "type": "boolean"
+    },
+    "track": {
+     "description": "Track setting name.",
+     "type": "string"
+    },
+    "track-settings.packet-capture": {
+     "description": "Packet capture enabled.",
+     "type": "boolean"
+    },
+    "type": {
+     "description": "threat-rule / rule.",
+     "type": "string"
+    },
+    "uid": {
+     "description": "Rule UID.",
+     "type": "string"
+    }
+   },
+   "kind": "rulebase",
+   "notes": "",
+   "order_fields": [
+    "name"
+   ],
+   "parents": [
+    "layer"
+   ]
+  },
+  "unused_objects": {
+   "command": "show-unused-objects",
+   "container": "objects",
+   "controls": [
+    "search",
+    "order_by"
+   ],
+   "description": "Objects not referenced by any rule or other object.",
+   "details_level": "full",
+   "extra_body": {},
+   "fields": {
+    "color": {
+     "description": "Object color.",
+     "type": "string"
+    },
+    "comments": {
+     "description": "Object comments.",
+     "type": "string"
+    },
+    "domain.domain-type": {
+     "description": "domain or data domain (Check Point predefined data).",
+     "type": "string"
+    },
+    "domain.name": {
+     "description": "Name of the domain holding the object (SMC User on a single-domain server).",
+     "type": "string"
+    },
+    "domain.uid": {
+     "description": "UID of the domain holding the object.",
+     "type": "string"
+    },
+    "icon": {
+     "description": "Object icon path.",
+     "type": "string"
+    },
+    "ipv4-address": {
+     "description": "IPv4 address for hosts.",
+     "type": "string"
+    },
+    "mask-length4": {
+     "description": "Prefix length for networks.",
+     "type": "integer"
+    },
+    "meta-info.creation-time.iso-8601": {
+     "description": "Creation time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.creation-time.posix": {
+     "description": "Creation time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.creator": {
+     "description": "Administrator who created the object.",
+     "type": "string"
+    },
+    "meta-info.last-modifier": {
+     "description": "Administrator who last modified the object.",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.iso-8601": {
+     "description": "Last modification time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.posix": {
+     "description": "Last modification time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.lock": {
+     "description": "unlocked, locked by current session or locked by other session.",
+     "type": "string"
+    },
+    "meta-info.validation-state": {
+     "description": "Validation state (ok, warning, error).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Object name, unique in the domain.",
+     "type": "string"
+    },
+    "port": {
+     "description": "Port for services.",
+     "type": "string"
+    },
+    "read-only": {
+     "description": "True when the object cannot be edited by the current session.",
+     "type": "boolean"
+    },
+    "subnet4": {
+     "description": "Subnet for networks.",
+     "type": "string"
+    },
+    "tags": {
+     "description": "Tag objects (uid/name/type) attached to the object.",
+     "type": "json"
+    },
+    "type": {
+     "description": "Object type as reported by the API.",
+     "type": "string"
+    },
+    "uid": {
+     "description": "Object unique identifier.",
+     "type": "string"
+    }
+   },
+   "kind": "objects",
+   "notes": "",
+   "order_fields": [
+    "name"
+   ],
+   "parents": []
+  },
+  "vpn_communities": {
+   "command": "show-vpn-communities-meshed",
+   "commands": [
+    "show-vpn-communities-meshed",
+    "show-vpn-communities-star"
+   ],
+   "container": "objects",
+   "controls": [
+    "search",
+    "order_by"
+   ],
+   "description": "Meshed and star VPN communities with encryption settings and member gateways.",
+   "details_level": "full",
+   "extra_body": {},
+   "fields": {
+    "center-gateways": {
+     "description": "Star center gateways.",
+     "type": "json"
+    },
+    "color": {
+     "description": "Object color.",
+     "type": "string"
+    },
+    "comments": {
+     "description": "Object comments.",
+     "type": "string"
+    },
+    "community-type": {
+     "description": "meshed or star (derived from the command).",
+     "type": "string"
+    },
+    "domain.domain-type": {
+     "description": "domain or data domain (Check Point predefined data).",
+     "type": "string"
+    },
+    "domain.name": {
+     "description": "Name of the domain holding the object (SMC User on a single-domain server).",
+     "type": "string"
+    },
+    "domain.uid": {
+     "description": "UID of the domain holding the object.",
+     "type": "string"
+    },
+    "encryption-method": {
+     "description": "IKE method.",
+     "type": "string"
+    },
+    "encryption-suite": {
+     "description": "Suite name or custom.",
+     "type": "string"
+    },
+    "gateways": {
+     "description": "Meshed member gateways.",
+     "type": "json"
+    },
+    "icon": {
+     "description": "Object icon path.",
+     "type": "string"
+    },
+    "ike-phase-1.data-integrity": {
+     "description": "Phase 1 integrity.",
+     "type": "string"
+    },
+    "ike-phase-1.diffie-hellman-group": {
+     "description": "Phase 1 DH group.",
+     "type": "string"
+    },
+    "ike-phase-1.encryption-algorithm": {
+     "description": "Phase 1 cipher.",
+     "type": "string"
+    },
+    "ike-phase-2.data-integrity": {
+     "description": "Phase 2 integrity.",
+     "type": "string"
+    },
+    "ike-phase-2.encryption-algorithm": {
+     "description": "Phase 2 cipher.",
+     "type": "string"
+    },
+    "mesh-center-gateways": {
+     "description": "Star centers meshed.",
+     "type": "boolean"
+    },
+    "meta-info.creation-time.iso-8601": {
+     "description": "Creation time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.creation-time.posix": {
+     "description": "Creation time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.creator": {
+     "description": "Administrator who created the object.",
+     "type": "string"
+    },
+    "meta-info.last-modifier": {
+     "description": "Administrator who last modified the object.",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.iso-8601": {
+     "description": "Last modification time in ISO 8601 (management server timezone).",
+     "type": "string"
+    },
+    "meta-info.last-modify-time.posix": {
+     "description": "Last modification time as milliseconds since the Unix epoch.",
+     "type": "integer"
+    },
+    "meta-info.lock": {
+     "description": "unlocked, locked by current session or locked by other session.",
+     "type": "string"
+    },
+    "meta-info.validation-state": {
+     "description": "Validation state (ok, warning, error).",
+     "type": "string"
+    },
+    "name": {
+     "description": "Object name, unique in the domain.",
+     "type": "string"
+    },
+    "read-only": {
+     "description": "True when the object cannot be edited by the current session.",
+     "type": "boolean"
+    },
+    "satellite-gateways": {
+     "description": "Star satellite gateways.",
+     "type": "json"
+    },
+    "tags": {
+     "description": "Tag objects (uid/name/type) attached to the object.",
+     "type": "json"
+    },
+    "type": {
+     "description": "Object type as reported by the API.",
+     "type": "string"
+    },
+    "uid": {
+     "description": "Object unique identifier.",
+     "type": "string"
+    },
+    "use-shared-secret": {
+     "description": "Pre-shared secret in use (value never returned).",
+     "type": "boolean"
+    }
+   },
+   "kind": "vpn_communities",
+   "notes": "",
+   "order_fields": [
+    "name"
+   ],
+   "parents": []
+  }
+ }
+}

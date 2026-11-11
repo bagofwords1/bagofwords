@@ -146,7 +146,7 @@ def ensure_read_only(client, query) -> None:
         from app.data_sources.clients.cypher_guard import CypherNotAllowed, check_cypher
 
         try:
-            check_cypher(query)
+            check_cypher(query, allow_gds=client.allow_gds)
         except CypherNotAllowed as e:
             raise ReadOnlyViolation(str(e)) from e
         return

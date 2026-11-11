@@ -666,6 +666,7 @@ import { artifactLibSources, ensureArtifactLibs, whenArtifactLibsSettled } from 
 
 import { polishPromptPosition as computePolishPromptPosition, buildPolishPrompt } from '~/utils/polishPrompt';
 import { newestVersionOf } from '~/utils/artifactVersionLatest';
+import { artifactRowCounts } from '~/utils/artifactRowCounts';
 import { viewingPath } from '~/utils/dashboardViewing';
 
 // A dashboard keeps its own dense chart and grid sizes even when it sits
@@ -1494,6 +1495,7 @@ async function runParamQueries(
       for (const viz of visualizationsData.value) {
         if (viz.queryId === qid) {
           viz.rows = res.data?.rows || [];
+          Object.assign(viz, artifactRowCounts(res.data));
           viz.columns = res.data?.columns || [];
           viz.stepStatus = 'success';
         }
@@ -2925,6 +2927,7 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
           title: viz.title || query.title || 'Untitled',
           view: viz.view || {},
           rows: step?.data?.rows || [],
+          ...artifactRowCounts(step?.data),
           columns: step?.data?.columns || [],
           dataModel: step?.data_model || {},
           stepStatus: step?.status,

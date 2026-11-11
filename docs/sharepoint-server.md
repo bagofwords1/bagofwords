@@ -119,7 +119,7 @@ public URL/alternate-access mappings, permissions, and farm query limits. See th
 
 For user-required NTLM, members click **Connect**, test their domain username and
 password, and save. Missing credentials block member access; they do not fall
-back to the service account. Existing BOW administrator/owner fallback behavior
+back to the service account. Existing BOW administrator fallback behavior
 still applies to non-OAuth user-required connections. This is credential-based
 Windows authentication, **not automatic SSO**.
 

@@ -2,6 +2,8 @@
 Connection Routes - Admin-only CRUD for database connections.
 Connections are the underlying database connections that Domains (DataSources) link to.
 """
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,6 +34,7 @@ from app.schemas.connection_schema import (
     ConnectionDetailSchema,
     ConnectionTableSchema,
     ConnectionTablePreviewSchema,
+    ConnectionTablePreviewSqlSchema,
     ConnectionTestOverride,
     ConnectionTestResult,
     ConnectionToolTestRequest,
@@ -812,6 +815,38 @@ async def test_connection(
     )
 
 
+@router.post("/{connection_id}/kms-diagnostics")
+@requires_resource_permission('connection', 'manage_connection')
+async def run_kms_diagnostics(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """On-site diagnostics of a KMS Lighthouse connection: a report, also when the run fails."""
+    from app.data_sources.clients.kms_lighthouse_diagnostics import (
+        build_failure_report, route_seconds, start_run, timed_out_report,
+    )
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    if connection.type != "kms_lighthouse":
+        raise AppError.bad_request(ErrorCode.CONNECTION_KMS_ONLY, "Diagnostics apply to KMS Lighthouse connections only.")
+    config, run_key = connection.config, str(connection.id)
+    try:
+        client = await connection_service.construct_client(db, connection, current_user)
+    except Exception as exc:
+        return build_failure_report(config, exc)
+    # The run may take 90 s against a remote host: it must not hold a pooled DB connection.
+    await release_request_db(db)
+    run = start_run(run_key, client)
+    if run is None:
+        raise AppError.conflict(ErrorCode.CONNECTION_KMS_DIAGNOSTICS_RUNNING,
+                                "Diagnostics are already running for this connection.")
+    try:
+        return await asyncio.wait_for(asyncio.shield(run), route_seconds())
+    except asyncio.TimeoutError:
+        return timed_out_report(config)
+
+
 class MemberIdentityPreviewRequest(BaseModel):
     # Unsaved bindings to preview; omit to preview the saved ones.
     member_bindings: Optional[Dict[str, str]] = None
@@ -1448,6 +1483,29 @@ async def get_connection_completions(
     """
     connection = await connection_service.get_connection(db, connection_id, organization)
     return await table_preview_service.completions(db, connection)
+
+
+@router.get(
+    "/{connection_id}/tables/{table_id}/preview/sql",
+    response_model=ConnectionTablePreviewSqlSchema,
+)
+@requires_resource_permission('connection', 'manage_connection')
+async def preview_connection_table_sql(
+    connection_id: str,
+    table_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """The preview query for one table, built from the catalog but *not run*.
+
+    The modal fetches this on open so it can show what would run; the source is
+    only queried once the manager presses Run (GET .../preview). No row data is
+    read here, so there is nothing to audit.
+    """
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    table = await table_preview_service.get_table(db, connection, table_id)
+    return table_preview_service.sql_only(connection, table)
 
 
 @router.get(

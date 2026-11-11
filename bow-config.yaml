@@ -69,7 +69,7 @@ google_oauth:
 # smtp_settings:
 #   host: smtp.example.com
 #   port: 587
-#   from_name: "Bag of words"
+#   from_name: "BOW"
 #   from_email: noreply@example.com
 #   use_tls: true
 #   use_ssl: false

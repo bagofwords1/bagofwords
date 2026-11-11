@@ -21,6 +21,7 @@ from defusedxml import ElementTree as ET
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_session
 from requests_ntlm import HttpNtlmAuth
 
 
@@ -211,7 +212,7 @@ class PowerBIReportServerClient(DataSourceClient):
     def connect(self):
         if self._session is not None:
             return
-        session = requests.Session()
+        session = pinned_session()
         session.auth = HttpNtlmAuth(self._ntlm_user(), self.password)
         # verify_ssl decides whether to verify; the CA bundle is only the trust
         # store used when it is on.

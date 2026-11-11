@@ -47,6 +47,7 @@ from urllib.parse import parse_qsl, unquote, urljoin, urlsplit
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_session
 from defusedxml import ElementTree as SafeET
 
 from app.ai.prompt_formatters import ForeignKey, ServiceFormatter, Table, TableColumn
@@ -244,7 +245,7 @@ class MecmClient(DataSourceClient):
         session = getattr(self._local, "session", None)
         if session is not None:
             return session
-        session = requests.Session()
+        session = pinned_session()
         session.trust_env = False  # no ambient proxies / .netrc credentials
         if self.kerberos:
             try:
@@ -253,7 +254,7 @@ class MecmClient(DataSourceClient):
             except ImportError as exc:  # pragma: no cover - depends on the optional extra
                 raise MecmError(
                     "Kerberos needs the 'kerberos' extra installed plus krb5.conf and a client "
-                    "keytab (KRB5_CLIENT_KTNAME) mounted on the Bag of Words server."
+                    "keytab (KRB5_CLIENT_KTNAME) mounted on the BOW server."
                 ) from exc
             keytab = os.environ.get("KRB5_CLIENT_KTNAME")
             name = gssapi.Name(self.principal, gssapi.NameType.kerberos_principal) if self.principal else None

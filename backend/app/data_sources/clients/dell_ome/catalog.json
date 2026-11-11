@@ -1,0 +1,2186 @@
+{
+ "contract": "OME 4.1 REST (OData v4), verified against OME 3.x/4.x public evidence",
+ "version": 1,
+ "source": "tools/dell_ome/generate_catalog.py; evidence in tools/dell_ome/SOURCES.md",
+ "resources": {
+  "appliance_info": {
+   "path": "/api/ApplicationService/Info",
+   "collection": false,
+   "description": "Appliance identity and version (used by test_connection).",
+   "parents": {},
+   "optional_parents": {},
+   "controls": [],
+   "filters": {},
+   "fields": {
+    "Name": {
+     "type": "string",
+     "description": "Appliance name."
+    },
+    "Description": {
+     "type": "string",
+     "description": "Appliance description."
+    },
+    "Vendor": {
+     "type": "string",
+     "description": "Vendor (Dell)."
+    },
+    "Branding": {
+     "type": "string",
+     "description": "Product branding."
+    },
+    "Version": {
+     "type": "string",
+     "description": "Appliance version, e.g. 4.1.0."
+    },
+    "BuildNumber": {
+     "type": "string",
+     "description": "Build number."
+    },
+    "BuildDate": {
+     "type": "string",
+     "description": "Build date text."
+    },
+    "Guid": {
+     "type": "string",
+     "description": "Appliance GUID."
+    },
+    "OperationStatus": {
+     "type": "string",
+     "description": "Appliance operational status."
+    }
+   },
+   "explode": null,
+   "evidence": "verified",
+   "entity": "ApplicationService.Info",
+   "identity": [
+    "Guid"
+   ]
+  },
+  "appliance_network": {
+   "path": "/api/ApplicationService/Network/CurrentAddressConfiguration",
+   "collection": false,
+   "description": "Current appliance network address configuration (read-only view of the management interface).",
+   "parents": {},
+   "optional_parents": {},
+   "controls": [],
+   "filters": {},
+   "fields": {
+    "InterfaceName": {
+     "type": "string",
+     "description": "Interface name, e.g. eth0."
+    },
+    "PrimaryInterface": {
+     "type": "boolean",
+     "description": "Primary interface."
+    },
+    "EnableNIC": {
+     "type": "boolean",
+     "description": "NIC enabled."
+    },
+    "Ipv4Configuration": {
+     "type": "object",
+     "description": "IPv4 settings: Enable, EnableDHCP, StaticIPAddress, StaticSubnetMask, StaticGateway, DNS servers."
+    },
+    "Ipv6Configuration": {
+     "type": "object",
+     "description": "IPv6 settings."
+    },
+    "DnsConfiguration": {
+     "type": "object",
+     "description": "DNS name/domain and registration settings."
+    },
+    "ManagementVLAN": {
+     "type": "object",
+     "description": "Management VLAN settings."
+    },
+    "Delay": {
+     "type": "integer",
+     "description": "Apply delay in seconds."
+    }
+   },
+   "explode": null,
+   "evidence": "partial",
+   "entity": "ApplicationService.CurrentAddressConfiguration",
+   "identity": [
+    "InterfaceName"
+   ]
+  },
+  "devices": {
+   "path": "/api/DeviceService/Devices",
+   "collection": true,
+   "description": "All devices managed or monitored by the appliance (servers, chassis, network and storage IOMs).",
+   "parents": {},
+   "optional_parents": {},
+   "controls": [
+    "$top",
+    "$skip",
+    "$filter",
+    "$orderby"
+   ],
+   "filters": {
+    "Id": {
+     "type": "integer"
+    },
+    "Type": {
+     "type": "integer"
+    },
+    "Identifier": {
+     "type": "string"
+    },
+    "DeviceServiceTag": {
+     "type": "string"
+    },
+    "ChassisServiceTag": {
+     "type": "string"
+    },
+    "Model": {
+     "type": "string"
+    },
+    "PowerState": {
+     "type": "integer"
+    },
+    "ManagedState": {
+     "type": "integer"
+    },
+    "Status": {
+     "type": "integer"
+    },
+    "ConnectionState": {
+     "type": "boolean"
+    },
+    "AssetTag": {
+     "type": "string"
+    },
+    "DeviceName": {
+     "type": "string"
+    }
+   },
+   "fields": {
+    "Id": {
+     "type": "integer",
+     "description": "OME device identifier; parent key for inventory, power, temperature, logs."
+    },
+    "Type": {
+     "type": "integer",
+     "description": "Device type id: 1000 SERVER, 2000 CHASSIS, 3000 STORAGE, 4000 NETWORK_IOM, 8000 STORAGE_IOM, 9000 NETWORK_CONTROLLER (see device_types)."
+    },
+    "Identifier": {
+     "type": "string",
+     "description": "Service tag or other unique identifier."
+    },
+    "DeviceServiceTag": {
+     "type": "string",
+     "description": "Dell service tag."
+    },
+    "ChassisServiceTag": {
+     "type": "string",
+     "description": "Service tag of the enclosing chassis (modular sleds)."
+    },
+    "Model": {
+     "type": "string",
+     "description": "Hardware model, e.g. PowerEdge R750."
+    },
+    "PowerState": {
+     "type": "integer",
+     "description": "Power state id: 17 ON, 18 OFF, 20 POWERING_ON, 21 POWERING_OFF (OME convention)."
+    },
+    "ManagedState": {
+     "type": "integer",
+     "description": "Managed state id (3000 managed, 2000 unmanaged/monitored, 1000 unknown)."
+    },
+    "Status": {
+     "type": "integer",
+     "description": "Rollup health: 1000 NORMAL, 2000 UNKNOWN, 3000 WARNING, 4000 CRITICAL, 5000 NO_STATUS."
+    },
+    "ConnectionState": {
+     "type": "boolean",
+     "description": "True when OME can currently reach the device management endpoint."
+    },
+    "AssetTag": {
+     "type": "string",
+     "description": "Asset tag."
+    },
+    "SystemId": {
+     "type": "integer",
+     "description": "Dell system id of the platform."
+    },
+    "DeviceName": {
+     "type": "string",
+     "description": "Display name (usually the iDRAC DNS name or host name)."
+    },
+    "LastInventoryTime": {
+     "type": "string",
+     "description": "Appliance timestamp text of the last inventory collection."
+    },
+    "LastStatusTime": {
+     "type": "string",
+     "description": "Appliance timestamp text of the last health status update."
+    },
+    "DeviceSubscription": {
+     "type": "object",
+     "description": "Subscription/entitlement details when present."
+    },
+    "DeviceCapabilities": {
+     "type": "array",
+     "description": "Numeric capability ids reported by the device."
+    },
+    "DeviceManagement": {
+     "type": "array",
+     "description": "Management endpoints: ManagementId, NetworkAddress, MacAddress, ManagementType, InstrumentationName, DnsName, ManagementProfile[]."
+    },
+    "SlotConfiguration": {
+     "type": "object",
+     "description": "Chassis slot placement for modular devices."
+    }
+   },
+   "explode": null,
+   "evidence": "verified",
+   "entity": "DeviceService.Device",
+   "identity": [
+    "Id"
+   ]
+  },
+  "device_summary": {
+   "path": "/api/DeviceService/DeviceSummary",
+   "collection": true,
+   "description": "Per device-type health roll-up counts.",
+   "parents": {},
+   "optional_parents": {},
+   "controls": [],
+   "filters": {},
+   "fields": {
+    "DeviceType": {
+     "type": "integer",
+     "description": "Device type id."
+    },
+    "TotalCount": {
+     "type": "integer",
+     "description": "Devices of this type."
+    },
+    "NormalCount": {
+     "type": "integer",
+     "description": "Devices with Status 1000."
+    },
+    "WarningCount": {
+     "type": "integer",
+     "description": "Devices with Status 3000."
+    },
+    "CriticalCount": {
+     "type": "integer",
+     "description": "Devices with Status 4000."
+    },
+    "UnknownCount": {
+     "type": "integer",
+     "description": "Devices with Status 2000."
+    }
+   },
+   "explode": null,
+   "evidence": "inferred",
+   "entity": "DeviceService.DeviceSummary",
+   "identity": [
+    "DeviceType"
+   ]
+  },
+  "device_types": {
+   "path": "/api/DeviceService/DeviceType",
+   "collection": true,
+   "description": "Device type id to name mapping.",
+   "parents": {},
+   "optional_parents": {},
+   "controls": [],
+   "filters": {},
+   "fields": {
+    "DeviceType": {
+     "type": "integer",
+     "description": "Device type id."
+    },
+    "Name": {
+     "type": "string",
+     "description": "Type name, e.g. SERVER, CHASSIS, NETWORK_IOM."
+    },
+    "Description": {
+     "type": "string",
+     "description": "Type description."
+    }
+   },
+   "explode": null,
+   "evidence": "verified",
+   "entity": "DeviceService.DeviceType",
+   "identity": [
+    "DeviceType"
+   ]
+  },
+  "device_inventory": {
+   "path": "/api/DeviceService/Devices({DeviceId})/InventoryDetails",
+   "collection": true,
+   "description": "Detailed inventory of one device, one row per inventory item (processor, memory module, NIC, firmware component...). Supply parent DeviceId; add parent InventoryType (e.g. serverProcessors, serverMemoryDevices, deviceSoftware, serverNetworkInterfaces, serverPowerSupplies, serverArrayDisks) to fetch a single inventory type.",
+   "parents": {
+    "DeviceId": {
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "optional_parents": {
+    "InventoryType": {
+     "type": "string",
+     "pattern": "^[A-Za-z][A-Za-z0-9]{0,63}$",
+     "path": "/api/DeviceService/Devices({DeviceId})/InventoryDetails('{InventoryType}')",
+     "collection": false
+    }
+   },
+   "controls": [],
+   "filters": {},
+   "fields": {
+    "InventoryType": {
+     "type": "string",
+     "description": "Inventory section name."
+    },
+    "InventoryItem": {
+     "type": "object",
+     "description": "One inventory item; keys differ per InventoryType (e.g. ModelName, Status, SerialNumber)."
+    }
+   },
+   "explode": {
+    "array": "InventoryInfo",
+    "as": "InventoryItem"
+   },
+   "evidence": "partial",
+   "entity": "DeviceService.InventoryDetail",
+   "identity": []
+  },
+  "device_hardware_logs": {
+   "path": "/api/DeviceService/Devices({DeviceId})/HardwareLogs",
+   "collection": true,
+   "description": "Hardware (Lifecycle/SEL) log entries of one device.",
+   "parents": {
+    "DeviceId": {
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "optional_parents": {},
+   "controls": [
+    "$top",
+    "$skip"
+   ],
+   "filters": {},
+   "fields": {
+    "Id": {
+     "type": "integer",
+     "description": "Log entry id."
+    },
+    "LogSequenceNumber": {
+     "type": "integer",
+     "description": "Sequence number."
+    },
+    "LogSeverity": {
+     "type": "integer",
+     "description": "Severity id (OME severity vocabulary: 2 INFO, 4 NORMAL, 8 WARNING, 16 CRITICAL)."
+    },
+    "LogCategory": {
+     "type": "string",
+     "description": "Category."
+    },
+    "LogTimeStamp": {
+     "type": "string",
+     "description": "Entry timestamp text."
+    },
+    "Message": {
+     "type": "string",
+     "description": "Message text."
+    },
+    "LogComment": {
+     "type": "string",
+     "description": "Comment."
+    }
+   },
+   "explode": null,
+   "evidence": "inferred",
+   "entity": "DeviceService.HardwareLog",
+   "identity": [
+    "Id"
+   ]
+  },
+  "device_power": {
+   "path": "/api/DeviceService/Devices({DeviceId})/Power",
+   "collection": false,
+   "description": "Current power telemetry of one device (iDRAC power monitoring).",
+   "parents": {
+    "DeviceId": {
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "optional_parents": {},
+   "controls": [],
+   "filters": {},
+   "fields": {
+    "instantaneousPower": {
+     "type": "string",
+     "description": "Instantaneous power reading."
+    },
+    "peakPower": {
+     "type": "string",
+     "description": "Peak power reading."
+    },
+    "avgPower": {
+     "type": "string",
+     "description": "Average power reading."
+    },
+    "minimumPower": {
+     "type": "string",
+     "description": "Minimum power reading."
+    },
+    "powerCap": {
+     "type": "string",
+     "description": "Configured power cap."
+    },
+    "peakHeadroom": {
+     "type": "string",
+     "description": "Peak headroom."
+    },
+    "instantaneousHeadroom": {
+     "type": "string",
+     "description": "Instantaneous headroom."
+    },
+    "unit": {
+     "type": "string",
+     "description": "Unit of the readings (watt)."
+    },
+    "dateFormat": {
+     "type": "string",
+     "description": "Timestamp format identifier."
+    },
+    "peakPowerTimeStamp": {
+     "type": "string",
+     "description": "Timestamp text of the peak."
+    },
+    "minimumPowerTimeStamp": {
+     "type": "string",
+     "description": "Timestamp text of the minimum."
+    },
+    "systemEnergyConsumption": {
+     "type": "string",
+     "description": "Energy consumption."
+    },
+    "systemEnergyConsumptionTimeStamp": {
+     "type": "string",
+     "description": "Energy consumption timestamp text."
+    }
+   },
+   "explode": null,
+   "evidence": "inferred",
+   "entity": "DeviceService.PowerUsage",
+   "identity": []
+  },
+  "device_temperature": {
+   "path": "/api/DeviceService/Devices({DeviceId})/Temperature",
+   "collection": false,
+   "description": "Inlet temperature telemetry of one device.",
+   "parents": {
+    "DeviceId": {
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "optional_parents": {},
+   "controls": [],
+   "filters": {},
+   "fields": {
+    "instantaneousTemperature": {
+     "type": "string",
+     "description": "Instantaneous temperature."
+    },
+    "peakTemperature": {
+     "type": "string",
+     "description": "Peak temperature."
+    },
+    "avgTemperature": {
+     "type": "string",
+     "description": "Average temperature."
+    },
+    "instantaneousTemperatureUnit": {
+     "type": "string",
+     "description": "Unit (celsius)."
+    },
+    "peakTemperatureUnit": {
+     "type": "string",
+     "description": "Unit (celsius)."
+    },
+    "avgTemperatureUnit": {
+     "type": "string",
+     "description": "Unit (celsius)."
+    },
+    "peakTemperatureTimeStamp": {
+     "type": "string",
+     "description": "Peak timestamp text."
+    },
+    "avgTemperatureTimeStamp": {
+     "type": "string",
+     "description": "Average window timestamp text."
+    },
+    "startTime": {
+     "type": "string",
+     "description": "Window start text."
+    },
+    "dateFormat": {
+     "type": "string",
+     "description": "Timestamp format identifier."
+    }
+   },
+   "explode": null,
+   "evidence": "inferred",
+   "entity": "DeviceService.Temperature",
+   "identity": []
+  },
+  "device_system_uptime": {
+   "path": "/api/DeviceService/Devices({DeviceId})/SystemUpTime",
+   "collection": false,
+   "description": "System uptime of one device.",
+   "parents": {
+    "DeviceId": {
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "optional_parents": {},
+   "controls": [],
+   "filters": {},
+   "fields": {
+    "systemUpTime": {
+     "type": "string",
+     "description": "Uptime text as reported by the device."
+    },
+    "startTime": {
+     "type": "string",
+     "description": "Boot/start timestamp text."
+    }
+   },
+   "explode": null,
+   "evidence": "inferred",
+   "entity": "DeviceService.SystemUpTime",
+   "identity": []
+  },
+  "alerts": {
+   "path": "/api/AlertService/Alerts",
+   "collection": true,
+   "description": "Alert log. Filter by SeverityType (16 critical, 8 warning), StatusType, CategoryId, AlertDeviceId or TimeStamp; order with TimeStamp desc; use lookback for a recent window.",
+   "parents": {},
+   "optional_parents": {},
+   "controls": [
+    "$top",
+    "$skip",
+    "$filter",
+    "$orderby"
+   ],
+   "filters": {
+    "Id": {
+     "type": "integer"
+    },
+    "SeverityType": {
+     "type": "integer"
+    },
+    "AlertDeviceId": {
+     "type": "integer"
+    },
+    "AlertDeviceName": {
+     "type": "string"
+    },
+    "AlertDeviceType": {
+     "type": "integer"
+    },
+    "AlertDeviceIdentifier": {
+     "type": "string"
+    },
+    "StatusType": {
+     "type": "integer"
+    },
+    "CategoryId": {
+     "type": "integer"
+    },
+    "SubCategoryId": {
+     "type": "integer"
+    },
+    "SubCategoryName": {
+     "type": "string"
+    },
+    "Message": {
+     "type": "string"
+    },
+    "TimeStamp": {
+     "type": "string"
+    }
+   },
+   "fields": {
+    "Id": {
+     "type": "integer",
+     "description": "Alert identifier."
+    },
+    "SeverityType": {
+     "type": "integer",
+     "description": "Severity id: 1 UNKNOWN, 2 INFO, 4 NORMAL, 8 WARNING, 16 CRITICAL."
+    },
+    "SeverityName": {
+     "type": "string",
+     "description": "Severity name."
+    },
+    "AlertDeviceId": {
+     "type": "integer",
+     "description": "Source device id (join to devices.Id)."
+    },
+    "AlertDeviceName": {
+     "type": "string",
+     "description": "Source device name."
+    },
+    "AlertDeviceType": {
+     "type": "integer",
+     "description": "Source device type id."
+    },
+    "AlertDeviceIpAddress": {
+     "type": "string",
+     "description": "Source device management address."
+    },
+    "AlertDeviceIdentifier": {
+     "type": "string",
+     "description": "Source device identifier (service tag)."
+    },
+    "AlertDeviceMacAddress": {
+     "type": "string",
+     "description": "Source device MAC address."
+    },
+    "AlertDeviceGroupName": {
+     "type": "string",
+     "description": "Group name associated with the alert when present."
+    },
+    "AlertMessageId": {
+     "type": "string",
+     "description": "EEMI message id, e.g. PSU0003."
+    },
+    "Message": {
+     "type": "string",
+     "description": "Alert message text."
+    },
+    "AlertMessageType": {
+     "type": "string",
+     "description": "Message type (Internal, SNMP, Redfish...)."
+    },
+    "StatusType": {
+     "type": "integer",
+     "description": "Acknowledgement status id: 1000 unacknowledged, 2000 acknowledged."
+    },
+    "StatusName": {
+     "type": "string",
+     "description": "Acknowledgement status name."
+    },
+    "TimeStamp": {
+     "type": "string",
+     "description": "Appliance timestamp text of the alert."
+    },
+    "CategoryId": {
+     "type": "integer",
+     "description": "Category id: 1 SYSTEM_HEALTH, 2 STORAGE, 3 UPDATES, 4 AUDIT, 5 CONFIGURATION, 6 WORK_NOTES, 7 MISCELLANEOUS."
+    },
+    "CategoryName": {
+     "type": "string",
+     "description": "Category name."
+    },
+    "SubCategoryId": {
+     "type": "integer",
+     "description": "Sub-category id."
+    },
+    "SubCategoryName": {
+     "type": "string",
+     "description": "Sub-category name."
+    },
+    "UserName": {
+     "type": "string",
+     "description": "User associated with the alert (acknowledgement/audit)."
+    }
+   },
+   "explode": null,
+   "evidence": "verified",
+   "entity": "AlertService.Alert",
+   "identity": [
+    "Id"
+   ]
+  },
+  "alert_categories": {
+   "path": "/api/AlertService/AlertCategories",
+   "collection": true,
+   "description": "Alert catalogs and their categories (one row per catalog/category pair) with sub-category details.",
+   "parents": {},
+   "optional_parents": {},
+   "controls": [],
+   "filters": {},
+   "fields": {
+    "Name": {
+     "type": "string",
+     "description": "Catalog name, e.g. iDRAC, Application, Networking."
+    },
+    "IsBuiltIn": {
+     "type": "boolean",
+     "description": "Built-in catalog."
+    },
+    "Category.Id": {
+     "type": "integer",
+     "description": "Category id (matches alerts.CategoryId)."
+    },
+    "Category.Name": {
+     "type": "string",
+     "description": "Category name."
+    },
+    "Category.CatalogName": {
+     "type": "string",
+     "description": "Owning catalog name."
+    },
+    "Category.SubCategoryDetails": {
+     "type": "array",
+     "description": "Sub-categories: Id, Name, Description."
+    }
+   },
+   "explode": {
+    "array": "CategoriesDetails",
+    "prefix": "Category."
+   },
+   "evidence": "verified",
+   "entity": "AlertService.AlertCategory",
+   "identity": [
+    "Name"
+   ]
+  },
+  "warranties": {
+   "path": "/api/WarrantyService/Warranties",
+   "collection": true,
+   "description": "Warranty entitlements per device (one row per entitlement line). Date comparison in $filter is not supported; compute expiry in pandas from EndDate/DaysRemaining.",
+   "parents": {},
+   "optional_parents": {},
+   "controls": [
+    "$top",
+    "$skip",
+    "$filter",
+    "$orderby"
+   ],
+   "filters": {
+    "DeviceIdentifier": {
+     "type": "string"
+    },
+    "DeviceModel": {
+     "type": "string"
+    },
+    "ServiceLevelDescription": {
+     "type": "string"
+    },
+    "DeviceType": {
+     "type": "integer"
+    }
+   },
+   "fields": {
+    "Id": {
+     "type": "integer",
+     "description": "Warranty record id."
+    },
+    "DeviceModel": {
+     "type": "string",
+     "description": "Device model."
+    },
+    "DeviceIdentifier": {
+     "type": "string",
+     "description": "Service tag (join to devices.DeviceServiceTag)."
+    },
+    "DeviceType": {
+     "type": "integer",
+     "description": "Device type id."
+    },
+    "CountryLookupCode": {
+     "type": "string",
+     "description": "Country code."
+    },
+    "CustomerNumber": {
+     "type": "integer",
+     "description": "Customer number."
+    },
+    "LocalChannel": {
+     "type": "string",
+     "description": "Sales channel."
+    },
+    "OrderNumber": {
+     "type": "string",
+     "description": "Order number."
+    },
+    "ServiceLevelCode": {
+     "type": "string",
+     "description": "Service level code, e.g. ND."
+    },
+    "ServiceLevelDescription": {
+     "type": "string",
+     "description": "Service level description, e.g. ProSupport Plus."
+    },
+    "ServiceLevelGroup": {
+     "type": "integer",
+     "description": "Service level group id."
+    },
+    "ServiceProvider": {
+     "type": "string",
+     "description": "Service provider."
+    },
+    "StartDate": {
+     "type": "string",
+     "description": "Entitlement start timestamp text."
+    },
+    "EndDate": {
+     "type": "string",
+     "description": "Entitlement end timestamp text."
+    },
+    "DaysRemaining": {
+     "type": "integer",
+     "description": "Days remaining (negative or zero once expired)."
+    },
+    "Timestamp": {
+     "type": "string",
+     "description": "Last warranty refresh timestamp text."
+    },
+    "State": {
+     "type": "string",
+     "description": "Entitlement state text."
+    }
+   },
+   "explode": null,
+   "evidence": "partial",
+   "entity": "WarrantyService.Warranty",
+   "identity": [
+    "Id"
+   ]
+  },
+  "firmware_baselines": {
+   "path": "/api/UpdateService/Baselines",
+   "collection": true,
+   "description": "Firmware baselines with their compliance summary. Parent key for firmware_compliance_reports.",
+   "parents": {},
+   "optional_parents": {},
+   "controls": [
+    "$top",
+    "$skip"
+   ],
+   "filters": {},
+   "fields": {
+    "Id": {
+     "type": "integer",
+     "description": "Baseline id."
+    },
+    "Name": {
+     "type": "string",
+     "description": "Baseline name."
+    },
+    "Description": {
+     "type": "string",
+     "description": "Description."
+    },
+    "CatalogId": {
+     "type": "integer",
+     "description": "Catalog id (join to firmware_catalogs.Id)."
+    },
+    "RepositoryId": {
+     "type": "integer",
+     "description": "Repository id."
+    },
+    "RepositoryName": {
+     "type": "string",
+     "description": "Repository name."
+    },
+    "RepositoryType": {
+     "type": "string",
+     "description": "Repository type: DELL_ONLINE, HTTPS, CIFS, NFS..."
+    },
+    "TaskId": {
+     "type": "integer",
+     "description": "Compliance check job id (join to jobs.Id)."
+    },
+    "TaskStatusId": {
+     "type": "integer",
+     "description": "Compliance job status id (2060 Completed, 2070 Failed...)."
+    },
+    "LastRun": {
+     "type": "string",
+     "description": "Last compliance run timestamp text."
+    },
+    "DowngradeEnabled": {
+     "type": "boolean",
+     "description": "Downgrades allowed."
+    },
+    "Is64Bit": {
+     "type": "boolean",
+     "description": "64-bit DUPs."
+    },
+    "Targets": {
+     "type": "array",
+     "description": "Baseline targets: Id, Type{Id,Name} (1000 DEVICE, 6000 GROUP)."
+    },
+    "ComplianceSummary.ComplianceStatus": {
+     "type": "string",
+     "description": "OK, WARNING, CRITICAL, DOWNGRADE, UNKNOWN."
+    },
+    "ComplianceSummary.NumberOfCritical": {
+     "type": "integer",
+     "description": "Devices with critical updates."
+    },
+    "ComplianceSummary.NumberOfWarning": {
+     "type": "integer",
+     "description": "Devices with recommended updates."
+    },
+    "ComplianceSummary.NumberOfNormal": {
+     "type": "integer",
+     "description": "Compliant devices."
+    },
+    "ComplianceSummary.NumberOfDowngrade": {
+     "type": "integer",
+     "description": "Devices ahead of the baseline."
+    }
+   },
+   "explode": null,
+   "evidence": "verified",
+   "entity": "UpdateService.Baselines",
+   "identity": [
+    "Id"
+   ]
+  },
+  "firmware_compliance_reports": {
+   "path": "/api/UpdateService/Baselines({BaselineId})/DeviceComplianceReports",
+   "collection": true,
+   "description": "Firmware compliance of every device in a baseline, flattened to one row per component report (devices without component reports keep one row with empty Component.* columns).",
+   "parents": {
+    "BaselineId": {
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "optional_parents": {},
+   "controls": [
+    "$top",
+    "$skip"
+   ],
+   "filters": {},
+   "fields": {
+    "Id": {
+     "type": "integer",
+     "description": "Device compliance report id."
+    },
+    "DeviceId": {
+     "type": "integer",
+     "description": "Device id (join to devices.Id)."
+    },
+    "ServiceTag": {
+     "type": "string",
+     "description": "Service tag."
+    },
+    "DeviceModel": {
+     "type": "string",
+     "description": "Model."
+    },
+    "DeviceName": {
+     "type": "string",
+     "description": "Device name."
+    },
+    "DeviceTypeId": {
+     "type": "integer",
+     "description": "Device type id."
+    },
+    "DeviceTypeName": {
+     "type": "string",
+     "description": "Device type name."
+    },
+    "FirmwareStatus": {
+     "type": "string",
+     "description": "Compliant or Non-Compliant."
+    },
+    "ComplianceStatus": {
+     "type": "string",
+     "description": "OK, WARNING, CRITICAL, DOWNGRADE."
+    },
+    "RebootRequired": {
+     "type": "boolean",
+     "description": "Device needs a reboot for the updates."
+    },
+    "Component.Id": {
+     "type": "integer",
+     "description": "Component report id."
+    },
+    "Component.Name": {
+     "type": "string",
+     "description": "Component name."
+    },
+    "Component.CurrentVersion": {
+     "type": "string",
+     "description": "Installed version."
+    },
+    "Component.Version": {
+     "type": "string",
+     "description": "Baseline (catalog) version."
+    },
+    "Component.ComplianceStatus": {
+     "type": "string",
+     "description": "OK, WARNING, CRITICAL, DOWNGRADE."
+    },
+    "Component.UpdateAction": {
+     "type": "string",
+     "description": "UPGRADE, DOWNGRADE, EQUAL."
+    },
+    "Component.Criticality": {
+     "type": "string",
+     "description": "Urgent, Recommended, Optional, Ok."
+    },
+    "Component.RebootRequired": {
+     "type": "boolean",
+     "description": "Component update needs a reboot."
+    },
+    "Component.SourceName": {
+     "type": "string",
+     "description": "Device-side component instance id."
+    },
+    "Component.TargetIdentifier": {
+     "type": "string",
+     "description": "Catalog component id."
+    },
+    "Component.ComponentType": {
+     "type": "string",
+     "description": "FIRMWARE, APPLICATION, DRIVER..."
+    },
+    "Component.Path": {
+     "type": "string",
+     "description": "Catalog path of the DUP."
+    },
+    "Component.PrerequisiteInfo": {
+     "type": "string",
+     "description": "Prerequisite information."
+    },
+    "Component.ImpactAssessment": {
+     "type": "string",
+     "description": "Impact assessment."
+    },
+    "Component.UniqueIdentifier": {
+     "type": "string",
+     "description": "DUP unique identifier."
+    },
+    "Component.Uri": {
+     "type": "string",
+     "description": "Support URL."
+    },
+    "Component.ComplianceDependencies": {
+     "type": "array",
+     "description": "Dependency entries."
+    }
+   },
+   "explode": {
+    "array": "ComponentComplianceReports",
+    "prefix": "Component."
+   },
+   "evidence": "verified",
+   "entity": "UpdateService.DeviceComplianceReport",
+   "identity": [
+    "Id"
+   ]
+  },
+  "firmware_catalogs": {
+   "path": "/api/UpdateService/Catalogs",
+   "collection": true,
+   "description": "Firmware catalogs (repository definitions) used by baselines.",
+   "parents": {},
+   "optional_parents": {},
+   "controls": [
+    "$top",
+    "$skip"
+   ],
+   "filters": {},
+   "fields": {
+    "Id": {
+     "type": "integer",
+     "description": "Catalog id."
+    },
+    "Filename": {
+     "type": "string",
+     "description": "Catalog file name."
+    },
+    "SourcePath": {
+     "type": "string",
+     "description": "Path in the repository."
+    },
+    "Status": {
+     "type": "string",
+     "description": "Catalog status text."
+    },
+    "BaseLocation": {
+     "type": "string",
+     "description": "Base location."
+    },
+    "ManifestVersion": {
+     "type": "string",
+     "description": "Manifest version."
+    },
+    "ManifestIdentifier": {
+     "type": "string",
+     "description": "Manifest identifier."
+    },
+    "ReleaseDate": {
+     "type": "string",
+     "description": "Release date text."
+    },
+    "ReleaseIdentifier": {
+     "type": "string",
+     "description": "Release identifier."
+    },
+    "PredecessorIdentifier": {
+     "type": "string",
+     "description": "Predecessor identifier."
+    },
+    "LastUpdated": {
+     "type": "string",
+     "description": "Last update timestamp text."
+    },
+    "NextUpdate": {
+     "type": "string",
+     "description": "Next update timestamp text."
+    },
+    "BundlesCount": {
+     "type": "integer",
+     "description": "Bundles in the catalog."
+    },
+    "TaskId": {
+     "type": "integer",
+     "description": "Catalog refresh job id."
+    },
+    "Schedule": {
+     "type": "object",
+     "description": "Refresh schedule."
+    },
+    "Repository.Id": {
+     "type": "integer",
+     "description": "Repository id."
+    },
+    "Repository.Name": {
+     "type": "string",
+     "description": "Repository name."
+    },
+    "Repository.Description": {
+     "type": "string",
+     "description": "Repository description."
+    },
+    "Repository.Source": {
+     "type": "string",
+     "description": "Repository source host."
+    },
+    "Repository.DomainName": {
+     "type": "string",
+     "description": "Share domain."
+    },
+    "Repository.Username": {
+     "type": "string",
+     "description": "Share user name (never the password)."
+    },
+    "Repository.CheckCertificate": {
+     "type": "boolean",
+     "description": "Certificate validation."
+    },
+    "Repository.RepositoryType": {
+     "type": "string",
+     "description": "DELL_ONLINE, HTTPS, HTTP, CIFS, NFS."
+    },
+    "AssociatedBaselines": {
+     "type": "array",
+     "description": "BaselineId/BaselineName pairs."
+    }
+   },
+   "explode": null,
+   "evidence": "verified",
+   "entity": "UpdateService.Catalogs",
+   "identity": [
+    "Id"
+   ]
+  },
+  "jobs": {
+   "path": "/api/JobService/Jobs",
+   "collection": true,
+   "description": "Appliance jobs (inventory, discovery, firmware update, compliance...). $orderby is not supported by OME; sort in pandas. Parent key for job_execution_histories.",
+   "parents": {},
+   "optional_parents": {},
+   "controls": [
+    "$top",
+    "$skip",
+    "$filter"
+   ],
+   "filters": {
+    "Id": {
+     "type": "integer"
+    },
+    "JobName": {
+     "type": "string"
+    },
+    "State": {
+     "type": "string"
+    },
+    "CreatedBy": {
+     "type": "string"
+    },
+    "LastRunStatus.Id": {
+     "type": "integer"
+    },
+    "JobType.Id": {
+     "type": "integer"
+    },
+    "JobType.Name": {
+     "type": "string"
+    },
+    "JobType.Internal": {
+     "type": "boolean"
+    },
+    "JobStatus.Id": {
+     "type": "integer"
+    }
+   },
+   "fields": {
+    "Id": {
+     "type": "integer",
+     "description": "Job identifier; parent key for job_execution_histories."
+    },
+    "JobName": {
+     "type": "string",
+     "description": "Job name."
+    },
+    "JobDescription": {
+     "type": "string",
+     "description": "Job description."
+    },
+    "NextRun": {
+     "type": "string",
+     "description": "Next scheduled run (appliance timestamp text)."
+    },
+    "LastRun": {
+     "type": "string",
+     "description": "Last run (appliance timestamp text)."
+    },
+    "StartTime": {
+     "type": "string",
+     "description": "Start time text."
+    },
+    "EndTime": {
+     "type": "string",
+     "description": "End time text."
+    },
+    "Schedule": {
+     "type": "string",
+     "description": "Schedule expression (startnow or cron)."
+    },
+    "State": {
+     "type": "string",
+     "description": "Enabled or Disabled."
+    },
+    "CreatedBy": {
+     "type": "string",
+     "description": "Creating user."
+    },
+    "UpdatedBy": {
+     "type": "string",
+     "description": "Updating user."
+    },
+    "Visible": {
+     "type": "boolean",
+     "description": "Visible in the UI."
+    },
+    "Editable": {
+     "type": "boolean",
+     "description": "Editable."
+    },
+    "Builtin": {
+     "type": "boolean",
+     "description": "Built-in job."
+    },
+    "UserGenerated": {
+     "type": "boolean",
+     "description": "Created by a user."
+    },
+    "LastRunStatus.Id": {
+     "type": "integer",
+     "description": "Last run status id: 2020 Scheduled, 2030 Queued, 2040 Starting, 2050 Running, 2060 Completed, 2070 Failed, 2080 New, 2090 Warning, 2100 Aborted, 2101 Paused, 2102 Stopped, 2103 Canceled."
+    },
+    "LastRunStatus.Name": {
+     "type": "string",
+     "description": "Last run status name."
+    },
+    "JobType.Id": {
+     "type": "integer",
+     "description": "Job type id (e.g. 8 Inventory_Task, 101 Discovery_Task, 5 Update_Task)."
+    },
+    "JobType.Name": {
+     "type": "string",
+     "description": "Job type name."
+    },
+    "JobType.Internal": {
+     "type": "boolean",
+     "description": "Internal job type."
+    },
+    "JobStatus.Id": {
+     "type": "integer",
+     "description": "Current status id (same vocabulary as LastRunStatus)."
+    },
+    "JobStatus.Name": {
+     "type": "string",
+     "description": "Current status name."
+    },
+    "Targets": {
+     "type": "array",
+     "description": "Job targets: Id, Data, TargetType{Id,Name}."
+    },
+    "Params": {
+     "type": "array",
+     "description": "Job parameters as Key/Value pairs; secret-like keys are removed."
+    }
+   },
+   "explode": null,
+   "evidence": "verified",
+   "entity": "JobService.Job",
+   "identity": [
+    "Id"
+   ]
+  },
+  "job_execution_histories": {
+   "path": "/api/JobService/Jobs({JobId})/ExecutionHistories",
+   "collection": true,
+   "description": "Execution history (runs) of one job.",
+   "parents": {
+    "JobId": {
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "optional_parents": {},
+   "controls": [
+    "$top",
+    "$skip"
+   ],
+   "filters": {},
+   "fields": {
+    "Id": {
+     "type": "integer",
+     "description": "Execution history id; parent key for job_execution_details."
+    },
+    "JobId": {
+     "type": "integer",
+     "description": "Job id."
+    },
+    "JobName": {
+     "type": "string",
+     "description": "Job name."
+    },
+    "Progress": {
+     "type": "string",
+     "description": "Progress percentage text."
+    },
+    "StartTime": {
+     "type": "string",
+     "description": "Run start timestamp text."
+    },
+    "EndTime": {
+     "type": "string",
+     "description": "Run end timestamp text."
+    },
+    "LastUpdateTime": {
+     "type": "string",
+     "description": "Last update timestamp text."
+    },
+    "ExecutedBy": {
+     "type": "string",
+     "description": "User who ran the job."
+    },
+    "JobStatus.Id": {
+     "type": "integer",
+     "description": "Run status id (2060 Completed, 2070 Failed, 2090 Warning...)."
+    },
+    "JobStatus.Name": {
+     "type": "string",
+     "description": "Run status name."
+    }
+   },
+   "explode": null,
+   "evidence": "verified",
+   "entity": "JobService.ExecutionHistory",
+   "identity": [
+    "Id"
+   ]
+  },
+  "job_execution_details": {
+   "path": "/api/JobService/Jobs({JobId})/ExecutionHistories({ExecutionHistoryId})/ExecutionHistoryDetails",
+   "collection": true,
+   "description": "Per-target detail of one job run, including the full output text (Value) that explains failures.",
+   "parents": {
+    "JobId": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "ExecutionHistoryId": {
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "optional_parents": {},
+   "controls": [
+    "$top",
+    "$skip"
+   ],
+   "filters": {},
+   "fields": {
+    "Id": {
+     "type": "integer",
+     "description": "Detail id."
+    },
+    "ExecutionHistoryId": {
+     "type": "integer",
+     "description": "Execution history id."
+    },
+    "IdBaseEntity": {
+     "type": "integer",
+     "description": "Target entity id (device id when applicable)."
+    },
+    "Key": {
+     "type": "string",
+     "description": "Target key (device name/IP/service tag)."
+    },
+    "Value": {
+     "type": "string",
+     "description": "Output text of the run for this target."
+    },
+    "Progress": {
+     "type": "string",
+     "description": "Progress percentage text."
+    },
+    "StartTime": {
+     "type": "string",
+     "description": "Start timestamp text."
+    },
+    "EndTime": {
+     "type": "string",
+     "description": "End timestamp text."
+    },
+    "ElapsedTime": {
+     "type": "string",
+     "description": "Elapsed time text."
+    },
+    "JobStatus.Id": {
+     "type": "integer",
+     "description": "Status id."
+    },
+    "JobStatus.Name": {
+     "type": "string",
+     "description": "Status name."
+    }
+   },
+   "explode": null,
+   "evidence": "verified",
+   "entity": "JobService.ExecutionHistoryDetail",
+   "identity": [
+    "Id"
+   ]
+  },
+  "groups": {
+   "path": "/api/GroupService/Groups",
+   "collection": true,
+   "description": "Static and query device groups (built-in and user defined).",
+   "parents": {},
+   "optional_parents": {},
+   "controls": [
+    "$top",
+    "$skip",
+    "$filter",
+    "$orderby"
+   ],
+   "filters": {
+    "Id": {
+     "type": "integer"
+    },
+    "Name": {
+     "type": "string"
+    },
+    "Description": {
+     "type": "string"
+    },
+    "TypeId": {
+     "type": "integer"
+    },
+    "MembershipTypeId": {
+     "type": "integer"
+    },
+    "ParentId": {
+     "type": "integer"
+    }
+   },
+   "fields": {
+    "Id": {
+     "type": "integer",
+     "description": "Group id; parent key for group_devices."
+    },
+    "Name": {
+     "type": "string",
+     "description": "Group name."
+    },
+    "Description": {
+     "type": "string",
+     "description": "Description."
+    },
+    "GlobalStatus": {
+     "type": "integer",
+     "description": "Rollup health of member devices (same vocabulary as devices.Status)."
+    },
+    "ParentId": {
+     "type": "integer",
+     "description": "Parent group id."
+    },
+    "CreationTime": {
+     "type": "string",
+     "description": "Creation timestamp text."
+    },
+    "UpdatedTime": {
+     "type": "string",
+     "description": "Update timestamp text."
+    },
+    "CreatedBy": {
+     "type": "string",
+     "description": "Creating user."
+    },
+    "UpdatedBy": {
+     "type": "string",
+     "description": "Updating user."
+    },
+    "Visible": {
+     "type": "boolean",
+     "description": "Visible in the UI."
+    },
+    "DefinitionId": {
+     "type": "integer",
+     "description": "Group definition id."
+    },
+    "DefinitionDescription": {
+     "type": "string",
+     "description": "Definition description."
+    },
+    "TypeId": {
+     "type": "integer",
+     "description": "Group type id: 1000 internal, 2000 built-in system, 3000 user-defined."
+    },
+    "MembershipTypeId": {
+     "type": "integer",
+     "description": "12 static membership, 24 query (dynamic) membership."
+    },
+    "HasAttributes": {
+     "type": "boolean",
+     "description": "Group carries attributes."
+    }
+   },
+   "explode": null,
+   "evidence": "verified",
+   "entity": "GroupService.Group",
+   "identity": [
+    "Id"
+   ]
+  },
+  "group_devices": {
+   "path": "/api/GroupService/Groups({GroupId})/Devices",
+   "collection": true,
+   "description": "Direct member devices of one group (device records).",
+   "parents": {
+    "GroupId": {
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "optional_parents": {},
+   "controls": [
+    "$top",
+    "$skip"
+   ],
+   "filters": {},
+   "fields": {
+    "Id": {
+     "type": "integer",
+     "description": "OME device identifier; parent key for inventory, power, temperature, logs."
+    },
+    "Type": {
+     "type": "integer",
+     "description": "Device type id: 1000 SERVER, 2000 CHASSIS, 3000 STORAGE, 4000 NETWORK_IOM, 8000 STORAGE_IOM, 9000 NETWORK_CONTROLLER (see device_types)."
+    },
+    "Identifier": {
+     "type": "string",
+     "description": "Service tag or other unique identifier."
+    },
+    "DeviceServiceTag": {
+     "type": "string",
+     "description": "Dell service tag."
+    },
+    "ChassisServiceTag": {
+     "type": "string",
+     "description": "Service tag of the enclosing chassis (modular sleds)."
+    },
+    "Model": {
+     "type": "string",
+     "description": "Hardware model, e.g. PowerEdge R750."
+    },
+    "PowerState": {
+     "type": "integer",
+     "description": "Power state id: 17 ON, 18 OFF, 20 POWERING_ON, 21 POWERING_OFF (OME convention)."
+    },
+    "ManagedState": {
+     "type": "integer",
+     "description": "Managed state id (3000 managed, 2000 unmanaged/monitored, 1000 unknown)."
+    },
+    "Status": {
+     "type": "integer",
+     "description": "Rollup health: 1000 NORMAL, 2000 UNKNOWN, 3000 WARNING, 4000 CRITICAL, 5000 NO_STATUS."
+    },
+    "ConnectionState": {
+     "type": "boolean",
+     "description": "True when OME can currently reach the device management endpoint."
+    },
+    "AssetTag": {
+     "type": "string",
+     "description": "Asset tag."
+    },
+    "SystemId": {
+     "type": "integer",
+     "description": "Dell system id of the platform."
+    },
+    "DeviceName": {
+     "type": "string",
+     "description": "Display name (usually the iDRAC DNS name or host name)."
+    },
+    "LastInventoryTime": {
+     "type": "string",
+     "description": "Appliance timestamp text of the last inventory collection."
+    },
+    "LastStatusTime": {
+     "type": "string",
+     "description": "Appliance timestamp text of the last health status update."
+    },
+    "DeviceSubscription": {
+     "type": "object",
+     "description": "Subscription/entitlement details when present."
+    },
+    "DeviceCapabilities": {
+     "type": "array",
+     "description": "Numeric capability ids reported by the device."
+    },
+    "DeviceManagement": {
+     "type": "array",
+     "description": "Management endpoints: ManagementId, NetworkAddress, MacAddress, ManagementType, InstrumentationName, DnsName, ManagementProfile[]."
+    },
+    "SlotConfiguration": {
+     "type": "object",
+     "description": "Chassis slot placement for modular devices."
+    }
+   },
+   "explode": null,
+   "evidence": "verified",
+   "entity": "DeviceService.Device",
+   "identity": [
+    "Id"
+   ]
+  },
+  "group_all_leaf_devices": {
+   "path": "/api/GroupService/Groups({GroupId})/AllLeafDevices",
+   "collection": true,
+   "description": "All devices under one group including sub-groups (device records).",
+   "parents": {
+    "GroupId": {
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "optional_parents": {},
+   "controls": [
+    "$top",
+    "$skip"
+   ],
+   "filters": {},
+   "fields": {
+    "Id": {
+     "type": "integer",
+     "description": "OME device identifier; parent key for inventory, power, temperature, logs."
+    },
+    "Type": {
+     "type": "integer",
+     "description": "Device type id: 1000 SERVER, 2000 CHASSIS, 3000 STORAGE, 4000 NETWORK_IOM, 8000 STORAGE_IOM, 9000 NETWORK_CONTROLLER (see device_types)."
+    },
+    "Identifier": {
+     "type": "string",
+     "description": "Service tag or other unique identifier."
+    },
+    "DeviceServiceTag": {
+     "type": "string",
+     "description": "Dell service tag."
+    },
+    "ChassisServiceTag": {
+     "type": "string",
+     "description": "Service tag of the enclosing chassis (modular sleds)."
+    },
+    "Model": {
+     "type": "string",
+     "description": "Hardware model, e.g. PowerEdge R750."
+    },
+    "PowerState": {
+     "type": "integer",
+     "description": "Power state id: 17 ON, 18 OFF, 20 POWERING_ON, 21 POWERING_OFF (OME convention)."
+    },
+    "ManagedState": {
+     "type": "integer",
+     "description": "Managed state id (3000 managed, 2000 unmanaged/monitored, 1000 unknown)."
+    },
+    "Status": {
+     "type": "integer",
+     "description": "Rollup health: 1000 NORMAL, 2000 UNKNOWN, 3000 WARNING, 4000 CRITICAL, 5000 NO_STATUS."
+    },
+    "ConnectionState": {
+     "type": "boolean",
+     "description": "True when OME can currently reach the device management endpoint."
+    },
+    "AssetTag": {
+     "type": "string",
+     "description": "Asset tag."
+    },
+    "SystemId": {
+     "type": "integer",
+     "description": "Dell system id of the platform."
+    },
+    "DeviceName": {
+     "type": "string",
+     "description": "Display name (usually the iDRAC DNS name or host name)."
+    },
+    "LastInventoryTime": {
+     "type": "string",
+     "description": "Appliance timestamp text of the last inventory collection."
+    },
+    "LastStatusTime": {
+     "type": "string",
+     "description": "Appliance timestamp text of the last health status update."
+    },
+    "DeviceSubscription": {
+     "type": "object",
+     "description": "Subscription/entitlement details when present."
+    },
+    "DeviceCapabilities": {
+     "type": "array",
+     "description": "Numeric capability ids reported by the device."
+    },
+    "DeviceManagement": {
+     "type": "array",
+     "description": "Management endpoints: ManagementId, NetworkAddress, MacAddress, ManagementType, InstrumentationName, DnsName, ManagementProfile[]."
+    },
+    "SlotConfiguration": {
+     "type": "object",
+     "description": "Chassis slot placement for modular devices."
+    }
+   },
+   "explode": null,
+   "evidence": "verified",
+   "entity": "DeviceService.Device",
+   "identity": [
+    "Id"
+   ]
+  },
+  "audit_logs": {
+   "path": "/api/ApplicationService/AuditLogs",
+   "collection": true,
+   "description": "Appliance audit log (logins, configuration changes, job submissions).",
+   "parents": {},
+   "optional_parents": {},
+   "controls": [
+    "$top",
+    "$skip",
+    "$filter"
+   ],
+   "filters": {
+    "Severity": {
+     "type": "integer"
+    },
+    "Category": {
+     "type": "string"
+    },
+    "UserName": {
+     "type": "string"
+    },
+    "MessageID": {
+     "type": "string"
+    },
+    "CreatedDate": {
+     "type": "string"
+    }
+   },
+   "fields": {
+    "Id": {
+     "type": "integer",
+     "description": "Audit entry id."
+    },
+    "Severity": {
+     "type": "integer",
+     "description": "Severity id (OME severity vocabulary)."
+    },
+    "Message": {
+     "type": "string",
+     "description": "Message text."
+    },
+    "Category": {
+     "type": "string",
+     "description": "Category text (Audit, Configuration...)."
+    },
+    "UserName": {
+     "type": "string",
+     "description": "Acting user."
+    },
+    "IpAddress": {
+     "type": "string",
+     "description": "Client address."
+    },
+    "MessageArgs": {
+     "type": "string",
+     "description": "Message arguments."
+    },
+    "MessageID": {
+     "type": "string",
+     "description": "EEMI message id, e.g. CUSR1100."
+    },
+    "CreatedDate": {
+     "type": "string",
+     "description": "Entry timestamp text."
+    }
+   },
+   "explode": null,
+   "evidence": "verified",
+   "entity": "ApplicationService.AuditLog",
+   "identity": [
+    "Id"
+   ]
+  },
+  "templates": {
+   "path": "/api/TemplateService/Templates",
+   "collection": true,
+   "description": "Deployment and compliance templates.",
+   "parents": {},
+   "optional_parents": {},
+   "controls": [
+    "$top",
+    "$skip",
+    "$filter"
+   ],
+   "filters": {
+    "Id": {
+     "type": "integer"
+    },
+    "Name": {
+     "type": "string"
+    },
+    "ViewTypeId": {
+     "type": "integer"
+    },
+    "TypeId": {
+     "type": "integer"
+    }
+   },
+   "fields": {
+    "Id": {
+     "type": "integer",
+     "description": "Template id."
+    },
+    "Name": {
+     "type": "string",
+     "description": "Template name."
+    },
+    "Description": {
+     "type": "string",
+     "description": "Description."
+    },
+    "SourceDeviceId": {
+     "type": "integer",
+     "description": "Reference device id."
+    },
+    "TypeId": {
+     "type": "integer",
+     "description": "Template type id (2 server, 4 chassis)."
+    },
+    "ViewTypeId": {
+     "type": "integer",
+     "description": "View type id (2 deployment, 1 compliance, 4 ...)."
+    },
+    "TaskId": {
+     "type": "integer",
+     "description": "Creation job id."
+    },
+    "HasIdentityAttributes": {
+     "type": "boolean",
+     "description": "Carries identity attributes."
+    },
+    "Status": {
+     "type": "integer",
+     "description": "Status id."
+    },
+    "IdentityPoolId": {
+     "type": "integer",
+     "description": "Identity pool id."
+    },
+    "IsBuiltIn": {
+     "type": "boolean",
+     "description": "Built-in."
+    },
+    "IsPersistencePolicyValid": {
+     "type": "boolean",
+     "description": "Persistence policy valid."
+    },
+    "IsStatelessAvailable": {
+     "type": "boolean",
+     "description": "Stateless deployment available."
+    },
+    "CreatedBy": {
+     "type": "string",
+     "description": "Creating user."
+    },
+    "CreationTime": {
+     "type": "string",
+     "description": "Creation timestamp text."
+    },
+    "LastUpdatedBy": {
+     "type": "string",
+     "description": "Updating user."
+    },
+    "LastUpdatedTime": {
+     "type": "string",
+     "description": "Update timestamp text."
+    }
+   },
+   "explode": null,
+   "evidence": "verified",
+   "entity": "TemplateService.Template",
+   "identity": [
+    "Id"
+   ]
+  },
+  "configuration_baselines": {
+   "path": "/api/TemplateService/Baselines",
+   "collection": true,
+   "description": "Configuration compliance baselines (template vs device attributes). Parent key for configuration_compliance_reports.",
+   "parents": {},
+   "optional_parents": {},
+   "controls": [
+    "$top",
+    "$skip"
+   ],
+   "filters": {},
+   "fields": {
+    "Id": {
+     "type": "integer",
+     "description": "Baseline id."
+    },
+    "Name": {
+     "type": "string",
+     "description": "Baseline name."
+    },
+    "Description": {
+     "type": "string",
+     "description": "Description."
+    },
+    "TemplateId": {
+     "type": "integer",
+     "description": "Compliance template id (join to templates.Id)."
+    },
+    "TemplateName": {
+     "type": "string",
+     "description": "Template name."
+    },
+    "TemplateType": {
+     "type": "integer",
+     "description": "Template type id."
+    },
+    "LastRun": {
+     "type": "string",
+     "description": "Last compliance run timestamp text."
+    },
+    "TaskId": {
+     "type": "integer",
+     "description": "Compliance job id."
+    },
+    "TaskStatus": {
+     "type": "integer",
+     "description": "Compliance job status id."
+    },
+    "PercentageComplete": {
+     "type": "string",
+     "description": "Progress text."
+    },
+    "BaselineTargets": {
+     "type": "array",
+     "description": "Targets: Id, Type{Id,Name}."
+    },
+    "ConfigComplianceSummary.ComplianceStatus": {
+     "type": "string",
+     "description": "COMPLIANT, NONCOMPLIANT, NOT_INVENTORIED..."
+    },
+    "ConfigComplianceSummary.NumberOfCritical": {
+     "type": "integer",
+     "description": "Non-compliant devices."
+    },
+    "ConfigComplianceSummary.NumberOfWarning": {
+     "type": "integer",
+     "description": "Devices with warnings."
+    },
+    "ConfigComplianceSummary.NumberOfNormal": {
+     "type": "integer",
+     "description": "Compliant devices."
+    },
+    "ConfigComplianceSummary.NumberOfIncomplete": {
+     "type": "integer",
+     "description": "Devices not yet inventoried."
+    }
+   },
+   "explode": null,
+   "evidence": "partial",
+   "entity": "TemplateService.Baseline",
+   "identity": [
+    "Id"
+   ]
+  },
+  "configuration_compliance_reports": {
+   "path": "/api/TemplateService/Baselines({BaselineId})/DeviceConfigComplianceReports",
+   "collection": true,
+   "description": "Per-device configuration compliance status for one baseline.",
+   "parents": {
+    "BaselineId": {
+     "type": "integer",
+     "minimum": 0
+    }
+   },
+   "optional_parents": {},
+   "controls": [
+    "$top",
+    "$skip"
+   ],
+   "filters": {},
+   "fields": {
+    "Id": {
+     "type": "integer",
+     "description": "Device id (join to devices.Id)."
+    },
+    "DeviceName": {
+     "type": "string",
+     "description": "Device name."
+    },
+    "ServiceTag": {
+     "type": "string",
+     "description": "Service tag."
+    },
+    "Model": {
+     "type": "string",
+     "description": "Model."
+    },
+    "DeviceType": {
+     "type": "integer",
+     "description": "Device type id."
+    },
+    "ComplianceStatus": {
+     "type": "string",
+     "description": "COMPLIANT or NONCOMPLIANT."
+    },
+    "InventoryTime": {
+     "type": "string",
+     "description": "Inventory timestamp text."
+    }
+   },
+   "explode": null,
+   "evidence": "verified",
+   "entity": "TemplateService.DeviceConfigComplianceReport",
+   "identity": [
+    "Id"
+   ]
+  },
+  "management_domains": {
+   "path": "/api/ManagementDomainService/Domains",
+   "collection": true,
+   "description": "Multi-chassis management (MCM) domains known to the appliance. Standalone OME appliances typically return no rows.",
+   "parents": {},
+   "optional_parents": {},
+   "controls": [
+    "$top",
+    "$skip"
+   ],
+   "filters": {},
+   "fields": {
+    "Id": {
+     "type": "integer",
+     "description": "Domain id."
+    },
+    "DeviceId": {
+     "type": "integer",
+     "description": "Chassis device id (join to devices.Id)."
+    },
+    "PublicAddress": {
+     "type": "array",
+     "description": "Public management addresses."
+    },
+    "Name": {
+     "type": "string",
+     "description": "Domain name."
+    },
+    "Description": {
+     "type": "string",
+     "description": "Description."
+    },
+    "Identifier": {
+     "type": "string",
+     "description": "Chassis service tag."
+    },
+    "DomainTypeId": {
+     "type": "integer",
+     "description": "Domain type id."
+    },
+    "DomainTypeValue": {
+     "type": "string",
+     "description": "Domain type (MSM_GROUP...)."
+    },
+    "DomainRoleTypeId": {
+     "type": "integer",
+     "description": "Role id."
+    },
+    "DomainRoleTypeValue": {
+     "type": "string",
+     "description": "LEAD, MEMBER, BACKUPLEAD or STANDALONE."
+    },
+    "Version": {
+     "type": "string",
+     "description": "OME-Modular version of the chassis."
+    },
+    "Local": {
+     "type": "boolean",
+     "description": "Local domain."
+    },
+    "GroupId": {
+     "type": "string",
+     "description": "MCM group id."
+    },
+    "GroupName": {
+     "type": "string",
+     "description": "MCM group name."
+    },
+    "BackupLead": {
+     "type": "boolean",
+     "description": "Chassis is the backup lead."
+    },
+    "BackupLeadHealth": {
+     "type": "integer",
+     "description": "Backup lead health id."
+    },
+    "Capabilities": {
+     "type": "array",
+     "description": "Capability ids."
+    }
+   },
+   "explode": null,
+   "evidence": "verified",
+   "entity": "ManagementDomainService.Domain",
+   "identity": [
+    "Id"
+   ]
+  }
+ },
+ "sha256": "b1ae0a0328690e3751c01af9958cd477683923df3230f5b49fa61f214a11ce20"
+}

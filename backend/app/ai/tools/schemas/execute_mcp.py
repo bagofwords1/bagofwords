@@ -1,5 +1,6 @@
+import json
 from typing import Optional, Dict, Any, List
-from pydantic import Field, BaseModel
+from pydantic import Field, BaseModel, field_validator
 
 
 class ExecuteMCPInput(BaseModel):
@@ -26,6 +27,29 @@ class ExecuteMCPInput(BaseModel):
             "tool_name; write it for a non-technical reader."
         ),
     )
+
+    @field_validator("arguments", mode="before")
+    @classmethod
+    def _decode_arguments(cls, value):
+        """Accept ``arguments`` sent as a JSON-encoded object.
+
+        ``arguments`` is a free-form object, and models often send it as a
+        string (``"{\\"days\\": 7}"``). Rejecting that cost a full retry round
+        on every gateway call. Anything that does not decode to an object is
+        left for the dict check to reject.
+        """
+        if value is None:
+            return {}
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return {}
+            try:
+                decoded = json.loads(text)
+            except ValueError:
+                return value
+            return decoded if isinstance(decoded, dict) else value
+        return value
 
 
 class ExecuteMCPOutput(BaseModel):

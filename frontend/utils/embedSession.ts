@@ -110,7 +110,7 @@ export const EMBED_UNAVAILABLE_FALLBACK_MESSAGES: Record<EmbedUnavailableReason,
   not_published: "This hasn't been published yet. It will appear here once it's published.",
   not_found: "This isn't available. It may not be published yet, or it was removed.",
   denied: "You don't have access to this. Ask its owner to share it with you.",
-  not_allowed: "This isn't enabled for this application. An editor can allow it in its Embed settings in Bag of Words.",
+  not_allowed: "This isn't enabled for this application. An editor can allow it in its Embed settings in BOW.",
   failed: "This couldn't be loaded. Try again in a moment.",
 }
 

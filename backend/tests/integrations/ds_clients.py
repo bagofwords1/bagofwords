@@ -12,6 +12,7 @@ import pytest
 import logging
 from typing import Dict, Any, Generator
 from contextlib import contextmanager
+from pathlib import Path
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -21,9 +22,20 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # SOURCE OF TRUTH: Data sources to test
 # =============================================================================
+# kms_lighthouse is deliberately absent: it has no catalog (get_schemas() returns []),
+# so _run_connection_test's table-count assertion can never pass. Verify it with
+# tools/kms_lighthouse/mock_kms_server.py and its unit/e2e tests.
 DATA_SOURCES = [
     "netapp_ontap",  # customer-run ONTAP validation; see tools/netapp/README.md
     "brocade",  # Real switch or tools/brocade/simulated_api.py; credentials via integrations.json.
+    # Infra appliance connectors: a real appliance, or the loopback simulator in
+    # tools/<vendor>/simulated_api.py (set <VENDOR>_TEST_URL + credentials; the
+    # simulator needs <VENDOR>_TEST_ALLOW_HTTP=true).
+    "f5_bigip",
+    "checkpoint",
+    "dell_ome",
+    "hpe_oneview",
+    "cisco_apic",
     "sharepoint_onprem",  # Real SharePoint Server; configure in integrations.json.
     "postgresql",
     "mysql",
@@ -430,6 +442,57 @@ def ds_kwargs(name: str) -> Dict[str, Any]:
             "ca_certificate": os.environ.get("NETAPP_CA_PEM"),
             "allow_http": os.environ.get("NETAPP_SIMULATOR") == "true",
         }
+    if name == "f5_bigip" and os.environ.get("F5_TEST_URL"):
+        return {
+            "url": os.environ["F5_TEST_URL"],
+            "username": os.environ["F5_TEST_USERNAME"],
+            "password": os.environ["F5_TEST_PASSWORD"],
+            "ca_certificate": os.environ.get("F5_TEST_CA_PEM"),
+            "allow_http": os.environ.get("F5_TEST_ALLOW_HTTP") == "true",
+        }
+    if name == "checkpoint" and os.environ.get("CHECKPOINT_TEST_URL"):
+        creds = (
+            {"api_key": os.environ["CHECKPOINT_TEST_API_KEY"]}
+            if os.environ.get("CHECKPOINT_TEST_API_KEY")
+            else {"username": os.environ["CHECKPOINT_TEST_USERNAME"], "password": os.environ["CHECKPOINT_TEST_PASSWORD"]}
+        )
+        return {
+            "url": os.environ["CHECKPOINT_TEST_URL"],
+            **creds,
+            "domain": os.environ.get("CHECKPOINT_TEST_DOMAIN"),
+            "ca_certificate": os.environ.get("CHECKPOINT_TEST_CA_PEM"),
+            "allow_http": os.environ.get("CHECKPOINT_TEST_ALLOW_HTTP") == "true",
+        }
+    if name == "dell_ome" and os.environ.get("OME_TEST_URL"):
+        return {
+            "url": os.environ["OME_TEST_URL"],
+            "username": os.environ["OME_TEST_USERNAME"],
+            "password": os.environ["OME_TEST_PASSWORD"],
+            "ca_certificate": os.environ.get("OME_TEST_CA_PEM"),
+            "allow_http": os.environ.get("OME_TEST_ALLOW_HTTP") == "true",
+        }
+    if name == "hpe_oneview" and os.environ.get("ONEVIEW_TEST_URL"):
+        return {
+            "url": os.environ["ONEVIEW_TEST_URL"],
+            "username": os.environ["ONEVIEW_TEST_USERNAME"],
+            "password": os.environ["ONEVIEW_TEST_PASSWORD"],
+            "ca_certificate": os.environ.get("ONEVIEW_TEST_CA_PEM"),
+            "allow_http": os.environ.get("ONEVIEW_TEST_ALLOW_HTTP") == "true",
+        }
+    if name == "cisco_apic" and os.environ.get("APIC_TEST_URL"):
+        secret = (
+            {"private_key": Path(os.environ["APIC_TEST_PRIVATE_KEY_FILE"]).read_text(), "certificate_name": os.environ["APIC_TEST_CERT_NAME"]}
+            if os.environ.get("APIC_TEST_PRIVATE_KEY_FILE")
+            else {"password": os.environ["APIC_TEST_PASSWORD"]}
+        )
+        return {
+            "url": os.environ["APIC_TEST_URL"],
+            "username": os.environ["APIC_TEST_USERNAME"],
+            **secret,
+            "login_domain": os.environ.get("APIC_TEST_LOGIN_DOMAIN"),
+            "ca_certificate": os.environ.get("APIC_TEST_CA_PEM"),
+            "allow_http": os.environ.get("APIC_TEST_ALLOW_HTTP") == "true",
+        }
     if name == "brocade" and os.environ.get("BROCADE_TEST_URL"):
         return {
             "url": os.environ["BROCADE_TEST_URL"],
@@ -541,7 +604,9 @@ def get_client(ds_name: str, **kwargs):
     Dynamically import and instantiate a data source client.
     Mirrors the logic in DataSourceService._resolve_client_by_type().
     """
-    if ds_name == "netapp_ontap":
+    if ds_name in {"netapp_ontap", "f5_bigip", "checkpoint", "dell_ome", "hpe_oneview", "cisco_apic"}:
+        # Explicit registry client_path is the contract (CheckPointClient, HpeOneViewClient …
+        # do not follow the TitleCase-from-snake_case convention below).
         from app.schemas.data_source_registry import resolve_client_class
         return resolve_client_class(ds_name)(**kwargs)
     module_name = f"app.data_sources.clients.{ds_name.lower()}_client"

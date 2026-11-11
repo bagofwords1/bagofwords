@@ -6,7 +6,7 @@
   <main class="flex min-h-screen items-center justify-center bg-gray-50 px-5 dark:bg-gray-950">
     <div class="w-full max-w-sm rounded-2xl border border-gray-200 bg-white px-7 py-10 text-center shadow-sm dark:border-gray-800 dark:bg-gray-900"
          data-testid="embed-signin" :data-status="state">
-      <img src="/assets/logo-128.png" alt="Bag of Words" class="mx-auto h-10 w-10" />
+      <img src="/assets/logo-128.png" alt="BOW" class="mx-auto h-10 w-10" />
       <Spinner v-if="state === 'working'" class="mx-auto mt-5 h-6 w-6 text-blue-500" />
       <p class="mt-4 text-sm text-gray-700 dark:text-gray-200">{{ message }}</p>
     </div>

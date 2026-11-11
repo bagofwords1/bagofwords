@@ -49,6 +49,7 @@ from urllib.parse import urlsplit
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_session
 
 from app.ai.prompt_formatters import ForeignKey, ServiceFormatter, Table, TableColumn
 from app.data_sources.clients.base import DataSourceClient
@@ -1273,7 +1274,7 @@ class VCenterClient(DataSourceClient):
         """
         base = f"https://{self.host}:{self.port}"
         verify = self._requests_verify()
-        http = requests.Session()
+        http = pinned_session()
         try:
             r = http.post(f"{base}/api/session", auth=(self.username or "", self.password or ""),
                           verify=verify, timeout=self.timeout)

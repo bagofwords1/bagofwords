@@ -1,7 +1,7 @@
 """full-text index for file connections: file_index_files / file_index_sections
 
 Revision ID: fileindex01
-Revises: rel0611
+Revises: rel0615
 Create Date: 2026-11-12 00:00:00.000000
 
 Additive only. Two new tables back the ``fulltext`` index tier of file
@@ -22,7 +22,7 @@ import sqlalchemy as sa
 
 
 revision: str = 'fileindex01'
-down_revision: Union[str, None] = 'rel0611'
+down_revision: Union[str, None] = 'rel0615'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

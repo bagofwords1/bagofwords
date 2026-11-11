@@ -559,17 +559,23 @@ startupProbe:
   failureThreshold: 30
 
 # -- Readiness probe. Pod is removed from Service endpoints while this fails.
+# Points at /health/ready, which verifies dependencies (database): a pod whose
+# DB is unreachable is pulled from the Service instead of serving broken
+# requests. failureThreshold x periodSeconds (30s) tolerates a brief DB blip
+# before removal; timeoutSeconds is kept above the endpoint's own DB-probe
+# ceiling so a hung DB surfaces as a 503, not a probe timeout.
 readinessProbe:
   httpGet:
-    path: /health
+    path: /health/ready
     port: 3000
   initialDelaySeconds: 5
   periodSeconds: 10
   failureThreshold: 3
   successThreshold: 1
-  timeoutSeconds: 1
+  timeoutSeconds: 3
 
-# -- Liveness probe. Pod is restarted when this fails.
+# -- Liveness probe. Pod is restarted when this fails. Stays on /health
+# (dependency-free): a DB outage must never restart an otherwise-healthy pod.
 livenessProbe:
   httpGet:
     path: /health

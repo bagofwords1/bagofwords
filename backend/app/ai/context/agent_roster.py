@@ -71,6 +71,10 @@ def decide_focus_mode(
 # roster prevents the observed search_files-on-Gmail probe failures.
 EMAIL_CONNECTION_TYPES = {"gmail_mail", "outlook_mail"}
 
+# Connection types whose tools are the CHAT family (search_chat_messages /
+# read_chat_thread / list_chat_messages) — same reasoning as email.
+CHAT_CONNECTION_TYPES = {"teams_messages"}
+
 
 def agent_tool_surface(ds) -> str:
     """Coarse tool family for an agent: "email", "browser", "" (default —
@@ -82,6 +86,8 @@ def agent_tool_surface(ds) -> str:
         return ""
     if types & EMAIL_CONNECTION_TYPES:
         return "email"
+    if types & CHAT_CONNECTION_TYPES:
+        return "chat"
     if "browser" in types:
         return "browser"
     return ""
@@ -234,7 +240,8 @@ def render_agent_roster_xml(
             "set_report_agents is only for explicitly changing or clearing the "
             "selection. Match tools to each agent's kind: surface=\"email\" agents "
             "take the email tools (search_email/read_email/list_emails), NOT file "
-            "tools; surface=\"browser\" agents take the browser tools "
+            "tools; surface=\"chat\" agents take the chat tools "
+            "(search_chat_messages/read_chat_thread/list_chat_messages); surface=\"browser\" agents take the browser tools "
             "(browser_navigate/snapshot/extract/act/vision) and only reach their "
             "allowed URLs; files take search_files/read_file; tables take "
             "describe_tables/create_data."
@@ -253,7 +260,8 @@ def render_agent_roster_xml(
             "table/column names from that result; do NOT search again for the same "
             "thing. Match tools to each agent's kind: surface=\"email\" agents take "
             "the email tools (search_email/read_email/list_emails), NOT file tools; "
-            "surface=\"browser\" agents take the browser tools "
+            "surface=\"chat\" agents take the chat tools (search_chat_messages/"
+            "read_chat_thread/list_chat_messages); surface=\"browser\" agents take the browser tools "
             "(browser_navigate/snapshot/extract/act/vision) and only reach their "
             "allowed URLs; files take search_files/read_file; tables take "
             "describe_tables/create_data."

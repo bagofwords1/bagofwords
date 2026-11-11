@@ -135,10 +135,13 @@ surface gets forgotten.
 
 The default is **deny**. If a surface never sets the flag, an *authorized* user
 sees a missing code block — loud, and caught by the e2e suite — instead of an
-*unauthorized* user silently seeing code. The published-report path is the one
+*unauthorized* user silently seeing code. The published-report path is one
 place that sets it explicitly, because anonymous readers hold no role and would
 otherwise inherit the deny default, silently changing what published reports
-show.
+show. A queued prompt that the dispatcher starts after an MCP turn is the other
+explicit case: the dispatched run starts in an empty context, so there is no
+route to inherit from. `_run_dispatched_agent` (`backend/app/services/completion_service.py`)
+sets the flag from the queued prompt's author's permissions before the run.
 
 ## 8. Verification
 

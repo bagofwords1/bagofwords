@@ -54,6 +54,13 @@ class RoleSchema(BaseModel):
     resource_grants: List[RoleResourceGrantOutput] = []
     organization_id: Optional[str] = None
     is_system: bool = False
+    # Base system-role name this row is an editable per-org override of
+    # (e.g. "member"); None for the global system rows and ordinary custom roles.
+    overrides_system_role: Optional[str] = None
+    # UI capability flags derived server-side: a built-in `member` row is
+    # editable (editing it materializes an override) but never deletable.
+    is_editable: bool = True
+    is_deletable: bool = True
 
     class Config:
         from_attributes = True

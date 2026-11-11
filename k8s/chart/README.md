@@ -2,7 +2,7 @@
 
 ![Version: 3.2.0](https://img.shields.io/badge/Version-3.2.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.0.1](https://img.shields.io/badge/AppVersion-1.0.1-informational?style=flat-square)
 
-Bag of words - a new ai data tool
+BOW - a new ai data tool
 
 ## Values
 
@@ -105,7 +105,7 @@ Bag of words - a new ai data tool
 | ingress.tls.secretName | string | `"bowapp-cert"` | Name of the TLS Secret (must exist in the same namespace). |
 | initContainers | list | `[]` | Init containers to run before the main app container. |
 | lifecycle | object | `{}` | Container lifecycle hooks (preStop / postStart). |
-| livenessProbe | object | `{"failureThreshold":3,"httpGet":{"path":"/health","port":3000},"initialDelaySeconds":15,"periodSeconds":20,"successThreshold":1,"timeoutSeconds":1}` | Liveness probe. Pod is restarted when this fails. |
+| livenessProbe | object | `{"failureThreshold":3,"httpGet":{"path":"/health","port":3000},"initialDelaySeconds":15,"periodSeconds":20,"successThreshold":1,"timeoutSeconds":1}` | Liveness probe. Pod is restarted when this fails. Stays on /health (dependency-free): a DB outage must never restart an otherwise-healthy pod. |
 | nameOverride | string | `""` | Override for the resource name. Defaults to .Release.Name. Useful when deploying multiple releases of the same chart into one namespace. |
 | networkPolicy.egress | list | `[]` |  |
 | networkPolicy.enabled | bool | `false` |  |
@@ -145,7 +145,7 @@ Bag of words - a new ai data tool
 | postgresql.primary.resources | object | `{"requests":{"cpu":"100m","memory":"256Mi"}}` | Resource requests/limits for the PostgreSQL container. |
 | postgresql.primary.terminationGracePeriodSeconds | int | `60` | Seconds PostgreSQL gets to shut down cleanly before it is killed. |
 | postgresql.primary.tolerations | list | `[]` | Tolerations for the PostgreSQL pod. |
-| readinessProbe | object | `{"failureThreshold":3,"httpGet":{"path":"/health","port":3000},"initialDelaySeconds":5,"periodSeconds":10,"successThreshold":1,"timeoutSeconds":1}` | Readiness probe. Pod is removed from Service endpoints while this fails. |
+| readinessProbe | object | `{"failureThreshold":3,"httpGet":{"path":"/health/ready","port":3000},"initialDelaySeconds":5,"periodSeconds":10,"successThreshold":1,"timeoutSeconds":3}` | Readiness probe. Pod is removed from Service endpoints while this fails. Points at /health/ready, which verifies dependencies (database): a pod whose DB is unreachable is pulled from the Service instead of serving broken requests. failureThreshold x periodSeconds (30s) tolerates a brief DB blip before removal; timeoutSeconds is kept above the endpoint's own DB-probe ceiling so a hung DB surfaces as a 503, not a probe timeout. |
 | replicaCount | int | `1` | Number of pod replicas. |
 | resources | object | `{"limits":{"memory":""},"requests":{"cpu":2,"memory":"900Mi"}}` | CPU and memory resource requests and limits for the app container. |
 | resources.limits.memory | string | `""` | Memory limit. Leave empty for no limit. |

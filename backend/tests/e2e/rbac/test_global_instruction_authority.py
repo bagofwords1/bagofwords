@@ -62,21 +62,81 @@ def test_per_agent_manager_cannot_delete_or_rescope_global(test_client, world):
 
 
 @pytest.mark.e2e
-def test_owner_can_delete_their_own_global_but_others_cannot(
-    test_client, world, invite_user_to_org, grant_resource
-):
-    """Anti-zombie: a per-agent manager who OWNS a global can delete their own;
-    a DIFFERENT per-agent manager (non-owner) cannot."""
+def test_per_agent_manager_cannot_create_global_instruction(test_client, world):
+    """Creating a global (no attached agents) is an org-level capability: a global
+    rule reaches EVERY agent, so a per-agent `manage_instructions` grant must not
+    author one. This holds on the plain POST /instructions route too — not just
+    POST /instructions/global — otherwise the agent-manager just omits the scope
+    and gets the same org-wide rule the dedicated route would refuse.
+
+    Controls on the same actor keep the gate from over-blocking: they may still
+    create a rule SCOPED to an agent they manage, and an admin may still create a
+    global."""
     org_id = world["org_id"]
-    author = world["author"]
+    admin = world["admin"]
+    author = world["author"]  # manage_instructions on ds_a only
     ds_a_id = world["ds_a"]["id"]
 
-    other = invite_user_to_org(org_id=org_id, admin_token=world["admin"]["token"])
+    # The vulnerability: an empty (or unset) scope = global. Both spellings refused.
+    for scope in ([], None):
+        body = {"text": "sneaky global", "status": "published", "category": "general"}
+        if scope is not None:
+            body["data_source_ids"] = scope
+        r = test_client.post("/api/instructions", json=body, headers=_hdr(author["token"], org_id))
+        assert r.status_code == 403, f"agent manager created a global (scope={scope!r}): {r.status_code} {r.text}"
+
+    # Control 1 — a rule scoped to the agent they manage is still allowed.
+    r_scoped = test_client.post(
+        "/api/instructions",
+        json={"text": "my agent rule", "status": "published", "category": "general",
+              "data_source_ids": [ds_a_id]},
+        headers=_hdr(author["token"], org_id),
+    )
+    assert r_scoped.status_code == 200, f"scoped create blocked: {r_scoped.status_code} {r_scoped.text}"
+
+    # Control 2 — an org admin still creates a global here.
+    r_admin = test_client.post(
+        "/api/instructions",
+        json={"text": "legit admin global", "status": "published", "category": "general",
+              "data_source_ids": []},
+        headers=_hdr(admin["token"], org_id),
+    )
+    assert r_admin.status_code == 200, f"admin global create blocked: {r_admin.status_code} {r_admin.text}"
+
+
+@pytest.mark.e2e
+def test_owner_can_delete_their_own_global_but_others_cannot(
+    test_client, world, invite_user_to_org, grant_resource, get_system_role, assign_role
+):
+    """Anti-zombie: whoever OWNS a global can delete their own even after losing
+    org authority; a DIFFERENT per-agent manager (non-owner) cannot.
+
+    The realistic way a non-admin ends up owning a global is demotion: they
+    authored it while an admin, then dropped to per-agent manager. Model that
+    exactly — elevate the author to admin, let them create the global, then revoke
+    the admin role so they hold only the per-agent grant. (Authoring a global as a
+    bare per-agent manager is itself refused — see the test above — so this path,
+    not a direct POST, is how the owned-global state is reached.)"""
+    org_id = world["org_id"]
+    author = world["author"]
+    admin = world["admin"]
+    ds_a_id = world["ds_a"]["id"]
+
+    other = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
     grant_resource(
         resource_type="data_source", resource_id=ds_a_id,
         principal_type="user", principal_id=other["user_id"],
-        permissions=["manage_instructions"], user_token=world["admin"]["token"], org_id=org_id,
+        permissions=["manage_instructions"], user_token=admin["token"], org_id=org_id,
     )
+
+    # Elevate author → admin so they can legitimately author a global…
+    admin_role = get_system_role("admin", user_token=admin["token"], org_id=org_id)
+    assign_resp = assign_role(
+        role_id=admin_role["id"], principal_type="user", principal_id=author["user_id"],
+        user_token=admin["token"], org_id=org_id,
+    )
+    assert assign_resp.status_code == 200, assign_resp.text
+    assignment_id = assign_resp.json()["id"]
 
     r = test_client.post(
         "/api/instructions",
@@ -85,6 +145,13 @@ def test_owner_can_delete_their_own_global_but_others_cannot(
     )
     assert r.status_code == 200, r.text
     gid = r.json()["id"]
+
+    # …then demote back to a bare per-agent manager (the ex-admin / zombie owner).
+    r_revoke = test_client.delete(
+        f"/api/organizations/{org_id}/role-assignments/{assignment_id}",
+        headers=_hdr(admin["token"], org_id),
+    )
+    assert r_revoke.status_code == 204, r_revoke.text
 
     r_other = test_client.delete(f"/api/instructions/{gid}", headers=_hdr(other["token"], org_id))
     assert r_other.status_code == 403, f"non-owner delete global: got {r_other.status_code}"

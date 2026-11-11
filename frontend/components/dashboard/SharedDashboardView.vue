@@ -248,6 +248,7 @@ import SlideViewer from '~/components/dashboard/SlideViewer.vue';
 import DocViewer from '~/components/dashboard/DocViewer.vue';
 import ViewerRunGate from '~/components/dashboard/ViewerRunGate.vue';
 import ArtifactChatBubble from '~/components/report/ArtifactChatBubble.vue';
+import { artifactRowCounts } from '~/utils/artifactRowCounts';
 import { buildArtifactIframeHtml, isHtmlSlidesCode, inlineableArtifactLibs, artifactPageLibs } from '~/utils/artifactIframe';
 import { artifactLibSources, ensureArtifactLibs, whenArtifactLibsSettled } from '~/utils/artifactLibs';
 import { exportsHidden } from '~/utils/dashboardExportsHidden';
@@ -1228,6 +1229,7 @@ async function loadVisualizationData(artifactId?: string) {
                     title: viz.title || query.title || 'Untitled',
                     view: viz.view || {},  // Use visualization's view config
                     rows: (step.value as any)?.data?.rows || [],
+                    ...artifactRowCounts((step.value as any)?.data),
                     columns: (step.value as any)?.data?.columns || [],
                     dataModel: (step.value as any)?.data_model || {},
                     code: (step.value as any)?.code || '',
@@ -1242,6 +1244,7 @@ async function loadVisualizationData(artifactId?: string) {
                     title: query.title || 'Untitled',
                     view: (step.value as any).view || {},
                     rows: (step.value as any).data?.rows || [],
+                    ...artifactRowCounts((step.value as any).data),
                     columns: (step.value as any).data?.columns || [],
                     dataModel: (step.value as any).data_model || {},
                     code: (step.value as any).code || ''
@@ -1611,6 +1614,7 @@ async function runParamQueries(
             for (const viz of visualizationsData.value as any[]) {
                 if (viz.queryId === qid) {
                     viz.rows = res.data?.rows || [];
+                    Object.assign(viz, artifactRowCounts(res.data));
                     viz.columns = res.data?.columns || [];
                 }
             }

@@ -2,7 +2,7 @@
 
 Customers need one downloadable archive that they can scan and deploy without
 access to Docker Hub. The release must provide both x86-64 and ARM64 variants,
-each containing the Bag of Words, PostgreSQL, and Caddy images plus the files
+each containing the BOW, PostgreSQL, and Caddy images plus the files
 needed by Docker Compose.
 
 ## Root cause (validated)
