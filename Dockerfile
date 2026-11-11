@@ -124,7 +124,7 @@ ENV PIP_NO_CACHE_DIR=1 \
 # frontend-builder stage and served directly by FastAPI.
 # Bump APT_REFRESH to force a fresh `apt-get upgrade` past the registry
 # build cache when Trivy flags an OS package that already has a fix.
-ARG APT_REFRESH=2026-11-08
+ARG APT_REFRESH=2026-11-11
 RUN echo "apt refresh: ${APT_REFRESH}" && \
     apt-get update && \
     apt-get upgrade -y && \
