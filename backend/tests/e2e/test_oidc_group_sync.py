@@ -904,8 +904,8 @@ async def test_sync_purges_the_users_results_when_their_groups_change(oidc_setup
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_a_login_that_changes_the_users_groups_purges_their_outdated_results(oidc_setup):
-    """The real purge, end to end: the user's latest result stays; the older
-    ones are gone."""
+    """The real purge, end to end: the user's latest result stays, cleared;
+    the older ones are gone."""
     from app.dependencies import async_session_maker
     from app.ee.oidc.group_sync_service import sync_user_oidc_groups
     from tests.fixtures.member_results import member_results, purged, seed_member_results

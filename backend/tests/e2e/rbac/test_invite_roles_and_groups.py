@@ -207,8 +207,8 @@ def test_inviting_existing_account_into_groups_purges_their_results_after_commit
 def test_inviting_an_account_back_into_groups_purges_its_outdated_results(
         org, test_client, bootstrap_admin):
     """The real purge, end to end: a removed member's results here stay
-    stored; invited back into groups, their latest stays and the older ones
-    are gone."""
+    stored; invited back into groups, their latest stays, cleared, and the
+    older ones are gone."""
     from tests.fixtures.member_results import member_results_now, purged, seed_member_results_now, untouched
 
     admin, org_id = org["admin"], org["org_id"]

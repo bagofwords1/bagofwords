@@ -21,7 +21,10 @@ compares the stamp with the current one (viewer_result_current), alongside
 the floor every cache already applied (the step and its loaded upstreams
 refreshed after the run). A stamp computed before the run can only be older
 than what the run read, so a change racing the run makes the row stale, never
-current.
+current. Before it stores the result the run stamps again (stored_columns):
+if that differs, a change landed while it read, and it stores the result
+cleared, as a purge leaves it, since the change being undone later would make
+the first stamp match again.
 
 The sources are the ones the security rules count for that step
 (viewer_data_policy.step_run_data_source_ids, or
@@ -31,12 +34,15 @@ credentials a run executes, stay with those rules.
 
 purge_outdated_results deletes stored results a change has outdated, except
 the viewer's latest result of each step: that row is their state on /d and
-seeds their next run's values. It is kept and refused at read instead.
-Waits for input carry no stamp and are never judged or purged. A purge runs
-after the change commits, in a session of its own (purge_quietly): it never
-touches the caller's. It stops once its time budget is spent; the rows it
-left are refused at read and purged by the next change to the same member,
-connection or relation.
+seeds their next run's values (applied_params). It is kept, but its rows are
+cleared (data NULL) and its stamp set to CLEARED_STAMP, which never matches:
+rows a viewer may no longer see do not stay stored after a policy tightens.
+Every read then treats it as no result of theirs; their next run of that
+slice overwrites it. Waits for input carry no stamp and are never judged or
+purged; error rows are never purged. A purge runs after the change commits,
+in a session of its own (purge_quietly): it never touches the caller's. It
+stops once its time budget is spent; the rows it left are refused at read
+and purged by the next change to the same member, connection or relation.
 """
 from __future__ import annotations
 
@@ -49,7 +55,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Iterable, Optional
 
-from sqlalchemy import delete, func, select, tuple_
+from sqlalchemy import delete, func, null, select, tuple_, update
 
 from app.core.asyncio_shield import run_to_the_end
 # The memo of the identities a session resolved, per (viewer, org), and the
@@ -60,6 +66,17 @@ from app.services.viewer_data_policy import IDENTITY_MEMO
 logger = logging.getLogger(__name__)
 
 STAMP_VERSION = 1
+
+# The stamp of a kept result whose rows a purge cleared. Not a sha256 hex
+# digest, so no current stamp ever equals it, and not NULL, so it is never
+# taken for a row stored before stamps.
+CLEARED_STAMP = "cleared"
+
+
+def result_cleared(row) -> bool:
+    """Whether a purge cleared this stored result's rows (it holds only the
+    viewer's values)."""
+    return getattr(row, "source_stamp", None) == CLEARED_STAMP
 
 
 @dataclass(frozen=True)
@@ -288,7 +305,7 @@ class CurrentStamps:
 
     async def current(self, row, step, *, report_id=None, release=None) -> bool:
         """viewer_result_current."""
-        if row is None:
+        if row is None or result_cleared(row):
             return False
         if str(step.id) not in self._scopes:
             self._scopes[str(step.id)] = await _scope_and_floor(self.db, step)
@@ -376,15 +393,21 @@ def id_chunks(ids: Iterable) -> Iterable[list]:
 async def _delete_unless_latest(db, candidates: Iterable) -> int:
     """Delete the candidate rows (id, step_id, user_id, source_stamp; the
     stamp never NULL: no purge selects a row stored before stamps) except
-    each viewer's latest result of each step, which stays as their state.
+    each viewer's latest result of each step, which stays as their state with
+    its rows cleared: data NULL, stamp CLEARED_STAMP; applied_params,
+    params_fingerprint, executed_as and last_run_at kept, so it still seeds
+    their next run's values. Its refs stay, so a later purge selects it
+    again: it is deleted once a newer run supersedes it, and otherwise left
+    as it is (not cleared again).
 
     A run that rewrote a slot after the purge selected it keeps the row's id
     (the upsert) but not its stamp: each statement matches (id, stamp) pairs,
-    the stamp the purge selected, so a fresh result is never deleted. The
-    pairs go ID_CHUNK to a statement, however many stamps they hold (results
-    stamped per viewer and per slice). Checks the purge's time budget before
-    each statement and stops once it is spent (before any delete if the
-    latest rows are not all known yet). Returns the number deleted."""
+    the stamp the purge selected, so a fresh result is never cleared or
+    deleted. The pairs go ID_CHUNK to a statement, however many stamps they
+    hold (results stamped per viewer and per slice). Checks the purge's time
+    budget before each statement and stops once it is spent (before any
+    clear or delete if the latest rows are not all known yet). Returns the
+    number deleted."""
     from app.models.step_user_result import StepUserResult
 
     candidates = list(candidates)
@@ -407,6 +430,14 @@ async def _delete_unless_latest(db, candidates: Iterable) -> int:
 
     selected = tuple_(StepUserResult.id, StepUserResult.source_stamp)
     deleted = 0
+    for chunk in id_chunks((str(c.id), c.source_stamp) for c in candidates
+                           if str(c.id) in keep and c.source_stamp != CLEARED_STAMP):
+        if not _budget_left():
+            return deleted
+        # SQL NULL, not an encrypted JSON null: nothing of the rows is stored.
+        await db.execute(update(StepUserResult).where(selected.in_(chunk))
+                         .values(data=null(), source_stamp=CLEARED_STAMP)
+                         .execution_options(synchronize_session=False))
     for chunk in id_chunks((str(c.id), c.source_stamp) for c in candidates if str(c.id) not in keep):
         if not _budget_left():
             return deleted
@@ -421,7 +452,7 @@ async def purge_outdated_results(db, *, organization_id: str, prefix: str,
     """Delete the stored results of `organization_id` whose refs name the
     connection or relation `prefix` ('c:<id>=' or 'r:<id>@') at a version
     other than the current one, keeping each viewer's latest result of each
-    step. Commits. Returns the number deleted.
+    step (cleared). Commits. Returns the number deleted.
 
     `current` reads that version, and is asked only after the rows are
     selected: a second change landing in between then counts as current
@@ -486,7 +517,7 @@ async def purge_viewer_results(db, *, user_id: str, organization_id: str) -> int
     """After a change to a viewer's attributes (groups, roles, profile):
     their results that read a row-filtered relation or an identity-scoped
     step are re-stamped against their identity now, and the outdated ones
-    deleted (their latest of each step kept). Commits."""
+    deleted (their latest of each step kept, cleared). Commits."""
     from sqlalchemy.orm import lazyload, load_only
 
     from app.models.artifact_release import ArtifactRelease
@@ -657,10 +688,11 @@ async def stamps_before_clients(db, targets, load: Callable[[Any], Awaitable[Any
     clients are built or earlier steps run leaves the later results stale,
     never current. `targets`: (step id, code) pairs; a step without code is
     not stamped. `load(step_id)` loads the step (None: not stamped).
-    A stamp that fails is logged and left out: the step's run stamps it then,
-    or fails on the same cause. A failed SQL statement here is worse on
-    Postgres: it aborts the request's transaction, so the rest of the run
-    fails with it (stored results included)."""
+    A stamp that fails is logged and left out: the step's run stamps it then
+    (stored cleared, stored_columns), or fails on the same cause. A failed
+    SQL statement here is worse on Postgres: it aborts the request's
+    transaction, so the rest of the run fails with it (stored results
+    included)."""
     stamps: dict = {}
     for step_id, code in targets:
         if not code or not str(code).strip():
@@ -676,8 +708,39 @@ async def stamps_before_clients(db, targets, load: Callable[[Any], Awaitable[Any
     return stamps
 
 
+async def stored_columns(db, before: dict, data, step, *, status: str, user_id: str, organization_id: str,
+                         executed_as: str, report_id=None, release=None,
+                         stamped_after_clients: bool = False) -> dict:
+    """The data and stamp columns to store with a run's result: `data` under
+    `before` (stamp_columns, taken before the run) when the stamp taken again
+    now, with the same rules and the viewer's identity resolved anew, still
+    equals it. Otherwise a change landed while the run read its sources: it
+    may have read the changed state, and a stamp equal to `before` again
+    later (the change undone) would pass it for current. It is stored as a
+    purge leaves a result: data NULL, stamp CLEARED_STAMP, its values kept.
+    So is a result whose `before` was taken only after its clients were
+    built (`stamped_after_clients`: the stamp before them failed): no check
+    covers a change landing while they were built.
+    A wait or an error row is stored as it is (never served)."""
+    if status != "success" or before.get("source_stamp") is None:
+        return {"data": data, **before}
+    if not stamped_after_clients:
+        memo = db.info.get(IDENTITY_MEMO)
+        if memo:
+            memo.pop((str(user_id), str(organization_id)), None)
+        after = await compute_stamp(db, step, user_id=user_id, organization_id=organization_id,
+                                    executed_as=executed_as, report_id=report_id, release=release)
+        if after.stamp == before["source_stamp"]:
+            return {"data": data, **before}
+    logger.info("viewer_results.outdated_during_run", extra={"step_id": str(getattr(step, "id", "")),
+                                                            "stamped_after_clients": stamped_after_clients})
+    # SQL NULL, not an encrypted JSON null: nothing of the rows is stored.
+    return {"data": null(), "source_stamp": CLEARED_STAMP, "source_refs": before.get("source_refs")}
+
+
 __all__ = [
-    "SourceStamp", "compute_stamp", "stamp_columns", "stamps_before_clients", "wait_stamp",
+    "SourceStamp", "CLEARED_STAMP", "result_cleared", "compute_stamp", "stamp_columns", "stored_columns",
+    "stamps_before_clients", "wait_stamp",
     "viewer_result_current", "CurrentStamps",
     "purge_connection_results", "purge_relation_results", "purge_viewer_results", "purge_quietly",
     "purge_members_results", "id_chunks",

@@ -959,14 +959,21 @@ class QueryService:
         # Upsert the per-viewer cached result. Errors are not cached — a
         # failed run must not pin a viewer to an error until force_refresh.
         if status == "success":
+            from app.services.viewer_result_freshness import stored_columns
             from app.services.viewer_result_store import store_viewer_result
+            # Stamped again: a change that landed while it read is stored cleared.
+            columns = await stored_columns(
+                db, stamp, df, step, status=status, user_id=str(caller.id),
+                organization_id=str(organization_id or report.organization_id),
+                executed_as=executed_as, report_id=str(report.id),
+            )
             await store_viewer_result(
                 db, step_id=str(step.id), user_id=str(caller.id),
                 organization_id=str(organization_id or report.organization_id),
                 report_id=str(report.id), params_fingerprint=fingerprint,
-                status="success", status_reason=None, data=df,
+                status="success", status_reason=None,
                 applied_params=dict(resolved) if resolved else None,
-                executed_as=executed_as, last_run_at=_dt.utcnow(), **stamp,
+                executed_as=executed_as, last_run_at=_dt.utcnow(), **columns,
             )
             return {
                 "data": df or {},

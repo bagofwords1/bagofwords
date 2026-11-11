@@ -823,7 +823,7 @@ def test_scim_membership_changes_purge_the_changed_members_results_after_commit(
 @pytest.mark.e2e
 def test_a_scim_membership_change_purges_the_members_outdated_results(org_with_members):
     """The real purge, end to end: the member SCIM adds to a group keeps only
-    their latest result; a member it did not change keeps all."""
+    their latest result, cleared; a member it did not change keeps all."""
     from tests.fixtures.member_results import member_results_now, purged, seed_member_results_now, untouched
 
     scim, org_id = org_with_members["scim"], org_with_members["org_id"]

@@ -41,6 +41,30 @@ def _months(body) -> set:
     return {r.get("חודש") for r in (body.get("data") or {}).get("rows", [])}
 
 
+YEAR = {"name": "Year", "type": "string", "label": "Year", "default": None, "required": False,
+        "source": "input", "identity_binding": None, "options": None, "options_source": None,
+        "strict_options": False}
+# The copy's rows name the Year it ran with, so the values a run took show.
+YEAR_CODE = ("def generate_df(ds_clients, excel_files, params=None):\n"
+             "    import pandas as pd\n"
+             "    return pd.DataFrame({'חודש': ['שנה ' + str((params or {}).get('Year'))], 'הכנסות': [1]})\n")
+
+
+def _stored(corpus_rows, step_id, user_id) -> list:
+    """Per stored result of the reader: (data is SQL NULL, applied_params).
+    The NULL is asked in SQL, so neither decryption nor a JSON null hides
+    rows; the values are read through the model (they may be encrypted)."""
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
+
+    from app.models.step_user_result import StepUserResult
+
+    with Session(corpus_rows.engine) as session:
+        return [(bool(cleared), params) for cleared, params in session.execute(
+            select(StepUserResult.data.is_(None), StepUserResult.applied_params)
+            .where(StepUserResult.step_id == step_id, StepUserResult.user_id == user_id)).all()]
+
+
 @pytest.mark.e2e
 def test_a_row_policy_edit_stops_serving_the_readers_stored_run(corpus, corpus_rows, test_client,
                                                                 unreachable_source_clients):
@@ -49,19 +73,22 @@ def test_a_row_policy_edit_stops_serving_the_readers_stored_run(corpus, corpus_r
     assert share(test_client, corpus, aid, "internal").status_code == 200
     (copy,) = _rows(corpus_rows, "SELECT q.id, s.id AS step FROM queries q JOIN steps s ON s.id = q.default_step_id "
                                  "WHERE q.artifact_release_id = :r", r=release)
-    corpus_rows.update("steps", copy["step"], data=STALE)  # tell the snapshot from a reader's run
+    corpus_rows.update("steps", copy["step"], data=STALE, code=YEAR_CODE)  # tell the snapshot from a reader's run
+    # A filter the reader sets (the corpus dashboard declares none; no route edits a release's copy).
+    corpus_rows.update("queries", copy["id"], parameters=[YEAR])
     (relation,) = _rows(corpus_rows, "SELECT ct.id, ct.connection_id FROM connection_tables ct "
                                      "JOIN datasource_tables dt ON dt.connection_table_id = ct.id "
                                      "WHERE dt.datasource_id = :d", d=corpus.cast.data_sources["מחסן RLS"])
 
     step_path = f"/api/d/{aid}/queries/{copy['id']}/step"
     filter_path = f"/api/d/{aid}/queries/{copy['id']}/run"
-    first = test_client.post(filter_path, json={}, headers=as_(corpus, "member"))
+    chosen = {"params": {"Year": "2024"}}
+    first = test_client.post(filter_path, json=chosen, headers=as_(corpus, "member"))
     assert first.status_code == 200, first.text
-    assert first.json()["status"] == "success" and first.json()["cached"] is False
+    assert first.json()["status"] == "success" and first.json()["cached"] is False, first.text
     ran = _months(first.json())
-    assert ran and "ישן" not in ran
-    assert test_client.post(filter_path, json={}, headers=as_(corpus, "member")).json()["cached"] is True
+    assert ran == {"שנה 2024"}
+    assert test_client.post(filter_path, json=chosen, headers=as_(corpus, "member")).json()["cached"] is True
     assert _months(test_client.get(step_path, headers=as_(corpus, "member")).json()) == ran
 
     admin = as_(corpus, "admin")
@@ -71,11 +98,25 @@ def test_a_row_policy_edit_stops_serving_the_readers_stored_run(corpus, corpus_r
                           json={"rls_enabled": False}, headers=admin)
     assert off.status_code == 200, off.text
 
-    # Without the row policy every reader shares the snapshot.
-    assert _months(test_client.get(step_path, headers=as_(corpus, "member")).json()) == {"ישן"}
-    again = test_client.post(filter_path, json={}, headers=as_(corpus, "member"))
+    # The reader's run stays as their chosen values, without the rows the
+    # old policy filtered for them: those are not kept at rest.
+    member = corpus.cast.id("member")
+    assert _stored(corpus_rows, copy["step"], member) == [(True, {"Year": "2024"})]
+    # Without the row policy every reader shares the snapshot; the cleared
+    # run is not reported as a result (or an error) of theirs.
+    read = test_client.get(step_path, headers=as_(corpus, "member")).json()
+    assert _months(read) == {"ישן"}
+    assert read.get("viewer_result") is None, read
+
+    # Their next run of the dashboard takes the values they chose and
+    # replaces the cleared result.
+    rerun = test_client.post(f"/api/d/{aid}/run", headers=as_(corpus, "member"))
+    assert rerun.status_code == 200, rerun.text
+    assert _stored(corpus_rows, copy["step"], member) == [(False, {"Year": "2024"})]
+    assert _months(test_client.get(step_path, headers=as_(corpus, "member")).json()) == {"שנה 2024"}
+    again = test_client.post(filter_path, json=chosen, headers=as_(corpus, "member"))
     assert again.status_code == 200, again.text
-    assert again.json()["cached"] is False
+    assert again.json()["cached"] is True and _months(again.json()) == {"שנה 2024"}
 
 
 @pytest.mark.e2e
@@ -119,6 +160,43 @@ def test_a_readers_run_stores_results_stamped_before_an_auth_policy_switch(corpu
     assert _rows(corpus_rows, "SELECT COUNT(*) AS n FROM step_user_results WHERE step_id = :s AND user_id = :u "
                               "AND status = 'success'", s=copy["step"], u=corpus.cast.id("member")) == [{"n": 1}]
 
+    read = test_client.get(f"/api/d/{aid}/queries/{copy['id']}/step", headers=as_(corpus, "member")).json()
+    assert read.get("viewer_result") is None, read
+    assert _months(read) != {"ריצה"}, read
+
+
+@pytest.mark.e2e
+def test_a_readers_run_stamped_only_after_its_clients_were_built_stores_its_result_cleared(
+        corpus, corpus_rows, test_client, unreachable_source_clients, monkeypatch):
+    """Every stamp before the release's clients are built fails, so each
+    copy's run takes it after: the check before the store cannot cover the
+    time the clients were built, and the result is stored as a change during
+    the run leaves it (its values, no rows), not served."""
+    import app.services.dashboard_runs as dashboard_runs
+
+    aid = own(corpus_rows, corpus, "rls/dash")
+    release = publish(aid)
+    assert share(test_client, corpus, aid, "internal").status_code == 200
+    (copy,) = _rows(corpus_rows, "SELECT q.id, s.id AS step FROM queries q JOIN steps s ON s.id = q.default_step_id "
+                                 "WHERE q.artifact_release_id = :r", r=release)
+    run_code = ("def generate_df(ds_clients, excel_files, params=None):\n"
+                "    import pandas as pd\n"
+                "    return pd.DataFrame({'חודש': ['ריצה'], 'הכנסות': [1]})\n")
+    corpus_rows.update("steps", copy["step"], data=STALE, code=run_code)
+    stamped: list = []
+
+    async def none_stamped(*args, **kwargs):
+        stamped.append(1)
+        return {}
+
+    monkeypatch.setattr(dashboard_runs, "_copy_stamps", none_stamped)
+    rerun = test_client.post(f"/api/d/{aid}/run", headers=as_(corpus, "member"))
+    assert rerun.status_code == 200, rerun.text
+    assert rerun.json()["steps_succeeded"] >= 1, rerun.json()
+    assert stamped, "the run asked for its stamps before its clients"
+
+    member = corpus.cast.id("member")
+    assert [cleared for cleared, _ in _stored(corpus_rows, copy["step"], member)] == [True]
     read = test_client.get(f"/api/d/{aid}/queries/{copy['id']}/step", headers=as_(corpus, "member")).json()
     assert read.get("viewer_result") is None, read
     assert _months(read) != {"ריצה"}, read
@@ -248,3 +326,47 @@ def test_the_exports_own_run_check_judges_many_slices_of_one_copy_at_the_cost_of
     record_property("statements", {"3 slices": few, "30 slices": many})
     assert (few_answer, many_answer) == (True, True)
     assert many <= few, f"statements: {few} for 3 slices, {many} for 30"
+
+
+@pytest.mark.e2e
+def test_an_export_does_not_count_a_run_a_row_policy_edit_cleared(
+        corpus, corpus_rows, test_client, unreachable_source_clients, enterprise_license,
+        no_vendor_libs, pdf_pages):
+    """A withheld reader exports their own run. A row policy edit clears that
+    run's rows (it keeps only their values): nothing of theirs is left to
+    export until they run the dashboard again."""
+    aid = own(corpus_rows, corpus, "rls/dash")
+    release = publish(aid)
+    assert share(test_client, corpus, aid, "internal").status_code == 200
+    (copy,) = _rows(corpus_rows, "SELECT q.id, s.id AS step FROM queries q JOIN steps s ON s.id = q.default_step_id "
+                                 "WHERE q.artifact_release_id = :r", r=release)
+    (relation,) = _rows(corpus_rows, "SELECT ct.id, ct.connection_id FROM connection_tables ct "
+                                     "JOIN datasource_tables dt ON dt.connection_table_id = ct.id "
+                                     "WHERE dt.datasource_id = :d", d=corpus.cast.data_sources["מחסן RLS"])
+    member = as_(corpus, "member")
+    export = f"/api/d/{aid}/export/html"
+    run = test_client.post(f"/api/d/{aid}/queries/{copy['id']}/run", json={}, headers=member)
+    assert run.status_code == 200 and run.json()["status"] == "success", run.text
+    assert test_client.get(export, headers=member).status_code == 200
+
+    admin = as_(corpus, "admin")
+    assert test_client.put("/api/organization/settings", headers=admin,
+                           json={"config": {"enable_custom_queries": {"value": True}}}).status_code == 200
+    enterprise_license.features.append("rls")  # the corpus's license stub lists features; authoring a policy is one
+    # A policy filters on a plain column name; the corpus relation has only a Hebrew one, and no
+    # route edits a relation's columns without a reachable warehouse.
+    corpus_rows.update("connection_tables", relation["id"], columns=[{"name": "חודש"}, {"name": "owner_email"}])
+    edit = test_client.put(
+        f"/api/connections/{relation['connection_id']}/custom-queries/{relation['id']}/rls",
+        json={"rls_enabled": True, "rls_mode": "attribute", "rls_default_deny": True,
+              "rls_policy": {"column": "owner_email", "source": "user.email", "op": "in"}},
+        headers=admin)
+    assert edit.status_code == 200, edit.text
+
+    assert [cleared for cleared, _ in _stored(corpus_rows, copy["step"], corpus.cast.id("member"))] == [True]
+    resp = test_client.get(export, headers=member)
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["error_code"] == "dashboard.export_needs_run"
+
+    assert test_client.post(f"/api/d/{aid}/run", headers=member).status_code == 200
+    assert test_client.get(export, headers=member).status_code == 200

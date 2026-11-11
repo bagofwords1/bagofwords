@@ -216,7 +216,7 @@ def test_a_group_removed_from_the_directory_purges_its_registered_members_only(
 def test_a_sync_that_changes_a_members_groups_purges_their_outdated_results(
         test_client, create_user, login_user, whoami, monkeypatch):
     """The real purge, end to end: the member the sync adds to a group keeps
-    only their latest result; the admin it did not change keeps all."""
+    only their latest result, cleared; the admin it did not change keeps all."""
     from tests.fixtures.member_results import member_results_now, purged, seed_member_results_now, untouched
 
     admin = create_user()

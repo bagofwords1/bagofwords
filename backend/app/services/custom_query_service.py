@@ -1834,7 +1834,7 @@ class CustomQueryService:
     async def purge_viewer_results(db: AsyncSession, relation_id: str) -> None:
         """Viewers' stored results that read this relation's previous extract
         or row policy (viewer_result_freshness): deleted, each viewer's latest
-        of each step kept and refused at read. In a session of its
+        of each step kept (cleared) and refused at read. In a session of its
         own; called last, once the change is committed, audited and cleaned
         up after (a refresh, the row policy route)."""
         from app.services.viewer_result_freshness import purge_quietly, purge_relation_results

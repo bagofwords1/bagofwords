@@ -6,8 +6,8 @@ the stored results a change to someone's groups outdates
 seed such results and read back what the purge left. The results belong to
 an identity-scoped step (refs "i") and carry a stamp of what their runs read
 then, which no stamp taken now equals: once the member's purge runs, their
-latest result stays (refused at read) and the older ones are gone. Seeded
-directly: a viewer's run needs a reachable data source.
+latest result stays cleared (its values kept, no rows) and the older ones
+are gone. Seeded directly: a viewer's run needs a reachable data source.
 """
 import asyncio
 import uuid
@@ -83,8 +83,8 @@ def member_results_now(step_id: str) -> list:
 
 
 def purged(n: int = 3) -> list:
-    """What a member's purge leaves of n seeded results: the latest."""
-    return [(f"p{n - 1}", "read-then", False)]
+    """What a member's purge leaves of n seeded results: the latest, cleared."""
+    return [(f"p{n - 1}", "cleared", True)]
 
 
 def untouched(n: int = 3) -> list:

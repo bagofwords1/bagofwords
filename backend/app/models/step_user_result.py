@@ -62,7 +62,8 @@ class StepUserResult(BaseSchema):
     # read compares with the current one; `source_refs` lists the connection
     # and relation versions in plain text, so a change to one finds the rows
     # it outdates. NULL on a wait for input, and on rows stored before
-    # vrstamp01.
+    # vrstamp01. 'cleared' (viewer_result_freshness.CLEARED_STAMP) on a kept
+    # result whose rows a purge cleared: data NULL, its values kept.
     source_stamp = Column(String(64), nullable=True)
     source_refs = Column(Text, nullable=True)
 

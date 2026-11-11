@@ -283,25 +283,68 @@ async def _viewer_rows(step_id: str, user_id: str) -> list:
         return sorted((p or {}).get("Year") or "" for (p,) in rows)
 
 
+async def _stored_rows_encrypted(step_id: str, user_id: str) -> list:
+    """Per stored result of the viewer: whether its data column holds a
+    ciphertext envelope, read raw."""
+    from sqlalchemy import text
+
+    from app.ee.encryption.types import ENVELOPE_MARKER
+
+    async with async_session_maker() as db:
+        return [ENVELOPE_MARKER in str(d) for (d,) in (await db.execute(text(
+            "SELECT data FROM step_user_results WHERE step_id = :s AND user_id = :u"
+        ), {"s": step_id, "u": user_id})).all()]
+
+
+async def _stored_rows_cleared(step_id: str, user_id: str) -> list:
+    """Per stored result of the viewer: whether its data column is SQL NULL
+    (asked in SQL, so neither decryption nor a JSON null can hide rows)."""
+    from sqlalchemy import text
+
+    async with async_session_maker() as db:
+        return [bool(c) for (c,) in (await db.execute(text(
+            "SELECT data IS NULL FROM step_user_results WHERE step_id = :s AND user_id = :u"
+        ), {"s": step_id, "u": user_id})).all()]
+
+
 @pytest.mark.e2e
-def test_a_row_policy_edit_deletes_superseded_slices_and_keeps_the_latest(
-    test_client, create_report, bootstrap_admin, invite_user_to_org, tmp_path,
+def test_a_row_policy_edit_deletes_superseded_slices_and_clears_the_latest(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, tmp_path, monkeypatch,
 ):
-    """The viewer's other cached slices go; the latest stays (it seeds their
-    next run's values) but is not served."""
+    """The viewer's other cached slices go. The latest stays with the values
+    they chose (it seeds their next run) but none of its rows: what the old
+    policy let them see is not kept at rest. Their next run replaces it.
+    Payload encryption is on, as at a customer's: results are stored as
+    ciphertext, and clearing one must leave no envelope behind."""
+    import app.ee.encryption.types as encryption_types
+
+    # Off in tests (the key is generated per process); the toggle and the
+    # licence are configuration, so the switch itself is stubbed.
+    monkeypatch.setattr(encryption_types, "encryption_active", lambda: True)
     ctx = _accelerated_report(test_client, create_report, bootstrap_admin, invite_user_to_org, tmp_path,
                               params=[YEAR])
     viewer, owner = ctx["viewer"], ctx["owner"]
     for year in ("2023", "2024"):
         assert _viewer_run(test_client, ctx, {"Year": year})["status"] == "success"
     assert _run(_viewer_rows(ctx["sid"], viewer["user_id"])) == ["2023", "2024"]
+    assert _run(_stored_rows_encrypted(ctx["sid"], viewer["user_id"])) == [True, True]
 
     _set_policy(test_client, ctx, {**OWN_ROWS, "grants": [
         {"principal_type": "user", "principal_id": viewer["user_id"], "values": [owner["email"]]}]})
 
     assert _run(_viewer_rows(ctx["sid"], viewer["user_id"])) == ["2024"]
+    assert _run(_stored_rows_cleared(ctx["sid"], viewer["user_id"])) == [True]
+
+    # Their next run of the dashboard takes the values they chose, and its
+    # result replaces the cleared one in the same slot.
+    rerun = test_client.post(f"/api/r/{ctx['report']['id']}/run", headers=_headers(viewer["token"]))
+    assert rerun.status_code == 200, rerun.text
+    assert rerun.json()["steps_succeeded"] == 1, rerun.json()
+    assert _run(_viewer_rows(ctx["sid"], viewer["user_id"])) == ["2024"]
+    assert _run(_stored_rows_cleared(ctx["sid"], viewer["user_id"])) == [False]
+    assert _run(_stored_rows_encrypted(ctx["sid"], viewer["user_id"])) == [True]
     body = _viewer_run(test_client, ctx, {"Year": "2024"})
-    assert body["cached"] is False, body
+    assert body["cached"] is True, body
     assert _pairs(body) == {(owner["email"], 1), (viewer["email"], 2)}
 
 
@@ -404,6 +447,38 @@ def test_a_viewer_rerun_stores_results_stamped_before_an_auth_policy_switch(
 
     read = _public_step(test_client, ctx["report"]["id"], ctx["qid"], token=ctx["viewer"]["token"])
     assert read.get("viewer_result") is None, read
+
+
+@pytest.mark.e2e
+def test_a_viewer_rerun_stamped_only_after_its_clients_were_built_stores_its_result_cleared(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, tmp_path, monkeypatch,
+):
+    """The stamp before the clients are built fails, so the step's run takes
+    it after: the check before the store cannot cover the time the clients
+    were built, and the result is stored as a change during the run leaves
+    it (its values, no rows), not served."""
+    import app.services.viewer_result_freshness as freshness
+
+    ctx = _accelerated_report(test_client, create_report, bootstrap_admin, invite_user_to_org, tmp_path,
+                              policy=None)
+    original = freshness.stamp_columns
+    failed: list = []
+
+    async def fail_once(*args, **kwargs):
+        if not failed:
+            failed.append(1)
+            raise RuntimeError("stamp failed")
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(freshness, "stamp_columns", fail_once)
+    rerun = test_client.post(f"/api/r/{ctx['report']['id']}/run", headers=_headers(ctx["viewer"]["token"]))
+    assert rerun.status_code == 200, rerun.text
+    assert rerun.json()["steps_succeeded"] == 1, rerun.json()
+    assert failed, "the stamp before the clients failed"
+
+    read = _public_step(test_client, ctx["report"]["id"], ctx["qid"], token=ctx["viewer"]["token"])
+    assert read.get("viewer_result") is None, read
+    assert _run(_stored_rows_cleared(ctx["sid"], ctx["viewer"]["user_id"])) == [True]
 
 
 # ── a run stamps the identity its params were bound from ───────────────
@@ -905,8 +980,9 @@ def test_a_purge_of_many_members_results_runs_a_bounded_number_of_statements(
     test_client, create_report, bootstrap_admin, invite_user_to_org,
 ):
     """Three members' group change. Five times the stored results per member
-    take no more statements (one more per member at most), and all members
-    are purged over one connection."""
+    take no more statements (one more per member: the result the first purge
+    cleared, deleted now that newer ones supersede it), and all members are
+    purged over one connection."""
     admin, owner, viewer, report, seeded = _shared_report(
         test_client, create_report, bootstrap_admin, invite_user_to_org, visibility="internal")
     sid = seeded["step_ids"][0]
@@ -914,11 +990,11 @@ def test_a_purge_of_many_members_results_runs_a_bounded_number_of_statements(
 
     _run(_seed_member_results(sid, members, 5, "a", age_days=2))
     few, few_checkouts = _run(_counted_member_purge(admin["org_id"], members))
-    assert _run(_member_slots(sid, members)) == {u: [("a4", "read-then")] for u in members}
+    assert _run(_member_slots(sid, members)) == {u: [("a4", "cleared")] for u in members}
 
     _run(_seed_member_results(sid, members, 25, "b", age_days=1))
     many, many_checkouts = _run(_counted_member_purge(admin["org_id"], members))
-    assert _run(_member_slots(sid, members)) == {u: [("b24", "read-then")] for u in members}
+    assert _run(_member_slots(sid, members)) == {u: [("b24", "cleared")] for u in members}
 
     assert many <= few + len(members), f"statements: {few} for 5 results per member, {many} for 25"
     assert (few_checkouts, many_checkouts) == (1, 1), (few_checkouts, many_checkouts)
@@ -974,10 +1050,364 @@ def test_a_purge_that_runs_out_of_time_stops_and_the_group_delete_succeeds(
     assert gone.status_code == 204, gone.text
     assert _audit_count(gid, "group.deleted") == 1
     slots = _run(_member_slots(sid, members))
-    assert slots[members[0]] == [("a2", "read-then")]
+    assert slots[members[0]] == [("a2", "cleared")]
     for uid in members[1:]:
         assert sorted(slots[uid]) == [("a0", "read-then"), ("a1", "read-then"), ("a2", "read-then")]
     # Once (the handler may hear it twice: directly and through the root).
     (spent,) = {id(r): r for r in caplog.records
                 if r.getMessage() == "viewer_results.purge_budget_exhausted"}.values()
     assert (spent.purge, spent.deleted, spent.members, spent.members_purged) == ("_purge_members", 2, 3, 1)
+
+
+# ── the purge never clears or deletes a result a run just rewrote ───────
+
+async def _seed_two_results(step_id: str, user_id: str) -> list:
+    """Two stored slices of the viewer's (an older and the latest), stamped
+    with what their runs read then; returns them as a purge selects them."""
+    from datetime import datetime, timedelta
+
+    from sqlalchemy import select
+
+    from app.models.query import Query
+    from app.models.step import Step
+    from app.models.step_user_result import StepUserResult
+
+    async with async_session_maker() as db:
+        step = await db.get(Step, step_id)
+        query = await db.get(Query, step.query_id)
+        now = datetime.utcnow()
+        for year, age in (("2023", 2), ("2024", 1)):
+            db.add(StepUserResult(
+                step_id=step_id, user_id=user_id, organization_id=query.organization_id,
+                report_id=query.report_id, status="success", executed_as="viewer", params_fingerprint=year,
+                applied_params={"Year": year}, data={"rows": [{"year": year}], "columns": [{"field": "year"}]},
+                last_run_at=now - timedelta(minutes=age), source_stamp=f"read-{year}", source_refs="c:x=old",
+            ))
+        await db.commit()
+        return (await db.execute(
+            select(StepUserResult.id, StepUserResult.step_id, StepUserResult.user_id, StepUserResult.source_stamp)
+            .where(StepUserResult.step_id == step_id, StepUserResult.user_id == user_id)
+        )).all()
+
+
+async def _rerun_in_place(step_id: str, user_id: str):
+    """What a run does to its slot (store_viewer_result's upsert keeps the
+    row's id): new rows and the stamp of what it read now."""
+    from sqlalchemy import update
+
+    from app.models.step_user_result import StepUserResult
+
+    async with async_session_maker() as db:
+        await db.execute(update(StepUserResult).where(
+            StepUserResult.step_id == step_id, StepUserResult.user_id == user_id)
+            .values(source_stamp="read-now", data={"rows": [{"year": "now"}], "columns": [{"field": "year"}]}))
+        await db.commit()
+
+
+async def _purge_selected(selected: list):
+    from app.services.viewer_result_freshness import _delete_unless_latest
+
+    async with async_session_maker() as db:
+        await _delete_unless_latest(db, selected)
+        await db.commit()
+
+
+async def _slots(step_id: str, user_id: str) -> list:
+    from sqlalchemy import text
+
+    async with async_session_maker() as db:
+        return sorted((fp, stamp, bool(cleared)) for fp, stamp, cleared in (await db.execute(text(
+            "SELECT params_fingerprint, source_stamp, data IS NULL FROM step_user_results "
+            "WHERE step_id = :s AND user_id = :u"), {"s": step_id, "u": user_id})).all())
+
+
+@pytest.mark.e2e
+def test_a_purge_leaves_a_result_rewritten_after_it_selected_it(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """The purge selected both slices as outdated; before it acted, the
+    viewer's runs rewrote both slots. Neither fresh result is deleted or
+    cleared."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org, visibility="internal")
+    sid, uid = seeded["step_ids"][0], viewer["user_id"]
+    selected = _run(_seed_two_results(sid, uid))
+    assert len(selected) == 2
+    _run(_rerun_in_place(sid, uid))
+
+    _run(_purge_selected(selected))
+
+    assert _run(_slots(sid, uid)) == [("2023", "read-now", False), ("2024", "read-now", False)]
+
+
+# ── long lists of rows are purged in bounded statements ─────────────────
+
+async def _seed_many_results(step_id: str, user_id: str, conn_id: str, n: int):
+    from datetime import datetime, timedelta
+
+    from sqlalchemy import insert
+
+    from app.models.query import Query
+    from app.models.step import Step
+    from app.models.step_user_result import StepUserResult
+
+    async with async_session_maker() as db:
+        step = await db.get(Step, step_id)
+        query = await db.get(Query, step.query_id)
+        start = datetime.utcnow() - timedelta(days=1)
+        await db.execute(insert(StepUserResult), [
+            {"step_id": step_id, "user_id": user_id, "organization_id": query.organization_id,
+             "report_id": query.report_id, "status": "success", "executed_as": "viewer",
+             "params_fingerprint": f"fp{i}", "last_run_at": start + timedelta(seconds=i),
+             "source_stamp": "read-then", "source_refs": f"c:{conn_id}=system_only"}
+            for i in range(n)])
+        await db.commit()
+
+
+async def _purge_connection(org_id: str, conn_id: str) -> int:
+    from app.services.viewer_result_freshness import purge_outdated_results
+
+    async def auth_policy_now():
+        return "user_required"
+
+    async with async_session_maker() as db:
+        return await purge_outdated_results(db, organization_id=org_id, prefix=f"c:{conn_id}=",
+                                            current=auth_policy_now)
+
+
+@pytest.mark.e2e
+def test_a_purge_of_more_rows_than_one_statement_binds(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """Above the drivers' bind-parameter cap (32,767 on asyncpg, 32,766 on
+    SQLite) one IN list would fail the purge."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org, visibility="internal")
+    sid, uid, conn = seeded["step_ids"][0], viewer["user_id"], str(uuid.uuid4())
+    n = 33_000
+    _run(_seed_many_results(sid, uid, conn, n))
+
+    assert _run(_purge_connection(admin["org_id"], conn)) == n - 1
+    # The latest slice stays, cleared.
+    assert _run(_slots(sid, uid)) == [(f"fp{n - 1}", "cleared", True)]
+
+
+# ── a relation or connection purge costs per chunk, not per stamp ───────
+
+async def _seed_per_viewer_stamps(step_id: str, user_ids: list, n: int, refs: str, tag: str, age_days: int):
+    """n results per viewer, each stamped with a stamp of its own (a
+    row-filtered relation or an identity-scoped step stamps per viewer, and
+    per slice once the identity it bound differs)."""
+    from datetime import datetime, timedelta
+
+    from sqlalchemy import insert
+
+    from app.models.query import Query
+    from app.models.step import Step
+    from app.models.step_user_result import StepUserResult
+
+    async with async_session_maker() as db:
+        step = await db.get(Step, step_id)
+        query = await db.get(Query, step.query_id)
+        start = datetime.utcnow() - timedelta(days=age_days)
+        await db.execute(insert(StepUserResult), [
+            {"step_id": step_id, "user_id": user_id, "organization_id": query.organization_id,
+             "report_id": query.report_id, "status": "success", "executed_as": "viewer",
+             "params_fingerprint": f"{tag}{i}", "last_run_at": start + timedelta(seconds=i),
+             "source_stamp": f"{tag}-{user_id[:8]}-{i}", "source_refs": refs}
+            for user_id in user_ids for i in range(n)])
+        await db.commit()
+
+
+async def _counted_purge(purge, **kwargs) -> int:
+    """The statements `purge` runs."""
+    from sqlalchemy import event
+
+    counts = {"statements": 0}
+
+    def statement(*args, **kw):
+        counts["statements"] += 1
+
+    async with async_session_maker() as db:
+        engine = db.bind.sync_engine
+        event.listen(engine, "before_cursor_execute", statement)
+        try:
+            await purge(db, **kwargs)
+        finally:
+            event.remove(engine, "before_cursor_execute", statement)
+    return counts["statements"]
+
+
+def _purges_of_changed_sources(test_client, create_report, bootstrap_admin, invite_user_to_org, tmp_path):
+    """Three viewers of a step whose source holds a connection and an
+    accelerated relation (never extracted: the purge reads only their
+    versions), and the two purges a change to them runs."""
+    from app.services.viewer_result_freshness import purge_connection_results, purge_relation_results
+
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org, visibility="internal")
+    src = _run(_seed_accelerated_source(report["id"], str(tmp_path / "unread.sqlite"), "orders_unread"))
+    members = sorted([admin["user_id"], owner["user_id"], viewer["user_id"]])
+    return seeded["step_ids"][0], members, {
+        # The relation's version before its extract or row policy changed.
+        "relation": (f"r:{src['ct']}@old.old", purge_relation_results, {"relation_id": src["ct"]}),
+        # The connection was user_required; it is system_only now.
+        "connection": (f"c:{src['conn']}=user_required", purge_connection_results,
+                       {"connection_id": src["conn"], "organization_id": admin["org_id"]}),
+    }
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("change", ["relation", "connection"])
+def test_a_purge_of_results_stamped_per_viewer_runs_a_bounded_number_of_statements(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, tmp_path, record_property, change,
+):
+    """Every outdated result carries a stamp of its own. Ten times the
+    results per viewer take no more statements: the clears and deletes go
+    one list of (id, stamp) pairs at a time, not one statement per stamp."""
+    sid, members, purges = _purges_of_changed_sources(
+        test_client, create_report, bootstrap_admin, invite_user_to_org, tmp_path)
+    refs, purge, kwargs = purges[change]
+
+    _run(_seed_per_viewer_stamps(sid, members, 4, refs, "a", age_days=2))
+    few = _run(_counted_purge(purge, **kwargs))
+    assert _run(_member_slots(sid, members)) == {u: [("a3", "cleared")] for u in members}
+
+    _run(_seed_per_viewer_stamps(sid, members, 40, refs, "b", age_days=1))
+    many = _run(_counted_purge(purge, **kwargs))
+    assert _run(_member_slots(sid, members)) == {u: [("b39", "cleared")] for u in members}
+
+    record_property("statements", {"4 per viewer": few, "40 per viewer": many})
+    assert many <= few, f"statements: {few} for 4 results per viewer, {many} for 40"
+
+
+@pytest.mark.e2e
+def test_a_second_purge_leaves_the_results_the_first_one_cleared_untouched(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, tmp_path,
+):
+    """A cleared result still names the relation's old version, so the next
+    purge of that relation selects it again. It is the viewer's latest: it
+    stays as it is, not rewritten (its updated_at holds)."""
+    from datetime import datetime
+
+    from sqlalchemy import select, update
+
+    from app.models.step_user_result import StepUserResult
+
+    sid, members, purges = _purges_of_changed_sources(
+        test_client, create_report, bootstrap_admin, invite_user_to_org, tmp_path)
+    refs, purge, kwargs = purges["relation"]
+    _run(_seed_per_viewer_stamps(sid, members, 3, refs, "a", age_days=1))
+    _run(_counted_purge(purge, **kwargs))
+    assert _run(_member_slots(sid, members)) == {u: [("a2", "cleared")] for u in members}
+
+    then = datetime(2026, 1, 1, 12, 0, 0)
+
+    async def date_them():
+        async with async_session_maker() as db:
+            await db.execute(update(StepUserResult).where(StepUserResult.step_id == sid).values(updated_at=then))
+            await db.commit()
+
+    async def updated_ats():
+        async with async_session_maker() as db:
+            return set((await db.execute(
+                select(StepUserResult.updated_at).where(StepUserResult.step_id == sid))).scalars())
+
+    _run(date_them())
+    _run(_counted_purge(purge, **kwargs))
+    assert _run(_member_slots(sid, members)) == {u: [("a2", "cleared")] for u in members}
+    assert _run(updated_ats()) == {then}
+
+
+# ── a change a run read in passing, undone later, is not served ─────────
+
+@pytest.fixture
+def group_joined_before_clients(monkeypatch):
+    """Once armed with {"group", "user"}: that user joins that group as a run
+    builds its first data source's clients -- after the run stamped what it
+    reads, before the row filter is compiled for them (in the run's own
+    transaction, as a change landing in between would look to it)."""
+    from app.models.group_membership import GroupMembership
+    from app.services.data_source_service import DataSourceService
+
+    original = DataSourceService.construct_clients
+    armed: dict = {}
+
+    async def join_then_build(self, db, data_source, *args, **kwargs):
+        if armed:
+            db.add(GroupMembership(group_id=armed.pop("group"), user_id=armed.pop("user")))
+            await db.flush()
+        return await original(self, db, data_source, *args, **kwargs)
+
+    monkeypatch.setattr(DataSourceService, "construct_clients", join_then_build)
+    return armed
+
+
+def _owners_orders_for_a_group(test_client, create_report, bootstrap_admin, invite_user_to_org, tmp_path,
+                               create_group) -> dict:
+    ctx = _accelerated_report(test_client, create_report, bootstrap_admin, invite_user_to_org, tmp_path)
+    admin = ctx["admin"]
+    group = create_group(name=f"Owners' orders {uuid.uuid4().hex[:6]}", user_token=admin["token"],
+                         org_id=admin["org_id"])
+    assert group.status_code in (200, 201), group.text
+    ctx["gid"] = group.json()["id"]
+    _set_policy(test_client, ctx, {**OWN_ROWS, "grants": [
+        {"principal_type": "group", "principal_id": ctx["gid"], "values": [ctx["owner"]["email"]]}]})
+    return ctx
+
+
+def _leave_group(test_client, ctx):
+    admin = ctx["admin"]
+    left = test_client.delete(
+        f"/api/organizations/{admin['org_id']}/groups/{ctx['gid']}/members/{ctx['viewer']['user_id']}",
+        headers=_headers(admin["token"], admin["org_id"]))
+    assert left.status_code == 204, left.text
+
+
+@pytest.mark.e2e
+def test_a_query_run_that_read_a_group_change_later_undone_is_not_served_after_the_undo(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, tmp_path, create_group,
+    group_joined_before_clients,
+):
+    """The viewer joins the group while their run builds its clients: the run
+    reads the owner's orders too. They leave it again: what the run stored
+    is not their result, though the state matches the one before the run."""
+    ctx = _owners_orders_for_a_group(test_client, create_report, bootstrap_admin, invite_user_to_org,
+                                     tmp_path, create_group)
+    viewer, owner = ctx["viewer"], ctx["owner"]
+    group_joined_before_clients.update(group=ctx["gid"], user=viewer["user_id"])
+    during = _viewer_run(test_client, ctx)
+    assert not group_joined_before_clients, "the viewer joined the group during the run"
+    assert during["cached"] is False and _pairs(during) == {(owner["email"], 1), (viewer["email"], 2)}
+
+    _leave_group(test_client, ctx)
+
+    assert _step_read(test_client, ctx) != {(owner["email"], 1), (viewer["email"], 2)}
+    # Stored as a purge leaves a result: its values, no rows.
+    assert _run(_stored_rows_cleared(ctx["sid"], viewer["user_id"])) == [True]
+    after = _viewer_run(test_client, ctx)
+    assert after["cached"] is False, after
+    assert _pairs(after) == {(viewer["email"], 2)}
+
+
+@pytest.mark.e2e
+def test_a_viewer_rerun_that_read_a_group_change_later_undone_is_not_served_after_the_undo(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, tmp_path, create_group,
+    group_joined_before_clients,
+):
+    """The same through the conversation's rerun, which stamps every step
+    before it builds the clients once for all of them."""
+    ctx = _owners_orders_for_a_group(test_client, create_report, bootstrap_admin, invite_user_to_org,
+                                     tmp_path, create_group)
+    viewer = ctx["viewer"]
+    group_joined_before_clients.update(group=ctx["gid"], user=viewer["user_id"])
+    rerun = test_client.post(f"/api/r/{ctx['report']['id']}/run", headers=_headers(viewer["token"]))
+    assert rerun.status_code == 200, rerun.text
+    assert rerun.json()["steps_succeeded"] == 1, rerun.json()
+    assert not group_joined_before_clients, "the viewer joined the group during the run"
+
+    _leave_group(test_client, ctx)
+
+    read = _public_step(test_client, ctx["report"]["id"], ctx["qid"], token=viewer["token"])
+    assert read.get("viewer_result") is None, read
+    assert _run(_stored_rows_cleared(ctx["sid"], viewer["user_id"])) == [True]

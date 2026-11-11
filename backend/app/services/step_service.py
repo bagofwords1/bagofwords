@@ -558,6 +558,10 @@ class StepService:
                 executed_as, stamp = "viewer", None  # a stamp taken under the other mode
         # What this run reads, stamped before it runs (viewer_result_freshness):
         # a change racing the run leaves the result stale, never current.
+        # Stamped here with the caller's clients already built (its stamp
+        # before them failed, or was taken under the other mode): no check
+        # covers the time they were built, so the result is stored cleared.
+        stamped_after_clients = stamp is None and db_clients is not None
         if stamp is None:
             from app.services.viewer_result_freshness import stamp_columns
             stamp = await stamp_columns(
@@ -649,14 +653,21 @@ class StepService:
         # fingerprint raises MultipleResultsFound as soon as the viewer holds
         # more than one combination.
         fingerprint = params_fingerprint(params)
+        from app.services.viewer_result_freshness import stored_columns
         from app.services.viewer_result_store import store_viewer_result
+        # Stamped again: a change that landed while it read is stored cleared.
+        columns = await stored_columns(
+            db, stamp, data, step, status=status, user_id=str(run_user.id),
+            organization_id=str(report.organization_id), executed_as=executed_as, report_id=str(report.id),
+            stamped_after_clients=stamped_after_clients,
+        )
         return await store_viewer_result(
             db, step_id=str(step_id), user_id=str(run_user.id),
             organization_id=str(report.organization_id), report_id=str(report.id),
             params_fingerprint=fingerprint, status=status,
-            status_reason=status_reason, data=data, executed_as=executed_as,
+            status_reason=status_reason, executed_as=executed_as,
             applied_params=dict(params) if params else None,
-            last_run_at=datetime.utcnow(), **stamp,
+            last_run_at=datetime.utcnow(), **columns,
         )
 
     async def get_steps_by_widget(self, db: AsyncSession, widget_id: str):

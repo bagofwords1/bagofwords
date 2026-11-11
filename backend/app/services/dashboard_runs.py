@@ -328,9 +328,11 @@ async def _run_copy(db, step_id: str, artifact, release, *, run_user, credential
         return "error"
     from app.services.viewer_result_freshness import stamp_columns, wait_stamp
 
+    # Not stamped before the clients were built (that failed): now, still
+    # before this copy runs. No check covers the time they were built, so the
+    # result is stored cleared (stored_columns).
+    stamped_after_clients = stamp is None and db_clients is not None
     if stamp is None:
-        # Not stamped before the clients were built (that failed): now,
-        # still before this copy runs.
         stamp = await stamp_columns(db, step, user_id=str(run_user.id),
                                     organization_id=str(release.organization_id),
                                     executed_as=executed_as, release=release)
@@ -395,11 +397,17 @@ async def _run_copy(db, step_id: str, artifact, release, *, run_user, credential
             reason = NO_ACCESS_REASON
         elif needs_credentials(e):
             reason = CREDENTIALS_REQUIRED_REASON
+    from app.services.viewer_result_freshness import stored_columns
+
+    # Stamped again: a change that landed while it read is stored cleared.
+    columns = await stored_columns(db, stamp, data, step, status=status, user_id=str(run_user.id),
+                                   organization_id=str(release.organization_id), executed_as=executed_as,
+                                   release=release, stamped_after_clients=stamped_after_clients)
     await store_viewer_result(
         db, step_id=str(step.id), user_id=str(run_user.id), organization_id=str(release.organization_id),
         report_id=None, params_fingerprint=params_fingerprint(params), status=status, status_reason=reason,
-        data=data, executed_as=executed_as, applied_params=dict(params) if params else None,
-        last_run_at=datetime.utcnow(), **stamp,
+        executed_as=executed_as, applied_params=dict(params) if params else None,
+        last_run_at=datetime.utcnow(), **columns,
     )
     if status == "success":
         resolved_waits[str(step.id)] = needs_input_names(data)
@@ -615,11 +623,17 @@ async def filter_run(db, artifact: Artifact, release: ArtifactRelease, query: Qu
                 await usage.flush()
 
     if status == "success":
+        from app.services.viewer_result_freshness import stored_columns
+
+        # Stamped again: a change that landed while it read is stored cleared.
+        columns = await stored_columns(db, stamp, df, step, status=status, user_id=str(caller.id),
+                                       organization_id=str(release.organization_id), executed_as=executed_as,
+                                       release=release)
         await store_viewer_result(
             db, step_id=str(step.id), user_id=str(caller.id), organization_id=str(release.organization_id),
-            report_id=None, params_fingerprint=fingerprint, status="success", status_reason=None, data=df,
+            report_id=None, params_fingerprint=fingerprint, status="success", status_reason=None,
             applied_params=dict(resolved) if resolved else None,
-            executed_as=executed_as, last_run_at=datetime.utcnow(), **stamp)
+            executed_as=executed_as, last_run_at=datetime.utcnow(), **columns)
         return {"data": df or {}, "applied_params": resolved, "cached": False, "status": "success",
                 "step_id": str(step.id)}
     return {"data": {}, "applied_params": resolved, "cached": False, "status": "error", "error": reason,
