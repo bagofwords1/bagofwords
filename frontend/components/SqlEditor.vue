@@ -73,9 +73,9 @@ const emit = defineEmits<{
 
 const colorMode = useColorMode()
 const isDark = computed(() => colorMode.value === 'dark')
-const completes = computed(() => !!props.connectionId && props.language !== 'dax')
+const completes = computed(() => !!props.connectionId && !['dax', 'json', 'text'].includes(props.language))
 
-const monacoLang = computed(() => (props.language === 'dax' ? 'plaintext' : 'sql'))
+const monacoLang = computed(() => (['dax', 'text'].includes(props.language) ? 'plaintext' : props.language === 'json' ? 'json' : 'sql'))
 
 const options = computed(() => ({
   theme: isDark.value ? 'vs-dark' : 'vs',

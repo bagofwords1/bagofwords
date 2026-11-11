@@ -381,3 +381,51 @@ def test_short_discovery_stages_remain_in_activity_log(
     assert 'catalog' in phases and 'columns' in phases, phases
     assert phases.index('catalog') < phases.index('columns')
     assert any('public.orders' in event['message'] for event in final['events'])
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("phase, exc_factory", [
+    ("syncing_agents", lambda ident: KeyError(ident["host"])),
+    ("catalog", lambda ident: ConnectionError(
+        f"could not reach https://svc:{ident['secret']}@{ident['host']}/api")),
+])
+def test_failed_run_logs_a_readable_redacted_reason(
+    create_connection, test_client, create_user, login_user, whoami, monkeypatch, phase, exc_factory,
+):
+    """A failed run's log and error say where it stopped and what the error
+    was (its type, so even ``KeyError('…')`` reads as something) and name the
+    host the admin has to fix, but never a credential."""
+    import uuid as _uuid
+    from app.services.connection_service import ConnectionService
+
+    _skip_if_no_chinook()
+    s = _uuid.uuid4().hex[:6]
+    ident = {
+        "host": f"bi-{s}.intra.example.net",
+        "secret": f"Pw-{_uuid.uuid4().hex}",
+    }
+    exc = exc_factory(ident)
+
+    async def failing_refresh(self, *args, **kwargs):
+        callback = kwargs.get('progress_callback')
+        if callback:
+            callback(phase, None, None, None)
+        raise exc
+
+    monkeypatch.setattr(ConnectionService, 'refresh_schema', failing_refresh)
+    user = create_user()
+    token = login_user(user['email'], user['password'])
+    org_id = whoami(token)['organizations'][0]['id']
+    connection = create_connection(
+        name='Failing refresh', type='sqlite',
+        config={'database': str(CONNECTION_TEST_DB_PATH)}, credentials={},
+        user_token=token, org_id=org_id,
+    )
+    final = _poll_until_terminal(test_client, connection['id'], token, org_id)
+    assert final['status'] == 'failed', final
+    errors = [e['message'] for e in final['events'] if e['level'] == 'error']
+    assert errors, final['events']
+    for text in errors + [final['error']]:
+        assert type(exc).__name__ in text, text
+        assert ident["host"] in text, text
+        assert ident["secret"] not in text, text

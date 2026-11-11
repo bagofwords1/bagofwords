@@ -138,6 +138,8 @@ dependencies = [
     "cassandra-driver>=3.29,<3.30",
     "couchbase>=4.4,<5",
     "pyiceberg[glue,pyarrow]>=0.10,<0.12",
+    "ibm-db>=3.3.0,<3.4 ; platform_machine != 'aarch64'",
+    "mapepire-python>=2.0.0,<2.1",
 ]
 
 [project.optional-dependencies]

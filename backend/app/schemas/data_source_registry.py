@@ -66,6 +66,8 @@ from app.schemas.data_sources.configs import (
     SQLiteConfig,
     OracleConfig,
     SapHanaConfig,
+    Db2Config,
+    IbmiConfig,
     SapDatasphereConfig,
     BusinessObjectsConfig,
     SapBwXmlaConfig,
@@ -261,6 +263,8 @@ from app.schemas.data_sources.configs import (
     SQLiteCredentials,
     OracleCredentials,
     SapHanaCredentials,
+    Db2Credentials,
+    IbmiCredentials,
     SapDatasphereCredentials,
     BusinessObjectsCredentials,
     BusinessObjectsTrustedCredentials,
@@ -675,6 +679,29 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "userpass": AuthVariant(title="Username / Password", schema=OracleCredentials, scopes=["system","user"])
         }),
         client_path=None
+    ),
+    "db2": DataSourceRegistryEntry(
+        type="db2",
+        title="IBM Db2",
+        description="IBM Db2 for Linux, Unix and Windows (incl. Db2 on Cloud and Db2 Warehouse) and Db2 for z/OS. Detects the product and reads its catalog automatically. z/OS needs Db2 Connect activated on the server.",
+        config_schema=Db2Config,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username / Password", schema=Db2Credentials, scopes=["system", "user"])
+        }),
+        client_path="app.data_sources.clients.db2_client.Db2Client",
+        # IBM publishes no ibm_db build for Linux ARM64; hide the connector
+        # where the driver is missing instead of failing at connect.
+        requires_module="ibm_db",
+    ),
+    "ibmi": DataSourceRegistryEntry(
+        type="ibmi",
+        title="IBM i (Db2 for i)",
+        description="Db2 for IBM i (AS/400, iSeries) through IBM's open-source Mapepire server — no Db2 Connect license or ODBC driver needed.",
+        config_schema=IbmiConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="User profile / Password", schema=IbmiCredentials, scopes=["system", "user"])
+        }),
+        client_path="app.data_sources.clients.ibmi_client.IbmiClient",
     ),
     "sap_hana": DataSourceRegistryEntry(
         type="sap_hana",

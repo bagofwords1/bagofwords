@@ -107,7 +107,7 @@ class SybaseSource:
 
     def stream_batches(self, sql: str, batch_rows: int) -> Iterator["object"]:
         """Yield pyarrow.Table batches covering the whole result."""
-        from app.data_sources.fast.sources import arrow_table
+        from app.data_sources.fast.sources import arrow_table, declared_decimals
 
         with self.client.connect() as conn:
             # A full extraction may legitimately outlive the client's 60s
@@ -120,6 +120,7 @@ class SybaseSource:
             try:
                 cursor.execute(sql)
                 colnames = [c["name"] for c in _columns(cursor)]
+                decimals = declared_decimals(cursor.description)
                 emitted = False
                 while True:
                     batch = cursor.fetchmany(batch_rows)
@@ -127,11 +128,12 @@ class SybaseSource:
                         break
                     emitted = True
                     yield arrow_table(
-                        {name: [r[i] for r in batch] for i, name in enumerate(colnames)}
+                        [(name, [r[i] for r in batch]) for i, name in enumerate(colnames)],
+                        decimals,
                     )
                 if not emitted:
                     # Zero rows: still emit the shape so the relation exists.
-                    yield arrow_table({c: [] for c in colnames})
+                    yield arrow_table([(c, []) for c in colnames], decimals)
             except GeneratorExit:
                 # The extractor stopped early — a cap was breached. The
                 # statement is still running on the source; ask it to stop.

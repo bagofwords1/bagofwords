@@ -86,78 +86,8 @@
           </label>
         </div>
 
-        <!-- Channel -> agent routing -->
-        <div class="rounded-xl border border-gray-200 dark:border-gray-700 p-4 mb-4">
-          <div class="flex items-center gap-2 mb-0.5">
-            <UIcon name="i-heroicons-arrows-right-left" class="w-4 h-4 text-ink-muted" />
-            <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ $t('settings.integrations.channels.slack.channelRoutingTitle') }}</h3>
-          </div>
-          <p class="text-xs text-gray-500 dark:text-gray-400 mb-4 leading-relaxed">{{ $t('settings.integrations.channels.slack.channelRoutingDesc') }}</p>
-
-          <div v-if="agentsLoading || channelsLoading" class="flex items-center gap-2 text-xs text-ink-muted py-3">
-            <UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 animate-spin" />
-            {{ $t('settings.integrations.channels.common.loading') }}
-          </div>
-          <template v-else>
-            <!-- Connection default -->
-            <div class="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 p-3 flex items-center gap-3">
-              <div class="flex-1 min-w-0">
-                <div class="text-sm font-medium flex items-center gap-1.5">
-                  <UIcon name="i-heroicons-globe-alt" class="w-3.5 h-3.5 text-ink-muted shrink-0" />
-                  {{ $t('settings.integrations.channels.slack.connectionDefaultLabel') }}
-                </div>
-                <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('settings.integrations.channels.slack.connectionDefaultDesc') }}</div>
-              </div>
-              <UIcon v-if="savedKey==='__default__'" name="i-heroicons-check-circle-20-solid" class="w-4 h-4 text-green-500 shrink-0" />
-              <USelectMenu
-                v-model="defaultSel"
-                :options="allAgents"
-                multiple
-                searchable
-                option-attribute="name"
-                value-attribute="id"
-                :placeholder="$t('settings.integrations.channels.slack.channelPickerPlaceholder')"
-                class="w-48 shrink-0"
-                @change="saveDefault"
-              />
-            </div>
-
-            <!-- Channels -->
-            <div class="mt-4">
-              <div class="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1.5">
-                {{ $t('settings.integrations.channels.slack.channelsHeading') }}<span v-if="channels.length"> ({{ channels.length }})</span>
-              </div>
-              <div v-if="!channels.length" class="rounded-lg border border-dashed border-gray-200 dark:border-gray-700 text-xs text-ink-muted px-3 py-4 text-center">
-                {{ $t('settings.integrations.channels.slack.noChannelsYet') }}
-              </div>
-              <div v-else class="rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-800">
-                <div
-                  v-for="ch in channels"
-                  :key="ch.external_channel_id"
-                  class="flex items-center gap-3 p-3 bg-white dark:bg-gray-800/50"
-                >
-                  <UIcon name="i-heroicons-hashtag" class="w-3.5 h-3.5 text-ink-muted shrink-0" />
-                  <div class="flex-1 min-w-0">
-                    <div class="text-sm truncate">{{ ch.name || ch.external_channel_id }}</div>
-                    <div class="text-[11px] font-mono text-gray-400 truncate">{{ ch.external_channel_id }}</div>
-                  </div>
-                  <UIcon v-if="savedKey===ch.external_channel_id" name="i-heroicons-check-circle-20-solid" class="w-4 h-4 text-green-500 shrink-0" />
-                  <USelectMenu
-                    v-model="channelSel[ch.external_channel_id]"
-                    :options="allAgents"
-                    multiple
-                    searchable
-                    option-attribute="name"
-                    value-attribute="id"
-                    :placeholder="$t('settings.integrations.channels.slack.channelPickerPlaceholder')"
-                    class="w-48 shrink-0"
-                    @change="() => saveChannel(ch)"
-                  />
-                </div>
-              </div>
-            </div>
-          </template>
-        </div>
+        <!-- Channel -> agent routing (shared with Teams) -->
+        <ChannelAgentRouting :integration-id="integrationData?.id" :integrated="integrated" />
 
         <UButton
           color="red"
@@ -317,80 +247,11 @@
     }
   }
 
-  // --- Channel -> agent routing ---
-  // One Slack workspace is a single connection, so routing is per-channel: an
-  // admin maps a channel to a set of agents; a channel with none uses the
-  // connection default; routing only narrows what a user can already reach.
-  const allAgents = ref<any[]>([])
-  const agentsLoading = ref(false)
-  const channelsLoading = ref(false)
-  const channels = ref<any[]>([])
-  const defaultSel = ref<string[]>([])
-  const channelSel = ref<Record<string, string[]>>({})
-  const savedKey = ref<string | null>(null)
-  let _savedTimer: any = null
-  function _flagSaved(key: string) {
-    savedKey.value = key
-    clearTimeout(_savedTimer)
-    _savedTimer = setTimeout(() => { if (savedKey.value === key) savedKey.value = null }, 1800)
-  }
+  // Channel -> agent routing lives in the shared <ChannelAgentRouting>
+  // component (used by Slack and Teams alike); it loads its own data.
 
-  async function loadAgents() {
-    agentsLoading.value = true
-    const res = await useMyFetch('/api/data_sources', { query: { show_all: true } })
-    agentsLoading.value = false
-    if (res.status.value === 'success') {
-      allAgents.value = (((res.data.value as any) || []) as any[]).map((d) => ({ id: d.id, name: d.name }))
-    }
-  }
-
-  async function loadChannels() {
-    const id = props.integrationData?.id
-    if (!id) return
-    channelsLoading.value = true
-    const res = await useMyFetch(`/api/settings/integrations/${id}/channels`)
-    channelsLoading.value = false
-    if (res.status.value === 'success') {
-      const data = res.data.value as any
-      defaultSel.value = (data?.default_agent_ids || []) as string[]
-      channels.value = (data?.channels || []) as any[]
-      const map: Record<string, string[]> = {}
-      for (const ch of channels.value) map[ch.external_channel_id] = (ch.agent_ids || []) as string[]
-      channelSel.value = map
-    }
-  }
-
-  async function loadRouting() {
-    await Promise.all([loadAgents(), loadChannels()])
-  }
-
-  async function putScope(channel: string, agentIds: string[], channelName?: string) {
-    const id = props.integrationData?.id
-    if (!id) return false
-    const q = channel ? `?channel=${encodeURIComponent(channel)}` : ''
-    const body: any = { agent_ids: agentIds }
-    if (channelName) body.channel_name = channelName
-    const res = await useMyFetch(`/api/settings/integrations/${id}/agents${q}`, { method: 'PUT', body })
-    return res.status.value === 'success'
-  }
-
-  // Autosave on selection change (USelectMenu emits `change` only on user
-  // action, not on the programmatic v-model set during load). A brief inline
-  // check confirms the save; only failures raise a toast.
-  async function saveDefault() {
-    const ok = await putScope('', defaultSel.value)
-    if (ok) _flagSaved('__default__')
-    else toast.add({ title: t('settings.integrations.channels.common.failedToUpdateSetting'), color: 'red' })
-  }
-
-  async function saveChannel(ch: any) {
-    const ok = await putScope(ch.external_channel_id, channelSel.value[ch.external_channel_id] || [])
-    if (ok) _flagSaved(ch.external_channel_id)
-    else toast.add({ title: t('settings.integrations.channels.common.failedToUpdateSetting'), color: 'red' })
-  }
-
-  onMounted(() => { if (props.integrated) { loadAnnounceNewReport(); loadRouting() } })
-  watch(() => props.integrated, (v) => { if (v) { loadAnnounceNewReport(); loadRouting() } })
+  onMounted(() => { if (props.integrated) loadAnnounceNewReport() })
+  watch(() => props.integrated, (v) => { if (v) loadAnnounceNewReport() })
 
   const _df = useFormatDate()
   function formatDate(dateString: string | undefined) {

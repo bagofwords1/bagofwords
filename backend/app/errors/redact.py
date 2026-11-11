@@ -198,3 +198,118 @@ def describe_for_log(exc: BaseException) -> str:
         seen.add(id(current))
         parts.append(f"; {how} " + " ".join(_describe_one(current)))
     return " ".join(parts)
+
+
+# ── User-facing error text ──────────────────────────────────────────────────
+# What an admin sees in the connection-status log and test result. It has to
+# say *what* failed clearly enough to act on, so the host, port, user and
+# table names a driver reports stay: they are the admin's own settings and
+# the thing to fix. Only credentials are masked (``redact_error``), plus the
+# server's directory layout (``redact_paths``).
+
+# Keys whose values are secrets, wherever they sit.
+_SECRET_KEY = re.compile(
+    r"(?i)(password|passwd|pwd|passphrase|secret|token|credential|"
+    r"api[_\-]?key|access[_\-]?key|private[_\-]?key)"
+)
+# Keys of the credentials blob that are not secrets: who signs in and how.
+_NOT_SECRET_KEY = re.compile(
+    r"(?i)(user|login|email|account|role|tenant|domain|host|port|database|schema|"
+    r"warehouse|region|scope|mode|type|_id$|^id$)"
+)
+
+
+def _is_secret_key(key: str, in_credentials: bool) -> bool:
+    if re.search(r"(?i)(_id|_type)$", key):
+        return False
+    if _SECRET_KEY.search(key):
+        return True
+    return in_credentials and not _NOT_SECRET_KEY.search(key)
+
+
+def connection_secrets(config: object = None, credentials: object = None) -> list:
+    """A connection's secret values: passwords, tokens, keys.
+
+    Passed to ``redact_error`` so a driver that echoes one in a shape the
+    patterns don't recognise is still masked. Everything in the credentials
+    blob counts unless its key names an identity or a mode (``user``,
+    ``client_id``, ``auth_type``); in the config, only keys that name a secret.
+    """
+    out: set = set()
+
+    def _walk(obj, secret: bool, in_credentials: bool):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                _walk(v, _is_secret_key(str(k), in_credentials), in_credentials)
+        elif isinstance(obj, (list, tuple)):
+            for v in obj:
+                _walk(v, secret, in_credentials)
+        elif isinstance(obj, str) and secret and obj.strip():
+            out.add(obj.strip())
+
+    _walk(credentials or {}, False, True)
+    _walk(config or {}, False, False)
+    # Longest first so a value is masked before any shorter value inside it.
+    return sorted(out, key=len, reverse=True)
+
+
+def sanitize_user_message(text: object, secrets: Optional[Iterable[str]] = None,
+                          max_len: int = MAX_LEN) -> str:
+    """``text`` with credentials masked, server paths trimmed, length capped."""
+    text = "" if text is None else str(text)
+    # Bound the work first: the patterns are applied to the whole text, and a
+    # driver can hand back a page of HTML or a megabyte of SQL.
+    text = text[: max_len * 4]
+    return redact_paths(redact_error(text, secrets, max_len=max_len)).strip()
+
+
+def _message_of(exc: BaseException) -> str:
+    from starlette.exceptions import HTTPException
+
+    if isinstance(exc, HTTPException):
+        detail = exc.detail
+        return detail if isinstance(detail, str) else str(detail)
+    message = getattr(exc, "message", None)
+    if isinstance(message, str) and message:
+        return message
+    if isinstance(exc, KeyError) and exc.args:
+        return f"missing key {exc.args[0]!r}"
+    return str(exc)
+
+
+def _label(exc: BaseException) -> str:
+    """``Type: message`` — the type is what makes ``KeyError: 'x'`` or an empty
+    ``TimeoutError()`` intelligible. Our own exceptions (and HTTP errors)
+    already speak plainly, so they keep just the message."""
+    from starlette.exceptions import HTTPException
+
+    message = _message_of(exc).strip()
+    own = type(exc).__module__.startswith("app.") or isinstance(exc, HTTPException)
+    if own and message:
+        return message
+    name = type(exc).__name__
+    return f"{name}: {message}" if message else f"{name} (no details provided)"
+
+
+def user_facing_error(exc: BaseException, secrets: Optional[Iterable[str]] = None,
+                      max_len: int = MAX_LEN) -> str:
+    """An exception as one clear, safe line for the admin who triggered it.
+
+    ``Type: message``, followed by the exception it was raised from (drivers
+    often wrap the useful error: ``OperationalError … caused by
+    ConnectionRefusedError …``). Credentials are masked; ``secrets`` are the
+    connection's own (see ``connection_secrets``), masked wherever they appear.
+    """
+    parts = [_label(exc)]
+    seen = {id(exc)}
+    current = exc
+    for _ in range(2):
+        nxt = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
+        if nxt is None or id(nxt) in seen:
+            break
+        seen.add(id(nxt))
+        label = _label(nxt)
+        if label and label not in " ".join(parts):
+            parts.append(f"caused by {label}")
+        current = nxt
+    return sanitize_user_message("; ".join(parts), secrets, max_len=max_len)

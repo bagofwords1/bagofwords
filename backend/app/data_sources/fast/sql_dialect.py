@@ -144,6 +144,10 @@ def explain_mysql(conn, sql: str) -> "Estimate":
                      note="row width estimated (EXPLAIN provides none)")
 
 
+# What SQL Server's optimizer assumes for one (MAX)-typed column in AvgRowSize.
+MSSQL_LOB_ASSUMED_BYTES = 4035
+
+
 def explain_mssql(conn, sql: str) -> "Estimate":
     """(rows, width_bytes, note) from `SET SHOWPLAN_XML ON`.
 
@@ -180,6 +184,15 @@ def explain_mssql(conn, sql: str) -> "Estimate":
             break
     if rows is None:
         return _estimate(note="no StatementEstRows in the plan")
+    if width and width >= MSSQL_LOB_ASSUMED_BYTES:
+        # The optimizer has no statistics on the length of a (MAX) column and
+        # prices each at a flat ~4 KB. A table with two short NVARCHAR(MAX)
+        # notes columns and half a million rows is "estimated" at 4 GB and
+        # refused, while holding a few megabytes. The row estimate is real;
+        # the width is not, so it is not used. The size ceiling still applies
+        # to what is actually written.
+        return _estimate(rows=rows, width_bytes=None,
+                         note="row width unknown: the plan assumes ~4 KB per (MAX) column")
     return _estimate(rows=rows, width_bytes=width,
                      note="" if width else "row width unavailable in the plan")
 
