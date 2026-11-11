@@ -83,12 +83,19 @@ run = `failed`, reason in `events`):
 - columns removed / type changed vs previous `schema_fingerprint` (warn on
   incremental, fail on incremental merge because the copy-forward would be
   inconsistent → forces a full refresh),
-- cursor column has NULLs (incremental only).
+- schema of the delta vs the stored table (see "Schema pinning" in phase 2).
+
+(NULL cursor values cannot be a pre-publish check: the window predicate
+already filters those rows out, so they never reach the file. See "NULL
+cursors" in phase 2.)
 
 **Rows carry lineage**: every materialized row gets hidden `_bow_run_id`
 and `_bow_loaded_at` columns; `FastQueryClient` registration exposes a
 view without them (agents never see them; `columns` stored on the row excludes
-them). Enables "rows added by run X" and phase-4 incremental transforms.
+them). Verified feasible: all three branches of
+`FastQueryClient._register_relation` (`fast_client.py:176`) are `SELECT *`
+and become `SELECT * EXCLUDE (_bow_run_id, _bow_loaded_at)`; RLS validation
+must reject these names as policy columns. Enables "rows added by run X" and phase-4 incremental transforms.
 
 **API/UI**: `GET /connections/{id}/custom-queries/{cq}/runs` (paged) and
 `/runs/{run_id}`; a **Runs** tab in `CustomQueryModal.vue` / tables page —
@@ -144,9 +151,61 @@ How each family applies it — chosen by declaration on the client, not sniffed:
 | Auto-wrap (convenience, SQL only, no placeholder) | `SELECT * FROM (<q>) bow_sub WHERE col >= :since` — UI warns pushdown is not guaranteed | SQL dialects that accept derived tables |
 | None | fetch all, filter locally in DuckDB — **correct but saves no source load**; UI says so | anything else |
 
-Placeholder semantics: when no checkpoint (full run), `{{since}}` binds the
-`initial_value` or the predicate is rewritten to always-true (`1=1` is not
-portable to SOQL/JSON — prefer binding a minimum value per kind).
+Placeholder semantics:
+- Two placeholders, `{{since}}` and `{{until}}`, **always bound**. A full run
+  binds sentinels (kind minimum / maximum, or `initial_value`) — no
+  dialect-specific "always true" rewrite is needed. Chunked loads require
+  `{{until}}`; with only `{{since}}` the table can be incremental but its
+  first load is a single query.
+- Placeholders are rendered **before** every path that touches the query:
+  `extractor.estimate`, `extractor.preview`, and `sql_guard.ensure_read_only`
+  (`extractor._source`). The guard must see rendered text — raw `{{…}}` would
+  fail the sqlglot parse and silently downgrade to the keyword check
+  (`sql_guard.check_sql`).
+
+**Rules the core enforces (each found in review, each needs a Loop A test):**
+- **NULL cursors.** Rows whose cursor is NULL never match the window and
+  would be silently absent. At setup and on each full refresh, probe the null
+  count where the source can answer (`SELECT count(*) … WHERE col IS NULL`
+  via wrap; PostHog already does this in `_range`) and refuse incremental
+  mode if non-zero; where it cannot be probed, the UI states the rule.
+- **Checkpoint cap.** New checkpoint = `min(max(cursor), run start)` for
+  timestamps. One bad future-dated row (`updated_at = 2099`) would otherwise
+  move the checkpoint past all real data and no refresh would ever load again
+  (Singer "signpost").
+- **Dedup the delta before merging.** Verified on the pinned DuckDB: `MERGE`
+  with two delta rows for one key raises no error and keeps an arbitrary one.
+  Staging is reduced to the latest row per key (by cursor) first; a
+  `unique_key` that is not unique in the source is rejected at setup.
+- **Schema pinning.** `SqlAlchemySource` infers Arrow types per batch from
+  Python values (`sources.arrow_table`), so a delta can arrive with different
+  types than the stored table (all-NULL column → `null`, decimal → `double`).
+  The delta is cast to the stored schema **by column name**, never by
+  position; a cast failure or added/removed column fails the run and requires
+  a full refresh. (Verified: compatible drift inserts cleanly, incompatible
+  raises a conversion error.)
+- **`replace_window` aligns to a grain.** The window start is truncated to
+  the table's grain (day/month). Recomputing a daily rollup from a window
+  that starts mid-day would publish a partial day as if it were complete
+  (Power BI "only refresh complete days", dbt microbatch `batch_size`).
+- **One run per table.** Releasing the connection lock between chunks lets a
+  scheduled tick for the *same* table start; a per-table claim prevents it.
+  A scheduled tick that finds a partial initial load **resumes** it rather
+  than starting over, so a large table converges without manual clicks.
+- **Counts.** `rows_inserted` / `rows_updated` come from
+  `MERGE … RETURNING merge_action` (verified available).
+- **Backward compatible.** `refresh_mode` defaults to `full`; existing tables
+  behave exactly as today until an admin opts in.
+
+**Multi-pod / object storage:**
+- Copy-forward needs the previous artifact locally: `storage.ensure_local`
+  before the copy (a scheduled run can land on a pod that never served it).
+- Each refresh still uploads the **whole** new file (`storage.persist`), so
+  incremental saves source load and time, not upload bytes. Acceptable at the
+  current 2 GiB cap; revisit (segment files) only if the cap is raised.
+- A partial initial-load file is pod-local. Resume on the same volume
+  continues; resume on another pod restarts from chunk 1 unless the partial
+  is persisted per chunk (open question 6).
 
 Generic `ExecuteQueryWindowSource`: for API connectors with no native source,
 runs `client.execute_query(spec_with_window)` per window and halves the window
@@ -241,6 +300,13 @@ Docker CLI is present in cloud sandboxes but the daemon may not be running
 existing server via env URLs. Fallback without Docker: `apt-get install
 postgresql` for the Postgres leg; SQL Server needs a container.
 
+The SQL Server leg also needs Microsoft's ODBC driver on the host
+(`mssql_client.py:92` builds `ODBC Driver <n> for SQL Server`); it is **not
+installed** in the cloud sandbox (no `odbcinst`). Install `msodbcsql18` from
+packages.microsoft.com as the first step — if the sandbox network policy
+blocks that host, the SQL Server leg cannot run there and must run in CI or
+locally. Postgres does not have this dependency, so it is the primary leg.
+
 ```sh
 docker run -d --name bow-pg -e POSTGRES_PASSWORD=pw -p 55432:5432 postgres:16
 docker run -d --name bow-mssql -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD='Str0ng!Passw0rd' \
@@ -300,7 +366,8 @@ latest intervals (lookback covers the still-filling interval).
 
 | PR | Content | Loops |
 |---|---|---|
-| 1 | Pipeline-steps refactor of `refresh()` (no behavior change) + `CustomTableRun` + run API + Runs tab + pre-publish checks + `_bow_*` columns + publish event | A (existing suite unchanged + new run invariants), C |
+| 1a | Pipeline-steps refactor of `refresh()` — **no behavior change**, existing lifecycle suite must pass untouched | A |
+| 1b | `CustomTableRun` + run API + Runs tab + pre-publish checks + `_bow_*` columns + publish event | A (new run invariants), C |
 | 2 | Window interface, placeholder binding for SQLAlchemy dialects, checkpoint/lookback, append/merge, copy-forward publish | A, B (Postgres + SQL Server) |
 | 3 | Chunked resumable initial load, lock release between chunks, `replace_window` | A, B steps 2, 7, 9 |
 | 4 | Generic `ExecuteQueryWindowSource` + vROps declaration; BigQuery/ClickHouse/PostHog/Power BI window methods | A, D |
@@ -316,3 +383,10 @@ Each PR: feedback-loop section updated, release-notes skill for user-facing ones
    whether to keep N previous artifacts for one-click restore (storage cost).
 4. Should auto-wrap exist at all, or placeholder-only for clarity?
 5. Row-drop threshold for the pre-publish check (proposal: fail on >50% drop, per-table override).
+6. Persist the partial initial-load file to object storage after each chunk
+   (resume works across pods, costs an upload per chunk) or keep it pod-local
+   (proposal: pod-local first; restart on another pod).
+7. Size caps: incremental makes large tables practical, but the 5M-row /
+   2 GiB artifact caps (`extractor.DEFAULT_MAX_ROWS/BYTES`) still apply to the
+   total. Raise them, make them per-table, or keep? Raising them is what
+   would make whole-file copy/upload per refresh worth redesigning.
