@@ -22,6 +22,17 @@ from app.schemas.data_sources.cloud_storage import (
     GCSDefaultCredentials,
     GCSServiceAccountCredentials,
 )
+from app.schemas.data_sources.nosql import (
+    CassandraConfig,
+    CassandraCredentials,
+    CosmosDBConfig,
+    CosmosDBDefaultCredentials,
+    CosmosDBKeyCredentials,
+    CosmosDBServicePrincipalCredentials,
+    CouchbaseConfig,
+    CouchbaseCredentials,
+    DynamoDBConfig,
+)
 from app.schemas.data_sources.configs import (
     # Configs
     PostgreSQLConfig,
@@ -1455,6 +1466,66 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         client_path="app.data_sources.clients.mongodb_client.MongodbClient",
         is_document_based=True,
         data_shape="objects",
+    ),
+    "dynamodb": DataSourceRegistryEntry(
+        type="dynamodb",
+        title="Amazon DynamoDB",
+        description="Key-value and document tables on AWS, queried read-only with PartiQL.",
+        config_schema=DynamoDBConfig,
+        credentials_auth=AuthOptions(
+            default="aws_keys",
+            by_auth={
+                "aws_keys": AuthVariant(title="AWS Access Key", schema=S3KeyCredentials, scopes=["system"]),
+                "aws_role": AuthVariant(title="AWS Assume Role (STS)", schema=S3RoleCredentials, scopes=["system"]),
+                "aws_default": AuthVariant(title="AWS Default Chain", schema=S3DefaultCredentials, scopes=["system"]),
+            },
+        ),
+        client_path="app.data_sources.clients.dynamodb_client.DynamodbClient",
+        version="beta",
+    ),
+    "cosmosdb": DataSourceRegistryEntry(
+        type="cosmosdb",
+        title="Azure Cosmos DB",
+        description="Globally distributed document database (NoSQL API), queried read-only with Cosmos SQL.",
+        config_schema=CosmosDBConfig,
+        credentials_auth=AuthOptions(
+            default="account_key",
+            by_auth={
+                "account_key": AuthVariant(title="Account Key", schema=CosmosDBKeyCredentials, scopes=["system"]),
+                "service_principal": AuthVariant(title="Service Principal", schema=CosmosDBServicePrincipalCredentials, scopes=["system"]),
+                "managed_identity": AuthVariant(title="Managed Identity", schema=CosmosDBDefaultCredentials, scopes=["system"]),
+            },
+        ),
+        client_path="app.data_sources.clients.cosmosdb_client.CosmosdbClient",
+        version="beta",
+    ),
+    "couchbase": DataSourceRegistryEntry(
+        type="couchbase",
+        title="Couchbase",
+        description="JSON document database (self-managed or Capella), queried read-only with SQL++.",
+        config_schema=CouchbaseConfig,
+        credentials_auth=AuthOptions(
+            default="userpass",
+            by_auth={
+                "userpass": AuthVariant(title="Username / Password", schema=CouchbaseCredentials, scopes=["system", "user"]),
+            },
+        ),
+        client_path="app.data_sources.clients.couchbase_client.CouchbaseClient",
+        version="beta",
+    ),
+    "cassandra": DataSourceRegistryEntry(
+        type="cassandra",
+        title="Apache Cassandra",
+        description="Wide-column database — Apache Cassandra, ScyllaDB or Amazon Keyspaces — queried read-only with CQL.",
+        config_schema=CassandraConfig,
+        credentials_auth=AuthOptions(
+            default="userpass",
+            by_auth={
+                "userpass": AuthVariant(title="Username / Password", schema=CassandraCredentials, scopes=["system", "user"]),
+            },
+        ),
+        client_path="app.data_sources.clients.cassandra_client.CassandraClient",
+        version="beta",
     ),
     "neo4j": DataSourceRegistryEntry(
         type="neo4j",
