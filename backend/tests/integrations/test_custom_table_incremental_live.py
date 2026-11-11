@@ -631,3 +631,88 @@ async def test_metrics_from_a_json_api_load_in_windows_and_then_only_the_new_poi
     assert points2 == series * ((hi2 - lo) // bucket + 1)
     aria.note(rows=points, first_load_seconds=aria.timings["first_load"],
               increment_seconds=aria.timings["increment"], increment_rows_read=run["rows_read"])
+
+
+# -- other SQL engines: the dialect's literals meet a real server ----------------------
+
+MARIADB_URL = os.environ.get("INCR_LOOP_MARIADB_URL")    # mysql+pymysql://user:pw@host:port/db
+
+
+@pytest_asyncio.fixture
+async def mariadb(tmp_path):
+    if not MARIADB_URL:
+        pytest.skip("INCR_LOOP_MARIADB_URL not set")
+    url = make_url(MARIADB_URL)
+    engine = type("MariaDb", (Engine,), {"name": "mariadb", "family": "mysql", "now": "UTC_TIMESTAMP(6)"})(MARIADB_URL)
+    engine.run("DROP TABLE IF EXISTS incr_smoke")
+    engine.run("CREATE TABLE incr_smoke (id INT PRIMARY KEY, v VARCHAR(40), amount DECIMAL(12,2), "
+               "updated_at DATETIME(6) NULL, INDEX incr_smoke_updated_at (updated_at))")
+    rows = []
+    for i in range(1, 5001):
+        if i % 97 == 0:
+            stamp = None                                   # never stamped
+        elif i == 1:
+            stamp = "1970-01-02 00:00:00"                  # an ancient default
+        elif i == 2:
+            stamp = "2099-01-01 00:00:00"                  # a clock set wrong
+        elif 2000 <= i < 2300:
+            stamp = "2026-03-01 02:00:00"                  # one bulk import
+        else:
+            stamp = f"2026-0{1 + i % 9}-{1 + i % 27:02d} {i % 24:02d}:{i % 60:02d}:00.{i:06d}"
+        rows.append({"id": i, "v": f"שלום 🚀 {i}" if i % 5 == 0 else f"v{i}", "amount": (i % 400) - 37.25,
+                     "at": stamp})
+    with engine.sa.connect() as conn:
+        conn.execute(text("INSERT INTO incr_smoke VALUES (:id, :v, :amount, :at)"), rows)
+    root = tmp_path / "fast"
+    with patch.object(artifacts, "_ARTIFACT_ROOT", root):
+        async with async_session_maker() as db:
+            org = Organization(name=f"Maria {uuid.uuid4().hex[:8]}")
+            db.add(org)
+            await db.flush()
+            connection = Connection(name="Shop (MariaDB)", type="mariadb", organization_id=org.id,
+                                    config={"host": url.host, "port": url.port or 3306, "database": url.database})
+            connection.encrypt_credentials({"user": url.username, "password": url.password})
+            db.add(connection)
+            await db.commit()
+            connection_id = connection.id
+        try:
+            yield Lab(root, engine, connection_id)
+        finally:
+            engine.run("DROP TABLE IF EXISTS incr_smoke")
+            engine.sa.dispose()
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM incr_smoke",
+    "SELECT * FROM incr_smoke WHERE updated_at >= {{since}} AND updated_at < {{until}}",
+])
+async def test_mariadb_accepts_the_rendered_windows_and_follows_the_source(mariadb, sql):
+    e = mariadb.engine
+    placed = "{{" in sql
+    where = " WHERE updated_at IS NOT NULL" if placed else ""
+    fingerprint = "SELECT COUNT(*), SUM(id), SUM(amount), COUNT(updated_at) FROM {t}"
+
+    async def matches():
+        assert [_num(v) for v in (await mariadb.copy(fingerprint.format(t="copy")))[0]] == \
+            [_num(v) for v in e.one(fingerprint.format(t="incr_smoke") + where)]
+
+    await mariadb.table(sql, "merge", cursor_column="updated_at", unique_key=["id"], lookback_seconds=3600,
+                        **({"cursor_kind": "timestamp"} if placed else {}))
+    with patch.object(incremental, "CHUNK_TARGET_ROWS", 800):
+        table = await mariadb.refresh()
+    await matches()
+    first = await mariadb.last_run()
+    assert first["chunks_total"] >= 4, "the load was cut into windows the server accepted"
+    assert incremental.decode(table.refresh_state["checkpoint"]).year < 2099
+    names = dict(await mariadb.copy("SELECT id, v FROM copy WHERE id IN (5, 6)"))
+    assert names == {5: "שלום 🚀 5", 6: "v6"}
+
+    e.run(f"UPDATE incr_smoke SET v = 'changed', updated_at = {e.now} WHERE id % 500 = 3")
+    e.run(f"INSERT INTO incr_smoke VALUES (9001, 'new', 1.5, {e.now}), (9002, 'new', NULL, {e.now})")
+    await mariadb.refresh()
+    await matches()
+    run = await mariadb.last_run()
+    assert run["mode"] == "incremental" and (run["rows_inserted"], run["rows_updated"]) == (2, 10)
+    assert run["rows_read"] < 500
+    plan = " ".join(str(r) for r in e.all("EXPLAIN " + run["rendered_query"]))
+    assert "incr_smoke_updated_at" in plan, f"the window did not reach the index: {plan}"

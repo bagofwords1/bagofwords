@@ -48,6 +48,22 @@ def test_an_unreadable_checkpoint_reads_as_none(stored):
     assert incremental.decode(stored) is None
 
 
+@pytest.mark.parametrize("kind,raw,expected", [
+    (None, "1000", 1000), (None, "12.5", Decimal("12.5")), (None, "2024-01-01", datetime(2024, 1, 1)),
+    (None, "2024-01-01T08:30:00Z", datetime(2024, 1, 1, 8, 30, tzinfo=timezone.utc)), (None, "A-17", "A-17"),
+    ("timestamp", "2024-01-01", datetime(2024, 1, 1)), ("date", "2024-01-01", date(2024, 1, 1)),
+    ("number", "0", 0), ("text", "2024", "2024"), (None, "", None), ("number", None, None),
+])
+def test_a_start_value_is_read_as_what_it_looks_like_unless_told_otherwise(kind, raw, expected):
+    assert incremental.parse_initial(kind, raw) == expected
+
+
+@pytest.mark.parametrize("kind,raw", [("number", "soon"), ("timestamp", "41 o'clock"), ("date", "yesterday")])
+def test_a_start_value_that_contradicts_the_chosen_type_is_refused(kind, raw):
+    with pytest.raises(IncrementalConfigError):
+        incremental.parse_initial(kind, raw)
+
+
 # -- windows ------------------------------------------------------------------
 
 @pytest.mark.parametrize("lo,hi,rows", [

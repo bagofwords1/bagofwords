@@ -47,10 +47,12 @@ driver on the host (`msodbcsql18` from packages.microsoft.com):
 docker run -d --name bow-pg -e POSTGRES_PASSWORD=pw -p 55432:5432 postgres:16
 docker run -d --name bow-mssql -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD="$MSSQL_PW" \
   -p 51433:1433 mcr.microsoft.com/mssql/server:2022-latest
+docker run -d --name bow-maria -e MARIADB_ROOT_PASSWORD=pw -e MARIADB_DATABASE=shop -p 53306:3306 mariadb:11
 (cd tools/aria_operations && uv run --project ../../backend uvicorn mock_suite_api:app --port 8443 &)
 
 export INCR_LOOP_PG_URL=postgresql://postgres:pw@localhost:55432/postgres
 export INCR_LOOP_MSSQL_URL="mssql+pyodbc://sa:$MSSQL_PW@localhost:51433/master?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
+export INCR_LOOP_MARIADB_URL=mysql+pymysql://root:pw@localhost:53306/shop
 export INCR_LOOP_ARIA_URL=http://127.0.0.1:8443
 ```
 
@@ -119,8 +121,8 @@ one scenario:
 Same command with the `INCR_LOOP_*` variables set. Observed:
 
 ```text
-=== Loop B — live (INCR_LOOP_PG_URL, INCR_LOOP_MSSQL_URL, INCR_LOOP_ARIA_URL) ===
-15 passed, 2 skipped in 142.49s
+=== Loop B — live (INCR_LOOP_PG_URL, INCR_LOOP_MSSQL_URL, INCR_LOOP_MARIADB_URL, INCR_LOOP_ARIA_URL) ===
+17 passed, 2 skipped
 ```
 
 (The two skips are SQL Server-only tests on the Postgres leg.)
@@ -139,6 +141,10 @@ Same command with the `INCR_LOOP_*` variables set. Observed:
 | JSON of every shape, UUIDs, wide decimals, emoji / CJK / RTL names, `''` vs NULL | pass | pass |
 | `rowversion` as a numeric cursor (catches a change that sets no timestamp) | — | pass |
 | `datetime2(7)` rows between two microseconds are not lost at the boundary | — | pass |
+
+MariaDB 11 (a 5,000-row table the test builds, with the same hazards): the
+load is cut into windows the server accepts in both query forms, the copy
+follows inserts and updates, and the windowed query uses the index.
 
 Aria Operations (mock Suite API): 123,600 rolled-up metric points across 50
 series loaded by self-splitting requests (one response holds 50,000 rows);
@@ -259,8 +265,8 @@ a new table's settings, SQL Server, and Hebrew.
   the cursor's range evenly put the whole table in one chunk because of the
   1970 and 2099 rows. Chunks are now planned by counting.
 - **Not verified here**: the remaining SQL dialects render from the same table
-  and are unit-tested but have not met a live server (MySQL/MariaDB, Oracle,
-  Snowflake, BigQuery, ClickHouse, Trino); Aria Operations ran against the
+  and are unit-tested but have not met a live server (Oracle, Snowflake, BigQuery,
+  ClickHouse, Trino; MySQL shares MariaDB's dialect, which has); Aria Operations ran against the
   repo's mock, not an appliance; object-storage upload/download timings;
   artifacts above 2 GiB.
 - Pre-existing and unrelated: `tests/unit/test_sharepoint_*_client.py` fail in

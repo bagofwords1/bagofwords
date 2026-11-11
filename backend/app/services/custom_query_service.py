@@ -121,6 +121,17 @@ REQUEST_TYPES = {"aria_operations"}
 ACCELERABLE_TYPES = VERIFIED_TYPES | UNVERIFIED_TYPES
 
 
+# Connectors a window cannot be written into yet: their query language is
+# neither a SQL dialect the renderer knows nor a JSON request. They refresh in
+# full. Known when a table is saved, so the admin hears it then rather than
+# from a failed first refresh.
+NOT_INCREMENTAL_TYPES = {"powerbi", "posthog", "sybase"}
+
+
+def supports_incremental(conn_type) -> bool:
+    return is_accelerable_type(conn_type) and (conn_type or "").lower() not in NOT_INCREMENTAL_TYPES
+
+
 def is_accelerable_type(conn_type) -> bool:
     """Whether a stored `Connection.type` is offered acceleration.
 
@@ -627,7 +638,7 @@ class CustomQueryService:
         # (an explicit null turns it off); ones that predate it keep
         # refreshing exactly as they did.
         refresh_config.setdefault("row_drop_guard_pct", incremental.DEFAULT_ROW_DROP_GUARD_PCT)
-        config = self.refresh_settings(refresh_mode, refresh_config, definition_sql)
+        config = self.refresh_settings(refresh_mode, refresh_config, definition_sql, connection.type)
 
         cq = ConnectionTable(
             name=name,
@@ -683,7 +694,8 @@ class CustomQueryService:
         return cq
 
     @staticmethod
-    def refresh_settings(refresh_mode, refresh_config, definition_sql: str) -> incremental.RefreshConfig:
+    def refresh_settings(refresh_mode, refresh_config, definition_sql: str,
+                         conn_type: str = None) -> incremental.RefreshConfig:
         """Validated refresh settings from what the admin sent, or a 400."""
         raw = dict(refresh_config or {})
         raw["mode"] = refresh_mode or incremental.MODE_FULL
@@ -692,6 +704,12 @@ class CustomQueryService:
             config.validate(definition_sql or "")
         except incremental.IncrementalConfigError as e:
             raise HTTPException(status_code=400, detail=str(e))
+        if config.incremental and conn_type is not None and not supports_incremental(conn_type):
+            raise HTTPException(
+                status_code=400,
+                detail=(f"Incremental refresh is not available for '{conn_type}' connections "
+                        f"yet; this table can refresh in full."),
+            )
         return config
 
     async def _activate_for_agents(
@@ -778,10 +796,11 @@ class CustomQueryService:
             cq.refresh_at_time = refresh_at_time
         if refresh_mode is not None or refresh_config is not None:
             merged = {**before.to_dict(), **(refresh_config or {})}
-            config = self.refresh_settings(refresh_mode or before.mode, merged, cq.definition_sql)
+            config = self.refresh_settings(refresh_mode or before.mode, merged, cq.definition_sql,
+                                           connection.type)
             cq.refresh_mode, cq.refresh_config = config.mode, config.to_dict()
         else:
-            config = self.refresh_settings(before.mode, before.to_dict(), cq.definition_sql)
+            config = self.refresh_settings(before.mode, before.to_dict(), cq.definition_sql, connection.type)
         # Anything that decides which rows belong in the table: the stored
         # checkpoint was taken under the old definition, so rebuild now rather
         # than leave a table that mixes the two until the next schedule tick.
@@ -843,6 +862,7 @@ class CustomQueryService:
         with artifacts.try_refresh_lock(connection.id) as free:
             if free:
                 loader.discard_part(part_path)
+                artifacts.forget_table_lock(connection.id, cq.id)
         return {"success": True, "message": f"Custom table '{name}' deleted"}
 
     # -- refresh -----------------------------------------------------------
@@ -1206,8 +1226,8 @@ class CustomQueryService:
         """Size a load from scratch and cut it into windows. Moves no rows."""
         config = run.config
         try:
-            start = incremental.parse_initial(run.cursor_kind or incremental.KIND_TIMESTAMP,
-                                              config.initial_value) if config.initial_value else None
+            start = incremental.parse_initial(run.cursor_kind, config.initial_value) \
+                if config.initial_value else None
             whole = incremental.Window(lo=start, hi=None, include_nulls=run.wrapped and start is not None)
             rendered = self._render(run, whole)
             est = extractor.estimate(run.client, rendered)
@@ -1216,7 +1236,7 @@ class CustomQueryService:
             windows = [incremental.Window(lo=start, hi=None, include_nulls=run.wrapped)]
             total = None
             probe = None if incremental.json_window_of(run.client) else incremental.probe_sql(
-                run.sql, incremental.dialect_for(run.client), config.cursor_column, run.cursor_kind)
+                run.sql, incremental.dialect_for(run.client), config.cursor_column, run.cursor_kind, whole)
             if probe is not None:
                 try:
                     _cols, rows = self._source(run, probe).preview(probe, 1)

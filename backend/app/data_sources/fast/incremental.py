@@ -127,23 +127,40 @@ def decode(data: Any) -> Any:
     return None
 
 
-def parse_initial(kind: str, raw: Any) -> Any:
-    """An admin-typed start value (`2024-01-01`, `1000`) as a typed value."""
+def parse_initial(kind: str | None, raw: Any) -> Any:
+    """An admin-typed start value (`2024-01-01`, `1000`) as a typed value.
+
+    With no cursor type chosen, the value says what it is: a number is a
+    number, anything that reads as a date or time is a timestamp.
+    """
     if raw in (None, ""):
         return None
     text = str(raw).strip()
+
+    def number():
+        value = Decimal(text)
+        return int(value) if value == value.to_integral_value() else value
+
+    def timestamp():
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+
     try:
         if kind == KIND_TIMESTAMP:
-            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-            return parsed
+            return timestamp()
         if kind == KIND_DATE:
             return date.fromisoformat(text[:10])
         if kind == KIND_NUMBER:
-            number = Decimal(text)
-            return int(number) if number == number.to_integral_value() else number
+            return number()
+        if kind == KIND_TEXT:
+            return text
+        for reader in (number, timestamp):
+            try:
+                return reader()
+            except (ValueError, ArithmeticError):
+                continue
         return text
     except (ValueError, ArithmeticError):
-        raise IncrementalConfigError(f"'{raw}' is not a valid {kind} start value.")
+        raise IncrementalConfigError(f"'{raw}' is not a valid {kind} start value.") from None
 
 
 # --------------------------------------------------------------------------
@@ -530,7 +547,7 @@ _FAMILY = {
 
 # Families exercised against a live engine end to end. The rest render from
 # the same table and are unit-tested, but have not met a real server.
-VERIFIED_FAMILIES = {"postgres", "tsql", "sqlite"}
+VERIFIED_FAMILIES = {"postgres", "tsql", "sqlite", "mysql"}
 
 _MIN = {KIND_TIMESTAMP: datetime(1, 1, 1), KIND_DATE: date(1, 1, 1),
         KIND_NUMBER: -(2 ** 63), KIND_TEXT: ""}
@@ -694,18 +711,21 @@ def count_sql(sql: str, dialect: str | None, column: str, kind: str | None,
     return f"SELECT COUNT(*) FROM ({inner}) bow_cnt"
 
 
-def probe_sql(sql: str, dialect: str | None, column: str, kind: str | None) -> str | None:
-    """One aggregate over the whole result: min, max, rows, rows with a cursor.
+def probe_sql(sql: str, dialect: str | None, column: str, kind: str | None,
+              window: "Window | None" = None) -> str | None:
+    """One aggregate over the result: min, max, rows, rows with a cursor.
 
-    It sizes a first load before any rows move. None when the source cannot
-    aggregate over a subquery, in which case the load is a single window.
+    It sizes a first load before any rows move — over `window` when the load
+    has a start value, so rows it will never fetch are not counted against it.
+    None when the source cannot aggregate over a subquery, in which case the
+    load is a single window.
     """
     family = family_of(dialect)
     if family is None:
         return None
     from app.data_sources.fast.sql_dialect import strip_trailing_semicolon
 
-    inner = strip_trailing_semicolon(render_sql(sql, dialect, column, kind, Window()))
+    inner = strip_trailing_semicolon(render_sql(sql, dialect, column, kind, window or Window()))
     col = quote_identifier(family, column)
     return f"SELECT MIN({col}), MAX({col}), COUNT(*), COUNT({col}) FROM ({inner}) bow_sub"
 

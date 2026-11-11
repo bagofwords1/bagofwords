@@ -24,7 +24,7 @@ import pytest_asyncio
 from fastapi import HTTPException
 from sqlalchemy import select
 
-from app.data_sources.fast import artifacts, incremental, rls
+from app.data_sources.fast import artifacts, extractor, incremental, rls
 from app.data_sources.fast import events as table_events
 from app.dependencies import async_session_maker
 from app.models.connection import Connection
@@ -428,6 +428,21 @@ async def test_a_sibling_table_gets_the_volume_between_windows(lab):
     await lab.matches_source()
 
 
+async def test_a_start_value_leaves_older_rows_out_and_they_do_not_count_against_the_load(lab):
+    lab.shop.add(60)
+    await lab.table(initial_value="41")
+    with small_chunks(5), patch.object(extractor, "DEFAULT_MAX_ROWS", 25):
+        # 60 rows would be refused under a 25-row ceiling; the 20 this table asks for are not.
+        table = await lab.refresh()
+    await lab.matches_source(f"SELECT {COLUMNS} FROM orders WHERE seq >= 41")
+    run = (await lab.runs())[0]
+    assert run["rows_read"] == 20 == table.no_rows and run["chunks_total"] > 1
+    assert any("Source has 20 rows" in e["message"] for e in run["events"])
+    lab.shop.add(3)
+    await lab.refresh()
+    await lab.matches_source(f"SELECT {COLUMNS} FROM orders WHERE seq >= 41")
+
+
 # -- when the next run is not an increment ---------------------------------------
 
 async def test_changing_what_decides_the_rows_rebuilds_from_scratch(lab):
@@ -712,6 +727,27 @@ async def test_settings_are_checked_when_saved(lab):
         with pytest.raises(HTTPException) as error:
             lab.service.refresh_settings(mode, config, "SELECT 1")
         assert error.value.status_code == 400 and problem in error.value.detail.lower()
+
+
+@pytest.mark.parametrize("conn_type,allowed", [
+    ("postgresql", True), ("MSSQL", True), ("sqlite", True), ("snowflake", True), ("bigquery", True),
+    ("aria_operations", True),
+    ("powerbi", False), ("posthog", False), ("sybase", False),
+    ("mongodb", False),          # not a cacheable connector at all
+])
+async def test_incremental_is_refused_at_save_time_where_no_window_can_be_written(lab, conn_type, allowed):
+    """Not at the first refresh, when the table already exists in an error state."""
+    from app.services.custom_query_service import supports_incremental
+    assert supports_incremental(conn_type) is allowed
+    settings = ("merge", {"cursor_column": "u", "unique_key": ["id"]}, "SELECT 1", conn_type)
+    if allowed:
+        assert lab.service.refresh_settings(*settings).mode == "merge"
+    else:
+        with pytest.raises(HTTPException) as error:
+            lab.service.refresh_settings(*settings)
+        assert error.value.status_code == 400 and "not available" in error.value.detail
+    # A full refresh is always fine.
+    assert lab.service.refresh_settings("full", {}, "SELECT 1", conn_type).mode == "full"
 
 
 async def test_a_cursor_or_key_missing_from_the_result_fails_with_the_column_names(lab):

@@ -280,12 +280,16 @@
             </span>
           </label>
           <label class="flex items-start gap-2 cursor-pointer">
-            <input type="radio" :value="true" v-model="incr.enabled" data-testid="cq-mode-incremental" class="mt-0.5" />
+            <input type="radio" :value="true" v-model="incr.enabled" data-testid="cq-mode-incremental" class="mt-0.5"
+                   :disabled="!incrementalSupported" />
             <span>
               <span class="text-sm dark:text-gray-200">Only what is new</span>
               <span class="block text-2xs text-gray-500 dark:text-gray-400">
                 The first load runs in chunks; after that each refresh reads only rows added or changed
                 since the last one. Much lighter on {{ activeConnectionName }} for large tables.
+              </span>
+              <span v-if="!incrementalSupported" class="block text-2xs text-amber-700 dark:text-amber-400" data-testid="cq-incremental-unsupported">
+                Not available for {{ activeConnectionType }} connections yet.
               </span>
             </span>
           </label>
@@ -940,6 +944,13 @@ function loadIncrFromCq() {
   incr.row_drop_guard_pct = c.row_drop_guard_pct != null ? c.row_drop_guard_pct : DEFAULT_GUARD_PCT
   incr.showAdvanced = !!(c.initial_value || c.cursor_kind || c.grain)
 }
+
+// Connectors a refresh window cannot be written into yet (the backend
+// refuses them too): they refresh in full.
+const NOT_INCREMENTAL_TYPES = ['powerbi', 'posthog', 'sybase']
+const incrementalSupported = computed(() =>
+  !NOT_INCREMENTAL_TYPES.includes((activeConnectionType.value || '').toLowerCase()))
+watch(incrementalSupported, (ok) => { if (!ok) incr.enabled = false })
 
 const usesPlaceholders = computed(() => /\{\{\s*(since|until)\s*\}\}/i.test(form.definition_sql))
 
