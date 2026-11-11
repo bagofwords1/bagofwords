@@ -46,11 +46,19 @@
               <Icon name="heroicons-document" class="w-3 h-3 me-1 text-ink-muted" />
               <div class="font-medium text-gray-700 dark:text-gray-300 truncate">{{ f.name || noun.one }}</div>
               <span v-if="f.path && f.path !== f.name" class="ms-2 text-chat-3 text-ink-muted truncate max-w-[16rem]" :title="f.path" dir="ltr">{{ f.path }}</span>
+              <span
+                v-if="matchLabels(f).length"
+                data-testid="search-file-match"
+                class="ms-2 shrink-0 text-chat-3 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+              >{{ matchLabels(f)[0] }}<template v-if="matchLabels(f).length > 1"> +{{ matchLabels(f).length - 1 }}</template></span>
               <span v-if="f.size" class="ms-2 text-chat-3 text-ink-muted shrink-0">{{ formatBytes(f.size) }}</span>
             </div>
             <Transition name="fade">
               <div v-if="isExpanded(idx)" class="ps-6 pe-1 pb-1 text-gray-500 dark:text-gray-400 space-y-0.5">
                 <div v-if="f.path" class="text-chat-3"><span class="text-ink-muted">Path:</span> {{ f.path }}</div>
+                <div v-if="matchLabels(f).length" class="text-chat-3"><span class="text-ink-muted">Found in:</span> {{ matchLabels(f).join(', ') }}</div>
+                <div v-else-if="Array.isArray(f.matches)" class="text-chat-3"><span class="text-ink-muted">Found in:</span> file name</div>
+                <div v-if="indexStatusNote(f)" class="text-chat-3 text-amber-600 dark:text-amber-400">{{ indexStatusNote(f) }}</div>
                 <div v-if="f.mime_type" class="text-chat-3"><span class="text-ink-muted">Type:</span> {{ f.mime_type }}</div>
                 <div v-if="f.modified_at" class="text-chat-3"><span class="text-ink-muted">Modified:</span> {{ f.modified_at }}</div>
                 <a v-if="f.web_url" :href="f.web_url" target="_blank" rel="noopener" class="text-chat-2 text-blue-600 hover:underline inline-flex items-center gap-1">
@@ -61,6 +69,7 @@
           </li>
           <li v-if="files.length > 10" class="ps-1 text-chat-3 text-ink-muted">+{{ files.length - 10 }} more</li>
         </ul>
+        <div v-if="indexNote" data-testid="search-index-note" class="ms-1 mt-1 text-chat-3 text-ink-muted">{{ indexNote }}</div>
         <ToolCallParams :params="toolExecution?.arguments_json" />
       </div>
     </Transition>
@@ -116,6 +125,36 @@ const files = computed<any[]>(() => {
 })
 
 const errorMessage = computed(() => toolErrorText(props.toolExecution?.result_json?.error))
+
+// Full-text index hits say where in the file the words were found.
+function matchLabels(f: any): string[] {
+  const ms = Array.isArray(f?.matches) ? f.matches : []
+  return ms.map((m: any) => {
+    if (m.kind === 'page') return `page ${m.page}`
+    if (m.kind === 'sheet') return `sheet ${m.sheet}`
+    if (m.kind === 'chars' || m.kind === 'bytes') return `offset ${Number(m.offset || 0).toLocaleString()}`
+    return ''
+  }).filter(Boolean)
+}
+
+function indexStatusNote(f: any): string {
+  if (f?.index_status === 'partial') return 'Only partly indexed (size limit)'
+  if (f?.index_status === 'no_text') return 'No searchable text (scanned or binary)'
+  if (f?.index_status === 'error') return 'Could not be indexed'
+  return ''
+}
+
+// Which index answered, so a reader can tell a ranked full-text answer from a
+// keyword match or a live scan.
+const indexNote = computed(() => {
+  const rj = props.toolExecution?.result_json || {}
+  const how = ({ fulltext: 'Full-text index', keywords: 'Keyword index', names: 'File name match' } as any)[rj.index]
+    || (rj.source === 'live' ? 'Live scan' : '')
+  if (!how) return ''
+  const parts = [how + (rj.source === 'catalog+live' ? ' + live scan' : '')]
+  if (rj.indexed_at) parts.push(`indexed ${String(rj.indexed_at).replace('T', ' ').replace('Z', ' UTC')}`)
+  return parts.join(' · ')
+})
 
 const expanded = ref(false)
 

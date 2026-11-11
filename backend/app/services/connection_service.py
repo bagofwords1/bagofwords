@@ -1702,6 +1702,38 @@ class ConnectionService:
 
         return visible
 
+    async def _open_fulltext_sink(self, db: AsyncSession, client, connection_id: str):
+        """A sink for the client's full-text sections, or None when the
+        connection is not on the full-text tier (any index left over from an
+        earlier setting is removed then)."""
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        from app.data_sources.clients._file_source_common import INDEX_FULLTEXT
+        from app.data_sources.clients.base import _accepts_kwarg
+        from app.services.file_index_store import FileIndexSink, FileIndexStore
+
+        store = FileIndexStore(db)
+        # Index writes get their own short transactions, never this refresh's
+        # session: on SQLite a write held open here for the whole crawl would
+        # block every progress update.
+        factory = async_sessionmaker(db.bind, class_=AsyncSession, expire_on_commit=False)
+        wants = (
+            getattr(client, "index_mode", None) == INDEX_FULLTEXT
+            and _accepts_kwarg(client.get_schemas, "section_sink")
+        )
+        if not wants:
+            if hasattr(client, "index_mode") and await store.has_index(connection_id):
+                async with factory() as own:
+                    removed = await FileIndexStore(own).clear(connection_id)
+                    await own.commit()
+                logger.info(
+                    "refresh_schema: connection %s is no longer on the full-text tier — "
+                    "removed its index (%d files)", connection_id, removed,
+                )
+            return None
+        prior = await store.prior_versions(connection_id)
+        return FileIndexSink(asyncio.get_running_loop(), factory, connection_id, prior)
+
     async def refresh_schema(self, db: AsyncSession, connection: Connection, current_user: User = None,
                              progress_callback=None, introspection: str = "full",
                              keep_fresh_tables: bool = True, diagnostics_hook=None) -> List[ConnectionTable]:
@@ -1941,11 +1973,22 @@ class ConnectionService:
                 _extra["prior_tables"] = prior_tables_arg
             if introspection == "full" and _accepts_kwarg(client.aget_schemas, "force_refresh"):
                 _extra["force_refresh"] = True
-            fresh_tables = await client.aget_schemas(
-                progress_callback=progress_callback,
-                prior_catalog=prior_catalog,
-                **_extra,
-            )
+            # Full-text index tier: the client streams each file's sections to
+            # a sink while it walks, committed in small batches on their own
+            # sessions — an interrupted run keeps what it finished and the
+            # next one resumes. Other tiers drop any index left from before.
+            section_sink = await self._open_fulltext_sink(db, client, connection_id_str)
+            if section_sink is not None:
+                _extra["section_sink"] = section_sink
+            try:
+                fresh_tables = await client.aget_schemas(
+                    progress_callback=progress_callback,
+                    prior_catalog=prior_catalog,
+                    **_extra,
+                )
+            finally:
+                if section_sink is not None:
+                    await section_sink.aflush()
             from app.data_sources.clients.discovery import require_complete_discovery
             fresh_tables = require_complete_discovery(client, fresh_tables)
             if not getattr(client, "catalog_identity_available", True):
@@ -2025,6 +2068,15 @@ class ConnectionService:
                     "with (this source has no app-only mode) — result treated as "
                     "non-authoritative; nothing is pruned.",
                     connection.id,
+                )
+            self.last_fulltext_stats = None
+            if section_sink is not None:
+                # Only a complete crawl as the connection's own identity may
+                # remove index entries for files it did not see.
+                self.last_fulltext_stats = await section_sink.finish(prune=authoritative)
+                logger.info(
+                    "refresh_schema: full-text index for connection %s — %s",
+                    connection.id, self.last_fulltext_stats,
                 )
             if not authoritative:
                 logger.info(
