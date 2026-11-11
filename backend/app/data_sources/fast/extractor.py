@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import pyarrow as pa
+import pyarrow.compute as pc
 
 from app.data_sources.fast import artifacts, sql_dialect
 from app.data_sources.fast.sources import DUCKDB_MAX_DECIMAL_PRECISION
@@ -221,6 +222,14 @@ def _integer_digits(t: pa.DataType) -> int:
     return len(str(top))
 
 
+def _value_digits(col) -> int:
+    """Decimal digits of the largest magnitude in integer column `col`; 0 if all NULL."""
+    if col.null_count == len(col):
+        return 0
+    bounds = pc.min_max(col)
+    return max(len(str(abs(bounds[k].as_py()))) for k in ("min", "max"))
+
+
 def _exact_decimal(digits: int, scale: int) -> pa.DataType:
     """decimal(digits + scale, scale), or float64 when DuckDB has no such decimal."""
     if digits + scale > DUCKDB_MAX_DECIMAL_PRECISION:
@@ -228,7 +237,8 @@ def _exact_decimal(digits: int, scale: int) -> pa.DataType:
     return pa.decimal128(digits + scale, scale)
 
 
-def _wider(held: pa.DataType, incoming: pa.DataType) -> pa.DataType | None:
+def _wider(held: pa.DataType, incoming: pa.DataType, held_digits: int | None = None,
+           incoming_digits: int | None = None) -> pa.DataType | None:
     """The column type that holds both `held` and `incoming` values, if a change is needed.
 
     The artifact's columns are created from the FIRST batch. Where a source
@@ -246,6 +256,12 @@ def _wider(held: pa.DataType, incoming: pa.DataType) -> pa.DataType | None:
     Past 38 digits no DuckDB decimal holds both, and the answer is float64:
     the column becomes approximate, rows already written included.
 
+    Where one side is an integer column, `held_digits` / `incoming_digits` are
+    the digits its values actually have (see `_value_digits`). Sizing it by its
+    type instead — 19 digits for any int64 — would ask for DECIMAL(39,20) to
+    add the integer 1 to a DECIMAL(21,20) that already holds it, and past 38
+    that is float64: exact rows made approximate for nothing.
+
     Returns None when the held type already holds `incoming`, or for a pair
     this does not reconcile (say, text arriving in a numeric column). DuckDB's
     implicit INSERT cast then applies: it raises on a value that does not
@@ -262,10 +278,13 @@ def _wider(held: pa.DataType, incoming: pa.DataType) -> pa.DataType | None:
             return None
         return _exact_decimal(digits, scale)
     if pa.types.is_integer(held) and pa.types.is_decimal(incoming):
-        return _exact_decimal(max(_integer_digits(held), incoming.precision - incoming.scale),
+        held_digits = _integer_digits(held) if held_digits is None else held_digits
+        return _exact_decimal(max(held_digits, incoming.precision - incoming.scale),
                               incoming.scale)
     if pa.types.is_decimal(held) and pa.types.is_integer(incoming):
-        digits = max(held.precision - held.scale, _integer_digits(incoming))
+        incoming_digits = (_integer_digits(incoming) if incoming_digits is None
+                           else incoming_digits)
+        digits = max(held.precision - held.scale, incoming_digits)
         if digits == held.precision - held.scale:
             return None
         return _exact_decimal(digits, held.scale)
@@ -285,9 +304,18 @@ def _sql_type(t: pa.DataType) -> str | None:
     return None
 
 
+def _integer_columns_digits(tbl: pa.Table) -> dict:
+    """{position: digits of its largest value} for `tbl`'s integer columns."""
+    return {i: _value_digits(tbl.column(i)) for i, f in enumerate(tbl.schema)
+            if pa.types.is_integer(f.type)}
+
+
 def _widen_for(con, safe_rel: str, stored_names: list, schema: pa.Schema,
-               tbl: pa.Table) -> pa.Schema:
+               tbl: pa.Table, int_digits: dict) -> pa.Schema:
     """Alter the artifact's columns so `tbl` (registered as bow_batch) fits exactly.
+
+    `int_digits` is {position: digits of the largest value stored so far} for
+    the artifact's integer columns (see `_wider`); it is kept up to date here.
 
     `stored_names` are the artifact's own column names, by position: DuckDB
     compares names case-insensitively and renames a repeat at CREATE
@@ -299,7 +327,14 @@ def _widen_for(con, safe_rel: str, stored_names: list, schema: pa.Schema,
         if i >= len(schema):
             break
         held = schema.field(i).type
-        target = _wider(held, incoming.type)
+        incoming_digits = (_value_digits(tbl.column(i))
+                           if pa.types.is_integer(incoming.type) else None)
+        target = _wider(held, incoming.type, int_digits.get(i), incoming_digits)
+        if pa.types.is_integer(target or held):
+            if incoming_digits is not None:
+                int_digits[i] = max(int_digits.get(i, 0), incoming_digits)
+        else:
+            int_digits.pop(i, None)
         if target is None:
             continue
         sql_type = _sql_type(target)
@@ -381,6 +416,7 @@ def extract_to_artifact(
             first = True
             held: pa.Schema | None = None
             stored_names: list = []
+            int_digits: dict = {}
             batches = src.stream_batches(sql, BATCH_ROWS)
             try:
                 for tbl in batches:
@@ -397,12 +433,13 @@ def extract_to_artifact(
                             f'CREATE TABLE "{safe_rel}" AS SELECT * FROM bow_batch'
                         )
                         held = tbl.schema
+                        int_digits = _integer_columns_digits(tbl)
                         stored_names = [d[0] for d in con.execute(
                             f'SELECT * FROM "{safe_rel}" LIMIT 0'
                         ).description]
                         first = False
                     elif tbl.num_rows:
-                        held = _widen_for(con, safe_rel, stored_names, held, tbl)
+                        held = _widen_for(con, safe_rel, stored_names, held, tbl, int_digits)
                         con.execute(
                             f'INSERT INTO "{safe_rel}" SELECT * FROM bow_batch'
                         )

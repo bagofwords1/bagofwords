@@ -26,7 +26,7 @@ it natively is a page of code, and wide enough that nothing else has to know.
 """
 
 import logging
-from typing import Iterator, List, Optional, Protocol, Tuple
+from typing import Iterator, List, NamedTuple, Optional, Protocol, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +37,18 @@ logger = logging.getLogger(__name__)
 DUCKDB_MAX_DECIMAL_PRECISION = 38
 
 
+class Declared(NamedTuple):
+    """A column's declared decimal type, from the DB-API description."""
+
+    precision: int
+    scale: int
+    # The driver's type code is Python's `Decimal` (pyodbc), so the column is
+    # a decimal even when this batch has no value to show it.
+    decimal_typed: bool = False
+
+
 def declared_decimals(description) -> list:
-    """The (precision, scale) a DB-API description declares for each column, or None.
+    """The `Declared` precision and scale of each column, or None.
 
     The list is aligned with the description by position, not keyed by name:
     SQLAlchemy folds the names it reports (Oracle and Snowflake return
@@ -59,11 +69,17 @@ def declared_decimals(description) -> list:
     extractor widens it if a later batch needs more room. A driver may also
     over-report (MySQL's precision is the display length, so DECIMAL(12,2) can
     arrive as 14): the column is a little wider than declared, never narrower.
+
+    A scale of 0 does not make a column a decimal: PyMySQL and pyodbc report
+    (20, 0) and (19, 0) for BIGINT, and Snowflake and Oracle declare their
+    integers as NUMBER(38,0). `_array` keeps those integers (see there).
     """
+    from decimal import Decimal
+
     out: list = []
     for d in description or ():
         try:
-            precision, scale = d[4], d[5]
+            type_code, precision, scale = d[1], d[4], d[5]
         except (IndexError, TypeError, KeyError):
             out.append(None)
             continue
@@ -72,32 +88,67 @@ def declared_decimals(description) -> list:
             and not isinstance(precision, bool) and not isinstance(scale, bool)
             and 0 < precision <= DUCKDB_MAX_DECIMAL_PRECISION and 0 <= scale <= precision
         )
-        out.append((precision, scale) if usable else None)
+        out.append(Declared(precision, scale, type_code is Decimal) if usable else None)
     return out
 
 
-def _array(name: str, values: list, declared):
-    """One column's Arrow array: the declared decimal type when the values fit it."""
+def _integers(values: list):
+    """`values` as an int64 array when every one is a Python int (NULLs aside)
+    and at least one is present; None otherwise, or when one is past int64."""
     import pyarrow as pa
 
+    present = [v for v in values if v is not None]
+    if not present or not all(type(v) is int for v in present):
+        return None
+    try:
+        return pa.array(values, type=pa.int64())
+    except (pa.ArrowInvalid, OverflowError):
+        return None
+
+
+def _array(name: str, values: list, declared):
+    """One column's Arrow array: the declared decimal type when the column is one
+    and its values fit it.
+
+    A declaration with scale 0 is also what drivers report for integer
+    columns, so it is used only when the column shows a decimal: a `Decimal`
+    value, or a `Decimal` type code. Integers stay int64, as they were before
+    declarations were read — a DECIMAL column reaches a query as float64
+    (DuckDB's `.df()`), and an id past 2**53 would come back rounded. Integers
+    past int64 take the declared type, which holds them exactly. A column with
+    no values in this batch keeps the inferred type (NULL), which the extractor
+    widens to whatever arrives later.
+    """
+    from decimal import Decimal
+
+    import pyarrow as pa
+
+    if declared is not None and declared.scale == 0 and not declared.decimal_typed \
+            and not any(isinstance(v, Decimal) for v in values):
+        ints = _integers(values)
+        if ints is not None or all(v is None for v in values):
+            return ints if ints is not None else pa.array(values)
+        if not all(type(v) is int for v in values if v is not None):
+            declared = None   # floats, text, dates: not this declaration's business
     if declared is not None:
         try:
-            return pa.array(values, type=pa.decimal128(*declared))
+            return pa.array(values, type=pa.decimal128(declared.precision, declared.scale))
         except (pa.ArrowInvalid, pa.ArrowTypeError):
             # A driver under-reported the declaration (or returned floats).
             # Keep the exact inferred type; the extractor widens the column
             # to hold both.
             logger.info("extraction.decimal_declaration_unused",
-                        extra={"column": name, "declared": f"decimal128{declared}"})
+                        extra={"column": name,
+                               "declared": f"decimal128({declared.precision}, {declared.scale})"})
     try:
         return pa.array(values)
-    except pa.ArrowInvalid:
+    except (pa.ArrowInvalid, OverflowError):
         # Oracle's bare NUMBER comes back as int when whole and Decimal
-        # otherwise, and Arrow sizes a decimal from the first one it sees.
-        # Integers are exact decimals, so build the column as one.
-        from decimal import Decimal
-
-        if not any(isinstance(v, Decimal) for v in values):
+        # otherwise, and Arrow sizes a decimal from the first one it sees; an
+        # int past int64 does not fit Arrow's integers at all. Integers are
+        # exact decimals, so build the column as one.
+        if not any(isinstance(v, Decimal) or (type(v) is int and not -2**63 <= v < 2**63)
+                   for v in values):
             raise
         return pa.array([Decimal(v) if type(v) is int else v for v in values])
 

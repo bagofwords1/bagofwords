@@ -109,9 +109,10 @@ class _TypedDriverCursor:
     `Decimal`, exactly what oracledb/psycopg2 hand back for NUMERIC.
     """
 
-    def __init__(self, raw, declared):
+    def __init__(self, raw, declared, keep_ints=()):
         self._raw = raw
         self._declared = declared
+        self._keep_ints = set(keep_ints)
 
     @property
     def description(self):
@@ -122,7 +123,8 @@ class _TypedDriverCursor:
 
     def _row(self, row):
         names = [d[0] for d in self._raw.description]
-        return tuple(Decimal(v) if v is not None and n in self._declared else v
+        return tuple(Decimal(v) if v is not None and n in self._declared
+                     and n not in self._keep_ints else v
                      for n, v in zip(names, row, strict=True))
 
     def fetchone(self):
@@ -140,12 +142,13 @@ class _TypedDriverCursor:
 
 
 class _TypedDriverConnection:
-    def __init__(self, raw, declared):
+    def __init__(self, raw, declared, keep_ints=()):
         self._raw = raw
         self._declared = declared
+        self._keep_ints = keep_ints
 
     def cursor(self, *a, **kw):
-        return _TypedDriverCursor(self._raw.cursor(*a, **kw), self._declared)
+        return _TypedDriverCursor(self._raw.cursor(*a, **kw), self._declared, self._keep_ints)
 
     def __getattr__(self, name):
         return getattr(self._raw, name)
@@ -163,8 +166,11 @@ class _SqlAlchemyClient:
         return self._engine.connect()
 
 
-def _sqlalchemy_client(rows, declared, *, normalize_names=True):
-    """`rows` go into table t(id, amount TEXT); `declared` is {DRIVER_NAME: (p, s)}."""
+def _sqlalchemy_client(rows, declared, *, normalize_names=True, keep_ints=()):
+    """`rows` go into table t(id, amount TEXT); `declared` is {DRIVER_NAME: (p, s)}.
+
+    A declared column comes back as `Decimal`, except those in `keep_ints`,
+    which keep SQLite's int, as Oracle's NUMBER(p,0) does through SQLAlchemy."""
     raw = sqlite3.connect(":memory:", check_same_thread=False)
     raw.execute("CREATE TABLE t (id INTEGER, amount TEXT, other TEXT)")
     raw.executemany("INSERT INTO t VALUES (?, ?, ?)",
@@ -172,7 +178,7 @@ def _sqlalchemy_client(rows, declared, *, normalize_names=True):
                      for i, v, o in rows])
     raw.commit()
     engine = create_engine("sqlite://", poolclass=StaticPool,
-                           creator=lambda: _TypedDriverConnection(raw, declared))
+                           creator=lambda: _TypedDriverConnection(raw, declared, keep_ints))
     # Oracle and Snowflake report unquoted names in upper case and SQLAlchemy
     # folds them (AMOUNT -> amount) in result.keys(); the description keeps
     # the driver's spelling. This is that same dialect switch.
@@ -497,3 +503,119 @@ def test_postgres_numeric_is_extracted_exactly_across_batches(tmp_path):
     assert Decimal(total) == Decimal("12.34") * (n - 1) + Decimal("123456.78")
     assert Decimal(top) == Decimal("123456.78")
     assert col_type == "DECIMAL(12,2)"
+
+
+# --------------------------------------------------------------------------
+# Integer columns stay integers, whatever precision and scale the driver reports
+# --------------------------------------------------------------------------
+
+class _OracleNumber:
+    """Stands in for oracledb's DB_TYPE_NUMBER: one type code for every NUMBER."""
+
+
+# Descriptions of an integer column as real drivers report it. Each gives a
+# usable (precision, 0) and hands back Python ints.
+INTEGER_DECLARATIONS = {
+    "mysql_bigint": ("value", 8, None, 20, 20, 0, False),        # PyMySQL: LONGLONG, display length
+    "pyodbc_bigint": ("value", int, None, 19, 19, 0, True),      # pyodbc / SQL Server
+    "oracle_number_19_0": ("value", _OracleNumber, 20, None, 19, 0, True),
+    "snowflake_number_38_0": ("value", 0, None, None, 38, 0, False),   # FIXED, as every NUMBER
+}
+
+BEYOND_FLOAT = 9007199254740993   # 2**53 + 1: a float64 holds 9007199254740992
+
+
+def _read_through_fast_client(res, rel, sql):
+    from app.data_sources.fast.fast_client import FastQueryClient, FastRelation
+
+    return FastQueryClient([FastRelation(name=rel, artifact_path=str(res.artifact_path),
+                                         artifact_key=res.artifact_key,
+                                         columns=res.columns)]).execute_query(sql)
+
+
+@pytest.mark.parametrize("declaration", INTEGER_DECLARATIONS.values(),
+                         ids=INTEGER_DECLARATIONS.keys())
+def test_an_integer_column_declared_with_scale_zero_stays_an_exact_integer(extract,
+                                                                         declaration):
+    batches = _one_column([[BEYOND_FLOAT, -9223372036854775808],
+                           [9223372036854775807, 42]])
+    res, stored, types = extract(_Client([_desc("id"), declaration], batches=batches))
+    assert [r[1] for r in stored] == [v for _, v in _flat(batches)]
+    assert types[1] == ("value", "BIGINT")
+    _assert_columns_match(res, types)
+    # What a query against the custom table returns: still the exact integer.
+    df = _read_through_fast_client(res, "t", "SELECT value FROM t ORDER BY id")
+    assert str(df["value"].dtype) == "int64"
+    assert [int(v) for v in df["value"]] == [v for _, v in _flat(batches)]
+
+
+@pytest.mark.parametrize("declaration", INTEGER_DECLARATIONS.values(),
+                         ids=INTEGER_DECLARATIONS.keys())
+def test_an_integer_column_never_becomes_decimal_on_any_refresh(extract, declaration):
+    refreshes = {
+        "ints": [[(1, 5)], [(2, None), (3, BEYOND_FLOAT)]],
+        "null_first": [[(1, None), (2, None)], [(3, BEYOND_FLOAT)]],
+        "all_null": [[(1, None), (2, None)]],
+        "empty": [],
+    }
+    for rel, batches in refreshes.items():
+        res, stored, types = extract(_Client([_desc("id"), declaration], batches=batches),
+                                     rel=rel)
+        assert [r[1] for r in stored] == [v for _, v in _flat(batches)], rel
+        assert not types[1][1].startswith("DECIMAL"), (rel, types)
+        if any(v is not None for _, v in _flat(batches)):
+            assert types[1][1] == "BIGINT", (rel, types)
+        _assert_columns_match(res, types)
+
+
+@pytest.mark.parametrize("batches", [
+    [[1, 2], [10 ** 30 + 7]],
+    [[10 ** 30 + 7], [5]],
+    [[-(10 ** 37) - 1, 3]],
+    [[1, 2], [Decimal("3"), Decimal("12345678901234567890123")]],
+])
+def test_integers_past_int64_in_a_scale_zero_column_stay_exact(extract, batches):
+    """Oracle's NUMBER(38,0) returns Python ints of any size."""
+    batches = _one_column(batches)
+    res, stored, types = extract(_Client(
+        [_desc("id"), ("value", _OracleNumber, 39, None, 38, 0, True)], batches=batches))
+    _assert_exact(_flat(batches), stored)
+    assert types[1][1].startswith("DECIMAL(") and types[1][1].endswith(",0)"), types
+    _assert_columns_match(res, types)
+
+
+def test_the_sqlalchemy_source_keeps_a_declared_integer_an_integer(extract):
+    """Oracle's NUMBER(19,0) comes back from SQLAlchemy as int and is declared (19, 0)."""
+    rows = [(BEYOND_FLOAT + i, Decimal("1.50"), None) for i in range(5)]
+    client = _sqlalchemy_client(rows, {"ID": (19, 0), "AMOUNT": (12, 2)}, keep_ints={"ID"})
+    with patch.object(extractor, "BATCH_ROWS", 2):
+        res, stored, types = extract(client, sql="SELECT id AS ID, amount AS AMOUNT FROM t")
+    assert [r[0] for r in stored] == [r[0] for r in rows]
+    assert [t for _, t in types] == ["BIGINT", "DECIMAL(12,2)"]
+    df = _read_through_fast_client(res, "t", "SELECT * FROM t ORDER BY 1")
+    assert str(df.iloc[:, 0].dtype) == "int64"
+    assert [int(v) for v in df.iloc[:, 0]] == [r[0] for r in rows]
+
+
+# --------------------------------------------------------------------------
+# Widening between integers and decimals sizes the integer side from its values
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("batches,stored_type", [
+    # A later integer that fits the decimal already held changes nothing.
+    ([[Decimal("1.12345678901234567890")], [1]], "DECIMAL(21,20)"),
+    ([[Decimal("123.45")], [-999, 0]], "DECIMAL(5,2)"),
+    # One that does not, widens by its own digits, not by int64's 19.
+    ([[Decimal("1.5")], [123456789]], "DECIMAL(10,1)"),
+    # Integers held first, then a decimal with a long fraction.
+    ([[7, -3], [Decimal("0.12345678901234567890")]], "DECIMAL(21,20)"),
+    ([[None], [12345], [Decimal("0.123456789012345678901234567890123")]], "DECIMAL(38,33)"),
+])
+def test_integers_meeting_decimals_widen_only_as_far_as_the_values_need(extract, batches,
+                                                                       stored_type):
+    batches = _one_column(batches)
+    for desc in ([_desc("id"), _desc("value", 65535, 65535)], [("id", int), ("value", Decimal)]):
+        res, stored, types = extract(_Client(desc, batches=batches))
+        _assert_exact(_flat(batches), stored)
+        assert types[1] == ("value", stored_type)
+        _assert_columns_match(res, types)

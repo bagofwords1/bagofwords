@@ -380,7 +380,12 @@ added, and the reasons are worth carrying forward.
   that was NULL (or whole numbers, Oracle's bare NUMBER) in batch one became
   INTEGER and rounded later decimals. A DB-API description's precision/scale
   (matched by position, since SQLAlchemy folds Oracle/Snowflake names) now
-  types the column, including on an empty or all-NULL refresh; an undeclared
+  types the column, including on an empty or all-NULL refresh. A scale of 0
+  is also how PyMySQL, pyodbc, Oracle and Snowflake declare integers, so it
+  makes a column DECIMAL only when the column holds a `Decimal` (or the
+  driver's type code is `Decimal`); Python ints stay BIGINT, since DuckDB's
+  `.df()` turns DECIMAL into float64 and would round an id past 2**53. An
+  undeclared
   or under-declared column is ALTERed to the narrowest exact type that holds
   both batches. Past 38 digits no DuckDB decimal holds both, so the column
   becomes DOUBLE, rows already written included, and the extractor logs the
