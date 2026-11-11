@@ -225,13 +225,17 @@ all `indexed`).
 
 ### Pre-existing failures seen while testing (not caused by this change)
 
-Verified failing on unmodified `main` in the same sandbox:
+Full unit suite (`pytest tests/unit -n 8`, SQLite) in this sandbox:
 
-- `tests/unit/test_sharepoint_2010_search_bounds.py` — 7 tests.
-- `tests/e2e/test_connection_file_browse.py::test_contract_sharepoint_server`.
-- `tests/e2e/test_email_attachments_index_search.py` — 2 tests.
+| | passed | failed | errors |
+|---|---|---|---|
+| `main` @ 86150bc6e | 15,129 | 200 | 1 |
+| this branch | 15,160 | 200 | 1 |
 
-All three use the fake SharePoint server fixture. The unit tests fail on
-`assert session.verify is True`: the sandbox sets a custom CA bundle through
-the environment (`REQUESTS_CA_BUNDLE`), so `requests` reports a path there
-instead of `True`. They are environment-specific, not related to this change.
+The failing set is **identical** on both (compared test id by test id): 190 in
+the SharePoint server tests, 30 in the OBO tests, and a handful that need
+`libodbc` or a real TLS chain. The SharePoint ones fail on
+`assert session.verify is True` because the sandbox sets a custom CA bundle
+through the environment. The same goes for three e2e tests that use the fake
+SharePoint server (`test_connection_file_browse.py::test_contract_sharepoint_server`,
+`test_email_attachments_index_search.py` ×2): they fail on `main` too.

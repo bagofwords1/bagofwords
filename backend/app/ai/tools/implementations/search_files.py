@@ -400,7 +400,7 @@ class SearchFilesTool(Tool):
                             for t in (tables or []) for k in _FILE_METADATA_KEYS
                         )
                     if fulltext_stats is not None:
-                        pass
+                        pass  # answered above; nothing more to derive from the catalog
                     elif used_index:
                         indexed_at = await _last_indexed_at(runtime_ctx["db"], conn_id)
                     elif name_scan:
