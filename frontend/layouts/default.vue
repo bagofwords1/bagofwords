@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div :style="{ '--sidebar-w': sidebarWidth + 'px' }">
     <!-- Fixed global onboarding banner shown above everything.
          Desktop-only: on mobile it clutters the top and steals height from
          full-height views (the report chat prompt box gets clipped). -->
@@ -44,7 +44,7 @@
       <UIcon name="i-heroicons-bars-3" class="w-6 h-6" />
     </button>
     <button @click="router.push('/')" class="flex items-center gap-2 min-w-0">
-      <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="Bag of words" class="max-h-6 max-w-[84px] object-contain" />
+      <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="BOW" class="max-h-6 max-w-[84px] object-contain" />
     </button>
     <button @click="createNewReport" class="flex items-center justify-center w-9 h-9 -me-1 rounded-md text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-800/70" aria-label="New report">
       <UIcon name="heroicons-plus-circle" class="w-6 h-6" />
@@ -57,13 +57,37 @@
   <aside id="separator-sidebar"
     ref="sidebarEl"
     :class="[
-      'fixed start-0 z-50 sm:z-40 bg-gray-50 dark:bg-gray-950 transition-transform duration-300 sm:transition-all sm:translate-x-0 sm:rtl:translate-x-0 border-e border-gray-200/80 dark:border-gray-800',
+      'fixed start-0 z-50 sm:z-40 bg-gray-50 dark:bg-gray-950 transition-transform duration-300 sm:translate-x-0 sm:rtl:translate-x-0 border-e border-gray-200/80 dark:border-gray-800',
+      isResizingSidebar ? '' : 'sm:transition-all',
       mobileOpen ? 'translate-x-0 rtl:translate-x-0' : '-translate-x-full rtl:translate-x-full',
-      isCollapsed ? 'sm:w-14' : 'sm:w-60',
+      isCollapsed ? 'sm:w-14' : 'sidebar-resizable',
       mobileOpen ? 'w-72' : 'w-60',
       showTopBanner ? 'top-0 sm:top-10 bottom-0' : 'top-0 bottom-0'
     ]"
     aria-label="Sidebar">
+    <!-- Drag-to-resize handle, on the sidebar's inner (border-e) edge. Logical
+         `end-0` puts it on the right in LTR and the left in RTL automatically;
+         the drag math flips with the locale in onHandlePointerDown. Desktop and
+         expanded only — collapsed is a fixed icon rail, mobile is a drawer. -->
+    <div
+      v-if="!isCollapsed && !mobileOpen"
+      class="sidebar-resize-handle no-press hidden sm:block absolute top-0 end-0 h-full w-1.5 -me-0.5 z-50 cursor-col-resize group"
+      role="separator"
+      aria-orientation="vertical"
+      tabindex="0"
+      :aria-label="$t('nav.resizeSidebar')"
+      :aria-valuenow="sidebarWidth"
+      :aria-valuemin="SIDEBAR_MIN_WIDTH"
+      :aria-valuemax="SIDEBAR_MAX_WIDTH"
+      @pointerdown="onHandlePointerDown"
+      @keydown="onHandleKeydown"
+      @dblclick="resetSidebarWidth"
+    >
+      <span
+        class="absolute top-0 end-0 h-full w-px bg-transparent group-hover:bg-blue-400/70 dark:group-hover:bg-blue-500/70 group-focus-visible:bg-blue-500 transition-colors"
+        :class="isResizingSidebar ? '!bg-blue-500' : ''"
+      ></span>
+    </div>
     <button v-if="isCollapsed" @click="toggleSidebar"
           class="flex items-center justify-center w-full px-2 py-2 -mb-4 rounded-lg bg-gray-50 dark:bg-gray-950 text-gray-700 dark:text-gray-300 hover:text-blue-500 transition-colors">
             <UTooltip :text="$t('nav.expandSidebar')" :popper="{ placement: tooltipPlacement }">
@@ -91,13 +115,13 @@
                 <UIcon v-if="item.isCurrent" name="i-heroicons-check" class="w-4 h-4 shrink-0 ms-auto text-ink-muted" />
               </template>
               <button :class="workspaceButtonClass" :aria-label="$t('nav.switchOrganization')">
-                <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="Bag of words" :class="isCollapsed ? 'w-8 object-contain' : 'max-h-6 max-w-[84px] object-contain shrink-0'" />
+                <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="BOW" :class="isCollapsed ? 'w-8 object-contain' : 'max-h-6 max-w-[84px] object-contain shrink-0'" />
                 <span v-if="showText && organization?.name" class="text-sm font-semibold text-gray-700 dark:text-gray-200 truncate">{{ organization.name }}</span>
                 <UIcon v-if="showText" name="i-heroicons-chevron-up-down" class="w-3.5 h-3.5 shrink-0 text-ink-muted" />
               </button>
             </UDropdown>
             <button v-else @click="router.push('/')" :class="workspaceButtonClass">
-              <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="Bag of words" :class="isCollapsed ? 'w-8 object-contain' : 'max-h-6 max-w-[84px] object-contain shrink-0'" />
+              <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="BOW" :class="isCollapsed ? 'w-8 object-contain' : 'max-h-6 max-w-[84px] object-contain shrink-0'" />
               <span v-if="showText && organization?.name" class="text-sm font-semibold text-gray-700 dark:text-gray-200 truncate">{{ organization.name }}</span>
             </button>
             <div class="flex items-center gap-0.5" :class="isCollapsed ? 'flex-col' : ''">
@@ -292,9 +316,15 @@
             </button>
             <NuxtLink to="/reports" class="text-2xs font-semibold text-ink-muted uppercase tracking-wider hover:text-gray-700 dark:hover:text-gray-200 transition-colors">{{ $t('nav.reports') }}</NuxtLink>
           </div>
-          <NuxtLink to="/reports" class="inline-flex items-center gap-0.5 text-2xs font-medium text-ink-muted hover:text-gray-700 dark:hover:text-gray-200 opacity-0 group-hover/hdr:opacity-100 focus:opacity-100 transition-opacity">
-            {{ $t('reports.viewAll') }}<UIcon name="i-heroicons-arrow-right" class="w-3 h-3" />
-          </NuxtLink>
+          <div class="flex items-center gap-1 shrink-0">
+            <NuxtLink to="/reports" class="inline-flex items-center gap-0.5 text-2xs font-medium text-ink-muted hover:text-gray-700 dark:hover:text-gray-200 opacity-0 group-hover/hdr:opacity-100 focus:opacity-100 transition-opacity">
+              {{ $t('reports.viewAll') }}<UIcon name="i-heroicons-arrow-right" class="w-3 h-3" />
+            </NuxtLink>
+            <!-- Group and sort control (reference: Claude's sidebar) — sits at
+                 the inline-end of the header, View all next to it. Only once
+                 there are reports to group. -->
+            <SidebarReportsViewMenu v-if="recentReports.length" />
+          </div>
         </div>
         <div v-show="reportsOpen" class="-me-1 pe-1" :class="isShortSidebar ? '' : 'flex-1 min-h-0 overflow-y-auto'">
           <ul class="font-normal text-sm !ps-0 space-y-0.5">
@@ -310,64 +340,85 @@
                 <span class="flex-1 truncate italic text-gray-500 dark:text-gray-400">{{ $t('reports.newReport') }}</span>
               </div>
             </li>
-            <!-- Draggable onto a project row above. The row keeps its place in
-                 this list after the move — a project is a label on the report,
-                 not a folder it disappears into — and gains the accent strip. -->
-            <li
-              v-for="report in sortedRecentReports"
-              :key="report.id"
-              class="relative group/report rounded-md"
-              :class="draggingReport?.id === report.id ? 'opacity-50' : ''"
-              draggable="true"
-              @dragstart="startReportDrag($event, report)"
-              @dragend="endReportDrag"
-            >
-              <NuxtLink :to="`/reports/${report.id}`" :class="[
-                'flex items-center gap-2 px-2.5 py-1.5 pe-8 w-full rounded-md',
-                isRouteActive(`/reports/${report.id}`) ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70'
-              ]">
-                <!-- Status dot in a fixed leading cell: keeps every row's dot —
-                     and the title after it — column-aligned. Always rendered
-                     (show-idle → hollow ring when idle). -->
-                <span class="inline-flex items-center shrink-0">
-                  <ReportStatusDot :report-id="report.id" show-idle />
-                </span>
-                <span v-text-dir
-                  class="flex-1 truncate"
-                  :class="{ 'report-title-reveal': titledReportIds.has(report.id) }"
-                >{{ report.title || $t('reports.untitled') }}</span>
-              </NuxtLink>
-              <!-- Project membership: a thin color rule at the leading edge
-                   (replaces the old project-tinted icon). Outside the flex flow
-                   so the dot column stays aligned on non-project rows. Rendered
-                   for any project — pre-palette folders have no color of their
-                   own, and an invisible strip would read as "the move failed". -->
-              <span
-                v-if="report.project"
-                class="absolute start-0.5 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full pointer-events-none transition-colors"
-                :class="!report.project.color ? 'bg-gray-300 dark:bg-gray-600' : ''"
-                :style="report.project.color ? { backgroundColor: report.project.color } : undefined"
-              ></span>
-              <!-- Trailing star at rest; fades on hover (or when the row menu is
-                   open) so the actions ellipsis takes the same spot.
-                   pointer-events-none so the underlying link stays clickable. -->
-              <UIcon
-                v-if="report.is_starred"
-                name="i-heroicons-star-solid"
-                class="absolute end-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-amber-400 pointer-events-none transition-opacity"
-                :class="(reportMenuOpen && menuReport?.id === report.id) ? 'opacity-0' : 'opacity-100 group-hover/report:opacity-0'"
-              />
-              <!-- Hover actions: ellipsis circle → teleported menu (see below) -->
-              <button
-                type="button"
-                @click.stop.prevent="openReportMenu($event, report)"
-                class="absolute end-1 top-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 rounded-full text-ink-muted hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200/80 dark:hover:bg-gray-700 transition-opacity"
-                :class="reportMenuOpen && menuReport?.id === report.id ? 'opacity-100 bg-gray-200/80 dark:bg-gray-700' : 'opacity-0 group-hover/report:opacity-100'"
-                :aria-label="$t('reports.rowActions')"
-              >
-                <UIcon name="i-heroicons-ellipsis-horizontal" class="w-4 h-4" />
-              </button>
-            </li>
+            <!-- Grouped + sorted per the saved view (useReportGrouping):
+                 starred pin to their own group on top; `none` is a flat,
+                 header-less list like before. Headers collapse (session-only). -->
+            <template v-for="group in groupedRecentReports" :key="'g:' + group.key">
+              <!-- Group headers sit a level below the REPORTS section title:
+                   softer (medium, normal-case) and slightly inset, so the rail
+                   reads as "section → groups → rows". -->
+              <li v-if="!group.flat" class="ps-3.5 pe-2 pt-1.5 pb-0.5">
+                <button
+                  type="button"
+                  @click="toggleGroup(group.key)"
+                  :aria-expanded="!collapsedGroups.has(group.key)"
+                  class="flex items-center gap-1 w-full text-2xs font-medium text-ink-muted tracking-normal hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+                >
+                  <UIcon :name="collapsedGroups.has(group.key) ? 'i-heroicons-chevron-right' : 'i-heroicons-chevron-down'" class="w-2.5 h-2.5 shrink-0 rtl-flip" />
+                  <span class="truncate">{{ group.label }}</span>
+                </button>
+              </li>
+              <!-- Draggable onto a project row above. The row keeps its place in
+                   this list after the move — a project is a label on the report,
+                   not a folder it disappears into — and gains the accent strip. -->
+              <template v-if="!collapsedGroups.has(group.key)">
+                <li
+                  v-for="report in group.reports"
+                  :key="report.id"
+                  class="relative group/report rounded-md"
+                  :class="draggingReport?.id === report.id ? 'opacity-50' : ''"
+                  draggable="true"
+                  @dragstart="startReportDrag($event, report)"
+                  @dragend="endReportDrag"
+                >
+                  <NuxtLink :to="`/reports/${report.id}`" :class="[
+                    'flex items-center gap-2 px-2.5 py-1.5 pe-8 w-full rounded-md',
+                    isRouteActive(`/reports/${report.id}`) ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70'
+                  ]">
+                    <!-- Status dot in a fixed leading cell: keeps every row's dot —
+                         and the title after it — column-aligned. Always rendered
+                         (show-idle → hollow ring when idle). -->
+                    <span class="inline-flex items-center shrink-0">
+                      <ReportStatusDot :report-id="report.id" show-idle />
+                    </span>
+                    <span v-text-dir
+                      class="flex-1 truncate"
+                      :class="{ 'report-title-reveal': titledReportIds.has(report.id) }"
+                    >{{ report.title || $t('reports.untitled') }}</span>
+                  </NuxtLink>
+                  <!-- Project membership: a thin color rule at the leading edge
+                       (replaces the old project-tinted icon). Outside the flex flow
+                       so the dot column stays aligned on non-project rows. Rendered
+                       for any project — pre-palette folders have no color of their
+                       own, and an invisible strip would read as "the move failed". -->
+                  <span
+                    v-if="report.project"
+                    class="absolute start-0.5 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full pointer-events-none transition-colors"
+                    :class="!report.project.color ? 'bg-gray-300 dark:bg-gray-600' : ''"
+                    :style="report.project.color ? { backgroundColor: report.project.color } : undefined"
+                  ></span>
+                  <!-- Trailing star at rest; fades on hover (or when the row menu is
+                       open) so the actions ellipsis takes the same spot.
+                       pointer-events-none so the underlying link stays clickable. -->
+                  <UIcon
+                    v-if="report.is_starred"
+                    name="i-heroicons-star-solid"
+                    class="absolute end-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-amber-400 pointer-events-none transition-opacity"
+                    :class="(reportMenuOpen && menuReport?.id === report.id) ? 'opacity-0' : 'opacity-100 group-hover/report:opacity-0'"
+                  />
+                  <!-- Hover actions: ellipsis circle → teleported menu (see below) -->
+                  <button
+                    type="button"
+                    @click.stop.prevent="openReportMenu($event, report)"
+                    class="absolute end-1 top-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 rounded-full text-ink-muted hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200/80 dark:hover:bg-gray-700 transition-opacity"
+                    :class="reportMenuOpen && menuReport?.id === report.id ? 'opacity-100 bg-gray-200/80 dark:bg-gray-700' : 'opacity-0 group-hover/report:opacity-100'"
+                    :aria-label="$t('reports.rowActions')"
+                  >
+                    <UIcon name="i-heroicons-ellipsis-horizontal" class="w-4 h-4" />
+                  </button>
+                </li>
+              </template>
+            </template>
             <li v-if="!recentReports.length" class="px-2.5 py-1.5 text-xs text-ink-muted">
               {{ $t('reports.empty') }}
             </li>
@@ -546,7 +597,7 @@
 
   </aside>
 
-  <div :class="['min-h-dvh transition-all duration-300', isCollapsed ? 'sm:ms-14' : 'sm:ms-60', contentPadClass]">
+  <div :class="['min-h-dvh', isResizingSidebar ? '' : 'transition-all duration-300', isCollapsed ? 'sm:ms-14' : 'content-offset-resizable', contentPadClass]">
     <UNotifications />
 
     <slot />
@@ -925,6 +976,7 @@
 
   onMounted(async () => {
     openStream() // live badge/sort updates for every list surface
+    hydrateSidebarReportsView() // apply the saved group/sort choice before paint
     try {
       const inOnboarding = route.path.startsWith('/onboarding')
       if (!inOnboarding) {
@@ -973,9 +1025,60 @@
   // "effective" computeds, which force expanded while the mobile drawer is open.
   // On desktop mobileOpen is always false, so they equal the raw values and the
   // desktop rendering is unchanged.
-  const { isCollapsed: rawCollapsed, showText: rawShowText, toggle: toggleSidebar, mobileOpen, openMobile, closeMobile } = useSidebar()
+  const {
+    isCollapsed: rawCollapsed, showText: rawShowText, toggle: toggleSidebar,
+    mobileOpen, openMobile, closeMobile,
+    width: sidebarWidth, isResizing: isResizingSidebar,
+    loadWidth: loadSidebarWidth, setWidth: setSidebarWidth,
+    saveWidth: saveSidebarWidth, resetWidth: resetSidebarWidth
+  } = useSidebar()
   const isCollapsed = computed(() => mobileOpen.value ? false : rawCollapsed.value)
   const showText = computed(() => mobileOpen.value ? true : rawShowText.value)
+
+  // Restore the saved desktop width on the client (SSR rendered the default).
+  onMounted(() => loadSidebarWidth())
+
+  // Drag-to-resize the sidebar. Pointer events with capture so the drag keeps
+  // tracking even when the pointer leaves the thin handle; body user-select is
+  // suppressed so dragging doesn't select text. In RTL the sidebar sits on the
+  // right, so a rightward drag should shrink it — hence delta = -dx.
+  const onHandlePointerDown = (e: PointerEvent) => {
+    if (isCollapsed.value || mobileOpen.value) return
+    e.preventDefault()
+    const handle = e.currentTarget as HTMLElement
+    const startX = e.clientX
+    const startW = sidebarWidth.value
+    const rtl = typeof document !== 'undefined' && document.documentElement.dir === 'rtl'
+    isResizingSidebar.value = true
+    try { handle.setPointerCapture(e.pointerId) } catch {}
+    document.body.style.userSelect = 'none'
+
+    const onMove = (ev: PointerEvent) => {
+      const dx = ev.clientX - startX
+      setSidebarWidth(startW + (rtl ? -dx : dx))
+    }
+    const onUp = () => {
+      isResizingSidebar.value = false
+      document.body.style.userSelect = ''
+      try { handle.releasePointerCapture(e.pointerId) } catch {}
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      saveSidebarWidth()
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
+  // Arrow keys nudge the width (Shift = bigger step). Flipped in RTL so that
+  // "left" always means "toward the screen edge the sidebar hugs".
+  const onHandleKeydown = (e: KeyboardEvent) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+    e.preventDefault()
+    const rtl = typeof document !== 'undefined' && document.documentElement.dir === 'rtl'
+    const step = (e.shiftKey ? 24 : 8) * (e.key === 'ArrowRight' ? 1 : -1) * (rtl ? -1 : 1)
+    setSidebarWidth(sidebarWidth.value + step)
+    saveSidebarWidth()
+  }
 
   // Mobile chrome. The report-detail page is full-height (h-dvh) and ships its
   // own ReportHeader, so we suppress the global mobile bar there to avoid a
@@ -1015,6 +1118,21 @@
   // that arrived over the stream since the list was fetched, so a report
   // jumps to the top the moment its run produces something new.
   const sortedRecentReports = computed(() => sortByActivity(recentReports.value))
+
+  // Grouped + sorted view of the rail, driven by the saved preference
+  // (bow.sidebar.reports.view). Starred pin to their own group on top; date and
+  // status buckets re-evaluate off the live activity stream.
+  const { grouped: groupedRecentReports } = useReportGrouping(recentReports)
+  const { hydrate: hydrateSidebarReportsView } = useSidebarReportsView()
+  // Which group headers are collapsed — session-only UI state (not persisted),
+  // keyed by the stable group key ('today', 'starred', 'running', …).
+  const collapsedGroups = ref<Set<string>>(new Set())
+  const toggleGroup = (key: string) => {
+    const next = new Set(collapsedGroups.value)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    collapsedGroups.value = next
+  }
 
   // Sidebar height, split down the middle. PROJECTS used to be pinned at
   // max-h-44 (176px) and shrink-0, so it held that height whether it had two
@@ -1739,6 +1857,20 @@ const createNewReport = () => {
     animation: none;
     background-image: none;
     -webkit-text-fill-color: currentColor;
+  }
+}
+
+/* Resizable sidebar (desktop, expanded). The width lives in the --sidebar-w
+   custom property set inline on the layout root; the aside reads it for its
+   width and the content wrapper for its start margin, so the two move together.
+   Guarded to sm+ so the mobile drawer (w-72 / w-60) is untouched, and only the
+   expanded state carries these classes — collapsed keeps the fixed w-14 rail. */
+@media (min-width: 640px) {
+  .sidebar-resizable {
+    width: var(--sidebar-w, 240px);
+  }
+  .content-offset-resizable {
+    margin-inline-start: var(--sidebar-w, 240px);
   }
 }
 </style>

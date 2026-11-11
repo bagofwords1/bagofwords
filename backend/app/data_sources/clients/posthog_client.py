@@ -3,6 +3,7 @@ from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 import logging
 import requests
+from app.core.egress import pinned_session
 import pandas as pd
 import time
 from contextlib import contextmanager
@@ -165,7 +166,7 @@ class PostHogClient(DataSourceClient):
     def connect(self):
         """Create a requests session for API calls."""
         try:
-            session = requests.Session()
+            session = pinned_session()
             session.headers.update({
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",

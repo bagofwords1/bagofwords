@@ -241,10 +241,13 @@ class EntityService:
         from app.services.bow_source_access import install_entity_client
         await install_entity_client(db, organization, user, entity, ds_clients)
         executor = StreamingCodeExecutor(organization_settings=org_settings)
-        exec_df, _log, _ = await executor.execute_code_async(
-            code=entity.code or "", ds_clients=ds_clients, excel_files=[],
-            params=resolved,
-        )
+        from app.data_sources.query_tag import query_tag_defaults
+        with query_tag_defaults(source="entity_run", entity_id=entity.id,
+                                org_id=getattr(organization, "id", None), user_id=getattr(user, "id", None)):
+            exec_df, _log, _ = await executor.execute_code_async(
+                code=entity.code or "", ds_clients=ds_clients, excel_files=[],
+                params=resolved,
+            )
         df = executor.format_df_for_widget(exec_df)
         if exec_df.attrs.get("bow_source"):
             from app.services.bow_source_access import merge_access
@@ -948,10 +951,14 @@ class EntityService:
         )
 
         try:
-            exec_df, execution_log, _ = await executor.execute_code_async(
-                code=code_to_run, ds_clients=ds_clients, excel_files=excel_files,
-                params=resolved_params,
-            )
+            from app.data_sources.query_tag import query_tag_defaults
+            with query_tag_defaults(source="entity_run", entity_id=entity.id,
+                                    org_id=getattr(organization, "id", None),
+                                    user_id=getattr(current_user, "id", None)):
+                exec_df, execution_log, _ = await executor.execute_code_async(
+                    code=code_to_run, ds_clients=ds_clients, excel_files=excel_files,
+                    params=resolved_params,
+                )
             df = executor.format_df_for_widget(exec_df)
             if exec_df.attrs.get("bow_source"):
                 from app.services.bow_source_access import merge_access
@@ -1072,10 +1079,14 @@ class EntityService:
             await install_entity_client(db, organization, current_user, entity, ds_clients)
         executor = StreamingCodeExecutor(organization_settings=org_settings)
         try:
-            exec_df, execution_log, _ = await executor.execute_code_async(
-                code=code, ds_clients=ds_clients, excel_files=excel_files,
-                params=resolved_params or {},
-            )
+            from app.data_sources.query_tag import query_tag_defaults
+            with query_tag_defaults(source="entity_run", entity_id=getattr(entity, "id", None),
+                                    org_id=getattr(organization, "id", None),
+                                    user_id=getattr(current_user, "id", None)):
+                exec_df, execution_log, _ = await executor.execute_code_async(
+                    code=code, ds_clients=ds_clients, excel_files=excel_files,
+                    params=resolved_params or {},
+                )
             df = executor.format_df_for_widget(exec_df)
             if entity is not None and exec_df.attrs.get("bow_source"):
                 from app.services.bow_source_access import merge_access

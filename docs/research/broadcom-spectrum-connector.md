@@ -1,7 +1,7 @@
 # Broadcom DX NetOps Spectrum — integration research
 
 Status: research (2026-10-29) → **implemented 2026-10-30** as the `spectrum` connector (see `docs/feedback-loops/spectrum-connector.md`).
-Goal: decide how Bag of Words should connect to DX NetOps Spectrum (formerly
+Goal: decide how BOW should connect to DX NetOps Spectrum (formerly
 CA Spectrum), Broadcom's network fault-management product, and what the
 connector would look like next to `aria_operations`, `appdynamics`, `brocade`.
 
@@ -195,7 +195,7 @@ the SS host. Only use as a reference for attribute names.
 None is good enough to depend on; we will write our own XML builders (Python
 stdlib `xml.etree` + `defusedxml` for parsing, as `brocade_client` does).
 
-## 5. Fit with the Bag of Words connector architecture
+## 5. Fit with the BOW connector architecture
 
 Closest reference: **`aria_operations_client.py`** (REST monitoring product, no
 query language → JSON query spec over a virtual-table catalog, token caching,

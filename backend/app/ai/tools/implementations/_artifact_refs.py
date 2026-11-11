@@ -32,6 +32,16 @@ VIZ_BY_ID_RE = re.compile(r"vizById\(\s*['\"]([0-9a-fA-F][0-9a-fA-F-]{10,40})['\
 VIZ_ITERATION_RE = re.compile(r"\b(?:viz|visualizations)\s*\.\s*(?:map|forEach)\b")
 
 
+def viz_by_id_ref(visualization_id: str) -> str:
+    """The one spelling of an id-keyed binding, ``vizById("<id>")``.
+
+    Generated code, the positional codemod and the removed-viz restore all
+    write it through here, and ``VIZ_BY_ID_RE`` / the stub helpers parse it
+    back — so the writers and the parsers can never drift apart.
+    """
+    return f'vizById("{visualization_id}")'
+
+
 def _quoted_id_refs(src: str, ids: List[str]) -> set:
     """Payload ids that appear as a quoted string literal anywhere in the code.
 
@@ -104,7 +114,7 @@ def migrate_positional_viz_refs(code: str, viz_ids: List[str]) -> Tuple[str, int
             idx = int(m.group(1))
             if idx < len(viz_ids):
                 count += 1
-                return f'vizById("{viz_ids[idx]}")'
+                return viz_by_id_ref(viz_ids[idx])
             return m.group(0)
 
         out = VIZ_POSITIONAL_RE.sub(_repl, line)
@@ -117,7 +127,7 @@ def migrate_positional_viz_refs(code: str, viz_ids: List[str]) -> Tuple[str, int
             idx = int(m.group(1))
             if idx < len(viz_ids):
                 count += 1
-                return f'vizById("{viz_ids[idx]}")'
+                return viz_by_id_ref(viz_ids[idx])
             return m.group(0)
 
         return DATA_VIZ_POSITIONAL_RE.sub(_repl2, out)

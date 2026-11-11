@@ -15,6 +15,7 @@ from typing import Dict, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.tools.mcp.base import MCPTool
+from app.errors.redact import describe_for_log
 from app.models.user import User
 from app.models.organization import Organization
 from app.schemas.mcp import MCPSendEmailInput, MCPSendEmailOutput
@@ -139,7 +140,8 @@ class SendEmailMCPTool(MCPTool):
                 recipient_emails=input_data.recipients,
             )
         except Exception as e:
-            logger.exception("MCP send_email failed")
+            # The error can quote recipients, subject or body.
+            logger.error("MCP send_email failed: %s", describe_for_log(e))
             return MCPSendEmailOutput(
                 success=False, recipient=recipient, subject=input_data.subject,
                 error=f"Failed to send email: {e}",

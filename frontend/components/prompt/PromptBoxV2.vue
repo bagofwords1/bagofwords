@@ -165,6 +165,39 @@
             </button>
         </div>
 
+        <!-- /compact receipt: pending → running → result -->
+        <div
+            v-if="compactStatus.phase !== 'idle'"
+            data-testid="compact-status"
+            :data-phase="compactStatus.phase"
+            class="mb-2 flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs"
+            :class="compactStatus.phase === 'error'
+                ? 'border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300'
+                : 'border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 text-gray-600 dark:text-gray-300'"
+            role="status"
+        >
+            <Spinner v-if="compactStatus.phase === 'running'" class="w-3.5 h-3.5 text-ink-muted shrink-0" />
+            <UIcon v-else-if="compactStatus.phase === 'pending'" name="i-heroicons-clock" class="w-3.5 h-3.5 shrink-0" />
+            <UIcon v-else-if="compactStatus.phase === 'error' || compactStatus.degraded" name="i-heroicons-exclamation-triangle" class="w-3.5 h-3.5 shrink-0 text-amber-500" />
+            <UIcon v-else name="i-heroicons-archive-box-arrow-down" class="w-3.5 h-3.5 shrink-0" />
+            <span class="flex-1 min-w-0 truncate">
+                <template v-if="compactStatus.phase === 'pending'">{{ $t('prompt.slash.compact.pending') }}</template>
+                <template v-else-if="compactStatus.phase === 'running'">{{ $t('prompt.slash.compact.running') }}</template>
+                <template v-else>{{ compactStatus.message }}<template v-if="compactStatus.degraded"> · {{ $t('prompt.slash.compact.degraded') }}</template></template>
+            </span>
+            <button
+                v-if="compactStatus.phase !== 'running'"
+                type="button"
+                data-testid="compact-status-dismiss"
+                class="shrink-0 text-ink-muted hover:text-gray-900 dark:hover:text-white"
+                :aria-label="compactStatus.phase === 'pending' ? $t('prompt.slash.compact.cancel') : $t('prompt.slash.compact.dismiss')"
+                :title="compactStatus.phase === 'pending' ? $t('prompt.slash.compact.cancel') : $t('prompt.slash.compact.dismiss')"
+                @click="dismissCompactStatus"
+            >
+                <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
+            </button>
+        </div>
+
         <!-- Minimalist prompt container -->
         <div
             data-testid="composer-surface"
@@ -187,8 +220,36 @@
                 </div>
             </div>
 
+            <!-- Slash command menu -->
+            <div
+                v-if="slashMenuOpen"
+                data-testid="slash-menu"
+                class="absolute bottom-full start-0 mb-2 w-72 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg z-20 py-1 text-xs"
+                role="listbox"
+            >
+                <div class="px-3 pt-1 pb-1.5 text-2xs uppercase tracking-wider text-ink-muted">{{ $t('prompt.slash.menuTitle') }}</div>
+                <button
+                    v-for="(cmd, i) in slashMatches"
+                    :key="cmd.name"
+                    type="button"
+                    role="option"
+                    :aria-selected="i === slashIndex"
+                    :data-testid="`slash-command-${cmd.name}`"
+                    class="w-full text-start px-3 py-1.5 flex items-start gap-2"
+                    :class="i === slashIndex ? 'bg-gray-100 dark:bg-gray-800' : 'hover:bg-gray-50 dark:hover:bg-gray-800/60'"
+                    @mousedown.prevent="applySlashCommand(cmd)"
+                >
+                    <UIcon name="i-heroicons-archive-box-arrow-down" class="w-4 h-4 mt-0.5 text-gray-500 dark:text-gray-400 shrink-0" />
+                    <span class="min-w-0">
+                        <span class="font-mono text-gray-900 dark:text-white">/{{ cmd.name }}</span>
+                        <span class="block text-gray-500 dark:text-gray-400">{{ $t(cmd.descriptionKey) }}</span>
+                        <span class="block font-mono text-2xs text-ink-muted mt-0.5">{{ $t(cmd.usageKey) }}</span>
+                    </span>
+                </button>
+            </div>
+
             <!-- Input area -->
-            <div :class="props.compact ? 'px-3 pt-2 pb-1' : 'px-4 pt-3 pb-3'">
+            <div ref="composerInputAreaRef" :class="props.compact ? 'px-3 pt-2 pb-1' : 'px-4 pt-3 pb-3'" @keydown.capture="onComposerKeydown">
                 <!-- Instructions -->
                 <button
                 class="hidden"
@@ -307,9 +368,15 @@
                         @update:availableDataSources="onAvailableDataSources"
                         @update:autoMode="(val: boolean) => emit('update:autoMode', val)"
                         :reportId="report_id"
+                        :persistSelection="persistSelection"
                         :project-name="currentProject?.name || ''"
                         :project-default-ids="projectDefaultAgents.map((d: any) => d.id)"
                     />
+
+                    <!-- Connectors: the user's own accounts/tools (mail, Teams,
+                         Drive, MCP apps). Not agents — never pinned or picked
+                         by Auto; used whenever the user is connected. -->
+                    <ConnectorsMenu />
 
                     <!-- Mode selector. Chat is the only mode left once training
                          is unavailable, so the picker would be a one-item menu. -->
@@ -397,7 +464,7 @@
                                                     class="inline-flex items-center gap-1 rounded border border-gray-200 dark:border-gray-700 px-1.5 py-0.5 text-2xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                                                     :disabled="isCompacting || !compactionState?.can_compact"
                                                     :title="compactionState?.can_compact ? $t('prompt.compactTooltip') : $t('prompt.compactNothing')"
-                                                    @click="compactContext"
+                                                    @click="compactContext({})"
                                                 >
                                                     <Spinner v-if="isCompacting" class="w-3 h-3 text-ink-muted" />
                                                     <UIcon v-else name="i-heroicons-archive-box-arrow-down" class="w-3 h-3" />
@@ -629,10 +696,12 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, getCurrentI
 import { useRouter } from 'vue-router'
 
 import DataSourceSelector from '@/components/prompt/DataSourceSelector.vue'
+import ConnectorsMenu from '~/components/connectors/ConnectorsMenu.vue'
 import LLMProviderIcon from '@/components/LLMProviderIcon.vue'
 import ModelPickerPanel from '@/components/prompt/ModelPickerPanel.vue'
 import FileUploadComponent from '@/components/FileUploadComponent.vue'
 import MentionInput from '@/components/prompt/MentionInput.vue'
+import { parseSlashCommand, matchingSlashCommands, parseCompactArgs, type CompactArgs, type ParsedSlashCommand, type SlashCommandDef } from '~/utils/slashCommands'
 import Spinner from '@/components/Spinner.vue'
 import BackgroundTasksIndicator from '@/components/prompt/BackgroundTasksIndicator.vue'
 import ImagePreviewModal from '@/components/ImagePreviewModal.vue'
@@ -790,6 +859,7 @@ const canCreateInstructions = computed(() => canManageInstructionsForSelectedAge
 const { t, locale } = useI18n()
 const toast = useToast()
 const text = ref('')
+const composerInputAreaRef = ref<HTMLElement | null>(null)
 const placeholder = computed(() => props.compact ? t('prompt.placeholderCompact') : t('prompt.placeholderDefault'))
 const mode = ref<'chat' | 'training'>(props.initialMode || 'chat')
 const dataSourceSelectorRef = ref<InstanceType<typeof DataSourceSelector> | null>(null)
@@ -985,6 +1055,10 @@ type CompactionState = {
     covered_turns: number
     last_compaction_at?: string | null
     can_compact: boolean
+    last_method?: string | null
+    degraded?: boolean
+    last_tokens_before?: number | null
+    last_tokens_after?: number | null
 }
 
 type CompletionContextEstimate = {
@@ -1237,6 +1311,16 @@ async function loadModels() {
 }
 
 async function hydrateReportDataSources(reportId?: string, { showSpinner = true } = {}) {
+    // A box that does not persist its selection (the scheduled-task form)
+    // edits its caller's agents, not the report's: a task with its own agents
+    // must open with them, and re-reading the report would silently swap them
+    // for the report's on save.
+    if (!props.persistSelection) {
+        selectedDataSources.value = [...(props.initialSelectedDataSources || [])]
+        hasBootstrappedFromInitial.value = selectedDataSources.value.length > 0
+        isHydratingDataSources.value = false
+        return
+    }
     if (!reportId) {
         selectedDataSources.value = []
         if (showSpinner) isHydratingDataSources.value = false
@@ -1300,26 +1384,188 @@ async function refreshContextEstimate(force = false) {
 const isCompacting = ref(false)
 const compactionState = computed<CompactionState | null>(() => contextEstimate.value?.compaction || null)
 
-async function compactContext() {
+// ── /compact ────────────────────────────────────────────────────────────
+// One path for the composer command and the usage-popover button. The
+// status chip above the composer is the user-visible receipt: pending (the
+// agent is still running), running, then what it bought — or why not.
+type CompactPhase = 'idle' | 'pending' | 'running' | 'done' | 'nothing' | 'error'
+const compactStatus = ref<{ phase: CompactPhase, message?: string, degraded?: boolean }>({ phase: 'idle' })
+const pendingCompact = ref<CompactArgs | null>(null)
+let compactStatusTimer: ReturnType<typeof setTimeout> | null = null
+
+function setCompactStatus(phase: CompactPhase, message?: string, degraded = false) {
+    if (compactStatusTimer) { clearTimeout(compactStatusTimer); compactStatusTimer = null }
+    compactStatus.value = { phase, message, degraded }
+    if (phase === 'done' || phase === 'nothing') {
+        compactStatusTimer = setTimeout(() => {
+            if (compactStatus.value.phase === phase) compactStatus.value = { phase: 'idle' }
+        }, 12000)
+    }
+}
+
+function dismissCompactStatus() {
+    pendingCompact.value = null
+    if (compactRetryTimer) { clearTimeout(compactRetryTimer); compactRetryTimer = null }
+    compactRetryAttempt = 0
+    setCompactStatus('idle')
+}
+
+async function compactContext(args: CompactArgs = {}) {
     if (!props.report_id || isCompacting.value) return
+    if (props.latestInProgressCompletion) {
+        // The agent is mid-run: compacting now would race the run's own
+        // context. Hold the command and fire it the moment the run ends.
+        pendingCompact.value = args
+        setCompactStatus('pending')
+        return
+    }
     isCompacting.value = true
+    setCompactStatus('running')
+    const before = contextEstimate.value?.prompt_tokens ?? null
     try {
-        const response = await useMyFetch(`/reports/${props.report_id}/context/compact`, { method: 'POST' })
+        const response = await useMyFetch(`/reports/${props.report_id}/context/compact`, {
+            method: 'POST',
+            body: JSON.stringify(args || {}),
+        })
         const errorValue = (response as any)?.error?.value
-        if (errorValue) throw errorValue
-        // Tell the page so the transcript's watermark-anchored divider moves
-        // with the manual compaction, not just on reload.
-        const result = (response as any)?.data?.value
-        if (result?.covers_until_completion_id) {
-            emit('contextCompacted', result)
+        if (errorValue) {
+            const status = errorValue?.statusCode || errorValue?.status || errorValue?.response?.status
+            if (status === 409) {
+                // The server still sees a run: either the next queued prompt
+                // started, or the run that just ended is still wrapping up
+                // server-side. Stay pending and retry — on the next idle
+                // transition, and on a backoff while the composer is idle.
+                pendingCompact.value = args
+                setCompactStatus('pending')
+                scheduleCompactRetry()
+                return
+            }
+            throw errorValue
         }
-        // Refresh the estimate so the context bar drops and the compacted
-        // total rises — the visible payoff of the click.
-        await refreshContextEstimate(true)
-    } catch (err) {
+        compactRetryAttempt = 0
+        const result = (response as any)?.data?.value
+        if (result?.status === 'compacted') {
+            // Tell the page so the transcript's watermark-anchored divider
+            // moves with the manual compaction, not just on reload.
+            emit('contextCompacted', result)
+            await refreshContextEstimate(true)
+            const after = contextEstimate.value?.prompt_tokens ?? null
+            const turns = result.compacted_turns || 0
+            const message = (before != null && after != null && after < before)
+                ? t('prompt.slash.compact.doneContext', { turns, before: formatTokenCountShort(before), after: formatTokenCountShort(after) })
+                : t('prompt.slash.compact.doneHistory', {
+                    turns,
+                    before: formatTokenCountShort(result.history_tokens_before),
+                    after: formatTokenCountShort(result.history_tokens_after),
+                })
+            setCompactStatus('done', message, !!result.degraded)
+        } else if (result?.status === 'already_running') {
+            setCompactStatus('nothing', t('prompt.slash.compact.alreadyRunning'))
+        } else {
+            setCompactStatus('nothing', t('prompt.compactNothing'))
+            await refreshContextEstimate(true)
+        }
+    } catch (err: any) {
         console.error('Failed to compact context:', err)
+        const detail = err?.data?.detail || err?.message || ''
+        setCompactStatus('error', t('prompt.slash.compact.failed'))
+        toast.add({ title: t('prompt.slash.compact.failed'), description: detail || undefined, color: 'red' })
     } finally {
         isCompacting.value = false
+    }
+}
+
+// Fire a deferred /compact once the run that blocked it is over.
+let compactRetryTimer: ReturnType<typeof setTimeout> | null = null
+let compactRetryAttempt = 0
+const COMPACT_RETRY_MAX = 8
+
+function firePendingCompact() {
+    if (props.latestInProgressCompletion || !pendingCompact.value || isCompacting.value) return
+    const args = pendingCompact.value
+    pendingCompact.value = null
+    compactContext(args)
+}
+
+function scheduleCompactRetry() {
+    if (compactRetryTimer) clearTimeout(compactRetryTimer)
+    if (compactRetryAttempt >= COMPACT_RETRY_MAX) {
+        compactRetryAttempt = 0
+        pendingCompact.value = null
+        setCompactStatus('error', t('prompt.slash.compact.failed'))
+        return
+    }
+    const delay = Math.min(1500 * Math.pow(1.6, compactRetryAttempt), 15000)
+    compactRetryAttempt++
+    compactRetryTimer = setTimeout(() => { compactRetryTimer = null; firePendingCompact() }, delay)
+}
+
+watch(() => props.latestInProgressCompletion, (running) => {
+    if (running || !pendingCompact.value) return
+    compactRetryAttempt = 0
+    // Give the server a beat to mark the execution finished.
+    if (compactRetryTimer) clearTimeout(compactRetryTimer)
+    compactRetryTimer = setTimeout(() => { compactRetryTimer = null; firePendingCompact() }, 800)
+})
+
+function runSlashCommand(cmd: ParsedSlashCommand) {
+    if (cmd.name === 'compact') {
+        text.value = ''
+        compactContext(parseCompactArgs(cmd.args))
+    }
+}
+
+// Slash menu: suggests commands while the first word is being typed.
+const slashIndex = ref(0)
+const slashMenuDismissed = ref(false)
+const slashMatches = computed<SlashCommandDef[]>(() => (props.report_id ? matchingSlashCommands(text.value) : []))
+const slashMenuOpen = computed(() => slashMatches.value.length > 0 && !slashMenuDismissed.value)
+watch(text, (v) => {
+    if (!v || !v.trimStart().startsWith('/')) slashMenuDismissed.value = false
+    slashIndex.value = 0
+})
+
+function placeCaretAtEnd() {
+    nextTick(() => {
+        const el = composerInputAreaRef.value?.querySelector('[contenteditable="true"]') as HTMLElement | null
+        if (!el) return
+        el.focus()
+        const range = document.createRange()
+        range.selectNodeContents(el)
+        range.collapse(false)
+        const sel = window.getSelection()
+        sel?.removeAllRanges()
+        sel?.addRange(range)
+    })
+}
+
+function applySlashCommand(cmd: SlashCommandDef) {
+    text.value = `/${cmd.name} `
+    slashMenuDismissed.value = true
+    placeCaretAtEnd()
+}
+
+function onComposerKeydown(e: KeyboardEvent) {
+    if (!slashMenuOpen.value) return
+    const total = slashMatches.value.length
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault(); e.stopPropagation()
+        slashIndex.value = (slashIndex.value + (e.key === 'ArrowDown' ? 1 : total - 1)) % total
+        return
+    }
+    if (e.key === 'Escape') {
+        e.preventDefault(); e.stopPropagation()
+        slashMenuDismissed.value = true
+        return
+    }
+    if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        const cmd = slashMatches.value[slashIndex.value]
+        const typed = text.value.trim().slice(1).toLowerCase()
+        // Enter on a fully typed command runs it; otherwise complete it first.
+        if (cmd && (e.key === 'Tab' || typed !== cmd.name)) {
+            e.preventDefault(); e.stopPropagation()
+            applySlashCommand(cmd)
+        }
     }
 }
 
@@ -1439,6 +1685,7 @@ const hasDataSourceOrFile = computed(() => {
 // Note: a running completion no longer blocks submission — submit() routes
 // the prompt to the queue instead.
 const canSubmit = computed(() => {
+    if (props.report_id && parseSlashCommand(text.value)) return !isHydratingDataSources.value
     return text.value.trim().length > 0
         && !isHydratingDataSources.value
         && !hasFilesUploading.value  // Don't allow submit while files are uploading
@@ -1539,6 +1786,12 @@ function toggleVoiceInput() {
 }
 
 function submit() {
+    // Composer commands run here and never reach the agent.
+    const slash = props.report_id ? parseSlashCommand(text.value) : null
+    if (slash) {
+        runSlashCommand(slash)
+        return
+    }
     if (!canSubmit.value || isSubmitting.value) return
     if (isListening.value) abortVoiceInput()
 

@@ -1,9 +1,9 @@
 """E2E: the two switches for connection down/restored alert emails.
 
 The in-app inbox notification is always delivered; these govern only the email
-nudge. The org switch (Settings → SMTP) defaults ON, is admin-only, and must
-round-trip; the per-connection switch must persist and read back on the
-connection, alongside the org switch it sits under.
+nudge. The org switch (Settings → SMTP) defaults OFF (opt-in), is admin-only,
+and must round-trip; the per-connection switch must persist and read back on
+the connection, alongside the org switch it sits under.
 """
 import uuid
 from pathlib import Path
@@ -27,21 +27,21 @@ def org(test_client, create_user, login_user, whoami):
 
 
 @pytest.mark.e2e
-def test_org_alert_email_toggle_defaults_on_and_round_trips(test_client, org):
+def test_org_alert_email_toggle_defaults_off_and_round_trips(test_client, org):
     H = _h(org["admin"], org["id"])
 
     g0 = test_client.get(ALERTS, headers=H)
     assert g0.status_code == 200, g0.text
-    assert g0.json()["email_enabled"] is True
+    assert g0.json()["email_enabled"] is False
 
-    p1 = test_client.put(ALERTS, json={"email_enabled": False}, headers=H)
+    p1 = test_client.put(ALERTS, json={"email_enabled": True}, headers=H)
     assert p1.status_code == 200, p1.text
-    assert p1.json()["email_enabled"] is False
-    assert test_client.get(ALERTS, headers=H).json()["email_enabled"] is False
-
-    p2 = test_client.put(ALERTS, json={"email_enabled": True}, headers=H)
-    assert p2.status_code == 200, p2.text
+    assert p1.json()["email_enabled"] is True
     assert test_client.get(ALERTS, headers=H).json()["email_enabled"] is True
+
+    p2 = test_client.put(ALERTS, json={"email_enabled": False}, headers=H)
+    assert p2.status_code == 200, p2.text
+    assert test_client.get(ALERTS, headers=H).json()["email_enabled"] is False
 
 
 @pytest.mark.e2e
@@ -51,7 +51,7 @@ def test_org_alert_email_toggle_rejects_a_non_boolean(test_client, org):
     assert r.status_code == 422, r.text
     r = test_client.put(ALERTS, json={}, headers=H)
     assert r.status_code == 422, r.text
-    assert test_client.get(ALERTS, headers=H).json()["email_enabled"] is True
+    assert test_client.get(ALERTS, headers=H).json()["email_enabled"] is False
 
 
 @pytest.mark.e2e
@@ -79,8 +79,10 @@ def test_per_connection_alert_switch_persists_on_the_connection(
         user_token=org["admin"], org_id=org["id"],
     )
     detail = get_connection(connection_id=conn["id"], user_token=org["admin"], org_id=org["id"])
+    # The per-connection switch still defaults on; the org master gate is now
+    # off (opt-in) until an admin turns it on.
     assert detail["alert_emails_enabled"] is True
-    assert detail["org_alert_emails_enabled"] is True
+    assert detail["org_alert_emails_enabled"] is False
 
     update_connection(connection_id=conn["id"], payload={"alert_emails_enabled": False},
                       user_token=org["admin"], org_id=org["id"])

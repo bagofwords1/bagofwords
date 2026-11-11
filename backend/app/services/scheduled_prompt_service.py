@@ -141,6 +141,23 @@ class ScheduledPromptService:
         report = (await db.execute(select(Report).filter(Report.id == sp.report_id))).scalar_one_or_none()
         await self.ensure_can_manage(db, report, current_user, organization)
 
+    async def _resolve_task_agents(self, db: AsyncSession, ids, user: User, organization: Organization):
+        """Validate a task's agent selection and return what to store.
+
+        Empty or None means "the host report's agents" and is stored as None.
+        Every id must be a live agent the task's owner can use; anything else
+        is a 400, so a task never saves a selection its runs would drop.
+        """
+        wanted = list(dict.fromkeys(str(i) for i in (ids or []) if i))
+        if not wanted:
+            return None
+        from app.ai.tools.implementations.agent_focus_common import accessible_agents
+        usable = {str(a.id) for a in await accessible_agents(db, organization, user)}
+        unknown = [i for i in wanted if i not in usable]
+        if unknown:
+            raise HTTPException(status_code=400, detail="Unknown or inaccessible agents: " + ", ".join(unknown))
+        return wanted
+
     async def create_scheduled_prompt(
         self,
         db: AsyncSession,
@@ -157,6 +174,7 @@ class ScheduledPromptService:
         await self.ensure_can_manage(db, report, current_user, organization)
 
         subscribers = [s.model_dump() for s in data.notification_subscribers] if data.notification_subscribers else None
+        task_agents = await self._resolve_task_agents(db, data.data_source_ids, current_user, organization)
 
         sp = ScheduledPrompt(
             report_id=report_id,
@@ -168,6 +186,7 @@ class ScheduledPromptService:
             is_active=True if data.is_active is None else bool(data.is_active),
             spawn_new_report=bool(data.spawn_new_report),
             notification_subscribers=subscribers,
+            data_source_ids=task_agents,
         )
         if data.cron_schedule is None and data.run_once_at is None:
             raise HTTPException(status_code=400, detail="Provide cron_schedule or run_once_at")
@@ -232,6 +251,10 @@ class ScheduledPromptService:
             sp.spawn_new_report = data.spawn_new_report
         if data.notification_subscribers is not None:
             sp.notification_subscribers = [s.model_dump() for s in data.notification_subscribers]
+        if data.data_source_ids is not None:
+            # Checked against the task's owner: their access is what the runs use.
+            owner = await db.get(User, sp.user_id) or current_user
+            sp.data_source_ids = await self._resolve_task_agents(db, data.data_source_ids, owner, organization)
 
         await db.commit()
         await db.refresh(sp)
@@ -566,6 +589,12 @@ class ScheduledPromptService:
                     organization=organization,
                     background=False,
                     scheduled_prompt_id=sp.id,
+                    # The task's own agents. A spawned run report is created
+                    # with them attached, so it needs no override.
+                    run_data_source_ids=(
+                        list(sp.data_source_ids)
+                        if sp.data_source_ids and target_report is report else None
+                    ),
                 )
             except Exception as e:
                 raised = e
@@ -655,7 +684,10 @@ class ScheduledPromptService:
         from app.services.report_service import ReportService
         from app.schemas.report_schema import ReportCreate
 
-        ds_ids = [str(ds.id) for ds in (host_report.data_sources or [])]
+        ds_ids = (
+            [str(i) for i in sp.data_source_ids] if sp.data_source_ids
+            else [str(ds.id) for ds in (host_report.data_sources or [])]
+        )
         run_date = datetime.utcnow().strftime("%b %d, %Y")
         title = f"{sp.title or host_report.title or 'Scheduled run'} — {run_date}"
 

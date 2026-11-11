@@ -4,6 +4,7 @@ from app.ai.prompt_formatters import Table, TableColumn, ForeignKey, TableFormat
 from typing import List, Dict, Optional, Set
 import json
 import requests
+from app.core.egress import pinned_session
 import pandas as pd
 import logging
 
@@ -52,7 +53,7 @@ class TimbrClient(DataSourceClient):
 
     def _get_session(self) -> requests.Session:
         if self._session is None:
-            self._session = requests.Session()
+            self._session = pinned_session()
             self._session.headers.update({
                 "x-api-key": self.api_key,
                 "Content-Type": "application/json",

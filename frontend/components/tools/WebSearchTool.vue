@@ -39,7 +39,7 @@
         <div v-for="(q, i) in extraQueries" :key="`q${i}`" class="text-chat-2 text-ink-muted truncate max-w-[380px]">"{{ q }}"</div>
       </div>
 
-      <!-- Sources with favicons -->
+      <!-- Sources -->
       <div v-if="sources.length" class="space-y-1 pt-0.5">
         <a
           v-for="(s, i) in sources"
@@ -50,7 +50,7 @@
           class="flex items-center gap-1.5 text-chat-2 text-blue-600 hover:underline"
           @click.stop
         >
-          <img :src="faviconFor(s.url)" class="w-3.5 h-3.5 rounded-sm shrink-0" loading="lazy" @error="onFaviconError" />
+          <Icon name="heroicons-globe-alt" class="w-3.5 h-3.5 text-ink-muted shrink-0" />
           <span class="truncate max-w-[360px]">{{ s.title || hostOf(s.url) }}</span>
         </a>
       </div>
@@ -107,15 +107,6 @@ const expanded = ref(false)
 
 function hostOf(url: string): string {
   try { return new URL(url).hostname.replace(/^www\./, '') } catch { return url }
-}
-function faviconFor(url: string): string {
-  const h = hostOf(url)
-  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(h)}&sz=32`
-}
-function onFaviconError(e: Event) {
-  // Hide broken favicon images so the row stays clean.
-  const el = e.target as HTMLImageElement
-  if (el) el.style.visibility = 'hidden'
 }
 </script>
 

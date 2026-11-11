@@ -23,6 +23,9 @@ from app.schemas.data_sources.configs import (
     DocumentumOtdsClientCredentials,
     DocumentumImpersonationCredentials,
     OAuthDelegatedCredentials as _DocumentumOAuthCredentials,
+    KmsLighthouseConfig,
+    KmsLighthouseUserPassCredentials,
+    KmsLighthouseTokenCredentials,
     SharePointOnpremKerberosCredentials,
     SQLiteConfig,
     OracleConfig,
@@ -59,6 +62,7 @@ from app.schemas.data_sources.configs import (
     CheckPointConfig, CheckPointUserPassCredentials, CheckPointApiKeyCredentials,
     DellOmeConfig, DellOmeCredentials,
     HpeOneViewConfig, HpeOneViewCredentials,
+    CiscoApicConfig, CiscoApicCertificateCredentials, CiscoApicPasswordCredentials,
     NetAppOntapCredentials,
     ServiceNowConfig,
     ZabbixConfig,
@@ -175,6 +179,7 @@ from app.schemas.data_sources.configs import (
     OneNoteConfig,
     OneNoteCredentials,
     OutlookMailConfig,
+    TeamsMessagesConfig,
     GoogleDriveConfig,
     GoogleDriveCredentials,
     GoogleDriveServiceAccountCredentials,
@@ -503,7 +508,7 @@ def _entry_visible(entry: DataSourceRegistryEntry) -> bool:
 # shows the admin the exact manifest they are about to apply (a cluster-wide
 # read-only role deserves to be read before it is granted) instead of pointing
 # at a remote file. Pinned to the file by a unit test.
-KUBERNETES_RBAC_MANIFEST = r"""# Bag of Words — Kubernetes connector access.
+KUBERNETES_RBAC_MANIFEST = r"""# BOW — Kubernetes connector access.
 #
 # Creates a service account with CLUSTER-WIDE READ-ONLY access (cluster-admin
 # minus the write verbs) and a long-lived token Secret. One wildcard rule, so
@@ -565,7 +570,7 @@ type: kubernetes.io/service-account-token
 """
 
 KUBERNETES_PRINT_ACCESS_FILE_SCRIPT = r"""#!/usr/bin/env bash
-# Prints the Bag of Words cluster access file for the bagofwords-reader service account.
+# Prints the BOW cluster access file for the bagofwords-reader service account.
 set -euo pipefail
 NS="${BOW_NAMESPACE:-bagofwords}"; SECRET="${BOW_SECRET:-bagofwords-reader-token}"
 TOKEN=""
@@ -896,7 +901,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         setup_guide=[
             SetupStep(
                 title="Give the account read access in Configuration Manager",
-                body="In the console go to Administration > Security > Administrative Users, add the account (or its AD group) and assign the Read-only Analyst role. Its security scopes and collections decide what Bag of Words can see.",
+                body="In the console go to Administration > Security > Administrative Users, add the account (or its AD group) and assign the Read-only Analyst role. Its security scopes and collections decide what BOW can see.",
             ),
             SetupStep(
                 title="Check the administration service answers",
@@ -1031,6 +1036,20 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         client_path="app.data_sources.clients.hpe_oneview_client.HpeOneViewClient",
         version="beta",
     ),
+    "cisco_apic": DataSourceRegistryEntry(
+        type="cisco_apic",
+        category="infra",
+        title="Cisco ACI (APIC)",
+        description="Investigate data center fabric incidents with read-only fabric nodes, faults, events, audit log, interfaces, vPC, BGP/IS-IS/OSPF adjacencies, endpoints, tenants, EPGs, contracts, firmware and health via the APIC REST API. Simulator-verified; customer validation required.",
+        config_schema=CiscoApicConfig,
+        credentials_auth=AuthOptions(default="certificate", by_auth={
+            # Signature auth is for local service users; one shared identity.
+            "certificate": AuthVariant(title="Certificate (signed requests)", schema=CiscoApicCertificateCredentials, scopes=["system"]),
+            "userpass": AuthVariant(title="Username / Password", schema=CiscoApicPasswordCredentials, scopes=["system", "user"]),
+        }),
+        client_path="app.data_sources.clients.cisco_apic_client.CiscoApicClient",
+        version="beta",
+    ),
     "kubernetes": DataSourceRegistryEntry(
         type="kubernetes",
         category="infra",
@@ -1052,7 +1071,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             ),
             SetupStep(
                 title="Print the access file",
-                body="Save this as print_access_file.sh and run it. It waits for the token, then prints one self-contained file (API server URL, cluster CA, token). Verify it with: kubectl --kubeconfig access.yaml get nodes. If the server URL is private to your network, edit it to the address this Bag of Words instance can reach.",
+                body="Save this as print_access_file.sh and run it. It waits for the token, then prints one self-contained file (API server URL, cluster CA, token). Verify it with: kubectl --kubeconfig access.yaml get nodes. If the server URL is private to your network, edit it to the address this BOW instance can reach.",
                 code=KUBERNETES_PRINT_ACCESS_FILE_SCRIPT,
             ),
             SetupStep(
@@ -1223,7 +1242,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         }),
         setup_guide=[
             SetupStep(
-                title="Starburst Galaxy: create a role for Bag of Words",
+                title="Starburst Galaxy: create a role for BOW",
                 body="In Galaxy go to Access control > Roles and privileges and add a role (for example bagofwords). Under Add privileges grant it Use cluster on the cluster, and Select from table on every catalog or schema the agent should see.",
             ),
             SetupStep(
@@ -1232,7 +1251,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             ),
             SetupStep(
                 title="Starburst Galaxy: copy the connection details",
-                body="Open the cluster's Connection info (Partner connect > Other clients). Host is <account>-<cluster>.trino.galaxy.starburst.io and the port is 443 over HTTPS. If the cluster restricts client IPs, allow this Bag of Words instance's address.",
+                body="Open the cluster's Connection info (Partner connect > Other clients). Host is <account>-<cluster>.trino.galaxy.starburst.io and the port is 443 over HTTPS. If the cluster restricts client IPs, allow this BOW instance's address.",
             ),
             SetupStep(
                 title="Starburst Enterprise: use the TLS coordinator",
@@ -1981,6 +2000,34 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         requires_license="enterprise",
         version="beta",
     ),
+    "kms_lighthouse": DataSourceRegistryEntry(
+        type="kms_lighthouse",
+        category="files",
+        title="KMS Lighthouse",
+        description=(
+            "Search and read KMS Lighthouse knowledge articles and decision-tree scenarios (read-only, live). "
+            "KMS permissions apply to every call; per-user access with each person's own KMS login or token."
+        ),
+        config_schema=KmsLighthouseConfig,
+        credentials_auth=AuthOptions(
+            default="token",
+            by_auth={
+                "token": AuthVariant(title="API token (Bearer)", schema=KmsLighthouseTokenCredentials, scopes=["system", "user"]),
+                "userpass": AuthVariant(
+                    title="Password in URL (undocumented)",
+                    schema=KmsLighthouseUserPassCredentials, scopes=["system", "user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.kms_lighthouse_client.KmsLighthouseClient",
+        is_document_based=True,
+        data_shape="files",
+        # No catalog (ADR-1): search and browse are live, per identity.
+        catalog_ownership="none",
+        catalog_nouns=("document", "documents"),
+        requires_license="enterprise",
+        version="beta",
+    ),
     "sharepoint_onprem": DataSourceRegistryEntry(
         type="sharepoint_onprem",
         category="files",
@@ -2185,6 +2232,36 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         # Messages reuse the existing file-payload transport internally, while
         # capability gating exposes the mail-named agent tools.
         client_path="app.data_sources.clients.graph_mail_client.GraphMailClient",
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="per_user",
+        ui_form="integration",
+        catalog_nouns=("message", "messages"),
+    ),
+    "teams_messages": DataSourceRegistryEntry(
+        type="teams_messages",
+        category="services",
+        title="Microsoft Teams",
+        description="Search and read Microsoft Teams channel conversations and chats, live, with each user's own access — nothing is copied or indexed.",
+        config_schema=TeamsMessagesConfig,
+        credentials_auth=AuthOptions(
+            default="service_principal",
+            by_auth={
+                "service_principal": AuthVariant(
+                    title="Entra ID App (Service Principal)",
+                    schema=OneDriveCredentials,
+                    scopes=["system", "user"],
+                ),
+                "oauth": AuthVariant(
+                    title="Sign in with Microsoft",
+                    schema=OAuthDelegatedCredentials,
+                    scopes=["user"],
+                ),
+            },
+        ),
+        # Messages reuse the file-payload transport internally (like Outlook);
+        # capability gating exposes the chat-named agent tools instead.
+        client_path="app.data_sources.clients.graph_teams_client.GraphTeamsClient",
         is_document_based=True,
         data_shape="files",
         catalog_ownership="per_user",

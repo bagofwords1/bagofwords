@@ -365,6 +365,12 @@ class ReadFileTool(Tool):
     _required_capability = Capability.READ_FILE
     _start_noun = "file"
     _operation_name = "read_file"
+    # Whether a connector read is kept with the report as a session file (so
+    # inspect_data / create_data can analyse it). Message reads (read_email,
+    # read_chat_thread) turn this off: a mailbox or Teams thread read with the
+    # user's own token must not leave a copy that anyone the report is shared
+    # with could open.
+    _keep_session_copy = True
 
     @property
     def metadata(self) -> ToolMetadata:
@@ -462,7 +468,7 @@ class ReadFileTool(Tool):
                     runtime_ctx, str(fallback.id), self._required_capability
                 )
                 if err:
-                    yield self._fail_read(data, err)
+                    yield self._fail_read(data, self._kms_client_error(runtime_ctx, str(fallback.id), err) or err)
                     return
                 # Own the choice: the cache key, the output and the UI all read
                 # connection_id, and a blank one would misreport a connector read
@@ -480,6 +486,7 @@ class ReadFileTool(Tool):
                 runtime_ctx, data.connection_id, self._required_capability
             )
             if err:
+                err = self._kms_client_error(runtime_ctx, data.connection_id, err) or err
                 yield ToolEndEvent(type="tool.end", payload={
                     "output": {
                         "success": False,
@@ -803,7 +810,7 @@ class ReadFileTool(Tool):
                 cached = None
             if cached:
                 rendered = cached.get("rendered") or {}
-                session_file_id = await self._persist_rendered_session(
+                session_file_id = None if not self._keep_session_copy else await self._persist_rendered_session(
                     runtime_ctx, data.file_id, rendered,
                     source_ref=sheet_ref, name_id=sheet_name_id,
                     connection_id=getattr(data, "connection_id", None))
@@ -988,6 +995,8 @@ class ReadFileTool(Tool):
         # spawning a duplicate File row on every read.
         if session_file is not None:
             session_file_id = str(session_file.id)
+        elif not self._keep_session_copy:
+            session_file_id = None
         else:
             session_file_id = await _persist_session_file(
                 runtime_ctx, file_id=data.file_id, payload=payload,
@@ -1119,6 +1128,11 @@ class ReadFileTool(Tool):
             f"{self._operation_name} call with connection_id set to the source it "
             f"came from. Do NOT re-run list_files. Attached source(s): {choices}."
         )
+
+    def _kms_client_error(self, runtime_ctx: Dict[str, Any], connection_id: str, err: str) -> Optional[str]:
+        """KMS Lighthouse only: the same client-build text list_files gives (Connect, or inactive)."""
+        from .list_files import kms_client_error
+        return kms_client_error(runtime_ctx, connection_id, self._operation_name, err)
 
     def _fail_read(self, data, err: str) -> ToolEndEvent:
         return ToolEndEvent(type="tool.end", payload={

@@ -270,9 +270,11 @@ defineExpose({ activeIndex: computed(() => activeIndex.value) })
 .compact .turn-nav-line { width: 6px; }
 .compact .turn-nav-tick.hovered .turn-nav-line { width: 9px; }
 .compact .turn-nav-tick.active .turn-nav-line { width: 12px; }
-:global(.dark) .turn-nav-line { background: rgb(75 85 99); }
-:global(.dark) .turn-nav-tick.hovered .turn-nav-line { background: rgb(156 163 175); }
-:global(.dark) .turn-nav-tick.active .turn-nav-line { background: rgb(243 244 246); }
+/* `.dark` (on <html>) is a plain ancestor; never `:global(.dark) .x`, which Vue
+   compiles to a bare `.dark {…}` that paints <html> (tests/unit/darkSelectorsScoped.mjs). */
+.dark .turn-nav-line { background: rgb(75 85 99); }
+.dark .turn-nav-tick.hovered .turn-nav-line { background: rgb(156 163 175); }
+.dark .turn-nav-tick.active .turn-nav-line { background: rgb(243 244 246); }
 
 .turn-nav-preview {
 	position: absolute;

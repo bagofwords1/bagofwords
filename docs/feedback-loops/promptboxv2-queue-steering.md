@@ -33,11 +33,13 @@ string column; steering rows are `role='user'`, `message_type='steering'`,
   `{queued_completion_id}` to promote a queued row) persists the steering row
   and signals the running agent; degrades to enqueueing when the run finished.
 - Dispatcher `CompletionService.start_next_queued_if_idle` runs from every
-  agent-run `finally` (stream, background, foreground, dispatched): drains the
-  queue only after a `success` run (error/stopped pauses it), claims the oldest
-  queued row with a conditional UPDATE (no double-starts), and runs the agent
-  via `_run_dispatched_agent` with a registered event queue so any client can
-  attach through the existing watch endpoint.
+  agent-run `finally` (stream, background, foreground, dispatched) and after
+  each MCP turn (`backend/app/ai/tools/mcp/base.py`, spawned in an empty
+  context): drains the queue only after a `success` run (error/stopped pauses
+  it), claims the oldest queued row with a conditional UPDATE (no double-starts),
+  and runs the agent via `_run_dispatched_agent` with a registered event queue
+  so any client can attach through the existing watch endpoint. The dispatched
+  run sets code visibility from the queued prompt's author, not from a request.
 - `AgentV2` picks up steering at the top of every loop iteration (WS fast path
   + per-iteration DB poll for cross-worker delivery), renders it into the
   planner's `user_message` via `_effective_user_message()`, emits a

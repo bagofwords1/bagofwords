@@ -155,7 +155,8 @@ async def whatsapp_webhook(
             return {"ok": True}
 
         result = await platform_manager.handle_incoming_message(
-            db, "whatsapp", platform.organization_id, event_data
+            db, "whatsapp", platform.organization_id, event_data,
+            platform_id=str(platform.id),
         )
         return {"ok": True, "result": result}
 

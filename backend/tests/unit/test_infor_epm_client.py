@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 import requests
 
+from tests.utils.egress_fakes import one_shot
 from app.data_sources.clients.infor_epm_client import (
     InforEpmClient,
     InforEpmError,
@@ -100,7 +101,7 @@ def engine():
         "BOW_GetCubeSchema": lambda p: _fixture("cube_schema.xml") if p["CubeName"] == "Sales" else _fixture("cube_schema_odbo_measures.xml"),
         "BOW_ExecuteMdx": lambda p: _fixture("mdx_result.txt"),
     })
-    with patch("app.data_sources.clients.infor_epm_client.requests.post", side_effect=eng.token_post), \
+    with patch("app.data_sources.clients.infor_epm_client.pinned_request", side_effect=one_shot(eng.token_post)), \
          patch.object(requests.Session, "post", autospec=True, side_effect=eng.session_post):
         yield eng
 
@@ -371,7 +372,7 @@ async def test_service_account_authenticates_discovery_and_queries(engine, async
     connection.encrypt_credentials({"auth_type": "ion_service_account", **credentials})
     client = await ConnectionService().construct_client(None, connection)
     engine.first_poll_running = False
-    with patch("app.data_sources.clients.infor_epm_client.requests.post", side_effect=token_endpoint), \
+    with patch("app.data_sources.clients.infor_epm_client.pinned_request", side_effect=one_shot(token_endpoint)), \
          patch("app.data_sources.clients.infor_epm_client.time.monotonic", return_value=100) as clock:
         assert client.test_connection()["success"]
         assert client.get_schemas()
@@ -409,7 +410,7 @@ def test_service_account_rejected_auth_stops_before_process_request(engine, oper
     def denied(url, **kwargs):
         calls.append(url)
         return MagicMock(status_code=401)
-    with patch("app.data_sources.clients.infor_epm_client.requests.post", side_effect=denied):
+    with patch("app.data_sources.clients.infor_epm_client.pinned_request", side_effect=one_shot(denied)):
         args = ("SELECT {} ON COLUMNS FROM [Sales]",) if operation == "execute_query" else ()
         with pytest.raises(InforEpmError):
             getattr(client, operation)(*args)

@@ -123,6 +123,8 @@ SPECS: dict[str, PreviewSpec] = {
 _NAMESPACE_CHAINS = (
     ("catalog", "schema"),
     ("project", "dataset"),
+    # Snowflake with several databases: "DATABASE.SCHEMA.TABLE".
+    ("database", "schema"),
     ("schema",),
     ("database",),
     ("dataset",),
@@ -333,6 +335,26 @@ class TablePreviewService:
             logger.info("table preview: named-column query failed, retrying with *")
             cols, rows = extractor.preview(client, fallback, PREVIEW_ROW_LIMIT)
             return fallback, base_table_sql(conn_type, table, named=False), cols, rows, "query"
+
+    def sql_only(self, connection: Connection, table: ConnectionTable) -> dict:
+        """The preview query for `table`, built from the catalog without running
+        it — so the modal can show what *would* run before the manager presses
+        Run. Pure string building (no client, no source round-trip)."""
+        spec = spec_for(connection.type)
+        if not is_previewable_table(connection.type, table):
+            raise AppError.bad_request(
+                ErrorCode.TABLE_PREVIEW_UNSUPPORTED,
+                f"Data preview is not available for '{connection.type}' connections.",
+                type=connection.type,
+            )
+        return {
+            "table_id": str(table.id),
+            "table_name": table.name,
+            "language": spec.language,
+            "sql": preview_sql(connection.type, table, PREVIEW_ROW_LIMIT),
+            "base_sql": base_table_sql(connection.type, table),
+            "row_limit": PREVIEW_ROW_LIMIT,
+        }
 
     async def preview(
         self,

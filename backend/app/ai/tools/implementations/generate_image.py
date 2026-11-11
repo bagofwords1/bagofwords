@@ -62,6 +62,15 @@ Flow:
 Do not use when:
     - The user wants a data chart (use create_data — charts are rendered from
       data, not generated as images)
+
+Honesty:
+    This tool is the ONLY way you can produce a picture — you cannot draw or
+    create an image yourself. Never tell the user you created, drew, or attached
+    an image unless a generate_image call actually SUCCEEDED (returned a
+    file_id) in this turn. If it returns success=false (e.g. no image-generation
+    model is enabled for the org), tell the user plainly that you can't generate
+    the image right now and why — do not describe an imaginary picture as if you
+    made one.
             """,
             category="action",
             version="1.0.0",

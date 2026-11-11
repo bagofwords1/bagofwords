@@ -23,6 +23,7 @@ from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_session
 
 from app.ai.prompt_formatters import ForeignKey, Table, TableColumn
 from app.data_sources.clients.base import DataSourceClient
@@ -334,7 +335,7 @@ Simulator-verified contract; customer appliance validation (release, permissions
     def _session(self):
         with self._lock:
             deadline = time.monotonic() + 120
-            with requests.Session() as session:
+            with pinned_session() as session:
                 session.trust_env = False
                 session.verify = self._verify
                 session.headers.update({"Accept": "application/json", "User-Agent": "bagofwords-hpe-oneview/1"})

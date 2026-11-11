@@ -2,7 +2,7 @@
   <main class="flex min-h-screen items-start justify-center bg-gray-50 px-5 py-16 dark:bg-gray-950 sm:py-24">
     <div class="w-full max-w-md">
       <div class="text-center">
-        <img src="/assets/logo-128.png" alt="Bag of Words" class="mx-auto h-11 w-11" />
+        <img src="/assets/logo-128.png" alt="BOW" class="mx-auto h-11 w-11" />
       </div>
 
       <div v-if="pageLoading || trustedAutoApprove" class="mt-8 rounded-2xl border border-gray-200 bg-white px-7 py-10 text-center shadow-sm dark:border-gray-800 dark:bg-gray-900">

@@ -1,0 +1,44 @@
+name: Set up backend
+description: Python, uv and the locked backend environment, restored from cache when it can be.
+
+runs:
+  using: composite
+  steps:
+  - name: Set up Python
+    id: python
+    uses: actions/setup-python@v6
+    with:
+      python-version: '3.13'
+
+  # Restore and save are separate steps on purpose. The combined actions/cache
+  # (and astral-sh/setup-uv) save in a post step gated on success(), so a job
+  # with one failing test would never store anything. Saving right after the
+  # install also means nothing a test run does to the tree can reach the cache.
+  #
+  # The key uses the exact interpreter (3.13.x, not 3.13): .venv/bin/python is a
+  # symlink into the runner's tool cache, so a new patch release needs a new venv.
+  - name: Restore uv environment
+    id: cache
+    uses: actions/cache/restore@v6
+    with:
+      path: backend/.venv
+      key: uv-venv-${{ runner.os }}-${{ runner.arch }}-py${{ steps.python.outputs.python-version }}-${{ hashFiles('backend/uv.lock') }}
+      restore-keys: |
+        uv-venv-${{ runner.os }}-${{ runner.arch }}-py${{ steps.python.outputs.python-version }}-
+
+  # Always runs. On an exact hit this checks the venv against the lock and does
+  # nothing; after a restore-keys hit it installs only what changed.
+  - name: Install dependencies
+    shell: bash
+    working-directory: ./backend
+    run: |
+      pip install uv
+      uv sync --frozen --extra dev
+
+  # Parallel jobs race to save the same key. The loser gets a warning, not a failure.
+  - name: Save uv environment
+    if: steps.cache.outputs.cache-hit != 'true'
+    uses: actions/cache/save@v6
+    with:
+      path: backend/.venv
+      key: ${{ steps.cache.outputs.cache-primary-key }}

@@ -45,6 +45,7 @@ const SEARCH_ALIASES: Record<string, string[]> = {
   google_drive: ['gdrive', 'google', 'sheets'],
   gmail_mail: ['google', 'email', 'mail'],
   outlook_mail: ['microsoft', 'email', 'mail', 'office'],
+  teams_messages: ['microsoft', 'teams', 'chat', 'messages', 'channels', 'office', 'slack'],
   onedrive: ['microsoft', 'office'],
   onenote: ['microsoft', 'office'],
   sharepoint: ['microsoft', 'office'],

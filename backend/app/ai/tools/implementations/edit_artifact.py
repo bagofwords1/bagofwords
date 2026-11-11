@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import lazyload
 
+from app.services.artifact_payload import partial_data_used, partial_data_warning
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import (
@@ -144,14 +145,36 @@ class EditArtifactTool(Tool):
         # order; the first failure rejects the whole batch.
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "applying_edits", "ops": len(data.edits)})
         from app.ai.tools.implementations.edit_artifact_legacy import _find_closest_match
+
+        # Merge viz ids: (existing − removed) + new — same semantics as edit_artifact.
+        removed = {str(v) for v in (data.remove_visualization_ids or [])}
+        merged_viz_ids = [v for v in existing_viz_ids if v not in removed]
+        for vid in (data.visualization_ids or []):
+            if str(vid) not in merged_viz_ids and str(vid) not in removed:
+                merged_viz_ids.append(str(vid))
+
         working = code
         for i, op in enumerate(data.edits):
-            occurrences = working.count(op.find)
+            find, replace = op.find, op.replace
+            # The agent may quote code it saw before the working copy was
+            # migrated (older context still binding positionally), so run the
+            # same codemod over the op. `find` describes the stored code →
+            # the stored order; `replace` is new code that will run against
+            # the SAVED order → the merged list.
+            if artifact.mode == "page":
+                find, _ = migrate_positional_viz_refs(find, existing_viz_ids)
+                replace, _ = migrate_positional_viz_refs(replace, merged_viz_ids)
+            occurrences = working.count(find)
+            # The codemod judges strings/comments per line, so a `find` cut
+            # from mid-line can be migrated where the full stored line was
+            # not (or vice versa) — fall back to the agent's verbatim text.
+            if occurrences == 0 and find != op.find and working.count(op.find) == 1:
+                find, occurrences = op.find, 1
             if occurrences == 1:
-                working = working.replace(op.find, op.replace, 1)
+                working = working.replace(find, replace, 1)
                 continue
             if occurrences == 0:
-                closest = _find_closest_match(op.find, working)
+                closest = _find_closest_match(find, working)
                 hint = f" Closest match in current code:\n---\n{closest}\n---" if closest else ""
                 yield self._fail(
                     artifact, "op_no_match",
@@ -166,13 +189,6 @@ class EditArtifactTool(Tool):
                 )
             return
         new_code = working
-
-        # Merge viz ids: (existing − removed) + new — same semantics as edit_artifact.
-        removed = {str(v) for v in (data.remove_visualization_ids or [])}
-        merged_viz_ids = [v for v in existing_viz_ids if v not in removed]
-        for vid in (data.visualization_ids or []):
-            if str(vid) not in merged_viz_ids and str(vid) not in removed:
-                merged_viz_ids.append(str(vid))
 
         # Validation payload straight from the shared payload builder, against
         # the MERGED viz set; enrich with declared params for the wiring gate.
@@ -401,6 +417,9 @@ class EditArtifactTool(Tool):
             available=await artifact_verification_available(runtime_ctx, str(new_artifact.id)),
         )
 
+        # An edit can add a cut dataset, so the planner hears about it here too.
+        partial_data = partial_data_used(artifact_data.get("visualizations", []), new_code) if artifact.mode == "page" else []
+
         yield ToolEndEvent(
             type="tool.end",
             payload={
@@ -425,6 +444,7 @@ class EditArtifactTool(Tool):
                         f"Applied {len(data.edits)} mechanical edit(s) to artifact '{new_artifact.title}' — now v{version_number}. "
                         "Contracts verified. "
                         + ("Render validated. " if screenshot_b64 or artifact.mode == "slides" else "Render preview unavailable. ")
+                        + partial_data_warning(partial_data)
                         + ("Review the attached static screenshot within the visual-refinement budget; it cannot certify interactions." if review_images else "")
                     ),
                     "artifact_id": str(new_artifact.id),

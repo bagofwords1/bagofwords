@@ -50,6 +50,7 @@ from urllib.parse import urlparse
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_session
 
 from app.ai.prompt_formatters import ForeignKey, ServiceFormatter, Table, TableColumn
 from app.data_sources.clients._qix_common import (
@@ -375,7 +376,7 @@ class QlikSenseOnPremClient(DataSourceClient):
             raise RuntimeError("server_url is required (e.g. https://qlik.corp.example.com)")
         self._ensure_cert_files()
         if self._http is None:
-            self._http = requests.Session()
+            self._http = pinned_session()
 
     def _acting_user(self, app: Optional[Dict[str, Any]] = None) -> str:
         """The value for X-Qlik-User on this request.

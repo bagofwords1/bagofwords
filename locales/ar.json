@@ -120,7 +120,18 @@
     "fileBrowserRetry": "إعادة المحاولة",
     "fileBrowserEmpty": "لا توجد ملفات ضمن نطاق هذا الاتصال.",
     "fileBrowserNoResults": "لا توجد ملفات تطابق “{q}”.",
+    "fileBrowserSummaryKms": "الملفات المعروضة للتصفح: {n} · تحدد أذونات KMS ما يمكن للوكيل البحث عنه وقراءته",
     "fileBrowserSummary": "{n} ملفات ضمن النطاق · يقرأ الوكيل هذه الملفات فقط · تُسجَّل محاولات الوصول المرفوضة",
+    "fileBrowserRootMessages": "كل المحادثات",
+    "fileBrowserSearchMessages": "البحث في الرسائل…",
+    "fileBrowserEmptyMessages": "لا توجد رسائل حديثة في المحادثات التي يمكنك رؤيتها.",
+    "fileBrowserSummaryLive": "{n} رسالة حديثة · تُقرأ مباشرة بصلاحياتك · لا يُخزَّن شيء",
+    "countMessages": "{n} رسالة | {n} رسائل",
+    "fileBrowserNoResultsMessages": "لا توجد رسائل تطابق “{q}”.",
+    "loadingMessages": "جارٍ تحميل الرسائل من المصدر…",
+    "fileBrowserConnectRequiredMessages": "اربط حسابك للتصفح — هذا الاتصال يقرأ الرسائل بصلاحيات كل مستخدم.",
+    "liveSourceHint": "يتم البحث مباشرة بصلاحيات كل مستخدم — فقط القنوات أو المحادثات أو البريد التي يمكنه رؤيتها. لا يتم نسخ أو فهرسة أي شيء.",
+    "liveBadge": "مباشر",
     "fileBrowserTruncated": "يتم عرض أول {shown} من أصل {total} ملف — ضيّق نطاق الاتصال لتصفح الباقي.",
     "fileBrowserOpenInSource": "فتح في المصدر",
     "fileBrowserClosePreview": "إغلاق المعاينة",
@@ -387,6 +398,7 @@
     "newReport": "تقرير جديد",
     "expandSidebar": "توسيع الشريط الجانبي",
     "collapseSidebar": "طيّ الشريط الجانبي",
+    "resizeSidebar": "تغيير حجم الشريط الجانبي",
     "switchOrganization": "تبديل المؤسسة",
     "version": "الإصدار",
     "loggedInAs": "تم تسجيل الدخول باسم {name}",
@@ -671,6 +683,22 @@
         "network": "يحتاج التعرف على الكلام إلى اتصال بالشبكة.",
         "failed": "فشل الإدخال الصوتي. يرجى المحاولة مرة أخرى."
       }
+    },
+    "slash": {
+      "menuTitle": "الأوامر",
+      "compact": {
+        "description": "تلخيص الأدوار الأقدم لتحرير السياق",
+        "usage": "/compact · /compact <التركيز> · /compact keep 4",
+        "pending": "سيتم الضغط عندما ينتهي الوكيل من هذا التشغيل",
+        "running": "جارٍ ضغط السياق…",
+        "doneContext": "تم ضغط {turns} أدوار · السياق ~{before} ← ~{after} رمز",
+        "doneHistory": "تم ضغط {turns} أدوار · السجل ~{before} ← ~{after} رمز",
+        "alreadyRunning": "الضغط قيد التشغيل بالفعل",
+        "failed": "تعذّر ضغط السياق",
+        "degraded": "ملخص احتياطي (بدون ملخص من النموذج)",
+        "cancel": "إلغاء",
+        "dismiss": "إغلاق"
+      }
     }
   },
   "reports": {
@@ -830,7 +858,39 @@
     ],
     "artifactLoadFailed": "تعذر تحميل لوحة المعلومات. حدّث الصفحة للمحاولة مرة أخرى.",
     "deleteUnpublishedDashboards": "ستُحذف أيضًا لوحات المعلومات غير المنشورة فيها: {names}",
-    "deleteLosesUnpublishedChanges": "ستُفقد التغييرات غير المنشورة في لوحات المعلومات هذه (تبقى النسخة المنشورة): {names}"
+    "deleteLosesUnpublishedChanges": "ستُفقد التغييرات غير المنشورة في لوحات المعلومات هذه (تبقى النسخة المنشورة): {names}",
+    "view": {
+      "groupAndSort": "التجميع والفرز",
+      "groupBy": "التجميع حسب",
+      "sortBy": "الفرز حسب",
+      "direction": "الاتجاه",
+      "group": {
+        "date": "التاريخ",
+        "status": "الحالة",
+        "none": "بدون"
+      },
+      "sort": {
+        "updated": "آخر نشاط",
+        "created": "تاريخ الإنشاء",
+        "name": "الاسم"
+      },
+      "dir": {
+        "desc": "تنازلي",
+        "asc": "تصاعدي"
+      },
+      "groups": {
+        "starred": "المميزة بنجمة",
+        "today": "اليوم",
+        "yesterday": "أمس",
+        "previous7": "آخر 7 أيام",
+        "previous30": "آخر 30 يومًا",
+        "older": "أقدم",
+        "needsInput": "بحاجة إلى إدخال",
+        "running": "قيد التشغيل",
+        "queued": "في قائمة الانتظار",
+        "idle": "خامل"
+      }
+    }
   },
   "projects": {
     "title": "المشاريع",
@@ -1137,7 +1197,13 @@
       "scopeHint": "ينطبق على محادثاتك في هذا المتصفح."
     },
     "readMore": "اقرأ المزيد",
-    "showLess": "عرض أقل"
+    "showLess": "عرض أقل",
+    "compactionShowSummary": "عرض ما يتذكره الوكيل من الأدوار المضغوطة",
+    "compactionSummaryTitle": "السجل المضغوط",
+    "compactionSummaryHint": "يرى الوكيل هذا الملخص بدلاً من الأدوار فوق الخط.",
+    "compactingContext": "جارٍ ضغط السياق…",
+    "compactionTurns": "{turns} أدوار",
+    "compactionLast": "آخر ضغط: السجل ~{before} ← ~{after} رمز"
   },
   "tools": {
     "common": {
@@ -1509,6 +1575,7 @@
       "toggleQueries": "الاستعلامات",
       "toggleFullCode": "الكود الكامل",
       "sentRequest": "أُرسل إلى مصدر البيانات",
+      "sourceQueryId": "معرّف الاستعلام في مصدر البيانات",
       "attempts": "المحاولات ({count})",
       "addToSpreadsheet": "إضافة إلى جدول البيانات",
       "addToSpreadsheetTitle": "إضافة البيانات إلى جدول Excel",
@@ -1932,6 +1999,7 @@
     "openPage": "فتح الصفحة",
     "categories": {
       "dataSources": "الوكلاء",
+      "connectors": "الموصلات",
       "queries": "الاستعلامات",
       "files": "الملفات",
       "tables": "الجداول",
@@ -1956,6 +2024,9 @@
     "noRolesFound": "لا توجد أدوار",
     "noRolesHint": "أنشئ دورًا لإدارة الصلاحيات.",
     "system": "النظام",
+    "default": "افتراضي",
+    "defaultRoleHint": "هذا دور مدمج. اسمه ثابت — خصّص أذوناته في الأسفل.",
+    "edit": "تعديل",
     "fullAdmin": "مسؤول كامل",
     "permissionsCount": "{n} صلاحية",
     "editRole": "تعديل الدور",
@@ -2217,7 +2288,7 @@
       "integrate": "ربط",
       "setup": "إعداد",
       "excelAddinName": "إضافة Excel",
-      "excelAddinDescription": "حمّل إضافة Bag of Words مباشرة من هذا الإصدار",
+      "excelAddinDescription": "حمّل إضافة BOW مباشرة من هذا الإصدار",
       "mcpName": "خادم BOW MCP",
       "mcpDescription": "تفعيل نقطة نهاية MCP للتكامل مع مساعدي الذكاء الاصطناعي مثل Cursor وClaude وغيرها",
       "channels": {
@@ -2248,7 +2319,8 @@
           "announceNewReportLabel": "الإعلان عن تقارير المحادثات الجديدة",
           "announceNewReportDesc": "عندما تبدأ رسالة تقرير محادثة جديدًا، يرد البوت برسالة \"لقد بدأت تقرير محادثة جديدًا\" مع رابط إليه. أوقف التفعيل لتخطي هذه الرسالة.",
           "announceNewReportEnabled": "تم تفعيل الإعلان عن التقارير الجديدة",
-          "announceNewReportDisabled": "تم إيقاف الإعلان عن التقارير الجديدة"
+          "announceNewReportDisabled": "تم إيقاف الإعلان عن التقارير الجديدة",
+          "loading": "جارٍ التحميل…"
         },
         "slack": {
           "title": "تكامل Slack",
@@ -2284,7 +2356,14 @@
           "socketStep3": "Event Subscriptions ← فعّل الأحداث (دون حاجة إلى Request URL) واشترك في: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
           "socketStep4": "Agents ← فعّل \"Agent experience\" للحصول على لوحة المساعد الأصلية وتسمية المحادثات والاقتراحات",
           "socketStep5": "App Home ← فعّل تبويب Messages واسمح للمستخدمين بإرسال الرسائل",
-          "socketStep6": "Install App ← ثبّت التطبيق في مساحة عملك وانسخ Bot User OAuth Token ‏(xoxb-…)"
+          "socketStep6": "Install App ← ثبّت التطبيق في مساحة عملك وانسخ Bot User OAuth Token ‏(xoxb-…)",
+          "channelRoutingTitle": "توجيه القناة إلى الوكيل",
+          "channelRoutingDesc": "وجّه قناة إلى وكلاء محددين. القناة بدون تعيين تستخدم الإعداد الافتراضي للاتصال؛ وبدون إعداد افتراضي تكشف كل ما يمكن للمستخدم الوصول إليه. التوجيه يضيّق الوصول فقط ولا يمنح أبدًا أكثر مما لدى المستخدم بالفعل.",
+          "connectionDefaultLabel": "الإعداد الافتراضي للاتصال",
+          "connectionDefaultDesc": "يُستخدم للقنوات التي ليس لها تعيين خاص.",
+          "channelPickerPlaceholder": "اختر الوكلاء…",
+          "noChannelsYet": "لا توجد قنوات بعد. اذكر البوت في قناة وسيظهر هنا، أو أضف قناة بالمعرّف أدناه.",
+          "channelsHeading": "القنوات"
         },
         "teams": {
           "title": "تكامل Teams",
@@ -2342,7 +2421,30 @@
           "disconnectedToast": "تم قطع الاتصال بـWhatsApp",
           "disconnectedToastDesc": "تم قطع تكامل WhatsApp",
           "failedDisconnect": "فشل قطع الاتصال بـWhatsApp",
-          "sessionStalenessDesc": "المدة التي تستمر فيها الدردشة في نفس تقرير المحادثة. الرسائل بعد هذه النافذة تبدأ تقريرًا جديدًا (إرسال \"new\" يبدأ تقريرًا فورًا). الافتراضي: 24 ساعة."
+          "sessionStalenessDesc": "المدة التي تستمر فيها الدردشة في نفس تقرير المحادثة. الرسائل بعد هذه النافذة تبدأ تقريرًا جديدًا (إرسال \"new\" يبدأ تقريرًا فورًا). الافتراضي: 24 ساعة.",
+          "numbersTitle": "الأرقام المتصلة",
+          "addNumber": "ربط رقم",
+          "addNumberTitle": "ربط رقم آخر",
+          "nameLabel": "التسمية",
+          "namePlaceholder": "مثل: المبيعات، المالية",
+          "agentScopeTitle": "الوكلاء على هذا الرقم",
+          "agentScopeDesc": "اختر الوكلاء الذين يرد بهم هذا الرقم. اتركه فارغًا لإتاحة كل الوكلاء الذين يملك المستخدم صلاحية الوصول إليهم.",
+          "agentScopeAll": "يتيح كل الوكلاء الذين يملك المستخدم صلاحية الوصول إليهم",
+          "agentScopeCount": "تم تحديد {count} وكيل",
+          "agentScopeNoAgents": "لا يوجد وكلاء متاحون",
+          "agentScopeSave": "حفظ الوكلاء",
+          "agentScopeSaved": "تم تحديث الوكلاء",
+          "connectedUsersTitle": "المستخدمون المتصلون",
+          "connectedUsersEmpty": "لم يربط أحد هذا الرقم بعد",
+          "verified": "موثَّق",
+          "unverified": "قيد الانتظار",
+          "unknownUser": "غير معروف",
+          "unnamedNumber": "رقم واتساب",
+          "cancel": "إلغاء",
+          "connectedUsersCount": "{count} أشخاص",
+          "usersSearchPlaceholder": "البحث بالاسم أو الرقم",
+          "usersSearchEmpty": "لا يوجد مستخدمون يطابقون بحثك",
+          "webhookSharedNote": "ينطبق عنوان webhook نفسه على جميع أرقامك."
         },
         "email": {
           "title": "صندوق بريد الذكاء الاصطناعي",
@@ -2488,9 +2590,9 @@
           "trustedConnecting": "Connecting to your trusted app…",
           "authorizationLoading": "Checking the authorization request…",
           "authorizationError": "Unable to authorize",
-          "goBack": "Go back to Bag of Words",
+          "goBack": "Go back to BOW",
           "authorizationTitle": "Authorize access",
-          "wantsAccess": "{name} wants to access your Bag of Words account.",
+          "wantsAccess": "{name} wants to access your BOW account.",
           "permissionsRequested": "Permissions requested",
           "appPermission": "Create and read reports, run completions, and use artifacts under your existing BOW permissions.",
           "mcpPermission": "Use the MCP tool surface under your existing BOW permissions.",
@@ -2515,7 +2617,7 @@
         },
         "excel": {
           "title": "وظيفة Excel الإضافية",
-          "subtitle": "حمّل وظيفة Bag of Words الإضافية مباشرةً من هذا المثيل.",
+          "subtitle": "حمّل وظيفة BOW الإضافية مباشرةً من هذا المثيل.",
           "loading": "جارٍ التحميل...",
           "setup": "الإعداد",
           "step1": "نزّل ملف manifest أدناه",
@@ -2565,7 +2667,7 @@
           "title": "التكامل مع Google Chat"
         }
       },
-      "emptyTitle": "اجعل Bag of Words يعمل مع أدواتك",
+      "emptyTitle": "اجعل BOW يعمل مع أدواتك",
       "emptySubtitle": "اربط Slack وTeams والبريد الإلكتروني والمزيد ليتمكن فريقك من الوصول إلى محلل الذكاء الاصطناعي حيث يعملون بالفعل. اختر تكاملاً للبدء.",
       "selectHint": "اختر تكاملاً",
       "slackDescription": "دع فريقك يتحدث مع محلل الذكاء الاصطناعي من قنوات Slack والرسائل المباشرة.",
@@ -2655,14 +2757,18 @@
       "attributesInviteHint": "اختياري. يعرّف هذا العضو في أنظمة أخرى، مثل مستخدم Qlik أو دور قاعدة البيانات.",
       "attributesSaved": "تم حفظ السمات",
       "attributesSaveFailed": "تعذّر حفظ السمات",
-      "importAttributesHint": "أضف أعمدة {column} لتعيين السمات، مثل {example}. الخلية الفارغة تترك السمة دون تغيير."
+      "importAttributesHint": "أضف أعمدة {column} لتعيين السمات، مثل {example}. الخلية الفارغة تترك السمة دون تغيير.",
+      "defaultRoleHint": "يملأ الدور مسبقًا عند إضافة عضو أو دعوته.",
+      "defaultRoleSaved": "تم حفظ الدور الافتراضي",
+      "defaultRoleFailed": "تعذر حفظ الدور الافتراضي",
+      "defaultRoleShort": "الدور الافتراضي"
     },
     "organizationName": "اسم المؤسسة",
     "organizationIcon": "أيقونة المؤسسة",
     "uploadIcon": "رفع أيقونة",
     "iconConstraints": "PNG/JPEG، ≤ 512 ك.ب.",
     "aiAnalystName": "اسم محلل الذكاء الاصطناعي",
-    "showCredit": "عرض ملاحظة \"Made with Bag of words\"",
+    "showCredit": "عرض ملاحظة \"Made with BOW\"",
     "language": {
       "title": "اللغة",
       "description": "تحدد اللغة الافتراضية للمؤسسة بأكملها. سيرى المستخدمون الواجهة بهذه اللغة وسيرد الذكاء الاصطناعي بها.",
@@ -3748,7 +3854,7 @@
     "saveIntegration": "حفظ التكامل",
     "loadFieldsFailed": "فشل تحميل الحقول",
     "integrationReady": "التكامل جاهز",
-    "integrationReadyDesc": "{name} متصل وتم إنشاء وكيل عام. يمكن للمستخدمين تسجيل الدخول والبدء في استخدامه.",
+    "integrationReadyDesc": "أصبح {name} متاحًا للجميع كموصل. يسجّل كل شخص الدخول بحسابه.",
     "integrationAgentFailed": "تم حفظ التكامل، لكن فشل إنشاء الوكيل",
     "updateIntegrationFailed": "فشل تحديث التكامل",
     "createIntegrationFailed": "فشل إنشاء التكامل",
@@ -3889,7 +3995,7 @@
         },
         {
           "title": "طباعة ملف الوصول",
-          "body": "احفظه باسم print_access_file.sh وشغّله. ينتظر الرمز ثم يطبع ملفًا واحدًا مستقلًا (عنوان خادم API، وCA العنقود، والرمز). تحقق منه عبر: kubectl --kubeconfig access.yaml get nodes. إذا كان عنوان الخادم خاصًا بشبكتك، فعدّله إلى العنوان الذي يمكن لهذه النسخة من Bag of Words الوصول إليه."
+          "body": "احفظه باسم print_access_file.sh وشغّله. ينتظر الرمز ثم يطبع ملفًا واحدًا مستقلًا (عنوان خادم API، وCA العنقود، والرمز). تحقق منه عبر: kubectl --kubeconfig access.yaml get nodes. إذا كان عنوان الخادم خاصًا بشبكتك، فعدّله إلى العنوان الذي يمكن لهذه النسخة من BOW الوصول إليه."
         },
         {
           "title": "الصقه أدناه واختبر الاتصال",
@@ -3899,7 +4005,7 @@
       "mecm": [
         {
           "title": "امنح الحساب صلاحية القراءة في Configuration Manager",
-          "body": "في وحدة التحكم انتقل إلى Administration > Security > Administrative Users، وأضف الحساب (أو مجموعة AD الخاصة به) وامنحه دور Read-only Analyst. تحدد نطاقات الأمان والمجموعات الخاصة به ما يمكن لـ Bag of Words رؤيته."
+          "body": "في وحدة التحكم انتقل إلى Administration > Security > Administrative Users، وأضف الحساب (أو مجموعة AD الخاصة به) وامنحه دور Read-only Analyst. تحدد نطاقات الأمان والمجموعات الخاصة به ما يمكن لـ BOW رؤيته."
         },
         {
           "title": "تحقّق من استجابة خدمة الإدارة",
@@ -4162,6 +4268,7 @@
     "instruction.version_mismatch": "الإصدار لا يخص هذه التعليمة",
     "integration.not_found": "التكامل غير موجود",
     "resource.conflict": "المورد موجود بالفعل أو يتعارض مع الحالة الحالية",
+    "review.stale_main": "تغيّر هذا منذ آخر مرة اطّلعت عليه. حدّث وحاول مرة أخرى.",
     "resource.duplicate": "مورد مكرر",
     "setting.update_failed": "تعذّر تحديث الإعداد",
     "query": {
@@ -4220,7 +4327,14 @@
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
     "ssh.key_discovery_failed": "تعذر جلب المفتاح. تحقق من اسم الخادم والمنفذ والشبكة، أو أدخل مفتاحًا موثوقًا في الإعدادات المتقدمة.",
-    "file.in_use": "الملف مستخدم في لوحة معلومات"
+    "file.in_use": "الملف مستخدم في لوحة معلومات",
+    "connection.kms_token_format": "يمكن أن يحتوي رمز API الخاص بـ KMS على أحرف وأرقام وعلامات ترقيم عادية فقط، بدون مسافات. انسخه مرة أخرى من KMS Lighthouse والصقه كنص عادي.",
+    "connection.kms_use_connection_credentials": "يتم حفظ بيانات تسجيل الدخول إلى KMS Lighthouse في الاتصال. افتح الاتصال واتصل من هناك.",
+    "connection.kms_only": "ينطبق التشخيص على اتصالات KMS Lighthouse فقط.",
+    "connection.kms_diagnostics_running": "التشخيص قيد التشغيل بالفعل لهذا الاتصال. انتظر حتى ينتهي ثم حاول مرة أخرى.",
+    "connection.kms_login_rejected": "لم يقبل KMS Lighthouse بيانات تسجيل الدخول هذه، لذا لم يتم حفظها. تحقق من اسم المستخدم وكلمة المرور، أو من رمز API، ثم حاول مرة أخرى.",
+    "connection.kms_login_paused": "رفض KMS Lighthouse بيانات تسجيل الدخول هذه مؤخرًا، لذا أُوقفت المحاولات الجديدة بها لبضع دقائق ولم يتم حفظها. تحقق من بيانات تسجيل الدخول أو حاول مرة أخرى لاحقًا.",
+    "connection.kms_session_refused": "قبل KMS Lighthouse بيانات تسجيل الدخول لكنه رفض جلستها، لذا لا يمكن استخدامها ولم يتم حفظها. اسأل مسؤول KMS عمّا إذا كان يُسمح لهذا الحساب باستخدام واجهة KMS API."
   },
   "email": {
     "dashboardShare": {
@@ -4754,7 +4868,7 @@
   "onboarding": {
     "loading": "جارٍ التحميل...",
     "skip": "تخطي الإعداد",
-    "welcome": "مرحبًا بك في Bag of words! 🎉",
+    "welcome": "مرحبًا بك في BOW! 🎉",
     "welcomeSubtitle": "تحدّث مع بياناتك، وشغّل تحليلات متعمقة، وأنشئ لوحات تحكم في ثوانٍ",
     "next": "التالي",
     "fallbackTitle": "ابدأ",
@@ -4764,7 +4878,7 @@
     "intro1": "البدء سريع: فقط اربط نموذجك ومصدر بياناتك، وستكون جاهزًا لطرح أول سؤال.",
     "intro2": "👉 لنبدأ الإعداد!",
     "steps": {
-      "onboardingTitle": "مرحبًا بك في Bag of words! 🎉",
+      "onboardingTitle": "مرحبًا بك في BOW! 🎉",
       "onboardingDescription": "تحدّث مع بياناتك، وشغّل تحليلات متعمقة، وأنشئ لوحات تحكم في ثوانٍ",
       "onboardingButton": "أهلًا بك",
       "llmTitle": "إعداد نموذج اللغة",
@@ -5374,8 +5488,8 @@
     }
   },
   "mcpServerModal": {
-    "title": "خادم Bag of words MCP",
-    "subtitle": "اربط Claude أو Cursor أو أي عميل MCP للاستعلام عن بياناتك عبر خادم Bag of words MCP.",
+    "title": "خادم BOW MCP",
+    "subtitle": "اربط Claude أو Cursor أو أي عميل MCP للاستعلام عن بياناتك عبر خادم BOW MCP.",
     "loading": "جارٍ التحميل...",
     "tabMcpClients": "عملاء MCP",
     "tabOauth": "OAuth",
@@ -5516,7 +5630,8 @@
     "noAgents": "لا شيء",
     "project": "مشروع",
     "toolOutputFilesOne": "{count} ملف أنتجته الأدوات",
-    "toolOutputFilesMany": "{count} ملفات أنتجتها الأدوات"
+    "toolOutputFilesMany": "{count} ملفات أنتجتها الأدوات",
+    "agentsFromReport": "يستخدم وكلاء التقرير"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -6337,7 +6452,9 @@
     "noConnection": "لا يملك هذا الوكيل اتصالًا بعد.",
     "notFound": "تعذّر العثور على هذا الاتصال.",
     "forbidden": "ليس لديك صلاحية الوصول إلى هذا الاتصال.",
-    "loadFailed": "تعذّر تحميل الاتصال. حاول مرة أخرى لاحقًا."
+    "loadFailed": "تعذّر تحميل الاتصال. حاول مرة أخرى لاحقًا.",
+    "connected": "متصل",
+    "connectedAs": "متصل باسم {identity}"
   },
   "trackedChanges": {
     "noChanges": "لا توجد تغييرات"
@@ -6739,7 +6856,7 @@
       "notPublished": "لم يُنشر هذا المحتوى بعد. سيظهر هنا بعد نشره.",
       "notFound": "هذا المحتوى غير متاح. ربما لم يُنشر بعد، أو تمت إزالته.",
       "denied": "ليس لديك حق الوصول إلى هذا المحتوى. اطلب من مالكه مشاركته معك.",
-      "notAllowed": "هذا المحتوى غير مفعّل لهذا التطبيق. يمكن للمحرر السماح به من إعدادات التضمين الخاصة به في Bag of Words.",
+      "notAllowed": "هذا المحتوى غير مفعّل لهذا التطبيق. يمكن للمحرر السماح به من إعدادات التضمين الخاصة به في BOW.",
       "failed": "تعذّر تحميل هذا المحتوى. حاول مرة أخرى بعد قليل."
     }
   },
@@ -6771,7 +6888,37 @@
     "embeddingEmpty": "Embedding is not configured",
     "oauthEmpty": "OAuth is not configured"
   },
+  "connectors": {
+    "title": "الموصلات",
+    "subtitle": "حساباتك وأدواتك الخاصة التي يمكن للذكاء الاصطناعي استخدامها. كل موصل يقرأ بصلاحياتك — لا يرى أحد غيرك بياناتك.",
+    "browse": "تصفح الموصلات",
+    "empty": "لا توجد موصلات بعد.",
+    "search": "البحث في الموصلات…",
+    "noResults": "لا توجد موصلات تطابق “{q}”.",
+    "signIn": "تسجيل الدخول",
+    "signOut": "تسجيل الخروج",
+    "remove": "إزالة",
+    "statusConnected": "متصل",
+    "statusShared": "مشترك",
+    "statusServiceAccount": "حساب خدمة",
+    "statusOffline": "إعادة الاتصال",
+    "statusNotConnected": "غير متصل",
+    "needsSignIn": "{n} موصل يتطلب تسجيل الدخول | {n} موصلات تتطلب تسجيل الدخول",
+    "accessPersonal": "يستخدم حسابك الخاص",
+    "accessShared": "يستخدم حسابًا مشتركًا أعده المسؤول",
+    "addHint": "أضف المزيد من الموصلات من الوكلاء ← إضافة اتصال.",
+    "askAdmin": "اطلب من المسؤول إضافة المزيد من الموصلات.",
+    "removeConfirm": "إزالة {name} لكل من في المؤسسة؟ ستُزال أيضًا عمليات تسجيل دخول المستخدمين.",
+    "signedOut": "تم تسجيل الخروج من {name}",
+    "removed": "تمت إزالة {name}",
+    "actionFailed": "حدث خطأ ما",
+    "shareToggleLabel": "إتاحة لكل من في مؤسستك",
+    "shareToggleHint": "يضيف “{name}” إلى موصلات الجميع. يسجّل كل شخص الدخول بحسابه — لا يرى أحد بيانات غيره.",
+    "useAsAgent": "استخدام كوكيل",
+    "movedToAgents": "أصبح {name} وكيلًا الآن"
+  },
   "tablePreview": {
+    "idle": "اضغط على تشغيل لتحميل الصفوف من المصدر.",
     "loading": "جارٍ تحميل الصفوف…",
     "failed": "تعذّر تحميل معاينة لهذا الجدول.",
     "showing": "عرض {shown} صفوف",
@@ -6792,5 +6939,43 @@
     "subtitle": "صفوف نموذجية من {connection}، تُقرأ مباشرة من المصدر.",
     "close": "إغلاق",
     "button": "معاينة"
+  },
+  "kmsFileScope": {
+    "headerSubtitle": "يحدد المجلد الجذر نقطة بدء التصفح. تحدد أذونات KMS ما يمكن للوكيل البحث عنه وقراءته.",
+    "browsingOnly": "التصفح فقط",
+    "accessNote": "يحدّ المجلد الجذر من التصفح فقط. تحدد أذونات KMS للهوية المتصلة ما يمكن للوكيل البحث عنه وقراءته، بما في ذلك العناصر خارج هذا المجلد. عدّل المجلد الجذر أو الفهرسة من الاتصال نفسه."
+  },
+  "kmsDiagnostics": {
+    "run": "تشغيل التشخيص",
+    "running": "جارٍ تشغيل التشخيص. قد يستغرق ذلك حتى 90 ثانية.",
+    "description": "فحوصات للقراءة فقط للشبكة والشهادة وتسجيل الدخول وسلوك KMS. يرسل تسجيل دخول واحدًا كحد أقصى.",
+    "overallPass": "نجحت الفحوصات التلقائية",
+    "overallWarn": "انتهى مع تحذيرات",
+    "overallFail": "انتهى مع فشل",
+    "manualCheck": "يتبقى فحص يدوي واحد: أعد التشغيل كمستخدم KMS مقيّد وقارن أسماء العناصر.",
+    "failedStage": "فشل في: {stage}",
+    "calls": "{calls} استدعاء في {seconds} ث",
+    "callsUnknown": "توقف بعد {seconds} ث. عدد الاستدعاءات غير معروف.",
+    "copy": "نسخ التقرير",
+    "copied": "تم نسخ التقرير",
+    "copyFailed": "تعذر نسخ التقرير. استخدم تنزيل JSON.",
+    "download": "تنزيل JSON",
+    "reportNote": "يبقى التقرير باللغة الإنجليزية ليمكن إرساله إلى مهندسي BOW. لا يحتوي على محتوى أو أسماء أو كلمات مرور.",
+    "failed": "تعذر تشغيل التشخيص.",
+    "status": {
+      "pass": "نجح",
+      "warn": "تحذير",
+      "fail": "فشل",
+      "info": "معلومات",
+      "skipped": "تم التخطي"
+    },
+    "stage": {
+      "network": "الشبكة",
+      "tls": "TLS",
+      "login": "تسجيل الدخول",
+      "browse": "التصفح",
+      "search": "البحث",
+      "read": "القراءة"
+    }
   }
 }

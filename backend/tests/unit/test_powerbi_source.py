@@ -130,6 +130,10 @@ class FakeResponse:
 
 
 class FakeSession:
+
+    def mount(self, prefix, adapter):
+        pass
+
     def __init__(self, servers):
         self.servers = servers      # dataset id -> FakeDax
         self.urls = []

@@ -94,7 +94,7 @@ def get_oauth_params(connection: Connection) -> dict:
     creds = connection.decrypt_credentials() or {}
     conn_type = connection.type
 
-    if conn_type in ("powerbi", "ms_fabric", "sharepoint", "sharepoint_lists", "onedrive", "outlook_mail", "onenote"):
+    if conn_type in ("powerbi", "ms_fabric", "sharepoint", "sharepoint_lists", "onedrive", "outlook_mail", "onenote", "teams_messages"):
         tenant_id = creds.get("tenant_id")
         if not tenant_id:
             raise ValueError(f"Connection {connection.id} missing tenant_id in credentials")
@@ -133,6 +133,13 @@ def get_oauth_params(connection: Connection) -> dict:
             # own notebooks; `Notes.Read.All` is what reaches SHARED/team
             # notebooks, which is the common deployment.
             "onenote": "openid profile offline_access Notes.Read Notes.Read.All User.Read",
+            # Teams knowledge source: Graph Search over chatMessage plus thread
+            # reads. Chat.Read reaches the user's chats; ChannelMessage.Read.All
+            # (admin consent) reaches channel posts in teams they joined.
+            "teams_messages": (
+                "openid profile offline_access User.Read Chat.Read "
+                "ChannelMessage.Read.All Team.ReadBasic.All Channel.ReadBasic.All"
+            ),
         }
 
         return {
@@ -673,7 +680,7 @@ async def refresh_access_token(
 # ---------------------------------------------------------------------------
 
 # Connection types that support OBO auto-provisioning from Entra ID login
-ENTRA_OBO_CONNECTION_TYPES = {"powerbi", "ms_fabric", "sharepoint", "sharepoint_lists", "onedrive", "outlook_mail", "onenote"}
+ENTRA_OBO_CONNECTION_TYPES = {"powerbi", "ms_fabric", "sharepoint", "sharepoint_lists", "onedrive", "outlook_mail", "onenote", "teams_messages"}
 
 # Resource scopes used when requesting OBO tokens per connection type.
 # These must match the API permissions granted to the Entra app registration.
@@ -696,6 +703,9 @@ _OBO_SCOPES = {
     # OneNote reads go through the same Graph resource; `.default` yields the
     # Notes.Read / Notes.Read.All delegated permissions the app was granted.
     "onenote": "https://graph.microsoft.com/.default offline_access",
+    # Teams reads use the same Graph resource; `.default` yields the Chat.Read /
+    # ChannelMessage.Read.All delegated permissions the app was granted.
+    "teams_messages": "https://graph.microsoft.com/.default offline_access",
 }
 
 

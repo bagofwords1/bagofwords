@@ -3,6 +3,7 @@ from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ForeignKey, ServiceFormatter
 from typing import List, Dict, Optional, Tuple
 import requests
+from app.core.egress import pinned_request, pinned_session
 import pandas as pd
 import re
 from urllib.parse import unquote
@@ -311,7 +312,7 @@ class PowerBIClient(DataSourceClient):
 
         # If a delegated access_token was provided, just set up the session
         if self._access_token:
-            self._http = requests.Session()
+            self._http = pinned_session()
             return
 
         auth_url = self.AUTH_URL.format(tenant_id=self.tenant_id)
@@ -322,7 +323,7 @@ class PowerBIClient(DataSourceClient):
             "scope": self.SCOPE,
         }
 
-        resp = requests.post(auth_url, data=payload, timeout=30)
+        resp = pinned_request("POST", auth_url, data=payload, timeout=30)
         if resp.status_code >= 300:
             raise RuntimeError(f"Failed to authenticate with Azure AD: HTTP {resp.status_code} {resp.text}")
 
@@ -332,7 +333,7 @@ class PowerBIClient(DataSourceClient):
             raise RuntimeError("Authentication did not return access token")
 
         self._access_token = token
-        self._http = requests.Session()
+        self._http = pinned_session()
 
     def refresh_user_permissions(self) -> bool:
         """Force Power BI to re-evaluate THIS user's cached permissions.

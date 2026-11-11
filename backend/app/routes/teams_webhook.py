@@ -93,7 +93,8 @@ async def teams_webhook(
 
         # Route to manager
         result = await platform_manager.handle_incoming_message(
-            db, "teams", platform.organization_id, activity
+            db, "teams", platform.organization_id, activity,
+            platform_id=str(platform.id),
         )
 
         return {"ok": True, "result": result}

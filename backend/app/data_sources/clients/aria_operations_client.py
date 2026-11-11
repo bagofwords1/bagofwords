@@ -48,6 +48,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_session
 
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.progress import ProgressCallback
@@ -255,7 +256,7 @@ class AriaOperationsClient(DataSourceClient):
 
     def _http(self) -> requests.Session:
         if self._session is None:
-            self._session = requests.Session()
+            self._session = pinned_session()
         return self._session
 
     @property

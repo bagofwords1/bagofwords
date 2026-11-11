@@ -64,7 +64,7 @@ def test_concurrent_discovery_keeps_one_row_per_identity(monkeypatch, create_use
         lambda: ConcurrentTenant([("ws-a", "ds-a", ["current"]), ("ws-b", "ds-b", ["other"])]))
     token = Mock(status_code=200)
     token.json.return_value = {"access_token": "synthetic-token"}
-    monkeypatch.setattr("app.data_sources.clients.powerbi_client.requests.post", lambda *a, **k: token)
+    monkeypatch.setattr("app.data_sources.clients.powerbi_client.pinned_request", lambda *a, **k: token)
 
     async def check():
         async def refresh():

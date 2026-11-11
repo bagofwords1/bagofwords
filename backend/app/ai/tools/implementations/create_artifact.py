@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.ai.tools.artifact_verification import with_automatic_artifact_check
+from app.services.artifact_payload import partial_data_used, partial_data_warning, row_count_fields
 from app.ai.tools.base import Tool
 from app.models.file import File
 from app.models.report_file_association import report_file_association
@@ -870,10 +871,12 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             "title": viz.get("title"),
             "query_id": viz.get("query_id"),
             "chart_type": viz.get("data_model_type") or "table",
-            # True dataset size; sample_row_count is how many rows are shown
-            # to generation/preview (capped). At runtime the dashboard
-            # receives ALL row_count rows.
+            # row_count is the query's real size. loaded_row_count is how many
+            # rows the page receives at runtime (the org row limit can cut it),
+            # sample_row_count how many are shown to generation/preview.
             "row_count": viz.get("row_count", 0),
+            "loaded_row_count": viz.get("loaded_row_count", viz.get("row_count", 0)),
+            "truncated": bool(viz.get("truncated")),
             "sample_row_count": viz.get("sample_row_count", len(viz.get("rows") or [])),
             "columns": enriched_columns,
         }
@@ -1092,12 +1095,12 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
 
             # Get data directly from step (like frontend does). Generation and
             # headless preview see a bounded sample; the live render receives
-            # the full dataset from the frontend. Keep both counts so the
+            # every stored row from the frontend. Keep the counts so the
             # sample is never mislabeled as the whole dataset.
             step_data = step.data if step else {}
             _all_rows = (step_data.get("rows") or []) if step_data else []
             rows = _all_rows[:100]
-            total_row_count = len(_all_rows)
+            row_counts = row_count_fields(step_data)
             raw_columns = step_data.get("columns") or [] if step_data else []
             data_model = step.data_model if step else {}
             step_info = step_data.get("info") or {} if step_data else {}
@@ -1128,11 +1131,12 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 "data_model_type": (view_dict.get("view") or {}).get("type") or view_dict.get("type"),
                 "columns": columns,
                 "column_info": column_info,
-                # row_count is the TRUE dataset size; rows is a sample capped
+                # row_count is the query's real size (loaded_row_count is what
+                # the org row limit left for the page); rows is a sample capped
                 # at 100 for generation/preview. The old code reported the
                 # truncated length as row_count, so the LLM couldn't know the
                 # data was sampled and generated truncation workarounds.
-                "row_count": total_row_count,
+                **row_counts,
                 "sample_row_count": len(rows),
                 "rows": rows,
                 # The profile the planner reads calls this same list
@@ -1937,6 +1941,13 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 + params_wiring_errors[0]
             )
 
+        # The planner is the one that can write a new query, so tell it when the
+        # finished page reads a dataset the org row limit cut.
+        partial_data = partial_data_used(visualizations, code) if data.mode == "page" else []
+        if partial_data:
+            observation["partial_data"] = partial_data
+            observation["summary"] += partial_data_warning(partial_data)
+
         # Add preview screenshot for planner reflection (page mode)
         if _attach_screenshot:
             observation["images"] = [{
@@ -2607,7 +2618,7 @@ YOUR VISUALIZATIONS:
 
 {viz_json}
 
-{"(Sample data included above — rows are a sample capped at 100; row_count is the true dataset size)" if allow_llm_see_data else "(Data samples hidden for privacy - use column names and row_count to understand the data structure)"}
+{"(Sample data included above — rows are a sample capped at 100. row_count is the query's real size; at runtime the page receives loaded_row_count rows; truncated: true means that is only part of the result)" if allow_llm_see_data else "(Data samples hidden for privacy - use column names and row_count to understand the data structure)"}
 
 Now create the dashboard:"""
 

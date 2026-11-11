@@ -112,6 +112,14 @@ class ErrorCode(str, Enum):
     DATA_SOURCE_NOT_FOUND = "data_source.not_found"
     DATA_SOURCE_IN_USE = "data_source.in_use"
     CONNECTION_NOT_FOUND = "connection.not_found"
+    # KMS Lighthouse member credentials (raised only for type kms_lighthouse)
+    CONNECTION_KMS_TOKEN_FORMAT = "connection.kms_token_format"
+    CONNECTION_KMS_USE_CONNECTION_CREDENTIALS = "connection.kms_use_connection_credentials"
+    CONNECTION_KMS_ONLY = "connection.kms_only"
+    CONNECTION_KMS_DIAGNOSTICS_RUNNING = "connection.kms_diagnostics_running"
+    CONNECTION_KMS_LOGIN_REJECTED = "connection.kms_login_rejected"
+    CONNECTION_KMS_LOGIN_PAUSED = "connection.kms_login_paused"
+    CONNECTION_KMS_SESSION_REFUSED = "connection.kms_session_refused"
     CONNECTION_TABLE_NOT_FOUND = "connection.table_not_found"
     TABLE_PREVIEW_UNSUPPORTED = "connection.table_preview_unsupported"
     TABLE_PREVIEW_FAILED = "connection.table_preview_failed"
@@ -142,6 +150,10 @@ class ErrorCode(str, Enum):
     # Conflicts
     RESOURCE_CONFLICT = "resource.conflict"
     DUPLICATE_RESOURCE = "resource.duplicate"
+    # A review resolve named a main build/version that has since moved. Distinct
+    # from RESOURCE_CONFLICT (which the resolve routes also raise for a selection
+    # that no refresh can fix) so the client can retry ONLY the stale-main case.
+    REVIEW_STALE_MAIN = "review.stale_main"
 
     # Settings
     SETTING_UPDATE_FAILED = "setting.update_failed"

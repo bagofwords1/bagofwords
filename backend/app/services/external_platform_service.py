@@ -1,10 +1,11 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, delete
 from fastapi import HTTPException
-from typing import List, Optional
+from typing import Any, List, Optional, Set
 import json
 
 from app.models.external_platform import ExternalPlatform
+from app.models.external_platform_agent import ExternalPlatformAgent
 from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.external_platform_schema import (
@@ -104,22 +105,316 @@ class ExternalPlatformService:
         return platform
     
     async def get_platform_by_type(
-        self, 
-        db: AsyncSession, 
+        self,
+        db: AsyncSession,
         organization_id: str,
         platform_type: str
     ) -> Optional[ExternalPlatform]:
-        """Get platform by type for an organization"""
-        
+        """Get a single platform of this type for an organization.
+
+        An organization may now hold several platforms of the same type (e.g.
+        multiple WhatsApp numbers). This helper keeps the single-instance
+        contract that outbound paths rely on (notifications, MCP, Excel): it
+        returns the oldest matching platform and never raises when more than
+        one exists. Inbound dispatch resolves the *specific* instance by its
+        payload key instead — see ``get_platforms_by_type`` and the webhooks.
+        """
+
+        stmt = (
+            select(ExternalPlatform)
+            .where(
+                and_(
+                    ExternalPlatform.organization_id == organization_id,
+                    ExternalPlatform.platform_type == platform_type
+                )
+            )
+            .order_by(ExternalPlatform.created_at.asc())
+            .limit(1)
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_platform_by_id_raw(
+        self,
+        db: AsyncSession,
+        platform_id: str,
+        organization_id: str
+    ) -> Optional[ExternalPlatform]:
+        """Fetch one platform ORM row by id, scoped to the org; None if absent.
+
+        Unlike ``get_platform_by_id`` this takes the org id as a string and
+        returns ``None`` instead of raising, so inbound dispatch can resolve
+        the instance the webhook matched without turning a miss into a 404.
+        """
+
         stmt = select(ExternalPlatform).where(
             and_(
-                ExternalPlatform.organization_id == organization_id,
-                ExternalPlatform.platform_type == platform_type
+                ExternalPlatform.id == platform_id,
+                ExternalPlatform.organization_id == organization_id
             )
         )
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
-    
+
+    async def get_platforms_by_type(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        platform_type: str
+    ) -> List[ExternalPlatform]:
+        """Get every platform of this type for an organization (oldest first).
+
+        Used wherever multiple instances of one channel type must be
+        considered together — listing WhatsApp numbers, or matching an inbound
+        event against the right instance by its payload key.
+        """
+
+        stmt = (
+            select(ExternalPlatform)
+            .where(
+                and_(
+                    ExternalPlatform.organization_id == organization_id,
+                    ExternalPlatform.platform_type == platform_type
+                )
+            )
+            .order_by(ExternalPlatform.created_at.asc())
+        )
+        result = await db.execute(stmt)
+        return list(result.scalars().all())
+
+    # ------------------------------------------------------------------
+    # Per-instance agent scoping
+    # ------------------------------------------------------------------
+
+    async def get_scope_agent_ids(
+        self,
+        db: AsyncSession,
+        platform_id: str,
+        external_channel_id: str = "",
+    ) -> Set[str]:
+        """Return the agent (data source) ids a scope row set is scoped to.
+
+        ``external_channel_id`` selects which rows: ``""`` (the default) reads
+        the connection-default / per-instance scope; a real channel id reads
+        that one channel's scope. An empty result means "not scoped" for that
+        key — expose everything the messaging user can access (pre-existing
+        behavior).
+        """
+
+        stmt = select(ExternalPlatformAgent.data_source_id).where(
+            and_(
+                ExternalPlatformAgent.platform_id == platform_id,
+                ExternalPlatformAgent.external_channel_id == (external_channel_id or ""),
+            )
+        )
+        result = await db.execute(stmt)
+        return {str(row) for row in result.scalars().all()}
+
+    async def resolve_scope_agent_ids(
+        self,
+        db: AsyncSession,
+        platform_id: str,
+        routing_channel_id: Optional[str] = None,
+    ) -> Set[str]:
+        """Resolve the effective agent scope for an incoming message.
+
+        Most-specific wins: if ``routing_channel_id`` is given and that channel
+        has its own scope rows, use them; otherwise fall back to the ``""``
+        connection-default scope; an empty result means unscoped (expose
+        everything the user can access). The scope only ever *narrows* the
+        caller's list — it is intersected with the user's own access downstream.
+        """
+
+        if routing_channel_id:
+            channel_scope = await self.get_scope_agent_ids(
+                db, platform_id, routing_channel_id
+            )
+            if channel_scope:
+                return channel_scope
+        return await self.get_scope_agent_ids(db, platform_id, "")
+
+    async def filter_org_data_source_ids(
+        self, db: AsyncSession, organization_id: str, data_source_ids: List[str]
+    ) -> List[str]:
+        """Keep only ids that are data sources of this organization.
+
+        Preserves the caller's order and de-duplicates. Used to validate an
+        agent-scope request so cross-org or stale ids never reach the table.
+        """
+
+        from app.models.data_source import DataSource
+
+        wanted = [str(d) for d in (data_source_ids or [])]
+        if not wanted:
+            return []
+        stmt = select(DataSource.id).where(
+            and_(
+                DataSource.organization_id == organization_id,
+                DataSource.id.in_(wanted),
+            )
+        )
+        result = await db.execute(stmt)
+        valid = {str(row) for row in result.scalars().all()}
+        seen: Set[str] = set()
+        ordered: List[str] = []
+        for d in wanted:
+            if d in valid and d not in seen:
+                seen.add(d)
+                ordered.append(d)
+        return ordered
+
+    async def set_scope_agents(
+        self,
+        db: AsyncSession,
+        platform: ExternalPlatform,
+        data_source_ids: List[str],
+        external_channel_id: str = "",
+    ) -> Set[str]:
+        """Replace one scope key's agent set with ``data_source_ids``.
+
+        ``external_channel_id`` picks the key: ``""`` (the default) sets the
+        connection-default / per-instance scope; a real channel id sets that one
+        channel's scope. Passing an empty list clears that key (back to exposing
+        everything the user can access *for that key*). Ids are de-duplicated;
+        this does not widen access — resolution still intersects with the
+        messaging user's own agents.
+        """
+
+        channel_key = external_channel_id or ""
+        await db.execute(
+            delete(ExternalPlatformAgent).where(
+                and_(
+                    ExternalPlatformAgent.platform_id == platform.id,
+                    ExternalPlatformAgent.external_channel_id == channel_key,
+                )
+            )
+        )
+        wanted = []
+        seen: Set[str] = set()
+        for ds_id in data_source_ids or []:
+            ds_id = str(ds_id)
+            if ds_id in seen:
+                continue
+            seen.add(ds_id)
+            wanted.append(ds_id)
+            db.add(
+                ExternalPlatformAgent(
+                    organization_id=platform.organization_id,
+                    platform_id=platform.id,
+                    external_channel_id=channel_key,
+                    data_source_id=ds_id,
+                )
+            )
+        await db.commit()
+        return set(wanted)
+
+    async def get_scope_map(
+        self, db: AsyncSession, platform_id: str
+    ) -> dict:
+        """Return ``{external_channel_id: {agent_id, ...}}`` for every scope row.
+
+        ``""`` is the connection-default key. Lets the settings UI render the
+        default plus every channel's scope from a single read.
+        """
+
+        stmt = select(
+            ExternalPlatformAgent.external_channel_id,
+            ExternalPlatformAgent.data_source_id,
+        ).where(ExternalPlatformAgent.platform_id == platform_id)
+        rows = (await db.execute(stmt)).all()
+        out: dict = {}
+        for channel, ds in rows:
+            out.setdefault(channel or "", set()).add(str(ds))
+        return out
+
+    # ------------------------------------------------------------------
+    # Discovered channels (discover-on-traffic)
+    # ------------------------------------------------------------------
+
+    async def record_seen_channel(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        platform_id: str,
+        external_channel_id: str,
+        name: Optional[str] = None,
+        channel_type: Optional[str] = None,
+        overwrite_name: bool = False,
+        name_fetcher: Optional[Any] = None,
+    ):
+        """Upsert a channel the bot just saw (or an admin is adding by hand).
+
+        Fills in ``name``/``channel_type`` only when still empty, unless
+        ``overwrite_name`` is set (the admin relabel path). Refreshes
+        ``last_seen_at``. Returns the normalized channel id, or None for an
+        empty id. Caller should treat failures as best-effort — discovery must
+        never break message handling.
+
+        ``name_fetcher`` is an optional ``async (channel_id) -> Optional[str]``
+        used to resolve a human name when none is known yet (Slack events carry
+        only the id). It is awaited at most once per channel — only when no name
+        was passed and none is stored — so the live lookup never repeats on
+        every message. Any failure is swallowed and the id stays the label.
+        """
+        from app.models.external_platform_channel import ExternalPlatformChannel
+        import datetime
+
+        channel_id = (external_channel_id or "").strip()
+        if not channel_id:
+            return None
+
+        existing = (
+            await db.execute(
+                select(ExternalPlatformChannel).where(
+                    and_(
+                        ExternalPlatformChannel.platform_id == platform_id,
+                        ExternalPlatformChannel.external_channel_id == channel_id,
+                    )
+                )
+            )
+        ).scalar_one_or_none()
+
+        # Resolve a name once, on first sighting: ask Slack only when we have
+        # no name from the caller and none on record. Best-effort — a missing
+        # scope or API hiccup just leaves the id as the label.
+        if name_fetcher is not None and not name and not (existing and existing.name):
+            try:
+                name = await name_fetcher(channel_id)
+            except Exception as e:
+                print(f"record_seen_channel name_fetcher failed (non-fatal): {e}")
+
+        now = datetime.datetime.utcnow()
+        if existing:
+            existing.last_seen_at = now
+            if name and (overwrite_name or not existing.name):
+                existing.name = name
+            if channel_type and not existing.channel_type:
+                existing.channel_type = channel_type
+        else:
+            db.add(
+                ExternalPlatformChannel(
+                    organization_id=organization_id,
+                    platform_id=platform_id,
+                    external_channel_id=channel_id,
+                    name=name,
+                    channel_type=channel_type,
+                    last_seen_at=now,
+                )
+            )
+        await db.commit()
+        return channel_id
+
+    async def list_channels(self, db: AsyncSession, platform_id: str) -> List:
+        """All channels discovered on an instance, most-recently-seen first."""
+        from app.models.external_platform_channel import ExternalPlatformChannel
+
+        stmt = (
+            select(ExternalPlatformChannel)
+            .where(ExternalPlatformChannel.platform_id == platform_id)
+            .order_by(ExternalPlatformChannel.last_seen_at.desc())
+        )
+        return list((await db.execute(stmt)).scalars().all())
+
     async def update_platform(
         self, 
         db: AsyncSession, 
@@ -858,8 +1153,15 @@ class ExternalPlatformService:
         app_secret: str,
         verify_token: str,
         current_user: User,
+        name: Optional[str] = None,
     ) -> ExternalPlatformSchema:
-        """Create a WhatsApp Cloud API platform with proper configuration."""
+        """Create a WhatsApp Cloud API platform with proper configuration.
+
+        An organization may connect several numbers (one per agent/purpose).
+        What must stay unique is the ``phone_number_id``: it is the webhook's
+        routing key, so two instances sharing it would make inbound routing
+        ambiguous. A different number is always allowed.
+        """
         # Test the credentials by fetching the phone number metadata
         test_result = await self._test_whatsapp_token(access_token, phone_number_id)
         if not test_result.get("success"):
@@ -868,12 +1170,12 @@ class ExternalPlatformService:
                 detail=f"Invalid WhatsApp credentials: {test_result.get('error')}",
             )
 
-        existing_platform = await self.get_platform_by_type(db, organization.id, "whatsapp")
-        if existing_platform:
-            raise HTTPException(
-                status_code=400,
-                detail="WhatsApp integration already exists for this organization",
-            )
+        for existing in await self.get_platforms_by_type(db, organization.id, "whatsapp"):
+            if (existing.platform_config or {}).get("phone_number_id") == phone_number_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="This WhatsApp number is already connected to this organization",
+                )
 
         info = test_result.get("info", {})
         platform_config = {
@@ -881,6 +1183,7 @@ class ExternalPlatformService:
             "waba_id": waba_id,
             "display_phone_number": info.get("display_phone_number"),
             "verified_name": info.get("verified_name"),
+            "name": name,
         }
 
         credentials = {

@@ -104,11 +104,21 @@ async def create_private_instruction(
     if instruction.applicable_channels:
         instruction.applicable_channels = await validate_instruction_channels(
             db, organization.id, instruction.applicable_channels)
-    if instruction.data_source_ids:
-        await check_resource_permissions(
-            db, str(current_user.id), str(organization.id),
-            "data_source", instruction.data_source_ids, "manage_instructions",
-        )
+    # Scope authority — the same gate POST /instructions/global, the PUT re-scope
+    # path and the MCP create tool all apply. An empty OR unset scope means "no
+    # agent" = global (applies to every agent in the org), which stays an
+    # org-level capability: a per-agent `manage_instructions` grant confers no
+    # authority over it. The bare `if instruction.data_source_ids:` this replaces
+    # skipped the check entirely on an empty list, so an agent manager (who holds
+    # the grant on one agent and thus clears the resource_scoped door) could
+    # create a global here by omitting the scope — the one create/modify surface
+    # that didn't enforce what its three siblings do. On create both `None` and
+    # `[]` mean global, so normalise `None` to `[]` rather than letting
+    # require_scope_authority's "scope unchanged" pass-through (meant for PUT)
+    # reopen the gap.
+    await require_scope_authority(
+        db, current_user, organization, instruction.data_source_ids or [],
+    )
     return await instruction_service.create_instruction(db, instruction, current_user, organization, force_global=False)
 
 @router.post("/instructions/global", response_model=InstructionSchema)
@@ -1275,7 +1285,7 @@ async def accept_instruction_hunk(
         organization=organization, current_user=current_user,
     )
     if status == "stale":
-        raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "This change moved since you viewed it — refresh and try again.")
+        raise AppError.conflict(ErrorCode.REVIEW_STALE_MAIN, "This change moved since you viewed it — refresh and try again.")
     if status == "invalid_selection":
         raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "This change couldn't be applied as displayed. Refresh to reload the review; if this keeps happening, please report it.")
     if resolved is None:
@@ -1364,7 +1374,7 @@ async def reject_instruction_hunk(
         organization=organization, current_user=current_user,
     )
     if status == "stale":
-        raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "This change moved since you viewed it — refresh and try again.")
+        raise AppError.conflict(ErrorCode.REVIEW_STALE_MAIN, "This change moved since you viewed it — refresh and try again.")
     if status == "invalid_selection":
         raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "This change couldn't be applied as displayed. Refresh to reload the review; if this keeps happening, please report it.")
     if resolved is None:
@@ -1425,7 +1435,7 @@ async def accept_all_instruction_hunks(
         selected_hunks=[(h.build_id, h.hunk_key) for h in body.hunks],
     )
     if status == "stale":
-        raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "These changes moved since you viewed them — refresh and try again.")
+        raise AppError.conflict(ErrorCode.REVIEW_STALE_MAIN, "These changes moved since you viewed them — refresh and try again.")
     if status == "invalid_selection":
         raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "These changes couldn't be applied as displayed. Refresh to reload the review; if this keeps happening, please report it.")
     if resolved is None:
@@ -1468,7 +1478,7 @@ async def reject_all_instruction_hunks(
         selected_hunks=[(h.build_id, h.hunk_key) for h in body.hunks],
     )
     if status == "stale":
-        raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "These changes moved since you viewed them — refresh and try again.")
+        raise AppError.conflict(ErrorCode.REVIEW_STALE_MAIN, "These changes moved since you viewed them — refresh and try again.")
     if status == "invalid_selection":
         raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "These changes couldn't be applied as displayed. Refresh to reload the review; if this keeps happening, please report it.")
     if resolved is None:

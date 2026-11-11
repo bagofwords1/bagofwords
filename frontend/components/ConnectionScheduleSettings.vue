@@ -457,7 +457,7 @@ function onQueryLimitChange() {
 // effective = org toggle AND this switch. When the org toggle is off the switch
 // is disabled — a single connection can't opt back in.
 const alertEnabled = ref(true)       // the stored per-connection switch
-const orgAlertDefault = ref(true)    // the org-wide master toggle
+const orgAlertDefault = ref(false)   // the org-wide master toggle (opt-in)
 const alertModeError = ref<string | null>(null)
 const savingAlertMode = ref(false)
 

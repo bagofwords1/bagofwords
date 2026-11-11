@@ -325,7 +325,7 @@ def test_wildcard_rejection_error_includes_known_indexes(monkeypatch):
             return {"messages": [{"type": "ERROR",
                                   "text": "You must specify a specific index."}]}
 
-    monkeypatch.setattr("app.data_sources.clients.splunk_client.requests.post",
+    monkeypatch.setattr("app.data_sources.clients.splunk_client.pinned_request",
                         lambda *a, **k: FakeResp())
     monkeypatch.setattr(c, "_known_indexes", lambda: ["web", "app"])
 

@@ -38,6 +38,7 @@ from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_session
 
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import ForeignKey, Table, TableColumn, ServiceFormatter
@@ -230,7 +231,7 @@ class AppDynamicsClient(DataSourceClient):
 
     def _http(self) -> requests.Session:
         if self._session is None:
-            self._session = requests.Session()
+            self._session = pinned_session()
         return self._session
 
     @property

@@ -37,6 +37,14 @@ class DataSource(BaseSchema):
     # Data sources are private by default: only explicitly added members (plus
     # admins) can see them. Sharing org-wide is an opt-in (set is_public=True).
     is_public = Column(Boolean, nullable=False, default=False)
+    # What this data source is to its users (see app/services/data_source_kind.py):
+    #   agent     — something the org curates for analysis (databases, BI,
+    #               shared file catalogs, browser, custom APIs); picked by Auto.
+    #   connector — a live line into each person's own account or tools
+    #               (Gmail, Outlook, Teams, personal Drive, MCP presets); used
+    #               whenever that person is connected, always as them.
+    #   NULL      — not set explicitly: derived from the connection types.
+    kind = Column(String(16), nullable=True)
 
     # Per-agent channel availability: which connected channels (Slack, Teams,
     # WhatsApp, email, MCP) may query this agent. A JSON map of
