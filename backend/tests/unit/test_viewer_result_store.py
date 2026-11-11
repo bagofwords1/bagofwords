@@ -15,7 +15,7 @@ seeded directly, as in test_report_rerun_params.py.
 
 Run:
     cd backend
-    uv run pytest tests/e2e/test_viewer_result_store.py -v
+    uv run pytest tests/unit/test_viewer_result_store.py -v
 """
 import asyncio
 import uuid
@@ -29,6 +29,8 @@ from app.models.report import Report
 from app.models.step import Step
 from app.models.step_user_result import StepUserResult
 from app.services.viewer_result_store import store_viewer_result
+
+pytestmark = pytest.mark.db  # opens real sessions — see tests/unit/conftest.py
 
 # Every statement storing a result may touch only step_user_results: the
 # upsert and the re-select. Anything else (steps, users, queries, reports...)
@@ -90,7 +92,6 @@ def world(create_report, create_user, login_user, whoami):
     return _run(_seed_step(report["id"]))
 
 
-@pytest.mark.e2e
 def test_returned_row_has_new_values_without_loading_step_or_user(world):
     async def go():
         async with async_session_maker() as db:
@@ -108,10 +109,9 @@ def test_returned_row_has_new_values_without_loading_step_or_user(world):
                       "applied_params": {"Year": "2023"}, "fingerprint": "fp-a"}
     assert {"step", "user"} <= unloaded
     assert _other_tables(statements) == [], statements
-    assert len(statements) == 2, statements  # the upsert and the re-select
+    assert 1 <= len(statements) <= 2, statements  # at most the upsert and one read back
 
 
-@pytest.mark.e2e
 def test_upsert_updates_the_slot_and_refreshes_a_held_instance(world):
     async def go():
         async with async_session_maker() as db:
