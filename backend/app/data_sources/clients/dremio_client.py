@@ -17,14 +17,15 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 import requests
 
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
+from app.core.egress import pinned_session
 from app.data_sources.clients.base import DataSourceClient
-from app.data_sources.clients.progress import IndexingCancelled, discovery_items, discovery_phase, discovery_progress
+from app.data_sources.clients.progress import discovery_items, discovery_phase, discovery_progress
 
 logger = logging.getLogger(__name__)
 
@@ -39,13 +40,13 @@ class DremioClient(DataSourceClient):
     def __init__(
         self,
         url: str,
-        project_id: Optional[str] = None,
-        spaces: Optional[str] = None,
+        project_id: str | None = None,
+        spaces: str | None = None,
         verify_ssl: bool = True,
         max_rows: int = 100_000,
-        token: Optional[str] = None,
-        username: Optional[str] = None,
-        password: Optional[str] = None,
+        token: str | None = None,
+        username: str | None = None,
+        password: str | None = None,
         timeout_seconds: int = 300,
         **_ignored,
     ):
@@ -59,7 +60,7 @@ class DremioClient(DataSourceClient):
         self.username = username
         self.password = password
         self.timeout_seconds = int(timeout_seconds or 300)
-        self._http: Optional[requests.Session] = None
+        self._http: requests.Session | None = None
 
     # ------------------------------------------------------------------ http
 
@@ -72,7 +73,8 @@ class DremioClient(DataSourceClient):
     def _session(self) -> requests.Session:
         if self._http is not None:
             return self._http
-        s = requests.Session()
+        # Pinned: the outbound policy applies to every connection, redirects included.
+        s = pinned_session()
         s.verify = self.verify_ssl
         if self.token:
             s.headers["Authorization"] = f"Bearer {self.token}"
@@ -118,8 +120,8 @@ class DremioClient(DataSourceClient):
             delay = min(delay * 1.5, 2.0)
 
         total = int(job.get("rowCount") or 0)
-        rows: List[Dict[str, Any]] = []
-        columns: List[str] = []
+        rows: list[dict[str, Any]] = []
+        columns: list[str] = []
         offset = 0
         while offset < min(total, max_rows):
             page = self._request("GET", f"/job/{job_id}/results", params={"offset": offset, "limit": min(PAGE, max_rows - offset)})
@@ -156,7 +158,7 @@ class DremioClient(DataSourceClient):
             clause += f" AND ({ors})"
         return clause
 
-    def get_tables(self) -> List[Table]:
+    def get_tables(self) -> list[Table]:
         discovery_phase("reading_tables")
         tables_df = self._run(
             'SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA."TABLES" '
@@ -169,14 +171,14 @@ class DremioClient(DataSourceClient):
             f'FROM INFORMATION_SCHEMA."COLUMNS" WHERE {self._scope_clause("TABLE_SCHEMA")}',
             5_000_000,
         )
-        by_table: Dict[tuple, List[TableColumn]] = {}
+        by_table: dict[tuple, list[TableColumn]] = {}
         if not cols_df.empty:
             cols_df = cols_df.sort_values(["TABLE_SCHEMA", "TABLE_NAME", "ORDINAL_POSITION"])
             for r in cols_df.itertuples(index=False):
                 by_table.setdefault((r.TABLE_SCHEMA, r.TABLE_NAME), []).append(
                     TableColumn(name=r.COLUMN_NAME, dtype=str(r.DATA_TYPE))
                 )
-        out: List[Table] = []
+        out: list[Table] = []
         rows = list(tables_df.itertuples(index=False)) if not tables_df.empty else []
         for r in discovery_items(rows, "tables", label=lambda r: f"{r.TABLE_SCHEMA}.{r.TABLE_NAME}"):
             kind = "View (virtual dataset)" if str(r.TABLE_TYPE).upper() == "VIEW" else "Table"
@@ -192,10 +194,10 @@ class DremioClient(DataSourceClient):
         return out
 
     @discovery_progress
-    def get_schemas(self, progress_callback=None) -> List[Table]:
+    def get_schemas(self, progress_callback=None) -> list[Table]:
         return self.get_tables()
 
-    def get_schema(self, table_name: str) -> Optional[Table]:
+    def get_schema(self, table_name: str) -> Table | None:
         for t in self.get_schemas():
             if t.name == table_name:
                 return t

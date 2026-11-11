@@ -14,7 +14,8 @@ emulators and public buckets.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Iterator, Optional, Tuple
+from collections.abc import Iterator
+from typing import Any
 
 from app.data_sources.clients._object_store_common import ObjectNotFound, ObjectStoreClient
 
@@ -30,20 +31,20 @@ class GCSClient(ObjectStoreClient):
 
     def __init__(
         self,
-        bucket: Optional[str] = None,
-        prefix: Optional[str] = None,
-        project: Optional[str] = None,
-        endpoint_url: Optional[str] = None,
-        include_globs: Optional[str] = None,
+        bucket: str | None = None,
+        prefix: str | None = None,
+        project: str | None = None,
+        endpoint_url: str | None = None,
+        include_globs: str | None = None,
         recursive: bool = True,
         max_file_mb: int = 100,
-        index_mode: Optional[str] = None,
+        index_mode: str | None = None,
         index_content: bool = True,
         max_catalog_objects: int = 5000,
         max_keywords: int = 50,
-        allowed_extensions: Optional[str] = None,
+        allowed_extensions: str | None = None,
         # Credentials (one variant's worth is present at a time).
-        service_account_json: Optional[str] = None,
+        service_account_json: str | None = None,
         **_ignored,
     ):
         super().__init__(
@@ -109,7 +110,7 @@ class GCSClient(ObjectStoreClient):
 
     # ---------------------------------------------------- storage primitives
 
-    def _iter_list(self, list_prefix: str, recursive: bool) -> Iterator[Dict[str, Any]]:
+    def _iter_list(self, list_prefix: str, recursive: bool) -> Iterator[dict[str, Any]]:
         it = self._client().list_blobs(
             self.bucket,
             prefix=list_prefix or None,
@@ -127,7 +128,7 @@ class GCSClient(ObjectStoreClient):
             raise ObjectNotFound(key)
         return blob
 
-    def _head(self, key: str) -> Dict[str, Any]:
+    def _head(self, key: str) -> dict[str, Any]:
         blob = self._get_blob(key)
         return {
             "size": int(blob.size or 0),
@@ -137,7 +138,7 @@ class GCSClient(ObjectStoreClient):
             "version": f"{blob.generation}:{blob.etag}:{blob.size}",
         }
 
-    def _download(self, key: str, start: Optional[int] = None, end: Optional[int] = None) -> Tuple[bytes, Optional[int]]:
+    def _download(self, key: str, start: int | None = None, end: int | None = None) -> tuple[bytes, int | None]:
         if start is None:
             blob = self._bucket().blob(key)
             data = blob.download_as_bytes()
@@ -152,7 +153,7 @@ class GCSClient(ObjectStoreClient):
         data = blob.download_as_bytes(start=start, end=last, if_generation_match=blob.generation)
         return data, size
 
-    def _open_body(self, key: str, head: Dict[str, Any], offset: int):
+    def _open_body(self, key: str, head: dict[str, Any], offset: int):
         from google.api_core import exceptions as gexc
 
         from app.data_sources.clients._streaming_grep import FileChanged

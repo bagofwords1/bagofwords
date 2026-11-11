@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import ssl as _ssl
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -41,13 +41,13 @@ class CassandraClient(DataSourceClient):
         self,
         contact_points: str,
         port: int = 9042,
-        keyspaces: Optional[str] = None,
-        local_datacenter: Optional[str] = None,
+        keyspaces: str | None = None,
+        local_datacenter: str | None = None,
         ssl: bool = False,
         verify_ssl: bool = True,
         max_rows: int = 5000,
-        username: Optional[str] = None,
-        password: Optional[str] = None,
+        username: str | None = None,
+        password: str | None = None,
         connect_timeout: int = 15,
         request_timeout: int = 60,
         **_ignored,
@@ -83,7 +83,7 @@ class CassandraClient(DataSourceClient):
             request_timeout=self.request_timeout,
             row_factory=dict_factory,
         )
-        kwargs: Dict[str, Any] = dict(
+        kwargs: dict[str, Any] = dict(
             contact_points=self.contact_points,
             port=self.port,
             execution_profiles={EXEC_PROFILE_DEFAULT: profile},
@@ -120,7 +120,7 @@ class CassandraClient(DataSourceClient):
 
     # ---------------------------------------------------------------- catalog
 
-    def _keyspace_names(self, session) -> List[str]:
+    def _keyspace_names(self, session) -> list[str]:
         rows = session.execute("SELECT keyspace_name FROM system_schema.keyspaces")
         names = sorted(r["keyspace_name"] for r in rows if r["keyspace_name"] not in _SYSTEM_KEYSPACES)
         if self.keyspaces:
@@ -128,9 +128,9 @@ class CassandraClient(DataSourceClient):
             names = [n for n in names if n in wanted]
         return names
 
-    def get_tables(self) -> List[Table]:
+    def get_tables(self) -> list[Table]:
         session = self._connect()
-        tables: List[Table] = []
+        tables: list[Table] = []
         for ks in discovery_items(self._keyspace_names(session), "keyspaces", label=str):
             try:
                 tmeta = {
@@ -139,7 +139,7 @@ class CassandraClient(DataSourceClient):
                         "SELECT table_name, comment FROM system_schema.tables WHERE keyspace_name = %s", (ks,)
                     )
                 }
-                cols: Dict[str, List[Dict[str, Any]]] = {}
+                cols: dict[str, list[dict[str, Any]]] = {}
                 for r in session.execute(
                     "SELECT table_name, column_name, type, kind, position, clustering_order "
                     "FROM system_schema.columns WHERE keyspace_name = %s",
@@ -157,7 +157,7 @@ class CassandraClient(DataSourceClient):
         return tables
 
     @staticmethod
-    def _table(ks: str, tname: str, rows: List[Dict[str, Any]], comment: Optional[str]) -> Table:
+    def _table(ks: str, tname: str, rows: list[dict[str, Any]], comment: str | None) -> Table:
         def order(r):
             kind_rank = {"partition_key": 0, "clustering": 1, "static": 2, "regular": 3}
             return (kind_rank.get(r["kind"], 4), r["position"] if r["position"] >= 0 else 0, r["column_name"])
@@ -184,10 +184,10 @@ class CassandraClient(DataSourceClient):
         )
 
     @discovery_progress
-    def get_schemas(self, progress_callback=None) -> List[Table]:
+    def get_schemas(self, progress_callback=None) -> list[Table]:
         return self.get_tables()
 
-    def get_schema(self, table_name: str) -> Optional[Table]:
+    def get_schema(self, table_name: str) -> Table | None:
         for t in self.get_schemas():
             if t.name == table_name:
                 return t
@@ -198,7 +198,7 @@ class CassandraClient(DataSourceClient):
 
     # ----------------------------------------------------------------- query
 
-    def execute_query(self, query: str, parameters: Optional[Any] = None, limit: Optional[int] = None) -> pd.DataFrame:
+    def execute_query(self, query: str, parameters: Any | None = None, limit: int | None = None) -> pd.DataFrame:
         """Run one CQL SELECT and return rows as a DataFrame (capped at max_rows)."""
         from cassandra.query import SimpleStatement
 
@@ -207,7 +207,7 @@ class CassandraClient(DataSourceClient):
         session = self._connect()
         stmt = SimpleStatement(query, fetch_size=min(1000, cap))
         result = session.execute(stmt, parameters)
-        rows: List[Dict[str, Any]] = []
+        rows: list[dict[str, Any]] = []
         truncated = False
         for row in result:
             if len(rows) >= cap:

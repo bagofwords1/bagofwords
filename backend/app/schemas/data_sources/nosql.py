@@ -6,8 +6,6 @@ assume-role, default chain) from configs.py.
 """
 from __future__ import annotations
 
-from typing import Optional
-
 from pydantic import BaseModel, Field
 
 
@@ -35,19 +33,19 @@ def _max_rows_field(noun: str, default: int = 5000):
 # ------------------------------------------------------------------ DynamoDB
 
 class DynamoDBConfig(BaseModel):
-    region: Optional[str] = Field(
+    region: str | None = Field(
         None,
         title="Region",
         description="AWS region of the tables (e.g. 'us-east-1').",
         json_schema_extra={"ui:type": "string"},
     )
-    tables: Optional[str] = Field(
+    tables: str | None = Field(
         None,
         title="Tables",
         description="Comma-separated table names to expose. Leave blank for every table the credentials can list.",
         json_schema_extra={"ui:type": "string"},
     )
-    endpoint_url: Optional[str] = Field(
+    endpoint_url: str | None = Field(
         None,
         title="Endpoint URL",
         description="Custom endpoint (VPC endpoint or DynamoDB Local). Leave blank for AWS.",
@@ -95,7 +93,7 @@ class CosmosDBConfig(BaseModel):
         description="Database name.",
         json_schema_extra={"ui:type": "string"},
     )
-    containers: Optional[str] = Field(
+    containers: str | None = Field(
         None,
         title="Containers",
         description="Comma-separated containers to expose. Leave blank for every container in the database.",
@@ -129,7 +127,7 @@ class CouchbaseConfig(BaseModel):
         json_schema_extra={"ui:type": "string"},
     )
     bucket: str = Field(..., title="Bucket", description="Bucket to expose.", json_schema_extra={"ui:type": "string"})
-    scope: Optional[str] = Field(
+    scope: str | None = Field(
         None,
         title="Scope",
         description="Limit to one scope (e.g. 'inventory'). Leave blank for every scope in the bucket.",
@@ -148,8 +146,8 @@ class CouchbaseConfig(BaseModel):
 # ------------------------------------------------------------------ Cassandra
 
 class CassandraCredentials(BaseModel):
-    username: Optional[str] = Field(None, title="Username", description="Leave blank when authentication is disabled.", json_schema_extra={"ui:type": "string"})
-    password: Optional[str] = Field(None, title="Password", description="", json_schema_extra={"ui:type": "password"})
+    username: str | None = Field(None, title="Username", description="Leave blank when authentication is disabled.", json_schema_extra={"ui:type": "string"})
+    password: str | None = Field(None, title="Password", description="", json_schema_extra={"ui:type": "password"})
 
 
 class CassandraConfig(BaseModel):
@@ -160,13 +158,13 @@ class CassandraConfig(BaseModel):
         json_schema_extra={"ui:type": "string"},
     )
     port: int = Field(9042, ge=1, le=65535, title="Port", description="Native protocol port (9042; 9142 for Amazon Keyspaces).", json_schema_extra={"ui:type": "number"})
-    keyspaces: Optional[str] = Field(
+    keyspaces: str | None = Field(
         None,
         title="Keyspaces",
         description="Comma-separated keyspaces to expose. Leave blank for every non-system keyspace.",
         json_schema_extra={"ui:type": "string"},
     )
-    local_datacenter: Optional[str] = Field(
+    local_datacenter: str | None = Field(
         None,
         title="Local Datacenter",
         description="Datacenter to route queries to (e.g. 'datacenter1'). Leave blank to use the contact point's.",

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -32,9 +32,9 @@ class CouchbaseClient(DataSourceClient):
         self,
         connection_string: str,
         bucket: str,
-        scope: Optional[str] = None,
-        username: Optional[str] = None,
-        password: Optional[str] = None,
+        scope: str | None = None,
+        username: str | None = None,
+        password: str | None = None,
         verify_ssl: bool = True,
         sample_size: int = 100,
         max_rows: int = 5000,
@@ -95,7 +95,7 @@ class CouchbaseClient(DataSourceClient):
 
     # ---------------------------------------------------------------- catalog
 
-    def _collections(self) -> List[tuple]:
+    def _collections(self) -> list[tuple]:
         bucket = self._connect().bucket(self.bucket)
         out = []
         for scope in bucket.collections().get_all_scopes():
@@ -107,11 +107,11 @@ class CouchbaseClient(DataSourceClient):
                 out.append((scope.name, coll.name))
         return sorted(out)
 
-    def _sample(self, scope: str, collection: str) -> List[Dict[str, Any]]:
+    def _sample(self, scope: str, collection: str) -> list[dict[str, Any]]:
         from couchbase.kv_range_scan import SamplingScan
 
         coll = self._connect().bucket(self.bucket).scope(scope).collection(collection)
-        docs: List[Dict[str, Any]] = []
+        docs: list[dict[str, Any]] = []
         try:
             for item in coll.scan(SamplingScan(self.sample_size)):
                 body = item.content_as[dict]
@@ -131,8 +131,8 @@ class CouchbaseClient(DataSourceClient):
     def _keyspace(self, scope: str, collection: str) -> str:
         return f"`{self.bucket}`.`{scope}`.`{collection}`"
 
-    def get_tables(self) -> List[Table]:
-        tables: List[Table] = []
+    def get_tables(self) -> list[Table]:
+        tables: list[Table] = []
         for scope, coll in discovery_items(self._collections(), "collections", label=lambda sc: f"{sc[0]}.{sc[1]}"):
             try:
                 docs = self._sample(scope, coll)
@@ -158,10 +158,10 @@ class CouchbaseClient(DataSourceClient):
         return tables
 
     @discovery_progress
-    def get_schemas(self, progress_callback=None) -> List[Table]:
+    def get_schemas(self, progress_callback=None) -> list[Table]:
         return self.get_tables()
 
-    def get_schema(self, table_name: str) -> Optional[Table]:
+    def get_schema(self, table_name: str) -> Table | None:
         for t in self.get_schemas():
             if t.name == table_name:
                 return t
@@ -172,7 +172,7 @@ class CouchbaseClient(DataSourceClient):
 
     # ----------------------------------------------------------------- query
 
-    def execute_query(self, statement: str, parameters: Optional[Any] = None, limit: Optional[int] = None) -> pd.DataFrame:
+    def execute_query(self, statement: str, parameters: Any | None = None, limit: int | None = None) -> pd.DataFrame:
         """Run one SQL++ SELECT (read-only on the server) → DataFrame.
 
         `parameters`: a dict for $named placeholders or a list for $1, $2 ….
@@ -181,13 +181,13 @@ class CouchbaseClient(DataSourceClient):
 
         statement = ensure_single_select(statement, "SQL++", extra_read_verbs=("WITH", "EXPLAIN", "INFER"))
         cap = max(1, min(int(limit or self.max_rows), self.max_rows))
-        kwargs: Dict[str, Any] = {"read_only": True, "timeout": self.timeout, "metrics": False}
+        kwargs: dict[str, Any] = {"read_only": True, "timeout": self.timeout, "metrics": False}
         if isinstance(parameters, dict):
             kwargs["named_parameters"] = parameters
         elif parameters:
             kwargs["positional_parameters"] = list(parameters)
         result = self._connect().query(statement, QueryOptions(**kwargs))
-        rows: List[Any] = []
+        rows: list[Any] = []
         truncated = False
         for row in result.rows():
             if len(rows) >= cap:

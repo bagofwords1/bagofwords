@@ -30,9 +30,23 @@ MARCH = sum(1 for i in range(N) if 1 + i % 6 == 3)
 REVENUE = {r: round(sum(10 + i * 1.5 for i in range(N) if REGIONS[i % 3] == r), 2) for r in REGIONS}
 
 
+# Containers started for the current backend; stopped on teardown even when
+# seeding fails half-way (otherwise a failed setup leaks a running server).
+_STARTED: list = []
+
+
+def _stop_started() -> None:
+    while _STARTED:
+        try:
+            _STARTED.pop().stop()
+        except Exception:
+            pass
+
+
 def _start(container, what):
     try:
         container.start()
+        _STARTED.append(container)
     except Exception as e:
         pytest.skip(f"Docker / {what} unavailable: {e}")
     return container
@@ -147,9 +161,11 @@ FACTORIES = {"iceberg": _iceberg_rest, "dremio": _dremio, "hive": _hive}
 
 @pytest.fixture(scope="module", params=list(FACTORIES))
 def lake(request):
-    container, lake = FACTORIES[request.param]()
-    yield lake
-    container.stop()
+    try:
+        _container, lake = FACTORIES[request.param]()
+        yield lake
+    finally:
+        _stop_started()
 
 
 def test_connection_succeeds(lake):
@@ -165,7 +181,7 @@ def test_catalog_lists_the_orders_table(lake):
 
 def test_aggregate_matches_the_seed(lake):
     df = lake.client.execute_query(lake.revenue_sql)
-    assert {r: round(float(v), 2) for r, v in zip(df["region"], df["revenue"])} == REVENUE
+    assert {r: round(float(v), 2) for r, v in zip(df["region"], df["revenue"], strict=True)} == REVENUE
 
 
 def test_date_or_partition_filter(lake):

@@ -14,7 +14,8 @@ import datetime as _dt
 import decimal
 import re
 from collections import OrderedDict
-from typing import Any, Dict, Iterable, List, Optional
+from collections.abc import Iterable
+from typing import Any
 
 import pandas as pd
 
@@ -47,7 +48,7 @@ def _scalar_type(value: Any) -> str:
     return type(value).__name__
 
 
-def _walk(doc: Dict[str, Any], prefix: str, depth: int, out: "OrderedDict[str, set]") -> None:
+def _walk(doc: dict[str, Any], prefix: str, depth: int, out: OrderedDict[str, set]) -> None:
     for key, value in doc.items():
         path = f"{prefix}.{key}" if prefix else str(key)
         if isinstance(value, dict):
@@ -64,14 +65,14 @@ def _walk(doc: Dict[str, Any], prefix: str, depth: int, out: "OrderedDict[str, s
             out.setdefault(path, set()).add(_scalar_type(value))
 
 
-def infer_columns(samples: Iterable[Dict[str, Any]], key_order: Optional[List[str]] = None) -> List[TableColumn]:
+def infer_columns(samples: Iterable[dict[str, Any]], key_order: list[str] | None = None) -> list[TableColumn]:
     """Union of attribute paths across `samples` with their observed types.
 
     Keys listed in `key_order` come first (partition/sort keys, ids). A path
     seen with several types is reported as e.g. `string|integer`; `null` only
     shows when it is the sole type seen.
     """
-    paths: "OrderedDict[str, set]" = OrderedDict()
+    paths: OrderedDict[str, set] = OrderedDict()
     for doc in samples:
         if isinstance(doc, dict):
             _walk(doc, "", 0, paths)
@@ -79,7 +80,7 @@ def infer_columns(samples: Iterable[Dict[str, Any]], key_order: Optional[List[st
     if key_order:
         rank = {k: i for i, k in enumerate(key_order)}
         ordered.sort(key=lambda kv: rank.get(kv[0], len(rank)))
-    cols: List[TableColumn] = []
+    cols: list[TableColumn] = []
     for path, types in ordered[:MAX_COLUMNS]:
         real = sorted(t for t in types if t != "null") or ["null"]
         if set(real) == {"integer", "number"}:
@@ -110,7 +111,7 @@ def to_plain(value: Any) -> Any:
     return value
 
 
-def rows_to_frame(rows: List[Dict[str, Any]], key_order: Optional[List[str]] = None) -> pd.DataFrame:
+def rows_to_frame(rows: list[dict[str, Any]], key_order: list[str] | None = None) -> pd.DataFrame:
     """Items → DataFrame with top-level attributes as columns (nested maps and
     lists stay as Python values in the cell), key attributes first."""
     plain = [to_plain(r) for r in rows]

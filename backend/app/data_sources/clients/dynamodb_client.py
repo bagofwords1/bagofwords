@@ -16,9 +16,8 @@ default credential chain. `endpoint_url` targets DynamoDB Local / VPC endpoints.
 """
 from __future__ import annotations
 
-import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -40,15 +39,15 @@ class DynamodbClient(DataSourceClient):
 
     def __init__(
         self,
-        region: Optional[str] = None,
-        endpoint_url: Optional[str] = None,
-        tables: Optional[str] = None,
+        region: str | None = None,
+        endpoint_url: str | None = None,
+        tables: str | None = None,
         sample_size: int = 100,
         max_items: int = 5000,
-        access_key: Optional[str] = None,
-        secret_key: Optional[str] = None,
-        session_token: Optional[str] = None,
-        role_arn: Optional[str] = None,
+        access_key: str | None = None,
+        secret_key: str | None = None,
+        session_token: str | None = None,
+        role_arn: str | None = None,
         **_ignored,
     ):
         super().__init__()
@@ -69,7 +68,7 @@ class DynamodbClient(DataSourceClient):
         import boto3
 
         if self.role_arn:
-            sts_kwargs: Dict[str, Any] = {"region_name": self.region}
+            sts_kwargs: dict[str, Any] = {"region_name": self.region}
             if self.access_key and self.secret_key:
                 sts_kwargs["aws_access_key_id"] = self.access_key
                 sts_kwargs["aws_secret_access_key"] = self.secret_key
@@ -108,7 +107,7 @@ class DynamodbClient(DataSourceClient):
     # ---------------------------------------------------------------- values
 
     @staticmethod
-    def _deserialize(item: Dict[str, Any]) -> Dict[str, Any]:
+    def _deserialize(item: dict[str, Any]) -> dict[str, Any]:
         from boto3.dynamodb.types import TypeDeserializer
 
         d = TypeDeserializer()
@@ -116,8 +115,8 @@ class DynamodbClient(DataSourceClient):
 
     # ---------------------------------------------------------------- catalog
 
-    def _table_names(self) -> List[str]:
-        names: List[str] = []
+    def _table_names(self) -> list[str]:
+        names: list[str] = []
         for page in self._client().get_paginator("list_tables").paginate():
             names.extend(page.get("TableNames", []))
         if self.table_allowlist:
@@ -126,7 +125,7 @@ class DynamodbClient(DataSourceClient):
         return sorted(names)
 
     @staticmethod
-    def _key_names(key_schema: List[Dict[str, str]]) -> List[str]:
+    def _key_names(key_schema: list[dict[str, str]]) -> list[str]:
         order = {"HASH": 0, "RANGE": 1}
         return [k["AttributeName"] for k in sorted(key_schema, key=lambda k: order.get(k["KeyType"], 2))]
 
@@ -140,7 +139,7 @@ class DynamodbClient(DataSourceClient):
         items = [self._deserialize(i) for i in sample]
 
         inferred = {c.name: c for c in infer_columns(items, key_order=keys)}
-        columns: List[TableColumn] = []
+        columns: list[TableColumn] = []
         for k in keys:
             role = "partition key" if k == keys[0] else "sort key"
             columns.append(TableColumn(name=k, dtype=attr_types.get(k, "string"), description=role))
@@ -181,8 +180,8 @@ class DynamodbClient(DataSourceClient):
             }},
         )
 
-    def get_tables(self) -> List[Table]:
-        tables: List[Table] = []
+    def get_tables(self) -> list[Table]:
+        tables: list[Table] = []
         for name in discovery_items(self._table_names(), "tables", label=str):
             try:
                 tables.append(self._describe(name))
@@ -194,7 +193,7 @@ class DynamodbClient(DataSourceClient):
         return tables
 
     @discovery_progress
-    def get_schemas(self, progress_callback=None) -> List[Table]:
+    def get_schemas(self, progress_callback=None) -> list[Table]:
         return self.get_tables()
 
     def get_schema(self, table_name: str) -> Table:
@@ -205,7 +204,7 @@ class DynamodbClient(DataSourceClient):
 
     # ----------------------------------------------------------------- query
 
-    def execute_query(self, statement: str, parameters: Optional[List[Any]] = None, limit: Optional[int] = None) -> pd.DataFrame:
+    def execute_query(self, statement: str, parameters: list[Any] | None = None, limit: int | None = None) -> pd.DataFrame:
         """Run one PartiQL SELECT and return the items as a DataFrame.
 
         `parameters` binds `?` placeholders (plain Python values). Pages are
@@ -213,14 +212,14 @@ class DynamodbClient(DataSourceClient):
         """
         statement = ensure_single_select(statement, "PartiQL")
         cap = max(1, min(int(limit or self.max_items), self.max_items))
-        kwargs: Dict[str, Any] = {"Statement": statement}
+        kwargs: dict[str, Any] = {"Statement": statement}
         if parameters:
             from boto3.dynamodb.types import TypeSerializer
 
             ser = TypeSerializer()
             kwargs["Parameters"] = [ser.serialize(_to_ddb(p)) for p in parameters]
 
-        rows: List[Dict[str, Any]] = []
+        rows: list[dict[str, Any]] = []
         truncated = False
         ddb = self._client()
         while True:
@@ -243,7 +242,7 @@ class DynamodbClient(DataSourceClient):
             logger.info("dynamodb: result capped at %d items", cap)
         return df
 
-    def _keys_for_statement(self, statement: str) -> List[str]:
+    def _keys_for_statement(self, statement: str) -> list[str]:
         import re
 
         m = re.search(r'\bFROM\s+"([^"]+)"', statement, re.IGNORECASE)

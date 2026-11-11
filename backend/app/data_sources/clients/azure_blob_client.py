@@ -12,7 +12,8 @@ deployment's managed identity (DefaultAzureCredential).
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Iterator, Optional, Tuple
+from collections.abc import Iterator
+from typing import Any
 
 from app.data_sources.clients._object_store_common import (
     ChunkedBody,
@@ -30,25 +31,25 @@ class AzureBlobClient(ObjectStoreClient):
 
     def __init__(
         self,
-        container: Optional[str] = None,
-        account_name: Optional[str] = None,
-        prefix: Optional[str] = None,
-        account_url: Optional[str] = None,
-        include_globs: Optional[str] = None,
+        container: str | None = None,
+        account_name: str | None = None,
+        prefix: str | None = None,
+        account_url: str | None = None,
+        include_globs: str | None = None,
         recursive: bool = True,
         max_file_mb: int = 100,
-        index_mode: Optional[str] = None,
+        index_mode: str | None = None,
         index_content: bool = True,
         max_catalog_objects: int = 5000,
         max_keywords: int = 50,
-        allowed_extensions: Optional[str] = None,
+        allowed_extensions: str | None = None,
         # Credentials (one variant's worth is present at a time).
-        connection_string: Optional[str] = None,
-        account_key: Optional[str] = None,
-        sas_token: Optional[str] = None,
-        tenant_id: Optional[str] = None,
-        client_id: Optional[str] = None,
-        client_secret: Optional[str] = None,
+        connection_string: str | None = None,
+        account_key: str | None = None,
+        sas_token: str | None = None,
+        tenant_id: str | None = None,
+        client_id: str | None = None,
+        client_secret: str | None = None,
         **_ignored,
     ):
         super().__init__(
@@ -133,7 +134,7 @@ class AzureBlobClient(ObjectStoreClient):
 
     # ---------------------------------------------------- storage primitives
 
-    def _iter_list(self, list_prefix: str, recursive: bool) -> Iterator[Dict[str, Any]]:
+    def _iter_list(self, list_prefix: str, recursive: bool) -> Iterator[dict[str, Any]]:
         container = self._client()
         if recursive:
             for b in container.list_blobs(name_starts_with=list_prefix or None):
@@ -147,7 +148,7 @@ class AzureBlobClient(ObjectStoreClient):
             else:
                 yield {"key": item.name, "size": item.size or 0, "modified": item.last_modified}
 
-    def _head(self, key: str) -> Dict[str, Any]:
+    def _head(self, key: str) -> dict[str, Any]:
         from azure.core.exceptions import ResourceNotFoundError
 
         try:
@@ -161,7 +162,7 @@ class AzureBlobClient(ObjectStoreClient):
             "version": f"{props.etag}:{props.size}:{props.last_modified}",
         }
 
-    def _download(self, key: str, start: Optional[int] = None, end: Optional[int] = None) -> Tuple[bytes, Optional[int]]:
+    def _download(self, key: str, start: int | None = None, end: int | None = None) -> tuple[bytes, int | None]:
         from azure.core.exceptions import HttpResponseError
 
         blob = self._client().get_blob_client(key)
@@ -179,7 +180,7 @@ class AzureBlobClient(ObjectStoreClient):
         data = downloader.readall()
         # On a ranged download `properties.size` is the RANGE length; the
         # object's total size is the tail of Content-Range ("bytes 0-99/25071").
-        total: Optional[int] = None
+        total: int | None = None
         content_range = getattr(downloader.properties, "content_range", None) or ""
         if "/" in content_range:
             try:
@@ -190,7 +191,7 @@ class AzureBlobClient(ObjectStoreClient):
             total = int(self._head(key)["size"])
         return data, total
 
-    def _open_body(self, key: str, head: Dict[str, Any], offset: int):
+    def _open_body(self, key: str, head: dict[str, Any], offset: int):
         from azure.core import MatchConditions
         from azure.core.exceptions import ResourceModifiedError, ResourceNotFoundError
 

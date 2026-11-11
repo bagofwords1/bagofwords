@@ -33,6 +33,19 @@ STATUS_COUNTS = {s: sum(1 for o in ORDERS if o["status"] == s) for s in ("OPEN",
 CAP = 25
 
 
+# Containers started for the current backend; stopped on teardown even when
+# seeding fails half-way (otherwise a failed setup leaks a running server).
+_STARTED: list = []
+
+
+def _stop_started() -> None:
+    while _STARTED:
+        try:
+            _STARTED.pop().stop()
+        except Exception:
+            pass
+
+
 def _start(image, ports, env=None, command=None):
     c = tc_core.DockerContainer(image)
     for p in ports:
@@ -43,6 +56,7 @@ def _start(image, ports, env=None, command=None):
         c = c.with_command(command)
     try:
         c.start()
+        _STARTED.append(c)
     except Exception as e:  # no Docker here
         pytest.skip(f"Docker / {image} unavailable: {e}")
     return c
@@ -174,6 +188,7 @@ def _couchbase():
         c = c.with_bind_ports(p, p)
     try:
         c.start()
+        _STARTED.append(c)
     except Exception as e:
         pytest.skip(f"Docker / couchbase unavailable (ports busy?): {e}")
 
@@ -211,7 +226,7 @@ def _couchbase():
 
     def status_counts(cl):
         df = cl.execute_query(f"SELECT o.status, COUNT(*) AS n FROM {ks} AS o GROUP BY o.status")
-        return dict(zip(df["status"], df["n"]))
+        return dict(zip(df["status"], df["n"], strict=True))
 
     return c, Backend(
         "couchbase", client, "sales.orders",
@@ -247,7 +262,7 @@ def _cosmosdb():
 
     def status_counts(cl):
         df = cl.execute_query("SELECT o.status, COUNT(1) AS n FROM orders o GROUP BY o.status")
-        return dict(zip(df["status"], df["n"]))
+        return dict(zip(df["status"], df["n"], strict=True))
 
     return c, Backend(
         "cosmosdb", client, "orders",
@@ -264,12 +279,14 @@ FACTORIES = {"dynamodb": _dynamodb, "cassandra": _cassandra, "couchbase": _couch
 
 @pytest.fixture(scope="module", params=list(FACTORIES))
 def backend(request):
-    container, b = FACTORIES[request.param]()
-    yield b
-    close = getattr(b.client, "close", None)
-    if close:
-        close()
-    container.stop()
+    try:
+        _container, b = FACTORIES[request.param]()
+        yield b
+        close = getattr(b.client, "close", None)
+        if close:
+            close()
+    finally:
+        _stop_started()
 
 
 # ----------------------------------------------------------------- contract

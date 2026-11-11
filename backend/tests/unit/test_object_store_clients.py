@@ -65,8 +65,8 @@ def test_every_auth_variant_builds_a_client(type_name):
 
     entry = REGISTRY[type_name]
     config_fields = set(entry.config_schema.model_fields)
-    for name, variant in entry.credentials_auth.by_auth.items():
-        kwargs = {f: "x" for f in variant.schema.model_fields}
+    for variant in entry.credentials_auth.by_auth.values():
+        kwargs = dict.fromkeys(variant.schema.model_fields, "x")
         kwargs.update({f: "x" for f in config_fields if f not in {"recursive", "max_file_mb", "max_catalog_objects"}})
         TYPES[type_name](**kwargs)  # must not raise on unknown/missing kwargs
 

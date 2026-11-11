@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -41,14 +41,14 @@ class CosmosdbClient(DataSourceClient):
         self,
         endpoint: str,
         database: str,
-        containers: Optional[str] = None,
+        containers: str | None = None,
         verify_ssl: bool = True,
         sample_size: int = 100,
         max_items: int = 5000,
-        account_key: Optional[str] = None,
-        tenant_id: Optional[str] = None,
-        client_id: Optional[str] = None,
-        client_secret: Optional[str] = None,
+        account_key: str | None = None,
+        tenant_id: str | None = None,
+        client_id: str | None = None,
+        client_secret: str | None = None,
         **_ignored,
     ):
         super().__init__()
@@ -82,7 +82,7 @@ class CosmosdbClient(DataSourceClient):
             return self._db
         from azure.cosmos import CosmosClient
 
-        kwargs: Dict[str, Any] = {"connection_timeout": 30}
+        kwargs: dict[str, Any] = {"connection_timeout": 30}
         if not self.verify_ssl:
             kwargs["connection_verify"] = False
             # The emulator advertises its own endpoints; don't hop off the
@@ -97,7 +97,7 @@ class CosmosdbClient(DataSourceClient):
 
     # ---------------------------------------------------------------- catalog
 
-    def _container_names(self) -> List[str]:
+    def _container_names(self) -> list[str]:
         names = sorted(c["id"] for c in self._database().list_containers())
         if self.container_allowlist:
             wanted = set(self.container_allowlist)
@@ -105,7 +105,7 @@ class CosmosdbClient(DataSourceClient):
         return names
 
     @staticmethod
-    def _clean(doc: Dict[str, Any]) -> Dict[str, Any]:
+    def _clean(doc: dict[str, Any]) -> dict[str, Any]:
         return {k: v for k, v in doc.items() if k not in _SYSTEM_PROPS}
 
     def _describe(self, name: str) -> Table:
@@ -139,8 +139,8 @@ class CosmosdbClient(DataSourceClient):
             metadata_json={"cosmosdb": {"database": self.database, "partition_key": pk_paths, "sampled": len(docs)}},
         )
 
-    def get_tables(self) -> List[Table]:
-        tables: List[Table] = []
+    def get_tables(self) -> list[Table]:
+        tables: list[Table] = []
         for name in discovery_items(self._container_names(), "containers", label=str):
             try:
                 tables.append(self._describe(name))
@@ -152,7 +152,7 @@ class CosmosdbClient(DataSourceClient):
         return tables
 
     @discovery_progress
-    def get_schemas(self, progress_callback=None) -> List[Table]:
+    def get_schemas(self, progress_callback=None) -> list[Table]:
         return self.get_tables()
 
     def get_schema(self, table_name: str) -> Table:
@@ -163,7 +163,7 @@ class CosmosdbClient(DataSourceClient):
 
     # ----------------------------------------------------------------- query
 
-    def _resolve_container(self, query: str, container: Optional[str]) -> str:
+    def _resolve_container(self, query: str, container: str | None) -> str:
         if container:
             return container
         m = _FROM_IDENT.search(query)
@@ -182,10 +182,10 @@ class CosmosdbClient(DataSourceClient):
     def execute_query(
         self,
         query: str,
-        container: Optional[str] = None,
-        parameters: Optional[Any] = None,
-        partition_key: Optional[Any] = None,
-        limit: Optional[int] = None,
+        container: str | None = None,
+        parameters: Any | None = None,
+        partition_key: Any | None = None,
+        limit: int | None = None,
     ) -> pd.DataFrame:
         """Run one Cosmos SQL SELECT against a container → DataFrame.
 
@@ -197,13 +197,13 @@ class CosmosdbClient(DataSourceClient):
         name = self._resolve_container(query, container)
         if isinstance(parameters, dict):
             parameters = [{"name": k if k.startswith("@") else f"@{k}", "value": v} for k, v in parameters.items()]
-        kwargs: Dict[str, Any] = {"parameters": parameters or None, "max_item_count": min(1000, cap)}
+        kwargs: dict[str, Any] = {"parameters": parameters or None, "max_item_count": min(1000, cap)}
         if partition_key is not None:
             kwargs["partition_key"] = partition_key
         else:
             kwargs["enable_cross_partition_query"] = True
         items = self._database().get_container_client(name).query_items(query, **kwargs)
-        rows: List[Any] = []
+        rows: list[Any] = []
         truncated = False
         for item in items:
             if len(rows) >= cap:

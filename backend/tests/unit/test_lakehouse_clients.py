@@ -15,7 +15,6 @@ import pytest
 
 from app.ai.code_execution.sql_guard import ReadOnlyViolation, dialect_for_client
 
-
 # ================================================================ Iceberg
 
 
@@ -78,7 +77,7 @@ def test_iceberg_catalog_describes_partitioning_and_rows(iceberg_catalog):
 def test_iceberg_sql_aggregates_and_joins(iceberg_catalog):
     c = _ice(iceberg_catalog)
     df = c.execute_query("SELECT region, COUNT(*) AS n FROM sales.orders GROUP BY region ORDER BY region")
-    assert dict(zip(df.region, df.n)) == {"AMER": 30, "APAC": 30, "EMEA": 30}
+    assert dict(zip(df.region, df.n, strict=True)) == {"AMER": 30, "APAC": 30, "EMEA": 30}
     df = c.execute_query(
         "SELECT r.manager, SUM(o.amount) AS total FROM sales.orders o JOIN sales.regions r "
         "ON o.region = r.region GROUP BY 1 ORDER BY 1")
@@ -96,7 +95,7 @@ def test_iceberg_time_travel(iceberg_catalog):
     c = _ice(iceberg_catalog)
     first = iceberg_catalog["orders"].snapshots()[0]
     assert int(c.execute_query("SELECT COUNT(*) AS n FROM sales.orders", snapshot_id=first.snapshot_id).n[0]) == 60
-    as_of = dt.datetime.fromtimestamp(first.timestamp_ms / 1000, dt.timezone.utc).isoformat()
+    as_of = dt.datetime.fromtimestamp(first.timestamp_ms / 1000, dt.UTC).isoformat()
     assert int(c.execute_query("SELECT COUNT(*) AS n FROM sales.orders", as_of=as_of).n[0]) == 60
     assert int(c.execute_query("SELECT COUNT(*) AS n FROM sales.orders").n[0]) == 90
 
@@ -373,5 +372,5 @@ def test_sandbox_sql_guard_covers_the_client(type_name, dialect):
     client = resolve_client_class(type_name)(**base)
     assert dialect_for_client(client) == dialect
     for variant in entry.credentials_auth.by_auth.values():
-        resolve_client_class(type_name)(**base, **{f: "x" for f in variant.schema.model_fields})
+        resolve_client_class(type_name)(**base, **dict.fromkeys(variant.schema.model_fields, "x"))
     assert "read-only" in client.description.lower()

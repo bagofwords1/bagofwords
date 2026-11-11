@@ -17,7 +17,7 @@ bundled.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -39,10 +39,10 @@ class HiveClient(DataSourceClient):
         host: str,
         port: int = 10000,
         engine: str = "hive",
-        databases: Optional[str] = None,
+        databases: str | None = None,
         max_rows: int = 100_000,
-        username: Optional[str] = None,
-        password: Optional[str] = None,
+        username: str | None = None,
+        password: str | None = None,
         **_ignored,
     ):
         super().__init__()
@@ -70,7 +70,7 @@ class HiveClient(DataSourceClient):
             return self._conn
         from pyhive import hive
 
-        kwargs: Dict[str, Any] = {"host": self.host, "port": self.port}
+        kwargs: dict[str, Any] = {"host": self.host, "port": self.port}
         if self.password:
             kwargs.update(username=self.username, password=self.password, auth="LDAP")
         else:
@@ -89,12 +89,12 @@ class HiveClient(DataSourceClient):
                 pass
             self._conn = None
 
-    def _fetch(self, sql: str, max_rows: Optional[int] = None):
+    def _fetch(self, sql: str, max_rows: int | None = None):
         cur = self._connect().cursor()
         try:
             cur.execute(sql)
             cols = [d[0].split(".", 1)[-1] if "." in d[0] else d[0] for d in (cur.description or [])]
-            rows: List[tuple] = []
+            rows: list[tuple] = []
             limit = max_rows or self.max_rows
             truncated = False
             while True:
@@ -127,7 +127,7 @@ class HiveClient(DataSourceClient):
 
     # ---------------------------------------------------------------- catalog
 
-    def _database_names(self) -> List[str]:
+    def _database_names(self) -> list[str]:
         _, rows, _ = self._fetch("SHOW DATABASES", 100_000)
         names = sorted(str(r[0]) for r in rows if str(r[0]).lower() not in _SYSTEM_DBS)
         if self.databases:
@@ -137,8 +137,8 @@ class HiveClient(DataSourceClient):
 
     def _describe(self, db: str, table: str) -> Table:
         _, rows, _ = self._fetch(f"DESCRIBE `{db}`.`{table}`", 100_000)
-        columns: List[TableColumn] = []
-        partition_cols: List[str] = []
+        columns: list[TableColumn] = []
+        partition_cols: list[str] = []
         section = "columns"
         seen = set()
         for r in rows:
@@ -173,8 +173,8 @@ class HiveClient(DataSourceClient):
             metadata_json={"hive": {"database": db, "partition_columns": partition_cols}},
         )
 
-    def get_tables(self) -> List[Table]:
-        out: List[Table] = []
+    def get_tables(self) -> list[Table]:
+        out: list[Table] = []
         idents = []
         for db in self._database_names():
             try:
@@ -202,10 +202,10 @@ class HiveClient(DataSourceClient):
         return out
 
     @discovery_progress
-    def get_schemas(self, progress_callback=None) -> List[Table]:
+    def get_schemas(self, progress_callback=None) -> list[Table]:
         return self.get_tables()
 
-    def get_schema(self, table_name: str) -> Optional[Table]:
+    def get_schema(self, table_name: str) -> Table | None:
         db, _, t = table_name.partition(".")
         return self._describe(db, t) if t else None
 

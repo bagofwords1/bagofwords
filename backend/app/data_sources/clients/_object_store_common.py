@@ -36,9 +36,10 @@ import json
 import logging
 import mimetypes
 import posixpath
+from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from datetime import UTC, datetime
+from typing import Any
 
 import pandas as pd
 
@@ -114,14 +115,14 @@ class ObjectStoreClient(DataSourceClient):
 
     def __init__(
         self,
-        bucket: Optional[str] = None,
-        prefix: Optional[str] = None,
-        allowed_extensions: Optional[str] = None,
-        include_globs: Optional[str] = None,
+        bucket: str | None = None,
+        prefix: str | None = None,
+        allowed_extensions: str | None = None,
+        include_globs: str | None = None,
         recursive: bool = True,
         max_file_mb: int = 100,
         index_content: bool = True,
-        index_mode: Optional[str] = None,
+        index_mode: str | None = None,
         max_catalog_objects: int = 5000,
         max_keywords: int = 50,
     ):
@@ -143,22 +144,22 @@ class ObjectStoreClient(DataSourceClient):
 
     # ------------------------------------------------- provider primitives
 
-    def _iter_list(self, list_prefix: str, recursive: bool) -> Iterator[Dict[str, Any]]:
+    def _iter_list(self, list_prefix: str, recursive: bool) -> Iterator[dict[str, Any]]:
         """Yield `{"prefix": p}` for sub-folders (non-recursive only) and
         `{"key", "size", "modified"}` for objects under `list_prefix`."""
         raise NotImplementedError
 
-    def _head(self, key: str) -> Dict[str, Any]:
+    def _head(self, key: str) -> dict[str, Any]:
         """Object metadata: size, etag, modified, and `version` — an identity
         string that changes whenever the object's bytes change."""
         raise NotImplementedError
 
-    def _download(self, key: str, start: Optional[int] = None, end: Optional[int] = None) -> Tuple[bytes, Optional[int]]:
+    def _download(self, key: str, start: int | None = None, end: int | None = None) -> tuple[bytes, int | None]:
         """Object bytes (whole, or the inclusive [start, end] range) and the
         object's total size when known."""
         raise NotImplementedError
 
-    def _open_body(self, key: str, head: Dict[str, Any], offset: int):
+    def _open_body(self, key: str, head: dict[str, Any], offset: int):
         """A readable, closeable body from `offset`, pinned to `head`'s version.
         Raises `FileChanged` when the object no longer matches `head`."""
         raise NotImplementedError
@@ -176,14 +177,14 @@ class ObjectStoreClient(DataSourceClient):
     # ---------------------------------------------------------------- utils
 
     @staticmethod
-    def _norm_prefix(value: Optional[str]) -> str:
+    def _norm_prefix(value: str | None) -> str:
         p = (value or "").strip().lstrip("/")
         if not p:
             return ""
         return p if p.endswith("/") else p + "/"
 
     @staticmethod
-    def _parse_exts(value: Optional[str]) -> Optional[set]:
+    def _parse_exts(value: str | None) -> set | None:
         if not value:
             return None
         items = {e.strip().lower().lstrip(".") for e in value.split(",") if e.strip()}
@@ -252,12 +253,12 @@ class ObjectStoreClient(DataSourceClient):
             return key[len(self.prefix):]
         return key
 
-    def _entry(self, key: str, size: int, modified: Optional[datetime], is_folder: bool = False) -> Dict[str, Any]:
+    def _entry(self, key: str, size: int, modified: datetime | None, is_folder: bool = False) -> dict[str, Any]:
         rel = self._rel_id(key)
         name = rel.rstrip("/").rsplit("/", 1)[-1]
         mime, _ = mimetypes.guess_type(name)
         if modified is not None and modified.tzinfo is None:
-            modified = modified.replace(tzinfo=timezone.utc)
+            modified = modified.replace(tzinfo=UTC)
         return {
             "id": rel,
             "name": name,
@@ -265,7 +266,7 @@ class ObjectStoreClient(DataSourceClient):
             "mime_type": mime,
             "size": int(size or 0),
             "modified_at": (
-                modified.astimezone(timezone.utc).isoformat() if modified else None
+                modified.astimezone(UTC).isoformat() if modified else None
             ),
             "is_folder": bool(is_folder),
             "web_url": self._web_url(key),
@@ -277,9 +278,9 @@ class ObjectStoreClient(DataSourceClient):
     # ---------------------------------------------------- public capabilities
 
     def list_files(
-        self, folder_id: Optional[str] = None, recursive: Optional[bool] = None,
-        *, limit: Optional[int] = None,
-    ) -> List[Dict[str, Any]]:
+        self, folder_id: str | None = None, recursive: bool | None = None,
+        *, limit: int | None = None,
+    ) -> list[dict[str, Any]]:
         self._last_list_truncated = False
         rec = self.recursive if recursive is None else bool(recursive)
         # Scope the listing to prefix (+ optional sub-folder id).
@@ -288,7 +289,7 @@ class ObjectStoreClient(DataSourceClient):
             sub = self._resolve_key(folder_id, enforce_scope=False)
             list_prefix = sub if sub.endswith("/") else sub + "/"
 
-        entries: List[Dict[str, Any]] = []
+        entries: list[dict[str, Any]] = []
         for item in self._iter_list(list_prefix, rec):
             if "prefix" in item:
                 if item["prefix"]:
@@ -314,11 +315,11 @@ class ObjectStoreClient(DataSourceClient):
     def read_file(
         self,
         file_id: str,
-        sheet: Optional[str] = None,
-        offset: Optional[int] = None,
-        length: Optional[int] = None,
-        max_bytes: Optional[int] = None,
-        page_range: Optional[Tuple[int, int]] = None,
+        sheet: str | None = None,
+        offset: int | None = None,
+        length: int | None = None,
+        max_bytes: int | None = None,
+        page_range: tuple[int, int] | None = None,
         **_,
     ) -> Any:
         """Read an object.
@@ -389,7 +390,7 @@ class ObjectStoreClient(DataSourceClient):
         except UnicodeDecodeError:
             return data
 
-    def file_version(self, file_id: str) -> Optional[str]:
+    def file_version(self, file_id: str) -> str | None:
         """ETag (falls back to size:last-modified) as the cache key. `_resolve_key`
         enforces the glob scope, so an off-scope id raises — a cache hit stays
         access-checked. One cheap metadata call, no object download."""
@@ -406,7 +407,7 @@ class ObjectStoreClient(DataSourceClient):
         except Exception:
             return None
 
-    def _get_bytes(self, key: str, max_bytes: Optional[int] = None) -> Tuple[bytes, int]:
+    def _get_bytes(self, key: str, max_bytes: int | None = None) -> tuple[bytes, int]:
         """Fetch a whole object's bytes, enforcing the size cap via a metadata
         call first so we never stream a giant object into memory just to reject
         it. `max_bytes` tightens the connection's own cap for this read."""
@@ -422,7 +423,7 @@ class ObjectStoreClient(DataSourceClient):
         data, _total = self._download(key)
         return data, size
 
-    def _read_window(self, key: str, offset: int, length: Optional[int]) -> Dict[str, Any]:
+    def _read_window(self, key: str, offset: int, length: int | None) -> dict[str, Any]:
         """Ranged byte read → a window plus a cursor to page forward.
 
         Same contract as NetworkDirClient._read_window (byte_window): the
@@ -479,21 +480,21 @@ class ObjectStoreClient(DataSourceClient):
         *,
         is_regex: bool = True,
         ignore_case: bool = False,
-        file_ids: Optional[List[str]] = None,
-        folder_id: Optional[str] = None,
-        name_pattern: Optional[str] = None,
+        file_ids: list[str] | None = None,
+        folder_id: str | None = None,
+        name_pattern: str | None = None,
         recursive: bool = True,
         before: int = 0,
         after: int = 0,
         max_matches: int = 100,
         max_matches_per_file: int = 50,
         max_files: int = 500,
-        max_bytes_per_file: Optional[int] = None,
-        cursor: Optional[str] = None,
+        max_bytes_per_file: int | None = None,
+        cursor: str | None = None,
         time_budget_seconds: float = 60.0,
         cancel_check=None,
         **_,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Line-level grep under the bucket/prefix — same contract as
         network_dir.grep_files (see `_grep_common.run_grep_sweep`).
 
@@ -512,7 +513,7 @@ class ObjectStoreClient(DataSourceClient):
 
         byte_cap = int(max_bytes_per_file) if max_bytes_per_file else DEFAULT_MAX_BYTES_PER_FILE
 
-        candidates: List[Dict[str, Any]] = []
+        candidates: list[dict[str, Any]] = []
         if file_ids:
             for fid in file_ids:
                 try:
@@ -577,8 +578,8 @@ class ObjectStoreClient(DataSourceClient):
         return result
 
     def read_raw_bytes(
-        self, file_id: str, *, max_bytes: Optional[int] = None
-    ) -> Tuple[bytes, str, Optional[str]]:
+        self, file_id: str, *, max_bytes: int | None = None
+    ) -> tuple[bytes, str, str | None]:
         """Raw object bytes + name + mime, unparsed — for attach_file, which
         persists the ORIGINAL object rather than a reparsed copy."""
         key = self._resolve_key(file_id)
@@ -633,7 +634,7 @@ class ObjectStoreClient(DataSourceClient):
         # Nothing to open eagerly — validation happens in test_connection().
         return None
 
-    def test_connection(self) -> Dict[str, Any]:
+    def test_connection(self) -> dict[str, Any]:
         try:
             if not self.bucket:
                 return {"success": False, "message": f"{self.bucket_noun} is required"}
@@ -648,14 +649,14 @@ class ObjectStoreClient(DataSourceClient):
             return {"success": False, "message": str(e)}
 
     @discovery_progress
-    def get_schemas(self, progress_callback=None) -> List[Table]:
+    def get_schemas(self, progress_callback=None) -> list[Table]:
         """Index the bucket/prefix into catalog rows (bounded by
         max_catalog_objects). Honors the index tier: `none` caches nothing
         (live at the tool layer), `metadata` lists without reading contents,
         `content` also extracts keywords + a content hash for topic search."""
         if self.index_mode == INDEX_NONE:
             return []
-        tables: List[Table] = []
+        tables: list[Table] = []
         files = self.list_files(recursive=self.recursive)
         truncated = False
         if len(files) > self.max_catalog_objects:
@@ -715,7 +716,7 @@ class ObjectStoreClient(DataSourceClient):
             )
         return tables
 
-    def get_schema(self, table_name: str) -> Optional[Table]:
+    def get_schema(self, table_name: str) -> Table | None:
         for t in self.get_schemas():
             if t.name == table_name:
                 return t
@@ -732,7 +733,7 @@ class ObjectStoreClient(DataSourceClient):
         return "\n".join(lines)
 
     def execute_query(
-        self, query: Optional[str] = None, table_name: Optional[str] = None, **kwargs
+        self, query: str | None = None, table_name: str | None = None, **kwargs
     ):
         """Document-based read: `table_name` or `query` names an object to read."""
         if isinstance(query, str) and query.strip().startswith("{"):

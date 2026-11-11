@@ -3,10 +3,7 @@ Hive / Impala connectors. These Pydantic models ARE the connect form.
 """
 from __future__ import annotations
 
-from typing import Optional
-
 from pydantic import BaseModel, Field
-
 
 # ------------------------------------------------------------------- Iceberg
 
@@ -24,13 +21,13 @@ class IcebergBearerCredentials(BaseModel):
 class IcebergOAuthCredentials(BaseModel):
     client_id: str = Field(..., title="Client ID", description="OAuth2 client (service principal) id.", json_schema_extra={"ui:type": "string"})
     client_secret: str = Field(..., title="Client Secret", description="", json_schema_extra={"ui:type": "password"})
-    scope: Optional[str] = Field(
+    scope: str | None = Field(
         None,
         title="Scope",
         description="OAuth2 scope, e.g. PRINCIPAL_ROLE:ALL (Polaris / Snowflake Open Catalog). Leave blank for the catalog's default.",
         json_schema_extra={"ui:type": "string"},
     )
-    oauth2_server_uri: Optional[str] = Field(
+    oauth2_server_uri: str | None = Field(
         None,
         title="Token Endpoint",
         description="OAuth2 token URL. Leave blank to use <catalog URI>/v1/oauth/tokens.",
@@ -41,7 +38,7 @@ class IcebergOAuthCredentials(BaseModel):
 class IcebergAwsKeyCredentials(BaseModel):
     access_key: str = Field(..., title="Access Key", description="AWS access key id (Glue / S3 Tables catalogs and S3 data).", json_schema_extra={"ui:type": "string"})
     secret_key: str = Field(..., title="Secret Key", description="AWS secret access key.", json_schema_extra={"ui:type": "password"})
-    session_token: Optional[str] = Field(None, title="Session Token", description="Optional session token for temporary credentials.", json_schema_extra={"ui:type": "password"})
+    session_token: str | None = Field(None, title="Session Token", description="Optional session token for temporary credentials.", json_schema_extra={"ui:type": "password"})
 
 
 class IcebergAwsDefaultCredentials(BaseModel):
@@ -66,13 +63,13 @@ class IcebergConfig(BaseModel):
             },
         },
     )
-    uri: Optional[str] = Field(
+    uri: str | None = Field(
         None,
         title="Catalog URI",
         description="REST catalog base URL (e.g. https://polaris.acme.com/api/catalog). Not used for Glue / S3 Tables.",
         json_schema_extra={"ui:type": "string"},
     )
-    warehouse: Optional[str] = Field(
+    warehouse: str | None = Field(
         None,
         title="Warehouse",
         description=(
@@ -81,13 +78,13 @@ class IcebergConfig(BaseModel):
         ),
         json_schema_extra={"ui:type": "string"},
     )
-    region: Optional[str] = Field(
+    region: str | None = Field(
         None,
         title="AWS Region",
         description="Region of the Glue catalog / S3 Tables bucket / S3 data (e.g. us-east-1).",
         json_schema_extra={"ui:type": "string"},
     )
-    namespaces: Optional[str] = Field(
+    namespaces: str | None = Field(
         None,
         title="Namespaces",
         description="Comma-separated namespaces (databases) to expose. Leave blank for all.",
@@ -99,7 +96,7 @@ class IcebergConfig(BaseModel):
         description="Let a REST catalog hand out short-lived storage credentials per table (recommended).",
         json_schema_extra={"ui:type": "boolean"},
     )
-    s3_endpoint: Optional[str] = Field(
+    s3_endpoint: str | None = Field(
         None,
         title="S3 Endpoint",
         description="Custom S3-compatible endpoint for the data files (MinIO, R2, …). Leave blank for AWS.",
@@ -112,7 +109,7 @@ class IcebergConfig(BaseModel):
         description="Refuse a query whose files (after partition pruning) hold more rows than this; add filters instead.",
         json_schema_extra={"ui:type": "number"},
     )
-    extra_properties: Optional[str] = Field(
+    extra_properties: str | None = Field(
         None,
         title="Extra Catalog Properties (JSON)",
         description='Advanced: extra PyIceberg catalog / FileIO properties, e.g. {"adls.account-name": "acme"}.',
@@ -143,13 +140,13 @@ class DremioConfig(BaseModel):
         description="Dremio Software (e.g. https://dremio.acme.com:9047) or Dremio Cloud API URL (https://api.dremio.cloud).",
         json_schema_extra={"ui:type": "string"},
     )
-    project_id: Optional[str] = Field(
+    project_id: str | None = Field(
         None,
         title="Project ID",
         description="Dremio Cloud only: the project to query.",
         json_schema_extra={"ui:type": "string"},
     )
-    spaces: Optional[str] = Field(
+    spaces: str | None = Field(
         None,
         title="Spaces / Sources",
         description="Comma-separated top-level spaces or sources to expose (e.g. Marketing,lakehouse). Leave blank for all.",
@@ -168,7 +165,7 @@ class DremioConfig(BaseModel):
 # ------------------------------------------------------------ Hive / Impala
 
 class HiveNoAuthCredentials(BaseModel):
-    username: Optional[str] = Field(None, title="Username", description="Run queries as this user (no password check).", json_schema_extra={"ui:type": "string"})
+    username: str | None = Field(None, title="Username", description="Run queries as this user (no password check).", json_schema_extra={"ui:type": "string"})
 
 
 class HiveLdapCredentials(BaseModel):
@@ -194,7 +191,7 @@ class HiveConfig(BaseModel):
             "ui:enumLabels": {"hive": "Apache Hive", "impala": "Apache Impala", "spark": "Spark Thrift Server"},
         },
     )
-    databases: Optional[str] = Field(
+    databases: str | None = Field(
         None,
         title="Databases",
         description="Comma-separated databases to expose (e.g. sales,finance). Leave blank for all.",

@@ -153,7 +153,7 @@ def test_every_auth_variant_is_accepted_by_the_client(type_name):
     base = {f: (fi.default if fi.default is not None and not fi.is_required() else "x")
             for f, fi in entry.config_schema.model_fields.items()}
     for variant in entry.credentials_auth.by_auth.values():
-        creds = {f: "x" for f in variant.schema.model_fields}
+        creds = dict.fromkeys(variant.schema.model_fields, "x")
         cls(**base, **creds)  # constructing never connects
 
 

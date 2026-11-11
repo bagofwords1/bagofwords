@@ -66,7 +66,13 @@ const SEARCH_ALIASES: Record<string, string[]> = {
   presto: ['trino', 'starburst'],
   mariadb: ['mysql'],
   elasticsearch: ['elastic', 'es'],
+  mongodb: ['nosql', 'document', 'atlas'],
   opensearch: ['elastic'],
+}
+
+/** Extra search terms for a connector type (nicknames, vendor, category words). */
+export function searchAliases(type: string | undefined | null): string[] {
+  return SEARCH_ALIASES[type || ''] || []
 }
 
 function haystack(ds: any): string {

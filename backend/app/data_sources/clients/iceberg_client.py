@@ -26,9 +26,8 @@ from __future__ import annotations
 
 import json
 import logging
-import re
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import UTC, datetime
+from typing import Any
 
 import pandas as pd
 
@@ -52,23 +51,23 @@ class IcebergClient(DataSourceClient):
     def __init__(
         self,
         catalog_type: str = "rest",
-        uri: Optional[str] = None,
-        warehouse: Optional[str] = None,
-        region: Optional[str] = None,
-        namespaces: Optional[str] = None,
+        uri: str | None = None,
+        warehouse: str | None = None,
+        region: str | None = None,
+        namespaces: str | None = None,
         vended_credentials: bool = True,
-        s3_endpoint: Optional[str] = None,
+        s3_endpoint: str | None = None,
         max_scan_rows: int = 20_000_000,
-        extra_properties: Optional[str] = None,
+        extra_properties: str | None = None,
         # credentials (one variant's worth)
-        token: Optional[str] = None,
-        client_id: Optional[str] = None,
-        client_secret: Optional[str] = None,
-        scope: Optional[str] = None,
-        oauth2_server_uri: Optional[str] = None,
-        access_key: Optional[str] = None,
-        secret_key: Optional[str] = None,
-        session_token: Optional[str] = None,
+        token: str | None = None,
+        client_id: str | None = None,
+        client_secret: str | None = None,
+        scope: str | None = None,
+        oauth2_server_uri: str | None = None,
+        access_key: str | None = None,
+        secret_key: str | None = None,
+        session_token: str | None = None,
         **_ignored,
     ):
         super().__init__()
@@ -93,9 +92,9 @@ class IcebergClient(DataSourceClient):
 
     # ---------------------------------------------------------------- catalog
 
-    def _properties(self) -> Dict[str, str]:
-        props: Dict[str, str] = {}
-        aws: Dict[str, str] = {}
+    def _properties(self) -> dict[str, str]:
+        props: dict[str, str] = {}
+        aws: dict[str, str] = {}
         if self.region:
             aws["client.region"] = self.region
         if self.access_key and self.secret_key:
@@ -165,11 +164,11 @@ class IcebergClient(DataSourceClient):
     def connect(self):
         return self._cat()
 
-    def _namespaces(self) -> List[Tuple[str, ...]]:
+    def _namespaces(self) -> list[tuple[str, ...]]:
         cat = self._cat()
-        out: List[Tuple[str, ...]] = []
+        out: list[tuple[str, ...]] = []
 
-        def walk(parent: Tuple[str, ...], depth: int):
+        def walk(parent: tuple[str, ...], depth: int):
             try:
                 children = cat.list_namespaces(parent) if parent else cat.list_namespaces()
             except IndexingCancelled:
@@ -195,13 +194,13 @@ class IcebergClient(DataSourceClient):
         return sorted(out)
 
     @staticmethod
-    def _sql_name(identifier: Tuple[str, ...]) -> str:
+    def _sql_name(identifier: tuple[str, ...]) -> str:
         """Catalog table name as the agent writes it in SQL: `namespace.table`
         (nested namespaces joined with `_` into one DuckDB schema)."""
         *ns, table = identifier
         return f"{'_'.join(ns)}.{table}"
 
-    def _table_meta(self, identifier: Tuple[str, ...]) -> Table:
+    def _table_meta(self, identifier: tuple[str, ...]) -> Table:
         tbl = self._cat().load_table(identifier)
         schema = tbl.schema()
         cols = [
@@ -227,7 +226,7 @@ class IcebergClient(DataSourceClient):
         if total is not None:
             desc_bits.append(f"{int(total):,} rows")
         if snap:
-            desc_bits.append(f"snapshot {snap.snapshot_id} at {datetime.fromtimestamp(snap.timestamp_ms / 1000, timezone.utc):%Y-%m-%d %H:%M} UTC")
+            desc_bits.append(f"snapshot {snap.snapshot_id} at {datetime.fromtimestamp(snap.timestamp_ms / 1000, UTC):%Y-%m-%d %H:%M} UTC")
         return Table(
             name=self._sql_name(identifier),
             description=". ".join(desc_bits) + ".",
@@ -244,16 +243,16 @@ class IcebergClient(DataSourceClient):
             }},
         )
 
-    def _table_identifiers(self) -> List[Tuple[str, ...]]:
+    def _table_identifiers(self) -> list[tuple[str, ...]]:
         cat = self._cat()
-        ids: List[Tuple[str, ...]] = []
+        ids: list[tuple[str, ...]] = []
         for ns in self._namespaces():
             for ident in cat.list_tables(ns):
                 ids.append(tuple(ident))
         return ids
 
-    def get_tables(self) -> List[Table]:
-        tables: List[Table] = []
+    def get_tables(self) -> list[Table]:
+        tables: list[Table] = []
         for ident in discovery_items(self._table_identifiers(), "tables", label=lambda i: ".".join(i)):
             try:
                 tables.append(self._table_meta(ident))
@@ -265,10 +264,10 @@ class IcebergClient(DataSourceClient):
         return tables
 
     @discovery_progress
-    def get_schemas(self, progress_callback=None) -> List[Table]:
+    def get_schemas(self, progress_callback=None) -> list[Table]:
         return self.get_tables()
 
-    def get_schema(self, table_name: str) -> Optional[Table]:
+    def get_schema(self, table_name: str) -> Table | None:
         ident = self._resolve_identifier(table_name)
         return self._table_meta(ident) if ident else None
 
@@ -277,15 +276,15 @@ class IcebergClient(DataSourceClient):
 
     # ----------------------------------------------------------------- query
 
-    def _resolve_identifier(self, name: str, known: Optional[Dict[str, Tuple[str, ...]]] = None) -> Optional[Tuple[str, ...]]:
+    def _resolve_identifier(self, name: str, known: dict[str, tuple[str, ...]] | None = None) -> tuple[str, ...] | None:
         known = known if known is not None else {self._sql_name(i).lower(): i for i in self._table_identifiers()}
         return known.get(name.lower())
 
     def execute_query(
         self,
         sql: str,
-        as_of: Optional[str] = None,
-        snapshot_id: Optional[int] = None,
+        as_of: str | None = None,
+        snapshot_id: int | None = None,
     ) -> pd.DataFrame:
         """Run one read-only DuckDB SQL statement over Iceberg tables → DataFrame."""
         import duckdb
@@ -297,7 +296,7 @@ class IcebergClient(DataSourceClient):
         check_sql(sql, "duckdb")
         tree = sqlglot.parse_one(sql, read="duckdb")
         cte_names = {c.alias_or_name.lower() for c in tree.find_all(exp.CTE)}
-        refs: Dict[str, exp.Table] = {}
+        refs: dict[str, exp.Table] = {}
         for t in tree.find_all(exp.Table):
             if not t.name or (not t.db and t.name.lower() in cte_names):
                 continue
@@ -325,13 +324,13 @@ class IcebergClient(DataSourceClient):
                 tbl = self._cat().load_table(ident)
                 field_names = [f.name for f in tbl.schema().fields]
                 if star:
-                    selected: Tuple[str, ...] = ("*",)
+                    selected: tuple[str, ...] = ("*",)
                 else:
                     keep = [f for f in field_names if f.lower() in referenced_cols]
                     selected = tuple(keep or field_names[:1])
                 row_filter = _pushdown_filter(tree, tbl.schema().fields) if single_table else None
                 snap_id = self._snapshot_for(tbl, as_of, snapshot_id)
-                kwargs: Dict[str, Any] = {"selected_fields": selected, "case_sensitive": False}
+                kwargs: dict[str, Any] = {"selected_fields": selected, "case_sensitive": False}
                 if snap_id is not None:
                     kwargs["snapshot_id"] = snap_id
                 scan, tasks = None, None
@@ -368,7 +367,7 @@ class IcebergClient(DataSourceClient):
             con.close()
 
     @staticmethod
-    def _partition_sources(tbl) -> List[str]:
+    def _partition_sources(tbl) -> list[str]:
         schema = tbl.schema()
         out = []
         for pf in tbl.spec().fields:
@@ -379,7 +378,7 @@ class IcebergClient(DataSourceClient):
         return out
 
     @staticmethod
-    def _snapshot_for(tbl, as_of: Optional[str], snapshot_id: Optional[int]) -> Optional[int]:
+    def _snapshot_for(tbl, as_of: str | None, snapshot_id: int | None) -> int | None:
         if snapshot_id is not None:
             if tbl.snapshot_by_id(int(snapshot_id)) is None:
                 raise ValueError(f"Snapshot {snapshot_id} does not exist for this table.")
@@ -430,7 +429,7 @@ _OPS = {
 _FLIP = {"GT": "LT", "GTE": "LTE", "LT": "GT", "LTE": "GTE", "EQ": "EQ", "NEQ": "NEQ"}
 
 
-def _literal(node) -> Tuple[bool, Any]:
+def _literal(node) -> tuple[bool, Any]:
     from sqlglot import exp
 
     if isinstance(node, exp.Literal):
@@ -482,7 +481,7 @@ def _pushdown_filter(tree, fields):
     lookup = {f.name.lower(): f.name for f in fields}
     types = {f.name: f.field_type for f in fields}
 
-    def col(node) -> Optional[str]:
+    def col(node) -> str | None:
         if isinstance(node, exp.Column):
             return lookup.get(node.name.lower())
         return None

@@ -61,10 +61,24 @@ class _Store:
         return self._make(**kw)
 
 
+# Containers started for the current backend; stopped on teardown even when
+# seeding fails half-way (otherwise a failed setup leaks a running server).
+_STARTED: list = []
+
+
+def _stop_started() -> None:
+    while _STARTED:
+        try:
+            _STARTED.pop().stop()
+        except Exception:
+            pass
+
+
 def _start(image, port, command):
     c = tc_core.DockerContainer(image).with_exposed_ports(port).with_command(command)
     try:
         c.start()
+        _STARTED.append(c)
     except Exception as e:  # no Docker here
         pytest.skip(f"Docker / {image} unavailable: {e}")
     return c
@@ -72,13 +86,20 @@ def _start(image, port, command):
 
 @pytest.fixture(scope="module", params=["gcs", "azure_blob"])
 def store(request):
-    if request.param == "gcs":
-        from google.auth.credentials import AnonymousCredentials
-        from google.cloud import storage
+    try:
+        yield from _store(request.param)
+    finally:
+        _stop_started()
 
+
+def _store(kind):
+    if kind == "gcs":
         # fake-gcs-server builds media (download) URLs from -public-host, so
         # it must be told the host port it is reachable on.
         import socket
+
+        from google.auth.credentials import AnonymousCredentials
+        from google.cloud import storage
 
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0))
@@ -87,6 +108,7 @@ def store(request):
             f"-scheme http -port 4443 -public-host 127.0.0.1:{host_port} -external-url http://127.0.0.1:{host_port}")
         try:
             c.start()
+            _STARTED.append(c)
         except Exception as e:  # no Docker here
             pytest.skip(f"Docker / fake-gcs-server unavailable: {e}")
         endpoint = f"http://127.0.0.1:{host_port}"
@@ -120,8 +142,7 @@ def store(request):
 
     for key, data in FILES.items():
         put(key, data)
-    yield _Store(request.param, make, put)
-    c.stop()
+    yield _Store(kind, make, put)
 
 
 def test_connection_names_the_scope(store):

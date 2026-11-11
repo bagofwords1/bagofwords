@@ -9,10 +9,7 @@ container must stay the first field on the form.
 """
 from __future__ import annotations
 
-from typing import Optional
-
 from pydantic import BaseModel, Field
-
 
 # --------------------------------------------------------------- shared fields
 
@@ -123,20 +120,20 @@ class GCSConfig(BaseModel):
         description="Cloud Storage bucket name (e.g. 'acme-reports'), without the gs:// prefix.",
         json_schema_extra={"ui:type": "string"},
     )
-    prefix: Optional[str] = _prefix_field("bucket")
-    project: Optional[str] = Field(
+    prefix: str | None = _prefix_field("bucket")
+    project: str | None = Field(
         None,
         title="Project ID",
         description="Google Cloud project that owns the bucket. Optional — read from the service account when blank.",
         json_schema_extra={"ui:type": "string"},
     )
-    endpoint_url: Optional[str] = Field(
+    endpoint_url: str | None = Field(
         None,
         title="Endpoint URL",
         description="Custom Cloud Storage API endpoint (private endpoint or emulator). Leave blank for Google Cloud.",
         json_schema_extra={"ui:type": "string"},
     )
-    include_globs: Optional[str] = _include_globs_field()
+    include_globs: str | None = _include_globs_field()
     recursive: bool = _recursive_field()
     max_file_mb: int = _max_file_mb_field()
     index_mode: str = _index_mode_field("bucket")
@@ -187,7 +184,7 @@ class AzureBlobDefaultCredentials(BaseModel):
 
 
 class AzureBlobConfig(BaseModel):
-    account_name: Optional[str] = Field(
+    account_name: str | None = Field(
         None,
         title="Storage Account",
         description="Storage account name (e.g. 'acmedata'). Not needed with a connection string.",
@@ -199,8 +196,8 @@ class AzureBlobConfig(BaseModel):
         description="Blob container name (e.g. 'reports'). Data Lake Storage Gen2 file systems work too.",
         json_schema_extra={"ui:type": "string"},
     )
-    prefix: Optional[str] = _prefix_field("container")
-    account_url: Optional[str] = Field(
+    prefix: str | None = _prefix_field("container")
+    account_url: str | None = Field(
         None,
         title="Account URL",
         description=(
@@ -209,7 +206,7 @@ class AzureBlobConfig(BaseModel):
         ),
         json_schema_extra={"ui:type": "string"},
     )
-    include_globs: Optional[str] = _include_globs_field()
+    include_globs: str | None = _include_globs_field()
     recursive: bool = _recursive_field()
     max_file_mb: int = _max_file_mb_field()
     index_mode: str = _index_mode_field("container")

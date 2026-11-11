@@ -1955,6 +1955,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "s3": DataSourceRegistryEntry(
         type="s3",
+        category="files",
         title="Amazon S3",
         description=(
             "Browse and read files from an Amazon S3 bucket. Reads inside PDF, "
