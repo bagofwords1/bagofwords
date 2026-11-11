@@ -122,6 +122,16 @@
     "fileBrowserNoResults": "لا توجد ملفات تطابق “{q}”.",
     "fileBrowserSummaryKms": "الملفات المعروضة للتصفح: {n} · تحدد أذونات KMS ما يمكن للوكيل البحث عنه وقراءته",
     "fileBrowserSummary": "{n} ملفات ضمن النطاق · يقرأ الوكيل هذه الملفات فقط · تُسجَّل محاولات الوصول المرفوضة",
+    "fileBrowserRootMessages": "كل المحادثات",
+    "fileBrowserSearchMessages": "البحث في الرسائل…",
+    "fileBrowserEmptyMessages": "لا توجد رسائل حديثة في المحادثات التي يمكنك رؤيتها.",
+    "fileBrowserSummaryLive": "{n} رسالة حديثة · تُقرأ مباشرة بصلاحياتك · لا يُخزَّن شيء",
+    "countMessages": "{n} رسالة | {n} رسائل",
+    "fileBrowserNoResultsMessages": "لا توجد رسائل تطابق “{q}”.",
+    "loadingMessages": "جارٍ تحميل الرسائل من المصدر…",
+    "fileBrowserConnectRequiredMessages": "اربط حسابك للتصفح — هذا الاتصال يقرأ الرسائل بصلاحيات كل مستخدم.",
+    "liveSourceHint": "يتم البحث مباشرة بصلاحيات كل مستخدم — فقط القنوات أو المحادثات أو البريد التي يمكنه رؤيتها. لا يتم نسخ أو فهرسة أي شيء.",
+    "liveBadge": "مباشر",
     "fileBrowserTruncated": "يتم عرض أول {shown} من أصل {total} ملف — ضيّق نطاق الاتصال لتصفح الباقي.",
     "fileBrowserOpenInSource": "فتح في المصدر",
     "fileBrowserClosePreview": "إغلاق المعاينة",
@@ -1989,6 +1999,7 @@
     "openPage": "فتح الصفحة",
     "categories": {
       "dataSources": "الوكلاء",
+      "connectors": "الموصلات",
       "queries": "الاستعلامات",
       "files": "الملفات",
       "tables": "الجداول",
@@ -3843,7 +3854,7 @@
     "saveIntegration": "حفظ التكامل",
     "loadFieldsFailed": "فشل تحميل الحقول",
     "integrationReady": "التكامل جاهز",
-    "integrationReadyDesc": "{name} متصل وتم إنشاء وكيل عام. يمكن للمستخدمين تسجيل الدخول والبدء في استخدامه.",
+    "integrationReadyDesc": "أصبح {name} متاحًا للجميع كموصل. يسجّل كل شخص الدخول بحسابه.",
     "integrationAgentFailed": "تم حفظ التكامل، لكن فشل إنشاء الوكيل",
     "updateIntegrationFailed": "فشل تحديث التكامل",
     "createIntegrationFailed": "فشل إنشاء التكامل",
@@ -4319,7 +4330,10 @@
     "connection.kms_token_format": "يمكن أن يحتوي رمز API الخاص بـ KMS على أحرف وأرقام وعلامات ترقيم عادية فقط، بدون مسافات. انسخه مرة أخرى من KMS Lighthouse والصقه كنص عادي.",
     "connection.kms_use_connection_credentials": "يتم حفظ بيانات تسجيل الدخول إلى KMS Lighthouse في الاتصال. افتح الاتصال واتصل من هناك.",
     "connection.kms_only": "ينطبق التشخيص على اتصالات KMS Lighthouse فقط.",
-    "connection.kms_diagnostics_running": "التشخيص قيد التشغيل بالفعل لهذا الاتصال. انتظر حتى ينتهي ثم حاول مرة أخرى."
+    "connection.kms_diagnostics_running": "التشخيص قيد التشغيل بالفعل لهذا الاتصال. انتظر حتى ينتهي ثم حاول مرة أخرى.",
+    "connection.kms_login_rejected": "لم يقبل KMS Lighthouse بيانات تسجيل الدخول هذه، لذا لم يتم حفظها. تحقق من اسم المستخدم وكلمة المرور، أو من رمز API، ثم حاول مرة أخرى.",
+    "connection.kms_login_paused": "رفض KMS Lighthouse بيانات تسجيل الدخول هذه مؤخرًا، لذا أُوقفت المحاولات الجديدة بها لبضع دقائق ولم يتم حفظها. تحقق من بيانات تسجيل الدخول أو حاول مرة أخرى لاحقًا.",
+    "connection.kms_session_refused": "قبل KMS Lighthouse بيانات تسجيل الدخول لكنه رفض جلستها، لذا لا يمكن استخدامها ولم يتم حفظها. اسأل مسؤول KMS عمّا إذا كان يُسمح لهذا الحساب باستخدام واجهة KMS API."
   },
   "email": {
     "dashboardShare": {
@@ -6416,7 +6430,9 @@
     "noConnection": "لا يملك هذا الوكيل اتصالًا بعد.",
     "notFound": "تعذّر العثور على هذا الاتصال.",
     "forbidden": "ليس لديك صلاحية الوصول إلى هذا الاتصال.",
-    "loadFailed": "تعذّر تحميل الاتصال. حاول مرة أخرى لاحقًا."
+    "loadFailed": "تعذّر تحميل الاتصال. حاول مرة أخرى لاحقًا.",
+    "connected": "متصل",
+    "connectedAs": "متصل باسم {identity}"
   },
   "trackedChanges": {
     "noChanges": "لا توجد تغييرات"
@@ -6849,6 +6865,35 @@
     "enabled": "مفعّل",
     "embeddingEmpty": "Embedding is not configured",
     "oauthEmpty": "OAuth is not configured"
+  },
+  "connectors": {
+    "title": "الموصلات",
+    "subtitle": "حساباتك وأدواتك الخاصة التي يمكن للذكاء الاصطناعي استخدامها. كل موصل يقرأ بصلاحياتك — لا يرى أحد غيرك بياناتك.",
+    "browse": "تصفح الموصلات",
+    "empty": "لا توجد موصلات بعد.",
+    "search": "البحث في الموصلات…",
+    "noResults": "لا توجد موصلات تطابق “{q}”.",
+    "signIn": "تسجيل الدخول",
+    "signOut": "تسجيل الخروج",
+    "remove": "إزالة",
+    "statusConnected": "متصل",
+    "statusShared": "مشترك",
+    "statusServiceAccount": "حساب خدمة",
+    "statusOffline": "إعادة الاتصال",
+    "statusNotConnected": "غير متصل",
+    "needsSignIn": "{n} موصل يتطلب تسجيل الدخول | {n} موصلات تتطلب تسجيل الدخول",
+    "accessPersonal": "يستخدم حسابك الخاص",
+    "accessShared": "يستخدم حسابًا مشتركًا أعده المسؤول",
+    "addHint": "أضف المزيد من الموصلات من الوكلاء ← إضافة اتصال.",
+    "askAdmin": "اطلب من المسؤول إضافة المزيد من الموصلات.",
+    "removeConfirm": "إزالة {name} لكل من في المؤسسة؟ ستُزال أيضًا عمليات تسجيل دخول المستخدمين.",
+    "signedOut": "تم تسجيل الخروج من {name}",
+    "removed": "تمت إزالة {name}",
+    "actionFailed": "حدث خطأ ما",
+    "shareToggleLabel": "إتاحة لكل من في مؤسستك",
+    "shareToggleHint": "يضيف “{name}” إلى موصلات الجميع. يسجّل كل شخص الدخول بحسابه — لا يرى أحد بيانات غيره.",
+    "useAsAgent": "استخدام كوكيل",
+    "movedToAgents": "أصبح {name} وكيلًا الآن"
   },
   "tablePreview": {
     "idle": "اضغط على تشغيل لتحميل الصفوف من المصدر.",

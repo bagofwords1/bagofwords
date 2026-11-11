@@ -31,16 +31,25 @@
               :aria-expanded="isExpanded(idx)"
             >
               <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-ink-muted me-1 rtl-flip" />
-              <Icon name="heroicons-document" class="w-3 h-3 me-1 text-ink-muted" />
+              <Icon :name="isChat ? 'heroicons-chat-bubble-bottom-center-text' : 'heroicons-document'" class="w-3 h-3 me-1 text-ink-muted" />
               <div class="font-medium text-gray-700 dark:text-gray-300 truncate">{{ f.name || noun.one }}</div>
               <span v-if="f.path && f.path !== f.name" class="ms-2 text-chat-3 text-ink-muted truncate max-w-[16rem]" :title="f.path" dir="ltr">{{ f.path }}</span>
               <span v-if="f.size" class="ms-2 text-chat-3 text-ink-muted shrink-0">{{ formatBytes(f.size) }}</span>
             </div>
             <Transition name="fade">
               <div v-if="isExpanded(idx)" class="ps-6 pe-1 pb-1 text-gray-500 dark:text-gray-400 space-y-0.5">
+                <template v-if="isChat">
+                  <div v-if="f.preview" class="text-chat-3 whitespace-pre-line text-gray-600 dark:text-gray-300">{{ f.preview }}</div>
+                  <div v-if="f.thread" class="text-chat-3"><span class="text-ink-muted">In reply to:</span> {{ f.thread }}</div>
+                  <div v-for="(line, li) in (f.context || [])" :key="li" class="text-chat-3 ps-2 border-s border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400">{{ line }}</div>
+                  <div v-if="f.folder" class="text-chat-3"><span class="text-ink-muted">In:</span> {{ f.folder }}</div>
+                  <div v-if="f.modified_at" class="text-chat-3"><span class="text-ink-muted">Sent:</span> {{ f.modified_at }}</div>
+                </template>
+                <template v-else>
                 <div v-if="f.path" class="text-chat-3"><span class="text-ink-muted">Path:</span> {{ f.path }}</div>
                 <div v-if="f.mime_type" class="text-chat-3"><span class="text-ink-muted">Type:</span> {{ f.mime_type }}</div>
                 <div v-if="f.modified_at" class="text-chat-3"><span class="text-ink-muted">Modified:</span> {{ f.modified_at }}</div>
+                </template>
                 <a v-if="f.web_url" :href="f.web_url" target="_blank" rel="noopener" class="text-chat-2 text-blue-600 hover:underline inline-flex items-center gap-1">
                   Open <Icon name="heroicons-arrow-top-right-on-square" class="w-3 h-3" />
                 </a>
@@ -76,6 +85,8 @@ interface ToolExecution {
 const props = defineProps<{ toolExecution: ToolExecution; dataSources?: any[] }>()
 // files / emails / pages — same card, source-appropriate noun.
 const noun = computed(() => fileToolNoun(props.toolExecution?.tool_name))
+// Chat messages show their text, thread and conversation instead of file metadata.
+const isChat = computed(() => noun.value.one === 'message')
 
 const connIcon = useToolConnectionIcon(
   () => props.toolExecution,

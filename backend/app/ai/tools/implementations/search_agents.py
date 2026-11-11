@@ -207,6 +207,10 @@ class SearchAgentsTool(Tool):
                 return
 
             candidates, scope, attached_ids = await resolve_candidate_agents(db, organization, user, report, mode)
+            # Connectors are not searched for: the connected ones are already in
+            # the <connectors> block with their tools.
+            from app.services.data_source_kind import is_connector
+            candidates = [c for c in candidates if not is_connector(c)]
             if not candidates:
                 out = SearchAgentsOutput(success=True, agents=[], total=0,
                                          message=f"No {scope} agents available to search in {mode} mode.")
@@ -334,6 +338,7 @@ class SearchAgentsTool(Tool):
             listing = "\n".join(
                 f"- {it.name} (id={it.id}, {it.status or 'published'}"
                 + (", EMAIL agent — use search_email/read_email/list_emails, not file tools" if surface_by_id.get(it.id) == "email" else "")
+                + (", CHAT agent — use search_chat_messages/read_chat_thread/list_chat_messages, not file tools" if surface_by_id.get(it.id) == "chat" else "")
                 + (", matched on table names only" if strength.get(it.id) == "weak" else "")
                 + (", focused" if it.focused else "")
                 + ("" if it.attached else ", not attached to this report yet")

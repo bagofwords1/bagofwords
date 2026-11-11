@@ -18,6 +18,9 @@ export async function createPublicAgent(
       is_public: true,
       // OBO: no shared credential — each user authenticates for themselves.
       auth_policy: 'user_required',
+      // Each person's own account → a connector (prompt-box connectors menu),
+      // not an agent in the picker.
+      kind: 'connector',
       allowed_user_auth_modes: ['oauth'],
     },
   })

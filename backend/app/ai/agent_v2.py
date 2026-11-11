@@ -1647,8 +1647,11 @@ class AgentV2:
                     if str(ds.id) not in known:
                         roster_sources.append(ds)
                         known.add(str(ds.id))
-            roster_ids = {str(d.id) for d in roster_sources}
-            full_scope = sorted(roster_ids)
+            # Connectors are never focused/picked, so their instructions always
+            # apply while they are in the run; the focus policy covers agents.
+            connector_ids = self._connector_ids()
+            roster_ids = {str(d.id) for d in roster_sources} - connector_ids
+            full_scope = sorted(roster_ids | connector_ids)
 
             explicit = (
                 [str(x) for x in (getattr(self.report, "focused_data_source_ids", None) or [])]
@@ -1658,12 +1661,54 @@ class AgentV2:
             if mode == "all":
                 return full_scope
             loaded = {str(x) for x in (getattr(self, "loaded_agent_ids", ()) or ())}
-            return sorted((set(focus_ids) | loaded) & roster_ids)
+            return sorted(((set(focus_ids) | loaded) & roster_ids) | connector_ids)
         except Exception:
             logger.exception("instruction scope resolve failed; using full attached scope")
             return [str(d.id) for d in (self.data_sources or [])] or None
 
+    def _connector_ids(self) -> set:
+        """Ids of the run's connectors (each person's own accounts/tools — see
+        app/services/data_source_kind.py). They are never part of the agent
+        roster/focus/Auto pick; they render in their own <connectors> block."""
+        from app.services.data_source_kind import is_connector
+        out = set()
+        pool = list(self.data_sources or [])
+        if self.report is not None:
+            pool += list(getattr(self.report, "data_sources", None) or [])
+        for ds in pool:
+            try:
+                if is_connector(ds):
+                    out.add(str(ds.id))
+            except Exception:
+                logger.warning("[agent] connector check failed for %r", getattr(ds, "id", None), exc_info=True)
+        return out
+
     async def _render_schemas_with_roster(self, schemas_ctx):
+        """Agents (roster/focus policy) + the run's connectors.
+
+        Connectors are split out first: the roster, focus and Auto "pick" logic
+        only ever see agents, and every connected connector renders, always, as
+        a separate ``<connectors>`` block appended after the agents' schemas.
+        """
+        connector_ids = self._connector_ids()
+        if not schemas_ctx or not getattr(schemas_ctx, "data_sources", None) or not connector_ids:
+            return await self._render_agent_schemas_with_roster(schemas_ctx, set())
+        import copy as _copy
+        agent_ctx = _copy.copy(schemas_ctx)
+        agent_ctx.data_sources = [s for s in schemas_ctx.data_sources if str(s.info.id) not in connector_ids]
+        conn_ctx = _copy.copy(schemas_ctx)
+        conn_ctx.data_sources = [s for s in schemas_ctx.data_sources if str(s.info.id) in connector_ids]
+        excerpt, roster = await self._render_agent_schemas_with_roster(agent_ctx, connector_ids)
+        try:
+            connectors_xml = conn_ctx.render_connectors(top_k_per_ds=self.top_k_schema, index_limit=INDEX_LIMIT)
+        except Exception:
+            logger.exception("connectors render failed")
+            connectors_xml = ""
+        if connectors_xml:
+            excerpt = (excerpt + "\n\n" + connectors_xml) if excerpt else connectors_xml
+        return excerpt, roster
+
+    async def _render_agent_schemas_with_roster(self, schemas_ctx, exclude_ids: set):
         """Render the schema block, applying the agent roster/focus policy.
 
         Returns ``(schemas_excerpt, agents_roster)``:
@@ -1696,8 +1741,8 @@ class AgentV2:
 
             # Roster over the CURRENT report agents: set_report_agents may have
             # attached one mid-run that the init-time self.data_sources missed.
-            _roster_sources = list(self.data_sources or [])
-            _known = {str(d.id) for d in _roster_sources}
+            _roster_sources = [d for d in (self.data_sources or []) if str(d.id) not in exclude_ids]
+            _known = {str(d.id) for d in _roster_sources} | set(exclude_ids)
             for _ds in (getattr(self.report, "data_sources", None) or []) if self.report else []:
                 if str(_ds.id) not in _known:
                     _roster_sources.append(_ds)

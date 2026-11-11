@@ -122,6 +122,16 @@
     "fileBrowserNoResults": "Aucun fichier ne correspond à « {q} ».",
     "fileBrowserSummaryKms": "{n} fichiers listés pour la navigation · les autorisations KMS déterminent ce que l'agent peut rechercher et lire",
     "fileBrowserSummary": "{n} fichiers dans le périmètre · l'agent ne lit que ceux-ci · les refus sont audités",
+    "fileBrowserRootMessages": "Toutes les conversations",
+    "fileBrowserSearchMessages": "Rechercher des messages…",
+    "fileBrowserEmptyMessages": "Aucun message récent dans les conversations que vous pouvez voir.",
+    "fileBrowserSummaryLive": "{n} messages récents · lus en direct avec vos propres accès · rien n’est stocké",
+    "countMessages": "{n} message | {n} messages",
+    "fileBrowserNoResultsMessages": "Aucun message ne correspond à « {q} ».",
+    "loadingMessages": "Chargement des messages depuis la source…",
+    "fileBrowserConnectRequiredMessages": "Connectez votre compte pour parcourir — cette connexion lit les messages avec les accès de chaque utilisateur.",
+    "liveSourceHint": "Recherche en direct avec les accès de chaque utilisateur — uniquement les canaux, conversations ou e-mails qu’il peut voir. Rien n’est copié ni indexé.",
+    "liveBadge": "En direct",
     "fileBrowserTruncated": "Affichage des {shown} premiers fichiers sur {total} — restreignez le périmètre de la connexion pour voir le reste.",
     "fileBrowserOpenInSource": "Ouvrir dans la source",
     "fileBrowserClosePreview": "Fermer l'aperçu",
@@ -1989,6 +1999,7 @@
     "openPage": "Ouvrir la page",
     "categories": {
       "dataSources": "Agents",
+      "connectors": "Connecteurs",
       "queries": "Requêtes",
       "files": "Fichiers",
       "tables": "Tables",
@@ -3843,7 +3854,7 @@
     "saveIntegration": "Enregistrer l'intégration",
     "loadFieldsFailed": "Échec du chargement des champs",
     "integrationReady": "Intégration prête",
-    "integrationReadyDesc": "{name} est connecté et un agent public a été créé. Les utilisateurs peuvent se connecter pour commencer à l'utiliser.",
+    "integrationReadyDesc": "{name} est désormais disponible pour tous comme connecteur. Chacun se connecte avec son propre compte.",
     "integrationAgentFailed": "Intégration enregistrée, mais la création de l'agent a échoué",
     "updateIntegrationFailed": "Échec de la mise à jour de l'intégration",
     "createIntegrationFailed": "Échec de la création de l'intégration",
@@ -4319,7 +4330,10 @@
     "connection.kms_token_format": "Le jeton d'API KMS ne peut contenir que des lettres, des chiffres et des signes de ponctuation simples, sans espaces. Copiez-le à nouveau depuis KMS Lighthouse et collez-le en texte brut.",
     "connection.kms_use_connection_credentials": "Les identifiants KMS Lighthouse sont enregistrés sur la connexion. Ouvrez la connexion et connectez-vous depuis celle-ci.",
     "connection.kms_only": "Le diagnostic s'applique uniquement aux connexions KMS Lighthouse.",
-    "connection.kms_diagnostics_running": "Un diagnostic est déjà en cours pour cette connexion. Attendez qu'il se termine, puis réessayez."
+    "connection.kms_diagnostics_running": "Un diagnostic est déjà en cours pour cette connexion. Attendez qu'il se termine, puis réessayez.",
+    "connection.kms_login_rejected": "KMS Lighthouse n'a pas accepté cet identifiant, il n'a donc pas été enregistré. Vérifiez le nom d'utilisateur et le mot de passe, ou le jeton d'API, puis réessayez.",
+    "connection.kms_login_paused": "KMS Lighthouse a récemment refusé cet identifiant : les nouvelles tentatives sont suspendues pendant quelques minutes et il n'a pas été enregistré. Vérifiez l'identifiant ou réessayez plus tard.",
+    "connection.kms_session_refused": "KMS Lighthouse a accepté cet identifiant mais a refusé sa session : il ne peut donc pas être utilisé et n'a pas été enregistré. Demandez à l'administrateur KMS si ce compte peut utiliser l'API KMS."
   },
   "email": {
     "dashboardShare": {
@@ -6416,7 +6430,9 @@
     "noConnection": "Cet agent n'a pas encore de connexion.",
     "notFound": "Cette connexion est introuvable.",
     "forbidden": "Vous n'avez pas accès à cette connexion.",
-    "loadFailed": "Impossible de charger la connexion. Réessayez plus tard."
+    "loadFailed": "Impossible de charger la connexion. Réessayez plus tard.",
+    "connected": "Connecté",
+    "connectedAs": "Connecté en tant que {identity}"
   },
   "trackedChanges": {
     "noChanges": "Aucune modification"
@@ -6849,6 +6865,35 @@
     "enabled": "Activée",
     "embeddingEmpty": "Embedding is not configured",
     "oauthEmpty": "OAuth is not configured"
+  },
+  "connectors": {
+    "title": "Connecteurs",
+    "subtitle": "Vos propres comptes et outils que l’IA peut utiliser. Chaque connecteur lit avec vos propres accès — personne d’autre ne voit vos données.",
+    "browse": "Parcourir les connecteurs",
+    "empty": "Aucun connecteur pour l’instant.",
+    "search": "Rechercher des connecteurs…",
+    "noResults": "Aucun connecteur ne correspond à « {q} ».",
+    "signIn": "Se connecter",
+    "signOut": "Se déconnecter",
+    "remove": "Supprimer",
+    "statusConnected": "Connecté",
+    "statusShared": "Partagé",
+    "statusServiceAccount": "Compte de service",
+    "statusOffline": "Reconnecter",
+    "statusNotConnected": "Non connecté",
+    "needsSignIn": "{n} connecteur nécessite une connexion | {n} connecteurs nécessitent une connexion",
+    "accessPersonal": "Utilise votre propre compte",
+    "accessShared": "Utilise un compte partagé configuré par un administrateur",
+    "addHint": "Ajoutez d’autres connecteurs depuis Agents → Ajouter une connexion.",
+    "askAdmin": "Demandez à un administrateur d’ajouter d’autres connecteurs.",
+    "removeConfirm": "Supprimer {name} pour toute l’organisation ? Les connexions des utilisateurs seront aussi supprimées.",
+    "signedOut": "Déconnecté de {name}",
+    "removed": "{name} supprimé",
+    "actionFailed": "Une erreur s’est produite",
+    "shareToggleLabel": "Rendre disponible pour toute votre organisation",
+    "shareToggleHint": "Ajoute « {name} » aux connecteurs de chacun. Chacun se connecte avec son propre compte — personne ne voit les données des autres.",
+    "useAsAgent": "Utiliser comme agent",
+    "movedToAgents": "{name} est désormais un agent"
   },
   "tablePreview": {
     "idle": "Appuyez sur Exécuter pour charger les lignes depuis la source.",
