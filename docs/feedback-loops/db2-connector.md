@@ -46,8 +46,8 @@ LUW, `DB2` → z/OS, `AS` → IBM i) and reads the matching catalog; the
 - `table_preview_service.py`: `fetch_first` bound (`FETCH FIRST n ROWS
   ONLY` works on every Db2 release; `LIMIT` does not).
 - `connection_service`: `db2_uri` disposes pooled engines on edit or delete.
-- Icons `frontend/public/data_sources_icons/{db2,ibmi}.svg` (generic, not
-  IBM's trademark) and aliases in `DataSourceIcon.vue`.
+- Icons `frontend/public/data_sources_icons/{db2,ibmi}.png` (IBM Db2 logo
+  for `db2`, the Db2 wordmark for `ibmi`) and aliases in `DataSourceIcon.vue`.
 - Dependencies: `ibm-db` (marker `platform_machine != 'aarch64'`, as IBM
   publishes no Linux ARM64 build) and `mapepire-python`.
 
