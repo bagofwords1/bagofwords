@@ -1,6 +1,6 @@
 # Custom tables: run history, incremental refresh, normalization — plan
 
-Status: **plan, not implemented**. Scope agreed: build phases 1–3 now; phase 4
+Status: **plan approved; implementation in progress**. Scope agreed: build phases 1–3 now; phase 4
 (transform layer over DuckDB) is future work, but every phase below must leave
 the door open for it (see "Phase-4 readiness").
 
@@ -121,7 +121,7 @@ i18n keys in `locales/{en,es,he}.json` (all three, identical shape).
    stream into a **staging** table in the new artifact; record chunk in run.
 4. Apply: `append` → INSERT; `merge` → `MERGE INTO t USING staging ON key`;
    `replace_window` → `DELETE WHERE cursor in window` + INSERT (for GROUP BY
-   rollups / no key — Power BI-partition / dbt-microbatch semantics).
+   rollups / no key).
 5. New checkpoint = `SELECT max(cursor) FROM t` **on our copy** (type from
    Arrow, no clock skew). Persist checkpoint in the **same conditional UPDATE
    as the swap** — data and checkpoint move together or not at all.
@@ -171,8 +171,7 @@ Placeholder semantics:
   mode if non-zero; where it cannot be probed, the UI states the rule.
 - **Checkpoint cap.** New checkpoint = `min(max(cursor), run start)` for
   timestamps. One bad future-dated row (`updated_at = 2099`) would otherwise
-  move the checkpoint past all real data and no refresh would ever load again
-  (Singer "signpost").
+  move the checkpoint past all real data and no refresh would ever load again.
 - **Dedup the delta before merging.** Verified on the pinned DuckDB: `MERGE`
   with two delta rows for one key raises no error and keeps an arbitrary one.
   Staging is reduced to the latest row per key (by cursor) first; a
@@ -186,8 +185,7 @@ Placeholder semantics:
   raises a conversion error.)
 - **`replace_window` aligns to a grain.** The window start is truncated to
   the table's grain (day/month). Recomputing a daily rollup from a window
-  that starts mid-day would publish a partial day as if it were complete
-  (Power BI "only refresh complete days", dbt microbatch `batch_size`).
+  that starts mid-day would publish a partial day as if it were complete.
 - **One run per table.** Releasing the connection lock between chunks lets a
   scheduled tick for the *same* table start; a per-table claim prevents it.
   A scheduled tick that finds a partial initial load **resumes** it rather
@@ -383,10 +381,16 @@ Each PR: feedback-loop section updated, release-notes skill for user-facing ones
    whether to keep N previous artifacts for one-click restore (storage cost).
 4. Should auto-wrap exist at all, or placeholder-only for clarity?
 5. Row-drop threshold for the pre-publish check (proposal: fail on >50% drop, per-table override).
-6. Persist the partial initial-load file to object storage after each chunk
-   (resume works across pods, costs an upload per chunk) or keep it pod-local
-   (proposal: pod-local first; restart on another pod).
-7. Size caps: incremental makes large tables practical, but the 5M-row /
-   2 GiB artifact caps (`extractor.DEFAULT_MAX_ROWS/BYTES`) still apply to the
-   total. Raise them, make them per-table, or keep? Raising them is what
-   would make whole-file copy/upload per refresh worth redesigning.
+
+## 7. Decisions (owner, 2026-11-11)
+
+- **Partial initial loads are pod-local.** Resume continues on the same
+  volume; on another pod the load restarts from the first chunk. No per-chunk
+  upload.
+- **Size caps stay** at 5M rows / 2 GiB (`extractor.DEFAULT_MAX_ROWS/BYTES`)
+  for the first release. Loop B additionally measures copy-forward, upload and
+  download time at 1 / 2 / 5 / 10 GiB; a per-organization cap (with a longer
+  minimum refresh interval for large tables) is decided from those numbers.
+  Beyond that, the path is multiple files per table (base + delta segments,
+  compacted periodically) behind the `publish` step — not built now.
+- Questions 1–5 above use the proposed defaults until the owner says otherwise.
