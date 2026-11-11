@@ -142,12 +142,13 @@
 
         <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
           <template v-if="isDax">DAX <span class="text-ink-muted">— one EVALUATE against a Power BI semantic model</span></template>
-          <template v-else-if="isRequest">Request <span class="text-ink-muted">— a JSON query, as this connection's agent would send it</span></template>
-          <template v-else>SQL <span class="text-ink-muted">— in {{ activeConnectionType }} dialect</span></template>
+          <template v-else-if="queryLanguage === 'soql'">SOQL <span class="text-ink-muted">— one Salesforce query</span></template>
+          <template v-else-if="queryLanguage === 'sql'">SQL <span class="text-ink-muted">— in {{ activeConnectionType }} dialect</span></template>
+          <template v-else>Query <span class="text-ink-muted">— in this connection's own format, as its agent would send it</span></template>
         </label>
         <SqlEditor
           v-model="form.definition_sql"
-          :language="isDax ? 'dax' : isRequest ? 'json' : (String(activeConnectionType).toLowerCase() === 'posthog' ? 'hogql' : 'sql')"
+          :language="editorLanguage"
           :connection-id="activeConnection?.id"
           :min-height="120"
           :max-height="360"
@@ -280,16 +281,16 @@
             </span>
           </label>
           <label class="flex items-start gap-2 cursor-pointer">
-            <input type="radio" :value="true" v-model="incr.enabled" data-testid="cq-mode-incremental" class="mt-0.5"
-                   :disabled="!incrementalSupported" />
+            <input type="radio" :value="true" v-model="incr.enabled" data-testid="cq-mode-incremental" class="mt-0.5" />
             <span>
               <span class="text-sm dark:text-gray-200">Only what is new</span>
               <span class="block text-2xs text-gray-500 dark:text-gray-400">
                 The first load runs in chunks; after that each refresh reads only rows added or changed
                 since the last one. Much lighter on {{ activeConnectionName }} for large tables.
               </span>
-              <span v-if="!incrementalSupported" class="block text-2xs text-amber-700 dark:text-amber-400" data-testid="cq-incremental-unsupported">
-                Not available for {{ activeConnectionType }} connections yet.
+              <span v-if="preview?.filters_at_source === false" class="block text-2xs text-amber-700 dark:text-amber-400" data-testid="cq-incremental-local">
+                {{ activeConnectionName }} cannot be asked for only the new rows, so each refresh still runs the
+                whole query and takes what is new from the result. Rows are kept here even after they leave that result.
               </span>
             </span>
           </label>
@@ -403,9 +404,9 @@
               </div>
             </div>
 
-            <p v-if="!isRequest" class="text-2xs text-ink-muted" data-testid="cq-placeholder-hint">
-              By default the filter is wrapped around your query. For a join or a large table, put it on the
-              source column yourself so the database can use its index:
+            <p v-if="!isRequest && preview?.filters_at_source !== false" class="text-2xs text-ink-muted" data-testid="cq-placeholder-hint">
+              By default the filter is added to your query for you. For a join or a large table, place it on the
+              source column yourself so the source can use its index:
               <span class="font-mono" v-pre>WHERE updated_at &gt;= {{since}}</span>.
             </p>
             <p v-if="incrError" class="text-2xs text-red-600" data-testid="cq-incr-error">{{ incrError }}</p>
@@ -851,9 +852,26 @@ watch(selectedConnectionId, (next, prev) => {
 // from the tables the DAX references; this picker is the explicit override,
 // sent along with preview and save so both address the same model.
 const isDax = computed(() => (activeConnectionType.value || '').toLowerCase() === 'powerbi')
-// Connectors queried with a JSON request rather than SQL (monitoring APIs).
-const REQUEST_TYPES = ['aria_operations']
-const isRequest = computed(() => REQUEST_TYPES.includes((activeConnectionType.value || '').toLowerCase()))
+// Any connector that can run a query can be cached, and they do not all speak
+// SQL. The language only decides how the editor highlights and what the label
+// says; the query is sent to the connector as written.
+const SQL_TYPES = [
+  'aws_athena', 'aws_redshift', 'bigquery', 'clickhouse', 'databricks_sql', 'druid', 'duckdb', 'mariadb',
+  'ms_fabric', 'mssql', 'mysql', 'oracledb', 'postgresql', 'snowflake', 'spark_connect', 'sqlite',
+  'starburst', 'sybase', 'teradata', 'trino',
+]
+const queryLanguage = computed(() => {
+  const type = (activeConnectionType.value || '').toLowerCase()
+  if (type === 'powerbi') return 'dax'
+  if (type === 'posthog') return 'hogql'
+  if (type === 'salesforce') return 'soql'
+  return SQL_TYPES.includes(type) ? 'sql' : 'other'
+})
+const isRequest = computed(() => queryLanguage.value === 'other')
+const editorLanguage = computed(() => {
+  if (queryLanguage.value === 'other') return /^\s*[{[]/.test(form.definition_sql) ? 'json' : 'text'
+  return queryLanguage.value === 'soql' ? 'sql' : queryLanguage.value
+})
 const targets = ref<any[]>([])
 const targetDatasetId = ref('')
 const currentTarget = computed(() => targets.value.find((t) => t.datasetId === targetDatasetId.value) || null)
@@ -944,13 +962,6 @@ function loadIncrFromCq() {
   incr.row_drop_guard_pct = c.row_drop_guard_pct != null ? c.row_drop_guard_pct : DEFAULT_GUARD_PCT
   incr.showAdvanced = !!(c.initial_value || c.cursor_kind || c.grain)
 }
-
-// Connectors a refresh window cannot be written into yet (the backend
-// refuses them too): they refresh in full.
-const NOT_INCREMENTAL_TYPES = ['powerbi', 'posthog', 'sybase']
-const incrementalSupported = computed(() =>
-  !NOT_INCREMENTAL_TYPES.includes((activeConnectionType.value || '').toLowerCase()))
-watch(incrementalSupported, (ok) => { if (!ok) incr.enabled = false })
 
 const usesPlaceholders = computed(() => /\{\{\s*(since|until)\s*\}\}/i.test(form.definition_sql))
 

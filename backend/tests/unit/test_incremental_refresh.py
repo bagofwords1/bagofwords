@@ -904,27 +904,6 @@ async def test_settings_are_checked_when_saved(lab):
         assert error.value.status_code == 400 and problem in error.value.detail.lower()
 
 
-@pytest.mark.parametrize("conn_type,allowed", [
-    ("postgresql", True), ("MSSQL", True), ("sqlite", True), ("snowflake", True), ("bigquery", True),
-    ("aria_operations", True),
-    ("powerbi", False), ("posthog", False), ("sybase", False),
-    ("mongodb", False),          # not a cacheable connector at all
-])
-async def test_incremental_is_refused_at_save_time_where_no_window_can_be_written(lab, conn_type, allowed):
-    """Not at the first refresh, when the table already exists in an error state."""
-    from app.services.custom_query_service import supports_incremental
-    assert supports_incremental(conn_type) is allowed
-    settings = ("merge", {"cursor_column": "u", "unique_key": ["id"]}, "SELECT 1", conn_type)
-    if allowed:
-        assert lab.service.refresh_settings(*settings).mode == "merge"
-    else:
-        with pytest.raises(HTTPException) as error:
-            lab.service.refresh_settings(*settings)
-        assert error.value.status_code == 400 and "not available" in error.value.detail
-    # A full refresh is always fine.
-    assert lab.service.refresh_settings("full", {}, "SELECT 1", conn_type).mode == "full"
-
-
 async def test_a_cursor_or_key_missing_from_the_result_fails_with_the_column_names(lab):
     lab.shop.add(3)
     await lab.table(cursor_column="updated")

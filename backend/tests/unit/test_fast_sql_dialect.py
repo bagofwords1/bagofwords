@@ -522,11 +522,22 @@ def test_sql_server_is_accelerable_under_its_registry_casing():
     assert is_accelerable_type(sql_server_type)
 
 
-def test_is_accelerable_type_still_excludes_the_rest():
-    from app.services.custom_query_service import is_accelerable_type
+def test_every_connector_that_can_run_a_query_can_be_cached_and_only_those():
+    """Caching is not a list of blessed types: a connector that answers
+    `execute_query` can be cached through it. One that has no query to run —
+    files, mail, tools — cannot, and neither can a type that does not exist."""
+    from app.data_sources.clients.base import Capability
+    from app.schemas.data_source_registry import REGISTRY, resolve_client_class
+    from app.services.custom_query_service import is_accelerable_type, supports_incremental
 
-    assert not is_accelerable_type("mongodb")
-    assert not is_accelerable_type(None)
+    for conn_type in REGISTRY:
+        queryable = Capability.QUERY in (getattr(resolve_client_class(conn_type), "capabilities", None) or ())
+        assert is_accelerable_type(conn_type) is queryable, conn_type
+        assert supports_incremental(conn_type) is queryable, conn_type
+    for conn_type in ("mongodb", "salesforce", "powerbi", "posthog", "aria_operations", "MSSQL"):
+        assert is_accelerable_type(conn_type), conn_type
+    for conn_type in ("s3", "gmail_mail", "mcp", "no_such_connector", "", None):
+        assert not is_accelerable_type(conn_type), conn_type
 
 
 def test_accelerable_types_are_all_lowercase():

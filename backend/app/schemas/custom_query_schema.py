@@ -155,6 +155,10 @@ class CustomQueryPreviewResponse(BaseModel):
     # Set when the *unbounded* query would exceed a materialization budget. The
     # preview still returns rows — this tells the UI it cannot be saved as-is.
     budget_error: Optional[str] = None
+    # Whether an incremental refresh can ask this source for only the new
+    # rows. False: its query runs whole each time and what is new is taken
+    # from the result — still incremental here, no lighter on the source.
+    filters_at_source: bool = True
 
 
 class CustomQuerySchema(BaseModel):

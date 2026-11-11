@@ -716,3 +716,44 @@ async def test_mariadb_accepts_the_rendered_windows_and_follows_the_source(maria
     assert run["rows_read"] < 500
     plan = " ".join(str(r) for r in e.all("EXPLAIN " + run["rendered_query"]))
     assert "incr_smoke_updated_at" in plan, f"the window did not reach the index: {plan}"
+
+
+# -- a connector with no source built for it: cached through its own query call --------
+
+SERVICENOW_URL = os.environ.get("INCR_LOOP_SERVICENOW_URL")     # tools/agent/fake_servicenow.py
+
+
+async def test_a_connector_with_only_execute_query_is_cached_and_refreshed(tmp_path):
+    """ServiceNow has no extraction source and no window writer. Its real
+    client, against the repo's fake instance, is cached through the one call
+    every connector has — and its table refreshes incrementally all the same."""
+    if not SERVICENOW_URL:
+        pytest.skip("INCR_LOOP_SERVICENOW_URL not set")
+    root = tmp_path / "fast"
+    with patch.object(artifacts, "_ARTIFACT_ROOT", root):
+        async with async_session_maker() as db:
+            org = Organization(name=f"ServiceNow {uuid.uuid4().hex[:8]}")
+            db.add(org)
+            await db.flush()
+            connection = Connection(name="ServiceNow", type="servicenow", organization_id=org.id,
+                                    config={"instance_url": SERVICENOW_URL, "verify_ssl": False})
+            connection.encrypt_credentials({"username": "any", "password": "any"})
+            db.add(connection)
+            await db.commit()
+            lab = Lab(root, None, connection.id)
+        request = json.dumps({"table": "kb_knowledge", "fields": ["number", "short_description", "sys_updated_on"],
+                              "limit": 500})
+        await lab.table(request, "merge", cursor_column="sys_updated_on", unique_key=["number"])
+        table = await lab.refresh()
+        assert table.last_refresh_status == "ok" and table.no_rows >= 1
+        assert {"number", "short_description", "sys_updated_on"} <= {c["name"] for c in table.columns}
+        first = await lab.last_run()
+        assert first["rendered_query"] == request
+        notes = " ".join(e["message"] for e in first["events"])
+        assert "own query call" in notes and "cannot filter at the source" in notes
+        rows = await lab.copy("SELECT number, sys_updated_on FROM copy")
+
+        table = await lab.refresh()
+        run = await lab.last_run()
+        assert run["mode"] == "incremental" and (run["rows_inserted"], run["rows_updated"]) == (0, 0)
+        assert await lab.copy("SELECT number, sys_updated_on FROM copy") == rows

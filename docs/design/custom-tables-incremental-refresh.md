@@ -31,6 +31,7 @@ something and the code went another way.
 | Loop B measures 1 / 2 / 5 / 10 GiB incl. object storage | Local copy-forward measured to 1.77 GiB (~7 s/GiB) | No object store in the sandbox; the larger points are still owed before the cap is raised. |
 | Partial loads are pod-local; another pod restarts the load | Another pod **hands the turn back** to the pod holding the part file for 45 minutes after its last progress, then restarts it | Restarting on every hand-off could keep a long load from ever finishing. |
 | A failing full rebuild is retried on each tick | After three failures without progress it is set aside for a day and increments continue | A served table must not freeze because its rebuild cannot finish. |
+| Incremental offered only where a window can be written; Salesforce out of scope | **Every queryable connector is cacheable and incremental.** A connector that can filter at the source says how (SQL dialect, its own writer for SOQL / DAX, or JSON request fields); one that cannot has its query run whole and the window taken from the result | The owner's requirement: it should behave like an ETL product, not a list of supported sources. Salesforce got a paged SOQL source so it is not bound by the agent's 10,000-row cap. |
 | PR slicing 1a–5 | One branch, built in that order | — |
 
 Also added beyond the plan: the row-drop guard is on by default (50 %) for new

@@ -1,6 +1,7 @@
 """Incremental refresh: the connector-agnostic core, the normalizer and the
 loader, with no application database and no source engine."""
 import json
+import re
 import uuid
 from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -253,7 +254,7 @@ def test_definition_hash_changes_with_what_decides_the_rows_and_only_that():
 @pytest.mark.parametrize("value", CURSOR_VALUES)
 def test_every_dialect_renders_every_cursor_kind(dialect, value):
     sql = incremental.render_sql("SELECT * FROM t;", dialect, "updated at", None, Window(lo=value))
-    assert sql.startswith("SELECT * FROM (SELECT * FROM t) bow_sub WHERE ")
+    assert re.match(r"SELECT \* FROM \(SELECT \* FROM t\) (AS )?bow_sub WHERE ", sql)
     assert ";" not in sql, "the wrapped query is one statement"
     assert ">=" in sql and "<" not in sql.replace(">=", "")
 

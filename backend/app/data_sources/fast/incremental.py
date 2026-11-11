@@ -543,11 +543,22 @@ _FAMILY = {
     "clickhouse": "clickhouse",
     "trino": "trino", "presto": "trino", "athena": "trino",
     "databricks": "spark", "spark": "spark",
+    # HogQL (PostHog) is ClickHouse SQL with its own function set.
+    "hogql": "hogql",
+    "sybase": "sybase",
 }
 
 # Families exercised against a live engine end to end. The rest render from
 # the same table and are unit-tested, but have not met a real server.
 VERIFIED_FAMILIES = {"postgres", "tsql", "sqlite", "mysql"}
+
+# Dialects that want the keyword before a subquery's alias. Everywhere else it
+# is left out, because Oracle rejects it.
+_ALIAS_WITH_AS = {"hogql", "clickhouse"}
+
+
+def _alias(family: str, name: str) -> str:
+    return f"AS {name}" if family in _ALIAS_WITH_AS else name
 
 _MIN = {KIND_TIMESTAMP: datetime(1, 1, 1), KIND_DATE: date(1, 1, 1),
         KIND_NUMBER: -(2 ** 63), KIND_TEXT: ""}
@@ -556,6 +567,8 @@ _MAX = {KIND_TIMESTAMP: datetime(9999, 12, 31), KIND_DATE: date(9999, 12, 31),
 # Engines whose date types cannot hold year 1.
 _FAMILY_MIN = {
     "clickhouse": {KIND_TIMESTAMP: datetime(1970, 1, 1), KIND_DATE: date(1970, 1, 1)},
+    "hogql": {KIND_TIMESTAMP: datetime(1970, 1, 1), KIND_DATE: date(1970, 1, 1)},
+    "sybase": {KIND_TIMESTAMP: datetime(1753, 1, 1), KIND_DATE: date(1753, 1, 1)},
     "tsql": {KIND_TIMESTAMP: datetime(1753, 1, 1), KIND_DATE: date(1753, 1, 1)},
     "mysql": {KIND_TIMESTAMP: datetime(1000, 1, 1), KIND_DATE: date(1000, 1, 1)},
 }
@@ -566,26 +579,50 @@ def family_of(dialect: str | None) -> str | None:
 
 
 def dialect_for(client) -> str | None:
-    """The SQL dialect a client's queries are written in, if it speaks SQL."""
+    """The SQL dialect a client's queries are written in, if it speaks SQL.
+
+    A client whose query language is SQL-shaped but is not driven through the
+    shared dialect table (PostHog's HogQL, SQL Anywhere) says so itself with
+    `INCREMENTAL_DIALECT`.
+    """
+    declared = getattr(client, "INCREMENTAL_DIALECT", None)
+    if declared:
+        return str(declared)
     from app.ai.code_execution.sql_guard import CLIENT_DIALECTS
     from app.data_sources.fast import sql_dialect
 
     return CLIENT_DIALECTS.get(type(client).__name__) or sql_dialect.dialect_of(client) or None
 
 
+def window_writer(client):
+    """A client's own way of writing a window into its query language, for
+    the ones that are neither SQL nor a JSON request (SOQL, DAX):
+    ``render_window(query, column, kind, window) -> query``."""
+    writer = getattr(client, "render_window", None)
+    return writer if callable(writer) else None
+
+
 def uses_placeholders(sql: str | None) -> bool:
     return bool(_SINCE.search(sql or "") or _UNTIL.search(sql or ""))
 
 
+def filters_at_source(client) -> bool:
+    """Whether a window can be written into this client's query.
+
+    When it can, a refresh fetches only the window. When it cannot, the query
+    runs whole and the window is taken from its result locally: the table is
+    kept just the same, but the source does the full work every time.
+    """
+    return (json_window_of(client) is not None or window_writer(client) is not None
+            or family_of(dialect_for(client)) is not None)
+
+
 def can_window(client, sql: str) -> bool:
-    """Whether a window can be written into this client's query at all."""
-    if json_window_of(client) is not None:
-        return True
-    return family_of(dialect_for(client)) is not None
+    return filters_at_source(client)
 
 
 def quote_identifier(family: str, name: str) -> str:
-    if family in ("mysql", "bigquery", "clickhouse", "spark"):
+    if family in ("mysql", "bigquery", "clickhouse", "spark", "hogql"):
         return "`" + name.replace("`", "``") + "`"
     if family == "tsql":
         return "[" + name.replace("]", "]]") + "]"
@@ -616,6 +653,10 @@ def literal(family: str, value: Any) -> str:
             return f"'{text}'"
         if family == "clickhouse":
             return f"toDate('{text}')"
+        if family == "hogql":
+            return f"toDate('{text}')"
+        if family == "sybase":
+            return f"CAST('{text}' AS DATE)"
         return f"DATE '{text}'"
     if kind != KIND_TIMESTAMP:
         raise IncrementalConfigError("Unsupported cursor value.")
@@ -634,6 +675,12 @@ def literal(family: str, value: Any) -> str:
         return f"'{text}'"
     if family == "clickhouse":
         return f"toDateTime64('{text}', 6, 'UTC')" if aware else f"toDateTime64('{text}', 6)"
+    if family == "hogql":
+        # Whole seconds: rounding a lower bound down only re-reads a little.
+        whole = value.replace(microsecond=0).isoformat(sep=" ")
+        return f"toDateTime('{whole}', 'UTC')" if aware else f"toDateTime('{whole}')"
+    if family == "sybase":
+        return f"CAST('{text}' AS TIMESTAMP)"
     if family == "bigquery":
         return f"TIMESTAMP '{text}+00:00'" if aware else f"DATETIME '{text}'"
     if family == "postgres":
@@ -697,18 +744,19 @@ def render_sql(sql: str, dialect: str | None, column: str, kind: str | None,
     predicate = " AND ".join(parts)
     if window.include_nulls:
         predicate = f"({predicate}) OR {col} IS NULL"
-    return f"SELECT * FROM ({inner}) bow_sub WHERE {predicate}"
+    return f"SELECT * FROM ({inner}) {_alias(family, 'bow_sub')} WHERE {predicate}"
 
 
 def count_sql(sql: str, dialect: str | None, column: str, kind: str | None,
               window: Window) -> str | None:
     """How many rows of the result fall in `window`, as one statement."""
-    if family_of(dialect) is None:
+    family = family_of(dialect)
+    if family is None:
         return None
     from app.data_sources.fast.sql_dialect import strip_trailing_semicolon
 
     inner = strip_trailing_semicolon(render_sql(sql, dialect, column, kind, window))
-    return f"SELECT COUNT(*) FROM ({inner}) bow_cnt"
+    return f"SELECT COUNT(*) FROM ({inner}) {_alias(family, 'bow_cnt')}"
 
 
 def probe_sql(sql: str, dialect: str | None, column: str, kind: str | None,
@@ -727,7 +775,7 @@ def probe_sql(sql: str, dialect: str | None, column: str, kind: str | None,
 
     inner = strip_trailing_semicolon(render_sql(sql, dialect, column, kind, window or Window()))
     col = quote_identifier(family, column)
-    return f"SELECT MIN({col}), MAX({col}), COUNT(*), COUNT({col}) FROM ({inner}) bow_sub"
+    return f"SELECT MIN({col}), MAX({col}), COUNT(*), COUNT({col}) FROM ({inner}) {_alias(family, 'bow_sub')}"
 
 
 # --------------------------------------------------------------------------
@@ -814,8 +862,23 @@ def render_json(spec: str, decl: dict, window: Window, now_utc: datetime | None 
 
 
 def render(client, sql: str, column: str, kind: str | None, window: Window) -> str:
-    """`sql` restricted to `window`, however this client expresses that."""
+    """`sql` restricted to `window`, however this client expresses that.
+
+    A client with no way to express it gets its query back unchanged: the
+    caller then takes the window from the result (see `filters_at_source`).
+    """
     decl = json_window_of(client)
     if decl is not None:
         return render_json(sql, decl, window)
-    return render_sql(sql, dialect_for(client), column, kind, window)
+    writer = window_writer(client)
+    if writer is not None:
+        return writer(sql, column, kind, window)
+    if family_of(dialect_for(client)) is not None:
+        return render_sql(sql, dialect_for(client), column, kind, window)
+    if uses_placeholders(sql):
+        raise IncrementalConfigError(
+            "{{since}} / {{until}} are not available for this connection type: its "
+            "queries cannot be filtered at the source. Remove them and choose a "
+            "cursor column instead."
+        )
+    return sql

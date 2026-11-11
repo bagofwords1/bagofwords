@@ -122,26 +122,49 @@ REQUEST_TYPES = {"aria_operations"}
 ACCELERABLE_TYPES = VERIFIED_TYPES | UNVERIFIED_TYPES
 
 
-# Connectors a window cannot be written into yet: their query language is
-# neither a SQL dialect the renderer knows nor a JSON request. They refresh in
-# full. Known when a table is saved, so the admin hears it then rather than
-# from a failed first refresh.
-NOT_INCREMENTAL_TYPES = {"powerbi", "posthog", "sybase"}
-
-
 def supports_incremental(conn_type) -> bool:
-    return is_accelerable_type(conn_type) and (conn_type or "").lower() not in NOT_INCREMENTAL_TYPES
+    """Every cacheable connector can refresh incrementally. Whether it can
+    also *filter at the source* is the client's to say
+    (`incremental.filters_at_source`); one that cannot still keeps its table
+    current the same way, it just runs its whole query to do so."""
+    return is_accelerable_type(conn_type)
+
+
+_QUERYABLE: dict = {}
+
+
+def _is_queryable(kind: str) -> bool:
+    """Whether a connection type's client can run a query at all."""
+    if kind not in _QUERYABLE:
+        try:
+            from app.data_sources.clients.base import Capability
+            from app.schemas.data_source_registry import REGISTRY, resolve_client_class
+
+            key = next((k for k in REGISTRY if k.lower() == kind), None)
+            cls = resolve_client_class(key) if key else None
+            _QUERYABLE[kind] = bool(
+                cls is not None
+                and Capability.QUERY in (getattr(cls, "capabilities", None) or ())
+                and callable(getattr(cls, "execute_query", None))
+            )
+        except Exception:
+            _QUERYABLE[kind] = False
+    return _QUERYABLE[kind]
 
 
 def is_accelerable_type(conn_type) -> bool:
     """Whether a stored `Connection.type` is offered acceleration.
+
+    Any connector that can run a query: the ones in ACCELERABLE_TYPES through
+    a source built for them, the rest through the connector's own
+    `execute_query` (fast/sources.py QuerySource).
 
     Case-insensitive because the registry is not: SQL Server is registered as
     "MSSQL" — the registry's one uppercase key — so a literal membership test
     against these lowercase sets silently excluded every SQL Server connection.
     """
     kind = (conn_type or "").lower()
-    return kind in ACCELERABLE_TYPES or kind in REQUEST_TYPES
+    return kind in ACCELERABLE_TYPES or kind in REQUEST_TYPES or _is_queryable(kind)
 
 _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 
@@ -264,8 +287,15 @@ class _Run:
         self.previous_rows = cq.no_rows if cq.artifact_path else None
         # We write the window predicate ourselves unless the admin placed it
         # (placeholders) or the source takes it as request fields.
+        self.at_source = incremental.filters_at_source(self.client)
+        from app.data_sources.fast.sources import QuerySource, source_for
+
+        # Read through the connector's plain `execute_query`: no source built
+        # for it, so whatever row limit that call applies, applies here.
+        self.generic = isinstance(source_for(self.client), QuerySource)
         self.wrapped = (
             self.config.incremental
+            and self.at_source
             and not incremental.uses_placeholders(self.sql)
             and incremental.json_window_of(self.client) is None
         )
@@ -625,6 +655,7 @@ class CustomQueryService:
             "estimate_supported": est.supported,
             "estimate_note": est.note,
             "budget_error": refused,
+            "filters_at_source": incremental.filters_at_source(client),
         }
 
     async def create(
@@ -722,12 +753,6 @@ class CustomQueryService:
             config.validate(definition_sql or "")
         except incremental.IncrementalConfigError as e:
             raise HTTPException(status_code=400, detail=str(e))
-        if config.incremental and conn_type is not None and not supports_incremental(conn_type):
-            raise HTTPException(
-                status_code=400,
-                detail=(f"Incremental refresh is not available for '{conn_type}' connections "
-                        f"yet; this table can refresh in full."),
-            )
         return config
 
     async def _activate_for_agents(
@@ -1031,10 +1056,9 @@ class CustomQueryService:
         config, state, cq = run.config, run.state, run.cq
         if not config.incremental:
             return "single"
-        if not incremental.can_window(run.client, cq.definition_sql or ""):
-            raise incremental.IncrementalConfigError(
-                "Incremental refresh is not available for this connection type yet."
-            )
+        if not run.at_source:
+            run.note("This connection cannot filter at the source: the whole query runs on "
+                     "each refresh and what is new is taken from its result.")
         serving = bool(cq.artifact_path and cq.artifact_key_enc
                        and incremental.decode(state.get("checkpoint")) is not None
                        and state.get("definition_hash") == run.definition_hash)
@@ -1080,7 +1104,10 @@ class CustomQueryService:
         last_full = _parse_iso(state.get("last_full_refresh_at"))
         retry_after = _parse_iso(run.state.get("full_refresh_retry_after"))
         waiting = retry_after is not None and datetime.utcnow() < retry_after
-        if every and not waiting and (
+        # A source that cannot be asked for a range returns only what it has
+        # now; rebuilding from that would throw away rows it no longer
+        # returns. That stays the admin's call (Full refresh).
+        if every and not waiting and run.at_source and (
                 last_full is None or datetime.utcnow() - last_full >= timedelta(days=every)):
             run.note(f"Scheduled full refresh (every {every} days): picks up deleted rows.")
             return "load"
@@ -1146,6 +1173,9 @@ class CustomQueryService:
             )
             await self._prepare_client(db, connection, run.client, self.target_of(cq))
             run.snapshot()
+            if run.generic:
+                run.note("Read with this connection's own query call, which applies the "
+                         "connection's row limits; raise the limit in the query if it has one.")
             decision = self._decide(run)
             if decision == "defer":
                 # Another replica holds this load's file; hand the turn back.
@@ -1302,9 +1332,7 @@ class CustomQueryService:
     def _source(self, run: "_Run", rendered: str):
         src = extractor._source(run.client, rendered)
         if src is None:
-            raise incremental.IncrementalConfigError(
-                "Incremental refresh is not available for this connection type yet."
-            )
+            raise incremental.IncrementalConfigError("This connection cannot run queries.")
         return src
 
     def _work_plan_load(self, run: "_Run") -> dict:
@@ -1320,7 +1348,9 @@ class CustomQueryService:
 
             windows = [incremental.Window(lo=start, hi=None, include_nulls=run.wrapped)]
             total = None
-            probe = None if incremental.json_window_of(run.client) else incremental.probe_sql(
+            sql_source = incremental.json_window_of(run.client) is None and \
+                incremental.window_writer(run.client) is None
+            probe = None if not sql_source else incremental.probe_sql(
                 run.sql, incremental.dialect_for(run.client), config.cursor_column, run.cursor_kind, whole)
             if probe is not None:
                 try:
@@ -1435,6 +1465,7 @@ class CustomQueryService:
                 self._source(run, rendered), rendered, run.previous_path, run.previous_key,
                 run.name, run.connection_id, run.run_id, run.config, window, self._limits(run),
                 batch_rows=extractor.BATCH_ROWS, previous_rows=run.previous_rows, wrapped=run.wrapped,
+                filter_locally=not run.at_source,
             )
         except _PASS_THROUGH:
             raise

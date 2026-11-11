@@ -625,8 +625,13 @@ def finalize(part_path, key: str, relation: str, config: incremental.RefreshConf
 def apply_increment(source, sql: str, previous_path: str, previous_key: str, relation: str,
                     connection_id: str, run_id: str, config: incremental.RefreshConfig,
                     window: incremental.Window, limits: Limits, *, batch_rows: int,
-                    previous_rows: int | None = None, wrapped: bool = False) -> LoadOutcome:
-    """Copy the served artifact forward and fold one window of rows into it."""
+                    previous_rows: int | None = None, wrapped: bool = False,
+                    filter_locally: bool = False) -> LoadOutcome:
+    """Copy the served artifact forward and fold one window of rows into it.
+
+    `filter_locally`: the source could not restrict the query to the window,
+    so `sql` returned everything it has; the window is taken from that here.
+    """
     part_path, key = new_part(connection_id)
     outcome = LoadOutcome()
     try:
@@ -639,6 +644,10 @@ def apply_increment(source, sql: str, previous_path: str, previous_key: str, rel
             )
             if not writer.exists(STAGING):
                 raise SchemaChanged("the query returned no result shape")
+            if filter_locally and window.lo is not None:
+                (cursor,) = writer._require([config.cursor_column], "cursor column", STAGING)
+                # Rows with no cursor value are kept: they are in no window.
+                writer.con.execute(f"DELETE FROM {_q(STAGING)} WHERE {_q(cursor)} < ?", [window.lo])
             writer.con.execute("BEGIN")
             try:
                 if config.mode == incremental.MODE_MERGE:

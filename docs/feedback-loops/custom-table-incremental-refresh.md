@@ -54,6 +54,8 @@ export INCR_LOOP_PG_URL=postgresql://postgres:pw@localhost:55432/postgres
 export INCR_LOOP_MSSQL_URL="mssql+pyodbc://sa:$MSSQL_PW@localhost:51433/master?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
 export INCR_LOOP_MARIADB_URL=mysql+pymysql://root:pw@localhost:53306/shop
 export INCR_LOOP_ARIA_URL=http://127.0.0.1:8443
+(cd backend && uv run python ../tools/agent/fake_servicenow.py &)
+export INCR_LOOP_SERVICENOW_URL=http://127.0.0.1:9311
 ```
 
 Throwaway local containers only. Passwords and keys come from the
@@ -86,7 +88,7 @@ Observed:
 
 ```text
 === Loop A — deterministic ===
-459 passed in 55.03s
+506 passed in 56.36s
 ```
 
 `tests/unit/test_incremental_core.py` (typed checkpoints, windows, per-dialect
@@ -124,8 +126,8 @@ one scenario:
 Same command with the `INCR_LOOP_*` variables set. Observed:
 
 ```text
-=== Loop B — live (INCR_LOOP_PG_URL, INCR_LOOP_MSSQL_URL, INCR_LOOP_MARIADB_URL, INCR_LOOP_ARIA_URL) ===
-17 passed, 2 skipped
+=== Loop B — live (INCR_LOOP_PG_URL, INCR_LOOP_MSSQL_URL, INCR_LOOP_MARIADB_URL, INCR_LOOP_ARIA_URL, INCR_LOOP_SERVICENOW_URL) ===
+18 passed, 2 skipped in 146.31s
 ```
 
 (The two skips are SQL Server-only tests on the Postgres leg.)
@@ -187,6 +189,40 @@ measured — this sandbox has no object store):
 About 7 s per GiB and linear, so at the current 2 GiB cap an increment costs
 well under a minute locally. The 5 and 10 GiB points and the object-store legs
 from the design doc's decision remain to be measured before raising the cap.
+
+## Every connector
+
+Caching and incremental refresh are not a list of blessed types. Of the 95
+connector types in the registry, the 75 whose client can run a query can be
+cached (`custom_query_service.is_accelerable_type`); the other 20 are file,
+mail and tool connectors with no query to cache. Every cached table can
+refresh incrementally. What differs per connector is only how a refresh window
+reaches the source:
+
+| How the window is expressed | Connectors | Checked by |
+|---|---|---|
+| SQL literals in the connector's dialect, wrapped around the query or placed with `{{since}}` | Postgres, SQL Server, MariaDB/MySQL, SQLite; Oracle, Snowflake, BigQuery, ClickHouse, Trino, Fabric, Redshift, Athena, Databricks; PostHog (HogQL), Sybase | live for the first four; rendering unit-tested for the rest |
+| Added to the query's own WHERE clause (SOQL has no subquery to wrap) | Salesforce | the real service against a fake org that evaluates the conditions and pages like the query API |
+| `FILTER` around the DAX table expression | Power BI | text only: the rendered DAX parses back to the expected expression |
+| Fields of a JSON request | Aria Operations | live against the mock Suite API |
+| Not at all: the connector's query runs whole and the window is taken from the result | every other queryable connector (ServiceNow, MongoDB, Elasticsearch, …) | the real ServiceNow client against the repo's fake instance, through the service and through the API |
+
+`tests/unit/test_incremental_connectors.py` (31 tests). What they establish:
+
+- **Salesforce** is read in the API's own pages to the end — 12,500 records
+  where the agent-facing call stops at 10,000 — and then refreshed from its
+  checkpoint with one bounded SOQL query. Dates arrive from Salesforce as
+  text; they are stored as timestamps, without which a checkpoint could not be
+  written back into SOQL (found by this test, not by reading).
+- **A connector that cannot filter** is cached through `execute_query` and
+  keeps what it has seen: a row that leaves the source's result stays in the
+  table, a changed row is updated, a new one is added. Because such a source
+  only ever returns what it has now, its table is never rebuilt on a schedule
+  — only when the admin asks — and the run log and the modal say that each
+  refresh runs the whole query.
+- Through this path a table holds what the connector's own query call
+  returns, including that call's row limit (ServiceNow: 100 rows unless the
+  request sets `limit`, 10,000 at most). The run log says so.
 
 ## Loop C — full stack, real browser, real model
 
@@ -294,10 +330,15 @@ timestamp or a date cursor.
   the cursor's range evenly put the whole table in one chunk because of the
   1970 and 2099 rows. Chunks are now planned by counting.
 - **Not verified here**: the remaining SQL dialects render from the same table
-  and are unit-tested but have not met a live server (Oracle, Snowflake, BigQuery,
-  ClickHouse, Trino; MySQL shares MariaDB's dialect, which has); Aria Operations ran against the
-  repo's mock, not an appliance; object-storage upload/download timings;
-  artifacts above 2 GiB.
+  and are unit-tested but have not met a live server (Oracle, Snowflake,
+  BigQuery, ClickHouse, Trino, HogQL, Sybase; MySQL shares MariaDB's dialect,
+  which has). Salesforce ran against a fake org and Power BI's window only as
+  text — neither has met a real tenant. Aria Operations and ServiceNow ran
+  against the repo's mocks. Object-storage upload/download timings and
+  artifacts above 2 GiB are unmeasured.
+- Connectors on the generic path are bounded by their own query call's row
+  limit; giving one a paged source of its own (as Salesforce now has) is what
+  lifts that.
 - Pre-existing and unrelated: `tests/unit/test_sharepoint_*_client.py` fail in
   cloud sandboxes because the session's proxy CA bundle is injected into
   `requests` (`verify` is a path, the tests expect `True`). They fail the same

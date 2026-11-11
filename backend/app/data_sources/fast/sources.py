@@ -102,6 +102,8 @@ def source_for(client) -> Optional[ExtractionSource]:
     declared = incremental.json_window_of(client)
     if declared is not None:
         return RequestSource(client, declared)
+    if callable(getattr(client, "execute_query", None)):
+        return QuerySource(client)
     return None
 
 
@@ -224,6 +226,48 @@ class SqlAlchemySource:
 # --------------------------------------------------------------------------
 # Connectors that answer a JSON request, not SQL
 # --------------------------------------------------------------------------
+
+class QuerySource:
+    """Drives any client through the one thing every connector has:
+    `execute_query(query)` returning a DataFrame.
+
+    This is what makes every queryable connector cacheable. It knows nothing
+    about the query's language, so it cannot bound a preview at the source,
+    estimate a cost, or stream: the connector runs the query as its agent
+    would, with the connector's own row limits, and the result is stored.
+    A connector that deserves better than that gets a source of its own.
+    """
+
+    def __init__(self, client):
+        self.client = client
+
+    def estimate(self, sql: str):
+        from app.data_sources.fast.extractor import Estimate
+
+        return Estimate(supported=False, note="this source cannot estimate a query before running it")
+
+    def preview(self, sql: str, limit: int):
+        df = self.client.execute_query(sql).head(limit)
+        cols = [{"name": str(c), "dtype": str(df[c].dtype)} for c in df.columns]
+        return cols, df.astype(object).where(df.notna(), None).values.tolist()
+
+    def stream_batches(self, sql: str, batch_rows: int):
+        from app.data_sources.fast.normalize import rows_to_arrow
+
+        df = self.client.execute_query(sql)
+        columns = [str(c) for c in df.columns]
+        if not columns:
+            raise RuntimeError(
+                "This query returned no rows and no columns, so the table has no "
+                "shape to be created with."
+            )
+        rows = df.astype(object).where(df.notna(), None).values.tolist()
+        if not rows:
+            yield rows_to_arrow(columns, [])
+            return
+        for i in range(0, len(rows), batch_rows):
+            yield rows_to_arrow(columns, rows[i:i + batch_rows])
+
 
 class RequestSource:
     """Drives a client whose "query" is a JSON request with a time window.
