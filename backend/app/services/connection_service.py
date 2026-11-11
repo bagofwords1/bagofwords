@@ -188,6 +188,57 @@ def _looks_like_auth_challenge(message: str | None) -> bool:
 VALIDATION_FILE_CAP = 200
 
 
+class _SessionKeepalive:
+    """Keeps a Postgres session from being dropped as idle-in-transaction
+    while its owner waits on something long that does not use the session.
+
+    Runs `SELECT 1` on the session at an interval well under the server's
+    limit. `stop()` lets a statement in flight finish instead of cancelling
+    it — a cancelled statement would abort the very transaction this
+    protects. The owner must not use the session between `start()` and the
+    end of `stop()`. No-op on SQLite, which has no such limit.
+    """
+
+    INTERVAL_S = 20.0
+
+    def __init__(self, db: AsyncSession):
+        self._db = db
+        self._stop = asyncio.Event()
+        self._task: Optional[asyncio.Task] = None
+
+    def start(self) -> None:
+        try:
+            if self._db.get_bind().dialect.name != "postgresql":
+                return
+        except Exception:
+            return
+        self._task = asyncio.create_task(self._run())
+
+    async def _run(self) -> None:
+        from sqlalchemy import text
+        while not self._stop.is_set():
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=self.INTERVAL_S)
+                return
+            except asyncio.TimeoutError:
+                pass
+            try:
+                await self._db.execute(text("SELECT 1"))
+            except Exception:
+                # The session is gone or busy; the owner will see the real
+                # error on its next statement.
+                return
+
+    async def stop(self) -> None:
+        self._stop.set()
+        task, self._task = self._task, None
+        if task is not None:
+            try:
+                await asyncio.shield(task)
+            except Exception:
+                pass
+
+
 async def _acount_files_for_validation(client, limit: int | None = None) -> int | None:
     """Metadata-only inventory count for validating file or mail sources.
 
@@ -1980,6 +2031,14 @@ class ConnectionService:
             section_sink = await self._open_fulltext_sink(db, client, connection_id_str)
             if section_sink is not None:
                 _extra["section_sink"] = section_sink
+            # This session already read the catalog, so on Postgres it sits
+            # idle inside a transaction for as long as discovery takes. The
+            # server drops such a session after its idle-in-transaction limit
+            # (5 minutes on the request engine), which failed the save of any
+            # crawl longer than that. A trivial statement now and then keeps
+            # it alive; nothing else touches `db` while discovery runs.
+            keepalive = _SessionKeepalive(db)
+            keepalive.start()
             try:
                 fresh_tables = await client.aget_schemas(
                     progress_callback=progress_callback,
@@ -1987,6 +2046,7 @@ class ConnectionService:
                     **_extra,
                 )
             finally:
+                await keepalive.stop()
                 if section_sink is not None:
                     await section_sink.aflush()
             from app.data_sources.clients.discovery import require_complete_discovery

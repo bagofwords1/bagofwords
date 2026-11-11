@@ -124,14 +124,29 @@ def hebrew_variants(word: str) -> Tuple[str, ...]:
     return tuple(out)
 
 
+# Documents repeat their words: remembering the forms of each distinct word
+# takes most of the cost out of tokenizing a large share. Bounded; cleared
+# when full (IDs and numbers are the long tail and are cheap to recompute).
+_FORMS_CACHE: Dict[str, Tuple[str, Tuple[str, ...]]] = {}
+_FORMS_CACHE_MAX = 200_000
+
+
 def _forms(raw: str) -> Tuple[str, Tuple[str, ...]]:
     """(indexed form, alternative forms) of one normalized word."""
+    hit = _FORMS_CACHE.get(raw)
+    if hit is not None:
+        return hit
     word = raw[:_MAX_TOKEN_LEN]
     if _HEBREW_RE.search(word):
-        return word, hebrew_variants(word)
-    if word.isascii() and word.isalpha():
-        return _english_stem(word), ()
-    return word, ()
+        out = (word, hebrew_variants(word))
+    elif word.isascii() and word.isalpha():
+        out = (_english_stem(word), ())
+    else:
+        out = (word, ())
+    if len(_FORMS_CACHE) >= _FORMS_CACHE_MAX:
+        _FORMS_CACHE.clear()
+    _FORMS_CACHE[raw] = out
+    return out
 
 
 def tokenize(text: str) -> List[Term]:

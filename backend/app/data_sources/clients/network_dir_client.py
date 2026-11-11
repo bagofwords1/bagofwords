@@ -248,12 +248,38 @@ class NetworkDirClient(DataSourceClient):
             return True
         return _ext(name) in self.allowed_extensions
 
+    # The last root-policy verdict: (real path of root_path, allowlist it was
+    # checked under) → the resolved root. Every id → path resolution goes
+    # through `_root()`, twice per file on a walk, and running the full
+    # policy check each time (a dozen containment tests on Path objects) was
+    # half the cost of listing or indexing a large share. The verdict depends
+    # only on where `root_path` really points and on the allowlist, so it is
+    # reused while both are unchanged — `os.path.realpath` is re-read on EVERY
+    # call, so a root re-pointed after save (symlink swap) is re-checked, and
+    # refused, on the very next operation.
+    _root_checked: Optional[Tuple[str, tuple, Path]] = None
+
+    @staticmethod
+    def _allowed_roots_key() -> tuple:
+        try:
+            from app.settings.config import settings
+            return tuple(settings.bow_config.security.network_dir_allowed_roots or ())
+        except Exception:
+            return ()
+
     def _checked_root(self) -> Path:
         """Resolve ``root_path`` through the connection-root policy, or only
         through the filesystem for an app-owned root (``for_app_owned_dir``)."""
         if self._root_policy_exempt:
             return Path(self.root_path).expanduser().resolve()
-        return check_network_dir_root(self.root_path)
+        real = os.path.realpath(os.path.expanduser(self.root_path))
+        allowed = self._allowed_roots_key()
+        cached = self._root_checked
+        if cached and cached[0] == real and cached[1] == allowed:
+            return cached[2]
+        root = check_network_dir_root(self.root_path)
+        self._root_checked = (real, allowed, root)
+        return root
 
     def _root(self) -> Path:
         if not self.root_path:

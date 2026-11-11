@@ -1,7 +1,65 @@
 # File connector search & indexing — plan
 
-Status: proposal (not implemented). Revision 2 — updated after a second review
-against the code; changes from revision 1 are listed at the end.
+Status: **Full text is implemented for network drives and S3** (revision 3).
+Everything else in this plan is still a proposal. What was built, what was
+measured, and what turned out different from the plan is in
+[Implementation status](#implementation-status-revision-3) right below; the
+runnable proof is `docs/feedback-loops/2026-11-11-file-fulltext-search.md`.
+
+## Implementation status (revision 3)
+
+**Built**
+
+- Index tier `fulltext` for `network_dir` and `s3`, default for new
+  connections. Existing connections keep their setting.
+- Tables `file_index_files` / `file_index_sections` (migration `fileindex01`):
+  Postgres `tsvector` + GIN, SQLite FTS5 (contentless).
+- One tokenizer for both databases (`_fulltext.py`): numbers kept, light
+  English stem, Hebrew particle prefixes.
+- Sections located in `read_file` coordinates: PDF page, sheet, character
+  offset (docx/pptx/email), byte offset (text/csv).
+- `search_files` answers from the index in SQL and returns ranked files with
+  where the words were found. A miss is final unless `deep=true`.
+- Index runs are incremental (size+mtime) and resumable (committed every 25
+  files); deleted files are pruned; leaving the tier removes the index.
+- Files with no extractable text are recorded as `no_text` and reported.
+- S3 keyword indexing now reuses unchanged objects (`prior_catalog`).
+
+**Different from the plan**
+
+- **Ranking on Postgres** weights each query word by how rare it is in the
+  connection (inverse document frequency computed per query), because
+  `ts_rank` alone ignores rarity. Any word may match; rarer words count more.
+- **Quoted phrases and ID-like tokens are required matches.** A search for
+  `PO-48213` returns only files that contain exactly that, not every file
+  with another `PO-` number. Other joined words (`cost/benefit`) only boost.
+- **Stored value names:** the Keywords tier keeps the value `content`; the form
+  labels are Live / File list / Keywords / Full text (recommended).
+
+**Corrections to earlier revisions of this plan**
+
+- **OneNote is not a bug.** It has its own search tools (`search_notes`) which
+  read the `"onenote"` key; `search_files` is never offered for it.
+- **Drive / Microsoft 365 already always use the source's search.** Their
+  catalogs hold no keywords, so `search_files` goes to the provider on every
+  call, not only as a fallback. What remains open is moving Graph from
+  `/search(q=)` to `/search/query`, which needs a tenant to verify against.
+- **Digits in Keywords-tier body text were left alone.** It is a deliberate,
+  tested choice (numeric tables would flood 50 keyword slots), and an ID that
+  appears once would not make the top 50 anyway. Full text is the fix.
+
+**Found and fixed on the way** (all three exist on `main`)
+
+- Walking a large network drive spent half its time re-running the root
+  policy check twice per file: 41 s → 5 s for 50k files.
+- The network-drive connection test walked the whole share inside the save
+  request (twice). It now probes 200 files.
+- A manual reload whose crawl takes more than 5 minutes failed on Postgres at
+  the end: the request's session sat idle in a transaction and the server
+  dropped it. The session is now kept alive during the crawl.
+
+**Not built yet:** per-user filtering, Semantic tier, Graph `/search/query`,
+SharePoint on-prem / Documentum full text, size/time estimate in the form.
 
 ## Problem
 
@@ -38,11 +96,8 @@ index that misses a lot:
 - An indexing run has a **4 h hard timeout** and a 15 min idle timeout
   (`connection_indexing_service.py:203-204`), and a failed run keeps the prior
   catalog but not partial progress.
-- Bugs:
-  - OneNote writes keywords under `"onenote"`, which is missing from
-    `_FILE_METADATA_KEYS` (`search_files.py:43`).
-  - S3 doesn't reuse `prior_catalog`, so it re-extracts every file on every run
-    (`s3_client.py:707`).
+- S3 doesn't reuse `prior_catalog`, so it re-extracts every file on every run
+  (`s3_client.py:707`).
 
 ## Goals
 
@@ -230,7 +285,6 @@ Only build this if the test set shows that searches by meaning are missed.
    how many queries return the right file in the top 10. Measure today's
    search first.
 2. **Quick fixes**
-   - Add `"onenote"` to `_FILE_METADATA_KEYS`.
    - Use `prior_catalog` in S3 `get_schemas`.
    - Keep digits in body keywords (`_keywords.py`).
 3. **Source search in File list mode** (if approved): always-on, Graph
