@@ -128,12 +128,12 @@ class SybaseSource:
                         break
                     emitted = True
                     yield arrow_table(
-                        {name: [r[i] for r in batch] for i, name in enumerate(colnames)},
+                        [(name, [r[i] for r in batch]) for i, name in enumerate(colnames)],
                         decimals,
                     )
                 if not emitted:
                     # Zero rows: still emit the shape so the relation exists.
-                    yield arrow_table({c: [] for c in colnames})
+                    yield arrow_table([(c, []) for c in colnames], decimals)
             except GeneratorExit:
                 # The extractor stopped early — a cap was breached. The
                 # statement is still running on the source; ask it to stop.

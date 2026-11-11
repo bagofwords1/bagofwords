@@ -26,6 +26,7 @@ from typing import Optional
 import pyarrow as pa
 
 from app.data_sources.fast import artifacts, sql_dialect
+from app.data_sources.fast.sources import DUCKDB_MAX_DECIMAL_PRECISION
 
 logger = logging.getLogger(__name__)
 
@@ -214,6 +215,19 @@ def _arrow_type_name(t: pa.DataType) -> str:
     return str(t)
 
 
+def _integer_digits(t: pa.DataType) -> int:
+    """Decimal digits that hold every value of integer type `t` (19 for int64)."""
+    top = 2 ** t.bit_width - 1 if pa.types.is_unsigned_integer(t) else 2 ** (t.bit_width - 1)
+    return len(str(top))
+
+
+def _exact_decimal(digits: int, scale: int) -> pa.DataType:
+    """decimal(digits + scale, scale), or float64 when DuckDB has no such decimal."""
+    if digits + scale > DUCKDB_MAX_DECIMAL_PRECISION:
+        return pa.float64()
+    return pa.decimal128(digits + scale, scale)
+
+
 def _wider(held: pa.DataType, incoming: pa.DataType) -> pa.DataType | None:
     """The column type that holds both `held` and `incoming` values, if a change is needed.
 
@@ -224,51 +238,88 @@ def _wider(held: pa.DataType, incoming: pa.DataType) -> pa.DataType | None:
       * a decimal with more integer digits fails the INSERT outright
         ("value is out of range"), losing the whole refresh;
       * a column that was all NULL in the first batch is created INTEGER, and
-        later decimals are silently cast into it — 4321.09 is stored as 4321.
+        later decimals are silently cast into it — 4321.09 is stored as 4321;
+      * a column of whole numbers (Oracle's bare NUMBER returns int when there
+        is no fraction) is created BIGINT, and later decimals or floats are
+        rounded into it the same way.
 
-    Returns None when the held type already fits (or the pair is not one this
-    reconciles; DuckDB's own INSERT cast then applies, loudly on failure).
+    Past 38 digits no DuckDB decimal holds both, and the answer is float64:
+    the column becomes approximate, rows already written included.
+
+    Returns None when the held type already holds `incoming`, or for a pair
+    this does not reconcile (say, text arriving in a numeric column). DuckDB's
+    implicit INSERT cast then applies: it raises on a value that does not
+    convert, but it is not guaranteed to be lossless.
     """
-    if held == incoming:
+    if held == incoming or pa.types.is_null(incoming):
         return None
-    if pa.types.is_null(held) and not pa.types.is_null(incoming):
+    if pa.types.is_null(held):
         return incoming
     if pa.types.is_decimal(held) and pa.types.is_decimal(incoming):
-        from app.data_sources.fast.sources import DUCKDB_MAX_DECIMAL_PRECISION
-
         scale = max(held.scale, incoming.scale)
         digits = max(held.precision - held.scale, incoming.precision - incoming.scale)
         if digits + scale == held.precision and scale == held.scale:
             return None
-        if digits + scale > DUCKDB_MAX_DECIMAL_PRECISION:
-            # No exact decimal holds both; same last resort as `arrow_table`.
-            return pa.float64()
-        return pa.decimal128(digits + scale, scale)
-    if pa.types.is_decimal(held) and pa.types.is_floating(incoming):
-        # A later batch already widened to float by `arrow_table`.
+        return _exact_decimal(digits, scale)
+    if pa.types.is_integer(held) and pa.types.is_decimal(incoming):
+        return _exact_decimal(max(_integer_digits(held), incoming.precision - incoming.scale),
+                              incoming.scale)
+    if pa.types.is_decimal(held) and pa.types.is_integer(incoming):
+        digits = max(held.precision - held.scale, _integer_digits(incoming))
+        if digits == held.precision - held.scale:
+            return None
+        return _exact_decimal(digits, held.scale)
+    if (pa.types.is_decimal(held) or pa.types.is_integer(held)) and pa.types.is_floating(incoming):
+        # A float, or a decimal `arrow_table` already widened to float.
         return pa.float64()
     return None
 
 
-def _widen_for(con, safe_rel: str, schema: pa.Schema, tbl: pa.Table) -> pa.Schema:
-    """Alter the artifact's columns so `tbl` (registered as bow_batch) fits exactly."""
+def _sql_type(t: pa.DataType) -> str | None:
+    """DuckDB's name for a type `_wider` makes up. None for a type it copied
+    from the batch (a column NULL until now), which DuckDB names itself."""
+    if pa.types.is_decimal(t):
+        return f"DECIMAL({t.precision},{t.scale})"
+    if t == pa.float64():
+        return "DOUBLE"
+    return None
+
+
+def _widen_for(con, safe_rel: str, stored_names: list, schema: pa.Schema,
+               tbl: pa.Table) -> pa.Schema:
+    """Alter the artifact's columns so `tbl` (registered as bow_batch) fits exactly.
+
+    `stored_names` are the artifact's own column names, by position: DuckDB
+    compares names case-insensitively and renames a repeat at CREATE
+    (`Amount`, `amount` are stored as `Amount`, `amount_1`), so the batch's
+    names cannot address a column.
+    """
+    batch_types = None
     for i, incoming in enumerate(tbl.schema):
         if i >= len(schema):
             break
-        target = _wider(schema.field(i).type, incoming.type)
+        held = schema.field(i).type
+        target = _wider(held, incoming.type)
         if target is None:
             continue
-        con.register("bow_type", pa.table({"c": pa.array([], type=target)}))
-        try:
-            sql_type = con.execute(
-                "SELECT column_type FROM (DESCRIBE SELECT * FROM bow_type)"
-            ).fetchone()[0]
-        finally:
-            con.unregister("bow_type")
-        column = schema.field(i).name.replace('"', '""')
+        sql_type = _sql_type(target)
+        if sql_type is None:
+            if batch_types is None:
+                batch_types = [r[0] for r in con.execute(
+                    "SELECT column_type FROM (DESCRIBE SELECT * FROM bow_batch)"
+                ).fetchall()]
+            sql_type = batch_types[i]
+        column = stored_names[i].replace('"', '""')
         con.execute(f'ALTER TABLE "{safe_rel}" ALTER COLUMN "{column}" TYPE {sql_type}')
-        logger.info("extraction.column_widened",
-                    extra={"column": schema.field(i).name, "type": str(target)})
+        if target == pa.float64() and not pa.types.is_null(held):
+            # The exact values already written are converted too. Rare (it
+            # needs more than 38 significant digits, or a float among exact
+            # numbers), and worth knowing about when it happens.
+            logger.warning("extraction.column_became_approximate",
+                           extra={"column": schema.field(i).name, "from_type": str(held)})
+        else:
+            logger.info("extraction.column_widened",
+                        extra={"column": schema.field(i).name, "type": str(target)})
         schema = schema.set(i, pa.field(schema.field(i).name, target))
     return schema
 
@@ -329,6 +380,7 @@ def extract_to_artifact(
             # source whose API is already Arrow (BigQuery) pays no conversion.
             first = True
             held: pa.Schema | None = None
+            stored_names: list = []
             batches = src.stream_batches(sql, BATCH_ROWS)
             try:
                 for tbl in batches:
@@ -345,9 +397,12 @@ def extract_to_artifact(
                             f'CREATE TABLE "{safe_rel}" AS SELECT * FROM bow_batch'
                         )
                         held = tbl.schema
+                        stored_names = [d[0] for d in con.execute(
+                            f'SELECT * FROM "{safe_rel}" LIMIT 0'
+                        ).description]
                         first = False
                     elif tbl.num_rows:
-                        held = _widen_for(con, safe_rel, held, tbl)
+                        held = _widen_for(con, safe_rel, stored_names, held, tbl)
                         con.execute(
                             f'INSERT INTO "{safe_rel}" SELECT * FROM bow_batch'
                         )
