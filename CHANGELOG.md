@@ -6,9 +6,12 @@
 - Added custom tables on every connector that can run a query, including request-based ones such as Aria Operations (#1692)
 - Added IBM Db2 (LUW, z/OS) and IBM i as read-only data sources (#1690)
 - Added per-channel agent routing for Microsoft Teams, in the Teams integration settings (#1689)
+- Added a per-dashboard "Show details on widgets" setting for the ⓘ that opens a widget's data, code and calculation — Dashboard settings → Viewers (default: off, including on existing dashboards) (#1684)
 - Fixed public agents hiding their member list and Add member; access is now Can query / Can manage / Custom, with granular permissions under Advanced (#1694)
 - Fixed custom-table refreshes failing or rounding decimals when a later batch held larger values or the first was all NULL (#1685)
 - Fixed custom tables keeping only one of two same-named columns (`a.id, b.id`); both are now stored, as `id` and `id_1` (#1685, #1692)
+- Fixed failed connection tests and schema refreshes showing "Internal server error" or a bare id; the status panel now shows the phase and the error, with passwords and tokens masked (#1688)
+- Fixed agent table sync failing when a connection holds two catalog tables with the same name (#1688)
 - Fixed dashboard runs for a viewer loading the whole report to read or save that viewer's result (#1686, #1687)
 
 ## Version 0.0.615 (November 10, 2026)

@@ -6771,6 +6771,8 @@
     "tabViewers": "Tittare",
     "tabData": "Data",
     "viewersDesc": "Vad personerna du delar med får.",
+    "widgetInfoTitle": "Visa detaljer på widgetar",
+    "widgetInfoDesc": "Lägger till en ⓘ-ikon på varje widget som öppnar dess data, kod och beräkning.",
     "dataDesc": "Frågorna bakom instrumentpanelen.",
     "unsaved": "Osparade ändringar",
     "tabGeneral": "Allmänt",

@@ -1277,7 +1277,8 @@ class ConnectionService:
                     if (config or {}).get("auth_type") == "dcr":
                         result = await self._verify_dcr_discovery(config, credentials, result)
                     return result
-                return connection_status
+                from app.errors.redact import connection_secrets
+                return self._safe_status(connection_status, connection_secrets(config, credentials))
 
             # For tool providers (MCP/API), list tools instead of schema access
             if data_source_type in self._TOOL_PROVIDER_TYPES:
@@ -1300,9 +1301,11 @@ class ConnectionService:
                         "table_count": tool_count,
                     }
                 except Exception as e:
+                    from app.errors.redact import connection_secrets, user_facing_error
                     return {
                         "success": False,
-                        "message": f"Connected but failed to list tools: {e}",
+                        "message": "Connected but failed to list tools: "
+                                   + user_facing_error(e, connection_secrets(config, credentials)),
                         "connectivity": True,
                         "schema_access": False,
                     }
@@ -1315,9 +1318,13 @@ class ConnectionService:
                 schema_status = await self._avalidate_schema_access(client)
 
             if not schema_status.get("success"):
+                from app.errors.redact import connection_secrets, sanitize_user_message
                 return {
                     "success": False,
-                    "message": schema_status.get("message", "Schema validation failed"),
+                    "message": sanitize_user_message(
+                        schema_status.get("message") or "Schema validation failed",
+                        connection_secrets(config, credentials),
+                    ),
                     "connectivity": True,
                     "schema_access": False,
                 }
@@ -1336,9 +1343,10 @@ class ConnectionService:
                 "table_count": table_count,
             }
         except Exception as e:
+            from app.errors.redact import connection_secrets, user_facing_error
             return {
                 "success": False,
-                "message": str(e),
+                "message": user_facing_error(e, connection_secrets(config, credentials)),
                 "connectivity": False,
                 "schema_access": False,
             }
@@ -1365,6 +1373,9 @@ class ConnectionService:
         """
         import time as _time
         connection = await self.get_connection(db, connection_id, organization)
+        # Read before the probe: a failure can leave the session unusable, and
+        # then even reading an attribute of `connection` raises.
+        secrets = self._error_secrets(connection, config_overrides, credential_overrides)
 
         t0 = _time.perf_counter()
         try:
@@ -1380,6 +1391,8 @@ class ConnectionService:
                 connection_status = await client.atest_connection()
 
             success = bool(connection_status.get("success")) if isinstance(connection_status, dict) else bool(connection_status)
+
+            connection_status = self._safe_status(connection_status, secrets)
 
             if not persist:
                 return self._finish_status(connection_status, t0)
@@ -1399,23 +1412,103 @@ class ConnectionService:
             return self._finish_status(connection_status, t0)
 
         except Exception as e:
+            from app.errors.redact import describe_for_log, user_facing_error
+            logger.warning("connection test failed for %s: %s", connection_id, describe_for_log(e))
+            message = user_facing_error(e, secrets)
             if persist:
-                if current_user is None:
-                    connection.last_connection_status = "not_connected"
-                    connection.last_connection_checked_at = datetime.utcnow()
+                # A failure inside the client or the DB (a dropped connection,
+                # a failed flush) can leave the session unusable: committing on
+                # it raised and turned a readable probe failure into a bare
+                # "Internal server error". Retry once on a clean session, and
+                # never let recording the outcome hide the outcome itself.
+                async def _record_failure(conn: Connection) -> None:
+                    if current_user is None:
+                        conn.last_connection_status = "not_connected"
+                        conn.last_connection_checked_at = datetime.utcnow()
+                    if conn.auth_policy == "system_only":
+                        self._record_probe_outcome(conn, False)
+                        self._sync_agents_with_connection(conn)
+                    await db.commit()
+                    await self._alert_on_health_transition(db, conn, current_user)
 
-                if connection.auth_policy == "system_only":
-                    self._record_probe_outcome(connection, False)
-                    self._sync_agents_with_connection(connection)
-
-                await db.commit()
-                await self._alert_on_health_transition(db, connection, current_user)
+                for attempt in range(2):
+                    try:
+                        if attempt:
+                            await db.rollback()
+                            # Rollback expired every loaded object (the org
+                            # too): reload by the id already authorized above,
+                            # overwriting the expired instance in place.
+                            from app.models.data_source import DataSource
+                            connection = (await db.execute(
+                                select(Connection)
+                                .options(selectinload(Connection.data_sources)
+                                         .selectinload(DataSource.connections))
+                                .where(Connection.id == str(connection_id))
+                                .execution_options(populate_existing=True)
+                            )).scalar_one()
+                        await _record_failure(connection)
+                        break
+                    except Exception as persist_exc:
+                        if attempt:
+                            logger.warning(
+                                "could not record failed connection test for %s: %s",
+                                connection_id, describe_for_log(persist_exc),
+                            )
+                            try:
+                                await db.rollback()
+                            except Exception:
+                                pass
             return {
                 "success": False,
-                "message": str(e),
+                "message": message,
                 "timings": {"total_ms": round((_time.perf_counter() - t0) * 1000, 1)},
                 "details": {},
             }
+
+    @staticmethod
+    def _error_secrets(connection: Connection, config_overrides: dict = None,
+                       credential_overrides: dict = None) -> list:
+        """Secret values to mask out of a test/indexing error shown to the
+        admin: the connection's passwords, tokens and keys, stored and as
+        overridden by the form. Best-effort; patterns still apply when a
+        blob can't be read."""
+        import json as _json
+        from app.errors.redact import connection_secrets
+
+        try:
+            config = connection.config
+            if isinstance(config, str):
+                config = _json.loads(config or "{}")
+        except Exception:
+            config = {}
+        try:
+            credentials = connection.decrypt_credentials() if connection.credentials else {}
+        except Exception:
+            credentials = {}
+        merged_config = {**(config or {}), **(config_overrides or {})}
+        merged_creds = {**(credentials or {}), **(credential_overrides or {})}
+        try:
+            return connection_secrets(merged_config, merged_creds)
+        except Exception:
+            return []
+
+    @staticmethod
+    def _safe_status(connection_status, secrets) -> dict:
+        """Redact a client's failure message before it reaches the UI.
+
+        Clients put the driver's own text in ``message`` (that's what makes it
+        actionable), and drivers echo connection strings and tokens.
+        Success messages are ours ("Connected. Found N tables") and kept."""
+        from app.errors.redact import sanitize_user_message
+
+        if not isinstance(connection_status, dict):
+            return {"success": bool(connection_status), "message": ""}
+        if not connection_status.get("success") and connection_status.get("message"):
+            connection_status = dict(connection_status)
+            connection_status["message"] = sanitize_user_message(
+                connection_status["message"], secrets,
+            )
+        return connection_status
 
     @staticmethod
     def _record_probe_outcome(connection: Connection, success: bool) -> None:
@@ -1546,6 +1639,7 @@ class ConnectionService:
         try:
             client = await self.construct_client(db, connection, current_user)
             connection_status = await client.atest_connection()
+            connection_status = self._safe_status(connection_status, self._error_secrets(connection))
             success = bool(connection_status.get("success")) if isinstance(connection_status, dict) else bool(connection_status)
 
             # Kerberos SSO has no stored credential — record a status-only marker
@@ -1572,12 +1666,14 @@ class ConnectionService:
 
             return connection_status
         except Exception as e:
+            from app.errors.redact import user_facing_error
+            message = user_facing_error(e, self._error_secrets(connection))
             if supports_user_kerberos_sso(connection):
                 try:
-                    await record_kerberos_verification(db, connection, current_user, False, error=str(e))
+                    await record_kerberos_verification(db, connection, current_user, False, error=message)
                 except Exception:
                     pass
-            return {"success": False, "message": str(e)}
+            return {"success": False, "message": message}
 
     @staticmethod
     def _kms_credentials_error(exc: ValueError):

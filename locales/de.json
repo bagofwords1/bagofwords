@@ -6771,6 +6771,8 @@
     "tabViewers": "Betrachter",
     "tabData": "Daten",
     "viewersDesc": "Was die Personen bekommen, mit denen Sie es teilen.",
+    "widgetInfoTitle": "Details auf Widgets anzeigen",
+    "widgetInfoDesc": "Fügt jedem Widget ein ⓘ-Symbol hinzu, das seine Daten, seinen Code und seine Berechnung öffnet.",
     "dataDesc": "Die Abfragen hinter diesem Dashboard.",
     "unsaved": "Ungespeicherte Änderungen",
     "tabGeneral": "Allgemein",
