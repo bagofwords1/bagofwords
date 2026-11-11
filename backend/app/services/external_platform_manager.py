@@ -677,7 +677,11 @@ class ExternalPlatformManager:
                 name_fetcher = getattr(adapter, "get_channel_info", None)
 
                 async def _resolve_channel_name(cid):
-                    info = await name_fetcher(cid)
+                    # Pass the processed message so platform resolvers can read
+                    # what they need (Teams uses teams_team_id + service_url;
+                    # Slack ignores it). Resolved once per channel — see
+                    # record_seen_channel.
+                    info = await name_fetcher(cid, processed_data)
                     return (info or {}).get("name")
 
                 await self.platform_service.record_seen_channel(

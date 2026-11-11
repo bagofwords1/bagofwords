@@ -853,6 +853,7 @@ class ReportService:
             conversation_visibility=getattr(report, "conversation_visibility", "none") or "none",
             shared_run_identity=getattr(report, "shared_run_identity", "viewer") or "viewer",
             include_data_tab=bool(getattr(report, "include_data_tab", True)),
+            show_widget_info=bool(getattr(report, "show_widget_info", False)),
             artifact_chat_enabled=bool(getattr(report, "artifact_chat_enabled", False)),
             artifact_chat_data_source_ids=getattr(report, "artifact_chat_data_source_ids", None),
             artifact_chat_model_id=getattr(report, "artifact_chat_model_id", None),

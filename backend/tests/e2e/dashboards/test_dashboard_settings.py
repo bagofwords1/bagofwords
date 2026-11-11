@@ -12,7 +12,8 @@ from sqlalchemy import text
 
 from tests.e2e.dashboards.dashboard_setup import as_, own, publish, share
 
-DEFAULTS = {"shared_run_identity": "viewer", "include_data_tab": True, "bow_credit": True, "chat_enabled": False,
+DEFAULTS = {"shared_run_identity": "viewer", "include_data_tab": True, "show_widget_info": False,
+            "bow_credit": True, "chat_enabled": False,
             "chat_data_source_ids": None, "chat_model_id": None,
             # The schedule (phase 6, test_dashboard_refresh.py).
             "cron_schedule": None, "refresh_on_view": True, "notification_subscribers": None,
@@ -56,6 +57,7 @@ def test_each_setting_changes_alone_and_the_conversation_keeps_its_own(corpus, c
     before = report_settings()
     steps = [
         ({"include_data_tab": False}, {"include_data_tab": False}),
+        ({"show_widget_info": True}, {"show_widget_info": True}),
         ({"bow_credit": False}, {"bow_credit": False}),
         ({"chat_enabled": True}, {"chat_enabled": True}),
         ({"chat_data_source_ids": [chinook]}, {"chat_data_source_ids": [chinook]}),

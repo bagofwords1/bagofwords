@@ -14,9 +14,13 @@ phase 2 and is what will unlock `user_required`.
 
 import asyncio
 import logging
+import os
 import re
+import socket
 import threading
-from datetime import datetime
+import time
+from contextlib import suppress
+from datetime import datetime, timedelta
 from typing import Optional
 
 from apscheduler.jobstores.base import JobLookupError
@@ -26,11 +30,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduler import scheduler
 from app.core.telemetry import telemetry
-from app.data_sources.fast import artifacts, extractor, rls
+from app.data_sources.fast import artifacts, extractor, incremental, loader, rls
+from app.data_sources.fast import events as table_events
 from app.ee.license import has_feature
 from app.data_sources.fast.fast_client import FastQueryClient, FastRelation
 from app.models.connection import Connection
 from app.models.connection_table import KIND_BOW, KIND_TABLE, ConnectionTable
+from app.models.custom_table_run import MODE_FULL as RUN_MODE_FULL
+from app.models.custom_table_run import MODE_INCREMENTAL as RUN_MODE_INCREMENTAL
+from app.models.custom_table_run import (
+    STATUS_CANCELLED,
+    STATUS_FAILED,
+    STATUS_PARTIAL,
+    STATUS_SUCCESS,
+    TRIGGER_CREATE,
+    TRIGGER_DEFINITION,
+    TRIGGER_MANUAL,
+    TRIGGER_RESUME,
+    TRIGGER_SCHEDULE,
+)
+from app.services import custom_table_runs as runs
 from app.models.datasource_table import DataSourceTable
 from app.models.user import User
 
@@ -91,17 +110,61 @@ VERIFIED_TYPES = {"postgresql", "mariadb", "mysql", "sqlite", "snowflake",
                   "bigquery", "mssql", "oracledb", "posthog", "powerbi",
                   "clickhouse"}
 UNVERIFIED_TYPES = {"ms_fabric", "sybase"}
+# Connectors whose query is a JSON request with a time window rather than SQL
+# (fast/sources.py RequestSource). A client opts in by declaring
+# INCREMENTAL_WINDOW. Aria Operations was run against the repo's mock Suite
+# API (tools/aria_operations), not a live appliance.
+#
+# Kept apart from ACCELERABLE_TYPES on purpose: that list promises things only
+# a query language can give — a cost estimate before running, a table preview
+# to start a custom table from — and code and tests rely on that promise.
+REQUEST_TYPES = {"aria_operations"}
 ACCELERABLE_TYPES = VERIFIED_TYPES | UNVERIFIED_TYPES
+
+
+def supports_incremental(conn_type) -> bool:
+    """Every cacheable connector can refresh incrementally. Whether it can
+    also *filter at the source* is the client's to say
+    (`incremental.filters_at_source`); one that cannot still keeps its table
+    current the same way, it just runs its whole query to do so."""
+    return is_accelerable_type(conn_type)
+
+
+_QUERYABLE: dict = {}
+
+
+def _is_queryable(kind: str) -> bool:
+    """Whether a connection type's client can run a query at all."""
+    if kind not in _QUERYABLE:
+        try:
+            from app.data_sources.clients.base import Capability
+            from app.schemas.data_source_registry import REGISTRY, resolve_client_class
+
+            key = next((k for k in REGISTRY if k.lower() == kind), None)
+            cls = resolve_client_class(key) if key else None
+            _QUERYABLE[kind] = bool(
+                cls is not None
+                and Capability.QUERY in (getattr(cls, "capabilities", None) or ())
+                and callable(getattr(cls, "execute_query", None))
+            )
+        except Exception:
+            _QUERYABLE[kind] = False
+    return _QUERYABLE[kind]
 
 
 def is_accelerable_type(conn_type) -> bool:
     """Whether a stored `Connection.type` is offered acceleration.
 
+    Any connector that can run a query: the ones in ACCELERABLE_TYPES through
+    a source built for them, the rest through the connector's own
+    `execute_query` (fast/sources.py QuerySource).
+
     Case-insensitive because the registry is not: SQL Server is registered as
     "MSSQL" — the registry's one uppercase key — so a literal membership test
     against these lowercase sets silently excluded every SQL Server connection.
     """
-    return (conn_type or "").lower() in ACCELERABLE_TYPES
+    kind = (conn_type or "").lower()
+    return kind in ACCELERABLE_TYPES or kind in REQUEST_TYPES or _is_queryable(kind)
 
 _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 
@@ -136,6 +199,129 @@ def next_run_at(cq_id: str):
         return getattr(job, "next_run_time", None) if job else None
     except Exception:
         return None
+
+
+# How long one run keeps loading windows before it pauses and hands the rest
+# to the next run. Each window still has the extractor's own ceiling.
+LOAD_RUN_BUDGET_SECONDS = extractor.DEFAULT_MAX_SECONDS
+# Runs in a row a load may fail before it is abandoned: restarted from scratch
+# for a first load, or — when a table is already being served — set aside so
+# incremental refreshes carry on while the rebuild waits for another day.
+MAX_LOAD_FAILURES = 3
+FULL_REFRESH_RETRY_AFTER = timedelta(days=1)
+# A load whose part file is on another host is left to that host for this
+# long after its last sign of progress, then started over here.
+LOAD_OWNER_GRACE = timedelta(minutes=45)
+
+
+class _SourceError(Exception):
+    """Something the source (or reading from it) raised, to be shown to the
+    admin as the refresh's error."""
+
+
+# Raised by our own code with a message already written for the admin, or a
+# signal the orchestration acts on: never re-wrapped as a source error.
+_PASS_THROUGH = (extractor.ExtractionRefused, extractor.ExtractionAborted,
+                 incremental.IncrementalConfigError, loader.SchemaChanged)
+
+
+def _parse_iso(value) -> Optional[datetime]:
+    try:
+        return datetime.fromisoformat(str(value)) if value else None
+    except ValueError:
+        return None
+
+
+def _comparable(a, b) -> bool:
+    try:
+        a < b  # noqa: B015
+        return True
+    except TypeError:
+        return False
+
+
+class _Run:
+    """One refresh in flight: what it was asked, what it found, what it did.
+
+    Worker threads read the plain values captured by `snapshot()`; they never
+    touch the ORM row.
+    """
+
+    def __init__(self, *, db, connection, cq, trigger, force_full, user_id, current_user):
+        self.db, self.connection, self.cq = db, connection, cq
+        self.trigger, self.force_full = trigger, force_full
+        self.user_id, self.current_user = user_id, current_user
+        self.run_id: Optional[str] = loader.new_run_id()
+        self.abort = threading.Event()
+        self.started = time.monotonic()
+        self.client = None
+        self.load: Optional[dict] = None
+        self.rows_read = 0
+        self.windows_done = 0
+        self.rendered_query: Optional[str] = None
+        self.window_from = None
+        # Set once the swap is committed and recorded: nothing that fails
+        # afterwards may rewrite the run as failed.
+        self.published = False
+        # Whether the row was marked "running", and whether a cancellation has
+        # already been written back.
+        self.started_work = False
+        self.cancel_recorded = False
+        self._events: list = []
+
+    def snapshot(self) -> None:
+        cq = self.cq
+        self.table_id = str(cq.id)
+        self.connection_id = str(self.connection.id)
+        self.name = cq.name
+        self.sql = cq.definition_sql or ""
+        self.config = incremental.RefreshConfig.from_row(cq)
+        self.state = dict(cq.refresh_state) if isinstance(cq.refresh_state, dict) else {}
+        self.definition_hash = incremental.definition_hash(
+            self.sql, CustomQueryService.target_of(cq), self.config)
+        self.previous_path = cq.artifact_path
+        self.previous_key = None
+        if cq.artifact_path and cq.artifact_key_enc:
+            with suppress(Exception):
+                self.previous_key = artifacts.decrypt_key(cq.artifact_key_enc)
+        self.previous_rows = cq.no_rows if cq.artifact_path else None
+        # We write the window predicate ourselves unless the admin placed it
+        # (placeholders) or the source takes it as request fields.
+        self.at_source = incremental.filters_at_source(self.client)
+        from app.data_sources.fast.sources import QuerySource, source_for
+
+        # Read through the connector's plain `execute_query`: no source built
+        # for it, so whatever row limit that call applies, applies here.
+        self.generic = isinstance(source_for(self.client), QuerySource)
+        self.wrapped = (
+            self.config.incremental
+            and self.at_source
+            and not incremental.uses_placeholders(self.sql)
+            and incremental.json_window_of(self.client) is None
+        )
+        checkpoint = incremental.decode(self.state.get("checkpoint"))
+        self.cursor_kind = self.config.cursor_kind or incremental.kind_of(checkpoint)
+
+    def note(self, message: str, level: str = "info") -> None:
+        self._events.append(runs.event(message, level))
+
+    def take_events(self) -> list:
+        events, self._events = self._events, []
+        return events
+
+    def chunk_log(self) -> Optional[list]:
+        if not self.load:
+            return None
+        return [
+            {"lo": w.get("lo"), "hi": w.get("hi"), "rows": w.get("rows"), "status": w.get("status")}
+            for w in self.load.get("windows") or []
+        ]
+
+    def over_budget(self) -> bool:
+        return time.monotonic() - self.started > LOAD_RUN_BUDGET_SECONDS
+
+    def elapsed_ms(self) -> int:
+        return int((time.monotonic() - self.started) * 1000)
 
 
 class CustomQueryService:
@@ -323,6 +509,11 @@ class CustomQueryService:
     @staticmethod
     def validate_name(name: str) -> str:
         name = (name or "").strip()
+        if name.lower().startswith(loader.INTERNAL_PREFIX):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Names starting with '{loader.INTERNAL_PREFIX}' are reserved.",
+            )
         if not _NAME_RE.match(name):
             raise HTTPException(
                 status_code=400,
@@ -407,6 +598,7 @@ class CustomQueryService:
         definition_sql: str,
         current_user: User = None,
         target: dict = None,
+        refresh_config: dict = None,
     ) -> dict:
         """Run the admin's SQL bounded to 100 rows and return columns + rows.
 
@@ -421,6 +613,16 @@ class CustomQueryService:
             db, connection, current_user
         )
         await self._prepare_client(db, connection, client, target)
+        if incremental.uses_placeholders(definition_sql):
+            # Preview what a full load would read: the window wide open.
+            hint = incremental.RefreshConfig.from_dict(refresh_config or {})
+            try:
+                definition_sql = incremental.render(
+                    client, definition_sql, hint.cursor_column or "",
+                    hint.cursor_kind or incremental.KIND_TIMESTAMP, incremental.Window(),
+                )
+            except incremental.IncrementalConfigError as e:
+                raise HTTPException(status_code=400, detail=str(e))
 
         def _run():
             est = extractor.estimate(client, definition_sql)
@@ -453,6 +655,7 @@ class CustomQueryService:
             "estimate_supported": est.supported,
             "estimate_note": est.note,
             "budget_error": refused,
+            "filters_at_source": incremental.filters_at_source(client),
         }
 
     async def create(
@@ -470,6 +673,8 @@ class CustomQueryService:
         organization=None,
         activate_for_datasource_id: str = None,
         target: dict = None,
+        refresh_mode: str = None,
+        refresh_config: dict = None,
     ) -> ConnectionTable:
         self.ensure_accelerable(connection)
         name = self.validate_name(name)
@@ -477,6 +682,12 @@ class CustomQueryService:
 
         if not (definition_sql or "").strip():
             raise HTTPException(status_code=400, detail="Query cannot be empty")
+        refresh_config = dict(refresh_config or {})
+        # New tables get the row-drop guard unless the admin said otherwise
+        # (an explicit null turns it off); ones that predate it keep
+        # refreshing exactly as they did.
+        refresh_config.setdefault("row_drop_guard_pct", incremental.DEFAULT_ROW_DROP_GUARD_PCT)
+        config = self.refresh_settings(refresh_mode, refresh_config, definition_sql, connection.type)
 
         cq = ConnectionTable(
             name=name,
@@ -493,6 +704,8 @@ class CustomQueryService:
             no_rows=0,
             last_refresh_status="pending",
             metadata_json=self._metadata_with_target({}, target),
+            refresh_mode=config.mode,
+            refresh_config=config.to_dict(),
         )
         db.add(cq)
         await db.commit()
@@ -500,7 +713,7 @@ class CustomQueryService:
 
         # Materialize immediately so the relation is usable without waiting for
         # the first scheduled tick.
-        await self.refresh(db, connection, cq, current_user=current_user)
+        await self.refresh(db, connection, cq, current_user=current_user, trigger=TRIGGER_CREATE)
         if cq.deleted_at is not None:
             # Deleted while the first refresh ran: a job for a soft-deleted row
             # would fire until it noticed; activations would linger in contexts.
@@ -518,6 +731,7 @@ class CustomQueryService:
                     "connection_type": connection.type,
                     "refresh_schedule_mode": refresh_schedule_mode,
                     "refresh_interval_minutes": refresh_interval_minutes,
+                    "refresh_mode": config.mode,
                     "has_description": bool((description or "").strip()),
                 },
                 user_id=current_user.id if current_user else None,
@@ -527,6 +741,19 @@ class CustomQueryService:
             pass
 
         return cq
+
+    @staticmethod
+    def refresh_settings(refresh_mode, refresh_config, definition_sql: str,
+                         conn_type: str = None) -> incremental.RefreshConfig:
+        """Validated refresh settings from what the admin sent, or a 400."""
+        raw = dict(refresh_config or {})
+        raw["mode"] = refresh_mode or incremental.MODE_FULL
+        config = incremental.RefreshConfig.from_dict(raw)
+        try:
+            config.validate(definition_sql or "")
+        except incremental.IncrementalConfigError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        return config
 
     async def _activate_for_agents(
         self, db: AsyncSession, connection: Connection, cq: ConnectionTable,
@@ -583,8 +810,12 @@ class CustomQueryService:
         current_user: User = None,
         organization_timezone: str = "UTC",
         target: dict = ...,
+        refresh_mode: str = None,
+        refresh_config: dict = None,
     ) -> ConnectionTable:
         sql_changed = False
+        before = incremental.RefreshConfig.from_row(cq)
+        hash_before = incremental.definition_hash(cq.definition_sql or "", self.target_of(cq), before)
         if target is not ...:
             new_meta = self._metadata_with_target(cq.metadata_json, target)
             if new_meta != (cq.metadata_json or {}):
@@ -606,12 +837,25 @@ class CustomQueryService:
             cq.refresh_interval_minutes = refresh_interval_minutes
         if refresh_at_time is not None:
             cq.refresh_at_time = refresh_at_time
+        if refresh_mode is not None or refresh_config is not None:
+            merged = {**before.to_dict(), **(refresh_config or {})}
+            config = self.refresh_settings(refresh_mode or before.mode, merged, cq.definition_sql,
+                                           connection.type)
+            cq.refresh_mode, cq.refresh_config = config.mode, config.to_dict()
+        else:
+            config = self.refresh_settings(before.mode, before.to_dict(), cq.definition_sql, connection.type)
+        # Anything that decides which rows belong in the table: the stored
+        # checkpoint was taken under the old definition, so rebuild now rather
+        # than leave a table that mixes the two until the next schedule tick.
+        if incremental.definition_hash(cq.definition_sql or "", self.target_of(cq), config) != hash_before:
+            sql_changed = True
 
         await db.commit()
         await db.refresh(cq)
 
         if sql_changed:
-            await self.refresh(db, connection, cq, current_user=current_user)
+            await self.refresh(db, connection, cq, current_user=current_user,
+                               trigger=TRIGGER_DEFINITION)
         # Delete may have won while the refresh was queued: reload before
         # touching the shared job store (404 if the row is gone). The volume
         # lock is the wrong guard here, it does not reach replicas on another
@@ -633,6 +877,7 @@ class CustomQueryService:
         """
         await db.refresh(cq)
         self._unschedule(cq.id)
+        self._unschedule_resume(cq.id)
 
         # Agent activations must go too, or the relation lingers in contexts.
         rows = (
@@ -646,15 +891,41 @@ class CustomQueryService:
             await db.delete(r)
 
         old_path = cq.artifact_path
+        state = cq.refresh_state if isinstance(cq.refresh_state, dict) else {}
+        part_path = (state.get("load") or {}).get("path") if isinstance(state.get("load"), dict) else None
         name = cq.name
         cq.deleted_at = datetime.utcnow()
         cq.artifact_path = None
         cq.artifact_key_enc = None
+        cq.refresh_state = None
         await db.commit()
         artifacts.delete_artifact(old_path)
+        # A first load still in progress notices the deletion at its next
+        # window; if none is running, its file would otherwise wait for GC.
+        with artifacts.try_refresh_lock(connection.id) as free:
+            if free:
+                loader.discard_part(part_path)
+                artifacts.forget_table_lock(connection.id, cq.id)
         return {"success": True, "message": f"Custom table '{name}' deleted"}
 
     # -- refresh -----------------------------------------------------------
+    #
+    # A refresh is one of three shapes of work, chosen in `_decide`:
+    #
+    #   single     the whole query in one go (refresh_mode='full')
+    #   increment  copy the served artifact forward and fold in the rows since
+    #              the checkpoint
+    #   load       an incremental table built from scratch, one cursor window
+    #              at a time, into a file that survives between windows — the
+    #              first load, and every full rebuild after it
+    #
+    # All three end in `_publish`, the only place the row's artifact, checkpoint
+    # and status change, and they change together in one conditional UPDATE.
+    #
+    # Two locks. The table lock is held for the whole run. The connection's
+    # volume lock is held around each unit of work that writes into the
+    # artifact directory, and given up between the windows of a load so a
+    # sibling table is not kept waiting behind a long first load.
 
     async def refresh(
         self,
@@ -662,159 +933,667 @@ class CustomQueryService:
         connection: Connection,
         cq: ConnectionTable,
         current_user: User = None,
+        *,
+        trigger: str = TRIGGER_MANUAL,
+        full: bool = False,
     ) -> ConnectionTable:
-        """Rebuild the artifact. A failure keeps the previous one serving."""
+        """Bring the artifact up to date. A failure keeps the previous one serving.
+
+        `full` rebuilds an incremental table from scratch instead of reading
+        only what is new (it changes nothing for a table that is always full).
+        """
+        run = _Run(
+            db=db, connection=connection, cq=cq, trigger=trigger, force_full=full,
+            user_id=str(current_user.id) if current_user is not None else None,
+            current_user=current_user,
+        )
+        async with artifacts.table_lock(connection.id, cq.id):
+            try:
+                await self._drive(run)
+            except asyncio.CancelledError:
+                # Cancelled between units of work (waiting for the volume,
+                # saving progress): nothing is writing, but the row and the
+                # run still say "running".
+                if run.started_work and not run.cancel_recorded:
+                    await self._drain(self._record_cancel(run))
+                raise
+            except (extractor.ExtractionRefused, extractor.ExtractionAborted,
+                    incremental.IncrementalConfigError, loader.SchemaChanged) as e:
+                await self._record_failure(run, e)
+                raise HTTPException(status_code=400, detail=str(e))
+            except _SourceError as e:
+                await self._record_failure(run, e.__cause__ or e)
+                raise HTTPException(status_code=400, detail=str(e.__cause__ or e))
+            except BaseException as e:
+                # Not the source: a storage failure around the swap. The row's
+                # own state is whatever the failed transaction left, so only
+                # the history is closed here and the error propagates as is.
+                if not run.published:
+                    await runs.finish(run.run_id, status=STATUS_FAILED, error=str(e),
+                                      events=run.take_events())
+                raise
+        return cq
+
+    @staticmethod
+    async def _drain(coro) -> None:
+        """Run cleanup to completion however many times the request is cancelled."""
+        task = asyncio.create_task(coro)
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                continue
+        task.result()
+
+    async def _record_cancel(self, run: "_Run") -> None:
+        run.cancel_recorded = True
+        try:
+            await run.db.rollback()
+            await run.db.refresh(run.cq)
+            if run.cq.deleted_at is None:
+                run.cq.last_refresh_status = "error"
+                run.cq.last_refresh_error = CANCELLED_REFRESH_ERROR
+                await run.db.commit()
+        except Exception:
+            logger.exception("custom_query.cancelled_status.failed")
+        await runs.finish(run.run_id, status=STATUS_CANCELLED, error=CANCELLED_REFRESH_ERROR,
+                          events=run.take_events(), chunks=run.chunk_log())
+
+    async def _record_failure(self, run: "_Run", error: BaseException) -> None:
+        db, cq = run.db, run.cq
+        try:
+            await db.rollback()
+            await db.refresh(cq)
+            if cq.deleted_at is None:
+                cq.last_refresh_status = "error"
+                cq.last_refresh_error = str(error)[:2000]
+                state = cq.refresh_state if isinstance(cq.refresh_state, dict) else {}
+                if run.load is not None and isinstance(state.get("load"), dict):
+                    # Count it against the load, so one that cannot finish is
+                    # not retried on every tick forever.
+                    load = {**state["load"], "failures": int(state["load"].get("failures") or 0) + 1}
+                    cq.refresh_state = {**state, "load": load}
+                await db.commit()
+        except Exception:
+            logger.exception("custom_query.failure_status.failed")
+        logger.error(
+            "custom_query.refresh.failed",
+            extra={"custom_query": cq.name, "error": str(error)},
+        )
+        await runs.finish(run.run_id, status=STATUS_FAILED, error=str(error),
+                          events=run.take_events(), chunks=run.chunk_log())
+
+    async def _in_thread(self, run: "_Run", work):
+        """Run one unit of blocking work without letting go of the volume.
+
+        A cancelled request must not release the volume lock while its thread
+        is still writing into that directory. So on cancellation the work is
+        told to stop at its next batch boundary and then *waited for*, however
+        many more times the request is cancelled meanwhile, and only then does
+        the cancellation continue upward.
+        """
+        task = asyncio.create_task(asyncio.to_thread(work))
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            run.abort.set()
+
+            async def finish_cancelled():
+                try:
+                    result = await task
+                    # It finished anyway: its file was never published.
+                    artifacts.delete_artifact(getattr(result, "artifact_path", None))
+                except Exception:
+                    logger.info("custom_query.refresh.cancelled")
+                finally:
+                    await self._record_cancel(run)
+
+            await self._drain(finish_cancelled())
+            raise
+
+    def _decide(self, run: "_Run") -> str:
+        """Which shape of work this refresh is, with the reason logged."""
+        config, state, cq = run.config, run.state, run.cq
+        if not config.incremental:
+            return "single"
+        if not run.at_source:
+            run.note("This connection cannot filter at the source: the whole query runs on "
+                     "each refresh and what is new is taken from its result.")
+        serving = bool(cq.artifact_path and cq.artifact_key_enc
+                       and incremental.decode(state.get("checkpoint")) is not None
+                       and state.get("definition_hash") == run.definition_hash)
+        load = state.get("load")
+        if isinstance(load, dict) and load.get("definition_hash") == run.definition_hash:
+            failures = int(load.get("failures") or 0)
+            if run.force_full:
+                self._discard_load(run)
+                run.note("Full refresh requested; the load in progress was restarted.")
+                return "load"
+            if failures >= MAX_LOAD_FAILURES:
+                self._discard_load(run)
+                if serving:
+                    run.state["full_refresh_retry_after"] = (
+                        datetime.utcnow() + FULL_REFRESH_RETRY_AFTER).isoformat(timespec="seconds")
+                    run.note(f"The full rebuild failed {failures} times. Refreshing what is new "
+                             f"instead, and trying the rebuild again tomorrow.", "warning")
+                else:
+                    run.note(f"The load failed {failures} times; starting it over.", "warning")
+                    return "load"
+            elif self._resumable_load(run) is not None:
+                run.note("Continuing the load that was in progress.")
+                return "load"
+            elif self._load_owned_elsewhere(load):
+                return "defer"
+            else:
+                self._discard_load(run)
+        elif isinstance(load, dict):
+            self._discard_load(run)         # left over from another definition
+        if not cq.artifact_path or not cq.artifact_key_enc:
+            run.note("First load.")
+            return "load"
+        if run.force_full:
+            run.note("Full refresh requested.")
+            return "load"
+        if state.get("definition_hash") != run.definition_hash:
+            run.note("The query or its refresh settings changed; rebuilding in full.")
+            return "load"
+        if incremental.decode(state.get("checkpoint")) is None:
+            run.note("No checkpoint yet; rebuilding in full.")
+            return "load"
+        every = config.full_refresh_every_days
+        last_full = _parse_iso(state.get("last_full_refresh_at"))
+        retry_after = _parse_iso(run.state.get("full_refresh_retry_after"))
+        waiting = retry_after is not None and datetime.utcnow() < retry_after
+        # A source that cannot be asked for a range returns only what it has
+        # now; rebuilding from that would throw away rows it no longer
+        # returns. That stays the admin's call (Full refresh).
+        if every and not waiting and run.at_source and (
+                last_full is None or datetime.utcnow() - last_full >= timedelta(days=every)):
+            run.note(f"Scheduled full refresh (every {every} days): picks up deleted rows.")
+            return "load"
+        return "increment"
+
+    @staticmethod
+    def _resumable_load(run: "_Run") -> Optional[dict]:
+        """A paused load that this refresh can pick up, or None.
+
+        Only on the volume it was started on: the part file is local, and
+        another replica starts over rather than fetch a half-built file.
+        """
+        load = run.state.get("load")
+        if not isinstance(load, dict) or load.get("definition_hash") != run.definition_hash:
+            return None
+        path = load.get("path")
+        if not path or not os.path.isfile(path) or not load.get("windows"):
+            return None
+        return load
+
+    @staticmethod
+    def _load_owned_elsewhere(load: dict) -> bool:
+        """Whether another host is (recently) working on this load.
+
+        Its part file is not here, so resuming is that host's to do; taking
+        it over would start the whole load again on every hand-off.
+        """
+        if not load.get("host") or load.get("host") == socket.gethostname():
+            return False
+        seen = _parse_iso(load.get("updated_at") or load.get("started_at"))
+        return seen is not None and datetime.utcnow() - seen < LOAD_OWNER_GRACE
+
+    def _discard_load(self, run: "_Run") -> None:
+        load = run.state.pop("load", None)
+        if isinstance(load, dict):
+            loader.discard_part(load.get("path"))
+
+    async def _save_state(self, run: "_Run") -> None:
+        """Persist the load's progress on the row (never the checkpoint —
+        that only moves with a published artifact)."""
+        await run.db.execute(
+            update(ConnectionTable)
+            # By captured id: after a rollback the ORM row is expired, and
+            # touching it here would mean a lazy load.
+            .where(ConnectionTable.id == run.table_id, ConnectionTable.deleted_at.is_(None))
+            .values(refresh_state=dict(run.state) or None)
+            .execution_options(synchronize_session=False)
+        )
+        await run.db.commit()
+
+    async def _drive(self, run: "_Run") -> None:
+        db, connection, cq = run.db, run.connection, run.cq
+
         async with artifacts.refresh_lock(connection.id):
             # A queued caller may have loaded this row before another worker
             # committed its swap. Reload under the volume lock before reading
-            # old_path, otherwise the newly superseded file is never removed.
+            # anything off it.
             await db.refresh(cq)
             if cq.deleted_at is not None:
-                return cq
-
-            client = await self.connection_service.construct_client(
-                db, connection, current_user
+                return
+            run.client = await self.connection_service.construct_client(
+                db, connection, run.current_user
             )
-            await self._prepare_client(db, connection, client, self.target_of(cq))
-            old_path = cq.artifact_path
+            await self._prepare_client(db, connection, run.client, self.target_of(cq))
+            run.snapshot()
+            if run.generic:
+                run.note("Read with this connection's own query call, which applies the "
+                         "connection's row limits; raise the limit in the query if it has one.")
+            decision = self._decide(run)
+            if decision == "defer":
+                # Another replica holds this load's file; hand the turn back.
+                self._schedule_resume(str(connection.id), str(cq.id), delay_seconds=30)
+                return
 
-            # Mark the row only once extraction actually starts: a request
-            # cancelled while credentials were being fetched would otherwise
-            # leave "running" committed with nothing to write a terminal state.
+            # Mark the row only once work actually starts: a request cancelled
+            # while credentials were being fetched would otherwise leave
+            # "running" committed with nothing to write a terminal state.
             cq.last_refresh_status = "running"
             await db.commit()
+            run.started_work = True
+            # The run keeps its own id even if the history row cannot be
+            # written: rows are stamped with it either way.
+            await runs.start(
+                connection_table_id=str(cq.id), organization_id=str(connection.organization_id),
+                trigger=run.trigger,
+                mode=RUN_MODE_INCREMENTAL if decision == "increment" else RUN_MODE_FULL,
+                triggered_by_user_id=run.user_id,
+                inputs={"connection_id": str(connection.id)},
+                run_id=run.run_id,
+            )
 
-            abort = threading.Event()
+            if decision == "single":
+                outcome = await self._in_thread(run, lambda: self._work_single(run))
+                await self._publish(run, outcome, full=True)
+                return
 
-            def _run():
-                est = extractor.estimate(client, cq.definition_sql)
-                extractor.check_budget(est)
-                return extractor.extract_to_artifact(
-                    client, cq.definition_sql, cq.name, connection.id,
-                    should_abort=abort.is_set,
-                )
+            if decision == "increment":
+                try:
+                    outcome = await self._in_thread(run, lambda: self._work_increment(run))
+                except loader.SchemaChanged as e:
+                    # Stored rows cannot be given the new shape, so the copy
+                    # would stop matching the source. Rebuild instead of
+                    # failing every scheduled run until someone notices.
+                    run.note(f"The query's columns changed ({e}); rebuilding in full.", "warning")
+                    await runs.progress(run.run_id, mode=RUN_MODE_FULL, events=run.take_events())
+                else:
+                    await self._publish(run, outcome, full=False)
+                    return
 
-            extraction = asyncio.create_task(asyncio.to_thread(_run))
+            load = self._resumable_load(run)
+            if load is None:
+                self._discard_load(run)
+                load = await self._in_thread(run, lambda: self._work_plan_load(run))
+                run.state["load"] = load
+                await self._save_state(run)
+            run.load = load
+            await runs.progress(run.run_id, events=run.take_events(), chunks=run.chunk_log())
+
+        # One window per hold of the volume lock.
+        while True:
+            index = next((i for i, w in enumerate(load["windows"]) if w.get("status") != "done"), None)
+            if index is None:
+                break
+            # Always at least one window per run, so a load makes progress
+            # however small the budget is.
+            if run.windows_done and run.over_budget():
+                await self._pause(run)
+                return
+            await self._yield_to_waiters(connection.id)
+            async with artifacts.refresh_lock(connection.id):
+                await db.refresh(cq)
+                if cq.deleted_at is not None:
+                    self._discard_load(run)
+                    await runs.finish(run.run_id, status=STATUS_CANCELLED,
+                                      error="The table was deleted while it was loading.",
+                                      events=run.take_events(), chunks=run.chunk_log())
+                    return
+                rows, rendered = await self._in_thread(run, lambda i=index: self._work_window(run, i))
+                window = load["windows"][index]
+                window["status"], window["rows"] = "done", rows
+                load["updated_at"] = datetime.utcnow().isoformat(timespec="seconds")
+                load["failures"] = 0
+                load["rows"] = int(load.get("rows") or 0) + rows
+                run.rows_read += rows
+                run.windows_done += 1
+                run.rendered_query = run.rendered_query or rendered
+                await self._save_state(run)
+            await runs.progress(run.run_id, chunks=run.chunk_log(), rows_read=run.rows_read,
+                                rendered_query=run.rendered_query, events=run.take_events())
+
+        async with artifacts.refresh_lock(connection.id):
+            await db.refresh(cq)
+            if cq.deleted_at is not None:
+                self._discard_load(run)
+                await runs.finish(run.run_id, status=STATUS_CANCELLED,
+                                  error="The table was deleted while it was loading.",
+                                  events=run.take_events(), chunks=run.chunk_log())
+                return
             try:
-                # A cancelled request must not release the volume lock while
-                # its extraction thread is still writing into that directory.
-                res = await asyncio.shield(extraction)
-            except asyncio.CancelledError:
-                # Tell the extractor to stop at its next batch boundary rather
-                # than waiting out a full scan: the lock is released and the
-                # source is idle within one batch, and graceful shutdown is not
-                # pinned behind a 30-minute extraction.
-                abort.set()
-
-                async def finish_cancelled_refresh():
-                    try:
-                        res = await extraction
-                        artifacts.delete_artifact(res.artifact_path)
-                    except Exception:
-                        logger.info("custom_query.refresh.cancelled")
-                    finally:
-                        try:
-                            await db.rollback()
-                            await db.refresh(cq)
-                            if cq.deleted_at is None:
-                                cq.last_refresh_status = "error"
-                                cq.last_refresh_error = CANCELLED_REFRESH_ERROR
-                                await db.commit()
-                        except Exception:
-                            logger.exception("custom_query.cancelled_status.failed")
-
-                # Shield the cleanup and drain it despite repeated cancellation
-                # of this request. The volume lock stays owned until the source
-                # thread and terminal-status write finish.
-                cleanup = asyncio.create_task(finish_cancelled_refresh())
-                while not cleanup.done():
-                    try:
-                        await asyncio.shield(cleanup)
-                    except asyncio.CancelledError:
-                        continue
-                cleanup.result()
-                raise
-            except Exception as e:
-                cq.last_refresh_status = "error"
-                cq.last_refresh_error = str(e)[:2000]
-                await db.commit()
-                logger.error(
-                    "custom_query.refresh.failed",
-                    extra={"custom_query": cq.name, "error": str(e)},
-                )
-                raise HTTPException(status_code=400, detail=str(e))
-
-            try:
-                # Conditional on the row still being live: delete takes no
-                # lock, so it may have soft-deleted this table mid-extraction.
-                # Swapping a reference onto a deleted row would leak the new
-                # file forever (GC protects every referenced path).
-                swap = await db.execute(
-                    update(ConnectionTable)
-                    .where(
-                        ConnectionTable.id == cq.id,
-                        ConnectionTable.deleted_at.is_(None),
-                    )
-                    .values(
-                        artifact_path=res.artifact_path,
-                        artifact_key_enc=artifacts.encrypt_key(res.artifact_key),
-                        artifact_bytes=res.artifact_bytes,
-                        columns=res.columns,
-                        no_rows=res.row_count,
-                        last_refreshed_at=datetime.utcnow(),
-                        last_refresh_status="ok",
-                        last_refresh_error=None,
-                        last_refresh_ms=res.elapsed_ms,
-                    )
-                    .execution_options(synchronize_session=False)
-                )
-                if swap.rowcount != 1:
-                    await db.rollback()
-                    artifacts.delete_artifact(res.artifact_path)
-                    await db.refresh(cq)
-                    logger.info(
-                        "custom_query.refresh.superseded_by_delete",
-                        extra={"custom_query": cq.name},
-                    )
-                    return cq
-                await db.commit()
+                outcome = await self._in_thread(run, lambda: self._work_finalize(run))
             except BaseException:
-                # A commit error can be ambiguous (e.g. a lost acknowledgement).
-                # Only discard the new file after a fresh DB read proves it is
-                # unreferenced. If verification fails, leave it for daily GC.
+                # A file that failed its checks is not worth resuming into.
+                run.state.pop("load", None)
                 try:
                     await db.rollback()
-                    referenced = (await db.execute(
-                        select(ConnectionTable.id).where(
-                            ConnectionTable.artifact_path == res.artifact_path
-                        ).limit(1)
-                    )).first()
-                    if referenced is None:
-                        artifacts.delete_artifact(res.artifact_path)
+                    await self._save_state(run)
                 except Exception:
-                    logger.exception("custom_query.failed_swap.cleanup_failed")
+                    logger.exception("custom_query.load_state.clear_failed")
                 raise
+            # What this run read; a resumed load's earlier windows are on the
+            # runs that loaded them.
+            outcome.rows_read = run.rows_read
+            outcome.rows_inserted = outcome.row_count
+            await self._publish(run, outcome, full=True)
 
-            # DataSourceTable carries legacy copies of name/columns/no_rows that
-            # the schema context reads; leaving them stale would show agents the
-            # previous shape of the relation.
-            try:
-                await db.refresh(cq)
-                await self._sync_activations(db, cq)
-            finally:
-                # The swap is committed even if activation metadata sync fails.
-                if old_path and old_path != res.artifact_path:
-                    artifacts.delete_artifact(old_path)
+    async def _yield_to_waiters(self, connection_id: str) -> None:
+        """Let a refresh queued for this connection's volume go first."""
+        deadline = time.monotonic() + 60
+        while artifacts.has_waiters(connection_id) and time.monotonic() < deadline:
+            await asyncio.sleep(0.2)
 
-            logger.info(
-                "custom_query.refresh.ok",
-                extra={
-                    "custom_query": cq.name,
-                    "rows": res.row_count,
-                    "ms": res.elapsed_ms,
-                },
+    async def _pause(self, run: "_Run") -> None:
+        """Stop a long load between two windows; the next run continues it."""
+        cq, load = run.cq, run.load
+        done = sum(1 for w in load["windows"] if w.get("status") == "done")
+        run.note(f"Paused after {done} of {len(load['windows'])} windows; it continues shortly.")
+        cq.last_refresh_status = "partial"
+        cq.last_refresh_error = None
+        await run.db.commit()
+        await runs.finish(run.run_id, status=STATUS_PARTIAL, events=run.take_events(),
+                          chunks=run.chunk_log(), rows_read=run.rows_read,
+                          rendered_query=run.rendered_query)
+        self._schedule_resume(str(run.connection.id), str(cq.id))
+
+    # -- units of work (each runs in a worker thread, off the ORM) ----------
+
+    def _limits(self, run: "_Run") -> loader.Limits:
+        return loader.Limits(
+            max_rows=extractor.DEFAULT_MAX_ROWS, max_bytes=extractor.DEFAULT_MAX_BYTES,
+            deadline=time.monotonic() + extractor.DEFAULT_MAX_SECONDS,
+            should_abort=run.abort.is_set, max_seconds=extractor.DEFAULT_MAX_SECONDS,
+        )
+
+    def _work_single(self, run: "_Run"):
+        try:
+            est = extractor.estimate(run.client, run.sql)
+            extractor.check_budget(est)
+            run.rendered_query = run.sql
+            return extractor.extract_to_artifact(
+                run.client, run.sql, run.name, run.connection_id,
+                should_abort=run.abort.is_set, run_id=run.run_id, config=run.config,
+                previous_rows=run.previous_rows,
             )
-            return cq
+        except _PASS_THROUGH:
+            raise
+        except Exception as e:
+            raise _SourceError(str(e)) from e
+
+    def _render(self, run: "_Run", window: incremental.Window) -> str:
+        return incremental.render(run.client, run.sql, run.config.cursor_column, run.cursor_kind, window)
+
+    def _source(self, run: "_Run", rendered: str):
+        src = extractor._source(run.client, rendered)
+        if src is None:
+            raise incremental.IncrementalConfigError("This connection cannot run queries.")
+        return src
+
+    def _work_plan_load(self, run: "_Run") -> dict:
+        """Size a load from scratch and cut it into windows. Moves no rows."""
+        config = run.config
+        try:
+            start = incremental.parse_initial(run.cursor_kind, config.initial_value) \
+                if config.initial_value else None
+            whole = incremental.Window(lo=start, hi=None, include_nulls=run.wrapped and start is not None)
+            rendered = self._render(run, whole)
+            est = extractor.estimate(run.client, rendered)
+            extractor.check_budget(est)
+
+            windows = [incremental.Window(lo=start, hi=None, include_nulls=run.wrapped)]
+            total = None
+            sql_source = incremental.json_window_of(run.client) is None and \
+                incremental.window_writer(run.client) is None
+            probe = None if not sql_source else incremental.probe_sql(
+                run.sql, incremental.dialect_for(run.client), config.cursor_column, run.cursor_kind, whole)
+            if probe is not None:
+                try:
+                    _cols, rows = self._source(run, probe).preview(probe, 1)
+                    lo, hi, total, with_cursor = rows[0][0], rows[0][1], int(rows[0][2] or 0), int(rows[0][3] or 0)
+                except Exception as e:
+                    # Sizing is an optimisation; a source that cannot answer
+                    # it loads as one window.
+                    run.note(f"Could not size the load up front ({str(e)[:200]}); loading as one window.",
+                             "warning")
+                else:
+                    if total > extractor.DEFAULT_MAX_ROWS:
+                        raise extractor.ExtractionRefused(
+                            f"This query returns {total:,} rows, over the "
+                            f"{extractor.DEFAULT_MAX_ROWS:,}-row limit for a custom table. "
+                            f"Narrow it with a WHERE clause or a later start value."
+                        )
+                    if start is not None and incremental.kind_of(lo) == incremental.kind_of(start):
+                        lo = max(lo, start) if _comparable(lo, start) else lo
+                    windows = self._plan_windows(run, lo, hi, total)
+                    if start is not None and windows:
+                        first = windows[0]
+                        windows[0] = incremental.Window(lo=start, hi=first.hi, include_nulls=first.include_nulls)
+                    missing = total - with_cursor
+                    run.note(
+                        f"Source has {total:,} rows"
+                        + (f" from {lo} to {hi}" if lo is not None else "")
+                        + (f"; {missing:,} have no '{config.cursor_column}' value" if missing else "")
+                        + f". Loading in {len(windows)} window(s)."
+                    )
+        except _PASS_THROUGH:
+            raise
+        except Exception as e:
+            raise _SourceError(str(e)) from e
+
+        part_path, key = loader.new_part(run.connection_id)
+        return {
+            "path": str(part_path),
+            "key_enc": artifacts.encrypt_key(key),
+            "definition_hash": run.definition_hash,
+            "started_at": datetime.utcnow().isoformat(timespec="seconds"),
+            "updated_at": datetime.utcnow().isoformat(timespec="seconds"),
+            "host": socket.gethostname(),
+            "failures": 0,
+            "source_rows": total,
+            "rows": 0,
+            "windows": [{**w.to_json(), "status": "pending", "rows": None} for w in windows],
+        }
+
+    def _plan_windows(self, run: "_Run", lo, hi, total: int) -> list:
+        """Windows for a load of `total` rows spanning [lo, hi]."""
+        whole = [incremental.Window(lo=None, hi=None, include_nulls=run.wrapped)]
+        if not incremental.can_bound_above(run.sql):
+            if total > incremental.CHUNK_TARGET_ROWS:
+                run.note("The query has {{since}} but no {{until}}, so it loads as one window. "
+                         "Add `AND <column> < {{until}}` to load it in chunks.", "warning")
+            return whole
+        dialect = incremental.dialect_for(run.client)
+        column, kind = run.config.cursor_column, run.cursor_kind
+
+        def count_between(a, b) -> int:
+            sql = incremental.count_sql(run.sql, dialect, column, kind, incremental.Window(lo=a, hi=b))
+            _cols, rows = self._source(run, sql).preview(sql, 1)
+            return int(rows[0][0] or 0)
+
+        try:
+            return incremental.plan_by_density(lo, hi, total, count_between, include_nulls=run.wrapped)
+        except Exception as e:
+            run.note(f"Could not measure where the rows are ({str(e)[:200]}); "
+                     f"cutting the range evenly instead.", "warning")
+            return incremental.plan_chunks(lo, hi, total, include_nulls=run.wrapped)
+
+    def _work_window(self, run: "_Run", index: int) -> tuple:
+        load = run.load
+        window = incremental.Window.from_json(load["windows"][index])
+        try:
+            rendered = self._render(run, window)
+            rows = loader.load_window(
+                self._source(run, rendered), rendered, load["path"],
+                artifacts.decrypt_key(load["key_enc"]), run.name, run.run_id, self._limits(run),
+                batch_rows=extractor.BATCH_ROWS, rows_before=int(load.get("rows") or 0),
+                window=index,
+            )
+            return rows, rendered
+        except _PASS_THROUGH:
+            raise
+        except Exception as e:
+            raise _SourceError(str(e)) from e
+
+    def _work_finalize(self, run: "_Run"):
+        load = run.load
+        try:
+            return loader.finalize(
+                load["path"], artifacts.decrypt_key(load["key_enc"]), run.name, run.config,
+                previous_rows=run.previous_rows, run_id=run.run_id,
+            )
+        except BaseException:
+            loader.discard_part(load["path"])
+            raise
+
+    def _work_increment(self, run: "_Run"):
+        checkpoint = incremental.decode(run.state.get("checkpoint"))
+        window = incremental.incremental_window(checkpoint, run.config)
+        window = incremental.align_window(run.client, run.sql, window, run.config)
+        run.window_from = window.lo
+        try:
+            rendered = self._render(run, window)
+            run.rendered_query = rendered
+            est = extractor.estimate(run.client, rendered)
+            extractor.check_budget(est)
+            return loader.apply_increment(
+                self._source(run, rendered), rendered, run.previous_path, run.previous_key,
+                run.name, run.connection_id, run.run_id, run.config, window, self._limits(run),
+                batch_rows=extractor.BATCH_ROWS, previous_rows=run.previous_rows, wrapped=run.wrapped,
+                filter_locally=not run.at_source,
+            )
+        except _PASS_THROUGH:
+            raise
+        except Exception as e:
+            raise _SourceError(str(e)) from e
+
+    # -- publish -----------------------------------------------------------
+
+    def _next_state(self, run: "_Run", outcome, full: bool) -> Optional[dict]:
+        """The row's refresh state once `outcome` is the served artifact."""
+        if not run.config.incremental:
+            return None
+        previous = incremental.decode(run.state.get("checkpoint"))
+        checkpoint = incremental.cap_checkpoint(outcome.max_cursor, datetime.utcnow())
+        if not full and previous is not None and (
+            checkpoint is None or (_comparable(previous, checkpoint) and previous > checkpoint)
+        ):
+            # An increment never moves the checkpoint backwards.
+            checkpoint = previous
+        last_full = datetime.utcnow().isoformat(timespec="seconds") if full else run.state.get(
+            "last_full_refresh_at")
+        new_state = {
+            "checkpoint": incremental.encode(checkpoint),
+            "definition_hash": run.definition_hash,
+            "last_full_refresh_at": last_full,
+        }
+        if not full and run.state.get("full_refresh_retry_after"):
+            new_state["full_refresh_retry_after"] = run.state["full_refresh_retry_after"]
+        return new_state
+
+    async def _publish(self, run: "_Run", res, *, full: bool) -> None:
+        db, cq = run.db, run.cq
+        old_path = cq.artifact_path
+        new_state = self._next_state(run, res, full)
+        try:
+            # Conditional on the row still being live: delete takes no
+            # lock, so it may have soft-deleted this table mid-extraction.
+            # Swapping a reference onto a deleted row would leak the new
+            # file forever (GC protects every referenced path).
+            swap = await db.execute(
+                update(ConnectionTable)
+                .where(
+                    ConnectionTable.id == cq.id,
+                    ConnectionTable.deleted_at.is_(None),
+                )
+                .values(
+                    artifact_path=res.artifact_path,
+                    artifact_key_enc=artifacts.encrypt_key(res.artifact_key),
+                    artifact_bytes=res.artifact_bytes,
+                    columns=res.columns,
+                    no_rows=res.row_count,
+                    last_refreshed_at=datetime.utcnow(),
+                    last_refresh_status="ok",
+                    last_refresh_error=None,
+                    last_refresh_ms=run.elapsed_ms(),
+                    # The checkpoint moves in the same statement as the
+                    # artifact it describes — together, or not at all.
+                    refresh_state=new_state,
+                )
+                .execution_options(synchronize_session=False)
+            )
+            if swap.rowcount != 1:
+                await db.rollback()
+                artifacts.delete_artifact(res.artifact_path)
+                await db.refresh(cq)
+                logger.info(
+                    "custom_query.refresh.superseded_by_delete",
+                    extra={"custom_query": cq.name},
+                )
+                await runs.finish(run.run_id, status=STATUS_CANCELLED,
+                                  error="The table was deleted while it was refreshing.",
+                                  events=run.take_events(), chunks=run.chunk_log())
+                return
+            await db.commit()
+        except BaseException:
+            # A commit error can be ambiguous (e.g. a lost acknowledgement).
+            # Only discard the new file after a fresh DB read proves it is
+            # unreferenced. If verification fails, leave it for daily GC.
+            try:
+                await db.rollback()
+                referenced = (await db.execute(
+                    select(ConnectionTable.id).where(
+                        ConnectionTable.artifact_path == res.artifact_path
+                    ).limit(1)
+                )).first()
+                if referenced is None:
+                    artifacts.delete_artifact(res.artifact_path)
+            except Exception:
+                logger.exception("custom_query.failed_swap.cleanup_failed")
+            raise
+
+        for text_ in res.notes:
+            run.note(text_, "warning")
+        await runs.finish(
+            run.run_id, status=STATUS_SUCCESS, events=run.take_events(), chunks=run.chunk_log(),
+            rows_read=res.rows_read, rows_inserted=res.rows_inserted,
+            rows_updated=res.rows_updated, rows_deleted=res.rows_deleted,
+            row_count=res.row_count, artifact_bytes=res.artifact_bytes,
+            rendered_query=run.rendered_query, schema_fingerprint=res.schema_fingerprint,
+            window_from=incremental.encode(run.window_from),
+            window_to=(new_state or {}).get("checkpoint"),
+        )
+        run.published = True
+
+        # DataSourceTable carries legacy copies of name/columns/no_rows that
+        # the schema context reads; leaving them stale would show agents the
+        # previous shape of the relation.
+        try:
+            await db.refresh(cq)
+            await self._sync_activations(db, cq)
+        finally:
+            # The swap is committed even if activation metadata sync fails.
+            if old_path and old_path != res.artifact_path:
+                artifacts.delete_artifact(old_path)
+
+        table_events.emit(table_events.TABLE_PUBLISHED, {
+            "table_id": str(cq.id), "connection_id": str(run.connection.id),
+            "run_id": run.run_id, "rows": res.row_count,
+            "schema_fingerprint": res.schema_fingerprint,
+        })
+        logger.info(
+            "custom_query.refresh.ok",
+            extra={
+                "custom_query": cq.name,
+                "rows": res.row_count,
+                "ms": run.elapsed_ms(),
+            },
+        )
 
     async def _sync_activations(self, db: AsyncSession, cq: ConnectionTable) -> None:
         rows = (
@@ -831,7 +1610,8 @@ class CustomQueryService:
         if rows:
             await db.commit()
 
-    async def scheduled_refresh(self, connection_id: str, cq_id: str) -> None:
+    async def scheduled_refresh(self, connection_id: str, cq_id: str,
+                                trigger: str = TRIGGER_SCHEDULE) -> None:
         """APScheduler entry point. Owns its own session.
 
         The job store is shared, so every worker fires this tick; the claim
@@ -841,7 +1621,8 @@ class CustomQueryService:
         from app.core.scheduler import claim_scheduled_run
         from app.dependencies import async_session_maker
 
-        if not await asyncio.to_thread(claim_scheduled_run, self._job_id(cq_id)):
+        claim = self._resume_job_id(cq_id) if trigger == TRIGGER_RESUME else self._job_id(cq_id)
+        if not await asyncio.to_thread(claim_scheduled_run, claim):
             return
         async with async_session_maker() as db:
             conn = (
@@ -861,7 +1642,7 @@ class CustomQueryService:
                 self._unschedule(cq_id)
                 return
             try:
-                await self.refresh(db, conn, cq)
+                await self.refresh(db, conn, cq, trigger=trigger)
             except Exception as e:
                 logger.error(
                     "custom_query.scheduled_refresh.failed",
@@ -870,6 +1651,35 @@ class CustomQueryService:
 
     def _job_id(self, cq_id: str) -> str:
         return job_id_for(cq_id)
+
+    @staticmethod
+    def _resume_job_id(cq_id: str) -> str:
+        return f"custom_query_resume_{cq_id}"
+
+    def _schedule_resume(self, connection_id: str, cq_id: str, delay_seconds: int = 5) -> None:
+        """Continue a paused load soon, rather than at the table's next
+        scheduled refresh (which may be a day away)."""
+        try:
+            scheduler.add_job(
+                func=self.scheduled_refresh,
+                trigger="date",
+                run_date=datetime.utcnow() + timedelta(seconds=delay_seconds),
+                timezone="UTC",
+                id=self._resume_job_id(cq_id),
+                args=[connection_id, cq_id],
+                kwargs={"trigger": TRIGGER_RESUME},
+                replace_existing=True,
+                misfire_grace_time=3600,
+            )
+        except Exception as e:
+            logger.error("custom_query.resume_schedule_failed",
+                         extra={"custom_query": cq_id, "error": str(e)})
+
+    def _unschedule_resume(self, cq_id: str) -> None:
+        try:
+            scheduler.remove_job(job_id=self._resume_job_id(cq_id))
+        except (JobLookupError, Exception):
+            pass
 
     def _schedule(self, connection_id: str, cq: ConnectionTable, timezone: str = "UTC") -> None:
         self._unschedule(cq.id)

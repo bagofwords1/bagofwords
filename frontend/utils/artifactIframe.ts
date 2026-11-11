@@ -109,6 +109,14 @@ export interface ArtifactIframeOptions {
   resourceApp?: boolean;
   /** Text shown inside #root before Babel transforms the artifact code. */
   loadingLabel?: string;
+  /**
+   * The per-widget ⓘ provenance popover (Data / Code / Calculation), a
+   * per-dashboard setting (show_widget_info). Sets window.__BOW_INFO in the
+   * iframe. Omit it to leave the runtime's own default (shown) — standalone,
+   * precompile and test renders pass nothing; the dashboard renderers pass the
+   * dashboard's boolean, which is off by default.
+   */
+  showWidgetInfo?: boolean;
   /** Default 'production'. 'development' gives clearer React error messages. */
   reactBuild?: 'production' | 'development';
   /**
@@ -664,7 +672,7 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
       }
     });
   ${SC}
-  <script>window.__BOW_OPTIONAL_LIBS__=${JSON.stringify({echarts: libUrl("echarts-5.min.js"), pdfjsLib: libUrl("pdf.min.js")})};window.ARTIFACT_DATA = ${embeddedData};window.__BOW_RUNTIME_NONCE__="${runtimeNonce}";window.__BOW_FIXTURE_MODE__=${!!opts.fixtureMode};${SC}
+  <script>window.__BOW_OPTIONAL_LIBS__=${JSON.stringify({echarts: libUrl("echarts-5.min.js"), pdfjsLib: libUrl("pdf.min.js")})};window.ARTIFACT_DATA = ${embeddedData};window.__BOW_RUNTIME_NONCE__="${runtimeNonce}";window.__BOW_FIXTURE_MODE__=${!!opts.fixtureMode};${opts.showWidgetInfo === undefined ? '' : `window.__BOW_INFO=${!!opts.showWidgetInfo};`}${SC}
   ${tag(globalsSrc)}
   ${tag(sdkSrc)}
   ${anyInline ? `<script>try { delete window.__bowRunLib; } catch (e) {}${SC}` : ''}

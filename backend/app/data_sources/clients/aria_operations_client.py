@@ -215,7 +215,42 @@ _CATALOG: Dict[str, dict] = {
 _ACTIVITY_TABLES = {"metrics", "metrics_topn", "alerts", "symptoms"}
 
 
+_FIXED_INTERVAL_MS = {"SECONDS": 1_000, "MINUTES": 60_000, "HOURS": 3_600_000,
+                      "DAYS": 86_400_000, "WEEKS": 7 * 86_400_000}
+
+
+def _rollup_bucket_ms(spec: dict) -> Optional[int]:
+    """Milliseconds one metrics row covers for this query spec.
+
+    Five minutes (the collection cycle) when no rollup interval is asked for;
+    None for calendar intervals (months, years), which have no fixed width.
+    """
+    unit = str(spec.get("interval") or "").upper()
+    if not unit:
+        return 5 * 60_000
+    width = _FIXED_INTERVAL_MS.get(unit)
+    if width is None:
+        return None
+    try:
+        return width * max(1, int(spec.get("interval_quantifier") or 1))
+    except (TypeError, ValueError):
+        return width
+
+
 class AriaOperationsClient(DataSourceClient):
+
+    # Where a query's time window goes, for custom tables that refresh
+    # incrementally (app/data_sources/fast/incremental.py). Times are epoch
+    # milliseconds; an explicit window replaces a relative `duration_in_mins`.
+    # One response holds at most MAX_ROWS rows, so a larger window is split.
+    # The Suite API includes both ends of a range, and a query with a rollup
+    # interval returns one row per bucket.
+    INCREMENTAL_WINDOW = {
+        "start": "start_time", "end": "end_time", "format": "epoch_ms",
+        "clears": ["duration_in_mins"], "limit": "limit", "row_ceiling": MAX_ROWS,
+        "end_inclusive": True,
+        "bucket": lambda spec: _rollup_bucket_ms(spec),
+    }
 
     def __init__(
         self,

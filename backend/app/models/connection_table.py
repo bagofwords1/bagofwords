@@ -66,6 +66,19 @@ class ConnectionTable(BaseSchema):
     artifact_key_enc = Column(Text, nullable=True)
     artifact_bytes = Column(BigInteger, nullable=True)
 
+    # --- how it refreshes (kind='bow' only) ----------------------------------
+    # 'full' rebuilds the table every time (the default, and every table that
+    # predates incremental refresh). 'append' / 'merge' fetch only the rows
+    # at or after a stored checkpoint; see app/data_sources/fast/incremental.py.
+    refresh_mode = Column(String, nullable=False, default="full", server_default="full")
+    # The admin's settings: cursor column, key, lookback, guards.
+    refresh_config = Column(JSON, nullable=True)
+    # What the refreshes have established: the checkpoint, the definition it
+    # was taken under, the last full refresh, and a first load still in
+    # progress. Written only together with the artifact swap, so the data and
+    # the checkpoint can never disagree.
+    refresh_state = Column(JSON, nullable=True)
+
     # --- row-level security (kind='bow' only) -------------------------------
     # A materialized relation holds every row the shared credential could see,
     # so RLS filters at read time against who is asking. Enforcement builds a
@@ -158,3 +171,5 @@ class ConnectionTable(BaseSchema):
             metadata_json=self.metadata_json
         )
 
+
+from app.models import custom_table_run  # noqa: E402,F401

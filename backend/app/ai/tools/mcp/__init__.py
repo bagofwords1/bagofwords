@@ -25,7 +25,19 @@ from .entities import DescribeEntityMCPTool, ListEntitiesMCPTool
 from .schema_tools import DescribeTablesMCPTool, EditSchemaMCPTool
 from .app_tools import GetVisualizationMCPTool, GetArtifactDataMCPTool
 
+from .evals import (
+    SearchEvalsMCPTool, CreateEvalMCPTool, EditEvalMCPTool, RunEvalMCPTool,
+    StopEvalRunMCPTool, GetEvalRunsMCPTool, GetEvalRunMCPTool,
+)
+
 MCP_TOOLS = {
+    "search_evals": SearchEvalsMCPTool,
+    "create_eval": CreateEvalMCPTool,
+    "edit_eval": EditEvalMCPTool,
+    "run_eval": RunEvalMCPTool,
+    "stop_eval_run": StopEvalRunMCPTool,
+    "get_eval_runs": GetEvalRunsMCPTool,
+    "get_eval_run": GetEvalRunMCPTool,
     "create_report": CreateReportTool,
     "get_context": GetContextTool,
     "inspect_data": InspectDataMCPTool,

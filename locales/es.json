@@ -2602,14 +2602,7 @@
           "socketStep3": "Event Subscriptions → activa los eventos (sin Request URL) y suscríbete a: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
           "socketStep4": "Agents → activa \"Agent experience\" para el panel nativo de asistente, el nombrado de hilos y las sugerencias de prompts",
           "socketStep5": "App Home → activa la pestaña Messages y permite que los usuarios envíen mensajes",
-          "socketStep6": "Install App → instálala en tu espacio de trabajo y copia el Bot User OAuth Token (xoxb-…)",
-          "channelRoutingTitle": "Enrutamiento de canal → agente",
-          "channelRoutingDesc": "Dirige un canal a agentes específicos. Un canal sin asignación usa el valor predeterminado de la conexión; sin predeterminado, expone todo lo que el usuario puede acceder. El enrutamiento solo restringe el acceso, nunca otorga más de lo que el usuario ya tiene.",
-          "connectionDefaultLabel": "Predeterminado de la conexión",
-          "connectionDefaultDesc": "Se usa para canales sin asignación propia.",
-          "channelPickerPlaceholder": "Elegir agentes…",
-          "noChannelsYet": "Aún no hay canales. Menciona al bot en un canal y aparecerá aquí, o añade uno por id abajo.",
-          "channelsHeading": "Canales"
+          "socketStep6": "Install App → instálala en tu espacio de trabajo y copia el Bot User OAuth Token (xoxb-…)"
         },
         "teams": {
           "title": "Integración con Teams",
@@ -2911,6 +2904,15 @@
           "subscriptionPlaceholder": "projects/<project>/subscriptions/<name>",
           "subtitle": "Configura y gestiona la integración con Google Chat para tu organización",
           "title": "Integración con Google Chat"
+        },
+        "routing": {
+          "title": "Enrutamiento de canal → agente",
+          "desc": "Dirige un canal a agentes específicos. Un canal sin asignación usa el valor predeterminado de la conexión; sin predeterminado, expone todo lo que el usuario puede acceder. El enrutamiento solo restringe el acceso, nunca otorga más de lo que el usuario ya tiene.",
+          "connectionDefaultLabel": "Predeterminado de la conexión",
+          "connectionDefaultDesc": "Se usa para canales sin asignación propia.",
+          "pickerPlaceholder": "Elegir agentes…",
+          "channelsHeading": "Canales",
+          "noChannelsYet": "Aún no hay canales. Menciona al bot en un canal y aparecerá aquí, o añade uno por id abajo."
         }
       },
       "emptyTitle": "Haz que BOW funcione con tus herramientas",
@@ -4144,6 +4146,7 @@
     "saving": "Guardando…",
     "saveAndContinue": "Guardar y continuar",
     "requestFailed": "La solicitud falló",
+    "errorWithReference": "{message} (referencia de soporte: {id})",
     "unexpectedError": "Error inesperado",
     "errorTitle": "Error",
     "updateConnectionFailed": "No se pudo actualizar la conexión",
@@ -7282,6 +7285,8 @@
     "tabViewers": "Lectores",
     "tabData": "Datos",
     "viewersDesc": "Qué reciben las personas con las que lo compartes.",
+    "widgetInfoTitle": "Mostrar detalles en los widgets",
+    "widgetInfoDesc": "Añade un icono ⓘ a cada widget que abre sus datos, código y cálculo.",
     "dataDesc": "Las consultas detrás de este panel.",
     "unsaved": "Cambios sin guardar",
     "tabGeneral": "General",
@@ -7566,5 +7571,35 @@
       "search": "búsqueda",
       "read": "lectura"
     }
+  },
+  "agentAccess": {
+    "addMember": "Añadir miembro",
+    "membersHint": "Los miembros pueden consultar este agente. Asigna permisos adicionales abajo.",
+    "everyone": "Todos en la organización",
+    "query": "Puede consultar",
+    "manage": "Puede administrar",
+    "custom": "Acceso personalizado",
+    "ownerHint": "El propietario siempre puede administrar este agente.",
+    "editFor": "Editar acceso de {name}",
+    "removeHint": "Elimina la membresía y los permisos explícitos. El acceso público, por grupo u organización puede seguir vigente.",
+    "remove": "Eliminar",
+    "noMembers": "Aún no hay miembros explícitos.",
+    "addTo": "Añadir personas a {name}",
+    "thisAgent": "este agente",
+    "who": "Quién",
+    "access": "Acceso",
+    "advanced": "Permisos avanzados",
+    "cancel": "Cancelar",
+    "saving": "Guardando…",
+    "save": "Guardar",
+    "queryHint": "Hacer preguntas a este agente",
+    "manageHint": "Configurar el agente y administrar sus miembros",
+    "addCount": "Añadir {count}",
+    "add": "Añadir",
+    "updated": "Permisos actualizados",
+    "updateFailed": "No se pudieron actualizar los permisos",
+    "addIncomplete": "No se pudieron guardar algunas membresías o permisos. Revisa la lista y vuelve a intentarlo.",
+    "added": "Miembros añadidos",
+    "addFailed": "No se pudieron añadir los miembros"
   }
 }
