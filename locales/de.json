@@ -6955,5 +6955,35 @@
       "search": "Suche",
       "read": "Lesen"
     }
+  },
+  "agentAccess": {
+    "addMember": "Mitglied hinzufügen",
+    "membersHint": "Mitglieder können diesen Agenten befragen. Zusätzliche Berechtigungen unten zuweisen.",
+    "everyone": "Alle in der Organisation",
+    "query": "Darf abfragen",
+    "manage": "Darf verwalten",
+    "custom": "Benutzerdefinierter Zugriff",
+    "ownerHint": "Der Eigentümer kann diesen Agenten immer verwalten.",
+    "editFor": "Zugriff für {name} bearbeiten",
+    "removeHint": "Entfernt direkte Mitgliedschaft und Berechtigungen. Öffentlicher Zugriff sowie Gruppen- oder Organisationszugriff können weiter gelten.",
+    "remove": "Entfernen",
+    "noMembers": "Noch keine direkten Mitglieder.",
+    "addTo": "Personen zu {name} hinzufügen",
+    "thisAgent": "diesem Agenten",
+    "who": "Wer",
+    "access": "Zugriff",
+    "advanced": "Erweiterte Berechtigungen",
+    "cancel": "Abbrechen",
+    "saving": "Speichern…",
+    "save": "Speichern",
+    "queryHint": "Diesem Agenten Fragen stellen",
+    "manageHint": "Agenten konfigurieren und Mitglieder verwalten",
+    "addCount": "{count} hinzufügen",
+    "add": "Hinzufügen",
+    "updated": "Berechtigungen aktualisiert",
+    "updateFailed": "Berechtigungen konnten nicht aktualisiert werden",
+    "addIncomplete": "Einige Mitgliedschaften oder Berechtigungen konnten nicht gespeichert werden. Liste prüfen und erneut versuchen.",
+    "added": "Mitglieder hinzugefügt",
+    "addFailed": "Mitglieder konnten nicht hinzugefügt werden"
   }
 }
