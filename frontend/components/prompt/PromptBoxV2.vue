@@ -373,6 +373,11 @@
                         :project-default-ids="projectDefaultAgents.map((d: any) => d.id)"
                     />
 
+                    <!-- Connectors: the user's own accounts/tools (mail, Teams,
+                         Drive, MCP apps). Not agents — never pinned or picked
+                         by Auto; used whenever the user is connected. -->
+                    <ConnectorsMenu />
+
                     <!-- Mode selector. Chat is the only mode left once training
                          is unavailable, so the picker would be a one-item menu. -->
                     <UPopover v-if="canUseTrainingMode" :key="'mode-' + (props.popoverOffset || 0)" :popper="popperLegacy">
@@ -691,6 +696,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, getCurrentI
 import { useRouter } from 'vue-router'
 
 import DataSourceSelector from '@/components/prompt/DataSourceSelector.vue'
+import ConnectorsMenu from '~/components/connectors/ConnectorsMenu.vue'
 import LLMProviderIcon from '@/components/LLMProviderIcon.vue'
 import ModelPickerPanel from '@/components/prompt/ModelPickerPanel.vue'
 import FileUploadComponent from '@/components/FileUploadComponent.vue'

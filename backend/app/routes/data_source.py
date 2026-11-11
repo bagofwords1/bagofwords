@@ -654,6 +654,19 @@ async def list_connection_files(
     """
     from app.services.connection_service import ConnectionService
     conn = await _attached_connection(db, data_source_id, connection_id, organization)
+    # How the browser should word this source: a mailbox lists "messages", a
+    # Teams workspace lists "messages" grouped by conversation. `live` marks a
+    # per-user source with no catalog — read with the caller's own access,
+    # nothing stored — so the UI doesn't describe it as an indexed scope.
+    try:
+        from app.schemas.data_source_registry import get_entry
+        _entry = get_entry(conn.type)
+        nouns = list(_entry.catalog_nouns) if _entry.catalog_nouns else None
+        live = _entry.catalog_ownership == "per_user" and _entry.type in {
+            "outlook_mail", "gmail_mail", "teams_messages",
+        }
+    except Exception:
+        nouns, live = None, False
     try:
         client = await ConnectionService().construct_client(db, conn, current_user)
         entries = await client.alist_files(recursive=True)
@@ -669,6 +682,7 @@ async def list_connection_files(
                 "connect_required": True,
                 "reason": detail,
                 "files": [], "total": 0, "offset": offset, "limit": limit, "has_more": False,
+                "catalog_nouns": nouns, "live": live,
             }
         raise
     except Exception as e:
@@ -693,6 +707,8 @@ async def list_connection_files(
         # connectors don't — a message would reach the viewer as serialized
         # text typed by its subject line.
         "preview_supported": hasattr(client, "read_raw_bytes"),
+        "catalog_nouns": nouns,
+        "live": live,
     }
 
 

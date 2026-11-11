@@ -310,6 +310,7 @@ class UserDataSourceCredentialsService:
                     connection=user_conn_status,
                     effective_auth="user",
                     last_checked_at=conn_cred.last_used_at,
+                    account_identity=(conn_cred.metadata_json or {}).get("verified_identity") or None,
                 )
 
         if not row:

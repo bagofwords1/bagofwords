@@ -27,7 +27,7 @@ import pytest
 
 # Every registry client whose constructor swallows **kwargs and forwards to a
 # parent that actually consumes the credentials.
-VAR_KWARGS_GRAPH_TYPES = ["onedrive", "sharepoint", "outlook_mail"]
+VAR_KWARGS_GRAPH_TYPES = ["onedrive", "sharepoint", "outlook_mail", "teams_messages"]
 
 
 @pytest.mark.parametrize("ds_type", VAR_KWARGS_GRAPH_TYPES)
@@ -56,7 +56,7 @@ def test_resolve_client_by_type_keeps_credentials_for_var_kwargs_clients(ds_type
 # --------------------------------------------------------------------------- B
 
 # Connectors that expose per-user Microsoft OAuth ("Sign in with Microsoft").
-ENTRA_OAUTH_TYPES = ["onedrive", "sharepoint", "outlook_mail", "powerbi", "ms_fabric"]
+ENTRA_OAUTH_TYPES = ["onedrive", "sharepoint", "outlook_mail", "teams_messages", "powerbi", "ms_fabric"]
 
 
 def _fake_connection(conn_type: str):
@@ -101,6 +101,24 @@ def test_outlook_mail_is_obo_provisionable():
     assert "outlook_mail" in ENTRA_OBO_CONNECTION_TYPES
     assert "outlook_mail" in _OBO_SCOPES
     assert "graph.microsoft.com" in _OBO_SCOPES["outlook_mail"]
+
+
+def test_teams_oauth_requests_chat_and_channel_read_scopes():
+    """Teams search + thread reads need both chats and channel posts."""
+    from app.services.connection_oauth_service import get_oauth_params
+
+    scopes = get_oauth_params(_fake_connection("teams_messages"))["scopes"].split()
+    assert {"Chat.Read", "ChannelMessage.Read.All", "offline_access"} <= set(scopes)
+
+
+def test_teams_is_obo_provisionable_over_graph():
+    from app.services.connection_oauth_service import (
+        ENTRA_OBO_CONNECTION_TYPES,
+        _OBO_SCOPES,
+    )
+
+    assert "teams_messages" in ENTRA_OBO_CONNECTION_TYPES
+    assert "graph.microsoft.com" in _OBO_SCOPES["teams_messages"]
 
 
 # --------------------------------------------------------------------------- C
