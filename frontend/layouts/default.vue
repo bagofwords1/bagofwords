@@ -869,6 +869,7 @@
     { name: 'audit', permission: 'view_audit_logs' },
     { name: 'identity-provider', permission: 'manage_identity_providers' },
     { name: 'license', permission: 'manage_settings' },
+    { name: 'system-logs', permission: 'full_admin_access' },
   ]
   const firstAccessibleSettingsTab = computed(() =>
     settingsTabPermissions.find(tab => useCan(tab.permission)) || null
