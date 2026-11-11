@@ -134,6 +134,19 @@ DATA_SOURCES = [
     #   {"sap_hana": {"enabled": true, "host": "localhost", "port": 39041,
     #                 "user": "SYSTEM", "password": "HXEHana1", "encrypt": false}}
     "sap_hana",
+    # Container mode (testcontainers Db2 Community, ~2.6GB image, privileged,
+    # ~2 min first boot): `{"db2": {"enabled": true, "container": true}}`.
+    # Remote mode points at any Db2 LUW / z/OS / IBM i server instead:
+    #   {"db2": {"enabled": true, "host": "db2.example.com", "port": 50000,
+    #            "database": "BLUDB", "user": "...", "password": "..."}}
+    # tests/integrations/test_db2_live.py covers all three products in depth.
+    "db2",
+    # Container mode simulates IBM i: the Db2 container with QSYS2 catalog
+    # stand-ins (db2_sim.py) behind the fake Mapepire server. Remote mode
+    # points at a real IBM i running mapepire-server:
+    #   {"ibmi": {"enabled": true, "host": "ibmi.example.com", "port": 8076,
+    #             "user": "...", "password": "...", "ssl_ca": "-----BEGIN..."}}
+    "ibmi",
     # Remote mode: no free/redistributable BusinessObjects or BW server exists,
     # so these run only against a live tenant configured in integrations.json
     # (they skip otherwise). The XMLA transport can also be smoke-tested against
@@ -183,6 +196,51 @@ DATA_SOURCES = [
 # Container Support (requires Docker + testcontainers)
 # =============================================================================
 CONTAINER_REGISTRY: Dict[str, Any] = {}
+
+try:
+    from testcontainers.db2 import Db2Container
+
+    _DB2_PASSWORD = "BowDb2Test1"
+
+    def _db2_dsn(c) -> str:
+        return (f"DATABASE=TESTDB;HOSTNAME={c.get_container_host_ip()};"
+                f"PORT={c.get_exposed_port(50000)};PROTOCOL=TCPIP;UID=db2inst1;PWD={_DB2_PASSWORD};")
+
+    def _db2_container(image):
+        return Db2Container(image, password=_DB2_PASSWORD, dbname="testdb")
+
+    def _db2_seed(c):
+        from tests.integrations.db2_sim import seed
+
+        seed(_db2_dsn(c))
+
+    def _ibmi_kwargs(c):
+        import ibm_db_dbi
+
+        from tests.mocks.fake_mapepire import FakeMapepireServer
+
+        dsn = _db2_dsn(c)
+        srv = FakeMapepireServer(lambda: ibm_db_dbi.connect(dsn, "", "")).start()
+        return {"host": "127.0.0.1", "port": srv.port, "user": srv.user,
+                "password": srv.password, "ssl_ca": srv.cert_pem, "schema": "SALES"}
+
+    CONTAINER_REGISTRY["db2"] = {
+        "container_cls": _db2_container,
+        "image": "icr.io/db2_community/db2:latest",
+        "seed_fn": _db2_seed,
+        "get_kwargs": lambda c: {
+            "host": c.get_container_host_ip(), "port": int(c.get_exposed_port(50000)),
+            "database": "TESTDB", "user": "db2inst1", "password": _DB2_PASSWORD,
+        },
+    }
+    CONTAINER_REGISTRY["ibmi"] = {
+        "container_cls": _db2_container,
+        "image": "icr.io/db2_community/db2:latest",
+        "seed_fn": _db2_seed,
+        "get_kwargs": _ibmi_kwargs,
+    }
+except ImportError:
+    pass
 
 try:
     from testcontainers.postgres import PostgresContainer
