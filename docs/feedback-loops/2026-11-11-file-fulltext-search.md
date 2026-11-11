@@ -232,8 +232,8 @@ Full unit suite (`pytest tests/unit -n 8`, SQLite) in this sandbox:
 | `main` @ 86150bc6e | 15,129 | 200 | 1 |
 | this branch | 15,160 | 200 | 1 |
 
-The failing set is **identical** on both (compared test id by test id): 190 in
-the SharePoint server tests, 30 in the OBO tests, and a handful that need
+The failing set is **identical** on both (compared test id by test id): 167 in
+the SharePoint server tests, 30 in the OBO tests, and five that need
 `libodbc` or a real TLS chain. The SharePoint ones fail on
 `assert session.verify is True` because the sandbox sets a custom CA bundle
 through the environment. The same goes for three e2e tests that use the fake
