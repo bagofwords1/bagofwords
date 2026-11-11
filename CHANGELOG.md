@@ -5,6 +5,7 @@
 - Added a run history to custom tables: each refresh's mode, window, rows read/inserted/updated and errors (#1692)
 - Added custom tables on every connector that can run a query, including request-based ones such as Aria Operations (#1692)
 - Added IBM Db2 (LUW, z/OS) and IBM i as read-only data sources (#1690)
+- Added agent run history and eval tools (search, create, edit, run, results) to MCP clients, for org admins and agent managers (#1696)
 - Added per-channel agent routing for Microsoft Teams, in the Teams integration settings (#1689)
 - Added a per-dashboard "Show details on widgets" setting for the ⓘ that opens a widget's data, code and calculation — Dashboard settings → Viewers (default: off, including on existing dashboards) (#1684)
 - Fixed public agents hiding their member list and Add member; access is now Can query / Can manage / Custom, with granular permissions under Advanced (#1694)
