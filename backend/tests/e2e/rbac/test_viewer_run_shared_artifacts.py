@@ -1374,6 +1374,26 @@ def _fork_default_step_as(test_client, report_id, user, org_id) -> dict:
     ).json()["step"]
 
 
+def _assert_hydration_runs_as_the_forker(test_client, spawned, query_id, forker, org_id):
+    """Run the fork's hydration (captured from spawn) for real and check what
+    it leaves: never the owner's rows (the seeded snapshot is {"month":
+    "stale"}), and the code only where the forker's own run succeeded."""
+    assert len(spawned) == 1, "hydration was not scheduled for the fork"
+    outcome = _run(spawned[0])
+    resp = test_client.get(f"/api/queries/{query_id}/default_step", headers=_headers(forker["token"], org_id))
+    if outcome.get("deleted"):
+        # The forker could run nothing: the fork is retired, rows and code never land.
+        return outcome
+    after = resp.json()["step"]
+    rows = (after.get("data") or {}).get("rows") or []
+    assert {r.get("month") for r in rows} != {"stale"}, "hydration filled the fork with the owner's rows"
+    if after.get("status") == "success":
+        assert (after.get("code") or "").strip(), "a successful run as the forker did not write its code back"
+    else:
+        assert not (after.get("code") or "").strip(), "the code came back without a successful run as the forker"
+    return outcome
+
+
 def _report_flags(test_client, report_id, owner, org_id) -> tuple:
     resp = test_client.get(f"/api/reports/{report_id}", headers=_headers(owner["token"], org_id))
     assert resp.status_code == 200, resp.text
@@ -1413,23 +1433,25 @@ def test_fork_of_unattached_report_reading_a_row_filtered_relation_copies_no_row
 def test_fork_of_unattached_report_over_a_per_user_connection_carries_no_code_or_rows(
     test_client, create_report, bootstrap_admin, invite_user_to_org, monkeypatch,
 ):
-    """Same rule as the attached delegated source: no rows and no SQL until
-    the forker's own run fills them in (hydration is stubbed, as in
-    test_fork_of_user_scoped_source_carries_no_code_or_data)."""
+    """Same rule as the attached delegated source: the fork is created with no
+    rows and no SQL, and hydration, run here for real, fills it in only from
+    the forker's own run."""
     admin, owner, viewer, report, seeded = _shared_report(
         test_client, create_report, bootstrap_admin, invite_user_to_org,
         visibility="internal",
     )
     ds_id = _run(_attach_user_scoped_source(report["id"], attach=False))
     _run(_name_source_in_step_code(report["id"], ds_id))
-    monkeypatch.setattr(
-        "app.core.fire_and_forget.spawn",
-        lambda coro: (coro.close(), None)[1],
-    )
+    # Captured, then run once the creation-time state is read, so the
+    # background pass cannot race the first assertions.
+    spawned = []
+    monkeypatch.setattr("app.core.fire_and_forget.spawn", spawned.append)
 
     fstep = _fork_default_step_as(test_client, report["id"], viewer, admin["org_id"])
     assert not (fstep.get("code") or "").strip(), "the fork carried the source SQL"
     assert not (fstep.get("data") or {}).get("rows"), "the fork carried the owner's rows"
+
+    _assert_hydration_runs_as_the_forker(test_client, spawned, fstep["query_id"], viewer, admin["org_id"])
 
 
 @pytest.mark.e2e
@@ -1719,7 +1741,9 @@ def test_a_step_naming_no_source_counts_every_organization_source(
     has_rls, has_user_scoped = _report_flags(test_client, report["id"], owner, org_id)
     assert (has_rls if kind == "row_filtered" else has_user_scoped) is True
 
-    monkeypatch.setattr("app.core.fire_and_forget.spawn", lambda coro: (coro.close(), None)[1])
+    # Captured, then run once the creation-time state is read.
+    spawned = []
+    monkeypatch.setattr("app.core.fire_and_forget.spawn", spawned.append)
     resp = test_client.post(f"/api/reports/{report['id']}/fork", json={},
                             headers=_headers(viewer["token"], org_id))
     assert resp.status_code == 200, resp.json()
@@ -1731,6 +1755,11 @@ def test_a_step_naming_no_source_counts_every_organization_source(
     assert not (fstep["data"] or {}).get("rows"), "the fork received the owner's rows"
     if kind == "per_user":
         assert not (fstep.get("code") or "").strip(), "the fork carried the source SQL"
+        _assert_hydration_runs_as_the_forker(test_client, spawned, copy["id"], viewer, org_id)
+    else:
+        # Over a system-only connection with a row-filtered relation the code
+        # is copied and nothing is left to hydrate.
+        assert not spawned, "a fork with nothing withheld scheduled hydration"
 
 
 async def _add_superseded_step(query_id: str, code: str):
