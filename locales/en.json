@@ -7311,6 +7311,8 @@
     "tabViewers": "Viewers",
     "tabData": "Data",
     "viewersDesc": "What the people you share it with get.",
+    "widgetInfoTitle": "Show details on widgets",
+    "widgetInfoDesc": "Adds an ⓘ to each widget that opens its data, code and calculation.",
     "dataDesc": "The queries behind this dashboard.",
     "unsaved": "Unsaved changes",
     "tabGeneral": "General",

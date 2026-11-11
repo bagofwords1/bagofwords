@@ -6769,6 +6769,8 @@
     "tabViewers": "Lecteurs",
     "tabData": "Données",
     "viewersDesc": "Ce que reçoivent les personnes avec qui vous le partagez.",
+    "widgetInfoTitle": "Afficher les détails sur les widgets",
+    "widgetInfoDesc": "Ajoute une icône ⓘ à chaque widget pour ouvrir ses données, son code et son calcul.",
     "dataDesc": "Les requêtes derrière ce tableau de bord.",
     "unsaved": "Modifications non enregistrées",
     "tabGeneral": "Général",

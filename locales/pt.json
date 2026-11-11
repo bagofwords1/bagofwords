@@ -6769,6 +6769,8 @@
     "tabViewers": "Leitores",
     "tabData": "Dados",
     "viewersDesc": "O que recebem as pessoas com quem você compartilha.",
+    "widgetInfoTitle": "Mostrar detalhes nos widgets",
+    "widgetInfoDesc": "Adiciona um ícone ⓘ a cada widget que abre os seus dados, código e cálculo.",
     "dataDesc": "As consultas por trás deste painel.",
     "unsaved": "Alterações não salvas",
     "tabGeneral": "Geral",

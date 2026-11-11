@@ -43,6 +43,7 @@ class PublishedDashboardSchema(BaseModel):
     theme_name: str | None = None
     theme_overrides: dict | None = None
     include_data_tab: bool
+    show_widget_info: bool = False
     chat_enabled: bool
     general: PublicGeneralSettings | None = None
     # What /r's page reads besides the dashboard (phase 8): the reader's
@@ -75,6 +76,7 @@ class DraftDashboardSchema(BaseModel):
     published: bool
     theme_name: str | None = None
     theme_overrides: dict | None = None
+    show_widget_info: bool = False  # the per-widget ⓘ provenance popover (phase 8)
     general: PublicGeneralSettings | None = None  # the page's credit and analyst name (phase 8)
     # An editor (owner, project) -- not the organization's admin, who reads it.
     can_edit: bool = False
@@ -122,6 +124,7 @@ class DashboardSharingUpdate(BaseModel):
 class DashboardSettingsSchema(BaseModel):
     shared_run_identity: Literal["viewer", "creator"]
     include_data_tab: bool
+    show_widget_info: bool = False  # the per-widget ⓘ provenance popover
     bow_credit: bool = True  # "Made with BOW" on this dashboard (the organization's setting still wins)
     chat_enabled: bool
     chat_data_source_ids: list[str] | None = None
@@ -138,6 +141,7 @@ class DashboardSettingsUpdate(BaseModel):
     chat_model_id "" go back to inheriting from the conversation."""
     shared_run_identity: Literal["viewer", "creator"] | None = None
     include_data_tab: bool | None = None
+    show_widget_info: bool | None = None
     bow_credit: bool | None = None
     chat_enabled: bool | None = None
     chat_data_source_ids: list[str] | None = None
