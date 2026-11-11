@@ -39,6 +39,12 @@ LOADED_AT = "_bow_loaded_at"
 HIDDEN_COLUMNS = (RUN_ID, LOADED_AT)
 
 STAGING = "bow__staging"
+# Which windows of a load in progress are already in the part file, written in
+# the same transaction as their rows.
+PROGRESS = "bow__progress"
+# Tables the loader keeps for itself inside an artifact. A custom table may
+# not use the prefix, and none of them survives into a published file.
+INTERNAL_PREFIX = "bow__"
 
 # Below this many rows a falling count is noise, not a signal.
 ROW_DROP_GUARD_MIN_ROWS = 20
@@ -158,7 +164,33 @@ class ArtifactWriter:
         finally:
             self.con.execute("DETACH bow_prev")
         self.con.execute("USE artifact")
+        self.adopt_relation()
         self._ensure_hidden_columns()
+
+    def adopt_relation(self) -> None:
+        """Give the stored table this relation's name if it had another.
+
+        A custom table can be renamed after its artifact was written. The
+        rows are the same rows; only the name the file knows them by is old.
+        """
+        if self.exists():
+            return
+        others = [r[0] for r in self.con.execute(
+            "SELECT table_name FROM duckdb_tables() WHERE database_name = 'artifact'"
+        ).fetchall() if not r[0].startswith(INTERNAL_PREFIX)]
+        if len(others) == 1:
+            self.con.execute(f"ALTER TABLE {_q(others[0])} RENAME TO {_q(self.relation)}")
+
+    def window_rows(self, window: int) -> int | None:
+        """Rows a window already committed to this file, or None if it has not."""
+        if not self.exists(PROGRESS):
+            return None
+        row = self.con.execute(f"SELECT n FROM {PROGRESS} WHERE w = ?", [window]).fetchone()
+        return int(row[0]) if row else None
+
+    def drop_internal(self) -> None:
+        for name in (STAGING, PROGRESS):
+            self.con.execute(f"DROP TABLE IF EXISTS {_q(name)}")
 
     def _ensure_hidden_columns(self) -> None:
         """Artifacts written before run lineage existed gain the columns, empty."""
@@ -273,11 +305,15 @@ class ArtifactWriter:
         return select
 
     def load(self, batches: Iterable, limits: Limits, *, table: str | None = None,
-             hidden: bool = True, strict_columns: bool = False, rows_before: int = 0) -> int:
+             hidden: bool = True, strict_columns: bool = False, rows_before: int = 0,
+             window: int | None = None) -> int:
         """Append every batch to `table` inside one transaction.
 
         All or nothing: an abort part-way leaves the file exactly as it was,
         which is what lets a chunked load resume from the last finished window.
+        `window` records, in that same transaction, that this window of a load
+        is in the file — so a crash between the commit and the caller noting
+        it can never load the window a second time.
         """
         table = table or self.relation
         read = 0
@@ -324,6 +360,9 @@ class ArtifactWriter:
                 close = getattr(batches, "close", None)
                 if close is not None:
                     close()
+            if window is not None:
+                self.con.execute(f"CREATE TABLE IF NOT EXISTS {PROGRESS} (w INTEGER, n BIGINT)")
+                self.con.execute(f"INSERT INTO {PROGRESS} VALUES (?, ?)", [window, read])
             self.con.execute("COMMIT")
         except BaseException:
             try:
@@ -369,22 +408,32 @@ class ArtifactWriter:
     def align_to_staging(self) -> None:
         """Widen the stored table to hold the staged rows, or refuse.
 
-        Rows already stored cannot be given a value for a column that only
-        the new rows have, so a new column means the copy would stop matching
-        the source: that is a full refresh, not an increment.
+        The stored rows and the new ones must describe the same columns. Rows
+        already stored cannot be given a value for a column only the new rows
+        have, and new rows cannot be given one for a column the source no
+        longer returns — either way the copy would stop matching the source:
+        that is a full refresh, not an increment.
         """
         target = {n.lower(): (n, t) for n, t in self.describe(self.relation)}
-        for name, stype in self.describe(STAGING):
+        staged = self.describe(STAGING)
+        staged_names = {n.lower() for n, _t in staged}
+        for low, (name, _t) in target.items():
+            if name not in HIDDEN_COLUMNS and low not in staged_names:
+                raise SchemaChanged(f"column '{name}' is gone")
+        empty_target = self._find_placeholders(self.relation)
+        # A staged column with no value in it has no type of its own (it was
+        # typed as a placeholder); it must not retype the stored column.
+        empty_staged = self._find_placeholders(STAGING)
+        for name, stype in staged:
             low = name.lower()
             if low not in target:
                 raise SchemaChanged(f"column '{name}' is new")
             _n, ttype = target[low]
-            if ttype == stype:
+            if ttype == stype or low in empty_staged:
                 continue
             if _is_nested(ttype) or _is_nested(stype):
                 raise SchemaChanged(f"column '{name}' changed shape")
-            placeholder = low in self._find_placeholders(self.relation)
-            unified = stype if placeholder else self._unified(ttype, stype)
+            unified = stype if low in empty_target else self._unified(ttype, stype)
             if unified != ttype:
                 self.con.execute(f"ALTER TABLE {_q(self.relation)} ALTER {_q(name)} TYPE {unified}")
 
@@ -459,9 +508,6 @@ class ArtifactWriter:
         )
         return self.count(STAGING), deleted
 
-    def drop_staging(self) -> None:
-        self.con.execute(f"DROP TABLE IF EXISTS {_q(STAGING)}")
-
     # -- measuring ---------------------------------------------------------
 
     def cursor_stats(self, cursor: str) -> tuple:
@@ -488,10 +534,20 @@ def new_part(connection_id: str) -> tuple:
 
 
 def load_window(source, sql: str, part_path, key: str, relation: str, run_id: str,
-                limits: Limits, *, batch_rows: int, rows_before: int = 0) -> int:
-    """Append the rows of one query to the relation in a part file."""
+                limits: Limits, *, batch_rows: int, rows_before: int = 0,
+                window: int | None = None) -> int:
+    """Append the rows of one query to the relation in a part file.
+
+    With `window` given, a window this file already holds is not loaded again.
+    """
     with ArtifactWriter(part_path, key, relation, run_id) as writer:
-        return writer.load(source.stream_batches(sql, batch_rows), limits, rows_before=rows_before)
+        writer.adopt_relation()
+        if window is not None:
+            done = writer.window_rows(window)
+            if done is not None:
+                return done
+        return writer.load(source.stream_batches(sql, batch_rows), limits, rows_before=rows_before,
+                           window=window)
 
 
 def _check_row_drop(config: incremental.RefreshConfig, previous_rows: int | None, rows: int) -> None:
@@ -515,6 +571,7 @@ def finalize(part_path, key: str, relation: str, config: incremental.RefreshConf
     part_path = Path(part_path)
     outcome = outcome or LoadOutcome()
     with ArtifactWriter(part_path, key, relation, run_id) as writer:
+        writer.adopt_relation()
         if not writer.exists():
             raise ExtractionAborted("The query returned no result to store.")
         if config.incremental:
@@ -530,7 +587,7 @@ def finalize(part_path, key: str, relation: str, config: incremental.RefreshConf
                     f"Column '{config.cursor_column}' cannot be used as a cursor: it must be "
                     f"a date, timestamp, number or sortable text."
                 )
-        writer.drop_staging()
+        writer.drop_internal()
         outcome.row_count = writer.count()
         outcome.columns = writer.columns()
         writer.con.execute("CHECKPOINT")
@@ -551,8 +608,13 @@ def finalize(part_path, key: str, relation: str, config: incremental.RefreshConf
     artifacts.delete_artifact(str(part_path) + ".wal")
     from app.services import storage
 
-    # Object storage: every pod serves this extract, not just this one.
-    storage.persist(final_path)
+    try:
+        # Object storage: every pod serves this extract, not just this one.
+        storage.persist(final_path)
+    except BaseException:
+        # Renamed but never published: nothing will ever reference it.
+        artifacts.delete_artifact(str(final_path))
+        raise
     outcome.artifact_path = str(final_path)
     outcome.artifact_key = key
     outcome.artifact_bytes = artifacts.artifact_size(str(final_path))

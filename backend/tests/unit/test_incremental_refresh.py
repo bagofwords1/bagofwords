@@ -531,6 +531,178 @@ async def test_a_text_cursor_works_but_one_that_could_break_a_query_is_refused(l
     assert "cannot be used as a checkpoint" in str(error.value.detail)
 
 
+async def test_renaming_a_table_keeps_refreshing_and_serving_it(lab):
+    lab.shop.add(12)
+    await lab.table()
+    await lab.refresh()
+    lab.shop.add(2)
+    async with async_session_maker() as db:
+        connection = await db.get(Connection, lab.connection_id)
+        table = await db.get(ConnectionTable, lab.table_id)
+        await lab.service.update(db, connection, table, name="orders_renamed")
+        await db.refresh(table)
+        assert (table.last_refresh_status, table.no_rows) == ("ok", 14)
+        frame = CustomQueryService.build_fast_client([table], identity=rls.ANONYMOUS).execute_query(
+            "SELECT count(*) AS n FROM orders_renamed")
+        assert int(frame["n"][0]) == 14
+    assert (await lab.runs())[0]["mode"] == "incremental", "a rename is not a reason to reload the table"
+    lab.shop.touch([1])
+    await lab.refresh()
+    assert await lab.copy(f"SELECT {COLUMNS} FROM orders_renamed") == lab.shop.rows()
+
+
+async def test_names_the_loader_keeps_for_itself_cannot_be_used(lab):
+    for name in ("bow__staging", "BOW__progress", "bow__anything"):
+        with pytest.raises(HTTPException) as error:
+            lab.service.validate_name(name)
+        assert "reserved" in error.value.detail
+    assert lab.service.validate_name("bow_orders") == "bow_orders"
+
+
+async def test_a_full_refresh_restarts_a_load_that_is_in_progress(lab):
+    lab.shop.add(40)
+    await lab.table()
+    with small_chunks(10), patch.object(custom_query_service, "LOAD_RUN_BUDGET_SECONDS", -1), \
+            patch.object(lab.service, "_schedule_resume"):
+        await lab.refresh()
+        (part,) = lab.files("*.tmp")
+    with small_chunks(10):
+        table = await lab.refresh(full=True)
+    assert table.last_refresh_status == "ok" and not part.exists() and not lab.files("*.tmp")
+    await lab.matches_source()
+    run = (await lab.runs())[0]
+    assert run["rows_read"] == 40 and any("restarted" in e["message"] for e in run["events"])
+
+
+async def test_a_rebuild_that_keeps_failing_stops_blocking_what_is_new(lab):
+    """A table already being served must not freeze because its periodic
+    rebuild cannot finish."""
+    lab.shop.add(30)
+    await lab.table()
+    with small_chunks(10):
+        await lab.refresh()
+        # One window loads, then the source stops answering: run after run
+        # fails without getting any further.
+        for attempt in range(custom_query_service.MAX_LOAD_FAILURES):
+            with source_fails_after(1 if attempt == 0 else 0), pytest.raises(HTTPException):
+                await lab.refresh(full=attempt == 0)
+        failing = await lab.row()
+        assert failing.refresh_state["load"]["failures"] == custom_query_service.MAX_LOAD_FAILURES
+        assert failing.no_rows == 30, "the served table is untouched while the rebuild fails"
+
+        lab.shop.add(5)
+        table = await lab.refresh()
+    assert table.last_refresh_status == "ok" and table.refresh_state.get("load") is None
+    assert table.refresh_state["full_refresh_retry_after"] > "2026"
+    await lab.matches_source()
+    run = (await lab.runs())[0]
+    assert run["mode"] == "incremental"
+    assert any(e["level"] == "warning" and "trying the rebuild again" in e["message"] for e in run["events"])
+    assert not lab.files("*.tmp")
+    # …and it does not go straight back to rebuilding on the next tick.
+    async with async_session_maker() as db:
+        row = await db.get(ConnectionTable, lab.table_id)
+        row.refresh_state = {**row.refresh_state, "last_full_refresh_at": "2020-01-01T00:00:00"}
+        await db.commit()
+    await lab.refresh()
+    assert (await lab.runs())[0]["mode"] == "incremental"
+
+
+async def test_a_first_load_that_keeps_failing_starts_over_rather_than_retrying_one_window_forever(lab):
+    lab.shop.add(30)
+    await lab.table()
+    with small_chunks(10):
+        for attempt in range(custom_query_service.MAX_LOAD_FAILURES):
+            with source_fails_after(1 if attempt == 0 else 0), pytest.raises(HTTPException):
+                await lab.refresh()
+        (stuck,) = lab.files("*.tmp")
+        await lab.refresh()
+    assert not stuck.exists()
+    await lab.matches_source()
+    assert any("starting it over" in e["message"] for e in (await lab.runs())[0]["events"])
+
+
+async def test_a_load_whose_file_is_on_another_host_is_left_to_that_host_for_a_while(lab):
+    from datetime import datetime, timedelta
+    lab.shop.add(30)
+    await lab.table()
+    with small_chunks(10), patch.object(custom_query_service, "LOAD_RUN_BUDGET_SECONDS", -1), \
+            patch.object(lab.service, "_schedule_resume"):
+        await lab.refresh()
+    (part,) = lab.files("*.tmp")
+    elsewhere = part.with_name("elsewhere.tmp")
+
+    async def as_if_on_another_host(updated_at):
+        async with async_session_maker() as db:
+            row = await db.get(ConnectionTable, lab.table_id)
+            load = {**row.refresh_state["load"], "host": "another-pod", "path": str(elsewhere),
+                    "updated_at": updated_at.isoformat(timespec="seconds")}
+            row.refresh_state = {**row.refresh_state, "load": load}
+            await db.commit()
+
+    await as_if_on_another_host(datetime.utcnow())
+    with patch.object(lab.service, "_schedule_resume") as handed_back:
+        table = await lab.refresh()
+    assert handed_back.call_count == 1 and table.artifact_path is None
+    assert len(await lab.runs()) == 1, "deferring is not a run"
+
+    # Its owner went quiet: the load is started again here.
+    await as_if_on_another_host(datetime.utcnow() - timedelta(hours=2))
+    with small_chunks(10):
+        table = await lab.refresh()
+    assert table.last_refresh_status == "ok"
+    await lab.matches_source()
+
+
+async def test_a_request_cancelled_between_windows_does_not_leave_the_table_running(lab):
+    lab.shop.add(30)
+    await lab.table()
+    reached = asyncio.Event()
+
+    turns = {"n": 0}
+
+    async def held(connection_id):
+        turns["n"] += 1
+        if turns["n"] == 2:                 # one window is in; hold before the next
+            reached.set()
+            await asyncio.sleep(30)
+
+    with small_chunks(10), patch.object(lab.service, "_yield_to_waiters", held):
+        task = asyncio.create_task(lab.refresh())
+        await asyncio.wait_for(reached.wait(), 10)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    table = await lab.row()
+    assert table.last_refresh_status == "error" and table.last_refresh_error
+    assert (await lab.runs())[0]["status"] == "cancelled"
+    with small_chunks(10):
+        await lab.refresh()                 # and what it had loaded is not wasted
+    await lab.matches_source()
+    assert any("Continuing" in e["message"] for e in (await lab.runs())[0]["events"])
+
+
+async def test_a_window_committed_but_not_recorded_is_not_loaded_twice_on_resume(lab):
+    """Append has no key to collapse on: a window loaded twice would be duplicates."""
+    lab.shop.log(40)
+    await lab.table("SELECT * FROM events", "append")
+    original = lab.service._save_state
+    calls = {"n": 0}
+
+    async def state_store_fails_once(run):
+        calls["n"] += 1
+        if calls["n"] == 3:                 # the plan, the first window, then this one
+            raise ConnectionError("app database went away")
+        await original(run)
+
+    with small_chunks(10):
+        with patch.object(lab.service, "_save_state", state_store_fails_once), \
+                pytest.raises(ConnectionError):
+            await lab.refresh()
+        await lab.refresh()
+    assert await lab.copy("SELECT seq, kind, value FROM copy") == lab.shop.rows("SELECT * FROM events")
+
+
 # -- failure never costs the served data -------------------------------------------
 
 async def test_a_failed_increment_keeps_the_table_and_the_checkpoint(lab):
@@ -676,6 +848,9 @@ async def test_lineage_columns_never_reach_a_query_or_the_column_list(lab):
         import duckdb
         with pytest.raises(duckdb.Error):
             client.execute_query("SELECT _bow_run_id FROM copy")
+        # Nor by reaching past the view to the attached file.
+        with pytest.raises(ValueError):
+            client.execute_query("SELECT * FROM bow_a0.copy")
     # They are there for us: each row names the run that wrote it.
     run_ids = {r["id"] for r in await lab.runs()}
     assert {r[0] for r in await lab.copy("SELECT DISTINCT _bow_run_id FROM copy")} <= run_ids

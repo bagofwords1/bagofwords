@@ -86,7 +86,7 @@ Observed:
 
 ```text
 === Loop A — deterministic ===
-420 passed in 56.34s
+459 passed in 55.03s
 ```
 
 `tests/unit/test_incremental_core.py` (typed checkpoints, windows, per-dialect
@@ -95,7 +95,7 @@ rendering, normalization, the loader, JSON-request sources),
 source, real encrypted DuckDB files and locks), the pre-existing
 `tests/unit/test_fast_artifact_lifecycle.py` unchanged, and the API tests in
 `tests/e2e/rbac/test_custom_table_incremental_api.py`. The same suites pass
-with Postgres as the app database (`--db=external`, 62 passed).
+with Postgres as the app database (`--db=external`, 81 passed).
 
 Invariants they hold, each over generated or parametrized inputs rather than
 one scenario:
@@ -115,6 +115,9 @@ one scenario:
 - every refresh that starts leaves exactly one finished run; recording a run
   never breaks a refresh
 - lineage columns never reach a query or the stored column list
+- a window whose rows were committed but not recorded is not loaded twice;
+  a renamed table keeps its rows; a rebuild that keeps failing does not stop
+  a served table from picking up what is new
 
 ## Loop B — live engines
 
@@ -253,6 +256,32 @@ a new table's settings, SQL Server, and Hebrew.
   `POST …/refresh?full=true`, `GET …/runs`, `GET …/runs/{id}`.
 - `frontend/components/datasources/CustomQueryModal.vue` — what each refresh
   fetches, the Runs tab, Full refresh.
+
+## Independent review
+
+After the loops were green, the backend change was reviewed adversarially
+against its stated invariants (never modify a served file; a failure leaves
+artifact and checkpoint intact; an incremental table equals a full refresh;
+no injection through cursor values; lineage columns never reach a query). It
+confirmed the window planner, the merge SQL, literal rendering, the atomic
+swap, thread/ORM separation and the authorization of the new endpoints, and
+found these, each now fixed with a regression test:
+
+| Found | Fix |
+|---|---|
+| Renaming an incremental table broke its next refresh, and a rename during a paused load lost the windows already loaded | The stored table is renamed to match (`loader.ArtifactWriter.adopt_relation`) |
+| A window committed to the part file but not yet recorded could be loaded twice on resume — duplicates in append mode | The window is recorded inside the part file in the same transaction as its rows |
+| A rebuild that kept failing was retried on every tick and blocked increments indefinitely; *Full refresh* could not clear it | Three failures without progress set the rebuild aside for a day while increments continue; *Full refresh* restarts a load |
+| A delta column with no values retyped a stored BOOLEAN / small integer column | Columns with no value in the delta are not used to retype |
+| A column dropped at the source was silently kept with stale values | A missing stored column rebuilds the table |
+| The lineage columns were reachable through the attached file's catalog name | That name is refused in queries on accelerated data |
+| A cancellation between windows left the table and the run "running" | The cancellation is recorded |
+| On replicas without a shared volume, any replica picking up a resume restarted the load | A replica without the part file hands the turn back to the one that has it, for 45 minutes after its last progress |
+| A file renamed but not uploaded was orphaned until the sweep; a table named `bow__staging` could never refresh; a deleted table's lock file was removed while held | Cleaned up / reserved prefix / removed only when free |
+
+One finding is left as a known limit: `grain` truncates a time-zone-aware
+checkpoint in UTC, so a rollup bucketed in another zone should use a naive
+timestamp or a date cursor.
 
 ## What this proves / regression notes
 

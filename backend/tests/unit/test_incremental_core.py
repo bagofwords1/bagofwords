@@ -540,11 +540,82 @@ def test_an_increment_with_a_new_column_is_refused_so_the_table_can_be_rebuilt(v
     assert not list(volume.rglob("*.tmp")), "the refused file is not left behind"
 
 
-def test_an_increment_may_widen_a_type_and_omit_a_column(volume):
-    base = build(volume, pa.table({"id": [1], "amount": [10], "note": ["n"], "seq": [1]}),
-                 config=merge_config())
+def test_an_increment_may_widen_a_type(volume):
+    base = build(volume, pa.table({"id": [1], "amount": [10], "seq": [1]}), config=merge_config())
     outcome = increment(volume, base, merge_config(), 1, pa.table({"id": [2], "amount": [2.5], "seq": [2]}))
-    assert read(outcome, "SELECT id, amount, note FROM t ORDER BY id") == [(1, 10.0, "n"), (2, 2.5, None)]
+    assert read(outcome, "SELECT id, amount FROM t ORDER BY id") == [(1, 10.0), (2, 2.5)]
+
+
+def test_an_increment_missing_a_stored_column_is_refused_so_the_table_can_be_rebuilt(volume):
+    """Keeping the column would leave old rows with values the source no
+    longer has and new rows without them."""
+    base = build(volume, pa.table({"id": [1], "note": ["n"], "seq": [1]}), config=merge_config())
+    with pytest.raises(loader.SchemaChanged) as error:
+        increment(volume, base, merge_config(), 1, pa.table({"id": [2], "seq": [2]}))
+    assert "note" in str(error.value) and not list(volume.rglob("*.tmp"))
+
+
+@pytest.mark.parametrize("delta", [
+    pa.table({"id": [2], "flag": pa.array([None], type=pa.null()), "small": pa.array([None], type=pa.null()),
+              "seq": [2]}),
+    pa.table({"id": pa.array([], type=pa.int64()), "flag": pa.array([], type=pa.null()),
+              "small": pa.array([], type=pa.null()), "seq": pa.array([], type=pa.int64())}),
+])
+def test_a_delta_with_no_value_in_a_column_does_not_retype_the_stored_column(volume, delta):
+    """A column that is all NULL (or a delta that is empty) has no type of
+    its own; it must not turn a stored boolean into a number."""
+    base = build(volume, pa.table({"id": [1], "flag": [True], "small": pa.array([7], type=pa.int8()), "seq": [1]}),
+                 config=merge_config())
+    outcome = increment(volume, base, merge_config(), 1, delta)
+    types = {c["name"]: c["dtype"] for c in outcome.columns}
+    assert types["flag"] == "bool" and types["small"] == "int8"
+    assert read(outcome, "SELECT flag, small FROM t WHERE id = 1") == [(True, 7)]
+
+
+def test_a_window_already_in_the_file_is_not_loaded_a_second_time(volume):
+    """The crash this guards against: the rows were committed, the note that
+    the window is done was not."""
+    part, key = loader.new_part("conn")
+    rows = pa.table({"v": ["a", "b"], "seq": [1, 2]})
+    first = loader.load_window(Batches(rows), "q", part, key, "t", "r1", limits(), batch_rows=10, window=0)
+    again = loader.load_window(Batches(rows), "q", part, key, "t", "r2", limits(), batch_rows=10, window=0)
+    other = loader.load_window(Batches(pa.table({"v": ["c"], "seq": [3]})), "q", part, key, "t", "r2",
+                               limits(), batch_rows=10, window=1, rows_before=2)
+    outcome = loader.finalize(part, key, "t", append_config(), run_id="r2")
+    assert (first, again, other) == (2, 2, 1)
+    assert sorted(read(outcome, "SELECT v FROM t")) == [("a",), ("b",), ("c",)]
+    # The loader's own bookkeeping does not ship in the published file.
+    assert read(outcome, "SELECT table_name FROM duckdb_tables() WHERE database_name = 'artifact'") == [("t",)]
+
+
+def test_a_renamed_table_keeps_its_rows_through_an_increment_and_a_resumed_load(volume):
+    base = build(volume, pa.table({"id": [1], "seq": [1]}), config=merge_config(), relation="old_name")
+    outcome = loader.apply_increment(
+        Batches(pa.table({"id": [2], "seq": [2]})), "q", base.artifact_path, base.artifact_key, "new_name",
+        "conn", "run-2", merge_config(), Window(lo=1, include_nulls=True), limits(), batch_rows=10)
+    assert read(outcome, "SELECT id FROM new_name ORDER BY id") == [(1,), (2,)]
+
+    part, key = loader.new_part("conn")
+    loader.load_window(Batches(pa.table({"id": [1], "seq": [1]})), "q", part, key, "old_name", "r", limits(),
+                       batch_rows=10, window=0)
+    loader.load_window(Batches(pa.table({"id": [2], "seq": [2]})), "q", part, key, "new_name", "r", limits(),
+                       batch_rows=10, window=1, rows_before=1)
+    resumed = loader.finalize(part, key, "new_name", merge_config(), run_id="r")
+    assert read(resumed, "SELECT id FROM new_name ORDER BY id") == [(1,), (2,)]
+
+
+def test_a_file_that_cannot_be_published_is_not_left_behind(volume, monkeypatch):
+    from app.services import storage
+    part, key = loader.new_part("conn")
+    loader.load_window(Batches(pa.table({"id": [1]})), "q", part, key, "t", "r", limits(), batch_rows=10)
+
+    def refuse(path, *a, **k):
+        raise storage.StorageError("bucket unreachable")
+
+    monkeypatch.setattr(storage, "persist", refuse)
+    with pytest.raises(storage.StorageError):
+        loader.finalize(part, key, "t", RefreshConfig(), run_id="r")
+    assert not list(volume.rglob("*.db")), "renamed but unpublished"
 
 
 def test_an_artifact_written_before_run_lineage_can_still_be_incremented(volume):

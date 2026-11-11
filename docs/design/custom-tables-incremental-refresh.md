@@ -29,6 +29,8 @@ something and the code went another way.
 | `CustomTableRun.connection_table_id` as a foreign key | A soft reference | Custom tables are soft-deleted and history is purged by age. |
 | Run statuses include `skipped`, `interrupted` stored | `partial` (a load paused part-way) is stored; `interrupted` is derived for a run that stopped reporting | Nothing produces a skipped run: a queued refresh waits. |
 | Loop B measures 1 / 2 / 5 / 10 GiB incl. object storage | Local copy-forward measured to 1.77 GiB (~7 s/GiB) | No object store in the sandbox; the larger points are still owed before the cap is raised. |
+| Partial loads are pod-local; another pod restarts the load | Another pod **hands the turn back** to the pod holding the part file for 45 minutes after its last progress, then restarts it | Restarting on every hand-off could keep a long load from ever finishing. |
+| A failing full rebuild is retried on each tick | After three failures without progress it is set aside for a day and increments continue | A served table must not freeze because its rebuild cannot finish. |
 | PR slicing 1a–5 | One branch, built in that order | — |
 
 Also added beyond the plan: the row-drop guard is on by default (50 %) for new

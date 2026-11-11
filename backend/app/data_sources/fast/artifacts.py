@@ -192,11 +192,13 @@ async def table_lock(connection_id: str, table_id: str):
 
 
 def forget_table_lock(connection_id: str, table_id: str) -> None:
-    """Remove a deleted table's lock file (best effort)."""
-    try:
-        (artifact_dir(connection_id) / f".table-{table_id}.lock").unlink()
-    except OSError:
-        pass
+    """Remove a deleted table's lock file, unless a run still holds it."""
+    path = artifact_dir(connection_id) / f".table-{table_id}.lock"
+    if not path.exists():
+        return
+    with _try_lock(path) as free:
+        if free:
+            _unlink_quietly(path)
 
 
 @asynccontextmanager

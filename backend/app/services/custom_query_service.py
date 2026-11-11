@@ -16,6 +16,7 @@ import asyncio
 import logging
 import os
 import re
+import socket
 import threading
 import time
 from contextlib import suppress
@@ -180,6 +181,14 @@ def next_run_at(cq_id: str):
 # How long one run keeps loading windows before it pauses and hands the rest
 # to the next run. Each window still has the extractor's own ceiling.
 LOAD_RUN_BUDGET_SECONDS = extractor.DEFAULT_MAX_SECONDS
+# Runs in a row a load may fail before it is abandoned: restarted from scratch
+# for a first load, or — when a table is already being served — set aside so
+# incremental refreshes carry on while the rebuild waits for another day.
+MAX_LOAD_FAILURES = 3
+FULL_REFRESH_RETRY_AFTER = timedelta(days=1)
+# A load whose part file is on another host is left to that host for this
+# long after its last sign of progress, then started over here.
+LOAD_OWNER_GRACE = timedelta(minutes=45)
 
 
 class _SourceError(Exception):
@@ -231,6 +240,10 @@ class _Run:
         # Set once the swap is committed and recorded: nothing that fails
         # afterwards may rewrite the run as failed.
         self.published = False
+        # Whether the row was marked "running", and whether a cancellation has
+        # already been written back.
+        self.started_work = False
+        self.cancel_recorded = False
         self._events: list = []
 
     def snapshot(self) -> None:
@@ -466,6 +479,11 @@ class CustomQueryService:
     @staticmethod
     def validate_name(name: str) -> str:
         name = (name or "").strip()
+        if name.lower().startswith(loader.INTERNAL_PREFIX):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Names starting with '{loader.INTERNAL_PREFIX}' are reserved.",
+            )
         if not _NAME_RE.match(name):
             raise HTTPException(
                 status_code=400,
@@ -908,6 +926,11 @@ class CustomQueryService:
             try:
                 await self._drive(run)
             except asyncio.CancelledError:
+                # Cancelled between units of work (waiting for the volume,
+                # saving progress): nothing is writing, but the row and the
+                # run still say "running".
+                if run.started_work and not run.cancel_recorded:
+                    await self._drain(self._record_cancel(run))
                 raise
             except (extractor.ExtractionRefused, extractor.ExtractionAborted,
                     incremental.IncrementalConfigError, loader.SchemaChanged) as e:
@@ -926,6 +949,31 @@ class CustomQueryService:
                 raise
         return cq
 
+    @staticmethod
+    async def _drain(coro) -> None:
+        """Run cleanup to completion however many times the request is cancelled."""
+        task = asyncio.create_task(coro)
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                continue
+        task.result()
+
+    async def _record_cancel(self, run: "_Run") -> None:
+        run.cancel_recorded = True
+        try:
+            await run.db.rollback()
+            await run.db.refresh(run.cq)
+            if run.cq.deleted_at is None:
+                run.cq.last_refresh_status = "error"
+                run.cq.last_refresh_error = CANCELLED_REFRESH_ERROR
+                await run.db.commit()
+        except Exception:
+            logger.exception("custom_query.cancelled_status.failed")
+        await runs.finish(run.run_id, status=STATUS_CANCELLED, error=CANCELLED_REFRESH_ERROR,
+                          events=run.take_events(), chunks=run.chunk_log())
+
     async def _record_failure(self, run: "_Run", error: BaseException) -> None:
         db, cq = run.db, run.cq
         try:
@@ -934,6 +982,12 @@ class CustomQueryService:
             if cq.deleted_at is None:
                 cq.last_refresh_status = "error"
                 cq.last_refresh_error = str(error)[:2000]
+                state = cq.refresh_state if isinstance(cq.refresh_state, dict) else {}
+                if run.load is not None and isinstance(state.get("load"), dict):
+                    # Count it against the load, so one that cannot finish is
+                    # not retried on every tick forever.
+                    load = {**state["load"], "failures": int(state["load"].get("failures") or 0) + 1}
+                    cq.refresh_state = {**state, "load": load}
                 await db.commit()
         except Exception:
             logger.exception("custom_query.failure_status.failed")
@@ -967,26 +1021,9 @@ class CustomQueryService:
                 except Exception:
                     logger.info("custom_query.refresh.cancelled")
                 finally:
-                    try:
-                        await run.db.rollback()
-                        await run.db.refresh(run.cq)
-                        if run.cq.deleted_at is None:
-                            run.cq.last_refresh_status = "error"
-                            run.cq.last_refresh_error = CANCELLED_REFRESH_ERROR
-                            await run.db.commit()
-                    except Exception:
-                        logger.exception("custom_query.cancelled_status.failed")
-                    await runs.finish(run.run_id, status=STATUS_CANCELLED,
-                                      error=CANCELLED_REFRESH_ERROR,
-                                      events=run.take_events(), chunks=run.chunk_log())
+                    await self._record_cancel(run)
 
-            cleanup = asyncio.create_task(finish_cancelled())
-            while not cleanup.done():
-                try:
-                    await asyncio.shield(cleanup)
-                except asyncio.CancelledError:
-                    continue
-            cleanup.result()
+            await self._drain(finish_cancelled())
             raise
 
     def _decide(self, run: "_Run") -> str:
@@ -998,9 +1035,35 @@ class CustomQueryService:
             raise incremental.IncrementalConfigError(
                 "Incremental refresh is not available for this connection type yet."
             )
-        if self._resumable_load(run) is not None:
-            run.note("Continuing the load that was in progress.")
-            return "load"
+        serving = bool(cq.artifact_path and cq.artifact_key_enc
+                       and incremental.decode(state.get("checkpoint")) is not None
+                       and state.get("definition_hash") == run.definition_hash)
+        load = state.get("load")
+        if isinstance(load, dict) and load.get("definition_hash") == run.definition_hash:
+            failures = int(load.get("failures") or 0)
+            if run.force_full:
+                self._discard_load(run)
+                run.note("Full refresh requested; the load in progress was restarted.")
+                return "load"
+            if failures >= MAX_LOAD_FAILURES:
+                self._discard_load(run)
+                if serving:
+                    run.state["full_refresh_retry_after"] = (
+                        datetime.utcnow() + FULL_REFRESH_RETRY_AFTER).isoformat(timespec="seconds")
+                    run.note(f"The full rebuild failed {failures} times. Refreshing what is new "
+                             f"instead, and trying the rebuild again tomorrow.", "warning")
+                else:
+                    run.note(f"The load failed {failures} times; starting it over.", "warning")
+                    return "load"
+            elif self._resumable_load(run) is not None:
+                run.note("Continuing the load that was in progress.")
+                return "load"
+            elif self._load_owned_elsewhere(load):
+                return "defer"
+            else:
+                self._discard_load(run)
+        elif isinstance(load, dict):
+            self._discard_load(run)         # left over from another definition
         if not cq.artifact_path or not cq.artifact_key_enc:
             run.note("First load.")
             return "load"
@@ -1015,7 +1078,10 @@ class CustomQueryService:
             return "load"
         every = config.full_refresh_every_days
         last_full = _parse_iso(state.get("last_full_refresh_at"))
-        if every and (last_full is None or datetime.utcnow() - last_full >= timedelta(days=every)):
+        retry_after = _parse_iso(run.state.get("full_refresh_retry_after"))
+        waiting = retry_after is not None and datetime.utcnow() < retry_after
+        if every and not waiting and (
+                last_full is None or datetime.utcnow() - last_full >= timedelta(days=every)):
             run.note(f"Scheduled full refresh (every {every} days): picks up deleted rows.")
             return "load"
         return "increment"
@@ -1034,6 +1100,18 @@ class CustomQueryService:
         if not path or not os.path.isfile(path) or not load.get("windows"):
             return None
         return load
+
+    @staticmethod
+    def _load_owned_elsewhere(load: dict) -> bool:
+        """Whether another host is (recently) working on this load.
+
+        Its part file is not here, so resuming is that host's to do; taking
+        it over would start the whole load again on every hand-off.
+        """
+        if not load.get("host") or load.get("host") == socket.gethostname():
+            return False
+        seen = _parse_iso(load.get("updated_at") or load.get("started_at"))
+        return seen is not None and datetime.utcnow() - seen < LOAD_OWNER_GRACE
 
     def _discard_load(self, run: "_Run") -> None:
         load = run.state.pop("load", None)
@@ -1069,12 +1147,17 @@ class CustomQueryService:
             await self._prepare_client(db, connection, run.client, self.target_of(cq))
             run.snapshot()
             decision = self._decide(run)
+            if decision == "defer":
+                # Another replica holds this load's file; hand the turn back.
+                self._schedule_resume(str(connection.id), str(cq.id), delay_seconds=30)
+                return
 
             # Mark the row only once work actually starts: a request cancelled
             # while credentials were being fetched would otherwise leave
             # "running" committed with nothing to write a terminal state.
             cq.last_refresh_status = "running"
             await db.commit()
+            run.started_work = True
             # The run keeps its own id even if the history row cannot be
             # written: rows are stamped with it either way.
             await runs.start(
@@ -1135,6 +1218,8 @@ class CustomQueryService:
                 rows, rendered = await self._in_thread(run, lambda i=index: self._work_window(run, i))
                 window = load["windows"][index]
                 window["status"], window["rows"] = "done", rows
+                load["updated_at"] = datetime.utcnow().isoformat(timespec="seconds")
+                load["failures"] = 0
                 load["rows"] = int(load.get("rows") or 0) + rows
                 run.rows_read += rows
                 run.windows_done += 1
@@ -1277,6 +1362,9 @@ class CustomQueryService:
             "key_enc": artifacts.encrypt_key(key),
             "definition_hash": run.definition_hash,
             "started_at": datetime.utcnow().isoformat(timespec="seconds"),
+            "updated_at": datetime.utcnow().isoformat(timespec="seconds"),
+            "host": socket.gethostname(),
+            "failures": 0,
             "source_rows": total,
             "rows": 0,
             "windows": [{**w.to_json(), "status": "pending", "rows": None} for w in windows],
@@ -1314,6 +1402,7 @@ class CustomQueryService:
                 self._source(run, rendered), rendered, load["path"],
                 artifacts.decrypt_key(load["key_enc"]), run.name, run.run_id, self._limits(run),
                 batch_rows=extractor.BATCH_ROWS, rows_before=int(load.get("rows") or 0),
+                window=index,
             )
             return rows, rendered
         except _PASS_THROUGH:
@@ -1367,11 +1456,14 @@ class CustomQueryService:
             checkpoint = previous
         last_full = datetime.utcnow().isoformat(timespec="seconds") if full else run.state.get(
             "last_full_refresh_at")
-        return {
+        new_state = {
             "checkpoint": incremental.encode(checkpoint),
             "definition_hash": run.definition_hash,
             "last_full_refresh_at": last_full,
         }
+        if not full and run.state.get("full_refresh_retry_after"):
+            new_state["full_refresh_retry_after"] = run.state["full_refresh_retry_after"]
+        return new_state
 
     async def _publish(self, run: "_Run", res, *, full: bool) -> None:
         db, cq = run.db, run.cq

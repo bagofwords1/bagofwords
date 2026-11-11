@@ -40,7 +40,11 @@ _BLOCKED_INTROSPECTION = re.compile(
     r"\b(?:duckdb_databases|duckdb_settings|duckdb_extensions|duckdb_secrets|"
     r"duckdb_temporary_files|duckdb_memory|duckdb_logs?|(?:pragma_)?database_list)\b"
     # Scalar/table functions, only when called (a column named `query` is fine).
-    r"|\b(?:current_setting|which_secret|getenv|query_table|query)\s*\(",
+    r"|\b(?:current_setting|which_secret|getenv|query_table|query)\s*\("
+    # The catalog an artifact is attached under. Relations are queried by
+    # their own names; reaching through the attachment would bypass the view
+    # that hides the loader's bookkeeping columns.
+    r"|\bbow_a\d+\b",
     re.IGNORECASE,
 )
 
