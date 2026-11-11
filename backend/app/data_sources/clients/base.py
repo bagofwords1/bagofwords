@@ -62,6 +62,16 @@ class Capability(str, Enum):
     SEARCH_NOTES = "search_notes"
     GREP_NOTES = "grep_notes"
 
+    # Chat capabilities — the Microsoft Teams client declares these INSTEAD OF
+    # the file capabilities, for the same reason mail and notes do. A chat
+    # message is one line of a conversation, so the read verb returns the
+    # whole THREAD around a message (a lone "yes, ship it" means nothing), and
+    # the browse verb is scoped by conversation (a channel or a chat), not by
+    # folder.
+    LIST_CHAT_MESSAGES = "list_chat_messages"
+    READ_CHAT_THREAD = "read_chat_thread"
+    SEARCH_CHAT_MESSAGES = "search_chat_messages"
+
     # Browser capability — declared by the `browser` connection client. Gates
     # the agent-callable browser tools (browser_navigate / browser_snapshot /
     # browser_extract / browser_act / browser_vision) so they only appear in

@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select
 
-_READ_TOOLS = ("read_file", "read_email", "web_fetch", "read_note", "read_excel_as_csv", "read_excel_range")
+_READ_TOOLS = ("read_file", "read_email", "web_fetch", "read_note", "read_chat_thread", "read_excel_as_csv", "read_excel_range")
 _MAX_SOURCES = 200
 _MAX_TEXT = 2_000_000
 

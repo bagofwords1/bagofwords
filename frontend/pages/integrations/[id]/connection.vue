@@ -66,7 +66,7 @@
                         <template v-if="connectionUserStatus?.has_user_credentials">
                             <span class="inline-flex items-center text-green-700 text-xs">
                                 <UIcon name="heroicons-check-circle" class="w-3 h-3 me-1" />
-                                Connected as {{ connectedUserDisplay }}
+                                {{ connectedLabel }}
                             </span>
                             <UButton size="xs" color="gray" variant="ghost" :loading="isTestingUser" @click="testUserConnection">
                                 <UIcon name="heroicons-play" class="w-4 h-4" />
@@ -198,9 +198,11 @@ const showCredsModal = ref(false)
 const isTestingUser = ref(false)
 const testUserStatus = ref<any>(null)
 
-const connectedUserDisplay = computed(() => {
-  const u = (currentUser.value as any) || {}
-  return u.name || u.email || 'You'
+// The account the source reported when the member's login was checked; with
+// none, a plain "Connected" (the BOW user's name is not the source account).
+const connectedLabel = computed(() => {
+  const identity = connectionUserStatus.value?.account_identity
+  return identity ? t('integrationConnection.connectedAs', { identity }) : t('integrationConnection.connected')
 })
 
 const isAdmin = computed(() => {

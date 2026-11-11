@@ -365,6 +365,12 @@ class ReadFileTool(Tool):
     _required_capability = Capability.READ_FILE
     _start_noun = "file"
     _operation_name = "read_file"
+    # Whether a connector read is kept with the report as a session file (so
+    # inspect_data / create_data can analyse it). Message reads (read_email,
+    # read_chat_thread) turn this off: a mailbox or Teams thread read with the
+    # user's own token must not leave a copy that anyone the report is shared
+    # with could open.
+    _keep_session_copy = True
 
     @property
     def metadata(self) -> ToolMetadata:
@@ -804,7 +810,7 @@ class ReadFileTool(Tool):
                 cached = None
             if cached:
                 rendered = cached.get("rendered") or {}
-                session_file_id = await self._persist_rendered_session(
+                session_file_id = None if not self._keep_session_copy else await self._persist_rendered_session(
                     runtime_ctx, data.file_id, rendered,
                     source_ref=sheet_ref, name_id=sheet_name_id,
                     connection_id=getattr(data, "connection_id", None))
@@ -989,6 +995,8 @@ class ReadFileTool(Tool):
         # spawning a duplicate File row on every read.
         if session_file is not None:
             session_file_id = str(session_file.id)
+        elif not self._keep_session_copy:
+            session_file_id = None
         else:
             session_file_id = await _persist_session_file(
                 runtime_ctx, file_id=data.file_id, payload=payload,

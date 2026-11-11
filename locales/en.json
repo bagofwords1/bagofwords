@@ -138,6 +138,16 @@
     "fileBrowserNoResults": "No files match “{q}”.",
     "fileBrowserSummaryKms": "{n} files listed for browsing · KMS permissions decide what the agent can search and read",
     "fileBrowserSummary": "{n} files in scope · the agent reads only these · denials are audited",
+    "fileBrowserRootMessages": "All conversations",
+    "fileBrowserSearchMessages": "Search messages…",
+    "fileBrowserEmptyMessages": "No recent messages in the conversations you can see.",
+    "fileBrowserSummaryLive": "{n} recent messages · read live with your own access · nothing is stored",
+    "countMessages": "{n} message | {n} messages",
+    "fileBrowserNoResultsMessages": "No messages match “{q}”.",
+    "loadingMessages": "Loading messages from the source…",
+    "fileBrowserConnectRequiredMessages": "Connect your account to browse — this connection reads messages with each user's own access.",
+    "liveSourceHint": "Searched live with each user's own access — only the channels, chats or mail they can see. Nothing is copied or indexed.",
+    "liveBadge": "Live",
     "fileBrowserTruncated": "Showing the first {shown} of {total} files — narrow the connection's scope to browse the rest.",
     "fileBrowserOpenInSource": "Open in source",
     "fileBrowserClosePreview": "Close preview",
@@ -2191,6 +2201,7 @@
     "openPage": "Open page",
     "categories": {
       "dataSources": "Agents",
+      "connectors": "Connectors",
       "queries": "Queries",
       "files": "Files",
       "tables": "Tables",
@@ -4316,7 +4327,7 @@
     "saveIntegration": "Save Integration",
     "loadFieldsFailed": "Failed to load fields",
     "integrationReady": "Integration ready",
-    "integrationReadyDesc": "{name} is connected and a public agent was created. Users can sign in to start using it.",
+    "integrationReadyDesc": "{name} is now available to everyone as a connector. Each person signs in with their own account.",
     "integrationAgentFailed": "Integration saved, but agent creation failed",
     "updateIntegrationFailed": "Failed to update integration",
     "createIntegrationFailed": "Failed to create integration",
@@ -4752,7 +4763,10 @@
     "connection.kms_token_format": "The KMS API token can contain only plain letters, digits and punctuation, with no spaces. Copy it again from KMS Lighthouse and paste it as plain text.",
     "connection.kms_use_connection_credentials": "KMS Lighthouse sign-ins are saved on the connection. Open the connection and connect from there.",
     "connection.kms_only": "Diagnostics apply to KMS Lighthouse connections only.",
-    "connection.kms_diagnostics_running": "Diagnostics are already running for this connection. Wait for them to finish, then try again."
+    "connection.kms_diagnostics_running": "Diagnostics are already running for this connection. Wait for them to finish, then try again.",
+    "connection.kms_login_rejected": "KMS Lighthouse did not accept this login, so it was not saved. Check the username and password, or the API token, and try again.",
+    "connection.kms_login_paused": "KMS Lighthouse recently refused this login, so new attempts with it are paused for a few minutes and it was not saved. Check the login, or try again later.",
+    "connection.kms_session_refused": "KMS Lighthouse accepted the login but refused its session, so it cannot be used and was not saved. Ask the KMS administrator whether this account may use the KMS API."
   },
   "email": {
     "dashboardShare": {
@@ -6961,7 +6975,9 @@
     "noConnection": "This agent has no connection yet.",
     "notFound": "This connection could not be found.",
     "forbidden": "You don't have access to this connection.",
-    "loadFailed": "Failed to load the connection. Try again later."
+    "loadFailed": "Failed to load the connection. Try again later.",
+    "connected": "Connected",
+    "connectedAs": "Connected as {identity}"
   },
   "dashboardCollab": {
     "presence": {
@@ -7489,6 +7505,35 @@
     "enabled": "Enabled",
     "embeddingEmpty": "Embedding is not configured",
     "oauthEmpty": "OAuth is not configured"
+  },
+  "connectors": {
+    "title": "Connectors",
+    "subtitle": "Your own accounts and tools the AI can use. Each connector reads with your own access — nobody else sees your data.",
+    "browse": "Browse connectors",
+    "empty": "No connectors yet.",
+    "search": "Search connectors…",
+    "noResults": "No connectors match “{q}”.",
+    "signIn": "Sign in",
+    "signOut": "Sign out",
+    "remove": "Remove",
+    "statusConnected": "Connected",
+    "statusShared": "Shared",
+    "statusServiceAccount": "Service account",
+    "statusOffline": "Reconnect",
+    "statusNotConnected": "Not connected",
+    "needsSignIn": "{n} connector needs you to sign in | {n} connectors need you to sign in",
+    "accessPersonal": "Uses your own account",
+    "accessShared": "Uses a shared account set up by an admin",
+    "addHint": "Add more connectors from Agents → Add connection.",
+    "askAdmin": "Ask an admin to add more connectors.",
+    "removeConfirm": "Remove {name} for everyone in the organization? People's sign-ins to it are removed too.",
+    "signedOut": "Signed out of {name}",
+    "removed": "{name} removed",
+    "actionFailed": "Something went wrong",
+    "shareToggleLabel": "Make available to everyone in your org",
+    "shareToggleHint": "Adds “{name}” to everyone's connectors. Each person signs in with their own account — nobody sees anyone else's data.",
+    "useAsAgent": "Use as agent",
+    "movedToAgents": "{name} is now an agent"
   },
   "tablePreview": {
     "idle": "Press Run to load rows from the source.",

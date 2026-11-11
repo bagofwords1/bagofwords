@@ -458,6 +458,7 @@ class GraphDriveClient(DataSourceClient):
         timeout: float = 30.0,
         follow_redirects: bool = False,
         max_attempts: Optional[int] = None,
+        json_body: Optional[Any] = None,
     ) -> httpx.Response:
         """One Graph request with the throttling discipline Microsoft expects.
 
@@ -507,6 +508,7 @@ class GraphDriveClient(DataSourceClient):
                     resp = client.request(
                         method, url, headers=hdrs, params=params,
                         timeout=timeout, follow_redirects=follow_redirects,
+                        json=json_body,
                     )
             except httpx.TransportError as exc:
                 if attempt >= attempts_allowed:

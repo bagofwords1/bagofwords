@@ -122,6 +122,16 @@
     "fileBrowserNoResults": "Inga filer matchar ”{q}”.",
     "fileBrowserSummaryKms": "{n} filer listade för bläddring · KMS-behörigheterna avgör vad agenten kan söka i och läsa",
     "fileBrowserSummary": "{n} filer i omfånget · agenten läser bara dessa · nekade åtkomster loggas",
+    "fileBrowserRootMessages": "Alla konversationer",
+    "fileBrowserSearchMessages": "Sök meddelanden…",
+    "fileBrowserEmptyMessages": "Inga nya meddelanden i de konversationer du kan se.",
+    "fileBrowserSummaryLive": "{n} senaste meddelanden · läses live med din egen behörighet · inget sparas",
+    "countMessages": "{n} meddelande | {n} meddelanden",
+    "fileBrowserNoResultsMessages": "Inga meddelanden matchar ”{q}”.",
+    "loadingMessages": "Läser in meddelanden från källan…",
+    "fileBrowserConnectRequiredMessages": "Anslut ditt konto för att bläddra — den här anslutningen läser meddelanden med varje användares egen behörighet.",
+    "liveSourceHint": "Söks live med varje användares egen behörighet — bara de kanaler, chattar eller e-post de kan se. Inget kopieras eller indexeras.",
+    "liveBadge": "Live",
     "fileBrowserTruncated": "Visar de första {shown} av {total} filer – begränsa anslutningens omfång för att se resten.",
     "fileBrowserOpenInSource": "Öppna i källan",
     "fileBrowserClosePreview": "Stäng förhandsvisning",
@@ -1989,6 +1999,7 @@
     "openPage": "Öppna sida",
     "categories": {
       "dataSources": "Agenter",
+      "connectors": "Kopplingar",
       "queries": "Frågor",
       "files": "Filer",
       "tables": "Tabeller",
@@ -3843,7 +3854,7 @@
     "saveIntegration": "Spara integration",
     "loadFieldsFailed": "Kunde inte läsa in fälten",
     "integrationReady": "Integrationen är klar",
-    "integrationReadyDesc": "{name} är ansluten och en publik agent har skapats. Användare kan logga in och börja använda den.",
+    "integrationReadyDesc": "{name} är nu tillgänglig för alla som koppling. Var och en loggar in med sitt eget konto.",
     "integrationAgentFailed": "Integrationen sparades, men agenten kunde inte skapas",
     "updateIntegrationFailed": "Kunde inte uppdatera integrationen",
     "createIntegrationFailed": "Kunde inte skapa integrationen",
@@ -4319,7 +4330,10 @@
     "connection.kms_token_format": "KMS-API-token får bara innehålla vanliga bokstäver, siffror och skiljetecken, utan mellanslag. Kopiera den igen från KMS Lighthouse och klistra in den som oformaterad text.",
     "connection.kms_use_connection_credentials": "Inloggningar för KMS Lighthouse sparas på anslutningen. Öppna anslutningen och anslut därifrån.",
     "connection.kms_only": "Diagnostiken gäller endast KMS Lighthouse-anslutningar.",
-    "connection.kms_diagnostics_running": "Diagnostiken körs redan för den här anslutningen. Vänta tills den är klar och försök sedan igen."
+    "connection.kms_diagnostics_running": "Diagnostiken körs redan för den här anslutningen. Vänta tills den är klar och försök sedan igen.",
+    "connection.kms_login_rejected": "KMS Lighthouse godkände inte den här inloggningen, så den sparades inte. Kontrollera användarnamnet och lösenordet, eller API-token, och försök igen.",
+    "connection.kms_login_paused": "KMS Lighthouse nekade nyligen den här inloggningen, så nya försök med den är pausade i några minuter och den sparades inte. Kontrollera inloggningen eller försök igen senare.",
+    "connection.kms_session_refused": "KMS Lighthouse godkände inloggningen men nekade dess session, så den kan inte användas och sparades inte. Fråga KMS-administratören om det här kontot får använda KMS-API:t."
   },
   "email": {
     "dashboardShare": {
@@ -6416,7 +6430,9 @@
     "noConnection": "Den här agenten har ingen anslutning än.",
     "notFound": "Anslutningen kunde inte hittas.",
     "forbidden": "Du har inte åtkomst till den här anslutningen.",
-    "loadFailed": "Det gick inte att läsa in anslutningen. Försök igen senare."
+    "loadFailed": "Det gick inte att läsa in anslutningen. Försök igen senare.",
+    "connected": "Ansluten",
+    "connectedAs": "Ansluten som {identity}"
   },
   "trackedChanges": {
     "noChanges": "Inga ändringar"
@@ -6849,6 +6865,35 @@
     "enabled": "Aktiverad",
     "embeddingEmpty": "Embedding is not configured",
     "oauthEmpty": "OAuth is not configured"
+  },
+  "connectors": {
+    "title": "Kopplingar",
+    "subtitle": "Dina egna konton och verktyg som AI:n kan använda. Varje koppling läser med din egen behörighet — ingen annan ser dina data.",
+    "browse": "Bläddra bland kopplingar",
+    "empty": "Inga kopplingar ännu.",
+    "search": "Sök kopplingar…",
+    "noResults": "Inga kopplingar matchar ”{q}”.",
+    "signIn": "Logga in",
+    "signOut": "Logga ut",
+    "remove": "Ta bort",
+    "statusConnected": "Ansluten",
+    "statusShared": "Delad",
+    "statusServiceAccount": "Tjänstekonto",
+    "statusOffline": "Anslut igen",
+    "statusNotConnected": "Inte ansluten",
+    "needsSignIn": "{n} koppling kräver inloggning | {n} kopplingar kräver inloggning",
+    "accessPersonal": "Använder ditt eget konto",
+    "accessShared": "Använder ett delat konto som en administratör har konfigurerat",
+    "addHint": "Lägg till fler kopplingar under Agenter → Lägg till anslutning.",
+    "askAdmin": "Be en administratör att lägga till fler kopplingar.",
+    "removeConfirm": "Ta bort {name} för alla i organisationen? Användarnas inloggningar tas också bort.",
+    "signedOut": "Utloggad från {name}",
+    "removed": "{name} borttagen",
+    "actionFailed": "Något gick fel",
+    "shareToggleLabel": "Gör tillgänglig för alla i organisationen",
+    "shareToggleHint": "Lägger till ”{name}” bland allas kopplingar. Var och en loggar in med sitt eget konto — ingen ser någon annans data.",
+    "useAsAgent": "Använd som agent",
+    "movedToAgents": "{name} är nu en agent"
   },
   "tablePreview": {
     "idle": "Tryck på Kör för att läsa in rader från källan.",

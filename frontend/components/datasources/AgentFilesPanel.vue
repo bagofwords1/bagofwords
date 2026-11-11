@@ -35,7 +35,8 @@
           <button class="text-xs px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800" @click="editScope(conn)">Edit scope</button>
         </div>
       </div>
-      <div class="mt-3 grid grid-cols-[64px_1fr] gap-x-3 gap-y-1.5 text-xs">
+      <p v-if="LIVE_TYPES.includes(conn.type)" class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ $t('agentsPage.liveSourceHint') }}</p>
+      <div v-else class="mt-3 grid grid-cols-[64px_1fr] gap-x-3 gap-y-1.5 text-xs">
         <span class="text-ink-muted">Base</span>
         <span class="font-mono text-gray-700 dark:text-gray-300 break-all">{{ baseOf(conn) }}</span>
         <span class="text-ink-muted">Scope</span>
@@ -78,7 +79,12 @@ const baseOf = (c: any) => {
   return g.bucket ? `s3://${g.bucket}/${g.prefix || ''}` : (g.root_path || '—')
 }
 const globsOf = (c: any) => String(cfg(c).include_globs || '').split(/[,\n]/).map((s) => s.trim()).filter(Boolean)
-const indexModeOf = (c: any) => cfg(c).index_mode || (cfg(c).index_content === false ? 'metadata' : 'content')
+// Live per-user sources (mailboxes, Teams) keep no catalog at all: every list,
+// search and read goes to the provider with the user's own token. They carry
+// no index_mode, which used to fall through to "Indexed: contents".
+const LIVE_TYPES = ['outlook_mail', 'gmail_mail', 'teams_messages']
+const indexModeOf = (c: any) => LIVE_TYPES.includes(c.type) ? 'none'
+  : (cfg(c).index_mode || (cfg(c).index_content === false ? 'metadata' : 'content'))
 const badgeLabel = (m: string) => ({ none: 'Live', metadata: 'Indexed: list', content: 'Indexed: contents' } as any)[m] || m
 const badgeClass = (m: string) => ({ none: 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300', metadata: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300', content: 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300' } as any)[m] || 'bg-gray-100 text-gray-600'
 

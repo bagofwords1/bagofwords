@@ -3219,6 +3219,7 @@ function getToolComponent(toolName: string) {
 			return ReadExcelAsCsvTool
 		case 'search_files':
 		case 'search_email':
+		case 'search_chat_messages':
 		case 'search_notes':
 			return SearchFilesTool
 		case 'grep_files':
@@ -3226,10 +3227,12 @@ function getToolComponent(toolName: string) {
 			return GrepFilesTool
 		case 'list_files':
 		case 'list_emails':
+		case 'list_chat_messages':
 		case 'list_notes':
 			return ListFilesTool
 		case 'read_file':
 		case 'read_email':
+		case 'read_chat_thread':
 		case 'read_note':
 			return ReadFileTool
 		case 'generate_image':

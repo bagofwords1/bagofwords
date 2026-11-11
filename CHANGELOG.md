@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.615 (November 10, 2026)
+- Added Microsoft Teams as a live knowledge source: answers from your own chats and channels, with a link to the thread, read with your own Microsoft sign-in (#1631)
+- Added a Connectors menu to the prompt box for your own accounts (Teams, mail, personal Drive, MCP), separate from the agent picker; your connectors join every run, even with an agent pinned (#1631)
+- Fixed KMS Lighthouse saving a wrong member password or API token as "Connected"; Save now checks the login with KMS and the page names the KMS account (#1665)
+
 ## Version 0.0.614 (November 10, 2026)
 - Added per-channel agent routing for Slack: map each channel to its own agents, with channels listed automatically once the bot is used there (#1670)
 - Added a default role for new members, set once in Settings → Members (#1669)

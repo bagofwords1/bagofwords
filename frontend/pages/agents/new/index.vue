@@ -218,6 +218,9 @@ async function createAgentFromExistingConnection() {
       connection_ids: selectedConnections.value.map(c => c.id),
       use_llm_sync: useLlmSync.value,
       is_public: false,
+      // Built through "New agent" = an analysis agent, whatever it connects
+      // to (an MCP wrapped here is a curated agent, not a personal connector).
+      kind: 'agent',
       generate_summary: false,
       generate_conversation_starters: false,
       generate_ai_rules: false,

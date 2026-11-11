@@ -122,6 +122,16 @@
     "fileBrowserNoResults": "Nessun file corrisponde a “{q}”.",
     "fileBrowserSummaryKms": "{n} file elencati per la navigazione · le autorizzazioni KMS decidono cosa l'agente può cercare e leggere",
     "fileBrowserSummary": "{n} file nell'ambito · l'agente legge solo questi · gli accessi negati vengono registrati",
+    "fileBrowserRootMessages": "Tutte le conversazioni",
+    "fileBrowserSearchMessages": "Cerca messaggi…",
+    "fileBrowserEmptyMessages": "Nessun messaggio recente nelle conversazioni che puoi vedere.",
+    "fileBrowserSummaryLive": "{n} messaggi recenti · letti in tempo reale con i tuoi accessi · nulla viene salvato",
+    "countMessages": "{n} messaggio | {n} messaggi",
+    "fileBrowserNoResultsMessages": "Nessun messaggio corrisponde a “{q}”.",
+    "loadingMessages": "Caricamento dei messaggi dall’origine…",
+    "fileBrowserConnectRequiredMessages": "Collega il tuo account per sfogliare: questa connessione legge i messaggi con gli accessi di ciascun utente.",
+    "liveSourceHint": "Cercato in tempo reale con gli accessi di ciascun utente: solo i canali, le chat o la posta che può vedere. Nulla viene copiato o indicizzato.",
+    "liveBadge": "In tempo reale",
     "fileBrowserTruncated": "Vengono mostrati i primi {shown} di {total} file: restringi l'ambito della connessione per vedere il resto.",
     "fileBrowserOpenInSource": "Apri nella sorgente",
     "fileBrowserClosePreview": "Chiudi anteprima",
@@ -1989,6 +1999,7 @@
     "openPage": "Apri pagina",
     "categories": {
       "dataSources": "Agenti",
+      "connectors": "Connettori",
       "queries": "Query",
       "files": "File",
       "tables": "Tabelle",
@@ -3843,7 +3854,7 @@
     "saveIntegration": "Salva integrazione",
     "loadFieldsFailed": "Impossibile caricare i campi",
     "integrationReady": "Integrazione pronta",
-    "integrationReadyDesc": "{name} è connesso ed è stato creato un agente pubblico. Gli utenti possono accedere per iniziare a usarlo.",
+    "integrationReadyDesc": "{name} è ora disponibile a tutti come connettore. Ognuno accede con il proprio account.",
     "integrationAgentFailed": "Integrazione salvata, ma la creazione dell'agente non è riuscita",
     "updateIntegrationFailed": "Impossibile aggiornare l'integrazione",
     "createIntegrationFailed": "Impossibile creare l'integrazione",
@@ -4319,7 +4330,10 @@
     "connection.kms_token_format": "Il token API di KMS può contenere solo lettere, cifre e segni di punteggiatura semplici, senza spazi. Copialo di nuovo da KMS Lighthouse e incollalo come testo semplice.",
     "connection.kms_use_connection_credentials": "Gli accessi a KMS Lighthouse vengono salvati nella connessione. Apri la connessione e connettiti da lì.",
     "connection.kms_only": "La diagnostica si applica solo alle connessioni KMS Lighthouse.",
-    "connection.kms_diagnostics_running": "La diagnostica è già in esecuzione per questa connessione. Attendi che termini, quindi riprova."
+    "connection.kms_diagnostics_running": "La diagnostica è già in esecuzione per questa connessione. Attendi che termini, quindi riprova.",
+    "connection.kms_login_rejected": "KMS Lighthouse non ha accettato queste credenziali, quindi non sono state salvate. Controlla nome utente e password, oppure il token API, e riprova.",
+    "connection.kms_login_paused": "KMS Lighthouse ha rifiutato di recente queste credenziali, quindi i nuovi tentativi sono sospesi per alcuni minuti e non sono state salvate. Controlla le credenziali o riprova più tardi.",
+    "connection.kms_session_refused": "KMS Lighthouse ha accettato queste credenziali ma ne ha rifiutato la sessione, quindi non possono essere usate e non sono state salvate. Chiedi all'amministratore di KMS se questo account può usare l'API di KMS."
   },
   "email": {
     "dashboardShare": {
@@ -6416,7 +6430,9 @@
     "noConnection": "Questo agente non ha ancora una connessione.",
     "notFound": "Impossibile trovare questa connessione.",
     "forbidden": "Non hai accesso a questa connessione.",
-    "loadFailed": "Impossibile caricare la connessione. Riprova più tardi."
+    "loadFailed": "Impossibile caricare la connessione. Riprova più tardi.",
+    "connected": "Connesso",
+    "connectedAs": "Connesso come {identity}"
   },
   "trackedChanges": {
     "noChanges": "Nessuna modifica"
@@ -6849,6 +6865,35 @@
     "enabled": "Abilitata",
     "embeddingEmpty": "Embedding is not configured",
     "oauthEmpty": "OAuth is not configured"
+  },
+  "connectors": {
+    "title": "Connettori",
+    "subtitle": "I tuoi account e strumenti che l’IA può usare. Ogni connettore legge con i tuoi accessi: nessun altro vede i tuoi dati.",
+    "browse": "Sfoglia connettori",
+    "empty": "Ancora nessun connettore.",
+    "search": "Cerca connettori…",
+    "noResults": "Nessun connettore corrisponde a “{q}”.",
+    "signIn": "Accedi",
+    "signOut": "Esci",
+    "remove": "Rimuovi",
+    "statusConnected": "Connesso",
+    "statusShared": "Condiviso",
+    "statusServiceAccount": "Account di servizio",
+    "statusOffline": "Riconnetti",
+    "statusNotConnected": "Non connesso",
+    "needsSignIn": "{n} connettore richiede l’accesso | {n} connettori richiedono l’accesso",
+    "accessPersonal": "Usa il tuo account",
+    "accessShared": "Usa un account condiviso configurato da un amministratore",
+    "addHint": "Aggiungi altri connettori da Agenti → Aggiungi connessione.",
+    "askAdmin": "Chiedi a un amministratore di aggiungere altri connettori.",
+    "removeConfirm": "Rimuovere {name} per tutta l’organizzazione? Verranno rimossi anche gli accessi delle persone.",
+    "signedOut": "Disconnesso da {name}",
+    "removed": "{name} rimosso",
+    "actionFailed": "Qualcosa è andato storto",
+    "shareToggleLabel": "Rendi disponibile a tutta l’organizzazione",
+    "shareToggleHint": "Aggiunge “{name}” ai connettori di tutti. Ognuno accede con il proprio account: nessuno vede i dati degli altri.",
+    "useAsAgent": "Usa come agente",
+    "movedToAgents": "{name} ora è un agente"
   },
   "tablePreview": {
     "idle": "Premi Esegui per caricare le righe dall'origine.",
