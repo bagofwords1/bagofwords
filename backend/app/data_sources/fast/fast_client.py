@@ -188,9 +188,12 @@ class FastQueryClient(DataSourceClient):
         """
         source = f'{alias}."{safe_name}"'
         f = rel.rls_filter
+        # Run-lineage columns are bookkeeping, not data: an agent's `SELECT *`
+        # must return the admin's columns and nothing else.
+        star = self._visible_columns(con, alias, rel.name)
 
         if f is None or f.unrestricted:
-            con.execute(f'CREATE VIEW "{safe_name}" AS SELECT * FROM {source}')
+            con.execute(f'CREATE VIEW "{safe_name}" AS SELECT {star} FROM {source}')
             return
 
         if f.deny_all:
@@ -202,7 +205,7 @@ class FastQueryClient(DataSourceClient):
                 extra={"relation": rel.name, "reason": f.reason},
             )
             con.execute(
-                f'CREATE TABLE "{safe_name}" AS SELECT * FROM {source} WHERE 1 = 0'
+                f'CREATE TABLE "{safe_name}" AS SELECT {star} FROM {source} WHERE 1 = 0'
             )
             self._detach(con, alias, rel)
             return
@@ -215,7 +218,7 @@ class FastQueryClient(DataSourceClient):
             [(str(v),) for v in f.allowed_values],
         )
         con.execute(
-            f'CREATE TABLE "{safe_name}" AS SELECT * FROM {source} '
+            f'CREATE TABLE "{safe_name}" AS SELECT {star} FROM {source} '
             f'WHERE CAST("{safe_column}" AS VARCHAR) IN '
             f'(SELECT v FROM "{values_table}")'
         )
@@ -230,6 +233,24 @@ class FastQueryClient(DataSourceClient):
                 "reason": f.reason,
             },
         )
+
+    @staticmethod
+    def _visible_columns(con, alias: str, relation: str) -> str:
+        """`*` minus the loader's hidden columns, where the artifact has them
+        (one written before run lineage existed does not)."""
+        from app.data_sources.fast.loader import HIDDEN_COLUMNS
+
+        present = {
+            r[0] for r in con.execute(
+                "SELECT column_name FROM duckdb_columns() "
+                "WHERE database_name = ? AND table_name = ?",
+                [alias, relation],
+            ).fetchall()
+        }
+        hidden = [c for c in HIDDEN_COLUMNS if c in present]
+        if not hidden:
+            return "*"
+        return "* EXCLUDE (" + ", ".join(f'"{c}"' for c in hidden) + ")"
 
     @staticmethod
     def _detach(con, alias: str, rel: "FastRelation") -> None:

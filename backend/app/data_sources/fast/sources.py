@@ -179,6 +179,8 @@ class SqlAlchemySource:
         from sqlalchemy import text
 
         with self._open() as conn:
+            from app.data_sources.fast.normalize import rows_to_arrow
+
             result = conn.execution_options(
                 stream_results=True, yield_per=batch_rows
             ).execute(text(sql))
@@ -189,12 +191,11 @@ class SqlAlchemySource:
                 if not batch:
                     break
                 emitted = True
-                yield arrow_table(
-                    {name: [r[i] for r in batch] for i, name in enumerate(colnames)}
-                )
+                # By position, so two columns sharing a name are both kept.
+                yield rows_to_arrow(colnames, batch)
             if not emitted:
                 # Zero rows: still emit the shape so the relation exists.
-                yield arrow_table({c: [] for c in colnames})
+                yield rows_to_arrow(colnames, [])
 
     # -- helpers ---------------------------------------------------------
 
