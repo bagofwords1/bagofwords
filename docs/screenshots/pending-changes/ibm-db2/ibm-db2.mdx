@@ -1,0 +1,131 @@
+---
+title: "IBM Db2"
+description: "Connect IBM Db2 (LUW, z/OS) and IBM i (Db2 for i, AS/400) to BOW"
+---
+
+BOW has two IBM connectors. Pick the one that matches where your data lives:
+
+| Connector | Covers | Driver | License needed |
+|---|---|---|---|
+| **IBM Db2** | Db2 for Linux, Unix and Windows (LUW), Db2 on Cloud, Db2 Warehouse, Db2 for z/OS | IBM `ibm_db` (bundled) | None for LUW. z/OS needs Db2 Connect, usually already activated on the server. |
+| **IBM i (Db2 for i)** | IBM i, AS/400, iSeries | IBM Mapepire | None. Needs IBM's free Mapepire server on the IBM i. |
+
+<Frame>
+  <img src="/images/data-sources/ibm-db2/catalog-ibm.png" alt="IBM Db2 and IBM i in the Add Connection catalog" />
+</Frame>
+
+<Note>
+Per-user authentication on database connectors requires an Enterprise license.
+</Note>
+
+## IBM Db2
+
+### How it works
+
+BOW connects over Db2's standard network protocol (DRDA) and detects which Db2 product it reached. It then reads that product's system catalog:
+
+- Tables, views and materialized query tables, listed as `SCHEMA.TABLE`
+- Table and column comments, which agents use as business context
+- Primary keys and foreign keys, so agents know how tables join
+
+System schemas (`SYS*`, `NULLID`, `SQLJ`, and `DSN*` on z/OS) are skipped unless you list them.
+
+Agents write Db2 SQL: `FETCH FIRST n ROWS ONLY` for row limits, `CURRENT DATE - 30 DAYS` for date ranges. Every query is checked before it runs, and only reads are allowed (`SELECT`, `WITH`, `VALUES`).
+
+### Before you start
+
+- A database user with `SELECT` on the tables you want to query, and on the catalog views. Use a read-only account.
+- Network access from BOW to the Db2 port.
+- **Db2 for z/OS:** Db2 Connect must be licensed. Most sites activate it on the server (`db2connectactivate`), and then nothing is needed on the BOW side. Without it, the connection test returns `SQL1598N`.
+- **Self-hosted BOW on ARM (Linux arm64):** IBM does not publish its Db2 driver for this platform, so **IBM Db2** does not appear in the catalog. Run BOW on x86_64, or use **IBM i (Db2 for i)** for IBM i systems.
+
+### Fields
+
+| Field | Required | Description |
+|---|---|---|
+| **Host** | Yes | Db2 server hostname or IP address. |
+| **Port** | Yes | Usually `50000` on LUW (`50001` with TLS) and `446` on z/OS. Default `50000`. |
+| **Database** | Yes | The database name on LUW, or the location name on z/OS. |
+| **Schema** | No | A schema, or a comma-separated list, to index. Leave empty to index every non-system schema. Unquoted names are uppercased, as in Db2. |
+| **Db2 product** | No | `auto` (default) detects the product on connect. Set `luw`, `zos` or `ibmi` to force it. |
+| **Use TLS** | No | Connect over TLS. Point **Port** at the server's TLS port. |
+| **CA Certificate (PEM)** | No | The certificate authority that signed the server certificate, pasted as PEM text. Needed when TLS is on and the server uses an internal CA. |
+
+<Frame>
+  <img src="/images/data-sources/ibm-db2/db2-connect-form.png" alt="IBM Db2 connection form" />
+</Frame>
+
+### Authentication
+
+**Username / Password**: a Db2 user and password (on z/OS, the RACF user ID). It can be shared by the whole organization or set per user.
+
+Click **Connect**. BOW saves the connection, tests it, and discovers the tables.
+
+<Frame>
+  <img src="/images/data-sources/ibm-db2/db2-connected.png" alt="IBM Db2 connection saved, 4 tables discovered" />
+</Frame>
+
+### Troubleshooting
+
+| Message | Fix |
+|---|---|
+| `SQL1598N` … licensing problem | Db2 for z/OS (or IBM i over this connector) needs Db2 Connect. Ask your Db2 admin to activate it on the server, or use **IBM i (Db2 for i)** for IBM i. |
+| `SQL30081N` communication error | BOW cannot reach the host and port. Check the address, the port, and firewalls. |
+| `SQL0204N` … is an undefined name | The table or schema doesn't exist for this user, or its name is mixed-case. Quote mixed-case names exactly: `"MySchema"."Orders"`. |
+| No tables discovered | Check **Schema**, and that the user can read the tables and the catalog views. |
+| The IBM Db2 driver (ibm_db) is not installed | BOW is running on Linux ARM64. See **Before you start**. |
+
+## IBM i (Db2 for i)
+
+### How it works
+
+BOW connects through **Mapepire**, IBM's open-source database server for IBM i. Mapepire runs on the IBM i, and BOW talks to it over an encrypted connection. No Db2 Connect license and no ODBC driver are needed, and it works on every platform BOW runs on.
+
+Each BOW connection opens an IBM i database job that:
+
+- Uses SQL naming, so agents write `LIBRARY.TABLE` (not `LIBRARY/TABLE`)
+- Is read-only, so the job itself refuses writes, in addition to BOW's query check
+
+BOW reads the `QSYS2` catalog: tables, physical and logical files, views, text descriptions and long comments, primary keys and foreign keys. IBM-supplied libraries (`Q*`, `SYS*`) are skipped unless you list them.
+
+### Before you start
+
+1. Install and start Mapepire on the IBM i (once per system):
+   ```bash
+   yum install mapepire-server
+   sc start mapepire
+   ```
+   It listens on port `8076`.
+2. Allow network access from BOW to that port.
+3. Use an IBM i user profile with read authority to the libraries you want to query.
+4. Get the server certificate. Mapepire creates a self-signed certificate unless you install your own. Paste it (or the CA that signed it) into **Server Certificate (PEM)**.
+
+### Fields
+
+| Field | Required | Description |
+|---|---|---|
+| **Host** | Yes | IBM i hostname or IP address. |
+| **Mapepire port** | Yes | Default `8076`. |
+| **Libraries** | No | A library, or a comma-separated list, to index. Leave empty to index every non-system library. |
+| **Verify TLS certificate** | No | On by default. Checks the server certificate against **Server Certificate (PEM)**, or against the system's trusted certificates if that field is empty. Turn it off only on a trusted network. |
+| **Server Certificate (PEM)** | No | The Mapepire server certificate, or the CA that signed it, pasted as PEM text. |
+
+<Frame>
+  <img src="/images/data-sources/ibm-db2/ibmi-connect-form.png" alt="IBM i connection form" />
+</Frame>
+
+### Authentication
+
+**User profile / Password**: an IBM i user profile and password. It can be shared by the whole organization or set per user.
+
+<Frame>
+  <img src="/images/data-sources/ibm-db2/ibmi-connected.png" alt="IBM i connection saved, 4 tables discovered" />
+</Frame>
+
+### Troubleshooting
+
+| Message | Fix |
+|---|---|
+| … is the Mapepire server running on the IBM i … | Start it with `sc start mapepire`, and check the port and firewalls. |
+| `certificate verify failed` | Paste the Mapepire server certificate into **Server Certificate (PEM)**, or turn off **Verify TLS certificate** on a trusted network. |
+| `HTTP 401` | Wrong user profile or password. |
