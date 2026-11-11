@@ -2,6 +2,7 @@
 from datetime import datetime
 
 from sqlalchemy import select
+from sqlalchemy.orm import lazyload
 
 from app.models.step_user_result import StepUserResult
 
@@ -30,3 +31,20 @@ async def store_viewer_result(db, *, step_id, user_id, params_fingerprint, **val
     return (await db.execute(
         select(StepUserResult).filter_by(**key).execution_options(populate_existing=True)
     )).scalar_one()
+
+
+async def find_viewer_result(db, *, step_id, user_id, params_fingerprint):
+    """The viewer's stored result for this step and parameter set, or None.
+
+    Columns only. StepUserResult.step and .user are lazy="selectin" and fan out
+    through Step.query to the report graph: a plain select sent ~44 statements
+    (~50 ms) on every run that finds a stored row, for relations the callers
+    never read (they use status, last_run_at and data).
+    """
+    return (await db.execute(
+        select(StepUserResult).options(lazyload("*")).where(
+            StepUserResult.step_id == str(step_id),
+            StepUserResult.user_id == str(user_id),
+            StepUserResult.params_fingerprint == params_fingerprint,
+        )
+    )).scalars().first()
