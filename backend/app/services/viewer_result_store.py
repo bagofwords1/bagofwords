@@ -40,3 +40,20 @@ async def store_viewer_result(db, *, step_id, user_id, params_fingerprint, **val
         .options(lazyload("*"))
         .execution_options(populate_existing=True)
     )).scalar_one()
+
+
+async def find_viewer_result(db, *, step_id, user_id, params_fingerprint):
+    """The viewer's stored result for this step and parameter set, or None.
+
+    Columns only. StepUserResult.step and .user are lazy="selectin" and fan out
+    through Step.query to the report graph: a plain select sent ~44 statements
+    (~50 ms) on every run that finds a stored row, for relations the callers
+    never read (they use status, last_run_at and data).
+    """
+    return (await db.execute(
+        select(StepUserResult).options(lazyload("*")).where(
+            StepUserResult.step_id == str(step_id),
+            StepUserResult.user_id == str(user_id),
+            StepUserResult.params_fingerprint == params_fingerprint,
+        )
+    )).scalars().first()
