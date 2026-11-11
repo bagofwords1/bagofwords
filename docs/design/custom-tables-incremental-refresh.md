@@ -1,0 +1,318 @@
+# Custom tables: run history, incremental refresh, normalization — plan
+
+Status: **plan, not implemented**. Scope agreed: build phases 1–3 now; phase 4
+(transform layer over DuckDB) is future work, but every phase below must leave
+the door open for it (see "Phase-4 readiness").
+
+Verification follows `.agents/skills/sandbox-feedback-loop/SKILL.md`: each
+phase ships a deterministic Loop A (no external services) and a live Loop B
+against real Postgres and SQL Server engines in Docker. Results are recorded in
+`docs/feedback-loops/custom-table-incremental-refresh.md`.
+
+---
+
+## 1. Why (product)
+
+An admin who caches `SELECT … FROM orders` today pays a **full re-extraction
+on every refresh**: one long query against the source (up to 30 min,
+`extractor.DEFAULT_MAX_SECONDS`), holding the per-connection volume lock so
+every sibling custom table on that connection waits behind it. Large tables
+either hit the 5M-row / 2 GiB caps or make the source DB "feel stuck". There is
+also no history: the row only remembers the *last* refresh status, so nobody
+can answer "what did yesterday's 03:00 run load?".
+
+Target: first load in resumable chunks; subsequent refreshes fetch only rows
+at/after a stored checkpoint (minus a lookback); every run leaves an auditable
+record of what it fetched and produced.
+
+## 2. Current state (validated, cite before changing)
+
+| Fact | Where |
+|---|---|
+| Refresh = estimate → full extract into a **new uuid file** → conditional-UPDATE swap → delete old | `backend/app/services/custom_query_service.py:659` (`refresh`), swap at `:752` |
+| Extraction streams 50k-row Arrow batches into DuckDB; caps rows/bytes/seconds | `backend/app/data_sources/fast/extractor.py` (`extract_to_artifact`, `BATCH_ROWS`) |
+| Source protocol: `estimate / preview / stream_batches` | `backend/app/data_sources/fast/sources.py` (`ExtractionSource`, `SqlAlchemySource`) |
+| Artifacts are **write-once**; readers cache by path (`fresh=False`) and object storage persists them | `fast_client.py` (`connect`, `ensure_local(..., fresh=False)`), `artifacts.py`, `services/storage/__init__.py` |
+| One refresh per **connection** at a time (kernel file lock) | `artifacts.py` (`refresh_lock`) |
+| Windowed extraction over a date column already exists (PostHog, Power BI): `SELECT * FROM (<q>) WHERE col >= lo AND col < hi` | `posthog_source.py` (`_fetch`, `_windowed`), `powerbi_source.py` (`_windowed`) |
+| Run-history pattern with own-session writes, retention, interrupted detection | `services/dashboard_refresh_history.py`, `models/dashboard_refresh_run.py` |
+| No checkpoint / mode / key / lookback fields | `models/connection_table.py` |
+| Non-SQL connectors take JSON specs with native time windows (vROps `start_time`/`end_time` epoch ms) | `data_sources/clients/aria_operations_client.py:599` |
+| Pinned DuckDB has `MERGE INTO` and `COPY FROM DATABASE` (probe: 2M-row encrypted copy 0.23s, 11k-row merge 0.01s, local) | `pyproject.toml` `duckdb>=1.5.4,<1.6` |
+
+**Invariant to preserve:** a refresh never mutates a served file. Incremental
+runs must *copy the previous artifact → apply delta → publish a new uuid →
+swap*, so failure/cancel keeps the old data serving and multi-pod caching
+stays correct.
+
+---
+
+## 3. Phases
+
+### Phase 1 — Run history + pre-publish checks
+
+**Model** `CustomTableRun` (new table, migration `cqruns01`):
+
+| Column | Notes |
+|---|---|
+| `id`, `organization_id`, `connection_table_id` (FK, index) | |
+| `trigger` | `create` · `schedule` · `manual` · `sql_change` · `resume` |
+| `mode` | `full` · `incremental` · `backfill` |
+| `status` | `running` · `success` · `failed` · `cancelled` · `skipped` · `interrupted` |
+| `started_at`, `finished_at`, `elapsed_ms` | |
+| `triggered_by_user_id` | null for schedule |
+| `window_from`, `window_to` (JSON typed values) | checkpoint before / after — "what period did this run cover" |
+| `rows_read`, `rows_inserted`, `rows_updated`, `rows_deleted`, `artifact_bytes` | |
+| `artifact_path` | the file this run published (null if not published) |
+| `rendered_query` | text actually sent, window values filled (secrets never present — query text only) |
+| `schema_fingerprint` | hash of output columns+types (phase-4 drift detection) |
+| `inputs` (JSON) | upstream references; today `{"connection_id": …}`; phase 4: upstream table ids + their run ids |
+| `chunks` (JSON) | per-chunk `{from,to,rows,status}` — doubles as resume state |
+| `events` (JSON, capped ~200 entries / 64 KB) | structured log: estimate, chunk, merge, checks, swap, error |
+| `error` (clipped) | |
+
+**Service** `services/custom_table_runs.py` mirroring `dashboard_refresh_history`:
+own short session per write (a rolled-back refresh keeps its row), never
+raises into the refresh, `RETENTION_DAYS` purge job, rows left `running` past
+`max_seconds + margin` marked `interrupted` (server died mid-run).
+
+**Pre-publish checks** (run on the new file *before* the swap; fail ⇒ keep old,
+run = `failed`, reason in `events`):
+- row count dropped more than N% vs previous (configurable; off for tables
+  that legitimately shrink),
+- columns removed / type changed vs previous `schema_fingerprint` (warn on
+  incremental, fail on incremental merge because the copy-forward would be
+  inconsistent → forces a full refresh),
+- cursor column has NULLs (incremental only).
+
+**Rows carry lineage**: every materialized row gets hidden `_bow_run_id`
+and `_bow_loaded_at` columns; `FastQueryClient` registration exposes a
+view without them (agents never see them; `columns` stored on the row excludes
+them). Enables "rows added by run X" and phase-4 incremental transforms.
+
+**API/UI**: `GET /connections/{id}/custom-queries/{cq}/runs` (paged) and
+`/runs/{run_id}`; a **Runs** tab in `CustomQueryModal.vue` / tables page —
+list (time, trigger, mode, status, rows ±, duration) → detail (window, query,
+events). Buttons: Refresh now, Full refresh, Resume (failed initial load).
+i18n keys in `locales/{en,es,he}.json` (all three, identical shape).
+
+### Phase 2 — Incremental refresh (connector-agnostic core)
+
+**Per-table config** (columns on `ConnectionTable`, migration `cqincr01`):
+`refresh_mode` (`full`|`append`|`merge`|`replace_window`),
+`cursor_column`, `cursor_kind` (`timestamp`|`date`|`number`), `unique_key`
+(list), `lookback` (value + unit), `initial_value`, `chunk_size`
+(e.g. `1 month` / `100000` ids), `full_refresh_every_days`,
+`checkpoint` (JSON typed `{kind,value,tz}`), `definition_hash`.
+
+**Core (shared, never per connector):**
+1. Decide mode: full if no checkpoint, `definition_hash` changed, schema drift,
+   `full_refresh_every_days` elapsed, or user asked; else incremental.
+2. Window = `[checkpoint − lookback, ∞)`; initial/backfill = list of chunks
+   `[initial_value, …]` by `chunk_size`.
+3. For each window/chunk: ask the source for rows (step "Window interface"),
+   stream into a **staging** table in the new artifact; record chunk in run.
+4. Apply: `append` → INSERT; `merge` → `MERGE INTO t USING staging ON key`;
+   `replace_window` → `DELETE WHERE cursor in window` + INSERT (for GROUP BY
+   rollups / no key — Power BI-partition / dbt-microbatch semantics).
+5. New checkpoint = `SELECT max(cursor) FROM t` **on our copy** (type from
+   Arrow, no clock skew). Persist checkpoint in the **same conditional UPDATE
+   as the swap** — data and checkpoint move together or not at all.
+6. Caps: row/byte caps apply to the artifact total; the time cap applies per
+   run. An initial load that exceeds the time cap ends `failed` with completed
+   chunks recorded; **Resume** continues from the last completed chunk
+   (partial artifact kept as an unpublished `.tmp`-equivalent referenced by the
+   run, GC-protected for 24h).
+7. Lock: release the per-connection volume lock **between chunks** of an
+   initial load so sibling tables are not starved (re-acquire per chunk).
+
+**Window interface** (one new method on `ExtractionSource`, default provided):
+
+```python
+def stream_window(self, query, window: Window, batch_rows) -> Iterator[pa.Table]
+# Window = {column, kind, lo, lo_inclusive, hi, hi_inclusive}
+```
+
+How each family applies it — chosen by declaration on the client, not sniffed:
+
+| Family | Mechanism | Connectors |
+|---|---|---|
+| Placeholder in query text: `{{since}}` / `{{until}}` | Bound **parameters** via SQLAlchemy `text().bindparams` (driver handles literal + type) | Postgres, MySQL/MariaDB, SQL Server, Oracle, Snowflake, Trino, Fabric, SQLite, Sybase |
+| Placeholder, native params | BigQuery `ScalarQueryParameter`, ClickHouse params | BigQuery, ClickHouse |
+| Placeholder, rendered literal (no bind support) | per-source `render_literal(value, kind)` | Salesforce SOQL (`2026-11-01T00:00:00Z`), Power BI DAX, PostHog HogQL |
+| JSON spec window fields | client declares `INCREMENTAL_WINDOW = {"start": "start_time", "end": "end_time", "format": "epoch_ms"}`; core writes values into the spec | vROps (Aria Operations), CloudWatch, cost APIs, alert feeds |
+| Auto-wrap (convenience, SQL only, no placeholder) | `SELECT * FROM (<q>) bow_sub WHERE col >= :since` — UI warns pushdown is not guaranteed | SQL dialects that accept derived tables |
+| None | fetch all, filter locally in DuckDB — **correct but saves no source load**; UI says so | anything else |
+
+Placeholder semantics: when no checkpoint (full run), `{{since}}` binds the
+`initial_value` or the predicate is rewritten to always-true (`1=1` is not
+portable to SOQL/JSON — prefer binding a minimum value per kind).
+
+Generic `ExecuteQueryWindowSource`: for API connectors with no native source,
+runs `client.execute_query(spec_with_window)` per window and halves the window
+when a response hits the connector's row ceiling (PostHog algorithm,
+generalized). This is what makes non-SQL connectors eligible at all; adding
+one becomes "declare `INCREMENTAL_WINDOW` + a row ceiling" instead of a new
+source class. Accelerable-type gating (`ACCELERABLE_TYPES`) extends to
+"declares a window".
+
+**Time zones**: tz-aware → UTC; naive (common on SQL Server `datetime2`) →
+stored naive, compared naive, never mixed. Lookback absorbs DST/skew/late
+commits. SQL Server: recommend `rowversion` as a numeric cursor in the UI hint.
+
+**Out of scope for phase 2, tracked separately**: Salesforce acceleration
+(no extraction source today; `execute_query` caps at 10k rows; Bulk API 2.0
+for initial loads; `getDeleted()` for deletes).
+
+### Phase 3 — Normalization stage
+
+One stage between source batches and DuckDB, replacing per-source ad hoc code:
+UTC timestamps, decimal widening (`sources.arrow_table`), enum-as-string
+(ClickHouse), nested-record flattening (Salesforce `flatten_record`), column
+name sanitation + collision handling, stable type mapping table. Output
+contract documented: *every raw artifact looks the same whatever the
+connector* — this is the contract phase 4 SQL is written against.
+
+### Phase-4 readiness (what we must do now so a transform layer fits later)
+
+Phase 4 = derived tables defined in DuckDB SQL over other custom tables
+(including across connections), rebuilt when inputs refresh. To keep that
+open without building it:
+
+1. **Pipeline as steps**: refactor `refresh()` into
+   `extract → normalize → validate → publish` with `extract` pluggable. A
+   transform node later supplies an `extract` that runs DuckDB SQL over
+   attached upstream artifacts; normalize/validate/publish/run-history are
+   reused unchanged.
+2. **Don't deepen the connection coupling**: new code takes a *node*
+   (`ConnectionTable`) and reaches the connection only inside `extract`.
+   Lock keyed by **source** (connection) *and* **node** — so a future
+   connection-less node has a lock domain. Artifact dir stays per connection
+   for now; note the future org-level dir.
+3. **Run records carry `inputs` and `schema_fingerprint`** → lineage and drift
+   detection between nodes come for free.
+4. **Publish emits an event** (`custom_table.published {table_id, run_id}`)
+   via a tiny in-process dispatcher with no subscribers today; phase 4's
+   dependency scheduler subscribes instead of polling.
+5. **`_bow_run_id` / `_bow_loaded_at` on rows** → incremental transforms can
+   process only rows from new upstream runs.
+6. **Security**: keep RLS compile at serve time per relation; a derived node
+   will need the intersection of its inputs' policies and an org-level owner —
+   do not add any shortcut that assumes one connection per node in RLS code.
+7. `kind` stays a string; reserve `bow_derived` (no code).
+
+---
+
+## 4. Feedback loops
+
+### Loop A — deterministic (no Docker, no network)
+
+Extends the existing harness `tools/agent/custom_table_artifact_loop.py` /
+`tests/unit/test_fast_artifact_lifecycle.py` (real SQLite source, real
+encrypted DuckDB, real sessions):
+
+```sh
+cd backend && uv sync --frozen --extra dev
+uv run python ../tools/agent/custom_table_artifact_loop.py            # existing suite stays green
+uv run pytest tests/unit/test_custom_table_runs.py tests/unit/test_incremental_refresh.py -q
+```
+
+Invariants to assert (general, per `backend/tests/AGENTS.md` — not one magic case):
+- every refresh path (ok / source error / cancel / delete-race / failed swap)
+  leaves exactly one terminal run row with consistent counts;
+- incremental run reads only rows with cursor ≥ checkpoint − lookback (assert
+  via the source's executed SQL + bound params captured by a recording client);
+- after N incremental runs the artifact equals a full refresh of the same
+  source state (property: `full(source) == fold(incremental runs)` for append
+  and merge; random inserts/updates generated per test);
+- duplicate cursor values at the boundary are neither lost nor duplicated;
+- failed checks / failed chunk ⇒ old artifact still served, checkpoint unchanged;
+- resume after a mid-chunk failure produces the same artifact as an
+  uninterrupted load;
+- SQL change ⇒ next run is `full`;
+- served relation never exposes `_bow_*` columns;
+- JSON-window path: a fake API client with a row ceiling — window halving
+  covers the range exactly once.
+
+### Loop B — live engines (Docker)
+
+Docker CLI is present in cloud sandboxes but the daemon may not be running
+(observed: no `/var/run/docker.sock`). Start it (`dockerd &`) or use an
+existing server via env URLs. Fallback without Docker: `apt-get install
+postgresql` for the Postgres leg; SQL Server needs a container.
+
+```sh
+docker run -d --name bow-pg -e POSTGRES_PASSWORD=pw -p 55432:5432 postgres:16
+docker run -d --name bow-mssql -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD='Str0ng!Passw0rd' \
+  -p 51433:1433 mcr.microsoft.com/mssql/server:2022-latest
+export INCR_LOOP_PG_URL=postgresql://postgres:pw@localhost:55432/postgres
+export INCR_LOOP_MSSQL_URL='mssql+pyodbc://sa:...@localhost:51433/master?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes'
+cd backend && uv run python ../tools/agent/custom_table_incremental_loop.py
+```
+
+(Passwords above are throwaway local-container values; real credentials only
+via env, never committed.)
+
+New harness `tools/agent/custom_table_incremental_loop.py` seeds per engine:
+`orders(id pk, customer_id, amount, status, updated_at indexed)` ~2M rows over
+24 months; SQL Server variant adds `rv rowversion` and uses naive `datetime2`.
+Scenario, asserted step by step against the run records **and** the source:
+
+1. Create custom table (merge, key `id`, cursor `updated_at`, chunk 1 month,
+   lookback 1 day) → initial load completes as 24 chunks; artifact count == source count.
+2. Kill the backend mid-initial-load → run `interrupted`; Resume → completes;
+   artifact == source.
+3. Insert 1k rows, update 500 old rows (bump `updated_at`) → refresh →
+   `rows_read ≈ delta + lookback slice`, not 2M; artifact == source.
+4. **Pushdown proof**: Postgres `pg_stat_statements` / `EXPLAIN` of the
+   rendered query shows an Index Scan on `updated_at`; SQL Server
+   `SHOWPLAN_XML` shows an Index Seek. A wrapped (auto-wrap) query is measured
+   too, so the docs can state where pushdown fails.
+5. Late-arriving row (old `updated_at` inside lookback) → picked up;
+   outside lookback → not picked up until the periodic full refresh (documented).
+6. Hard delete → still present after incremental; gone after full refresh.
+7. Source lock impact: during an initial load, a concurrent sibling table
+   refresh on the same connection completes between chunks (lock released).
+8. SQL Server `rowversion` numeric cursor variant of steps 3–4.
+9. GROUP BY daily rollup with `replace_window` → last N days recomputed,
+   older days untouched; equals a full recompute.
+
+Record wall-clock + rows read per refresh, full vs incremental, as the
+evidence KPI.
+
+### Loop C — UI (stack + Playwright)
+
+`tools/agent/boot_stack.sh`, `seed_org.py`, Postgres container as the
+connection. Drive: enable incremental in `CustomQueryModal.vue`, run, open
+Runs tab, inspect a run, Full refresh, Resume. Before/after screenshots per
+the **ui-evidence** skill (en + he for RTL).
+
+### Optional Loop D — non-SQL
+
+Reuse the existing Aria sandbox (`tools/agent/aria_sandbox_setup.py`) or a
+small mock serving a metrics endpoint with a row ceiling: create a vROps
+custom table, assert windowed initial load, then incremental fetch of only the
+latest intervals (lookback covers the still-filling interval).
+
+---
+
+## 5. Delivery order & PR slicing
+
+| PR | Content | Loops |
+|---|---|---|
+| 1 | Pipeline-steps refactor of `refresh()` (no behavior change) + `CustomTableRun` + run API + Runs tab + pre-publish checks + `_bow_*` columns + publish event | A (existing suite unchanged + new run invariants), C |
+| 2 | Window interface, placeholder binding for SQLAlchemy dialects, checkpoint/lookback, append/merge, copy-forward publish | A, B (Postgres + SQL Server) |
+| 3 | Chunked resumable initial load, lock release between chunks, `replace_window` | A, B steps 2, 7, 9 |
+| 4 | Generic `ExecuteQueryWindowSource` + vROps declaration; BigQuery/ClickHouse/PostHog/Power BI window methods | A, D |
+| 5 | Normalization stage consolidation | A + rerun B |
+
+Each PR: feedback-loop section updated, release-notes skill for user-facing ones.
+
+## 6. Open questions for the owner
+
+1. Default lookback per kind (proposal: 1 day for timestamps, 0 for numeric).
+2. Default periodic full refresh (proposal: weekly, at the table's scheduled time).
+3. Run retention (proposal: 30 days like dashboard refresh history) and
+   whether to keep N previous artifacts for one-click restore (storage cost).
+4. Should auto-wrap exist at all, or placeholder-only for clarity?
+5. Row-drop threshold for the pre-publish check (proposal: fail on >50% drop, per-table override).
