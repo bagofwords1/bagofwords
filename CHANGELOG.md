@@ -6,6 +6,7 @@
 - Added custom tables on every connector that can run a query, including request-based ones such as Aria Operations (#1692)
 - Added IBM Db2 (LUW, z/OS) and IBM i as read-only data sources (#1690)
 - Added per-channel agent routing for Microsoft Teams, in the Teams integration settings (#1689)
+- Fixed public agents hiding their member list and Add member; access is now Can query / Can manage / Custom, with granular permissions under Advanced (#1694)
 - Fixed custom-table refreshes failing or rounding decimals when a later batch held larger values or the first was all NULL (#1685)
 - Fixed custom tables keeping only one of two same-named columns (`a.id, b.id`); both are now stored, as `id` and `id_1` (#1685, #1692)
 - Fixed dashboard runs for a viewer loading the whole report to read or save that viewer's result (#1686, #1687)
