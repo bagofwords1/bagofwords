@@ -386,7 +386,11 @@ def test_an_integer_column_that_later_gets_a_float_keeps_the_fraction(extract):
     (Decimal("0.123456789"), Decimal("1234567890123456789012345678901234567.25")),
 ])
 def test_a_column_that_outgrows_38_digits_becomes_double_with_a_warning(extract, caplog,
+                                                                         monkeypatch,
                                                                          first, later):
+    # alembic's fileConfig disables every logger that exists when an earlier test
+    # in the worker runs migrations, so the warning would reach no handler.
+    monkeypatch.setattr(extractor.logger, "disabled", False)
     batches = _one_column([[first], [later]])
     with caplog.at_level(logging.INFO, logger=extractor.logger.name):
         res, stored, types = extract(_Client([_desc("id"), _desc("amount", 65535, 65535)],
