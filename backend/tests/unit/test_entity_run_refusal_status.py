@@ -26,6 +26,16 @@ def test_a_quota_or_rate_limit_raised_in_the_sandbox_answers_429_with_its_messag
     assert answer.detail == message
 
 
+def test_a_connection_with_no_free_slot_reported_by_the_sandbox_answers_429_try_again():
+    """The child reports the parent's ConnectionBusyError by type name; its
+    text (which names the connection) is replaced by a fixed one."""
+    message = "Too many queries are already running against wh-secret (limit 4 concurrent)."
+    answer = _refusal_http_error(SandboxExecutionError(exc_type="ConnectionBusyError", message=message))
+    assert answer is not None
+    assert answer.status_code == 429
+    assert "Try again" in answer.detail and "wh-secret" not in answer.detail
+
+
 def test_a_host_without_the_sandbox_answers_503_with_the_operator_remedy():
     answer = _refusal_http_error(SandboxUnavailableError("process creation restriction is unavailable"))
     assert answer is not None

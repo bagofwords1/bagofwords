@@ -16,6 +16,7 @@ import asyncio
 import logging
 import sqlite3
 import uuid
+from contextlib import contextmanager
 
 import pytest
 from sqlalchemy import select
@@ -518,15 +519,16 @@ def test_entity_runs_answer_a_query_timeout_with_its_own_408(
 
 
 @pytest.mark.e2e
-@pytest.mark.parametrize("kind", _RUNS)
-def test_entity_runs_answer_a_swallowed_query_failure_with_its_own_422(
-    api, create_user, login_user, whoami, tmp_path, kind,
+def test_a_builder_run_answers_a_swallowed_query_failure_with_its_own_422(
+    api, create_user, login_user, whoami, tmp_path,
 ):
+    """The builder sees the query errors of their own code; a viewer run
+    answers entity.run_failed instead (see the viewer-run test below)."""
     token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
     ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db"))
     eid = _entity(api, token, org_id, ds_id, code=_SWALLOWING_CODE)
 
-    served, resp = _call(api, kind, token, org_id, ds_id, eid, 1)
+    served, resp = _call(api, "entity_run", token, org_id, ds_id, eid, 1)
     assert not served, resp.text
     assert resp.status_code == 422, resp.text
     assert resp.json()["error_code"] == "query.failed_silently", resp.text
@@ -728,7 +730,7 @@ def generate_df(ds_clients, excel_files, params):
 
 
 @pytest.mark.e2e
-@pytest.mark.parametrize("failure", ["warehouse_error", "sandbox_timeout", "sandbox_crash"])
+@pytest.mark.parametrize("failure", ["warehouse_error", "swallowed_query", "sandbox_timeout", "sandbox_crash"])
 def test_a_viewer_run_that_fails_outside_the_code_answers_422_without_the_error_text(
     create_user, login_user, whoami, tmp_path, monkeypatch, caplog, failure,
 ):
@@ -746,6 +748,10 @@ def test_a_viewer_run_that_fails_outside_the_code_answers_422_without_the_error_
         eid = _entity(client, token, org_id, ds_id)
         monkeypatch.setattr(SqliteClient, "execute_query", _warehouse_rejecting(bound))
         hidden, error_type = [bound, _REJECTED_TAIL, "bindings"], "ProgrammingError"
+    elif failure == "swallowed_query":
+        # The code hides the data source's error and returns no rows.
+        eid = _entity(client, token, org_id, ds_id, code=_SWALLOWING_CODE)
+        hidden, error_type = ["no_such_column", "no such column"], "SwallowedQueryError"
     elif failure == "sandbox_timeout":
         # The wall-clock budget runs out before the CPU budget.
         eid = _entity(client, token, org_id, ds_id, code=_SPINNING_CODE)
@@ -802,3 +808,295 @@ def test_a_viewer_run_whose_saved_code_fails_answers_422_without_the_code_error(
     builder = client.post(f"/api/entities/{eid}/run", json={}, headers=_headers(token, org_id))
     assert builder.status_code == 422, builder.text
     assert "KeyError" in builder.json()["detail"], builder.text
+
+
+# ── A slice the database refuses to save leaves no trace of the database ─
+
+@contextmanager
+def _slice_saved_first_by_another_request(monkeypatch, org_id):
+    """Another request saves the same reader's slice, for the same values,
+    after this run looked for it and before it inserts its own: the database
+    refuses the second insert, by its unique constraint
+    (uq_entity_user_results_entity_user_params), or, on SQLite, because the
+    run's read snapshot is no longer the latest ("database is locked").
+    Yields what the refused insert binds that must never be shown or logged:
+    the fingerprint of the values."""
+    import os
+
+    from sqlalchemy import create_engine, event
+    from sqlalchemy.orm import Session
+
+    from app.data_sources.clients.sqlite_client import SqliteClient
+    from app.models.entity_user_result import EntityUserResult
+
+    state = {"queried": False, "fingerprints": []}
+    sent = SqliteClient.execute_query
+
+    def querying(self, sql):
+        result = sent(self, sql)
+        state["queried"] = True
+        return result
+
+    other = create_engine(os.environ["TEST_DATABASE_URL"])
+
+    def after_lookup(conn, cursor, statement, parameters, context, executemany):
+        if not state["queried"] or state["fingerprints"]:
+            return
+        if not statement.lstrip().upper().startswith("SELECT") or "FROM entity_user_results" not in statement:
+            return
+        entity_id, user_id, fingerprint = list(parameters)[:3]
+        state["fingerprints"].append(fingerprint)
+        with Session(other) as s:
+            s.add(EntityUserResult(entity_id=entity_id, user_id=user_id, organization_id=org_id,
+                                   params_fingerprint=fingerprint, status="success", data={}))
+            s.commit()
+
+    app_engine = async_session_maker.kw["bind"].sync_engine
+    monkeypatch.setattr(SqliteClient, "execute_query", querying)
+    event.listen(app_engine, "after_cursor_execute", after_lookup)
+    try:
+        yield state["fingerprints"]
+    finally:
+        event.remove(app_engine, "after_cursor_execute", after_lookup)
+        other.dispose()
+
+
+def _assert_no_database_text(fingerprints, value, *texts):
+    assert fingerprints, "the conflicting slice was never saved"
+    for text in texts:
+        assert "INSERT INTO entity_user_results" not in text, text
+        assert "[parameters:" not in text and "[SQL:" not in text, text
+        assert "UNIQUE constraint" not in text and "duplicate key" not in text, text
+        assert "database is locked" not in text, text
+        assert fingerprints[0] not in text and str(value) not in text, text
+
+
+_REFUSED_VALUE = 7310459
+
+
+@pytest.mark.e2e
+def test_a_viewer_run_whose_slice_the_database_refuses_answers_500_without_its_text(
+    create_user, login_user, whoami, tmp_path, monkeypatch, caplog,
+):
+    client = _plain_client()
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db"))
+    eid = _entity(client, token, org_id, ds_id)
+    _watch_app_logs(monkeypatch)
+
+    with caplog.at_level(logging.WARNING), _slice_saved_first_by_another_request(monkeypatch, org_id) as fps:
+        resp = client.post(f"/api/entities/{eid}/run", json={"params": {"v": _REFUSED_VALUE}},
+                           headers=_headers(token, org_id))
+    assert resp.status_code == 500, resp.text
+    assert resp.json()["error_code"] == "generic", resp.text
+    _assert_no_database_text(fps, _REFUSED_VALUE, resp.text, caplog.text)
+    assert not _handled_by_the_global_handler(caplog), caplog.text
+    lost = [r.getMessage() for r in caplog.records
+            if r.name == "app.services.entity_service" and "not saved" in r.getMessage()]
+    assert len(lost) == 1 and eid in lost[0], caplog.text
+    assert "IntegrityError" in lost[0] or "OperationalError" in lost[0], lost
+
+
+async def _describe_in_one_session(org_id, user_id, eid, params):
+    """describe_entity on the agent's session, then the agent's next read on
+    that same session."""
+    from app.ai.tools.implementations.describe_entity import DescribeEntityTool
+    from app.models.entity import Entity
+    from app.models.organization import Organization
+    from app.models.user import User
+
+    async with async_session_maker() as db:
+        org = await db.get(Organization, org_id)
+        user = await db.get(User, user_id)
+        settings = await org.get_settings(db)
+        events = [evt async for evt in DescribeEntityTool().run_stream(
+            {"name_or_id": eid, "params": params},
+            {"db": db, "organization": org, "user": user, "settings": settings},
+        )]
+        title = (await db.execute(select(Entity.title).where(Entity.id == eid))).scalar_one()
+        return events[-1].payload, title
+
+
+@pytest.mark.e2e
+def test_describe_entity_whose_slice_the_database_refuses_reports_a_fixed_message_and_keeps_the_session(
+    api, create_user, login_user, whoami, tmp_path, monkeypatch, caplog,
+):
+    import json
+
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db"))
+    eid = _entity(api, token, org_id, ds_id)
+    _watch_app_logs(monkeypatch)
+
+    with caplog.at_level(logging.WARNING), _slice_saved_first_by_another_request(monkeypatch, org_id) as fps:
+        payload, title = _run(_describe_in_one_session(org_id, user_id, eid, {"v": _REFUSED_VALUE}))
+    out, obs = payload["output"], payload["observation"]
+    assert not out["success"]
+    assert out["errors"] == ["Code execution failed: The run's result could not be saved."], out["errors"]
+    assert obs["errors"] == out["errors"] and obs["title"] == title, obs
+    _assert_no_database_text(fps, _REFUSED_VALUE, json.dumps(payload, default=str), caplog.text)
+    assert not _handled_by_the_global_handler(caplog), caplog.text
+
+
+@pytest.mark.e2e
+def test_mcp_describe_entity_whose_slice_the_database_refuses_reports_a_fixed_message(
+    create_user, login_user, whoami, enable_mcp, create_api_key, tmp_path, monkeypatch, caplog,
+):
+    import json
+
+    client = _plain_client()
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    enable_mcp(user_token=token, org_id=org_id)
+    api_key = create_api_key(user_token=token, org_id=org_id)["key"]
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db"))
+    eid = _entity(client, token, org_id, ds_id)
+    _watch_app_logs(monkeypatch)
+
+    with caplog.at_level(logging.WARNING), _slice_saved_first_by_another_request(monkeypatch, org_id) as fps:
+        resp = client.post("/api/mcp", headers={"X-API-Key": api_key}, json={
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "describe_entity", "arguments": {"name_or_id": eid, "params": {"v": _REFUSED_VALUE}}},
+        })
+    assert resp.status_code == 200, resp.text
+    out = json.loads(resp.json()["result"]["content"][0]["text"])
+    assert out["error_message"] == "Running the saved query failed: The run's result could not be saved.", out
+    assert out["entity_id"] == eid and not out["rows"], out
+    _assert_no_database_text(fps, _REFUSED_VALUE, resp.text, caplog.text)
+    assert not _handled_by_the_global_handler(caplog), caplog.text
+
+
+# ── A viewer run answers the reader's own mistakes and a busy source honestly ─
+
+@pytest.mark.e2e
+def test_a_builder_run_whose_saved_result_cannot_be_read_back_says_it_was_saved(
+    create_user, login_user, whoami, tmp_path, monkeypatch, caplog,
+):
+    """The run's result is committed, then the row is gone before it is read
+    back (another request deleted the entity): the answer and the log say the
+    result was saved, not that saving it failed."""
+    import os
+
+    from sqlalchemy import create_engine, event, text
+    from sqlalchemy.orm import Session
+
+    from app.models.entity import Entity
+
+    client = _plain_client()
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db"))
+    eid = _entity(client, token, org_id, ds_id)
+    other = create_engine(os.environ["TEST_DATABASE_URL"])
+    deleted = []
+
+    def delete_after_commit(session):
+        if deleted or not any(isinstance(o, Entity) and o.id == eid for o in session.identity_map.values()):
+            return
+        with other.begin() as conn:
+            conn.execute(text("DELETE FROM entity_data_source_association WHERE entity_id = :e"), {"e": eid})
+            conn.execute(text("DELETE FROM entities WHERE id = :e"), {"e": eid})
+        deleted.append(eid)
+
+    _watch_app_logs(monkeypatch)
+    event.listen(Session, "after_commit", delete_after_commit)
+    try:
+        with caplog.at_level(logging.WARNING):
+            resp = client.post(f"/api/entities/{eid}/run", json={}, headers=_headers(token, org_id))
+    finally:
+        event.remove(Session, "after_commit", delete_after_commit)
+        other.dispose()
+    assert deleted, "the entity was never deleted after the commit"
+    assert resp.status_code == 500, resp.text
+    assert resp.json()["detail"] == "The run's result was saved but could not be read back.", resp.text
+    assert not _handled_by_the_global_handler(caplog), caplog.text
+    logged = [r.getMessage() for r in caplog.records if r.name == "app.services.entity_service"]
+    assert any(eid in m and "saved but not read back" in m for m in logged), caplog.text
+    assert not any("not saved" in m for m in logged), caplog.text
+
+
+_CALENDAR_CODE = """
+def generate_df(ds_clients, excel_files, params, calendar_date_bounds):
+    client = [c for key, c in ds_clients.items() if ":" in key][0]
+    start, stop = calendar_date_bounds(params["d"])
+    return client.execute_query("SELECT COUNT(*) AS n FROM orders")
+"""
+_D_SPEC = {"name": "d", "type": "date_range", "label": "D", "default": None, "required": False, "source": "input"}
+
+
+@pytest.mark.e2e
+def test_a_viewer_run_with_values_the_saved_code_cannot_use_answers_400_with_the_reason(
+    api, create_user, login_user, whoami, tmp_path,
+):
+    """calendar_date_bounds refuses timestamps while the saved code runs: the
+    reader's own values are wrong, so the answer says why, as for any other
+    bad value."""
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db"))
+    created = api.post(
+        "/api/entities",
+        json={"type": "model", "title": f"e-{uuid.uuid4().hex[:6]}", "code": _CALENDAR_CODE, "status": "published",
+              "parameters": [_D_SPEC], "data_source_ids": [ds_id]},
+        headers=_headers(token, org_id),
+    )
+    assert created.status_code == 200, created.text
+
+    resp = api.post(f"/api/entities/{created.json()['id']}/run",
+                    json={"params": {"d": {"from": "2024-01-01T10:00:00", "to": "2024-01-02"}}},
+                    headers=_headers(token, org_id))
+    assert resp.status_code == 400, resp.text
+    assert "calendar_date_bounds accepts calendar dates only" in resp.json()["detail"], resp.text
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("kind", _RUNS)
+def test_entity_runs_answer_a_connection_without_a_free_slot_with_429_and_try_again(
+    api, create_user, login_user, whoami, tmp_path, kind,
+):
+    """Every concurrency slot of the connection is held by other queries: the
+    run is refused for now, not failed."""
+    from contextlib import ExitStack
+
+    from app.data_sources import query_concurrency
+
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    ds_id, conn_id = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db", query_timeout_seconds=1))
+    eid = _entity(api, token, org_id, ds_id)
+
+    with ExitStack() as running:
+        for _ in range(query_concurrency.DEFAULT_MAX_CONCURRENT_QUERIES):
+            running.enter_context(query_concurrency.slot(
+                conn_id, query_concurrency.DEFAULT_MAX_CONCURRENT_QUERIES, wait_seconds=1))
+        served, resp = _call(api, kind, token, org_id, ds_id, eid, 1)
+    assert not served, resp.text
+    reason = _refusal_text(kind, resp, 429)
+    assert "try again" in (reason or "").lower(), resp.text
+    assert "wh-" not in reason, resp.text
+
+
+_DUPLICATE_COLUMNS_CODE = """
+def generate_df(ds_clients, excel_files, params):
+    import pandas as pd
+    client = [c for key, c in ds_clients.items() if ":" in key][0]
+    n = int(client.execute_query("SELECT COUNT(*) AS n FROM orders")["n"][0])
+    return pd.DataFrame([[n, n]], columns=["n", "n"])
+"""
+
+
+@pytest.mark.e2e
+def test_a_viewer_run_whose_result_cannot_be_shown_answers_422_like_a_failed_run(
+    create_user, login_user, whoami, tmp_path, monkeypatch, caplog,
+):
+    """Turning the saved code's result into rows is part of the run: a result
+    that cannot be shown is a failed run (422 entity.run_failed), not a server
+    error."""
+    client = _plain_client()
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db"))
+    eid = _entity(client, token, org_id, ds_id, code=_DUPLICATE_COLUMNS_CODE)
+    _watch_app_logs(monkeypatch)
+
+    with caplog.at_level(logging.WARNING):
+        resp = client.post(f"/api/entities/{eid}/run", json={"params": {"v": 1}}, headers=_headers(token, org_id))
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["error_code"] == "entity.run_failed", resp.text
+    assert "unique" not in resp.text, resp.text
+    assert not _handled_by_the_global_handler(caplog), caplog.text

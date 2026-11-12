@@ -258,6 +258,9 @@ class DescribeEntityMCPTool(MCPTool):
             if not (entity.code or "").strip():
                 error_message = "This saved query has no code to run."
             else:
+                # Read before the run: the except block reads no instance,
+                # which a failed save may have left expired.
+                entity_id, snapshot = str(entity.id), grid
                 try:
                     from app.services.entity_service import EntityService
                     run = await EntityService().run_entity_for_user(
@@ -269,11 +272,11 @@ class DescribeEntityMCPTool(MCPTool):
                 except Exception as e:
                     # By type only: run errors quote the values they failed on.
                     from app.errors.redact import describe_for_log
-                    logger.error("describe_entity run failed for %s: %s", entity.id, describe_for_log(e))
+                    logger.error("describe_entity run failed for %s: %s", entity_id, describe_for_log(e))
                     error_message = f"Running the saved query failed: {str(e)[:300]}"
                     # Never fall back to a snapshot that is withheld from this
                     # reader, or that answers different parameter values.
-                    grid = {} if (withheld or request_values) else (entity.data or {})
+                    grid = {} if request_values else snapshot
                     rows_source = "withheld" if withheld else "snapshot"
 
         rows = (grid or {}).get("rows") or []

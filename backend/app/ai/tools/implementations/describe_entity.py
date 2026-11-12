@@ -307,6 +307,9 @@ class DescribeEntityTool(Tool):
             # user, values). No code generation anywhere on this path; a
             # repeat with the same values is served from the cache.
             yield ToolProgressEvent(type="tool.progress", payload={"stage": "code_execution"})
+            # Read before the run: the except block reads no instance, which
+            # a failed save may have left expired.
+            snapshot = entity_data
             try:
                 if not (entity.code or "").strip():
                     errors.append("Entity has no code to execute")
@@ -327,7 +330,7 @@ class DescribeEntityTool(Tool):
                 # Fall back to cached data — but never to a snapshot the
                 # policy withholds from this reader, and never to a snapshot
                 # that answers different parameter values than asked.
-                entity_data = {} if (snapshot_withheld or request_values) else (entity.data or {})
+                entity_data = {} if request_values else snapshot
 
         # Build data profile
         allow_llm_see_data = True

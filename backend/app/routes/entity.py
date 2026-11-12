@@ -76,21 +76,28 @@ def _previews_new_code(code: Optional[str], stored: Optional[str]) -> bool:
     return bool((code or "").strip()) and _sends_new_code(code, stored)
 
 
+# The answer to a run whose queries found no free slot on their connection.
+_CONNECTION_BUSY = "Too many queries are running on this data source right now. Try again in a moment."
+
+
 def _refusal_http_error(exc: Optional[BaseException]) -> Optional[HTTPException]:
     """The answer to a run that was refused, or None for any other failure.
 
     A refusal declines the caller's request; it is neither a missing entity
     nor a server fault. 403 for the query guard and the code scan, and for
     in-process execution refused on this host; 429 for a connection rate
-    limit or a usage quota; 503 when this host cannot provide the sandbox
-    (the text tells the operator what to change). Each carries the refusal's
-    own text. What counts as a refusal is `is_run_refusal`'s call, the test
+    limit or a usage quota, and with a fixed try-again text for a connection
+    whose query slots are all taken; 503 when this host cannot provide the
+    sandbox (the text tells the operator what to change). Each other refusal
+    carries its own text. What counts as a refusal is `is_run_refusal`'s call, the test
     the service also applies before it answers a failed viewer run itself."""
     from app.ai.code_execution.code_execution import CodeSecurityError
     from app.ai.code_execution.sandbox.runner import (
         SandboxModeRefused,
         SandboxUnavailableError,
     )
+    from app.ai.code_execution.sandbox.runner import SandboxExecutionError
+    from app.data_sources.query_concurrency import ConnectionBusyError
     from app.routes.usage_limits import _quota_http_error
     from app.services.connection_rate_limit_service import RateLimitExceeded
     from app.services.entity_service import is_run_refusal
@@ -98,6 +105,9 @@ def _refusal_http_error(exc: Optional[BaseException]) -> Optional[HTTPException]
 
     if not is_run_refusal(exc):
         return None
+    if isinstance(exc, ConnectionBusyError) or (
+            isinstance(exc, SandboxExecutionError) and exc.exc_type == "ConnectionBusyError"):
+        return HTTPException(status_code=429, detail=_CONNECTION_BUSY)
     if isinstance(exc, (CodeSecurityError, SandboxModeRefused)):
         return HTTPException(status_code=403, detail=str(exc))
     if isinstance(exc, SandboxUnavailableError):
@@ -578,10 +588,13 @@ async def run_entity(
         # the original error, which keeps its own status: a refusal its
         # refusal status, a typed error (query timeout 408, swallowed query
         # failure 422, ...) the one its handler gives. Any other failure of
-        # the code or its queries is a 422 with its reason; a warehouse
-        # client's SQLAlchemy error gives the driver's reason, without the
-        # statement and bound values SQLAlchemy appends. (A failed save of
-        # the result is not a ValueError: the service answers it itself.)
+        # the code or its queries is a 422 with its reason. For a warehouse
+        # client's SQLAlchemy error the reason is the driver's own text,
+        # without the [SQL: ...] and [parameters: ...] SQLAlchemy appends;
+        # the driver's text itself may quote the statement, which is the
+        # builder's own query, shown only to them and never logged. (A failed
+        # save of the result is not a ValueError: the service answers it
+        # itself.)
         cause = e.__cause__
         refusal = _refusal_http_error(cause)
         if refusal is not None:
