@@ -1606,7 +1606,7 @@ function _dtDetectDir(cols, rows) {
       var clickable = selectable || !!props.onRowClick;
       return h('tr', { key: i, onClick: function() { clickRow(row, i); },
         tabIndex: clickable && onPage ? 0 : undefined, 'aria-selected': selectable ? isSel : undefined,
-        onKeyDown: clickable ? function(e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); clickRow(row, i); } } : undefined,
+        onKeyDown: clickable ? function(e) { if (e.target !== e.currentTarget) return; /* keys typed in a cell's own input, button or link are theirs */ if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); clickRow(row, i); } } : undefined,
         className: 'bow-dt-row ' + (onPage ? '' : 'bow-dt-offpage hidden ') + DT.tr + (isSel ? DT.trSel : (zebra ? DT.trZebra : '') + DT.trHover) + (clickable ? 'cursor-pointer' : '') },
         cols.map(function(c, j) {
           var numeric = numericByField[c.field];

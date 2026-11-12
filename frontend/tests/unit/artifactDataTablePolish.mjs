@@ -18,12 +18,15 @@ function App() {
   const viz = vizById("${VIZ}");
   const [data, setData] = useState(viz.rows);
   const [clicked, setClicked] = useState('');
+  const [opened, setOpened] = useState(0);
   return (
     <div className="p-4 space-y-6">
       <div id="fmt"><DataTable viz={viz} rows={data} format={n => fmt(n)} rowKey="id" onRowClick={r => setClicked(String(r.id))} /></div>
       <button id="refresh" onClick={() => setData(data.map(r => ({ ...r })))}>refresh</button>
       <p id="clicked">{clicked}</p>
       <div id="card" style={{ width: 520 }}><SectionCard viz={viz}><DataTable viz={viz} /></SectionCard></div>
+      <div id="edit"><DataTable viz={viz} onRowClick={() => setOpened(n => n + 1)} renderCell={(v, r, c) => c.field === 'year' ? <input className="cell-in" defaultValue="" /> : null} /></div>
+      <p id="opened">{opened}</p>
     </div>
   );
 }
@@ -65,5 +68,12 @@ try{
  });
  const overlap=!(boxes.csv[2]<=boxes.info[0]||boxes.info[2]<=boxes.csv[0]||boxes.csv[3]<=boxes.info[1]||boxes.info[3]<=boxes.csv[1]);
  assert.equal(overlap,false,`the CSV button is clear of the card's info icon (${JSON.stringify(boxes)})`);
- console.log('PASS: DataTable years and IDs as-is, keyboard rows, selection by rowKey, CSV clear of the info icon');
+ // keys typed in a cell's own control stay with the control
+ await frame.focus('#edit tbody tr:first-child .cell-in');
+ await page.keyboard.press('Space'); await page.keyboard.press('Enter');
+ assert.equal(await frame.inputValue('#edit tbody tr:first-child .cell-in'), ' ', 'Space reaches the input in a cell');
+ assert.equal(await frame.textContent('#opened'), '0', 'Enter and Space in a cell input do not open the row');
+ await frame.focus('#edit tbody tr:first-child'); await page.keyboard.press('Enter');
+ assert.equal(await frame.textContent('#opened'), '1', 'Enter on the row itself still opens it');
+ console.log('PASS: DataTable years and IDs as-is, keyboard rows, selection by rowKey, CSV clear of the info icon, cell controls keep their keys');
 }finally{await browser.close()}
