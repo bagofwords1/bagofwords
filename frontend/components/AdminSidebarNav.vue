@@ -13,12 +13,15 @@
     >
       <UTooltip v-if="collapsed" :text="$t('nav.backToApp')" :popper="{ placement: tooltipPlacement }">
         <span class="flex items-center justify-center w-5 h-5">
-          <UIcon name="i-heroicons-arrow-left" class="w-4 h-4 rtl-flip" />
+          <UIcon name="i-heroicons-arrow-left" class="w-4 h-4" />
         </span>
       </UTooltip>
       <template v-else>
-        <span class="flex items-center justify-center w-5 h-5">
-          <UIcon name="i-heroicons-arrow-left" class="w-4 h-4 rtl-flip transition-transform duration-fast group-hover:-translate-x-0.5 rtl:group-hover:translate-x-0.5" />
+        <!-- The icon itself is auto-mirrored under RTL (assets/css/rtl.css,
+             rule 6); the hover nudge sits on the wrapper so the two
+             transforms don't overwrite each other. -->
+        <span class="flex items-center justify-center w-5 h-5 transition-transform duration-fast group-hover:-translate-x-0.5 rtl:group-hover:translate-x-0.5">
+          <UIcon name="i-heroicons-arrow-left" class="w-4 h-4" />
         </span>
         <span v-if="showText">{{ $t('nav.backToApp') }}</span>
       </template>
@@ -40,7 +43,7 @@
       <span
         aria-hidden="true"
         :class="[
-          'admin-nav-pill absolute start-0 end-0 top-0 rounded-md bg-gray-200/70 dark:bg-gray-800 pointer-events-none',
+          'admin-nav-pill absolute left-0 top-0 rounded-md bg-gray-200/70 dark:bg-gray-800 pointer-events-none',
           pillReady ? 'admin-nav-pill--animated' : ''
         ]"
         :style="pillStyle"
@@ -68,12 +71,15 @@
               <UIcon :name="item.icon" />
             </span>
             <span v-if="showText" class="flex-1 truncate">{{ $t(item.label) }}</span>
+            <!-- Disclosure-chevron idiom (assets/css/rtl.css, rule 6): closed,
+                 the global RTL mirror points it at the inline end; open, it
+                 opts out with rtl-own-transform so rotate-90 points it down. -->
             <UIcon
               v-if="showText && item.children?.length"
               name="i-heroicons-chevron-right"
               :class="[
-                'w-3.5 h-3.5 text-ink-muted transition-transform duration-fast rtl-flip',
-                isItemActive(item) ? 'rotate-90 rtl:-rotate-90' : ''
+                'w-3.5 h-3.5 text-ink-muted transition-transform duration-fast',
+                isItemActive(item) ? 'rotate-90 rtl-own-transform' : ''
               ]"
             />
           </template>
@@ -166,12 +172,17 @@ const rowClass = (isActive: boolean, isParentOfActive: boolean, isChild = false)
 // instead of chasing it.
 const listEl = ref<HTMLElement | null>(null)
 const pillTop = ref(0)
+const pillLeft = ref(0)
+const pillWidth = ref(0)
 const pillHeight = ref(0)
 const pillVisible = ref(false)
 const pillReady = ref(false)
 
 const pillStyle = computed(() => ({
-  transform: `translateY(${pillTop.value}px)`,
+  // Physical left/translate on purpose: the values are measured rects, which
+  // are physical in both LTR and RTL.
+  transform: `translate(${pillLeft.value}px, ${pillTop.value}px)`,
+  width: `${pillWidth.value}px`,
   height: `${pillHeight.value}px`,
   opacity: pillVisible.value ? 1 : 0,
 }))
@@ -184,12 +195,16 @@ const measurePill = () => {
   if (!list || !activeKey.value) { pillVisible.value = false; return }
   const target = list.querySelector<HTMLElement>(`[data-admin-key="${activeKey.value}"]`)
   if (!target) { pillVisible.value = false; return }
-  let top = target.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop
+  const rect = target.getBoundingClientRect()
+  const listRect = list.getBoundingClientRect()
+  let top = rect.top - listRect.top + list.scrollTop
   if (pending && !pending.el.contains(target)
       && (pending.el.compareDocumentPosition(target) & Node.DOCUMENT_POSITION_FOLLOWING)) {
     top += pending.delta
   }
   pillTop.value = top
+  pillLeft.value = rect.left - listRect.left
+  pillWidth.value = rect.width
   pillHeight.value = target.offsetHeight
   pillVisible.value = true
 }
@@ -256,12 +271,22 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
   animation: admin-nav-in 180ms cubic-bezier(0.2, 0, 0, 1) both;
   animation-delay: calc(60ms + var(--i, 0) * 18ms);
 }
+/* The pill arrives with the rows, not ahead of them. Opacity only: its
+   transform is its position, which an animated transform would override. */
+@keyframes admin-nav-pill-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.admin-nav--animate .admin-nav-pill {
+  animation: admin-nav-pill-in 180ms ease-out 140ms both;
+}
 .admin-nav-pill {
   will-change: transform;
 }
 .admin-nav-pill--animated {
   transition:
     transform 220ms cubic-bezier(0.3, 1.25, 0.5, 1),
+    width 220ms cubic-bezier(0.2, 0, 0, 1),
     height 160ms cubic-bezier(0.2, 0, 0, 1),
     opacity 120ms ease-out;
 }
