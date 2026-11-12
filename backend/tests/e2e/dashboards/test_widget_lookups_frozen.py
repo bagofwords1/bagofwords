@@ -44,7 +44,9 @@ ALLOWED = {
     # missing, on paths guard_route closes to copies (a copy's "None" matches
     # nothing); the rerun picks the query's own steps when there is no widget.
     "services/query_service.py": 4,
-    "services/report_service.py": 1,
+    # served_steps is that rerun's resolution, moved out of report_service so
+    # the viewer policy asks the same rule (report_service now delegates).
+    "services/served_steps.py": 1,
     "services/step_service.py": 3,                       # get_step_by_id preloads the widget's report; legacy helper
     # Creating a conversation's query: the widget it names must be that conversation's.
     "routes/query.py": 1,

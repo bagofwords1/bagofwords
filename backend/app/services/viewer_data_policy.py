@@ -103,13 +103,15 @@ async def resolve_step_data(
             # '' is the "no params / defaults" key (StepUserResult) — rows
             # written before a query declared params, or without values.
             stmt = stmt.where(StepUserResult.params_fingerprint.in_({default_fp, ""}))
-        row = (await db.execute(
-            stmt.order_by(StepUserResult.last_run_at.desc())
-        )).scalars().first()
+        newest_first = stmt.order_by(StepUserResult.last_run_at.desc())
+        row = (await db.execute(newest_first)).scalars().first()
         if row is not None and await creator_result_holds_owner_slice(
             db, row, report.id if report is not None else step_report_id, getattr(step, "code", None)
         ):
-            row = None
+            # The owner's slice is not this viewer's; their newest result
+            # run as themselves (if any) still is. The rule is the step's, so
+            # it is asked once: every creator-credential row falls with it.
+            row = (await db.execute(newest_first.where(_not_run_as_creator()))).scalars().first()
         if row is not None:
             from app.services.access_errors import viewer_error_code
             viewer_result = {
@@ -159,25 +161,67 @@ async def resolve_step_data(
     return StepDataResolution(data=shared, viewer_result=viewer_result)
 
 
-async def step_run_data_source_ids(db: AsyncSession, report_id: str, code: str | None) -> list[str] | None:
-    """The data sources one step of a report runs on: the report's attached
-    ones, else the organization sources named by the step's code and by the
-    code of every step it load_step()s (loaded_step_codes), each counting all
-    of them when it names none -- the per-step rule
-    snapshot_withheld_for_viewers applies. None when the report does not
-    exist."""
-    ds_ids = await _report_data_source_ids(db, report_id)
-    if ds_ids:
-        return ds_ids
-    from app.models.query import Query
+async def run_data_source_ids(
+    db: AsyncSession, attached_ids: list[str], organization_id: str | None, codes, scope,
+) -> list[str]:
+    """The data sources a set of steps runs on -- the one rule behind every
+    "which sources" question of the viewer policy, for a conversation and for
+    a published dashboard alike.
+
+    The attached sources (`attached_ids`: a report's or a release's), when
+    there are any. Else -- the steps run on the organization's sources -- the
+    organization sources the steps reach, step by step
+    (fallback_ds_ids_for_codes), counting every step their code load_step()s
+    among the steps of `scope` (a Query filter: a report's queries or a
+    release's copies; loaded_step_codes). `codes` is the steps' code, or a
+    zero-argument coroutine function returning it, called only when the
+    organization's sources are the ones that count."""
+    if attached_ids:
+        return [str(i) for i in attached_ids]
+    if not organization_id:
+        return []
+    if callable(codes):
+        codes = await codes()
+    codes = await loaded_step_codes(db, list(codes), scope)
+    return fallback_ds_ids_for_codes(await _org_data_sources(db, organization_id), codes)
+
+
+async def _report_scope(db: AsyncSession, report_id: str) -> tuple[list[str], Any] | None:
+    """(the report's attached source ids, its organization id -- not looked
+    up when sources are attached, run_data_source_ids then needs none); None
+    when the report does not exist."""
     from app.models.report import Report
+
+    attached = await _report_data_source_ids(db, report_id)
+    if attached:
+        return attached, None
     org_id = (await db.execute(
         select(Report.organization_id).where(Report.id == str(report_id))
     )).scalar_one_or_none()
     if org_id is None:
         return None
-    codes = await loaded_step_codes(db, code, Query.report_id == str(report_id))
-    return fallback_ds_ids_for_codes(await _org_data_sources(db, org_id), codes)
+    return attached, org_id
+
+
+async def step_run_data_source_ids(db: AsyncSession, report_id: str, code: str | None) -> list[str] | None:
+    """The data sources one step of a report runs on (run_data_source_ids
+    with the step's `code`) -- the per-step rule snapshot_withheld_for_viewers
+    applies. None when the report does not exist."""
+    from app.models.query import Query
+
+    scope = await _report_scope(db, report_id)
+    if scope is None:
+        return None
+    attached, org_id = scope
+    return await run_data_source_ids(db, attached, org_id, [code], Query.report_id == str(report_id))
+
+
+def _not_run_as_creator():
+    """StepUserResult rows that did not run under the owner's credentials."""
+    from sqlalchemy import or_
+    from app.models.step_user_result import StepUserResult
+
+    return or_(StepUserResult.executed_as.is_(None), StepUserResult.executed_as != "creator")
 
 
 async def creator_result_holds_owner_slice(
@@ -206,62 +250,76 @@ def may_load_steps(code: str | None) -> bool:
     return bool(code) and "load_step" in unicodedata.normalize("NFKC", code)
 
 
-async def _loadable_steps(db: AsyncSession, scope) -> list:
-    """(id, code, slug, title) of every successful step of the queries in
-    `scope` (a Query filter: a report's queries or a release's copies),
-    deleted queries included. Not only the current default steps: a stored
-    snapshot was built from whichever step its load_step() reference matched
-    then, which may since have been superseded by a newer run."""
+async def _loadable_index(db: AsyncSession, scope) -> list:
+    """(id, slug, title) of every successful step of the queries in `scope`
+    (a Query filter: a report's queries or a release's copies), deleted
+    queries included -- not their code, which is read only for the steps a
+    reference reaches. Not only the current default steps: a stored snapshot
+    was built from whichever step its load_step() reference matched then,
+    which may since have been superseded by a newer run."""
     from app.models.query import Query
     from app.models.step import Step
 
     return (await db.execute(
-        select(Step.id, Step.code, Step.slug, Step.title)
+        select(Step.id, Step.slug, Step.title)
         .join(Query, Query.id == Step.query_id)
         .where(scope, Step.status == "success")
     )).all()
 
 
-async def loaded_step_codes(db: AsyncSession, code: str | None, scope) -> list[str]:
-    """`code` plus the code of every step it load_step()s, transitively,
-    among the steps of `scope` (_loadable_steps). [] for no code. Code that
-    cannot call load_step (may_load_steps) costs no query."""
-    if not code or not code.strip():
-        return []
-    if not may_load_steps(code):
-        return [code]
-    return closure_codes(await _loadable_steps(db, scope), [code])
-
-
-def closure_codes(loadable: list, codes: list[str]) -> list[str]:
-    """`codes` plus the code of every step of `loadable` ((id, code, slug,
-    title) rows) they reach through load_step, transitively. A reference
-    counts every step it can match -- by id, by slug or by title, any of them
-    current or not -- so a match is never missed. A reached step with no code
-    is returned as "" (it names no source, so all of them count)."""
+def referenced_step_ids(index: list, codes: list[str], seen: set) -> list[str]:
+    """Ids of the steps of `index` ((id, slug, title) rows) that `codes`
+    load_step() directly, leaving out those in `seen` (which gains them). A
+    reference counts every step it can match -- by id, by slug or by title,
+    any of them current or not -- so a match is never missed."""
     from collections import defaultdict
     from app.ai.code_execution.loadables import extract_loadable_refs
 
-    by_ref: dict[str, list] = defaultdict(list)
-    for row in loadable:
-        by_ref[str(row[0])].append(row)
-        for key in (row[2], row[3]):
+    by_ref: dict[str, list[str]] = defaultdict(list)
+    for step_id, slug, title in index:
+        by_ref[str(step_id)].append(str(step_id))
+        for key in (slug, title):
             if key:
-                by_ref[str(key).lower()].append(row)
+                by_ref[str(key).lower()].append(str(step_id))
 
-    out = list(codes)
-    seen: set[str] = set()
-    todo = [c for c in codes if may_load_steps(c)]
-    while todo:
-        refs, _ = extract_loadable_refs(todo.pop())
+    reached: list[str] = []
+    for code in codes:
+        if not may_load_steps(code):
+            continue
+        refs, _ = extract_loadable_refs(code)
         for ref in refs:
-            for row in by_ref.get(str(ref), []) + by_ref.get(str(ref).lower(), []):
-                if str(row[0]) in seen:
-                    continue
-                seen.add(str(row[0]))
-                out.append(row[1] or "")
-                if may_load_steps(row[1]):
-                    todo.append(row[1])
+            for step_id in by_ref.get(str(ref), []) + by_ref.get(str(ref).lower(), []):
+                if step_id not in seen:
+                    seen.add(step_id)
+                    reached.append(step_id)
+    return reached
+
+
+async def loaded_step_codes(db: AsyncSession, codes: list[str | None], scope) -> list[str]:
+    """The non-empty `codes` plus the code of every step they load_step(),
+    transitively, among the steps of `scope` (_loadable_index). A reached
+    step with no code is returned as "" (it reaches no client by key, so all
+    sources count for it). Code that cannot call load_step (may_load_steps)
+    costs no query; otherwise the index is read once and the code of the
+    reached steps once per level of references."""
+    from app.models.step import Step
+
+    out = [c for c in codes if c and c.strip()]
+    level = [c for c in out if may_load_steps(c)]
+    if not level:
+        return out
+    index = await _loadable_index(db, scope)
+    seen: set[str] = set()
+    while level:
+        ids = referenced_step_ids(index, level, seen)
+        if not ids:
+            break
+        code_by_id = {str(i): c for i, c in (await db.execute(
+            select(Step.id, Step.code).where(Step.id.in_(ids))
+        )).all()}
+        reached = [code_by_id.get(i) or "" for i in ids]
+        out.extend(reached)
+        level = [c for c in reached if may_load_steps(c)]
     return out
 
 
@@ -349,16 +407,14 @@ async def _org_fallback_ds_ids(
     clients by "<data source name>:<connection>" keys (see
     QueryService._report_data_sources). The withholding policy must mirror that
     fallback or a snapshot built on a user-scoped source slips past it. When the
-    step/entity code is available, only the sources it names by key are counted
-    (a Membership-DB report must not start withholding because the org also has
-    a delegated Power BI source); with no code to inspect, all org sources
-    count — over-withholding is the safe direction.
+    step/entity code reaches its clients only by literal key, only the sources
+    those keys name are counted (a Membership-DB report must not start
+    withholding because the org also has a delegated Power BI source);
+    otherwise -- no code, no key, or the clients reached some other way -- all
+    org sources count: over-withholding is the safe direction
+    (_sources_reached).
     """
-    rows = await _org_data_sources(db, organization_id)
-    hits = _named_in_code(rows, code)
-    if hits:
-        return hits
-    return [str(r[0]) for r in rows]
+    return _sources_reached(await _org_data_sources(db, organization_id), code)
 
 
 async def _org_data_sources(db: AsyncSession, organization_id: str | None) -> list:
@@ -374,36 +430,51 @@ async def _org_data_sources(db: AsyncSession, organization_id: str | None) -> li
     )).all()
 
 
-def _named_in_code(rows: list, code: str | None) -> list[str]:
-    """Ids of the (id, name) rows whose name the code contains — how generated
-    code reaches a source (`ds_clients["<data source name>:<connection>"]`)."""
-    if not code:
-        return []
-    return [str(r[0]) for r in rows if r[1] and str(r[1]) in code]
+def _sources_reached(rows: list, code: str | None) -> list[str]:
+    """Ids of the organization sources (rows: (id, name)) one step's code
+    runs on: those its literal client keys name (client_keys) when that is
+    the only way it reaches ds_clients and every key names a source; every
+    source when it reaches ds_clients any other way, uses no key at all, or
+    uses a key no source matches (a renamed or removed source)."""
+    from app.services.client_keys import client_reach, sources_for_client_keys
+
+    all_ids = [str(r[0]) for r in rows]
+    reach = client_reach(code)
+    if reach.other or not reach.keys:
+        return all_ids
+    picked, unmatched = sources_for_client_keys(rows, reach.keys)
+    if unmatched:
+        return all_ids
+    return picked
 
 
-async def org_sources_named_in_code(
-    db: AsyncSession, organization_id: str | None, code: str | None
+async def org_sources_keyed_in_code(
+    db: AsyncSession, organization_id: str | None, codes: list[str]
 ) -> list[str]:
-    """Ids of the organization's data sources the code names — and only
-    those: unlike _org_fallback_ds_ids, code naming none gives none."""
-    return _named_in_code(await _org_data_sources(db, organization_id), code)
+    """Ids of the organization's data sources the code reaches by a literal
+    client key -- and only those: code reaching ds_clients some other way
+    adds nothing, and code with no key gives none."""
+    from app.services.client_keys import client_reach, sources_for_client_keys
+
+    keys = [k for code in codes for k in client_reach(code).keys]
+    if not keys:
+        return []
+    picked, _ = sources_for_client_keys(await _org_data_sources(db, organization_id), keys)
+    return picked
 
 
-async def _report_step_codes(db: AsyncSession, report_id: str) -> list[str]:
-    """The non-empty code of the steps the report serves and reruns, and of
-    the steps those load_step(). For each live query of the report -- its own
-    (Query.report_id) or, for a legacy query, its widget's (as
-    app/services/row_owner.py finds the owner) -- the step a rerun executes
-    (ReportService._rerun_target_steps, which mirrors
-    get_default_step_for_query), then every step load_step reaches from
-    them (closure_codes). Earlier attempts (a failed run's step, a
+async def _report_served_codes(db: AsyncSession, report_id: str) -> list[str]:
+    """The non-empty code of the steps the report serves and reruns: for each
+    live query of the report -- its own (Query.report_id) or, for a legacy
+    query, its widget's (as app/services/row_owner.py finds the owner) -- the
+    step it serves (served_steps). Earlier attempts (a failed run's step, a
     superseded version) are neither served nor run, so they do not count
-    unless a served step's load_step() reference reaches them."""
+    unless a served step's load_step() reference reaches them
+    (run_data_source_ids follows those)."""
     from sqlalchemy import or_
     from app.models.query import Query
     from app.models.widget import Widget
-    from app.services.report_service import ReportService
+    from app.services.served_steps import served_steps
 
     query_ids = (await db.execute(
         select(Query.id).where(
@@ -412,55 +483,52 @@ async def _report_step_codes(db: AsyncSession, report_id: str) -> list[str]:
             Query.deleted_at.is_(None),
         )
     )).scalars().all()
-    targets, _ = await ReportService()._rerun_target_steps(db, [str(q) for q in query_ids], quiet=True)
-    codes = [c for _, c in targets if c and c.strip()]
-    if not any(may_load_steps(c) for c in codes):
-        return codes
-    return closure_codes(await _loadable_steps(db, Query.report_id == str(report_id)), codes)
+    targets, _ = await served_steps(db, [str(q) for q in query_ids])
+    return [c for _, c in targets if c and c.strip()]
 
 
-async def report_steps_code(db: AsyncSession, report_id: str) -> str | None:
-    """The code of every step of the report, joined with newlines; None when
-    none has code."""
-    return "\n".join(await _report_step_codes(db, report_id)) or None
+async def report_reached_codes(db: AsyncSession, report_id: str) -> list[str]:
+    """The code of the steps the report serves (_report_served_codes) and of
+    every step they load_step()."""
+    from app.models.query import Query
+
+    return await loaded_step_codes(
+        db, await _report_served_codes(db, report_id), Query.report_id == str(report_id))
 
 
 def fallback_ds_ids_for_codes(rows: list, codes: list[str]) -> list[str]:
     """The organization sources (rows: (id, name)) a set of steps runs on,
     decided per step as the page decides it (snapshot_withheld_for_viewers
-    with that step's code): each step counts the sources its own code names,
-    or every source when it names none. The union over the steps; every
-    source when no step has code. A step naming a plain source therefore
-    never narrows a sibling step that reaches its clients without naming
-    them."""
+    with that step's code): each step counts the sources its own code reaches
+    (_sources_reached). The union over the steps; every source when no step
+    has code. A step reaching a plain source by key therefore never narrows a
+    sibling step that reaches its clients another way."""
     all_ids = [str(r[0]) for r in rows]
     if not codes:
         return all_ids
     picked: set[str] = set()
     for code in codes:
-        picked.update(_named_in_code(rows, code) or all_ids)
+        picked.update(_sources_reached(rows, code))
         if len(picked) == len(all_ids):
             break
     return [i for i in all_ids if i in picked]
 
 
 async def report_run_data_source_ids(db: AsyncSession, report_id: str) -> list[str]:
-    """The data sources a report's runs use: the attached ones, else the
-    organization's, step by step (fallback_ds_ids_for_codes) --
-    QueryService._report_data_sources builds clients for the whole
-    organization set. The same rule as release_run_data_source_ids for a
-    published dashboard."""
-    ds_ids = await _report_data_source_ids(db, report_id)
-    if ds_ids:
-        return ds_ids
-    from app.models.report import Report
-    org_id = (await db.execute(
-        select(Report.organization_id).where(Report.id == str(report_id))
-    )).scalar_one_or_none()
-    if not org_id:
+    """The data sources a report's runs use (run_data_source_ids over the
+    steps the report serves) -- QueryService._report_data_sources builds
+    clients for the whole organization set when none is attached. The same
+    rule as release_run_data_source_ids for a published dashboard. Resolve it
+    once per request and ask _any_rls_relation / _any_user_scoped_connection
+    of the result when both questions are needed."""
+    from app.models.query import Query
+
+    scope = await _report_scope(db, report_id)
+    if scope is None:
         return []
-    return fallback_ds_ids_for_codes(
-        await _org_data_sources(db, org_id), await _report_step_codes(db, report_id))
+    attached, org_id = scope
+    return await run_data_source_ids(
+        db, attached, org_id, lambda: _report_served_codes(db, report_id), Query.report_id == str(report_id))
 
 
 async def _report_data_source_ids(db: AsyncSession, report_id: str) -> list[str]:
@@ -531,11 +599,15 @@ async def _any_rls_relation(db: AsyncSession, data_source_ids: list[str]) -> boo
     return bool((await db.execute(stmt)).scalar() or 0)
 
 
-async def has_user_scoped_connections(db: AsyncSession, report_id: str) -> bool:
+async def has_user_scoped_connections(
+    db: AsyncSession, report_id: str, *, run_source_ids: list[str] | None = None
+) -> bool:
     """True when any connection behind the data sources the report runs on
-    (report_run_data_source_ids) resolves credentials per user (anything but
-    system_only)."""
-    return await _any_user_scoped_connection(db, await report_run_data_source_ids(db, report_id))
+    (report_run_data_source_ids, or `run_source_ids` when the caller already
+    resolved them) resolves credentials per user (anything but system_only)."""
+    if run_source_ids is None:
+        run_source_ids = await report_run_data_source_ids(db, report_id)
+    return await _any_user_scoped_connection(db, run_source_ids)
 
 
 async def has_rls_relations(db: AsyncSession, report_id: str) -> bool:
@@ -641,11 +713,10 @@ async def snapshot_withheld_for_viewers(
     from app.services.bow_source_access import report_access
     if not bow_authorized and await report_access(db, report_id):
         return True
-    ds_ids = await _report_data_source_ids(db, report_id)
-    if not ds_ids and fallback_org_id:
-        from app.models.query import Query
-        codes = await loaded_step_codes(db, code, Query.report_id == str(report_id))
-        ds_ids = fallback_ds_ids_for_codes(await _org_data_sources(db, fallback_org_id), codes)
+    from app.models.query import Query
+    ds_ids = await run_data_source_ids(
+        db, await _report_data_source_ids(db, report_id), fallback_org_id, [code],
+        Query.report_id == str(report_id))
     if await _any_rls_relation(db, ds_ids):
         return True
     if (shared_run_identity or 'viewer') != 'viewer':

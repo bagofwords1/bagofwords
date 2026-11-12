@@ -407,6 +407,17 @@ def test_reaches_only_usable_clients(code, clients, expected):
     assert _reaches_only_usable_clients(code, clients) is expected
 
 
+@pytest.mark.parametrize("clients, expected", [({"a:c": 1}, True), ({"b:c": 1}, False)])
+def test_generate_dfs_own_parameter_is_not_a_reach_of_the_clients(clients, expected):
+    """Saved step code declares `def generate_df(ds_clients, ...)`; the
+    declaration is not a use of the dict, so a step whose body reaches only a
+    held client by key stays repairable."""
+    from app.services.fork_service import _reaches_only_usable_clients
+
+    code = 'def generate_df(ds_clients, excel_files):\n    return ds_clients["a:c"].execute_query("x")\n'
+    assert _reaches_only_usable_clients(code, clients) is expected
+
+
 @pytest.mark.asyncio
 async def test_pending_steps_are_heartbeated_as_the_pass_runs():
     """`is_hydrating` ages a pending step out after a fixed window. Keyed on
