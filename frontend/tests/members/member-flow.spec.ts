@@ -42,8 +42,9 @@ test.describe.serial('Member Flow', () => {
       await page.goto('/settings/members', { waitUntil: 'commit' });
     }
 
-    // Verify we're on the members page (longer timeout for CI)
-    await expect(page.getByRole('heading', { name: 'Settings' }))
+    // Verify we're on the members page (longer timeout for CI). The settings
+    // shell titles each page by name.
+    await expect(page.getByRole('heading', { name: 'Members', exact: true }))
       .toBeVisible({ timeout: 30000 });
 
     // Check if member is already in the table (from previous run/retry)
