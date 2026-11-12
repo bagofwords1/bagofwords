@@ -506,3 +506,193 @@ class Key(str):
 return ds_clients['spl'].execute_query({Key('spl'): 'search index=crm | stats count'})
 """)
     assert http.searches == []
+
+
+# ------------------------------------------------- refusals the code catches
+#
+# A refusal of what the agent wrote ends the attempt even when the code
+# catches it. A refusal the agent did not cause does not: the shape of a call
+# (the statement was never judged), or a search an admin stored in Splunk.
+# Code that catches one of those and carries on gets its rows.
+
+class _DataHidden:
+    """Organization settings with "Allow LLM to see data" off."""
+
+    class _Off:
+        value = False
+
+    def get_config(self, key, default=None):
+        return self._Off() if key == "allow_llm_see_data" else default
+
+
+def _program(body: str) -> str:
+    return "def generate_df(ds_clients, excel_files):\n" + "".join(
+        f"    {line}\n" for line in body.strip().splitlines()
+    )
+
+
+def _loop(clients, programs, organization_settings=None):
+    """The code loop with the coder (the LLM) stubbed: attempt i gets
+    programs[i]. Everything below the coder is real."""
+    import asyncio
+
+    from app.ai.schemas.codegen import CodeGenContext, CodeGenRequest
+
+    calls = []
+
+    async def coder(**kwargs):
+        calls.append(kwargs)
+        return programs[min(len(calls), len(programs)) - 1]
+
+    async def go():
+        executor = StreamingCodeExecutor(organization_settings=organization_settings)
+        return [ev async for ev in executor.generate_and_execute_stream_v2(
+            request=CodeGenRequest(context=CodeGenContext(user_prompt="x", schemas_excerpt=""), retries=3),
+            ds_clients=clients, excel_files=[], code_generator_fn=coder,
+        )]
+
+    events = asyncio.run(go())
+    return events[-1]["payload"], events, calls
+
+
+def _violations(events):
+    return [e["payload"]["violation_type"] for e in events if e["type"] == "security_violation"]
+
+
+@pytest.mark.parametrize("call", [
+    "execute_query('SELECT COUNT(*) AS n FROM orders', timeout=5)",
+    "execute_query('SELECT COUNT(*) AS n FROM orders', 'SELECT 1')",
+    "execute_query(statement='SELECT COUNT(*) AS n FROM orders')",
+])
+def test_code_that_catches_a_call_shape_refusal_and_retries_correctly_gets_rows(mode, shop, call):
+    program = _program(f"""
+try:
+    return ds_clients['shop'].{call}
+except Exception:
+    return ds_clients['shop'].execute_query('SELECT COUNT(*) AS n FROM orders')
+""")
+    done, events, calls = _loop({"shop": SqliteClient(database=str(shop))}, [program])
+    assert len(calls) == 1
+    assert _violations(events) == []
+    assert done["df"]["n"].tolist() == [5]
+
+
+def test_a_call_shape_refusal_that_escapes_is_still_a_security_violation(mode, shop):
+    program = _program("return ds_clients['shop'].execute_query(statement='SELECT 1 AS a')")
+    done, events, _ = _loop({"shop": SqliteClient(database=str(shop))}, [program])
+    assert _violations(events) == ["unsafe_sql"]
+    assert done["df"] is None
+
+
+@pytest.mark.parametrize("caught, violation", [
+    ("'SELECT * FROM secret'", "table_access"),
+    (_RUNTIME_DROP, "unsafe_sql"),
+])
+def test_an_agent_written_refusal_the_code_catches_still_ends_the_attempt(mode, shop, caught, violation):
+    program = _program(f"""
+try:
+    ds_clients['shop'].execute_query({caught})
+except Exception:
+    pass
+return ds_clients['shop'].execute_query('SELECT COUNT(*) AS n FROM orders')
+""")
+    done, events, calls = _loop({"shop": _scoped(SqliteClient(database=str(shop)))}, [program, program])
+    assert len(calls) == 1
+    assert _violations(events) == [violation]
+    assert done["df"] is None
+    assert _orders_left(shop) == 5
+
+
+_STORED = {
+    "Hosts": "index=web | stats count by host",
+    "Nightly rollup": "index=web | stats count | collect index=summary",
+    "Users": "index=crm | stats count by user",
+}
+
+
+class _SplunkWithSavedSearches(_SplunkHttp):
+    """The HTTP boundary with saved searches an admin stored; one writes."""
+
+    def __call__(self, method, url, **kwargs):
+        from urllib.parse import unquote
+
+        path = unquote(url.split("://", 1)[1].split("/", 1)[1])
+        prefix = "servicesNS/-/ops/saved/searches/"
+        if method == "GET" and path.startswith(prefix):
+            name = path[len(prefix):]
+            return _Resp({"entry": [{"name": name, "acl": {"app": "ops"}, "content": {"search": _STORED[name]}}]})
+        return super().__call__(method, url, **kwargs)
+
+
+def test_code_that_skips_a_refused_saved_search_gets_the_others_rows(mode, monkeypatch):
+    http = _SplunkWithSavedSearches()
+    monkeypatch.setattr("app.data_sources.clients.splunk_client.pinned_request", http)
+    client = SplunkClient(host="splunk.example.com", api_token="t")
+    program = _program("""
+import pandas as pd
+frames = []
+for name in ['ops/Hosts', 'ops/Nightly rollup', 'ops/Users']:
+    try:
+        frames.append(ds_clients['spl'].execute_query({'saved_search': name}))
+    except Exception:
+        continue
+return pd.concat(frames, ignore_index=True)
+""")
+    done, events, calls = _loop({"spl": client}, [program])
+    assert len(calls) == 1
+    assert _violations(events) == []
+    assert len(done["df"]) == 2
+    assert http.searches == ["search " + _STORED["Hosts"], "search " + _STORED["Users"]]
+
+
+def test_a_refused_saved_search_that_escapes_is_still_a_security_violation(mode, monkeypatch):
+    http = _SplunkWithSavedSearches()
+    monkeypatch.setattr("app.data_sources.clients.splunk_client.pinned_request", http)
+    client = SplunkClient(host="splunk.example.com", api_token="t")
+    program = _program("return ds_clients['spl'].execute_query({'saved_search': 'ops/Nightly rollup'})")
+    done, events, _ = _loop({"spl": client}, [program])
+    assert _violations(events) == ["unsafe_sql"]
+    assert http.searches == []
+
+
+_LONG_REFUSAL = "refused by the client: " + "this statement is not allowed on this connection; " * 8
+
+
+@pytest.mark.parametrize("settings", [None, _DataHidden()], ids=["data_visible", "data_hidden"])
+def test_a_caught_refusal_is_reported_with_the_message_an_escaped_one_has(mode, shop, settings):
+    client = _ClientRaising(str(shop), ReadOnlyViolation(_LONG_REFUSAL))
+    statement = "ds_clients['shop'].execute_query('SELECT 1 AS a')"
+    escaped = _program(f"return {statement}")
+    caught = _program(f"""
+try:
+    {statement}
+except Exception:
+    pass
+return None
+""")
+    messages = []
+    for program in (escaped, caught):
+        _, events, _ = _loop({"shop": client}, [program], organization_settings=settings)
+        messages.append([e["payload"]["message"] for e in events if e["type"] == "security_violation"])
+    assert len(messages[0]) == 1 and len(messages[0][0]) > 200
+    assert messages[1] == messages[0]
+
+
+def test_a_refusal_that_replaces_an_escaping_error_logs_the_replaced_type_once(mode, shop, caplog):
+    import logging
+
+    logger = logging.getLogger("app.ai.code_execution.code_execution")
+    logger.disabled = False  # alembic's fileConfig disables existing loggers
+    program = _program(f"""
+try:
+    ds_clients['shop'].execute_query({_RUNTIME_DROP})
+except Exception:
+    pass
+raise LookupError('the code failed after the refusal')
+""")
+    with caplog.at_level(logging.INFO, logger="app.ai.code_execution.code_execution"):
+        _, events, _ = _loop({"shop": SqliteClient(database=str(shop))}, [program])
+    assert _violations(events) == ["unsafe_sql"]
+    replaced = [r for r in caplog.records if "LookupError" in r.getMessage()]
+    assert len(replaced) == 1, [r.getMessage() for r in caplog.records]
+    assert "the code failed after the refusal" not in replaced[0].getMessage()

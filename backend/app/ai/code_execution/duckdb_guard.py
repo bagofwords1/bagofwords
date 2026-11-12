@@ -216,7 +216,10 @@ class _Reader:
                         raise ReadOnlyViolation(
                             "SHOW ALL TABLES is not allowed on this connection. Query its tables by name.")
                     catalog, schema = (str(node.get(k) or "").lower() for k in ("catalog_name", "schema_name"))
-                    if catalog or schema:
+                    # The connection's own schema, named (a single name is
+                    # the schema: main, or the catalog memory), lists what
+                    # SHOW TABLES does.
+                    if (catalog, schema) not in (("", ""), ("", "main"), ("", "memory"), ("memory", "main")):
                         self.tables.add((catalog, schema, ""))
             elif kind not in _READ_TABLE_REFS:
                 raise ReadOnlyViolation(_ONLY_SELECT)

@@ -206,7 +206,11 @@ def test_a_query_that_does_not_parse_is_a_fixable_error_with_the_parsers_reason(
     assert _not_a_policy_refusal(info.value), type(info.value).__mro__
 
 
-@pytest.mark.parametrize("sql", ["DESCRIBE sales", "SHOW TABLES", "SUMMARIZE sales"])
+@pytest.mark.parametrize("sql", [
+    "DESCRIBE sales", "SHOW TABLES", "SUMMARIZE sales",
+    # The connection's own schema, named: the same listing as SHOW TABLES.
+    "SHOW TABLES FROM main", "SHOW TABLES FROM memory", "SHOW TABLES FROM memory.main",
+])
 def test_describe_show_and_summarize_are_a_fixable_error_that_names_the_tables(sql):
     """They read only names the refusal already gives, so they are not a
     policy refusal: the message lists the connection's tables instead."""
@@ -219,6 +223,8 @@ def test_describe_show_and_summarize_are_a_fixable_error_that_names_the_tables(s
 @pytest.mark.parametrize("sql, refusal", [
     ("SHOW TABLES FROM other_schema", TableScopeViolation),
     ("SHOW TABLES FROM other_db.main", TableScopeViolation),
+    ("SHOW TABLES FROM memory.other_schema", TableScopeViolation),
+    ("SHOW TABLES FROM main.memory", TableScopeViolation),
     ("SHOW ALL TABLES", ReadOnlyViolation),
 ])
 def test_a_show_of_another_schema_or_of_every_database_is_refused_by_policy(sql, refusal):

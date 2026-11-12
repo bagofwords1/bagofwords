@@ -274,6 +274,7 @@ from app.core.otel import get_tracer
 from opentelemetry.trace import StatusCode
 from app.errors.app_error import AppError
 from app.errors.codes import ErrorCode
+from app.errors.redact import describe_for_log
 
 # Hard fallback when neither connection nor org settings define a value.
 DEFAULT_QUERY_TIMEOUT_SECONDS = 60
@@ -916,14 +917,26 @@ def _as_refusal(exc: Exception) -> Exception:
     if isinstance(exc, TableScopeViolation):
         refusal = TableAccessError(str(exc))
         refusal.refused_by = getattr(exc, "refused_by", None)
-        return refusal
-    return UnsafeSQLError(str(exc))
+    else:
+        refusal = UnsafeSQLError(str(exc))
+    if getattr(exc, "stored_content", False):
+        refusal.stored_content = True
+    return refusal
 
 
 def _refuse_call(reason: str) -> UnsafeSQLError:
     """A refusal of the call's shape or options; the statement itself was not
     judged, so the message names only what is wrong with the call."""
-    return UnsafeSQLError(reason)
+    refusal = UnsafeSQLError(reason)
+    refusal.call_shape = True
+    return refusal
+
+
+def _the_agent_wrote_what_was_refused(exc: BaseException) -> bool:
+    """Whether a refusal judged text the agent wrote. A call's shape was not
+    judged, and a search an admin stored (Splunk) is not the agent's text, so
+    code that catches either of those and carries on is not stopped."""
+    return not (getattr(exc, "call_shape", False) or getattr(exc, "stored_content", False))
 
 
 def _check_bigquery_options(client, kwargs: dict) -> None:
@@ -1191,10 +1204,15 @@ class QueryCapturingClientWrapper:
                        if isinstance(e, TableAccessError) else {}),
                     **({"refused_by": e.refused_by}
                        if isinstance(e, TableAccessError) and e.refused_by else {}),
-                    # A policy refusal ends the attempt even when the code
-                    # catches it; the code loop reads this tag.
+                    # The whole text, as the code loop reports a refusal
+                    # that escapes.
+                    **({"error_message": str(e)} if isinstance(e, UnsafeSQLError) else {}),
+                    # A policy refusal of what the agent wrote ends the
+                    # attempt even when the code catches it; the code loop
+                    # reads this tag.
                     **({"refusal": "table_access" if isinstance(e, TableAccessError) else "unsafe_sql"}
-                       if isinstance(e, (TableAccessError, UnsafeSQLError)) else {}),
+                       if isinstance(e, (TableAccessError, UnsafeSQLError))
+                       and _the_agent_wrote_what_was_refused(e) else {}),
                     # A file connection's fixable error (DESCRIBE, a CTE
                     # name) lists its tables: the planner gets all of it.
                     **({"error_message": self._recorded_error(e, limit=FIXABLE_QUERY_ERROR_MAX_CHARS)}
@@ -1896,6 +1914,14 @@ class StreamingCodeExecutor:
                 refusal.refused_by = timing.get("refused_by")
             else:
                 refusal = UnsafeSQLError(text)
+            if cause is not None:
+                # The error the code raised is not reported; its type is kept
+                # here (without its message, which may quote data).
+                logger.info(
+                    "code_execution.caught_refusal_replaces_error %s%s",
+                    describe_for_log(cause),
+                    f" sandbox_type={cause.exc_type}" if isinstance(getattr(cause, "exc_type", None), str) else "",
+                )
             raise refusal from cause
 
     @staticmethod

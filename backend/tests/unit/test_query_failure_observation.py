@@ -98,6 +98,18 @@ def test_later_nonterminal_error_does_not_hide_a_table_refusal():
     assert not observation.get("analysis_complete")
 
 
+@pytest.mark.parametrize("before", [[], [{"error": "no such column: x", "terminal": False, "sql": "SELECT x FROM orders"}]])
+def test_a_caught_refusal_is_the_reported_query_even_after_other_failures(before):
+    refusal = "Only SELECT queries are allowed."
+    observation = CreateDataTool.build_execution_failure_observation([], before + [
+        {"error": refusal, "error_message": refusal, "refusal": "unsafe_sql", "terminal": False,
+         "sql": "DROP TABLE orders"},
+        {"error": "no such column: y", "terminal": False, "sql": "SELECT y FROM orders"},
+    ])
+    assert observation["error"]["db_message"] == refusal
+    assert observation["error"]["failed_sql"] == "DROP TABLE orders"
+
+
 def test_ordinary_query_failure_remains_correctable():
     observation = CreateDataTool.build_execution_failure_observation([], [
         {"error": "Unknown column", "terminal": False, "sql": "SELECT typo FROM orders"},

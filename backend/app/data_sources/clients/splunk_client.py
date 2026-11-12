@@ -48,7 +48,7 @@ import pandas as pd
 import requests
 from app.core.egress import pinned_request
 
-from app.ai.code_execution.sql_guard import SPL_ENVELOPE_GUIDANCE, check_spl
+from app.ai.code_execution.sql_guard import SPL_ENVELOPE_GUIDANCE, ReadOnlyViolation, check_spl
 from app.data_sources.clients.progress import IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
@@ -925,8 +925,8 @@ class SplunkClient(DataSourceClient):
                              f"Panels: {titles}")
         earliest, latest, limit = self._time_and_limit(
             spec, panel.get("earliest"), panel.get("latest"))
-        rows = self._run_search(panel["spl"], earliest=earliest, latest=latest,
-                                count=limit)
+        rows = self._run_stored_search(panel["spl"], earliest=earliest, latest=latest,
+                                       count=limit)
         return pd.DataFrame(rows) if rows else pd.DataFrame()
 
     def _execute_saved_search(self, spec: Dict[str, Any]) -> pd.DataFrame:
@@ -945,8 +945,18 @@ class SplunkClient(DataSourceClient):
         earliest, latest, limit = self._time_and_limit(
             spec, content.get("dispatch.earliest_time"),
             content.get("dispatch.latest_time"))
-        rows = self._run_search(spl, earliest=earliest, latest=latest, count=limit)
+        rows = self._run_stored_search(spl, earliest=earliest, latest=latest, count=limit)
         return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+    def _run_stored_search(self, spl: str, **kwargs) -> List[Dict[str, Any]]:
+        """`_run_search` for SPL a knowledge object stores. A refusal is
+        marked as one of stored content: the agent did not write that SPL, so
+        code that catches it and goes on to other searches is not stopped."""
+        try:
+            return self._run_search(spl, **kwargs)
+        except ReadOnlyViolation as refusal:
+            refusal.stored_content = True
+            raise
 
     # ── prompts ───────────────────────────────────────────────────────────────
 

@@ -1443,10 +1443,12 @@ Do not use generic placeholders like "value" unless that is the actual column na
             failed_timings = [t for t in (query_timings or []) if t.get("error")]
             if failed_timings:
                 # A caught refusal must survive later queries in the same
-                # attempt, including a fallback that fails differently.
+                # attempt, including a fallback that fails differently: the
+                # first refusal (it is what ended the attempt), else the last
+                # terminal error, else the last error.
                 last_failed = next(
-                    (t for t in reversed(failed_timings) if t.get("terminal")),
-                    failed_timings[-1],
+                    (t for t in failed_timings if t.get("refusal")),
+                    next((t for t in reversed(failed_timings) if t.get("terminal")), failed_timings[-1]),
                 )
                 error_observation["error"]["db_message"] = (
                     last_failed.get("error_message") or last_failed.get("error")
