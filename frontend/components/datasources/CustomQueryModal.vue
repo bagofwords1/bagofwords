@@ -578,16 +578,16 @@
         <div v-else class="flex gap-5">
           <!-- Left: the rule -->
           <div class="w-1/2 space-y-3">
-            <label class="flex items-start gap-2 cursor-pointer">
-              <input data-testid="cq-rls-enabled" type="checkbox" v-model="rls.enabled" class="mt-0.5" />
-              <span>
+            <div>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input data-testid="cq-rls-enabled" type="checkbox" v-model="rls.enabled" class="shrink-0" />
                 <span class="text-xs font-medium text-gray-700 dark:text-gray-200">Filter rows per user</span>
-                <span class="block text-2xs text-gray-500 dark:text-gray-400">
-                  The cached copy holds every row. With this on, each person sees
-                  only the rows their identity allows.
-                </span>
-              </span>
-            </label>
+              </label>
+              <p class="text-2xs text-gray-500 dark:text-gray-400 ms-6 mt-0.5">
+                The cached copy holds every row. With this on, each person sees
+                only the rows their identity allows.
+              </p>
+            </div>
 
             <template v-if="rls.enabled">
               <div>
@@ -646,16 +646,16 @@
                 </div>
               </div>
 
-              <label class="flex items-start gap-2 cursor-pointer">
-                <input data-testid="cq-rls-default-deny" type="checkbox" v-model="rls.default_deny" class="mt-0.5" />
-                <span class="text-2xs text-gray-600 dark:text-gray-300">
-                  Show no rows when the value can't be resolved
-                  <span class="block text-ink-muted">
-                    Recommended. Turning this off shows <b>every</b> row to anyone the
-                    policy can't place.
-                  </span>
-                </span>
-              </label>
+              <div>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input data-testid="cq-rls-default-deny" type="checkbox" v-model="rls.default_deny" class="shrink-0" />
+                  <span class="text-2xs text-gray-600 dark:text-gray-300">Show no rows when the value can't be resolved</span>
+                </label>
+                <p class="text-2xs text-ink-muted ms-6 mt-0.5">
+                  Recommended. Turning this off shows <b>every</b> row to anyone the
+                  policy can't place.
+                </p>
+              </div>
             </template>
 
             <p v-if="rlsError" data-testid="cq-rls-error" class="text-2xs text-red-600">{{ rlsError }}</p>
@@ -726,6 +726,168 @@
                     </tr>
                     <tr v-if="!rlsPreview.rows.length">
                       <td :colspan="Math.max(rlsPreview.columns.length, 1)"
+                          class="px-2 py-3 text-center text-ink-muted">No rows.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ CLS ============ -->
+      <div v-show="tab === 'cls'">
+        <!-- Enterprise gate: acceleration is community, column policies are not. -->
+        <div v-if="!clsLicensed" data-testid="cq-cls-upgrade"
+             class="max-w-xl mx-auto my-8 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/40 dark:border-amber-800 p-5">
+          <div class="flex items-center gap-2 font-medium text-amber-800 dark:text-amber-300">
+            <UIcon name="heroicons-sparkles" class="w-5 h-5" />
+            Column-level security is an Enterprise feature
+          </div>
+          <p class="text-sm text-amber-700 dark:text-amber-400 mt-2">
+            Hide sensitive columns of the cached copy per user — by group, role or
+            individual — so each person gets back only the columns they are allowed.
+            Available with an enterprise license.
+          </p>
+        </div>
+        <div v-else-if="!editing" class="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
+          Save the query first — a column policy restricts its result columns.
+        </div>
+        <div v-else class="flex gap-5">
+          <!-- Left: the rule -->
+          <div class="w-1/2 space-y-3">
+            <div>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input data-testid="cq-cls-enabled" type="checkbox" v-model="cls.enabled" class="shrink-0" />
+                <span class="text-xs font-medium text-gray-700 dark:text-gray-200">Restrict columns per user</span>
+              </label>
+              <p class="text-2xs text-gray-500 dark:text-gray-400 ms-6 mt-0.5">
+                The cached copy holds every column. With this on, the restricted
+                columns below are hidden from everyone except the grants you add.
+              </p>
+            </div>
+
+            <template v-if="cls.enabled">
+              <div>
+                <label class="block text-2xs text-gray-500 dark:text-gray-400 mb-1">Restricted columns</label>
+                <p class="text-2xs text-ink-muted mb-1.5">
+                  Hidden by default. Everyone keeps every other column.
+                </p>
+                <div v-if="resultColumns.length"
+                     class="max-h-40 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-md p-2 space-y-1">
+                  <label v-for="c in resultColumns" :key="c"
+                         class="flex items-center gap-1.5 text-2xs cursor-pointer">
+                    <input type="checkbox" :value="c" v-model="cls.restricted"
+                           :data-testid="`cq-cls-col-${c}`" />
+                    <span class="text-gray-700 dark:text-gray-200">{{ c }}</span>
+                  </label>
+                </div>
+                <p v-else class="text-2xs text-ink-muted">
+                  No result columns known yet — refresh the query first.
+                </p>
+              </div>
+
+              <div>
+                <div class="flex items-center justify-between mb-1">
+                  <label class="text-2xs text-gray-500 dark:text-gray-400">Grants</label>
+                  <button data-testid="cq-cls-add-grant" class="text-2xs text-blue-600 hover:underline" @click="addClsGrant">
+                    + Add grant
+                  </button>
+                </div>
+                <p class="text-2xs text-ink-muted mb-1.5">
+                  Let a group or role see restricted columns — name them, or
+                  <code>*</code> for all of them.
+                </p>
+                <div v-for="(g, i) in cls.grants" :key="i" class="flex items-center gap-1.5 mb-1.5">
+                  <select :data-testid="`cq-cls-grant-type-${i}`" v-model="g.principal_type"
+                          class="border border-gray-200 dark:border-gray-700 rounded-md px-1.5 py-1 text-2xs bg-white dark:bg-gray-900">
+                    <option value="group">Group</option>
+                    <option value="role">Role</option>
+                    <option value="user">User</option>
+                  </select>
+                  <select :data-testid="`cq-cls-grant-principal-${i}`" v-model="g.principal_id"
+                          class="flex-1 min-w-0 border border-gray-200 dark:border-gray-700 rounded-md px-1.5 py-1 text-2xs bg-white dark:bg-gray-900">
+                    <option value="">Choose…</option>
+                    <option v-for="p in principalsFor(g.principal_type)" :key="p.id" :value="p.id">{{ p.name }}</option>
+                  </select>
+                  <input :data-testid="`cq-cls-grant-columns-${i}`" v-model="g.columnsText" placeholder="amount, email or *"
+                         class="flex-1 min-w-0 border border-gray-200 dark:border-gray-700 rounded-md px-1.5 py-1 text-2xs bg-white dark:bg-gray-900" />
+                  <button :data-testid="`cq-cls-grant-remove-${i}`" class="text-ink-muted hover:text-red-600" @click="cls.grants.splice(i, 1)">
+                    <UIcon name="heroicons-x-mark" class="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </template>
+
+            <p v-if="clsError" data-testid="cq-cls-error" class="text-2xs text-red-600">{{ clsError }}</p>
+            <button
+              data-testid="cq-cls-save"
+              class="border border-gray-300 dark:border-gray-700 rounded-md px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
+              :disabled="savingCls" @click="onSaveCls">
+              <Spinner v-if="savingCls" class="w-3.5 h-3.5 inline" />
+              Save policy
+            </button>
+          </div>
+
+          <!-- Right: preview as a specific person -->
+          <div class="w-1/2 border-l border-gray-100 dark:border-gray-800 pl-5">
+            <label class="block text-2xs text-gray-500 dark:text-gray-400 mb-1">
+              Preview as
+            </label>
+            <div class="flex items-center gap-1.5">
+              <select data-testid="cq-cls-as-user" v-model="clsPreviewUserId"
+                      class="flex-1 min-w-0 border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 text-xs bg-white dark:bg-gray-900">
+                <option value="">Choose a member…</option>
+                <option v-for="m in rlsOptions.members" :key="m.id" :value="m.id">{{ m.name }}</option>
+              </select>
+              <button
+                data-testid="cq-cls-preview"
+                class="border border-gray-300 dark:border-gray-700 rounded-md px-2.5 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
+                :disabled="!clsPreviewUserId || clsPreviewing" @click="onPreviewClsAsUser">
+                <Spinner v-if="clsPreviewing" class="w-3.5 h-3.5 inline" />
+                Run
+              </button>
+            </div>
+            <p class="text-2xs text-ink-muted mt-1">
+              Uses the rule above, saved or not.
+            </p>
+
+            <p v-if="clsPreviewError" class="text-2xs text-red-600 mt-2">{{ clsPreviewError }}</p>
+
+            <div v-if="clsPreview" class="mt-3">
+              <div data-testid="cq-cls-verdict"
+                   class="text-2xs rounded-md px-2 py-1.5 mb-2"
+                   :class="clsPreview.denied
+                     ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300'
+                     : clsPreview.column_filtered
+                       ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300'
+                       : 'bg-gray-50 dark:bg-gray-800/50 text-gray-600 dark:text-gray-300'">
+                <template v-if="clsPreview.denied">
+                  Sees <b>no columns</b> — {{ clsPreview.reason }}.
+                </template>
+                <template v-else-if="clsPreview.column_filtered">
+                  Sees <b>{{ clsPreview.columns.length }}</b> columns.
+                  Hidden: <b>{{ clsPreview.hidden_columns.join(', ') }}</b>.
+                </template>
+                <template v-else>
+                  Sees <b>every column</b> — no column is restricted for this user.
+                </template>
+              </div>
+              <div class="overflow-auto max-h-64 border border-gray-100 dark:border-gray-800 rounded-md">
+                <table class="min-w-full text-2xs">
+                  <thead class="bg-gray-50 dark:bg-gray-800/50 sticky top-0">
+                    <tr>
+                      <th v-for="c in clsPreview.columns" :key="c.name"
+                          class="text-left px-2 py-1 font-medium text-gray-600 dark:text-gray-300">{{ c.name }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(r, i) in clsPreview.rows" :key="i" class="border-t border-gray-100 dark:border-gray-800">
+                      <td v-for="(v, j) in r" :key="j" class="px-2 py-1 text-gray-700 dark:text-gray-300">{{ v }}</td>
+                    </tr>
+                    <tr v-if="!clsPreview.rows.length">
+                      <td :colspan="Math.max(clsPreview.columns.length, 1)"
                           class="px-2 py-3 text-center text-ink-muted">No rows.</td>
                     </tr>
                   </tbody>
@@ -895,6 +1057,12 @@ const tabs = computed(() => [
   {
     key: 'rls',
     label: 'Row-level security',
+    disabled: !editing.value,
+    hint: 'save first',
+  },
+  {
+    key: 'cls',
+    label: 'Column-level security',
     disabled: !editing.value,
     hint: 'save first',
   },
@@ -1085,7 +1253,9 @@ watch(() => props.modelValue, (open) => {
   preview.value = null
   previewError.value = ''
   rlsPreviewUserId.value = ''
+  clsPreviewUserId.value = ''
   loadRlsFromCq()
+  loadClsFromCq()
   loadIncrFromCq()
   runs.value = []
   selectedRun.value = null
@@ -1240,10 +1410,110 @@ async function onPreviewAsUser() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Column-level security
+// ---------------------------------------------------------------------------
+// The mirror of RLS, one dimension over: the cached copy holds every column, so
+// this rule is the only thing between a sensitive column and a reader who may
+// not see it. "Preview as" runs the same code path an agent does, so what the
+// admin sees here is exactly what that person would get.
+
+// Same enterprise entitlement as RLS — both move enforcement into BOW.
+const clsLicensed = rlsLicensed
+
+const cls = reactive({
+  enabled: false,
+  restricted: [] as string[],
+  grants: [] as any[],
+})
+const clsError = ref('')
+const savingCls = ref(false)
+const clsPreviewUserId = ref('')
+const clsPreview = ref<any>(null)
+const clsPreviewError = ref('')
+const clsPreviewing = ref(false)
+
+function addClsGrant() {
+  cls.grants.push({ principal_type: 'group', principal_id: '', columnsText: '' })
+}
+
+function clsPayload() {
+  return {
+    cls_enabled: cls.enabled,
+    cls_policy: cls.enabled ? {
+      restricted_columns: [...cls.restricted],
+      grants: cls.grants
+        .filter((g: any) => g.principal_id)
+        .map((g: any) => ({
+          principal_type: g.principal_type,
+          principal_id: g.principal_id,
+          columns: String(g.columnsText || '').split(',').map((v: string) => v.trim()).filter(Boolean),
+        })),
+    } : null,
+  }
+}
+
+function loadClsFromCq() {
+  const cq: any = props.cq || {}
+  cls.enabled = !!cq.cls_enabled
+  const p = cq.cls_policy || {}
+  cls.restricted = Array.isArray(p.restricted_columns) ? [...p.restricted_columns] : []
+  cls.grants = (p.grants || []).map((g: any) => ({
+    principal_type: g.principal_type || 'group',
+    principal_id: g.principal_id || '',
+    columnsText: (g.columns || []).join(', '),
+  }))
+  clsPreview.value = null
+  clsPreviewError.value = ''
+  clsError.value = ''
+}
+
+async function onSaveCls() {
+  savingCls.value = true
+  clsError.value = ''
+  try {
+    const { data, error } = await useMyFetch(
+      `/connections/${activeConnection.value.id}/custom-queries/${props.cq.id}/cls`,
+      { method: 'PUT', body: clsPayload() })
+    if (error.value) {
+      clsError.value = error.value?.data?.detail || 'Could not save the policy'
+    } else {
+      emit('saved')
+    }
+  } catch (e: any) {
+    clsError.value = e?.message || String(e)
+  } finally {
+    savingCls.value = false
+  }
+}
+
+async function onPreviewClsAsUser() {
+  clsPreviewing.value = true
+  clsPreviewError.value = ''
+  clsPreview.value = null
+  try {
+    const { data, error } = await useMyFetch(
+      `/connections/${activeConnection.value.id}/custom-queries/${props.cq.id}/rls/preview`,
+      { method: 'POST', body: { user_id: clsPreviewUserId.value, ...clsPayload() } })
+    if (error.value) {
+      clsPreviewError.value = error.value?.data?.detail || 'Preview failed'
+    } else {
+      clsPreview.value = data.value
+    }
+  } catch (e: any) {
+    clsPreviewError.value = e?.message || String(e)
+  } finally {
+    clsPreviewing.value = false
+  }
+}
+
 watch(tab, (t) => {
   if (t === 'runs' && editing.value) loadRuns(true)
-  if (t !== 'rls' || !editing.value || !rlsLicensed.value) return
-  if (!rlsOptions.members.length) loadRlsOptions()
+  // Both security tabs share the same principals (groups / roles / members),
+  // so the one options call serves either.
+  if ((t === 'rls' || t === 'cls') && editing.value && rlsLicensed.value && !rlsOptions.members.length) {
+    loadRlsOptions()
+  }
 })
 
 // Schedules run in the organization's timezone (same as scheduled reports and

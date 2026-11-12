@@ -51,6 +51,7 @@ from app.schemas.connection_tool_schema import (
 from app.schemas.custom_query_schema import (
     CustomQueryCreate,
     CustomQueryUpdate,
+    CustomQueryClsUpdate,
     CustomQueryPreviewRequest,
     CustomQueryPreviewResponse,
     CustomQueryRlsOptions,
@@ -1886,6 +1887,54 @@ async def set_custom_query_rls(
     )
 
 
+@router.put("/{connection_id}/custom-queries/{cq_id}/cls", response_model=CustomQuerySchema)
+@requires_resource_permission('connection', 'manage_connection')
+async def set_custom_query_cls(
+    connection_id: str,
+    cq_id: str,
+    payload: CustomQueryClsUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Store which columns each person sees on this relation."""
+    await custom_query_service.ensure_enabled(db, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    cq = await custom_query_service.get_custom_query(db, str(connection.id), cq_id)
+    before = {
+        "cls_enabled": bool(cq.cls_enabled),
+        "cls_policy": cq.cls_policy,
+    }
+    cq = await custom_query_service.set_cls(
+        db, cq,
+        cls_enabled=payload.cls_enabled,
+        cls_policy=payload.cls_policy,
+    )
+    try:
+        # Who changed a column policy, and from what to what — the record an
+        # auditor asks for, carrying both sides rather than just the new one.
+        await audit_service.log(
+            db, organization_id=str(organization.id), user_id=str(current_user.id),
+            action="connection.custom_query.cls_changed",
+            resource_type="connection", resource_id=str(connection.id),
+            details={
+                "connection": connection.name,
+                "name": cq.name,
+                "before": before,
+                "after": {
+                    "cls_enabled": bool(cq.cls_enabled),
+                    "cls_policy": cq.cls_policy,
+                },
+            },
+        )
+    except Exception:
+        logging.getLogger(__name__).exception("audit log failed for connection.custom_query.cls_changed")
+    return CustomQuerySchema.from_model(
+        cq, await _active_agent_count(db, cq.id),
+        next_run_at=custom_query_service.next_run_at(str(cq.id)),
+    )
+
+
 @router.post("/{connection_id}/custom-queries/{cq_id}/rls/preview",
              response_model=CustomQueryRlsPreviewResponse)
 @requires_resource_permission('connection', 'manage_connection')
@@ -1908,6 +1957,8 @@ async def preview_custom_query_as_user(
             "rls_mode": payload.rls_mode,
             "rls_policy": payload.rls_policy,
             "rls_default_deny": payload.rls_default_deny,
+            "cls_enabled": payload.cls_enabled,
+            "cls_policy": payload.cls_policy,
         },
     )
 
