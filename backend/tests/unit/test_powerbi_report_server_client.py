@@ -549,6 +549,36 @@ class TestExecuteQueryRouting:
         assert list(df["Name"]) == ["Alice", "Bob"]
         assert list(df["total"]) == [12.5, 2.0]
 
+    def test_pbix_query_reads_only_the_reports_own_tables(self, tmp_path):
+        """The pbix route runs one SELECT over the report's tables: a read of
+        another file is refused with the refusal's own type, not run."""
+        import pandas as pd
+        from app.ai.code_execution.sql_guard import ReadOnlyViolation
+        from app.ai.code_execution.table_scope import TableScopeViolation
+        from app.ai.prompt_formatters import Table as PFTable
+
+        orders_path = tmp_path / "orders.parquet"
+        pd.DataFrame({"OrderID": [1, 2]}).to_parquet(orders_path)
+        other = tmp_path / "other.csv"
+        other.write_text("token\nhidden\n")
+        tables = [PFTable(
+            name="pbix:Sales", description="", columns=[], pks=[], fks=[], is_active=True,
+            metadata_json={"powerbi_report_server": {
+                "report_type": "PowerBIReport", "report_id": "r1", "report_name": "Sales",
+                "modified_date": "2024-01-01T00:00:00Z",
+            }},
+        )]
+        c = self._client_with_schemas(tables)
+        c.ensure_pbix_parquets = MagicMock(return_value={"Orders": orders_path})
+
+        assert c.execute_query(table_name="pbix:Sales", query="SELECT count(*) AS n FROM Orders")["n"].tolist() == [2]
+        with pytest.raises(TableScopeViolation):
+            c.execute_query(table_name="pbix:Sales", query=f"SELECT * FROM '{other}'")
+        with pytest.raises(ReadOnlyViolation):
+            c.execute_query(table_name="pbix:Sales", query=f"SELECT * FROM read_csv_auto('{other}')")
+        with pytest.raises(ReadOnlyViolation):
+            c.execute_query(table_name="pbix:Sales", query="COPY (SELECT 1) TO 'copied.csv'")
+
     def test_pbix_query_missing_report_id(self):
         from app.ai.prompt_formatters import Table as PFTable
         tables = [PFTable(

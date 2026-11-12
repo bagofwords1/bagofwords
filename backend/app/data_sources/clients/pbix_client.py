@@ -16,7 +16,9 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
+from app.ai.code_execution.duckdb_guard import check_duckdb_file_query
 from app.ai.prompt_formatters import ForeignKey, Table, TableColumn, TableFormatter
+from app.data_sources.clients._duckdb_lockdown import lock_down
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.pbix_common import (
     PBIX_MAX_BYTES,
@@ -97,6 +99,8 @@ class PBIXClient(DataSourceClient):
         self.patterns: list[str] = [
             p.strip() for p in self.file_paths_raw.splitlines() if p.strip()
         ]
+        # The views the last connect() registered (the tables agent SQL may read).
+        self._views: list[str] = []
 
     # ------------------------------------------------------------------
     # File resolution / cache plumbing
@@ -291,6 +295,8 @@ class PBIXClient(DataSourceClient):
             views = self._view_names(
                 {f: sorted(m.keys()) for f, (_, m) in per_file_manifest.items()}
             )
+            registered: list[str] = []
+            parquet_paths: list[str] = []
             for filepath, (cache_dir, manifest) in per_file_manifest.items():
                 for tname, fname in manifest.items():
                     ppath = cache_dir / fname
@@ -301,7 +307,13 @@ class PBIXClient(DataSourceClient):
                     con.execute(
                         f'CREATE VIEW "{view}" AS SELECT * FROM read_parquet(\'{parquet_sql}\')'
                     )
+                    registered.append(view)
+                    parquet_paths.append(str(ppath))
+            # The views read their Parquet caches lazily: from here on the
+            # connection may read those files and nothing else.
+            lock_down(con, allowed_paths=parquet_paths)
 
+            self._views = registered
             logger.info(
                 "pbix.connect.done",
                 extra={
@@ -310,22 +322,27 @@ class PBIXClient(DataSourceClient):
                     "pbix_elapsed_s": round(time.perf_counter() - t0, 3),
                 },
             )
-            yield con
         except Exception as e:
+            if con is not None:
+                con.close()
             logger.error(
                 "pbix.connect.error",
                 extra={"pbix_error": str(e), "pbix_elapsed_s": round(time.perf_counter() - t0, 3)},
             )
             raise RuntimeError(f"Error connecting to PBIX files: {e}")
+        # The yield is outside the try above: an error raised by the caller's
+        # `with` body (a refused query) keeps its type.
+        try:
+            yield con
         finally:
-            if con is not None:
-                con.close()
+            con.close()
 
     def execute_query(self, sql: str) -> pd.DataFrame:
         t0 = time.perf_counter()
         logger.info("pbix.query.start", extra={"pbix_sql": sql})
         try:
             with self.connect() as con:
+                check_duckdb_file_query(sql, self._views)
                 df = con.execute(sql).df()
             logger.info(
                 "pbix.query.done",

@@ -19,7 +19,9 @@ from typing import Callable, Generator, List, Optional
 import duckdb
 import pandas as pd
 
+from app.ai.code_execution.duckdb_guard import check_duckdb_file_query
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
+from app.data_sources.clients._duckdb_lockdown import lock_down
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.progress import (
     CancelCheck,
@@ -591,6 +593,7 @@ class QVDClient(DataSourceClient):
             con = duckdb.connect(database=":memory:")
             used: set[str] = set()
             table_map: dict[str, str] = {}
+            parquet_paths: list[str] = []
             skipped = 0
             for filepath in files:
                 file_hash, fresh_path = self._cache_key(filepath)
@@ -627,6 +630,10 @@ class QVDClient(DataSourceClient):
                     f"CREATE VIEW {table_name} AS SELECT * FROM read_parquet('{parquet_sql}')"
                 )
                 table_map[table_name] = filepath
+                parquet_paths.append(str(parquet))
+            # The views read their Parquet caches lazily: from here on the
+            # connection may read those files and nothing else.
+            lock_down(con, allowed_paths=parquet_paths)
 
             self._table_map = table_map
             logger.info(
@@ -637,22 +644,27 @@ class QVDClient(DataSourceClient):
                     "qvd_elapsed_s": round(time.perf_counter() - t0, 3),
                 },
             )
-            yield con
         except Exception as e:
+            if con is not None:
+                con.close()
             logger.error(
                 "qvd.connect.error",
                 extra={"qvd_error": str(e), "qvd_elapsed_s": round(time.perf_counter() - t0, 3)},
             )
             raise RuntimeError(f"Error connecting to QVD files: {e}")
+        # The yield is outside the try above: an error raised by the caller's
+        # `with` body (a refused query) keeps its type.
+        try:
+            yield con
         finally:
-            if con is not None:
-                con.close()
+            con.close()
 
     def execute_query(self, sql: str) -> pd.DataFrame:
         t0 = time.perf_counter()
         logger.info("qvd.query.start", extra={"qvd_sql": sql})
         try:
             with self.connect() as con:
+                check_duckdb_file_query(sql, self._table_map)
                 df = con.execute(sql).df()
             logger.info(
                 "qvd.query.done",

@@ -11,7 +11,9 @@ from typing import Generator, List, Optional
 import duckdb
 import pandas as pd
 
+from app.ai.code_execution.duckdb_guard import check_duckdb_file_query
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
+from app.data_sources.clients._duckdb_lockdown import lock_down
 from app.data_sources.clients.progress import IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.progress import ProgressCallback, make_reporter
@@ -129,6 +131,9 @@ class CSVClient(DataSourceClient):
                     f"CREATE VIEW {table_name} AS SELECT * FROM {self._read_expr(filepath)}"
                 )
                 table_map[table_name] = filepath
+            # The views read their files lazily: from here on the connection
+            # may read those files and nothing else.
+            lock_down(con, allowed_paths=list(table_map.values()))
 
             self._table_map = table_map
             logger.info(
@@ -138,22 +143,27 @@ class CSVClient(DataSourceClient):
                     "csv_elapsed_s": round(time.perf_counter() - t0, 3),
                 },
             )
-            yield con
         except Exception as e:
+            if con is not None:
+                con.close()
             logger.error(
                 "csv.connect.error",
                 extra={"csv_error": str(e), "csv_elapsed_s": round(time.perf_counter() - t0, 3)},
             )
             raise RuntimeError(f"Error connecting to CSV files: {e}")
+        # The yield is outside the try above: an error raised by the caller's
+        # `with` body (a refused query) keeps its type.
+        try:
+            yield con
         finally:
-            if con is not None:
-                con.close()
+            con.close()
 
     def execute_query(self, sql: str) -> pd.DataFrame:
         t0 = time.perf_counter()
         logger.info("csv.query.start", extra={"csv_sql": sql})
         try:
             with self.connect() as con:
+                check_duckdb_file_query(sql, self._table_map)
                 df = con.execute(sql).df()
             logger.info(
                 "csv.query.done",

@@ -57,6 +57,23 @@ def test_query_returns_real_dates():
     assert pd.api.types.is_datetime64_any_dtype(df["OrderDate"])
 
 
+def test_query_reads_only_the_connections_files(tmp_path):
+    """One SELECT over the connection's own tables: a read of another file
+    is refused with the refusal's own type (not a connection error)."""
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation
+    from app.ai.code_execution.table_scope import TableScopeViolation
+
+    other = tmp_path / "other.csv"
+    other.write_text("token\nhidden\n")
+    client = CSVClient(file_paths=str(_FIXTURE))
+    with pytest.raises(TableScopeViolation):
+        client.execute_query(f"SELECT * FROM '{other}'")
+    with pytest.raises(ReadOnlyViolation):
+        client.execute_query(f"SELECT * FROM read_csv_auto('{other}')")
+    with pytest.raises(ReadOnlyViolation):
+        client.execute_query("DESCRIBE test_source")
+
+
 def test_test_connection_ok():
     result = CSVClient(file_paths=str(_FIXTURE)).test_connection()
     assert result["success"] is True

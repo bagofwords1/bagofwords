@@ -4,6 +4,8 @@ from app.data_sources.clients.progress import discovery_progress
 from app.data_sources.clients.progress import IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.progress import ProgressCallback, make_reporter
+from app.data_sources.clients._duckdb_lockdown import lock_down
+from app.ai.code_execution.duckdb_guard import check_duckdb_file_query
 from app.ai.prompt_formatters import Table, TableColumn, ForeignKey, ServiceFormatter
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -668,6 +670,11 @@ class PowerBIReportServerClient(DataSourceClient):
                 con.execute(
                     f'CREATE VIEW "{view}" AS SELECT * FROM read_parquet(\'{sql_path}\')'
                 )
+            # The views read their Parquet caches lazily: from here on the
+            # connection may read those files and nothing else, and the query
+            # may read only those views.
+            lock_down(con, allowed_paths=[str(p) for p in paths.values()])
+            check_duckdb_file_query(query, registered.values())
 
             df = con.execute(query).df()
             if max_rows is not None and max_rows > 0 and len(df) > max_rows:
