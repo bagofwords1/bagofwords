@@ -111,10 +111,11 @@ const globsOf = (c: any) => {
   return String(raw).split(/[,\n]/).map((s) => s.trim()).filter(Boolean)
 }
 const indexModeOf = (c: any) => cfg(c).index_mode || (cfg(c).index_content === false ? 'metadata' : 'content')
-const indexLabel = (m: string) => ({ none: 'Live (not indexed)', metadata: 'Indexed: file list', content: 'Indexed: contents' } as any)[m] || m
+const indexLabel = (m: string) => ({ none: 'Live (not indexed)', metadata: 'Indexed: file list', content: 'Indexed: keywords', fulltext: 'Indexed: full text' } as any)[m] || m
 const indexBadgeClass = (m: string) => ({
   none: 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
   metadata: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300',
   content: 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+  fulltext: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
 } as any)[m] || 'bg-gray-100 text-gray-600'
 </script>

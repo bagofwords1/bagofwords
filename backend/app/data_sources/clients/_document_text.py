@@ -276,6 +276,41 @@ def extract_pdf_pages_text(path: str, first: int, last: int,
             pdf.close()
 
 
+def extract_pdf_page_texts(path: str, max_pages: int = 5000,
+                           max_chars: int = 20_000_000) -> tuple:
+    """Text of every page of a PDF, for full-text indexing.
+
+    Returns (pages, pages_total, truncated) where pages is a list of
+    (1-based page number, text). Unlike ``_pdf`` this is not capped at the
+    first ``_PDF_MAX_PAGES`` pages: the index covers the whole document, up to
+    ``max_pages`` / ``max_chars``. A locked or corrupt file yields ([], 0,
+    False) — the caller records it as having no extractable text.
+    """
+    with PDFIUM_LOCK:
+        try:
+            pdf = _open_pdf(path)
+        except Exception:
+            return [], 0, False
+        try:
+            total_pages = len(pdf)
+            pages: list = []
+            chars = 0
+            truncated = False
+            for i in range(total_pages):
+                if i >= max_pages or chars >= max_chars:
+                    truncated = True
+                    break
+                try:
+                    t = sanitize_extracted_text(_pdf_page_text(pdf, i))
+                except Exception:
+                    continue
+                pages.append((i + 1, t))
+                chars += len(t)
+            return pages, total_pages, truncated
+        finally:
+            pdf.close()
+
+
 def _pdf(path: str, max_chars: int) -> str:
     # Search-oriented: a genuinely locked or corrupt file yields "" and is
     # skipped, unlike extract_pdf_pages_text where the caller wants the error.

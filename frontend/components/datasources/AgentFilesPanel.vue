@@ -85,8 +85,8 @@ const globsOf = (c: any) => String(cfg(c).include_globs || '').split(/[,\n]/).ma
 const LIVE_TYPES = ['outlook_mail', 'gmail_mail', 'teams_messages']
 const indexModeOf = (c: any) => LIVE_TYPES.includes(c.type) ? 'none'
   : (cfg(c).index_mode || (cfg(c).index_content === false ? 'metadata' : 'content'))
-const badgeLabel = (m: string) => ({ none: 'Live', metadata: 'Indexed: list', content: 'Indexed: contents' } as any)[m] || m
-const badgeClass = (m: string) => ({ none: 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300', metadata: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300', content: 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300' } as any)[m] || 'bg-gray-100 text-gray-600'
+const badgeLabel = (m: string) => ({ none: 'Live', metadata: 'Indexed: list', content: 'Indexed: keywords', fulltext: 'Indexed: full text' } as any)[m] || m
+const badgeClass = (m: string) => ({ none: 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300', metadata: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300', content: 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300', fulltext: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200' } as any)[m] || 'bg-gray-100 text-gray-600'
 
 async function loadAll() {
   if (!props.dsId) return

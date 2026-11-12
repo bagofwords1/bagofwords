@@ -1141,7 +1141,7 @@ class SchemaContextBuilder:
                         break
                 if len(topics) >= 12:
                     break
-            supports_search = (c.type in self._NATIVE_SEARCH_TYPES) or (index_mode == "content")
+            supports_search = (c.type in self._NATIVE_SEARCH_TYPES) or (index_mode in ("content", "fulltext"))
             # Per-user OAuth connection: each user reads with their own token, so
             # the cached sample/count (if any) is not a global truth. Flag it so
             # the descriptor tells the model discovery is per-user + live.

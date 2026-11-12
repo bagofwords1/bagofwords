@@ -48,7 +48,9 @@ from app.data_sources.clients._email_text import EMAIL_EXTS
 from app.data_sources.clients._file_source_common import (
     EXCEL_EXTS,
     read_excel_sheet,
+    CONTENT_INDEX_MODES,
     INDEX_CONTENT,
+    INDEX_FULLTEXT,
     INDEX_NONE,
     FileTooLargeError,
     GlobScopeError,
@@ -127,7 +129,7 @@ class S3Client(DataSourceClient):
         self.recursive = bool(recursive)
         self.max_file_bytes = int(max_file_mb) * 1024 * 1024 if max_file_mb else None
         self.index_mode = normalize_index_mode(index_mode, index_content_legacy=index_content)
-        self.index_content = self.index_mode == INDEX_CONTENT
+        self.index_content = self.index_mode in CONTENT_INDEX_MODES
         self.max_catalog_objects = int(max_catalog_objects) if max_catalog_objects else 5000
         self.max_keywords = int(max_keywords) if max_keywords else 50
 
@@ -672,6 +674,70 @@ class S3Client(DataSourceClient):
         except Exception:
             return ""
 
+    def _file_sections(self, key: str, size: int, name: str):
+        """Full-text sections of an object (index tier `fulltext`) plus the
+        text sample its keywords are built from.
+
+        The object is downloaded to a temporary file and split by the same
+        code a file share uses, so section locations mean the same thing on
+        both. Text is fetched up to the full-text cap with a ranged GET; other
+        formats only when within the connection's size limit. Never raises for
+        a bad object — it comes back as `error` with just its name section.
+        """
+        import os
+        import tempfile
+
+        from app.data_sources.clients._fulltext import FileSections, name_section
+        from app.data_sources.clients._fulltext_extract import (
+            FULLTEXT_MAX_TEXT_BYTES,
+            INDEXABLE_EXTS,
+            file_sections_from_path,
+        )
+
+        ext = _ext(key)
+        if ext not in INDEXABLE_EXTS or not size:
+            return FileSections(sections=[name_section(name)], status="no_text"), ""
+        is_text = ext in TEXT_EXTS | {"csv", "tsv"}
+        if not is_text and self.max_file_bytes and size > self.max_file_bytes:
+            return FileSections(sections=[name_section(name)], status="partial"), ""
+        tmp = None
+        try:
+            args = dict(Bucket=self.bucket, Key=key)
+            truncated = False
+            if is_text and size > FULLTEXT_MAX_TEXT_BYTES:
+                args["Range"] = f"bytes=0-{FULLTEXT_MAX_TEXT_BYTES - 1}"
+                truncated = True
+            body = self._client().get_object(**args)["Body"]
+            try:
+                with tempfile.NamedTemporaryFile(delete=False, suffix="." + ext) as fh:
+                    tmp = fh.name
+                    for chunk in iter(lambda: body.read(1024 * 1024), b""):
+                        fh.write(chunk)
+            finally:
+                body.close()
+            return file_sections_from_path(
+                tmp, name, max_file_bytes=self.max_file_bytes, ext=ext, text_truncated=truncated)
+        except IndexingCancelled:
+            raise
+        except Exception:
+            return FileSections(sections=[name_section(name)], status="error"), ""
+        finally:
+            if tmp:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+
+    @staticmethod
+    def _prior_meta(prior_catalog, name: str) -> dict:
+        """The previous run's `s3` metadata for a catalog row, or {}."""
+        entry = (prior_catalog or {}).get(name)
+        if isinstance(entry, dict):
+            meta = entry.get("s3")
+            if isinstance(meta, dict):
+                return meta
+        return {}
+
     # ---------------------------------------- DataSourceClient compatibility
 
     @property
@@ -704,11 +770,18 @@ class S3Client(DataSourceClient):
             return {"success": False, "message": str(e)}
 
     @discovery_progress
-    def get_schemas(self, progress_callback=None) -> List[Table]:
+    def get_schemas(self, progress_callback=None, prior_catalog=None, section_sink=None) -> List[Table]:
         """Index the bucket/prefix into catalog rows (bounded by
         max_catalog_objects). Honors the index tier: `none` caches nothing
         (live at the tool layer), `metadata` lists without reading contents,
-        `content` also extracts keywords + a content hash for topic search."""
+        `content` also extracts keywords + a content hash for topic search,
+        `fulltext` also hands every section of every object to `section_sink`
+        (the full-text index).
+
+        Both content tiers are INCREMENTAL: an object whose size and
+        last-modified time match the previous run (`prior_catalog` for
+        keywords, the sink's own record for full text) is not downloaded
+        again."""
         if self.index_mode == INDEX_NONE:
             return []
         tables: List[Table] = []
@@ -730,27 +803,78 @@ class S3Client(DataSourceClient):
             description = (
                 f"Object '{f['name']}' (type: {f.get('mime_type') or _ext(f['name']) or 'unknown'})."
             )
-            if self.index_content:
+            row_name = f["path"] or f["name"]
+            if self.index_mode == INDEX_FULLTEXT and section_sink is not None:
+                meta["index_version"] = 2
+                version = f"{f.get('size')}:{f.get('modified_at')}"
+                if section_sink.is_current(f["id"], version):
+                    stored = section_sink.prior_meta(f["id"])
+                    meta["keywords"] = stored.get("keywords") or []
+                    meta["content_hash"] = stored.get("content_hash")
+                    status = section_sink.prior_status(f["id"]) or "indexed"
+                else:
+                    try:
+                        doc, sample = self._file_sections(
+                            self._resolve_key(f["id"]), f.get("size", 0), row_name)
+                    except IndexingCancelled:
+                        raise
+                    except Exception:
+                        from app.data_sources.clients._fulltext import FileSections, name_section
+                        doc, sample = FileSections(sections=[name_section(row_name)], status="error"), ""
+                    meta["keywords"] = extract_file_keywords(sample, f["name"], self.max_keywords)
+                    meta["content_hash"] = (
+                        hashlib.sha1(sample.encode("utf-8", "ignore")).hexdigest() if sample else None
+                    )
+                    status = doc.status
+                    section_sink.write(f["id"], row_name, version, doc, meta={
+                        "keywords": meta["keywords"], "content_hash": meta["content_hash"],
+                    })
+                meta["indexed"] = status != "error"
+                meta["fulltext"] = status
+                meta["content_coverage"] = {"indexed": "full", "partial": "partial"}.get(status, "unavailable")
+                description += " Full text is indexed." if status == "indexed" else (
+                    " Full text is indexed up to a size limit." if status == "partial"
+                    else " No extractable text; findable by name only."
+                )
+                if meta.get("keywords"):
+                    description += " Keywords: " + ", ".join(meta["keywords"][:15]) + "."
+            elif self.index_content:
+                meta["index_version"] = 2
                 meta["content_coverage"] = "prefix_sample"
                 meta["sample_max_bytes"] = 200_000 if _ext(f["name"]) in TEXT_EXTS | {"csv", "tsv"} else None
-                try:
-                    text = self._file_text(self._resolve_key(f["id"]), f.get("size", 0))
-                    meta["keywords"] = extract_file_keywords(text, f["name"], self.max_keywords)
-                    meta["content_hash"] = (
-                        hashlib.sha1(text.encode("utf-8", "ignore")).hexdigest() if text else None
-                    )
+                prior = self._prior_meta(prior_catalog, row_name)
+                if (
+                    prior.get("indexed")
+                    and prior.get("index_version") == 2
+                    and prior.get("size") == f.get("size")
+                    and prior.get("modified_at") == f.get("modified_at")
+                ):
+                    # Unchanged since the last run — reuse the stored keywords
+                    # and hash instead of downloading the object again.
+                    meta["keywords"] = prior.get("keywords") or []
+                    meta["content_hash"] = prior.get("content_hash")
                     meta["indexed"] = True
-                    if not text:
-                        meta["content_coverage"] = "unavailable"
+                    meta["content_coverage"] = prior.get("content_coverage", "prefix_sample")
+                else:
+                    try:
+                        text = self._file_text(self._resolve_key(f["id"]), f.get("size", 0))
+                        meta["keywords"] = extract_file_keywords(text, f["name"], self.max_keywords)
+                        meta["content_hash"] = (
+                            hashlib.sha1(text.encode("utf-8", "ignore")).hexdigest() if text else None
+                        )
+                        meta["indexed"] = True
+                        if not text:
+                            meta["content_coverage"] = "unavailable"
+                    except IndexingCancelled:
+                        raise
+                    except Exception:
+                        meta["indexed"] = False
+                if meta.get("indexed"):
                     description += " Content keywords use a bounded sample."
-                    if meta["keywords"]:
+                    if meta.get("keywords"):
                         description += " Keywords: " + ", ".join(meta["keywords"][:15]) + "."
-                except IndexingCancelled:
-                    raise
-                except Exception:
-                    meta["indexed"] = False
             tables.append(Table(
-                name=f["path"] or f["name"],
+                name=row_name,
                 description=description,
                 columns=[],
                 pks=[],
@@ -764,6 +888,9 @@ class S3Client(DataSourceClient):
                     raise
                 except Exception:
                     pass
+        if section_sink is not None and self.index_mode == INDEX_FULLTEXT:
+            section_sink.walk_truncated = truncated
+            section_sink.flush()
         if truncated:
             import logging
             logging.getLogger(__name__).warning(

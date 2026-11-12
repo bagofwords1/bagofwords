@@ -205,6 +205,7 @@ class DataSourceClient(DiscoveryClient, ABC):
         prior_catalog: "dict | None" = None,
         prior_tables: "dict | None" = None,
         force_refresh: bool = False,
+        section_sink=None,
     ):
         """Forwards `progress_callback` / `prior_catalog` / `prior_tables` to
         the sync `get_schemas` only if it accepts each kwarg, determined by
@@ -230,6 +231,10 @@ class DataSourceClient(DiscoveryClient, ABC):
             kwargs["prior_catalog"] = prior_catalog
         if prior_tables and _accepts_kwarg(self.get_schemas, "prior_tables"):
             kwargs["prior_tables"] = prior_tables
+        # File sources on the full-text index tier stream each file's sections
+        # to this sink while they walk (see services/file_index_store.py).
+        if section_sink is not None and _accepts_kwarg(self.get_schemas, "section_sink"):
+            kwargs["section_sink"] = section_sink
         # Warehouse query tag (app/data_sources/query_tag.py): catalog reads.
         with query_tag_defaults(source="indexing"):
             result = await asyncio.to_thread(self.get_schemas, **kwargs)
