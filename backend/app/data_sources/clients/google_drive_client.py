@@ -453,16 +453,25 @@ class GoogleDriveClient(DataSourceClient):
         params = {
             **self._drive_params(),
             "q": f"(name contains '{safe}' or fullText contains '{safe}') and trashed=false",
-            "fields": "files(id,name,mimeType,modifiedTime,size,webViewLink)",
+            # `parents` is needed to drop hits outside the connection's scoped
+            # folder — Drive search is drive-wide and ignores `in parents`.
+            "fields": "files(id,name,mimeType,modifiedTime,size,webViewLink,parents)",
             "pageSize": "100",
         }
         data = self._get(f"{DRIVE_BASE}/files", params=params)
+        # A shared-drive connection is already bounded by driveId; only a
+        # folder-scoped connection needs post-filtering (mirrors how the Graph
+        # client keeps OneDrive search inside the connection's folder).
+        scoped = self.folder_id
+        ancestry: Dict[str, bool] = {}
         results = []
         for entry in data.get("files", []):
             mime = entry.get("mimeType", "")
             if mime == GOOGLE_FOLDER_MIME:
                 continue
             if not self._allowed(entry.get("name", ""), mime):
+                continue
+            if scoped and not self._within_scoped_folder(entry.get("parents") or [], scoped, ancestry):
                 continue
             results.append({
                 "id": entry["id"],
@@ -473,6 +482,37 @@ class GoogleDriveClient(DataSourceClient):
                 "web_url": entry.get("webViewLink"),
             })
         return results
+
+    def _within_scoped_folder(self, parents: List[str], scoped_id: str, cache: Dict[str, bool]) -> bool:
+        """True if any of a hit's `parents` is the scoped folder or — when the
+        connection is recursive — a descendant of it. Walks each parent up to
+        the scoped root, memoizing each folder's verdict so a shared ancestor
+        is resolved once across the whole result page."""
+        return any(self._folder_reaches_scope(pid, scoped_id, cache) for pid in parents)
+
+    def _folder_reaches_scope(self, folder_id: str, scoped_id: str, cache: Dict[str, bool], _depth: int = 0) -> bool:
+        if folder_id == scoped_id:
+            return True
+        # Non-recursive connection: only direct children count, so a parent
+        # that isn't the scoped folder itself is out of scope.
+        if not self.recursive or _depth > 50:
+            return False
+        if folder_id in cache:
+            return cache[folder_id]
+        cache[folder_id] = False  # break cycles while this chain resolves
+        try:
+            meta = self._get(
+                f"{DRIVE_BASE}/files/{folder_id}",
+                params={"supportsAllDrives": "true", "fields": "id,parents"},
+            )
+        except Exception:
+            return False
+        reached = any(
+            self._folder_reaches_scope(pid, scoped_id, cache, _depth + 1)
+            for pid in (meta.get("parents") or [])
+        )
+        cache[folder_id] = reached
+        return reached
 
     # ----------------------------------------- DataSourceClient compatibility
 

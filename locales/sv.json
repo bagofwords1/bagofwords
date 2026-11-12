@@ -1,4 +1,16 @@
 {
+  "filePicker": {
+    "title": "Lägg till filer",
+    "searchPlaceholder": "Sök filer…",
+    "uploadFromComputer": "Ladda upp från datorn",
+    "clickOrDrag": "Klicka eller dra filer för att ladda upp",
+    "dropHere": "Släpp filerna här",
+    "recentUploads": "Senaste uppladdningar",
+    "browseAll": "Bläddra bland alla",
+    "connect": "Anslut",
+    "searching": "Söker…",
+    "noResults": "Inga resultat"
+  },
   "agentLanding": {
     "actions": "Agentåtgärder",
     "countTasks": "{n} uppgift | {n} uppgifter",

@@ -690,6 +690,67 @@ async def list_connection_files(
     }
 
 
+@router.get("/data_sources/{data_source_id}/connections/{connection_id}/files/search")
+@requires_resource_permission('data_source', 'view')
+async def search_connection_files(
+    data_source_id: str,
+    connection_id: str,
+    q: str,
+    limit: int = 20,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+):
+    """Type-to-search a file connection's files — the live-provider search that
+    backs the prompt-box file picker's Drive/OneDrive sections.
+
+    Mirrors `list_connection_files` (same access gate, same construct_client,
+    same structured "connect required" state), but runs the provider's own
+    name+content search (`search_files`) instead of a full scope walk, so the
+    picker can match a filename as the user types. Only sources that declare
+    SEARCH_FILES back this; others return an empty result rather than erroring,
+    so the picker can offer a plain browse fallback.
+    """
+    from app.services.connection_service import ConnectionService
+    from app.data_sources.clients.base import Capability
+    conn = await _attached_connection(db, data_source_id, connection_id, organization)
+    query = (q or "").strip()
+    if not query:
+        return {"connection_id": str(connection_id), "files": [], "total": 0,
+                "limit": limit, "query": query}
+    effective_limit = max(1, min(limit, 100))
+    try:
+        client = await ConnectionService().construct_client(db, conn, current_user)
+        if Capability.SEARCH_FILES not in getattr(client, "capabilities", set()):
+            return {"connection_id": str(connection_id), "files": [], "total": 0,
+                    "limit": effective_limit, "query": query, "search_supported": False}
+        results = await client.asearch_files(query)
+    except HTTPException as he:
+        # Per-user OAuth sources raise 403 when the caller hasn't linked their
+        # account — surface the same structured "connect required" state the
+        # browse endpoint uses so the picker prompts sign-in, not an error.
+        detail = str(getattr(he, "detail", "") or "")
+        if he.status_code == 403 and "connect" in detail.lower():
+            return {"connection_id": str(connection_id), "connect_required": True,
+                    "reason": detail, "files": [], "total": 0,
+                    "limit": effective_limit, "query": query}
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to search files: {redact_error(e)}")
+    files = [f for f in (results or []) if not f.get("is_folder")]
+    page = files[:effective_limit]
+    return {
+        "connection_id": str(connection_id),
+        "files": [{"id": f.get("id"), "name": f.get("name"), "path": f.get("path"),
+                   "size": f.get("size"), "modified_at": f.get("modified_at"),
+                   "mime_type": f.get("mime_type"), "web_url": f.get("web_url")} for f in page],
+        "total": len(files),
+        "limit": effective_limit,
+        "has_more": len(files) > effective_limit,
+        "query": query,
+    }
+
+
 _PREVIEW_TABLE_ROWS = 200
 # Concurrent LibreOffice conversions for previews (per worker process).
 _OFFICE_PREVIEW_SLOTS = asyncio.Semaphore(2)

@@ -1,4 +1,16 @@
 {
+  "filePicker": {
+    "title": "إضافة ملفات",
+    "searchPlaceholder": "البحث عن الملفات…",
+    "uploadFromComputer": "التحميل من الحاسوب",
+    "clickOrDrag": "انقر أو اسحب الملفات للتحميل",
+    "dropHere": "أفلت الملفات هنا",
+    "recentUploads": "التحميلات الأخيرة",
+    "browseAll": "استعراض الكل",
+    "connect": "اتصال",
+    "searching": "جارٍ البحث…",
+    "noResults": "لا توجد نتائج"
+  },
   "agentLanding": {
     "actions": "إجراءات الوكيل",
     "countTasks": "لا مهام | مهمة واحدة | مهمتان | {n} مهام | {n} مهمة | {n} مهمة",

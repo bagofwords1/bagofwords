@@ -1,4 +1,16 @@
 {
+  "filePicker": {
+    "title": "הוספת קבצים",
+    "searchPlaceholder": "חיפוש קבצים…",
+    "uploadFromComputer": "העלאה מהמחשב",
+    "clickOrDrag": "לחצו או גררו קבצים להעלאה",
+    "dropHere": "שחררו כאן את הקבצים",
+    "recentUploads": "העלאות אחרונות",
+    "browseAll": "הצגת הכול",
+    "connect": "התחברות",
+    "searching": "מחפש…",
+    "noResults": "אין תוצאות"
+  },
   "agentLanding": {
     "actions": "פעולות סוכן",
     "countTasks": "משימה אחת | {n} משימות",

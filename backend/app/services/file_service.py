@@ -190,12 +190,20 @@ class FileService:
         organization: Organization,
         report_id: Optional[str] = None,
         completion_id: Optional[str] = None,
+        source_connection_id: Optional[str] = None,
+        source_ref: Optional[str] = None,
     ) -> File:
         """Persist raw bytes (e.g. an inbound email attachment) as a report File.
 
         Mirrors ``upload_file`` but takes bytes instead of an ``UploadFile``:
         writes to disk, creates the row, optionally links to a report, and
         generates a preview. Returns the ``File`` ORM object.
+
+        ``source_connection_id`` / ``source_ref`` record where a copied file
+        came from (a picked Google Drive / OneDrive file) WITHOUT changing its
+        ``source_kind``: it stays ``'upload'`` so the prompt-box treats it as a
+        user attachment chip (a 'connector' kind would be hidden as agent-owned
+        — see ``is_agent_owned_file``).
         """
         # An inbound attachment's name comes off a MIME header — legacy
         # codepages are routine there, so scrub it before it becomes both the
@@ -217,6 +225,8 @@ class FileService:
             path=file_location,
             user_id=current_user.id,
             organization_id=organization.id,
+            source_connection_id=source_connection_id,
+            source_ref=source_ref,
         )
         db.add(db_file)
         await db.commit()
@@ -254,6 +264,37 @@ class FileService:
 
         return db_file
     
+    async def attach_existing_file(
+        self, db: AsyncSession, file_id: str, organization: Organization,
+        current_user: User, report_id: Optional[str] = None,
+    ) -> FileSchema:
+        """Return a file the user already owns, optionally linking it to a report
+        without re-uploading it — the picker's "Recent uploads" path. The file
+        must be this user's own upload in this org (404 otherwise, so other
+        users' file ids don't leak). With no report_id (the home screen, before
+        a report exists) it just validates ownership and hands the file back as
+        a chip. Idempotent: re-attaching an already-linked file is a no-op."""
+        file = await db.get(File, file_id)
+        if (file is None or str(file.organization_id) != str(organization.id)
+                or str(file.user_id) != str(current_user.id)):
+            raise HTTPException(status_code=404, detail="File not found")
+
+        if report_id:
+            existing = (await db.execute(
+                select(report_file_association).filter_by(report_id=report_id, file_id=file_id)
+            )).first()
+            if not existing:
+                stmt = select(Report).filter(
+                    Report.id == report_id, Report.organization_id == organization.id,
+                )
+                report = (await db.execute(stmt)).scalar_one_or_none()
+                if not report:
+                    raise HTTPException(status_code=404, detail="Report not found")
+                report.files.append(file)
+                await db.commit()
+                await db.refresh(file)
+        return FileSchema.from_orm(file)
+
     async def remove_file_from_report(self, db: AsyncSession, file_id: str, report_id: str, organization: Organization, current_user: User):
         stmt = select(Report).filter(Report.id == report_id, Report.organization_id == organization.id)
         result = await db.execute(stmt)
@@ -281,15 +322,47 @@ class FileService:
 
         return True
         
-    async def get_files(self, db: AsyncSession, organization: Organization, current_user: User):
+    async def get_files(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        mine: bool = False,
+        source_kind: Optional[str] = None,
+        q: Optional[str] = None,
+        limit: Optional[int] = None,
+    ):
         """Files the user may list: their own uploads plus the libraries of
-        agents and projects they can see (every file, for a full admin)."""
+        agents and projects they can see (every file, for a full admin).
+
+        The prompt-box file picker's "Recent uploads" section needs a narrower
+        slice, so the optional filters restrict the same query without changing
+        the default (no-arg) behavior:
+          - `mine`        — only files this user uploaded themselves.
+          - `source_kind` — e.g. 'upload' to exclude agent-fetched/tool files.
+          - `q`           — case-insensitive filename substring match.
+          - `limit`       — cap the result (newest first when set/`mine`).
+        """
         from app.services.file_access_service import visible_files_clause
 
         stmt = select(File).filter(File.organization_id == organization.id)
         scope = await visible_files_clause(db, current_user, organization)
         if scope is not None:
             stmt = stmt.filter(scope)
+        if mine:
+            # A user's own uploads are always theirs to list — this is the
+            # picker's "only mine" rule (never agent/tool files of others).
+            stmt = stmt.filter(File.user_id == current_user.id)
+        if source_kind:
+            stmt = stmt.filter(File.source_kind == source_kind)
+        if q and q.strip():
+            # ilike → lower(..) LIKE lower(..) on both Postgres and SQLite, so
+            # the match is case-insensitive without relying on a SQLite quirk.
+            stmt = stmt.filter(File.filename.ilike(f"%{q.strip()}%"))
+        if mine or limit:
+            stmt = stmt.order_by(File.created_at.desc())
+        if limit:
+            stmt = stmt.limit(max(1, limit))
         result = await db.execute(stmt)
         files = result.scalars().all()
 

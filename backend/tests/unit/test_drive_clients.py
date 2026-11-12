@@ -766,6 +766,55 @@ class TestOAuthServiceWiring:
         assert "fullText contains" in captured["q"]
         assert "name contains" in captured["q"]
 
+    def _google_search_get(self, hits, tree):
+        """A fake `_get` for GDrive search: the search call returns `hits`; a
+        files/{id} call returns that folder's parents from `tree`."""
+        from app.data_sources.clients.google_drive_client import DRIVE_BASE
+
+        def fake_get(url, params=None, **kw):
+            if url.rstrip("/").endswith("/files"):
+                return {"files": hits}
+            fid = url.rsplit("/", 1)[-1]
+            return {"id": fid, "parents": tree.get(fid, [])}
+        return fake_get
+
+    def test_google_search_without_a_scoped_folder_returns_all_hits(self):
+        from app.data_sources.clients.google_drive_client import GoogleDriveClient
+        c = GoogleDriveClient(access_token="t")  # no folder_id
+        hits = [{"id": "a", "name": "a.csv", "mimeType": "text/csv", "parents": ["anywhere"]},
+                {"id": "b", "name": "b.csv", "mimeType": "text/csv", "parents": ["elsewhere"]}]
+        with patch.object(c, "_get", side_effect=self._google_search_get(hits, {})):
+            got = {f["id"] for f in c.search_files("q")}
+        assert got == {"a", "b"}
+
+    def test_google_search_drops_hits_outside_the_scoped_folder(self):
+        """A folder-scoped connection must not surface drive-wide hits from
+        other folders — the same scope the Graph/OneDrive search enforces."""
+        from app.data_sources.clients.google_drive_client import GoogleDriveClient
+        c = GoogleDriveClient(access_token="t", folder_id="F")  # recursive defaults on
+        hits = [
+            {"id": "direct", "name": "d.csv", "mimeType": "text/csv", "parents": ["F"]},
+            {"id": "nested", "name": "n.csv", "mimeType": "text/csv", "parents": ["sub"]},
+            {"id": "outside", "name": "o.csv", "mimeType": "text/csv", "parents": ["other"]},
+        ]
+        tree = {"sub": ["F"], "other": ["root"], "F": ["root"], "root": []}
+        with patch.object(c, "_get", side_effect=self._google_search_get(hits, tree)):
+            got = {f["id"] for f in c.search_files("q")}
+        assert got == {"direct", "nested"}
+        assert "outside" not in got
+
+    def test_google_search_nonrecursive_keeps_only_direct_children(self):
+        from app.data_sources.clients.google_drive_client import GoogleDriveClient
+        c = GoogleDriveClient(access_token="t", folder_id="F", recursive=False)
+        hits = [
+            {"id": "direct", "name": "d.csv", "mimeType": "text/csv", "parents": ["F"]},
+            {"id": "nested", "name": "n.csv", "mimeType": "text/csv", "parents": ["sub"]},
+        ]
+        tree = {"sub": ["F"], "F": ["root"]}
+        with patch.object(c, "_get", side_effect=self._google_search_get(hits, tree)):
+            got = {f["id"] for f in c.search_files("q")}
+        assert got == {"direct"}
+
     def test_mcp_oauth_audience_propagates_to_token_request(self):
         """RFC 8707 `resource` parameter is added to token-exchange body when
         an audience is configured."""

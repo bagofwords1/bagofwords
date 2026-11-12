@@ -17,6 +17,8 @@ from app.core.auth import current_user
 from app.models.organization import Organization
 from app.dependencies import get_current_organization
 from fastapi import Form
+from pydantic import BaseModel
+from app.errors.redact import redact_error
 from app.core.permissions_decorator import requires_permission, requires_resource_permission
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_async_db
@@ -150,6 +152,113 @@ async def remove_file_from_report(file_id: str, report_id: str, current_user: Us
     )
     return result
 
+class AttachFileRequest(BaseModel):
+    # Exactly one of these two shapes:
+    #  - file_id: a file the user already owns (Recent uploads) — linked, not re-uploaded.
+    #  - data_source_id + connection_id + ref: a picked Drive/OneDrive file — copied in.
+    file_id: Optional[str] = None
+    data_source_id: Optional[str] = None
+    connection_id: Optional[str] = None
+    ref: Optional[str] = None
+    # Optional: associate with this report (owner only). Omitted on the home
+    # screen, before a report exists — the file is then handed back as a chip
+    # and the composer associates it on submit, exactly like a fresh upload.
+    report_id: Optional[str] = None
+
+
+@router.post("/files/attach", response_model=FileSchema)
+@requires_permission('manage_files')
+async def attach_file(
+    body: AttachFileRequest,
+    request: Request,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Attach a file to the composer from the prompt-box picker — without a
+    fresh upload. Two shapes:
+
+      - {file_id}: link a file the user already uploaded (no re-upload).
+      - {data_source_id, connection_id, ref}: copy a picked Google Drive /
+        OneDrive file in as a normal upload (source_kind stays 'upload' so it
+        shows as an attachment chip; its origin is recorded on the row).
+
+    `report_id` is optional and, when given, is owner-gated like uploading to a
+    report. The copy is a snapshot: re-running the chat reads the bytes we
+    stored, not whatever the source holds later.
+    """
+    report_id = body.report_id
+    # Attaching to a report is a write on it: owner only, checked before any
+    # work. 404 (not 403) so other users' report ids don't leak — same as the
+    # upload route.
+    if report_id:
+        from sqlalchemy.orm import lazyload
+        target = (await db.execute(
+            select(Report).options(lazyload("*")).where(
+                Report.id == report_id, Report.organization_id == organization.id,
+            )
+        )).scalar_one_or_none()
+        if not file_access.user_owns_report(current_user, target):
+            raise HTTPException(status_code=404, detail="Report not found")
+
+    # Path 1 — an existing file the user owns.
+    if body.file_id:
+        return await file_service.attach_existing_file(
+            db, body.file_id, organization, current_user, report_id=report_id,
+        )
+
+    # Path 2 — copy a Drive/OneDrive file in through the connection.
+    if not (body.data_source_id and body.connection_id and body.ref):
+        raise HTTPException(
+            status_code=400,
+            detail="Provide file_id, or data_source_id + connection_id + ref.",
+        )
+    from app.routes.data_source import _attached_connection
+    from app.services.connection_service import ConnectionService
+    from app.data_sources.clients._file_source_common import FileTooLargeError, GlobScopeError
+    from app.ai.tools.implementations._file_tool_common import (
+        _ATTACH_MAX_BYTES, read_source_bytes, audit_file_access_denied,
+    )
+
+    conn = await _attached_connection(db, body.data_source_id, body.connection_id, organization)
+    try:
+        client = await ConnectionService().construct_client(db, conn, current_user)
+    except HTTPException:
+        # e.g. a per-user connection the caller hasn't signed in to (403).
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to open the connection: {redact_error(e)}")
+    if not hasattr(client, "read_raw_bytes"):
+        raise HTTPException(status_code=400, detail="This connection's files can't be attached.")
+    try:
+        # The source enforces the connection's scope and rejects an oversize
+        # file from its reported size before downloading it.
+        content, name, mime = await read_source_bytes(client, body.ref, max_bytes=_ATTACH_MAX_BYTES)
+    except GlobScopeError as e:
+        await audit_file_access_denied(
+            {"db": db, "organization": organization, "user": current_user},
+            body.connection_id, body.ref, str(e),
+        )
+        raise HTTPException(status_code=403, detail="This file is outside the connection's scope.")
+    except FileTooLargeError:
+        raise HTTPException(status_code=413, detail="File is too large to attach.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read file: {redact_error(e)}")
+    # Backstop for readers that report no size up front (Google-native exports).
+    if len(content) > _ATTACH_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="File is too large to attach.")
+
+    db_file = await file_service.save_bytes_as_file(
+        db, content, name, mime, current_user, organization,
+        report_id=report_id,
+        source_connection_id=str(body.connection_id),
+        source_ref=str(body.ref),
+    )
+    return FileSchema.from_orm(db_file)
+
+
 def _content_disposition(kind: str, filename: str) -> str:
     """A Content-Disposition value that survives a non-Latin filename.
 
@@ -192,8 +301,22 @@ def _content_disposition(kind: str, filename: str) -> str:
 
 @router.get("/files", response_model=list[FileSchemaWithMetadata])
 @requires_permission('manage_files')
-async def get_files(current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await file_service.get_files(db, organization, current_user)
+async def get_files(
+    mine: bool = False,
+    source_kind: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: Optional[int] = None,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """List files. With no params, every file the user may see (unchanged).
+    `mine=true&source_kind=upload&q=&limit=` backs the prompt-box picker's
+    "Recent uploads" — only this user's own uploads, newest first."""
+    return await file_service.get_files(
+        db, organization, current_user,
+        mine=mine, source_kind=source_kind, q=q, limit=limit,
+    )
 
 @router.get("/files/{file_id}/content")
 @requires_permission('manage_files')

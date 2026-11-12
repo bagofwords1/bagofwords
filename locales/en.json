@@ -1,4 +1,16 @@
 {
+  "filePicker": {
+    "title": "Add files",
+    "searchPlaceholder": "Search files…",
+    "uploadFromComputer": "Upload from computer",
+    "clickOrDrag": "Click or drag files to upload",
+    "dropHere": "Drop files here",
+    "recentUploads": "Recent uploads",
+    "browseAll": "Browse all",
+    "connect": "Connect",
+    "searching": "Searching…",
+    "noResults": "No results"
+  },
   "agentLanding": {
     "actions": "Agent actions",
     "countTasks": "{n} task | {n} tasks",

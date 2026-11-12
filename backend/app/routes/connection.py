@@ -376,6 +376,7 @@ async def list_connections(
             ),
             agent_count=len(conn.data_sources) if conn.data_sources else 0,
             agent_names=[ds.name for ds in conn.data_sources] if conn.data_sources else [],
+            data_source_ids=[str(ds.id) for ds in conn.data_sources] if conn.data_sources else [],
             indexing=indexing_payload.model_dump() if indexing_payload else None,
             user_status=user_status_payload,
             connector_key=_conn_connector_key(conn),

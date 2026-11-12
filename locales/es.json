@@ -1,4 +1,16 @@
 {
+  "filePicker": {
+    "title": "Añadir archivos",
+    "searchPlaceholder": "Buscar archivos…",
+    "uploadFromComputer": "Subir desde el ordenador",
+    "clickOrDrag": "Haz clic o arrastra archivos para subirlos",
+    "dropHere": "Suelta los archivos aquí",
+    "recentUploads": "Subidas recientes",
+    "browseAll": "Ver todo",
+    "connect": "Conectar",
+    "searching": "Buscando…",
+    "noResults": "Sin resultados"
+  },
   "agentLanding": {
     "actions": "Acciones del agente",
     "countTasks": "{n} tarea | {n} tareas",
