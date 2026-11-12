@@ -89,6 +89,7 @@ def test_capture_is_off_by_default_and_records_nothing(test_client, admin):
     settings = test_client.get("/api/system-logs/settings", headers=admin["headers"]).json()
     assert settings["enabled"] is False
     assert settings["expires_at"] is None
+    assert settings["dropped_lines"] == 0
 
     marker = f"off-{uuid.uuid4().hex}"
     log.warning(marker)

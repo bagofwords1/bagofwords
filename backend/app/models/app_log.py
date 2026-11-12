@@ -25,7 +25,8 @@ class AppLog(Base):
     # When the line was produced, in naive UTC like every other timestamp here.
     timestamp = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
     # Hostname of the process that produced it (pod name on Kubernetes).
-    instance_id = Column(String(255), nullable=False, index=True)
+    # Indexed through ix_app_logs_instance_timestamp (leading column).
+    instance_id = Column(String(255), nullable=False)
     # Python log level name (INFO, ERROR, ...) or NULL for raw stream writes
     # such as print() and tracebacks that bypass logging.
     level = Column(String(16), nullable=True)

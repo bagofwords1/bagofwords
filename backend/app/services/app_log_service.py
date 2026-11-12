@@ -70,6 +70,14 @@ SETTINGS_REFRESH_SECONDS = 10.0
 ROTATE_INTERVAL_SECONDS = 600.0
 # Per-row overhead added to the message bytes when estimating table size.
 _ROW_OVERHEAD_BYTES = 200
+# Rows whose message length is averaged for the size estimate (the newest).
+_SIZE_SAMPLE_ROWS = 1_000
+# When today's lines alone exceed the cap, trim to this share of it, so the
+# next lines do not put the table straight back over.
+_TRIM_TARGET = 0.9
+# This page's own requests; recording them would make auto-refresh fill the
+# log with its own polling.
+_OWN_PATH_PREFIX = "/api/system-logs"
 
 INSTANCE_ID = (socket.gethostname() or "unknown")[:255]
 
@@ -84,6 +92,8 @@ class _CaptureState:
     def __init__(self) -> None:
         self.enabled = False
         self.expires_at: Optional[datetime] = None
+        # Last "Delete all": buffered lines from before it are not written.
+        self.cleared_at: Optional[datetime] = None
         self.buffer: deque = deque(maxlen=BUFFER_MAX)
         self.dropped = 0
 
@@ -110,6 +120,22 @@ def _busy() -> bool:
 
 def _in_logging() -> bool:
     return getattr(_local, "in_logging", False)
+
+
+def _requeue(batch: list) -> None:
+    """Put an unwritten batch back at the front, oldest first."""
+    overflow = len(_state.buffer) + len(batch) - BUFFER_MAX
+    if overflow > 0:
+        # extendleft on a full deque discards from the right (the newest).
+        _state.dropped += overflow
+    _state.buffer.extendleft(reversed(batch))
+
+
+def _is_own_request(record: logging.LogRecord) -> bool:
+    # uvicorn.access records carry (client, method, path, http_version, status).
+    args = record.args
+    path = args[2] if isinstance(args, tuple) and len(args) >= 3 else None
+    return isinstance(path, str) and path.startswith(_OWN_PATH_PREFIX)
 
 
 def _enqueue(level: Optional[str], logger_name: Optional[str], stream: str,
@@ -141,6 +167,8 @@ class AppLogHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         if not _state.active() or _busy():
+            return
+        if record.name == "uvicorn.access" and _is_own_request(record):
             return
         _local.busy = True
         try:
@@ -221,7 +249,8 @@ def install_log_handler() -> None:
             lg.addHandler(_handler)
 
 
-_original_call_handlers = logging.Logger.callHandlers
+# The Logger.callHandlers that install_stream_capture found and wrapped.
+_wrapped_call_handlers = logging.Logger.callHandlers
 
 
 def _call_handlers_marked(self: logging.Logger, record: logging.LogRecord) -> None:
@@ -232,14 +261,20 @@ def _call_handlers_marked(self: logging.Logger, record: logging.LogRecord) -> No
     previous = _in_logging()
     _local.in_logging = True
     try:
-        _original_call_handlers(self, record)
+        _wrapped_call_handlers(self, record)
     finally:
         _local.in_logging = previous
 
 
 def install_stream_capture() -> None:
     """Copy direct writes to sys.stdout / sys.stderr. Idempotent."""
-    logging.Logger.callHandlers = _call_handlers_marked
+    global _wrapped_call_handlers
+    # Wrap whatever is installed now (another library may have patched it
+    # since import), not the import-time function.
+    current = logging.Logger.callHandlers
+    if current is not _call_handlers_marked:
+        _wrapped_call_handlers = current
+        logging.Logger.callHandlers = _call_handlers_marked
     if not isinstance(sys.stdout, _StreamTee):
         sys.stdout = _StreamTee(sys.stdout, "stdout")
     if not isinstance(sys.stderr, _StreamTee):
@@ -247,7 +282,10 @@ def install_stream_capture() -> None:
 
 
 def uninstall_stream_capture() -> None:
-    logging.Logger.callHandlers = _original_call_handlers
+    # Restore only if nothing has wrapped ours since; otherwise leave the
+    # chain alone (ours then just passes through).
+    if logging.Logger.callHandlers is _call_handlers_marked:
+        logging.Logger.callHandlers = _wrapped_call_handlers
     if isinstance(sys.stdout, _StreamTee):
         sys.stdout = sys.stdout.wrapped
     if isinstance(sys.stderr, _StreamTee):
@@ -258,6 +296,7 @@ def reset() -> None:
     """Forget this process's switch state and buffered lines (tests, reloads)."""
     _state.enabled = False
     _state.expires_at = None
+    _state.cleared_at = None
     _state.buffer.clear()
     _state.dropped = 0
 
@@ -293,6 +332,17 @@ async def refresh_state(db: AsyncSession) -> None:
     value = (row.value or {}) if row else {}
     _state.enabled = bool(value.get("enabled"))
     _state.expires_at = _parse_dt(value.get("expires_at"))
+    _state.cleared_at = _parse_dt(value.get("cleared_at"))
+
+
+async def _save_value(db: AsyncSession, changes: dict) -> None:
+    row = await _get_row(db)
+    if row is None:
+        db.add(InstanceSettings(key=SETTING_KEY, value=dict(changes)))
+    else:
+        # A new dict, so the JSON column is marked dirty.
+        row.value = {**(row.value or {}), **changes}
+    await db.commit()
 
 
 def capture_status(now: Optional[datetime] = None) -> dict:
@@ -302,6 +352,7 @@ def capture_status(now: Optional[datetime] = None) -> dict:
     return {
         "enabled": active,
         "expires_at": _state.expires_at if active else None,
+        "dropped_lines": _state.dropped,
     }
 
 
@@ -315,18 +366,12 @@ async def set_enabled(
     """Switch capture on (optionally for ``duration_minutes``) or off."""
     now = now or _utcnow()
     expires_at = now + timedelta(minutes=duration_minutes) if enabled and duration_minutes else None
-    value = {
+    await _save_value(db, {
         "enabled": bool(enabled),
         "expires_at": expires_at.isoformat() if expires_at else None,
         "updated_by": user_id,
         "updated_at": now.isoformat(),
-    }
-    row = await _get_row(db)
-    if row is None:
-        db.add(InstanceSettings(key=SETTING_KEY, value=value))
-    else:
-        row.value = value  # new dict, so the JSON column is marked dirty
-    await db.commit()
+    })
     _state.enabled = bool(enabled)
     _state.expires_at = expires_at
     if not enabled:
@@ -339,26 +384,48 @@ async def set_enabled(
 
 
 async def flush() -> int:
-    """Write this process's buffered lines. Returns how many were written."""
+    """Write this process's buffered lines. Returns how many were written.
+
+    A batch that fails to write (SQLite "database is locked", a dropped
+    connection, cancellation) goes back to the front of the buffer for the
+    next flush; lines are lost only if the buffer overflows meanwhile.
+    """
     from app.dependencies import async_session_maker
 
+    if not _state.buffer:
+        return 0
     written = 0
     token = _flushing.set(True)
     try:
+        # Re-read the switch first: another worker may have run "Delete all"
+        # (or turned recording off) since these lines were buffered.
+        try:
+            async with async_session_maker() as db:
+                await refresh_state(db)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 — write with what this worker knows
+            pass
         while _state.buffer:
             batch = []
             while _state.buffer and len(batch) < FLUSH_BATCH:
                 batch.append(_state.buffer.popleft())
+            cleared_at = _state.cleared_at
+            if cleared_at is not None:
+                batch = [r for r in batch if r["timestamp"] > cleared_at]
+                if not batch:
+                    continue
             try:
                 async with async_session_maker() as db:
                     await db.execute(insert(AppLog), batch)
                     await db.commit()
                 written += len(batch)
             except asyncio.CancelledError:
+                _requeue(batch)
                 raise
-            except Exception as e:  # noqa: BLE001 — drop the batch, keep serving
-                _state.dropped += len(batch)
-                _logger.warning(f"System logs: could not write {len(batch)} lines: {e}")
+            except Exception as e:  # noqa: BLE001 — retry on the next flush
+                _requeue(batch)
+                _logger.warning(f"System logs: could not write {len(batch)} lines, will retry: {e}")
                 break
     finally:
         _flushing.reset(token)
@@ -369,14 +436,22 @@ async def flush() -> int:
 
 
 async def _logical_size_bytes(db: AsyncSession) -> int:
-    result = await db.execute(
-        select(
-            func.coalesce(func.sum(func.length(AppLog.message)), 0),
-            func.count(AppLog.id),
-        )
+    """Row count times the average size of the newest rows.
+
+    Summing every message would read the whole table; counting rows only walks
+    an index, and recent lines are representative of what rotation keeps.
+    """
+    rows = int(await db.scalar(select(func.count()).select_from(AppLog)) or 0)
+    if not rows:
+        return 0
+    sample = (
+        select(func.length(AppLog.message).label("n"))
+        .order_by(AppLog.timestamp.desc())
+        .limit(_SIZE_SAMPLE_ROWS)
+        .subquery()
     )
-    message_bytes, rows = result.one()
-    return int(message_bytes or 0) + int(rows or 0) * _ROW_OVERHEAD_BYTES
+    avg_len = float(await db.scalar(select(func.avg(sample.c.n))) or 0)
+    return int(rows * (avg_len + _ROW_OVERHEAD_BYTES))
 
 
 async def table_size_bytes(db: AsyncSession, max_bytes: int = MAX_TABLE_BYTES) -> int:
@@ -398,18 +473,47 @@ async def rotate(
     now: Optional[datetime] = None,
     max_bytes: int = MAX_TABLE_BYTES,
 ) -> dict:
-    """Apply retention: drop rows older than a week; over ``max_bytes``, keep today's only."""
+    """Apply retention and the size cap.
+
+    * Rows older than ``RETENTION`` are deleted.
+    * Rows from before the last "Delete all" are deleted (lines another worker
+      wrote while the delete was happening).
+    * Over ``max_bytes``: only today's rows (UTC) are kept, and if today's rows
+      alone are still over, the oldest are deleted until the estimate is under
+      the cap.
+    """
     now = now or _utcnow()
     expired = await db.execute(delete(AppLog).where(AppLog.timestamp < now - RETENTION))
+    removed = expired.rowcount or 0
+    await refresh_state(db)
+    if _state.cleared_at is not None:
+        stale = await db.execute(delete(AppLog).where(AppLog.timestamp <= _state.cleared_at))
+        removed += stale.rowcount or 0
     await db.commit()
+
     size = await table_size_bytes(db, max_bytes)
     trimmed = 0
     if size > max_bytes:
         start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
         result = await db.execute(delete(AppLog).where(AppLog.timestamp < start_of_today))
         await db.commit()
-        trimmed = result.rowcount or 0
-    return {"expired": expired.rowcount or 0, "trimmed": trimmed, "size_bytes": size}
+        trimmed += result.rowcount or 0
+        size = await table_size_bytes(db, max_bytes)
+    if size > max_bytes:
+        rows = int(await db.scalar(select(func.count()).select_from(AppLog)) or 0)
+        keep = int(rows * (max_bytes * _TRIM_TARGET) / size)
+        if keep <= 0:
+            result = await db.execute(delete(AppLog))
+        else:
+            # The oldest row still kept; everything before it goes.
+            boundary = await db.scalar(
+                select(AppLog.timestamp).order_by(AppLog.timestamp.desc()).offset(keep - 1).limit(1)
+            )
+            result = await db.execute(delete(AppLog).where(AppLog.timestamp < boundary))
+        await db.commit()
+        trimmed += result.rowcount or 0
+        size = await table_size_bytes(db, max_bytes)
+    return {"expired": removed, "trimmed": trimmed, "size_bytes": size}
 
 
 # ── Reads ────────────────────────────────────────────────────────────────
@@ -450,10 +554,17 @@ async def list_instances(db: AsyncSession) -> list[str]:
     return [r for r in result.scalars().all() if r]
 
 
-async def delete_all(db: AsyncSession) -> int:
+async def delete_all(db: AsyncSession, now: Optional[datetime] = None) -> int:
+    """Delete every stored line, on every instance.
+
+    Other workers still hold a few seconds of buffered lines; ``cleared_at``
+    tells them (at their next flush) to discard the ones from before now.
+    """
+    now = now or _utcnow()
     _state.buffer.clear()
+    _state.cleared_at = now
     result = await db.execute(delete(AppLog))
-    await db.commit()
+    await _save_value(db, {"cleared_at": now.isoformat()})
     return result.rowcount or 0
 
 

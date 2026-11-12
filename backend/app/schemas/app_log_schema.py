@@ -37,6 +37,9 @@ class AppLogSettings(BaseModel):
     retention_days: int
     max_size_bytes: int
     size_bytes: int
+    # Lines this instance could not keep since it started (its buffer
+    # overflowed while the database was unavailable or slow).
+    dropped_lines: int = 0
 
 
 class AppLogSettingsUpdate(BaseModel):

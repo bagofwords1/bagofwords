@@ -5,7 +5,7 @@ admin has System logs switched on. Instance-wide, not per organization. The
 on/off switch lives in instance_settings under the key "app_logs".
 
 Revision ID: applog01
-Revises: rel0615
+Revises: fileindex01
 Create Date: 2026-11-11
 """
 from alembic import op
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 
 revision = 'applog01'
-down_revision = 'rel0615'
+down_revision = 'fileindex01'
 branch_labels = None
 depends_on = None
 
@@ -31,12 +31,12 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint('id'),
     )
     op.create_index('ix_app_logs_timestamp', 'app_logs', ['timestamp'], unique=False)
-    op.create_index('ix_app_logs_instance_id', 'app_logs', ['instance_id'], unique=False)
+    # Also serves instance_id-only lookups (leading column), so no separate
+    # instance_id index: one less index write per row on the busiest table.
     op.create_index('ix_app_logs_instance_timestamp', 'app_logs', ['instance_id', 'timestamp'], unique=False)
 
 
 def downgrade() -> None:
     op.drop_index('ix_app_logs_instance_timestamp', table_name='app_logs')
-    op.drop_index('ix_app_logs_instance_id', table_name='app_logs')
     op.drop_index('ix_app_logs_timestamp', table_name='app_logs')
     op.drop_table('app_logs')
