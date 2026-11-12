@@ -156,9 +156,12 @@ def get_db_url():
 
 
 # Interpret the config file for Python logging.
-# This line sets up loggers basically.
+# This line sets up loggers basically. Loggers that already exist stay enabled:
+# the test suite runs migrations in-process, and the default (disabling them)
+# silenced whatever app loggers had been imported first, so log-asserting tests
+# passed or failed by which test came first in the worker.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # add your model's MetaData object here
 # for 'autogenerate' support

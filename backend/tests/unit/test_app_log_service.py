@@ -27,10 +27,8 @@ NOW = datetime(2026, 10, 6, 9, 30)
 
 @pytest.fixture(autouse=True)
 def _isolated_state():
-    # Building the test database runs alembic's fileConfig, which disables
-    # loggers that already exist (this module's included) and resets root's
-    # handlers; production runs migrations in a separate process.
-    log.disabled = False
+    # Building the test database runs alembic's fileConfig, which resets the
+    # root logger's handlers; attach ours again.
     svc.install_log_handler()
     svc.reset()
     yield
@@ -88,6 +86,7 @@ def test_rotation_drops_lines_older_than_a_week(age_days, kept):
 
 def _size():
     async def go():
+        await svc.flush()  # measure what is written, not what is buffered
         async with async_session_maker() as db:
             return await svc.table_size_bytes(db)
     return _run(go())
