@@ -210,13 +210,48 @@ def test_guard_returns_the_text_to_send():
     "execute_query('SELECT id FROM orders WHERE id = :id', params={'id': 2})",
     "query(sql='SELECT id FROM orders WHERE id = :id', params={'id': 2})",
 ])
-def test_client_receives_exactly_the_captured_text(mode, shop, call):
+def test_client_receives_exactly_the_captured_text(mode, shop, call, monkeypatch):
+    # ensure_read_only's contract is "returns what to send" (a later phase
+    # returns canonical text). A guard that returns new text shows whether the
+    # capture and the client both get the returned value, not the input.
+    import app.ai.code_execution.code_execution as code_execution
+
+    real_guard = code_execution.ensure_read_only
+    returned: list = []
+
+    def guard_returning_new_text(client, statement):
+        checked = "/* checked */ " + real_guard(client, statement)
+        returned.append(checked)
+        return checked
+
+    monkeypatch.setattr(code_execution, "ensure_read_only", guard_returning_new_text)
     client = RecordingSqliteClient(str(shop))
     df, _, captured = _run({"shop": client}, "return ds_clients['shop']." + call)
     assert df["id"].tolist() == [2]
     assert len(client.sent) == 1
-    assert [str(q) for q in captured] == client.sent
+    assert client.sent == returned
+    assert [str(q) for q in captured] == returned
     assert ":id" not in client.sent[0]
+
+
+@pytest.mark.parametrize("call", [
+    "execute_query('SELECT 1 AS a', 'SELECT 2 AS a')",
+    "execute_query(statement='SELECT 1 AS a')",
+    "execute_query(sql='SELECT 1 AS a', timeout=5)",
+    "execute_query(['SELECT 1'])",
+])
+def test_call_shape_refusal_names_only_the_call_problem(mode, shop, call):
+    client = RecordingSqliteClient(str(shop))
+    with pytest.raises(UnsafeSQLError) as refused:
+        _run({"shop": client}, "return ds_clients['shop']." + call)
+    assert "Only SELECT" not in str(refused.value)
+
+
+def test_statement_refusal_still_says_only_select_is_allowed(mode, shop):
+    client = RecordingSqliteClient(str(shop))
+    with pytest.raises(UnsafeSQLError) as refused:
+        _run({"shop": client}, f"return ds_clients['shop'].execute_query({_RUNTIME_DROP})")
+    assert "Only SELECT queries are allowed." in str(refused.value)
 
 
 def test_empty_statement_reaches_the_driver_as_today(mode, shop):
@@ -291,9 +326,10 @@ def test_bigquery_cost_options_within_the_connection_cap_are_sent(mode, cap, ext
 ])
 def test_bigquery_cost_options_outside_the_rules_are_refused(mode, cap, extra):
     client = _bigquery(cap)
-    with pytest.raises(UnsafeSQLError):
+    with pytest.raises(UnsafeSQLError) as refused:
         _run({"bq": client}, f"return ds_clients['bq'].execute_query('SELECT 1 AS a', {extra})")
     assert client.sent == []
+    assert "Only SELECT" not in str(refused.value)
 
 
 class _ClientRaising(SqliteClient):

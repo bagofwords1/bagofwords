@@ -64,11 +64,30 @@ _LITERALS_AND_COMMENTS = re.compile(
     re.DOTALL,
 )
 
-# SPL commands that write to indexes, lookups, the filesystem, or the outside.
+# SPL commands an agent search must not run, by what they do:
+# - write to indexes, lookups, inputs or files on the search head: delete,
+#   outputlookup, outputcsv, outputtext, collect (and its alias summaryindex),
+#   mcollect, meventcollect, tscollect, dump, and the deprecated crawl / input;
+# - alert or send data out: sendemail, sendalert, outputtelemetry, dbxoutput;
+# - run external code: script (alias run), runshellscript, dbxquery;
+# - run another search whose SPL is not in the text checked here: savedsearch
+#   (a stored search), map (builds and runs a search per input row).
+# Reads that only look like these (inputlookup, loadjob, rest) stay allowed.
+# Search macros expand on the server, so a macro body is never seen by this
+# check; that residual risk rests on the connection using a read-only role.
 _SPL_WRITE_COMMANDS = re.compile(
-    r"\|\s*(delete|outputlookup|outputcsv|outputtext|collect|mcollect|meventcollect"
-    r"|tscollect|sendemail|sendalert|script|run|dbxoutput|dbxquery)\b",
+    r"\|\s*(delete|outputlookup|outputcsv|outputtext|collect|summaryindex|mcollect"
+    r"|meventcollect|tscollect|dump|crawl|input|sendemail|sendalert|outputtelemetry"
+    r"|dbxoutput|script|run|runshellscript|dbxquery|savedsearch|map)\b",
     re.IGNORECASE,
+)
+
+# How a Splunk query is written; repeated when an envelope's SPL is not text.
+SPL_ENVELOPE_GUIDANCE = (
+    'Splunk query must be an SPL string or a JSON envelope like '
+    '{"spl": "search index=web | stats count by host", "earliest": "-24h", "limit": 1000}, '
+    'or a knowledge-object envelope like {"dashboard": "<app>/<name>", "panel": "<title>"} '
+    'or {"saved_search": "<app>/<name>"}.'
 )
 
 
@@ -162,9 +181,12 @@ def ensure_read_only(client, query) -> Union[str, dict]:
     ReadOnlyViolation if it would modify the source behind `client`.
 
     A `str` comes back as the text to send (unchanged today). A `dict` envelope
-    on a client that accepts one (Splunk) comes back unchanged and unread: the
-    client checks its SPL after decoding, at the one place every search is
-    dispatched. Any other non-`str` statement to a guarded client is refused.
+    on a client that accepts one (Splunk) comes back unchanged. Splunk SPL
+    carried inline (bare, dict or JSON string) is checked here after decoding,
+    so a refusal happens before the query is metered; SPL stored in a
+    dashboard or saved search is only known after the client fetches it, and
+    is checked at the one place every search is dispatched (`_run_search`).
+    Any other non-`str` statement to a guarded client is refused.
     A client the guard does not know gets its input back unchanged.
     """
     profile = guard_profile(client)
@@ -172,6 +194,8 @@ def ensure_read_only(client, query) -> Union[str, dict]:
         return query
     if not isinstance(query, str):
         if isinstance(query, dict) and profile.accepts_dict:
+            if profile.kind == "spl":
+                _check_spl_envelope(query)
             return query
         raise ReadOnlyViolation(
             f"execute_query takes the statement as text, not {type(query).__name__}."
@@ -180,6 +204,7 @@ def ensure_read_only(client, query) -> Union[str, dict]:
         return query
     if profile.kind == "spl":
         check_spl(query)
+        _check_spl_envelope(query)
     elif profile.kind == "nonparsing_sql":
         _check_db2(query)
     elif profile.kind == "cypher":
@@ -192,6 +217,16 @@ def ensure_read_only(client, query) -> Union[str, dict]:
     elif profile.dialect:
         check_sql(query, profile.dialect)
     return query
+
+
+def _check_spl_envelope(query) -> None:
+    """Check the SPL a Splunk query carries inline, decoded exactly as the
+    client decodes it before running it."""
+    from app.data_sources.clients.splunk_client import SplunkClient
+
+    spl = SplunkClient.inline_spl(query)
+    if spl is not None:
+        check_spl(spl)
 
 
 def check_sql(sql: str, dialect: str) -> None:
@@ -293,9 +328,14 @@ def _single_statement_check(sql: str) -> None:
 
 
 def check_spl(spl: str) -> None:
-    """Refuse SPL that writes to indexes, lookups, files or the outside."""
+    """Refuse SPL that writes to indexes, lookups, files or the outside, and
+    SPL that is not text."""
+    if not isinstance(spl, str):
+        raise ReadOnlyViolation(
+            f"The SPL in a Splunk query must be text, not {type(spl).__name__}. {SPL_ENVELOPE_GUIDANCE}"
+        )
     match = _SPL_WRITE_COMMANDS.search(spl)
     if match:
         raise ReadOnlyViolation(
-            f"SPL command '{match.group(1)}' writes data and is not allowed."
+            f"SPL command '{match.group(1)}' is not allowed: only searches that read data can run."
         )

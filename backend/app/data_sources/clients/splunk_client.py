@@ -48,7 +48,7 @@ import pandas as pd
 import requests
 from app.core.egress import pinned_request
 
-from app.ai.code_execution.sql_guard import check_spl
+from app.ai.code_execution.sql_guard import SPL_ENVELOPE_GUIDANCE, check_spl
 from app.data_sources.clients.progress import IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
@@ -838,19 +838,25 @@ class SplunkClient(DataSourceClient):
                 return {"spl": s}
         return {"spl": s}
 
+    @staticmethod
+    def inline_spl(query) -> Any:
+        """The SPL `execute_query` runs straight from `query` (bare string,
+        dict or JSON-string envelope), decoded as it would be, whatever its
+        type. None for a dashboard or saved-search envelope, whose SPL is
+        fetched first, and for an envelope without SPL."""
+        spec = SplunkClient._coerce_spec(query)
+        if spec.get("dashboard") or spec.get("saved_search"):
+            return None
+        return spec.get("spl") or spec.get("search") or spec.get("query")
+
     def _parse_spec(self, query):
         earliest: Optional[str] = self._window()
         latest: Optional[str] = "now"
         limit = DEFAULT_LIMIT
         spec = self._coerce_spec(query)
-        spl = spec.get("spl") or spec.get("search") or spec.get("query")
+        spl = self.inline_spl(spec)
         if not spl:
-            raise ValueError(
-                'Splunk query must be an SPL string or a JSON envelope like '
-                '{"spl": "search index=web | stats count by host", "earliest": "-24h", "limit": 1000}, '
-                'or a knowledge-object envelope like {"dashboard": "<app>/<name>", "panel": "<title>"} '
-                'or {"saved_search": "<app>/<name>"}.'
-            )
+            raise ValueError(SPL_ENVELOPE_GUIDANCE)
         if spec.get("earliest") is not None:
             earliest = spec["earliest"]
         if spec.get("latest") is not None:

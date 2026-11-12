@@ -690,3 +690,196 @@ def test_discovery_searches_still_run(splunk_http):
     assert "dashboard::payments/checkout_health" in names
     assert CATALOG_SEARCH in http.searches
     assert any("fieldsummary" in s for s in http.searches)
+
+
+# Commands that write (indexes, lookups, files, inputs), alert or send data
+# out, run external code, or run other searches (stored or built per row).
+_REFUSED_SPL = [
+    "index=web | delete",
+    "index=web | outputlookup hosts.csv",
+    "index=web | outputcsv hosts",
+    "index=web | outputtext",
+    "index=web | collect index=summary",
+    "index=web | summaryindex index=summary",
+    "index=web | mcollect index=metrics",
+    "index=web | meventcollect index=metrics",
+    "index=web | tscollect namespace=ns",
+    "index=web | sendemail to=ops@example.com",
+    "index=web | sendalert notify",
+    "index=web | outputtelemetry input=host",
+    "index=web | script myscript",
+    "index=web | run myscript",
+    "index=web | runshellscript myscript.sh",
+    "index=web | dump basefilename=out",
+    "| savedsearch Nightly",
+    "index=web [| savedsearch Nightly]",
+    "| makeresults | map search=\"search index=web\"",
+    "| crawl",
+    "| input add source=/var/log",
+    "index=web | dbxoutput output=x",
+    "index=web | dbxquery query=\"SELECT 1\"",
+]
+
+
+@pytest.mark.parametrize("spl", _REFUSED_SPL)
+def test_spl_command_that_writes_or_runs_other_searches_is_refused(splunk_http, spl):
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation
+
+    client, http = splunk_http
+    with pytest.raises(ReadOnlyViolation):
+        client.execute_query(spl)
+    with pytest.raises(ReadOnlyViolation):
+        client.execute_query({"spl": spl})
+    assert http.searches == []
+
+
+@pytest.mark.parametrize("spl,expected", [
+    ("index=web | stats count by host", "search index=web | stats count by host"),
+    ("index=web | table host count", "search index=web | table host count"),
+    ("search index=web status=500", "search index=web status=500"),
+    ("index=web runtime>5 | inputlookup hosts.csv", "search index=web runtime>5 | inputlookup hosts.csv"),
+])
+def test_read_spl_still_posts_exactly_one_search(splunk_http, spl, expected):
+    client, http = splunk_http
+    client.execute_query(spl)
+    assert http.searches == [expected]
+
+
+@pytest.mark.parametrize("query", [
+    {"spl": ["search index=web"]},
+    {"spl": 42},
+    '{"spl": {"search": "index=web"}}',
+])
+def test_non_text_spl_in_an_envelope_is_refused_with_envelope_guidance(splunk_http, query):
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation
+
+    client, http = splunk_http
+    with pytest.raises(ReadOnlyViolation) as refused:
+        client.execute_query(query)
+    assert '{"spl":' in str(refused.value)
+    assert http.searches == []
+
+
+# ---------- refused searches are not metered ---------- #
+#
+# The query wrapper runs the rate limit and the data-query quota before it
+# sends. A Splunk envelope the guard can read (dict or JSON string) is checked
+# before that, so its refusal costs nothing. A dashboard panel or saved search
+# is only known after the client fetches it; a refusal there gives back the
+# data-query usage event (the fetch did reach Splunk, so the rate-limit request
+# stays counted).
+
+async def _metered_splunk(http_client):
+    import uuid
+
+    from app.dependencies import async_session_maker
+    from app.models.connection import Connection
+    from app.models.organization import Organization
+    from app.models.user import User
+
+    async with async_session_maker() as db:
+        org = Organization(name=f"Org-{uuid.uuid4().hex[:8]}")
+        db.add(org)
+        await db.flush()
+        user = User(name="U", email=f"spl-{uuid.uuid4().hex[:8]}@example.com", hashed_password="x",
+                    is_active=True, is_superuser=False, is_verified=True)
+        db.add(user)
+        await db.flush()
+        conn = Connection(organization_id=org.id, name="Splunk", type="splunk", config={},
+                          credentials=None, rate_limit_enabled=True, rate_limit_per_minute=100)
+        db.add(conn)
+        await db.commit()
+        org_id, user_id, conn_id = str(org.id), str(user.id), str(conn.id)
+    http_client._bow_connection_id = conn_id
+    return org_id, user_id, conn_id
+
+
+async def _usage_and_limiter(org_id, conn_id):
+    from sqlalchemy import select
+
+    from app.dependencies import async_session_maker
+    from app.models.connection_rate_limit_counter import ConnectionRateLimitCounter
+    from app.models.usage_policy import UsageEvent
+    from app.services.usage_policy_service import METRIC_DATA_QUERIES
+
+    async with async_session_maker() as db:
+        events = (await db.execute(select(UsageEvent).where(
+            UsageEvent.organization_id == org_id, UsageEvent.metric == METRIC_DATA_QUERIES,
+        ))).scalars().all()
+        counters = (await db.execute(select(ConnectionRateLimitCounter).where(
+            ConnectionRateLimitCounter.connection_id == conn_id,
+        ))).scalars().all()
+    return len(events), sum(c.count for c in counters)
+
+
+@pytest.fixture
+def metering_on(monkeypatch):
+    import app.services.usage_policy_service as ups
+    from app.ee import license as ee_license
+
+    monkeypatch.setattr(ups, "has_feature", lambda name: True)
+    monkeypatch.setattr(ee_license, "has_feature", lambda name: True)
+
+
+async def _run_metered(client, query):
+    import asyncio
+
+    from app.ai.code_execution.code_execution import QueryCapturingClientWrapper
+    from app.dependencies import async_session_maker
+    from app.services.usage_policy_service import UsageLimitContext
+
+    org_id, user_id, conn_id = await _metered_splunk(client)
+    ctx = UsageLimitContext(organization_id=org_id, user_id=user_id, source="agent",
+                            source_ref_id="run-1", session_maker=async_session_maker)
+    ctx.loop = asyncio.get_running_loop()
+    wrapper = QueryCapturingClientWrapper(client, [], [], usage_context=ctx, client_key="splunk:1")
+    outcome = None
+    try:
+        await asyncio.to_thread(wrapper.execute_query, query)
+    except Exception as e:
+        outcome = e
+    await ctx.flush()
+    return outcome, await _usage_and_limiter(org_id, conn_id)
+
+
+@pytest.mark.db
+@pytest.mark.asyncio
+async def test_read_search_is_metered_once(splunk_http, metering_on):
+    client, http = splunk_http
+    outcome, (events, requests) = await _run_metered(client, {"spl": "index=web | stats count by host"})
+    assert outcome is None
+    assert http.searches == ["search index=web | stats count by host"]
+    assert (events, requests) == (1, 1)
+
+
+@pytest.mark.db
+@pytest.mark.asyncio
+@pytest.mark.parametrize("query", [
+    {"spl": "search index=web | delete"},
+    '{"spl": "search index=web | \\u0064elete"}',
+    {"spl": ["search index=web"]},
+])
+async def test_refused_envelope_costs_no_usage_and_no_rate_limit(splunk_http, metering_on, query):
+    from app.ai.code_execution.code_execution import UnsafeSQLError
+
+    client, http = splunk_http
+    outcome, (events, requests) = await _run_metered(client, query)
+    assert isinstance(outcome, UnsafeSQLError), outcome
+    assert http.searches == []
+    assert (events, requests) == (0, 0)
+
+
+@pytest.mark.db
+@pytest.mark.asyncio
+@pytest.mark.parametrize("query", [
+    {"saved_search": "ops/Nightly rollup"},
+    {"dashboard": "ops/ops_board", "panel": "Export"},
+])
+async def test_refused_stored_search_leaves_no_usage_event(splunk_http, metering_on, query):
+    from app.ai.code_execution.code_execution import UnsafeSQLError
+
+    client, http = splunk_http
+    outcome, (events, requests) = await _run_metered(client, query)
+    assert isinstance(outcome, UnsafeSQLError), outcome
+    assert http.searches == []
+    assert (events, requests) == (0, 1)

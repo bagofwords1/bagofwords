@@ -910,7 +910,9 @@ def _as_refusal(exc: Exception) -> Exception:
 
 
 def _refuse_call(reason: str) -> UnsafeSQLError:
-    return UnsafeSQLError(f"{reason} Only SELECT queries are allowed.")
+    """A refusal of the call's shape or options; the statement itself was not
+    judged, so the message names only what is wrong with the call."""
+    return UnsafeSQLError(reason)
 
 
 def _check_bigquery_options(client, kwargs: dict) -> None:
@@ -1057,15 +1059,11 @@ class QueryCapturingClientWrapper:
         and sent positionally. Shapes that cannot be reduced are refused.
         """
         refusal: Optional[UnsafeSQLError] = None
-        if guard_profile(self._original) is not None:
+        guarded = guard_profile(self._original) is not None
+        if guarded:
             query, args, kwargs, capture, refusal = self._prepare_guarded(query, args, kwargs)
         else:
             query, capture = self._prepare_unguarded(query, kwargs)
-        if isinstance(capture, str):
-            # Tagged with the client family so the identity-bind check can
-            # parse it in the right grammar (SQL dialect / SPL); still a str.
-            from app.ai.code_execution.identity_bind import CapturedQuery
-            self._captured_queries.append(CapturedQuery(capture, family_name(self._original)))
         idx = len(self._captured_timings)
         _q_start = _time.monotonic()
         with _tracer.start_as_current_span("datasource.execute_query") as span:
@@ -1073,14 +1071,21 @@ class QueryCapturingClientWrapper:
             span.set_attribute("datasource.query_timeout_seconds", self._query_timeout_seconds)
             try:
                 if refusal is not None:
+                    self._capture(capture)
                     raise refusal
                 # Checked on the final text, after params rendered and after
                 # whatever string building the sandbox code did. What the guard
-                # returns is what table scope checks and the client receives.
+                # returns is what is captured, what table scope checks and what
+                # the client receives; a refused statement is captured as the
+                # code wrote it, so the UI shows what was attempted.
                 try:
                     checked = ensure_read_only(self._original, query)
                 except ReadOnlyViolation as e:
+                    self._capture(capture)
                     raise UnsafeSQLError(str(e)) from e
+                if guarded:
+                    capture = self._guarded_capture(checked, kwargs)
+                self._capture(capture)
                 # The agent's table selection holds at query time, not only in
                 # the schema it is shown.
                 try:
@@ -1088,7 +1093,7 @@ class QueryCapturingClientWrapper:
                 except TableScopeViolation as e:
                     raise TableAccessError(str(e)) from e
                 self._enforce_rate_limit(capture)
-                self._consume_query_quota(capture)
+                usage_event = self._consume_query_quota(capture)
                 # Hold a per-connection concurrency slot for the duration of
                 # the query. A burst queues here instead of arriving at the
                 # source all at once; the wait budget is the same wall clock
@@ -1101,7 +1106,16 @@ class QueryCapturingClientWrapper:
                     wait_seconds=self._query_timeout_seconds,
                     connection_name=getattr(self._original, "_bow_connection_name", None),
                 ):
-                    result = self._call_with_timeout(checked, args, kwargs)
+                    try:
+                        result = self._call_with_timeout(checked, args, kwargs)
+                    except (UnsafeSQLError, TableAccessError):
+                        # Refused by the client's own check before the query
+                        # ran (Splunk SPL stored in a dashboard or saved search
+                        # is only known there): the query is not charged. The
+                        # rate-limit request stays counted, as for any call
+                        # that reached the client.
+                        self._refund_query_quota(usage_event)
+                        raise
                 _q_ms = (_time.monotonic() - _q_start) * 1000.0
                 rows = len(result) if hasattr(result, '__len__') else None
                 result_bytes = estimate_result_size_bytes(result)
@@ -1192,18 +1206,28 @@ class QueryCapturingClientWrapper:
                 statement, resolved.params,
                 client_type_name=type(self._original).__name__,
             )
+        return statement, (), resolved.kwargs, self._guarded_capture(statement, resolved.kwargs), None
+
+    @staticmethod
+    def _guarded_capture(statement, kwargs: dict) -> str:
+        """The captured text for a statement sent to a guarded client."""
         if isinstance(statement, dict):
             # Every dict envelope is captured as JSON text so the identity
             # check (which reads only text) sees it.
-            capture = json.dumps(statement, sort_keys=True, default=str)
-        elif resolved.kwargs.get("params"):
+            return json.dumps(statement, sort_keys=True, default=str)
+        if kwargs.get("params"):
             # Native params (Cypher's $name): captured with the query, so the
             # identity check still sees the values.
-            capture = json.dumps({"query": statement, "params": resolved.kwargs["params"]},
-                                 sort_keys=True, default=str, ensure_ascii=False)
-        else:
-            capture = statement
-        return statement, (), resolved.kwargs, capture, None
+            return json.dumps({"query": statement, "params": kwargs["params"]},
+                              sort_keys=True, default=str, ensure_ascii=False)
+        return statement
+
+    def _capture(self, capture) -> None:
+        if isinstance(capture, str):
+            # Tagged with the client family so the identity-bind check can
+            # parse it in the right grammar (SQL dialect / SPL); still a str.
+            from app.ai.code_execution.identity_bind import CapturedQuery
+            self._captured_queries.append(CapturedQuery(capture, family_name(self._original)))
 
     def _prepare_unguarded(self, query, kwargs):
         """Today's behaviour for clients the guard does not know: keyword-only
@@ -1389,7 +1413,7 @@ class QueryCapturingClientWrapper:
                 raise
             logger.debug("Skipping rate-limit check; SQLite is locked")
 
-    def _consume_query_quota(self, query: str) -> None:
+    def _consume_query_quota(self, query: str) -> Optional[dict]:
         """Enforce, then buffer — never write to the DB from the sandbox thread.
 
         The old shape ran the counter+event WRITE synchronously here; on SQLite
@@ -1398,14 +1422,15 @@ class QueryCapturingClientWrapper:
         docs/feedback-loops/agent-latency-deep-dive.md). Enforcement is now a
         cached READ (`check_data_query`, WAL-safe, in-memory after first load);
         the usage event is buffered on the context and persisted by the same
-        end-of-run flush() the token/cost buffers use.
+        end-of-run flush() the token/cost buffers use. Returns that buffered
+        event (None when nothing was buffered), so a refusal can take it back.
         """
         context = self._usage_context
         if context is None or context.session_maker is None:
-            return
+            return None
         connection_id = self._connection_id()
         if not connection_id:
-            return
+            return None
         metadata = self._usage_metadata(query)
         try:
             # Raises UsageLimitExceeded when over quota — propagates, same as before.
@@ -1417,7 +1442,12 @@ class QueryCapturingClientWrapper:
             if not _is_sqlite_lock_error(e):
                 raise
             logger.debug("Skipping data-query quota check; SQLite is locked")
-        context.add_data_query(str(connection_id), metadata)
+        return context.add_data_query(str(connection_id), metadata)
+
+    def _refund_query_quota(self, usage_event) -> None:
+        """Take back the data-query usage event of a query that never ran."""
+        if usage_event is not None and self._usage_context is not None:
+            self._usage_context.discard_data_event(usage_event)
 
     def _consume_data_bytes_quota(self, query: str, result_bytes: int, rows: Optional[int]) -> None:
         context = self._usage_context
