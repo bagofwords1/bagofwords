@@ -2618,6 +2618,8 @@
         "untilOff": "Never (until turned off)"
       },
       "retention": "Logs are kept for {days} days. {used} of {max} used; above that, only today's logs are kept.",
+      "sensitiveWarning": "Recorded lines are stored in the database as plain text and can include anything the server prints, such as error details, file paths or values from requests. Turn recording on only while you need it.",
+      "droppedNotice": "{count} lines on this instance could not be saved because the database was unavailable for too long.",
       "searchPlaceholder": "Search messages…",
       "from": "From",
       "to": "To",

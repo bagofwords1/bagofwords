@@ -2309,6 +2309,8 @@
         "untilOff": "Nunca (até desligar)"
       },
       "retention": "Os logs são mantidos por {days} dias. {used} de {max} em uso; acima disso, só os logs de hoje são mantidos.",
+      "sensitiveWarning": "As linhas gravadas ficam no banco de dados em texto simples e podem incluir tudo o que o servidor imprime, como detalhes de erros, caminhos de arquivos ou valores de requisições. Ligue a gravação só enquanto precisar dela.",
+      "droppedNotice": "{count} linhas desta instância não puderam ser salvas porque o banco de dados ficou indisponível por tempo demais.",
       "searchPlaceholder": "Pesquisar mensagens…",
       "from": "De",
       "to": "Até",

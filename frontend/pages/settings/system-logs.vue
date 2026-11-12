@@ -51,6 +51,13 @@
         <p v-if="settings" class="w-full text-2xs text-ink-muted">
           {{ $t('settings.systemLogs.retention', { days: settings.retention_days, used: formatBytes(settings.size_bytes), max: formatBytes(settings.max_size_bytes) }) }}
         </p>
+        <p class="w-full flex items-start gap-1.5 text-2xs text-amber-700 dark:text-amber-400" data-testid="system-logs-sensitive-warning">
+          <UIcon name="i-heroicons-exclamation-triangle" class="w-3.5 h-3.5 shrink-0 mt-px" />
+          {{ $t('settings.systemLogs.sensitiveWarning') }}
+        </p>
+        <p v-if="settings?.dropped_lines" class="w-full text-2xs text-red-600 dark:text-red-400" data-testid="system-logs-dropped">
+          {{ $t('settings.systemLogs.droppedNotice', { count: settings.dropped_lines }) }}
+        </p>
       </div>
 
       <!-- Filters -->
@@ -190,6 +197,7 @@ type LogSettings = {
   retention_days: number
   max_size_bytes: number
   size_bytes: number
+  dropped_lines: number
 }
 
 const { t, locale } = useI18n({ useScope: 'global' })

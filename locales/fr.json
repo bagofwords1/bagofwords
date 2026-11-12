@@ -2309,6 +2309,8 @@
         "untilOff": "Jamais (jusqu'à désactivation)"
       },
       "retention": "Les journaux sont conservés {days} jours. {used} utilisés sur {max} ; au-delà, seuls ceux du jour sont conservés.",
+      "sensitiveWarning": "Les lignes enregistrées sont stockées en clair dans la base de données et peuvent contenir tout ce que le serveur affiche : détails d'erreurs, chemins de fichiers ou valeurs issues des requêtes. N'activez l'enregistrement que lorsque vous en avez besoin.",
+      "droppedNotice": "{count} lignes de cette instance n'ont pas pu être enregistrées, car la base de données est restée indisponible trop longtemps.",
       "searchPlaceholder": "Rechercher dans les messages…",
       "from": "Du",
       "to": "Au",

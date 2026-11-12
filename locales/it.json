@@ -2309,6 +2309,8 @@
         "untilOff": "Mai (fino alla disattivazione)"
       },
       "retention": "I log vengono conservati per {days} giorni. In uso {used} su {max}; oltre questa soglia si conservano solo quelli di oggi.",
+      "sensitiveWarning": "Le righe registrate sono salvate nel database come testo in chiaro e possono contenere tutto ciò che il server stampa, come dettagli degli errori, percorsi di file o valori delle richieste. Attiva la registrazione solo quando serve.",
+      "droppedNotice": "Non è stato possibile salvare {count} righe di questa istanza perché il database è rimasto non disponibile troppo a lungo.",
       "searchPlaceholder": "Cerca nei messaggi…",
       "from": "Da",
       "to": "A",

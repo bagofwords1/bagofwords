@@ -76,6 +76,7 @@ async def _settings_response(db: AsyncSession) -> AppLogSettings:
         retention_days=svc.RETENTION.days,
         max_size_bytes=svc.MAX_TABLE_BYTES,
         size_bytes=await svc.table_size_bytes(db),
+        dropped_lines=status["dropped_lines"],
     )
 
 

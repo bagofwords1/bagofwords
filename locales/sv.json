@@ -2309,6 +2309,8 @@
         "untilOff": "Aldrig (tills det stängs av)"
       },
       "retention": "Loggar sparas i {days} dagar. {used} av {max} används; därutöver sparas bara dagens loggar.",
+      "sensitiveWarning": "Sparade rader lagras i databasen som klartext och kan innehålla allt som servern skriver ut, till exempel felinformation, filsökvägar eller värden från förfrågningar. Slå bara på sparandet när du behöver det.",
+      "droppedNotice": "{count} rader på den här instansen kunde inte sparas eftersom databasen var otillgänglig för länge.",
       "searchPlaceholder": "Sök i meddelanden…",
       "from": "Från",
       "to": "Till",

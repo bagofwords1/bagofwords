@@ -2309,6 +2309,8 @@
         "untilOff": "Nie (bis zum Ausschalten)"
       },
       "retention": "Protokolle werden {days} Tage aufbewahrt. {used} von {max} belegt; darüber werden nur die heutigen Protokolle behalten.",
+      "sensitiveWarning": "Aufgezeichnete Zeilen werden im Klartext in der Datenbank gespeichert und können alles enthalten, was der Server ausgibt, etwa Fehlerdetails, Dateipfade oder Werte aus Anfragen. Schalten Sie die Aufzeichnung nur ein, solange Sie sie brauchen.",
+      "droppedNotice": "{count} Zeilen dieser Instanz konnten nicht gespeichert werden, weil die Datenbank zu lange nicht verfügbar war.",
       "searchPlaceholder": "Meldungen durchsuchen…",
       "from": "Von",
       "to": "Bis",

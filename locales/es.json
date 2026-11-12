@@ -2555,6 +2555,8 @@
         "untilOff": "Nunca (hasta desactivarlo)"
       },
       "retention": "Los registros se conservan {days} días. En uso: {used} de {max}; por encima de eso solo se conservan los de hoy.",
+      "sensitiveWarning": "Las líneas se guardan en la base de datos como texto sin cifrar y pueden incluir cualquier cosa que imprima el servidor, como detalles de errores, rutas de archivos o valores de solicitudes. Activa el registro solo mientras lo necesites.",
+      "droppedNotice": "No se pudieron guardar {count} líneas de esta instancia porque la base de datos no estuvo disponible durante demasiado tiempo.",
       "searchPlaceholder": "Buscar mensajes…",
       "from": "Desde",
       "to": "Hasta",
