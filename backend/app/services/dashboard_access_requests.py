@@ -27,7 +27,8 @@ import html
 import logging
 from datetime import datetime, timedelta
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, update
+from sqlalchemy.exc import IntegrityError
 
 from app.errors import AppError, ErrorCode
 from app.models.dashboard_access_request import (
@@ -235,7 +236,13 @@ async def create_request(db, artifact, user, note, organization) -> DashboardAcc
         status=STATUS_PENDING,
     )
     db.add(req)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # A concurrent request won the partial unique index (one pending per
+        # artifact+requester): report it as the typed "pending" conflict.
+        await db.rollback()
+        raise AppError.conflict(ErrorCode.ACCESS_REQUEST_PENDING, "Your request is pending")
     await db.refresh(req)
 
     await _notify_editors_of_request(db, artifact, req, user)
@@ -376,9 +383,19 @@ async def decide(db, artifact, req, user, *, approve: bool) -> dict:
     if req.status != STATUS_PENDING:
         raise AppError.conflict(ErrorCode.ACCESS_REQUEST_ALREADY_DECIDED,
                                 "This request was already answered")
-    req.status = STATUS_APPROVED if approve else STATUS_DENIED
-    req.decided_by_user_id = str(user.id)
-    req.decided_at = datetime.utcnow()
+    # Atomic claim: only the writer that flips pending -> decided proceeds, so
+    # two editors answering at once cannot both win (first answer wins).
+    claimed = await db.execute(
+        update(DashboardAccessRequest)
+        .where(DashboardAccessRequest.id == str(req.id),
+               DashboardAccessRequest.status == STATUS_PENDING)
+        .values(status=STATUS_APPROVED if approve else STATUS_DENIED,
+                decided_by_user_id=str(user.id), decided_at=datetime.utcnow())
+    )
+    if claimed.rowcount != 1:
+        await db.rollback()
+        raise AppError.conflict(ErrorCode.ACCESS_REQUEST_ALREADY_DECIDED,
+                                "This request was already answered")
 
     if approve:
         await _grant_viewer(db, artifact, req.requester_user_id)
