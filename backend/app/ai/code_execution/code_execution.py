@@ -2443,7 +2443,13 @@ class StreamingCodeExecutor:
                                 yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries, "timing": False}}
                             continue
                 except Exception as e:
-                    yield {"type": "stdout", "payload": f"Loadable resolution error: {str(e)}"}
+                    msg = f"Loadable resolution error: {str(e)}"
+                    yield {"type": "stdout", "payload": msg}
+                    if getattr(e, "terminal_execution_error", False):
+                        # The caller's state is gone (its transaction): neither
+                        # running this code nor regenerating it can recover.
+                        code_and_error_messages.append((final_code, msg))
+                        break
 
             yield {"type": "progress", "payload": {"stage": "data_query_execution", "attempt": retries}}
             try:

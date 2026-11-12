@@ -270,14 +270,17 @@ class DescribeEntityMCPTool(MCPTool):
                 error_message = "This saved query has no code to run."
             else:
                 snapshot = grid
+                from app.services.entity_service import CallerTransactionLost, EntityService
                 try:
-                    from app.services.entity_service import EntityService
                     run = await EntityService().run_entity_for_user(
                         db, entity, organization, user, request_values, force_refresh=bool(data.run),
                     )
                     grid = run["data"] or {}
                     applied_params = dict(run["applied_params"] or {}) or None
                     rows_source = "cache" if run.get("cached") else "executed"
+                except CallerTransactionLost:
+                    # The request's own writes are gone with its transaction.
+                    raise
                 except Exception as e:
                     # By type only: run errors quote the values they failed on.
                     from app.errors.redact import describe_for_log

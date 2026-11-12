@@ -326,11 +326,11 @@ class DescribeEntityTool(Tool):
             # repeat with the same values is served from the cache.
             yield ToolProgressEvent(type="tool.progress", payload={"stage": "code_execution"})
             snapshot = entity_data
+            from app.services.entity_service import CallerTransactionLost, EntityService
             try:
                 if not (entity.code or "").strip():
                     errors.append("Entity has no code to execute")
                 else:
-                    from app.services.entity_service import EntityService
                     run = await EntityService().run_entity_for_user(
                         db, entity, organization, user, request_values,
                         force_refresh=bool(data.should_rerun),
@@ -341,6 +341,10 @@ class DescribeEntityTool(Tool):
                         "served from the per-user cache" if run.get("cached")
                         else "executed the entity's saved code"
                     )
+            except CallerTransactionLost:
+                # The agent's own writes are gone with its transaction: it
+                # cannot go on as if only this run had failed.
+                raise
             except Exception as e:
                 errors.append(f"Code execution failed: {str(e)}")
                 # Fall back to cached data — but never to a snapshot the

@@ -81,6 +81,9 @@ class CallerTransactionLost(AppError):
     writes with it. Ends the caller's run: its session refuses every further
     use until it is rolled back, so it never commits without them."""
 
+    # Regenerating or re-running the code cannot bring the writes back.
+    terminal_execution_error = True
+
     def __init__(self) -> None:
         super().__init__(ErrorCode.INTERNAL, "The run's result could not be saved.", status_code=500)
 
@@ -110,7 +113,8 @@ async def _write_in_callers_transaction(db: AsyncSession, conn, write, entity_id
     transaction instead, the caller's writes are gone while the session still
     takes it as open: its connection is invalidated, so the caller's next use
     of the session raises rather than commits without them, and
-    CallerTransactionLost is raised."""
+    CallerTransactionLost is raised. So too when whether the transaction
+    survived cannot be read."""
     cause = None
     try:
         async with db.begin_nested():
@@ -121,10 +125,20 @@ async def _write_in_callers_transaction(db: AsyncSession, conn, write, entity_id
                 raise
     except Exception as err:
         cause = cause or err
-        raw = await conn.get_raw_connection()
-        if raw.driver_connection.in_transaction:
+        try:
+            raw = await conn.get_raw_connection()
+            survived = raw.driver_connection.in_transaction
+        except Exception as probe_err:
+            survived = False
+            logger.error("Entity %s: whether the caller's transaction survived its slice's failed save "
+                         "could not be read: %s", entity_id, describe_for_log(probe_err))
+        if survived:
             raise cause from None
-        await conn.invalidate()
+        try:
+            await conn.invalidate()
+        except Exception as invalidate_err:
+            logger.error("Entity %s: the caller's connection was not invalidated: %s",
+                         entity_id, describe_for_log(invalidate_err))
         logger.error("Entity %s: the caller's transaction was lost while its slice was saved: %s",
                      entity_id, describe_for_log(cause))
         raise CallerTransactionLost() from None
@@ -1157,9 +1171,10 @@ class EntityService:
                         params=resolved_params,
                     )
                 df = executor.format_df_for_widget(exec_df)
+                run_access = None
                 if exec_df.attrs.get("bow_source"):
                     from app.services.bow_source_access import merge_access
-                    entity.bow_source_access = merge_access(entity.bow_source_access, exec_df.attrs["bow_source"])
+                    run_access = merge_access(entity.bow_source_access, exec_df.attrs["bow_source"])
             except Exception as e:
                 if persist_data:
                     # Persist last_refreshed_at but do not overwrite existing data
@@ -1187,13 +1202,19 @@ class EntityService:
                 if current_user is not None:
                     ids = {"entity_id": str(entity_id), "user_id": str(current_user.id),
                            "organization_id": str(entity.organization_id)}
+                    # The run's marker is stored with the slice and set on
+                    # `entity` as stored, never left on it for `db` to write.
                     await self._upsert_entity_user_result(
-                        db, entity, ids, resolved_params, df,
-                        entity_access=entity.bow_source_access if exec_df.attrs.get("bow_source") else None)
+                        db, entity, ids, resolved_params, df, entity_access=run_access)
                 db.expunge(entity)
+                if run_access is not None:
+                    # Detached: the copy handed back, never flushed.
+                    entity.bow_source_access = run_access
                 entity.data = df
                 return entity
             # Persist execution results
+            if run_access is not None:
+                entity.bow_source_access = run_access
             entity.data = df
             entity.applied_params = dict(resolved_params) if resolved_params else None
             entity.last_refreshed_at = datetime.utcnow()
