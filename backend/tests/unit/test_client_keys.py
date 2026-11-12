@@ -27,6 +27,9 @@ from app.services.client_keys import (
     # generate_df receives the dict positionally, under whatever name it gives it.
     ('def generate_df(clients, excel_files):\n    return clients["A:c"].execute_query("x")\n', ["A:c"]),
     ('async def generate_df(c, excel_files):\n    return c.get("A:c")\n', ["A:c"]),
+    # The run's namespace also binds the dict as the global `db_clients`.
+    ('def generate_df(ds_clients, e):\n    ds_clients["Public:pg"]\n'
+     '    return db_clients["Secret:pg"].execute_query("x")\n', ["Public:pg", "Secret:pg"]),
     # Comments, strings, column names and other identifiers are not a reach.
     ('# ds_clients["A:c"] and ds_clients.values()\nsql = "SELECT ds_clients FROM t"', []),
     ("db_rows = 1", []),
@@ -60,6 +63,29 @@ def test_literal_keys_are_the_clients_the_code_reaches(code, expected):
     'vars()["ds_clients"]',
     'eval("ds_clients")',
     'exec("x = ds_clients")',
+    # The run's namespace also binds the dict as the global `db_clients`.
+    # generate_df that is not one plain module-level def taking the dict
+    # first: what receives the dict is not known. (Each with a decoy key.)
+    'ds_clients["A:c"]\ngenerate_df = lambda c, e: c["B:c"]\n',
+    'ds_clients["A:c"]\ndef g(c, e):\n    return c["B:c"]\n\ngenerate_df = g\n',
+    'import functools\nds_clients["A:c"]\ndef g(x, c, e):\n    return c["B:c"]\n\n'
+    'generate_df = functools.partial(g, 1)\n',
+    'ds_clients["A:c"]\n@wrap\ndef generate_df(c, e):\n    return c["B:c"]\n',
+    'ds_clients["A:c"]\nclass generate_df:\n    def __init__(self, c, e):\n        self.r = c["B:c"]\n',
+    'ds_clients["A:c"]\ndef generate_df(*a):\n    return a[0]["B:c"]\n',
+    'def generate_df(c, e):\n    return c["A:c"]\n\ndef generate_df(d, e):\n    return d["B:c"]\n',
+    'ds_clients["A:c"]\ndef outer():\n    def generate_df(c, e):\n        return c["B:c"]\n',
+    'ds_clients["A:c"]\nfrom helpers import generate_df\n',
+    # Other ways to reach a variable by name.
+    'ds_clients["A:c"]\ngetattr(x, "y")',
+    'ds_clients["A:c"]\n__builtins__["globals"]()',
+    'ds_clients["A:c"]\nimport sys\nsys.modules["__main__"]',
+    'ds_clients["A:c"]\nimport inspect\ninspect.currentframe()',
+    'ds_clients["A:c"]\nfrom inspect import currentframe as cf\ncf()',
+    'ds_clients["A:c"]\nf.f_globals["db_clients"]',
+    'ds_clients["A:c"]\nf.f_locals',
+    'def generate_df(ds_clients, e):\n    ds_clients["A:c"]\n    return generate_df.__globals__["db_clients"]\n',
+    'ds_clients["A:c"]\n__import__("sys")',
 ])
 def test_any_other_reach_of_the_clients_means_unknown(code):
     assert literal_client_keys(code) is None
@@ -103,3 +129,34 @@ def test_keys_map_to_source_ids_and_unmatched_keys_are_reported():
 def test_a_source_named_like_the_platform_client_is_still_a_source():
     picked, unmatched = sources_for_client_keys([("id-bow", "bow")], ["bow"])
     assert (picked, unmatched) == (["id-bow"], [])
+
+
+# Reports every global of the run's namespace (module-level dir(); the code
+# check forbids globals()).
+_NAMESPACE_PROBE = """
+names_seen = sorted(dir())
+
+
+def generate_df(ds_clients, excel_files):
+    return pd.DataFrame({"name": names_seen})
+"""
+# Globals the run binds that are not the clients dict (helpers and data).
+_NAMESPACE_HELPERS = {"pd", "np", "excel_files", "load_step", "load_entity", "read_text",
+                      "http", "lists", "browser"}
+
+
+@pytest.mark.parametrize("mode", ["subprocess", "inprocess"])
+def test_every_namespace_global_is_a_known_helper_or_a_tracked_clients_name(monkeypatch, mode):
+    """The run binds the clients dict under a global name besides handing it
+    to generate_df. Every global it binds is either a known helper or a name
+    the key rule tracks: a new global holding the dict cannot go unseen."""
+    from app.ai.code_execution.code_execution import StreamingCodeExecutor
+    from app.ai.code_execution.sandbox.namespace import CLIENTS_GLOBAL
+    from app.services.client_keys import CLIENT_DICT_NAMES
+
+    monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    df, _, _ = StreamingCodeExecutor(organization_settings=None).execute_code(
+        code=_NAMESPACE_PROBE, ds_clients={"a:c": object()}, excel_files=[])
+    bound = set(df["name"]) - {"__builtins__", "names_seen", "generate_df"}
+    assert CLIENTS_GLOBAL in bound
+    assert bound - _NAMESPACE_HELPERS <= CLIENT_DICT_NAMES, bound - _NAMESPACE_HELPERS - CLIENT_DICT_NAMES

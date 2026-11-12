@@ -21,22 +21,39 @@ not a reach. Python reads identifiers in NFKC form, and so does ast, so
 `ds＿clients` is `ds_clients`.
 
 The dict is handed to generate_df positionally (sandbox/namespace.py), so
-its first parameter is a name for it whatever it is called, as is
-`ds_clients`. Any use of such a name other than a literal-key subscript or
+its first parameter is a name for it whatever it is called, as are
+`ds_clients` and the namespace global the run binds it to (CLIENTS_GLOBAL,
+`db_clients`). Any use of such a name other than a literal-key subscript or
 `.get("<key>")` -- passing it to a function, assigning it, iterating it,
-another attribute -- is another reach, and so is any use of locals(),
-globals(), vars(), eval(), exec() or compile(), which can reach it by name.
+another attribute -- is another reach. So is anything that reaches a
+variable by its name (locals(), globals(), vars(), eval(), exec(),
+compile(), getattr(), __import__, __builtins__, sys, inspect, a frame's or
+function's globals), and a generate_df that is not exactly one plain,
+undecorated, module-level def whose first parameter is positional: then what
+receives the dict is not known.
 """
 from __future__ import annotations
 
 import ast
 from typing import Iterable, NamedTuple, Optional
 
+from app.ai.code_execution.sandbox.namespace import CLIENTS_GLOBAL
+
 CLIENTS_NAME = "ds_clients"
+# Every name the clients dict goes by before generate_df's own parameter.
+CLIENT_DICT_NAMES = frozenset({CLIENTS_NAME, CLIENTS_GLOBAL})
 # The function the dict is handed to, as its first positional argument.
 ENTRY_FUNCTION = "generate_df"
-# Builtins that reach a variable by its name.
-_NAMESPACE_BUILTINS = frozenset({"locals", "globals", "vars", "eval", "exec", "compile"})
+# Names that reach a variable by its name, or the run's namespace.
+_NAMESPACE_NAMES = frozenset({
+    "locals", "globals", "vars", "eval", "exec", "compile", "getattr", "__import__",
+    "__builtins__", "sys", "inspect", "importlib", "builtins",
+})
+# Attributes that hold a namespace: a frame's, a function's, a module's.
+_NAMESPACE_ATTRIBUTES = frozenset({
+    "f_locals", "f_globals", "f_back", "f_builtins", "__globals__", "__dict__", "__builtins__",
+    "gi_frame", "cr_frame", "ag_frame", "tb_frame", "__closure__",
+})
 
 # Keys of ds_clients that are not an organization data source: the platform's
 # own client (app/data_sources/clients/bow_client.py, clients["bow"]).
@@ -61,15 +78,49 @@ _NO_REACH = ClientReach((), False)
 _UNREADABLE = ClientReach((), True)
 
 
-def _clients_names(tree) -> frozenset:
-    """`ds_clients` and the first positional parameter of every generate_df."""
-    names = {CLIENTS_NAME}
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == ENTRY_FUNCTION:
-            positional = list(node.args.posonlyargs) + list(node.args.args)
-            if positional:
-                names.add(positional[0].arg)
-    return frozenset(names)
+def _binds_entry_function(node) -> bool:
+    """Whether `node` binds the name generate_df (other than by a def)."""
+    if isinstance(node, ast.Name):
+        return node.id == ENTRY_FUNCTION and not isinstance(node.ctx, ast.Load)
+    if isinstance(node, ast.ClassDef):
+        return node.name == ENTRY_FUNCTION
+    if isinstance(node, ast.alias):
+        return (node.asname or node.name.split(".")[0]) == ENTRY_FUNCTION
+    if isinstance(node, (ast.Global, ast.Nonlocal)):
+        return ENTRY_FUNCTION in node.names
+    if isinstance(node, ast.arg):
+        return node.arg == ENTRY_FUNCTION
+    return False
+
+
+def _entry_parameter(tree) -> tuple[Optional[str], bool]:
+    """(generate_df's first parameter, whether generate_df is one plain
+    function the run hands the dict to). True with None when the code has no
+    generate_df at all (a fragment: nothing else receives the dict)."""
+    defs = [n for n in ast.walk(tree)
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == ENTRY_FUNCTION]
+    if any(_binds_entry_function(n) for n in ast.walk(tree)):
+        return None, False
+    if not defs:
+        return None, True
+    if len(defs) != 1 or defs[0] not in tree.body or defs[0].decorator_list:
+        return None, False
+    positional = list(defs[0].args.posonlyargs) + list(defs[0].args.args)
+    if not positional:
+        return None, False
+    return positional[0].arg, True
+
+
+def _reaches_namespace(node) -> bool:
+    if isinstance(node, ast.Name):
+        return node.id in _NAMESPACE_NAMES
+    if isinstance(node, ast.Attribute):
+        return node.attr in _NAMESPACE_ATTRIBUTES
+    if isinstance(node, ast.alias):
+        return node.name.split(".")[0] in _NAMESPACE_NAMES
+    if isinstance(node, ast.ImportFrom):
+        return (node.module or "").split(".")[0] in _NAMESPACE_NAMES
+    return False
 
 
 def _literal(node) -> Optional[str]:
@@ -88,7 +139,8 @@ def client_reach(code: Optional[str]) -> ClientReach:
     except (SyntaxError, ValueError, RecursionError, MemoryError):
         return _UNREADABLE
 
-    names = _clients_names(tree)
+    parameter, plain_entry = _entry_parameter(tree)
+    names = CLIENT_DICT_NAMES | ({parameter} if parameter else set())
 
     def _is_clients(node) -> bool:
         return isinstance(node, ast.Name) and node.id in names
@@ -107,9 +159,8 @@ def client_reach(code: Optional[str]) -> ClientReach:
             if key is not None:
                 keys.append(key)
                 keyed.add(id(node.func.value))
-    other = any(
-        (_is_clients(node) and id(node) not in keyed)
-        or (isinstance(node, ast.Name) and node.id in _NAMESPACE_BUILTINS)
+    other = not plain_entry or any(
+        (_is_clients(node) and id(node) not in keyed) or _reaches_namespace(node)
         for node in ast.walk(tree)
     )
     return ClientReach(tuple(keys), other)

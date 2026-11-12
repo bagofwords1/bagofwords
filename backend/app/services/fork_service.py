@@ -85,12 +85,29 @@ def _failure_keeps_code(error: BaseException, code: str, clients: dict) -> bool:
         return False
     if isinstance(error, ParamError):
         return True
-    if isinstance(error, KeyError):
-        from app.services.client_keys import literal_client_keys
+    missing = _missing_key(error)
+    if not isinstance(missing, str):
+        return False
+    from app.services.client_keys import literal_client_keys
 
-        missing = error.args[0] if error.args else None
-        return missing not in clients and missing not in (literal_client_keys(code) or [])
-    return False
+    return missing not in clients and missing not in (literal_client_keys(code) or [])
+
+
+def _missing_key(error: BaseException):
+    """The key a KeyError names, raised in this process or relayed by the
+    subprocess sandbox (SandboxExecutionError with exc_type "KeyError" and
+    repr(key) as its message); None for anything else, or a relayed message
+    that does not read back as a Python literal."""
+    if isinstance(error, KeyError):
+        return error.args[0] if error.args else None
+    if getattr(error, "exc_type", None) == "KeyError":
+        import ast
+
+        try:
+            return ast.literal_eval(str(getattr(error, "message", "")))
+        except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+            return None
+    return None
 
 
 class ForkEligibility:

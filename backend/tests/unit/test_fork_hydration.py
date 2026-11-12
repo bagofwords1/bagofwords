@@ -355,11 +355,15 @@ async def test_a_query_that_broke_under_the_forkers_own_client_keeps_its_code():
     not_held = 'df = ds_clients["other:conn"].execute_query("EVALUATE secret_orders")'
     refused_code = 'df = ds_clients["agent:conn"].execute_query("EVALUATE refused_model")'
 
+    from app.ai.code_execution.sandbox.runner import SandboxExecutionError
+
+    # What the default (subprocess) sandbox relays for user code's KeyError:
+    # the type name and repr(key).
     async def _rerun(db, step_id, **kwargs):
         if step_id == "broken":
-            raise KeyError("depot")
+            raise SandboxExecutionError("KeyError", "'depot'")
         if step_id == "missing":
-            raise KeyError("other:conn")
+            raise SandboxExecutionError("KeyError", "'other:conn'")
         raise RuntimeError('DAX query failed: HTTP 403 {"model":"refused_model"}')
 
     with patch("app.services.report_service.ReportService.archive_report",
@@ -464,6 +468,41 @@ async def test_a_parameter_error_under_the_forkers_own_client_keeps_its_code():
 
     (settled,) = session.settled("steps", "error")
     assert 'ds_clients["agent:conn"]' in settled
+
+
+_HELD_KEY_MISSING_PARAM = """
+def generate_df(ds_clients, excel_files, params):
+    return ds_clients["agent:conn"].execute_query(params["depot"])
+"""
+_UNHELD_CLIENT_BY_GLOBAL = """
+def generate_df(ds_clients, excel_files):
+    ds_clients["agent:conn"]
+    return db_clients["Secret:pg"].execute_query("select 1")
+"""
+
+
+@pytest.mark.parametrize("mode", ["subprocess", "inprocess"])
+@pytest.mark.parametrize("code, keeps", [(_HELD_KEY_MISSING_PARAM, True), (_UNHELD_CLIENT_BY_GLOBAL, False)])
+def test_what_the_executor_raises_decides_whether_a_failed_run_keeps_its_code(monkeypatch, mode, code, keeps):
+    """Run for real in each sandbox mode: a missing parameter keeps the code;
+    a client the forker does not hold, reached through the `db_clients`
+    global, keeps none -- whichever way the KeyError arrives."""
+    import pandas as pd
+
+    from app.ai.code_execution.code_execution import StreamingCodeExecutor
+    from app.services.fork_service import _failure_keeps_code
+
+    monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+
+    class _Held:
+        def execute_query(self, *a, **k):
+            return pd.DataFrame({"a": [1]})
+
+    clients = {"agent:conn": _Held()}
+    with pytest.raises(Exception) as raised:
+        StreamingCodeExecutor(organization_settings=None).execute_code(
+            code=code, ds_clients=clients, excel_files=[], params={})
+    assert _failure_keeps_code(raised.value, code, clients) is keeps, repr(raised.value)
 
 
 @pytest.mark.asyncio

@@ -1718,6 +1718,41 @@ def test_a_renamed_clients_parameter_still_counts_the_sources_it_reaches(
     assert not (fstep["data"] or {}).get("rows"), "the fork received the owner's rows"
 
 
+# The run's namespace also binds the clients dict as the global `db_clients`:
+# the plain source by key on the parameter, the row-filtered one on the global.
+NAMESPACE_CLIENTS_CODE = """
+def generate_df(ds_clients, excel_files):
+    import pandas as pd
+    if False:
+        ds_clients["{plain}"].execute_query("SELECT 1")
+        db_clients["{rls}"].execute_query("SELECT 1")
+    return pd.DataFrame({{"month": ["2024-01", "2024-02"], "revenue": [10, 20]}})
+"""
+
+
+@pytest.mark.e2e
+def test_the_clients_global_of_the_run_counts_the_sources_it_reaches(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, monkeypatch,
+):
+    """A source reached through the `db_clients` global counts like one
+    reached through generate_df's parameter: the report reads the
+    row-filtered relation and a fork copies none of its rows."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    org_id = admin["org_id"]
+    plain = _run(_source_name(_run(_attach_source_with_connection(report["id"], "system_only", attach=False))))
+    rls = _run(_source_name(_run(_attach_rls_relation(report["id"], attach=False))))
+    _run(_set_step_code(seeded["step_ids"][0], NAMESPACE_CLIENTS_CODE.format(plain=plain, rls=rls)))
+
+    assert _report_flags(test_client, report["id"], owner, org_id)[0] is True
+
+    monkeypatch.setattr("app.core.fire_and_forget.spawn", lambda job: None)
+    fstep = _fork_default_step_as(test_client, report["id"], viewer, org_id)
+    assert not (fstep["data"] or {}).get("rows"), "the fork received the owner's rows"
+
+
 @pytest.mark.e2e
 def test_a_stored_owner_credential_result_gives_way_to_the_viewers_own_older_result(
     test_client, create_report, bootstrap_admin, invite_user_to_org,
