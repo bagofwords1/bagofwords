@@ -59,7 +59,9 @@ def test_query_returns_real_dates():
 
 def test_query_reads_only_the_connections_files(tmp_path):
     """One SELECT over the connection's own tables: a read of another file
-    is refused with the refusal's own type (not a connection error)."""
+    is refused with the refusal's own type (not a connection error);
+    DESCRIBE is a fixable error that names the connection's tables."""
+    from app.ai.code_execution.duckdb_guard import DuckdbQueryError
     from app.ai.code_execution.sql_guard import ReadOnlyViolation
     from app.ai.code_execution.table_scope import TableScopeViolation
 
@@ -70,7 +72,7 @@ def test_query_reads_only_the_connections_files(tmp_path):
         client.execute_query(f"SELECT * FROM '{other}'")
     with pytest.raises(ReadOnlyViolation):
         client.execute_query(f"SELECT * FROM read_csv_auto('{other}')")
-    with pytest.raises(ReadOnlyViolation):
+    with pytest.raises(DuckdbQueryError, match="test_source"):
         client.execute_query("DESCRIBE test_source")
 
 

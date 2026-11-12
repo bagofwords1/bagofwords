@@ -114,6 +114,13 @@ class CSVClient(DataSourceClient):
 
     @contextmanager
     def connect(self) -> Generator[duckdb.DuckDBPyConnection, None, None]:
+        with self._open() as (con, _views):
+            yield con
+
+    @contextmanager
+    def _open(self) -> Generator[tuple[duckdb.DuckDBPyConnection, list[str]], None, None]:
+        """A locked connection and the views it registered (the tables agent
+        SQL may read on it)."""
         t0 = time.perf_counter()
         files = self._resolve_files()
         logger.info(
@@ -154,7 +161,7 @@ class CSVClient(DataSourceClient):
         # The yield is outside the try above: an error raised by the caller's
         # `with` body (a refused query) keeps its type.
         try:
-            yield con
+            yield con, list(table_map)
         finally:
             con.close()
 
@@ -162,8 +169,8 @@ class CSVClient(DataSourceClient):
         t0 = time.perf_counter()
         logger.info("csv.query.start", extra={"csv_sql": sql})
         try:
-            with self.connect() as con:
-                check_duckdb_file_query(sql, self._table_map)
+            with self._open() as (con, views):
+                check_duckdb_file_query(sql, views)
                 df = con.execute(sql).df()
             logger.info(
                 "csv.query.done",

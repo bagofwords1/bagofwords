@@ -164,13 +164,15 @@ def test_inspecting_a_statement_opens_no_file_and_no_connection(tmp_path):
 
 
 def test_inspecting_reports_tables_functions_and_ctes():
+    """`tables` holds what the statement reads from the catalog: a name that
+    is one of its CTEs where it stands is not a table read."""
     stmt = inspect_duckdb_sql(
         "WITH recent AS (SELECT * FROM main.sales WHERE amount > 1) "
         "SELECT upper(c.name), count(*) FROM recent JOIN memory.main.customers c USING (id) "
         "JOIN range(3) r ON true GROUP BY 1"
     )
     assert stmt.cte_names == frozenset({"recent"})
-    assert stmt.tables == frozenset({("", "main", "sales"), ("", "", "recent"), ("memory", "main", "customers")})
+    assert stmt.tables == frozenset({("", "main", "sales"), ("memory", "main", "customers")})
     assert stmt.table_functions == frozenset({"range"})
     assert {"upper", "count_star"} <= stmt.functions and "range" not in stmt.functions
 
@@ -183,11 +185,7 @@ def test_inspecting_reports_tables_functions_and_ctes():
     "ATTACH 'other.db'",
     "SET enable_external_access = true",
     "PRAGMA show_tables",
-    "DESCRIBE sales",
-    "SHOW TABLES",
-    "SUMMARIZE sales",
     "EXPLAIN SELECT 1",
-    "SELEC 1",
     "",
 ])
 def test_anything_but_one_select_is_refused(sql):
@@ -195,9 +193,62 @@ def test_anything_but_one_select_is_refused(sql):
         inspect_duckdb_sql(sql)
 
 
-def test_a_query_that_does_not_parse_is_refused_with_the_parsers_reason():
-    with pytest.raises(ReadOnlyViolation, match="syntax error"):
+def _not_a_policy_refusal(err: BaseException) -> bool:
+    return isinstance(err, ValueError) and not isinstance(err, (ReadOnlyViolation, TableScopeViolation))
+
+
+def test_a_query_that_does_not_parse_is_a_fixable_error_with_the_parsers_reason():
+    """Nothing ran and nothing was refused: the agent's own text is wrong,
+    and DuckDB's reason is quoted back so it can fix it."""
+    with pytest.raises(ValueError, match="syntax error") as info:
         inspect_duckdb_sql("SELEC amount FROM sales")
+    assert _not_a_policy_refusal(info.value), type(info.value).__mro__
+
+
+@pytest.mark.parametrize("sql", ["DESCRIBE sales", "SHOW TABLES", "SUMMARIZE sales", "SHOW ALL TABLES"])
+def test_describe_show_and_summarize_are_a_fixable_error_that_names_the_tables(sql):
+    """They read only names the refusal already gives, so they are not a
+    policy refusal: the message lists the connection's tables instead."""
+    with pytest.raises(ValueError) as info:
+        check_duckdb_file_query(sql, _VIEWS)
+    assert _not_a_policy_refusal(info.value), type(info.value).__mro__
+    assert "customers" in str(info.value) and "sales" in str(info.value)
+
+
+def _serializing_as(monkeypatch, tree):
+    import app.ai.code_execution.duckdb_guard as guard
+    monkeypatch.setattr(guard, "_serialize", lambda sql: tree)
+
+
+@pytest.mark.parametrize("tree", [
+    {"error": False, "statements": [{}]},
+    {"error": False, "statements": [{"node": {}}]},
+    {"error": False, "statements": [{"node": {"type": "SOME_FUTURE_NODE"}}]},
+    {"error": False, "statements": ["SELECT 1"]},
+])
+def test_a_statement_whose_root_is_not_a_query_node_is_refused(monkeypatch, tree):
+    _serializing_as(monkeypatch, tree)
+    with pytest.raises(ReadOnlyViolation):
+        check_duckdb_file_query("SELECT 1", _VIEWS)
+
+
+def test_a_broken_inspector_connection_is_logged_and_rebuilt(monkeypatch, caplog):
+    """The statement that met it is refused; the next one gets a working
+    inspector instead of the same failure for the life of the process."""
+    import logging
+
+    import app.ai.code_execution.duckdb_guard as guard
+
+    closed = duckdb.connect(":memory:")
+    closed.close()
+    monkeypatch.setattr(guard, "_CONNECTION", closed)
+    logging.getLogger(guard.__name__).disabled = False
+    with caplog.at_level(logging.ERROR, logger=guard.__name__):
+        with pytest.raises(ReadOnlyViolation):
+            inspect_duckdb_sql("SELECT * FROM sales")
+    errors = [r for r in caplog.records if r.name == guard.__name__ and r.levelno == logging.ERROR]
+    assert errors and "ConnectionException" in errors[0].getMessage()
+    assert inspect_duckdb_sql("SELECT * FROM sales").tables == frozenset({("", "", "sales")})
 
 
 # ------------------------------------------------------------ the check
@@ -258,6 +309,145 @@ def test_file_readers_settings_and_statements_are_refused(sql):
         check_duckdb_file_query(sql, _VIEWS)
 
 
+# Names that look like one of the statement's CTEs but, where they stand,
+# DuckDB binds to the catalog: a CTE is visible only in its own scope, to the
+# CTEs after it, and to itself only in the recursive part of a recursive one.
+_NOT_IN_CTE_SCOPE = [
+    # a non-recursive CTE whose body names itself
+    "WITH other AS (SELECT * FROM other) SELECT * FROM other",
+    "WITH pg_settings AS (SELECT * FROM pg_settings) SELECT * FROM pg_settings",
+    "WITH RECURSIVE pg_settings AS (SELECT * FROM pg_settings) SELECT * FROM pg_settings",
+    # the anchor of a recursive CTE does not see the CTE either
+    "WITH RECURSIVE duckdb_views AS (SELECT sql FROM duckdb_views UNION ALL SELECT sql FROM duckdb_views) "
+    "SELECT * FROM duckdb_views",
+    # a CTE named by an earlier CTE of the same WITH
+    "WITH a AS (SELECT * FROM pg_tables), pg_tables AS (SELECT 1 AS x) SELECT * FROM a",
+    # a CTE defined in a nested scope and named outside it
+    "SELECT * FROM (WITH other AS (SELECT 1 AS x) SELECT * FROM other) s, other",
+    "SELECT * FROM (WITH sqlite_master AS (SELECT 1 AS x) SELECT * FROM sqlite_master) s, sqlite_master",
+    "SELECT id FROM sales WHERE id IN (WITH duckdb_databases AS (SELECT 1 AS id) SELECT id FROM duckdb_databases) "
+    "UNION ALL SELECT 1 FROM duckdb_databases",
+    "WITH x AS (WITH duckdb_databases AS (SELECT 1 AS d) SELECT * FROM duckdb_databases) "
+    "SELECT * FROM x, duckdb_databases",
+    "SELECT * FROM sales UNION ALL (WITH pg_views AS (SELECT 1, 2) SELECT * FROM pg_views) "
+    "UNION ALL SELECT 1, 2 FROM pg_views",
+]
+
+
+@pytest.mark.parametrize("sql", _NOT_IN_CTE_SCOPE)
+def test_a_name_outside_its_ctes_scope_is_refused(sql):
+    with pytest.raises(TableScopeViolation):
+        check_duckdb_file_query(sql, _VIEWS)
+
+
+@pytest.mark.parametrize("sql", [
+    "WITH pg_settings AS (SELECT * FROM sales) SELECT * FROM pg_settings",
+    "WITH duckdb_settings AS (SELECT 1 AS x) SELECT * FROM duckdb_settings",
+    'WITH "SQLITE_MASTER" AS (SELECT 1 AS x) SELECT * FROM sqlite_master',
+])
+def test_a_cte_named_after_a_catalog_object_is_refused(sql):
+    with pytest.raises(TableScopeViolation):
+        check_duckdb_file_query(sql, _VIEWS)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT pg_get_viewdef(i) FROM range(3) t(i)",
+    "SELECT pg_catalog.pg_get_viewdef(i) FROM range(3) t(i)",
+    "SELECT format_type(i, 0) FROM range(3) t(i)",
+    "SELECT pg_get_constraintdef(i) FROM range(3) t(i)",
+    "SELECT get_block_size('memory')",
+])
+def test_a_built_in_macro_that_reads_the_catalog_is_refused(sql):
+    with pytest.raises(ReadOnlyViolation):
+        check_duckdb_file_query(sql, _VIEWS)
+
+
+def _catalog():
+    con = duckdb.connect(":memory:")
+    try:
+        macros = [r[0] for r in con.execute(
+            "SELECT DISTINCT function_name FROM duckdb_functions() "
+            "WHERE function_type = 'macro' AND macro_definition ILIKE '%from%' ORDER BY 1").fetchall()]
+        table_macros = [r[0] for r in con.execute(
+            "SELECT DISTINCT function_name FROM duckdb_functions() WHERE function_type = 'table_macro' "
+            "ORDER BY 1").fetchall()]
+        views = [r[0] for r in con.execute(
+            "SELECT DISTINCT view_name FROM duckdb_views() WHERE internal "
+            "AND schema_name IN ('main', 'pg_catalog') ORDER BY 1").fetchall()]
+    finally:
+        con.close()
+    return macros, table_macros, views
+
+
+def test_every_catalog_reading_macro_and_catalog_view_of_this_duckdb_is_refused():
+    """Enumerated from the installed DuckDB, so an upgrade that adds one
+    fails here instead of passing the check."""
+    macros, table_macros, views = _catalog()
+    assert {"pg_get_viewdef", "format_type"} <= set(macros) and "pg_settings" in views
+    for name in macros:
+        with pytest.raises(ReadOnlyViolation):
+            check_duckdb_file_query(f'SELECT "{name}"(i) FROM range(1) t(i)', _VIEWS)
+    for name in table_macros:
+        with pytest.raises(ReadOnlyViolation):
+            check_duckdb_file_query(f'SELECT * FROM "{name}"(1)', _VIEWS)
+    for name in views:
+        with pytest.raises(TableScopeViolation):
+            check_duckdb_file_query(f'SELECT * FROM "{name}"', _VIEWS)
+        with pytest.raises(TableScopeViolation):
+            check_duckdb_file_query(f'WITH "{name}" AS (SELECT 1 AS x) SELECT * FROM "{name}"', _VIEWS)
+
+
+@pytest.mark.parametrize("sql", [
+    "WITH t AS (SELECT * FROM sales) SELECT * FROM t",
+    "WITH a AS (SELECT * FROM sales), b AS (SELECT * FROM a) SELECT * FROM b",
+    "WITH sales AS (SELECT * FROM sales WHERE amount > 10) SELECT * FROM sales",
+    "WITH t AS (SELECT * FROM sales) SELECT (SELECT count(*) FROM t) AS n FROM t",
+    "WITH t AS (SELECT * FROM sales) SELECT * FROM (WITH u AS (SELECT * FROM t) SELECT * FROM u)",
+    "WITH t AS (SELECT 1 AS v) SELECT * FROM (WITH t AS (SELECT * FROM t) SELECT * FROM t)",
+    "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT * FROM r",
+    "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM (SELECT * FROM r) q WHERE n < 3), "
+    "s AS (SELECT * FROM r) SELECT * FROM s",
+    "WITH RECURSIVE r USING KEY (n) AS (SELECT 1 AS n UNION SELECT n + 1 FROM r WHERE n < 3) SELECT * FROM r",
+    "WITH t AS (SELECT * FROM sales) SELECT * FROM sales UNION ALL SELECT * FROM t",
+])
+def test_ctes_in_their_scope_pass(sql):
+    check_duckdb_file_query(sql, _VIEWS)
+
+
+def _chained_ctes(n: int) -> str:
+    body = ", ".join(f"c{i} AS (SELECT * FROM c{i - 1})" for i in range(1, n))
+    return f"WITH c0 AS (SELECT * FROM sales), {body} SELECT * FROM c{n - 1}"
+
+
+def test_checking_cte_scope_grows_linearly_with_the_statement(monkeypatch):
+    """Each CTE sees every one before it; the check must not copy that set
+    per scope. Timed on DuckDB's own trees, with the parse done up front."""
+    import time
+
+    import app.ai.code_execution.duckdb_guard as guard
+
+    small, large = 300, 3000
+    trees = {n: guard._serialize(_chained_ctes(n)) for n in (small, large)}
+
+    def best(n):
+        monkeypatch.setattr(guard, "_serialize", lambda sql: trees[n])
+        times = []
+        for _ in range(3):
+            t0 = time.perf_counter()
+            check_duckdb_file_query("SELECT 1", _VIEWS)
+            times.append(time.perf_counter() - t0)
+        return min(times)
+
+    ratio = best(large) / best(small)
+    assert ratio < 30, ratio  # linear is about 10, quadratic about 100
+
+
+def test_a_view_of_the_connection_that_shares_a_catalog_name_is_its_own_table():
+    """The connection's own view comes first in DuckDB's lookup, so a file
+    named like a catalog object is still the connection's table."""
+    check_duckdb_file_query("SELECT * FROM pg_settings", ["pg_settings"])
+
+
 def test_inspecting_from_many_threads_gives_the_serial_verdicts():
     texts = [
         "SELECT * FROM sales",
@@ -272,8 +462,10 @@ def test_inspecting_from_many_threads_gives_the_serial_verdicts():
         try:
             check_duckdb_file_query(sql, _VIEWS)
             return "ok"
-        except (ReadOnlyViolation, TableScopeViolation) as err:
-            return type(err).__name__
+        except TableScopeViolation:
+            return "TableScopeViolation"
+        except ReadOnlyViolation:
+            return "ReadOnlyViolation"
 
     serial = [verdict(t) for t in texts]
     assert serial == ["ok", "TableScopeViolation", "ReadOnlyViolation", "ok", "ReadOnlyViolation",
@@ -372,6 +564,131 @@ def test_each_connection_refuses_a_copy_onto_its_own_file(files):
     kind, client, run = files
     with pytest.raises(ReadOnlyViolation):
         run("COPY (SELECT 1 AS id) TO 'copied.csv'")
+
+
+@pytest.mark.parametrize("sql", [
+    "WITH pg_settings AS (SELECT * FROM pg_settings) SELECT name, setting FROM pg_settings",
+    "SELECT * FROM (WITH duckdb_databases AS (SELECT 1 AS x) SELECT * FROM duckdb_databases) s, duckdb_databases",
+    "SELECT pg_get_viewdef(i) AS d FROM range(1) t(i)",
+])
+def test_each_connection_refuses_catalog_reads_that_look_like_its_own_names(files, sql):
+    """On the real locked connection, not only in the check: the engine
+    would answer these from its catalog, so the check is what refuses them."""
+    _kind, _client, run = files
+    with pytest.raises((TableScopeViolation, ReadOnlyViolation)):
+        run(sql)
+
+
+def test_each_connection_names_its_tables_when_refusing_an_unknown_one(files):
+    _kind, _client, run = files
+    with pytest.raises(TableScopeViolation) as info:
+        run("SELECT * FROM salez")
+    assert "salez" in str(info.value)
+    assert "customers" in str(info.value) and "sales" in str(info.value)
+
+
+@pytest.mark.parametrize("sql", ["DESCRIBE sales", "SHOW TABLES", "SUMMARIZE sales"])
+def test_each_connection_answers_describe_with_a_fixable_error(files, sql):
+    _kind, _client, run = files
+    with pytest.raises(ValueError) as info:
+        run(sql)
+    assert _not_a_policy_refusal(info.value), type(info.value).__mro__
+    assert "customers" in str(info.value) and "sales" in str(info.value)
+
+
+def test_a_qvd_table_whose_cache_is_not_built_is_named_as_not_ready(tmp_path, monkeypatch):
+    client = _qvd(tmp_path, monkeypatch)
+    pending = tmp_path / "qvd" / "orders.qvd"
+    pending.write_bytes(b"qvd")  # listed by discovery, no Parquet cache yet
+    assert "orders" in [t.name for t in client.get_tables()]
+    with pytest.raises(TableScopeViolation, match="not built yet") as info:
+        client.execute_query("SELECT * FROM orders")
+    assert "orders" in str(info.value)
+    assert client.execute_query("SELECT count(*) AS n FROM sales")["n"].tolist() == [3]
+
+
+def test_a_pbix_table_whose_cache_could_not_be_built_is_named_as_not_ready(tmp_path, monkeypatch):
+    """A second file whose model discovery already read, but whose Parquet
+    cache the query path cannot build (here: over the size limit)."""
+    client = _pbix(tmp_path, monkeypatch)
+    pending = tmp_path / "pending.pbix"
+    pending.write_bytes(b"pbix-pending")
+    pdir = client._cache_key(str(pending))[1]
+    pdir.mkdir(parents=True)
+    (pdir / "schema.json").write_text(json.dumps(
+        {"tables": [{"name": "orders", "columns": [{"name": "id", "dtype": "int64"}]}], "relationships": []}))
+    client = PBIXClient(f"{client.file_paths_raw}\n{pending}")
+    monkeypatch.setattr(pbix_client_mod, "PBIX_MAX_BYTES", len(b"pbix-pending") - 1)
+    assert "orders" in [t.name for t in client.get_tables()]
+    with pytest.raises(TableScopeViolation, match="not built yet") as info:
+        client.execute_query("SELECT * FROM orders")
+    assert "orders" in str(info.value)
+    assert client.execute_query("SELECT count(*) AS n FROM sales")["n"].tolist() == [3]
+
+
+# ------------------------------------------------------------ the code loop
+
+_COUNT = "SELECT count(*) AS n FROM sales"
+
+
+def _code(statement: str) -> str:
+    return f"def generate_df(ds_clients, excel_files):\n    return ds_clients['files'].execute_query({statement!r})\n"
+
+
+def _code_loop(client, statements):
+    """generate_and_execute with the coder (the LLM) stubbed: attempt i
+    gets the code for statements[i]. Everything below the coder is real."""
+    import asyncio
+
+    from app.ai.schemas.codegen import CodeGenContext, CodeGenRequest
+
+    calls = []
+
+    async def coder(**kwargs):
+        calls.append(kwargs)
+        return _code(statements[min(len(calls), len(statements)) - 1])
+
+    async def go():
+        return [ev async for ev in StreamingCodeExecutor().generate_and_execute_stream_v2(
+            request=CodeGenRequest(context=CodeGenContext(user_prompt="x", schemas_excerpt=""), retries=3),
+            ds_clients={"files": client}, excel_files=[], code_generator_fn=coder,
+        )]
+
+    events = asyncio.run(go())
+    return events[-1]["payload"], events, calls
+
+
+@pytest.mark.parametrize("first", ["SELEC count(*) AS n FROM sales", "DESCRIBE sales"])
+def test_the_code_loop_retries_a_fixable_duckdb_error_and_gets_rows(mode, tmp_path, first):
+    done, events, calls = _code_loop(_csv(tmp_path), [first, _COUNT])
+    assert len(calls) == 2
+    assert done["df"]["n"].tolist() == [3]
+    assert not [e for e in events if e["type"] == "security_violation"]
+    feedback = calls[1]["code_and_error_messages"][-1][1]
+    assert "Security violation" not in feedback
+    assert ("syntax error" in feedback) if first.startswith("SELEC") else ("sales" in feedback)
+
+
+def test_the_code_loop_still_ends_on_a_copy_without_a_retry(mode, tmp_path):
+    done, events, calls = _code_loop(_csv(tmp_path), ["COPY (SELECT 1) TO 'copied.csv'", _COUNT])
+    assert len(calls) == 1
+    assert done["df"] is None
+    assert [e["payload"]["violation_type"] for e in events if e["type"] == "security_violation"] == ["unsafe_sql"]
+
+
+def test_a_file_connections_unknown_table_gets_guidance_about_its_own_tables(mode, tmp_path):
+    """The table-selection wording ("refused by the agent's table
+    selection") is for SQL connections; a file connection has no table
+    selection, only its own tables."""
+    from app.ai.tools.implementations.create_data import CreateDataTool
+
+    done, _events, _calls = _code_loop(_csv(tmp_path), ["SELECT * FROM salez"])
+    observation = CreateDataTool.build_execution_failure_observation(done["errors"], done["query_timings"])
+    assert observation["error"]["type"] == "table_access_denied"
+    assert "sales" in observation["error"]["message"]
+    guidance = observation["retry_guidance"]
+    assert "table selection" not in guidance
+    assert "this connection" in guidance
 
 
 @pytest.mark.parametrize("kind", ["csv", "qvd", "pbix"])

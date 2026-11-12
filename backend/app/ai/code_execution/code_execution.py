@@ -365,8 +365,12 @@ class TableAccessError(CodeSecurityError):
     Terminal for this code attempt: if generated code catches it and carries
     on, the attempt still fails (see _raise_if_query_errors_were_swallowed).
     The planner may explain the refusal and continue other permitted work.
+
+    `refused_by` is "connection" when the connection's own table list
+    refused it (a file connection), not the agent's table selection.
     """
     terminal_execution_error = True
+    refused_by: Optional[str] = None
 
 
 class QueryTimeoutError(AppError):
@@ -905,7 +909,9 @@ class ResolvedCall:
 def _as_refusal(exc: Exception) -> Exception:
     """A violation raised inside a client, as the wrapper's own refusal type."""
     if isinstance(exc, TableScopeViolation):
-        return TableAccessError(str(exc))
+        refusal = TableAccessError(str(exc))
+        refusal.refused_by = getattr(exc, "refused_by", None)
+        return refusal
     return UnsafeSQLError(str(exc))
 
 
@@ -1178,6 +1184,8 @@ class QueryCapturingClientWrapper:
                     **({"source_query_id": _source_query_id(e)} if _source_query_id(e) else {}),
                     **({"error_type": "table_access_denied", "error_message": str(e)}
                        if isinstance(e, TableAccessError) else {}),
+                    **({"refused_by": e.refused_by}
+                       if isinstance(e, TableAccessError) and e.refused_by else {}),
                 })
                 span.set_status(StatusCode.ERROR, str(e))
                 span.record_exception(e)

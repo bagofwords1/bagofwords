@@ -582,6 +582,14 @@ class QVDClient(DataSourceClient):
 
     @contextmanager
     def connect(self) -> Generator[duckdb.DuckDBPyConnection, None, None]:
+        with self._open() as (con, _views, _not_ready):
+            yield con
+
+    @contextmanager
+    def _open(self) -> Generator[tuple[duckdb.DuckDBPyConnection, list[str], list[str]], None, None]:
+        """A locked connection, the views it registered (the tables agent SQL
+        may read on it), and the tables discovery lists that it could not
+        register because their Parquet cache is not built yet."""
         t0 = time.perf_counter()
         files = self._resolve_files()
         logger.info(
@@ -594,6 +602,7 @@ class QVDClient(DataSourceClient):
             used: set[str] = set()
             table_map: dict[str, str] = {}
             parquet_paths: list[str] = []
+            not_ready: list[str] = []
             skipped = 0
             for filepath in files:
                 file_hash, fresh_path = self._cache_key(filepath)
@@ -614,6 +623,9 @@ class QVDClient(DataSourceClient):
                             },
                         )
                         skipped += 1
+                        # The name get_tables gives it, taken in the same
+                        # order so the names after it match too.
+                        not_ready.append(self._safe_table_name(filepath, used))
                         continue
                     logger.warning(
                         "qvd.connect.file.stale",
@@ -655,7 +667,7 @@ class QVDClient(DataSourceClient):
         # The yield is outside the try above: an error raised by the caller's
         # `with` body (a refused query) keeps its type.
         try:
-            yield con
+            yield con, list(table_map), not_ready
         finally:
             con.close()
 
@@ -663,8 +675,8 @@ class QVDClient(DataSourceClient):
         t0 = time.perf_counter()
         logger.info("qvd.query.start", extra={"qvd_sql": sql})
         try:
-            with self.connect() as con:
-                check_duckdb_file_query(sql, self._table_map)
+            with self._open() as (con, views, not_ready):
+                check_duckdb_file_query(sql, views, not_ready=not_ready)
                 df = con.execute(sql).df()
             logger.info(
                 "qvd.query.done",

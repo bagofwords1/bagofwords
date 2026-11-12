@@ -99,8 +99,6 @@ class PBIXClient(DataSourceClient):
         self.patterns: list[str] = [
             p.strip() for p in self.file_paths_raw.splitlines() if p.strip()
         ]
-        # The views the last connect() registered (the tables agent SQL may read).
-        self._views: list[str] = []
 
     # ------------------------------------------------------------------
     # File resolution / cache plumbing
@@ -252,8 +250,32 @@ class PBIXClient(DataSourceClient):
     # Query execution
     # ------------------------------------------------------------------
 
+    def _cached_model_tables(self, cache_dir: Path) -> list[str]:
+        """Model table names from the schema discovery cached for a file
+        (no decode); [] when none is cached or it cannot be read."""
+        from app.services import storage
+        schema_path = cache_dir / "schema.json"
+        try:
+            if not storage.ensure_local(schema_path, fresh=False):
+                return []
+            with schema_path.open("r", encoding="utf-8") as f:
+                return [t["name"] for t in (json.load(f).get("tables") or [])]
+        except Exception as e:
+            # Only names for a refusal message: without them the message
+            # says less, nothing else changes.
+            logger.debug(f"pbix schema cache read failed for {cache_dir}: {e}")
+            return []
+
     @contextmanager
     def connect(self) -> Generator[duckdb.DuckDBPyConnection, None, None]:
+        with self._open() as (con, _views, _not_ready):
+            yield con
+
+    @contextmanager
+    def _open(self) -> Generator[tuple[duckdb.DuckDBPyConnection, list[str], list[str]], None, None]:
+        """A locked connection, the views it registered (the tables agent SQL
+        may read on it), and the tables discovery lists that it could not
+        register because their Parquet cache could not be built."""
         t0 = time.perf_counter()
         files = self._resolve_files()
         logger.info(
@@ -264,6 +286,7 @@ class PBIXClient(DataSourceClient):
         try:
             con = duckdb.connect(database=":memory:")
             per_file_manifest: dict[str, tuple[Path, dict[str, str]]] = {}
+            pending: dict[str, list[str]] = {}
             skipped = 0
             for filepath in files:
                 file_hash, fresh_dir = self._cache_key(filepath)
@@ -291,18 +314,26 @@ class PBIXClient(DataSourceClient):
                         extra={"pbix_file": filepath, "pbix_error": str(e)},
                     )
                     skipped += 1
+                    # Discovery still lists its tables: name them as not
+                    # ready rather than unknown.
+                    tables = self._cached_model_tables(fresh_dir)
+                    if tables:
+                        pending[filepath] = tables
 
-            views = self._view_names(
-                {f: sorted(m.keys()) for f, (_, m) in per_file_manifest.items()}
-            )
+            views = self._view_names({
+                **{f: sorted(m.keys()) for f, (_, m) in per_file_manifest.items()},
+                **pending,
+            })
             registered: list[str] = []
             parquet_paths: list[str] = []
+            not_ready = [views[(f, t)] for f, tables in pending.items() for t in tables]
             for filepath, (cache_dir, manifest) in per_file_manifest.items():
                 for tname, fname in manifest.items():
                     ppath = cache_dir / fname
-                    if not ppath.exists():
-                        continue
                     view = views[(filepath, tname)]
+                    if not ppath.exists():
+                        not_ready.append(view)
+                        continue
                     parquet_sql = str(ppath).replace("'", "''")
                     con.execute(
                         f'CREATE VIEW "{view}" AS SELECT * FROM read_parquet(\'{parquet_sql}\')'
@@ -313,7 +344,6 @@ class PBIXClient(DataSourceClient):
             # connection may read those files and nothing else.
             lock_down(con, allowed_paths=parquet_paths)
 
-            self._views = registered
             logger.info(
                 "pbix.connect.done",
                 extra={
@@ -333,7 +363,7 @@ class PBIXClient(DataSourceClient):
         # The yield is outside the try above: an error raised by the caller's
         # `with` body (a refused query) keeps its type.
         try:
-            yield con
+            yield con, registered, not_ready
         finally:
             con.close()
 
@@ -341,8 +371,8 @@ class PBIXClient(DataSourceClient):
         t0 = time.perf_counter()
         logger.info("pbix.query.start", extra={"pbix_sql": sql})
         try:
-            with self.connect() as con:
-                check_duckdb_file_query(sql, self._views)
+            with self._open() as (con, views, not_ready):
+                check_duckdb_file_query(sql, views, not_ready=not_ready)
                 df = con.execute(sql).df()
             logger.info(
                 "pbix.query.done",

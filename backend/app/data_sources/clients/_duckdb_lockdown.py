@@ -19,7 +19,12 @@ def lock_down(con, *, allowed_paths: Iterable[str] = (), allowed_directories: It
     """Restrict `con` to `allowed_paths` (exact files) and, when given,
     `allowed_directories`; turn external access off; lock the configuration.
     Raises RuntimeError if any step fails, so no caller is left holding an
-    unlocked connection."""
+    unlocked connection.
+
+    `allowed_paths` lets the connection write those files as well as read
+    them: the engine alone does not keep a statement from overwriting the
+    connection's own files. The query check (`check_duckdb_file_query`)
+    is what refuses anything but a SELECT."""
     steps = [("allowed_paths", f"SET allowed_paths = {_list_literal(allowed_paths)}")]
     directories = list(allowed_directories)
     if directories:
