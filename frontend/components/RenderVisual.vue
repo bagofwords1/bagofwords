@@ -425,7 +425,8 @@ function buildCartesianOptions(normalizedRows: DataRow[], dataModel: DataModel):
         type: 'value',
         show: isHorizontal ? xAxisVisible : yAxisVisible,
         name: valueAxisName,
-        ...(fmtValue ? { axisLabel: { formatter: fmtValue } } : {}),
+        // The crosshair's value tag uses the same units as the axis.
+        ...(fmtValue ? { axisLabel: { formatter: fmtValue }, axisPointer: { label: { formatter: (p: any) => fmtValue(Number(p.value)) } } } : {}),
         splitLine: showGrid ? { show: true, lineStyle: { color: gridColor, width: 1 } } : { show: false }
     }
     // A crowded new chart (showDataZoom) opens on its latest points.
