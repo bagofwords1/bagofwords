@@ -3,7 +3,9 @@ import { readFileSync } from 'node:fs'
 
 import { createI18n } from 'vue-i18n'
 
-import { catalogMessage, errorCatalogKeys, specificDetail } from '../../composables/useErrorMessage.ts'
+import * as errorMessage from '../../composables/useErrorMessage.ts'
+
+const { catalogMessage, detailText, errorCatalogKeys, specificDetail } = errorMessage
 
 // The backend's AppError carries `error_code`, and the catalogs hold the
 // localized message under `errors.<code>`. Most codes hold a dot
@@ -67,5 +69,19 @@ assert.equal(
 assert.equal(specificDetail({ error_code: dotted[0], detail: 'English' }), null)
 assert.equal(specificDetail({ error_code: 'ARTIFACT_RESOURCE_VALIDATION' }), null)
 assert.equal(specificDetail({ detail: 'English' }), null)
+
+// A refusal answered as an HTTP error carries its reason either as a string
+// `detail` or, for a usage quota, as an object whose `message` is the reason
+// (the rest are numbers for the UI). Either way the user reads the reason,
+// never the object printed as JSON.
+assert.equal(detailText('Query refused: writes are not allowed'), 'Query refused: writes are not allowed')
+assert.equal(
+  detailText({ message: 'Monthly query limit reached (5 of 5)', metric: 'data_queries', limit: 5, used: 5 }),
+  'Monthly query limit reached (5 of 5)',
+)
+// Nothing readable: the caller falls back to its own localized line.
+for (const unreadable of [undefined, null, '', {}, { message: '' }, { metric: 'data_queries' }, 42, [{ msg: 'x' }]]) {
+  assert.equal(detailText(unreadable), null, `no text in ${JSON.stringify(unreadable)}`)
+}
 
 console.log(`useErrorMessage: ${codes.length} codes resolve (${dotted.length} dotted)`)

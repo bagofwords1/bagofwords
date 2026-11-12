@@ -262,6 +262,7 @@ import EntityEditModal from '~/components/entity/EntityEditModal.vue'
 
 const toast = useToast()
 const { t } = useI18n()
+const { getErrorMessage } = useErrorMessage()
 
 type MinimalDS = { id: string; name?: string; type?: string }
 type EntityDetail = {
@@ -579,7 +580,8 @@ async function runWithParams() {
     if (error.value) throw error.value
     applyDetail(data.value as any)
   } catch (e: any) {
-    paramRunError.value = e?.data?.detail || e?.message || t('queries.detail.errRunParams')
+    // A refused run (guard, quota, rate limit) says why; show that reason.
+    paramRunError.value = getErrorMessage(e, t('queries.detail.errRunParams'))
   } finally {
     paramRunLoading.value = false
   }
@@ -593,8 +595,11 @@ async function refreshEntity() {
     const { data, error } = await useMyFetch(`/api/entities/${id.value}/run`, { method: 'POST', body: {} })
     if (error.value) throw error.value
     applyDetail(data.value as any)
-  } catch {}
-  refreshing.value = false
+  } catch (e: any) {
+    toast.add({ title: t('queries.detail.toastErrorTitle'), description: getErrorMessage(e, t('queries.detail.errRunParams')), color: 'red' })
+  } finally {
+    refreshing.value = false
+  }
 }
 
 const deleting = ref(false)

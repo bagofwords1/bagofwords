@@ -70,6 +70,21 @@ export function specificDetail(payload: { error_code?: string; detail?: unknown 
   return null
 }
 
+/**
+ * The readable text of a server `detail`, or null when it has none. Most
+ * routes send a string; a few send an object whose `message` is the reason
+ * (a usage quota adds its numbers beside it), which must not be shown as
+ * JSON. Pure, so it is unit-tested without an i18n context.
+ */
+export function detailText(detail: unknown): string | null {
+  if (typeof detail === 'string') return detail || null
+  if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+    const message = (detail as { message?: unknown }).message
+    if (typeof message === 'string' && message) return message
+  }
+  return null
+}
+
 export function useErrorMessage() {
   const { t, te } = useI18n()
 
@@ -102,7 +117,8 @@ export function useErrorMessage() {
     const localized = catalogMessage(payload, t, te)
     if (localized) return localized
     // Fall back to server-provided English string, then caller fallback, then generic.
-    if (typeof payload.detail === 'string' && payload.detail) return payload.detail
+    const serverText = detailText(payload.detail)
+    if (serverText) return serverText
     // FastAPI validation responses are arrays, not localized AppError envelopes.
     // Include only the field path and message, never echoed input values.
     if (Array.isArray(payload.detail)) {

@@ -81,15 +81,23 @@ def _refusal_http_error(exc: Optional[BaseException]) -> Optional[HTTPException]
     A refusal declines the caller's request; it is neither a missing entity
     nor a server fault. 403 for the query guard and the code scan, and for
     in-process execution refused on this host; 429 for a connection rate
-    limit or a usage quota. Each carries the refusal's own text."""
+    limit or a usage quota; 503 when this host cannot provide the sandbox
+    (the text tells the operator what to change). Each carries the refusal's
+    own text."""
     from app.ai.code_execution.code_execution import CodeSecurityError
-    from app.ai.code_execution.sandbox.runner import SandboxExecutionError, SandboxModeRefused
+    from app.ai.code_execution.sandbox.runner import (
+        SandboxExecutionError,
+        SandboxModeRefused,
+        SandboxUnavailableError,
+    )
     from app.routes.usage_limits import _quota_http_error
     from app.services.connection_rate_limit_service import RateLimitExceeded
     from app.services.usage_policy_service import UsageLimitExceeded
 
     if isinstance(exc, (CodeSecurityError, SandboxModeRefused)):
         return HTTPException(status_code=403, detail=str(exc))
+    if isinstance(exc, SandboxUnavailableError):
+        return HTTPException(status_code=503, detail=exc.message)
     if isinstance(exc, UsageLimitExceeded):
         return _quota_http_error(exc)
     if isinstance(exc, RateLimitExceeded):
@@ -564,8 +572,19 @@ async def run_entity(
         raise HTTPException(status_code=400, detail=str(e))
     except ValueError as e:
         # A builder run reports its failure as ValueError, caused by the
-        # original error: a refusal keeps its own status.
-        raise (_refusal_http_error(e.__cause__) or HTTPException(status_code=404, detail=str(e))) from e
+        # original error, which keeps its own status: a refusal its refusal
+        # status, a typed error (query timeout 408, swallowed query failure
+        # 422, ...) the one its handler gives. Only the entity itself
+        # missing is a 404; any other failure of the code is a 422.
+        cause = e.__cause__
+        refusal = _refusal_http_error(cause)
+        if refusal is not None:
+            raise refusal from e
+        if isinstance(cause, AppError):
+            raise cause
+        if cause is None and str(e) == "Entity not found":
+            raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception as e:
         # A viewer run (params) lets the original error through.
         refusal = _refusal_http_error(e)

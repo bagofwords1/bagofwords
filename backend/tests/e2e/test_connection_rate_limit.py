@@ -244,11 +244,14 @@ def generate_df(ds_clients, excel_files, params):
 _V_SPEC = {"name": "v", "type": "number", "label": "V", "default": None, "required": False, "source": "input"}
 
 
-async def _seed_sqlite_agent(org_id, owner_id, db_path, **rate_limit):
+async def _seed_sqlite_agent(org_id, owner_id, db_path, query_timeout_seconds=None, **rate_limit):
     """A connection over a local SQLite file, its agent and an activated
     `orders` table. Direct model writes: no route creates a connection over a
     local file together with an indexed catalog (same as
     test_agent_table_selection_enforced.py)."""
+    config = {"database": str(db_path)}
+    if query_timeout_seconds is not None:
+        config["query_timeout_seconds"] = query_timeout_seconds
     con = sqlite3.connect(db_path)
     con.execute("CREATE TABLE orders (id INTEGER PRIMARY KEY)")
     con.executemany("INSERT INTO orders VALUES (?)", [(i,) for i in range(1, 4)])
@@ -259,7 +262,7 @@ async def _seed_sqlite_agent(org_id, owner_id, db_path, **rate_limit):
     suffix = uuid.uuid4().hex[:8]
     async with async_session_maker() as db:
         conn = Connection(organization_id=org_id, name=f"wh-{suffix}", type="sqlite",
-                          config={"database": str(db_path)}, auth_policy="system_only", **rate_limit)
+                          config=config, auth_policy="system_only", **rate_limit)
         conn.encrypt_credentials({})
         db.add(conn)
         await db.flush()
@@ -471,3 +474,122 @@ def test_entity_calls_tag_their_queries_with_their_own_source(
     served, resp = _call(api, kind, token, org_id, ds_id, eid, 0)
     assert served, resp.text
     assert sources and set(sources) == {kind}, sources
+
+
+# ── A failed run keeps the status its error carries ──────────────────────
+
+_SWALLOWING_CODE = """
+def generate_df(ds_clients, excel_files, params):
+    import pandas as pd
+    client = [c for key, c in ds_clients.items() if ":" in key][0]
+    try:
+        return client.execute_query("SELECT no_such_column FROM orders")
+    except Exception:
+        return pd.DataFrame()
+"""
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("kind", _RUNS)
+def test_entity_runs_answer_a_query_timeout_with_its_own_408(
+    api, create_user, login_user, whoami, tmp_path, monkeypatch, kind,
+):
+    import time
+
+    from app.data_sources.clients.sqlite_client import SqliteClient
+
+    sent = SqliteClient.execute_query
+
+    def slow(self, sql):
+        # The warehouse takes longer than the connection's budget.
+        time.sleep(3)
+        return sent(self, sql)
+
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db", query_timeout_seconds=1))
+    eid = _entity(api, token, org_id, ds_id)
+    monkeypatch.setattr(SqliteClient, "execute_query", slow)
+
+    served, resp = _call(api, kind, token, org_id, ds_id, eid, 1)
+    assert not served, resp.text
+    assert resp.status_code == 408, resp.text
+    assert resp.json()["error_code"] == "query.timeout", resp.text
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("kind", _RUNS)
+def test_entity_runs_answer_a_swallowed_query_failure_with_its_own_422(
+    api, create_user, login_user, whoami, tmp_path, kind,
+):
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db"))
+    eid = _entity(api, token, org_id, ds_id, code=_SWALLOWING_CODE)
+
+    served, resp = _call(api, kind, token, org_id, ds_id, eid, 1)
+    assert not served, resp.text
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["error_code"] == "query.failed_silently", resp.text
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("kind", _RUNS)
+def test_entity_runs_answer_a_host_without_the_sandbox_with_503_and_the_operator_remedy(
+    api, create_user, login_user, whoami, tmp_path, monkeypatch, kind,
+):
+    from app.ai.code_execution import code_execution
+    from app.ai.code_execution.sandbox.runner import CONFINEMENT_REMEDY, SandboxUnavailableError
+
+    def no_confinement(job, *args, **kwargs):
+        # The child process refuses before running anything.
+        raise SandboxUnavailableError("Landlock TCP confinement is required but unavailable")
+
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db"))
+    eid = _entity(api, token, org_id, ds_id)
+    monkeypatch.setattr(code_execution, "_run_sandbox_job", no_confinement)
+
+    served, resp = _call(api, kind, token, org_id, ds_id, eid, 1)
+    assert not served, resp.text
+    assert resp.status_code == 503, resp.text
+    assert CONFINEMENT_REMEDY in resp.json()["detail"], resp.text
+
+
+@pytest.mark.e2e
+def test_an_entity_run_whose_code_fails_is_not_answered_as_a_missing_entity(
+    api, create_user, login_user, whoami, tmp_path,
+):
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db"))
+    eid = _entity(api, token, org_id, ds_id, code=_code_running('"SELECT id FROM orders"[999]'))
+
+    resp = api.post(f"/api/entities/{eid}/run", json={}, headers=_headers(token, org_id))
+    assert resp.status_code == 422, resp.text
+    assert "IndexError" in resp.json()["detail"], resp.text
+    missing = api.post(f"/api/entities/{uuid.uuid4()}/run", json={}, headers=_headers(token, org_id))
+    assert missing.status_code == 404, missing.text
+
+
+@pytest.mark.e2e
+def test_an_entity_run_refusal_survives_a_failed_save_of_the_refresh_time(
+    api, create_user, login_user, whoami, tmp_path, monkeypatch,
+):
+    """After a refused run the service records the refresh time; when that
+    save fails too, the caller still gets the refusal, not the save error."""
+    from sqlalchemy.exc import OperationalError
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    db_path = tmp_path / "wh.db"
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, db_path))
+    code = _code_running('"DELETE FROM orders"')
+    eid = _entity(api, token, org_id, ds_id, code=code)
+
+    async def database_down(self):
+        raise OperationalError("COMMIT", {}, Exception("database is locked"))
+
+    monkeypatch.setattr(AsyncSession, "commit", database_down)
+    served, resp = _call(api, "entity_run", token, org_id, ds_id, eid, 1)
+    assert not served, resp.text
+    reason = _refusal_text("entity_run", resp, 403)
+    assert reason and "database is locked" not in reason, resp.text
+    assert _order_count(db_path) == 3

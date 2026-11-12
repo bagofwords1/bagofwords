@@ -1,3 +1,4 @@
+import logging
 from typing import List, Optional
 
 from sqlalchemy import select, or_
@@ -19,6 +20,9 @@ from app.core.telemetry import telemetry
 from app.ee.audit.service import audit_service
 from app.dependencies import async_session_maker
 from app.services.usage_policy_service import UsageLimitContext
+from app.errors.redact import describe_for_log
+
+logger = logging.getLogger(__name__)
 
 
 class EntityService:
@@ -1028,10 +1032,16 @@ class EntityService:
             return entity
         except Exception as e:
             if persist_data:
-                # Persist last_refreshed_at but do not overwrite existing data on failure
-                entity.last_refreshed_at = datetime.utcnow()
-                await db.flush()
-                await db.commit()
+                # Persist last_refreshed_at but do not overwrite existing data
+                # on failure. Best effort: a failing save must not replace the
+                # run's own error, which is what the caller has to act on.
+                try:
+                    entity.last_refreshed_at = datetime.utcnow()
+                    await db.flush()
+                    await db.commit()
+                except Exception as save_error:
+                    logger.warning("Refresh time of entity %s was not saved after a failed run: %s",
+                                   entity_id, describe_for_log(save_error))
             # Re-raise as ValueError for the route to map; the cause is kept
             # so a refusal (guard, quota) still maps to its own status.
             raise ValueError(str(e)) from e

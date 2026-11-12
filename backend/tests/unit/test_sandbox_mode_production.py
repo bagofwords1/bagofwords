@@ -115,6 +115,30 @@ def test_development_still_builds_decks_in_process(monkeypatch, tmp_path):
     assert path == out and out.exists()
 
 
+@pytest.mark.parametrize("environment,development", [
+    ("development", True), ("dev", True), ("test", True), ("testing", True),
+    ("production", False), ("staging", False),
+])
+def test_the_sandbox_and_the_connector_list_agree_on_development(monkeypatch, environment, development):
+    """One list of development names: where in-process code may run, the
+    development-only connectors are offered, and nowhere else (TESTING off)."""
+    from app.schemas import data_source_registry as registry
+    from app.settings.config import settings
+    from app.settings.environments import DEVELOPMENT_ENVIRONMENTS
+
+    assert (environment in DEVELOPMENT_ENVIRONMENTS) is development
+    _environment(monkeypatch, environment, "inprocess")
+    monkeypatch.setattr(settings, "ENVIRONMENT", environment)
+    monkeypatch.setattr(settings, "TESTING", False)
+    dev_only = {e.type for e in registry.REGISTRY.values()
+                if e.dev_only and e.status == "active" and not e.deprecated and not e.requires_module}
+    assert dev_only, "the registry has a development-only connector"
+    listed = {e["type"] for e in registry.list_available_data_sources()}
+
+    assert (config.inprocess_refusal_reason() == "") is development
+    assert dev_only.issubset(listed) is development
+
+
 # ---------------------------------------------------------------- startup
 
 def _kernel(monkeypatch, abi: int, seccomp_reason: str = "") -> None:

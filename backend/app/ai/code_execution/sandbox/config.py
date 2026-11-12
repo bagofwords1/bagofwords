@@ -31,6 +31,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from app.settings.environments import DEVELOPMENT_ENVIRONMENTS
+
 
 MODE_SUBPROCESS = "subprocess"
 MODE_INPROCESS = "inprocess"
@@ -54,9 +56,7 @@ def _is_production() -> bool:
     """Fail closed: any ENVIRONMENT other than a development name counts as
     production (" production", "prod", "staging", "" included). Unset is
     development."""
-    from app.schemas.data_source_registry import _DEV_ENVIRONMENTS
-
-    return os.environ.get("ENVIRONMENT", "development").strip().lower() not in _DEV_ENVIRONMENTS
+    return os.environ.get("ENVIRONMENT", "development").strip().lower() not in DEVELOPMENT_ENVIRONMENTS
 
 
 def sandbox_mode() -> str:

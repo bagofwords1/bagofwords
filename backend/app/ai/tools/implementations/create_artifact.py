@@ -707,7 +707,9 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             yield {
                 "code": original_code,
                 "ok": False,
-                "error": original_error,
+                # A refusal met on a repaired attempt is what the caller has
+                # to act on; the first run's code error no longer matters.
+                "error": error if terminal["hit"] else original_error,
                 "repair_attempts": attempts,
             }
 
