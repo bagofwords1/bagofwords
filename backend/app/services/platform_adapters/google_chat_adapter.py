@@ -256,7 +256,9 @@ class GoogleChatAdapter(PlatformAdapter):
             if created and created.get("name"):
                 self._marker_messages[key] = created["name"]
             return created is not None
-        if emoji == "white_check_mark":
+        if emoji in ("white_check_mark", "x"):
+            # "x" is the failure finish: delete the working marker too (the
+            # failure line is delivered as its own message), so it never hangs.
             marker = self._marker_messages.pop(key, None)
             if marker:
                 deleted = await self._delete_message(marker)
