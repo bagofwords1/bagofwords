@@ -493,3 +493,16 @@ class Envelope(dict):
 return ds_clients['spl'].execute_query(Envelope(spl='search index=crm | stats count'))
 """)
     assert http.searches == []
+
+
+def test_splunk_envelope_with_a_text_subclass_key_is_refused(in_process, splunk):
+    # A key of its own text type can answer comparisons and hashing with
+    # something other than its text, so keys must be plain str.
+    client, http = splunk
+    with pytest.raises(UnsafeSQLError):
+        _run({"spl": client}, """
+class Key(str):
+    pass
+return ds_clients['spl'].execute_query({Key('spl'): 'search index=crm | stats count'})
+""")
+    assert http.searches == []

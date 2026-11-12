@@ -114,3 +114,28 @@ async def test_repair_stops_when_fix_returns_same_code(tool, tmp_path, monkeypat
     result, _ = await _run_loop(tool, BAD_CODE, out, {})
     assert result["ok"] is False
     assert calls["n"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_terminal_refusal_is_not_sent_for_repair(tool, tmp_path, monkeypatch):
+    """Rewriting the code cannot lift a refusal of the host (here in-process
+    mode in production): no repair round is spent, the refusal is returned."""
+    from app.ai.code_execution.sandbox.runner import INPROCESS_REMEDY
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("BOW_CODE_SANDBOX", "inprocess")
+    out = tmp_path / "deck.pptx"
+    calls = {"n": 0}
+
+    async def fake_fix(code, error, runtime_ctx):
+        calls["n"] += 1
+        return code + f"\n# attempt {calls['n']}"
+
+    monkeypatch.setattr(tool, "_fix_pptx_code", fake_fix)
+    result, _ = await _run_loop(tool, GOOD_CODE, out, {})
+    assert calls["n"] == 0
+    assert result["ok"] is False
+    assert result["repair_attempts"] == 0
+    assert result["code"] == GOOD_CODE
+    assert INPROCESS_REMEDY in result["error"]
+    assert not out.exists()

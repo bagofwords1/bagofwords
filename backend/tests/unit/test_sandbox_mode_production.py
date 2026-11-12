@@ -46,7 +46,11 @@ def _deck_code() -> str:
     )
 
 
-@pytest.mark.parametrize("environment", ["production", "PRODUCTION", "Production"])
+@pytest.mark.parametrize("environment", [
+    "production", "PRODUCTION", "Production",
+    # Anything that is not a known development name counts as production.
+    " production", "production\n", "prod", "staging", "",
+])
 def test_production_refuses_in_process_code_before_it_runs(monkeypatch, tmp_path, environment):
     _environment(monkeypatch, environment, "inprocess")
     marker = tmp_path / "ran.csv"
@@ -59,13 +63,23 @@ def test_production_refuses_in_process_code_before_it_runs(monkeypatch, tmp_path
     assert CONFINEMENT_REMEDY not in str(refused.value)
 
 
-def test_development_still_runs_code_in_process(monkeypatch, tmp_path):
-    _environment(monkeypatch, "development", "inprocess")
+@pytest.mark.parametrize("environment", ["development", "dev", "test", "testing", " Development "])
+def test_development_still_runs_code_in_process(monkeypatch, tmp_path, environment):
+    _environment(monkeypatch, environment, "inprocess")
     marker = tmp_path / "ran.csv"
     df, _, _ = StreamingCodeExecutor().execute_code(code=_marker_code(marker), ds_clients={}, excel_files=[])
     assert list(df["ran"]) == [1]
     assert marker.exists()
     assert config.inprocess_refusal_reason() == ""
+
+
+@pytest.mark.parametrize("environment,required", [
+    ("production", True), (" production", True), ("prod", True), ("staging", True), ("", True),
+    ("development", False), ("dev", False), ("test", False), ("testing", False),
+])
+def test_kernel_confinement_is_required_outside_development(monkeypatch, environment, required):
+    _environment(monkeypatch, environment, "subprocess")
+    assert config.SandboxLimits.from_env().require_landlock is required
 
 
 @pytest.mark.skipif(not _LINUX, reason="sandbox child needs Linux")

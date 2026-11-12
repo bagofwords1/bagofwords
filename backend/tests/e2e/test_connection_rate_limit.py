@@ -34,7 +34,6 @@ from app.services.connection_rate_limit_service import (
     connection_rate_limit_service,
 )
 from app.services.usage_policy_service import METRIC_DATA_QUERIES
-from tests.fixtures.client import _ReleasingTestClient
 
 
 def _run(coro):
@@ -253,6 +252,8 @@ async def _seed_sqlite_agent(org_id, owner_id, db_path, **rate_limit):
     con = sqlite3.connect(db_path)
     con.execute("CREATE TABLE orders (id INTEGER PRIMARY KEY)")
     con.executemany("INSERT INTO orders VALUES (?)", [(i,) for i in range(1, 4)])
+    # In the file, never activated for the agent.
+    con.execute("CREATE TABLE staff (id INTEGER PRIMARY KEY)")
     con.commit()
     con.close()
     suffix = uuid.uuid4().hex[:8]
@@ -286,12 +287,9 @@ async def _usage_sources(org_id):
 
 
 @pytest.fixture
-def api():
-    # A refused query surfaces as a server error on some of these routes
-    # (viewer runs); the test reads the status instead of the raised error.
-    from main import app
-
-    return _ReleasingTestClient(app, raise_server_exceptions=False)
+def api(test_client):
+    # Server errors raise in the test: a refusal must never become one.
+    return test_client
 
 
 def _entity(api, token, org_id, ds_id, code=_ENTITY_CODE):
@@ -305,9 +303,10 @@ def _entity(api, token, org_id, ds_id, code=_ENTITY_CODE):
     return resp.json()["id"]
 
 
-def _call(api, kind, token, org_id, ds_id, eid, n):
+def _call(api, kind, token, org_id, ds_id, eid, n, code=_ENTITY_CODE):
     """One call of `kind`; `n` varies the parameter value so a viewer run
-    never answers from its cache. Returns (served rows?, response)."""
+    never answers from its cache. Runs use the entity's stored code, previews
+    send `code`. Returns (served rows?, response)."""
     hdr = _headers(token, org_id)
     if kind == "entity_run":
         resp = api.post(f"/api/entities/{eid}/run", json={}, headers=hdr)
@@ -316,16 +315,29 @@ def _call(api, kind, token, org_id, ds_id, eid, n):
         resp = api.post(f"/api/entities/{eid}/run", json={"params": {"v": n}}, headers=hdr)
         ok = resp.status_code == 200 and bool(resp.json()["data"].get("rows"))
     elif kind == "entity_preview":
-        resp = api.post(f"/api/entities/{eid}/preview", json={"code": _ENTITY_CODE}, headers=hdr)
+        resp = api.post(f"/api/entities/{eid}/preview", json={"code": code}, headers=hdr)
         ok = resp.status_code == 200 and not resp.json().get("error") and bool(resp.json()["data"].get("rows"))
     else:
         resp = api.post("/api/entities/preview",
-                        json={"code": _ENTITY_CODE, "data_source_ids": [ds_id]}, headers=hdr)
+                        json={"code": code, "data_source_ids": [ds_id]}, headers=hdr)
         ok = resp.status_code == 200 and not resp.json().get("error") and bool(resp.json()["data"].get("rows"))
     return ok, resp
 
 
 _ENTITY_CALLS = ["entity_run", "entity_viewer_run", "entity_preview", "entity_code_preview"]
+_RUNS = ("entity_run", "entity_viewer_run")
+
+
+def _refusal_text(kind, resp, status):
+    """The reason a refused call gives. Runs answer with the refusal status;
+    previews keep reporting a failed execution in the body (200, `error`)."""
+    if kind in _RUNS:
+        assert resp.status_code == status, resp.text
+        detail = resp.json()["detail"]
+        return detail["message"] if isinstance(detail, dict) else detail
+    assert resp.status_code == 200, resp.text
+    assert resp.json().get("data") is None, resp.text
+    return resp.json().get("error")
 
 
 @pytest.mark.e2e
@@ -346,6 +358,7 @@ def test_entity_calls_count_against_the_connection_rate_limit(
     assert [ok for ok, _ in served] == [True] * limit, [resp.text[:300] for _, resp in served]
     refused, resp = _call(api, kind, token, org_id, ds_id, eid, limit)
     assert not refused, resp.text
+    assert "rate limit" in (_refusal_text(kind, resp, 429) or ""), resp.text
 
     logs = _run(_audit_count(org_id))
     assert [log.resource_id for log in logs] == [conn_id]
@@ -369,3 +382,92 @@ def test_entity_preview_whose_code_fails_after_a_query_still_meters_it(
     assert resp.status_code == 200, resp.text
     assert "fails after its query" in (resp.json().get("error") or "")
     assert _run(_usage_sources(org_id)) == ["entity_preview"]
+
+
+# ── A refused query is answered as a refusal, never a server error ───────
+
+def _code_running(statement):
+    """The entity code with its query replaced by the Python expression `statement`."""
+    return _ENTITY_CODE.replace('"SELECT COUNT(*) AS n FROM orders"', statement)
+
+
+def _order_count(db_path):
+    con = sqlite3.connect(db_path)
+    try:
+        return con.execute("SELECT COUNT(*) FROM orders").fetchone()[0]
+    finally:
+        con.close()
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("kind", _ENTITY_CALLS)
+@pytest.mark.parametrize("statement", [
+    '"DELETE FROM orders"',         # a write the code scan sees
+    '"DEL" + "ETE FROM orders"',    # a write assembled at run time
+    '"SELECT id FROM staff"',       # a table not activated for the agent
+])
+def test_entity_calls_answer_a_guard_refusal_with_403_and_its_reason(
+    api, create_user, login_user, whoami, tmp_path, kind, statement,
+):
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    db_path = tmp_path / "wh.db"
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, db_path))
+    code = _code_running(statement)
+    eid = _entity(api, token, org_id, ds_id, code=code)
+
+    served, resp = _call(api, kind, token, org_id, ds_id, eid, 1, code=code)
+    assert not served, resp.text
+    reason = _refusal_text(kind, resp, 403)
+    assert reason and "custom code" not in reason and "Internal server error" not in reason, resp.text
+    assert _order_count(db_path) == 3
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("kind", _ENTITY_CALLS)
+def test_entity_calls_answer_an_exhausted_query_quota_with_429_and_its_reason(
+    api, create_user, login_user, whoami, tmp_path, kind,
+):
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db"))
+    policy = api.post(
+        f"/api/organizations/{org_id}/usage-policies",
+        json={"name": f"cap-{uuid.uuid4().hex[:6]}", "monthly_query_limit": 1,
+              "assignments": [{"principal_type": "user", "principal_id": user_id}]},
+        headers=_headers(token, org_id),
+    )
+    assert policy.status_code == 200, policy.text
+    eid = _entity(api, token, org_id, ds_id)
+
+    served, resp = _call(api, kind, token, org_id, ds_id, eid, 0)
+    assert served, resp.text
+    served, resp = _call(api, kind, token, org_id, ds_id, eid, 1)
+    assert not served, resp.text
+    assert _refusal_text(kind, resp, 429), resp.text
+    assert _run(_usage_sources(org_id)) == [kind]
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("kind", _ENTITY_CALLS)
+def test_entity_calls_tag_their_queries_with_their_own_source(
+    api, create_user, login_user, whoami, tmp_path, monkeypatch, kind,
+):
+    """The warehouse sees the same caller name as the usage events."""
+    from app.data_sources.clients.sqlite_client import SqliteClient
+    from app.data_sources.query_tag import current_query_tag
+
+    sources = []
+    sent = SqliteClient.execute_query
+
+    def recording(self, sql):
+        # The driver boundary: what tag the statement would carry.
+        sources.append(current_query_tag().get("source"))
+        return sent(self, sql)
+
+    monkeypatch.setattr(SqliteClient, "execute_query", recording)
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db"))
+    eid = _entity(api, token, org_id, ds_id)
+
+    served, resp = _call(api, kind, token, org_id, ds_id, eid, 0)
+    assert served, resp.text
+    assert sources and set(sources) == {kind}, sources

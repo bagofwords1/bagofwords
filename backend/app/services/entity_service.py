@@ -11,7 +11,7 @@ from app.models.organization import Organization
 from app.models.step import Step
 from app.models.query import Query
 from app.services.step_service import StepService
-from app.services.query_service import QueryService
+from app.services.query_service import QueryService, flush_usage
 from app.schemas.entity_schema import EntityCreate, EntityUpdate
 from datetime import datetime
 from app.schemas.entity_schema import EntityRunPayload
@@ -42,16 +42,6 @@ class EntityService:
             source_ref_id=str(entity_id) if entity_id else None,
             session_maker=async_session_maker,
         )
-
-    @staticmethod
-    async def _flush_usage(usage_context: Optional[UsageLimitContext]) -> None:
-        # Persist buffered data-plane metering (queries/bytes are enqueued by
-        # the execute_query wrapper, not written synchronously).
-        if usage_context is not None:
-            try:
-                await usage_context.flush()
-            except Exception:
-                pass
 
     # ------------------------------------------------------------------
     # Parameters (mirrors the step/query machinery)
@@ -268,18 +258,19 @@ class EntityService:
         org_settings = await organization.get_settings(db) if organization else None
         from app.services.bow_source_access import install_entity_client
         await install_entity_client(db, organization, user, entity, ds_clients)
-        usage_context = self._usage_context(organization, user, source="entity_viewer_run", entity_id=entity.id)
+        source = "entity_viewer_run"
+        usage_context = self._usage_context(organization, user, source=source, entity_id=entity.id)
         executor = StreamingCodeExecutor(organization_settings=org_settings, usage_context=usage_context)
         from app.data_sources.query_tag import query_tag_defaults
         try:
-            with query_tag_defaults(source="entity_run", entity_id=entity.id,
+            with query_tag_defaults(source=source, entity_id=entity.id,
                                     org_id=getattr(organization, "id", None), user_id=getattr(user, "id", None)):
                 exec_df, _log, _ = await executor.execute_code_async(
                     code=entity.code or "", ds_clients=ds_clients, excel_files=[],
                     params=resolved,
                 )
         finally:
-            await self._flush_usage(usage_context)
+            await flush_usage(usage_context)
         df = executor.format_df_for_widget(exec_df)
         if exec_df.attrs.get("bow_source"):
             from app.services.bow_source_access import merge_access
@@ -1041,10 +1032,11 @@ class EntityService:
                 entity.last_refreshed_at = datetime.utcnow()
                 await db.flush()
                 await db.commit()
-            # Re-raise as ValueError for route to map to 404/400 as designed
-            raise ValueError(str(e))
+            # Re-raise as ValueError for the route to map; the cause is kept
+            # so a refusal (guard, quota) still maps to its own status.
+            raise ValueError(str(e)) from e
         finally:
-            await self._flush_usage(usage_context)
+            await flush_usage(usage_context)
 
     @staticmethod
     def slugify(text: str) -> str:
@@ -1120,7 +1112,7 @@ class EntityService:
         executor = StreamingCodeExecutor(organization_settings=org_settings, usage_context=usage_context)
         try:
             from app.data_sources.query_tag import query_tag_defaults
-            with query_tag_defaults(source="entity_run", entity_id=getattr(entity, "id", None),
+            with query_tag_defaults(source=source, entity_id=getattr(entity, "id", None),
                                     org_id=getattr(organization, "id", None),
                                     user_id=getattr(current_user, "id", None)):
                 exec_df, execution_log, _ = await executor.execute_code_async(
@@ -1136,7 +1128,7 @@ class EntityService:
         except Exception as e:
             return {"data": None, "error": str(e)}
         finally:
-            await self._flush_usage(usage_context)
+            await flush_usage(usage_context)
 
     async def preview_entity(
         self,

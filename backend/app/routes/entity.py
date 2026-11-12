@@ -69,6 +69,36 @@ def _sends_new_code(code: Optional[str], stored: Optional[str]) -> bool:
     return code is not None and code.strip() != (stored or "").strip()
 
 
+def _previews_new_code(code: Optional[str], stored: Optional[str]) -> bool:
+    """Whether a preview runs code other than the stored code. An empty
+    preview code runs the stored code."""
+    return bool((code or "").strip()) and _sends_new_code(code, stored)
+
+
+def _refusal_http_error(exc: Optional[BaseException]) -> Optional[HTTPException]:
+    """The answer to a run that was refused, or None for any other failure.
+
+    A refusal declines the caller's request; it is neither a missing entity
+    nor a server fault. 403 for the query guard and the code scan, and for
+    in-process execution refused on this host; 429 for a connection rate
+    limit or a usage quota. Each carries the refusal's own text."""
+    from app.ai.code_execution.code_execution import CodeSecurityError
+    from app.ai.code_execution.sandbox.runner import SandboxExecutionError, SandboxModeRefused
+    from app.routes.usage_limits import _quota_http_error
+    from app.services.connection_rate_limit_service import RateLimitExceeded
+    from app.services.usage_policy_service import UsageLimitExceeded
+
+    if isinstance(exc, (CodeSecurityError, SandboxModeRefused)):
+        return HTTPException(status_code=403, detail=str(exc))
+    if isinstance(exc, UsageLimitExceeded):
+        return _quota_http_error(exc)
+    if isinstance(exc, RateLimitExceeded):
+        return HTTPException(status_code=429, detail=exc.detail)
+    if isinstance(exc, SandboxExecutionError) and exc.exc_type in ("RateLimitExceeded", "UsageLimitExceeded"):
+        return HTTPException(status_code=429, detail=exc.message)
+    return None
+
+
 # EntityRunPayload fields a run persists onto the entity (besides the data).
 _RUN_EDIT_FIELDS = ("type", "title", "slug", "description", "code", "view", "status")
 
@@ -225,14 +255,7 @@ async def preview_code(
     await _resolve_create_tier(db, current_user, organization, ds_ids)
     # Executes caller-supplied code against the source — same trust boundary as
     # a builder-mode query run, so it takes the same permission.
-    from app.core.permission_resolver import resolve_permissions
-    from app.core.code_visibility import can_run_custom_code
-    _resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
-    if not can_run_custom_code(_resolved):
-        raise HTTPException(
-            status_code=403,
-            detail="You do not have permission to edit and run custom code",
-        )
+    await require_run_custom_code(db, current_user, organization)
     if not (payload.code or "").strip():
         raise HTTPException(status_code=400, detail="Code is required")
     _validate_declared_params(payload)
@@ -540,7 +563,15 @@ async def run_entity(
         # missing, wrong type) are a client error, not a missing entity.
         raise HTTPException(status_code=400, detail=str(e))
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        # A builder run reports its failure as ValueError, caused by the
+        # original error: a refusal keeps its own status.
+        raise (_refusal_http_error(e.__cause__) or HTTPException(status_code=404, detail=str(e))) from e
+    except Exception as e:
+        # A viewer run (params) lets the original error through.
+        refusal = _refusal_http_error(e)
+        if refusal is None:
+            raise
+        raise refusal from e
 
 
 @router.post("/{entity_id}/preview")
@@ -558,15 +589,8 @@ async def preview_entity(
     # same trust boundary as /preview-code and builder-mode query runs, so it
     # takes the same permission. Previewing the stored code stays at the run tier.
     existing = await service.get_entity(db, entity_id, organization, current_user)
-    if (payload.code or "").strip() and (payload.code or "").strip() != (existing.code or "").strip():
-        from app.core.permission_resolver import resolve_permissions
-        from app.core.code_visibility import can_run_custom_code
-        _resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
-        if not can_run_custom_code(_resolved):
-            raise HTTPException(
-                status_code=403,
-                detail="You do not have permission to edit and run custom code",
-            )
+    if _previews_new_code(payload.code, existing.code):
+        await require_run_custom_code(db, current_user, organization)
     _validate_declared_params(payload)
     from app.ai.code_execution.query_params import ParamError
     try:

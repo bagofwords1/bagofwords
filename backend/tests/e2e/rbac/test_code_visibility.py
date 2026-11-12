@@ -777,6 +777,57 @@ def test_entity_code_calls_stay_open_to_members_with_run_custom_code(
     assert set(_stored_code_calls(test_client, admin, member).values()) == {200}
 
 
+_WRITE_CODE = """
+def generate_df(ds_clients, excel_files, params):
+    client = [c for key, c in ds_clients.items() if ":" in key][0]
+    return client.execute_query("DELETE FROM Artist")
+"""
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("who", ["admin", "member"])
+def test_entity_run_the_query_guard_refuses_answers_403_with_the_guard_reason(
+    test_client, bootstrap_admin, invite_user_to_org, create_role, assign_role,
+    sqlite_data_source, grant_resource, enterprise_license, tmp_path, who,
+):
+    """Code allowed to run whose statement the guard refuses: the caller gets
+    the guard's 403 and reason (not the permission one, not a 404 or 500),
+    and the source is unchanged."""
+    import shutil
+    import sqlite3
+
+    from tests.e2e.rbac.conftest import CHINOOK_PATH
+
+    admin = bootstrap_admin()
+    member = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
+    _entity_author(test_client, admin, member, create_role, assign_role, run_custom_code=True)
+    db_path = tmp_path / "chinook.sqlite"
+    shutil.copy(CHINOOK_PATH, db_path)
+    ds = sqlite_data_source(name=f"agent_{uuid.uuid4().hex[:6]}", user_token=admin["token"],
+                            org_id=admin["org_id"], database=str(db_path), is_public=True)
+    granted = grant_resource(
+        resource_type="data_source", resource_id=ds["id"], principal_type="user",
+        principal_id=member["user_id"], permissions=["create_entities"],
+        user_token=admin["token"], org_id=admin["org_id"],
+    )
+    assert granted.status_code in (200, 201), granted.text
+    created = test_client.post(
+        "/api/entities/global",
+        json={"type": "model", "title": f"w-{uuid.uuid4().hex[:6]}", "code": _ENTITY_CODE,
+              "data_source_ids": [ds["id"]]},
+        headers=_hdr(admin["token"], admin["org_id"]),
+    )
+    assert created.status_code == 200, created.text
+    caller = admin if who == "admin" else member
+
+    resp = test_client.post(f"/api/entities/{created.json()['id']}/run", json={"code": _WRITE_CODE},
+                            headers=_hdr(caller["token"], admin["org_id"]))
+    assert resp.status_code == 403, resp.text
+    assert "custom code" not in resp.json()["detail"], resp.text
+    with sqlite3.connect(db_path) as con:
+        assert con.execute("SELECT COUNT(*) FROM Artist").fetchone()[0] > 0
+
+
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_cannot_clone_a_step_from_a_report_you_cannot_see(

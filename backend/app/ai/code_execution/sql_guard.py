@@ -373,7 +373,7 @@ def ensure_read_only(client, query) -> Union[str, dict]:
                 f"execute_query takes the statement as a plain str, not {type(query).__name__}."
             )
         if type(query) is dict and profile.accepts_dict:
-            if any(not isinstance(key, str) for key in query):
+            if any(type(key) is not str for key in query):
                 raise ReadOnlyViolation(f"Envelope keys must be text. {SPL_ENVELOPE_GUIDANCE}")
             if profile.kind == "spl":
                 _check_spl_envelope(query)

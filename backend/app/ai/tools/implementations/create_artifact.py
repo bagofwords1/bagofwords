@@ -634,6 +634,9 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
 
         sigkill_event = runtime_ctx.get("sigkill_event")
         executor = PptxCodeExecutor(logger=logger)
+        # Set when a run fails with an error no rewrite of the code can fix
+        # (e.g. the host refuses to run deck code): repairing is pointless.
+        terminal = {"hit": False}
 
         def _try(candidate_code: str) -> Optional[str]:
             """Run once; returns None on success, trimmed error text on failure."""
@@ -648,6 +651,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 return None
             except Exception as e:
                 logger.error(f"PPTX execution failed: {e}")
+                terminal["hit"] = bool(getattr(e, "terminal_execution_error", False))
                 return self._pptx_error_text(e)
 
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "executing_pptx_code"})
@@ -661,6 +665,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
 
         while (
             error
+            and not terminal["hit"]
             and attempts < _pptx_repair_budget
             and _time_left()
             and not (sigkill_event and sigkill_event.is_set())
