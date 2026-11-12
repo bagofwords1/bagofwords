@@ -2212,6 +2212,8 @@
     var ys = Array.isArray(props.y) ? props.y.slice() : (props.y != null ? [props.y] : []);
     if (props.x == null || !ys.length) return _chErr('TrendChart needs x and y.', fields);
     if (props.series != null && ys.length > 1) return _chErr('TrendChart takes either series or several y fields, not both.', fields);
+    // Derived rows filtered down to none: nothing to check the fields against.
+    if (Array.isArray(props.rows) && !props.rows.length) return { empty: true, noData: L.noData };
     var miss = _chMissing([props.x, props.series].concat(ys), fields);
     if (miss.length && fields.length) return _chErr('TrendChart: no field named ' + miss.join(', ') + '.', fields);
     if (!rows.length) return { empty: true, noData: L.noData };
@@ -2370,16 +2372,17 @@
     var rows = Array.isArray(props.rows) ? props.rows : (Array.isArray(viz.rows) ? viz.rows : []);
     var fields = _chFields(props, rows, viz);
     if (props.label == null || props.value == null) return _chErr('RankChart needs label and value.', fields);
+    if (Array.isArray(props.rows) && !props.rows.length) return { empty: true, noData: L.noData };
     var miss = _chMissing([props.label, props.value], fields);
     if (miss.length && fields.length) return _chErr('RankChart: no field named ' + miss.join(', ') + '.', fields);
     if (!rows.length) return { empty: true, noData: L.noData };
     var additive = props.additive === true, unit = props.unit || 'number';
-    var vals = Object.create(null), names = [], dup = false;
+    var vals = Object.create(null), rawOf = Object.create(null), names = [], dup = false;
     rows.forEach(function(r) {
       if (!r) return;
       var nm = String(r[props.label] == null ? '—' : r[props.label]), v = _chNum(r[props.value]);
       if (nm in vals) { if (!additive) dup = true; else vals[nm] = (vals[nm] || 0) + (v || 0); }
-      else { vals[nm] = v; names.push(nm); }
+      else { vals[nm] = v; rawOf[nm] = r[props.label]; names.push(nm); } // rawOf: the source key (101, not "101")
     });
     if (dup) return _chErr('RankChart needs one row per ' + props.label + '. Is this measure additive? Pass additive, or aggregate in the query.', fields);
     var asc = props.order === 'asc';
@@ -2420,7 +2423,8 @@
     return { option: option, caption: caption, height: height, click: function(p) {
       if (!p) return null;
       var isOther = other && p.dataIndex === bars.length - 1;
-      return { label: isOther ? null : bars[p.dataIndex][0], value: bars[p.dataIndex][1], other: !!isOther };
+      var nm = bars[p.dataIndex][0];
+      return { label: isOther ? null : (nm in rawOf ? rawOf[nm] : nm), value: bars[p.dataIndex][1], other: !!isOther };
     } };
   }
 

@@ -317,6 +317,24 @@ def _jsx_prop(body: str, name: str):
     return None
 
 
+_PARAM_LIST_RES = (
+    re.compile(r"\bfunction\b\s*[\w$]*\s*\(([^()]*)\)"),   # function Card({ viz }) / function (viz)
+    re.compile(r"\(([^()]*)\)\s*=>"),                         # ({ viz, title }) => / (viz) =>
+)
+_BARE_ARROW_PARAM_RE = re.compile(r"(?<![\w$.])([A-Za-z_$][\w$]*)\s*=>")  # viz => ...
+_IDENT_RE = re.compile(r"[A-Za-z_$][\w$]*")
+
+
+def _function_param_names(src: str) -> set:
+    """Every identifier that appears in a function's parameter list (destructured or not)."""
+    found: set = set()
+    for rx in _PARAM_LIST_RES:
+        for m in rx.finditer(src):
+            found.update(_IDENT_RE.findall(m.group(1)))
+    found.update(m.group(1) for m in _BARE_ARROW_PARAM_RE.finditer(src))
+    return found
+
+
 def chart_prop_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
     """TrendChart/RankChart field props must name columns of their viz.
 
@@ -342,7 +360,10 @@ def chart_prop_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
     seen: Dict[str, set] = {}
     for m in _VIZ_ASSIGN_RE.finditer(src):
         seen.setdefault(m.group(1), set()).add(m.group(2))
-    names = {k: next(iter(v)) for k, v in seen.items() if len(v) == 1}
+    # An identifier that is also a function parameter (a component taking its
+    # own `viz`) may hold any viz there, so it is ambiguous too.
+    params = _function_param_names(src)
+    names = {k: next(iter(v)) for k, v in seen.items() if len(v) == 1 and k not in params}
     errors: List[str] = []
     for m in _CHART_TAG_RE.finditer(src):
         comp = m.group(1)

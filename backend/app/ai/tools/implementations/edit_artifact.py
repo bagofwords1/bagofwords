@@ -27,7 +27,7 @@ from app.ai.tools.schemas import (
 )
 from app.ai.tools.schemas.edit_artifact import EditArtifactInput, EditArtifactOutput
 from app.ai.tools.artifact_verification import with_automatic_artifact_check
-from app.ai.tools.implementations._artifact_refs import migrate_positional_viz_refs, viz_reference_errors, design_errors
+from app.ai.tools.implementations._artifact_refs import migrate_positional_viz_refs, viz_reference_errors, design_errors, chart_prop_errors
 from app.models.artifact import ArtifactVersion
 from app.services.artifact_service import new_version
 
@@ -293,6 +293,7 @@ class EditArtifactTool(Tool):
             gate_errors: List[str] = viz_reference_errors(new_code, artifact_data)
             gate_errors += self._create_tool.params_wiring_errors(new_code, artifact_data, previous_code=code, previous_visualization_ids=existing_viz_ids)
             gate_errors += design_errors(new_code, artifact_data)
+            gate_errors += chart_prop_errors(new_code, artifact_data)
             if gate_errors:
                 yield self._fail(
                     artifact, "contract_errors",

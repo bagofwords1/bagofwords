@@ -110,6 +110,13 @@ try{
   const rankRtl=B.buildRank({viz:{id:'c',rows:cty,columns:[{field:'country'},{field:'rev'}]},label:'country',value:'rev'},theme,'he',true);
   out.rankRtl={inverse:rankRtl.option.xAxis.inverse,pos:rankRtl.option.yAxis.position,caption:rankRtl.caption};
   out.he=B.buildTrend({viz,x:'month',y:'revenue',series:'rep',additive:true},theme,'he').caption;
+  // Derived rows filtered to none: "No data", not a missing-field error against the viz's columns.
+  const vz={id:'d',rows:[{month:'2025-01',revenue:1}],columns:[{field:'month'},{field:'revenue'}]};
+  out.emptyTrend=B.buildTrend({viz:vz,rows:[],x:'month',y:'total'},theme,'en');
+  out.emptyRank=B.buildRank({viz:vz,rows:[],label:'team',value:'total'},theme,'en',false);
+  // A ranking's click returns the source key: numeric ids stay numbers.
+  const ids=B.buildRank({viz:{id:'i',rows:[{id:101,v:5},{id:7,v:3}],columns:[{field:'id'},{field:'v'}]},label:'id',value:'v'},theme,'en',false);
+  out.rankKey=ids.click({dataIndex:0}).label;
   return out;
  },{rows:repRows,months});
  assert.deepEqual(r.parse,[['2025-01-01','month'],['2025-01-01',null],['2025-01-01',null],['2025-01-01',null],['2025-01-01','year'],['2025-04-01','quarter'],['2025-02-10','week'],null],'time values read by pattern, in UTC');
@@ -138,6 +145,9 @@ try{
  assert.equal(r.weekly,10,'weekly data on Sundays stays weekly');
  assert.deepEqual(r.monthEnd,['Jan 2025','Feb 2025','Mar 2025','Apr 2025'],'month-end dates are months');
  assert.equal(r.clickKey,'2025-01','onClick returns the source key');
+ assert.equal(r.emptyTrend.empty,true,'TrendChart on empty derived rows: No data'); assert.equal(r.emptyTrend.error,undefined);
+ assert.equal(r.emptyRank.empty,true,'RankChart on empty derived rows: No data'); assert.equal(r.emptyRank.error,undefined);
+ assert.equal(r.rankKey,101,'RankChart onClick returns the raw key (101, not "101")');
  assert.equal(r.newest,'2025-01-01','a long range keeps the newest period');
  assert.deepEqual(r.proto,['constructor','toString','A'],'labels named like object properties are kept');
  assert.deepEqual(r.units,['12.5%','12.5%','$20','€1,235'],'percent vs ratio, decimals from the caller');

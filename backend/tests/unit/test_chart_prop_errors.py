@@ -73,3 +73,36 @@ def test_an_identifier_bound_to_two_vizzes_is_skipped():
         f'function B() {{ const viz = vizById("{other}"); return <TrendChart viz={{viz}} x="day" y="orders" />; }}'
     )
     assert chart_prop_errors(code, data) == []
+
+
+def test_a_component_parameter_with_the_same_name_is_skipped():
+    # `viz` here is the component's own argument, not the outer binding.
+    code = (
+        f'const viz = vizById("{VID}");\n'
+        'function Headcount({ viz }) { return <TrendChart viz={viz} x="day" y="count" />; }\n'
+        'const Card = (viz) => <RankChart viz={viz} label="team" value="count" />;\n'
+        'function App() { return <Headcount viz={viz} />; }'
+    )
+    assert chart_prop_errors(code, DATA) == []
+
+
+def test_a_wrong_field_is_still_flagged_next_to_unrelated_parameters():
+    code = page('<TrendChart viz={sales} x="month" y="sales" />') + '\nconst fmt = (n) => n.toFixed(1);'
+    assert len(chart_prop_errors(code, DATA)) == 1
+
+
+def test_the_edit_gate_runs_every_page_check_the_create_gate_runs():
+    """A page edited mechanically must pass the same deterministic checks as a new one."""
+    import re
+    impl = BACKEND_ROOT / "app" / "ai" / "tools" / "implementations"
+
+    def checks(path):
+        src = path.read_text(encoding="utf-8")
+        imported = set()
+        for m in re.finditer(r"from app\.ai\.tools\.implementations\._artifact_refs import ([^\n]+)", src):
+            imported.update(n.strip() for n in m.group(1).split(","))
+        return {n for n in imported if n.endswith("_errors") and re.search(re.escape(n) + r"\(", src)}
+
+    create, edit = checks(impl / "create_artifact.py"), checks(impl / "edit_artifact.py")
+    assert "chart_prop_errors" in create
+    assert create <= edit, f"edit_artifact skips {sorted(create - edit)}"
