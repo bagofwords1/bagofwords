@@ -9,6 +9,19 @@ Write for both. If a section serves neither, cut it. If either audience is missi
 
 ---
 
+## Guardrails — never in a PR (hard rules, no exceptions)
+
+This repo is **public**. The PR body, title, commit messages, code, docs, and every diagram/screenshot are permanent and world-readable. Before publishing, scrub for all of the following:
+
+- **No real customer / organization name.** Never identify a specific customer, by name or by any detail that fingerprints them (domain, logo, deal, ticket wording). State impact through a **generic persona** only — "a paying customer / end user", "an org admin" — exactly as elements 3–4 require. If a real name slipped into a commit message or code comment, fix it before opening the PR.
+- **No PII and no real customer data.** No emails, names, phone numbers, account ids, row values, or anything pulled from a real tenant — in prose, tables, diagrams, logs, or fixtures.
+- **Screenshots: synthetic data only.** ui-evidence before/after shots stay **mandatory**, but they must be captured against **demo / seeded data** (see `.agents/skills/ui-evidence`). A screenshot showing a real customer name, email, or any PII must not be attached — re-capture it with seeded data instead. The evidence requirement is never a reason to leak real data.
+- **No Linear references (for now).** Link and close issues through **GitHub only** (`#NNN`, `Fixes #NNN`). Do not add Linear ids, URLs, or `ENG-xxxx`-style references to the PR, commits, or code.
+
+(Unpatched security findings follow the same rule — keep them out of public PR/issue text; raise them privately.)
+
+---
+
 ## The 9 required elements (each states WHAT it must contain and the DONE test)
 
 Order them top-to-bottom as listed — that ordering *is* the progressive-disclosure requirement (decide → see → trust → navigate → deep-detail). A reader stops at any depth with a coherent, correct picture.
@@ -25,12 +38,14 @@ Order them top-to-bottom as listed — that ordering *is* the progressive-disclo
 - **What:** the impact stated for a **paying customer / end user** in plain language: what breaks for them, and why it matters (trust, safety, money, data-exposure, compliance) — *not* the code mechanism.
 - **The question it answers:** "If I never open the diff, why do I care?"
 - **Done when:** a non-engineer stakeholder (PM, support, exec) understands the stakes.
+- **Guardrail:** the persona is generic ("a paying customer / end user") — never a real customer by name or fingerprint (see Guardrails above).
 
 ### 4. Two visuals at two altitudes
 - **4a. Product/UX-impact visual** — the *harm* (or *benefit*) as the **customer experiences it**: the journey of the bug damaging (or the fix protecting) a real user. Before-vs-after.
 - **4b. Technical-mechanism visual** — the *code/data flow* of the bug vs the fix.
 - **What:** rendered diagrams (Mermaid) or tight before/after tables. Color the bad path red, the good path green.
 - **Done when:** a customer-side reader gets 4a; an engineer gets 4b; neither has to read prose to grasp the shape.
+- **Guardrail:** diagrams and screenshots use **seeded/demo data only** — no real customer name, email, or PII in any visual (see Guardrails above).
 
 ### 5. Reviewer decision box
 - **What:** a compact table a reviewer scans to decide: **Risk · Blast radius · Behavior change (intended) · Verified ✅ · NOT verified ⚠️ · Where to look first.**
