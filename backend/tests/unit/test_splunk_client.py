@@ -578,3 +578,115 @@ def test_test_connection_failure(monkeypatch):
     monkeypatch.setattr(c, "_get", boom)
     res = c.test_connection()
     assert res["success"] is False and "auth failed" in res["message"]
+
+
+# ---------- read-only check at the search dispatch point ---------- #
+#
+# Every SPL search, whatever envelope it came in (bare string, dict, JSON
+# string, dashboard panel, saved search) or whichever internal caller ran it,
+# goes through `_run_search`. These tests leave `_run_search` and `_get` real
+# and fake only the HTTP boundary, `pinned_request`, so the check is exercised
+# exactly where a search would leave the process.
+
+_WRITING_PANEL_XML = """
+<dashboard>
+  <label>Ops</label>
+  <row><panel><title>Export</title><table>
+    <search><query>index=web | stats count by host | outputlookup hosts.csv</query></search>
+  </table></panel>
+  <panel><title>Hosts</title><table>
+    <search><query>index=web | stats count by host</query></search>
+  </table></panel></row>
+</dashboard>
+"""
+
+_WRITING_SAVED = {"name": "Nightly rollup", "acl": {"app": "ops", "owner": "sre"},
+                  "content": {"search": "index=web | stats count | collect index=summary"}}
+
+
+class _SplunkHttp:
+    """Fake `pinned_request`: answers knowledge-object GETs from canned
+    definitions and records every search job POST."""
+
+    def __init__(self):
+        self.searches: list[str] = []
+
+    def __call__(self, method, url, params=None, data=None, **kwargs):
+        from urllib.parse import unquote
+        path = unquote(url.split("8089", 1)[1])
+        if method == "POST" and path == "/services/search/jobs":
+            spl = data["search"]
+            self.searches.append(spl)
+            if spl == CATALOG_SEARCH:
+                return _Resp(_catalog_rows())
+            if "fieldsummary" in spl:
+                return _Resp([{"field": "status", "count": "5", "numeric_count": "5"}])
+            return _Resp([{"host": "h1", "count": "3"}])
+        if method == "GET":
+            if path == "/servicesNS/-/ops/data/ui/views/ops_board":
+                return _Body({"entry": [_view_entry("ops", "ops_board", _WRITING_PANEL_XML)]})
+            if path == "/servicesNS/-/ops/saved/searches/Nightly rollup":
+                return _Body({"entry": [_WRITING_SAVED]})
+            if path == "/servicesNS/-/-/data/ui/views":
+                return _Body({"entry": [_view_entry("payments", "checkout_health", _SIMPLE_XML)]})
+            if path in ("/servicesNS/-/-/saved/searches", "/services/data/indexes"):
+                return _Body({"entry": []})
+        raise AssertionError(f"unexpected {method} {path}")
+
+
+class _Body:
+    status_code = 200
+
+    def __init__(self, body):
+        self._body = body
+        self.text = json.dumps(body)
+
+    def json(self):
+        return self._body
+
+
+def _Resp(results):
+    return _Body({"results": results})
+
+
+@pytest.fixture
+def splunk_http(monkeypatch):
+    http = _SplunkHttp()
+    monkeypatch.setattr("app.data_sources.clients.splunk_client.pinned_request", http)
+    return SplunkClient(host="h", api_token="t", max_sampled_sourcetypes=1), http
+
+
+@pytest.mark.parametrize("query", [
+    {"spl": "search index=web | delete"},
+    '{"spl": "search index=web | \\u0064elete"}',
+    {"dashboard": "ops/ops_board", "panel": "Export"},
+    {"saved_search": "ops/Nightly rollup"},
+])
+def test_writing_spl_is_refused_before_any_search_is_sent(splunk_http, query):
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation
+
+    client, http = splunk_http
+    with pytest.raises(ReadOnlyViolation):
+        client.execute_query(query)
+    assert http.searches == []
+
+
+@pytest.mark.parametrize("query,expected", [
+    ("index=web | stats count by host", "search index=web | stats count by host"),
+    ({"spl": "index=web | stats count by host"}, "search index=web | stats count by host"),
+    ({"dashboard": "ops/ops_board", "panel": "Hosts"}, "search index=web | stats count by host"),
+])
+def test_reading_spl_still_runs_once(splunk_http, query, expected):
+    client, http = splunk_http
+    df = client.execute_query(query)
+    assert http.searches == [expected]
+    assert list(df.columns) == ["host", "count"]
+
+
+def test_discovery_searches_still_run(splunk_http):
+    client, http = splunk_http
+    names = [t.name for t in client.get_schemas()]
+    assert "web::access_combined" in names
+    assert "dashboard::payments/checkout_health" in names
+    assert CATALOG_SEARCH in http.searches
+    assert any("fieldsummary" in s for s in http.searches)

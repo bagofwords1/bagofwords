@@ -28,7 +28,9 @@ a SELECT can still call a function with side effects.
 
 import logging
 import re
-from typing import Optional
+from typing import Optional, Union
+
+from app.ai.code_execution.client_profiles import _CLIENT_TABLE, guard_profile
 
 logger = logging.getLogger(__name__)
 # sqlglot warns on every statement it keeps as an opaque Command (SHOW, EXPLAIN).
@@ -39,28 +41,13 @@ class ReadOnlyViolation(ValueError):
     """The statement would modify the source."""
 
 
-# Client class name -> sqlglot dialect. Keyed by class name rather than by
-# import so this module stays importable without every driver installed.
+# Client family name -> sqlglot dialect, for consumers that only hold a name
+# (a captured query's client tag). Guard decisions look clients up by type
+# instead (`client_profiles.guard_profile`); this is derived from that table.
 CLIENT_DIALECTS = {
-    "PostgresqlClient": "postgres",
-    "AwsRedshiftClient": "redshift",
-    "MysqlClient": "mysql",
-    "MariadbClient": "mysql",
-    "MSSQLClient": "tsql",
-    "MsFabricClient": "fabric",
-    "OracledbClient": "oracle",
-    "SqliteClient": "sqlite",
-    "SnowflakeClient": "snowflake",
-    "BigqueryClient": "bigquery",
-    "AwsAthenaClient": "athena",
-    "PrestoClient": "presto",
-    "TrinoClient": "trino",
-    "ClickhouseClient": "clickhouse",
-    "DatabricksSqlClient": "databricks",
-    "SparkConnectClient": "spark",
-    "DuckDBClient": "duckdb",
-    "TeradataClient": "teradata",
-    "DruidClient": "druid",
+    entry.family: entry.profile.dialect
+    for entry in _CLIENT_TABLE.values()
+    if entry.profile is not None and entry.profile.kind == "sql"
 }
 
 # Statements sqlglot leaves as an opaque Command that are still reads.
@@ -132,8 +119,7 @@ def _check_teradata(sql: str) -> str:
 
 # Db2 (LUW, z/OS, IBM i) has no sqlglot dialect, so its reads are checked by
 # an allowlist on the leading verb plus the keyword blocklist, like Teradata's
-# unparsed path. Keyed by class name so this module needs no Db2 driver.
-_DB2_CLIENTS = {"Db2Client", "IbmiClient"}
+# unparsed path (guard profile kind "nonparsing_sql").
 _DB2_READ_VERBS = {"SELECT", "WITH", "VALUES", "("}
 # Db2-specific statements and routines that change state. QCMDEXC runs an IBM i
 # CL command and is callable as a scalar function inside a SELECT; ADMIN_CMD
@@ -167,33 +153,45 @@ def _check_db2(sql: str) -> None:
 
 
 def dialect_for_client(client) -> Optional[str]:
-    return CLIENT_DIALECTS.get(type(client).__name__)
+    profile = guard_profile(client)
+    return profile.dialect if profile is not None else None
 
 
-def ensure_read_only(client, query) -> None:
-    """Raise ReadOnlyViolation if `query` would modify the source behind `client`."""
-    if not isinstance(query, str) or not query.strip():
-        return
-    name = type(client).__name__
-    if name == "SplunkClient":
-        _check_spl(query)
-        return
-    if name in _DB2_CLIENTS:
+def ensure_read_only(client, query) -> Union[str, dict]:
+    """Return exactly what `client` must be sent for `query`, or raise
+    ReadOnlyViolation if it would modify the source behind `client`.
+
+    A `str` comes back as the text to send (unchanged today). A `dict` envelope
+    on a client that accepts one (Splunk) comes back unchanged and unread: the
+    client checks its SPL after decoding, at the one place every search is
+    dispatched. Any other non-`str` statement to a guarded client is refused.
+    A client the guard does not know gets its input back unchanged.
+    """
+    profile = guard_profile(client)
+    if profile is None:
+        return query
+    if not isinstance(query, str):
+        if isinstance(query, dict) and profile.accepts_dict:
+            return query
+        raise ReadOnlyViolation(
+            f"execute_query takes the statement as text, not {type(query).__name__}."
+        )
+    if not query.strip():
+        return query
+    if profile.kind == "spl":
+        check_spl(query)
+    elif profile.kind == "nonparsing_sql":
         _check_db2(query)
-        return
-    from app.data_sources.clients.neo4j_client import Neo4jClient
-
-    if isinstance(client, Neo4jClient):
+    elif profile.kind == "cypher":
         from app.data_sources.clients.cypher_guard import CypherNotAllowed, check_cypher
 
         try:
             check_cypher(query, allow_gds=client.allow_gds)
         except CypherNotAllowed as e:
             raise ReadOnlyViolation(str(e)) from e
-        return
-    dialect = CLIENT_DIALECTS.get(name)
-    if dialect:
-        check_sql(query, dialect)
+    elif profile.dialect:
+        check_sql(query, profile.dialect)
+    return query
 
 
 def check_sql(sql: str, dialect: str) -> None:
@@ -294,7 +292,8 @@ def _single_statement_check(sql: str) -> None:
         raise ReadOnlyViolation("Only a single read-only statement is allowed.")
 
 
-def _check_spl(spl: str) -> None:
+def check_spl(spl: str) -> None:
+    """Refuse SPL that writes to indexes, lookups, files or the outside."""
     match = _SPL_WRITE_COMMANDS.search(spl)
     if match:
         raise ReadOnlyViolation(

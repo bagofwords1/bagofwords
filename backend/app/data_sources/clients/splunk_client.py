@@ -48,6 +48,7 @@ import pandas as pd
 import requests
 from app.core.egress import pinned_request
 
+from app.ai.code_execution.sql_guard import check_spl
 from app.data_sources.clients.progress import IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
@@ -212,7 +213,13 @@ class SplunkClient(DataSourceClient):
 
         `exec_mode=oneshot` blocks and returns results in one call — no job
         polling. `count` caps rows server-side.
+
+        Every search the client runs comes through here, whatever envelope it
+        arrived in (bare, dict, JSON string, dashboard panel, saved search) and
+        whichever internal caller built it, so this is where its SPL is checked
+        for writing commands — decoded, before any request is made.
         """
+        check_spl(spl or "")
         params = {
             "search": self._normalize_spl(spl),
             "exec_mode": "oneshot",

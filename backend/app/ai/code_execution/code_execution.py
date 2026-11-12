@@ -1,5 +1,6 @@
 import asyncio
 import contextvars
+import inspect
 import io
 import os
 import sys
@@ -15,6 +16,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 import contextlib
 from contextlib import redirect_stdout
+from dataclasses import dataclass
 from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine, FrozenSet
 
 from app.ai.http.safe_client import SafeHttpClient
@@ -255,6 +257,7 @@ from app.schemas.organization_settings_schema import OrganizationSettingsConfig,
 from app.data_sources import query_concurrency
 from app.data_sources import query_tag
 from app.services.usage_policy_service import UsageLimitContext
+from app.ai.code_execution.client_profiles import GuardProfile, family_name, guard_profile
 from app.ai.code_execution.sql_guard import ReadOnlyViolation, ensure_read_only
 from app.ai.code_execution.table_scope import TableScopeViolation, enforce_table_scope
 from app.services.connection_rate_limit_service import connection_rate_limit_service
@@ -889,6 +892,88 @@ def _describe_keyword_call(kwargs: dict) -> str:
     return f"execute_query({body})"
 
 
+@dataclass
+class ResolvedCall:
+    """A guarded client call reduced to one statement plus allowed keywords."""
+
+    statement: Any
+    kwargs: dict
+    params: Optional[dict]
+    profile: Optional[GuardProfile]
+
+
+def _as_refusal(exc: Exception) -> Exception:
+    """A violation raised inside a client, as the wrapper's own refusal type."""
+    if isinstance(exc, TableScopeViolation):
+        return TableAccessError(str(exc))
+    return UnsafeSQLError(str(exc))
+
+
+def _refuse_call(reason: str) -> UnsafeSQLError:
+    return UnsafeSQLError(f"{reason} Only SELECT queries are allowed.")
+
+
+def _check_bigquery_options(client, kwargs: dict) -> None:
+    """Caller-supplied BigQuery cost options may only tighten the connection's."""
+    if "maximum_bytes_billed" in kwargs:
+        value = kwargs["maximum_bytes_billed"]
+        cap = getattr(client, "maximum_bytes_billed", None)
+        has_cap = type(cap) is int and cap > 0
+        if type(value) is not int or value <= 0 or (has_cap and value > cap):
+            raise _refuse_call(
+                "maximum_bytes_billed must be a positive whole number"
+                + (f" no larger than the connection's limit ({cap})." if has_cap else ".")
+            )
+    if "use_query_cache" in kwargs and type(kwargs["use_query_cache"]) is not bool:
+        raise _refuse_call("use_query_cache must be True or False.")
+
+
+def resolve_guarded_call(client, query, args: tuple, kwargs: dict) -> ResolvedCall:
+    """Reduce any call shape on a guarded client to one statement.
+
+    The statement is the client's own first `execute_query` parameter, passed
+    positionally or by its name — never both, never with extra positionals.
+    Every other keyword must be one the client's profile allows. The statement
+    must be text (or a dict for clients that take envelopes). Anything else is
+    refused with UnsafeSQLError, so nothing is sent.
+    """
+    profile = guard_profile(client)
+    kwargs = dict(kwargs)
+    params = None
+    if profile is not None and profile.kind != "cypher":
+        params = kwargs.pop("params", None)
+    if profile is None:
+        return ResolvedCall(statement=query, kwargs=kwargs, params=params, profile=None)
+
+    name = None
+    try:
+        first = next(iter(inspect.signature(client.execute_query).parameters.values()), None)
+    except (TypeError, ValueError):
+        first = None
+    if first is not None and first.kind in (
+        inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD,
+    ):
+        name = first.name
+
+    if query is _NO_QUERY:
+        if name is None or name not in kwargs:
+            raise _refuse_call("execute_query needs the query text as its first argument.")
+        statement = kwargs.pop(name)
+    else:
+        if args or (name is not None and name in kwargs):
+            raise _refuse_call("Pass exactly one query to execute_query.")
+        statement = query
+
+    unknown = sorted(k for k in kwargs if k not in profile.extra_kwargs)
+    if unknown:
+        raise _refuse_call(f"execute_query does not accept {', '.join(unknown)} for this data source.")
+    if not (type(statement) is str or (profile.accepts_dict and isinstance(statement, dict))):
+        raise _refuse_call(f"execute_query takes the query as text, not {type(statement).__name__}.")
+    # Only BigQuery's profile allows these keywords, so only its calls get here with them.
+    _check_bigquery_options(client, kwargs)
+    return ResolvedCall(statement=statement, kwargs=kwargs, params=params, profile=profile)
+
+
 class QueryCapturingClientWrapper:
     """Wrapper around a database client that captures all queries passed to execute_query.
 
@@ -965,55 +1050,41 @@ class QueryCapturingClientWrapper:
         place values meet SQL — and the underlying client receives finished
         plain SQL through its unchanged interface. The captured query is the
         rendered text, so identity verification sees what actually ran.
+
+        Clients the read-only guard knows (`client_profiles`, by type) are
+        first reduced to one statement, whatever shape the call took
+        (`resolve_guarded_call`); that statement is rendered, checked, captured
+        and sent positionally. Shapes that cannot be reduced are refused.
         """
-        native_params = None
-        if "params" in kwargs:
-            if getattr(self._original, "native_query_params", False):
-                # The client binds them itself (Cypher's $name); its own syntax
-                # would not survive SQL rendering. Captured with the query, so
-                # the identity check still sees the values.
-                native_params = kwargs["params"]
-            else:
-                param_values = kwargs.pop("params")
-                if isinstance(query, str) and isinstance(param_values, dict) and param_values:
-                    from app.ai.code_execution.query_params import render_sql_with_params
-                    query = render_sql_with_params(
-                        query, param_values,
-                        client_type_name=type(self._original).__name__,
-                    )
-        if query is _NO_QUERY:
-            capture = _describe_keyword_call(kwargs)
-        elif native_params:
-            capture = json.dumps({"query": query, "params": native_params}, sort_keys=True, default=str,
-                                 ensure_ascii=False)
+        refusal: Optional[UnsafeSQLError] = None
+        if guard_profile(self._original) is not None:
+            query, args, kwargs, capture, refusal = self._prepare_guarded(query, args, kwargs)
         else:
-            capture = query
-        if isinstance(capture, dict) and (
-            getattr(self._original, "_bow_source_id", None)
-            or getattr(self._original, "capture_structured_queries", False)
-        ):
-            capture = json.dumps(capture, sort_keys=True, default=str)
+            query, capture = self._prepare_unguarded(query, kwargs)
         if isinstance(capture, str):
-            # Tagged with the client class so the identity-bind check can
+            # Tagged with the client family so the identity-bind check can
             # parse it in the right grammar (SQL dialect / SPL); still a str.
             from app.ai.code_execution.identity_bind import CapturedQuery
-            self._captured_queries.append(CapturedQuery(capture, type(self._original).__name__))
+            self._captured_queries.append(CapturedQuery(capture, family_name(self._original)))
         idx = len(self._captured_timings)
         _q_start = _time.monotonic()
         with _tracer.start_as_current_span("datasource.execute_query") as span:
             span.set_attribute("datasource.type", type(self._original).__name__)
             span.set_attribute("datasource.query_timeout_seconds", self._query_timeout_seconds)
             try:
+                if refusal is not None:
+                    raise refusal
                 # Checked on the final text, after params rendered and after
-                # whatever string building the sandbox code did.
+                # whatever string building the sandbox code did. What the guard
+                # returns is what table scope checks and the client receives.
                 try:
-                    ensure_read_only(self._original, query)
+                    checked = ensure_read_only(self._original, query)
                 except ReadOnlyViolation as e:
                     raise UnsafeSQLError(str(e)) from e
                 # The agent's table selection holds at query time, not only in
                 # the schema it is shown.
                 try:
-                    enforce_table_scope(self._original, query)
+                    enforce_table_scope(self._original, checked)
                 except TableScopeViolation as e:
                     raise TableAccessError(str(e)) from e
                 self._enforce_rate_limit(capture)
@@ -1030,7 +1101,7 @@ class QueryCapturingClientWrapper:
                     wait_seconds=self._query_timeout_seconds,
                     connection_name=getattr(self._original, "_bow_connection_name", None),
                 ):
-                    result = self._call_with_timeout(query, args, kwargs)
+                    result = self._call_with_timeout(checked, args, kwargs)
                 _q_ms = (_time.monotonic() - _q_start) * 1000.0
                 rows = len(result) if hasattr(result, '__len__') else None
                 result_bytes = estimate_result_size_bytes(result)
@@ -1098,6 +1169,77 @@ class QueryCapturingClientWrapper:
                 span.record_exception(e)
                 raise
 
+    def _prepare_guarded(self, query, args, kwargs):
+        """Resolve, render and describe a call to a guarded client.
+
+        Returns (statement, args, kwargs, capture, refusal). On a refusal the
+        capture is what the code attempted, so the UI shows it; nothing is sent.
+        """
+        try:
+            resolved = resolve_guarded_call(self._original, query, args, kwargs)
+        except UnsafeSQLError as refusal:
+            if isinstance(query, str):
+                attempted = query
+            elif query is _NO_QUERY:
+                attempted = _describe_keyword_call(kwargs)
+            else:
+                attempted = _describe_keyword_call({"query": query, **kwargs})
+            return query, (), {}, attempted, refusal
+        statement = resolved.statement
+        if isinstance(statement, str) and isinstance(resolved.params, dict) and resolved.params:
+            from app.ai.code_execution.query_params import render_sql_with_params
+            statement = render_sql_with_params(
+                statement, resolved.params,
+                client_type_name=type(self._original).__name__,
+            )
+        if isinstance(statement, dict):
+            # Every dict envelope is captured as JSON text so the identity
+            # check (which reads only text) sees it.
+            capture = json.dumps(statement, sort_keys=True, default=str)
+        elif resolved.kwargs.get("params"):
+            # Native params (Cypher's $name): captured with the query, so the
+            # identity check still sees the values.
+            capture = json.dumps({"query": statement, "params": resolved.kwargs["params"]},
+                                 sort_keys=True, default=str, ensure_ascii=False)
+        else:
+            capture = statement
+        return statement, (), resolved.kwargs, capture, None
+
+    def _prepare_unguarded(self, query, kwargs):
+        """Today's behaviour for clients the guard does not know: keyword-only
+        calls forwarded, params rendered only into a positional str.
+
+        Pops `params` from `kwargs`. Returns (query to send, capture).
+        """
+        native_params = None
+        if "params" in kwargs:
+            if getattr(self._original, "native_query_params", False):
+                # The client binds them itself (Cypher's $name); its own syntax
+                # would not survive SQL rendering. Captured with the query, so
+                # the identity check still sees the values.
+                native_params = kwargs["params"]
+            else:
+                param_values = kwargs.pop("params")
+                if isinstance(query, str) and isinstance(param_values, dict) and param_values:
+                    from app.ai.code_execution.query_params import render_sql_with_params
+                    query = render_sql_with_params(
+                        query, param_values,
+                        client_type_name=type(self._original).__name__,
+                    )
+        if query is _NO_QUERY:
+            capture = _describe_keyword_call(kwargs)
+        elif native_params:
+            capture = json.dumps({"query": query, "params": native_params}, sort_keys=True, default=str,
+                                 ensure_ascii=False)
+        else:
+            capture = query
+        if isinstance(capture, dict) and (
+            getattr(self._original, "_bow_source_id", None)
+            or getattr(self._original, "capture_structured_queries", False)
+        ):
+            capture = json.dumps(capture, sort_keys=True, default=str)
+        return query, capture
+
     def _recorded_error(self, e: BaseException) -> str:
         text = str(e)
         if self._hide_values_in_errors:
@@ -1120,7 +1262,10 @@ class QueryCapturingClientWrapper:
         """
         if getattr(self._original, "_manages_query_deadline", False):
             with query_tag.applied_query_tag(self._query_tag):
-                return self._original.execute_query(query, *args, **kwargs)
+                try:
+                    return self._original.execute_query(query, *args, **kwargs)
+                except (ReadOnlyViolation, TableScopeViolation) as exc:
+                    raise _as_refusal(exc) from exc
         holder: Dict[str, Any] = {}
 
         def runner():
@@ -1165,7 +1310,12 @@ class QueryCapturingClientWrapper:
                 sql=query if isinstance(query, str) else None,
             )
         if "exc" in holder:
-            raise holder["exc"]
+            exc = holder["exc"]
+            if isinstance(exc, (ReadOnlyViolation, TableScopeViolation)):
+                # A check at the client's own dispatch point (Splunk's search,
+                # a file client's engine) refused it: same refusal as ours.
+                raise _as_refusal(exc) from exc
+            raise exc
         return holder.get("value")
 
     def cancel_active_query(self) -> None:

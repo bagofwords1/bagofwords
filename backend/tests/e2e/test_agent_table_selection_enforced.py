@@ -138,6 +138,29 @@ def test_toggling_activation_changes_what_can_be_queried(tmp_path):
         _count(_run(_clients(ds_id)), "events")
 
 
+@pytest.mark.parametrize("call", ["execute_query(sql={q!r})", "query(sql={q!r})"])
+def test_statement_passed_by_name_is_held_to_the_selection(tmp_path, call):
+    # Stored code (a viewer's or forker's run executes the same wrapper) that
+    # names the client's own SQL parameter instead of passing it positionally.
+    path = tmp_path / "wh.db"
+    _make_db(path, ["events", "secret"])
+    ds_id = _run(_seed(path, ["events"], ["secret"]))
+    clients = _run(_clients(ds_id))
+    key = next(k for k in clients if ":" in k)
+
+    def run(sql):
+        code = (
+            "def generate_df(ds_clients, excel_files):\n"
+            f"    return ds_clients[{key!r}]." + call.format(q=sql) + "\n"
+        )
+        df, _, _ = StreamingCodeExecutor().execute_code(code=code, ds_clients=clients, excel_files=[])
+        return int(df["n"].iloc[0])
+
+    assert run("SELECT COUNT(*) AS n FROM events") == 3
+    with pytest.raises(TableAccessError):
+        run("SELECT COUNT(*) AS n FROM secret")
+
+
 def test_unindexed_data_source_is_not_restricted(tmp_path):
     # No table rows at all: there is no selection to enforce, so the legacy
     # behaviour (query whatever the connection can read) is kept.
