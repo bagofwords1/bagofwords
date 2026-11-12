@@ -25,6 +25,14 @@ its first parameter is a name for it whatever it is called, as are
 `ds_clients` and the namespace global the run binds it to (CLIENTS_GLOBAL,
 `db_clients`).
 
+What this guarantees: it reads which clients good-faith step code reaches
+-- code an LLM generated or a person wrote to get rows, not to slip past
+this rule. Code written on purpose to evade it (evaluation built from
+strings through pandas / numpy internals, and similar) is not covered; such
+code still runs with its author's credentials, so it can only reach rows
+those credentials already return. The cheap known ways around it are
+closed below.
+
 The rule is closed by default: the code counts as reaching only its literal
 keys when every one of these holds, and as reaching ds_clients another way
 otherwise --
@@ -34,12 +42,15 @@ otherwise --
   positional first parameter, and the name "generate_df" occurs nowhere
   else in the code (any node, any field -- a match capture, an except
   name, an import, a string);
-- every import's root module is a data library on DATA_LIBRARIES (no
-  star import, no relative import);
+- every import's root module is a library on DATA_LIBRARIES (no star or
+  relative import; pandas / numpy as the package only, not a submodule;
+  `from functools` / `from typing` only the names listed);
 - no name that reaches a variable by its name (locals(), getattr(), ...),
   no private attribute (`._rpc`) and no namespace-holding attribute;
-- no string names a clients name, and pandas' query()/eval() get a plain
-  string with no `@` (they resolve @names from the caller's frame).
+- no string names a clients name; pandas' query()/eval() are called
+  directly with a plain string with no `@` (they resolve @names from the
+  caller's frame) -- a client's own .query(), the execute_query alias, is
+  not pandas'; no `.core` / `.testing` attribute.
 """
 from __future__ import annotations
 
@@ -56,11 +67,12 @@ CLIENT_DICT_NAMES = frozenset({CLIENTS_NAME, CLIENTS_GLOBAL})
 ENTRY_FUNCTION = "generate_df"
 
 # The modules step code may import and still count as reaching only its
-# literal keys: what the coder prompt and saved step code use, and none of
-# them reaches an object or a namespace by a string. Anything else
-# (operator, gc, string, types, functools, weakref, copy, inspect, typing --
-# get_type_hints evaluates names --, sklearn/scipy, ...) counts as another
-# reach: the conservative answer, every organization source.
+# literal keys: what the coder prompt teaches and saved step code uses. Not a
+# claim that they cannot reach an object by a string (pandas and numpy can,
+# through their internals: see the module docstring). Anything else
+# (operator, gc, string, types, weakref, copy, inspect, most of functools and
+# typing -- get_type_hints evaluates names --, ...) counts as another reach:
+# the conservative answer, every organization source.
 DATA_LIBRARIES = {
     "pandas": "frames",
     "numpy": "arrays",
@@ -88,7 +100,21 @@ DATA_LIBRARIES = {
     "uuid": "ids",
     "hashlib": "hashing",
     "base64": "encoding",
+    "sklearn": "models",
+    "scipy": "models",
+    "warnings": "silencing",
 }
+# Roots imported only as the package itself: their submodules (pandas.core,
+# numpy.testing, ...) hold internals and are counted as another reach.
+_ROOT_ONLY = frozenset({"pandas", "numpy"})
+# Names that may be imported from a module that is otherwise off the list.
+_IMPORTABLE_NAMES = {
+    "functools": frozenset({"reduce", "partial"}),
+    "typing": frozenset({"Any", "Dict", "List", "Optional", "Tuple", "Union", "Iterable", "Sequence",
+                         "Mapping", "Callable", "Set"}),
+}
+# Attributes of pandas / numpy that lead into their internals.
+_INTERNAL_ATTRIBUTES = frozenset({"core", "testing"})
 # Names that reach a variable by its name, or the run's namespace.
 _NAMESPACE_NAMES = frozenset({
     "locals", "globals", "vars", "eval", "exec", "compile", "getattr", "setattr", "delattr",
@@ -155,24 +181,41 @@ def _entry_parameter(tree) -> tuple[Optional[str], bool]:
     return positional[0].arg, True
 
 
+def _module_off_the_allowlist(module: str) -> bool:
+    root = module.split(".")[0]
+    return root not in DATA_LIBRARIES or (root in _ROOT_ONLY and module != root)
+
+
 def _import_off_the_allowlist(node) -> bool:
     if isinstance(node, ast.Import):
-        return any(a.name.split(".")[0] not in DATA_LIBRARIES for a in node.names)
+        return any(_module_off_the_allowlist(a.name) for a in node.names)
     if isinstance(node, ast.ImportFrom):
-        return (node.level != 0 or (node.module or "").split(".")[0] not in DATA_LIBRARIES
-                or any(a.name == "*" for a in node.names))
+        module = node.module or ""
+        if node.level != 0 or any(a.name == "*" for a in node.names):
+            return True
+        if module in _IMPORTABLE_NAMES:
+            return any(a.name not in _IMPORTABLE_NAMES[module] for a in node.names)
+        if module.split(".")[0] in _ROOT_ONLY and any(a.name in _FRAME_EVALUATORS for a in node.names):
+            return True  # pandas.eval / query under a name of the code's choosing
+        return _module_off_the_allowlist(module)
     return False
 
 
-def _reaches_by_name(node, names: frozenset, mentions) -> bool:
+def _reaches_by_name(node, mentions, client_receivers: set, evaluator_calls: set) -> bool:
     if isinstance(node, ast.Name):
         return node.id in _NAMESPACE_NAMES
     if isinstance(node, ast.Attribute):
-        return node.attr in _NAMESPACE_ATTRIBUTES or (
+        if node.attr in _FRAME_EVALUATORS and id(node.value) not in client_receivers:
+            # pandas' query()/eval() resolve @names from the caller's frame:
+            # only a direct call with a plain string (checked below) is read.
+            if id(node) not in evaluator_calls:
+                return True
+        return node.attr in _NAMESPACE_ATTRIBUTES or node.attr in _INTERNAL_ATTRIBUTES or (
             node.attr.startswith("_") and node.attr not in _ALLOWED_PRIVATE_ATTRIBUTES)
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return bool(mentions.search(node.value))
-    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in _FRAME_EVALUATORS:
+    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in _FRAME_EVALUATORS
+            and id(node.func.value) not in client_receivers):
         first = node.args[0] if node.args else None
         return not (isinstance(first, ast.Constant) and isinstance(first.value, str)
                     and "@" not in first.value) or any(k.arg in ("local_dict", "global_dict", "resolvers")
@@ -221,9 +264,30 @@ def client_reach(code: Optional[str]) -> ClientReach:
                 keys.append(key)
                 keyed.add(id(node.func.value))
                 key_constants.add(id(node.args[0]))
+    # A client's own .query() -- the alias of execute_query -- is not pandas':
+    # its receiver is a literal-key access, or a name bound only to one.
+    accesses = {id(n) for n in ast.walk(tree)
+                if (isinstance(n, ast.Subscript) and id(n.value) in keyed)
+                or (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and id(n.func.value) in keyed)}
+    bindings: dict[str, list] = {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Name) and not isinstance(n.ctx, ast.Load):
+            bindings.setdefault(n.id, []).append(n)
+    client_names = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name) \
+                and id(n.value) in accesses and len(bindings.get(n.targets[0].id, [])) == 1:
+            client_names.add(n.targets[0].id)
+    client_receivers = set(accesses) | {
+        id(n) for n in ast.walk(tree) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
+        and n.id in client_names}
+    evaluator_calls = {id(n.func) for n in ast.walk(tree)
+                       if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
+
     other = not plain_entry or any(
         (_is_clients(node) and id(node) not in keyed)
-        or (id(node) not in key_constants and _reaches_by_name(node, names, mentions))
+        or (id(node) not in key_constants
+            and _reaches_by_name(node, mentions, client_receivers, evaluator_calls))
         for node in ast.walk(tree)
     )
     return ClientReach(tuple(keys), other)

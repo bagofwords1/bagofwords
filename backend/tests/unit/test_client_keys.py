@@ -35,6 +35,17 @@ from app.services.client_keys import (
     # The libraries step code needs, and pandas query/eval without @names.
     ('import pandas as pd\nimport numpy as np\nfrom datetime import date\nimport json, re, math\n'
      'ds_clients["A:c"]\ndf.query("a > 1")', ["A:c"]),
+    # A client's own .query(), the alias of execute_query, is not pandas'.
+    ('ds_clients["Sales:pg"].query(sql)', ["Sales:pg"]),
+    ('ds_clients["Sales:pg"].query(sql, params={"v": 1})', ["Sales:pg"]),
+    ('ds_clients.get("Sales:pg").query("SELECT a FROM t WHERE x = \'1@b\'")', ["Sales:pg"]),
+    ('db_clients["Sales:pg"].query(sql)', ["Sales:pg"]),
+    ('def generate_df(c, e):\n    sales = c["Sales:pg"]\n    return sales.query(sql)\n', ["Sales:pg"]),
+    # Machine learning and warnings, as the coder prompt teaches them.
+    ('import sklearn\nfrom sklearn.linear_model import LinearRegression\nimport scipy.stats\n'
+     'import warnings\nds_clients["A:c"]', ["A:c"]),
+    ('from functools import reduce, partial\nfrom typing import Dict, List, Optional\nds_clients["A:c"]',
+     ["A:c"]),
     ("db_rows = 1", []),
     ("", []),
     (None, []),
@@ -113,6 +124,18 @@ def test_literal_keys_are_the_clients_the_code_reaches(code, expected):
     'ds_clients["A:c"]\ndf.query("@db_clients")',
     'ds_clients["A:c"]\npd.eval(expr)',
     'ds_clients["A:c"]\nsql = "SELECT ds_clients FROM t"',
+    # pandas' evaluators under another name, its internals, a bound method.
+    'from pandas import eval as pe\nds_clients["A:c"]',
+    'from pandas import query\nds_clients["A:c"]',
+    'import pandas.core.frame\nds_clients["A:c"]',
+    'from pandas.core import common\nds_clients["A:c"]',
+    'import numpy.testing\nds_clients["A:c"]',
+    'ds_clients["A:c"]\nx = pd.core.frame',
+    'ds_clients["A:c"]\nx = np.testing',
+    'ds_clients["A:c"]\nq = df.query\nq("a > 1")',
+    'sales = ds_clients["A:c"]\nsales = df\nsales.query("@db_clients")',
+    'from functools import wraps\nds_clients["A:c"]',
+    'from typing import get_type_hints\nds_clients["A:c"]',
 ])
 def test_any_other_reach_of_the_clients_means_unknown(code):
     assert literal_client_keys(code) is None
