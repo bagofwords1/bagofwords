@@ -963,6 +963,17 @@ _REFUSED_SPL += [
     "index=web | \u212afit LinearRegression y from x into m",
 ]
 
+# A letter whose full case folding is several ASCII letters (a ligature, the
+# sharp s) may be read as those letters.
+_REFUSED_SPL += [
+    "index=web | \ufb01t LinearRegression y from x into m",
+    "index=web | \ufb01`m`t LinearRegression y from x into m",
+    "`m`\ufb01t LinearRegression y from x into m",
+    "index=web | \ufb01\u200bt LinearRegression y from x into m",
+    "index=web | \ufb01t\u200b LinearRegression y from x into m",
+    'index=web | "\ufb01"t LinearRegression y from x into m',
+]
+
 
 @pytest.mark.parametrize("spl", [
     "index=web | stats count | ```unterminated",
@@ -1174,14 +1185,17 @@ def test_refusal_quotes_a_short_window_of_long_matched_text(splunk_http):
 
 
 # Characters a search cannot carry cleanly: control characters other than
-# tab, newline and carriage return (C0, DEL, C1), lone surrogates and
-# private-use characters. Refused anywhere, even in a quoted value.
+# tab, newline and carriage return (C0, DEL, C1), lone surrogates,
+# private-use characters and noncharacters. Refused anywhere, even in a
+# quoted value.
 @pytest.mark.parametrize("char", [
     pytest.param("\x00", id="NUL"), pytest.param("\x07", id="BEL"), pytest.param("\x1b", id="ESC"),
     pytest.param("\x7f", id="DEL"), pytest.param("\x85", id="NEL"), pytest.param("\x9f", id="C1-end"),
     pytest.param("\ud800", id="lone-high-surrogate"), pytest.param("\udfff", id="lone-low-surrogate"),
     pytest.param("\ue000", id="private-use"), pytest.param("\U000f0000", id="private-use-plane-15"),
     pytest.param("\U0010fffd", id="private-use-plane-16"),
+    pytest.param("\ufdd0", id="noncharacter-FDD0"), pytest.param("\ufffe", id="noncharacter-FFFE"),
+    pytest.param("\U0010ffff", id="noncharacter-plane-16-end"),
 ])
 def test_character_a_search_cannot_carry_is_refused_anywhere(splunk_http, char):
     from app.ai.code_execution.sql_guard import ReadOnlyViolation
@@ -1192,6 +1206,72 @@ def test_character_a_search_cannot_carry_is_refused_anywhere(splunk_http, char):
             client.execute_query(spl)
         with pytest.raises(ReadOnlyViolation):
             client.execute_query({"spl": spl})
+    assert http.searches == []
+
+
+def test_every_noncharacter_is_refused():
+    # Unicode's 66 noncharacters: U+FDD0..U+FDEF and the last two code points
+    # of each of the 17 planes.
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation, check_spl
+
+    codes = list(range(0xFDD0, 0xFDF0)) + [plane << 16 | end for plane in range(17) for end in (0xFFFE, 0xFFFF)]
+    assert len(codes) == 66
+    passed = []
+    for code in codes:
+        try:
+            check_spl(f'index=web | search msg="a{chr(code)}b" | stats count')
+            passed.append(f"U+{code:04X}")
+        except ReadOnlyViolation:
+            pass
+    assert passed == []
+
+
+def test_text_that_is_not_a_plain_str_is_refused():
+    # A str subclass can answer the string methods the check calls with
+    # something other than its text.
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation, check_spl, ensure_read_only
+
+    class Text(str):
+        def find(self, *args):
+            return len(self) - 1
+
+    spl = Text("index=web | delete")
+    with pytest.raises(ReadOnlyViolation, match="plain str"):
+        check_spl(spl)
+    with pytest.raises(ReadOnlyViolation, match="plain str"):
+        ensure_read_only(SplunkClient(host="h", api_token="t"), spl)
+    with pytest.raises(ReadOnlyViolation, match="plain str"):
+        ensure_read_only(SplunkClient(host="h", api_token="t"), {"spl": spl})
+
+
+def test_every_letter_that_case_folds_to_ascii_is_read_as_its_folding():
+    # Derived from Python's full case folding over all of Unicode: each letter
+    # outside ASCII whose folding is ASCII is read by the check as that
+    # folding, one letter for one (the regex's own folding) or several (one
+    # more reading of the whole search).
+    from app.ai.code_execution.sql_guard import _SPL_FOLD, _SPL_MULTI_FOLD
+
+    folds = {
+        code: chr(code).casefold() for code in range(0x80, 0x110000)
+        if chr(code).casefold().isascii()
+    }
+    assert len(folds) >= 11
+    read_as = {**_SPL_FOLD, **_SPL_MULTI_FOLD}
+    assert {code: read_as.get(code) for code in folds} == folds
+    assert all(len(_SPL_MULTI_FOLD[code]) > 1 for code in _SPL_MULTI_FOLD)
+
+
+@pytest.mark.parametrize("spl,code", [
+    pytest.param("index=web | \ufb01t LinearRegression y from x into m", "U+FB01", id="fi-ligature"),
+    pytest.param("index=web | \ufb01`m`t LinearRegression y from x into m", "U+FB01", id="split"),
+])
+def test_refusal_under_the_case_folded_reading_names_the_letter(splunk_http, spl, code):
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation
+
+    client, http = splunk_http
+    with pytest.raises(ReadOnlyViolation) as refused:
+        client.execute_query(spl)
+    assert code in str(refused.value)
     assert http.searches == []
 
 
@@ -1267,16 +1347,23 @@ def test_refusal_under_a_reading_of_an_invisible_character_names_it(splunk_http,
 # Python's `re` holds the GIL while it matches, so a check that grows
 # quadratically with the search would stall every request on the worker.
 # Each shape below (a head, a piece repeated, a tail) is checked, by
-# everything the query wrapper runs on it, at 2 MB in at most about three
-# times the CPU time of 1 MB (linear doubles it, quadratic quadruples it),
-# and at 64 KB and 1 MB under loose caps. The default head has a pipe, so the
-# rules that start at the first pipe or bracket scan the whole shape.
+# everything the query wrapper runs on it, at 1 MB in at most eight times the
+# CPU time of 256 KB (linear quadruples it, quadratic multiplies it by
+# sixteen), at 64 KB under a loose cap, and at 1 MB in under a hundred times
+# a plain 1 MB read (the slowest shape takes about 35 times on an idle
+# machine and 55 under full load). The default head has a pipe, so the rules
+# that start at the first pipe or bracket scan the whole shape.
 
 _MB = 1 << 20
+_PLAIN_READ_TIMES = 100
 
 
 def _shape(piece: str, head: str = "index=web | ", tail: str = "") -> tuple[str, str, str]:
     return head, piece, tail
+
+
+# The reference workload: a search with nothing for the rules to follow up.
+_PLAIN_READ = _shape("search host=web01 status=200 ")
 
 
 def _sized(shape: tuple[str, str, str], size: int) -> str:
@@ -1381,6 +1468,10 @@ def _cpu_seconds(spl: str) -> float:
     pytest.param(_shape("o\u200c`"), id="zwnj-piece-backtick"),
     pytest.param(_shape('"\ufe0f\u017f'), id="quote-vs16-long-s"),
     pytest.param(_shape("\u200b|"), id="zwsp-pipes"),
+    # Letters that case-fold to several ASCII letters, so the rules also run
+    # on the text read with their folding.
+    pytest.param(_shape('"\ufb01'), id="quote-fi-ligature"),
+    pytest.param(_shape("\ufb03`\u200b"), id="ffi-ligature-backtick-zwsp"),
     # Many name prefixes started first, then pieces that can continue them.
     pytest.param(_shape("`t `e `l `o `u `a `s ", head="index=web " + "".join(
         f"| {name[:i]}` " for name in ("outputlookup", "collect", "sendemail", "deletemodel", "tscollect")
@@ -1389,17 +1480,23 @@ def _cpu_seconds(spl: str) -> float:
 def test_check_spl_is_linear_on_large_input(shape):
     # CPU time of this process, so other work on the machine barely moves it.
     # 64 KB first: a shape that grows quadratically fails in seconds there.
-    # The caps are loose (a search with an invisible character is checked
-    # three times); the growth ratio is what proves the check linear.
+    # The growth ratio is what proves the check linear; the 1 MB cap is set
+    # against a plain 1 MB read measured in the same test, so a loaded machine
+    # (which slows both) does not fail it. Each size is measured up to three
+    # times, keeping the fastest, before failing.
     small = _cpu_seconds(_sized(shape, _MB // 16))
     assert small < 0.5, f"64 KB took {small:.3f}s of CPU"
-    one, two = _cpu_seconds(_sized(shape, _MB)), _cpu_seconds(_sized(shape, 2 * _MB))
-    if two > 3 * one + 0.05:
-        # One more measurement of each, keeping the faster, before failing.
+    plain = min(_cpu_seconds(_sized(_PLAIN_READ, _MB)) for _ in range(3))
+    quarter, one = float("inf"), float("inf")
+    for _ in range(3):
+        quarter = min(quarter, _cpu_seconds(_sized(shape, _MB // 4)))
         one = min(one, _cpu_seconds(_sized(shape, _MB)))
-        two = min(two, _cpu_seconds(_sized(shape, 2 * _MB)))
-    assert one < 5.0, f"1 MB took {one:.3f}s of CPU"
-    assert two <= 3 * one + 0.05, f"1 MB took {one:.3f}s and 2 MB {two:.3f}s of CPU"
+        if one < _PLAIN_READ_TIMES * plain and one <= 8 * quarter + 0.05:
+            break
+    assert one < _PLAIN_READ_TIMES * plain, (
+        f"1 MB took {one:.3f}s of CPU, {one / plain:.0f} times a plain 1 MB read ({plain:.3f}s)"
+    )
+    assert one <= 8 * quarter + 0.05, f"256 KB took {quarter:.3f}s and 1 MB {one:.3f}s of CPU"
 
 
 def test_check_spl_keeps_no_query_text_after_it_returns():

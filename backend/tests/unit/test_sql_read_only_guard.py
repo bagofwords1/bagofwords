@@ -182,6 +182,19 @@ def test_non_sql_clients_are_not_checked():
     ensure_read_only(SalesforceClient(), "DELETE whatever this API means")
 
 
+def test_statement_that_is_not_a_plain_str_is_refused():
+    # A str subclass can answer the string methods the guard calls with
+    # something other than its text, so only a plain str is checked as text.
+    class Statement(str):
+        def strip(self, *args):
+            return ""
+
+    client = SqliteClient()
+    assert ensure_read_only(client, "SELECT 1") == "SELECT 1"
+    with pytest.raises(ReadOnlyViolation, match="plain str"):
+        ensure_read_only(client, Statement("DELETE FROM orders"))
+
+
 def test_splunk_writing_commands_are_refused():
     from app.data_sources.clients.splunk_client import SplunkClient
 

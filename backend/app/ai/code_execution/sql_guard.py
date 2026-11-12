@@ -97,7 +97,9 @@ _SPL_REFUSED_COMMANDS = (
 #   long s and dotted or dotless i), and that the name may end at any other
 #   character, or end or start at one of those folding letters (a word is
 #   read with every such letter as its ASCII letter, or with every one as a
-#   break between words).
+#   break between words). A letter whose case folding is several ASCII
+#   letters (the sharp s, the Latin ligatures) may be read as those letters,
+#   so the rules also run on the search read that way.
 # - It does not assume how backticks or quotes pair, nor whether Splunk keeps
 #   quotes and backslashes. Between the mark and the name Splunk may skip
 #   whitespace, quotes, backslashes, inline comments (```...```) and macros
@@ -119,8 +121,9 @@ _SPL_REFUSED_COMMANDS = (
 #   with a space for each, and one between two letters, digits or
 #   underscores is refused. Text in some languages needs them (direction
 #   marks, zero-width joiners, emoji selectors). Control characters other
-#   than tab, newline and carriage return, lone surrogates and private-use
-#   characters cannot be sent cleanly, so they are refused anywhere.
+#   than tab, newline and carriage return, lone surrogates, private-use
+#   characters and noncharacters cannot be sent cleanly, so they are refused
+#   anywhere.
 # Each rule is one left-to-right pass (possessive quantifiers, one search per
 # rule), so the check is linear in the length of the search.
 # Search macros expand on the server, so a macro body is never seen by this
@@ -131,6 +134,14 @@ _SPL_WORD_END = r"(?!" + _SPL_WORD + r")"
 # Letters outside ASCII that `re.IGNORECASE` matches to an ASCII letter, and
 # that letter.
 _SPL_FOLD = {0x0130: "i", 0x0131: "i", 0x017F: "s", 0x212A: "k"}
+# Letters whose full case folding is several ASCII letters (the sharp s and
+# the Latin ligatures), and those letters: `re.IGNORECASE` matches none of
+# them, so the rules also run on the search read with them replaced.
+_SPL_MULTI_FOLD = {
+    0x00DF: "ss", 0x1E9E: "ss", 0xFB00: "ff", 0xFB01: "fi", 0xFB02: "fl", 0xFB03: "ffi",
+    0xFB04: "ffl", 0xFB05: "st", 0xFB06: "st",
+}
+_SPL_MULTI_FOLD_CHAR = re.compile("[" + "".join(chr(code) for code in _SPL_MULTI_FOLD) + "]")
 _SPL_FOLD_MARK = dict.fromkeys(_SPL_FOLD, " ")
 _SPL_FOLD_CHARS = "".join(chr(code) for code in _SPL_FOLD)
 _SPL_NAME_CHAR = r"[A-Za-z0-9_" + _SPL_FOLD_CHARS + r"]"
@@ -187,9 +198,10 @@ _SPL_GLUED_WORD = re.compile(
 # between the word and the mark before it.
 _SPL_GAP_BEFORE = re.compile(_SPL_GAP)
 # Built once, from the `regex` module's Unicode tables. Control characters
-# (Cc) other than tab, newline and carriage return, lone surrogates (Cs) and
-# private-use characters (Co): a search cannot carry them cleanly.
-_SPL_UNSENDABLE = regex.compile(r"(?![\t\n\r])[\p{Cc}\p{Cs}\p{Co}]")
+# (Cc) other than tab, newline and carriage return, lone surrogates (Cs),
+# private-use characters (Co) and noncharacters: a search cannot carry them
+# cleanly.
+_SPL_UNSENDABLE = regex.compile(r"(?![\t\n\r])[\p{Cc}\p{Cs}\p{Co}\p{Noncharacter_Code_Point}]")
 # Format characters (Cf) and default-ignorable code points: none of them
 # shows, and Splunk may drop them, read them as spaces or keep them.
 _SPL_INVISIBLE = regex.compile(r"[\p{Cf}\p{Default_Ignorable_Code_Point}]")
@@ -353,7 +365,13 @@ def ensure_read_only(client, query) -> Union[str, dict]:
     profile = guard_profile(client)
     if profile is None:
         return query
-    if not isinstance(query, str):
+    if type(query) is not str:
+        if isinstance(query, str):
+            # A str subclass can answer the string methods the checks call
+            # with something other than its text.
+            raise ReadOnlyViolation(
+                f"execute_query takes the statement as a plain str, not {type(query).__name__}."
+            )
         if isinstance(query, dict) and profile.accepts_dict:
             if any(not isinstance(key, str) for key in query):
                 raise ReadOnlyViolation(f"Envelope keys must be text. {SPL_ENVELOPE_GUIDANCE}")
@@ -501,17 +519,37 @@ def _single_statement_check(sql: str) -> None:
 def check_spl(spl: str) -> None:
     """Refuse SPL that writes to indexes, lookups, files or the outside, and
     SPL that is not text."""
-    if not isinstance(spl, str):
+    if type(spl) is not str:
+        # A str subclass can answer the string methods the check calls with
+        # something other than its text.
         raise ReadOnlyViolation(
-            f"The SPL in a Splunk query must be text, not {type(spl).__name__}. {SPL_ENVELOPE_GUIDANCE}"
+            f"The SPL in a Splunk query must be text (a plain str), not {type(spl).__name__}. "
+            f"{SPL_ENVELOPE_GUIDANCE}"
         )
     unsendable = _SPL_UNSENDABLE.search(spl)
     if unsendable:
         raise ReadOnlyViolation(
             f"SPL contains a character a search cannot carry (U+{ord(unsendable.group()):04X}): "
-            "a control character, a lone surrogate or a private-use character. Remove it; "
-            "only tab, newline and carriage return are allowed."
+            "a control character, a lone surrogate, a private-use character or a noncharacter. "
+            "Remove it; only tab, newline and carriage return are allowed."
         )
+    _check_spl_readings(spl)
+    multi_fold = _SPL_MULTI_FOLD_CHAR.search(spl)
+    if multi_fold:
+        letter = multi_fold.group()
+        try:
+            _check_spl_readings(spl.translate(_SPL_MULTI_FOLD))
+        except ReadOnlyViolation as refused:
+            raise ReadOnlyViolation(
+                f"SPL contains a letter (U+{ord(letter):04X}) that case-folds to several letters "
+                f"('{_SPL_MULTI_FOLD[ord(letter)]}'), which Splunk may read as those letters. Read "
+                f"that way, the search is refused; write the letters instead. {refused}"
+            ) from refused
+
+
+def _check_spl_readings(spl: str) -> None:
+    """The rules on the search as written and, when it holds an invisible
+    character, read without them and with a space for each."""
     invisible = _SPL_INVISIBLE.search(spl)
     if invisible is None:
         _check_spl_reading(spl)
