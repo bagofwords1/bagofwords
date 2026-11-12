@@ -63,7 +63,7 @@
     "markdown-it": ">=14.3.2 <15",
     "minimatch": ">=9.0.7",
     "nanotar": ">=0.2.1",
-    "node-forge": ">=1.4.1",
+    "node-forge": ">=1.4.3",
     "open": ">=11.0.0 <12",
     "picomatch": ">=4.0.4",
     "playwright": "1.56.0",
