@@ -1,5 +1,6 @@
 // Real Chromium, DataTable:
 //  - year and ID columns print as-is (2025, 1001), not "2,025" or a page format's "2.0K";
+//    amount_paid and other money columns keep the format;
 //  - clickable rows are reachable by keyboard (Tab, Enter) and mark aria-selected;
 //  - with rowKey, the selection survives new row objects for the same record;
 //  - in an untitled card with its own info icon, the CSV button stays clear of it.
@@ -11,7 +12,7 @@ import {CHROME_PATH} from './support/chromium.mjs';
 const root=new URL('../../',import.meta.url);
 const compiled=ts.transpileModule(fs.readFileSync(new URL('utils/artifactIframe.ts',root),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
 const VIZ='4c3b2a19-8d7e-4f6a-9b0c-1d2e3f4a5b6c';
-const rows=[{id:1001,year:2025,revenue:4512.5},{id:1002,year:2024,revenue:4775.3}];
+const rows=[{id:1001,year:2025,revenue:4512.5,amount_paid:4512.5},{id:1002,year:2024,revenue:4775.3,amount_paid:4775.3}];
 const app=`<script type="text/babel">
 function App() {
   const viz = vizById("${VIZ}");
@@ -39,7 +40,7 @@ try{
  await page.goto('http://artifact-review.test/');
  await page.addScriptTag({content:'window.exports={};'+compiled});
  await page.evaluate(({code,VIZ,rows})=>{
-  const html=exports.buildArtifactIframeHtml({code,data:{runtime:{version:11},visualizations:[{id:VIZ,title:'Revenue',rows,columns:[{field:'id'},{field:'year'},{field:'revenue'}]}]}});
+  const html=exports.buildArtifactIframeHtml({code,data:{runtime:{version:11},visualizations:[{id:VIZ,title:'Revenue',rows,columns:[{field:'id'},{field:'year'},{field:'revenue'},{field:'amount_paid'}]}]}});
   const f=document.createElement('iframe');f.style.width='900px';f.style.height='880px';f.style.border='0';f.srcdoc=html;document.body.appendChild(f);
  },{code:app,VIZ,rows});
  const frame=page.frames().find(f=>f.parentFrame());
@@ -47,6 +48,7 @@ try{
  const cells=await frame.$$eval('#fmt tbody tr:first-child td',tds=>tds.map(t=>t.textContent));
  assert.deepEqual(cells.slice(0,2),['1001','2025'],`ID and year print as-is (${cells})`);
  assert.equal(cells[2],'4.5K','other numbers still use the page format');
+ assert.equal(cells[3],'4.5K','a money column whose name ends in "paid" is not taken for an ID');
  // keyboard
  await frame.focus('#fmt tbody tr:first-child');
  await page.keyboard.press('Enter');

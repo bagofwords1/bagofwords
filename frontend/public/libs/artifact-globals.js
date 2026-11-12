@@ -1374,7 +1374,15 @@
   // ═══════════════════════════════════════════════════════════════════════════
 
   var _RTL_CHARS = /[֐-׿؀-ۿ܀-ݏיִ-ﭏ]/g;
-  function _dtDetectDir(cols, rows) {
+  function _dtPlainName(s) {
+  // Last word of a column name: order_id / customerId / "Fiscal Year" -> id / year.
+  s = String(s || '');
+  if (/שנה|año/i.test(s)) return true;
+  var words = s.replace(/([a-z0-9])([A-Z])/g, '$1 $2').split(/[\s_.-]+/).filter(Boolean);
+  var last = words.length ? words[words.length - 1].toLowerCase() : '';
+  return last === 'id' || last === 'year' || last === 'yr';
+}
+function _dtDetectDir(cols, rows) {
     var sample = '';
     for (var i = 0; i < cols.length; i++) sample += (cols[i].header || '') + ' ';
     for (var r = 0; r < rows.length && r < 5; r++) {
@@ -1502,14 +1510,24 @@
     var dir = props.dir || _dtDetectDir(cols, baseRows);
     var L = _dtLabels(props.labels, _dtLang(props.lang, cols, baseRows));
     // Years and IDs are labels, not quantities: 2025, not "2,025" or "2.0K".
+    // The name must end in the word (order_id, customerId, "Fiscal Year"; not
+    // amount_paid or year_to_date) and every value must be a whole number.
     var plainByField = React.useMemo(function() {
       var m = {};
       for (var i = 0; i < cols.length; i++) {
-        var nm = String(cols[i].field || '') + ' ' + String(cols[i].header || '');
-        m[cols[i].field] = /(^|[\s_-])(year|yr|fiscal_year|id)([\s_-]|$)|[a-z]Id(\s|$)|שנה|año/i.test(nm);
+        var f = cols[i].field;
+        if (!(_dtPlainName(f) || _dtPlainName(cols[i].header))) { m[f] = false; continue; }
+        var whole = true;
+        for (var j = 0; j < baseRows.length && j < 500; j++) {
+          var v = baseRows[j] ? baseRows[j][f] : null;
+          if (v == null || v === '') continue;
+          var n = typeof v === 'number' ? v : Number(v);
+          if (!Number.isInteger(n)) { whole = false; break; }
+        }
+        m[f] = whole;
       }
       return m;
-    }, [cols]);
+    }, [cols, baseRows]);
     var numericByField = React.useMemo(function() {
       var m = {};
       for (var i = 0; i < cols.length; i++) m[cols[i].field] = _dtColIsNumeric(cols[i], baseRows);
