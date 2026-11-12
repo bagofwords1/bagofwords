@@ -333,3 +333,53 @@ def test_every_column_restricted_compiles_to_deny_all(monkeypatch):
     row = _Row(cls_policy={"restricted_columns": ["region", "amount", "status"]})
     client = CustomQueryService.build_fast_client([row], identity=_identity())
     assert client.relations[0].rls_filter.deny_all
+
+
+# --------------------------------------------------------------------------
+# Review follow-ups: deny paths must not advertise or serve restricted columns
+# --------------------------------------------------------------------------
+
+def test_validation_rejects_a_grant_naming_a_non_restricted_column():
+    with pytest.raises(ValueError) as e:
+        rls.validate_column_policy(
+            _policy(grants=[{"principal_type": "group", "principal_id": "g1",
+                             "columns": ["ammount"]}]),
+            COLUMNS,
+        )
+    assert "not a restricted column" in str(e.value)
+
+
+def test_all_columns_restricted_denies_without_advertising_names(artifact):
+    from app.services.custom_query_service import CustomQueryService
+
+    class Row:
+        rls_enabled = False
+        cls_enabled = True
+        cls_policy = {"restricted_columns": COLUMNS}
+        columns = [{"name": c} for c in COLUMNS]
+
+    f = CustomQueryService.compile_rls(Row(), _identity())
+    assert f.deny_all and f.allowed_columns == []
+    client = _client(artifact, f)
+    assert client.relations[0].visible_columns() == []
+    df = client.execute_query("SELECT * FROM sales")
+    assert len(df) == 0
+    assert not set(df.columns) & set(COLUMNS)
+
+
+def test_row_denied_user_still_gets_column_projection(artifact):
+    from app.services.custom_query_service import CustomQueryService
+
+    class Row:
+        rls_enabled = True
+        rls_mode = "attribute"
+        rls_policy = None
+        rls_default_deny = True
+        cls_enabled = True
+        cls_policy = _policy()
+        columns = [{"name": c} for c in COLUMNS]
+
+    f = CustomQueryService.compile_rls(Row(), _identity())
+    assert f.deny_all and f.allowed_columns == ["region", "status"]
+    df = _client(artifact, f).execute_query("SELECT * FROM sales")
+    assert len(df) == 0 and "amount" not in df.columns

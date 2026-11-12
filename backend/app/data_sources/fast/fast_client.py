@@ -278,16 +278,18 @@ class FastQueryClient(DataSourceClient):
         no column is restricted. Otherwise an explicit, quoted list in the
         relation's own column order — intersected with the materialized columns
         so a stale policy name cannot inject, and never interpolated from the
-        policy text. An empty intersection falls back to `star`; the only caller
-        that reaches it has `deny_all` set, so the shape is advertised but no
-        rows are served.
+        policy text. An empty intersection yields a single placeholder column,
+        never `star`: a stale or empty allow-list must hide more, not less.
         """
         if f is None or f.allowed_columns is None:
             return star
         allow = set(f.allowed_columns)
         names = [c.get("name") for c in (rel.columns or []) if c.get("name") in allow]
         if not names:
-            return star
+            # Fail closed: never widen to `star`. A zero-column table is not
+            # possible, so serve a single placeholder (callers pair this with
+            # deny_all, so no rows are returned either).
+            return 'CAST(NULL AS INTEGER) AS "no_visible_columns"'
         return ", ".join('"' + str(n).replace('"', '""') + '"' for n in names)
 
     @staticmethod

@@ -425,8 +425,16 @@ def validate_column_policy(
             raise ValueError(f"Grant {i + 1} must target a user, a group or a role.")
         if not str(grant.get("principal_id") or "").strip():
             raise ValueError(f"Grant {i + 1} names no principal.")
-        if not _as_values(grant.get("columns")):
+        grant_cols = _as_values(grant.get("columns"))
+        if not grant_cols:
             raise ValueError(
                 f"Grant {i + 1} names no columns — list the columns it unlocks, "
                 f"or '{WILDCARD}' for all restricted columns."
             )
+        restricted_names = {str(c).strip() for c in restricted}
+        for name in grant_cols:
+            if name != WILDCARD and name not in restricted_names:
+                raise ValueError(
+                    f"Grant {i + 1} names '{name}', which is not a restricted "
+                    f"column. Restricted: {', '.join(sorted(restricted_names))}"
+                )

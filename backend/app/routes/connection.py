@@ -1928,7 +1928,7 @@ async def set_custom_query_cls(
             },
         )
     except Exception:
-        pass
+        logging.getLogger(__name__).exception("audit log failed for connection.custom_query.cls_changed")
     return CustomQuerySchema.from_model(
         cq, await _active_agent_count(db, cq.id),
         next_run_at=custom_query_service.next_run_at(str(cq.id)),

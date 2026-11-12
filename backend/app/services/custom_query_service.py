@@ -1937,9 +1937,9 @@ class CustomQueryService:
         all_columns = [
             c.get("name") for c in (cq.columns or []) if isinstance(c, dict)
         ]
+        visible_set = set(visible)
         hidden_columns = [
-            c for c in all_columns
-            if c is not None and c not in set(visible)
+            c for c in all_columns if c is not None and c not in visible_set
         ]
         column_filtered = bool(
             f is not None and getattr(f, "allowed_columns", None) is not None
@@ -1947,7 +1947,8 @@ class CustomQueryService:
         # `filtered` historically meant "rows restricted"; keep that meaning so
         # the existing RLS verdict is unchanged, and report columns separately.
         row_filtered = bool(
-            f is not None and not f.deny_all and getattr(f, "allowed_values", None) is not None
+            f is not None
+            and (f.deny_all or getattr(f, "allowed_values", None) is not None)
         )
         return {
             "columns": [{"name": c, "dtype": str(df[c].dtype)} for c in df.columns],
@@ -2000,7 +2001,7 @@ class CustomQueryService:
             # rows, so there is no point compiling columns on top of it.
             f = rls.Filter(reason="no row policy")
 
-        if cls_on and not f.deny_all:
+        if cls_on:
             allowed_columns = rls.compile_column_policy(
                 row.cls_policy, identity, available_columns=available
             )
@@ -2008,6 +2009,7 @@ class CustomQueryService:
                 if not allowed_columns:
                     # Every column restricted and none granted → nothing to serve.
                     f.deny_all = True
+                    f.allowed_columns = []
                     f.reason = (
                         (f.reason + "; " if f.reason else "")
                         + "no columns are visible to this user"
