@@ -122,6 +122,16 @@
     "fileBrowserNoResults": "Aucun fichier ne correspond à « {q} ».",
     "fileBrowserSummaryKms": "{n} fichiers listés pour la navigation · les autorisations KMS déterminent ce que l'agent peut rechercher et lire",
     "fileBrowserSummary": "{n} fichiers dans le périmètre · l'agent ne lit que ceux-ci · les refus sont audités",
+    "fileBrowserRootMessages": "Toutes les conversations",
+    "fileBrowserSearchMessages": "Rechercher des messages…",
+    "fileBrowserEmptyMessages": "Aucun message récent dans les conversations que vous pouvez voir.",
+    "fileBrowserSummaryLive": "{n} messages récents · lus en direct avec vos propres accès · rien n’est stocké",
+    "countMessages": "{n} message | {n} messages",
+    "fileBrowserNoResultsMessages": "Aucun message ne correspond à « {q} ».",
+    "loadingMessages": "Chargement des messages depuis la source…",
+    "fileBrowserConnectRequiredMessages": "Connectez votre compte pour parcourir — cette connexion lit les messages avec les accès de chaque utilisateur.",
+    "liveSourceHint": "Recherche en direct avec les accès de chaque utilisateur — uniquement les canaux, conversations ou e-mails qu’il peut voir. Rien n’est copié ni indexé.",
+    "liveBadge": "En direct",
     "fileBrowserTruncated": "Affichage des {shown} premiers fichiers sur {total} — restreignez le périmètre de la connexion pour voir le reste.",
     "fileBrowserOpenInSource": "Ouvrir dans la source",
     "fileBrowserClosePreview": "Fermer l'aperçu",
@@ -1789,6 +1799,22 @@
       "filesSkippedSingular": "{count} fichier ignoré ({reasons})",
       "filesSkippedPlural": "{count} fichiers ignorés ({reasons})"
     },
+    "searchFiles": {
+      "foundIn": "Trouvé dans :",
+      "fileName": "nom du fichier",
+      "page": "page {n}",
+      "sheet": "feuille {name}",
+      "offset": "position {n}",
+      "partlyIndexed": "Indexé en partie seulement (limite de taille)",
+      "noText": "Aucun texte interrogeable (numérisé ou binaire)",
+      "notIndexed": "Indexation impossible",
+      "indexFulltext": "Index plein texte",
+      "indexKeywords": "Index de mots-clés",
+      "indexNames": "Correspondance sur le nom du fichier",
+      "liveScan": "Analyse en direct",
+      "plusLiveScan": "{index} + analyse en direct",
+      "indexedAt": "indexé {when}"
+    },
     "listAgentExecutions": {
       "empty": "Aucune exécution trouvée",
       "failed": "Échec du chargement des exécutions de l'agent",
@@ -1989,6 +2015,7 @@
     "openPage": "Ouvrir la page",
     "categories": {
       "dataSources": "Agents",
+      "connectors": "Connecteurs",
       "queries": "Requêtes",
       "files": "Fichiers",
       "tables": "Tables",
@@ -2345,14 +2372,7 @@
           "socketStep3": "Event Subscriptions → activez les événements (aucune Request URL nécessaire) et abonnez-vous à : message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
           "socketStep4": "Agents → activez « Agent experience » pour le volet d'assistant natif, le nommage des fils et les prompts suggérés",
           "socketStep5": "App Home → activez l'onglet Messages et autorisez les utilisateurs à envoyer des messages",
-          "socketStep6": "Install App → installez l'app dans votre espace de travail et copiez le Bot User OAuth Token (xoxb-…)",
-          "channelRoutingTitle": "Routage canal → agent",
-          "channelRoutingDesc": "Dirigez un canal vers des agents spécifiques. Un canal sans mappage utilise la valeur par défaut de la connexion ; sans valeur par défaut, il expose tout ce à quoi l'utilisateur a accès. Le routage ne fait que restreindre l'accès, il n'accorde jamais plus que ce que l'utilisateur possède déjà.",
-          "connectionDefaultLabel": "Par défaut de la connexion",
-          "connectionDefaultDesc": "Utilisé pour les canaux sans mappage propre.",
-          "channelPickerPlaceholder": "Choisir des agents…",
-          "noChannelsYet": "Aucun canal pour l'instant. Mentionnez le bot dans un canal et il apparaîtra ici, ou ajoutez-en un par id ci-dessous.",
-          "channelsHeading": "Canaux"
+          "socketStep6": "Install App → installez l'app dans votre espace de travail et copiez le Bot User OAuth Token (xoxb-…)"
         },
         "teams": {
           "title": "Intégration Teams",
@@ -2654,6 +2674,15 @@
           "subscriptionPlaceholder": "projects/<project>/subscriptions/<name>",
           "subtitle": "Configurez et gérez l'intégration Google Chat pour votre organisation",
           "title": "Intégration Google Chat"
+        },
+        "routing": {
+          "title": "Routage canal → agent",
+          "desc": "Dirigez un canal vers des agents spécifiques. Un canal sans mappage utilise la valeur par défaut de la connexion ; sans valeur par défaut, il expose tout ce à quoi l'utilisateur a accès. Le routage ne fait que restreindre l'accès, il n'accorde jamais plus que ce que l'utilisateur possède déjà.",
+          "connectionDefaultLabel": "Par défaut de la connexion",
+          "connectionDefaultDesc": "Utilisé pour les canaux sans mappage propre.",
+          "pickerPlaceholder": "Choisir des agents…",
+          "channelsHeading": "Canaux",
+          "noChannelsYet": "Aucun canal pour l'instant. Mentionnez le bot dans un canal et il apparaîtra ici, ou ajoutez-en un par id ci-dessous."
         }
       },
       "emptyTitle": "Faites fonctionner BOW avec vos outils",
@@ -3843,7 +3872,7 @@
     "saveIntegration": "Enregistrer l'intégration",
     "loadFieldsFailed": "Échec du chargement des champs",
     "integrationReady": "Intégration prête",
-    "integrationReadyDesc": "{name} est connecté et un agent public a été créé. Les utilisateurs peuvent se connecter pour commencer à l'utiliser.",
+    "integrationReadyDesc": "{name} est désormais disponible pour tous comme connecteur. Chacun se connecte avec son propre compte.",
     "integrationAgentFailed": "Intégration enregistrée, mais la création de l'agent a échoué",
     "updateIntegrationFailed": "Échec de la mise à jour de l'intégration",
     "createIntegrationFailed": "Échec de la création de l'intégration",
@@ -4319,7 +4348,10 @@
     "connection.kms_token_format": "Le jeton d'API KMS ne peut contenir que des lettres, des chiffres et des signes de ponctuation simples, sans espaces. Copiez-le à nouveau depuis KMS Lighthouse et collez-le en texte brut.",
     "connection.kms_use_connection_credentials": "Les identifiants KMS Lighthouse sont enregistrés sur la connexion. Ouvrez la connexion et connectez-vous depuis celle-ci.",
     "connection.kms_only": "Le diagnostic s'applique uniquement aux connexions KMS Lighthouse.",
-    "connection.kms_diagnostics_running": "Un diagnostic est déjà en cours pour cette connexion. Attendez qu'il se termine, puis réessayez."
+    "connection.kms_diagnostics_running": "Un diagnostic est déjà en cours pour cette connexion. Attendez qu'il se termine, puis réessayez.",
+    "connection.kms_login_rejected": "KMS Lighthouse n'a pas accepté cet identifiant, il n'a donc pas été enregistré. Vérifiez le nom d'utilisateur et le mot de passe, ou le jeton d'API, puis réessayez.",
+    "connection.kms_login_paused": "KMS Lighthouse a récemment refusé cet identifiant : les nouvelles tentatives sont suspendues pendant quelques minutes et il n'a pas été enregistré. Vérifiez l'identifiant ou réessayez plus tard.",
+    "connection.kms_session_refused": "KMS Lighthouse a accepté cet identifiant mais a refusé sa session : il ne peut donc pas être utilisé et n'a pas été enregistré. Demandez à l'administrateur KMS si ce compte peut utiliser l'API KMS."
   },
   "email": {
     "dashboardShare": {
@@ -6416,7 +6448,9 @@
     "noConnection": "Cet agent n'a pas encore de connexion.",
     "notFound": "Cette connexion est introuvable.",
     "forbidden": "Vous n'avez pas accès à cette connexion.",
-    "loadFailed": "Impossible de charger la connexion. Réessayez plus tard."
+    "loadFailed": "Impossible de charger la connexion. Réessayez plus tard.",
+    "connected": "Connecté",
+    "connectedAs": "Connecté en tant que {identity}"
   },
   "trackedChanges": {
     "noChanges": "Aucune modification"
@@ -6753,6 +6787,8 @@
     "tabViewers": "Lecteurs",
     "tabData": "Données",
     "viewersDesc": "Ce que reçoivent les personnes avec qui vous le partagez.",
+    "widgetInfoTitle": "Afficher les détails sur les widgets",
+    "widgetInfoDesc": "Ajoute une icône ⓘ à chaque widget pour ouvrir ses données, son code et son calcul.",
     "dataDesc": "Les requêtes derrière ce tableau de bord.",
     "unsaved": "Modifications non enregistrées",
     "tabGeneral": "Général",
@@ -6850,6 +6886,35 @@
     "embeddingEmpty": "Embedding is not configured",
     "oauthEmpty": "OAuth is not configured"
   },
+  "connectors": {
+    "title": "Connecteurs",
+    "subtitle": "Vos propres comptes et outils que l’IA peut utiliser. Chaque connecteur lit avec vos propres accès — personne d’autre ne voit vos données.",
+    "browse": "Parcourir les connecteurs",
+    "empty": "Aucun connecteur pour l’instant.",
+    "search": "Rechercher des connecteurs…",
+    "noResults": "Aucun connecteur ne correspond à « {q} ».",
+    "signIn": "Se connecter",
+    "signOut": "Se déconnecter",
+    "remove": "Supprimer",
+    "statusConnected": "Connecté",
+    "statusShared": "Partagé",
+    "statusServiceAccount": "Compte de service",
+    "statusOffline": "Reconnecter",
+    "statusNotConnected": "Non connecté",
+    "needsSignIn": "{n} connecteur nécessite une connexion | {n} connecteurs nécessitent une connexion",
+    "accessPersonal": "Utilise votre propre compte",
+    "accessShared": "Utilise un compte partagé configuré par un administrateur",
+    "addHint": "Ajoutez d’autres connecteurs depuis Agents → Ajouter une connexion.",
+    "askAdmin": "Demandez à un administrateur d’ajouter d’autres connecteurs.",
+    "removeConfirm": "Supprimer {name} pour toute l’organisation ? Les connexions des utilisateurs seront aussi supprimées.",
+    "signedOut": "Déconnecté de {name}",
+    "removed": "{name} supprimé",
+    "actionFailed": "Une erreur s’est produite",
+    "shareToggleLabel": "Rendre disponible pour toute votre organisation",
+    "shareToggleHint": "Ajoute « {name} » aux connecteurs de chacun. Chacun se connecte avec son propre compte — personne ne voit les données des autres.",
+    "useAsAgent": "Utiliser comme agent",
+    "movedToAgents": "{name} est désormais un agent"
+  },
   "tablePreview": {
     "idle": "Appuyez sur Exécuter pour charger les lignes depuis la source.",
     "loading": "Chargement des lignes…",
@@ -6910,5 +6975,35 @@
       "search": "recherche",
       "read": "lecture"
     }
+  },
+  "agentAccess": {
+    "addMember": "Ajouter un membre",
+    "membersHint": "Les membres peuvent interroger cet agent. Attribuez des permissions supplémentaires ci-dessous.",
+    "everyone": "Toute l’organisation",
+    "query": "Peut interroger",
+    "manage": "Peut gérer",
+    "custom": "Accès personnalisé",
+    "ownerHint": "Le propriétaire peut toujours gérer cet agent.",
+    "editFor": "Modifier l’accès de {name}",
+    "removeHint": "Supprime l’adhésion et les permissions explicites. L’accès public, de groupe ou d’organisation peut subsister.",
+    "remove": "Retirer",
+    "noMembers": "Aucun membre explicite.",
+    "addTo": "Ajouter des personnes à {name}",
+    "thisAgent": "cet agent",
+    "who": "Qui",
+    "access": "Accès",
+    "advanced": "Permissions avancées",
+    "cancel": "Annuler",
+    "saving": "Enregistrement…",
+    "save": "Enregistrer",
+    "queryHint": "Poser des questions à cet agent",
+    "manageHint": "Configurer l’agent et gérer ses membres",
+    "addCount": "Ajouter {count}",
+    "add": "Ajouter",
+    "updated": "Permissions mises à jour",
+    "updateFailed": "Échec de la mise à jour des permissions",
+    "addIncomplete": "Certaines adhésions ou permissions n’ont pas été enregistrées. Vérifiez la liste et réessayez.",
+    "added": "Membres ajoutés",
+    "addFailed": "Échec de l’ajout des membres"
   }
 }

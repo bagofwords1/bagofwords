@@ -71,6 +71,12 @@ class Report(BaseSchema):
     # the tab is a presentation choice, not a data boundary.
     include_data_tab = Column(Boolean, nullable=False, default=True, server_default='1')
 
+    # The per-object provenance popover (the ⓘ on each widget, showing its
+    # Data / Code / Calculation) on the shared artifact page. Off by default;
+    # owners turn it on per dashboard in settings. Display-only like the Data
+    # tab — it exposes nothing the artifact iframe isn't already served.
+    show_widget_info = Column(Boolean, nullable=False, default=False, server_default='0')
+
     # Chat on the shared artifact page /r/{id}. Off by default; only meaningful
     # while artifact_visibility != 'none'. Viewer conversations never touch this
     # report's own transcript — each viewer gets a hidden child report

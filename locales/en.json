@@ -138,6 +138,16 @@
     "fileBrowserNoResults": "No files match “{q}”.",
     "fileBrowserSummaryKms": "{n} files listed for browsing · KMS permissions decide what the agent can search and read",
     "fileBrowserSummary": "{n} files in scope · the agent reads only these · denials are audited",
+    "fileBrowserRootMessages": "All conversations",
+    "fileBrowserSearchMessages": "Search messages…",
+    "fileBrowserEmptyMessages": "No recent messages in the conversations you can see.",
+    "fileBrowserSummaryLive": "{n} recent messages · read live with your own access · nothing is stored",
+    "countMessages": "{n} message | {n} messages",
+    "fileBrowserNoResultsMessages": "No messages match “{q}”.",
+    "loadingMessages": "Loading messages from the source…",
+    "fileBrowserConnectRequiredMessages": "Connect your account to browse — this connection reads messages with each user's own access.",
+    "liveSourceHint": "Searched live with each user's own access — only the channels, chats or mail they can see. Nothing is copied or indexed.",
+    "liveBadge": "Live",
     "fileBrowserTruncated": "Showing the first {shown} of {total} files — narrow the connection's scope to browse the rest.",
     "fileBrowserOpenInSource": "Open in source",
     "fileBrowserClosePreview": "Close preview",
@@ -1915,6 +1925,22 @@
       "filesSkippedSingular": "{count} file skipped ({reasons})",
       "filesSkippedPlural": "{count} files skipped ({reasons})"
     },
+    "searchFiles": {
+      "foundIn": "Found in:",
+      "fileName": "file name",
+      "page": "page {n}",
+      "sheet": "sheet {name}",
+      "offset": "offset {n}",
+      "partlyIndexed": "Only partly indexed (size limit)",
+      "noText": "No searchable text (scanned or binary)",
+      "notIndexed": "Could not be indexed",
+      "indexFulltext": "Full-text index",
+      "indexKeywords": "Keyword index",
+      "indexNames": "File name match",
+      "liveScan": "Live scan",
+      "plusLiveScan": "{index} + live scan",
+      "indexedAt": "indexed {when}"
+    },
     "readFile": {
       "reading": "Reading {name}…",
       "read": "Read {name}",
@@ -2191,6 +2217,7 @@
     "openPage": "Open page",
     "categories": {
       "dataSources": "Agents",
+      "connectors": "Connectors",
       "queries": "Queries",
       "files": "Files",
       "tables": "Tables",
@@ -2666,14 +2693,7 @@
           "socketStep3": "Event Subscriptions → enable events (no Request URL needed) and subscribe to: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
           "socketStep4": "Agents → turn ON \"Agent experience\" for the native assistant pane, thread naming, and suggested prompts",
           "socketStep5": "App Home → enable the Messages tab and allow users to send messages",
-          "socketStep6": "Install App → install to your workspace and copy the Bot User OAuth Token (xoxb-…)",
-          "channelRoutingTitle": "Channel → agent routing",
-          "channelRoutingDesc": "Point a channel at specific agents. A channel with none mapped uses the connection default; with no default it exposes everything the user can access. Routing only narrows access — it never grants more than a user already has.",
-          "connectionDefaultLabel": "Connection default",
-          "connectionDefaultDesc": "Used for channels without their own mapping.",
-          "channelPickerPlaceholder": "Choose agents…",
-          "noChannelsYet": "No channels yet. Mention the bot in a channel and it will show up here, or add one by id below.",
-          "channelsHeading": "Channels"
+          "socketStep6": "Install App → install to your workspace and copy the Bot User OAuth Token (xoxb-…)"
         },
         "teams": {
           "title": "Teams Integration",
@@ -2975,6 +2995,15 @@
           "tenantWide": "Tenant-wide deployment",
           "tenantWideDesc": "For organization-wide rollout, your Microsoft 365 admin can upload this manifest via Admin Center → Settings → Integrated apps.",
           "failedLoadManifest": "Failed to load manifest"
+        },
+        "routing": {
+          "title": "Channel → agent routing",
+          "desc": "Point a channel at specific agents. A channel with none mapped uses the connection default; with no default it exposes everything the user can access. Routing only narrows access — it never grants more than a user already has.",
+          "connectionDefaultLabel": "Connection default",
+          "connectionDefaultDesc": "Used for channels without their own mapping.",
+          "pickerPlaceholder": "Choose agents…",
+          "channelsHeading": "Channels",
+          "noChannelsYet": "No channels yet. Mention the bot in a channel and it will show up here, or add one by id below."
         }
       }
     },
@@ -4205,6 +4234,7 @@
     "saving": "Saving…",
     "saveAndContinue": "Save and Continue",
     "requestFailed": "Request failed",
+    "errorWithReference": "{message} (support reference: {id})",
     "unexpectedError": "Unexpected error",
     "errorTitle": "Error",
     "updateConnectionFailed": "Failed to update connection",
@@ -4316,7 +4346,7 @@
     "saveIntegration": "Save Integration",
     "loadFieldsFailed": "Failed to load fields",
     "integrationReady": "Integration ready",
-    "integrationReadyDesc": "{name} is connected and a public agent was created. Users can sign in to start using it.",
+    "integrationReadyDesc": "{name} is now available to everyone as a connector. Each person signs in with their own account.",
     "integrationAgentFailed": "Integration saved, but agent creation failed",
     "updateIntegrationFailed": "Failed to update integration",
     "createIntegrationFailed": "Failed to create integration",
@@ -4752,7 +4782,10 @@
     "connection.kms_token_format": "The KMS API token can contain only plain letters, digits and punctuation, with no spaces. Copy it again from KMS Lighthouse and paste it as plain text.",
     "connection.kms_use_connection_credentials": "KMS Lighthouse sign-ins are saved on the connection. Open the connection and connect from there.",
     "connection.kms_only": "Diagnostics apply to KMS Lighthouse connections only.",
-    "connection.kms_diagnostics_running": "Diagnostics are already running for this connection. Wait for them to finish, then try again."
+    "connection.kms_diagnostics_running": "Diagnostics are already running for this connection. Wait for them to finish, then try again.",
+    "connection.kms_login_rejected": "KMS Lighthouse did not accept this login, so it was not saved. Check the username and password, or the API token, and try again.",
+    "connection.kms_login_paused": "KMS Lighthouse recently refused this login, so new attempts with it are paused for a few minutes and it was not saved. Check the login, or try again later.",
+    "connection.kms_session_refused": "KMS Lighthouse accepted the login but refused its session, so it cannot be used and was not saved. Ask the KMS administrator whether this account may use the KMS API."
   },
   "email": {
     "dashboardShare": {
@@ -6961,7 +6994,9 @@
     "noConnection": "This agent has no connection yet.",
     "notFound": "This connection could not be found.",
     "forbidden": "You don't have access to this connection.",
-    "loadFailed": "Failed to load the connection. Try again later."
+    "loadFailed": "Failed to load the connection. Try again later.",
+    "connected": "Connected",
+    "connectedAs": "Connected as {identity}"
   },
   "dashboardCollab": {
     "presence": {
@@ -7295,6 +7330,8 @@
     "tabViewers": "Viewers",
     "tabData": "Data",
     "viewersDesc": "What the people you share it with get.",
+    "widgetInfoTitle": "Show details on widgets",
+    "widgetInfoDesc": "Adds an ⓘ to each widget that opens its data, code and calculation.",
     "dataDesc": "The queries behind this dashboard.",
     "unsaved": "Unsaved changes",
     "tabGeneral": "General",
@@ -7490,6 +7527,35 @@
     "embeddingEmpty": "Embedding is not configured",
     "oauthEmpty": "OAuth is not configured"
   },
+  "connectors": {
+    "title": "Connectors",
+    "subtitle": "Your own accounts and tools the AI can use. Each connector reads with your own access — nobody else sees your data.",
+    "browse": "Browse connectors",
+    "empty": "No connectors yet.",
+    "search": "Search connectors…",
+    "noResults": "No connectors match “{q}”.",
+    "signIn": "Sign in",
+    "signOut": "Sign out",
+    "remove": "Remove",
+    "statusConnected": "Connected",
+    "statusShared": "Shared",
+    "statusServiceAccount": "Service account",
+    "statusOffline": "Reconnect",
+    "statusNotConnected": "Not connected",
+    "needsSignIn": "{n} connector needs you to sign in | {n} connectors need you to sign in",
+    "accessPersonal": "Uses your own account",
+    "accessShared": "Uses a shared account set up by an admin",
+    "addHint": "Add more connectors from Agents → Add connection.",
+    "askAdmin": "Ask an admin to add more connectors.",
+    "removeConfirm": "Remove {name} for everyone in the organization? People's sign-ins to it are removed too.",
+    "signedOut": "Signed out of {name}",
+    "removed": "{name} removed",
+    "actionFailed": "Something went wrong",
+    "shareToggleLabel": "Make available to everyone in your org",
+    "shareToggleHint": "Adds “{name}” to everyone's connectors. Each person signs in with their own account — nobody sees anyone else's data.",
+    "useAsAgent": "Use as agent",
+    "movedToAgents": "{name} is now an agent"
+  },
   "tablePreview": {
     "idle": "Press Run to load rows from the source.",
     "loading": "Loading rows…",
@@ -7550,5 +7616,35 @@
       "search": "search",
       "read": "read"
     }
+  },
+  "agentAccess": {
+    "addMember": "Add member",
+    "membersHint": "Members can query this agent. Assign additional permissions below.",
+    "everyone": "Everyone in the organization",
+    "query": "Can query",
+    "manage": "Can manage",
+    "custom": "Custom access",
+    "ownerHint": "The owner can always manage this agent.",
+    "editFor": "Edit access for {name}",
+    "removeHint": "Removes explicit membership and permissions. Public, group or organization access may still apply.",
+    "remove": "Remove",
+    "noMembers": "No explicit members yet.",
+    "addTo": "Add people to {name}",
+    "thisAgent": "this agent",
+    "who": "Who",
+    "access": "Access",
+    "advanced": "Advanced permissions",
+    "cancel": "Cancel",
+    "saving": "Saving…",
+    "save": "Save",
+    "queryHint": "Ask this agent questions",
+    "manageHint": "Configure the agent and manage its members",
+    "addCount": "Add {count}",
+    "add": "Add",
+    "updated": "Permissions updated",
+    "updateFailed": "Failed to update permissions",
+    "addIncomplete": "Some memberships or permissions could not be saved. Review the member list and retry.",
+    "added": "Members added",
+    "addFailed": "Failed to add members"
   }
 }

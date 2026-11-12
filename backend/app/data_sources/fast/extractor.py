@@ -21,9 +21,7 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Optional
-
-import pyarrow as pa
+from typing import Any, Optional
 
 from app.data_sources.fast import artifacts, sql_dialect
 
@@ -53,6 +51,10 @@ class ExtractionRefused(Exception):
 
 class ExtractionAborted(Exception):
     """Raised mid-flight when a hard cap is breached."""
+
+
+class PublishCheckFailed(ExtractionAborted):
+    """The new artifact was built but must not replace the one being served."""
 
 
 @dataclass
@@ -95,11 +97,26 @@ class Estimate:
 
 @dataclass
 class ExtractResult:
-    row_count: int = 0
-    columns: list = field(default_factory=list)
+    """What one finished artifact holds and how it got there."""
+
     artifact_path: str = ""
     artifact_key: str = ""
     artifact_bytes: int = 0
+    row_count: int = 0
+    columns: list = field(default_factory=list)
+    # What the run moved: rows the source returned, and what that did to the
+    # table (an increment can insert, update and delete in one run).
+    rows_read: int = 0
+    rows_inserted: int = 0
+    rows_updated: int = 0
+    rows_deleted: int = 0
+    # Incremental tables: the highest cursor value now held, and how many rows
+    # have none.
+    max_cursor: Any = None
+    null_cursor_rows: int = 0
+    collapsed_duplicates: int = 0
+    schema_fingerprint: str = ""
+    notes: list = field(default_factory=list)
     elapsed_ms: int = 0
 
 
@@ -210,10 +227,6 @@ def preview(client, sql: str, limit: int = PREVIEW_ROW_LIMIT) -> tuple[list, lis
     return src.preview(sql, limit)
 
 
-def _arrow_type_name(t: pa.DataType) -> str:
-    return str(t)
-
-
 def extract_to_artifact(
     client,
     sql: str,
@@ -224,8 +237,11 @@ def extract_to_artifact(
     max_bytes: int = DEFAULT_MAX_BYTES,
     max_seconds: int = DEFAULT_MAX_SECONDS,
     should_abort: Callable[[], bool] | None = None,
+    run_id: str | None = None,
+    config=None,
+    previous_rows: int | None = None,
 ) -> ExtractResult:
-    """Stream `sql` into a fresh encrypted DuckDB artifact.
+    """Stream `sql` into a fresh encrypted DuckDB artifact — a full load.
 
     Writes to a `.tmp` sibling and atomically renames on success, so a crashed
     or aborted refresh can never leave a half-written artifact in place. The
@@ -237,111 +253,47 @@ def extract_to_artifact(
     sources that bill for it). A caller whose request was cancelled uses this
     to stop the source within one batch instead of waiting out the full scan.
     """
+    from app.data_sources.fast import incremental, loader
+
     started = time.monotonic()
     src = _source(client, sql)
-    key = artifacts.new_artifact_key()
-    final_path = artifacts.new_artifact_path(connection_id)
-    tmp_path = final_path.with_suffix(".tmp")
-
-    row_count = 0
-    columns: list = []
-    con = None
-
-    def _elapsed_guard():
-        if should_abort is not None and should_abort():
-            raise ExtractionAborted(
-                "Refresh was cancelled before it completed; "
-                "the previous data is still being served."
-            )
-        if time.monotonic() - started > max_seconds:
-            raise ExtractionAborted(
-                f"Refresh exceeded the {max_seconds}s limit and was aborted; "
-                f"the previous data is still being served."
-            )
-
+    if src is None:
+        src = _FallbackSource(client, max_rows)
+    run_id = run_id or loader.new_run_id()
+    config = config or incremental.RefreshConfig()
+    part_path, key = loader.new_part(connection_id)
+    limits = loader.Limits(max_rows=max_rows, max_bytes=max_bytes,
+                           deadline=started + max_seconds, should_abort=should_abort,
+                           max_seconds=max_seconds)
     try:
-        con = artifacts.connect_encrypted(tmp_path, key)
-        safe_rel = relation_name.replace('"', '""')
-
-        if src is not None:
-            # --- streaming path -------------------------------------------
-            # Arrow batches from the source, appended straight into DuckDB.
-            # Peak memory is O(batch), independent of result size, and a
-            # source whose API is already Arrow (BigQuery) pays no conversion.
-            first = True
-            batches = src.stream_batches(sql, BATCH_ROWS)
-            try:
-                for tbl in batches:
-                    _elapsed_guard()
-                    row_count += tbl.num_rows
-                    if row_count > max_rows:
-                        raise ExtractionAborted(
-                            f"Query returned more than the {max_rows:,}-row limit "
-                            f"for a custom table and was aborted."
-                        )
-                    con.register("bow_batch", tbl)
-                    if first:
-                        con.execute(
-                            f'CREATE TABLE "{safe_rel}" AS SELECT * FROM bow_batch'
-                        )
-                        columns = [
-                            {"name": f.name, "dtype": _arrow_type_name(f.type)}
-                            for f in tbl.schema
-                        ]
-                        first = False
-                    elif tbl.num_rows:
-                        con.execute(
-                            f'INSERT INTO "{safe_rel}" SELECT * FROM bow_batch'
-                        )
-                    con.unregister("bow_batch")
-
-                    if artifacts.artifact_size(str(tmp_path)) > max_bytes:
-                        raise ExtractionAborted(
-                            f"Artifact exceeded the "
-                            f"{max_bytes / (1024**3):.1f} GB limit and was aborted."
-                        )
-            finally:
-                # Closing the generator runs its cleanup — for BigQuery that
-                # cancels the still-running (still-billing) job. Without this,
-                # aborting on a cap would leave the source working for nobody.
-                batches.close()
-        else:
-            # --- fallback for clients we cannot stream ----------------------
-            # Bounded by an injected row limit so a non-streaming client still
-            # cannot pull an unbounded result into memory. Unreachable for the
-            # dialects in ACCELERABLE_TYPES, all of which stream.
-            bounded, _ = sql_dialect.bounded_sql(sql, max_rows, "")
-            df = client.execute_query(bounded)
-            row_count = len(df)
-            tbl = pa.Table.from_pandas(df, preserve_index=False)
-            con.register("bow_batch", tbl)
-            con.execute(f'CREATE TABLE "{safe_rel}" AS SELECT * FROM bow_batch')
-            con.unregister("bow_batch")
-            columns = [
-                {"name": f.name, "dtype": _arrow_type_name(f.type)}
-                for f in tbl.schema
-            ]
-
-        con.close()
-        con = None
-        tmp_path.replace(final_path)
-        # Object storage: every pod serves this extract, not just this one.
-        from app.services import storage
-        storage.persist(final_path)
-
-        return ExtractResult(
-            row_count=row_count,
-            columns=columns,
-            artifact_path=str(final_path),
-            artifact_key=key,
-            artifact_bytes=artifacts.artifact_size(str(final_path)),
-            elapsed_ms=int((time.monotonic() - started) * 1000),
-        )
+        read = loader.load_window(src, sql, part_path, key, relation_name, run_id, limits,
+                                  batch_rows=BATCH_ROWS)
+        outcome = loader.finalize(part_path, key, relation_name, config,
+                                  previous_rows=previous_rows, run_id=run_id)
     except BaseException:
-        if con is not None:
-            try:
-                con.close()
-            except Exception:
-                pass
-        artifacts.delete_artifact(str(tmp_path))
+        loader.discard_part(part_path)
         raise
+    outcome.rows_read = read
+    outcome.rows_inserted = outcome.row_count
+    outcome.elapsed_ms = int((time.monotonic() - started) * 1000)
+    return outcome
+
+
+class _FallbackSource:
+    """A client we cannot stream: one bounded `execute_query`.
+
+    Bounded by an injected row limit so it still cannot pull an unbounded
+    result into memory. Unreachable for the dialects in ACCELERABLE_TYPES, all
+    of which stream.
+    """
+
+    def __init__(self, client, max_rows: int):
+        self.client = client
+        self.max_rows = max_rows
+
+    def stream_batches(self, sql: str, batch_rows: int):
+        import pyarrow as pa
+
+        bounded, _ = sql_dialect.bounded_sql(sql, self.max_rows, "")
+        df = self.client.execute_query(bounded)
+        yield pa.Table.from_pandas(df, preserve_index=False)

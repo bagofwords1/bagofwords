@@ -122,6 +122,16 @@
     "fileBrowserNoResults": "Keine Dateien passen zu „{q}“.",
     "fileBrowserSummaryKms": "{n} Dateien zum Blättern aufgelistet · die KMS-Berechtigungen bestimmen, was der Agent suchen und lesen kann",
     "fileBrowserSummary": "{n} Dateien im Bereich · der Agent liest nur diese · verweigerte Zugriffe werden protokolliert",
+    "fileBrowserRootMessages": "Alle Unterhaltungen",
+    "fileBrowserSearchMessages": "Nachrichten durchsuchen…",
+    "fileBrowserEmptyMessages": "Keine aktuellen Nachrichten in den Unterhaltungen, die du sehen kannst.",
+    "fileBrowserSummaryLive": "{n} aktuelle Nachrichten · live mit deinen eigenen Rechten gelesen · nichts wird gespeichert",
+    "countMessages": "{n} Nachricht | {n} Nachrichten",
+    "fileBrowserNoResultsMessages": "Keine Nachrichten passen zu „{q}“.",
+    "loadingMessages": "Nachrichten werden aus der Quelle geladen…",
+    "fileBrowserConnectRequiredMessages": "Verbinde dein Konto, um zu stöbern — diese Verbindung liest Nachrichten mit den Rechten jedes Nutzers.",
+    "liveSourceHint": "Live mit den Rechten jedes Nutzers durchsucht — nur Kanäle, Chats oder E-Mails, die er sehen kann. Nichts wird kopiert oder indexiert.",
+    "liveBadge": "Live",
     "fileBrowserTruncated": "Die ersten {shown} von {total} Dateien werden angezeigt – schränken Sie den Bereich der Verbindung ein, um den Rest zu sehen.",
     "fileBrowserOpenInSource": "In der Quelle öffnen",
     "fileBrowserClosePreview": "Vorschau schließen",
@@ -1789,6 +1799,22 @@
       "filesSkippedSingular": "{count} Datei übersprungen ({reasons})",
       "filesSkippedPlural": "{count} Dateien übersprungen ({reasons})"
     },
+    "searchFiles": {
+      "foundIn": "Gefunden in:",
+      "fileName": "Dateiname",
+      "page": "Seite {n}",
+      "sheet": "Blatt {name}",
+      "offset": "Position {n}",
+      "partlyIndexed": "Nur teilweise indexiert (Größenlimit)",
+      "noText": "Kein durchsuchbarer Text (gescannt oder binär)",
+      "notIndexed": "Konnte nicht indexiert werden",
+      "indexFulltext": "Volltextindex",
+      "indexKeywords": "Stichwortindex",
+      "indexNames": "Treffer im Dateinamen",
+      "liveScan": "Live-Suche",
+      "plusLiveScan": "{index} + Live-Suche",
+      "indexedAt": "indexiert {when}"
+    },
     "listAgentExecutions": {
       "empty": "Keine Ausführungen gefunden",
       "failed": "Agentenausführungen konnten nicht geladen werden",
@@ -1989,6 +2015,7 @@
     "openPage": "Seite öffnen",
     "categories": {
       "dataSources": "Agenten",
+      "connectors": "Konnektoren",
       "queries": "Abfragen",
       "files": "Dateien",
       "tables": "Tabellen",
@@ -2345,14 +2372,7 @@
           "socketStep3": "Event Subscriptions → Ereignisse aktivieren (keine Request URL nötig) und abonnieren: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
           "socketStep4": "Agents → „Agent experience“ EINSCHALTEN für den nativen Assistenzbereich, die Thread-Benennung und Prompt-Vorschläge",
           "socketStep5": "App Home → den Messages-Tab aktivieren und Nachrichten von Nutzenden erlauben",
-          "socketStep6": "Install App → in deinem Workspace installieren und das Bot User OAuth Token kopieren (xoxb-…)",
-          "channelRoutingTitle": "Kanal → Agent-Routing",
-          "channelRoutingDesc": "Leiten Sie einen Kanal an bestimmte Agenten weiter. Ein Kanal ohne Zuordnung nutzt den Verbindungsstandard; ohne Standard stellt er alles bereit, worauf der Benutzer zugreifen kann. Das Routing schränkt den Zugriff nur ein – es gewährt nie mehr, als der Benutzer bereits hat.",
-          "connectionDefaultLabel": "Verbindungsstandard",
-          "connectionDefaultDesc": "Wird für Kanäle ohne eigene Zuordnung verwendet.",
-          "channelPickerPlaceholder": "Agenten auswählen…",
-          "noChannelsYet": "Noch keine Kanäle. Erwähnen Sie den Bot in einem Kanal, damit er hier erscheint, oder fügen Sie unten einen per ID hinzu.",
-          "channelsHeading": "Kanäle"
+          "socketStep6": "Install App → in deinem Workspace installieren und das Bot User OAuth Token kopieren (xoxb-…)"
         },
         "teams": {
           "title": "Teams-Integration",
@@ -2654,6 +2674,15 @@
           "subscriptionPlaceholder": "projects/<project>/subscriptions/<name>",
           "subtitle": "Google-Chat-Integration für deine Organisation konfigurieren und verwalten",
           "title": "Google-Chat-Integration"
+        },
+        "routing": {
+          "title": "Kanal → Agent-Routing",
+          "desc": "Leiten Sie einen Kanal an bestimmte Agenten weiter. Ein Kanal ohne Zuordnung nutzt den Verbindungsstandard; ohne Standard stellt er alles bereit, worauf der Benutzer zugreifen kann. Das Routing schränkt den Zugriff nur ein – es gewährt nie mehr, als der Benutzer bereits hat.",
+          "connectionDefaultLabel": "Verbindungsstandard",
+          "connectionDefaultDesc": "Wird für Kanäle ohne eigene Zuordnung verwendet.",
+          "pickerPlaceholder": "Agenten auswählen…",
+          "channelsHeading": "Kanäle",
+          "noChannelsYet": "Noch keine Kanäle. Erwähnen Sie den Bot in einem Kanal, damit er hier erscheint, oder fügen Sie unten einen per ID hinzu."
         }
       },
       "emptyTitle": "Bringen Sie BOW mit Ihren Tools zum Einsatz",
@@ -3843,7 +3872,7 @@
     "saveIntegration": "Integration speichern",
     "loadFieldsFailed": "Felder konnten nicht geladen werden",
     "integrationReady": "Integration bereit",
-    "integrationReadyDesc": "{name} ist verbunden und ein öffentlicher Agent wurde erstellt. Benutzer können sich anmelden und loslegen.",
+    "integrationReadyDesc": "{name} ist jetzt für alle als Konnektor verfügbar. Jede Person meldet sich mit ihrem eigenen Konto an.",
     "integrationAgentFailed": "Integration gespeichert, aber die Agent-Erstellung ist fehlgeschlagen",
     "updateIntegrationFailed": "Integration konnte nicht aktualisiert werden",
     "createIntegrationFailed": "Integration konnte nicht erstellt werden",
@@ -4319,7 +4348,10 @@
     "connection.kms_token_format": "Das KMS-API-Token darf nur einfache Buchstaben, Ziffern und Satzzeichen enthalten, ohne Leerzeichen. Kopieren Sie es erneut aus KMS Lighthouse und fügen Sie es als reinen Text ein.",
     "connection.kms_use_connection_credentials": "KMS-Lighthouse-Anmeldungen werden in der Verbindung gespeichert. Öffnen Sie die Verbindung und verbinden Sie sich dort.",
     "connection.kms_only": "Die Diagnose gilt nur für KMS Lighthouse-Verbindungen.",
-    "connection.kms_diagnostics_running": "Für diese Verbindung läuft bereits eine Diagnose. Warten Sie, bis sie abgeschlossen ist, und versuchen Sie es dann erneut."
+    "connection.kms_diagnostics_running": "Für diese Verbindung läuft bereits eine Diagnose. Warten Sie, bis sie abgeschlossen ist, und versuchen Sie es dann erneut.",
+    "connection.kms_login_rejected": "KMS Lighthouse hat diese Anmeldung nicht akzeptiert, daher wurde sie nicht gespeichert. Prüfen Sie Benutzername und Passwort oder das API-Token und versuchen Sie es erneut.",
+    "connection.kms_login_paused": "KMS Lighthouse hat diese Anmeldung kürzlich abgelehnt. Neue Versuche damit sind für einige Minuten pausiert, und sie wurde nicht gespeichert. Prüfen Sie die Anmeldung oder versuchen Sie es später erneut.",
+    "connection.kms_session_refused": "KMS Lighthouse hat die Anmeldung akzeptiert, aber ihre Sitzung abgelehnt. Sie kann daher nicht verwendet werden und wurde nicht gespeichert. Fragen Sie den KMS-Administrator, ob dieses Konto die KMS-API verwenden darf."
   },
   "email": {
     "dashboardShare": {
@@ -6416,7 +6448,9 @@
     "noConnection": "Dieser Agent hat noch keine Verbindung.",
     "notFound": "Diese Verbindung wurde nicht gefunden.",
     "forbidden": "Sie haben keinen Zugriff auf diese Verbindung.",
-    "loadFailed": "Die Verbindung konnte nicht geladen werden. Versuchen Sie es später erneut."
+    "loadFailed": "Die Verbindung konnte nicht geladen werden. Versuchen Sie es später erneut.",
+    "connected": "Verbunden",
+    "connectedAs": "Verbunden als {identity}"
   },
   "trackedChanges": {
     "noChanges": "Keine Änderungen"
@@ -6753,6 +6787,8 @@
     "tabViewers": "Betrachter",
     "tabData": "Daten",
     "viewersDesc": "Was die Personen bekommen, mit denen Sie es teilen.",
+    "widgetInfoTitle": "Details auf Widgets anzeigen",
+    "widgetInfoDesc": "Fügt jedem Widget ein ⓘ-Symbol hinzu, das seine Daten, seinen Code und seine Berechnung öffnet.",
     "dataDesc": "Die Abfragen hinter diesem Dashboard.",
     "unsaved": "Ungespeicherte Änderungen",
     "tabGeneral": "Allgemein",
@@ -6850,6 +6886,35 @@
     "embeddingEmpty": "Embedding is not configured",
     "oauthEmpty": "OAuth is not configured"
   },
+  "connectors": {
+    "title": "Konnektoren",
+    "subtitle": "Deine eigenen Konten und Tools, die die KI nutzen kann. Jeder Konnektor liest mit deinen eigenen Rechten — niemand sonst sieht deine Daten.",
+    "browse": "Konnektoren durchsuchen",
+    "empty": "Noch keine Konnektoren.",
+    "search": "Konnektoren suchen…",
+    "noResults": "Keine Konnektoren passen zu „{q}“.",
+    "signIn": "Anmelden",
+    "signOut": "Abmelden",
+    "remove": "Entfernen",
+    "statusConnected": "Verbunden",
+    "statusShared": "Geteilt",
+    "statusServiceAccount": "Dienstkonto",
+    "statusOffline": "Neu verbinden",
+    "statusNotConnected": "Nicht verbunden",
+    "needsSignIn": "{n} Konnektor erfordert eine Anmeldung | {n} Konnektoren erfordern eine Anmeldung",
+    "accessPersonal": "Nutzt dein eigenes Konto",
+    "accessShared": "Nutzt ein von einem Admin eingerichtetes geteiltes Konto",
+    "addHint": "Weitere Konnektoren unter Agenten → Verbindung hinzufügen.",
+    "askAdmin": "Bitte einen Admin, weitere Konnektoren hinzuzufügen.",
+    "removeConfirm": "{name} für alle in der Organisation entfernen? Die Anmeldungen der Nutzer werden ebenfalls entfernt.",
+    "signedOut": "Von {name} abgemeldet",
+    "removed": "{name} entfernt",
+    "actionFailed": "Etwas ist schiefgelaufen",
+    "shareToggleLabel": "Für alle in deiner Organisation verfügbar machen",
+    "shareToggleHint": "Fügt „{name}“ zu den Konnektoren aller hinzu. Jede Person meldet sich mit ihrem eigenen Konto an — niemand sieht die Daten anderer.",
+    "useAsAgent": "Als Agent verwenden",
+    "movedToAgents": "{name} ist jetzt ein Agent"
+  },
   "tablePreview": {
     "idle": "Auf „Ausführen“ klicken, um Zeilen aus der Quelle zu laden.",
     "loading": "Zeilen werden geladen…",
@@ -6910,5 +6975,35 @@
       "search": "Suche",
       "read": "Lesen"
     }
+  },
+  "agentAccess": {
+    "addMember": "Mitglied hinzufügen",
+    "membersHint": "Mitglieder können diesen Agenten befragen. Zusätzliche Berechtigungen unten zuweisen.",
+    "everyone": "Alle in der Organisation",
+    "query": "Darf abfragen",
+    "manage": "Darf verwalten",
+    "custom": "Benutzerdefinierter Zugriff",
+    "ownerHint": "Der Eigentümer kann diesen Agenten immer verwalten.",
+    "editFor": "Zugriff für {name} bearbeiten",
+    "removeHint": "Entfernt direkte Mitgliedschaft und Berechtigungen. Öffentlicher Zugriff sowie Gruppen- oder Organisationszugriff können weiter gelten.",
+    "remove": "Entfernen",
+    "noMembers": "Noch keine direkten Mitglieder.",
+    "addTo": "Personen zu {name} hinzufügen",
+    "thisAgent": "diesem Agenten",
+    "who": "Wer",
+    "access": "Zugriff",
+    "advanced": "Erweiterte Berechtigungen",
+    "cancel": "Abbrechen",
+    "saving": "Speichern…",
+    "save": "Speichern",
+    "queryHint": "Diesem Agenten Fragen stellen",
+    "manageHint": "Agenten konfigurieren und Mitglieder verwalten",
+    "addCount": "{count} hinzufügen",
+    "add": "Hinzufügen",
+    "updated": "Berechtigungen aktualisiert",
+    "updateFailed": "Berechtigungen konnten nicht aktualisiert werden",
+    "addIncomplete": "Einige Mitgliedschaften oder Berechtigungen konnten nicht gespeichert werden. Liste prüfen und erneut versuchen.",
+    "added": "Mitglieder hinzugefügt",
+    "addFailed": "Mitglieder konnten nicht hinzugefügt werden"
   }
 }

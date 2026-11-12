@@ -3,7 +3,7 @@ Google Drive, and any future client declaring the LIST_FILES / READ_FILE /
 SEARCH_FILES capabilities)."""
 from __future__ import annotations
 
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -65,6 +65,24 @@ class FileEntry(BaseModel):
     )
     is_read: Optional[bool] = Field(None, description="For EMAIL items, whether the message is marked read.")
     folder: Optional[str] = Field(None, description="For EMAIL items, the mail folder (or label) path when known.")
+    matches: Optional[List[Dict[str, Any]]] = Field(
+        None,
+        description=(
+            "search_files on a full-text indexed connection: where in the file "
+            "the query matched, best first. Each item has `kind` (page | sheet "
+            "| chars | bytes), the location (`page`, `sheet`, or `offset` + "
+            "`length`) and `read_with` — the read_file arguments that return "
+            "exactly that part. Empty when only the file's name matched."
+        ),
+    )
+    index_status: Optional[str] = Field(
+        None,
+        description=(
+            "Full-text index coverage of this file: 'indexed' (all of its "
+            "text), 'partial' (up to a size limit — a miss inside it is not "
+            "proof), 'no_text' (scanned/binary: findable by name only)."
+        ),
+    )
 
 
 # ----------------------------------------------------------- list_files
@@ -499,15 +517,27 @@ class SearchFilesInput(BaseModel):
             "passing the agent's own ID is the simplest path."
         ),
     )
-    query: str = Field(..., description="Free-text search query — matches filename / content depending on the provider.")
+    query: str = Field(
+        ...,
+        description=(
+            "Free-text search query — matches filename / content depending on "
+            "the provider. On a full-text indexed connection: any of the words "
+            "may match and results are ranked (rarer words count more), so "
+            "give the distinctive words — names, IDs, numbers, exact terms — "
+            "rather than a whole sentence; put an exact phrase in double quotes."
+        ),
+    )
     max_results: int = Field(default=50, ge=1, le=500)
     deep: bool = Field(
         default=False,
         description=(
-            "Also run an exhaustive live scan and merge it with the keyword-index "
+            "Also run an exhaustive live scan and merge it with the index "
             "hits. Slower — use only when the fast search misses a term you're "
             "sure is inside a file. On SharePoint Server the live scan matches "
-            "filenames only; the keyword index is the content search there."
+            "filenames only; the keyword index is the content search there. "
+            "On a full-text indexed connection the index already covers every "
+            "word of every readable file, so deep only helps for files added "
+            "since the last index run or ones reported as not fully indexed."
         ),
     )
     title: Optional[str] = _title_field()
@@ -520,8 +550,11 @@ class SearchFilesOutput(BaseModel):
     file_count: int = 0
     files: List[FileEntry] = Field(default_factory=list)
     error: Optional[str] = None
-    # "catalog" (keyword index or catalog name match), "live", or "catalog+live".
+    # "catalog" (full-text index, keyword index or catalog name match),
+    # "live", or "catalog+live".
     source: Optional[str] = None
+    # Which catalog answered: "fulltext" | "keywords" | "names" (None for live).
+    index: Optional[str] = None
     # When the catalog was last indexed (UTC ISO), for catalog answers.
     indexed_at: Optional[str] = None
     # True when a live scan stopped early; stop_reason says why

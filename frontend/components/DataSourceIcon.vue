@@ -72,6 +72,8 @@ const normalizeType = (raw: string) => {
     if (t === 'fabric' || t === 'microsoft_fabric') t = 'ms_fabric'
     if (t === 'qlik_sense' || t === 'qlik_sense_onprem') t = 'qlik'
     if (t === 'hana' || t === 'saphana') t = 'sap_hana'
+    if (t === 'ibm_db2' || t === 'db2_luw' || t === 'db2_zos') t = 'db2'
+    if (t === 'as400' || t === 'iseries' || t === 'db2_for_i' || t === 'ibm_i') t = 'ibmi'
     if (t === 'datasphere') t = 'sap_datasphere'
     if (t === 'sccm' || t === 'configmgr' || t === 'memcm') t = 'mecm'
     // SAP BusinessObjects and BW reuse the generic SAP logo (sap_datasphere.png).
@@ -123,6 +125,15 @@ const iconPath = computed(() => {
         intune: 'intune.png',
         elasticsearch: 'elasticsearch.svg',
         s3: 's3.svg',
+        gcs: 'gcs.svg',
+        azure_blob: 'azure_blob.svg',
+        iceberg: 'iceberg.svg',
+        dynamodb: 'dynamodb.svg',
+        cosmosdb: 'cosmosdb.svg',
+        couchbase: 'couchbase.svg',
+        cassandra: 'cassandra.svg',
+        dremio: 'dremio.svg',
+        hive: 'hive.svg',
         azure_cost: 'azure_cost.svg',
         vcenter: 'vcenter.svg',
         // Code connections reuse the provider brand assets.

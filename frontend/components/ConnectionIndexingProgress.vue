@@ -61,7 +61,9 @@
                 <UIcon name="heroicons-exclamation-triangle" class="w-4 h-4" />
                 <span class="font-medium">{{ $t(compact ? 'data.schemaRefreshFailed' : 'data.indexingFailed') }}</span>
             </div>
-            <div v-if="indexing?.error && !compact" class="mt-1 text-red-600 break-words">
+            <!-- The reason, not just the headline: in the compact status panel
+                 it used to be visible only after expanding the logs. -->
+            <div v-if="indexing?.error" class="mt-1 text-red-600 break-words" :class="{ 'text-xs line-clamp-3': compact }" data-testid="indexing-failure-reason">
                 {{ indexing.error }}
             </div>
         </div>

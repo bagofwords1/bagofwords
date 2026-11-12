@@ -142,11 +142,13 @@
 
         <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
           <template v-if="isDax">DAX <span class="text-ink-muted">— one EVALUATE against a Power BI semantic model</span></template>
-          <template v-else>SQL <span class="text-ink-muted">— in {{ activeConnectionType }} dialect</span></template>
+          <template v-else-if="queryLanguage === 'soql'">SOQL <span class="text-ink-muted">— one Salesforce query</span></template>
+          <template v-else-if="queryLanguage === 'sql'">SQL <span class="text-ink-muted">— in {{ activeConnectionType }} dialect</span></template>
+          <template v-else>Query <span class="text-ink-muted">— in this connection's own format, as its agent would send it</span></template>
         </label>
         <SqlEditor
           v-model="form.definition_sql"
-          :language="isDax ? 'dax' : (String(activeConnectionType).toLowerCase() === 'posthog' ? 'hogql' : 'sql')"
+          :language="editorLanguage"
           :connection-id="activeConnection?.id"
           :min-height="120"
           :max-height="360"
@@ -221,7 +223,9 @@
       </div>
 
       <!-- ============ CACHE ============ -->
-      <div v-show="tab === 'settings'">
+      <!-- Scrolls inside the modal: with the refresh options open this tab is
+           taller than a laptop screen, and the footer must stay reachable. -->
+      <div v-show="tab === 'settings'" class="max-h-[62vh] overflow-y-auto pe-1" data-testid="cq-settings">
         <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
           How often BOW re-runs this query against the source and refreshes the
           local copy. Between refreshes, agents read the cached data.
@@ -265,12 +269,173 @@
           Refreshing more often than the data is queried costs more than it saves.
         </p>
 
+        <!-- What each refresh fetches. Full is the default and what every
+             table created before this option does. -->
+        <div class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800" data-testid="cq-refresh-mode">
+          <div class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">What each refresh fetches</div>
+          <label class="flex items-start gap-2 mb-2 cursor-pointer">
+            <input type="radio" :value="false" v-model="incr.enabled" data-testid="cq-mode-full" class="mt-0.5" />
+            <span>
+              <span class="text-sm dark:text-gray-200">Everything, every time</span>
+              <span class="block text-2xs text-gray-500 dark:text-gray-400">Re-runs the whole query. Simple, and right for small or aggregated results.</span>
+            </span>
+          </label>
+          <label class="flex items-start gap-2 cursor-pointer">
+            <input type="radio" :value="true" v-model="incr.enabled" data-testid="cq-mode-incremental" class="mt-0.5" />
+            <span>
+              <span class="text-sm dark:text-gray-200">Only what is new</span>
+              <span class="block text-2xs text-gray-500 dark:text-gray-400">
+                The first load runs in chunks; after that each refresh reads only rows added or changed
+                since the last one. Much lighter on {{ activeConnectionName }} for large tables.
+              </span>
+              <span v-if="preview?.filters_at_source === false" class="block text-2xs text-amber-700 dark:text-amber-400" data-testid="cq-incremental-local">
+                {{ activeConnectionName }} cannot be asked for only the new rows, so each refresh still runs the
+                whole query and takes what is new from the result. Rows are kept here even after they leave that result.
+              </span>
+            </span>
+          </label>
+
+          <div v-if="incr.enabled" class="mt-3 ms-6 space-y-3" data-testid="cq-incremental-settings">
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-2xs text-gray-500 dark:text-gray-400 mb-1">Cursor column</label>
+                <select v-model="incr.cursor_column" data-testid="cq-cursor-column"
+                        class="w-full text-sm border border-gray-300 dark:border-gray-700 rounded-md px-2 py-1.5 dark:bg-gray-900 dark:text-white">
+                  <option value="">Choose a column…</option>
+                  <option v-for="c in resultColumns" :key="c" :value="c">{{ c }}</option>
+                </select>
+                <p class="text-2xs text-ink-muted mt-1">
+                  A date, timestamp or ever-increasing number that grows whenever a row is added or changed
+                  (e.g. <span class="font-mono">updated_at</span>).
+                </p>
+              </div>
+              <div>
+                <label class="block text-2xs text-gray-500 dark:text-gray-400 mb-1">Re-read the last</label>
+                <div class="flex items-center gap-2">
+                  <input type="number" min="0" v-model.number="incr.lookback_amount" data-testid="cq-lookback"
+                         class="w-20 text-sm border border-gray-300 dark:border-gray-700 rounded-md px-2 py-1.5 dark:bg-gray-900 dark:text-white" />
+                  <select v-model="incr.lookback_unit" data-testid="cq-lookback-unit"
+                          class="text-sm border border-gray-300 dark:border-gray-700 rounded-md px-2 py-1.5 dark:bg-gray-900 dark:text-white">
+                    <option value="minutes">minutes</option>
+                    <option value="hours">hours</option>
+                    <option value="days">days</option>
+                    <option value="units">cursor values (numeric cursor)</option>
+                  </select>
+                </div>
+                <p class="text-2xs text-ink-muted mt-1">
+                  Each refresh goes back this far before where the last one ended, to catch rows that arrived late.
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-2xs text-gray-500 dark:text-gray-400 mb-1">Can rows change after they are created?</label>
+              <label class="flex items-start gap-2 mb-1 cursor-pointer">
+                <input type="radio" value="merge" v-model="incr.mode" data-testid="cq-incr-merge" class="mt-0.5" />
+                <span class="text-sm dark:text-gray-200">Yes — match rows by a key, the newest version wins</span>
+              </label>
+              <div v-if="incr.mode === 'merge'" class="ms-6 mb-2">
+                <div class="flex flex-wrap gap-1.5" data-testid="cq-unique-key">
+                  <label v-for="c in resultColumns" :key="c"
+                         class="flex items-center gap-1 text-2xs border rounded px-1.5 py-0.5 cursor-pointer"
+                         :class="incr.unique_key.includes(c)
+                           ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                           : 'border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-300'">
+                    <input type="checkbox" class="hidden" :value="c" v-model="incr.unique_key" :data-testid="`cq-key-${c}`" />
+                    <span class="font-mono">{{ c }}</span>
+                  </label>
+                </div>
+                <p class="text-2xs text-ink-muted mt-1">The column(s) that identify one row, e.g. <span class="font-mono">id</span>.</p>
+              </div>
+              <label class="flex items-start gap-2 cursor-pointer">
+                <input type="radio" value="append" v-model="incr.mode" data-testid="cq-incr-append" class="mt-0.5" />
+                <span>
+                  <span class="text-sm dark:text-gray-200">No — rows are only ever added, or the query groups by a period</span>
+                  <span class="block text-2xs text-gray-500 dark:text-gray-400">No key needed: the re-read range is replaced as a whole.</span>
+                </span>
+              </label>
+            </div>
+
+            <button type="button" class="text-2xs text-blue-600 dark:text-blue-400 hover:underline"
+                    data-testid="cq-incr-advanced-toggle" @click="incr.showAdvanced = !incr.showAdvanced">
+              {{ incr.showAdvanced ? 'Hide' : 'Show' }} advanced options
+            </button>
+            <div v-if="incr.showAdvanced" class="grid grid-cols-2 gap-3" data-testid="cq-incr-advanced">
+              <div>
+                <label class="block text-2xs text-gray-500 dark:text-gray-400 mb-1">Full refresh every</label>
+                <div class="flex items-center gap-2">
+                  <input type="number" min="0" v-model.number="incr.full_refresh_every_days" data-testid="cq-full-every"
+                         class="w-20 text-sm border border-gray-300 dark:border-gray-700 rounded-md px-2 py-1.5 dark:bg-gray-900 dark:text-white" />
+                  <span class="text-sm text-gray-600 dark:text-gray-300">days</span>
+                </div>
+                <p class="text-2xs text-ink-muted mt-1">The only way rows deleted at the source disappear here. 0 turns it off.</p>
+              </div>
+              <div>
+                <label class="block text-2xs text-gray-500 dark:text-gray-400 mb-1">Start from <span class="text-ink-muted">(optional)</span></label>
+                <input v-model="incr.initial_value" data-testid="cq-initial-value" placeholder="2024-01-01"
+                       class="w-full text-sm border border-gray-300 dark:border-gray-700 rounded-md px-2 py-1.5 dark:bg-gray-900 dark:text-white font-mono" />
+                <p class="text-2xs text-ink-muted mt-1">Leave older rows out of the first load.</p>
+              </div>
+              <div>
+                <label class="block text-2xs text-gray-500 dark:text-gray-400 mb-1">Cursor type</label>
+                <select v-model="incr.cursor_kind" data-testid="cq-cursor-kind"
+                        class="w-full text-sm border border-gray-300 dark:border-gray-700 rounded-md px-2 py-1.5 dark:bg-gray-900 dark:text-white">
+                  <option value="">Detect from the data</option>
+                  <option value="timestamp">Timestamp</option>
+                  <option value="date">Date</option>
+                  <option value="number">Number</option>
+                  <option value="text">Text</option>
+                </select>
+                <p class="text-2xs text-ink-muted mt-1">
+                  Required when the query places the filter itself with
+                  <span class="font-mono" v-pre>{{since}}</span> / <span class="font-mono" v-pre>{{until}}</span>.
+                </p>
+              </div>
+              <div>
+                <label class="block text-2xs text-gray-500 dark:text-gray-400 mb-1">Query groups by</label>
+                <select v-model="incr.grain" data-testid="cq-grain"
+                        class="w-full text-sm border border-gray-300 dark:border-gray-700 rounded-md px-2 py-1.5 dark:bg-gray-900 dark:text-white">
+                  <option value="">Nothing — one row per source row</option>
+                  <option value="hour">Hour</option>
+                  <option value="day">Day</option>
+                  <option value="month">Month</option>
+                </select>
+                <p class="text-2xs text-ink-muted mt-1">Starts each refresh on a whole period, so no total is built from part of one.</p>
+              </div>
+            </div>
+
+            <p v-if="!isRequest && preview?.filters_at_source !== false" class="text-2xs text-ink-muted" data-testid="cq-placeholder-hint">
+              By default the filter is added to your query for you. For a join or a large table, place it on the
+              source column yourself so the source can use its index:
+              <span class="font-mono" v-pre>WHERE updated_at &gt;= {{since}}</span>.
+            </p>
+            <p v-if="incrError" class="text-2xs text-red-600" data-testid="cq-incr-error">{{ incrError }}</p>
+          </div>
+
+          <label class="flex items-center gap-2 mt-4 text-sm dark:text-gray-200">
+            <input type="checkbox" v-model="incr.guard_enabled" data-testid="cq-guard-enabled" />
+            Keep the previous data if a refresh loses more than
+            <input type="number" min="1" max="100" v-model.number="incr.row_drop_guard_pct" data-testid="cq-guard-pct"
+                   :disabled="!incr.guard_enabled"
+                   class="w-16 text-sm border border-gray-300 dark:border-gray-700 rounded-md px-2 py-1 dark:bg-gray-900 dark:text-white disabled:opacity-40" />
+            % of the rows
+          </label>
+        </div>
+
         <div v-if="editing && cq" class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800 text-xs text-gray-600 dark:text-gray-400 space-y-1">
           <div>Last refreshed: <b>{{ cq.last_refreshed_at ? new Date(cq.last_refreshed_at + 'Z').toLocaleString() : 'never' }}</b>
             <span v-if="cq.last_refresh_ms != null"> ({{ cq.last_refresh_ms }} ms)</span></div>
           <div>Rows cached: <b>{{ (cq.no_rows || 0).toLocaleString() }}</b></div>
           <div v-if="cq.next_run_at">Next refresh: <b>{{ new Date(cq.next_run_at).toLocaleString() }}</b></div>
           <div v-if="cq.artifact_bytes">Local size: <b>{{ humanBytes(cq.artifact_bytes) }}</b></div>
+          <div v-if="cq.checkpoint" data-testid="cq-checkpoint">Loaded up to: <b>{{ cursorText(cq.checkpoint) }}</b>
+            <span class="text-ink-muted"> — the next refresh reads from here</span></div>
+          <div v-if="cq.last_full_refresh_at">Last full refresh: <b>{{ new Date(cq.last_full_refresh_at + 'Z').toLocaleString() }}</b></div>
+          <div v-if="cq.load_progress" data-testid="cq-load-progress" class="text-amber-700 dark:text-amber-400">
+            First load in progress: <b>{{ cq.load_progress.windows_done }} of {{ cq.load_progress.windows_total }}</b> chunks,
+            {{ (cq.load_progress.rows || 0).toLocaleString() }}<span v-if="cq.load_progress.source_rows"> of {{ cq.load_progress.source_rows.toLocaleString() }}</span> rows.
+            It continues on its own.
+          </div>
           <div v-if="cq.last_refresh_error" class="text-red-600 dark:text-red-400">Last error: {{ cq.last_refresh_error }}</div>
         </div>
 
@@ -290,6 +455,105 @@
             <UIcon v-else name="heroicons-trash" class="w-3.5 h-3.5" />
             Delete custom table
           </button>
+        </div>
+      </div>
+
+      <!-- ============ RUNS ============ -->
+      <div v-show="tab === 'runs'" data-testid="cq-runs">
+        <div class="flex items-center justify-between mb-2">
+          <p class="text-xs text-gray-500 dark:text-gray-400">
+            Every refresh of this table: what started it, what it read from
+            {{ activeConnectionName }} and what that changed here. Kept for 30 days.
+          </p>
+          <button class="flex items-center gap-1 text-2xs text-gray-600 dark:text-gray-300 hover:underline"
+                  data-testid="cq-runs-reload" :disabled="runsLoading" @click="loadRuns(true)">
+            <Spinner v-if="runsLoading" class="w-3 h-3" />
+            <UIcon v-else name="heroicons-arrow-path" class="w-3 h-3" />
+            Reload
+          </button>
+        </div>
+        <div v-if="runsError" class="text-2xs text-red-600 mb-2">{{ runsError }}</div>
+        <div v-if="!runs.length && !runsLoading" class="text-sm text-gray-500 dark:text-gray-400 py-8 text-center" data-testid="cq-runs-empty">
+          No refreshes recorded yet.
+        </div>
+        <div v-else class="flex gap-4">
+          <div class="w-1/2 border border-gray-200 dark:border-gray-800 rounded-md overflow-auto" style="max-height: 420px">
+            <table class="min-w-full text-2xs">
+              <thead class="bg-gray-50 dark:bg-gray-900 sticky top-0">
+                <tr class="text-start text-gray-600 dark:text-gray-300">
+                  <th class="text-start font-medium px-2 py-1.5">Started</th>
+                  <th class="text-start font-medium px-2 py-1.5">Why</th>
+                  <th class="text-start font-medium px-2 py-1.5">Kind</th>
+                  <th class="text-start font-medium px-2 py-1.5">Result</th>
+                  <th class="text-end font-medium px-2 py-1.5">Read</th>
+                  <th class="text-end font-medium px-2 py-1.5">Took</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="r in runs" :key="r.id" :data-testid="`cq-run-${r.status}`"
+                    class="border-t border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                    :class="selectedRun?.id === r.id ? 'bg-blue-50 dark:bg-blue-900/20' : ''"
+                    @click="openRun(r)">
+                  <td class="px-2 py-1.5 whitespace-nowrap text-gray-700 dark:text-gray-300">{{ when(r.started_at) }}</td>
+                  <td class="px-2 py-1.5 text-gray-700 dark:text-gray-300">{{ triggerLabel(r.trigger) }}</td>
+                  <td class="px-2 py-1.5 text-gray-700 dark:text-gray-300">{{ r.mode === 'incremental' ? 'New rows' : 'Full' }}</td>
+                  <td class="px-2 py-1.5">
+                    <span class="px-1.5 py-0.5 rounded" :class="statusClass(r.status)">{{ statusLabel(r) }}</span>
+                  </td>
+                  <td class="px-2 py-1.5 text-end font-mono text-gray-700 dark:text-gray-300">{{ r.rows_read != null ? r.rows_read.toLocaleString() : '—' }}</td>
+                  <td class="px-2 py-1.5 text-end text-gray-700 dark:text-gray-300 whitespace-nowrap">{{ took(r.elapsed_ms) }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <button v-if="runsHasMore" class="w-full text-2xs text-blue-600 dark:text-blue-400 py-1.5 hover:underline"
+                    data-testid="cq-runs-more" @click="loadRuns(false)">Show older</button>
+          </div>
+
+          <div class="w-1/2 text-xs text-gray-700 dark:text-gray-300" data-testid="cq-run-detail">
+            <div v-if="!selectedRun" class="text-gray-500 dark:text-gray-400 py-8 text-center">Select a run to see what it did.</div>
+            <div v-else class="space-y-2">
+              <div class="flex items-center gap-2">
+                <span class="px-1.5 py-0.5 rounded text-2xs" :class="statusClass(selectedRun.status)">{{ statusLabel(selectedRun) }}</span>
+                <span>{{ when(selectedRun.started_at) }}</span>
+                <span v-if="selectedRun.triggered_by" class="text-ink-muted">by {{ selectedRun.triggered_by.name }}</span>
+              </div>
+              <div v-if="selectedRun.error" class="text-2xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md px-2 py-1.5"
+                   data-testid="cq-run-error">{{ selectedRun.error }}</div>
+              <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-2xs">
+                <div>Read from source: <b>{{ num(selectedRun.rows_read) }}</b></div>
+                <div>Rows in table after: <b>{{ num(selectedRun.row_count) }}</b></div>
+                <div>Added: <b>{{ num(selectedRun.rows_inserted) }}</b></div>
+                <div>Changed: <b>{{ num(selectedRun.rows_updated) }}</b></div>
+                <div>Removed: <b>{{ num(selectedRun.rows_deleted) }}</b></div>
+                <div>Size: <b>{{ humanBytes(selectedRun.artifact_bytes) }}</b></div>
+                <div v-if="selectedRun.window_from" class="col-span-2">Read from: <b>{{ cursorText(selectedRun.window_from) }}</b></div>
+                <div v-if="selectedRun.window_to" class="col-span-2">Loaded up to: <b>{{ cursorText(selectedRun.window_to) }}</b></div>
+              </div>
+              <div v-if="selectedRun.chunks?.length" data-testid="cq-run-chunks">
+                <div class="text-2xs font-medium mb-1">Chunks ({{ selectedRun.chunks_done }} of {{ selectedRun.chunks_total }} done)</div>
+                <div class="flex flex-wrap gap-0.5">
+                  <span v-for="(c, i) in selectedRun.chunks" :key="i"
+                        :title="`${cursorText(c.lo) || 'start'} → ${cursorText(c.hi) || 'end'}: ${c.rows != null ? c.rows.toLocaleString() + ' rows' : 'not loaded yet'}`"
+                        class="w-3 h-3 rounded-sm"
+                        :class="c.status === 'done' ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-700'"></span>
+                </div>
+              </div>
+              <div v-if="selectedRun.events?.length" data-testid="cq-run-events">
+                <div class="text-2xs font-medium mb-1">Log</div>
+                <ul class="text-2xs space-y-0.5 max-h-32 overflow-auto">
+                  <li v-for="(e, i) in selectedRun.events" :key="i"
+                      :class="e.level === 'warning' ? 'text-amber-700 dark:text-amber-400' : e.level === 'error' ? 'text-red-600' : ''">
+                    <span class="text-ink-muted font-mono">{{ (e.at || '').slice(11, 19) }}</span> {{ e.message }}
+                  </li>
+                </ul>
+              </div>
+              <div v-if="selectedRun.rendered_query" data-testid="cq-run-query">
+                <div class="text-2xs font-medium mb-1">Query sent to the source</div>
+                <!-- A query reads left to right in every UI language. -->
+                <pre dir="ltr" class="text-start text-2xs font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-md p-2 overflow-auto max-h-32 whitespace-pre-wrap">{{ selectedRun.rendered_query }}</pre>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -483,11 +747,21 @@
             v-if="editing"
             data-testid="cq-refresh-now"
             class="flex items-center gap-1.5 border border-gray-300 dark:border-gray-700 rounded-md px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
-            :disabled="refreshingNow" @click="onRefreshNow"
+            :disabled="refreshingNow" @click="onRefreshNow(false)"
           >
             <Spinner v-if="refreshingNow" class="w-3.5 h-3.5" />
             <UIcon v-else name="heroicons-arrow-path" class="w-3.5 h-3.5" />
             Refresh now
+          </button>
+          <button
+            v-if="editing && cq?.refresh_mode && cq.refresh_mode !== 'full'"
+            data-testid="cq-full-refresh"
+            title="Rebuild the whole table from the source: picks up deleted rows and changes older than the lookback"
+            class="flex items-center gap-1.5 border border-gray-300 dark:border-gray-700 rounded-md px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
+            :disabled="refreshingNow" @click="onRefreshNow(true)"
+          >
+            <UIcon name="heroicons-arrow-path-rounded-square" class="w-3.5 h-3.5" />
+            Full refresh
           </button>
           <button
             data-testid="cq-save"
@@ -578,6 +852,26 @@ watch(selectedConnectionId, (next, prev) => {
 // from the tables the DAX references; this picker is the explicit override,
 // sent along with preview and save so both address the same model.
 const isDax = computed(() => (activeConnectionType.value || '').toLowerCase() === 'powerbi')
+// Any connector that can run a query can be cached, and they do not all speak
+// SQL. The language only decides how the editor highlights and what the label
+// says; the query is sent to the connector as written.
+const SQL_TYPES = [
+  'aws_athena', 'aws_redshift', 'bigquery', 'clickhouse', 'databricks_sql', 'druid', 'duckdb', 'mariadb',
+  'ms_fabric', 'mssql', 'mysql', 'oracledb', 'postgresql', 'snowflake', 'spark_connect', 'sqlite',
+  'starburst', 'sybase', 'teradata', 'trino',
+]
+const queryLanguage = computed(() => {
+  const type = (activeConnectionType.value || '').toLowerCase()
+  if (type === 'powerbi') return 'dax'
+  if (type === 'posthog') return 'hogql'
+  if (type === 'salesforce') return 'soql'
+  return SQL_TYPES.includes(type) ? 'sql' : 'other'
+})
+const isRequest = computed(() => queryLanguage.value === 'other')
+const editorLanguage = computed(() => {
+  if (queryLanguage.value === 'other') return /^\s*[{[]/.test(form.definition_sql) ? 'json' : 'text'
+  return queryLanguage.value === 'soql' ? 'sql' : queryLanguage.value
+})
 const targets = ref<any[]>([])
 const targetDatasetId = ref('')
 const currentTarget = computed(() => targets.value.find((t) => t.datasetId === targetDatasetId.value) || null)
@@ -597,6 +891,7 @@ async function loadTargets() {
 const tabs = computed(() => [
   { key: 'query', label: 'Query', disabled: false },
   { key: 'settings', label: 'Settings', disabled: false },
+  { key: 'runs', label: 'Runs', disabled: !editing.value, hint: 'save first' },
   {
     key: 'rls',
     label: 'Row-level security',
@@ -622,6 +917,158 @@ const form = reactive({
   refresh_at_time: '03:00',
 })
 
+// ---------------------------------------------------------------------------
+// What each refresh fetches
+// ---------------------------------------------------------------------------
+const DEFAULT_GUARD_PCT = 50
+const incr = reactive({
+  enabled: false,
+  mode: 'merge' as 'merge' | 'append',
+  cursor_column: '',
+  unique_key: [] as string[],
+  lookback_amount: 1,
+  lookback_unit: 'days',
+  full_refresh_every_days: 7,
+  initial_value: '',
+  cursor_kind: '',
+  grain: '',
+  guard_enabled: true,
+  row_drop_guard_pct: DEFAULT_GUARD_PCT,
+  showAdvanced: false,
+})
+
+function loadIncrFromCq() {
+  const cq: any = props.cq || null
+  const c: any = cq?.refresh_config || {}
+  incr.enabled = !!cq && cq.refresh_mode && cq.refresh_mode !== 'full'
+  incr.mode = cq?.refresh_mode === 'append' ? 'append' : 'merge'
+  incr.cursor_column = c.cursor_column || ''
+  incr.unique_key = Array.isArray(c.unique_key) ? [...c.unique_key] : []
+  if (c.lookback_units != null) {
+    incr.lookback_amount = c.lookback_units
+    incr.lookback_unit = 'units'
+  } else {
+    const secs = c.lookback_seconds != null ? Number(c.lookback_seconds) : 86400
+    if (secs % 86400 === 0) { incr.lookback_amount = secs / 86400; incr.lookback_unit = 'days' }
+    else if (secs % 3600 === 0) { incr.lookback_amount = secs / 3600; incr.lookback_unit = 'hours' }
+    else { incr.lookback_amount = Math.round(secs / 60); incr.lookback_unit = 'minutes' }
+  }
+  incr.full_refresh_every_days = c.full_refresh_every_days != null ? c.full_refresh_every_days : 7
+  incr.initial_value = c.initial_value || ''
+  incr.cursor_kind = c.cursor_kind || ''
+  incr.grain = c.grain || ''
+  // A table created before the guard existed has none; a new one starts with it.
+  incr.guard_enabled = cq ? c.row_drop_guard_pct != null : true
+  incr.row_drop_guard_pct = c.row_drop_guard_pct != null ? c.row_drop_guard_pct : DEFAULT_GUARD_PCT
+  incr.showAdvanced = !!(c.initial_value || c.cursor_kind || c.grain)
+}
+
+const usesPlaceholders = computed(() => /\{\{\s*(since|until)\s*\}\}/i.test(form.definition_sql))
+
+// Why the incremental settings cannot be saved yet, in the admin's terms.
+const incrError = computed(() => {
+  if (!incr.enabled) return ''
+  if (!incr.cursor_column) return 'Choose the cursor column.'
+  if (incr.mode === 'merge' && !incr.unique_key.length) return 'Choose the key column(s), or say rows are only ever added.'
+  if (usesPlaceholders.value && !incr.cursor_kind) return 'This query uses {{since}} — choose the cursor type under advanced options.'
+  return ''
+})
+
+function refreshPayload() {
+  const seconds: Record<string, number> = { minutes: 60, hours: 3600, days: 86400 }
+  const amount = Math.max(0, Number(incr.lookback_amount) || 0)
+  const config: any = {
+    row_drop_guard_pct: incr.guard_enabled ? (Number(incr.row_drop_guard_pct) || DEFAULT_GUARD_PCT) : null,
+  }
+  if (incr.enabled) {
+    Object.assign(config, {
+      cursor_column: incr.cursor_column,
+      cursor_kind: incr.cursor_kind || null,
+      unique_key: incr.mode === 'merge' ? incr.unique_key : [],
+      lookback_seconds: incr.lookback_unit === 'units' ? null : amount * seconds[incr.lookback_unit],
+      lookback_units: incr.lookback_unit === 'units' ? amount : null,
+      initial_value: incr.initial_value.trim() || null,
+      grain: incr.grain || null,
+      full_refresh_every_days: Number(incr.full_refresh_every_days) || 0,
+    })
+  }
+  return { refresh_mode: incr.enabled ? incr.mode : 'full', refresh_config: config }
+}
+
+// ---------------------------------------------------------------------------
+// Run history
+// ---------------------------------------------------------------------------
+const runs = ref<any[]>([])
+const runsLoading = ref(false)
+const runsError = ref('')
+const runsHasMore = ref(false)
+const runsNextBefore = ref<string | null>(null)
+const selectedRun = ref<any>(null)
+
+async function loadRuns(reset: boolean) {
+  if (!editing.value || !activeConnection.value?.id) return
+  runsLoading.value = true
+  runsError.value = ''
+  try {
+    const query: any = { limit: 20 }
+    if (!reset && runsNextBefore.value) query.before = runsNextBefore.value
+    const { data, error } = await useMyFetch(
+      `/connections/${activeConnection.value.id}/custom-queries/${props.cq.id}/runs`, { method: 'GET', query })
+    if (error.value) {
+      runsError.value = error.value?.data?.detail || 'Could not load the run history'
+      return
+    }
+    const page: any = data.value || {}
+    runs.value = reset ? (page.runs || []) : [...runs.value, ...(page.runs || [])]
+    runsHasMore.value = !!page.has_more
+    runsNextBefore.value = page.next_before || null
+    if (reset && runs.value.length) await openRun(selectedRun.value ? (runs.value.find((r) => r.id === selectedRun.value.id) || runs.value[0]) : runs.value[0])
+  } finally {
+    runsLoading.value = false
+  }
+}
+
+async function openRun(run: any) {
+  selectedRun.value = run
+  const { data, error } = await useMyFetch(
+    `/connections/${activeConnection.value.id}/custom-queries/${props.cq.id}/runs/${run.id}`, { method: 'GET' })
+  if (!error.value && data.value && selectedRun.value?.id === run.id) selectedRun.value = data.value
+}
+
+function when(v: any) {
+  if (!v) return '—'
+  const s = String(v)
+  return new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? s : s + 'Z').toLocaleString()
+}
+function took(ms: any) {
+  if (ms == null) return '—'
+  return ms < 1000 ? `${ms} ms` : ms < 60000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`
+}
+function num(v: any) { return v == null ? '—' : Number(v).toLocaleString() }
+function triggerLabel(t: string) {
+  return ({ create: 'Created', schedule: 'Schedule', manual: 'Manual', definition: 'Query changed', resume: 'Continued' } as any)[t] || t
+}
+function statusLabel(r: any) {
+  if (r.status === 'partial') return r.chunks_total ? `Paused ${r.chunks_done}/${r.chunks_total}` : 'Paused'
+  return ({ success: 'OK', failed: 'Failed', running: 'Running', cancelled: 'Cancelled', interrupted: 'Interrupted' } as any)[r.status] || r.status
+}
+function statusClass(status: string) {
+  if (status === 'success') return 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300'
+  if (status === 'failed' || status === 'interrupted') return 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'
+  if (status === 'running' || status === 'partial') return 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+  return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
+}
+// A typed cursor value ({kind, value, tz}) as text. Epoch-millisecond numbers
+// (monitoring APIs) are shown as the moment they are.
+function cursorText(c: any) {
+  if (!c || c.value == null) return ''
+  if (c.kind === 'timestamp') return String(c.value).replace('T', ' ').replace(/\.000000$/, '') + (c.tz ? ' UTC' : '')
+  if (c.kind === 'number' && /^\d{13}$/.test(String(c.value))) {
+    return `${new Date(Number(c.value)).toLocaleString()} (${c.value})`
+  }
+  return String(c.value)
+}
+
 // A successful preview is what supplies the column list, so saving without one
 // would create a relation with no known shape.
 const canSave = computed(() =>
@@ -629,6 +1076,7 @@ const canSave = computed(() =>
   && !!form.definition_sql.trim()
   && !!preview.value
   && !preview.value?.budget_error
+  && !incrError.value
 )
 
 watch(() => props.modelValue, (open) => {
@@ -638,6 +1086,9 @@ watch(() => props.modelValue, (open) => {
   previewError.value = ''
   rlsPreviewUserId.value = ''
   loadRlsFromCq()
+  loadIncrFromCq()
+  runs.value = []
+  selectedRun.value = null
   selectedConnectionId.value = props.cq?.connection_id || props.connectionId || (availableConnections.value[0]?.id || '')
   targetDatasetId.value = props.cq?.target?.datasetId || ''
   loadTargets()
@@ -790,6 +1241,7 @@ async function onPreviewAsUser() {
 }
 
 watch(tab, (t) => {
+  if (t === 'runs' && editing.value) loadRuns(true)
   if (t !== 'rls' || !editing.value || !rlsLicensed.value) return
   if (!rlsOptions.members.length) loadRlsOptions()
 })
@@ -835,7 +1287,14 @@ async function runPreview() {
   try {
     const { data, error } = await useMyFetch(
       `/connections/${activeConnection.value.id}/custom-queries/preview`,
-      { method: 'POST', body: { definition_sql: form.definition_sql, target: targetPayload() } },
+      {
+        method: 'POST',
+        body: {
+          definition_sql: form.definition_sql,
+          target: targetPayload(),
+          refresh_config: { cursor_column: incr.cursor_column || null, cursor_kind: incr.cursor_kind || null },
+        },
+      },
     )
     if (error.value) {
       previewError.value = error.value?.data?.detail || 'Query failed'
@@ -859,6 +1318,7 @@ async function onSave() {
       refresh_schedule_mode: form.refresh_schedule_mode,
       refresh_interval_minutes: form.refresh_interval_minutes,
       refresh_at_time: form.refresh_schedule_mode === 'time' ? form.refresh_at_time : null,
+      ...refreshPayload(),
     }
     if (isDax.value) {
       // Always sent on a DAX table: an empty object clears a previous pin
@@ -891,22 +1351,31 @@ async function onSave() {
   }
 }
 
-async function onRefreshNow() {
+async function onRefreshNow(full = false) {
   refreshingNow.value = true
   try {
     const { data, error } = await useMyFetch(
       `/connections/${activeConnection.value.id}/custom-queries/${props.cq.id}/refresh`,
-      { method: 'POST' },
+      { method: 'POST', query: full ? { full: true } : {} },
     )
     if (error.value) {
       toast.add({ title: 'Refresh failed', description: error.value?.data?.detail || 'Failed', color: 'red' })
       return
     }
     const r: any = data.value
-    toast.add({ title: 'Refreshed', description: `${(r.no_rows || 0).toLocaleString()} rows in ${r.last_refresh_ms} ms`, color: 'green' })
+    if (r.load_progress) {
+      toast.add({
+        title: 'Loading in chunks',
+        description: `${r.load_progress.windows_done} of ${r.load_progress.windows_total} done — it continues on its own`,
+        color: 'amber',
+      })
+    } else {
+      toast.add({ title: full ? 'Rebuilt in full' : 'Refreshed', description: `${(r.no_rows || 0).toLocaleString()} rows in ${r.last_refresh_ms} ms`, color: 'green' })
+    }
     emit('saved')
   } finally {
     refreshingNow.value = false
+    if (tab.value === 'runs') loadRuns(true)
   }
 }
 

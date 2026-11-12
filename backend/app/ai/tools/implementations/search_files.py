@@ -1,9 +1,15 @@
 """search_files agent tool — index-first search over a file-based data source.
 
-Two paths:
-  1. Fast keyword index (default): match the query against filenames + the
-     keywords extracted at index time (stored on the cached catalog row). No
-     file re-parsing — instant. Used whenever the connection has been indexed.
+Three paths:
+  0. Full-text index (connections on the `fulltext` index tier): a ranked
+     query over every section of every indexed file, answered in SQL. Hits
+     carry WHERE in the file the words were found (page / sheet / offset), so
+     the agent reads that part instead of the whole file. A zero-hit answer is
+     final unless `deep=true` — the index holds every word of every readable
+     file, so a live crawl would only repeat it.
+  1. Fast keyword index (`content` tier): match the query against filenames +
+     the keywords extracted at index time (stored on the cached catalog row).
+     No file re-parsing — instant. Used whenever the connection has been indexed.
   2. Live/deep scan (fallback, or `deep=true`): ask the client to walk the
      directory and grep full file contents — exhaustive but slower. Used when
      the catalog isn't indexed yet, or when the caller forces `deep`.
@@ -40,7 +46,7 @@ from ._file_catalog import entries_from_tables
 from ._file_tool_common import resolve_file_client, resolve_file_data_source
 
 # Keys under a catalog row's metadata_json that may carry a keyword index.
-_FILE_METADATA_KEYS = ("network_dir", "graph", "sharepoint_onprem", "documentum", "google_drive", "s3")
+_FILE_METADATA_KEYS = ("network_dir", "graph", "sharepoint_onprem", "documentum", "google_drive", "s3", "gcs", "azure_blob")
 # Query tokens keep digit runs (case numbers, IDs) — unlike the indexer's
 # body tokenizer — so "6044534" scores against a name/path that carries it.
 _WORD_RE = re.compile(r"[^\W_]{2,}", re.UNICODE)
@@ -89,6 +95,90 @@ def _index_search(tables, query: str, max_results: int) -> List[Dict[str, Any]]:
             web_url=sub.get("web_url"),
         ).model_dump())
     return out
+
+
+def _config_dict(config) -> dict:
+    if isinstance(config, str):
+        try:
+            config = json.loads(config or "{}")
+        except ValueError:
+            config = {}
+    return config if isinstance(config, dict) else {}
+
+
+def _read_with(kind: str, loc: dict) -> dict:
+    """read_file arguments that return exactly this section."""
+    if kind == "page":
+        return {"page_range": str(loc.get("page"))}
+    if kind == "sheet":
+        return {"sheet": loc.get("sheet")}
+    if kind in ("chars", "bytes"):
+        return {"offset": loc.get("offset"), "length": loc.get("length")}
+    return {}
+
+
+def _match_label(m: dict) -> str:
+    """Short form of one match location for the model-facing hit list."""
+    kind = m.get("kind")
+    if kind == "page":
+        return f"page {m.get('page')}"
+    if kind == "sheet":
+        return f"sheet '{m.get('sheet')}'"
+    if kind in ("chars", "bytes"):
+        return f"offset {m.get('offset')} (+{m.get('length')} {kind})"
+    return str(kind or "")
+
+
+async def _fulltext_search(db, conn_id, query: str, max_results: int):
+    """Ranked full-text search of one connection's index.
+
+    Returns (entries, index stats) or None when the connection has no
+    full-text index yet (not built, or built under another tier)."""
+    from sqlalchemy import select
+
+    from app.data_sources.clients._fulltext import parse_query
+    from app.models.connection_table import ConnectionTable
+    from app.services.file_index_store import FileIndexStore
+
+    store = FileIndexStore(db)
+    stats = await store.stats(conn_id)
+    if not stats.get("files"):
+        return None
+    hits = await store.search(conn_id, parse_query(query), max_results)
+    # Size / type / link live on the catalog row; fetch only the rows hit.
+    names = [h.path or h.file_id for h in hits]
+    meta_by_name: Dict[str, dict] = {}
+    for i in range(0, len(names), 500):
+        rows = (await db.execute(
+            select(ConnectionTable.name, ConnectionTable.metadata_json).where(
+                ConnectionTable.connection_id == str(conn_id),
+                ConnectionTable.name.in_(names[i:i + 500]),
+            )
+        )).all()
+        for name, meta_json in rows:
+            meta_json = meta_json or {}
+            meta_by_name[name] = next(
+                (meta_json.get(k) for k in _FILE_METADATA_KEYS if meta_json.get(k)), {}) or {}
+    entries: List[Dict[str, Any]] = []
+    for h in hits:
+        path = h.path or h.file_id
+        sub = meta_by_name.get(path, {})
+        matches = [
+            {"kind": s.kind, **s.loc, "read_with": _read_with(s.kind, s.loc)}
+            for s in h.sections
+        ]
+        entries.append(FileEntry(
+            id=h.file_id,
+            name=path.split("/")[-1],
+            path=path,
+            mime_type=sub.get("mime_type"),
+            size=sub.get("size"),
+            modified_at=sub.get("modified_at"),
+            web_url=sub.get("web_url"),
+            matches=matches,
+            index_status=h.status,
+        ).model_dump())
+    return entries, stats
 
 
 def _live_search_is_name_scan(connection_type, config) -> bool:
@@ -258,6 +348,8 @@ class SearchFilesTool(Tool):
         name_scan = False
         catalog_names = False
         catalog_total = 0
+        # Set when the connection's full-text index answered (see _fulltext_search).
+        fulltext_stats = None
         # The keyword index runs even for deep=true: for connectors whose live
         # search matches filenames only (SharePoint Server) the index IS the
         # content search, so a deep scan is unioned with it, never a downgrade.
@@ -274,10 +366,26 @@ class SearchFilesTool(Tool):
                     )).first()
                     connection_type, auth_policy, conn_config = tuple(policy) if policy else (None, None, None)
                     name_scan = _live_search_is_name_scan(connection_type, conn_config)
-                    tables = (await runtime_ctx["db"].execute(
+                    per_user_identity = (
+                        connection_type in ("sharepoint_onprem", "documentum")
+                        and auth_policy != "system_only"
+                    )
+                    if (
+                        str(_config_dict(conn_config).get("index_mode") or "") == "fulltext"
+                        and not per_user_identity
+                    ):
+                        found = await _fulltext_search(
+                            runtime_ctx["db"], conn_id, data.query, data.max_results)
+                        if found is not None:
+                            entries, fulltext_stats = found
+                            used_index = True
+                            indexed_at = await _last_indexed_at(runtime_ctx["db"], conn_id)
+                    # The full-text index answers in SQL; the catalog rows are
+                    # only loaded for the tiers that score them in Python.
+                    tables = [] if fulltext_stats is not None else (await runtime_ctx["db"].execute(
                         select(ConnectionTable).where(ConnectionTable.connection_id == str(conn_id))
                     )).scalars().all()
-                    if connection_type in ("sharepoint_onprem", "documentum") and auth_policy != "system_only":
+                    if per_user_identity:
                         # Per-user identities (Windows / Documentum ACLs) are
                         # checked live; the shared catalog was crawled as one
                         # identity and must not stand in for the caller's. A
@@ -285,12 +393,15 @@ class SearchFilesTool(Tool):
                         # call as that same account, so its keyword catalog is
                         # exactly what a live crawl would see.
                         tables = []
-                    entries = _index_search(tables, data.query, data.max_results)
-                    used_index = any(
-                        (getattr(t, "metadata_json", None) or {}).get(k, {}).get("keywords") is not None
-                        for t in (tables or []) for k in _FILE_METADATA_KEYS
-                    )
-                    if used_index:
+                    if fulltext_stats is None:
+                        entries = _index_search(tables, data.query, data.max_results)
+                        used_index = any(
+                            (getattr(t, "metadata_json", None) or {}).get(k, {}).get("keywords") is not None
+                            for t in (tables or []) for k in _FILE_METADATA_KEYS
+                        )
+                    if fulltext_stats is not None:
+                        pass  # answered above; nothing more to derive from the catalog
+                    elif used_index:
                         indexed_at = await _last_indexed_at(runtime_ctx["db"], conn_id)
                     elif name_scan:
                         catalog = entries_from_tables(
@@ -306,6 +417,7 @@ class SearchFilesTool(Tool):
                 except Exception:
                     used_index = False
                     catalog_names = False
+                    fulltext_stats = None
                     entries = []
 
         # 2. Live scan when not indexed, or deep requested, or the index
@@ -315,7 +427,11 @@ class SearchFilesTool(Tool):
         #    its live search matches the same names the catalog already has.
         live_too = False
         stop_reason = None
-        if name_scan and (used_index or catalog_names):
+        if fulltext_stats is not None:
+            # The index holds every word of every readable file: a miss is an
+            # answer, not a reason to crawl the source.
+            go_live = data.deep
+        elif name_scan and (used_index or catalog_names):
             go_live = data.deep
         else:
             go_live = data.deep or not used_index or not entries
@@ -327,7 +443,8 @@ class SearchFilesTool(Tool):
                 # If the index gave us something, return that rather than erroring.
                 if entries or catalog_names:
                     yield self._done(data, entries, used_index, runtime_ctx=runtime_ctx, indexed_at=indexed_at,
-                                     catalog_names=catalog_names, catalog_total=catalog_total)
+                                     catalog_names=catalog_names, catalog_total=catalog_total,
+                                     fulltext_stats=fulltext_stats)
                     return
                 # KMS Lighthouse only: the same text list_files gives (Connect, or inactive).
                 from .list_files import kms_client_error
@@ -358,7 +475,8 @@ class SearchFilesTool(Tool):
             except Exception as e:
                 if entries or catalog_names:
                     yield self._done(data, entries, used_index, runtime_ctx=runtime_ctx, indexed_at=indexed_at,
-                                     catalog_names=catalog_names, catalog_total=catalog_total)
+                                     catalog_names=catalog_names, catalog_total=catalog_total,
+                                     fulltext_stats=fulltext_stats)
                     return
                 from app.ai.tools.implementations._file_tool_common import friendly_tool_error
                 _cname = getattr(getattr(client, "_bow_connection", None), "name", "") or ""
@@ -381,7 +499,8 @@ class SearchFilesTool(Tool):
             entries = entries[: data.max_results]
 
         yield self._done(data, entries, used_index, runtime_ctx=runtime_ctx, indexed_at=indexed_at, live_too=live_too,
-                         catalog_names=catalog_names, catalog_total=catalog_total, stop_reason=stop_reason)
+                         catalog_names=catalog_names, catalog_total=catalog_total, stop_reason=stop_reason,
+                         fulltext_stats=fulltext_stats)
 
     def _live_search_budget(self) -> tuple:
         """(deadline for cooperative clients, hard cap for the rest), seconds.
@@ -404,18 +523,50 @@ class SearchFilesTool(Tool):
         bits = [str(e.get("name") or "?")]
         if e.get("path") and e.get("path") != e.get("name"):
             bits.append(str(e["path"]))
-        return " — ".join(bits) + f" [id={e.get('id')}]"
+        row = " — ".join(bits) + f" [id={e.get('id')}]"
+        matches = e.get("matches") or []
+        if matches:
+            row += " · found in: " + ", ".join(_match_label(m) for m in matches)
+        elif e.get("matches") is not None:
+            row += " · file name match"
+        if e.get("index_status") in ("partial", "no_text", "error"):
+            row += {"partial": " · only partly indexed", "no_text": " · no searchable text",
+                    "error": " · could not be indexed"}[e["index_status"]]
+        return row
 
     def _done(self, data, entries, used_index, runtime_ctx=None, indexed_at=None, live_too=False,
-              catalog_names=False, catalog_total=0, stop_reason=None) -> ToolEndEvent:
+              catalog_names=False, catalog_total=0, stop_reason=None, fulltext_stats=None) -> ToolEndEvent:
         from_catalog = used_index or catalog_names
-        how = ("keyword index" if used_index else
+        fulltext = fulltext_stats is not None
+        how = ("full-text index" if fulltext else
+               "keyword index" if used_index else
                "catalog filename/path match" if catalog_names else "live scan")
         if from_catalog and indexed_at:
             how += f", indexed {indexed_at}"
         if from_catalog and live_too:
             how += " + live scan"
         hint = " Keyword indexes may use sampled content; no hit does not prove absence." if used_index else ""
+        if fulltext:
+            by = fulltext_stats.get("by_status") or {}
+            hint = (f" The index covers every word of {fulltext_stats.get('files', 0)} files, "
+                    "ranked best first.")
+            if entries:
+                hint += (" Each hit lists where the words were found — read just that part "
+                         "with read_file (page_range for a page, sheet for a sheet, "
+                         "offset+length otherwise).")
+            gaps = []
+            if by.get("no_text"):
+                gaps.append(f"{by['no_text']} file(s) have no searchable text (scanned or binary)")
+            if by.get("partial"):
+                gaps.append(f"{by['partial']} are indexed only up to a size limit")
+            if by.get("error"):
+                gaps.append(f"{by['error']} could not be read")
+            if gaps:
+                hint += " Not covered: " + "; ".join(gaps) + " — those match by file name only."
+            if not entries and not live_too:
+                hint += (" No section matches these words. Try other words (synonyms, the exact "
+                         "ID or name), or deep=true to also scan files added since the last "
+                         "index run.")
         if catalog_names and not entries and not live_too:
             hint = (f" The catalog ({catalog_total} files) holds file names and paths only, not "
                     "document contents. Try other words from the file name, or deep=true to also "
@@ -458,6 +609,8 @@ class SearchFilesTool(Tool):
                 "files": entries,
                 "source": ("catalog+live" if from_catalog and live_too else
                            "catalog" if from_catalog else "live"),
+                "index": ("fulltext" if fulltext else "keywords" if used_index else
+                          "names" if catalog_names else None),
                 "indexed_at": indexed_at if from_catalog else None,
                 "incomplete": bool(stop_reason),
                 "stop_reason": stop_reason,

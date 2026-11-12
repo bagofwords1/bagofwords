@@ -21,12 +21,15 @@ from app.schemas.data_source_registry import (
 
 
 def _ds_is_connector(d) -> bool:
-    """True when every connection on a data source is a tool provider
-    (mcp / custom_api, data_shape="tools"). Such a data source is a
-    "connector": a lightweight, tools-only source surfaced in /agents."""
-    tps = tool_provider_types()
-    conns = getattr(d, "connections", None) or []
-    return bool(conns) and all(getattr(c, "type", None) in tps for c in conns)
+    """True when the data source is a connector (each person's own account or
+    tools), not an agent — see app/services/data_source_kind.py."""
+    from app.services.data_source_kind import is_connector
+    return is_connector(d)
+
+
+def _ds_kind(d) -> str:
+    from app.services.data_source_kind import data_source_kind
+    return data_source_kind(d)
 
 
 def _conn_connector_key(conn):
@@ -680,6 +683,7 @@ class DataSourceService:
         is_public = data_source_dict.pop("is_public", False)
         use_llm_sync = data_source_dict.pop("use_llm_sync", False)
         channel_availability = data_source_dict.pop("channel_availability", None)
+        kind = data_source_dict.pop("kind", None)
         member_user_ids = data_source_dict.pop("member_user_ids", [])
         member_bindings = data_source_dict.pop("member_bindings", None)
         auth_policy = data_source_dict.get("auth_policy", "system_only")
@@ -837,7 +841,8 @@ class DataSourceService:
             "is_public": is_public,
             "use_llm_sync": use_llm_sync,
             "channel_availability": channel_availability,
-            "owner_user_id": current_user.id
+            "owner_user_id": current_user.id,
+            "kind": kind,
         }
         
         # Create the data source instance
@@ -1593,6 +1598,8 @@ class DataSourceService:
                 connections=connections_list,
                 cached_tables=cached_by_ds.get(str(d.id), []),
                 is_connector=_ds_is_connector(d),
+                kind=_ds_kind(d),
+                kind_explicit=getattr(d, "kind", None),
                 connector_key=_ds_connector_key(d),
                 # Legacy fields from first connection for backward compatibility
                 type=conn.type if conn else None,
@@ -1844,6 +1851,8 @@ class DataSourceService:
                 connections=connections_list,
                 cached_tables=cached_by_ds.get(str(d.id), []),
                 is_connector=_ds_is_connector(d),
+                kind=_ds_kind(d),
+                kind_explicit=getattr(d, "kind", None),
                 connector_key=_ds_connector_key(d),
                 # Legacy fields from first connection for backward compatibility
                 type=conn.type if conn else None,
@@ -1961,6 +1970,8 @@ class DataSourceService:
                 connections=connections_list,
                 cached_tables=cached_by_ds.get(str(d.id), []),
                 is_connector=_ds_is_connector(d),
+                kind=_ds_kind(d),
+                kind_explicit=getattr(d, "kind", None),
                 connector_key=_ds_connector_key(d),
                 type=conn.type if conn else None,
                 auth_policy=auth_policy,
@@ -3516,6 +3527,12 @@ class DataSourceService:
         if 'primary_instruction_id' in update_data:
             data_source_db.primary_instruction_id = update_data.pop('primary_instruction_id')
 
+        # Agent/connector: "auto" clears the explicit choice (derived again).
+        if 'kind' in update_data:
+            _kind = update_data.pop('kind')
+            if _kind is not None:
+                data_source_db.kind = None if _kind == "auto" else _kind
+
         # Handle icon explicitly so an explicit null clears the custom-icon
         # override (the generic loop below skips None values).
         if 'icon' in update_data:
@@ -4254,8 +4271,8 @@ class DataSourceService:
         # with the conditional joins below). NULL connection_table_id (legacy
         # tables) is kept.
         _FILE_SOURCE_TYPES = [
-            "network_dir", "s3", "sharepoint", "sharepoint_onprem", "documentum", "onedrive", "google_drive",
-            "outlook_mail", "gmail_mail",
+            "network_dir", "s3", "gcs", "azure_blob", "sharepoint", "sharepoint_onprem", "documentum", "onedrive", "google_drive",
+            "outlook_mail", "gmail_mail", "teams_messages",
             "github_repo", "gitlab_repo", "bitbucket_repo",
             "kms_lighthouse",
         ]
@@ -6278,9 +6295,20 @@ class DataSourceService:
                 # list threw away the only thing that made it reusable — which
                 # connection each table came from — so it could not be handed to
                 # a per-connection overlay sync without cross-contaminating them.
-                prefetched_by_conn: dict[str, list] = await self._refresh_shared_connections(
-                    shared_conns, current_user=current_user, caller_id=caller_id,
-                )
+                # Each connection is crawled in its own session, so THIS
+                # session waits idle inside its transaction for the whole
+                # crawl. On Postgres the server drops such a session after its
+                # idle-in-transaction limit (5 minutes), which failed a Reload
+                # of any source that takes longer to crawl. Keep it alive.
+                from app.services.connection_service import _SessionKeepalive
+                keepalive = _SessionKeepalive(db)
+                keepalive.start()
+                try:
+                    prefetched_by_conn: dict[str, list] = await self._refresh_shared_connections(
+                        shared_conns, current_user=current_user, caller_id=caller_id,
+                    )
+                finally:
+                    await keepalive.stop()
 
                 prefetched = prefetched_by_conn or None
 
@@ -7093,20 +7121,40 @@ class DataSourceService:
         # existing user-contributed row. Never adopt that row or its selection.
         scoped_existing = {r.name: r for r in existing_rows if belongs_here(r)}
         from copy import deepcopy
+        # Keyed by name, so of several ConnectionTable rows sharing one (see
+        # below) the last wins. Put a row the agent already links to last:
+        # keeping an unlinked twin instead would add a second, same-named
+        # table to the agent beside the one users already selected.
+        payload_tables = sorted(conn_tables, key=lambda t: t.id in existing_by_conn_table_id)
         domain_payloads = reconcile_powerbi_names(
             {t.name: {"id": t.id, "metadata_json": t.metadata_json, "fks": deepcopy(t.fks or [])}
-             for t in conn_tables},
+             for t in payload_tables},
             scoped_existing,
         )
         domain_names = {payload["id"]: name for name, payload in domain_payloads.items()}
         domain_fks = {payload["id"]: payload["fks"] for payload in domain_payloads.values()}
+        # The payloads are keyed by name, and a connection can hold more than
+        # one ConnectionTable row with the same name (that uniqueness lives in
+        # the service layer, not the DB — older installs have duplicates). The
+        # name map keeps one of them; the others have no domain name, and
+        # looking them up crashed the whole agent sync with a bare
+        # ``KeyError: '<table id>'``. Sync the one kept (an already-linked one
+        # when there is one); the duplicates stay in ``conn_tables`` so rows
+        # already linked to them are not deactivated.
+        sync_tables = [t for t in conn_tables if t.id in domain_names]
+        if len(sync_tables) != len(conn_tables):
+            logger.warning(
+                "sync_domain_tables_from_connection: skipped %d duplicate-name "
+                "ConnectionTable row(s) for connection %s",
+                len(conn_tables) - len(sync_tables), connection_id_str,
+            )
         unlinked_by_identity = {
             powerbi_identity(r.metadata_json): r for r in existing_rows
             if r.connection_table_id is None and belongs_here(r)
             and powerbi_identity(r.metadata_json) is not None
         }
 
-        total_tables = len(conn_tables)
+        total_tables = len(sync_tables)
 
         # Determine initial activation:
         # - If max_auto_select is None: all tables start inactive (user must select)
@@ -7119,7 +7167,7 @@ class DataSourceService:
             should_activate = total_tables <= max_auto_select
             needs_smart_selection = total_tables > max_auto_select
 
-        for conn_table in conn_tables:
+        for conn_table in sync_tables:
             domain_name = domain_names[conn_table.id]
             if conn_table.id in existing_by_conn_table_id:
                 # Update existing - refresh schema data (preserves is_active)

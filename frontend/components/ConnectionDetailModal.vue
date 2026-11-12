@@ -236,7 +236,7 @@ const connectionAsDataSource = computed(() =>
 // the SQL-flavored enterprise sections (auto-reindex, rate limit). Distinct
 // from data_shape: OneDrive is files-shaped but still integration-managed.
 const _INTEGRATION_TYPES = [
-  'mcp', 'custom_api', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail',
+  'mcp', 'custom_api', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail', 'teams_messages',
 ]
 const isIntegrationManaged = computed(() => _INTEGRATION_TYPES.includes(props.connection?.type))
 
@@ -445,7 +445,12 @@ async function testConnection() {
   try {
     const { data, error } = await useMyFetch(`/connections/${props.connection.id}/test`, { method: 'POST' })
     if (error.value) {
-      testResult.value = { success: false, message: error.value.message || t('data.testFailed') }
+      const body = (error.value as any)?.data
+      const detail = typeof body?.detail === 'string' ? body.detail : null
+      const message = detail && body?.request_id
+        ? t('data.errorWithReference', { message: detail, id: body.request_id })
+        : detail || t('data.testFailed')
+      testResult.value = { success: false, message }
     } else {
       const result = data.value as any
       testResult.value = {

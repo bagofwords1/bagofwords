@@ -39,7 +39,7 @@ FILE_SOURCE_TYPES = {
     "sharepoint_onprem",
     "documentum",
     "sharepoint", "onedrive", "google_drive", "outlook_mail", "gmail_mail",
-    "network_dir", "s3", "onenote",
+    "network_dir", "s3", "gcs", "azure_blob", "onenote", "teams_messages",
     # KMS Lighthouse: live only (no catalog), read with the caller's identity.
     "kms_lighthouse",
     # Code connections: a cached clone served by a NetworkDirClient subclass.

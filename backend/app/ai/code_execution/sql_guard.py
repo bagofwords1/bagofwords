@@ -16,6 +16,8 @@ Policy, per client:
     block a possibly-valid read on a parser gap; we fall back to the keyword
     blocklist over the text with string literals and comments removed.
   * **Splunk**: SPL is not SQL but can write; its writing commands are refused.
+  * **Db2** (LUW, z/OS, IBM i): sqlglot has no Db2 dialect. One statement, a
+    read verb (SELECT / WITH / VALUES) and no write keyword, generic or Db2's.
   * **Everything else** (Salesforce SOQL, PostHog HogQL, Mongo, Qlik, ...): not
     checked here. Their query APIs are read-only, and connections are expected
     to use read-only credentials regardless.
@@ -59,6 +61,9 @@ CLIENT_DIALECTS = {
     "DuckDBClient": "duckdb",
     "TeradataClient": "teradata",
     "DruidClient": "druid",
+    "IcebergClient": "duckdb",
+    "DremioClient": "dremio",
+    "HiveClient": "hive",
 }
 
 # Statements sqlglot leaves as an opaque Command that are still reads.
@@ -128,6 +133,42 @@ def _check_teradata(sql: str) -> str:
     return body
 
 
+# Db2 (LUW, z/OS, IBM i) has no sqlglot dialect, so its reads are checked by
+# an allowlist on the leading verb plus the keyword blocklist, like Teradata's
+# unparsed path. Keyed by class name so this module needs no Db2 driver.
+_DB2_CLIENTS = {"Db2Client", "IbmiClient"}
+_DB2_READ_VERBS = {"SELECT", "WITH", "VALUES", "("}
+# Db2-specific statements and routines that change state. QCMDEXC runs an IBM i
+# CL command and is callable as a scalar function inside a SELECT; ADMIN_CMD
+# runs Db2 LUW administrative commands.
+_DB2_WRITE_KEYWORDS = re.compile(
+    r"\b(LOCK|REFRESH|DECLARE|RENAME|COMMENT|LABEL|QCMDEXC|ADMIN_CMD|SYSPROC|EXPORT|IMPORT"
+    r"|RUNSTATS|REORG|TRANSFER|SAVEPOINT|ROLLBACK|COMMIT|RELEASE|CONNECT|DISCONNECT)\b",
+    re.IGNORECASE,
+)
+
+
+def _check_db2(sql: str) -> None:
+    """Db2 read-only check: one statement, a read verb, no write keyword.
+
+    `SELECT ... FROM FINAL TABLE (INSERT ...)` (a data-change table reference)
+    starts with SELECT but is caught by the INSERT/UPDATE/DELETE/MERGE keywords.
+    """
+    _single_statement_check(sql)
+    text = _LITERALS_AND_COMMENTS.sub(" ", sql).strip().rstrip(";").strip()
+    verb = "(" if text.startswith("(") else (text.split(None, 1)[0].upper() if text else "")
+    if verb not in _DB2_READ_VERBS:
+        raise ReadOnlyViolation(
+            f"Statement '{verb or '(empty)'}' is not allowed. Only SELECT queries are allowed."
+        )
+    _keyword_check(sql)
+    match = _DB2_WRITE_KEYWORDS.search(text)
+    if match:
+        raise ReadOnlyViolation(
+            f"Query contains forbidden operation '{match.group().upper()}'. Only SELECT queries are allowed."
+        )
+
+
 def dialect_for_client(client) -> Optional[str]:
     return CLIENT_DIALECTS.get(type(client).__name__)
 
@@ -139,6 +180,9 @@ def ensure_read_only(client, query) -> None:
     name = type(client).__name__
     if name == "SplunkClient":
         _check_spl(query)
+        return
+    if name in _DB2_CLIENTS:
+        _check_db2(query)
         return
     from app.data_sources.clients.neo4j_client import Neo4jClient
 

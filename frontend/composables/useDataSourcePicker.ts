@@ -31,6 +31,15 @@ const SEARCH_ALIASES: Record<string, string[]> = {
   aws_athena: ['amazon', 'aws'],
   aws_cost: ['amazon', 'aws', 'billing'],
   s3: ['amazon', 'aws', 'bucket'],
+  gcs: ['google', 'gcp', 'bucket', 'cloud storage', 'gs'],
+  azure_blob: ['microsoft', 'azure', 'container', 'adls', 'data lake', 'storage account'],
+  iceberg: ['lakehouse', 'table format', 'glue', 's3 tables', 'polaris', 'nessie', 'catalog'],
+  dynamodb: ['amazon', 'aws', 'nosql', 'partiql'],
+  cosmosdb: ['microsoft', 'azure', 'nosql', 'documentdb'],
+  couchbase: ['nosql', 'capella', 'n1ql', 'sql++'],
+  cassandra: ['nosql', 'scylla', 'scylladb', 'astra', 'keyspaces', 'cql'],
+  dremio: ['lakehouse', 'arrow', 'semantic layer'],
+  hive: ['hadoop', 'impala', 'hiveserver2', 'spark thrift', 'cloudera'],
   csv: ['excel', 'spreadsheet', 'xlsx', 'file'],
   network_dir: ['files', 'folder', 'directory', 'local', 'smb'],
   databricks_sql: ['spark', 'lakehouse'],
@@ -45,6 +54,7 @@ const SEARCH_ALIASES: Record<string, string[]> = {
   google_drive: ['gdrive', 'google', 'sheets'],
   gmail_mail: ['google', 'email', 'mail'],
   outlook_mail: ['microsoft', 'email', 'mail', 'office'],
+  teams_messages: ['microsoft', 'teams', 'chat', 'messages', 'channels', 'office', 'slack'],
   onedrive: ['microsoft', 'office'],
   onenote: ['microsoft', 'office'],
   sharepoint: ['microsoft', 'office'],
@@ -56,7 +66,13 @@ const SEARCH_ALIASES: Record<string, string[]> = {
   presto: ['trino', 'starburst'],
   mariadb: ['mysql'],
   elasticsearch: ['elastic', 'es'],
+  mongodb: ['nosql', 'document', 'atlas'],
   opensearch: ['elastic'],
+}
+
+/** Extra search terms for a connector type (nicknames, vendor, category words). */
+export function searchAliases(type: string | undefined | null): string[] {
+  return SEARCH_ALIASES[type || ''] || []
 }
 
 function haystack(ds: any): string {

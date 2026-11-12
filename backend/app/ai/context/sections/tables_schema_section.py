@@ -61,13 +61,13 @@ class FileScopeItem(BaseModel):
     type: str
     base: Optional[str] = None
     globs: List[str] = []
-    index_mode: str = "content"      # none | metadata | content
+    index_mode: str = "content"      # none | metadata | content | fulltext
     file_count: int = 0
     capped: bool = False             # catalog hit the connection's Max Files cap
     indexed_at: Optional[str] = None # last completed shared index run (UTC ISO)
     sample: List[str] = []           # a few representative file ids
     topics: List[str] = []           # aggregate keywords (content mode)
-    supports_search: bool = True     # native search API OR index_mode==content
+    supports_search: bool = True     # native search API OR a content index tier
     writable: bool = False
     per_user: bool = False           # per-user OAuth (each user reads as themselves)
     # True when this connector enforces a path/glob scope boundary (network_dir/
@@ -765,6 +765,56 @@ class TablesSchemaContext(ContextSection):
             # Per-user OAuth sources: the sample/count above (if any) reflect the
             # querying user's own account, and discovery is always live — so tell
             # the model not to treat an empty scope as "no files".
+            if fs.type == "teams_messages":
+                inner = [x for x in inner if not x.startswith("<index ")]  # live: no catalog
+                # Chat vocabulary, never file tools: a Teams connection backs
+                # only search_chat_messages / list_chat_messages /
+                # read_chat_thread (see GraphTeamsClient.capabilities).
+                inner.append(xml_tag(
+                    "auth",
+                    "per-user — searched live as the signed-in user; they see only "
+                    "the channels and chats they belong to. Nothing is indexed, so "
+                    "an empty count here does NOT mean no messages."
+                ))
+                inner.append(xml_tag(
+                    "holds",
+                    "the team's conversations — decisions, reported numbers, metric "
+                    "definitions, data-quality warnings and corrections. When the user "
+                    "asks about a number, a dashboard, a definition, a decision or what "
+                    "someone said, search here BEFORE concluding the answer is unavailable."
+                ))
+                inner.append(xml_tag(
+                    "usage",
+                    "search_chat_messages with 1-3 distinctive keywords (not the whole "
+                    "question; try other wording if nothing comes back) to find what was "
+                    "said across every channel and chat · read_chat_thread on a hit to "
+                    "read the WHOLE thread before answering · list_chat_messages to "
+                    "browse one conversation or a time window (list_conversations=true "
+                    "lists the channels and chats). Cite the Link: URL of the thread you used."
+                ))
+                attrs = {"name": fs.name, "type": fs.type, "kind": "messages"}
+                if fs.connection_id:
+                    attrs["id"] = fs.connection_id
+                return xml_tag("connection", "\n".join(inner), attrs)
+            if fs.type in ("outlook_mail", "gmail_mail"):
+                inner = [x for x in inner if not x.startswith("<index ")]  # live: no catalog
+                # Mail vocabulary: a mailbox backs only search_email /
+                # list_emails / read_email (Graph/Gmail mail clients).
+                inner.append(xml_tag(
+                    "auth",
+                    "per-user — the signed-in user's own mailbox, read live. Nothing "
+                    "is indexed, so an empty count here does NOT mean no mail."
+                ))
+                inner.append(xml_tag(
+                    "usage",
+                    "search_email to find messages (keywords, sender) · list_emails to "
+                    "browse a folder or time window · read_email to open one. Cite the "
+                    "message's Link: URL."
+                ))
+                attrs = {"name": fs.name, "type": fs.type, "kind": "mailbox"}
+                if fs.connection_id:
+                    attrs["id"] = fs.connection_id
+                return xml_tag("connection", "\n".join(inner), attrs)
             if fs.per_user:
                 inner.append(xml_tag(
                     "auth",
@@ -777,7 +827,13 @@ class TablesSchemaContext(ContextSection):
             # "else denied" clause on real scope enforcement.
             denial = (" Access is limited to the scope above; anything else is denied."
                       if fs.enforces_scope else "")
-            if fs.supports_search:
+            if fs.index_mode == "fulltext":
+                usage = ("search_files to find files by ANY words in their content or name "
+                         "(full-text index, ranked; names, IDs and numbers work; quote an exact "
+                         "phrase) — each hit says where in the file the words are · read_file "
+                         "with that page_range / sheet / offset+length to read just that part · "
+                         "list_files to browse." + denial)
+            elif fs.supports_search:
                 usage = ("search_files to find by topic · list_files to browse · "
                          "read_file to read (use offset/length for large files)." + denial)
             else:
@@ -1265,8 +1321,21 @@ class TablesSchemaContext(ContextSection):
             return xml_tag(self.tag_name, "".join(ds._render_digest() for ds in self.data_sources or []))
         return xml_tag(self.tag_name, "\n\n".join(ds.render() for ds in self.data_sources or []))
 
+    def render_connectors(self, top_k_per_ds: int = 10, index_limit: int = 200) -> str:
+        """The run's connectors — each person's own accounts/tools (mail, Teams,
+        personal Drive, MCP presets) — as one ``<connectors>`` block of
+        ``<connector>`` entries. Same per-source content as the agents (tools,
+        message/file scopes, instructions-bearing description) but kept apart:
+        connectors are not picked or focused, they are simply available, and
+        their content is the signed-in user's own."""
+        return self.render_combined(
+            top_k_per_ds=top_k_per_ds, index_limit=index_limit,
+            wrapper_tag="connectors", item_tag="connector",
+        )
+
     def render_combined(self, top_k_per_ds: int = 10, index_limit: int = 200, include_index: bool = True,
-                        include_routine_definitions: bool = False) -> str:
+                        include_routine_definitions: bool = False,
+                        wrapper_tag: Optional[str] = None, item_tag: str = "data_source") -> str:
         """`include_routine_definitions` adds each stored procedure's / function's
         source to its <routine> entry (describe_tables). Off for the planner's
         standing context, which carries signatures only."""
@@ -1298,7 +1367,10 @@ class TablesSchemaContext(ContextSection):
             has_multi_connection = ('<connection ' in sample_xml if sample_xml else False) or bool(file_xml)
 
             inner_parts: List[str] = []
-            status_xml = ds._render_status_xml()
+            # Publishing / reliability ("training — prefer proposing an
+            # instruction") describe curated agents; a connector is someone's
+            # own account, so its entry carries none of that.
+            status_xml = "" if item_tag == "connector" else ds._render_status_xml()
             if status_xml:
                 inner_parts.append(status_xml)
             # Before the sample: the sample and index are both capped, so the
@@ -1332,14 +1404,17 @@ class TablesSchemaContext(ContextSection):
             attrs = {
                 "name": ds.info.name,
                 "id": ds.info.id,
-                "total_tables": str(len(getattr(ds, 'tables', []) or [])),
             }
+            if item_tag != "connector":
+                attrs["total_tables"] = str(len(getattr(ds, 'tables', []) or []))
             # Only include type for single-connection (backward compatibility)
             if not has_multi_connection and ds.info.type:
                 attrs["type"] = ds.info.type
             # Ensure separation between <sample> and <index>
-            ds_chunks.append(xml_tag("data_source", "\n".join(inner_parts), attrs))
-        return xml_tag(self.tag_name, "".join(ds_chunks))
+            ds_chunks.append(xml_tag(item_tag, "\n".join(inner_parts), attrs))
+        if wrapper_tag and not ds_chunks:
+            return ""
+        return xml_tag(wrapper_tag or self.tag_name, "".join(ds_chunks))
 
     def get_usage_snapshot(self, top_k_per_ds: int = 10) -> SchemaUsageSnapshot:
         """

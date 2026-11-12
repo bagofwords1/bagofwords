@@ -785,16 +785,11 @@ class QueryService:
             # the caller.
             fingerprint = params_fingerprint({**resolved, "__view_as__": str(run_as.id)})
 
-        from app.models.step_user_result import StepUserResult
         from datetime import datetime as _dt
 
-        existing = (await db.execute(
-            select(StepUserResult).where(
-                StepUserResult.step_id == str(step.id),
-                StepUserResult.user_id == str(caller.id),
-                StepUserResult.params_fingerprint == fingerprint,
-            )
-        )).scalars().first()
+        from app.services.viewer_result_store import find_viewer_result
+        existing = await find_viewer_result(
+            db, step_id=step.id, user_id=caller.id, params_fingerprint=fingerprint)
 
         # Freshness: a cached slice is stale once the step OR any loadable
         # upstream (load_step/load_entity dependency) has refreshed past it.

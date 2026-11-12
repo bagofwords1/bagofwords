@@ -89,6 +89,9 @@ class CreateDataMCPTool(MCPTool):
         "Results are persisted in the report and can be viewed, shared, and added to dashboards. "
         "Use this for final results you want to save. "
         "Tables are auto-discovered from prompt if not provided. "
+        "Authorized agent managers can query builtin:bow tables bow.runs and bow.tool_calls "
+        "for historical questions, usage metrics, and tool execution evidence. Discover them "
+        "with get_context; access is scoped to the caller. "
         "Call create_report first if no report_id is available."
     )
     

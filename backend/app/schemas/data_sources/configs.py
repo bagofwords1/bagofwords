@@ -54,6 +54,98 @@ class SapHanaCredentials(BaseModel):
     password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
 
 
+class Db2Credentials(BaseModel):
+    user: str = Field(
+        ...,
+        title="User",
+        description="Database user (on z/OS, the RACF user ID). Use an account with read-only access.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
+
+
+class Db2Config(BaseModel):
+    host: str = Field(..., title="Host", description="Db2 server hostname or IP address.", json_schema_extra={"ui:type": "string"})
+    port: int = Field(
+        50000,
+        ge=1,
+        le=65535,
+        title="Port",
+        description="50000 on LUW, 446 on z/OS.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    database: str = Field(
+        ...,
+        title="Database",
+        description="Database name on Db2 LUW; the location name on Db2 for z/OS; the relational database (RDB) name on IBM i.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    schema: Optional[str] = Field(
+        None,
+        title="Schema",
+        description="Optional schema or comma-separated list of schemas to index (on IBM i, libraries). Leave empty to index every non-system schema.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    platform: str = Field(
+        "auto",
+        title="Db2 product",
+        description="auto detects the product on connect. Set luw (Linux/Unix/Windows, Db2 on Cloud), zos (mainframe) or ibmi (IBM i / AS/400) to force it.",
+        json_schema_extra={"ui:type": "select", "ui:options": ["auto", "luw", "zos", "ibmi"]},
+    )
+    ssl: bool = Field(
+        False,
+        title="Use TLS",
+        description="Connect over TLS (SECURITY=SSL). Point Port at the server's TLS port.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    ssl_ca: Optional[str] = Field(
+        None,
+        title="CA Certificate (PEM)",
+        description="Certificate authority that signed the Db2 server certificate, pasted as PEM text. Needed when TLS is on and the certificate is signed by an internal CA.",
+        json_schema_extra={"ui:type": "textarea"},
+    )
+
+
+class IbmiCredentials(BaseModel):
+    user: str = Field(
+        ...,
+        title="User profile",
+        description="IBM i user profile. Use a profile with read-only authority to the libraries you index.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
+
+
+class IbmiConfig(BaseModel):
+    host: str = Field(..., title="Host", description="IBM i hostname or IP address. The system needs IBM's Mapepire server (once: yum install mapepire-server, then sc start mapepire).", json_schema_extra={"ui:type": "string"})
+    port: int = Field(
+        8076,
+        ge=1,
+        le=65535,
+        title="Mapepire port",
+        description="Mapepire port, 8076 by default.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    schema: Optional[str] = Field(
+        None,
+        title="Libraries",
+        description="Optional library (schema) or comma-separated list of libraries to index. Leave empty to index every non-system library.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify TLS certificate",
+        description="Check the Mapepire server certificate. Mapepire generates a self-signed certificate unless one is installed — paste it below, or turn this off for a trusted network.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    ssl_ca: Optional[str] = Field(
+        None,
+        title="Server Certificate (PEM)",
+        description="Certificate (or CA) to trust for the Mapepire server, pasted as PEM text.",
+        json_schema_extra={"ui:type": "textarea"},
+    )
+
+
 class SapHanaConfig(BaseModel):
     host: str = Field(
         ...,
@@ -3422,6 +3514,13 @@ class OutlookMailConfig(BaseModel):
     pass
 
 
+class TeamsMessagesConfig(BaseModel):
+    """Microsoft Teams needs no admin-side scope: each user's Microsoft sign-in
+    decides which channels and chats are visible, and messages are always
+    searched live (nothing is copied into BOW)."""
+    pass
+
+
 # Google Drive
 class GoogleDriveCredentials(BaseModel):
     oauth_client_id: str = Field(
@@ -3536,23 +3635,27 @@ class NetworkDirConfig(BaseModel):
         json_schema_extra={"ui:type": "number"}
     )
     index_mode: str = Field(
-        "content",
+        "fulltext",
         title="Indexing",
         description=(
-            "How much to cache from the source. 'none' → nothing cached; the "
-            "agent lists/reads live every time (freshest, best for volatile or "
-            "huge dirs). 'metadata' → cache the file list on a schedule "
-            "(fast listing, no content search). 'content' → also extract "
-            "keywords from PDF/Word/PowerPoint/Excel/CSV/email (.eml/.msg) so "
-            "the agent can find files by topic. Reads are always live regardless."
+            "How much to store about the files — and so how well the agent "
+            "can search them. Live: nothing stored; search is by file name "
+            "plus a slow scan of the source. File list: names, sizes and "
+            "dates. Keywords: also up to 50 keywords per file, from the start "
+            "of its text. Full text: also a search index of every word in "
+            "every file (PDF, Office, CSV, text, email), so the agent finds "
+            "exact words, IDs and phrases anywhere, with the page or sheet. "
+            "The index holds the words, not the files, and is removed with "
+            "the connection. Only changed files are re-read."
         ),
         json_schema_extra={
             "ui:type": "select",
-            "enum": ["none", "metadata", "content"],
+            "enum": ["none", "metadata", "content", "fulltext"],
             "ui:enumLabels": {
-                "none": "None (live only)",
+                "none": "Live (nothing stored)",
                 "metadata": "File list",
-                "content": "Contents (searchable)",
+                "content": "Keywords",
+                "fulltext": "Full text (recommended)",
             },
         },
     )
@@ -3661,21 +3764,27 @@ class S3Config(BaseModel):
         json_schema_extra={"ui:type": "number"},
     )
     index_mode: str = Field(
-        "content",
+        "fulltext",
         title="Indexing",
         description=(
-            "How much to cache from the bucket. 'none' → nothing cached; list/"
-            "read go live (best for huge or volatile buckets). 'metadata' → "
-            "cache the object list only. 'content' → also extract keywords for "
-            "topic search. Reads are always live regardless."
+            "How much to store about the objects — and so how well the agent "
+            "can search them. Live: nothing stored; list and read go to the "
+            "bucket every time. Object list: keys, sizes and dates. Keywords: "
+            "also up to 50 keywords per object, from the start of its text. "
+            "Full text: also a search index of every word in every object, "
+            "so the agent finds exact words, IDs and phrases anywhere, with "
+            "the page or sheet. The index holds the words, not the objects, "
+            "and is removed with the connection. Only changed objects are "
+            "downloaded again."
         ),
         json_schema_extra={
             "ui:type": "select",
-            "enum": ["none", "metadata", "content"],
+            "enum": ["none", "metadata", "content", "fulltext"],
             "ui:enumLabels": {
-                "none": "None (live only)",
+                "none": "Live (nothing stored)",
                 "metadata": "Object list",
-                "content": "Contents (searchable)",
+                "content": "Keywords",
+                "fulltext": "Full text (recommended)",
             },
         },
     )

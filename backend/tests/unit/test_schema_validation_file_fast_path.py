@@ -99,3 +99,22 @@ async def test_empty_directory_is_a_valid_file_source(tmp_path):
     )
     assert status["success"] is True
     assert status["table_count"] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("client_path", [
+    "app.data_sources.clients.graph_mail_client.GraphMailClient",
+    "app.data_sources.clients.graph_teams_client.GraphTeamsClient",
+])
+async def test_live_per_user_message_sources_validate_before_any_user_signs_in(client_path):
+    """The admin's pre-save test runs with only the org's Entra app — no user
+    token, so nothing to list yet. A mailbox or Teams source is still a valid
+    connection (each user signs in later); it must not fail as a database
+    with "no tables found"."""
+    import importlib
+
+    module, name = client_path.rsplit(".", 1)
+    cls = getattr(importlib.import_module(module), name)
+    client = cls(tenant_id="t", client_id="c", client_secret="s")
+    result = await ConnectionService()._avalidate_schema_access(client)
+    assert result["success"] is True, result

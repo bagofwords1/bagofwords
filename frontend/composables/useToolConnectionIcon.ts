@@ -16,16 +16,19 @@ import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 // File-source connection types — used to scope the sole-connection fallback for
 // the file tools so a mixed (DB + file) agent doesn't misattribute.
 export const FILE_SOURCE_TYPES = [
-  'sharepoint', 'sharepoint_onprem', 'documentum', 'onedrive', 'google_drive', 'outlook_mail', 'network_dir', 's3',
-  'onenote', 'kms_lighthouse',
+  'sharepoint', 'sharepoint_onprem', 'documentum', 'onedrive', 'google_drive', 'outlook_mail', 'network_dir', 's3', 'gcs', 'azure_blob',
+  'onenote', 'kms_lighthouse', 'teams_messages',
 ]
 
-// The file tools back three vocabularies — files, mail and notes — so the same
-// card renders for a document library, a mailbox and a notebook. Only the noun
-// changes, and it has to, or a OneNote read reports "1 file" for a page.
+// The file tools back four vocabularies — files, mail, notes and chat — so the
+// same card renders for a document library, a mailbox, a notebook and a Teams
+// workspace. Only the noun changes, and it has to, or a OneNote read reports
+// "1 file" for a page.
 export function fileToolNoun(toolName?: string | null): { one: string; many: string } {
   const n = toolName || ''
   if (n.endsWith('_notes') || n === 'read_note') return { one: 'page', many: 'pages' }
+  if (n === 'read_chat_thread') return { one: 'thread', many: 'threads' }
+  if (n.endsWith('_chat_messages')) return { one: 'message', many: 'messages' }
   if (n.endsWith('_emails') || n === 'read_email' || n === 'search_email') {
     return { one: 'email', many: 'emails' }
   }
