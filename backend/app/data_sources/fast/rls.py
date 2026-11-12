@@ -93,18 +93,32 @@ ANONYMOUS = Identity()
 
 @dataclass
 class Filter:
-    """The compiled result of a policy against one identity."""
+    """The compiled result of a policy against one identity.
 
-    # None → no restriction; the artifact is served attached, without a copy.
+    Carries both halves of relation security: which rows (`allowed_values` /
+    `deny_all` / `column`) and which columns (`allowed_columns`). Either half
+    may be unrestricted independently — a relation can filter rows, project
+    columns, both, or neither.
+    """
+
+    # None → no row restriction; the artifact is served attached, without a copy.
     allowed_values: Optional[List[str]] = None
     # True → zero rows, whatever the values say.
     deny_all: bool = False
     column: Optional[str] = None
+    # None → every column. A list → the only columns the identity may see, in
+    # the relation's own column order. Column security projects to these at read
+    # time, in the same catalog that filters rows, so it cannot be bypassed.
+    allowed_columns: Optional[List[str]] = None
     reason: str = ""
 
     @property
     def unrestricted(self) -> bool:
-        return not self.deny_all and self.allowed_values is None
+        return (
+            not self.deny_all
+            and self.allowed_values is None
+            and self.allowed_columns is None
+        )
 
 
 UNRESTRICTED = Filter(reason="no policy")
@@ -308,3 +322,111 @@ def validate_policy(
             )
         if not str(grant.get("principal_id") or "").strip():
             raise ValueError(f"Grant {i + 1} names no principal.")
+
+
+# ---------------------------------------------------------------------------
+# Column-level security
+# ---------------------------------------------------------------------------
+#
+# The symmetry with rows is deliberate but not total. A row policy governs ONE
+# dimension (the filter column) and returns everything else about the row; a
+# column policy governs the named sensitive columns and returns everything else
+# about the row's shape. Both are fail-closed on what they govern: a row whose
+# identity does not resolve yields nothing, a restricted column that no grant
+# names is hidden.
+#
+# The one structural difference: rows have a `source` — an identity attribute
+# that resolves a per-user value automatically, so one rule serves everyone. A
+# column name is not a value that lives on the identity, so there is nothing to
+# resolve automatically; grants name the columns explicitly per principal.
+
+
+def compile_column_policy(
+    policy: Optional[Dict[str, Any]],
+    identity: Identity,
+    *,
+    available_columns: Sequence[str] = (),
+) -> Optional[List[str]]:
+    """The columns `identity` may see, in `available_columns` order.
+
+    Returns None when nothing is restricted (serve every column) and a list
+    otherwise. An empty list means every column is restricted and none was
+    granted — the caller maps that to a full relation-level deny, because a
+    projection with no columns is not a query.
+
+    Never raises: like the row compiler, every way the policy can be malformed
+    resolves to *more* hidden, never less. A restricted column that is not in
+    the materialized relation is dropped (it cannot leak), and a grant naming a
+    column that is not restricted is ignored.
+    """
+    if not policy:
+        return None
+
+    available = [str(c) for c in (available_columns or [])]
+    available_set = set(available)
+    # Only restrict columns that actually exist — a policy naming a column the
+    # relation no longer has should not silently hide a *different* one, and a
+    # stale name must not deny the whole table.
+    restricted = {
+        str(c) for c in (policy.get("restricted_columns") or []) if c
+    } & available_set
+    if not restricted:
+        return None
+
+    granted: Set[str] = set()
+    for grant in policy.get("grants") or []:
+        if not isinstance(grant, dict) or not _principal_matches(grant, identity):
+            continue
+        cols = _as_values(grant.get("columns"))
+        if WILDCARD in cols:
+            granted |= restricted
+        else:
+            granted |= {c for c in cols if c in restricted}
+
+    # Everything not restricted stays; a restricted column survives only if it
+    # was granted. Order follows the relation so the projection is stable.
+    return [c for c in available if c not in restricted or c in granted]
+
+
+def validate_column_policy(
+    policy: Optional[Dict[str, Any]],
+    available_columns: Sequence[str] = (),
+) -> None:
+    """Reject a column policy at save time. Raises ValueError (admin-readable).
+
+    As with rows, this is a convenience, not the enforcement boundary — the
+    relation's columns can change afterwards and `compile_column_policy` copes.
+    It exists so a typo surfaces on Save.
+    """
+    if not isinstance(policy, dict) or not policy:
+        raise ValueError("A column policy is required when column security is enabled.")
+
+    restricted = policy.get("restricted_columns") or []
+    if not isinstance(restricted, list) or not restricted:
+        raise ValueError("Choose at least one column to restrict.")
+
+    available_set = set(str(c) for c in (available_columns or []))
+    for col in restricted:
+        name = str(col or "").strip()
+        if not name:
+            raise ValueError("A restricted column has no name.")
+        if not _COLUMN_RE.match(name):
+            raise ValueError(f"'{name}' is not a valid column name.")
+        if available_set and name not in available_set:
+            raise ValueError(
+                f"'{name}' is not a column of this query's result. "
+                f"Available: {', '.join(sorted(available_set)[:20])}"
+            )
+
+    for i, grant in enumerate(policy.get("grants") or []):
+        if not isinstance(grant, dict):
+            raise ValueError(f"Grant {i + 1} is malformed.")
+        if (grant.get("principal_type") or "").lower() not in ("user", "group", "role"):
+            raise ValueError(f"Grant {i + 1} must target a user, a group or a role.")
+        if not str(grant.get("principal_id") or "").strip():
+            raise ValueError(f"Grant {i + 1} names no principal.")
+        if not _as_values(grant.get("columns")):
+            raise ValueError(
+                f"Grant {i + 1} names no columns — list the columns it unlocks, "
+                f"or '{WILDCARD}' for all restricted columns."
+            )
