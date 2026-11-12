@@ -15,7 +15,7 @@ export function valueFormatter(f?: ValueFormat | null): ((v: unknown) => string)
   const currency = /^[A-Za-z]{3}$/.test(String(f?.currency || '')) ? String(f!.currency).toUpperCase() : 'USD';
   return (v: unknown): string => {
     const n = typeof v === 'number' ? v : Number(v);
-    if (v === null || v === undefined || v === '' || !Number.isFinite(n)) return v == null ? '' : String(v);
+    if (v === null || v === undefined || v === '' || !Number.isFinite(n)) return v == null || v === '' ? '-' : String(v); // '-' as ECharts prints a missing value
     const abs = Math.abs(n);
     try {
       if (fmt === 'currency') {

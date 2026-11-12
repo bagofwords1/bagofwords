@@ -16,7 +16,7 @@ assert.equal(usd(1234.5), '$1,235'); assert.equal(usd(12.5), '$12.5'); assert.eq
 assert.equal(valueFormatter({ format: 'currency', currency: 'ils' })(40).includes('₪'), true, 'the stored currency code');
 assert.equal(valueFormatter({ format: 'percent' })(12.5), '12.5%', 'percent: the value is already a percentage, as on metric cards');
 assert.equal(valueFormatter({ format: 'compact' })(1500), '1.5K');
-assert.equal(usd(null), ''); assert.equal(usd('n/a'), 'n/a');
+assert.equal(usd(null), '-'); assert.equal(usd(undefined), '-'); assert.equal(usd('n/a'), 'n/a');
 assert.equal(zoomWindow(60, 3), 24); assert.equal(zoomWindow(24, 3), null); assert.equal(zoomWindow(60, 1), null); assert.equal(zoomWindow(90, 1), 60);
 const z = latestWindowZoom(60, 3);
 assert.deepEqual([z[0].startValue, z[0].endValue, z[1].type], [36, 59, 'slider'], 'opens on the latest 24 of 60');
