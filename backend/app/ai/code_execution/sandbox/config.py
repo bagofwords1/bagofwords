@@ -5,7 +5,9 @@ what the host can enforce, which is a deployment property.
 
     BOW_CODE_SANDBOX              subprocess (default) | inprocess
                                   `inprocess` is the pre-sandbox behavior
-                                  (exec() inside the API worker). Debug only.
+                                  (exec() inside the API worker), for local
+                                  development only: refused when
+                                  ENVIRONMENT=production.
     BOW_SANDBOX_TIMEOUT_SECONDS   wall-clock budget per execution; the child
                                   is SIGKILLed when it is exceeded. Default 600.
     BOW_SANDBOX_MEMORY_MB         RLIMIT_AS for the child. 0 disables.
@@ -49,6 +51,22 @@ def _int_env(name: str, default: int, *, minimum: int = 0) -> int:
 def sandbox_mode() -> str:
     raw = (os.environ.get("BOW_CODE_SANDBOX") or MODE_SUBPROCESS).strip().lower()
     return MODE_INPROCESS if raw == MODE_INPROCESS else MODE_SUBPROCESS
+
+
+def inprocess_refusal_reason() -> str:
+    """Why code must not run in process here, or "" when it may.
+
+    In process, generated code shares the API worker with every credential
+    and client object, so none of the sandbox's guarantees hold; that mode is
+    for local development only."""
+    if sandbox_mode() != MODE_INPROCESS:
+        return ""
+    if os.environ.get("ENVIRONMENT", "development").lower() != "production":
+        return ""
+    return (
+        "BOW_CODE_SANDBOX=inprocess runs generated code inside the API worker, "
+        "without the sandbox, and is refused when ENVIRONMENT=production"
+    )
 
 
 @dataclass(frozen=True)

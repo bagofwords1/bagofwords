@@ -34,7 +34,7 @@ from app.ai.code_execution.sandbox.namespace import (  # noqa: F401 - re-exporte
     BrowserHelper,
     ListsHelper,
 )
-from app.ai.code_execution.sandbox.runner import SandboxJob, run_job as _run_sandbox_job
+from app.ai.code_execution.sandbox.runner import SandboxJob, refuse_inprocess_if_not_allowed, run_job as _run_sandbox_job
 from app.ai.code_execution.sandbox_helpers import (
     MeteredHttp,
     SandboxHelpers,
@@ -969,7 +969,7 @@ def resolve_guarded_call(client, query, args: tuple, kwargs: dict) -> ResolvedCa
     unknown = sorted(k for k in kwargs if k not in profile.extra_kwargs)
     if unknown:
         raise _refuse_call(f"execute_query does not accept {', '.join(unknown)} for this data source.")
-    if not (type(statement) is str or (profile.accepts_dict and isinstance(statement, dict))):
+    if not (type(statement) is str or (profile.accepts_dict and type(statement) is dict)):
         raise _refuse_call(f"execute_query takes the query as text, not {type(statement).__name__}.")
     # Only BigQuery's profile allows these keywords, so only its calls get here with them.
     _check_bigquery_options(client, kwargs)
@@ -1697,6 +1697,8 @@ class StreamingCodeExecutor:
                 helpers.begin_attempt()
             try:
                 if sandbox_mode() == MODE_INPROCESS:
+                    # In-process mode is for local development only.
+                    refuse_inprocess_if_not_allowed()
                     df, output_log = self._execute_inprocess(
                         code, wrapped_clients, excel_files, http_client,
                         loadables=loadables, params=params, load_step_enabled=load_step_enabled,

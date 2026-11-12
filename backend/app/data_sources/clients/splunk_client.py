@@ -102,6 +102,13 @@ _DEFAULT_SAVED_SEARCHES = frozenset({
 _WILDCARD_INDEX = re.compile(r'index\s*=\s*"?\*', re.IGNORECASE)
 
 
+def _given(value) -> bool:
+    """Whether an envelope field holds something: not None and not empty
+    text. Decided by type and value alone, never by the object's own truth
+    value, so the guard and the client always read an envelope alike."""
+    return value is not None and not (type(value) is str and value == "")
+
+
 class SplunkClient(DataSourceClient):
 
     def __init__(
@@ -217,9 +224,11 @@ class SplunkClient(DataSourceClient):
         Every search the client runs comes through here, whatever envelope it
         arrived in (bare, dict, JSON string, dashboard panel, saved search) and
         whichever internal caller built it, so this is where its SPL is checked
-        for writing commands — decoded, before any request is made.
+        for writing commands — decoded, before any request is made. The check
+        also refuses anything but plain text, so what is checked is what is
+        sent.
         """
-        check_spl(spl or "")
+        check_spl(spl)
         params = {
             "search": self._normalize_spl(spl),
             "exec_mode": "oneshot",
@@ -815,9 +824,9 @@ class SplunkClient(DataSourceClient):
             {"saved_search": "payments/High error rate", "earliest": "-1h"}
         """
         spec = self._coerce_spec(query)
-        if spec.get("dashboard"):
+        if _given(spec.get("dashboard")):
             return self._execute_dashboard(spec)
-        if spec.get("saved_search"):
+        if _given(spec.get("saved_search")):
             return self._execute_saved_search(spec)
         spl, earliest, latest, limit = self._parse_spec(spec)
         rows = self._run_search(spl, earliest=earliest, latest=latest, count=limit)
@@ -827,9 +836,14 @@ class SplunkClient(DataSourceClient):
 
     @staticmethod
     def _coerce_spec(query) -> Dict[str, Any]:
-        if isinstance(query, dict):
+        if type(query) is dict:
             return query
-        s = (query or "").strip()
+        if query is None:
+            return {"spl": ""}
+        if type(query) is not str:
+            # Left for the SPL check, which refuses what is not plain text.
+            return {"spl": query}
+        s = query.strip()
         # A JSON envelope, or a bare SPL string.
         if s.startswith("{"):
             try:
@@ -845,9 +859,10 @@ class SplunkClient(DataSourceClient):
         type. None for a dashboard or saved-search envelope, whose SPL is
         fetched first, and for an envelope without SPL."""
         spec = SplunkClient._coerce_spec(query)
-        if spec.get("dashboard") or spec.get("saved_search"):
+        if _given(spec.get("dashboard")) or _given(spec.get("saved_search")):
             return None
-        return spec.get("spl") or spec.get("search") or spec.get("query")
+        return next((spl for spl in (spec.get("spl"), spec.get("search"), spec.get("query"))
+                     if _given(spl)), None)
 
     def _parse_spec(self, query):
         earliest: Optional[str] = self._window()
@@ -855,7 +870,7 @@ class SplunkClient(DataSourceClient):
         limit = DEFAULT_LIMIT
         spec = self._coerce_spec(query)
         spl = self.inline_spl(spec)
-        if not spl:
+        if spl is None:
             raise ValueError(SPL_ENVELOPE_GUIDANCE)
         if spec.get("earliest") is not None:
             earliest = spec["earliest"]

@@ -1264,6 +1264,12 @@ def test_every_letter_that_case_folds_to_ascii_is_read_as_its_folding():
 @pytest.mark.parametrize("spl,code", [
     pytest.param("index=web | \ufb01t LinearRegression y from x into m", "U+FB01", id="fi-ligature"),
     pytest.param("index=web | \ufb01`m`t LinearRegression y from x into m", "U+FB01", id="split"),
+    # A harmless folding letter earlier in the search must not hide the one
+    # the refusal is about: every such letter is named.
+    pytest.param("index=web stra\u00dfe | \ufb01t LinearRegression y from x into m", "U+FB01",
+                 id="after-another-folding-letter"),
+    pytest.param("index=web \ufb06op | \ufb02ag | \ufb01t LinearRegression y from x into m", "U+FB01",
+                 id="after-two-other-folding-letters"),
 ])
 def test_refusal_under_the_case_folded_reading_names_the_letter(splunk_http, spl, code):
     from app.ai.code_execution.sql_guard import ReadOnlyViolation
@@ -1350,9 +1356,11 @@ def test_refusal_under_a_reading_of_an_invisible_character_names_it(splunk_http,
 # everything the query wrapper runs on it, at 1 MB in at most eight times the
 # CPU time of 256 KB (linear quadruples it, quadratic multiplies it by
 # sixteen), at 64 KB under a loose cap, and at 1 MB in under a hundred times
-# a plain 1 MB read (the slowest shape takes about 35 times on an idle
-# machine and 55 under full load). The default head has a pipe, so the rules
-# that start at the first pipe or bracket scan the whole shape.
+# a plain 1 MB read (the slowest shape, a sharp s ahead of the slowest piece,
+# takes about 62 times, on an idle machine and with sixteen checks running at
+# once alike; without the sharp s that piece takes about 35). The default
+# head has a pipe, so the rules that start at the first pipe or bracket scan
+# the whole shape.
 
 _MB = 1 << 20
 _PLAIN_READ_TIMES = 100
@@ -1472,6 +1480,9 @@ def _cpu_seconds(spl: str) -> float:
     # on the text read with their folding.
     pytest.param(_shape('"\ufb01'), id="quote-fi-ligature"),
     pytest.param(_shape("\ufb03`\u200b"), id="ffi-ligature-backtick-zwsp"),
+    # The slowest shape with one such letter ahead of it, so every reading
+    # runs twice over the whole search: the worst combined case.
+    pytest.param(_shape('"\ufe0f\u017f', head="index=web | \u00df "), id="sharp-s-then-quote-vs16-long-s"),
     # Many name prefixes started first, then pieces that can continue them.
     pytest.param(_shape("`t `e `l `o `u `a `s ", head="index=web " + "".join(
         f"| {name[:i]}` " for name in ("outputlookup", "collect", "sendemail", "deletemodel", "tscollect")
@@ -1484,7 +1495,11 @@ def test_check_spl_is_linear_on_large_input(shape):
     # against a plain 1 MB read measured in the same test, so a loaded machine
     # (which slows both) does not fail it. Each size is measured up to three
     # times, keeping the fastest, before failing.
-    small = _cpu_seconds(_sized(shape, _MB // 16))
+    small = float("inf")
+    for _ in range(3):
+        small = min(small, _cpu_seconds(_sized(shape, _MB // 16)))
+        if small < 0.5:
+            break
     assert small < 0.5, f"64 KB took {small:.3f}s of CPU"
     plain = min(_cpu_seconds(_sized(_PLAIN_READ, _MB)) for _ in range(3))
     quarter, one = float("inf"), float("inf")

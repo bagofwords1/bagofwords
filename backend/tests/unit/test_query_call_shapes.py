@@ -448,3 +448,48 @@ def test_splunk_read_behind_a_comment_or_bracket_posts_once(mode, splunk, spl):
     client, http = splunk
     _run({"spl": client}, f"return ds_clients['spl'].execute_query({{'spl': {spl!r}}})")
     assert http.searches == [spl]
+
+
+# In process, code can hand an envelope objects of its own types: a text
+# subclass whose truth value changes from one look to the next, or a mapping
+# subclass. Every look the guard and the client take must see the same thing,
+# so these are refused before any search is sent. (Subprocess mode sends
+# arguments as JSON, which leaves only plain types.)
+
+@pytest.fixture
+def in_process(monkeypatch):
+    monkeypatch.setenv("BOW_CODE_SANDBOX", "inprocess")
+    monkeypatch.setenv("ENVIRONMENT", "development")
+
+
+_SHIFTING_TEXT = """
+class Shifting(str):
+    answers = [False, True, True, False]
+    def __bool__(self):
+        return self.answers.pop(0) if self.answers else True
+"""
+
+
+@pytest.mark.parametrize("key", ["spl", "search", "query"])
+def test_splunk_envelope_text_with_a_shifting_truth_value_is_refused(in_process, splunk, key):
+    client, http = splunk
+    code = (
+        "def generate_df(ds_clients, excel_files):\n"
+        + "".join(f"    {line}\n" for line in _SHIFTING_TEXT.strip().splitlines())
+        + "    spl = Shifting('search index=crm | ' + 'del' + 'ete')\n"
+        + f"    return ds_clients['spl'].execute_query({{{key!r}: spl}})\n"
+    )
+    with pytest.raises(UnsafeSQLError):
+        StreamingCodeExecutor().execute_code(code=code, ds_clients={"spl": client}, excel_files=[])
+    assert http.searches == []
+
+
+def test_splunk_envelope_of_a_mapping_subclass_is_refused(in_process, splunk):
+    client, http = splunk
+    with pytest.raises(UnsafeSQLError):
+        _run({"spl": client}, """
+class Envelope(dict):
+    pass
+return ds_clients['spl'].execute_query(Envelope(spl='search index=crm | stats count'))
+""")
+    assert http.searches == []

@@ -17,6 +17,8 @@ from datetime import datetime
 from app.schemas.entity_schema import EntityRunPayload
 from app.core.telemetry import telemetry
 from app.ee.audit.service import audit_service
+from app.dependencies import async_session_maker
+from app.services.usage_policy_service import UsageLimitContext
 
 
 class EntityService:
@@ -24,6 +26,32 @@ class EntityService:
     def __init__(self):
         self.step_service = StepService()
         self.query_service = QueryService()
+
+    @staticmethod
+    def _usage_context(organization, user, *, source: str,
+                       entity_id: Optional[str]) -> Optional[UsageLimitContext]:
+        """Rate limits, quotas and metering for one execution, labelled with
+        the caller (`source`). Flushed by the caller when the execution ends,
+        failed or not."""
+        if organization is None or user is None:
+            return None
+        return UsageLimitContext(
+            organization_id=str(organization.id),
+            user_id=str(user.id),
+            source=source,
+            source_ref_id=str(entity_id) if entity_id else None,
+            session_maker=async_session_maker,
+        )
+
+    @staticmethod
+    async def _flush_usage(usage_context: Optional[UsageLimitContext]) -> None:
+        # Persist buffered data-plane metering (queries/bytes are enqueued by
+        # the execute_query wrapper, not written synchronously).
+        if usage_context is not None:
+            try:
+                await usage_context.flush()
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------
     # Parameters (mirrors the step/query machinery)
@@ -240,14 +268,18 @@ class EntityService:
         org_settings = await organization.get_settings(db) if organization else None
         from app.services.bow_source_access import install_entity_client
         await install_entity_client(db, organization, user, entity, ds_clients)
-        executor = StreamingCodeExecutor(organization_settings=org_settings)
+        usage_context = self._usage_context(organization, user, source="entity_viewer_run", entity_id=entity.id)
+        executor = StreamingCodeExecutor(organization_settings=org_settings, usage_context=usage_context)
         from app.data_sources.query_tag import query_tag_defaults
-        with query_tag_defaults(source="entity_run", entity_id=entity.id,
-                                org_id=getattr(organization, "id", None), user_id=getattr(user, "id", None)):
-            exec_df, _log, _ = await executor.execute_code_async(
-                code=entity.code or "", ds_clients=ds_clients, excel_files=[],
-                params=resolved,
-            )
+        try:
+            with query_tag_defaults(source="entity_run", entity_id=entity.id,
+                                    org_id=getattr(organization, "id", None), user_id=getattr(user, "id", None)):
+                exec_df, _log, _ = await executor.execute_code_async(
+                    code=entity.code or "", ds_clients=ds_clients, excel_files=[],
+                    params=resolved,
+                )
+        finally:
+            await self._flush_usage(usage_context)
         df = executor.format_df_for_widget(exec_df)
         if exec_df.attrs.get("bow_source"):
             from app.services.bow_source_access import merge_access
@@ -931,7 +963,8 @@ class EntityService:
         org_settings = await organization.get_settings(db) if organization else None
         from app.services.bow_source_access import install_entity_client
         await install_entity_client(db, organization, current_user, entity, ds_clients)
-        executor = StreamingCodeExecutor(organization_settings=org_settings)
+        usage_context = self._usage_context(organization, current_user, source="entity_run", entity_id=entity.id)
+        executor = StreamingCodeExecutor(organization_settings=org_settings, usage_context=usage_context)
 
         # Snapshot-identity guard: execution runs under the CALLER's
         # credentials, but Entity.data is a SHARED snapshot the policy treats
@@ -1010,6 +1043,8 @@ class EntityService:
                 await db.commit()
             # Re-raise as ValueError for route to map to 404/400 as designed
             raise ValueError(str(e))
+        finally:
+            await self._flush_usage(usage_context)
 
     @staticmethod
     def slugify(text: str) -> str:
@@ -1044,13 +1079,16 @@ class EntityService:
         current_user: Optional[User],
         resolved_params: Optional[dict] = None,
         entity: Optional[Entity] = None,
+        *,
+        source: str,
     ) -> dict:
         """Run `code` against `ds_list` (or every org agent when empty) without
         persisting anything. Shared by the per-entity preview and the stateless
         one the "New query" form uses before a row exists.
 
         `entity` is the saved row when there is one: its BOW source access
-        gates the run and is widened by what the run read."""
+        gates the run and is widened by what the run read. `source` labels the
+        run's metered queries with its caller."""
         from app.ai.code_execution.code_execution import StreamingCodeExecutor
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
@@ -1077,7 +1115,9 @@ class EntityService:
         if entity is not None:
             from app.services.bow_source_access import install_entity_client
             await install_entity_client(db, organization, current_user, entity, ds_clients)
-        executor = StreamingCodeExecutor(organization_settings=org_settings)
+        usage_context = self._usage_context(organization, current_user, source=source,
+                                            entity_id=getattr(entity, "id", None))
+        executor = StreamingCodeExecutor(organization_settings=org_settings, usage_context=usage_context)
         try:
             from app.data_sources.query_tag import query_tag_defaults
             with query_tag_defaults(source="entity_run", entity_id=getattr(entity, "id", None),
@@ -1095,6 +1135,8 @@ class EntityService:
             return {"data": df, "execution_log": execution_log, "applied_params": resolved_params or None}
         except Exception as e:
             return {"data": None, "error": str(e)}
+        finally:
+            await self._flush_usage(usage_context)
 
     async def preview_entity(
         self,
@@ -1121,7 +1163,7 @@ class EntityService:
         )
         return await self._execute_entity_code(
             db, code_to_run, list(entity.data_sources or []), organization, current_user, resolved_params,
-            entity=entity,
+            entity=entity, source="entity_preview",
         )
 
     async def preview_code(
@@ -1155,7 +1197,7 @@ class EntityService:
             db, parameters, current_user, organization, params or None,
         )
         return await self._execute_entity_code(
-            db, code or "", ds_list, organization, current_user, resolved_params,
+            db, code or "", ds_list, organization, current_user, resolved_params, source="entity_code_preview",
         )
 
     async def _get_owned_entity(

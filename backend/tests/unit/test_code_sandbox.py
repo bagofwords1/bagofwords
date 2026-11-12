@@ -477,6 +477,8 @@ def generate_df(ds_clients, excel_files):
     rendered = {}
     for mode in ("inprocess", "subprocess"):
         monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+        if mode == "inprocess":
+            monkeypatch.setenv("ENVIRONMENT", "development")  # in-process mode is development-only
         client = _StubClient()
         _run(code, {"db": client})
         rendered[mode] = [q for q, _, _ in client.calls]
@@ -619,6 +621,8 @@ def test_pptx_repair_text_points_at_the_failing_line(tmp_path: Path, monkeypatch
     from app.ai.tools.implementations.create_artifact import CreateArtifactTool
 
     monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    if mode == "inprocess":
+        monkeypatch.setenv("ENVIRONMENT", "development")  # in-process mode is development-only
     code = """
 prs = Presentation()
 slide = prs.slides.add_slide(prs.slide_layouts[5])
@@ -958,6 +962,8 @@ def test_client_notice_lands_in_the_run_output(monkeypatch, mode):
     and sandboxed another process); a note it attaches to its result must
     still reach the output, in order with the code's own prints."""
     monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    if mode == "inprocess":
+        monkeypatch.setenv("ENVIRONMENT", "development")  # in-process mode is development-only
     code = """
 def generate_df(ds_clients, excel_files):
     print("before")
@@ -973,6 +979,8 @@ def generate_df(ds_clients, excel_files):
 @pytest.mark.parametrize("note", [None, "", "   "])
 def test_no_notice_adds_nothing_to_the_output(monkeypatch, mode, note):
     monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    if mode == "inprocess":
+        monkeypatch.setenv("ENVIRONMENT", "development")  # in-process mode is development-only
     code = """
 def generate_df(ds_clients, excel_files):
     return ds_clients["db"].execute_query("SELECT 1")
@@ -1001,6 +1009,8 @@ def test_sent_request_is_recorded_next_to_the_query_it_answered(monkeypatch, mod
     """The Queries tab pairs each query with the request actually sent; the
     query list itself (read by the identity-bind check) stays as written."""
     monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    if mode == "inprocess":
+        monkeypatch.setenv("ENVIRONMENT", "development")  # in-process mode is development-only
     code = """
 def generate_df(ds_clients, excel_files):
     ds_clients["db"].execute_query("ORDERITEMS?$top=1")
@@ -1035,6 +1045,8 @@ def test_result_headers_show_column_titles_and_keep_field_names(monkeypatch, mod
     the titles collected from the queries still label its headers, while
     `field` stays the column name that code, filters and dashboards use."""
     monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    if mode == "inprocess":
+        monkeypatch.setenv("ENVIRONMENT", "development")  # in-process mode is development-only
     orders = _TitledClient(pd.DataFrame({"ORDNAME": ["SO1"], "PRICE": [5.0]}),
                            {"ORDNAME": "מספר הזמנה", "PRICE": "מחיר יחידה"})
     code = """
@@ -1056,6 +1068,8 @@ def generate_df(ds_clients, excel_files):
 @pytest.mark.parametrize("mode", ["subprocess", "inprocess"])
 def test_a_name_titled_differently_by_two_queries_stays_technical(monkeypatch, mode):
     monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    if mode == "inprocess":
+        monkeypatch.setenv("ENVIRONMENT", "development")  # in-process mode is development-only
     part = _TitledClient(pd.DataFrame({"PRICE": [1.0]}), {"PRICE": "מחיר"})
     lines = _TitledClient(pd.DataFrame({"PRICE": [2.0], "KLINE": [1]}),
                           {"PRICE": "מחיר יחידה", "KLINE": "שורה"})
@@ -1084,6 +1098,8 @@ def test_all_titles_conflicting_leaves_every_header_technical(monkeypatch, mode)
     """In process the returned frame still carries its own client's labels; a
     conflict across queries must override them, not let them through."""
     monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    if mode == "inprocess":
+        monkeypatch.setenv("ENVIRONMENT", "development")  # in-process mode is development-only
     part = _TitledClient(pd.DataFrame({"PRICE": [1.0]}), {"PRICE": "A"})
     lines = _TitledClient(pd.DataFrame({"PRICE": [2.0]}), {"PRICE": "B"})
     code = """

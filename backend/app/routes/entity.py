@@ -7,6 +7,7 @@ from app.models.user import User
 from app.models.organization import Organization
 from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission, check_resource_permissions, require_org_permission
+from app.core.code_visibility import require_run_custom_code
 from app.errors import AppError, ErrorCode
 
 from app.models.entity import Entity
@@ -59,6 +60,13 @@ async def _require_ds_access(db, user, organization, ds_ids: List[str]) -> None:
                 status_code=403,
                 detail=f'No access to agent "{rid}".',
             )
+
+
+def _sends_new_code(code: Optional[str], stored: Optional[str]) -> bool:
+    """Whether a request carries code other than the entity's stored code.
+    Storing or running that code is caller-supplied code, so it takes
+    `run_custom_code`; re-sending the stored code does not."""
+    return code is not None and code.strip() != (stored or "").strip()
 
 
 # EntityRunPayload fields a run persists onto the entity (besides the data).
@@ -188,6 +196,8 @@ async def create_private_entity(
     agents saves a SUGGESTION — `(published, suggested, draft)` — that an
     admin reviews, regardless of the `status` they sent.
     """
+    # The entity's code is caller-supplied code that later runs.
+    await require_run_custom_code(db, current_user, organization)
     ds_ids = [str(i) for i in (payload.data_source_ids or []) if i]
     can_publish = await _resolve_create_tier(db, current_user, organization, ds_ids)
     _validate_declared_params(payload)
@@ -247,6 +257,7 @@ async def create_global_entity(
     organization: Organization = Depends(get_current_organization),
 ):
     """Create a new global entity (admin only) - Global Draft/Published: null, approved, draft/published"""
+    await require_run_custom_code(db, current_user, organization)
     if payload.data_source_ids:
         await check_resource_permissions(
             db, str(current_user.id), str(organization.id),
@@ -350,6 +361,8 @@ async def update_entity(
     existing = await service.get_entity(db, entity_id, organization, current_user)
     if not existing:
         raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND, "Entity not found")
+    if _sends_new_code(payload.code, existing.code):
+        await require_run_custom_code(db, current_user, organization)
     is_owner_unapproved = (
         str(existing.owner_id) == str(current_user.id)
         and existing.global_status != 'approved'
@@ -514,6 +527,10 @@ async def run_entity(
         await _require_entity_view_access(db, entity_id, organization, current_user)
     else:
         await _require_entity_run_access(db, entity_id, organization, current_user, payload)
+        # Running (and saving) code other than the stored code is custom code.
+        existing = await service.get_entity(db, entity_id, organization, current_user)
+        if _sends_new_code(payload.code, existing.code):
+            await require_run_custom_code(db, current_user, organization)
     from app.ai.code_execution.query_params import ParamError
     try:
         entity = await service.run_entity_with_update(db, entity_id, payload, organization, current_user=current_user)

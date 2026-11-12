@@ -6,6 +6,7 @@ from sqlalchemy.orm import lazyload
 from app.dependencies import get_async_db, get_current_organization
 from app.core.auth import current_user as current_user_dep
 from app.core.permissions_decorator import requires_permission
+from app.core.code_visibility import require_run_custom_code
 
 from app.models.user import User
 from app.models.organization import Organization
@@ -48,25 +49,6 @@ async def _audit_query_execution(db, organization, current_user, query_id, *, mo
         import logging
         logging.getLogger(__name__).debug("query.executed audit failed", exc_info=True)
 service = QueryService()
-
-
-async def _require_run_custom_code(db, current_user, organization) -> None:
-    """Gate caller-supplied code execution behind ``run_custom_code``.
-
-    This is the check the removed ``enable_code_editing`` org setting never
-    performed: it lived only in two Vue components, so the API accepted
-    arbitrary caller-supplied SQL/Python from any member regardless of the
-    toggle. Hiding an editor is not a permission check.
-    """
-    from app.core.permission_resolver import resolve_permissions
-    from app.core.code_visibility import can_run_custom_code
-
-    resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
-    if not can_run_custom_code(resolved):
-        raise HTTPException(
-            status_code=403,
-            detail="You do not have permission to edit and run custom code",
-        )
 
 
 async def _require_query_owner(db, query_id: str, current_user, organization) -> None:
@@ -334,7 +316,7 @@ async def run_query_new_step(
 ):
     if (payload.mode or "builder") != "viewer":
         # Builder mode executes caller-supplied `code`: an edit, owner-only.
-        await _require_run_custom_code(db, current_user, organization)
+        await require_run_custom_code(db, current_user, organization)
         await _require_query_owner(db, query_id, current_user, organization)
     # Every mode reads the stored query and its data. Viewer mode runs the
     # stored step with parameter values only (ordinary report usage), so it is
@@ -442,7 +424,7 @@ async def preview_query_code(
     try:
         # Previewing runs caller-supplied code against the source, same trust
         # boundary as a builder-mode run.
-        await _require_run_custom_code(db, current_user, organization)
+        await require_run_custom_code(db, current_user, organization)
         await _require_query_read(db, query_id, current_user, organization)
         result = await service.preview_query_code(
             db,

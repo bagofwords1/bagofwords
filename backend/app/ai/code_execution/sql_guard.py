@@ -372,7 +372,7 @@ def ensure_read_only(client, query) -> Union[str, dict]:
             raise ReadOnlyViolation(
                 f"execute_query takes the statement as a plain str, not {type(query).__name__}."
             )
-        if isinstance(query, dict) and profile.accepts_dict:
+        if type(query) is dict and profile.accepts_dict:
             if any(not isinstance(key, str) for key in query):
                 raise ReadOnlyViolation(f"Envelope keys must be text. {SPL_ENVELOPE_GUIDANCE}")
             if profile.kind == "spl":
@@ -534,16 +534,20 @@ def check_spl(spl: str) -> None:
             "Remove it; only tab, newline and carriage return are allowed."
         )
     _check_spl_readings(spl)
-    multi_fold = _SPL_MULTI_FOLD_CHAR.search(spl)
-    if multi_fold:
-        letter = multi_fold.group()
+    if _SPL_MULTI_FOLD_CHAR.search(spl):
         try:
             _check_spl_readings(spl.translate(_SPL_MULTI_FOLD))
         except ReadOnlyViolation as refused:
+            # Every such letter, in code point order: the reading folds them
+            # all at once, so any of them may be the one the refusal is about.
+            letters = ", ".join(
+                f"U+{code:04X} ('{_SPL_MULTI_FOLD[code]}')"
+                for code in sorted(_SPL_MULTI_FOLD) if chr(code) in spl
+            )
             raise ReadOnlyViolation(
-                f"SPL contains a letter (U+{ord(letter):04X}) that case-folds to several letters "
-                f"('{_SPL_MULTI_FOLD[ord(letter)]}'), which Splunk may read as those letters. Read "
-                f"that way, the search is refused; write the letters instead. {refused}"
+                f"SPL contains letters that case-fold to several letters ({letters}), which "
+                f"Splunk may read as those letters. Read that way, the search is refused; write "
+                f"the letters instead. {refused}"
             ) from refused
 
 
