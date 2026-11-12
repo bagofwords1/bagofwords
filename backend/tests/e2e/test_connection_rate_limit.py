@@ -16,7 +16,7 @@ import asyncio
 import logging
 import sqlite3
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 
 import pytest
 from sqlalchemy import select
@@ -1023,11 +1023,27 @@ async def _write_on(db, eid):
     return stored == description
 
 
+def _attributes_of(**objects):
+    """What the caller reads next from the objects it holds on its session
+    (the agent: its organization, user, settings and entity), as plain ORM
+    attribute reads. An object the session expired and cannot load again in
+    an async context is reported by its error type, not raised."""
+    from sqlalchemy import inspect
+
+    reads = {}
+    for name, obj in objects.items():
+        try:
+            reads[name] = {a.key: getattr(obj, a.key) for a in inspect(obj).mapper.column_attrs}
+        except Exception as err:  # noqa: BLE001 - reported to the assertion
+            reads[name] = f"unreadable: {type(err).__name__}"
+    return reads
+
+
 async def _describe_in_one_session(org_id, user_id, eid, tool_input, *, settings_unreadable=False):
-    """describe_entity on the agent's session, then the agent's next write on
-    that same session. `settings_unreadable`: the organization settings the
-    agent hands the tool cannot be read (expired on a session that cannot
-    load them, as after a rollback)."""
+    """describe_entity on the agent's session, then the agent's next reads of
+    the objects it holds and its next write on that same session.
+    `settings_unreadable`: the organization settings the agent hands the
+    tool cannot be read (expired on a session that cannot load them)."""
     from app.ai.tools.implementations.describe_entity import DescribeEntityTool
 
     async with async_session_maker() as db:
@@ -1036,10 +1052,15 @@ async def _describe_in_one_session(org_id, user_id, eid, tool_input, *, settings
         settings = await org.get_settings(db)
         if settings_unreadable:
             db.expire(settings)
+        held = dict(organization=org, user=user, entity=_entity_row)
+        if not settings_unreadable:
+            held["settings"] = settings
+        before = _attributes_of(**held)
         events = [evt async for evt in DescribeEntityTool().run_stream(
             {"name_or_id": eid, **tool_input},
             {"db": db, "organization": org, "user": user, "settings": settings},
         )]
+        assert _attributes_of(**held) == before, "the agent's own objects became unreadable"
         return events[-1].payload, title, await _write_on(db, eid)
 
 
@@ -1145,7 +1166,10 @@ async def _mcp_describe_in_one_session(org_id, user_id, eid, args):
 
     async with async_session_maker() as db:
         org, user, _entity_row = await _session_objects(db, org_id, user_id, eid)
+        held = dict(organization=org, user=user, entity=_entity_row)
+        before = _attributes_of(**held)
         out = await DescribeEntityMCPTool().execute({"name_or_id": eid, **args}, db, user, org)
+        assert _attributes_of(**held) == before, "the request's own objects became unreadable"
         return out, await _write_on(db, eid)
 
 
@@ -1195,8 +1219,25 @@ async def _load_entities_in_one_session(org_id, user_id, refs):
     async with async_session_maker() as db:
         org = await db.get(Organization, org_id)
         user = await db.get(User, user_id)
+        before = _attributes_of(organization=org, user=user)
         result = await LoadablesResolver(db, org, None, user).resolve([], refs)
-        return result, await _write_on(db, refs[0])
+        readable = _attributes_of(organization=org, user=user) == before
+        return result, readable, await _write_on(db, refs[0])
+
+
+def _identity_entities(api, token, org_id, count):
+    refs = []
+    for _ in range(count):
+        resp = api.post("/api/entities", headers=_headers(token, org_id), json={
+            "type": "model", "title": f"e-{uuid.uuid4().hex[:6]}", "code": _IDENTITY_CODE,
+            "status": "published", "parameters": [_VIEWER_SPEC], "data_source_ids": []})
+        assert resp.status_code == 200, resp.text
+        refs.append(resp.json()["id"])
+    return refs
+
+
+def _not_saved_error(ref):
+    return f"load_entity({ref!r}): failed to resolve the caller's slice: The run's result could not be saved."
 
 
 @pytest.mark.e2e
@@ -1207,27 +1248,209 @@ def test_load_entity_whose_slice_the_database_refuses_reports_a_fixed_message_an
 
     token, org_id, _owner_id = _bootstrap_admin(create_user, login_user, whoami)
     member_id = _invite_member(api, token, org_id, create_user, login_user, whoami)
-    refs = []
-    for _ in range(2):
-        resp = api.post("/api/entities", headers=_headers(token, org_id), json={
-            "type": "model", "title": f"e-{uuid.uuid4().hex[:6]}", "code": _IDENTITY_CODE,
-            "status": "published", "parameters": [_VIEWER_SPEC], "data_source_ids": []})
-        assert resp.status_code == 200, resp.text
-        refs.append(resp.json()["id"])
+    member_email = _run(_email_of(member_id))
+    refs = _identity_entities(api, token, org_id, 3)
     message = _refusal_message()
     _watch_app_logs(monkeypatch)
 
     with caplog.at_level(logging.WARNING), _database_refusing_slices_of(refs[0], message):
-        result, written = _run(_load_entities_in_one_session(org_id, member_id, refs))
-    assert result["errors"][0] == (
-        f"load_entity({refs[0]!r}): failed to resolve the caller's slice: The run's result could not be saved."
-    ), result["errors"]
+        result, readable, written = _run(_load_entities_in_one_session(org_id, member_id, refs))
+    # The refused entity reports the fixed message; the ones after it, in the
+    # same code run, resolve to the reader's own slice.
+    assert not any("greenlet" in e.lower() for e in result["errors"]), result["errors"]
+    assert result["errors"] == [_not_saved_error(refs[0])], result["errors"]
     assert refs[0] not in result["entities"], result
+    for ref in refs[1:]:
+        assert ref in result["entities"], (ref, result)
+        assert result["entities"][ref].to_dict("records") == [{"viewer": member_email}], (ref, result)
     _assert_no_database_text(message, _REFUSED_VALUE, json.dumps(result["errors"]), caplog.text)
+    assert readable, "the agent's own organization and user became unreadable"
     assert written, "a write on the agent's session after the failed save was lost"
+    assert [r.data["rows"] for ref in refs[1:] for r in _run(_slice_rows(ref))] == [
+        [{"viewer": member_email}], [{"viewer": member_email}]]
+    assert not _run(_slice_rows(refs[0]))
+
+
+async def _email_of(user_id):
+    from app.models.user import User
+
+    async with async_session_maker() as db:
+        return (await db.execute(select(User.email).where(User.id == user_id))).scalar_one()
+
+
+# A monitoring-sourced entity: its shared snapshot came from the built-in
+# monitoring source, which any member of the organization may read.
+def _monitoring_access(org_id):
+    return {"version": 1, "source_id": "builtin:bow", "organization_id": org_id,
+            "scope_ids": [], "report_ids": []}
+
+
+async def _monitoring_entity_and_publishing_release(org_id, admin_id, eid):
+    """Marks `eid` as monitoring sourced with a snapshot, and opens a
+    publishing release of a dashboard (not public)."""
+    from sqlalchemy import update
+
+    from app.models.artifact import Artifact
+    from app.models.artifact_release import ArtifactRelease
+    from app.models.entity import Entity
+
+    async with async_session_maker() as db:
+        await db.execute(update(Entity).where(Entity.id == eid).values(
+            bow_source_access=_monitoring_access(org_id), parameters=[],
+            data={"rows": [{"m": 1}], "columns": [{"field": "m", "headerName": "m"}]}))
+        artifact = Artifact(organization_id=org_id, created_by=admin_id, mode="page", visibility="none")
+        db.add(artifact)
+        await db.flush()
+        release = ArtifactRelease(artifact_id=artifact.id, organization_id=org_id, status="publishing", content={})
+        db.add(release)
+        await db.commit()
+        return str(release.id)
+
+
+async def _load_entities_while_publishing(org_id, user_id, release_id, refs):
+    """load_entity of `refs` in one code run of a dashboard's publish, on the
+    publish's session, which then commits with the rest of its run. Returns
+    the result, the release's access as the publish holds it, and as stored."""
+    from app.ai.code_execution.loadables import LoadablesResolver
+    from app.models.artifact_release import ArtifactRelease
+    from app.models.organization import Organization
+    from app.models.user import User
+
+    async with async_session_maker() as db:
+        org = await db.get(Organization, org_id)
+        user = await db.get(User, user_id)
+        release = await db.get(ArtifactRelease, release_id)
+        result = await LoadablesResolver(db, org, None, user, release=release).resolve([], refs)
+        try:
+            held_access = release.bow_source_access
+        except Exception as err:  # noqa: BLE001 - reported to the assertion
+            held_access = f"unreadable: {type(err).__name__}"
+        await db.commit()
+    async with async_session_maker() as other:
+        stored = (await other.execute(select(ArtifactRelease.bow_source_access)
+                                      .where(ArtifactRelease.id == release_id))).scalar_one()
+    return result, held_access, stored
+
+
+async def _owned_by(eid, user_id):
+    from sqlalchemy import update
+
+    from app.models.entity import Entity
+
+    async with async_session_maker() as db:
+        await db.execute(update(Entity).where(Entity.id == eid).values(owner_id=user_id))
+        await db.commit()
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("refused", [False, True], ids=["saved", "refused"])
+def test_load_entity_while_publishing_keeps_an_earlier_entitys_monitoring_marker_when_a_later_slice_is_refused(
+    api, create_user, login_user, whoami, monkeypatch, caplog, refused,
+):
+    """Entity A is monitoring sourced: loading it marks the publishing
+    release (flushed, committed with the publish). Entity B, after it, is
+    the reader's own slice, which the database refuses or saves."""
+    import json
+
+    token, org_id, admin_id = _bootstrap_admin(create_user, login_user, whoami)
+    member_id = _invite_member(api, token, org_id, create_user, login_user, whoami)
+    admin_email = _run(_email_of(admin_id))
+    a, b = _identity_entities(api, token, org_id, 2)
+    release_id = _run(_monitoring_entity_and_publishing_release(org_id, admin_id, a))
+    _run(_owned_by(b, member_id))  # the publisher reads B as another user's entity
+    message = _refusal_message()
+    _watch_app_logs(monkeypatch)
+
+    with caplog.at_level(logging.WARNING), (
+            _database_refusing_slices_of(b, message) if refused else nullcontext()):
+        result, held_access, stored = _run(_load_entities_while_publishing(org_id, admin_id, release_id, [a, b]))
+    assert result["entities"][a].to_dict("records") == [{"m": 1}], result
+    assert result["entities"][a].attrs["bow_source"] == _monitoring_access(org_id), result
+    # A's marker survives B's refused save, in the publish's session and once
+    # the publish commits.
+    assert held_access == _monitoring_access(org_id), held_access
+    assert stored == _monitoring_access(org_id), stored
+    if refused:
+        assert result["errors"] == [_not_saved_error(b)], result["errors"]
+        assert b not in result["entities"], result
+        _assert_no_database_text(message, _REFUSED_VALUE, json.dumps(result["errors"]), caplog.text)
+        assert not _run(_slice_rows(b))
+    else:
+        assert result["errors"] == [], result["errors"]
+        assert result["entities"][b].to_dict("records") == [{"viewer": admin_email}], result
+        assert [r.data["rows"] for r in _run(_slice_rows(b))] == [[{"viewer": admin_email}]]
 
 
 # ── A viewer run answers the reader's own mistakes and a busy source honestly ─
+
+def _add_orders(db_path, *ids):
+    con = sqlite3.connect(db_path)
+    con.executemany("INSERT INTO orders VALUES (?)", [(i,) for i in ids])
+    con.commit()
+    con.close()
+
+
+async def _rerun_then_read_in_one_session(org_id, user_id, eid, db_path):
+    """In one session: a viewer run, its cached repeat, a forced rerun after
+    the warehouse changed, then a plain read, while the session holds the
+    reader's slice (the caller loaded it after the repeat). Returns what each
+    run answered and the slice as the session then holds it."""
+    from app.models.entity_user_result import EntityUserResult
+    from app.services.entity_service import EntityService
+
+    service = EntityService()
+    async with async_session_maker() as db:
+        org, user, entity = await _session_objects(db, org_id, user_id, eid)
+        runs = [await service.run_entity_for_user(db, entity, org, user, {"v": 1})]
+        runs.append(await service.run_entity_for_user(db, entity, org, user, {"v": 1}))
+        held = (await db.execute(select(EntityUserResult).where(EntityUserResult.entity_id == eid))).scalar_one()
+        _add_orders(db_path, 4, 5)
+        runs.append(await service.run_entity_for_user(db, entity, org, user, {"v": 1}, force_refresh=True))
+        runs.append(await service.run_entity_for_user(db, entity, org, user, {"v": 1}))
+        return [(r["data"]["rows"], r["cached"]) for r in runs], held.data["rows"], held.last_run_at
+
+
+@pytest.mark.e2e
+def test_a_read_after_a_forced_rerun_in_the_same_session_returns_the_new_rows(
+    api, create_user, login_user, whoami, tmp_path,
+):
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    db_path = tmp_path / "wh.db"
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, db_path))
+    eid = _entity(api, token, org_id, ds_id)
+
+    runs, held_rows, held_last_run_at = _run(_rerun_then_read_in_one_session(org_id, user_id, eid, db_path))
+    assert runs == [([{"n": 3}], False), ([{"n": 3}], True), ([{"n": 5}], False), ([{"n": 5}], True)], runs
+    stored = _run(_slice_rows(eid))
+    assert len(stored) == 1 and stored[0].data["rows"] == [{"n": 5}], [r.data for r in stored]
+    assert held_rows == [{"n": 5}] and held_last_run_at == stored[0].last_run_at, (held_rows, held_last_run_at)
+
+
+@pytest.mark.e2e
+def test_a_viewer_run_of_monitoring_data_stores_the_monitoring_marker_on_the_entity(
+    api, create_user, login_user, whoami, tmp_path, monkeypatch,
+):
+    """The run's data came from the monitoring source (the data-source
+    client reports it, as the built-in monitoring client does): the entity
+    keeps that marker, so its later readers are checked against it."""
+    from app.data_sources.clients.sqlite_client import SqliteClient
+    from app.models.entity import Entity
+
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db"))
+    eid = _entity(api, token, org_id, ds_id)
+    monkeypatch.setattr(SqliteClient, "_bow_access", _monitoring_access(org_id), raising=False)
+
+    resp = api.post(f"/api/entities/{eid}/run", json={"params": {"v": 2}}, headers=_headers(token, org_id))
+    assert resp.status_code == 200 and resp.json()["data"]["rows"] == [{"n": 3}], resp.text
+
+    async def stored_access():
+        async with async_session_maker() as db:
+            return (await db.execute(select(Entity.bow_source_access).where(Entity.id == eid))).scalar_one()
+
+    assert _run(stored_access()) == _monitoring_access(org_id)
+    assert [r.data["rows"] for r in _run(_slice_rows(eid))] == [[{"n": 3}]]
+
 
 @pytest.mark.e2e
 def test_a_builder_run_whose_saved_result_cannot_be_read_back_says_it_was_saved(

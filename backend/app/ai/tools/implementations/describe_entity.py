@@ -312,8 +312,7 @@ class DescribeEntityTool(Tool):
         # snapshot's own record until a run below replaces it.
         applied_params = dict(getattr(entity, "applied_params", None) or {}) or None
         request_values = dict(data.params or {})
-        # Read before the run: a failed save of its result rolls the session
-        # back, which expires every instance on it, these included.
+        # What the output and the observation report about the entity.
         allow_llm_see_data = _llm_may_see_data(organization_settings)
         described = {
             "entity_id": str(entity.id), "entity_type": entity.type, "title": entity.title,

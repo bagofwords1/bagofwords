@@ -364,14 +364,9 @@ class LoadablesResolver:
                 if access:
                     result["steps"][key].attrs["bow_source"] = access
 
-        # Read before any run: a failed save of a reader's slice rolls the
-        # session back, which expires every instance on it.
-        org_id = str(self.organization.id) if entity_refs else None
-        user_id = str(self.current_user.id) if entity_refs and self.current_user is not None else None
-        report_id = getattr(self.report, "id", None) if entity_refs else None
         for ref in entity_refs or []:
             key = str(ref)
-            entity, err = await self._resolve_entity(key, org_id, user_id)
+            entity, err = await self._resolve_entity(key)
             if entity is None:
                 result["errors"].append(err)
                 continue
@@ -403,7 +398,7 @@ class LoadablesResolver:
                 if self.release is not None:
                     await protect_release(self.db, self.release, access)
                 else:
-                    await protect_report(self.db, report_id, access)
+                    await protect_report(self.db, getattr(self.report, "id", None), access)
                 result["entities"][key].attrs["bow_source"] = access
 
         return result
@@ -456,8 +451,9 @@ class LoadablesResolver:
         from app.models.artifact import Artifact
         return await self.db.get(Artifact, str(self.release.artifact_id))
 
-    async def _resolve_entity(self, ref: str, org_id: str, user_id: Optional[str]) -> Tuple[Optional[Entity], str]:
+    async def _resolve_entity(self, ref: str) -> Tuple[Optional[Entity], str]:
         """Find a published entity by id/slug/title/fuzzy, then access-check it."""
+        org_id = str(self.organization.id)
 
         async def _q(*where):
             res = await self.db.execute(
@@ -488,12 +484,12 @@ class LoadablesResolver:
         if entity is None:
             return None, f"load_entity({ref!r}): no matching published entity found."
 
-        if entity.data_sources and user_id is not None:
+        if entity.data_sources and self.current_user is not None:
             from app.core.permission_resolver import user_can_access_data_source
 
             for ds in entity.data_sources:
                 if not await user_can_access_data_source(
-                    self.db, user_id, org_id, ds
+                    self.db, str(self.current_user.id), org_id, ds
                 ):
                     return None, (
                         f"load_entity({ref!r}): you do not have access to its "

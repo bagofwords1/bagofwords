@@ -250,8 +250,7 @@ class DescribeEntityMCPTool(MCPTool):
         grid: Dict[str, Any] = {} if withheld else (entity.data or {})
         applied_params = dict(getattr(entity, "applied_params", None) or {}) or None
         error_message = None
-        # Read before the run: a failed save of its result rolls the session
-        # back, which expires every instance on it.
+        # What the output reports about the entity.
         described = dict(
             entity_id=str(entity.id),
             slug=getattr(entity, "slug", None),
