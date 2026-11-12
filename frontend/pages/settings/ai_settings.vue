@@ -211,7 +211,7 @@ interface SettingsResponse {
     }
 }
 
-definePageMeta({ auth: true, permissions: ['manage_settings'], layout: 'settings' })
+definePageMeta({ auth: true, permissions: ['manage_settings'] })
 
 const { t, te } = useI18n()
 

@@ -261,8 +261,7 @@ import { computed, onMounted, ref } from 'vue'
 
 definePageMeta({
   auth: true,
-  permissions: ['manage_settings'],
-  layout: 'settings'
+  permissions: ['manage_settings']
 })
 
 const { license, loading, isLicensed, isExpired, expiresAt, daysUntilExpiry, isExpiringSoon, fetchLicense } = useEnterprise()

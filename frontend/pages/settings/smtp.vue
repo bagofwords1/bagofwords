@@ -154,7 +154,7 @@
 <script setup lang="ts">
 import { reactive, ref, computed, nextTick, onMounted } from 'vue'
 
-definePageMeta({ auth: true, permissions: ['manage_settings'], layout: 'settings' })
+definePageMeta({ auth: true, permissions: ['manage_settings'] })
 
 const toast = useToast()
 const { t } = useI18n()

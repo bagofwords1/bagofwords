@@ -402,8 +402,7 @@ import { ENTRA_PROFILE_FIELDS, GOOGLE_PROFILE_FIELDS } from '~/composables/usePr
 
 definePageMeta({
   auth: true,
-  permissions: ['manage_identity_providers'],
-  layout: 'settings'
+  permissions: ['manage_identity_providers']
 })
 
 const { t } = useI18n()

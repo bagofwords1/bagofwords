@@ -230,8 +230,7 @@ import type { AuditLog } from '~/ee/composables/useAuditLogs'
 
 definePageMeta({
   auth: true,
-  permissions: ['view_audit_logs'],
-  layout: 'settings'
+  permissions: ['view_audit_logs']
 })
 
 const route = useRoute()

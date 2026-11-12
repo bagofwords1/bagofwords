@@ -2,7 +2,6 @@
 import ConsoleInstructions from '~/components/ConsoleInstructions.vue'
 
 definePageMeta({
-    layout: 'settings',
     permissions: ['manage_instructions'],
 })
 </script>
