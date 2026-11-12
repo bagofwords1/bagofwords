@@ -26,6 +26,7 @@ import json
 import sys
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import duckdb
 import pandas as pd
@@ -205,7 +206,7 @@ def test_a_query_that_does_not_parse_is_a_fixable_error_with_the_parsers_reason(
     assert _not_a_policy_refusal(info.value), type(info.value).__mro__
 
 
-@pytest.mark.parametrize("sql", ["DESCRIBE sales", "SHOW TABLES", "SUMMARIZE sales", "SHOW ALL TABLES"])
+@pytest.mark.parametrize("sql", ["DESCRIBE sales", "SHOW TABLES", "SUMMARIZE sales"])
 def test_describe_show_and_summarize_are_a_fixable_error_that_names_the_tables(sql):
     """They read only names the refusal already gives, so they are not a
     policy refusal: the message lists the connection's tables instead."""
@@ -213,6 +214,28 @@ def test_describe_show_and_summarize_are_a_fixable_error_that_names_the_tables(s
         check_duckdb_file_query(sql, _VIEWS)
     assert _not_a_policy_refusal(info.value), type(info.value).__mro__
     assert "customers" in str(info.value) and "sales" in str(info.value)
+
+
+@pytest.mark.parametrize("sql, refusal", [
+    ("SHOW TABLES FROM other_schema", TableScopeViolation),
+    ("SHOW TABLES FROM other_db.main", TableScopeViolation),
+    ("SHOW ALL TABLES", ReadOnlyViolation),
+])
+def test_a_show_of_another_schema_or_of_every_database_is_refused_by_policy(sql, refusal):
+    """They name a target beyond the connection's own tables."""
+    with pytest.raises(refusal):
+        check_duckdb_file_query(sql, _VIEWS)
+
+
+def test_with_data_hidden_a_table_refusal_keeps_the_list_whatever_the_name():
+    """Redaction cuts a refusal at the first quote, ': ' or ' (' of the
+    name the agent wrote; the tables list comes before it."""
+    from app.ai.data_visibility import redact_error_text
+
+    for name in ('"sa (les"', '"sa: les"', "\"sa'les\""):
+        with pytest.raises(TableScopeViolation) as info:
+            check_duckdb_file_query(f"SELECT * FROM {name}", _VIEWS)
+        assert "customers, sales" in redact_error_text(str(info.value), "TableAccessError"), str(info.value)
 
 
 def test_inspecting_reports_whether_the_statement_describes():
@@ -735,6 +758,11 @@ class _DataHidden:
 def _code_loop(client, statements, organization_settings=None):
     """generate_and_execute with the coder (the LLM) stubbed: attempt i
     gets the code for statements[i]. Everything below the coder is real."""
+    return _program_loop(client, [_code(s) for s in statements], organization_settings)
+
+
+def _program_loop(client, programs, organization_settings=None):
+    """As _code_loop, with attempt i getting programs[i] as written."""
     import asyncio
 
     from app.ai.schemas.codegen import CodeGenContext, CodeGenRequest
@@ -743,7 +771,7 @@ def _code_loop(client, statements, organization_settings=None):
 
     async def coder(**kwargs):
         calls.append(kwargs)
-        return _code(statements[min(len(calls), len(statements)) - 1])
+        return programs[min(len(calls), len(programs)) - 1]
 
     async def go():
         executor = StreamingCodeExecutor(organization_settings=organization_settings)
@@ -779,7 +807,13 @@ def test_the_code_loop_ends_on_a_refused_read_beside_a_describe(mode, tmp_path):
     assert [e["payload"]["violation_type"] for e in events if e["type"] == "security_violation"] == ["unsafe_sql"]
 
 
-@pytest.mark.parametrize("statement", ["DESCRIBE sales", "SELECT * FROM salez"])
+# The last names a table whose name redaction cuts: the name the agent wrote
+# is hidden, and the list still reaches the coder and the planner.
+_CUT_NAME = 'SELECT * FROM "sa (les"'
+_LISTS_THE_TABLES = ["DESCRIBE sales", "SELECT * FROM salez", _CUT_NAME]
+
+
+@pytest.mark.parametrize("statement", _LISTS_THE_TABLES)
 def test_with_data_hidden_the_retry_feedback_keeps_the_table_list(mode, tmp_path, statement):
     """Guard messages name only structure: with "Allow LLM to see data" off
     the coder still gets the connection's tables."""
@@ -789,10 +823,10 @@ def test_with_data_hidden_the_retry_feedback_keeps_the_table_list(mode, tmp_path
         _sandbox_run("csv", _csv(tmp_path), statement)
     feedback = format_execution_failure(info.value, f"Execution error: {info.value}", allow_llm_see_data=False)
     assert "customers, sales" in feedback, feedback
-    assert "<value hidden>" not in feedback, feedback
+    assert ("<value hidden>" in feedback) is (statement == _CUT_NAME), feedback
 
 
-@pytest.mark.parametrize("statement", ["DESCRIBE sales", "SELECT * FROM salez"])
+@pytest.mark.parametrize("statement", _LISTS_THE_TABLES)
 def test_with_data_hidden_the_planner_and_its_replay_keep_the_table_list(mode, tmp_path, statement):
     from app.ai.context.hidden_data import hide_data_for_replay
     from app.ai.tools.implementations.create_data import CreateDataTool
@@ -822,6 +856,105 @@ def test_the_code_loop_still_ends_on_a_copy_without_a_retry(mode, tmp_path):
     assert len(calls) == 1
     assert done["df"] is None
     assert [e["payload"]["violation_type"] for e in events if e["type"] == "security_violation"] == ["unsafe_sql"]
+
+
+# Code that catches a refusal and carries on. The refusal still ends the
+# attempt: no retry, no rows, and it is audited as when it escapes.
+_REFUSED = {
+    "table_access": "SELECT * FROM salez",
+    "unsafe_sql": "COPY (SELECT 1) TO 'copied.csv'",
+}
+_AFTER_THE_CATCH = {
+    "raises_a_fixable_error": "    return ds_clients['files'].execute_query('SELEC 1')\n",
+    "returns_rows": f"    return ds_clients['files'].execute_query({_COUNT!r})\n",
+    "returns_none": "    return None\n",
+}
+
+
+def _catching(statement: str, after: str) -> str:
+    return (
+        "def generate_df(ds_clients, excel_files):\n"
+        "    try:\n"
+        f"        ds_clients['files'].execute_query({statement!r})\n"
+        "    except Exception:\n"
+        "        pass\n"
+        f"{after}"
+    )
+
+
+@pytest.mark.parametrize("after", sorted(_AFTER_THE_CATCH))
+@pytest.mark.parametrize("violation", sorted(_REFUSED))
+def test_a_refusal_the_code_catches_still_ends_the_attempt_as_a_security_violation(mode, tmp_path, violation, after):
+    program = _catching(_REFUSED[violation], _AFTER_THE_CATCH[after])
+    done, events, calls = _program_loop(_csv(tmp_path), [program, _code(_COUNT)])
+    assert len(calls) == 1
+    assert [e["payload"]["violation_type"] for e in events if e["type"] == "security_violation"] == [violation]
+    assert done["df"] is None
+    assert done["errors"] and "Security violation" in done["errors"][-1][1]
+
+
+def test_a_fixable_error_the_code_catches_is_still_retried(mode, tmp_path):
+    """No refusal was recorded: a caught fixable error, then another one,
+    gets a new attempt and no security event."""
+    program = _catching("SELEC 1", "    return ds_clients['files'].execute_query('DESCRIBE sales')\n")
+    done, events, calls = _program_loop(_csv(tmp_path), [program, _code(_COUNT)])
+    assert len(calls) == 2
+    assert not [e for e in events if e["type"] == "security_violation"]
+    assert done["df"]["n"].tolist() == [3]
+
+
+def _create_data_run(client, program, monkeypatch):
+    """CreateDataTool's public stream with the coder stubbed and the audit
+    writer recorded; the code loop and the connection are real."""
+    import asyncio
+
+    from app.ai.tools.implementations import create_data as create_data_module
+
+    audits = []
+
+    class _Coder:
+        def __init__(self, **_kwargs):
+            self.reasoning_ms = None
+
+        async def generate_code(self, **_kwargs):
+            return program
+
+    async def _audit(_runtime_ctx, action, *args, **kwargs):
+        audits.append((action, kwargs.get("details") or (args[2] if len(args) > 2 else None)))
+
+    class _SchemaBuilder:
+        """The connection's schema, as the context hub would build it."""
+
+        async def build(self, **_kwargs):
+            ds = SimpleNamespace(info=SimpleNamespace(id="ds-files"), tables=[SimpleNamespace(name="sales")])
+            return SimpleNamespace(data_sources=[ds], render_combined=lambda **_kw: "sales(id, amount)")
+
+    monkeypatch.setattr(create_data_module, "Coder", _Coder)
+    monkeypatch.setattr(create_data_module, "log_tool_audit", _audit)
+    runtime_ctx = {
+        "ds_clients": {"files": client}, "excel_files": [],
+        "context_hub": SimpleNamespace(schema_builder=_SchemaBuilder(), db=None),
+    }
+
+    async def go():
+        tool = create_data_module.CreateDataTool()
+        return [e async for e in tool.run_stream({
+            "title": "Sales", "user_prompt": "Count sales", "interpreted_prompt": "Count sales",
+            "tables_by_source": [{"data_source_id": "ds-files", "tables": ["sales"]}],
+        }, runtime_ctx)]
+
+    return asyncio.run(go()), audits
+
+
+@pytest.mark.parametrize("caught", [False, True], ids=["escaped", "caught"])
+@pytest.mark.parametrize("violation", sorted(_REFUSED))
+def test_create_data_audits_a_refusal_whether_or_not_the_code_caught_it(mode, tmp_path, monkeypatch, violation, caught):
+    program = (_catching(_REFUSED[violation], _AFTER_THE_CATCH["returns_rows"]) if caught
+               else _code(_REFUSED[violation]))
+    events, audits = _create_data_run(_csv(tmp_path), program, monkeypatch)
+    blocked = [details for action, details in audits if action == "security.unsafe_sql_blocked"]
+    assert [d["violation_type"] for d in blocked] == [violation], audits
+    assert events[-1].payload["output"]["success"] is False
 
 
 def test_a_file_connections_unknown_table_gets_guidance_about_its_own_tables(mode, tmp_path):

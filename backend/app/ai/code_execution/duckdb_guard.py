@@ -209,6 +209,15 @@ class _Reader:
             if kind == "SHOW_REF":
                 # Its target (a table or a query) is read like any other.
                 self.describes = True
+                if node.get("query") is None:
+                    # A SHOW that names a schema, or every database, keeps
+                    # its target here, not in a query.
+                    if node.get("table_name") == "__show_tables_expanded":
+                        raise ReadOnlyViolation(
+                            "SHOW ALL TABLES is not allowed on this connection. Query its tables by name.")
+                    catalog, schema = (str(node.get(k) or "").lower() for k in ("catalog_name", "schema_name"))
+                    if catalog or schema:
+                        self.tables.add((catalog, schema, ""))
             elif kind not in _READ_TABLE_REFS:
                 raise ReadOnlyViolation(_ONLY_SELECT)
             if kind == "BASE_TABLE":
@@ -354,12 +363,14 @@ def check_duckdb_file_query(sql: str, allowed_views: Iterable[str], *, not_ready
         if name in views and catalog in ("", "memory") and schema in ("", "main"):
             continue
         shown = ".".join(part for part in (catalog, schema, name) if part)
+        # The tables list comes first: with data hidden, the message is cut
+        # where the name the agent wrote holds a quote, ": " or " (".
         if not catalog and not schema and name in pending:
             raise ConnectionTableViolation(
-                f"Table {shown} is listed for this connection, but its cache is not built yet, so it "
-                f"cannot be queried until the files of this connection are prepared. {_tables_line(shown_views)}")
+                f"{_tables_line(shown_views)} Table {shown} is listed for this connection, but its cache "
+                f"is not built yet, so it cannot be queried until the files of this connection are prepared.")
         raise ConnectionTableViolation(
-            f"Table {shown} is not one of the tables of this connection. {_tables_line(shown_views)}")
+            f"{_tables_line(shown_views)} Table {shown} is not one of the tables of this connection.")
     # Only fixable errors are left. A CTE name that is not plain never
     # passes, whatever it shadows.
     if stmt.describes:

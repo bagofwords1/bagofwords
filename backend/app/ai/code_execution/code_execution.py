@@ -367,7 +367,8 @@ class TableAccessError(CodeSecurityError):
     when the tables it reads cannot be verified (see table_scope).
 
     Terminal for this code attempt: if generated code catches it and carries
-    on, the attempt still fails (see _raise_if_query_errors_were_swallowed).
+    on, the attempt still fails as a security violation (see
+    _raise_if_a_refusal_was_caught).
     The planner may explain the refusal and continue other permitted work.
 
     `refused_by` is "connection" when the connection's own table list
@@ -1190,6 +1191,10 @@ class QueryCapturingClientWrapper:
                        if isinstance(e, TableAccessError) else {}),
                     **({"refused_by": e.refused_by}
                        if isinstance(e, TableAccessError) and e.refused_by else {}),
+                    # A policy refusal ends the attempt even when the code
+                    # catches it; the code loop reads this tag.
+                    **({"refusal": "table_access" if isinstance(e, TableAccessError) else "unsafe_sql"}
+                       if isinstance(e, (TableAccessError, UnsafeSQLError)) else {}),
                     # A file connection's fixable error (DESCRIBE, a CTE
                     # name) lists its tables: the planner gets all of it.
                     **({"error_message": self._recorded_error(e, limit=FIXABLE_QUERY_ERROR_MAX_CHARS)}
@@ -1877,6 +1882,23 @@ class StreamingCodeExecutor:
         return df, output_log
 
     @staticmethod
+    def _raise_if_a_refusal_was_caught(timings: List[dict], cause: Optional[BaseException] = None) -> None:
+        """Raise the first policy refusal this attempt recorded, when the code
+        caught it and then returned or raised something else. The code loop
+        then stops and audits it as it does a refusal that escaped."""
+        for timing in timings or []:
+            kind = timing.get("refusal") if isinstance(timing, dict) else None
+            if not kind:
+                continue
+            text = str(timing.get("error_message") or timing.get("error") or "")
+            if kind == "table_access":
+                refusal: CodeSecurityError = TableAccessError(text)
+                refusal.refused_by = timing.get("refused_by")
+            else:
+                refusal = UnsafeSQLError(text)
+            raise refusal from cause
+
+    @staticmethod
     def _raise_if_query_errors_were_swallowed(df, timings: List[dict], span=None) -> None:
         """Turn a silently-empty result into a real failure.
 
@@ -2481,23 +2503,30 @@ class StreamingCodeExecutor:
                 # scope so the failure branch can surface the failing SQL / DB error.
                 query_timings.clear()
                 executed_queries.clear()
-                async for _execution_event in _await_with_progress_heartbeat(
-                    self.execute_code_async(
-                        code=final_code,
-                        ds_clients=ds_clients,
-                        excel_files=excel_files,
-                        captured_timings=query_timings,
-                        captured_queries=executed_queries,
-                        loadables=loadables,
-                        params=params,
-                    ),
-                    stage="data_query_execution",
-                    attempt=retries,
-                ):
-                    if _execution_event["type"] == "_result":
-                        exec_df, execution_log, _ = _execution_event["value"]
-                    else:
-                        yield _execution_event
+                try:
+                    async for _execution_event in _await_with_progress_heartbeat(
+                        self.execute_code_async(
+                            code=final_code,
+                            ds_clients=ds_clients,
+                            excel_files=excel_files,
+                            captured_timings=query_timings,
+                            captured_queries=executed_queries,
+                            loadables=loadables,
+                            params=params,
+                        ),
+                        stage="data_query_execution",
+                        attempt=retries,
+                    ):
+                        if _execution_event["type"] == "_result":
+                            exec_df, execution_log, _ = _execution_event["value"]
+                        else:
+                            yield _execution_event
+                except CodeSecurityError:
+                    raise
+                except Exception as exec_error:
+                    self._raise_if_a_refusal_was_caught(query_timings, cause=exec_error)
+                    raise
+                self._raise_if_a_refusal_was_caught(query_timings)
                 execution_ms = round((_time.monotonic() - _t_exec) * 1000.0, 1)
                 yield {
                     "type": "progress",
