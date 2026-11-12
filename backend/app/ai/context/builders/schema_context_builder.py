@@ -1037,7 +1037,7 @@ class SchemaContextBuilder:
     _FILE_SOURCE_TYPES = {
         "sharepoint_onprem",
         "documentum",
-        "network_dir", "s3", "sharepoint", "onedrive", "google_drive",
+        "network_dir", "s3", "gcs", "azure_blob", "sharepoint", "onedrive", "google_drive",
         "outlook_mail", "gmail_mail", "onenote", "teams_messages",
         "github_repo", "gitlab_repo", "bitbucket_repo",
         "kms_lighthouse",
@@ -1131,7 +1131,7 @@ class SchemaContextBuilder:
             topics, seen = [], set()
             for t in ftabs:
                 mj = getattr(t, 'metadata_json', None) or {}
-                sub = (mj.get("network_dir") or mj.get("s3") or mj.get("graph") or mj.get("sharepoint_onprem") or mj.get("documentum")
+                sub = (mj.get("network_dir") or mj.get("s3") or mj.get("gcs") or mj.get("azure_blob") or mj.get("graph") or mj.get("sharepoint_onprem") or mj.get("documentum")
                        or mj.get("google_drive") or {}) if isinstance(mj, dict) else {}
                 for kw in (sub.get("keywords") or []):
                     k = str(kw).lower()

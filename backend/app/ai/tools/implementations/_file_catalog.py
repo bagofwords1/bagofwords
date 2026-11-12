@@ -15,7 +15,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from app.data_sources.clients._sharepoint_listing import matches_time_bounds, time_bounds
 
 # Connector-specific metadata keys on a catalog row's metadata_json.
-FILE_METADATA_KEYS = ("graph", "sharepoint_onprem", "documentum", "google_drive", "network_dir", "s3")
+FILE_METADATA_KEYS = ("graph", "sharepoint_onprem", "documentum", "google_drive", "network_dir", "s3", "gcs", "azure_blob")
 
 SORT_FIELDS = ("name", "modified_at", "created_at", "size")
 
