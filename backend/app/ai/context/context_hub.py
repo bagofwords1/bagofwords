@@ -150,6 +150,69 @@ def _trim_text_tail(text: str, keep_ratio: float, label: str = "") -> str:
     return prefix + trimmed
 
 
+def _trim_messages_keep_pinned(text: str, keep_ratio: float) -> str:
+    """Trim conversation history without ever cutting what is pinned.
+
+    The rolling compaction summary (``<history_summary>``) and the report's
+    opening exchange (``<opening_exchange>``) render ahead of
+    ``<conversation>``. A plain tail-keeping cut removes them FIRST — the
+    agent then forgets everything behind the compaction watermark exactly when
+    the prompt is under the most pressure. Here the pinned prefix is kept
+    verbatim and only the conversation body loses its OLDEST whole lines.
+    """
+    if not text:
+        return text
+    marker = "<conversation>"
+    idx = text.find(marker)
+    if idx < 0 and text.lstrip().startswith(("<history_summary>", "<opening_exchange>")):
+        # Only pinned blocks (summary / opening exchange), no live window:
+        # nothing here may be cut.
+        return text
+    if idx < 0:
+        pinned, body, open_tag, close_tag = "", text, "", ""
+    else:
+        pinned = text[:idx]
+        rest = text[idx + len(marker):]
+        close = "</conversation>"
+        end = rest.rfind(close)
+        body = rest[:end] if end >= 0 else rest
+        open_tag, close_tag = marker, (close if end >= 0 else "")
+    # Trailing blank lines are formatting, not content: they must never take
+    # the newest message's place in the kept tail.
+    lines = body.rstrip("\n").split("\n")
+    nonempty = [l for l in lines if l.strip()]
+    if len(nonempty) <= 1:
+        # One giant line (or unstructured text): no line boundary to cut at,
+        # so cut its oldest characters — still never the pinned prefix.
+        if len(body) <= _TRIM_FLOOR_CHARS:
+            return text
+        new_body = _trim_text_tail(body, keep_ratio, "conversation")
+        return f"{pinned}{open_tag}{new_body}{close_tag}" if open_tag else pinned + new_body
+    budget_chars = max(int(len(body) * keep_ratio), 1)
+    kept: list = []
+    size = 0
+    for line in reversed(lines):
+        if not kept:
+            if len(line) + 1 > budget_chars:
+                # The newest message alone is over budget: keep its end
+                # (where the answer lands) rather than losing it entirely.
+                kept.append("…" + line[-(budget_chars - 1):] if budget_chars > 1 else line[-1:])
+                break
+        elif size + len(line) + 1 > budget_chars:
+            break
+        kept.append(line)
+        size += len(line) + 1
+    kept.reverse()
+    if kept == lines:
+        kept = lines[1:]  # always make progress
+    dropped = len(lines) - len(kept)
+    note = f"... ({dropped} older conversation line(s) trimmed to fit context budget)"
+    new_body = "\n".join([note] + kept) + "\n"
+    if open_tag:
+        return f"{pinned}{open_tag}{new_body}{close_tag}"
+    return new_body
+
+
 # Sections trim_context_to_budget may cut, first → last. Ordered by how
 # recoverable the content is: file previews and old messages can be re-read
 # on demand; schemas and instructions are cut only when nothing else is left.
@@ -243,6 +306,12 @@ def trim_context_to_budget(
                 break
             if cut_from is None:
                 cut_from = len(text)
+            if field == "messages_context":
+                trimmed = _trim_messages_keep_pinned(text, 0.5)
+                if trimmed == text:
+                    break  # only the pinned summary/opening exchange is left
+                setattr(planner_input, field, trimmed)
+                continue
             setattr(planner_input, field, _trim_text_tail(text, 0.5, field))
         if cut_from is not None and field == "instructions":
             # Cutting into admin-authored instructions is a last resort the

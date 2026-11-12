@@ -24,7 +24,10 @@ class MembershipCreate(BaseModel):
     organization_id: str
     user_id: Optional[str] = None
     email: Optional[str] = None
-    role: Optional[str] = "member"
+    # None = caller didn't pick a role; add_member resolves it to the org-wide
+    # default_member_role (which itself defaults to "member"). An explicit value
+    # (e.g. chosen in the Add-member modal) is used as-is.
+    role: Optional[str] = None
     note: Optional[str] = Field(default=None, max_length=MEMBERSHIP_NOTE_MAX_LENGTH)
     # Admin-set attributes identifying the member in other systems (e.g.
     # {"qlik_user_id": "dana"}); consumed by connection identity mappings.

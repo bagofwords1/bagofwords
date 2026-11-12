@@ -86,6 +86,9 @@
           </label>
         </div>
 
+        <!-- Channel -> agent routing (shared with Teams) -->
+        <ChannelAgentRouting :integration-id="integrationData?.id" :integrated="integrated" />
+
         <UButton
           color="red"
           variant="soft"
@@ -243,6 +246,9 @@
       })
     }
   }
+
+  // Channel -> agent routing lives in the shared <ChannelAgentRouting>
+  // component (used by Slack and Teams alike); it loads its own data.
 
   onMounted(() => { if (props.integrated) loadAnnounceNewReport() })
   watch(() => props.integrated, (v) => { if (v) loadAnnounceNewReport() })

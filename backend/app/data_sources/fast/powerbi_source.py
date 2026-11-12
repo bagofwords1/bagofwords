@@ -775,3 +775,81 @@ def _without_null_columns(table):
         i = table.schema.get_field_index(name)
         table = table.set_column(i, pa.field(name, pa.string()), table.column(i).cast(pa.string()))
     return table
+
+
+# --------------------------------------------------------------------------
+# A refresh window, written in DAX
+# --------------------------------------------------------------------------
+
+_DAX_SINCE = re.compile(r"\{\{\s*since\s*\}\}", re.IGNORECASE)
+_DAX_UNTIL = re.compile(r"\{\{\s*until\s*\}\}", re.IGNORECASE)
+
+
+def dax_literal(value) -> str:
+    """A DAX literal for a cursor value (whole seconds for date-times)."""
+    from datetime import date as _date
+    from decimal import Decimal
+
+    if isinstance(value, bool):
+        raise ValueError("unsupported cursor value")
+    if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            from datetime import timezone
+
+            value = value.astimezone(timezone.utc).replace(tzinfo=None)
+        return 'dt"' + value.strftime("%Y-%m-%dT%H:%M:%S") + '"'
+    if isinstance(value, _date):
+        return 'dt"' + value.isoformat() + 'T00:00:00"'
+    if isinstance(value, (int, float, Decimal)):
+        return format(value, "f") if isinstance(value, Decimal) else repr(value)
+    text = str(value)
+    if not re.fullmatch(r"[0-9A-Za-z:\-+. _/]*", text):
+        raise ValueError("The cursor column holds text that cannot be used as a checkpoint safely.")
+    return f'"{text}"'
+
+
+def _column_ref(column: str) -> str:
+    """`Table[Column]` and `[Column]` are used as written; a bare result
+    column name becomes `[name]`."""
+    name = (column or "").strip()
+    if "[" in name and name.endswith("]"):
+        return name
+    return "[" + name.replace("]", "]]") + "]"
+
+
+def window_dax(dax: str, column: str, kind, window) -> str:
+    """`dax` restricted to rows whose `column` is in the window.
+
+    DAX has no subquery to wrap, but a query is one table expression, and
+    FILTER over it is the same thing: the windowed extraction above already
+    relies on it. `{{since}}` / `{{until}}` in the query are filled in instead
+    when the admin placed the filter themselves.
+    """
+    from app.data_sources.fast.incremental import IncrementalConfigError
+
+    def lit(value):
+        try:
+            return dax_literal(value)
+        except ValueError as e:
+            raise IncrementalConfigError(str(e)) from None
+
+    if _DAX_SINCE.search(dax) or _DAX_UNTIL.search(dax):
+        numeric = kind == "number" or isinstance(window.lo if window.lo is not None else window.hi, (int, float))
+        lo = window.lo if window.lo is not None else (-(2 ** 53) if numeric else datetime(1900, 1, 1))
+        hi = window.hi if window.hi is not None else ((2 ** 53) if numeric else datetime(9999, 12, 31))
+        out = _DAX_SINCE.sub(lambda _m: lit(lo), dax)
+        return _DAX_UNTIL.sub(lambda _m: lit(hi), out)
+
+    if window.lo is None and window.hi is None:
+        return dax
+    q = parse_dax(dax)
+    ref = _column_ref(column)
+    parts = []
+    if window.lo is not None:
+        parts.append(f"{ref} >= {lit(window.lo)}")
+    if window.hi is not None:
+        parts.append(f"{ref} < {lit(window.hi)}")
+    predicate = " && ".join(parts)
+    if window.include_nulls:
+        predicate = f"({predicate}) || ISBLANK({ref})"
+    return q.statement(f"FILTER({q.body}, {predicate})", q.order_by)

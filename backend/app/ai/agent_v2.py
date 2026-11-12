@@ -419,6 +419,10 @@ _CONTEXT_OVERFLOW_PATTERNS = (
 )
 
 
+# Synchronous folds an overflow may force in one run.
+MAX_OVERFLOW_COMPACTIONS = 3
+
+
 def _shrunk_context_factor(current: float, provider_message: Optional[str]) -> float:
     """Next trim-budget factor after a context_length rejection.
 
@@ -466,6 +470,7 @@ from app.ai.context.builders.observation_context_builder import ObservationConte
 from app.ai.context.parts import ToolCallPart
 from app.ai.context.result_parts import build_result_part
 from app.ai.context.transcript import Transcript
+from app.ai.context.context_budget import TokenAnchor, budget_for, estimate_planner_input_tokens, total_input_tokens
 from app.ai.registry import ToolRegistry, ToolCatalogFilter
 from app.schemas.ai.planner import PlannerInput, ToolDescriptor
 from app.schemas.sse_schema import SSEEvent
@@ -910,6 +915,19 @@ class AgentV2:
         # awaited at end of turn so the write/SSE can't be lost to task GC.
         self._compaction_attempted: bool = False
         self._compaction_task: Optional[asyncio.Task] = None
+        # Context governor state (see _govern_context): the token anchor that
+        # calibrates our estimate against the provider-reported prompt size,
+        # the estimate of the request just sent, one synchronous fold per run
+        # (re-armed by an overflow), and whether a background fold landed
+        # whose result the in-run transcript has not picked up yet.
+        self._ctx_anchor = TokenAnchor()
+        self._ctx_anchor_loaded: bool = False
+        self._last_request_estimate: Optional[int] = None
+        # (provider prompt tokens, our estimate) of the same completed request.
+        self._ctx_anchor_pair: Optional[tuple] = None
+        self._sync_fold_done: bool = False
+        self._history_reload_pending: bool = False
+        self._overflow_attempts: int = 0
 
         # Single dedicated write session for the entire agent run.
         # When BOW_AGENT_SINGLE_WRITE_SESSION is set, main_execution opens
@@ -1629,8 +1647,11 @@ class AgentV2:
                     if str(ds.id) not in known:
                         roster_sources.append(ds)
                         known.add(str(ds.id))
-            roster_ids = {str(d.id) for d in roster_sources}
-            full_scope = sorted(roster_ids)
+            # Connectors are never focused/picked, so their instructions always
+            # apply while they are in the run; the focus policy covers agents.
+            connector_ids = self._connector_ids()
+            roster_ids = {str(d.id) for d in roster_sources} - connector_ids
+            full_scope = sorted(roster_ids | connector_ids)
 
             explicit = (
                 [str(x) for x in (getattr(self.report, "focused_data_source_ids", None) or [])]
@@ -1640,12 +1661,54 @@ class AgentV2:
             if mode == "all":
                 return full_scope
             loaded = {str(x) for x in (getattr(self, "loaded_agent_ids", ()) or ())}
-            return sorted((set(focus_ids) | loaded) & roster_ids)
+            return sorted(((set(focus_ids) | loaded) & roster_ids) | connector_ids)
         except Exception:
             logger.exception("instruction scope resolve failed; using full attached scope")
             return [str(d.id) for d in (self.data_sources or [])] or None
 
+    def _connector_ids(self) -> set:
+        """Ids of the run's connectors (each person's own accounts/tools — see
+        app/services/data_source_kind.py). They are never part of the agent
+        roster/focus/Auto pick; they render in their own <connectors> block."""
+        from app.services.data_source_kind import is_connector
+        out = set()
+        pool = list(self.data_sources or [])
+        if self.report is not None:
+            pool += list(getattr(self.report, "data_sources", None) or [])
+        for ds in pool:
+            try:
+                if is_connector(ds):
+                    out.add(str(ds.id))
+            except Exception:
+                logger.warning("[agent] connector check failed for %r", getattr(ds, "id", None), exc_info=True)
+        return out
+
     async def _render_schemas_with_roster(self, schemas_ctx):
+        """Agents (roster/focus policy) + the run's connectors.
+
+        Connectors are split out first: the roster, focus and Auto "pick" logic
+        only ever see agents, and every connected connector renders, always, as
+        a separate ``<connectors>`` block appended after the agents' schemas.
+        """
+        connector_ids = self._connector_ids()
+        if not schemas_ctx or not getattr(schemas_ctx, "data_sources", None) or not connector_ids:
+            return await self._render_agent_schemas_with_roster(schemas_ctx, set())
+        import copy as _copy
+        agent_ctx = _copy.copy(schemas_ctx)
+        agent_ctx.data_sources = [s for s in schemas_ctx.data_sources if str(s.info.id) not in connector_ids]
+        conn_ctx = _copy.copy(schemas_ctx)
+        conn_ctx.data_sources = [s for s in schemas_ctx.data_sources if str(s.info.id) in connector_ids]
+        excerpt, roster = await self._render_agent_schemas_with_roster(agent_ctx, connector_ids)
+        try:
+            connectors_xml = conn_ctx.render_connectors(top_k_per_ds=self.top_k_schema, index_limit=INDEX_LIMIT)
+        except Exception:
+            logger.exception("connectors render failed")
+            connectors_xml = ""
+        if connectors_xml:
+            excerpt = (excerpt + "\n\n" + connectors_xml) if excerpt else connectors_xml
+        return excerpt, roster
+
+    async def _render_agent_schemas_with_roster(self, schemas_ctx, exclude_ids: set):
         """Render the schema block, applying the agent roster/focus policy.
 
         Returns ``(schemas_excerpt, agents_roster)``:
@@ -1678,8 +1741,8 @@ class AgentV2:
 
             # Roster over the CURRENT report agents: set_report_agents may have
             # attached one mid-run that the init-time self.data_sources missed.
-            _roster_sources = list(self.data_sources or [])
-            _known = {str(d.id) for d in _roster_sources}
+            _roster_sources = [d for d in (self.data_sources or []) if str(d.id) not in exclude_ids]
+            _known = {str(d.id) for d in _roster_sources} | set(exclude_ids)
             for _ds in (getattr(self.report, "data_sources", None) or []) if self.report else []:
                 if str(_ds.id) not in _known:
                     _roster_sources.append(_ds)
@@ -2121,6 +2184,23 @@ class AgentV2:
                 logger.warning(f"Failed to build context during token estimation: {e}", exc_info=True)
             prompt_text = await self._build_planner_prompt_text()
             prompt_tokens = count_tokens(prompt_text, getattr(self.model, "model_id", None))
+            # The rendered text leaves out what the provider also counts — the
+            # tool catalog above all, tens of thousands of tokens. The usage
+            # bar must agree with the governor and the provider, so apply the
+            # report's calibrated token anchor when one exists.
+            try:
+                pi = getattr(self, "_last_estimate_planner_input", None)
+                if pi is not None and self.report is not None:
+                    from app.services.context_compaction_service import ContextCompactionService
+                    state = await ContextCompactionService.get_state(self.db, str(self.report_id))
+                    offset = ContextCompactionService.anchor_offset(state)
+                    if offset is not None:
+                        measured = TokenAnchor(offset=offset, known=True).measure(
+                            estimate_planner_input_tokens(pi)
+                        )
+                        prompt_tokens = max(prompt_tokens, measured)
+            except Exception:
+                logger.debug("estimate anchor calibration skipped", exc_info=True)
 
             model_limit = getattr(self.model, "context_window_tokens", None)
             remaining_tokens = None
@@ -3134,32 +3214,42 @@ class AgentV2:
         except Exception:
             logger.warning("[agent] overflow transcript decay failed", exc_info=True)
 
-        if not getattr(self, "_compaction_attempted", False):
-            self._compaction_attempted = True
-            logger.info("[agent] context overflow: forcing synchronous compaction")
+        # Fold history synchronously too: the provider just proved the prompt
+        # is too big, so the retry must plan against the compacted transcript
+        # — not race a background task. Bounded per run; each attempt runs
+        # against the tightened factor above.
+        self._overflow_attempts = int(getattr(self, "_overflow_attempts", 0) or 0) + 1
+        # A sub-agent has no report history in its prompt to fold.
+        if self._overflow_attempts <= MAX_OVERFLOW_COMPACTIONS and not getattr(self, "_is_sub_agent", False):
+            logger.info(
+                "[agent] context overflow %d/%d: forcing synchronous compaction",
+                self._overflow_attempts, MAX_OVERFLOW_COMPACTIONS,
+            )
             try:
-                await self._run_auto_compaction(force=True)
+                await self._sync_fold(mode="overflow")
             except Exception:
                 logger.warning("[agent] overflow compaction failed", exc_info=True)
 
-    async def _run_auto_compaction(self, force: bool = False):
-        """Background body of the build-time compaction trigger: fold turns
-        older than the protected tail into the report's rolling summary
-        (ContextCompactionService). Runs concurrently with the agent loop in
-        its own DB session (report and organization re-fetched by id —
-        self.report/self.organization may be detached, same pitfall as title
-        generation); later context builds pick up the advanced watermark.
-        ``force=True`` (the context-overflow path) bypasses the service's own
-        threshold checks — the provider already proved the transcript is too
-        big. Fail-open: any error logs and leaves rendering exactly as today."""
+    async def _run_auto_compaction(
+        self, force: bool = False, mode: str = "auto_bg", max_tail_rows: Optional[int] = None,
+    ) -> dict:
+        """Fold turns older than the protected tail into the report's rolling
+        summary (ContextCompactionService). Runs in its own DB session
+        (report and organization re-fetched by id — self.report /
+        self.organization may be detached, same pitfall as title generation),
+        so it can overlap the agent loop; later context builds pick up the
+        advanced watermark. The small model writes the summary; self.model —
+        the model that receives the prompt — sizes it. Fail-open: any error
+        logs and leaves rendering exactly as it was."""
         import logging
         logger = logging.getLogger(__name__)
+        result: dict = {"status": "skipped"}
         try:
             if not self.report:
-                return
+                return result
             model = self.small_model or self.model
             if model is None:
-                return
+                return result
             from app.services.context_compaction_service import context_compaction_service
             from app.models.organization import Organization
             report_id = str(self.report_id)
@@ -3178,35 +3268,294 @@ class AgentV2:
                         select(Organization).where(Organization.id == organization_id)
                     )).scalar_one_or_none()
                 if report is None or organization is None:
-                    return
+                    return result
                 result = await context_compaction_service.compact(
-                    session, report, organization, model, force=force,
+                    session, report, organization, model,
+                    force=force, mode=mode, budget_model=self.model or model,
+                    max_tail_rows=max_tail_rows,
+                    budget_factor=float(getattr(self, "_context_budget_factor", 1.0) or 1.0),
                 )
                 if result.get("status") == "compacted":
                     logger.info(
-                        f"Auto-compacted report {report_id}: "
+                        f"Auto-compacted report {report_id} ({mode}): "
                         f"{result.get('compacted_turns')} turns, ~{result.get('tokens_compacted')} tokens"
                     )
+                    if mode == "auto_bg":
+                        # The in-run transcript still carries the folded turns
+                        # in detail; the governor swaps them out when it needs
+                        # the room.
+                        self._history_reload_pending = True
                     # Live visibility: the kickoff SSE stream is still open here
                     # (event_queue.finish() runs after main_execution returns),
                     # so the page can move the watermark-anchored divider and
                     # refresh the usage popover without a reload.
-                    if self.event_queue:
-                        try:
-                            await self.event_queue.put(SSEEvent(
-                                event="context.compacted",
-                                completion_id=str(self.system_completion_id) if self.system_completion else None,
-                                data={
-                                    "covers_until_completion_id": result.get("covers_until_completion_id"),
-                                    "compacted_turns": result.get("compacted_turns"),
-                                    "tokens_compacted": result.get("tokens_compacted"),
-                                    "tokens_compacted_total": result.get("tokens_compacted_total"),
-                                },
-                            ))
-                        except Exception as e:
-                            logger.warning(f"Failed to emit context.compacted event: {e}")
+                    await self._emit_compaction_event("context.compacted", {
+                        "status": "compacted",
+                        "trigger": mode,
+                        "covers_until_completion_id": result.get("covers_until_completion_id"),
+                        "compacted_turns": result.get("compacted_turns"),
+                        "covered_turns": result.get("covered_turns"),
+                        "tokens_compacted": result.get("tokens_compacted"),
+                        "tokens_compacted_total": result.get("tokens_compacted_total"),
+                        "history_tokens_before": result.get("history_tokens_before"),
+                        "history_tokens_after": result.get("history_tokens_after"),
+                        "method": result.get("method"),
+                        "degraded": result.get("degraded"),
+                    })
         except Exception as e:
             logger.warning(f"Auto compaction skipped: {e}")
+        return result
+
+    async def _emit_compaction_event(self, event: str, data: dict) -> None:
+        if not self.event_queue:
+            return
+        try:
+            await self.event_queue.put(SSEEvent(
+                event=event,
+                completion_id=str(self.system_completion_id) if self.system_completion else None,
+                data=data,
+            ))
+        except Exception as e:
+            logger.warning(f"Failed to emit {event} event: {e}")
+
+    async def _reload_history_after_fold(self):
+        """After the watermark moved, rebuild the history the planner sees:
+        the messages section (summary + post-watermark window) and the
+        rehydrated history prefix of the in-run transcript, which was loaded
+        before the fold and still holds the folded turns in detail."""
+        # This run's own completion is already represented, live, in the
+        # transcript suffix (with its images and provider state); rebuilding
+        # it from the DB too would replay every call of this run twice.
+        try:
+            if self.system_completion_id:
+                self.context_hub.message_builder.durable_exclude_completion_ids = {
+                    str(self.system_completion_id)
+                }
+        except Exception:
+            pass
+        await self.context_hub.refresh_warm()
+        view = self.context_hub.get_view()
+        self._history_reload_pending = False
+        if getattr(self, "_is_sub_agent", False):
+            return view
+        try:
+            durable = self.context_hub.message_builder.get_durable_transcript()
+            k = int(getattr(self.transcript, "history_turn_count", 0) or 0)
+            new_turns = list(durable.turns) if durable is not None else []
+            self.transcript.turns = new_turns + self.transcript.turns[k:]
+            self.transcript.history_turn_count = len(new_turns)
+        except Exception:
+            logger.warning("[context] transcript history reload failed", exc_info=True)
+        return view
+
+    async def _sync_fold(self, mode: str = "auto_sync", max_tail_rows: Optional[int] = None) -> dict:
+        """Fold history now, before the next request, and reload it.
+
+        A background fold already in flight is awaited instead of racing it
+        (the service would coalesce to already_running anyway)."""
+        bg = getattr(self, "_compaction_task", None)
+        if bg is not None and not bg.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(bg), timeout=60)
+            except Exception as e:
+                logger.warning(f"[context] background fold did not finish in time: {e}")
+        await self._emit_compaction_event("context.compacting", {"trigger": mode})
+        result = await self._run_auto_compaction(force=True, mode=mode, max_tail_rows=max_tail_rows)
+        status = result.get("status")
+        if status != "compacted":
+            # Clear the transient "Compacting…" row; nothing moved.
+            await self._emit_compaction_event("context.compacted", {"status": status, "trigger": mode})
+        if status == "compacted" or self._history_reload_pending:
+            await self._reload_history_after_fold()
+        return result
+
+    async def _load_ctx_anchor(self) -> None:
+        """Seed the token anchor from the last request of a previous run, so
+        the first request of this run is measured from reality too."""
+        if self._ctx_anchor_loaded or not self.report:
+            return
+        self._ctx_anchor_loaded = True
+        if getattr(self, "_is_sub_agent", False):
+            # The report's anchor measures the PARENT's prompt; a child
+            # calibrates from its own first request instead.
+            return
+        try:
+            from app.services.context_compaction_service import ContextCompactionService
+            async with self._session_maker() as session:
+                state = await ContextCompactionService.get_state(session, str(self.report_id))
+                offset = ContextCompactionService.anchor_offset(state)
+            if offset is not None and not self._ctx_anchor.known:
+                self._ctx_anchor = TokenAnchor(offset=offset, known=True)
+        except Exception:
+            logger.debug("[context] anchor load skipped", exc_info=True)
+
+    async def _persist_ctx_anchor(self) -> None:
+        pair = getattr(self, "_ctx_anchor_pair", None)
+        if not self.report or not pair:
+            return
+        if getattr(self, "_is_sub_agent", False):
+            return
+        try:
+            from app.services.context_compaction_service import ContextCompactionService
+            async with self._session_maker() as session:
+                await ContextCompactionService.record_prompt_anchor(
+                    session, str(self.report_id), pair[0], pair[1],
+                )
+        except Exception:
+            logger.debug("[context] anchor persist skipped", exc_info=True)
+
+    def _history_tokens(self, planner_input) -> int:
+        """Estimated size of cross-turn history in this request: the rendered
+        conversation section plus the transcript's rehydrated history turns."""
+        from app.ai.context.context_budget import estimate_text_tokens
+        total = estimate_text_tokens(getattr(planner_input, "messages_context", None) or "")
+        try:
+            k = int(getattr(self.transcript, "history_turn_count", 0) or 0)
+            total += sum(t.tokens() for t in self.transcript.turns[:k])
+        except Exception:
+            pass
+        return total
+
+    async def _govern_context(self, planner_input, messages_section=None) -> dict:
+        """The context budget ladder, run before every planner request.
+
+        One budget (budget_for(self.model)), one measurement (estimate of the
+        planner input + the provider-calibrated anchor offset), rungs from
+        cheapest information loss to most expensive, stopping as soon as the
+        prompt fits:
+
+          1. below cheap_at → send as is
+          2. cheap, no LLM: decay old tool results in the transcript (history
+             turns included) and render older history more compactly; also
+             start a background fold so the summary is ready ahead of need
+          3. still ≥ summarize_at and the history beyond the protected tail is
+             worth folding → fold it into the rolling summary NOW and reload
+             it (once per run; a finished background fold is swapped in
+             without another LLM call; a provider overflow forces its own
+             fold in _handle_context_overflow)
+          4. the caller's trim_context_to_budget is the last resort; it pins
+             the summary and the opening exchange.
+
+        Fail-open: any error leaves the planner input as built."""
+        stats = {"before": None, "after": None, "rungs": []}
+        try:
+            await self._load_ctx_anchor()
+            budget = budget_for(self.model, factor=getattr(self, "_context_budget_factor", 1.0))
+            n = self._ctx_anchor.measure(estimate_planner_input_tokens(planner_input))
+            stats["before"] = n
+
+            # Window exhaustion, independent of tokens: the live window has a
+            # row cap, and rows past it are in neither the window nor the
+            # summary. A long conversation of short turns never reaches the
+            # token thresholds, so without this the oldest unsummarized turns
+            # (the opening ask among them) would silently fall away. Fold them
+            # now, keeping at most half a window verbatim so the fold makes room.
+            dropped = int(getattr(messages_section, "dropped_count", 0) or 0) if messages_section is not None else 0
+            if dropped > 0 and not getattr(self, "_is_sub_agent", False) and not self._sync_fold_done:
+                self._sync_fold_done = True
+                result = await self._sync_fold(
+                    mode="auto_sync",
+                    max_tail_rows=max(DEFAULT_CONTEXT_LIMITS["messages_max"] // 2, 2),
+                )
+                stats["rungs"].append(f"fold_window:{result.get('status')}")
+                new_section = getattr(getattr(self.context_hub.get_view(), "warm", None), "messages", None)
+                if new_section is not None:
+                    messages_section = new_section
+                    planner_input.messages_context = new_section.render()
+                n = self._ctx_anchor.measure(estimate_planner_input_tokens(planner_input))
+                logger.info(
+                    "[context] governor window full: %d row(s) past the live window, fold=%s",
+                    dropped, result.get("status"),
+                )
+
+            if n < budget.cheap_at:
+                stats["after"] = n
+                return stats
+
+            # How much history is there to fold at all? The fixed prompt
+            # (system prompt, tools, schemas) can sit above the thresholds on
+            # its own — folding an empty history would only flash a
+            # "Compacting…" row and spend nothing useful.
+            # A sub-agent never sees the report's conversation
+            # (_apply_sub_agent_planner_input clears it on purpose): it gets
+            # transcript budgeting only — no history re-render, no report fold.
+            is_child = bool(getattr(self, "_is_sub_agent", False))
+            history_tokens = 0 if is_child else self._history_tokens(planner_input)
+            # A fold keeps the protected tail and replaces the rest with a
+            # summary of up to summary_max tokens — it only pays off when the
+            # history beyond the tail is clearly bigger than that. Without
+            # this, a prompt held high by its fixed part (system prompt, tool
+            # catalog) folds two turns on every request for no gain and adds
+            # an LLM round-trip before each reply.
+            excess = history_tokens - budget.tail_tokens
+            fold_min = max(budget.summary_max, int(budget.usable * 0.1))
+            worth_sync = (not is_child) and (excess >= fold_min or (n >= budget.usable and excess > 0))
+            worth_bg = (not is_child) and excess >= fold_min // 2
+
+            # Rung 2a — prepare ahead (non-blocking).
+            if worth_bg:
+                self._schedule_background_fold()
+
+            # Rung 2b — decay old tool results in the transcript. Aim to get
+            # back under the cheap threshold, but never strip more than ~40%
+            # per request unless the prompt would not fit at all: when the
+            # fixed prompt alone is over the threshold, decaying this run's
+            # own tool results to nothing would not fix it.
+            transcript = getattr(planner_input, "transcript", None)
+            if transcript is not None and getattr(transcript, "turns", None):
+                t_tokens = transcript.tokens()
+                rest = max(n - t_tokens, 0)
+                if n >= budget.usable:
+                    t_budget = max(budget.usable - rest, 1)
+                else:
+                    t_budget = max(budget.cheap_at - rest, int(t_tokens * 0.6), 1)
+                if t_budget < t_tokens:
+                    t_stats = transcript.fit_to_budget(t_budget)
+                    if t_stats.get("digested") or t_stats.get("dropped") or t_stats.get("images_released"):
+                        stats["rungs"].append("transcript_decay")
+                    n = self._ctx_anchor.measure(estimate_planner_input_tokens(planner_input))
+
+            # Rung 2c — render older history more compactly.
+            if messages_section is not None and n >= budget.cheap_at and not is_child:
+                for level in (1, 2):
+                    planner_input.messages_context = messages_section.render(decay_level=level)
+                    stats["rungs"].append(f"history_decay_{level}")
+                    n = self._ctx_anchor.measure(estimate_planner_input_tokens(planner_input))
+                    if n < budget.cheap_at:
+                        break
+
+            # Rung 3 — fold now.
+            if n >= budget.summarize_at and not is_child and (
+                self._history_reload_pending or (worth_sync and not self._sync_fold_done)
+            ):
+                if self._history_reload_pending:
+                    # A background fold already moved the watermark: swap the
+                    # folded turns out of this request — no LLM call needed.
+                    view = await self._reload_history_after_fold()
+                    result = {"status": "reloaded"}
+                else:
+                    self._sync_fold_done = True
+                    result = await self._sync_fold(mode="auto_sync")
+                    view = self.context_hub.get_view()
+                stats["rungs"].append(f"fold:{result.get('status')}")
+                new_section = getattr(getattr(view, "warm", None), "messages", None)
+                if new_section is not None:
+                    messages_section = new_section
+                    planner_input.messages_context = new_section.render(
+                        decay_level=2 if "history_decay_2" in stats["rungs"] else (1 if "history_decay_1" in stats["rungs"] else 0)
+                    )
+                n = self._ctx_anchor.measure(estimate_planner_input_tokens(planner_input))
+            stats["after"] = n
+            logger.info(
+                "[context] governor window=%d usable=%d cheap_at=%d summarize_at=%d "
+                "tokens %d -> %d history=%d rungs=%s anchor_offset=%s",
+                budget.window, budget.usable, budget.cheap_at, budget.summarize_at,
+                stats["before"], n, history_tokens, ",".join(stats["rungs"]) or "-",
+                self._ctx_anchor.offset if self._ctx_anchor.known else "n/a",
+            )
+        except Exception:
+            logger.warning("[context] governor failed; sending the prompt as built", exc_info=True)
+        return stats
 
     def _checkins_enabled(self) -> bool:
         """Agent check-ins org setting (lab, off by default). Checked first so a
@@ -5672,10 +6021,26 @@ class AgentV2:
                                 "[agent] trimming context to shrunk window %s (factor %.2f)",
                                 _ctx_window, _ctx_factor,
                             )
+                        # The context budget ladder: decay, fold, then the
+                        # last-resort trim below — all against one budget.
+                        await self._govern_context(planner_input, messages_section)
+                        # The trim estimates only the variable fields; the
+                        # anchor offset is the fixed prompt it cannot see
+                        # (system prompt, tool catalog). Shrink its window by
+                        # that much so it measures what the provider counts.
+                        _trim_window = _ctx_window
+                        if self._ctx_anchor.known and self._ctx_anchor.offset > 0:
+                            _trim_window = max(
+                                (_ctx_window or DEFAULT_TOKEN_BUDGET) - self._ctx_anchor.offset,
+                                16_000,
+                            )
                         trim_context_to_budget(
                             planner_input,
-                            model_context_window=_ctx_window,
+                            model_context_window=_trim_window,
                         )
+                        # What we are about to send, by our estimate — paired
+                        # with the provider's prompt_tokens to calibrate.
+                        self._last_request_estimate = estimate_planner_input_tokens(planner_input)
                         # Kick off early scoring in background without blocking the loop (isolated DB session).
                         # Only on the first planner step: this scores the *initial* instructions/context
                         # effectiveness for the turn. It previously fired every iteration, doing N redundant
@@ -6705,6 +7070,14 @@ class AgentV2:
                                         "tool_execution": tool_execution,
                                         "observation": _observation,
                                     }
+
+                                # A name the run does not have (a hallucinated or
+                                # stale mcp__ name, typically one replayed from an
+                                # earlier run's history) is an unknown tool, not a
+                                # plan-type problem: say so and name what IS callable,
+                                # so the model can recover on its next step.
+                                if self.registry.get_metadata(tool_name) is None:
+                                    return await _refuse_before_dispatch(self._unknown_tool_observation(tool_name))
 
                                 # Validate tool availability for chosen plan_type
                                 if not self._validate_tool_for_plan_type(tool_name, decision.plan_type):
@@ -8098,6 +8471,8 @@ class AgentV2:
                     await asyncio.wait_for(asyncio.shield(_compaction_task), timeout=45)
                 except Exception as e:
                     logger.warning(f"Background compaction still pending at turn end: {e}")
+            # Carry this run's calibrated token anchor to the next run.
+            await self._persist_ctx_anchor()
 
         except Exception as e:
             # Handle errors and finish execution with error status
@@ -8528,6 +8903,7 @@ class AgentV2:
             model_context_window=getattr(self.model, "context_window_tokens", None),
         )
 
+        self._last_estimate_planner_input = planner_input
         return self.planner.prompt_builder.build_prompt(planner_input)
 
     def _publish_context_metadata_to_view(self, view=None):
@@ -8559,8 +8935,24 @@ class AgentV2:
                 self._sub_agent_tokens_used += int(_total or 0)
             if prompt_tokens is None:
                 return
-            prompt_tokens = int(prompt_tokens or 0)
+            # Total context the provider processed (Anthropic reports cache
+            # reads/writes outside prompt_tokens) — what the usage meter and
+            # the context budget's anchor must both see.
+            prompt_tokens = total_input_tokens(
+                token_usage,
+                provider=getattr(getattr(self.model, "provider", None), "provider_type", None),
+            ) or int(prompt_tokens or 0)
             self._last_planner_prompt_tokens = prompt_tokens
+            try:
+                _est = getattr(self, "_last_request_estimate", None)
+                self._ctx_anchor.record(prompt_tokens, _est)
+                if _est is not None:
+                    # The pair from THIS completed request — what gets
+                    # persisted. A later request that never reports usage
+                    # must not pair its estimate with this actual.
+                    self._ctx_anchor_pair = (int(prompt_tokens), int(_est))
+            except Exception:
+                pass
             metadata = self.context_hub.metadata
             section_sizes = dict(metadata.section_sizes or {})
             section_sizes["_planner_prompt_total"] = prompt_tokens
@@ -8593,40 +8985,28 @@ class AgentV2:
                 span.set_attribute("report.id", str(self.report_id))
             await self.context_hub.refresh_warm()
             view = self.context_hub.get_view()
-            # Compaction rides on context assembly: every agent-path warm build
-            # checks the window against the token budget and, at most once per
-            # run, schedules a background fold. Detection only — the build
-            # returns the uncompacted view; a later build picks up the
-            # advanced watermark. (Passive builds — estimate endpoint, title,
-            # follow-ups — never come through here, so they can't trigger.)
-            self._maybe_schedule_compaction(view)
+            # Compaction is decided by the context governor right before each
+            # planner request (_govern_context), against the measured prompt —
+            # not here, against a rendering of one section.
             return view
 
-    def _maybe_schedule_compaction(self, view) -> None:
-        """Threshold check + background scheduling, once per run. Fail-open."""
+    def _schedule_background_fold(self) -> None:
+        """Prepare ahead: start one background fold per run once the prompt
+        crosses the cheap threshold, so the summary is usually ready before a
+        request ever reaches the summarize threshold. Fail-open."""
         if getattr(self, "_compaction_attempted", False):
             return
         try:
-            from app.services.context_compaction_service import (
-                compaction_budgets, MESSAGES_WINDOW,
-            )
-            messages = getattr(getattr(view, "warm", None), "messages", None)
-            if messages is None:
-                return
-            rendered = messages.render() or ""
-            item_count = len(getattr(messages, "items", []) or [])
-            budgets = compaction_budgets(self.small_model or self.model)
-            if (len(rendered) // 4) < budgets["trigger_tokens"] and item_count < MESSAGES_WINDOW:
-                return
             self._compaction_attempted = True
             # Strong reference on self — a bare create_task is only weakly
             # held by the loop and can be GC'd mid-flight (the title-generation
             # lesson). main_execution awaits it before the stream closes.
             self._compaction_task = asyncio.create_task(
-                self._run_auto_compaction(), name="agent.context_compaction"
+                self._run_auto_compaction(force=False, mode="auto_bg"),
+                name="agent.context_compaction",
             )
         except Exception as e:
-            logger.debug(f"Compaction trigger check skipped: {e}")
+            logger.debug(f"Background fold scheduling skipped: {e}")
 
     async def _build_context_traced(self, phase: str, *, loop_index: int | None = None):
         with tracer.start_as_current_span("agent.context_build") as span:
@@ -9240,6 +9620,37 @@ class AgentV2:
             candidates = [t for t in candidates if t.name in allowed]
         self.planner.tool_catalog = await refresh_browser_tool_catalog(
             self.planner.tool_catalog, candidates, ctx)
+
+    # How many callable MCP names an unknown-tool refusal lists.
+    _UNKNOWN_TOOL_SUGGESTIONS = 25
+
+    def _unknown_tool_observation(self, tool_name: str) -> dict:
+        """Refusal for a tool name the run does not have.
+
+        For an ``mcp__`` name it lists the MCP tools this run can call (native
+        names, plus ``call_tool`` when some sit behind ``search_tools``), so a
+        stale name from an earlier run's history is corrected in one step.
+        """
+        name = str(tool_name)
+        observation = {
+            "summary": f"Unknown tool '{name}'",
+            "error": {"code": "unknown_tool", "message": f"'{name}' is not a tool in this conversation"},
+        }
+        if not name.startswith("mcp__"):
+            return observation
+        native = sorted(getattr(self, "_native_mcp_names", None) or ())
+        deferred = bool(getattr(self, "_deferred_mcp_tools", None))
+        if native or deferred:
+            shown = native[: self._UNKNOWN_TOOL_SUGGESTIONS]
+            observation["available_mcp_tools"] = shown
+            hint = f"Call one of these instead: {', '.join(shown)}." if shown else ""
+            if deferred:
+                hint = (hint + " More tools are reachable with search_tools, then call_tool.").strip()
+            observation["error"]["message"] += f". {hint}"
+        else:
+            observation["error"]["message"] += ". No MCP or custom API tools are available in this conversation."
+        logger.warning("[agent] unknown tool %s (native mcp tools: %d, deferred: %s)", name, len(native), deferred)
+        return observation
 
     def _validate_tool_for_plan_type(self, tool_name: str, plan_type: str) -> bool:
         """Validate that tool is available for the chosen plan type.

@@ -17,7 +17,6 @@ import io
 import json
 import logging
 import os
-import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -110,12 +109,27 @@ TABULAR_EXTS = {"csv", "tsv", "xlsx", "xls"}
 TEXT_EXTS = {"txt", "md", "json", "html", "htm", "log", "yaml", "yml"}
 
 
+class GraphHTTPError(ValueError):
+    """Graph answered with an HTTP error status.
+
+    A ``ValueError`` (with the same message as before) so every existing
+    ``except ValueError`` around Graph calls keeps working. ``status_code``
+    lets callers branch on the status instead of the message text, which also
+    holds the request URL and so the user's folder names.
+    """
+
+    def __init__(self, url, status_code: int, body: str = ""):
+        self.url = str(url)
+        self.status_code = status_code
+        super().__init__(f"Graph {url} → {status_code} {body}")
+
+
 def _is_not_found(exc: Exception) -> bool:
-    """Graph confirmed the item is absent (404 / itemNotFound), as opposed to
-    a permission, server or transport failure. ``_get`` raises ValueError with
-    the status code and Graph's error body in the message."""
-    msg = str(exc)
-    return "itemNotFound" in msg or re.search(r"\b404\b", msg) is not None
+    """Graph confirmed the item is absent (HTTP 404), as opposed to a
+    permission, server or transport failure. Decided by the status code only:
+    the message contains the request URL, so a folder path such as
+    ``Errors/404`` must not turn a 403 or a timeout into a confirmed miss."""
+    return isinstance(exc, GraphHTTPError) and exc.status_code == 404
 
 
 def _ext(name: str) -> str:
@@ -444,6 +458,7 @@ class GraphDriveClient(DataSourceClient):
         timeout: float = 30.0,
         follow_redirects: bool = False,
         max_attempts: Optional[int] = None,
+        json_body: Optional[Any] = None,
     ) -> httpx.Response:
         """One Graph request with the throttling discipline Microsoft expects.
 
@@ -493,6 +508,7 @@ class GraphDriveClient(DataSourceClient):
                     resp = client.request(
                         method, url, headers=hdrs, params=params,
                         timeout=timeout, follow_redirects=follow_redirects,
+                        json=json_body,
                     )
             except httpx.TransportError as exc:
                 if attempt >= attempts_allowed:
@@ -555,7 +571,7 @@ class GraphDriveClient(DataSourceClient):
     def _get(self, path: str, **kwargs) -> dict:
         resp = self._request("GET", path, **kwargs)
         if resp.status_code >= 400:
-            raise ValueError(f"Graph {resp.url} → {resp.status_code} {resp.text[:300]}")
+            raise GraphHTTPError(resp.url, resp.status_code, resp.text[:300])
         return resp.json()
 
     def _get_bytes(self, path: str) -> bytes:
@@ -563,7 +579,7 @@ class GraphDriveClient(DataSourceClient):
         # stripping the Authorization header on the cross-origin hop to the CDN.
         resp = self._request("GET", path, timeout=60.0, follow_redirects=True)
         if resp.status_code >= 400:
-            raise ValueError(f"Graph {resp.url} → {resp.status_code} {resp.text[:300]}")
+            raise GraphHTTPError(resp.url, resp.status_code, resp.text[:300])
         return resp.content
 
     # ------------------------------------------------ site / drive resolution

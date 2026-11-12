@@ -1,4 +1,4 @@
-# Bag of Words — Kubernetes connector access.
+# BOW — Kubernetes connector access.
 #
 # Creates a service account with CLUSTER-WIDE READ-ONLY access (cluster-admin
 # minus the write verbs) and a long-lived token Secret. One wildcard rule, so

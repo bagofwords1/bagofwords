@@ -15,7 +15,7 @@ export interface ToolTableGroup {
   // <DataSourceIcon :icon-token="…">. Null when the agent is unknown to this
   // payload — the caller renders its own generic glyph.
   iconToken: string | null
-  // Bag of Words' own training data rather than one of the org's agents — the
+  // BOW's own training data rather than one of the org's agents — the
   // ticker labels that group differently.
   isBow: boolean
   names: string[]      // full list (tooltip / expanded views)
@@ -27,7 +27,7 @@ export interface ToolTableGroup {
 
 export const MAX_VISIBLE_TABLES = 3
 
-// Bag of Words' own training data is a synthetic source with no agent row.
+// BOW's own training data is a synthetic source with no agent row.
 const BOW_SOURCE_ID = 'builtin:bow'
 const BOW_ICON_TOKEN = 'type:bow'
 // An agent the payload doesn't describe (dropped from the report, or a view

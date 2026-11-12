@@ -66,7 +66,7 @@ def __getattr__(name: str):
 # Public key for license verification (RS256).
 #
 # This is an asymmetric *public* key — it only verifies license signatures and
-# is safe to distribute (the private signing key never leaves Bag of Words).
+# is safe to distribute (the private signing key never leaves BOW).
 # It is loaded from an adjacent .pem file rather than inlined so the key can be
 # rotated without code changes and so static analysis does not mistake a public
 # verification key for a hardcoded secret.

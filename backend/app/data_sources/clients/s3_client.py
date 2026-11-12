@@ -1,96 +1,36 @@
 """Object-store file-source client (AWS S3).
 
-Backs the `s3` data source type: an S3 bucket (optionally scoped to a
-key prefix) exposed to the agent as a file catalog, exactly like `network_dir`
-but over S3 instead of a mounted filesystem. It gives the agent the same file
-primitives — `ls`/`find` (list_files), `cat` (read_file) — plus a **windowed
-byte-range read** for objects too large to load whole (logs, ndjson, big CSVs).
-
-Everything is confined to the configured `bucket` + `prefix`: every file id is a
-key *relative* to the prefix, and any id that escapes it (`..`, absolute, leading
-slash) is rejected at a single chokepoint (`_resolve_key`).
-
-Declares LIST_FILES + READ_FILE + GREP_FILES. SEARCH_FILES is intentionally NOT
-declared — a live content scan over an object store is a GET-per-object; keyword
-search runs at the tool layer against the catalog indexed in `get_schemas()`.
-GREP_FILES *is* declared because line-grep is explicitly budgeted (max_files /
-max_bytes_per_file / time budget, resumable cursor), so its GET-per-object cost
-is bounded and reported, unlike an unbounded search. WRITE_FILE is likewise out
-of scope for now.
+Backs the `s3` data source type: an S3 bucket (optionally scoped to a key
+prefix) exposed to the agent as a file catalog, exactly like `network_dir` but
+over S3 instead of a mounted filesystem. All provider-neutral behavior —
+confinement, parsing, windowed reads, grep, catalog — lives in
+`_object_store_common.ObjectStoreClient`; this module owns only the S3 I/O and
+auth.
 
 Auth mirrors the Athena client: static keys, keys + STS assume-role, or boto3's
-default credential chain. All parsing (csv/tsv/xlsx → DataFrame, pdf/docx/pptx →
-extracted text, keyword indexing) is shared with `network_dir` via the same
-helpers, so this client only owns S3 I/O + confinement.
+default credential chain. `endpoint_url` points it at any S3-compatible store.
 """
 from __future__ import annotations
-from app.data_sources.clients.progress import discovery_progress, IndexingCancelled
 
-import hashlib
-from contextlib import contextmanager
-import io
-import json
-import mimetypes
-import posixpath
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterator, Optional, Tuple
 
-import pandas as pd
-
-from app.ai.prompt_formatters import Table
-from app.data_sources.clients._document_text import (
-    DOC_EXTS,
-    doc_text_is_usable,
-    doc_text_looks_garbled,
-    extract_document_text_from_bytes,
+from app.data_sources.clients._object_store_common import (  # noqa: F401  (re-exports)
+    DEFAULT_WINDOW_BYTES,
+    GREPPABLE_EXTS,
+    TABULAR_EXTS,
+    TEXT_EXTS,
+    ObjectStoreClient,
+    _ext,
+    _extract_pdf_pages_from_bytes,
 )
-from app.data_sources.clients._email_text import EMAIL_EXTS
-from app.data_sources.clients._file_source_common import (
-    EXCEL_EXTS,
-    read_excel_sheet,
-    INDEX_CONTENT,
-    INDEX_NONE,
-    FileTooLargeError,
-    GlobScopeError,
-    ScopeEscapeError,
-    DocumentText,
-    UTF8_SLACK,
-    byte_limit,
-    byte_window,
-    NamedBytes,
-    globs_from_str,
-    normalize_index_mode,
-    path_matches_globs,
-)
-from app.data_sources.clients._keywords import extract_file_keywords
-from app.data_sources.clients.base import Capability, DataSourceClient
-
-# Same parse/scan classes as network_dir so behavior matches across file sources.
-TABULAR_EXTS = {"csv", "tsv", "xlsx", "xls"}
-TEXT_EXTS = {"txt", "md", "json", "html", "htm", "log", "yaml", "yml", "xml", "py", "sql", "ndjson", "jsonl"}
-GREPPABLE_EXTS = TABULAR_EXTS | TEXT_EXTS | DOC_EXTS
-
-DEFAULT_WINDOW_BYTES = 1024 * 1024  # 1 MiB default page for windowed reads
 
 
-def _ext(name: str) -> str:
-    if not name or "." not in name:
-        return ""
-    return name.rsplit(".", 1)[-1].lower()
-
-
-class S3Client(DataSourceClient):
+class S3Client(ObjectStoreClient):
     """S3-backed file source (bucket + optional prefix)."""
 
-    capabilities = {
-        Capability.LIST_FILES,
-        Capability.READ_FILE,
-        Capability.GREP_FILES,
-    }
-
-    # A bounded list_objects_v2 under the prefix is cheap enough to do live per
-    # call → list per-connection from the source, not the shared catalog cache.
-    cheap_live_listing = True
+    scheme = "s3"
+    metadata_key = "s3"
+    bucket_noun = "bucket"
 
     def __init__(
         self,
@@ -113,23 +53,20 @@ class S3Client(DataSourceClient):
         role_arn: Optional[str] = None,
         **_ignored,
     ):
-        super().__init__()
-        self.bucket = (bucket or "").strip()
-        # Normalize prefix to "" or "something/" — a folder-like prefix with a
-        # single trailing slash and no leading slash.
-        self.prefix = self._norm_prefix(prefix)
+        super().__init__(
+            bucket=bucket,
+            prefix=prefix,
+            allowed_extensions=allowed_extensions,
+            include_globs=include_globs,
+            recursive=recursive,
+            max_file_mb=max_file_mb,
+            index_content=index_content,
+            index_mode=index_mode,
+            max_catalog_objects=max_catalog_objects,
+            max_keywords=max_keywords,
+        )
         self.region = (region or "").strip() or None
         self.endpoint_url = (endpoint_url or "").strip() or None
-        self.allowed_extensions = self._parse_exts(allowed_extensions)
-        # Include-globs (relative to the prefix) scope the connection AND act as
-        # an access boundary enforced in _resolve_key.
-        self.include_globs = globs_from_str(include_globs)
-        self.recursive = bool(recursive)
-        self.max_file_bytes = int(max_file_mb) * 1024 * 1024 if max_file_mb else None
-        self.index_mode = normalize_index_mode(index_mode, index_content_legacy=index_content)
-        self.index_content = self.index_mode == INDEX_CONTENT
-        self.max_catalog_objects = int(max_catalog_objects) if max_catalog_objects else 5000
-        self.max_keywords = int(max_keywords) if max_keywords else 50
 
         self.access_key = access_key
         self.secret_key = secret_key
@@ -137,105 +74,6 @@ class S3Client(DataSourceClient):
         self.role_arn = role_arn
 
         self._s3 = None  # lazily constructed boto3 client
-
-    # ---------------------------------------------------------------- utils
-
-    @staticmethod
-    def _norm_prefix(value: Optional[str]) -> str:
-        p = (value or "").strip().lstrip("/")
-        if not p:
-            return ""
-        return p if p.endswith("/") else p + "/"
-
-    @staticmethod
-    def _parse_exts(value: Optional[str]) -> Optional[set]:
-        if not value:
-            return None
-        items = {e.strip().lower().lstrip(".") for e in value.split(",") if e.strip()}
-        return items or None
-
-    def _allowed(self, name: str) -> bool:
-        if not self.allowed_extensions:
-            return True
-        return _ext(name) in self.allowed_extensions
-
-    @staticmethod
-    def _is_junk(key: str) -> bool:
-        """Keys that shouldn't surface as real files: console 'folder marker'
-        objects (a zero-byte key ending in '/'), Athena/tooling sidecars
-        (`*.metadata`), and OS cruft. Mirrors network_dir._is_junk in spirit."""
-        if not key or key.endswith("/"):
-            return True
-        name = key.rsplit("/", 1)[-1]
-        if not name or name.startswith("~$") or name.startswith("."):
-            return True
-        if name.endswith(".metadata"):
-            return True
-        return name.lower() in {".ds_store", "thumbs.db", "desktop.ini"}
-
-    def _resolve_key(self, rel_or_id: str, *, enforce_scope: bool = True) -> str:
-        """Resolve a file id / relative path to an absolute S3 key INSIDE the
-        configured prefix. This is the single security chokepoint: any id that
-        escapes the prefix (`..`, absolute, leading slash tricks) is rejected.
-
-        Accepts either a prefix-relative id (the normal case, what list_files
-        returns) or a full key already under the prefix.
-        """
-        raw = (rel_or_id or "").strip()
-        if not raw:
-            raise ValueError("Empty file id")
-        raw = raw.lstrip("/")
-        # Accept a full key that already starts with the prefix; otherwise treat
-        # the id as relative to the prefix.
-        if self.prefix and raw.startswith(self.prefix):
-            key = raw
-        else:
-            key = self.prefix + raw
-        # Collapse any '.'/'..' segments, then verify we're still under prefix.
-        normalized = posixpath.normpath(key)
-        if normalized in (".", "/"):
-            normalized = ""
-        # normpath strips a trailing slash; prefix comparison uses the base form.
-        base = self.prefix.rstrip("/")
-        if base:
-            if normalized != base and not normalized.startswith(base + "/"):
-                raise ScopeEscapeError(f"Key escapes the connection prefix: {rel_or_id}")
-        if normalized.startswith("/") or normalized.startswith(".."):
-            raise ScopeEscapeError(f"Key escapes the connection prefix: {rel_or_id}")
-        # Access boundary: if include-globs are configured, the prefix-relative
-        # key must match one — else a read/attach of an in-prefix but off-glob
-        # object is denied here (single chokepoint), not merely hidden.
-        if enforce_scope and self.include_globs:
-            rel = self._rel_id(normalized)
-            if not path_matches_globs(rel, self.include_globs):
-                raise GlobScopeError(
-                    f"'{rel}' is outside this connection's allowed patterns "
-                    f"({', '.join(self.include_globs)}). Access denied."
-                )
-        return normalized
-
-    def _rel_id(self, key: str) -> str:
-        """Stable, human-readable file id: key relative to the prefix."""
-        if self.prefix and key.startswith(self.prefix):
-            return key[len(self.prefix):]
-        return key
-
-    def _entry(self, key: str, size: int, modified: Optional[datetime], is_folder: bool = False) -> Dict[str, Any]:
-        rel = self._rel_id(key)
-        name = rel.rstrip("/").rsplit("/", 1)[-1]
-        mime, _ = mimetypes.guess_type(name)
-        return {
-            "id": rel,
-            "name": name,
-            "path": rel,
-            "mime_type": mime,
-            "size": int(size or 0),
-            "modified_at": (
-                modified.astimezone(timezone.utc).isoformat() if modified else None
-            ),
-            "is_folder": bool(is_folder),
-            "web_url": f"s3://{self.bucket}/{key}",
-        }
 
     # ------------------------------------------------------------- s3 client
 
@@ -277,559 +115,86 @@ class S3Client(DataSourceClient):
         self._s3 = session.client("s3", endpoint_url=self.endpoint_url)
         return self._s3
 
-    # ---------------------------------------------------- public capabilities
+    # ---------------------------------------------------- storage primitives
 
-    def list_files(
-        self, folder_id: Optional[str] = None, recursive: Optional[bool] = None,
-        *, limit: Optional[int] = None,
-    ) -> List[Dict[str, Any]]:
-        self._last_list_truncated = False
-        s3 = self._client()
-        rec = self.recursive if recursive is None else bool(recursive)
-        # Scope the listing to prefix (+ optional sub-folder id).
-        list_prefix = self.prefix
-        if folder_id:
-            sub = self._resolve_key(folder_id, enforce_scope=False)
-            list_prefix = sub if sub.endswith("/") else sub + "/"
-
-        paginator = s3.get_paginator("list_objects_v2")
+    def _iter_list(self, list_prefix: str, recursive: bool) -> Iterator[Dict[str, Any]]:
+        paginator = self._client().get_paginator("list_objects_v2")
         kwargs: Dict[str, Any] = {"Bucket": self.bucket, "Prefix": list_prefix}
-        if not rec:
+        if not recursive:
             kwargs["Delimiter"] = "/"
-
-        entries: List[Dict[str, Any]] = []
         for page in paginator.paginate(**kwargs):
             # Sub-prefixes become folder entries when not recursing.
             for cp in page.get("CommonPrefixes", []) or []:
-                pk = cp.get("Prefix")
-                if pk:
-                    entries.append(self._entry(pk, 0, None, is_folder=True))
+                yield {"prefix": cp.get("Prefix")}
             for obj in page.get("Contents", []) or []:
-                key = obj["Key"]
-                if self._is_junk(key):
-                    continue
-                if not self._allowed(key.rsplit("/", 1)[-1]):
-                    continue
-                # Scope filter: only prefix-relative keys matching include-globs.
-                if self.include_globs and not path_matches_globs(
-                    self._rel_id(key), self.include_globs
-                ):
-                    continue
-                entries.append(self._entry(key, obj.get("Size", 0), obj.get("LastModified")))
-                if limit and len(entries) >= limit:
-                    self._last_list_truncated = True
-                    entries.sort(key=lambda e: (not e["is_folder"], e["path"].lower()))
-                    return entries
-        entries.sort(key=lambda e: (not e["is_folder"], e["path"].lower()))
-        return entries
+                yield {"key": obj["Key"], "size": obj.get("Size", 0), "modified": obj.get("LastModified")}
 
-    def read_file(
-        self,
-        file_id: str,
-        sheet: Optional[str] = None,
-        offset: Optional[int] = None,
-        length: Optional[int] = None,
-        max_bytes: Optional[int] = None,
-        page_range: Optional[Tuple[int, int]] = None,
-        **_,
-    ) -> Any:
-        """Read an object.
+    def _head(self, key: str) -> Dict[str, Any]:
+        head = self._client().head_object(Bucket=self.bucket, Key=key)
+        return {
+            "size": int(head.get("ContentLength", 0)),
+            "etag": head.get("ETag"),
+            "modified": head.get("LastModified"),
+            "version": ":".join(
+                str(head.get(k) or "") for k in ("VersionId", "ETag", "ContentLength", "LastModified")
+            ),
+            "raw": head,
+        }
 
-        - `offset` set → **windowed** raw byte-range read: returns a dict with a
-          cursor (next_cursor/total_size/eof) for paging through big objects. No
-          parsing, no attachment.
-        - `offset` absent → **structured** whole-object read, parsed like
-          network_dir (csv/tsv/xlsx → DataFrame, pdf/docx/pptx → text, …), guarded
-          by the size cap.
-        """
-        key = self._resolve_key(file_id)
-        if offset is not None:
-            return self._read_window(key, int(offset), length)
-
-        # Page-range read for PDFs — same sentinel contract as network_dir.
-        if page_range is not None:
-            if _ext(key) != "pdf":
-                raise ValueError("page_range is supported for PDF files only.")
-            data, _size = self._get_bytes(key)
-            text, pages_total = _extract_pdf_pages_from_bytes(
-                data, key, page_range[0], page_range[1]
-            )
-                # The bytes this read already downloaded, carried like
-                # DocumentText.raw does for whole-file reads. Without them the
-                # tool layer fetches the same object a second time just to keep
-                # the original for the viewer — 2N downloads for N page reads.
-                # `name` rides along because an opaque provider id carries no
-                # filename of its own, and the preview needs the extension.
-            return {
-                "__doc_pages__": True,
-                "text": text,
-                "pages_total": pages_total,
-                "first": max(1, page_range[0]),
-                "last": min(page_range[1], pages_total),
-                "raw": data,
-                "name": key.rsplit("/", 1)[-1],
-            }
-
-        # Structured read — pull the whole object (size-capped).
-        ext = _ext(key)
-        data, size = self._get_bytes(key)
-
-        if ext in DOC_EXTS:
-            text = extract_document_text_from_bytes(data, key)
-            # Near-empty extraction on a rich doc (scanned / image-based / CID
-            # font) → return raw bytes so the tool can render it for vision.
-            if doc_text_is_usable(text, ext):
-                # Carry the bytes we already fetched — see DocumentText.
-                return DocumentText(text, raw=data, name=key)
-            return NamedBytes(data, name=key)
-
-        if ext == "csv":
-            return pd.read_csv(io.BytesIO(data))
-        if ext == "tsv":
-            return pd.read_csv(io.BytesIO(data), sep="\t")
-        if ext in EXCEL_EXTS:
-            return read_excel_sheet(data, sheet, trim=False)
-        if ext == "parquet":
-            return pd.read_parquet(io.BytesIO(data))
-        if ext == "json":
-            try:
-                return json.loads(data.decode("utf-8", errors="replace"))
-            except IndexingCancelled:
-                raise
-            except Exception:
-                return data.decode("utf-8", errors="replace")
-        if ext in TEXT_EXTS:
-            return data.decode("utf-8", errors="replace")
+    def _download(self, key: str, start: Optional[int] = None, end: Optional[int] = None) -> Tuple[bytes, Optional[int]]:
+        args: Dict[str, Any] = dict(Bucket=self.bucket, Key=key)
+        if start is not None:
+            args["Range"] = f"bytes={start}-{'' if end is None else end}"
+        obj = self._client().get_object(**args)
+        body = obj["Body"]
         try:
-            return data.decode("utf-8")
-        except UnicodeDecodeError:
-            return data
-
-    def file_version(self, file_id: str) -> Optional[str]:
-        """ETag (falls back to size:last-modified) as the cache key. `_resolve_key`
-        enforces the glob scope, so an off-scope id raises — a cache hit stays
-        access-checked. One cheap HEAD, no object download."""
-        key = self._resolve_key(file_id, enforce_scope=True)  # raises GlobScopeError off-glob
-        try:
-            head = self._client().head_object(Bucket=self.bucket, Key=key)
-            etag = (head.get("ETag") or "").strip('"')
-            if etag:
-                return etag
-            lm = head.get("LastModified")
-            return f"{int(head.get('ContentLength', 0))}:{lm.timestamp() if lm else ''}"
-        except IndexingCancelled:
-            raise
-        except Exception:
-            return None
-
-    def _get_bytes(self, key: str, max_bytes: Optional[int] = None) -> Tuple[bytes, int]:
-        """Fetch a whole object's bytes, enforcing the size cap via a HEAD first
-        so we never stream a giant object into memory just to reject it.
-        `max_bytes` tightens the connection's own cap for this read."""
-        s3 = self._client()
-        head = s3.head_object(Bucket=self.bucket, Key=key)
-        size = int(head.get("ContentLength", 0))
-        limit = byte_limit(self.max_file_bytes, max_bytes)
-        if limit and size > limit:
-            raise FileTooLargeError(
-                f"Object {self._rel_id(key)} is {size / 1024 / 1024:.1f} MB, exceeds the "
-                f"{limit / 1024 / 1024:.0f} MB limit. Use a windowed read "
-                f"(offset/length) for large objects."
-            )
-        obj = s3.get_object(Bucket=self.bucket, Key=key)
-        return obj["Body"].read(), size
-
-    def _read_window(self, key: str, offset: int, length: Optional[int]) -> Dict[str, Any]:
-        """Ranged byte read → a window plus a cursor to page forward.
-
-        Same contract as NetworkDirClient._read_window (byte_window): the
-        requested byte range, adjusted by at most 3 bytes at an edge so a
-        multi-byte character is never split, with `next_cursor` at the first
-        byte not returned. Binary windows are base64-encoded. The GET asks for
-        UTF8_SLACK bytes past the window so the straddling character can be
-        completed without a second round trip.
-        """
-        if offset < 0:
-            raise ValueError("offset must be >= 0")
-        window = int(length) if length else DEFAULT_WINDOW_BYTES
-        s3 = self._client()
-        end = offset + window + UTF8_SLACK - 1
-        obj = s3.get_object(Bucket=self.bucket, Key=key, Range=f"bytes={offset}-{end}")
-        data = obj["Body"].read()
-
-        # total size from Content-Range ("bytes 0-199/27221"); fall back to len.
-        total = offset + len(data)
+            if start is not None and end is not None:
+                data = body.read(end - start + 1)
+            else:
+                data = body.read()
+        finally:
+            body.close()
+        total: Optional[int] = None
+        # total size from Content-Range ("bytes 0-199/27221").
         cr = obj.get("ContentRange") or ""
         if "/" in cr:
             try:
                 total = int(cr.rsplit("/", 1)[-1])
             except ValueError:
-                pass
-        return byte_window(data, offset, total, window)
+                total = None
+        elif start is None:
+            total = len(data)
+        return data, total
 
-    @contextmanager
-    def _open_grep_stream(self, entry, offset, expected_version, check=lambda: None):
+    def _open_body(self, key: str, head: Dict[str, Any], offset: int):
         from app.data_sources.clients._streaming_grep import FileChanged
-        key = self._resolve_key(entry["id"])
-        s3 = self._client()
-        head = entry.get("head") or s3.head_object(Bucket=self.bucket, Key=key)
-        version = ":".join(str(head.get(k) or "") for k in ("VersionId", "ETag", "ContentLength", "LastModified"))
-        if expected_version and expected_version != version:
-            raise FileChanged()
-        size = int(head["ContentLength"])
-        if offset >= size and _ext(key) not in EMAIL_EXTS:
-            with io.BytesIO(b"") as empty:
-                yield empty, version, size
-            return
-        args = dict(Bucket=self.bucket, Key=key)
-        if offset and _ext(key) not in EMAIL_EXTS:
+        raw = head.get("raw") or {}
+        args: Dict[str, Any] = dict(Bucket=self.bucket, Key=key)
+        if offset:
             args["Range"] = f"bytes={offset}-"
-        if head.get("VersionId") and head["VersionId"] != "null":
-            args["VersionId"] = head["VersionId"]
-        if head.get("ETag"):
-            args["IfMatch"] = head["ETag"]
+        if raw.get("VersionId") and raw["VersionId"] != "null":
+            args["VersionId"] = raw["VersionId"]
+        if raw.get("ETag"):
+            args["IfMatch"] = raw["ETag"]
         try:
-            response = s3.get_object(**args)
+            response = self._client().get_object(**args)
         except Exception as exc:
             if str(getattr(exc, "response", {}).get("Error", {}).get("Code")) in ("PreconditionFailed", "412", "NoSuchVersion"):
                 raise FileChanged() from exc
             raise
         body = response["Body"]
-        try:
-            if offset and _ext(key) not in EMAIL_EXTS:
-                # Some S3-compatible endpoints ignore Range. Never label bytes
-                # from the beginning of the object as a resumed scan.
-                content_range = response.get("ContentRange", "")
-                if not content_range.startswith(f"bytes {offset}-"):
-                    raise OSError("S3 did not honor the requested byte range")
-            if _ext(key) in EMAIL_EXTS:
-                from app.data_sources.clients._streaming_grep import ScanStopped
-                cap = min(self.max_file_bytes or 20_000_000, 20_000_000)
-                if size > cap:
-                    raise ScanStopped("too_large")
-                data = body.read(cap + 1)
-                if len(data) > cap:
-                    raise ScanStopped("too_large")
-                text = extract_document_text_from_bytes(data, key, max_chars=cap).encode("utf-8")
-                with io.BytesIO(text) as rendered:
-                    rendered.seek(offset)
-                    yield rendered, version, len(text)
-            else:
-                yield body, version, size
-        finally:
-            body.close()
-
-    def grep_files(
-        self,
-        pattern: str,
-        *,
-        is_regex: bool = True,
-        ignore_case: bool = False,
-        file_ids: Optional[List[str]] = None,
-        folder_id: Optional[str] = None,
-        name_pattern: Optional[str] = None,
-        recursive: bool = True,
-        before: int = 0,
-        after: int = 0,
-        max_matches: int = 100,
-        max_matches_per_file: int = 50,
-        max_files: int = 500,
-        max_bytes_per_file: Optional[int] = None,
-        cursor: Optional[str] = None,
-        time_budget_seconds: float = 60.0,
-        cancel_check=None,
-        **_,
-    ) -> Dict[str, Any]:
-        """Line-level grep under the bucket/prefix — same contract as
-        network_dir.grep_files (see `_grep_common.run_grep_sweep`).
-
-        Listing is bounded by max_catalog_objects. Each candidate gets a HEAD
-        and a streamed GET, conditional on its identity; continuation uses Range.
-        Text scan budgets stop with a byte cursor instead of rejecting large
-        objects. Email extraction remains size-capped. All candidates pass the
-        same _resolve_key confinement check as read_file.
-        """
-        from app.data_sources.clients._grep_common import (
-            DEFAULT_MAX_BYTES_PER_FILE,
-            SKIP_ACCESS_DENIED,
-            SKIP_NOT_FOUND,
-            SKIP_UNREADABLE,
-        )
-
-        byte_cap = int(max_bytes_per_file) if max_bytes_per_file else DEFAULT_MAX_BYTES_PER_FILE
-        s3 = self._client()
-
-        candidates: List[Dict[str, Any]] = []
-        if file_ids:
-            for fid in file_ids:
-                try:
-                    key = self._resolve_key(fid)
-                    head = s3.head_object(Bucket=self.bucket, Key=key)
-                    rel = self._rel_id(key)
-                    candidates.append({
-                        "id": rel, "path": rel,
-                        "size": int(head.get("ContentLength", 0)), "head": head,
-                    })
-                except GlobScopeError:
-                    candidates.append({"id": str(fid), "skip_reason": SKIP_ACCESS_DENIED})
-                except ValueError:
-                    candidates.append({"id": str(fid), "skip_reason": SKIP_NOT_FOUND})
-                except IndexingCancelled:
-                    raise
-                except Exception as e:
-                    # botocore 404 (NoSuchKey / missing head) → not_found; any
-                    # other API failure → unreadable.
-                    code = str(getattr(e, "response", {}).get("Error", {}).get("Code", ""))
-                    reason = SKIP_NOT_FOUND if code in ("404", "NoSuchKey") else SKIP_UNREADABLE
-                    candidates.append({"id": str(fid), "skip_reason": reason})
-        else:
-            import fnmatch
-            pat = (name_pattern or "").strip().lower()
-            for f in self.list_files(folder_id=folder_id, recursive=recursive, limit=self.max_catalog_objects):
-                if f.get("is_folder"):
-                    continue
-                rel = f["id"]
-                if pat and not (
-                    fnmatch.fnmatch((f.get("name") or "").lower(), pat)
-                    or fnmatch.fnmatch(str(rel).lower(), pat)
-                ):
-                    continue
-                candidates.append({"id": rel, "path": rel, "size": f.get("size")})
-
-        scope_key = "|".join([
-            "s3", self.bucket, self.prefix, str(folder_id or ""), str(name_pattern or ""),
-            str(bool(recursive)), ",".join(sorted(str(f) for f in (file_ids or []))),
-            pattern, str(bool(is_regex)), str(bool(ignore_case)),
-        ])
-        from app.data_sources.clients._streaming_grep import run_streaming_grep
-        result = run_streaming_grep(
-            candidates=candidates,
-            open_stream=self._open_grep_stream,
-            pattern=pattern,
-            is_regex=is_regex,
-            ignore_case=ignore_case,
-            before=before,
-            after=after,
-            max_matches=max_matches,
-            max_matches_per_file=max_matches_per_file,
-            max_files=max_files,
-            max_bytes_per_file=byte_cap,
-            scope_key=scope_key,
-            cursor=cursor,
-            time_budget_seconds=time_budget_seconds,
-            cancel_check=cancel_check,
-        )
-        if not file_ids and getattr(self, "_last_list_truncated", False):
-            result["coverage_complete"] = False
-            if not result["next_cursor"]:
-                result["stop_reason"] = "catalog_limit"
-                result["truncated"] = True
-        return result
-
-    def read_raw_bytes(
-        self, file_id: str, *, max_bytes: Optional[int] = None
-    ) -> Tuple[bytes, str, Optional[str]]:
-        """Raw object bytes + name + mime, unparsed — for attach_file, which
-        persists the ORIGINAL object rather than a reparsed copy."""
-        key = self._resolve_key(file_id)
-        data, _size = self._get_bytes(key, max_bytes=max_bytes)
-        name = key.rsplit("/", 1)[-1]
-        mime, _ = mimetypes.guess_type(name)
-        return data, name, mime
-
-    def _file_text(self, key: str, size: int, max_chars: int = 200_000) -> str:
-        """Extract plain text from a greppable object for keyword indexing.
-        Returns "" for binary/oversized/unreadable — never raises."""
-        ext = _ext(key)
-        if ext not in GREPPABLE_EXTS:
-            return ""
-        if ext not in TEXT_EXTS | {"csv", "tsv"} and self.max_file_bytes and size > self.max_file_bytes:
-            return ""
-        try:
-            s3 = self._client()
-            args = dict(Bucket=self.bucket, Key=key)
-            if ext in TEXT_EXTS | {"csv", "tsv"}:
-                if not size:
-                    return ""
-                args["Range"] = f"bytes=0-{min(size, max_chars)-1}"
-            body = s3.get_object(**args)["Body"]
-            try:
-                data = body.read(max_chars) if ext in TEXT_EXTS | {"csv", "tsv"} else body.read()
-            finally:
+        if offset:
+            # Some S3-compatible endpoints ignore Range. Never label bytes
+            # from the beginning of the object as a resumed scan.
+            content_range = response.get("ContentRange", "")
+            if not content_range.startswith(f"bytes {offset}-"):
                 body.close()
-            if ext in DOC_EXTS:
-                text = extract_document_text_from_bytes(data, key, max_chars=max_chars)
-                # Glyph-soup extraction (broken ToUnicode map) → index by
-                # name only rather than poisoning keywords with garbage.
-                return "" if doc_text_looks_garbled(text) else text
-            if ext in ("xlsx", "xls"):
-                frames = pd.read_excel(io.BytesIO(data), sheet_name=None, header=None)
-                parts = [f"{name}\n{df.to_csv(index=False, header=False)}" for name, df in frames.items()]
-                return "\n".join(parts)[:max_chars]
-            return data.decode("utf-8", errors="ignore")[:max_chars]
-        except IndexingCancelled:
-            raise
-        except Exception:
-            return ""
+                raise OSError("S3 did not honor the requested byte range")
+        return body
 
-    # ---------------------------------------- DataSourceClient compatibility
+    def _probe(self) -> None:
+        self._client().list_objects_v2(Bucket=self.bucket, Prefix=self.prefix, MaxKeys=1)
 
-    @property
-    def description(self) -> str:
-        scope = f"s3://{self.bucket}/{self.prefix}" if self.bucket else "(unconfigured)"
-        return f"Object store {scope} (read-only)"
-
-    @property
-    def is_document_based(self) -> bool:
-        return True
-
-    def connect(self):
-        # Nothing to open eagerly — validation happens in test_connection().
-        return None
-
-    def test_connection(self) -> Dict[str, Any]:
-        try:
-            if not self.bucket:
-                return {"success": False, "message": "bucket is required"}
-            s3 = self._client()
-            # A bounded list under prefix proves auth + reachability without
-            # enumerating a huge bucket.
-            resp = s3.list_objects_v2(Bucket=self.bucket, Prefix=self.prefix, MaxKeys=1)
-            n = resp.get("KeyCount", 0)
-            where = f"s3://{self.bucket}/{self.prefix}".rstrip("/")
-            return {"success": True, "message": f"Connected — objects visible under {where}"}
-        except IndexingCancelled:
-            raise
-        except Exception as e:
-            return {"success": False, "message": str(e)}
-
-    @discovery_progress
-    def get_schemas(self, progress_callback=None) -> List[Table]:
-        """Index the bucket/prefix into catalog rows (bounded by
-        max_catalog_objects). Honors the index tier: `none` caches nothing
-        (live at the tool layer), `metadata` lists without reading contents,
-        `content` also extracts keywords + a content hash for topic search."""
-        if self.index_mode == INDEX_NONE:
-            return []
-        tables: List[Table] = []
-        files = self.list_files(recursive=self.recursive)
-        truncated = False
-        if len(files) > self.max_catalog_objects:
-            files = files[: self.max_catalog_objects]
-            truncated = True
-        for i, f in enumerate(files):
-            if f.get("is_folder"):
-                continue
-            meta = {
-                "file_id": f["id"],
-                "mime_type": f.get("mime_type"),
-                "size": f.get("size"),
-                "modified_at": f.get("modified_at"),
-                "web_url": f.get("web_url"),
-            }
-            description = (
-                f"Object '{f['name']}' (type: {f.get('mime_type') or _ext(f['name']) or 'unknown'})."
-            )
-            if self.index_content:
-                meta["content_coverage"] = "prefix_sample"
-                meta["sample_max_bytes"] = 200_000 if _ext(f["name"]) in TEXT_EXTS | {"csv", "tsv"} else None
-                try:
-                    text = self._file_text(self._resolve_key(f["id"]), f.get("size", 0))
-                    meta["keywords"] = extract_file_keywords(text, f["name"], self.max_keywords)
-                    meta["content_hash"] = (
-                        hashlib.sha1(text.encode("utf-8", "ignore")).hexdigest() if text else None
-                    )
-                    meta["indexed"] = True
-                    if not text:
-                        meta["content_coverage"] = "unavailable"
-                    description += " Content keywords use a bounded sample."
-                    if meta["keywords"]:
-                        description += " Keywords: " + ", ".join(meta["keywords"][:15]) + "."
-                except IndexingCancelled:
-                    raise
-                except Exception:
-                    meta["indexed"] = False
-            tables.append(Table(
-                name=f["path"] or f["name"],
-                description=description,
-                columns=[],
-                pks=[],
-                fks=[],
-                metadata_json={"s3": meta},
-            ))
-            if progress_callback:
-                try:
-                    progress_callback("files", f.get("path") or f.get("name"), i + 1, len(files))
-                except IndexingCancelled:
-                    raise
-                except Exception:
-                    pass
-        if truncated:
-            import logging
-            logging.getLogger(__name__).warning(
-                "s3: catalog truncated to %d objects (max_catalog_objects); "
-                "narrow the prefix to index more.", self.max_catalog_objects,
-            )
-        return tables
-
-    def get_schema(self, table_name: str) -> Optional[Table]:
-        for t in self.get_schemas():
-            if t.name == table_name:
-                return t
-        return None
-
-    def prompt_schema(self) -> str:
-        tables = self.get_schemas()
-        if not tables:
-            return "No objects available under the configured bucket/prefix."
-        lines = [f"Available objects ({len(tables)}):"]
-        for t in tables:
-            meta = (t.metadata_json or {}).get("s3", {})
-            lines.append(f"- {t.name} ({meta.get('mime_type') or 'file'})")
-        return "\n".join(lines)
-
-    def execute_query(
-        self, query: Optional[str] = None, table_name: Optional[str] = None, **kwargs
-    ):
-        """Document-based read: `table_name` or `query` names an object to read."""
-        if isinstance(query, str) and query.strip().startswith("{"):
-            try:
-                spec = json.loads(query)
-                fid = spec.get("file_id")
-                if fid:
-                    return self.read_file(
-                        fid, sheet=spec.get("sheet"),
-                        offset=spec.get("offset"), length=spec.get("length"),
-                    )
-            except json.JSONDecodeError:
-                pass
-        if table_name:
-            return self.read_file(table_name, sheet=kwargs.get("sheet"))
-        if query:
-            return self.read_file(query, sheet=kwargs.get("sheet"))
-        raise ValueError("Provide table_name or query (file id) to read an object")
-
-
-def _extract_pdf_pages_from_bytes(data: bytes, key: str, first: int, last: int) -> tuple:
-    """Page-range PDF extraction over in-memory S3 bytes via a temp file
-    (the extractor dispatches on filename). Raises on unreadable PDFs — a
-    targeted page read must fail loudly, not return ''."""
-    import os
-    import tempfile
-
-    from app.data_sources.clients._document_text import extract_pdf_pages_text
-
-    tmp = None
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as fh:
-            fh.write(data)
-            tmp = fh.name
-        return extract_pdf_pages_text(tmp, first, last)
-    finally:
-        if tmp:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-
-
+    def _is_not_found(self, exc: Exception) -> bool:
+        code = str(getattr(exc, "response", {}).get("Error", {}).get("Code", ""))
+        return code in ("404", "NoSuchKey") or super()._is_not_found(exc)

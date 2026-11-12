@@ -328,6 +328,13 @@ class GraphMailClient(GraphDriveClient):
 
     # ----------------------------------------------- file-shaped compatibility
 
+    # Same as Teams: a message has no original bytes, and the drive reader
+    # inherited from GraphDriveClient would fail on a message id — hide it so
+    # the browse route does not offer a preview (hasattr sees AttributeError).
+    @property
+    def read_raw_bytes(self):
+        raise AttributeError("Mail messages have no original bytes to preview")
+
     def list_files(self, folder_id: Optional[str] = None, recursive: Optional[bool] = None) -> List[dict]:
         return self.list_messages(folder=folder_id)["items"]
 

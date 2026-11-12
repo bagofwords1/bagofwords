@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./media/logo-128.png" alt="Bag of Words" width="128" />
+  <img src="./media/logo-128.png" alt="BOW" width="128" />
 
 ## The open-source agentic analytics platform
 
@@ -28,7 +28,7 @@ Set evals and use self-improving loops to make agents more reliable over time.
 
 [Deploy anywhere](https://docs.bagofwords.com/install)
 
-[![Bag of Words executive dashboard](./media/readme/final/business-dashboard.png)](https://bagofwords.com/demos/hero4.mp4)
+[![BOW executive dashboard](./media/readme/final/business-dashboard.png)](https://bagofwords.com/demos/hero4.mp4)
 
 ---
 
@@ -56,7 +56,7 @@ Docker Compose and Kubernetes deployments are also available and recommended for
 Ask questions across your data and get queries, charts, reports, dashboards, deep analysis, and root cause analysis. Agents plan their work, use tools, and reflect on the result.
 
 <div align="center">
-  <img src="./media/readme/final/root-cause-analysis.png" alt="Root cause analysis in Bag of Words" width="100%" />
+  <img src="./media/readme/final/root-cause-analysis.png" alt="Root cause analysis in BOW" width="100%" />
 </div>
 
 ### Give every agent the right context
@@ -64,7 +64,7 @@ Ask questions across your data and get queries, charts, reports, dashboards, dee
 Choose the data and tools an agent can use, provide the right credentials, and add instructions and starters for its job. Manage shared business definitions and guardrails with versioning, review flows, and Git sync for dbt, markdown, code, and more.
 
 <div align="center">
-  <img src="./media/readme/final/agents-pending-instructions.png" alt="Review pending agent instruction changes in Bag of Words" width="100%" />
+  <img src="./media/readme/final/agents-pending-instructions.png" alt="Review pending agent instruction changes in BOW" width="100%" />
 </div>
 
 ### Turn analysis into repeatable work
@@ -72,7 +72,7 @@ Choose the data and tools an agent can use, provide the right credentials, and a
 Schedule reports and investigations, trigger agents from webhooks, and send results to the people and systems that need them. The same analysis context is available in chat, automations, channels, and external MCP clients.
 
 <div align="center">
-  <img src="./media/readme/final/automations-trigger.png" alt="Configure an event-driven agent trigger in Bag of Words" width="100%" />
+  <img src="./media/readme/final/automations-trigger.png" alt="Configure an event-driven agent trigger in BOW" width="100%" />
 </div>
 
 ### Evaluate and improve
@@ -80,7 +80,7 @@ Schedule reports and investigations, trigger agents from webhooks, and send resu
 Define eval sets for the behavior that matters and run them as agents change. When an eval fails, a self-improving loop can draft instruction changes and re-run the tests up to a configured limit. Passing candidates can wait for approval or be promoted automatically.
 
 <div align="center">
-  <img src="./media/readme/final/evals-self-learning.png" alt="Configure eval-driven self-learning in Bag of Words" width="100%" />
+  <img src="./media/readme/final/evals-self-learning.png" alt="Configure eval-driven self-learning in BOW" width="100%" />
 </div>
 
 ### Monitor every run
@@ -88,7 +88,7 @@ Define eval sets for the behavior that matters and run them as agents change. Wh
 Get full observability across every message, query, plan, tool call, result, latency, cost, and failure. LLM-as-judge scores for accuracy, instruction coverage, and context use help teams catch unreliable data results, diagnose what happened, and feed failures back into evals and self-improving loops.
 
 <div align="center">
-  <img src="./media/readme/final/monitoring-observability.png" alt="Full agent observability and run diagnosis in Bag of Words" width="100%" />
+  <img src="./media/readme/final/monitoring-observability.png" alt="Full agent observability and run diagnosis in BOW" width="100%" />
 </div>
 
 ### Agents pane: build and manage data agents at scale
@@ -96,7 +96,7 @@ Get full observability across every message, query, plan, tool call, result, lat
 Create agents for teams, systems, and business domains. Scope their data, tools, credentials, instructions, permissions, starters, evals, and channels; review pending changes and manage the full agent fleet from one pane.
 
 <div align="center">
-  <img src="./media/readme/final/agents-overview.png" alt="Build and manage data agents at scale in Bag of Words" width="100%" />
+  <img src="./media/readme/final/agents-overview.png" alt="Build and manage data agents at scale in BOW" width="100%" />
 </div>
 
 ### Speed up analytical queries with an auto-updating cache
@@ -115,12 +115,12 @@ A refresh is a full run of your SQL, so a copy refreshed more often than it is q
 
 ## Architecture
 
-Bag of Words sits between your models, enterprise data, tools, and channels. It builds a governed analysis context for each agent, then carries that context from an interactive question to a scheduled or event-driven workflow.
+BOW sits between your models, enterprise data, tools, and channels. It builds a governed analysis context for each agent, then carries that context from an interactive question to a scheduled or event-driven workflow.
 
 Bring your own models and infrastructure. Connect databases, warehouses, BI systems, files, business apps, MCP servers, and custom APIs without tying the workflow to one provider.
 
 <div align="center">
-  <img src="./media/arch.png" alt="Bag of Words architecture" width="100%" />
+  <img src="./media/arch.png" alt="BOW architecture" width="100%" />
 </div>
 
 ## Integrations
@@ -182,6 +182,7 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | Priority ERP | Business app |
 | Outlook Mail | Business app |
 | Gmail | Business app |
+| Browser (scoped web pages) | Web |
 | Elasticsearch | Search and observability |
 | OpenSearch | Search and observability |
 | Splunk | Search and observability |
@@ -190,13 +191,22 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | Prometheus | Monitoring and observability |
 | AWS CloudWatch | Monitoring and observability |
 | VMware Aria Operations | Monitoring and observability |
+| DX NetOps Spectrum | Monitoring and observability |
 | CrowdStrike Falcon | Security |
+| Check Point Management | Security |
 | Jaeger | Tracing and observability |
 | Kubernetes | Infrastructure |
 | Microsoft Configuration Manager (SCCM) | Infrastructure |
 | NetApp ONTAP | Infrastructure |
 | Brocade Fabric OS | Infrastructure |
 | Microsoft Intune | Infrastructure |
+| VMware vCenter / ESXi | Infrastructure |
+| Cisco ACI (APIC) | Infrastructure |
+| F5 BIG-IP | Infrastructure |
+| Dell OpenManage Enterprise | Infrastructure |
+| HPE OneView | Infrastructure |
+| Remote Server (SSH) | Infrastructure |
+| Windows Logs (SMB) | Infrastructure |
 | Tableau | BI tool |
 | Power BI | BI tool |
 | Power BI Report Server | BI tool |
@@ -207,11 +217,13 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | Sisense | BI tool |
 | Oracle BI | BI tool |
 | Infor OLAP | BI tool |
+| Infor EPM (Application Engine) | BI tool |
 | Microsoft Analysis Services | BI tool |
 | SAP BusinessObjects | BI tool |
 | SAP BW (XMLA) | BI tool |
 | SAP Datasphere | BI tool |
 | Timbr AI | Semantic layer |
+| Timbr A2A | Semantic layer |
 | Files and Directories | Files |
 | Amazon S3 | Files |
 | CSV | Files |
@@ -223,10 +235,13 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | Google Drive | Files |
 | OpenText Documentum | Files |
 | KMS Lighthouse | Files |
+| GitHub (code) | Code |
+| GitLab (code) | Code |
+| Bitbucket (code) | Code |
 
 ### Connect Tools Through MCP
 
-Bag of Words can connect to any MCP server or custom API. Ready-to-connect MCP integrations include:
+BOW can connect to any MCP server or custom API. Ready-to-connect MCP integrations include:
 
 | Integration | What it adds |
 |---|---|
@@ -282,7 +297,7 @@ For teams that need stronger security, compliance, and governance:
 
 ## Security and Privacy
 
-Bag of Words captures basic usage statistics from self-hosted instances to help improve the product. Disable telemetry in `bow-config.yaml`:
+BOW captures basic usage statistics from self-hosted instances to help improve the product. Disable telemetry in `bow-config.yaml`:
 
 ```yaml
 telemetry:

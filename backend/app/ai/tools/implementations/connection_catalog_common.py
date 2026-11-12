@@ -23,12 +23,12 @@ _GLOB_META = re.compile(r"[\*\?\[\]]")
 FILE_SOURCE_TYPES = {
     "sharepoint_onprem",
     "documentum",
-    "network_dir", "s3", "sharepoint", "onedrive", "google_drive",
-    "outlook_mail", "gmail_mail", "onenote",
+    "network_dir", "s3", "gcs", "azure_blob", "sharepoint", "onedrive", "google_drive",
+    "outlook_mail", "gmail_mail", "onenote", "teams_messages",
     "github_repo", "gitlab_repo", "bitbucket_repo",
     "kms_lighthouse",
 }
-TOKEN_SCOPED_TYPES = {"onedrive", "google_drive", "outlook_mail", "gmail_mail"}
+TOKEN_SCOPED_TYPES = {"onedrive", "google_drive", "outlook_mail", "gmail_mail", "teams_messages"}
 
 
 def conn_data_shape(conn_type: Optional[str]) -> str:

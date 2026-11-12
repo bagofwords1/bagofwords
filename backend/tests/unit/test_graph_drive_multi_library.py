@@ -115,41 +115,68 @@ def test_a_library_that_cannot_be_read_is_skipped_not_fatal():
     assert "budget.xlsx" not in names
 
 
-def _scoped_to_finance(fail_pol_with):
-    """All libraries, scoped to 'Finance': present in Documents, and the
-    Policies lookup fails with the given Graph error."""
-    c = _client("*", folder_path="Finance", index_mode="metadata")
-    real = c._get
+# Folder scopes for the tests below. Graph's error message includes the request
+# URL, so a scope containing "404" or "itemNotFound" must not change how a
+# failure is classified.
+SCOPED_FOLDERS = ["Finance", "Errors/404", "404", "Reports/itemNotFound"]
 
-    def _get(path, **kw):
-        if path == "/drives/drv-docs/root:/Finance":
-            return {"id": "root-docs"}
-        if path == "/drives/drv-pol/root:/Finance":
-            raise ValueError(fail_pol_with)
-        return real(path, **kw)
 
-    c._get = _get
+def _scoped_over_http(monkeypatch, folder, policies_answer):
+    """All libraries, scoped to `folder`: present in Documents, while the
+    Policies lookup gets `policies_answer` — an HTTP status or "timeout".
+
+    Faked at the HTTP transport, so the client's own request, error and
+    classification code all run as in production.
+    """
+    from urllib.parse import unquote
+
+    import httpx
+
+    import app.data_sources.clients.graph_drive_client as gdc
+
+    # One attempt: a timeout must not retry (and sleep) inside a unit test.
+    monkeypatch.setattr(gdc, "GRAPH_MAX_ATTEMPTS", 1)
+
+    def handler(request):
+        key = unquote(str(request.url))[len(GRAPH_BASE):].split("&$select=", 1)[0]
+        if key == f"/drives/drv-docs/root:/{folder}":
+            return httpx.Response(200, json={"id": "root-docs"})
+        if key == f"/drives/drv-pol/root:/{folder}":
+            if policies_answer == "timeout":
+                raise httpx.ReadTimeout("read timed out", request=request)
+            return httpx.Response(policies_answer, json={"error": {"code": "x"}})
+        if key in GRAPH:
+            return httpx.Response(200, json=GRAPH[key])
+        return httpx.Response(404, json={"error": {"code": "itemNotFound"}})
+
+    c = GraphDriveClient(
+        site_url="https://contoso.sharepoint.com/sites/hr",
+        drive_name="*", mode="sharepoint", access_token="tok",
+        recursive=True, folder_path=folder, index_mode="metadata",
+    )
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr(c, "_client", lambda: http)
     return c
 
 
-def test_a_folder_missing_from_one_library_still_publishes_the_others():
+@pytest.mark.parametrize("folder", SCOPED_FOLDERS)
+def test_a_folder_missing_from_one_library_still_publishes_the_others(monkeypatch, folder):
     # The folder legitimately exists in only some libraries; Graph's 404 for
     # the others is a complete answer, not a failed discovery.
-    c = _scoped_to_finance("Graph /root:/Finance → 404 itemNotFound")
+    c = _scoped_over_http(monkeypatch, folder, 404)
     tables = asyncio.run(c.aget_schemas())
     assert {t.name for t in tables} == {"Documents/budget.xlsx"}
 
 
-@pytest.mark.parametrize("error", [
-    "Graph /root:/Finance → 403 accessDenied",
-    "Graph /root:/Finance → 503 serviceNotAvailable",
-])
-def test_an_unreadable_library_still_blocks_publication(error):
+@pytest.mark.parametrize("answer", [403, 500, "timeout"])
+@pytest.mark.parametrize("folder", SCOPED_FOLDERS)
+def test_an_unreadable_library_still_blocks_publication(monkeypatch, folder, answer):
     # Anything but a confirmed miss could hide existing files, so the
-    # catalog must not be published as if it were complete.
+    # catalog must not be published as if it were complete — whatever the
+    # scoped folder is called.
     from app.data_sources.clients.discovery import IncompleteDiscoveryError
 
-    c = _scoped_to_finance(error)
+    c = _scoped_over_http(monkeypatch, folder, answer)
     with pytest.raises(IncompleteDiscoveryError):
         asyncio.run(c.aget_schemas())
 

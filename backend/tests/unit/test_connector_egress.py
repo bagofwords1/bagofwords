@@ -78,6 +78,7 @@ CASES = [
     ("tableau", lambda u: _client("tableau_client", "TableauClient")(server_url=u, pat_name="n", pat_token="t")),
     # A session held on the client between calls.
     ("aria_operations", lambda u: _client("aria_operations_client", "AriaOperationsClient")(url=u, username="u", password="p")),
+    ("dremio", lambda u: _client("dremio_client", "DremioClient")(url=u, token="t")),
     ("appdynamics", lambda u: _client("appdynamics_client", "AppDynamicsClient")(controller_url=u, username="u", password="p", account_name="a")),
     ("spectrum", lambda u: _client("spectrum_client", "SpectrumClient")(url=u, username="u", password="p")),
     ("timbr", lambda u: _client("timbr_client", "TimbrClient")(host=u, ontology="o", api_key="k")),
@@ -114,6 +115,7 @@ CASES = [
     ("dell_ome", lambda u: _client("dell_ome_client", "DellOmeClient")(url=_https(u), username="u", password="p"), None, NAME),
     ("f5_bigip", lambda u: _client("f5_bigip_client", "F5BigIpClient")(url=_https(u), username="u", password="p"), None, NAME),
     ("hpe_oneview", lambda u: _client("hpe_oneview_client", "HpeOneViewClient")(url=_https(u), username="u", password="p"), None, NAME),
+    ("cisco_apic", lambda u: _client("cisco_apic_client", "CiscoApicClient")(url=_https(u), username="u", password="p"), None, NAME),
     ("qlik_sense_onprem", lambda u: _client("qlik_sense_onprem_client", "QlikSenseOnPremClient")(server_url=_https(u), client_cert="c", client_key="k"), None, NAME),
     ("vcenter", lambda u: _client("vcenter_client", "VCenterClient")(host=NAME, username="u", password="p"), _open_rest_session, NAME),
     # Vendor hosts.

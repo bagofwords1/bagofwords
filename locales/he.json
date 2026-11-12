@@ -137,6 +137,16 @@
     "fileBrowserNoResults": "לא נמצאו קבצים עבור “{q}”.",
     "fileBrowserSummaryKms": "{n} קבצים מוצגים לדפדוף · ההרשאות ב-KMS קובעות מה הסוכן יכול לחפש ולקרוא",
     "fileBrowserSummary": "{n} קבצים בהיקף · הסוכן קורא רק אותם · גישה לקבצים אחרים נחסמת ונרשמת",
+    "fileBrowserRootMessages": "כל השיחות",
+    "fileBrowserSearchMessages": "חיפוש הודעות…",
+    "fileBrowserEmptyMessages": "אין הודעות אחרונות בשיחות שזמינות לך.",
+    "fileBrowserSummaryLive": "{n} הודעות אחרונות · נקראות בזמן אמת עם ההרשאות שלך · שום דבר לא נשמר",
+    "countMessages": "הודעה אחת | {n} הודעות",
+    "fileBrowserNoResultsMessages": "לא נמצאו הודעות עבור “{q}”.",
+    "loadingMessages": "טוען הודעות מהמקור…",
+    "fileBrowserConnectRequiredMessages": "חבר את החשבון שלך כדי לעיין — החיבור הזה קורא הודעות עם ההרשאות של כל משתמש.",
+    "liveSourceHint": "החיפוש מתבצע בזמן אמת עם ההרשאות של כל משתמש — רק הערוצים, הצ'אטים או הדואר שזמינים לו. שום דבר לא מועתק או מאונדקס.",
+    "liveBadge": "בזמן אמת",
     "fileBrowserTruncated": "מוצגים {shown} הקבצים הראשונים מתוך {total} — צמצם את ההיקף של החיבור כדי לראות את השאר.",
     "fileBrowserOpenInSource": "פתיחה במקור",
     "fileBrowserClosePreview": "סגירת התצוגה",
@@ -694,6 +704,22 @@
         "network": "זיהוי הדיבור דורש חיבור לרשת.",
         "failed": "הקלט הקולי נכשל. נסו שוב."
       }
+    },
+    "slash": {
+      "menuTitle": "פקודות",
+      "compact": {
+        "description": "סיכום תורות קודמים כדי לפנות הקשר",
+        "usage": "/compact · /compact <מיקוד> · /compact keep 4",
+        "pending": "הדחיסה תתבצע כשהסוכן יסיים את ההרצה הנוכחית",
+        "running": "דוחס את ההקשר…",
+        "doneContext": "נדחסו {turns} תורות · הקשר ~{before} ← ~{after} טוקנים",
+        "doneHistory": "נדחסו {turns} תורות · היסטוריה ~{before} ← ~{after} טוקנים",
+        "alreadyRunning": "דחיסה כבר מתבצעת",
+        "failed": "לא ניתן היה לדחוס את ההקשר",
+        "degraded": "סיכום חלופי (ללא סיכום מודל)",
+        "cancel": "ביטול",
+        "dismiss": "סגירה"
+      }
     }
   },
   "reports": {
@@ -1201,7 +1227,13 @@
       "scopeHint": "חל על השיחות שלך בדפדפן זה."
     },
     "readMore": "קרא עוד",
-    "showLess": "הצג פחות"
+    "showLess": "הצג פחות",
+    "compactionShowSummary": "הצגת מה שהסוכן זוכר מהתורות שנדחסו",
+    "compactionSummaryTitle": "היסטוריה דחוסה",
+    "compactionSummaryHint": "הסוכן רואה את הסיכום הזה במקום התורות שמעל הקו.",
+    "compactingContext": "דוחס את ההקשר…",
+    "compactionTurns": "{turns} תורות",
+    "compactionLast": "דחיסה אחרונה: היסטוריה ~{before} ← ~{after} טוקנים"
   },
   "tools": {
     "common": {
@@ -1806,6 +1838,22 @@
       "filesSkippedSingular": "קובץ {count} דולג ({reasons})",
       "filesSkippedPlural": "{count} קבצים דולגו ({reasons})"
     },
+    "searchFiles": {
+      "foundIn": "נמצא ב:",
+      "fileName": "שם הקובץ",
+      "page": "עמוד {n}",
+      "sheet": "גיליון {name}",
+      "offset": "מיקום {n}",
+      "partlyIndexed": "אונדקס חלקית בלבד (מגבלת גודל)",
+      "noText": "אין טקסט לחיפוש (סרוק או בינארי)",
+      "notIndexed": "לא ניתן היה לאנדקס",
+      "indexFulltext": "אינדקס טקסט מלא",
+      "indexKeywords": "אינדקס מילות מפתח",
+      "indexNames": "התאמה לפי שם קובץ",
+      "liveScan": "סריקה חיה",
+      "plusLiveScan": "{index} + סריקה חיה",
+      "indexedAt": "אונדקס {when}"
+    },
     "webFetch": {
       "fetching": "מאחזר",
       "fetched": "אוחזר",
@@ -2143,6 +2191,7 @@
     "openPage": "פתח עמוד",
     "categories": {
       "dataSources": "סוכנים",
+      "connectors": "מחברים",
       "queries": "שאילתות",
       "files": "קבצים",
       "tables": "טבלאות",
@@ -2167,6 +2216,9 @@
     "noRolesFound": "לא נמצאו תפקידים",
     "noRolesHint": "צור תפקיד כדי לנהל הרשאות.",
     "system": "מערכת",
+    "default": "ברירת מחדל",
+    "defaultRoleHint": "זהו תפקיד מובנה. שמו קבוע — התאימו את ההרשאות שלו למטה.",
+    "edit": "עריכה",
     "fullAdmin": "אדמין מלא",
     "permissionsCount": "{n} הרשאות",
     "editRole": "עריכת תפקיד",
@@ -2498,7 +2550,7 @@
       "integrate": "שלב",
       "setup": "הגדרה",
       "excelAddinName": "תוסף Excel",
-      "excelAddinDescription": "טען את תוסף Bag of Words ישירות מהמופע הזה",
+      "excelAddinDescription": "טען את תוסף BOW ישירות מהמופע הזה",
       "mcpName": "שרת MCP של BOW",
       "mcpDescription": "הפעל נקודת קצה של MCP לאינטגרציה עם עוזרי בינה מלאכותית כמו Cursor, Claude ועוד",
       "channels": {
@@ -2793,9 +2845,9 @@
           "trustedConnecting": "מתחבר לאפליקציה המהימנה שלך…",
           "authorizationLoading": "בודק את בקשת האישור…",
           "authorizationError": "לא ניתן לאשר",
-          "goBack": "חזרה ל-Bag of Words",
+          "goBack": "חזרה ל-BOW",
           "authorizationTitle": "אישור גישה",
-          "wantsAccess": "האפליקציה {name} מבקשת גישה לחשבון Bag of Words שלך.",
+          "wantsAccess": "האפליקציה {name} מבקשת גישה לחשבון BOW שלך.",
           "permissionsRequested": "הרשאות מבוקשות",
           "appPermission": "יצירה וקריאה של דוחות, הרצת השלמות ושימוש בארטיפקטים בהתאם להרשאות BOW הקיימות שלך.",
           "mcpPermission": "שימוש בכלי MCP בהתאם להרשאות BOW הקיימות שלך.",
@@ -2820,7 +2872,7 @@
         },
         "excel": {
           "title": "תוסף Excel",
-          "subtitle": "טען את התוסף של Bag of Words ישירות מהמופע הזה.",
+          "subtitle": "טען את התוסף של BOW ישירות מהמופע הזה.",
           "loading": "טוען...",
           "setup": "הגדרה",
           "step1": "הורד את קובץ ה-manifest למטה",
@@ -2868,9 +2920,18 @@
           "subscriptionPlaceholder": "projects/<project>/subscriptions/<name>",
           "subtitle": "הגדרה וניהול של האינטגרציה עם Google Chat עבור הארגון שלך",
           "title": "אינטגרציה עם Google Chat"
+        },
+        "routing": {
+          "title": "ניתוב ערוצים לסוכנים",
+          "desc": "כוונו ערוץ לסוכנים מסוימים. ערוץ ללא מיפוי משתמש בברירת‑המחדל של החיבור; ללא ברירת‑מחדל הוא חושף כל מה שהמשתמש מורשה לגשת אליו. הניתוב רק מצמצם גישה — הוא לעולם לא מעניק יותר ממה שלמשתמש כבר יש.",
+          "connectionDefaultLabel": "ברירת‑מחדל לחיבור",
+          "connectionDefaultDesc": "משמשת לערוצים ללא מיפוי משלהם.",
+          "pickerPlaceholder": "בחרו סוכנים…",
+          "channelsHeading": "ערוצים",
+          "noChannelsYet": "אין עדין ערוצים. תייגו את הבוט בערוץ והוא יופיע כאן, או הוסיפו ערוץ לפי מזהה למטה."
         }
       },
-      "emptyTitle": "גרום ל-Bag of Words לעבוד עם הכלים שלך",
+      "emptyTitle": "גרום ל-BOW לעבוד עם הכלים שלך",
       "emptySubtitle": "חבר את Slack, Teams, אימייל ועוד כדי שהצוות שלך יוכל להגיע לאנליסט ה-AI במקום שבו הוא כבר עובד. בחר אינטגרציה כדי להתחיל.",
       "selectHint": "בחר אינטגרציה",
       "slackDescription": "אפשר לצוות שלך לשוחח עם אנליסט ה-AI מערוצי Slack והודעות פרטיות.",
@@ -2960,14 +3021,18 @@
       "attributesInviteHint": "אופציונלי. מזהה את החבר במערכות אחרות, למשל משתמש ה-Qlik או תפקיד מסד הנתונים שלו.",
       "attributesSaved": "המאפיינים נשמרו",
       "attributesSaveFailed": "שמירת המאפיינים נכשלה",
-      "importAttributesHint": "הוסיפו עמודות {column} כדי להגדיר מאפיינים, למשל {example}. תא ריק משאיר את המאפיין ללא שינוי."
+      "importAttributesHint": "הוסיפו עמודות {column} כדי להגדיר מאפיינים, למשל {example}. תא ריק משאיר את המאפיין ללא שינוי.",
+      "defaultRoleHint": "קובע מראש את התפקיד בעת הוספה או הזמנה של חבר.",
+      "defaultRoleSaved": "תפקיד ברירת המחדל נשמר",
+      "defaultRoleFailed": "שמירת תפקיד ברירת המחדל נכשלה",
+      "defaultRoleShort": "תפקיד ברירת מחדל"
     },
     "organizationName": "שם הארגון",
     "organizationIcon": "אייקון הארגון",
     "uploadIcon": "העלאת אייקון",
     "iconConstraints": "PNG/JPEG, ≤ 512 KB.",
     "aiAnalystName": "שם האנליסט",
-    "showCredit": "הצגת קרדיט \"Made with Bag of words\"",
+    "showCredit": "הצגת קרדיט \"Made with BOW\"",
     "workspacePlaceholder": "שם סביבת העבודה",
     "changeIcon": "שינוי סמל",
     "uploadIconButton": "העלאת סמל",
@@ -4097,6 +4162,7 @@
     "saving": "שומר…",
     "saveAndContinue": "שמירה והמשך",
     "requestFailed": "הבקשה נכשלה",
+    "errorWithReference": "{message} (מזהה לתמיכה: {id})",
     "unexpectedError": "שגיאה לא צפויה",
     "errorTitle": "שגיאה",
     "updateConnectionFailed": "עדכון החיבור נכשל",
@@ -4208,7 +4274,7 @@
     "saveIntegration": "שמירת אינטגרציה",
     "loadFieldsFailed": "טעינת השדות נכשלה",
     "integrationReady": "האינטגרציה מוכנה",
-    "integrationReadyDesc": "{name} מחובר ונוצר סוכן ציבורי. משתמשים יכולים להיכנס ולהתחיל להשתמש בו.",
+    "integrationReadyDesc": "{name} זמין עכשיו לכולם כמחבר. כל אחד מתחבר עם החשבון שלו.",
     "integrationAgentFailed": "האינטגרציה נשמרה, אך יצירת הסוכן נכשלה",
     "updateIntegrationFailed": "עדכון האינטגרציה נכשל",
     "createIntegrationFailed": "יצירת האינטגרציה נכשלה",
@@ -4280,7 +4346,7 @@
         },
         {
           "title": "הדפסת קובץ הגישה",
-          "body": "שמרו כ-print_access_file.sh והריצו. הסקריפט ממתין לטוקן ומדפיס קובץ אחד עצמאי (כתובת שרת ה-API, ‏CA של האשכול, טוקן). אמתו עם: kubectl --kubeconfig access.yaml get nodes. אם כתובת השרת פרטית לרשת שלכם, ערכו אותה לכתובת שמופע Bag of Words הזה יכול להגיע אליה."
+          "body": "שמרו כ-print_access_file.sh והריצו. הסקריפט ממתין לטוקן ומדפיס קובץ אחד עצמאי (כתובת שרת ה-API, ‏CA של האשכול, טוקן). אמתו עם: kubectl --kubeconfig access.yaml get nodes. אם כתובת השרת פרטית לרשת שלכם, ערכו אותה לכתובת שמופע BOW הזה יכול להגיע אליה."
         },
         {
           "title": "הדביקו למטה ובדקו את החיבור",
@@ -4290,7 +4356,7 @@
       "mecm": [
         {
           "title": "הענקת הרשאת קריאה לחשבון ב-Configuration Manager",
-          "body": "במסוף עברו אל Administration > Security > Administrative Users, הוסיפו את החשבון (או את קבוצת ה-AD שלו) והקצו לו את התפקיד Read-only Analyst. היקפי האבטחה והאוספים שלו קובעים מה Bag of Words יכול לראות."
+          "body": "במסוף עברו אל Administration > Security > Administrative Users, הוסיפו את החשבון (או את קבוצת ה-AD שלו) והקצו לו את התפקיד Read-only Analyst. היקפי האבטחה והאוספים שלו קובעים מה BOW יכול לראות."
         },
         {
           "title": "בדיקה ששירות הניהול עונה",
@@ -4656,7 +4722,10 @@
     "connection.kms_token_format": "אסימון ה-API של KMS יכול להכיל רק אותיות, ספרות וסימני פיסוק רגילים, ללא רווחים. העתיקו אותו שוב מ-KMS Lighthouse והדביקו אותו כטקסט רגיל.",
     "connection.kms_use_connection_credentials": "פרטי ההתחברות ל-KMS Lighthouse נשמרים בחיבור. פתחו את החיבור והתחברו משם.",
     "connection.kms_only": "האבחון חל רק על חיבורי KMS Lighthouse.",
-    "connection.kms_diagnostics_running": "האבחון כבר פועל עבור החיבור הזה. המתינו לסיומו ונסו שוב."
+    "connection.kms_diagnostics_running": "האבחון כבר פועל עבור החיבור הזה. המתינו לסיומו ונסו שוב.",
+    "connection.kms_login_rejected": "KMS Lighthouse לא קיבל את פרטי ההתחברות האלה, ולכן הם לא נשמרו. בדקו את שם המשתמש והסיסמה, או את אסימון ה-API, ונסו שוב.",
+    "connection.kms_login_paused": "KMS Lighthouse דחה לאחרונה את פרטי ההתחברות האלה, ולכן ניסיונות נוספים איתם מושהים לכמה דקות והם לא נשמרו. בדקו את פרטי ההתחברות או נסו שוב מאוחר יותר.",
+    "connection.kms_session_refused": "KMS Lighthouse קיבל את פרטי ההתחברות אבל דחה את הסשן שלהם, ולכן אי אפשר להשתמש בהם והם לא נשמרו. פנו למנהל ה-KMS כדי לבדוק אם החשבון הזה רשאי להשתמש ב-API של KMS."
   },
   "email": {
     "dashboardShare": {
@@ -5256,7 +5325,7 @@
   "onboarding": {
     "loading": "טוען...",
     "skip": "דלג על ההדרכה",
-    "welcome": "ברוכים הבאים ל־Bag of words! 🎉",
+    "welcome": "ברוכים הבאים ל־BOW! 🎉",
     "welcomeSubtitle": "שוחחו עם הנתונים, הריצו ניתוחים מעמיקים ובנו דשבורדים בשניות",
     "next": "הבא",
     "fallbackTitle": "להתחיל",
@@ -5266,7 +5335,7 @@
     "intro1": "זה פשוט: חברו את המודל ואת מקור הנתונים, ותוכלו לשאול את השאלה הראשונה.",
     "intro2": "👉 בואו נתחיל להגדיר!",
     "steps": {
-      "onboardingTitle": "ברוכים הבאים ל־Bag of words! 🎉",
+      "onboardingTitle": "ברוכים הבאים ל־BOW! 🎉",
       "onboardingDescription": "שוחחו עם הנתונים, הריצו ניתוחים מעמיקים ובנו דשבורדים בשניות",
       "onboardingButton": "ברוכים הבאים",
       "llmTitle": "הגדרת LLM",
@@ -5879,8 +5948,8 @@
     }
   },
   "mcpServerModal": {
-    "title": "שרת MCP של Bag of words",
-    "subtitle": "חבר את Claude, Cursor או כל לקוח MCP כדי לתשאל את הנתונים שלך דרך שרת ה-MCP של Bag of words.",
+    "title": "שרת MCP של BOW",
+    "subtitle": "חבר את Claude, Cursor או כל לקוח MCP כדי לתשאל את הנתונים שלך דרך שרת ה-MCP של BOW.",
     "loading": "טוען...",
     "tabMcpClients": "לקוחות MCP",
     "tabOauth": "OAuth",
@@ -6019,7 +6088,8 @@
     "modeChat": "צ'אט",
     "modelAuto": "אוטומטי",
     "noAgents": "ללא",
-    "project": "פרויקט"
+    "project": "פרויקט",
+    "agentsFromReport": "משתמש בסוכנים של הדוח"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -6915,7 +6985,9 @@
     "noConnection": "לסוכן זה אין עדיין חיבור.",
     "notFound": "החיבור לא נמצא.",
     "forbidden": "אין לך גישה לחיבור זה.",
-    "loadFailed": "טעינת החיבור נכשלה. נסו שוב מאוחר יותר."
+    "loadFailed": "טעינת החיבור נכשלה. נסו שוב מאוחר יותר.",
+    "connected": "מחובר",
+    "connectedAs": "מחובר בתור {identity}"
   },
   "dashboardCollab": {
     "presence": {
@@ -7249,6 +7321,8 @@
     "tabViewers": "צופים",
     "tabData": "נתונים",
     "viewersDesc": "מה מקבלים האנשים שאיתם משתפים.",
+    "widgetInfoTitle": "הצגת פרטים על כל אובייקט",
+    "widgetInfoDesc": "מוסיף אייקון ⓘ לכל אובייקט שפותח את הנתונים, הקוד והחישוב שלו.",
     "dataDesc": "השאילתות שמאחורי הגלריה.",
     "unsaved": "שינויים שלא נשמרו",
     "tabGeneral": "כללי",
@@ -7336,7 +7410,7 @@
       "notPublished": "התוכן הזה עדיין לא פורסם. הוא יוצג כאן לאחר שיפורסם.",
       "notFound": "התוכן הזה אינו זמין. ייתכן שעדיין לא פורסם או שהוסר.",
       "denied": "אין לך גישה לתוכן הזה. בקש/י מהבעלים לשתף אותו איתך.",
-      "notAllowed": "התוכן הזה לא הופעל עבור האפליקציה הזו. עורך/ת יכול/ה לאפשר זאת בהגדרות ההטמעה שלו ב-Bag of Words.",
+      "notAllowed": "התוכן הזה לא הופעל עבור האפליקציה הזו. עורך/ת יכול/ה לאפשר זאת בהגדרות ההטמעה שלו ב-BOW.",
       "failed": "לא ניתן היה לטעון את התוכן. נסה/י שוב בעוד רגע."
     },
     "signin": {
@@ -7444,6 +7518,35 @@
     "embeddingEmpty": "לא הוגדרה הטמעה",
     "oauthEmpty": "לא הוגדר OAuth"
   },
+  "connectors": {
+    "title": "מחברים",
+    "subtitle": "החשבונות והכלים שלך שה-AI יכול להשתמש בהם. כל מחבר קורא עם ההרשאות שלך — אף אחד אחר לא רואה את המידע שלך.",
+    "browse": "עיון במחברים",
+    "empty": "עדיין אין מחברים.",
+    "search": "חיפוש מחברים…",
+    "noResults": "לא נמצאו מחברים עבור “{q}”.",
+    "signIn": "התחברות",
+    "signOut": "התנתקות",
+    "remove": "הסרה",
+    "statusConnected": "מחובר",
+    "statusShared": "משותף",
+    "statusServiceAccount": "חשבון שירות",
+    "statusOffline": "נדרש חיבור מחדש",
+    "statusNotConnected": "לא מחובר",
+    "needsSignIn": "מחבר אחד דורש התחברות | {n} מחברים דורשים התחברות",
+    "accessPersonal": "משתמש בחשבון שלך",
+    "accessShared": "משתמש בחשבון משותף שהוגדר על ידי מנהל",
+    "addHint": "אפשר להוסיף מחברים נוספים מסוכנים ← הוספת חיבור.",
+    "askAdmin": "בקשו ממנהל להוסיף מחברים נוספים.",
+    "removeConfirm": "להסיר את {name} עבור כל הארגון? גם החיבורים של המשתמשים אליו יוסרו.",
+    "signedOut": "התנתקת מ-{name}",
+    "removed": "{name} הוסר",
+    "actionFailed": "משהו השתבש",
+    "shareToggleLabel": "להנגיש לכל הארגון",
+    "shareToggleHint": "מוסיף את “{name}” למחברים של כולם. כל אחד מתחבר עם החשבון שלו — אף אחד לא רואה מידע של אחרים.",
+    "useAsAgent": "שימוש כסוכן",
+    "movedToAgents": "{name} הוא עכשיו סוכן"
+  },
   "tablePreview": {
     "idle": "לחצו על הרצה כדי לטעון שורות מהמקור.",
     "loading": "טוען שורות…",
@@ -7504,5 +7607,35 @@
       "search": "חיפוש",
       "read": "קריאה"
     }
+  },
+  "agentAccess": {
+    "addMember": "הוספת חבר",
+    "membersHint": "חברים יכולים לשאול את הסוכן שאלות. ניתן להקצות הרשאות נוספות בהמשך.",
+    "everyone": "כל חברי הארגון",
+    "query": "יכול לשאול",
+    "manage": "יכול לנהל",
+    "custom": "גישה מותאמת אישית",
+    "ownerHint": "הבעלים תמיד יכול לנהל את הסוכן.",
+    "editFor": "עריכת הגישה של {name}",
+    "removeHint": "מסיר חברות והרשאות מפורשות. ייתכן שעדיין קיימת גישה ציבורית, קבוצתית או ארגונית.",
+    "remove": "הסרה",
+    "noMembers": "אין עדיין חברים מפורשים.",
+    "addTo": "הוספת אנשים אל {name}",
+    "thisAgent": "הסוכן הזה",
+    "who": "מי",
+    "access": "גישה",
+    "advanced": "הרשאות מתקדמות",
+    "cancel": "ביטול",
+    "saving": "שומר…",
+    "save": "שמירה",
+    "queryHint": "לשאול את הסוכן שאלות",
+    "manageHint": "להגדיר את הסוכן ולנהל את החברים שלו",
+    "addCount": "הוספת {count}",
+    "add": "הוספה",
+    "updated": "ההרשאות עודכנו",
+    "updateFailed": "עדכון ההרשאות נכשל",
+    "addIncomplete": "חלק מהחברויות או ההרשאות לא נשמרו. בדקו את רשימת החברים ונסו שוב.",
+    "added": "החברים נוספו",
+    "addFailed": "הוספת החברים נכשלה"
   }
 }

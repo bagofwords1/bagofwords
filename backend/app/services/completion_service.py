@@ -722,7 +722,10 @@ class CompletionService:
         webhook_id: str = None,
         trigger_source: str = None,
         return_on_answer: bool = False,
+        run_data_source_ids: list = None,
     ):
+        """``run_data_source_ids``: the agents this run uses instead of the
+        report's (a scheduled task with its own agents). None = the report's."""
         with tracer.start_as_current_span("completion.create") as span:
             span.set_attribute("report.id", str(report_id))
             span.set_attribute("completion.background", background)
@@ -735,6 +738,7 @@ class CompletionService:
                     webhook_id=webhook_id,
                     trigger_source=trigger_source,
                     return_on_answer=return_on_answer,
+                    run_data_source_ids=run_data_source_ids,
                 )
             except Exception as e:
                 span.set_status(StatusCode.ERROR, str(e))
@@ -761,6 +765,7 @@ class CompletionService:
         webhook_id: str = None,
         trigger_source: str = None,
         return_on_answer: bool = False,
+        run_data_source_ids: list = None,
     ):
         try:
             print("CompletionService: Starting create_completion (v2, non-stream)")
@@ -773,6 +778,13 @@ class CompletionService:
             if current_user is not None and organization is not None:
                 from app.core.permission_resolver import assert_principal_belongs_to_org
                 await assert_principal_belongs_to_org(db, current_user, organization.id)
+
+            # A scheduled prompt whose results go to other people must not read
+            # the owner's personal connectors (mail, Teams, personal Drive).
+            from app.ai.tools.implementations.agent_focus_common import scheduled_run_reaches_others
+            _exclude_personal_connectors = await scheduled_run_reaches_others(
+                db, scheduled_prompt_id, getattr(current_user, "id", None)
+            )
 
             # Validate report exists
             result = await db.execute(select(Report).filter(Report.id == report_id))
@@ -988,6 +1000,8 @@ class CompletionService:
                             run_agents, clients = await prepare_run_agents(
                                 session, organization_obj, user_obj, report_obj,
                                 self.data_source_service,
+                                agent_ids=run_data_source_ids,
+                                exclude_personal_connectors=_exclude_personal_connectors,
                             )
                             # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
                             _ = report_obj.files
@@ -1084,7 +1098,9 @@ class CompletionService:
                     # Foreground execution (wait and return final v2)
                     with tracer.start_as_current_span("completion.construct_clients") as clients_span:
                         run_agents, clients = await prepare_run_agents(
-                            db, organization, current_user, report, self.data_source_service
+                            db, organization, current_user, report, self.data_source_service,
+                            agent_ids=run_data_source_ids,
+                            exclude_personal_connectors=_exclude_personal_connectors,
                         )
                         clients_span.set_attribute("data_sources.count", len(run_agents))
                     # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
@@ -3832,7 +3848,19 @@ class CompletionService:
                         session_maker=session_factory,
                         routing_meta=routing_meta,
                     )
-                    await agent.main_execution()
+                    # The live stream serializes tool code by the ambient
+                    # code-visibility decision. An in-app run inherits it from
+                    # the RBAC route that started it; a dispatched run has no
+                    # such route (after an MCP turn it runs in an empty
+                    # context), so decide it here for the queued prompt's
+                    # author.
+                    from app.core.code_visibility import can_view_code, code_visibility
+                    from app.core.permission_resolver import resolve_permissions
+                    head_may_view_code = can_view_code(
+                        await resolve_permissions(session, str(user.id), str(organization.id))
+                    )
+                    with code_visibility(head_may_view_code):
+                        await agent.main_execution()
                     # AgentV2 handles several provider/runtime failures inside
                     # main_execution and persists an error result instead of
                     # raising it to this dispatcher. A machine question wake

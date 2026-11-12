@@ -1,0 +1,17 @@
+import { open, shot, BASE } from './lib.mjs'
+const CTX = process.env.CTX || '100000'
+const { browser, page } = await open()
+await page.goto(BASE + '/settings/models')
+const row = page.locator('tr', { hasText: 'gpt-5.6-luna' }).first()
+await row.waitFor({ timeout: 120000 })
+await row.locator('button').last().click()
+await page.getByText('Model Settings').click()
+await page.waitForTimeout(1500)
+await shot(page, '04-model-settings')
+const ctxIn = page.locator('div[role=dialog] input[type=number]').first()
+await ctxIn.fill(CTX)
+await shot(page, '04-context-' + CTX)
+await page.getByRole('button', { name: /^Save$/ }).click()
+await page.waitForTimeout(3000)
+await shot(page, '04-saved')
+await browser.close()

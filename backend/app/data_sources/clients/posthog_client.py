@@ -161,6 +161,9 @@ class PostHogClient(DataSourceClient):
 
     # Resolved lazily by fast/sources.source_for.
     EXTRACTION_SOURCE = staticmethod(_posthog_extraction_source)
+    # The dialect a custom table's refresh window is written in
+    # (app/data_sources/fast/incremental.py).
+    INCREMENTAL_DIALECT = "hogql"
 
     @contextmanager
     def connect(self):

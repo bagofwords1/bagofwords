@@ -3,7 +3,7 @@ import asyncio
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Body, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_async_db, release_request_db
-from typing import Optional, List, Union
+from typing import Literal, Optional, List, Union
 
 from app.ee.audit.service import audit_service
 
@@ -511,22 +511,28 @@ async def add_data_source_member(
         pass
     return result
 
-@router.delete("/data_sources/{data_source_id}/members/{user_id}", status_code=204)
+@router.delete("/data_sources/{data_source_id}/members/{principal_id}", status_code=204)
 @requires_resource_permission('data_source', 'manage')
 async def remove_data_source_member(
     data_source_id: str,
-    user_id: str,
+    principal_id: str,
     http_request: Request,
+    principal_type: Literal["user", "group", "role"] = Query(
+        "user", description="Kind of member to remove; defaults to user for older clients."
+    ),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
-    result = await data_source_service.remove_data_source_member(db, data_source_id, user_id, organization, current_user)
+    result = await data_source_service.remove_data_source_member(
+        db, data_source_id, principal_id, organization, current_user, principal_type=principal_type,
+    )
     try:
         await audit_service.log(
             db=db, organization_id=organization.id, action="data_source.member_removed",
             user_id=current_user.id, resource_type="data_source", resource_id=str(data_source_id),
-            details={"user_id": str(user_id)}, request=http_request,
+            details={"principal_type": principal_type, "principal_id": str(principal_id)},
+            request=http_request,
         )
     except Exception:
         pass
@@ -648,6 +654,19 @@ async def list_connection_files(
     """
     from app.services.connection_service import ConnectionService
     conn = await _attached_connection(db, data_source_id, connection_id, organization)
+    # How the browser should word this source: a mailbox lists "messages", a
+    # Teams workspace lists "messages" grouped by conversation. `live` marks a
+    # per-user source with no catalog — read with the caller's own access,
+    # nothing stored — so the UI doesn't describe it as an indexed scope.
+    try:
+        from app.schemas.data_source_registry import get_entry
+        _entry = get_entry(conn.type)
+        nouns = list(_entry.catalog_nouns) if _entry.catalog_nouns else None
+        live = _entry.catalog_ownership == "per_user" and _entry.type in {
+            "outlook_mail", "gmail_mail", "teams_messages",
+        }
+    except Exception:
+        nouns, live = None, False
     try:
         client = await ConnectionService().construct_client(db, conn, current_user)
         entries = await client.alist_files(recursive=True)
@@ -663,6 +682,7 @@ async def list_connection_files(
                 "connect_required": True,
                 "reason": detail,
                 "files": [], "total": 0, "offset": offset, "limit": limit, "has_more": False,
+                "catalog_nouns": nouns, "live": live,
             }
         raise
     except Exception as e:
@@ -687,6 +707,8 @@ async def list_connection_files(
         # connectors don't — a message would reach the viewer as serialized
         # text typed by its subject line.
         "preview_supported": hasattr(client, "read_raw_bytes"),
+        "catalog_nouns": nouns,
+        "live": live,
     }
 
 

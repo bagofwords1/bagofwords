@@ -244,6 +244,13 @@
                                 </div>
                                 <div class="flex items-start justify-between gap-4 py-3">
                                     <div class="min-w-0">
+                                        <div class="text-sm text-gray-800 dark:text-gray-200">{{ $t('dashboardSettings.widgetInfoTitle') }}</div>
+                                        <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('dashboardSettings.widgetInfoDesc') }}</div>
+                                    </div>
+                                    <UToggle v-model="showWidgetInfo" :disabled="!canSettings" class="flex-shrink-0 mt-0.5" data-testid="show-widget-info-toggle" />
+                                </div>
+                                <div class="flex items-start justify-between gap-4 py-3">
+                                    <div class="min-w-0">
                                         <div class="text-sm text-gray-800 dark:text-gray-200">{{ $t('share.bowCredit') }}</div>
                                         <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('share.bowCreditDesc') }}</div>
                                     </div>
@@ -550,6 +557,8 @@ const subBlur = () => setTimeout(() => { subDropdown.value = false; if (isEmail(
 
 // ---- What viewers get ----
 const includeDataTab = ref(true)
+// The per-widget ⓘ provenance popover; off by default (per dashboard).
+const showWidgetInfo = ref(false)
 const bowCredit = ref(true)
 const chatEnabled = ref(false)
 const chatScope = ref<'agents' | 'data_only'>('agents')
@@ -657,6 +666,7 @@ function current(): Record<string, any> {
         refresh_on_view: mode.refresh_on_view,
         notification_subscribers: refreshMode.value === 'recurring' ? subscribers.value : [],
         include_data_tab: includeDataTab.value,
+        show_widget_info: showWidgetInfo.value,
         bow_credit: bowCredit.value,
         chat_enabled: chatEnabled.value,
         chat_data_source_ids: chatIdsPayload(),
@@ -699,6 +709,7 @@ async function load() {
         lastRunAt.value = status.published ? (status.last_run?.at || null) : (report.last_run_at || null)
 
         includeDataTab.value = st.include_data_tab !== false
+        showWidgetInfo.value = st.show_widget_info === true
         bowCredit.value = st.bow_credit !== false
         chatEnabled.value = st.chat_enabled === true
         reportAgents.value = (((agentsRes.data.value as any)?.agents) || report.data_sources || []).map((a: any) => ({ id: a.id, name: a.name }))

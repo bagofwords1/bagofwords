@@ -259,6 +259,8 @@ class ReadEmailTool(ReadFileTool):
     _required_capability = Capability.READ_EMAIL
     _start_noun = "email"
     _operation_name = "read_email"
+    # Read live, shown to the agent, never kept as a report file (see ReadFileTool).
+    _keep_session_copy = False
 
     @property
     def metadata(self) -> ToolMetadata:

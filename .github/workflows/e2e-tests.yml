@@ -71,8 +71,9 @@ jobs:
             - '**/{Dockerfile*,*.lock,*-lock.*}'
 
   # `if` is evaluated before the matrix expands, so when this job is skipped
-  # GitHub reports one check named `e2e-tests`. `e2e-tests (sqlite)` and
-  # `e2e-tests (postgres)` then never appear, and a PR that required either one
+  # GitHub reports one check named `e2e-tests`. `e2e-tests (sqlite)`,
+  # `e2e-tests (postgres-dashboards)` and `e2e-tests (postgres-rest)` then never
+  # appear, and a PR that required any of them
   # would wait forever. Require `e2e-tests-result` instead.
   e2e-tests:
     needs: changes
@@ -85,10 +86,27 @@ jobs:
     # 122, not 120: pytest stops itself at 115 minutes (--session-timeout below),
     # and this leaves room for it to finish a running test and upload its timings.
     timeout-minutes: 122
+    name: e2e-tests (${{ matrix.name }})
     strategy:
       fail-fast: false
+      # Postgres runs in two halves on separate runners: tests/e2e/dashboards and
+      # everything else take about the same worker time (113 and 117 minutes on
+      # #1650's CI), so each finishes in about half the wall time. SQLite stays
+      # in one job, which already finishes well inside the Postgres halves.
       matrix:
-        db: [sqlite, postgres]
+        include:
+          - name: sqlite
+            db: sqlite
+            paths: tests/e2e tests/unit/test_fast_artifact_lifecycle.py
+            ai: true
+          - name: postgres-dashboards
+            db: postgres
+            paths: tests/e2e/dashboards
+            ai: true
+          - name: postgres-rest
+            db: postgres
+            paths: tests/e2e --ignore=tests/e2e/dashboards tests/unit/test_fast_artifact_lifecycle.py
+            ai: false
 
     steps:
     - uses: actions/checkout@v7
@@ -104,7 +122,7 @@ jobs:
             - 'backend/app/ai/**'
 
     - name: Run AI tests
-      if: steps.changes.outputs.ai_files == 'true'
+      if: matrix.ai && steps.changes.outputs.ai_files == 'true'
       working-directory: ./backend
       env:
         TESTING: "true"
@@ -170,7 +188,7 @@ jobs:
       # container, and a failure in it is a failure of this run, not a gate
       # that skips the whole E2E suite.
       run: |
-        uv run pytest tests/e2e tests/unit/test_fast_artifact_lifecycle.py -n 4 --dist=worksteal -v -m "e2e or db" --db=${{ matrix.db }} --durations=50 --disable-warnings --timeout=600 --timeout-method=thread --session-timeout=6900 --junitxml=test-results/junit-${{ matrix.db }}.xml -p tests.ci_phase_times
+        uv run pytest ${{ matrix.paths }} -n 4 --dist=worksteal -v -m "e2e or db" --db=${{ matrix.db }} --durations=50 --disable-warnings --timeout=600 --timeout-method=thread --session-timeout=6900 --junitxml=test-results/junit-${{ matrix.name }}.xml -p tests.ci_phase_times
 
     # always(), not !cancelled(): a run stopped by the job timeout counts as
     # cancelled, and that is the run whose data is most wanted.
@@ -178,7 +196,7 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: junit-${{ matrix.db }}
+        name: junit-${{ matrix.name }}
         path: backend/test-results/
         if-no-files-found: warn
         retention-days: 30
@@ -188,7 +206,7 @@ jobs:
     - name: Report slow tests
       if: always()
       continue-on-error: true
-      run: python3 backend/scripts/ci_time_budget.py backend/test-results/junit-${{ matrix.db }}.xml
+      run: python3 backend/scripts/ci_time_budget.py backend/test-results/junit-${{ matrix.name }}.xml
 
   # The one e2e test a frontend change can break: it reads frontend/**/*.{vue,ts}
   # and checks each useCan('x') against the permission registry. It runs on its

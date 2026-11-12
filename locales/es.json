@@ -137,6 +137,16 @@
     "fileBrowserNoResults": "Ningún archivo coincide con “{q}”.",
     "fileBrowserSummaryKms": "{n} archivos listados para navegar · los permisos de KMS deciden qué puede buscar y leer el agente",
     "fileBrowserSummary": "{n} archivos en el alcance · el agente solo lee estos · los accesos denegados se auditan",
+    "fileBrowserRootMessages": "Todas las conversaciones",
+    "fileBrowserSearchMessages": "Buscar mensajes…",
+    "fileBrowserEmptyMessages": "No hay mensajes recientes en las conversaciones que puedes ver.",
+    "fileBrowserSummaryLive": "{n} mensajes recientes · se leen en vivo con tu propio acceso · no se guarda nada",
+    "countMessages": "{n} mensaje | {n} mensajes",
+    "fileBrowserNoResultsMessages": "Ningún mensaje coincide con “{q}”.",
+    "loadingMessages": "Cargando mensajes desde el origen…",
+    "fileBrowserConnectRequiredMessages": "Conecta tu cuenta para explorar: esta conexión lee los mensajes con el acceso de cada usuario.",
+    "liveSourceHint": "Se busca en vivo con el acceso de cada usuario: solo los canales, chats o correos que puede ver. No se copia ni indexa nada.",
+    "liveBadge": "En vivo",
     "fileBrowserTruncated": "Se muestran los primeros {shown} de {total} archivos: acota el alcance de la conexión para ver el resto.",
     "fileBrowserOpenInSource": "Abrir en el origen",
     "fileBrowserClosePreview": "Cerrar vista previa",
@@ -694,6 +704,22 @@
         "network": "El reconocimiento de voz necesita conexión a la red.",
         "failed": "La entrada de voz falló. Inténtalo de nuevo."
       }
+    },
+    "slash": {
+      "menuTitle": "Comandos",
+      "compact": {
+        "description": "Resume los turnos anteriores para liberar contexto",
+        "usage": "/compact · /compact <enfoque> · /compact keep 4",
+        "pending": "Se compactará cuando el agente termine esta ejecución",
+        "running": "Compactando contexto…",
+        "doneContext": "{turns} turnos compactados · contexto ~{before} → ~{after} tokens",
+        "doneHistory": "{turns} turnos compactados · historial ~{before} → ~{after} tokens",
+        "alreadyRunning": "La compactación ya está en curso",
+        "failed": "No se pudo compactar el contexto",
+        "degraded": "resumen de respaldo (sin resumen del modelo)",
+        "cancel": "Cancelar",
+        "dismiss": "Descartar"
+      }
     }
   },
   "reports": {
@@ -1201,7 +1227,13 @@
       "scopeHint": "Se aplica a tus conversaciones en este navegador."
     },
     "readMore": "Leer más",
-    "showLess": "Mostrar menos"
+    "showLess": "Mostrar menos",
+    "compactionShowSummary": "Ver lo que el agente recuerda de los turnos compactados",
+    "compactionSummaryTitle": "Historial compactado",
+    "compactionSummaryHint": "El agente ve este resumen en lugar de los turnos sobre la línea.",
+    "compactingContext": "Compactando contexto…",
+    "compactionTurns": "{turns} turnos",
+    "compactionLast": "Última compactación: historial ~{before} → ~{after} tokens"
   },
   "tools": {
     "common": {
@@ -1806,6 +1838,22 @@
       "filesSkippedSingular": "{count} archivo omitido ({reasons})",
       "filesSkippedPlural": "{count} archivos omitidos ({reasons})"
     },
+    "searchFiles": {
+      "foundIn": "Encontrado en:",
+      "fileName": "nombre del archivo",
+      "page": "página {n}",
+      "sheet": "hoja {name}",
+      "offset": "posición {n}",
+      "partlyIndexed": "Indexado solo en parte (límite de tamaño)",
+      "noText": "Sin texto buscable (escaneado o binario)",
+      "notIndexed": "No se pudo indexar",
+      "indexFulltext": "Índice de texto completo",
+      "indexKeywords": "Índice de palabras clave",
+      "indexNames": "Coincidencia por nombre de archivo",
+      "liveScan": "Búsqueda en vivo",
+      "plusLiveScan": "{index} + búsqueda en vivo",
+      "indexedAt": "indexado {when}"
+    },
     "webFetch": {
       "fetching": "Obteniendo",
       "fetched": "Obtenido",
@@ -2143,6 +2191,7 @@
     "openPage": "Abrir página",
     "categories": {
       "dataSources": "Agentes",
+      "connectors": "Conectores",
       "queries": "Consultas",
       "files": "Archivos",
       "tables": "Tablas",
@@ -2167,6 +2216,9 @@
     "noRolesFound": "No se encontraron roles",
     "noRolesHint": "Crea un rol para gestionar los permisos.",
     "system": "sistema",
+    "default": "Predeterminado",
+    "defaultRoleHint": "Este es un rol integrado. Su nombre es fijo: personaliza sus permisos abajo.",
+    "edit": "Editar",
     "fullAdmin": "Administrador total",
     "permissionsCount": "{n} permisos",
     "editRole": "Editar rol",
@@ -2498,7 +2550,7 @@
       "integrate": "Integrar",
       "setup": "Configurar",
       "excelAddinName": "Complemento de Excel",
-      "excelAddinDescription": "Carga lateral del complemento de Bag of Words directamente desde esta instancia",
+      "excelAddinDescription": "Carga lateral del complemento de BOW directamente desde esta instancia",
       "mcpName": "Servidor MCP de BOW",
       "mcpDescription": "Habilita el endpoint MCP para la integración con asistentes de IA como Cursor, Claude u otros",
       "channels": {
@@ -2793,9 +2845,9 @@
           "trustedConnecting": "Conectando con tu aplicación de confianza…",
           "authorizationLoading": "Comprobando la solicitud de autorización…",
           "authorizationError": "No se puede autorizar",
-          "goBack": "Volver a Bag of Words",
+          "goBack": "Volver a BOW",
           "authorizationTitle": "Autorizar acceso",
-          "wantsAccess": "{name} quiere acceder a tu cuenta de Bag of Words.",
+          "wantsAccess": "{name} quiere acceder a tu cuenta de BOW.",
           "permissionsRequested": "Permisos solicitados",
           "appPermission": "Crear y leer informes, ejecutar completaciones y usar artefactos según tus permisos actuales de BOW.",
           "mcpPermission": "Usar las herramientas MCP según tus permisos actuales de BOW.",
@@ -2820,7 +2872,7 @@
         },
         "excel": {
           "title": "Complemento de Excel",
-          "subtitle": "Carga el complemento de Bag of Words directamente desde esta instancia.",
+          "subtitle": "Carga el complemento de BOW directamente desde esta instancia.",
           "loading": "Cargando...",
           "setup": "Configuración",
           "step1": "Descarga el archivo de manifiesto que aparece abajo",
@@ -2868,9 +2920,18 @@
           "subscriptionPlaceholder": "projects/<project>/subscriptions/<name>",
           "subtitle": "Configura y gestiona la integración con Google Chat para tu organización",
           "title": "Integración con Google Chat"
+        },
+        "routing": {
+          "title": "Enrutamiento de canal → agente",
+          "desc": "Dirige un canal a agentes específicos. Un canal sin asignación usa el valor predeterminado de la conexión; sin predeterminado, expone todo lo que el usuario puede acceder. El enrutamiento solo restringe el acceso, nunca otorga más de lo que el usuario ya tiene.",
+          "connectionDefaultLabel": "Predeterminado de la conexión",
+          "connectionDefaultDesc": "Se usa para canales sin asignación propia.",
+          "pickerPlaceholder": "Elegir agentes…",
+          "channelsHeading": "Canales",
+          "noChannelsYet": "Aún no hay canales. Menciona al bot en un canal y aparecerá aquí, o añade uno por id abajo."
         }
       },
-      "emptyTitle": "Haz que Bag of Words funcione con tus herramientas",
+      "emptyTitle": "Haz que BOW funcione con tus herramientas",
       "emptySubtitle": "Conecta Slack, Teams, correo y más para que tu equipo pueda acceder al analista de IA donde ya trabaja. Elige una integración para empezar.",
       "selectHint": "Selecciona una integración",
       "slackDescription": "Permite que tu equipo converse con el analista de IA desde canales y mensajes directos de Slack.",
@@ -2960,14 +3021,18 @@
       "attributesInviteHint": "Opcional. Identifica a este miembro en otros sistemas, p. ej. su usuario de Qlik o su rol de base de datos.",
       "attributesSaved": "Atributos guardados",
       "attributesSaveFailed": "No se pudieron guardar los atributos",
-      "importAttributesHint": "Añade columnas {column} para definir atributos, p. ej. {example}. Una celda vacía deja ese atributo sin cambios."
+      "importAttributesHint": "Añade columnas {column} para definir atributos, p. ej. {example}. Una celda vacía deja ese atributo sin cambios.",
+      "defaultRoleHint": "Rellena el rol al añadir o invitar a un miembro.",
+      "defaultRoleSaved": "Rol predeterminado guardado",
+      "defaultRoleFailed": "No se pudo guardar el rol predeterminado",
+      "defaultRoleShort": "Rol predeterminado"
     },
     "organizationName": "Nombre de la organización",
     "organizationIcon": "Icono de la organización",
     "uploadIcon": "Subir icono",
     "iconConstraints": "PNG/JPEG, ≤ 512 KB.",
     "aiAnalystName": "Nombre del analista de IA",
-    "showCredit": "Mostrar crédito «Made with Bag of words»",
+    "showCredit": "Mostrar crédito «Made with BOW»",
     "workspacePlaceholder": "Nombre del espacio",
     "changeIcon": "Cambiar icono",
     "uploadIconButton": "Subir icono",
@@ -4097,6 +4162,7 @@
     "saving": "Guardando…",
     "saveAndContinue": "Guardar y continuar",
     "requestFailed": "La solicitud falló",
+    "errorWithReference": "{message} (referencia de soporte: {id})",
     "unexpectedError": "Error inesperado",
     "errorTitle": "Error",
     "updateConnectionFailed": "No se pudo actualizar la conexión",
@@ -4208,7 +4274,7 @@
     "saveIntegration": "Guardar integración",
     "loadFieldsFailed": "No se pudieron cargar los campos",
     "integrationReady": "Integración lista",
-    "integrationReadyDesc": "{name} está conectado y se creó un agente público. Los usuarios pueden iniciar sesión para empezar a usarlo.",
+    "integrationReadyDesc": "{name} ya está disponible para todos como conector. Cada persona inicia sesión con su propia cuenta.",
     "integrationAgentFailed": "Integración guardada, pero falló la creación del agente",
     "updateIntegrationFailed": "No se pudo actualizar la integración",
     "createIntegrationFailed": "No se pudo crear la integración",
@@ -4280,7 +4346,7 @@
         },
         {
           "title": "Imprime el archivo de acceso",
-          "body": "Guárdalo como print_access_file.sh y ejecútalo. Espera el token y luego imprime un único archivo autocontenido (URL del servidor API, CA del clúster, token). Verifícalo con: kubectl --kubeconfig access.yaml get nodes. Si la URL del servidor es privada de tu red, cámbiala por la dirección que esta instancia de Bag of Words puede alcanzar."
+          "body": "Guárdalo como print_access_file.sh y ejecútalo. Espera el token y luego imprime un único archivo autocontenido (URL del servidor API, CA del clúster, token). Verifícalo con: kubectl --kubeconfig access.yaml get nodes. Si la URL del servidor es privada de tu red, cámbiala por la dirección que esta instancia de BOW puede alcanzar."
         },
         {
           "title": "Pégalo abajo y prueba la conexión",
@@ -4290,7 +4356,7 @@
       "mecm": [
         {
           "title": "Concede a la cuenta acceso de lectura en Configuration Manager",
-          "body": "En la consola ve a Administration > Security > Administrative Users, agrega la cuenta (o su grupo de AD) y asígnale el rol Read-only Analyst. Sus ámbitos de seguridad y colecciones deciden lo que Bag of Words puede ver."
+          "body": "En la consola ve a Administration > Security > Administrative Users, agrega la cuenta (o su grupo de AD) y asígnale el rol Read-only Analyst. Sus ámbitos de seguridad y colecciones deciden lo que BOW puede ver."
         },
         {
           "title": "Comprueba que el servicio de administración responde",
@@ -4656,7 +4722,10 @@
     "connection.kms_token_format": "El token de API de KMS solo puede contener letras, dígitos y signos de puntuación simples, sin espacios. Cópialo de nuevo desde KMS Lighthouse y pégalo como texto sin formato.",
     "connection.kms_use_connection_credentials": "Los inicios de sesión de KMS Lighthouse se guardan en la conexión. Abre la conexión y conéctate desde allí.",
     "connection.kms_only": "El diagnóstico solo se aplica a las conexiones de KMS Lighthouse.",
-    "connection.kms_diagnostics_running": "El diagnóstico ya se está ejecutando para esta conexión. Espere a que termine e inténtelo de nuevo."
+    "connection.kms_diagnostics_running": "El diagnóstico ya se está ejecutando para esta conexión. Espere a que termine e inténtelo de nuevo.",
+    "connection.kms_login_rejected": "KMS Lighthouse no aceptó este inicio de sesión, así que no se guardó. Comprueba el usuario y la contraseña, o el token de API, y vuelve a intentarlo.",
+    "connection.kms_login_paused": "KMS Lighthouse rechazó este inicio de sesión hace poco, así que los nuevos intentos con él están en pausa unos minutos y no se guardó. Revisa el inicio de sesión o vuelve a intentarlo más tarde.",
+    "connection.kms_session_refused": "KMS Lighthouse aceptó el inicio de sesión pero rechazó su sesión, así que no se puede usar y no se guardó. Pregunta al administrador de KMS si esta cuenta puede usar la API de KMS."
   },
   "email": {
     "dashboardShare": {
@@ -5236,7 +5305,7 @@
   "onboarding": {
     "loading": "Cargando...",
     "skip": "Omitir introducción",
-    "welcome": "¡Bienvenido a Bag of words! 🎉",
+    "welcome": "¡Bienvenido a BOW! 🎉",
     "welcomeSubtitle": "Conversa con tus datos, realiza análisis profundos y crea paneles en segundos",
     "next": "Siguiente",
     "fallbackTitle": "Empezar",
@@ -5246,7 +5315,7 @@
     "intro1": "Comenzar es rápido: conecta tu modelo y tu fuente de datos, y estarás listo para hacer tu primera pregunta.",
     "intro2": "👉 ¡Vamos a configurarlo!",
     "steps": {
-      "onboardingTitle": "¡Bienvenido a Bag of words! 🎉",
+      "onboardingTitle": "¡Bienvenido a BOW! 🎉",
       "onboardingDescription": "Conversa con tus datos, realiza análisis profundos y crea paneles en segundos",
       "onboardingButton": "Bienvenida",
       "llmTitle": "Configurar LLM",
@@ -5859,8 +5928,8 @@
     }
   },
   "mcpServerModal": {
-    "title": "Servidor MCP de Bag of words",
-    "subtitle": "Conecta Claude, Cursor o cualquier cliente MCP para consultar tus datos a través del servidor MCP de Bag of words.",
+    "title": "Servidor MCP de BOW",
+    "subtitle": "Conecta Claude, Cursor o cualquier cliente MCP para consultar tus datos a través del servidor MCP de BOW.",
     "loading": "Cargando...",
     "tabMcpClients": "Clientes MCP",
     "tabOauth": "OAuth",
@@ -5999,7 +6068,8 @@
     "modeChat": "Chat",
     "modelAuto": "Auto",
     "noAgents": "Ninguno",
-    "project": "Proyecto"
+    "project": "Proyecto",
+    "agentsFromReport": "Usa los agentes del informe"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -6895,7 +6965,9 @@
     "noConnection": "Este agente aún no tiene ninguna conexión.",
     "notFound": "No se encontró esta conexión.",
     "forbidden": "No tienes acceso a esta conexión.",
-    "loadFailed": "No se pudo cargar la conexión. Inténtalo de nuevo más tarde."
+    "loadFailed": "No se pudo cargar la conexión. Inténtalo de nuevo más tarde.",
+    "connected": "Conectado",
+    "connectedAs": "Conectado como {identity}"
   },
   "dashboardCollab": {
     "presence": {
@@ -7229,6 +7301,8 @@
     "tabViewers": "Lectores",
     "tabData": "Datos",
     "viewersDesc": "Qué reciben las personas con las que lo compartes.",
+    "widgetInfoTitle": "Mostrar detalles en los widgets",
+    "widgetInfoDesc": "Añade un icono ⓘ a cada widget que abre sus datos, código y cálculo.",
     "dataDesc": "Las consultas detrás de este panel.",
     "unsaved": "Cambios sin guardar",
     "tabGeneral": "General",
@@ -7316,7 +7390,7 @@
       "notPublished": "Esto aún no se ha publicado. Aparecerá aquí cuando se publique.",
       "notFound": "Esto no está disponible. Puede que aún no se haya publicado o que se haya eliminado.",
       "denied": "No tienes acceso a esto. Pide a su propietario que lo comparta contigo.",
-      "notAllowed": "Esto no está habilitado para esta aplicación. Un editor puede permitirlo en su configuración de Insertar en Bag of Words.",
+      "notAllowed": "Esto no está habilitado para esta aplicación. Un editor puede permitirlo en su configuración de Insertar en BOW.",
       "failed": "No se pudo cargar. Inténtalo de nuevo en un momento."
     },
     "signin": {
@@ -7424,6 +7498,35 @@
     "embeddingEmpty": "La integración web no está configurada",
     "oauthEmpty": "OAuth no está configurado"
   },
+  "connectors": {
+    "title": "Conectores",
+    "subtitle": "Tus propias cuentas y herramientas que la IA puede usar. Cada conector lee con tu propio acceso: nadie más ve tus datos.",
+    "browse": "Ver conectores",
+    "empty": "Todavía no hay conectores.",
+    "search": "Buscar conectores…",
+    "noResults": "Ningún conector coincide con “{q}”.",
+    "signIn": "Iniciar sesión",
+    "signOut": "Cerrar sesión",
+    "remove": "Eliminar",
+    "statusConnected": "Conectado",
+    "statusShared": "Compartido",
+    "statusServiceAccount": "Cuenta de servicio",
+    "statusOffline": "Reconectar",
+    "statusNotConnected": "Sin conectar",
+    "needsSignIn": "{n} conector requiere que inicies sesión | {n} conectores requieren que inicies sesión",
+    "accessPersonal": "Usa tu propia cuenta",
+    "accessShared": "Usa una cuenta compartida configurada por un administrador",
+    "addHint": "Añade más conectores en Agentes → Añadir conexión.",
+    "askAdmin": "Pide a un administrador que añada más conectores.",
+    "removeConfirm": "¿Eliminar {name} para todos en la organización? También se eliminan los inicios de sesión de las personas.",
+    "signedOut": "Sesión cerrada en {name}",
+    "removed": "{name} eliminado",
+    "actionFailed": "Algo salió mal",
+    "shareToggleLabel": "Poner a disposición de toda tu organización",
+    "shareToggleHint": "Añade “{name}” a los conectores de todos. Cada persona inicia sesión con su propia cuenta: nadie ve los datos de los demás.",
+    "useAsAgent": "Usar como agente",
+    "movedToAgents": "{name} ahora es un agente"
+  },
   "tablePreview": {
     "idle": "Pulsa Ejecutar para cargar filas desde el origen.",
     "loading": "Cargando filas…",
@@ -7484,5 +7587,35 @@
       "search": "búsqueda",
       "read": "lectura"
     }
+  },
+  "agentAccess": {
+    "addMember": "Añadir miembro",
+    "membersHint": "Los miembros pueden consultar este agente. Asigna permisos adicionales abajo.",
+    "everyone": "Todos en la organización",
+    "query": "Puede consultar",
+    "manage": "Puede administrar",
+    "custom": "Acceso personalizado",
+    "ownerHint": "El propietario siempre puede administrar este agente.",
+    "editFor": "Editar acceso de {name}",
+    "removeHint": "Elimina la membresía y los permisos explícitos. El acceso público, por grupo u organización puede seguir vigente.",
+    "remove": "Eliminar",
+    "noMembers": "Aún no hay miembros explícitos.",
+    "addTo": "Añadir personas a {name}",
+    "thisAgent": "este agente",
+    "who": "Quién",
+    "access": "Acceso",
+    "advanced": "Permisos avanzados",
+    "cancel": "Cancelar",
+    "saving": "Guardando…",
+    "save": "Guardar",
+    "queryHint": "Hacer preguntas a este agente",
+    "manageHint": "Configurar el agente y administrar sus miembros",
+    "addCount": "Añadir {count}",
+    "add": "Añadir",
+    "updated": "Permisos actualizados",
+    "updateFailed": "No se pudieron actualizar los permisos",
+    "addIncomplete": "No se pudieron guardar algunas membresías o permisos. Revisa la lista y vuelve a intentarlo.",
+    "added": "Miembros añadidos",
+    "addFailed": "No se pudieron añadir los miembros"
   }
 }

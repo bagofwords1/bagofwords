@@ -122,6 +122,16 @@
     "fileBrowserNoResults": "Inga filer matchar ”{q}”.",
     "fileBrowserSummaryKms": "{n} filer listade för bläddring · KMS-behörigheterna avgör vad agenten kan söka i och läsa",
     "fileBrowserSummary": "{n} filer i omfånget · agenten läser bara dessa · nekade åtkomster loggas",
+    "fileBrowserRootMessages": "Alla konversationer",
+    "fileBrowserSearchMessages": "Sök meddelanden…",
+    "fileBrowserEmptyMessages": "Inga nya meddelanden i de konversationer du kan se.",
+    "fileBrowserSummaryLive": "{n} senaste meddelanden · läses live med din egen behörighet · inget sparas",
+    "countMessages": "{n} meddelande | {n} meddelanden",
+    "fileBrowserNoResultsMessages": "Inga meddelanden matchar ”{q}”.",
+    "loadingMessages": "Läser in meddelanden från källan…",
+    "fileBrowserConnectRequiredMessages": "Anslut ditt konto för att bläddra — den här anslutningen läser meddelanden med varje användares egen behörighet.",
+    "liveSourceHint": "Söks live med varje användares egen behörighet — bara de kanaler, chattar eller e-post de kan se. Inget kopieras eller indexeras.",
+    "liveBadge": "Live",
     "fileBrowserTruncated": "Visar de första {shown} av {total} filer – begränsa anslutningens omfång för att se resten.",
     "fileBrowserOpenInSource": "Öppna i källan",
     "fileBrowserClosePreview": "Stäng förhandsvisning",
@@ -673,6 +683,22 @@
         "network": "Taligenkänning kräver en nätverksanslutning.",
         "failed": "Röstinmatningen misslyckades. Försök igen."
       }
+    },
+    "slash": {
+      "menuTitle": "Kommandon",
+      "compact": {
+        "description": "Sammanfatta äldre turer för att frigöra kontext",
+        "usage": "/compact · /compact <fokus> · /compact keep 4",
+        "pending": "Komprimeras när agenten har kört klart",
+        "running": "Komprimerar kontext…",
+        "doneContext": "{turns} turer komprimerade · kontext ~{before} → ~{after} tokens",
+        "doneHistory": "{turns} turer komprimerade · historik ~{before} → ~{after} tokens",
+        "alreadyRunning": "Komprimering pågår redan",
+        "failed": "Kunde inte komprimera kontexten",
+        "degraded": "reservsammanfattning (ingen modellsammanfattning)",
+        "cancel": "Avbryt",
+        "dismiss": "Stäng"
+      }
     }
   },
   "reports": {
@@ -1171,7 +1197,13 @@
       "scopeHint": "Gäller dina konversationer i den här webbläsaren."
     },
     "readMore": "Läs mer",
-    "showLess": "Visa mindre"
+    "showLess": "Visa mindre",
+    "compactionShowSummary": "Visa vad agenten minns av komprimerade turer",
+    "compactionSummaryTitle": "Komprimerad historik",
+    "compactionSummaryHint": "Agenten ser den här sammanfattningen i stället för turerna ovanför linjen.",
+    "compactingContext": "Komprimerar kontext…",
+    "compactionTurns": "{turns} turer",
+    "compactionLast": "Senaste komprimering: historik ~{before} → ~{after} tokens"
   },
   "tools": {
     "common": {
@@ -1767,6 +1799,22 @@
       "filesSkippedSingular": "{count} fil hoppades över ({reasons})",
       "filesSkippedPlural": "{count} filer hoppades över ({reasons})"
     },
+    "searchFiles": {
+      "foundIn": "Hittades i:",
+      "fileName": "filnamn",
+      "page": "sida {n}",
+      "sheet": "blad {name}",
+      "offset": "position {n}",
+      "partlyIndexed": "Endast delvis indexerad (storleksgräns)",
+      "noText": "Ingen sökbar text (skannad eller binär)",
+      "notIndexed": "Kunde inte indexeras",
+      "indexFulltext": "Fulltextindex",
+      "indexKeywords": "Nyckelordsindex",
+      "indexNames": "Träff på filnamn",
+      "liveScan": "Livesökning",
+      "plusLiveScan": "{index} + livesökning",
+      "indexedAt": "indexerad {when}"
+    },
     "listAgentExecutions": {
       "empty": "Inga körningar hittades",
       "failed": "Det gick inte att läsa in agentens körningar",
@@ -1967,6 +2015,7 @@
     "openPage": "Öppna sida",
     "categories": {
       "dataSources": "Agenter",
+      "connectors": "Kopplingar",
       "queries": "Frågor",
       "files": "Filer",
       "tables": "Tabeller",
@@ -1991,6 +2040,9 @@
     "noRolesFound": "Inga roller hittades",
     "noRolesHint": "Skapa en roll för att hantera behörigheter.",
     "system": "system",
+    "default": "Standard",
+    "defaultRoleHint": "Detta är en inbyggd roll. Dess namn är fast – anpassa dess behörigheter nedan.",
+    "edit": "Redigera",
     "fullAdmin": "Fullständig administratör",
     "permissionsCount": "{n} behörigheter",
     "editRole": "Redigera roll",
@@ -2252,7 +2304,7 @@
       "integrate": "Integrera",
       "setup": "Konfigurera",
       "excelAddinName": "Excel-tillägg",
-      "excelAddinDescription": "Sidladda Bag of Words-tillägget direkt från den här instansen",
+      "excelAddinDescription": "Sidladda BOW-tillägget direkt från den här instansen",
       "mcpName": "BOW MCP-server",
       "mcpDescription": "Aktivera MCP-slutpunkten för integration med AI-assistenter som Cursor, Claude eller andra",
       "channels": {
@@ -2547,9 +2599,9 @@
           "trustedConnecting": "Connecting to your trusted app…",
           "authorizationLoading": "Checking the authorization request…",
           "authorizationError": "Unable to authorize",
-          "goBack": "Go back to Bag of Words",
+          "goBack": "Go back to BOW",
           "authorizationTitle": "Authorize access",
-          "wantsAccess": "{name} wants to access your Bag of Words account.",
+          "wantsAccess": "{name} wants to access your BOW account.",
           "permissionsRequested": "Permissions requested",
           "appPermission": "Create and read reports, run completions, and use artifacts under your existing BOW permissions.",
           "mcpPermission": "Use the MCP tool surface under your existing BOW permissions.",
@@ -2574,7 +2626,7 @@
         },
         "excel": {
           "title": "Excel-tillägg",
-          "subtitle": "Sidladda Bag of Words-tillägget direkt från denna instans.",
+          "subtitle": "Sidladda BOW-tillägget direkt från denna instans.",
           "loading": "Laddar...",
           "setup": "Konfiguration",
           "step1": "Ladda ner manifestfilen nedan",
@@ -2622,9 +2674,18 @@
           "subscriptionPlaceholder": "projects/<project>/subscriptions/<name>",
           "subtitle": "Konfigurera och hantera integrationen med Google Chat för din organisation",
           "title": "Integration med Google Chat"
+        },
+        "routing": {
+          "title": "Kanal → agent-routing",
+          "desc": "Rikta en kanal till specifika agenter. En kanal utan mappning använder anslutningens standard; utan standard exponerar den allt som användaren har åtkomst till. Routing begränsar bara åtkomsten – den ger aldrig mer än vad användaren redan har.",
+          "connectionDefaultLabel": "Anslutningens standard",
+          "connectionDefaultDesc": "Används för kanaler utan egen mappning.",
+          "pickerPlaceholder": "Välj agenter…",
+          "channelsHeading": "Kanaler",
+          "noChannelsYet": "Inga kanaler ännu. Nämn boten i en kanal så visas den här, eller lägg till en via id nedan."
         }
       },
-      "emptyTitle": "Få Bag of Words att fungera med dina verktyg",
+      "emptyTitle": "Få BOW att fungera med dina verktyg",
       "emptySubtitle": "Anslut Slack, Teams, e-post med mera så att ditt team kan nå AI-analytikern där de redan arbetar. Välj en integration för att komma igång.",
       "selectHint": "Välj en integration",
       "slackDescription": "Låt ditt team chatta med AI-analytikern från Slack-kanaler och DM.",
@@ -2714,14 +2775,18 @@
       "attributesInviteHint": "Valfritt. Identifierar medlemmen i andra system, t.ex. Qlik-användare eller databasroll.",
       "attributesSaved": "Attributen sparades",
       "attributesSaveFailed": "Det gick inte att spara attributen",
-      "importAttributesHint": "Lägg till {column}-kolumner för att ange attribut, t.ex. {example}. En tom cell lämnar attributet oförändrat."
+      "importAttributesHint": "Lägg till {column}-kolumner för att ange attribut, t.ex. {example}. En tom cell lämnar attributet oförändrat.",
+      "defaultRoleHint": "Förifyller rollen när du lägger till eller bjuder in en medlem.",
+      "defaultRoleSaved": "Standardroll sparad",
+      "defaultRoleFailed": "Det gick inte att spara standardrollen",
+      "defaultRoleShort": "Standardroll"
     },
     "organizationName": "Organisationens namn",
     "organizationIcon": "Organisationens ikon",
     "uploadIcon": "Ladda upp ikon",
     "iconConstraints": "PNG/JPEG, ≤ 512 KB.",
     "aiAnalystName": "AI-analytikerns namn",
-    "showCredit": "Visa ”Made with Bag of words”-credit",
+    "showCredit": "Visa ”Made with BOW”-credit",
     "language": {
       "title": "Språk",
       "description": "Anger standardspråket för hela organisationen. Användare kommer att se gränssnittet på det här språket och AI:n svarar på det.",
@@ -3807,7 +3872,7 @@
     "saveIntegration": "Spara integration",
     "loadFieldsFailed": "Kunde inte läsa in fälten",
     "integrationReady": "Integrationen är klar",
-    "integrationReadyDesc": "{name} är ansluten och en publik agent har skapats. Användare kan logga in och börja använda den.",
+    "integrationReadyDesc": "{name} är nu tillgänglig för alla som koppling. Var och en loggar in med sitt eget konto.",
     "integrationAgentFailed": "Integrationen sparades, men agenten kunde inte skapas",
     "updateIntegrationFailed": "Kunde inte uppdatera integrationen",
     "createIntegrationFailed": "Kunde inte skapa integrationen",
@@ -3948,7 +4013,7 @@
         },
         {
           "title": "Skriv ut åtkomstfilen",
-          "body": "Spara som print_access_file.sh och kör. Skriptet väntar på token och skriver sedan ut en fristående fil (API-serverns URL, klustrets CA, token). Verifiera med: kubectl --kubeconfig access.yaml get nodes. Om server-URL:en är privat för ditt nätverk, ändra den till adressen som denna Bag of Words-instans kan nå."
+          "body": "Spara som print_access_file.sh och kör. Skriptet väntar på token och skriver sedan ut en fristående fil (API-serverns URL, klustrets CA, token). Verifiera med: kubectl --kubeconfig access.yaml get nodes. Om server-URL:en är privat för ditt nätverk, ändra den till adressen som denna BOW-instans kan nå."
         },
         {
           "title": "Klistra in nedan och testa anslutningen",
@@ -3958,7 +4023,7 @@
       "mecm": [
         {
           "title": "Ge kontot läsbehörighet i Configuration Manager",
-          "body": "Gå till Administration > Security > Administrative Users i konsolen, lägg till kontot (eller dess AD-grupp) och tilldela rollen Read-only Analyst. Kontots säkerhetsomfång och samlingar avgör vad Bag of Words kan se."
+          "body": "Gå till Administration > Security > Administrative Users i konsolen, lägg till kontot (eller dess AD-grupp) och tilldela rollen Read-only Analyst. Kontots säkerhetsomfång och samlingar avgör vad BOW kan se."
         },
         {
           "title": "Kontrollera att administrationstjänsten svarar",
@@ -4283,7 +4348,10 @@
     "connection.kms_token_format": "KMS-API-token får bara innehålla vanliga bokstäver, siffror och skiljetecken, utan mellanslag. Kopiera den igen från KMS Lighthouse och klistra in den som oformaterad text.",
     "connection.kms_use_connection_credentials": "Inloggningar för KMS Lighthouse sparas på anslutningen. Öppna anslutningen och anslut därifrån.",
     "connection.kms_only": "Diagnostiken gäller endast KMS Lighthouse-anslutningar.",
-    "connection.kms_diagnostics_running": "Diagnostiken körs redan för den här anslutningen. Vänta tills den är klar och försök sedan igen."
+    "connection.kms_diagnostics_running": "Diagnostiken körs redan för den här anslutningen. Vänta tills den är klar och försök sedan igen.",
+    "connection.kms_login_rejected": "KMS Lighthouse godkände inte den här inloggningen, så den sparades inte. Kontrollera användarnamnet och lösenordet, eller API-token, och försök igen.",
+    "connection.kms_login_paused": "KMS Lighthouse nekade nyligen den här inloggningen, så nya försök med den är pausade i några minuter och den sparades inte. Kontrollera inloggningen eller försök igen senare.",
+    "connection.kms_session_refused": "KMS Lighthouse godkände inloggningen men nekade dess session, så den kan inte användas och sparades inte. Fråga KMS-administratören om det här kontot får använda KMS-API:t."
   },
   "email": {
     "dashboardShare": {
@@ -4798,7 +4866,7 @@
   "onboarding": {
     "loading": "Laddar...",
     "skip": "Hoppa över introduktion",
-    "welcome": "Välkommen till Bag of words! 🎉",
+    "welcome": "Välkommen till BOW! 🎉",
     "welcomeSubtitle": "Chatta med dina data, kör djupanalyser och skapa instrumentpaneler på några sekunder",
     "next": "Nästa",
     "fallbackTitle": "Kom igång",
@@ -4808,7 +4876,7 @@
     "intro1": "Att komma igång går snabbt: anslut bara din modell och din datakälla, så är du redo att ställa din första fråga.",
     "intro2": "👉 Nu sätter vi igång!",
     "steps": {
-      "onboardingTitle": "Välkommen till Bag of words! 🎉",
+      "onboardingTitle": "Välkommen till BOW! 🎉",
       "onboardingDescription": "Chatta med dina data, kör djupanalyser och skapa instrumentpaneler på några sekunder",
       "onboardingButton": "Välkommen",
       "llmTitle": "Konfigurera LLM",
@@ -5418,8 +5486,8 @@
     }
   },
   "mcpServerModal": {
-    "title": "Bag of words MCP-server",
-    "subtitle": "Anslut Claude, Cursor eller valfri MCP-klient för att fråga dina data via Bag of words MCP-server.",
+    "title": "BOW MCP-server",
+    "subtitle": "Anslut Claude, Cursor eller valfri MCP-klient för att fråga dina data via BOW MCP-server.",
     "loading": "Laddar...",
     "tabMcpClients": "MCP-klienter",
     "tabOauth": "OAuth",
@@ -5558,7 +5626,8 @@
     "modeChat": "Chatt",
     "modelAuto": "Auto",
     "noAgents": "Inga",
-    "project": "Projekt"
+    "project": "Projekt",
+    "agentsFromReport": "Använder rapportens agenter"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -6379,7 +6448,9 @@
     "noConnection": "Den här agenten har ingen anslutning än.",
     "notFound": "Anslutningen kunde inte hittas.",
     "forbidden": "Du har inte åtkomst till den här anslutningen.",
-    "loadFailed": "Det gick inte att läsa in anslutningen. Försök igen senare."
+    "loadFailed": "Det gick inte att läsa in anslutningen. Försök igen senare.",
+    "connected": "Ansluten",
+    "connectedAs": "Ansluten som {identity}"
   },
   "trackedChanges": {
     "noChanges": "Inga ändringar"
@@ -6716,6 +6787,8 @@
     "tabViewers": "Tittare",
     "tabData": "Data",
     "viewersDesc": "Vad personerna du delar med får.",
+    "widgetInfoTitle": "Visa detaljer på widgetar",
+    "widgetInfoDesc": "Lägger till en ⓘ-ikon på varje widget som öppnar dess data, kod och beräkning.",
     "dataDesc": "Frågorna bakom instrumentpanelen.",
     "unsaved": "Osparade ändringar",
     "tabGeneral": "Allmänt",
@@ -6781,7 +6854,7 @@
       "notPublished": "Det här har inte publicerats ännu. Det visas här när det har publicerats.",
       "notFound": "Det här är inte tillgängligt. Det kanske inte har publicerats ännu, eller så har det tagits bort.",
       "denied": "Du har inte åtkomst till det här. Be ägaren att dela det med dig.",
-      "notAllowed": "Det här är inte aktiverat för det här programmet. En redigerare kan tillåta det i dess inställningar för inbäddning i Bag of Words.",
+      "notAllowed": "Det här är inte aktiverat för det här programmet. En redigerare kan tillåta det i dess inställningar för inbäddning i BOW.",
       "failed": "Det gick inte att läsa in. Försök igen om en stund."
     }
   },
@@ -6812,6 +6885,35 @@
     "enabled": "Aktiverad",
     "embeddingEmpty": "Embedding is not configured",
     "oauthEmpty": "OAuth is not configured"
+  },
+  "connectors": {
+    "title": "Kopplingar",
+    "subtitle": "Dina egna konton och verktyg som AI:n kan använda. Varje koppling läser med din egen behörighet — ingen annan ser dina data.",
+    "browse": "Bläddra bland kopplingar",
+    "empty": "Inga kopplingar ännu.",
+    "search": "Sök kopplingar…",
+    "noResults": "Inga kopplingar matchar ”{q}”.",
+    "signIn": "Logga in",
+    "signOut": "Logga ut",
+    "remove": "Ta bort",
+    "statusConnected": "Ansluten",
+    "statusShared": "Delad",
+    "statusServiceAccount": "Tjänstekonto",
+    "statusOffline": "Anslut igen",
+    "statusNotConnected": "Inte ansluten",
+    "needsSignIn": "{n} koppling kräver inloggning | {n} kopplingar kräver inloggning",
+    "accessPersonal": "Använder ditt eget konto",
+    "accessShared": "Använder ett delat konto som en administratör har konfigurerat",
+    "addHint": "Lägg till fler kopplingar under Agenter → Lägg till anslutning.",
+    "askAdmin": "Be en administratör att lägga till fler kopplingar.",
+    "removeConfirm": "Ta bort {name} för alla i organisationen? Användarnas inloggningar tas också bort.",
+    "signedOut": "Utloggad från {name}",
+    "removed": "{name} borttagen",
+    "actionFailed": "Något gick fel",
+    "shareToggleLabel": "Gör tillgänglig för alla i organisationen",
+    "shareToggleHint": "Lägger till ”{name}” bland allas kopplingar. Var och en loggar in med sitt eget konto — ingen ser någon annans data.",
+    "useAsAgent": "Använd som agent",
+    "movedToAgents": "{name} är nu en agent"
   },
   "tablePreview": {
     "idle": "Tryck på Kör för att läsa in rader från källan.",
@@ -6873,5 +6975,35 @@
       "search": "sökning",
       "read": "läsning"
     }
+  },
+  "agentAccess": {
+    "addMember": "Lägg till medlem",
+    "membersHint": "Medlemmar kan fråga agenten. Tilldela ytterligare behörigheter nedan.",
+    "everyone": "Alla i organisationen",
+    "query": "Kan fråga",
+    "manage": "Kan hantera",
+    "custom": "Anpassad åtkomst",
+    "ownerHint": "Ägaren kan alltid hantera agenten.",
+    "editFor": "Redigera åtkomst för {name}",
+    "removeHint": "Tar bort uttryckligt medlemskap och behörigheter. Offentlig åtkomst eller åtkomst via grupp eller organisation kan kvarstå.",
+    "remove": "Ta bort",
+    "noMembers": "Inga uttryckliga medlemmar ännu.",
+    "addTo": "Lägg till personer i {name}",
+    "thisAgent": "den här agenten",
+    "who": "Vem",
+    "access": "Åtkomst",
+    "advanced": "Avancerade behörigheter",
+    "cancel": "Avbryt",
+    "saving": "Sparar…",
+    "save": "Spara",
+    "queryHint": "Ställ frågor till agenten",
+    "manageHint": "Konfigurera agenten och hantera dess medlemmar",
+    "addCount": "Lägg till {count}",
+    "add": "Lägg till",
+    "updated": "Behörigheter uppdaterade",
+    "updateFailed": "Kunde inte uppdatera behörigheter",
+    "addIncomplete": "Vissa medlemskap eller behörigheter kunde inte sparas. Granska listan och försök igen.",
+    "added": "Medlemmar tillagda",
+    "addFailed": "Kunde inte lägga till medlemmar"
   }
 }

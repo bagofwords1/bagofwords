@@ -1031,6 +1031,14 @@
   }
 
   window.InfoPopover = function(props) {
+    // Per-dashboard off switch (show_widget_info). The host writes
+    // window.__BOW_INFO into the iframe only when the dashboard carries the
+    // setting; left undefined (standalone/precompile/test renders) the popover
+    // shows as before. === false is the single value that hides it, and the
+    // InfoOverlay fallback below reads the same flag. The flag is constant for
+    // the document's life, so this early return never changes the hook count
+    // across renders of a given mounted instance.
+    if (window.__BOW_INFO === false) return null;
     var viz = props.viz;
     var _o = React.useState(false), open = _o[0], setOpen = _o[1];
     var _p = React.useState(null), pos = _p[0], setPos = _p[1];

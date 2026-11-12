@@ -254,7 +254,7 @@ class MecmClient(DataSourceClient):
             except ImportError as exc:  # pragma: no cover - depends on the optional extra
                 raise MecmError(
                     "Kerberos needs the 'kerberos' extra installed plus krb5.conf and a client "
-                    "keytab (KRB5_CLIENT_KTNAME) mounted on the Bag of Words server."
+                    "keytab (KRB5_CLIENT_KTNAME) mounted on the BOW server."
                 ) from exc
             keytab = os.environ.get("KRB5_CLIENT_KTNAME")
             name = gssapi.Name(self.principal, gssapi.NameType.kerberos_principal) if self.principal else None

@@ -1,4 +1,4 @@
-# Bag of Words UI surface
+# BOW UI surface
 
 Route inventory, access gating, and the traps that make a naive sweep produce wrong findings.
 Regenerate the route list with `find frontend/pages -type f -name '*.vue' | sort` — the file

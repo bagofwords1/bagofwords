@@ -70,7 +70,7 @@ class PreviewSpec:
 
     language: str = "sql"            # sql | dax | hogql — also the editor language
     quotes: tuple = _DOUBLE
-    bound: str = "limit"             # limit | top | rownum | none (source bounds it)
+    bound: str = "limit"             # limit | top | rownum | fetch_first | none (source bounds it)
     # Names stored as "<owner>.<table>" with no namespace in metadata_json.
     first_dot_is_namespace: bool = False
     # Names stored bare while metadata_json records the schema they live in;
@@ -116,6 +116,10 @@ SPECS: dict[str, PreviewSpec] = {
     "druid": PreviewSpec(),
     "pinot": PreviewSpec(),
     "sap_hana": PreviewSpec(case_fold="upper"),
+    # FETCH FIRST works on every Db2 release and platform; LIMIT needs
+    # LUW 11.1+ / z/OS 12+ / IBM i 7.2 TR3+.
+    "db2": PreviewSpec(bound="fetch_first", case_fold="upper"),
+    "ibmi": PreviewSpec(bound="fetch_first", case_fold="upper"),
 }
 
 # Namespace chains a client can record in metadata_json, longest first, so a
@@ -123,6 +127,8 @@ SPECS: dict[str, PreviewSpec] = {
 _NAMESPACE_CHAINS = (
     ("catalog", "schema"),
     ("project", "dataset"),
+    # Snowflake with several databases: "DATABASE.SCHEMA.TABLE".
+    ("database", "schema"),
     ("schema",),
     ("database",),
     ("dataset",),
@@ -226,6 +232,8 @@ def preview_sql(conn_type: str, table: ConnectionTable, limit: int, *, named: bo
     if spec.bound == "rownum":
         # ROWNUM rather than FETCH FIRST so Oracle 11g sources work.
         return f"SELECT {cols} FROM {ref} WHERE ROWNUM <= {n}"
+    if spec.bound == "fetch_first":
+        return f"SELECT {cols} FROM {ref} FETCH FIRST {n} ROWS ONLY"
     return f"SELECT {cols} FROM {ref} LIMIT {n}"
 
 

@@ -122,6 +122,16 @@
     "fileBrowserNoResults": "Keine Dateien passen zu „{q}“.",
     "fileBrowserSummaryKms": "{n} Dateien zum Blättern aufgelistet · die KMS-Berechtigungen bestimmen, was der Agent suchen und lesen kann",
     "fileBrowserSummary": "{n} Dateien im Bereich · der Agent liest nur diese · verweigerte Zugriffe werden protokolliert",
+    "fileBrowserRootMessages": "Alle Unterhaltungen",
+    "fileBrowserSearchMessages": "Nachrichten durchsuchen…",
+    "fileBrowserEmptyMessages": "Keine aktuellen Nachrichten in den Unterhaltungen, die du sehen kannst.",
+    "fileBrowserSummaryLive": "{n} aktuelle Nachrichten · live mit deinen eigenen Rechten gelesen · nichts wird gespeichert",
+    "countMessages": "{n} Nachricht | {n} Nachrichten",
+    "fileBrowserNoResultsMessages": "Keine Nachrichten passen zu „{q}“.",
+    "loadingMessages": "Nachrichten werden aus der Quelle geladen…",
+    "fileBrowserConnectRequiredMessages": "Verbinde dein Konto, um zu stöbern — diese Verbindung liest Nachrichten mit den Rechten jedes Nutzers.",
+    "liveSourceHint": "Live mit den Rechten jedes Nutzers durchsucht — nur Kanäle, Chats oder E-Mails, die er sehen kann. Nichts wird kopiert oder indexiert.",
+    "liveBadge": "Live",
     "fileBrowserTruncated": "Die ersten {shown} von {total} Dateien werden angezeigt – schränken Sie den Bereich der Verbindung ein, um den Rest zu sehen.",
     "fileBrowserOpenInSource": "In der Quelle öffnen",
     "fileBrowserClosePreview": "Vorschau schließen",
@@ -673,6 +683,22 @@
         "network": "Die Spracherkennung benötigt eine Netzwerkverbindung.",
         "failed": "Die Spracheingabe ist fehlgeschlagen. Bitte versuchen Sie es erneut."
       }
+    },
+    "slash": {
+      "menuTitle": "Befehle",
+      "compact": {
+        "description": "Ältere Runden zusammenfassen, um Kontext freizugeben",
+        "usage": "/compact · /compact <Fokus> · /compact keep 4",
+        "pending": "Wird komprimiert, sobald der Agent diesen Lauf beendet",
+        "running": "Kontext wird komprimiert…",
+        "doneContext": "{turns} Runden komprimiert · Kontext ~{before} → ~{after} Tokens",
+        "doneHistory": "{turns} Runden komprimiert · Verlauf ~{before} → ~{after} Tokens",
+        "alreadyRunning": "Komprimierung läuft bereits",
+        "failed": "Kontext konnte nicht komprimiert werden",
+        "degraded": "Ersatzzusammenfassung (ohne Modellzusammenfassung)",
+        "cancel": "Abbrechen",
+        "dismiss": "Schließen"
+      }
     }
   },
   "reports": {
@@ -1171,7 +1197,13 @@
       "scopeHint": "Gilt für Ihre Unterhaltungen in diesem Browser."
     },
     "readMore": "Mehr lesen",
-    "showLess": "Weniger anzeigen"
+    "showLess": "Weniger anzeigen",
+    "compactionShowSummary": "Zeigen, was der Agent aus komprimierten Runden weiß",
+    "compactionSummaryTitle": "Komprimierter Verlauf",
+    "compactionSummaryHint": "Der Agent sieht diese Zusammenfassung statt der Runden oberhalb der Linie.",
+    "compactingContext": "Kontext wird komprimiert…",
+    "compactionTurns": "{turns} Runden",
+    "compactionLast": "Letzte Komprimierung: Verlauf ~{before} → ~{after} Tokens"
   },
   "tools": {
     "common": {
@@ -1767,6 +1799,22 @@
       "filesSkippedSingular": "{count} Datei übersprungen ({reasons})",
       "filesSkippedPlural": "{count} Dateien übersprungen ({reasons})"
     },
+    "searchFiles": {
+      "foundIn": "Gefunden in:",
+      "fileName": "Dateiname",
+      "page": "Seite {n}",
+      "sheet": "Blatt {name}",
+      "offset": "Position {n}",
+      "partlyIndexed": "Nur teilweise indexiert (Größenlimit)",
+      "noText": "Kein durchsuchbarer Text (gescannt oder binär)",
+      "notIndexed": "Konnte nicht indexiert werden",
+      "indexFulltext": "Volltextindex",
+      "indexKeywords": "Stichwortindex",
+      "indexNames": "Treffer im Dateinamen",
+      "liveScan": "Live-Suche",
+      "plusLiveScan": "{index} + Live-Suche",
+      "indexedAt": "indexiert {when}"
+    },
     "listAgentExecutions": {
       "empty": "Keine Ausführungen gefunden",
       "failed": "Agentenausführungen konnten nicht geladen werden",
@@ -1967,6 +2015,7 @@
     "openPage": "Seite öffnen",
     "categories": {
       "dataSources": "Agenten",
+      "connectors": "Konnektoren",
       "queries": "Abfragen",
       "files": "Dateien",
       "tables": "Tabellen",
@@ -1991,6 +2040,9 @@
     "noRolesFound": "Keine Rollen gefunden",
     "noRolesHint": "Erstellen Sie eine Rolle, um Berechtigungen zu verwalten.",
     "system": "System",
+    "default": "Standard",
+    "defaultRoleHint": "Dies ist eine integrierte Rolle. Ihr Name ist fest – passen Sie unten ihre Berechtigungen an.",
+    "edit": "Bearbeiten",
     "fullAdmin": "Vollständiger Administrator",
     "permissionsCount": "{n} Berechtigungen",
     "editRole": "Rolle bearbeiten",
@@ -2252,7 +2304,7 @@
       "integrate": "Integrieren",
       "setup": "Einrichten",
       "excelAddinName": "Excel-Add-In",
-      "excelAddinDescription": "Laden Sie das Bag-of-Words-Add-In direkt von dieser Instanz",
+      "excelAddinDescription": "Laden Sie das BOW-Add-In direkt von dieser Instanz",
       "mcpName": "BOW MCP-Server",
       "mcpDescription": "Aktivieren Sie den MCP-Endpunkt zur Integration mit KI-Assistenten wie Cursor, Claude oder anderen",
       "channels": {
@@ -2547,9 +2599,9 @@
           "trustedConnecting": "Connecting to your trusted app…",
           "authorizationLoading": "Checking the authorization request…",
           "authorizationError": "Unable to authorize",
-          "goBack": "Go back to Bag of Words",
+          "goBack": "Go back to BOW",
           "authorizationTitle": "Authorize access",
-          "wantsAccess": "{name} wants to access your Bag of Words account.",
+          "wantsAccess": "{name} wants to access your BOW account.",
           "permissionsRequested": "Permissions requested",
           "appPermission": "Create and read reports, run completions, and use artifacts under your existing BOW permissions.",
           "mcpPermission": "Use the MCP tool surface under your existing BOW permissions.",
@@ -2574,7 +2626,7 @@
         },
         "excel": {
           "title": "Excel-Add-in",
-          "subtitle": "Laden Sie das Bag of Words-Add-in direkt aus dieser Instanz per Sideload.",
+          "subtitle": "Laden Sie das BOW-Add-in direkt aus dieser Instanz per Sideload.",
           "loading": "Wird geladen...",
           "setup": "Einrichtung",
           "step1": "Laden Sie die Manifestdatei unten herunter",
@@ -2622,9 +2674,18 @@
           "subscriptionPlaceholder": "projects/<project>/subscriptions/<name>",
           "subtitle": "Google-Chat-Integration für deine Organisation konfigurieren und verwalten",
           "title": "Google-Chat-Integration"
+        },
+        "routing": {
+          "title": "Kanal → Agent-Routing",
+          "desc": "Leiten Sie einen Kanal an bestimmte Agenten weiter. Ein Kanal ohne Zuordnung nutzt den Verbindungsstandard; ohne Standard stellt er alles bereit, worauf der Benutzer zugreifen kann. Das Routing schränkt den Zugriff nur ein – es gewährt nie mehr, als der Benutzer bereits hat.",
+          "connectionDefaultLabel": "Verbindungsstandard",
+          "connectionDefaultDesc": "Wird für Kanäle ohne eigene Zuordnung verwendet.",
+          "pickerPlaceholder": "Agenten auswählen…",
+          "channelsHeading": "Kanäle",
+          "noChannelsYet": "Noch keine Kanäle. Erwähnen Sie den Bot in einem Kanal, damit er hier erscheint, oder fügen Sie unten einen per ID hinzu."
         }
       },
-      "emptyTitle": "Bringen Sie Bag of Words mit Ihren Tools zum Einsatz",
+      "emptyTitle": "Bringen Sie BOW mit Ihren Tools zum Einsatz",
       "emptySubtitle": "Verbinden Sie Slack, Teams, E-Mail und mehr, damit Ihr Team den KI-Analysten dort erreichen kann, wo es bereits arbeitet. Wählen Sie eine Integration aus, um zu beginnen.",
       "selectHint": "Wählen Sie eine Integration aus",
       "slackDescription": "Lassen Sie Ihr Team aus Slack-Kanälen und DMs mit dem KI-Analysten chatten.",
@@ -2714,14 +2775,18 @@
       "attributesInviteHint": "Optional. Identifiziert das Mitglied in anderen Systemen, z. B. seinen Qlik-Benutzer oder seine Datenbankrolle.",
       "attributesSaved": "Attribute gespeichert",
       "attributesSaveFailed": "Attribute konnten nicht gespeichert werden",
-      "importAttributesHint": "Fügen Sie {column}-Spalten hinzu, um Attribute zu setzen, z. B. {example}. Eine leere Zelle lässt das Attribut unverändert."
+      "importAttributesHint": "Fügen Sie {column}-Spalten hinzu, um Attribute zu setzen, z. B. {example}. Eine leere Zelle lässt das Attribut unverändert.",
+      "defaultRoleHint": "Füllt die Rolle beim Hinzufügen oder Einladen eines Mitglieds vor.",
+      "defaultRoleSaved": "Standardrolle gespeichert",
+      "defaultRoleFailed": "Standardrolle konnte nicht gespeichert werden",
+      "defaultRoleShort": "Standardrolle"
     },
     "organizationName": "Organisationsname",
     "organizationIcon": "Organisationssymbol",
     "uploadIcon": "Symbol hochladen",
     "iconConstraints": "PNG/JPEG, ≤ 512 KB.",
     "aiAnalystName": "Name des KI-Analysten",
-    "showCredit": "„Made with Bag of words“-Hinweis anzeigen",
+    "showCredit": "„Made with BOW“-Hinweis anzeigen",
     "language": {
       "title": "Sprache",
       "description": "Legt die Standardsprache für die gesamte Organisation fest. Benutzer sehen die Oberfläche in dieser Sprache und die KI antwortet darin.",
@@ -3807,7 +3872,7 @@
     "saveIntegration": "Integration speichern",
     "loadFieldsFailed": "Felder konnten nicht geladen werden",
     "integrationReady": "Integration bereit",
-    "integrationReadyDesc": "{name} ist verbunden und ein öffentlicher Agent wurde erstellt. Benutzer können sich anmelden und loslegen.",
+    "integrationReadyDesc": "{name} ist jetzt für alle als Konnektor verfügbar. Jede Person meldet sich mit ihrem eigenen Konto an.",
     "integrationAgentFailed": "Integration gespeichert, aber die Agent-Erstellung ist fehlgeschlagen",
     "updateIntegrationFailed": "Integration konnte nicht aktualisiert werden",
     "createIntegrationFailed": "Integration konnte nicht erstellt werden",
@@ -3948,7 +4013,7 @@
         },
         {
           "title": "Zugriffsdatei ausgeben",
-          "body": "Als print_access_file.sh speichern und ausführen. Das Skript wartet auf das Token und gibt dann eine einzelne, eigenständige Datei aus (API-Server-URL, Cluster-CA, Token). Prüfen mit: kubectl --kubeconfig access.yaml get nodes. Ist die Server-URL nur in Ihrem Netzwerk erreichbar, ersetzen Sie sie durch die Adresse, die diese Bag-of-Words-Instanz erreichen kann."
+          "body": "Als print_access_file.sh speichern und ausführen. Das Skript wartet auf das Token und gibt dann eine einzelne, eigenständige Datei aus (API-Server-URL, Cluster-CA, Token). Prüfen mit: kubectl --kubeconfig access.yaml get nodes. Ist die Server-URL nur in Ihrem Netzwerk erreichbar, ersetzen Sie sie durch die Adresse, die diese BOW-Instanz erreichen kann."
         },
         {
           "title": "Unten einfügen und Verbindung testen",
@@ -3958,7 +4023,7 @@
       "mecm": [
         {
           "title": "Dem Konto Lesezugriff in Configuration Manager geben",
-          "body": "Öffnen Sie in der Konsole Administration > Security > Administrative Users, fügen Sie das Konto (oder seine AD-Gruppe) hinzu und weisen Sie die Rolle Read-only Analyst zu. Seine Sicherheitsbereiche und Sammlungen bestimmen, was Bag of Words sehen kann."
+          "body": "Öffnen Sie in der Konsole Administration > Security > Administrative Users, fügen Sie das Konto (oder seine AD-Gruppe) hinzu und weisen Sie die Rolle Read-only Analyst zu. Seine Sicherheitsbereiche und Sammlungen bestimmen, was BOW sehen kann."
         },
         {
           "title": "Prüfen, ob der Verwaltungsdienst antwortet",
@@ -4283,7 +4348,10 @@
     "connection.kms_token_format": "Das KMS-API-Token darf nur einfache Buchstaben, Ziffern und Satzzeichen enthalten, ohne Leerzeichen. Kopieren Sie es erneut aus KMS Lighthouse und fügen Sie es als reinen Text ein.",
     "connection.kms_use_connection_credentials": "KMS-Lighthouse-Anmeldungen werden in der Verbindung gespeichert. Öffnen Sie die Verbindung und verbinden Sie sich dort.",
     "connection.kms_only": "Die Diagnose gilt nur für KMS Lighthouse-Verbindungen.",
-    "connection.kms_diagnostics_running": "Für diese Verbindung läuft bereits eine Diagnose. Warten Sie, bis sie abgeschlossen ist, und versuchen Sie es dann erneut."
+    "connection.kms_diagnostics_running": "Für diese Verbindung läuft bereits eine Diagnose. Warten Sie, bis sie abgeschlossen ist, und versuchen Sie es dann erneut.",
+    "connection.kms_login_rejected": "KMS Lighthouse hat diese Anmeldung nicht akzeptiert, daher wurde sie nicht gespeichert. Prüfen Sie Benutzername und Passwort oder das API-Token und versuchen Sie es erneut.",
+    "connection.kms_login_paused": "KMS Lighthouse hat diese Anmeldung kürzlich abgelehnt. Neue Versuche damit sind für einige Minuten pausiert, und sie wurde nicht gespeichert. Prüfen Sie die Anmeldung oder versuchen Sie es später erneut.",
+    "connection.kms_session_refused": "KMS Lighthouse hat die Anmeldung akzeptiert, aber ihre Sitzung abgelehnt. Sie kann daher nicht verwendet werden und wurde nicht gespeichert. Fragen Sie den KMS-Administrator, ob dieses Konto die KMS-API verwenden darf."
   },
   "email": {
     "dashboardShare": {
@@ -4798,7 +4866,7 @@
   "onboarding": {
     "loading": "Lädt ...",
     "skip": "Onboarding überspringen",
-    "welcome": "Willkommen bei Bag of words! 🎉",
+    "welcome": "Willkommen bei BOW! 🎉",
     "welcomeSubtitle": "Chatten Sie mit Ihren Daten, führen Sie tiefgehende Analysen durch und erstellen Sie Dashboards in Sekunden",
     "next": "Weiter",
     "fallbackTitle": "Loslegen",
@@ -4808,7 +4876,7 @@
     "intro1": "Der Einstieg geht schnell: Verbinden Sie einfach Ihr Modell und Ihre Datenquelle, und Sie können Ihre erste Frage stellen.",
     "intro2": "👉 Lassen Sie uns alles einrichten!",
     "steps": {
-      "onboardingTitle": "Willkommen bei Bag of words! 🎉",
+      "onboardingTitle": "Willkommen bei BOW! 🎉",
       "onboardingDescription": "Chatten Sie mit Ihren Daten, führen Sie tiefgehende Analysen durch und erstellen Sie Dashboards in Sekunden",
       "onboardingButton": "Willkommen",
       "llmTitle": "LLM konfigurieren",
@@ -5418,8 +5486,8 @@
     }
   },
   "mcpServerModal": {
-    "title": "Bag of words MCP-Server",
-    "subtitle": "Verbinden Sie Claude, Cursor oder einen beliebigen MCP-Client, um Ihre Daten über den Bag of words MCP-Server abzufragen.",
+    "title": "BOW MCP-Server",
+    "subtitle": "Verbinden Sie Claude, Cursor oder einen beliebigen MCP-Client, um Ihre Daten über den BOW MCP-Server abzufragen.",
     "loading": "Lädt ...",
     "tabMcpClients": "MCP-Clients",
     "tabOauth": "OAuth",
@@ -5558,7 +5626,8 @@
     "modeChat": "Chat",
     "modelAuto": "Auto",
     "noAgents": "Keine",
-    "project": "Projekt"
+    "project": "Projekt",
+    "agentsFromReport": "Verwendet die Agenten des Berichts"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -6379,7 +6448,9 @@
     "noConnection": "Dieser Agent hat noch keine Verbindung.",
     "notFound": "Diese Verbindung wurde nicht gefunden.",
     "forbidden": "Sie haben keinen Zugriff auf diese Verbindung.",
-    "loadFailed": "Die Verbindung konnte nicht geladen werden. Versuchen Sie es später erneut."
+    "loadFailed": "Die Verbindung konnte nicht geladen werden. Versuchen Sie es später erneut.",
+    "connected": "Verbunden",
+    "connectedAs": "Verbunden als {identity}"
   },
   "trackedChanges": {
     "noChanges": "Keine Änderungen"
@@ -6716,6 +6787,8 @@
     "tabViewers": "Betrachter",
     "tabData": "Daten",
     "viewersDesc": "Was die Personen bekommen, mit denen Sie es teilen.",
+    "widgetInfoTitle": "Details auf Widgets anzeigen",
+    "widgetInfoDesc": "Fügt jedem Widget ein ⓘ-Symbol hinzu, das seine Daten, seinen Code und seine Berechnung öffnet.",
     "dataDesc": "Die Abfragen hinter diesem Dashboard.",
     "unsaved": "Ungespeicherte Änderungen",
     "tabGeneral": "Allgemein",
@@ -6781,7 +6854,7 @@
       "notPublished": "Dies wurde noch nicht veröffentlicht. Es erscheint hier, sobald es veröffentlicht ist.",
       "notFound": "Dies ist nicht verfügbar. Möglicherweise wurde es noch nicht veröffentlicht oder es wurde entfernt.",
       "denied": "Sie haben keinen Zugriff darauf. Bitten Sie den Eigentümer, es mit Ihnen zu teilen.",
-      "notAllowed": "Dies ist für diese Anwendung nicht aktiviert. Ein Bearbeiter kann es in den Einbettungseinstellungen in Bag of Words erlauben.",
+      "notAllowed": "Dies ist für diese Anwendung nicht aktiviert. Ein Bearbeiter kann es in den Einbettungseinstellungen in BOW erlauben.",
       "failed": "Das konnte nicht geladen werden. Versuchen Sie es gleich noch einmal."
     }
   },
@@ -6812,6 +6885,35 @@
     "enabled": "Aktiviert",
     "embeddingEmpty": "Embedding is not configured",
     "oauthEmpty": "OAuth is not configured"
+  },
+  "connectors": {
+    "title": "Konnektoren",
+    "subtitle": "Deine eigenen Konten und Tools, die die KI nutzen kann. Jeder Konnektor liest mit deinen eigenen Rechten — niemand sonst sieht deine Daten.",
+    "browse": "Konnektoren durchsuchen",
+    "empty": "Noch keine Konnektoren.",
+    "search": "Konnektoren suchen…",
+    "noResults": "Keine Konnektoren passen zu „{q}“.",
+    "signIn": "Anmelden",
+    "signOut": "Abmelden",
+    "remove": "Entfernen",
+    "statusConnected": "Verbunden",
+    "statusShared": "Geteilt",
+    "statusServiceAccount": "Dienstkonto",
+    "statusOffline": "Neu verbinden",
+    "statusNotConnected": "Nicht verbunden",
+    "needsSignIn": "{n} Konnektor erfordert eine Anmeldung | {n} Konnektoren erfordern eine Anmeldung",
+    "accessPersonal": "Nutzt dein eigenes Konto",
+    "accessShared": "Nutzt ein von einem Admin eingerichtetes geteiltes Konto",
+    "addHint": "Weitere Konnektoren unter Agenten → Verbindung hinzufügen.",
+    "askAdmin": "Bitte einen Admin, weitere Konnektoren hinzuzufügen.",
+    "removeConfirm": "{name} für alle in der Organisation entfernen? Die Anmeldungen der Nutzer werden ebenfalls entfernt.",
+    "signedOut": "Von {name} abgemeldet",
+    "removed": "{name} entfernt",
+    "actionFailed": "Etwas ist schiefgelaufen",
+    "shareToggleLabel": "Für alle in deiner Organisation verfügbar machen",
+    "shareToggleHint": "Fügt „{name}“ zu den Konnektoren aller hinzu. Jede Person meldet sich mit ihrem eigenen Konto an — niemand sieht die Daten anderer.",
+    "useAsAgent": "Als Agent verwenden",
+    "movedToAgents": "{name} ist jetzt ein Agent"
   },
   "tablePreview": {
     "idle": "Auf „Ausführen“ klicken, um Zeilen aus der Quelle zu laden.",
@@ -6873,5 +6975,35 @@
       "search": "Suche",
       "read": "Lesen"
     }
+  },
+  "agentAccess": {
+    "addMember": "Mitglied hinzufügen",
+    "membersHint": "Mitglieder können diesen Agenten befragen. Zusätzliche Berechtigungen unten zuweisen.",
+    "everyone": "Alle in der Organisation",
+    "query": "Darf abfragen",
+    "manage": "Darf verwalten",
+    "custom": "Benutzerdefinierter Zugriff",
+    "ownerHint": "Der Eigentümer kann diesen Agenten immer verwalten.",
+    "editFor": "Zugriff für {name} bearbeiten",
+    "removeHint": "Entfernt direkte Mitgliedschaft und Berechtigungen. Öffentlicher Zugriff sowie Gruppen- oder Organisationszugriff können weiter gelten.",
+    "remove": "Entfernen",
+    "noMembers": "Noch keine direkten Mitglieder.",
+    "addTo": "Personen zu {name} hinzufügen",
+    "thisAgent": "diesem Agenten",
+    "who": "Wer",
+    "access": "Zugriff",
+    "advanced": "Erweiterte Berechtigungen",
+    "cancel": "Abbrechen",
+    "saving": "Speichern…",
+    "save": "Speichern",
+    "queryHint": "Diesem Agenten Fragen stellen",
+    "manageHint": "Agenten konfigurieren und Mitglieder verwalten",
+    "addCount": "{count} hinzufügen",
+    "add": "Hinzufügen",
+    "updated": "Berechtigungen aktualisiert",
+    "updateFailed": "Berechtigungen konnten nicht aktualisiert werden",
+    "addIncomplete": "Einige Mitgliedschaften oder Berechtigungen konnten nicht gespeichert werden. Liste prüfen und erneut versuchen.",
+    "added": "Mitglieder hinzugefügt",
+    "addFailed": "Mitglieder konnten nicht hinzugefügt werden"
   }
 }

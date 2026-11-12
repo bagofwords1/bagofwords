@@ -793,8 +793,9 @@ def _digest_scheduled_tool(tool_execution) -> str:
 # tools (list_emails / search_email / read_email, added for Outlook mailboxes)
 # are thin subclasses of the file tools and return the IDENTICAL result shape,
 # so they digest through the exact same code — just add the names here.
-_FILE_LIST_TOOLS = ('list_files', 'search_files', 'list_emails', 'search_email')
-_FILE_READ_TOOLS = ('read_file', 'read_email', 'read_note')
+_FILE_LIST_TOOLS = ('list_files', 'search_files', 'list_emails', 'search_email',
+                    'list_chat_messages', 'search_chat_messages')
+_FILE_READ_TOOLS = ('read_file', 'read_email', 'read_note', 'read_chat_thread')
 _FILE_DIGEST_TOOLS = _FILE_LIST_TOOLS + _FILE_READ_TOOLS + ('attach_file',)
 
 # Rows of a listing to keep in the cross-turn digest, each WITH its id. The id
@@ -990,6 +991,11 @@ class MessageContextBuilder:
         # keep the long-standing rendered Tool: lines and pay no transcript
         # assembly cost.
         self.use_durable_transcript = False
+        # Completions whose tool turns must NOT be rebuilt into the durable
+        # transcript — the agent's own in-progress completion when it reloads
+        # history mid-run: its calls already live in the run's transcript, and
+        # replaying them twice duplicates provider call ids.
+        self.durable_exclude_completion_ids: set = set()
 
     def get_durable_transcript(self):
         """Return the native tool turns from the latest live-window build."""
@@ -2144,16 +2150,43 @@ class MessageContextBuilder:
             report_completions = (await self.db.execute(completions_query)).scalars().all()
             report_completions = list(reversed(report_completions))
 
+        trailing_user_excluded = bool(
+            completion_ids is None and report_completions and report_completions[-1].role == 'user'
+        )
         completions_to_process = (
-            report_completions[:-1]
-            if completion_ids is None and report_completions and report_completions[-1].role == 'user'
-            else report_completions
+            report_completions[:-1] if trailing_user_excluded else report_completions
         )
 
         if role_filter:
             completions_to_process = [c for c in completions_to_process if c.role in role_filter]
 
-        completions_to_process = completions_to_process[-max_messages:]
+        # The compaction fold path asks for exactly these rows: every one of
+        # them is about to fall behind the watermark, so none may be sliced
+        # away here (they would vanish from history without being summarized).
+        if completion_ids is None:
+            completions_to_process = completions_to_process[-max_messages:]
+
+        # Rows past the watermark that the live window could not show. They
+        # are in neither the detailed window nor the summary, so the agent's
+        # governor folds them (see MessagesSection.dropped_count).
+        dropped_rows = 0
+        if completion_ids is None and not role_filter and len(report_completions) > max_messages:
+            try:
+                count_query = _not_sub_agent_child(
+                    select(func.count(Completion.id))
+                    .filter(Completion.report_id == self.report.id)
+                    .filter(Completion.message_type != 'context_compaction')
+                    .filter(Completion.status != 'queued')
+                    .filter(Completion.role != EVENT_ROLE)
+                )
+                if watermark_created_at is not None:
+                    count_query = count_query.filter(Completion.created_at > watermark_created_at)
+                total_rows = int((await self.db.execute(count_query)).scalar() or 0)
+                dropped_rows = max(
+                    total_rows - len(completions_to_process) - (1 if trailing_user_excluded else 0), 0
+                )
+            except Exception:
+                dropped_rows = 0
 
         # Steering rows targeting a STILL-RUNNING completion reach the planner
         # via <steering_updates> — including them here too would duplicate
@@ -2351,7 +2384,10 @@ class MessageContextBuilder:
                     self._durable_transcript,
                     self._durable_tool_execution_ids,
                 ) = build_durable_transcript(
-                    completions=completions_to_process,
+                    completions=[
+                        c for c in completions_to_process
+                        if str(getattr(c, "id", "")) not in self.durable_exclude_completion_ids
+                    ],
                     blocks_by_completion=blocks_by_completion,
                     tool_exec_by_id=tool_exec_by_id,
                     allow_llm_see_data=allow_llm_see_data,
@@ -2741,9 +2777,12 @@ class MessageContextBuilder:
         # Protected opening exchange: once a watermark exists those rows sit
         # behind it (excluded by the window query) — prepend them so the first
         # ask is always in context. Minification compresses them naturally.
-        if summary_text is not None and completion_ids is None:
+        if (summary_text is not None or dropped_rows > 0) and completion_ids is None:
             head_items: List[MessageItem] = []
+            shown_ids = {str(c.id) for c in completions_to_process}
             for c in await self._protected_head_completions():
+                if str(c.id) in shown_ids:
+                    continue  # still inside the detailed window
                 text = self._plain_text_of(c)
                 if text:
                     head_items.append(MessageItem(
@@ -2752,8 +2791,12 @@ class MessageContextBuilder:
                         text=text,
                     ))
             items = head_items + items
+            return MessagesSection(
+                items=items, history_summary=summary_text,
+                head_count=len(head_items), dropped_count=dropped_rows,
+            )
 
-        return MessagesSection(items=items, history_summary=summary_text)
+        return MessagesSection(items=items, history_summary=summary_text, dropped_count=dropped_rows)
     
     async def get_message_count(self, role_filter: Optional[List[str]] = None) -> int:
         """Get total number of messages for this report."""
