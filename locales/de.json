@@ -471,6 +471,14 @@
       "delivery_skipped": {
         "title": "Einige Empfänger haben „{report}“ nicht erhalten",
         "body": "{count} Empfänger haben diesen Bericht nicht erhalten, da er Daten enthält, die für jeden Betrachter individuell sind: {recipients}"
+      },
+      "access_request": {
+        "title": "{actor} möchte {dashboard} ansehen",
+        "body": "{actor} hat angefragt, „{dashboard}“ anzusehen."
+      },
+      "access_granted": {
+        "title": "Du kannst {dashboard} jetzt ansehen",
+        "body": "Deine Anfrage, „{dashboard}“ anzusehen, wurde genehmigt."
       }
     },
     "checkin": {
@@ -3219,6 +3227,10 @@
         "enable_demo_data_generation": {
           "name": "Demo-Datengenerierung",
           "description": "Im Trainingsmodus können Admins, die Verbindungen verwalten dürfen, den Agenten bitten, einen realistischen fiktiven SQLite-Datensatz für jede Domäne zu entwerfen und zu erzeugen und darauf vorgeschlagene Agenten anzulegen. Die Zeilen erzeugt das kleine Standardmodell."
+        },
+        "allow_access_requests": {
+          "name": "Zugriffsanfragen zulassen",
+          "description": "Lass Mitglieder auf der Seite ohne Zugriff die Bearbeiter eines Dashboards um Lesezugriff bitten. Wenn deaktiviert, nennt die Seite nur den Eigentümer und es können keine neuen Anfragen gesendet werden; bereits gesendete Anfragen bleiben beantwortbar."
         }
       }
     },
@@ -4283,7 +4295,15 @@
     "connection.kms_token_format": "Das KMS-API-Token darf nur einfache Buchstaben, Ziffern und Satzzeichen enthalten, ohne Leerzeichen. Kopieren Sie es erneut aus KMS Lighthouse und fügen Sie es als reinen Text ein.",
     "connection.kms_use_connection_credentials": "KMS-Lighthouse-Anmeldungen werden in der Verbindung gespeichert. Öffnen Sie die Verbindung und verbinden Sie sich dort.",
     "connection.kms_only": "Die Diagnose gilt nur für KMS Lighthouse-Verbindungen.",
-    "connection.kms_diagnostics_running": "Für diese Verbindung läuft bereits eine Diagnose. Warten Sie, bis sie abgeschlossen ist, und versuchen Sie es dann erneut."
+    "connection.kms_diagnostics_running": "Für diese Verbindung läuft bereits eine Diagnose. Warten Sie, bis sie abgeschlossen ist, und versuchen Sie es dann erneut.",
+    "access_request.disabled": "Zugriffsanfragen sind für diese Organisation deaktiviert.",
+    "access_request.not_allowed": "Dieses Dashboard benötigt keine Zugriffsanfrage.",
+    "access_request.already_has_access": "Du hast bereits Zugriff auf dieses Dashboard.",
+    "access_request.pending": "Deine Anfrage ist bereits ausstehend.",
+    "access_request.too_soon": "Deine vorherige Anfrage wurde abgelehnt. Du kannst es später erneut versuchen.",
+    "access_request.no_approvers": "Derzeit kann niemand Anfragen für dieses Dashboard genehmigen.",
+    "access_request.not_found": "Diese Anfrage existiert nicht mehr.",
+    "access_request.already_decided": "Diese Anfrage wurde bereits beantwortet."
   },
   "email": {
     "dashboardShare": {
@@ -6683,6 +6703,29 @@
       "deniedBody": "Sie haben keinen Zugriff auf diese Seite. Bitten Sie den Eigentümer, sie mit Ihnen zu teilen.",
       "goHome": "Zur Startseite",
       "backToApp": "Zurück zur App"
+    },
+    "accessRequest": {
+      "noAccessTitle": "Du hast keinen Zugriff",
+      "ownerLine": "Dieses Dashboard gehört {owner}.",
+      "ownerUnknown": "Du hast keinen Zugriff auf dieses Dashboard.",
+      "requestButton": "Zugriff anfragen",
+      "notePlaceholder": "Notiz hinzufügen (optional)",
+      "send": "Anfrage senden",
+      "cancel": "Abbrechen",
+      "sent": "Anfrage gesendet",
+      "pending": "Deine Anfrage ist ausstehend",
+      "askOwner": "Frage den Dashboard-Eigentümer, {owner}.",
+      "askOwnerGeneric": "Frage den Dashboard-Eigentümer um Zugriff.",
+      "noApprovers": "Derzeit kann niemand Anfragen für dieses Dashboard genehmigen.",
+      "cooldown": "Deine vorherige Anfrage wurde abgelehnt. Du kannst es später erneut versuchen.",
+      "pendingTitle": "Ausstehende Anfragen",
+      "approve": "Genehmigen",
+      "deny": "Ablehnen",
+      "noteFrom": "Notiz von {name}",
+      "switchesPrivate": "Beim Genehmigen wird dieses Dashboard auf „Bestimmte Personen“ umgestellt und diese Person als Betrachter hinzugefügt.",
+      "runsAsCreator": "Dieses Dashboard läuft mit dem Datenzugriff von {creator}. Beim Genehmigen sieht diese Person, was {creator} sieht.",
+      "approveTitle": "Zugriffsanfrage genehmigen",
+      "confirmApprove": "Genehmigen"
     }
   },
   "dashboardSettings": {

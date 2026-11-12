@@ -248,3 +248,4 @@ from app.models import artifact_release  # noqa: E402,F401
 from app.models import dashboard_refresh_run  # noqa: E402,F401
 from app.models import artifact_star  # noqa: E402,F401
 from app.models import artifact_list_seen  # noqa: E402,F401
+from app.models import dashboard_access_request  # noqa: E402,F401

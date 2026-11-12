@@ -471,6 +471,14 @@
       "delivery_skipped": {
         "title": "Vissa mottagare fick inte \"{report}\"",
         "body": "{count} mottagare fick inte rapporten eftersom den innehåller data som är specifik för varje användare: {recipients}"
+      },
+      "access_request": {
+        "title": "{actor} bad att få se {dashboard}",
+        "body": "{actor} bad att få se ”{dashboard}”."
+      },
+      "access_granted": {
+        "title": "Du kan nu se {dashboard}",
+        "body": "Din begäran att se ”{dashboard}” godkändes."
       }
     },
     "checkin": {
@@ -3219,6 +3227,10 @@
         "enable_demo_data_generation": {
           "name": "Generering av demodata",
           "description": "I träningsläge kan administratörer som hanterar anslutningar be agenten designa och generera en realistisk fiktiv SQLite-datamängd för valfri domän och sedan skapa föreslagna agenter ovanpå. Raderna genereras av den lilla standardmodellen."
+        },
+        "allow_access_requests": {
+          "name": "Tillåt åtkomstbegäranden",
+          "description": "Låt medlemmar be en instrumentpanels redigerare om visningsåtkomst från sidan utan åtkomst. När det är av visar sidan bara ägaren och inga nya begäranden kan skickas; redan skickade begäranden går fortfarande att besvara."
         }
       }
     },
@@ -4283,7 +4295,15 @@
     "connection.kms_token_format": "KMS-API-token får bara innehålla vanliga bokstäver, siffror och skiljetecken, utan mellanslag. Kopiera den igen från KMS Lighthouse och klistra in den som oformaterad text.",
     "connection.kms_use_connection_credentials": "Inloggningar för KMS Lighthouse sparas på anslutningen. Öppna anslutningen och anslut därifrån.",
     "connection.kms_only": "Diagnostiken gäller endast KMS Lighthouse-anslutningar.",
-    "connection.kms_diagnostics_running": "Diagnostiken körs redan för den här anslutningen. Vänta tills den är klar och försök sedan igen."
+    "connection.kms_diagnostics_running": "Diagnostiken körs redan för den här anslutningen. Vänta tills den är klar och försök sedan igen.",
+    "access_request.disabled": "Åtkomstbegäranden är avstängda för den här organisationen.",
+    "access_request.not_allowed": "Den här instrumentpanelen behöver ingen åtkomstbegäran.",
+    "access_request.already_has_access": "Du har redan åtkomst till den här instrumentpanelen.",
+    "access_request.pending": "Din begäran väntar redan.",
+    "access_request.too_soon": "Din tidigare begäran avslogs. Du kan begära igen senare.",
+    "access_request.no_approvers": "Just nu finns det ingen som kan godkänna begäranden för den här instrumentpanelen.",
+    "access_request.not_found": "Den här begäran finns inte längre.",
+    "access_request.already_decided": "Den här begäran har redan besvarats."
   },
   "email": {
     "dashboardShare": {
@@ -6683,6 +6703,29 @@
       "deniedBody": "Du har inte åtkomst till den här sidan. Be ägaren att dela den med dig.",
       "goHome": "Till startsidan",
       "backToApp": "Tillbaka till appen"
+    },
+    "accessRequest": {
+      "noAccessTitle": "Du har inte åtkomst",
+      "ownerLine": "Den här instrumentpanelen tillhör {owner}.",
+      "ownerUnknown": "Du har inte åtkomst till den här instrumentpanelen.",
+      "requestButton": "Begär åtkomst",
+      "notePlaceholder": "Lägg till en notering (valfritt)",
+      "send": "Skicka begäran",
+      "cancel": "Avbryt",
+      "sent": "Begäran skickad",
+      "pending": "Din begäran väntar",
+      "askOwner": "Be instrumentpanelens ägare, {owner}, om åtkomst.",
+      "askOwnerGeneric": "Be instrumentpanelens ägare om åtkomst.",
+      "noApprovers": "Just nu finns det ingen som kan godkänna begäranden för den här instrumentpanelen.",
+      "cooldown": "Din tidigare begäran avslogs. Du kan begära igen senare.",
+      "pendingTitle": "Väntande begäranden",
+      "approve": "Godkänn",
+      "deny": "Neka",
+      "noteFrom": "Notering från {name}",
+      "switchesPrivate": "Att godkänna ändrar den här instrumentpanelen till ”Specifika personer” och lägger till personen som visningsanvändare.",
+      "runsAsCreator": "Den här instrumentpanelen körs med {creator}s dataåtkomst. Att godkänna låter personen se det {creator} ser.",
+      "approveTitle": "Godkänn åtkomstbegäran",
+      "confirmApprove": "Godkänn"
     }
   },
   "dashboardSettings": {

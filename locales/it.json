@@ -471,6 +471,14 @@
       "delivery_skipped": {
         "title": "Alcuni destinatari non hanno ricevuto \"{report}\"",
         "body": "{count} destinatari non hanno ricevuto questo report perché contiene dati specifici per ciascun utente: {recipients}"
+      },
+      "access_request": {
+        "title": "{actor} ha chiesto di vedere {dashboard}",
+        "body": "{actor} ha chiesto di vedere «{dashboard}»."
+      },
+      "access_granted": {
+        "title": "Ora puoi vedere {dashboard}",
+        "body": "La tua richiesta di vedere «{dashboard}» è stata approvata."
       }
     },
     "checkin": {
@@ -3219,6 +3227,10 @@
         "enable_demo_data_generation": {
           "name": "Generazione dati demo",
           "description": "In modalità addestramento, gli amministratori che gestiscono le connessioni possono chiedere all'agente di progettare e generare un set di dati SQLite fittizio e realistico per qualsiasi dominio, e poi creare gli agenti suggeriti. Le righe sono generate dal modello piccolo predefinito."
+        },
+        "allow_access_requests": {
+          "name": "Consenti richieste di accesso",
+          "description": "Consente ai membri di chiedere l'accesso in lettura agli editor di una dashboard dalla pagina senza accesso. Se disattivato, la pagina indica solo il proprietario e non è possibile inviare nuove richieste; quelle già inviate restano gestibili."
         }
       }
     },
@@ -4283,7 +4295,15 @@
     "connection.kms_token_format": "Il token API di KMS può contenere solo lettere, cifre e segni di punteggiatura semplici, senza spazi. Copialo di nuovo da KMS Lighthouse e incollalo come testo semplice.",
     "connection.kms_use_connection_credentials": "Gli accessi a KMS Lighthouse vengono salvati nella connessione. Apri la connessione e connettiti da lì.",
     "connection.kms_only": "La diagnostica si applica solo alle connessioni KMS Lighthouse.",
-    "connection.kms_diagnostics_running": "La diagnostica è già in esecuzione per questa connessione. Attendi che termini, quindi riprova."
+    "connection.kms_diagnostics_running": "La diagnostica è già in esecuzione per questa connessione. Attendi che termini, quindi riprova.",
+    "access_request.disabled": "Le richieste di accesso sono disattivate per questa organizzazione.",
+    "access_request.not_allowed": "Questa dashboard non richiede una richiesta di accesso.",
+    "access_request.already_has_access": "Hai già accesso a questa dashboard.",
+    "access_request.pending": "La tua richiesta è già in sospeso.",
+    "access_request.too_soon": "La tua richiesta precedente è stata rifiutata. Puoi richiederla di nuovo più tardi.",
+    "access_request.no_approvers": "Al momento nessuno può approvare le richieste per questa dashboard.",
+    "access_request.not_found": "Questa richiesta non esiste più.",
+    "access_request.already_decided": "Questa richiesta è già stata gestita."
   },
   "email": {
     "dashboardShare": {
@@ -6683,6 +6703,29 @@
       "deniedBody": "Non hai accesso a questa pagina. Chiedi al proprietario di condividerla con te.",
       "goHome": "Vai alla home",
       "backToApp": "Torna all'app"
+    },
+    "accessRequest": {
+      "noAccessTitle": "Non hai accesso",
+      "ownerLine": "Questa dashboard appartiene a {owner}.",
+      "ownerUnknown": "Non hai accesso a questa dashboard.",
+      "requestButton": "Richiedi accesso",
+      "notePlaceholder": "Aggiungi una nota (facoltativo)",
+      "send": "Invia richiesta",
+      "cancel": "Annulla",
+      "sent": "Richiesta inviata",
+      "pending": "La tua richiesta è in attesa",
+      "askOwner": "Chiedi l'accesso al proprietario della dashboard, {owner}.",
+      "askOwnerGeneric": "Chiedi l'accesso al proprietario della dashboard.",
+      "noApprovers": "Al momento nessuno può approvare le richieste per questa dashboard.",
+      "cooldown": "La tua richiesta precedente è stata rifiutata. Puoi richiederla di nuovo più tardi.",
+      "pendingTitle": "Richieste in sospeso",
+      "approve": "Approva",
+      "deny": "Rifiuta",
+      "noteFrom": "Nota da {name}",
+      "switchesPrivate": "L'approvazione imposta questa dashboard su «Persone specifiche» e aggiunge questa persona come visualizzatore.",
+      "runsAsCreator": "Questa dashboard viene eseguita con l'accesso ai dati di {creator}. L'approvazione consente a questa persona di vedere ciò che vede {creator}.",
+      "approveTitle": "Approva richiesta di accesso",
+      "confirmApprove": "Approva"
     }
   },
   "dashboardSettings": {

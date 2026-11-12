@@ -490,6 +490,14 @@
       "delivery_skipped": {
         "title": "Algunos destinatarios no recibieron \"{report}\"",
         "body": "{count} destinatario(s) no recibieron este informe porque contiene datos específicos de cada usuario: {recipients}"
+      },
+      "access_request": {
+        "title": "{actor} pidió ver {dashboard}",
+        "body": "{actor} pidió ver «{dashboard}»."
+      },
+      "access_granted": {
+        "title": "Ya puedes ver {dashboard}",
+        "body": "Tu solicitud para ver «{dashboard}» fue aprobada."
       }
     },
     "checkin": {
@@ -3545,6 +3553,10 @@
         "sandbox_lists_max_rows": {
           "name": "Máximo de filas de lista por ejecución",
           "description": "Cuántas filas puede enviar a las listas del agente una ejecución del código generado. De 1 a 50.000."
+        },
+        "allow_access_requests": {
+          "name": "Permitir solicitudes de acceso",
+          "description": "Permite que los miembros pidan acceso de lectura a los editores de un panel desde la página de sin acceso. Cuando está desactivado, la página solo indica a quién pedírselo y no se pueden enviar nuevas solicitudes; las ya enviadas siguen pudiéndose responder."
         }
       }
     },
@@ -4656,7 +4668,15 @@
     "connection.kms_token_format": "El token de API de KMS solo puede contener letras, dígitos y signos de puntuación simples, sin espacios. Cópialo de nuevo desde KMS Lighthouse y pégalo como texto sin formato.",
     "connection.kms_use_connection_credentials": "Los inicios de sesión de KMS Lighthouse se guardan en la conexión. Abre la conexión y conéctate desde allí.",
     "connection.kms_only": "El diagnóstico solo se aplica a las conexiones de KMS Lighthouse.",
-    "connection.kms_diagnostics_running": "El diagnóstico ya se está ejecutando para esta conexión. Espere a que termine e inténtelo de nuevo."
+    "connection.kms_diagnostics_running": "El diagnóstico ya se está ejecutando para esta conexión. Espere a que termine e inténtelo de nuevo.",
+    "access_request.disabled": "Las solicitudes de acceso están desactivadas para esta organización.",
+    "access_request.not_allowed": "Este panel no necesita una solicitud de acceso.",
+    "access_request.already_has_access": "Ya tienes acceso a este panel.",
+    "access_request.pending": "Tu solicitud ya está pendiente.",
+    "access_request.too_soon": "Tu solicitud anterior fue rechazada. Puedes volver a pedirla más adelante.",
+    "access_request.no_approvers": "Ahora mismo no hay nadie que pueda aprobar solicitudes de este panel.",
+    "access_request.not_found": "Esta solicitud ya no existe.",
+    "access_request.already_decided": "Esta solicitud ya fue respondida."
   },
   "email": {
     "dashboardShare": {
@@ -7196,6 +7216,29 @@
       "deniedBody": "No tienes acceso a esta página. Pide a su propietario que la comparta contigo.",
       "goHome": "Ir al inicio",
       "backToApp": "Volver a la app"
+    },
+    "accessRequest": {
+      "noAccessTitle": "No tienes acceso",
+      "ownerLine": "Este panel pertenece a {owner}.",
+      "ownerUnknown": "No tienes acceso a este panel.",
+      "requestButton": "Solicitar acceso",
+      "notePlaceholder": "Agrega una nota (opcional)",
+      "send": "Enviar solicitud",
+      "cancel": "Cancelar",
+      "sent": "Solicitud enviada",
+      "pending": "Tu solicitud está pendiente",
+      "askOwner": "Pide acceso al propietario del panel, {owner}.",
+      "askOwnerGeneric": "Pide acceso al propietario del panel.",
+      "noApprovers": "Ahora mismo no hay nadie que pueda aprobar solicitudes de este panel.",
+      "cooldown": "Tu solicitud anterior fue rechazada. Puedes volver a pedirla más adelante.",
+      "pendingTitle": "Solicitudes pendientes",
+      "approve": "Aprobar",
+      "deny": "Denegar",
+      "noteFrom": "Nota de {name}",
+      "switchesPrivate": "Al aprobar, este panel cambia a «Personas específicas» y se añade a esta persona como visor.",
+      "runsAsCreator": "Este panel se ejecuta con el acceso a datos de {creator}. Al aprobar, esta persona verá lo que ve {creator}.",
+      "approveTitle": "Aprobar solicitud de acceso",
+      "confirmApprove": "Aprobar"
     }
   },
   "dashboardSettings": {
