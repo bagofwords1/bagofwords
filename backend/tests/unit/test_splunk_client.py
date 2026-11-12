@@ -918,6 +918,39 @@ _REFUSED_SPL += [
     "index=web | ```Run hourly``` stats count",
 ]
 
+# A macro before the first pipe or bracket can expand to text that ends in a
+# pipe or a bracket, so a listed name after the backtick that ends it is
+# refused there too.
+_REFUSED_SPL += [
+    "`m` delete",
+    "`m` outputlookup x.csv",
+    "`m(1)`collect index=summary",
+    "index=web `m` delete",
+    '`m` from saved""search:Nightly',
+    "`m` fit LinearRegression y from x into m",
+    "index=web `m` out`n`putlookup x.csv",
+    "```note``` `m` delete",
+]
+
+# A letter outside ASCII that case-folds to an ASCII one counts as that letter
+# when a name is spelled across backticks, as it does in an unsplit name; and
+# a name may still end, or a word start, at it.
+_REFUSED_SPL += [
+    "index=web | outputloo\u212a`m`up x.csv",
+    "index=web | \u017fcr`m`ipt x",
+    "index=web | scr\u0131`m`pt x",
+    "index=web | \u0130np`m`ut x",
+    "index=web | del`m`ete\u212a x",
+    "index=web | fit LinearRegression y from x \u212ain`m`to m",
+    "index=web | \u017fsavedsearch Nightly",
+    "index=web [\u212aoutputlookup x.csv",
+    "`m`\u0130map search=x",
+    "index=web | \u0131run x",
+    "index=web | \u212a out`m`putlookup x.csv",
+    "index=web | from savedsearch\u212a:Nightly",
+    "index=web | \u212afit LinearRegression y from x into m",
+]
+
 
 @pytest.mark.parametrize("spl", [
     "index=web | stats count | ```unterminated",
@@ -1009,6 +1042,29 @@ def test_spl_command_that_writes_or_runs_other_searches_is_refused(splunk_http, 
     ("`collect(web)` | stats count", "search `collect(web)` | stats count"),
     ("```out```put```lookup``` index=web | stats count",
      "search ```out```put```lookup``` index=web | stats count"),
+    ("index=web ```Run hourly``` | stats count", "search index=web ```Run hourly``` | stats count"),
+    # A quote or backslash joins only the letters right next to it, and the
+    # dataset word counts only before a colon.
+    ('index=web | where info="saved" | search action="search" | stats count',
+     'search index=web | where info="saved" | search action="search" | stats count'),
+    ('index=web | search path="C:\\logs\\saved\\search.log" | stats count',
+     'search index=web | search path="C:\\logs\\saved\\search.log" | stats count'),
+    ('index=web | search path="C:\\saved\\jobs\\search.log" | stats count',
+     'search index=web | search path="C:\\saved\\jobs\\search.log" | stats count'),
+    ('index=web | fit LinearRegression y from x | where dir="in" OR dir="to"',
+     'search index=web | fit LinearRegression y from x | where dir="in" OR dir="to"'),
+    # Ordinary reads after a pipe: apostrophes, letters outside ASCII, rex,
+    # and listed words as field values.
+    ("index=web | search msg=\"don't run it\" user=\"o'brien\" | stats count",
+     "search index=web | search msg=\"don't run it\" user=\"o'brien\" | stats count"),
+    ('index=web | search city="Zürich" note="délété" | stats count',
+     'search index=web | search city="Zürich" note="délété" | stats count'),
+    ('index=web | rex field=_raw "user=(?<user>\\w+) action=(?<action>\\w+)" | stats count by user',
+     'search index=web | rex field=_raw "user=(?<user>\\w+) action=(?<action>\\w+)" | stats count by user'),
+    ('| tstats count where index=web sourcetype="collect" by host',
+     '| tstats count where index=web sourcetype="collect" by host'),
+    ('index=web | search name="\u0130stanbul" | stats count',
+     'search index=web | search name="\u0130stanbul" | stats count'),
 ])
 def test_read_spl_still_posts_exactly_one_search(splunk_http, spl, expected):
     client, http = splunk_http
@@ -1050,6 +1106,66 @@ def test_refused_text_inside_a_quoted_value_refusal_says_how_to_match_it(splunk_
     message = str(refused.value)
     assert shown in message
     assert "quoted value" in message and "wildcard" in message
+    assert http.searches == []
+
+
+@pytest.mark.parametrize("spl,shown", [
+    pytest.param('index=web | eval x=`m` "delete me" | stats count', '` "delete', id="quote-between"),
+    pytest.param("index=web | \\collect index=summary", "| \\collect", id="backslash-between"),
+])
+def test_refusal_names_the_text_that_was_matched(splunk_http, spl, shown):
+    # The message quotes the text as written, with whatever stood between the
+    # mark and the name, and says how to write a value that starts with it.
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation
+
+    client, http = splunk_http
+    with pytest.raises(ReadOnlyViolation) as refused:
+        client.execute_query(spl)
+    message = str(refused.value)
+    assert shown in message
+    assert "two quoted strings" in message
+    assert http.searches == []
+
+
+# Every code point Splunk might drop and so join the letters around it:
+# Unicode control characters (Cc) other than tab, newline and carriage return,
+# format characters (Cf), and the Default_Ignorable_Code_Point ranges of
+# DerivedCoreProperties.txt.
+_DEFAULT_IGNORABLE = [
+    (0x00AD, 0x00AD), (0x034F, 0x034F), (0x061C, 0x061C), (0x115F, 0x1160), (0x17B4, 0x17B5),
+    (0x180B, 0x180F), (0x200B, 0x200F), (0x202A, 0x202E), (0x2060, 0x206F), (0x3164, 0x3164),
+    (0xFE00, 0xFE0F), (0xFEFF, 0xFEFF), (0xFFA0, 0xFFA0), (0xFFF0, 0xFFF8), (0x1BCA0, 0x1BCA3),
+    (0x1D173, 0x1D17A), (0xE0000, 0xE0FFF),
+]
+
+
+def _invisible_groups():
+    import unicodedata
+
+    groups = {"Cc": [], "Cf": []}
+    for code in range(0x110000):
+        category = unicodedata.category(chr(code))
+        if category in groups and chr(code) not in "\t\n\r":
+            groups[category].append(code)
+    yield pytest.param(groups["Cc"], id="Cc")
+    yield pytest.param(groups["Cf"], id="Cf")
+    for low, high in _DEFAULT_IGNORABLE:
+        yield pytest.param(list(range(low, high + 1)), id=f"DI-{low:04X}")
+
+
+@pytest.mark.parametrize("codes", list(_invisible_groups()))
+def test_invisible_character_inside_a_command_name_is_refused(splunk_http, codes):
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation
+
+    client, http = splunk_http
+    passed = []
+    for code in codes:
+        try:
+            client.execute_query(f"index=web | del{chr(code)}ete")
+            passed.append(f"U+{code:04X}")
+        except ReadOnlyViolation:
+            pass
+    assert passed == []
     assert http.searches == []
 
 
@@ -1117,6 +1233,22 @@ def _about_1mb(piece: str, head: str = "index=web | ", tail: str = "") -> str:
     pytest.param(_about_1mb('saved"'), id="dataset-prefix-quoted"),
     pytest.param(_about_1mb('savedsearch" ', head="index=web | x "), id="dataset-word-quote"),
     pytest.param(_about_1mb('" '), id="quote-runs"),
+    # Backticks before the first pipe, where the command rules also look.
+    pytest.param(_about_1mb("`m` ", head="index=web "), id="macros-before-any-pipe"),
+    pytest.param(_about_1mb("`t", head="index=web "), id="backtick-t-before-any-pipe"),
+    pytest.param(_about_1mb("```c``` ", head="index=web "), id="comments-before-any-pipe"),
+    pytest.param(_about_1mb("`m` fit a ", head="index=web "), id="fit-after-macros-before-any-pipe"),
+    # Quote runs between pieces, and folded letters in pieces.
+    pytest.param(_about_1mb('"t"'), id="quoted-t-runs"),
+    pytest.param(_about_1mb('| o"u" '), id="pipe-quoted-pieces"),
+    pytest.param(_about_1mb('saved" "'), id="dataset-prefix-quote-runs"),
+    pytest.param(_about_1mb("\u212a`"), id="kelvin-backtick"),
+    pytest.param(_about_1mb("| o\u212a`"), id="pipe-kelvin-pieces"),
+    pytest.param(_about_1mb("in`\u212a"), id="into-prefix-kelvin"),
+    # The same shapes inside a JSON-string envelope, escaped as JSON.
+    pytest.param('{"spl": "index=web | ' + '| o\\"u\\" ' * (_MB // 10) + '"}', id="json-quoted-pieces"),
+    pytest.param('{"spl": "index=web ' + "\\u0060m\\u0060 " * (_MB // 14) + '"}', id="json-escaped-macros"),
+    pytest.param('{"spl": "index=web | ' + "\\\\e" * (_MB // 4) + '"}', id="json-backslash-e"),
     # Many name prefixes started first, then pieces that can continue them.
     pytest.param(_about_1mb("`t `e `l `o `u `a `s ", head="index=web " + "".join(
         f"| {name[:i]}` " for name in ("outputlookup", "collect", "sendemail", "deletemodel", "tscollect")
