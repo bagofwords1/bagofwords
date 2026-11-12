@@ -270,22 +270,40 @@ def test_a_backslash_style_literal_holds_no_raw_line_break(module, class_name, d
     assert "\n" not in rendered and "\r" not in rendered, f"{class_name}: {rendered!r}"
 
 
-# Query languages with no string-literal rule a parameter can be written by:
-# KQL, PromQL, SPL, a JSON query envelope, Timbr's and Sisense's SQL.
-_UNDECLARED_LITERAL_CLIENTS = [
+# Query languages where a backslash escapes inside a string literal and no
+# style written here is established for them: KQL, PromQL, SPL. A 'standard'
+# literal could end early there.
+_REFUSING_LITERAL_CLIENTS = [
     ("azure_data_explorer_client", "AzureDataExplorerClient"),
     ("prometheus_client", "PrometheusClient"),
     ("splunk_client", "SplunkClient"),
+]
+
+# Connectors whose grammar is not established to need another style: they
+# render parameters as before (standard).
+_UNESTABLISHED_LITERAL_CLIENTS = [
     ("elasticsearch_client", "ElasticsearchClient"),
-    ("timbr_client", "TimbrClient"),
+    ("opensearch_client", "OpenSearchClient"),
     ("sisense_client", "SisenseClient"),
+    ("timbr_client", "TimbrClient"),
+    ("timbr_a2a_client", "TimbrA2aClient"),
+    ("sap_datasphere_client", "SapDatasphereClient"),
+    ("analysis_services_client", "AnalysisServicesClient"),
 ]
 
 
-@pytest.mark.parametrize("module,class_name", _UNDECLARED_LITERAL_CLIENTS)
+@pytest.mark.parametrize("module,class_name", _UNESTABLISHED_LITERAL_CLIENTS)
+def test_a_source_with_no_other_established_rule_keeps_the_standard_literal(module, class_name):
+    """A filtered dashboard over such a source keeps running: the value is
+    written with the doubled quote, as before."""
+    assert _sql_received(module, class_name, "WHERE a = :v", "it's") == "WHERE a = 'it''s'"
+
+
+@pytest.mark.parametrize("module,class_name", _REFUSING_LITERAL_CLIENTS)
 def test_a_source_without_a_literal_rule_refuses_query_parameters(module, class_name):
-    """No query is written with a guessed quoting rule: the run is refused
-    with a ParamError naming the reason, and the source receives nothing."""
+    """No query is written with a quoting rule known to be wrong for its
+    language: the run is refused with a ParamError naming the reason, and the
+    source receives nothing."""
     from app.ai.code_execution.code_execution import QueryCapturingClientWrapper
 
     client = _recording_client(module, class_name)
@@ -296,9 +314,8 @@ def test_a_source_without_a_literal_rule_refuses_query_parameters(module, class_
 
 
 def test_every_query_client_states_its_literal_rule_or_none():
-    """Every connector in the clients package either declares one of the
-    known literal styles or leaves it undeclared (None): no client inherits a
-    guessed one."""
+    """Every connector in the clients package has one of the known literal
+    styles (standard unless it declares another) or None, the refusal."""
     import importlib
     import inspect
     import pkgutil
@@ -307,7 +324,7 @@ def test_every_query_client_states_its_literal_rule_or_none():
     from app.ai.code_execution.query_params import _LITERAL_STYLES
     from app.data_sources.clients.base import DataSourceClient
 
-    assert DataSourceClient.sql_literal_style is None
+    assert DataSourceClient.sql_literal_style == "standard"
     for info in pkgutil.iter_modules(package.__path__):
         try:
             module = importlib.import_module(f"{package.__name__}.{info.name}")
@@ -334,25 +351,18 @@ def test_engines_with_standard_literals_render_exactly_as_before(module, class_n
             "SELECT * FROM t WHERE a = " + literal)
 
 
-# The identity check reads a client's SQL in its sqlglot dialect, else in
-# sqlglot's generic one, where '' is the only quote escape: a backslash-style
-# literal of an engine sqlglot has no dialect for is not read there.
-_IDENTITY_READABLE_CLIENTS = [
-    c for c in _ALL_LITERAL_CLIENTS
-    if not (c in _BACKSLASH_LITERAL_CLIENTS and c[1] in _STAND_IN_DIALECT)
-]
-
-
-@pytest.mark.parametrize("module,class_name,dialect", _IDENTITY_READABLE_CLIENTS)
-def test_an_identity_value_with_a_quote_still_verifies_as_applied(module, class_name, dialect):
-    """The identity check reads the executed SQL in the engine's grammar; a
-    quote in the identity value (a surname, a department) must still be found
-    as the value the query filters on."""
+@pytest.mark.parametrize("module,class_name,dialect", _ALL_LITERAL_CLIENTS)
+@pytest.mark.parametrize("value", ["O'Brien", "CORP\\jdoe"])
+def test_an_identity_value_with_a_quote_still_verifies_as_applied(module, class_name, dialect, value):
+    """The identity check reads the executed SQL in the engine's grammar (its
+    sqlglot dialect, else one with the same literal rules as its style); a
+    quote or a backslash in the identity value (a surname, a domain login)
+    must still be found as the value the query filters on."""
     specs = _specs({"name": "v", "type": "string", "source": "identity"})
     captured: list = []
-    _sql_received(module, class_name, "SELECT * FROM t WHERE owner = :v", "O'Brien",
+    _sql_received(module, class_name, "SELECT * FROM t WHERE owner = :v", value,
                   captured=captured, keep_name=True)
-    assert verify_identity_binds_in_queries(captured, {"v": "O'Brien"}, specs) is None
+    assert verify_identity_binds_in_queries(captured, {"v": value}, specs) is None
 
 
 # ---------------------------------------------------------------------------

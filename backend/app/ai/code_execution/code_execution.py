@@ -984,7 +984,7 @@ class QueryCapturingClientWrapper:
                         # Read off the instance so a subclass keeps its
                         # engine's string-literal style.
                         literal_style=getattr(self._original, "sql_literal_style", None),
-                        # A connector without one has no known rule: refused.
+                        # A connector declaring None (no safe rule): refused.
                         # (Anything else handed in as a client keeps the
                         # rule derived from its class name.)
                         literal_style_required=isinstance(self._original, DataSourceClient),
@@ -1005,7 +1005,9 @@ class QueryCapturingClientWrapper:
             # Tagged with the client class so the identity-bind check can
             # parse it in the right grammar (SQL dialect / SPL); still a str.
             from app.ai.code_execution.identity_bind import CapturedQuery
-            self._captured_queries.append(CapturedQuery(capture, type(self._original).__name__))
+            self._captured_queries.append(CapturedQuery(
+                capture, type(self._original).__name__,
+                getattr(self._original, "sql_literal_style", None)))
         idx = len(self._captured_timings)
         _q_start = _time.monotonic()
         with _tracer.start_as_current_span("datasource.execute_query") as span:

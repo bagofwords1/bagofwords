@@ -291,8 +291,9 @@ def missing_required_inputs(specs: List[ParamSpec], values: Optional[Dict[str, A
 # How a string value is written as a SQL literal. Each client class declares
 # its engine's style as `sql_literal_style` (DataSourceClient, where each
 # declaration cites its grammar); the run's query wrapper reads it off the
-# client instance, so a subclass inherits it. A connector that declares none
-# has no known rule, and a query with parameters is refused for it.
+# client instance, so a subclass inherits it. A connector that declares None
+# (a language where "standard" is unsafe and no style is established: KQL,
+# PromQL, SPL) refuses a query with parameters.
 #
 # - "standard": a quote is doubled ('it''s'); a backslash is an ordinary
 #   character, and so is a line break. Postgres, DuckDB, SQL Server, Oracle,
@@ -633,7 +634,8 @@ def _query_binds_value(capture: str, needles: List[str], param: str = "") -> boo
     client_type = getattr(capture, "client_type", None)
     stripped = _strip_sql_comments(capture)
     looks_sql = bool(_SQL_START_RE.match(stripped))
-    verdict = structural_binds(str(capture), client_type, tuple(needles), looks_sql)
+    verdict = structural_binds(str(capture), client_type, tuple(needles), looks_sql,
+                               getattr(capture, "literal_style", None))
     if verdict is not None:
         return verdict
     if looks_sql or client_type == "SplunkClient":
