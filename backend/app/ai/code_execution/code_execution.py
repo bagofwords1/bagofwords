@@ -198,6 +198,9 @@ _STDOUT_ROUTER_INSTALL_LOCK = threading.Lock()
 # Enough for a couple of frame previews; bounded so a print-in-a-loop cannot
 # flood the codegen prompt.
 FAILURE_STDOUT_TAIL_CHARS = 2000
+# How much of a fixable query error (duckdb_guard.DuckdbQueryError) the
+# planner gets; other query errors keep their first 200 characters.
+FIXABLE_QUERY_ERROR_MAX_CHARS = 2000
 
 
 def _attach_partial_stdout(exc: BaseException, buffer: "io.StringIO") -> None:
@@ -260,6 +263,7 @@ from app.services.usage_policy_service import UsageLimitContext
 from app.ai.code_execution.client_profiles import GuardProfile, family_name, guard_profile
 from app.ai.code_execution.sql_guard import ReadOnlyViolation, ensure_read_only
 from app.ai.code_execution.table_scope import TableScopeViolation, enforce_table_scope
+from app.ai.code_execution.duckdb_guard import DuckdbQueryError
 from app.services.connection_rate_limit_service import connection_rate_limit_service
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -1186,6 +1190,10 @@ class QueryCapturingClientWrapper:
                        if isinstance(e, TableAccessError) else {}),
                     **({"refused_by": e.refused_by}
                        if isinstance(e, TableAccessError) and e.refused_by else {}),
+                    # A file connection's fixable error (DESCRIBE, a CTE
+                    # name) lists its tables: the planner gets all of it.
+                    **({"error_message": self._recorded_error(e, limit=FIXABLE_QUERY_ERROR_MAX_CHARS)}
+                       if isinstance(e, DuckdbQueryError) else {}),
                 })
                 span.set_status(StatusCode.ERROR, str(e))
                 span.record_exception(e)
@@ -1281,11 +1289,11 @@ class QueryCapturingClientWrapper:
             capture = json.dumps(capture, sort_keys=True, default=str)
         return query, capture
 
-    def _recorded_error(self, e: BaseException) -> str:
+    def _recorded_error(self, e: BaseException, limit: int = 200) -> str:
         text = str(e)
         if self._hide_values_in_errors:
             text = redact_error_text(text, type(e).__name__)
-        return text[:200]
+        return text[:limit]
 
     def _call_with_timeout(self, query, args, kwargs):
         """Run original.execute_query in a daemon thread; abandon it on timeout.

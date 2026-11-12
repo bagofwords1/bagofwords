@@ -215,6 +215,66 @@ def test_describe_show_and_summarize_are_a_fixable_error_that_names_the_tables(s
     assert "customers" in str(info.value) and "sales" in str(info.value)
 
 
+def test_inspecting_reports_whether_the_statement_describes():
+    assert inspect_duckdb_sql("SELECT * FROM (DESCRIBE sales) d").describes
+    assert not inspect_duckdb_sql("SELECT * FROM sales").describes
+
+
+# A DESCRIBE / SHOW / SUMMARIZE is a fixable error only when nothing else in
+# the statement is refused: every policy verdict comes before it.
+_DESCRIBE_BESIDE_A_REFUSAL = [
+    ("SELECT * FROM (DESCRIBE sales) d WHERE getenv('HOME') IS NOT NULL", ReadOnlyViolation),
+    ("SELECT * FROM (SHOW TABLES) s, duckdb_tables()", ReadOnlyViolation),
+    ("DESCRIBE SELECT * FROM read_csv_auto('other.csv')", ReadOnlyViolation),
+    ("SELECT * FROM (DESCRIBE sales) d, secret", TableScopeViolation),
+    ("DESCRIBE SELECT * FROM secret", TableScopeViolation),
+    ("WITH pg_settings AS (SELECT 1 AS x) SELECT * FROM (SUMMARIZE sales) d, pg_settings", TableScopeViolation),
+]
+
+
+@pytest.mark.parametrize("sql, refusal", _DESCRIBE_BESIDE_A_REFUSAL)
+def test_a_describe_does_not_hide_a_policy_refusal_of_the_rest_of_the_statement(sql, refusal):
+    with pytest.raises(refusal):
+        check_duckdb_file_query(sql, _VIEWS)
+
+
+def test_a_cte_name_that_is_not_plain_is_a_fixable_error():
+    """Nothing in it is refused by policy: the agent renames the CTE."""
+    with pytest.raises(ValueError, match="plain") as info:
+        check_duckdb_file_query('WITH "my cte" AS (SELECT * FROM sales) SELECT * FROM "my cte"', _VIEWS)
+    assert _not_a_policy_refusal(info.value), type(info.value).__mro__
+
+
+@pytest.mark.parametrize("sql", [
+    # quoted CTE names never let the statement through
+    'WITH "x.csv" AS (SELECT 1) SELECT * FROM "x.csv"',
+    'WITH "My CTE" AS (SELECT 1 AS x) SELECT * FROM "my cte"',
+])
+def test_a_statement_with_a_cte_name_that_is_not_plain_never_passes(sql):
+    with pytest.raises(ValueError):
+        check_duckdb_file_query(sql, _VIEWS)
+
+
+@pytest.mark.parametrize("sql, refusal", [
+    ('WITH "my cte" AS (SELECT 1 AS x) SELECT * FROM "my cte", secret', TableScopeViolation),
+    ('SELECT * FROM (WITH "x.csv" AS (SELECT 1 AS x) SELECT * FROM "x.csv") s, "x.csv"', TableScopeViolation),
+    ('WITH "my cte" AS (SELECT 1 AS x) SELECT getenv(\'HOME\') FROM "my cte"', ReadOnlyViolation),
+])
+def test_a_cte_name_that_is_not_plain_does_not_hide_a_policy_refusal(sql, refusal):
+    with pytest.raises(refusal):
+        check_duckdb_file_query(sql, _VIEWS)
+
+
+def test_a_query_nested_too_deeply_gets_a_hint_the_connection_can_follow():
+    """DuckDB's own hint is a SET, which this connection refuses."""
+    with pytest.raises(ValueError) as info:
+        check_duckdb_file_query("SELECT " + "+".join(["1"] * 1100), _VIEWS)
+    assert _not_a_policy_refusal(info.value), type(info.value).__mro__
+    text = str(info.value)
+    assert "SET" not in text and "max_expression_depth" not in text
+    assert "nests too deeply" in text
+
+
 def _serializing_as(monkeypatch, tree):
     import app.ai.code_execution.duckdb_guard as guard
     monkeypatch.setattr(guard, "_serialize", lambda sql: tree)
@@ -254,6 +314,12 @@ def test_a_broken_inspector_connection_is_logged_and_rebuilt(monkeypatch, caplog
 # ------------------------------------------------------------ the check
 
 _VIEWS = ["sales", "customers"]
+# A USING KEY recursive CTE whose recursive part also reads the rows kept so
+# far (recurring.r); it stops after n = 3.
+_KEYED_RECURSIVE = (
+    "WITH RECURSIVE r USING KEY (n) AS (SELECT 1 AS n UNION "
+    "SELECT r.n + 1 FROM r JOIN recurring.r k ON k.n = r.n WHERE r.n < 3) SELECT n FROM r ORDER BY n"
+)
 
 
 @pytest.mark.parametrize("sql", [
@@ -279,7 +345,6 @@ def test_a_select_over_the_connections_tables_passes(sql):
     "SELECT * FROM other_db.main.sales",
     "SELECT * FROM information_schema.tables",
     "SELECT * FROM sales WHERE id IN (SELECT id FROM secret)",
-    'WITH "x.csv" AS (SELECT 1) SELECT * FROM "x.csv"',
     "WITH t AS (SELECT 1) SELECT * FROM main.t",
 ])
 def test_a_table_that_is_not_the_connections_is_refused(sql):
@@ -331,6 +396,14 @@ _NOT_IN_CTE_SCOPE = [
     "SELECT * FROM x, duckdb_databases",
     "SELECT * FROM sales UNION ALL (WITH pg_views AS (SELECT 1, 2) SELECT * FROM pg_views) "
     "UNION ALL SELECT 1, 2 FROM pg_views",
+    # recurring.<cte> names a CTE only in the recursive part of a USING KEY CTE
+    "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM recurring.r WHERE n < 3) SELECT * FROM r",
+    "WITH RECURSIVE r USING KEY (n) AS (SELECT * FROM recurring.r UNION SELECT n + 1 FROM r WHERE n < 3) "
+    "SELECT * FROM r",
+    "WITH RECURSIVE r USING KEY (n) AS (SELECT 1 AS n UNION SELECT n + 1 FROM r WHERE n < 3) "
+    "SELECT * FROM recurring.r",
+    "WITH RECURSIVE r USING KEY (n) AS (SELECT 1 AS n UNION SELECT n + 1 FROM recurring.other WHERE n < 3) "
+    "SELECT * FROM r",
 ]
 
 
@@ -408,6 +481,7 @@ def test_every_catalog_reading_macro_and_catalog_view_of_this_duckdb_is_refused(
     "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM (SELECT * FROM r) q WHERE n < 3), "
     "s AS (SELECT * FROM r) SELECT * FROM s",
     "WITH RECURSIVE r USING KEY (n) AS (SELECT 1 AS n UNION SELECT n + 1 FROM r WHERE n < 3) SELECT * FROM r",
+    _KEYED_RECURSIVE,
     "WITH t AS (SELECT * FROM sales) SELECT * FROM sales UNION ALL SELECT * FROM t",
 ])
 def test_ctes_in_their_scope_pass(sql):
@@ -548,6 +622,18 @@ def test_each_connection_answers_a_select_over_its_tables(files):
     assert df.to_dict("records") == [{"name": "a", "total": 10}, {"name": "b", "total": 20}]
     df = run("WITH t AS (SELECT * FROM sales) SELECT count(*) AS n FROM t, range(2)")
     assert df["n"].tolist() == [6]
+    assert run(_KEYED_RECURSIVE)["n"].tolist() == [1, 2, 3]
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM (DESCRIBE sales) d, duckdb_tables()",
+    "SELECT * FROM (DESCRIBE sales) d WHERE getenv('HOME') IS NOT NULL",
+    "SELECT * FROM (DESCRIBE sales) d, secret",
+])
+def test_each_connection_refuses_by_policy_what_sits_beside_a_describe(files, sql):
+    _kind, _client, run = files
+    with pytest.raises((ReadOnlyViolation, TableScopeViolation)):
+        run(sql)
 
 
 def test_each_connection_refuses_another_file_with_the_refusals_own_type(files, outside):
@@ -635,7 +721,18 @@ def _code(statement: str) -> str:
     return f"def generate_df(ds_clients, excel_files):\n    return ds_clients['files'].execute_query({statement!r})\n"
 
 
-def _code_loop(client, statements):
+class _DataHidden:
+    """Organization settings with "Allow LLM to see data" off; every other
+    setting is left at its default."""
+
+    class _Off:
+        value = False
+
+    def get_config(self, key, default=None):
+        return self._Off() if key == "allow_llm_see_data" else default
+
+
+def _code_loop(client, statements, organization_settings=None):
     """generate_and_execute with the coder (the LLM) stubbed: attempt i
     gets the code for statements[i]. Everything below the coder is real."""
     import asyncio
@@ -649,7 +746,8 @@ def _code_loop(client, statements):
         return _code(statements[min(len(calls), len(statements)) - 1])
 
     async def go():
-        return [ev async for ev in StreamingCodeExecutor().generate_and_execute_stream_v2(
+        executor = StreamingCodeExecutor(organization_settings=organization_settings)
+        return [ev async for ev in executor.generate_and_execute_stream_v2(
             request=CodeGenRequest(context=CodeGenContext(user_prompt="x", schemas_excerpt=""), retries=3),
             ds_clients={"files": client}, excel_files=[], code_generator_fn=coder,
         )]
@@ -658,15 +756,65 @@ def _code_loop(client, statements):
     return events[-1]["payload"], events, calls
 
 
-@pytest.mark.parametrize("first", ["SELEC count(*) AS n FROM sales", "DESCRIBE sales"])
-def test_the_code_loop_retries_a_fixable_duckdb_error_and_gets_rows(mode, tmp_path, first):
+@pytest.mark.parametrize("first, hint", [
+    ("SELEC count(*) AS n FROM sales", "syntax error"),
+    ("DESCRIBE sales", "sales"),
+    ('WITH "my cte" AS (SELECT * FROM sales) SELECT count(*) AS n FROM "my cte"', "plain"),
+])
+def test_the_code_loop_retries_a_fixable_duckdb_error_and_gets_rows(mode, tmp_path, first, hint):
     done, events, calls = _code_loop(_csv(tmp_path), [first, _COUNT])
     assert len(calls) == 2
     assert done["df"]["n"].tolist() == [3]
     assert not [e for e in events if e["type"] == "security_violation"]
     feedback = calls[1]["code_and_error_messages"][-1][1]
     assert "Security violation" not in feedback
-    assert ("syntax error" in feedback) if first.startswith("SELEC") else ("sales" in feedback)
+    assert hint in feedback
+
+
+def test_the_code_loop_ends_on_a_refused_read_beside_a_describe(mode, tmp_path):
+    """Audited as a security refusal and not retried, as without the DESCRIBE."""
+    done, events, calls = _code_loop(_csv(tmp_path), ["SELECT * FROM (DESCRIBE sales) d, duckdb_tables()", _COUNT])
+    assert len(calls) == 1
+    assert done["df"] is None
+    assert [e["payload"]["violation_type"] for e in events if e["type"] == "security_violation"] == ["unsafe_sql"]
+
+
+@pytest.mark.parametrize("statement", ["DESCRIBE sales", "SELECT * FROM salez"])
+def test_with_data_hidden_the_retry_feedback_keeps_the_table_list(mode, tmp_path, statement):
+    """Guard messages name only structure: with "Allow LLM to see data" off
+    the coder still gets the connection's tables."""
+    from app.ai.code_execution.code_execution import format_execution_failure
+
+    with pytest.raises(Exception) as info:
+        _sandbox_run("csv", _csv(tmp_path), statement)
+    feedback = format_execution_failure(info.value, f"Execution error: {info.value}", allow_llm_see_data=False)
+    assert "customers, sales" in feedback, feedback
+    assert "<value hidden>" not in feedback, feedback
+
+
+@pytest.mark.parametrize("statement", ["DESCRIBE sales", "SELECT * FROM salez"])
+def test_with_data_hidden_the_planner_and_its_replay_keep_the_table_list(mode, tmp_path, statement):
+    from app.ai.context.hidden_data import hide_data_for_replay
+    from app.ai.tools.implementations.create_data import CreateDataTool
+
+    done, _events, _calls = _code_loop(_csv(tmp_path), [statement], organization_settings=_DataHidden())
+    observation = CreateDataTool.build_execution_failure_observation(done["errors"], done["query_timings"])
+    assert "customers, sales" in observation["error"]["db_message"], observation
+    replayed = hide_data_for_replay({"observation": observation}, "create_data")["observation"]
+    assert "customers, sales" in replayed["error"]["db_message"], replayed
+
+
+def test_a_fixable_error_reaches_the_planner_with_its_whole_table_list(mode, tmp_path):
+    from app.ai.tools.implementations.create_data import CreateDataTool
+
+    _csv(tmp_path)
+    for i in range(8):
+        pd.DataFrame({"x": [1]}).to_csv(tmp_path / "csv" / f"regional_target_{i}.csv", index=False)
+    client = CSVClient(file_paths=f"{tmp_path / 'csv'}/*.csv")
+    done, _events, _calls = _code_loop(client, ["DESCRIBE sales"])
+    observation = CreateDataTool.build_execution_failure_observation(done["errors"], done["query_timings"])
+    # The connection's tables sort as customers, regional_target_0..7, sales.
+    assert "regional_target_7, sales." in observation["error"]["db_message"], observation
 
 
 def test_the_code_loop_still_ends_on_a_copy_without_a_retry(mode, tmp_path):

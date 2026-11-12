@@ -16,8 +16,10 @@ it then executes on, after that connection is locked
 
 Two kinds of refusal: a policy refusal (`ReadOnlyViolation`,
 `TableScopeViolation`) ends the attempt; `DuckdbQueryError` means the text is
-wrong in a way the agent fixes by rewriting it (it does not parse, or asks
-for DESCRIBE / SHOW), so the code loop retries it like any query error.
+wrong in a way the agent fixes by rewriting it (it does not parse, asks for
+DESCRIBE / SHOW, or names a CTE oddly), so the code loop retries it like any
+query error. A statement gets that fixable error only when no policy refuses
+any part of it.
 """
 
 from __future__ import annotations
@@ -61,12 +63,14 @@ class DuckdbStatement:
     """What one SELECT reads. Names are lowercased; a table is
     (catalog, schema, name), with "" for a part the text leaves out. A name
     that is one of the statement's CTEs where it stands is not a table;
-    `cte_names` lists every CTE the statement defines."""
+    `cte_names` lists every CTE the statement defines. `describes` is true
+    when it holds a DESCRIBE, SHOW or SUMMARIZE anywhere."""
 
     tables: frozenset[tuple[str, str, str]]
     table_functions: frozenset[str]
     functions: frozenset[str]
     cte_names: frozenset[str]
+    describes: bool = False
 
 
 # One connection for every call, created on first use. The sandbox runs each
@@ -88,8 +92,13 @@ _READ_TABLE_REFS = frozenset({
 _QUERY_NODES = frozenset({"SELECT_NODE", "SET_OPERATION_NODE"})
 
 _ONLY_SELECT = "Only a single SELECT query is allowed on this connection."
+# The retryable messages name only structure and carry no quote, ": " or
+# " (", so they survive redaction whole when data is hidden from the model
+# (app.ai.data_visibility.cut_before_value).
 _NO_DESCRIBE = ("DESCRIBE, SHOW and SUMMARIZE are not available on this connection. "
-                "SELECT * FROM <table> LIMIT 0 gives a table's columns.")
+                "SELECT * FROM <table> LIMIT 0 gives the columns of a table.")
+_TOO_DEEP = ("The query nests too deeply to run on this connection. Simplify it, with fewer nested "
+             "expressions or subqueries, for example by moving parts of it into CTEs.")
 
 
 def _connection() -> duckdb.DuckDBPyConnection:
@@ -134,26 +143,42 @@ class _Reader:
 
     CTE scope follows DuckDB's binder: a WITH's CTEs are visible in its
     query, each CTE body sees the CTEs before it, and a recursive CTE sees
-    itself only in its recursive part. Visible names are counted in one
-    dict, added on entering a scope and removed on leaving it, so the walk
-    stays linear in the size of the tree."""
+    itself only in its recursive part, where a USING KEY one also sees its
+    kept rows as recurring.<name>. Visible names are counted in dicts, added
+    on entering a scope and removed on leaving it, so the walk stays linear
+    in the size of the tree.
+
+    A DESCRIBE / SHOW / SUMMARIZE is noted and the walk goes on, so what
+    else the statement reads is still collected."""
 
     def __init__(self) -> None:
         self.tables: set[tuple[str, str, str]] = set()
         self.table_functions: set[str] = set()
         self.functions: set[str] = set()
         self.cte_names: set[str] = set()
+        self.describes = False
         self._visible: dict[str, int] = {}
+        self._recurring: dict[str, int] = {}
 
-    def _show(self, name: str) -> None:
-        self._visible[name] = self._visible.get(name, 0) + 1
+    @staticmethod
+    def _show(names: dict[str, int], name: str) -> None:
+        names[name] = names.get(name, 0) + 1
 
-    def _hide(self, name: str) -> None:
-        left = self._visible[name] - 1
+    @staticmethod
+    def _hide(names: dict[str, int], name: str) -> None:
+        left = names[name] - 1
         if left:
-            self._visible[name] = left
+            names[name] = left
         else:
-            del self._visible[name]
+            del names[name]
+
+    def _is_cte(self, ref: tuple[str, str, str]) -> bool:
+        catalog, schema, name = ref
+        if catalog:
+            return False
+        if schema == "recurring":
+            return name in self._recurring
+        return not schema and name in self._visible
 
     @staticmethod
     def _ctes(node: dict) -> list[tuple[str, object]]:
@@ -182,12 +207,13 @@ class _Reader:
         if "class" not in node and "alias" in node and "sample" in node:
             kind = node.get("type")
             if kind == "SHOW_REF":
-                raise DuckdbQueryError(_NO_DESCRIBE)
-            if kind not in _READ_TABLE_REFS:
+                # Its target (a table or a query) is read like any other.
+                self.describes = True
+            elif kind not in _READ_TABLE_REFS:
                 raise ReadOnlyViolation(_ONLY_SELECT)
             if kind == "BASE_TABLE":
                 ref = tuple(str(node.get(k) or "").lower() for k in ("catalog_name", "schema_name", "table_name"))
-                if ref[0] or ref[1] or ref[2] not in self._visible:
+                if not self._is_cte(ref):
                     self.tables.add(ref)
             elif kind == "TABLE_FUNCTION":
                 function = node.get("function")
@@ -205,28 +231,34 @@ class _Reader:
         ctes = self._ctes(node)
         for name, body in ctes:
             self.walk(body)
-            self._show(name)
+            self._show(self._visible, name)
             self.cte_names.add(name)
         recursive = node.get("cte_name") if node.get("type") == "RECURSIVE_CTE_NODE" else None
+        recursive = recursive.lower() if isinstance(recursive, str) else None
+        keyed = recursive is not None and bool(node.get("key_targets"))
         for key, value in node.items():
             if key == "cte_map":
                 continue
-            if key == "right" and isinstance(recursive, str):
-                self._show(recursive.lower())
+            if key == "right" and recursive is not None:
+                self._show(self._visible, recursive)
+                if keyed:
+                    self._show(self._recurring, recursive)
                 self.walk(value)
-                self._hide(recursive.lower())
+                if keyed:
+                    self._hide(self._recurring, recursive)
+                self._hide(self._visible, recursive)
             else:
                 self.walk(value)
         for name, _body in ctes:
-            self._hide(name)
+            self._hide(self._visible, name)
 
 
 def inspect_duckdb_sql(sql: str) -> DuckdbStatement:
     """The tables, table functions, functions and CTE names of `sql`, which
-    must be exactly one SELECT. Raises DuckdbSyntaxError when DuckDB cannot
-    parse it, DuckdbQueryError for DESCRIBE / SHOW / SUMMARIZE, and
-    ReadOnlyViolation for anything else that is not one SELECT or cannot be
-    read. Opens no file and no connection."""
+    must be exactly one SELECT, and whether it describes. Raises
+    DuckdbSyntaxError when DuckDB cannot parse it, and ReadOnlyViolation for
+    anything else that is not one SELECT or cannot be read. Opens no file
+    and no connection."""
     if not isinstance(sql, str):
         raise ReadOnlyViolation(_ONLY_SELECT)
     try:
@@ -236,8 +268,10 @@ def inspect_duckdb_sql(sql: str) -> DuckdbStatement:
         raise ReadOnlyViolation(f"The query could not be read. {_ONLY_SELECT}") from err
     if tree.get("error"):
         if str(tree.get("error_type", "")).lower() == "parser":
-            # The agent's own text, quoted back so it can fix it.
-            raise DuckdbSyntaxError(str(tree.get("error_message") or "The query could not be parsed."))
+            # The agent's own text, quoted back so it can fix it. DuckDB's
+            # depth-limit hint is a SET, which this connection refuses.
+            message = str(tree.get("error_message") or "The query could not be parsed.")
+            raise DuckdbSyntaxError(_TOO_DEEP if "max_expression_depth" in message.lower() else message)
         raise ReadOnlyViolation(_ONLY_SELECT)
     statements = tree.get("statements")
     if not isinstance(statements, list) or len(statements) != 1:
@@ -255,6 +289,7 @@ def inspect_duckdb_sql(sql: str) -> DuckdbStatement:
         table_functions=frozenset(reader.table_functions),
         functions=frozenset(reader.functions),
         cte_names=frozenset(reader.cte_names),
+        describes=reader.describes,
     )
 
 
@@ -283,7 +318,7 @@ def _tables_line(views: list[str]) -> str:
         return "This connection has no tables to query yet."
     listed = ", ".join(views[:_LISTED_TABLES])
     more = f" and {len(views) - _LISTED_TABLES} more" if len(views) > _LISTED_TABLES else ""
-    return f"This connection's tables: {listed}{more}."
+    return f"The tables of this connection are {listed}{more}."
 
 
 def check_duckdb_file_query(sql: str, allowed_views: Iterable[str], *, not_ready: Iterable[str] = ()) -> None:
@@ -296,14 +331,11 @@ def check_duckdb_file_query(sql: str, allowed_views: Iterable[str], *, not_ready
 
     ReadOnlyViolation for the statement or a function, ConnectionTableViolation
     (a TableScopeViolation) for a table, DuckdbQueryError for text the agent
-    can fix (syntax, DESCRIBE / SHOW)."""
+    can fix (syntax, DESCRIBE / SHOW, a CTE name that is not plain). The
+    policy refusals come first: a fixable error is raised only when nothing
+    in the statement is refused."""
     shown_views = sorted({str(v) for v in allowed_views}, key=str.lower)
-    try:
-        stmt = inspect_duckdb_sql(sql)
-    except DuckdbSyntaxError:
-        raise
-    except DuckdbQueryError as err:
-        raise DuckdbQueryError(f"{err} {_tables_line(shown_views)}") from None
+    stmt = inspect_duckdb_sql(sql)
     for function in sorted(stmt.functions | stmt.table_functions):
         if _denied(function):
             raise ReadOnlyViolation(
@@ -312,9 +344,9 @@ def check_duckdb_file_query(sql: str, allowed_views: Iterable[str], *, not_ready
         raise ReadOnlyViolation(
             f"Table function {function}() is not allowed on this connection. Query its tables by name.")
     for name in sorted(stmt.cte_names):
-        if not _PLAIN_NAME.match(name) or name.startswith(_CATALOG_PREFIXES):
+        if name.startswith(_CATALOG_PREFIXES):
             raise ConnectionTableViolation(
-                f"A CTE cannot be named '{name}' on this connection: use a plain name that does not "
+                f"A CTE cannot be named {name} on this connection. Use a plain name that does not "
                 f"start with {', '.join(_CATALOG_PREFIXES)}.")
     views = {v.lower() for v in shown_views}
     pending = {str(v).lower() for v in not_ready}
@@ -324,7 +356,15 @@ def check_duckdb_file_query(sql: str, allowed_views: Iterable[str], *, not_ready
         shown = ".".join(part for part in (catalog, schema, name) if part)
         if not catalog and not schema and name in pending:
             raise ConnectionTableViolation(
-                f"Table '{shown}' is listed for this connection, but its cache is not built yet, so it "
-                f"cannot be queried until the connection's files are prepared. {_tables_line(shown_views)}")
+                f"Table {shown} is listed for this connection, but its cache is not built yet, so it "
+                f"cannot be queried until the files of this connection are prepared. {_tables_line(shown_views)}")
         raise ConnectionTableViolation(
-            f"Table '{shown}' is not one of this connection's tables. {_tables_line(shown_views)}")
+            f"Table {shown} is not one of the tables of this connection. {_tables_line(shown_views)}")
+    # Only fixable errors are left. A CTE name that is not plain never
+    # passes, whatever it shadows.
+    if stmt.describes:
+        raise DuckdbQueryError(f"{_NO_DESCRIBE} {_tables_line(shown_views)}")
+    if any(not _PLAIN_NAME.match(name) for name in stmt.cte_names):
+        raise DuckdbQueryError(
+            "A CTE on this connection needs a plain name made of letters, digits and underscores that "
+            "starts with a letter or an underscore. Rename the CTE and run the query again.")
