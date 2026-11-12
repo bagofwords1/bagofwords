@@ -250,17 +250,27 @@ class DescribeEntityMCPTool(MCPTool):
         grid: Dict[str, Any] = {} if withheld else (entity.data or {})
         applied_params = dict(getattr(entity, "applied_params", None) or {}) or None
         error_message = None
+        # Read before the run: a failed save of its result rolls the session
+        # back, which expires every instance on it.
+        described = dict(
+            entity_id=str(entity.id),
+            slug=getattr(entity, "slug", None),
+            type=entity.type,
+            title=entity.title,
+            description=entity.description or None,
+            agents=entity_agent_names(entity),
+            code=entity.code or None,
+            parameters=_parameters(entity),
+        )
 
         if request_values or data.run or withheld:
             # The no-codegen path: the saved code runs with defaults <- the
             # requested values <- this caller's identity bindings, cached per
             # (entity, user, values).
-            if not (entity.code or "").strip():
+            if not (described["code"] or "").strip():
                 error_message = "This saved query has no code to run."
             else:
-                # Read before the run: the except block reads no instance,
-                # which a failed save may have left expired.
-                entity_id, snapshot = str(entity.id), grid
+                snapshot = grid
                 try:
                     from app.services.entity_service import EntityService
                     run = await EntityService().run_entity_for_user(
@@ -272,7 +282,7 @@ class DescribeEntityMCPTool(MCPTool):
                 except Exception as e:
                     # By type only: run errors quote the values they failed on.
                     from app.errors.redact import describe_for_log
-                    logger.error("describe_entity run failed for %s: %s", entity_id, describe_for_log(e))
+                    logger.error("describe_entity run failed for %s: %s", described["entity_id"], describe_for_log(e))
                     error_message = f"Running the saved query failed: {str(e)[:300]}"
                     # Never fall back to a snapshot that is withheld from this
                     # reader, or that answers different parameter values.
@@ -294,14 +304,7 @@ class DescribeEntityMCPTool(MCPTool):
 
         return MCPDescribeEntityOutput(
             success=True,
-            entity_id=str(entity.id),
-            slug=getattr(entity, "slug", None),
-            type=entity.type,
-            title=entity.title,
-            description=entity.description or None,
-            agents=entity_agent_names(entity),
-            code=entity.code or None,
-            parameters=_parameters(entity),
+            **described,
             applied_params=applied_params,
             columns=[str(c) for c in columns],
             rows=[r for r in returned if isinstance(r, dict)],

@@ -60,22 +60,17 @@ def _result_not_saved(entity_id, err: BaseException) -> AppError:
     return AppError(ErrorCode.INTERNAL, "The run's result could not be saved.", status_code=500)
 
 
-async def _recover_from_failed_save(db: AsyncSession, entity_id: str, entity=None, *, roll_back: bool) -> None:
-    """Leave the session usable after a failed save of a run's result.
+async def _roll_back_failed_save(db: AsyncSession, entity_id: str) -> None:
+    """Roll the whole session back after a failed save of a run's result.
 
-    A failed write that a savepoint did not contain leaves the session's
-    transaction needing a rollback; until then every use of the session (a
-    caller sharing it, or the next attribute read) raises an error repeating
-    the database's statement and bound values. A rollback, and a failed
-    savepoint too, expire the instances it touched, so `entity`, which the
-    callers go on reading, is loaded again."""
+    Until then every use of the session (by a caller sharing it: an agent, an
+    MCP request) fails with an error repeating the database's statement and
+    bound values. The rollback expires every instance on the session: callers
+    read what they need from them before the run."""
     try:
-        if roll_back or not db.is_active:
-            await db.rollback()
-        if entity is not None:
-            await db.refresh(entity)
+        await db.rollback()
     except Exception as err:
-        logger.error("Entity %s: the session was not restored after a failed save: %s",
+        logger.error("Entity %s: the session was not rolled back after a failed save: %s",
                      entity_id, describe_for_log(err))
 
 
@@ -168,51 +163,43 @@ class EntityService:
         return out
 
     async def _upsert_entity_user_result(
-        self, db: AsyncSession, entity, user, resolved_params: dict, df: dict
+        self, db: AsyncSession, ids: dict, resolved_params: dict, df: dict
     ) -> None:
         """Cache a viewer's slice per (entity, user, values fingerprint).
 
-        The session may be the caller's own (an agent's, an MCP request's),
-        so the write runs in a savepoint: a refused write (another request
-        saved the same slice first) rolls back only itself."""
+        One statement, an upsert on the slice's key: two requests saving the
+        same slice both succeed, the later one's rows kept. The commit also
+        stores what the run changed on the entity. On any failure the whole
+        session is rolled back, as the session may be the caller's own (an
+        agent's, an MCP request's), and the answer is a fixed 500. `ids`
+        holds the entity, user and organization ids, read before the run."""
         from app.ai.code_execution.query_params import params_fingerprint
         from app.models.entity_user_result import EntityUserResult
-        fingerprint = params_fingerprint(resolved_params)
-        # Read before anything can fail: after a failed write the instances
-        # are expired, and reading one re-raises the database's error.
-        entity_id, user_id, org_id = str(entity.id), str(user.id), str(entity.organization_id)
+        entity_id = ids["entity_id"]
         try:
-            # Opening the savepoint flushes what the run changed on the entity.
-            async with db.begin_nested():
-                row = (await db.execute(
-                    select(EntityUserResult).where(
-                        EntityUserResult.entity_id == entity_id,
-                        EntityUserResult.user_id == user_id,
-                        EntityUserResult.params_fingerprint == fingerprint,
-                    )
-                )).scalars().first()
-                if row is None:
-                    row = EntityUserResult(
-                        entity_id=entity_id,
-                        user_id=user_id,
-                        organization_id=org_id,
-                        params_fingerprint=fingerprint,
-                    )
-                row.status = "success"
-                row.status_reason = None
-                row.data = df
-                row.applied_params = dict(resolved_params) if resolved_params else None
-                row.last_run_at = datetime.utcnow()
-                db.add(row)
-        except Exception as err:
-            failure = _result_not_saved(entity_id, err)
-            await _recover_from_failed_save(db, entity_id, entity, roll_back=False)
-            raise failure from None
-        try:
+            dialect = db.get_bind().dialect.name
+            if dialect == "postgresql":
+                from sqlalchemy.dialects.postgresql import insert
+            elif dialect == "sqlite":
+                from sqlalchemy.dialects.sqlite import insert
+            else:
+                raise ValueError(f"Unsupported application database for viewer slices: {dialect}")
+            key = dict(entity_id=entity_id, user_id=ids["user_id"],
+                       params_fingerprint=params_fingerprint(resolved_params))
+            now = datetime.utcnow()
+            values = dict(status="success", status_reason=None, data=df,
+                          applied_params=dict(resolved_params) if resolved_params else None,
+                          last_run_at=now, updated_at=now)
+            stmt = insert(EntityUserResult).values(**key, organization_id=ids["organization_id"], **values)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=list(key),
+                set_={name: getattr(stmt.excluded, name) for name in values},
+            )
+            await db.execute(stmt)
             await db.commit()
         except Exception as err:
             failure = _result_not_saved(entity_id, err)
-            await _recover_from_failed_save(db, entity_id, entity, roll_back=True)
+            await _roll_back_failed_save(db, entity_id)
             raise failure from None
 
     async def resolve_entity_data_for_user(
@@ -284,6 +271,7 @@ class EntityService:
         if user is None:
             raise ParamError("running an entity with parameters requires an authenticated user")
         entity_id = str(entity.id)
+        ids = {"entity_id": entity_id, "user_id": str(user.id), "organization_id": str(entity.organization_id)}
 
         resolved = await self._resolve_entity_params(
             db, entity, user, organization, request_values
@@ -379,7 +367,7 @@ class EntityService:
                            status_code=422) from None
         finally:
             await flush_usage(usage_context)
-        await self._upsert_entity_user_result(db, entity, user, resolved, df)
+        await self._upsert_entity_user_result(db, ids, resolved, df)
         return {"data": df, "applied_params": resolved, "cached": False}
 
 
@@ -1104,7 +1092,7 @@ class EntityService:
                     except Exception as save_error:
                         logger.warning("Refresh time of entity %s was not saved after a failed run: %s",
                                        entity_id, describe_for_log(save_error))
-                        await _recover_from_failed_save(db, entity_id, roll_back=True)
+                        await _roll_back_failed_save(db, entity_id)
                 # Re-raise as ValueError for the route to map; the cause is kept
                 # so a refusal (guard, quota) still maps to its own status.
                 raise ValueError(str(e)) from e
@@ -1117,9 +1105,9 @@ class EntityService:
                 # it, then detach the instance so the shared snapshot is
                 # never flushed.
                 if current_user is not None:
-                    await self._upsert_entity_user_result(
-                        db, entity, current_user, resolved_params, df
-                    )
+                    ids = {"entity_id": str(entity_id), "user_id": str(current_user.id),
+                           "organization_id": str(entity.organization_id)}
+                    await self._upsert_entity_user_result(db, ids, resolved_params, df)
                 db.expunge(entity)
                 entity.data = df
                 return entity
@@ -1150,7 +1138,7 @@ class EntityService:
                 await db.commit()
             except Exception as err:
                 failure = _result_not_saved(entity_id, err)
-                await _recover_from_failed_save(db, entity_id, roll_back=True)
+                await _roll_back_failed_save(db, entity_id)
                 raise failure from None
             try:
                 await db.refresh(entity)
