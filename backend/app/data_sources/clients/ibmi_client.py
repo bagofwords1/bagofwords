@@ -70,6 +70,10 @@ def short_error(e: Exception) -> str:
 
 class IbmiClient(DataSourceClient):
 
+    # Db2 for i SQL: '' only, a backslash is ordinary (IBM Db2 for i SQL
+    # Reference, Constants).
+    sql_literal_style = "standard"
+
     relative_date_hint = catalog.RELATIVE_DATE_HINT
 
     def __init__(self, host: str, port: int = 8076, user: str = "", password: str = "",

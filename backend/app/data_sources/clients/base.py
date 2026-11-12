@@ -132,10 +132,14 @@ class DataSourceClient(DiscoveryClient, ABC):
     relative_date_hint: Optional[str] = None
 
     # How a query parameter's string value is written as a literal in this
-    # engine's SQL (app/ai/code_execution/query_params.py, LITERAL_STYLE_*):
-    # "standard" doubles the quote; engines that read a backslash as an
-    # escape inside strings override it with "doubled" or "backslash".
-    sql_literal_style: str = "standard"
+    # engine's query language (app/ai/code_execution/query_params.py,
+    # LITERAL_STYLE_*): "standard" doubles the quote; engines that read a
+    # backslash as an escape inside strings declare "doubled" or "backslash".
+    # Each client whose grammar is known declares its style, citing it. None
+    # (the default): no known rule -- KQL, PromQL, SPL, JSON query envelopes,
+    # APIs -- and a query run with parameters is refused rather than written
+    # with a guessed quoting rule.
+    sql_literal_style: Optional[str] = None
 
     # When True, listing files live from the source is cheap enough to do on
     # every list_files call (local FS walk, bounded S3 LIST) — so list_files

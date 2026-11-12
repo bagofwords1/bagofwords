@@ -86,6 +86,9 @@ def log_before_retry(retry_state) -> None:
 
 class AwsAthenaClient(DataSourceClient):
 
+    # Athena runs queries on its Trino engine: '' only (sqlglot trino).
+    sql_literal_style = "standard"
+
     # Rendered into codegen prompts (<connection_clients>) so generated queries
     # express time windows with the engine's own relative date functions instead
     # of literal dates that go stale when saved code is re-executed.

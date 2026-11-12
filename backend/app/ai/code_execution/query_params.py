@@ -289,20 +289,25 @@ def missing_required_inputs(specs: List[ParamSpec], values: Optional[Dict[str, A
 # ---------------------------------------------------------------------------
 
 # How a string value is written as a SQL literal. Each client class declares
-# its engine's style as `sql_literal_style` (DataSourceClient); the run's
-# query wrapper reads it off the client instance, so a subclass inherits it.
+# its engine's style as `sql_literal_style` (DataSourceClient, where each
+# declaration cites its grammar); the run's query wrapper reads it off the
+# client instance, so a subclass inherits it. A connector that declares none
+# has no known rule, and a query with parameters is refused for it.
 #
 # - "standard": a quote is doubled ('it''s'); a backslash is an ordinary
-#   character. Postgres, DuckDB, SQL Server, Oracle, Trino/Presto/Athena,
-#   Teradata, SQLite, Druid.
+#   character, and so is a line break. Postgres, DuckDB, SQL Server, Oracle,
+#   Trino/Presto/Athena, Teradata, SQLite, Druid, ...
 # - "doubled": the quote is doubled AND a backslash is doubled. For engines
 #   that read a backslash as an escape inside strings but also accept '' as
-#   a quote (MySQL, MariaDB, Snowflake, ClickHouse, Redshift). It stays one
-#   literal if the server turns backslash escapes off, too.
-# - "backslash": a backslash is doubled, then a quote is written \'. For
-#   engines where '' is not a quote inside a string at all (BigQuery,
-#   Databricks, Spark — for the last two, under the default
-#   spark.sql.parser.escapedStringLiterals=false).
+#   a quote (MySQL, MariaDB, Snowflake, ClickHouse, Redshift, ...). It stays
+#   one literal if the server turns backslash escapes off, too. A raw line
+#   break is valid inside these literals and is left as it is.
+# - "backslash": a backslash is doubled, then a quote is written \', and a
+#   line break as \n / \r. For engines where '' is not a quote inside a
+#   string at all (BigQuery, Databricks, Spark -- for the last two, under the
+#   default spark.sql.parser.escapedStringLiterals=false). A single-quoted
+#   BigQuery literal cannot hold a raw line break (only a triple-quoted one
+#   can); every engine of this style reads \n and \r as those characters.
 LITERAL_STYLE_STANDARD = "standard"
 LITERAL_STYLE_DOUBLED = "doubled"
 LITERAL_STYLE_BACKSLASH = "backslash"
@@ -324,7 +329,9 @@ _PLACEHOLDER_RE = re.compile(r"(?<![:\w]):([a-zA-Z_][a-zA-Z0-9_]*)")
 
 def _quote_string(s: str, literal_style: str) -> str:
     if literal_style == LITERAL_STYLE_BACKSLASH:
-        return s.replace("\\", "\\\\").replace("'", "\\'")
+        # The backslash first: the escapes written after it are not doubled.
+        return (s.replace("\\", "\\\\").replace("'", "\\'")
+                .replace("\n", "\\n").replace("\r", "\\r"))
     s = s.replace("'", "''")
     if literal_style == LITERAL_STYLE_DOUBLED:
         s = s.replace("\\", "\\\\")
@@ -370,6 +377,7 @@ def render_sql_with_params(
     *,
     client_type_name: str = "",
     literal_style: Optional[str] = None,
+    literal_style_required: bool = False,
 ) -> str:
     """Substitute `:name` placeholders in `sql` with safely rendered literals.
 
@@ -381,8 +389,16 @@ def render_sql_with_params(
 
     `literal_style` is the engine's string-literal style (see
     LITERAL_STYLE_*; the client's `sql_literal_style`). Without it the style
-    is derived from `client_type_name` as before.
+    is derived from `client_type_name` as before -- unless
+    `literal_style_required` (the run's query wrapper, for a connector): then
+    the source has no known rule and the parameters are refused.
     """
+    if literal_style is None and literal_style_required:
+        raise ParamError(
+            f"{client_type_name or 'This source'} has no known rule for writing a string "
+            "literal in its query language, so query parameters cannot be rendered into its "
+            "queries"
+        )
     if literal_style is None:
         literal_style = (
             LITERAL_STYLE_DOUBLED if client_type_name in _DOUBLED_STYLE_CLIENT_NAMES

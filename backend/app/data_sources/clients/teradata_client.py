@@ -134,6 +134,10 @@ def _shorten(exc: Exception) -> Exception:
 
 
 class TeradataClient(DataSourceClient):
+
+    # Teradata: '' only (sqlglot teradata).
+    sql_literal_style = "standard"
+
     relative_date_hint = (
         "Relative dates (Teradata): CURRENT_DATE, CURRENT_DATE - 7, "
         "ADD_MONTHS(CURRENT_DATE, -1), TRUNC(CURRENT_DATE, 'MM') for month start; "

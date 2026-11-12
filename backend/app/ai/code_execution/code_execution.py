@@ -977,12 +977,17 @@ class QueryCapturingClientWrapper:
                 param_values = kwargs.pop("params")
                 if isinstance(query, str) and isinstance(param_values, dict) and param_values:
                     from app.ai.code_execution.query_params import render_sql_with_params
+                    from app.data_sources.clients.base import DataSourceClient
                     query = render_sql_with_params(
                         query, param_values,
                         client_type_name=type(self._original).__name__,
                         # Read off the instance so a subclass keeps its
                         # engine's string-literal style.
                         literal_style=getattr(self._original, "sql_literal_style", None),
+                        # A connector without one has no known rule: refused.
+                        # (Anything else handed in as a client keeps the
+                        # rule derived from its class name.)
+                        literal_style_required=isinstance(self._original, DataSourceClient),
                     )
         if query is _NO_QUERY:
             capture = _describe_keyword_call(kwargs)

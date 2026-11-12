@@ -46,6 +46,10 @@ class IcebergScanTooLarge(ValueError):
 
 class IcebergClient(DataSourceClient):
 
+    # DuckDB SQL underneath: '' is the only quote escape (sqlglot duckdb
+    # tokenizer).
+    sql_literal_style = "standard"
+
     relative_date_hint = "Relative dates (DuckDB SQL): current_date, current_date - INTERVAL 7 DAY, date_trunc('month', current_date)."
 
     def __init__(

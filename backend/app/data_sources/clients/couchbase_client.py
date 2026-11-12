@@ -28,6 +28,10 @@ logger = logging.getLogger(__name__)
 
 class CouchbaseClient(DataSourceClient):
 
+    # SQL++ (N1QL): a backslash starts an escape (\' \" \\ \n \r ...) and ''
+    # is not documented as a quote (Couchbase SQL++ reference, Literals).
+    sql_literal_style = "backslash"
+
     def __init__(
         self,
         connection_string: str,
