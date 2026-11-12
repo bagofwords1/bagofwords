@@ -3,35 +3,35 @@
     <button
       type="button"
       :data-testid="testid"
-      class="flex items-center gap-1.5 px-2 py-1 text-xs border rounded bg-white dark:bg-gray-900 max-w-[220px]"
-      :class="hasValue ? 'border-blue-300 dark:border-blue-800 text-blue-700 dark:text-blue-300' : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-gray-300'"
+      class="flex items-center gap-1.5 h-8 px-2.5 text-sm border rounded-md shadow-sm bg-surface-elevated max-w-[220px] transition-colors"
+      :class="hasValue ? 'border-blue-300 dark:border-blue-800 text-blue-700 dark:text-blue-300 bg-blue-50/50 dark:bg-blue-950/30' : 'border-line-strong text-ink-2 hover:bg-surface-subtle'"
       :aria-expanded="open"
       @click="toggle"
     >
-      <UIcon v-if="icon" :name="icon" class="w-3.5 h-3.5 shrink-0 opacity-70" />
+      <UIcon v-if="icon" :name="icon" class="w-4 h-4 shrink-0 opacity-70" />
       <span class="truncate">{{ buttonLabel }}</span>
-      <UIcon name="i-heroicons-chevron-down" class="w-3 h-3 shrink-0 opacity-60" />
+      <UIcon name="i-heroicons-chevron-down" class="w-3.5 h-3.5 shrink-0 opacity-60" />
     </button>
     <div
       v-if="open"
-      class="absolute top-full start-0 mt-1 w-64 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-md z-20"
+      class="absolute top-full start-0 mt-1 w-64 bg-surface-elevated border border-line rounded-lg shadow-lg z-dropdown"
       @keydown.esc.stop="open = false"
     >
-      <div v-if="searchable" class="p-1.5 border-b border-gray-100 dark:border-gray-800">
+      <div v-if="searchable" class="p-1.5 border-b border-line-subtle">
         <input
           ref="searchInput"
           v-model="query"
           type="text"
           :placeholder="searchPlaceholder"
-          class="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded focus:outline-none focus:border-gray-400 bg-white dark:bg-gray-900"
+          class="w-full px-2 py-1 text-xs border border-line rounded focus:outline-none focus:border-gray-400 bg-surface-elevated"
         />
       </div>
       <div class="max-h-72 overflow-y-auto py-1">
         <button
           v-if="!multiple && allLabel"
           type="button"
-          class="w-full text-start px-2.5 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800"
-          :class="!hasValue ? 'font-medium text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400'"
+          class="w-full text-start px-2.5 py-1.5 text-xs hover:bg-surface-subtle"
+          :class="!hasValue ? 'font-medium text-ink' : 'text-ink-muted'"
           @click="pick(null)"
         >{{ allLabel }}</button>
         <template v-for="group in grouped" :key="group.name">
@@ -40,17 +40,17 @@
             v-for="opt in group.options"
             :key="opt.value"
             :data-testid="`${testid}-option`"
-            class="flex items-center gap-2 px-2.5 py-1.5 text-xs cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
+            class="flex items-center gap-2 px-2.5 py-1.5 text-xs cursor-pointer hover:bg-surface-subtle"
             @click.prevent="pick(opt.value)"
           >
             <input
               v-if="multiple"
               type="checkbox"
               :checked="isSelected(opt.value)"
-              class="w-3 h-3 rounded border-gray-300 text-gray-900 focus:ring-0 pointer-events-none"
+              class="w-3 h-3 rounded border-gray-300 text-ink focus:ring-0 pointer-events-none"
             />
             <span class="flex-1 min-w-0">
-              <span class="block truncate" :class="isSelected(opt.value) ? 'font-medium text-gray-900 dark:text-white' : 'text-gray-700 dark:text-gray-300'">{{ opt.label }}</span>
+              <span class="block truncate" :class="isSelected(opt.value) ? 'font-medium text-ink' : 'text-ink-2'">{{ opt.label }}</span>
               <span v-if="opt.sub" class="block truncate text-2xs text-ink-muted">{{ opt.sub }}</span>
             </span>
             <UIcon v-if="!multiple && isSelected(opt.value)" name="i-heroicons-check" class="w-3.5 h-3.5 text-blue-600" />

@@ -2535,7 +2535,10 @@
       "googleSaved": "Guardado",
       "googleSaving": "Guardando...",
       "googleSubtitle": "Sincroniza el nombre, el puesto, el departamento y otros datos del perfil desde Google al iniciar sesión",
-      "googleTitle": "Sincronización de perfil de Google"
+      "googleTitle": "Sincronización de perfil de Google",
+      "on": "Activado",
+      "off": "Desactivado",
+      "notLicensed": "Enterprise"
     },
     "auditLogs": "Registros de auditoría",
     "integrations": {
@@ -3026,7 +3029,10 @@
       "defaultRoleHint": "Rellena el rol al añadir o invitar a un miembro.",
       "defaultRoleSaved": "Rol predeterminado guardado",
       "defaultRoleFailed": "No se pudo guardar el rol predeterminado",
-      "defaultRoleShort": "Rol predeterminado"
+      "defaultRoleShort": "Rol predeterminado",
+      "importButton": "Importar",
+      "colNote": "Nota",
+      "colLastLogin": "Último inicio de sesión"
     },
     "organizationName": "Nombre de la organización",
     "organizationIcon": "Icono de la organización",
@@ -3763,7 +3769,8 @@
         "restrictedDefaultHint": "Este es el modelo predeterminado de la organización. Los miembros que no aparecen abajo usan el predeterminado de su grupo.",
         "defaultForGroups": "Predeterminado para grupos",
         "defaultForGroupsHint": "Los miembros de estos grupos siempre pueden usar este modelo."
-      }
+      },
+      "colAccess": "Acceso"
     },
     "licensePage": {
       "title": "Licencia",
@@ -3917,9 +3924,98 @@
       "testPlaceholder": "Pega un texto con datos personales de ejemplo…",
       "testResult": "Resultado",
       "testTitle": "Prueba tus reglas",
-      "title": "Protección de datos personales"
+      "title": "Protección de datos personales",
+      "patternCount": "{n} patrón | {n} patrones"
     },
-    "piiTab": "Protección de datos"
+    "piiTab": "Protección de datos",
+    "adminPages": {
+      "members": "Invita a personas al espacio de trabajo y gestiona su rol, grupos y acceso.",
+      "roles": "Define qué puede ver y hacer cada rol, y asígnalos a miembros y grupos.",
+      "groups": "Organiza a los miembros en grupos para conceder roles, cuotas y acceso a datos en conjunto.",
+      "quotas": "Limita el uso mensual de IA y datos para miembros, grupos y roles.",
+      "models": "Conecta proveedores de LLM y elige qué modelos puede usar tu espacio de trabajo.",
+      "identityProvider": "Sincroniza usuarios, grupos y datos de perfil desde tu proveedor de identidad.",
+      "smtp": "El servidor que envía los correos del sistema: invitaciones, informes compartidos y resultados de informes programados. Si está activado, reemplaza al servidor configurado para esta instancia."
+    },
+    "generalSections": {
+      "workspace": "Espacio de trabajo",
+      "workspaceHint": "Cómo aparece tu organización en la aplicación.",
+      "assistant": "Analista de IA",
+      "assistantHint": "El nombre que ve tu equipo cuando responde el analista.",
+      "region": "Idioma y región",
+      "regionHint": "Valores predeterminados para la interfaz, las respuestas de la IA y las fechas."
+    },
+    "smtpPage": {
+      "status": {
+        "orgTitle": "El correo del sistema usa este servidor SMTP.",
+        "orgDetail": "Enviando mediante {host}.",
+        "yourRelay": "tu servidor de retransmisión",
+        "globalTitle": "El correo del sistema usa el servidor SMTP configurado globalmente.",
+        "globalDetail": "Activa un servidor SMTP personalizado para enviar desde tu propio servidor.",
+        "noneTitle": "No hay ningún servidor SMTP configurado.",
+        "noneDetail": "No se están enviando invitaciones, informes compartidos ni correos de informes programados."
+      },
+      "mailboxNoteTitle": "No es el buzón de IA.",
+      "mailboxNote": "Este servidor solo envía notificaciones del sistema. Las respuestas del analista de IA siempre salen del buzón de IA, que se configura por separado.",
+      "serverSection": "Servidor de correo",
+      "serverSectionHint": "Datos de conexión de tu servidor SMTP.",
+      "enableLabel": "Usar un servidor SMTP personalizado",
+      "enableOn": "El correo del sistema se envía a través del servidor de abajo.",
+      "enableOffGlobal": "Desactivado: el correo del sistema usa el servidor SMTP global. Tu configuración se conserva.",
+      "enableOffNone": "Desactivado, y no hay servidor SMTP global, así que no se enviará ningún correo del sistema. Tu configuración se conserva.",
+      "fromName": "Nombre del remitente",
+      "fromAddress": "Dirección del remitente",
+      "host": "Host",
+      "port": "Puerto",
+      "username": "Usuario",
+      "password": "Contraseña",
+      "passwordUnchanged": "•••••••• (sin cambios)",
+      "passwordKeep": "Déjala en blanco para conservar la contraseña guardada.",
+      "authHint": "Deja usuario y contraseña vacíos para un servidor abierto que no requiere autenticación.",
+      "security": "Seguridad",
+      "securityNone": "Ninguna",
+      "validateCerts": "Validar certificados TLS",
+      "validateCertsHint": "Desactívalo para servidores con certificados autofirmados o de una CA interna.",
+      "save": "Guardar",
+      "saving": "Guardando…",
+      "sendTest": "Guardar y enviar correo de prueba",
+      "sendingTest": "Enviando…",
+      "sendsTo": "Se envía a {email}",
+      "saved": "SMTP guardado",
+      "saveFailed": "No se pudo guardar el SMTP",
+      "saveFailedDetail": "No se pudo guardar la configuración SMTP",
+      "notSaved": "No guardado",
+      "testRequestFailed": "La solicitud de prueba falló",
+      "testFailed": "La prueba falló",
+      "testDelivered": "Correo de prueba entregado a {recipient}",
+      "testDeliveredDetail": "Enviado mediante {source}. Revisa tu bandeja de entrada para confirmarlo.",
+      "testDeliveredDetailAs": "Enviado mediante {source} como {from}. Revisa tu bandeja de entrada para confirmarlo.",
+      "testFailureDetail": "{error} — {hint} (transporte: {source})",
+      "unknownError": "Error desconocido",
+      "fail": {
+        "connect": "No se pudo conectar con el servidor de correo",
+        "connectHint": "revisa el host y el puerto, y que un firewall no bloquee el SMTP saliente",
+        "tls": "Falló la negociación TLS",
+        "tlsHint": "prueba otra opción de Seguridad o desactiva la validación de certificados para un servidor interno",
+        "auth": "El servidor de correo rechazó las credenciales",
+        "authHint": "revisa el usuario y la contraseña",
+        "sender": "El servidor de correo rechazó la dirección del remitente",
+        "senderHint": "el servidor no envía desde esta dirección; usa una autorizada",
+        "recipient": "El servidor de correo se negó a enviar a esa dirección",
+        "recipientHint": "el servidor no acepta correo para este destinatario",
+        "config": "La configuración SMTP está incompleta",
+        "configHint": "completa el campo que falta y vuelve a intentarlo",
+        "other": "El servidor de correo rechazó el mensaje",
+        "otherHint": "consulta la respuesta del servidor arriba"
+      },
+      "source": {
+        "org": "este servidor SMTP",
+        "global": "el servidor SMTP global",
+        "mailbox": "el buzón de IA",
+        "none": "ningún transporte"
+      },
+      "alertsHint": "Qué correos del sistema se envían. Las notificaciones en la aplicación siempre se entregan."
+    }
   },
   "data": {
     "keepSavedSecret": "Deja en blanco para conservar el secreto guardado",

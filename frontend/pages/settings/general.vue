@@ -1,96 +1,53 @@
 <template>
-    <div class="mt-6">
-        <h2 class="text-lg font-medium text-gray-900 dark:text-white">{{ $t('settings.general') }}
-            <p class="text-sm text-gray-500 dark:text-gray-400 font-normal mb-8">
-                {{ $t('settings.subtitle') }}
-            </p>
-        </h2>
+    <div>
+        <SettingsLoading v-if="loading" />
 
-        <div v-if="loading" class="py-4">
-            <ULoader />
-        </div>
+        <UAlert v-if="error" color="red" variant="soft" icon="i-heroicons-exclamation-triangle" :title="error" />
 
-        <UAlert v-if="error" class="mt-4" type="danger">
-            {{ error }}
-        </UAlert>
-
-        <div v-if="!loading && !error" class="space-y-6">
-            <!-- Organization Name -->
-            <div class="md:w-2/3 space-y-2">
-                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ $t('settings.organizationName') }}</div>
-                <UInput v-model="form.organization_name" :maxlength="80" :placeholder="$t('settings.workspacePlaceholder')" />
-            </div>
-            <!-- Organization Icon -->
-            <div class="md:w-2/3 space-y-2">
-                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ $t('settings.organizationIcon') }}</div>
-                <div class="flex items-center space-x-4">
-                    <div class="w-20 h-14 rounded border bg-white dark:bg-gray-900 overflow-hidden flex items-center justify-center">
-                        <img v-if="form.icon_url" :src="form.icon_url" class="max-w-full max-h-full object-contain" />
-                        <Icon v-else name="heroicons:building-office" class="w-6 h-6 text-ink-muted" />
+        <div v-if="!loading && !error">
+            <SettingsSection :title="$t('settings.generalSections.workspace')" :description="$t('settings.generalSections.workspaceHint')">
+                <SettingsRow :label="$t('settings.organizationName')" stacked for-id="org-name">
+                    <UInput id="org-name" v-model="form.organization_name" :maxlength="80" :placeholder="$t('settings.workspacePlaceholder')" />
+                </SettingsRow>
+                <SettingsRow :label="$t('settings.organizationIcon')" :description="$t('settings.iconConstraints')" stacked>
+                    <div class="flex items-center gap-4">
+                        <div class="w-16 h-16 rounded-lg border border-line bg-surface-subtle overflow-hidden flex items-center justify-center shrink-0">
+                            <img v-if="form.icon_url" :src="form.icon_url" alt="" class="max-w-full max-h-full object-contain" />
+                            <UIcon v-else name="i-heroicons-building-office" class="w-6 h-6 text-ink-subtle" />
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <UButton size="sm" color="gray" variant="solid" icon="i-heroicons-arrow-up-tray" @click="selectIcon">{{ form.icon_url ? $t('settings.changeIcon') : $t('settings.uploadIconButton') }}</UButton>
+                            <UButton v-if="form.icon_url" size="sm" color="red" variant="ghost" @click="queueRemoveIcon">{{ $t('common.remove') }}</UButton>
+                            <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="onIconSelected" />
+                        </div>
                     </div>
-                    <div class="space-x-2">
-                        <UButton size="sm" variant="outline" color="blue" @click="selectIcon">{{ form.icon_url ? $t('settings.changeIcon') : $t('settings.uploadIconButton') }}</UButton>
-                        <UButton v-if="form.icon_url" size="sm" color="red" variant="soft" @click="queueRemoveIcon">{{ $t('common.remove') }}</UButton>
-                        <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="onIconSelected" />
-                    </div>
-                </div>
-                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('settings.iconConstraints') }}</div>
-            </div>
+                </SettingsRow>
+            </SettingsSection>
 
+            <SettingsSection :title="$t('settings.generalSections.assistant')" :description="$t('settings.generalSections.assistantHint')">
+                <SettingsRow :label="$t('settings.aiAnalystName')" stacked for-id="ai-name">
+                    <UInput id="ai-name" v-text-dir v-model="form.ai_analyst_name" :maxlength="50" placeholder="AI Analyst" />
+                </SettingsRow>
+                <SettingsRow :label="$t('settings.showCredit')">
+                    <UToggle v-model="form.bow_credit" />
+                </SettingsRow>
+            </SettingsSection>
 
+            <SettingsSection :title="$t('settings.generalSections.region')" :description="$t('settings.generalSections.regionHint')">
+                <SettingsRow :label="$t('settings.language.label')" :description="$t('settings.language.description')" stacked>
+                    <USelect v-model="form.locale" :options="localeOptions" option-attribute="label" value-attribute="value" />
+                </SettingsRow>
+                <SettingsRow :label="$t('settings.timezone.label')" :description="$t('settings.timezone.description')" stacked>
+                    <USelect v-model="form.timezone" :options="timezoneOptions" option-attribute="label" value-attribute="value" searchable />
+                </SettingsRow>
+                <SettingsRow :label="$t('settings.weekStart.label')" :description="$t('settings.weekStart.description')" stacked>
+                    <USelect v-model="form.week_start" :options="weekStartOptions" option-attribute="label" value-attribute="value" />
+                </SettingsRow>
+            </SettingsSection>
 
-            <!-- AI Analyst Name -->
-            <div class="md:w-2/3 space-y-2">
-                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ $t('settings.aiAnalystName') }}</div>
-                <UInput v-text-dir v-model="form.ai_analyst_name" :maxlength="50" placeholder="AI Analyst" />
-            </div>
-
-            <!-- Credit toggle -->
-            <div class="md:w-2/3 flex items-center justify-between">
-                <div class="text-sm text-gray-800 dark:text-gray-200">{{ $t('settings.showCredit') }}</div>
-                <UToggle v-model="form.bow_credit" />
-            </div>
-
-            <!-- Organization language -->
-            <div class="md:w-2/3 space-y-2">
-                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ $t('settings.language.label') }}</div>
-                <USelect
-                    v-model="form.locale"
-                    :options="localeOptions"
-                    option-attribute="label"
-                    value-attribute="value"
-                />
-                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('settings.language.description') }}</div>
-            </div>
-
-            <!-- Organization timezone -->
-            <div class="md:w-2/3 space-y-2">
-                <div class="text-sm font-medium text-gray-800">{{ $t('settings.timezone.label') }}</div>
-                <USelect
-                    v-model="form.timezone"
-                    :options="timezoneOptions"
-                    option-attribute="label"
-                    value-attribute="value"
-                    searchable
-                />
-                <div class="text-xs text-gray-500">{{ $t('settings.timezone.description') }}</div>
-            </div>
-
-            <!-- Work week start -->
-            <div class="md:w-2/3 space-y-2">
-                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ $t('settings.weekStart.label') }}</div>
-                <USelect
-                    v-model="form.week_start"
-                    :options="weekStartOptions"
-                    option-attribute="label"
-                    value-attribute="value"
-                />
-                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('settings.weekStart.description') }}</div>
-            </div>
-
-            <div class="md:w-2/3 pt-2">
-                <UButton color="blue" @click="saveAll" :loading="saving">{{ $t('common.saveChanges') }}</UButton>
-            </div>
+            <SettingsFooter>
+                <UButton color="blue" :loading="saving" @click="saveAll">{{ $t('common.saveChanges') }}</UButton>
+            </SettingsFooter>
         </div>
     </div>
 </template>
@@ -98,6 +55,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useToast } from '#imports'
+import SettingsSection from '~/components/settings/SettingsSection.vue'
+import SettingsRow from '~/components/settings/SettingsRow.vue'
+import SettingsFooter from '~/components/settings/SettingsFooter.vue'
+import SettingsLoading from '~/components/settings/SettingsLoading.vue'
 
 const { t } = useI18n()
 

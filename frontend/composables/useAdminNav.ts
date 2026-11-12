@@ -8,10 +8,18 @@ import { useEnterprise } from '~/ee/composables/useEnterprise'
 //
 // Everything that renders or links into /settings reads from here.
 
+// How wide a page's content runs. `narrow` is a reading measure for forms and
+// settings (768px); `wide` is for tables and lists (1152px). Fixed widths, not
+// percentages, so a page keeps its proportions as the window changes.
+export type AdminPageWidth = 'narrow' | 'wide'
+
 export interface AdminNavChild {
   key: string
   label: string
   icon: string
+  // i18n key for the one-line description under the page title.
+  description: string
+  width: AdminPageWidth
   permission?: string
   feature?: string
 }
@@ -21,6 +29,8 @@ export interface AdminNavItem {
   label: string
   icon: string
   permission: string
+  description?: string
+  width?: AdminPageWidth
   feature?: string
   // Sub-pages rendered by the same route, selected with ?tab=<key>.
   children?: AdminNavChild[]
@@ -33,25 +43,38 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
     icon: 'i-heroicons-user-group',
     permission: 'view_members',
     children: [
-      { key: 'members', label: 'settings.membersTabs.members', icon: 'i-heroicons-users' },
-      { key: 'roles', label: 'settings.membersTabs.roles', icon: 'i-heroicons-identification', permission: 'manage_roles', feature: 'custom_roles' },
-      { key: 'groups', label: 'settings.membersTabs.groups', icon: 'i-heroicons-rectangle-group', permission: 'manage_groups', feature: 'custom_roles' },
+      { key: 'members', label: 'settings.membersTabs.members', icon: 'i-heroicons-users', description: 'settings.adminPages.members', width: 'wide' },
+      { key: 'roles', label: 'settings.membersTabs.roles', icon: 'i-heroicons-identification', description: 'settings.adminPages.roles', width: 'wide', permission: 'manage_roles', feature: 'custom_roles' },
+      { key: 'groups', label: 'settings.membersTabs.groups', icon: 'i-heroicons-rectangle-group', description: 'settings.adminPages.groups', width: 'wide', permission: 'manage_groups', feature: 'custom_roles' },
       // Service accounts are a core (non-EE) capability — no feature flag.
-      { key: 'service_accounts', label: 'settings.membersTabs.serviceAccounts', icon: 'i-heroicons-cpu-chip', permission: 'manage_service_accounts' },
-      { key: 'quotas', label: 'settings.membersTabs.quotas', icon: 'i-heroicons-scale', permission: 'manage_settings', feature: 'usage_limits' },
-      { key: 'signup', label: 'settings.membersTabs.signup', icon: 'i-heroicons-envelope-open', permission: 'full_admin_access', feature: 'domain_signup' },
+      { key: 'service_accounts', label: 'settings.membersTabs.serviceAccounts', icon: 'i-heroicons-command-line', description: 'serviceAccounts.subtitle', width: 'wide', permission: 'manage_service_accounts' },
+      { key: 'quotas', label: 'settings.membersTabs.quotas', icon: 'i-heroicons-scale', description: 'settings.adminPages.quotas', width: 'wide', permission: 'manage_settings', feature: 'usage_limits' },
+      { key: 'signup', label: 'settings.membersTabs.signup', icon: 'i-heroicons-envelope-open', description: 'signupPolicy.description', width: 'narrow', permission: 'full_admin_access', feature: 'domain_signup' },
     ],
   },
-  { name: 'models', label: 'settings.llm', icon: 'i-heroicons-sparkles', permission: 'manage_llm' },
-  { name: 'ai_settings', label: 'settings.aiSettings', icon: 'i-heroicons-adjustments-horizontal', permission: 'manage_settings' },
-  { name: 'pii', label: 'settings.piiTab', icon: 'i-heroicons-eye-slash', permission: 'manage_settings', feature: 'pii_protection' },
-  { name: 'general', label: 'settings.general', icon: 'i-heroicons-building-office', permission: 'manage_settings' },
-  { name: 'integrations', label: 'settings.integrations.title', icon: 'i-heroicons-chat-bubble-left-right', permission: 'manage_settings' },
-  { name: 'audit', label: 'settings.auditLogs', icon: 'i-heroicons-clipboard-document-list', permission: 'view_audit_logs' },
-  { name: 'identity-provider', label: 'settings.identityProviderTab', icon: 'i-heroicons-finger-print', permission: 'manage_identity_providers' },
-  { name: 'smtp', label: 'settings.smtpTab', icon: 'i-heroicons-envelope', permission: 'manage_settings' },
-  { name: 'license', label: 'settings.license', icon: 'i-heroicons-key', permission: 'manage_settings' },
+  // cpu-chip is the model icon everywhere else (the composer's model picker).
+  { name: 'models', label: 'settings.llm', icon: 'i-heroicons-cpu-chip', permission: 'manage_llm', description: 'settings.adminPages.models', width: 'wide' },
+  { name: 'ai_settings', label: 'settings.aiSettings', icon: 'i-heroicons-adjustments-horizontal', permission: 'manage_settings', description: 'settings.aiSettingsPage.subtitle', width: 'narrow' },
+  { name: 'pii', label: 'settings.piiTab', icon: 'i-heroicons-eye-slash', permission: 'manage_settings', feature: 'pii_protection', description: 'settings.pii.subtitle', width: 'narrow' },
+  { name: 'general', label: 'settings.general', icon: 'i-heroicons-building-office', permission: 'manage_settings', description: 'settings.subtitle', width: 'narrow' },
+  { name: 'integrations', label: 'settings.integrations.title', icon: 'i-heroicons-chat-bubble-left-right', permission: 'manage_settings', description: 'settings.integrations.subtitle', width: 'wide' },
+  { name: 'audit', label: 'settings.auditLogs', icon: 'i-heroicons-clipboard-document-list', permission: 'view_audit_logs', description: 'settings.audit.subtitle', width: 'wide' },
+  { name: 'identity-provider', label: 'settings.identityProviderTab', icon: 'i-heroicons-finger-print', permission: 'manage_identity_providers', description: 'settings.adminPages.identityProvider', width: 'narrow' },
+  { name: 'smtp', label: 'settings.smtpTab', icon: 'i-heroicons-envelope', permission: 'manage_settings', description: 'settings.adminPages.smtp', width: 'narrow' },
+  { name: 'license', label: 'settings.license', icon: 'i-heroicons-key', permission: 'manage_settings', description: 'settings.licensePage.subtitle', width: 'narrow' },
 ]
+
+// The title, description and width for the page at `path` (+ `?tab=`).
+export function resolveAdminPage(path: string, tab?: string) {
+  const name = path.replace(/^\/settings\/?/, '').split('/')[0] || ''
+  const item = ADMIN_NAV_ITEMS.find(i => i.name === name)
+  if (!item) return null
+  if (item.children?.length) {
+    const child = item.children.find(c => c.key === tab) || item.children[0]
+    return { key: `${item.name}:${child.key}`, label: child.label, description: child.description, width: child.width }
+  }
+  return { key: item.name, label: item.label, description: item.description, width: item.width || 'wide' }
+}
 
 export function useAdminNav() {
   const { hasFeature } = useEnterprise()

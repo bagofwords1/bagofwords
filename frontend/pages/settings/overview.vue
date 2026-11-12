@@ -5,7 +5,7 @@ definePageMeta({
 </script>
 
 <template>
-    <div class="mt-6">
+    <div>
         <h2 class="text-xl font-semibold mb-4">Console Overview</h2>
         <ConsoleOverview />
     </div>

@@ -2598,7 +2598,10 @@
       "field_organization": "Organization",
       "field_location": "Location",
       "field_locale": "Locale",
-      "field_hostedDomain": "Workspace domain"
+      "field_hostedDomain": "Workspace domain",
+      "on": "On",
+      "off": "Off",
+      "notLicensed": "Enterprise"
     },
     "auditLogs": "Audit Logs",
     "integrations": {
@@ -3089,7 +3092,10 @@
       "defaultRoleHint": "Pre-fills the role when adding or inviting a member.",
       "defaultRoleSaved": "Default role saved",
       "defaultRoleFailed": "Failed to save default role",
-      "defaultRoleShort": "Default role"
+      "defaultRoleShort": "Default role",
+      "importButton": "Import",
+      "colNote": "Note",
+      "colLastLogin": "Last login"
     },
     "organizationName": "Organization name",
     "organizationIcon": "Organization icon",
@@ -3849,7 +3855,8 @@
         "restrictedDefaultHint": "This is the organization default. Members not listed below get their group's default instead.",
         "defaultForGroups": "Default for groups",
         "defaultForGroupsHint": "Members of these groups can always use this model."
-      }
+      },
+      "colAccess": "Access"
     },
     "licensePage": {
       "title": "License",
@@ -3980,7 +3987,96 @@
       "action": "Action",
       "actionReplace": "Replace",
       "actionBlock": "Block",
-      "blocksRequest": "Blocks the request"
+      "blocksRequest": "Blocks the request",
+      "patternCount": "{n} pattern | {n} patterns"
+    },
+    "adminPages": {
+      "members": "Invite people to the workspace and manage their role, groups and access.",
+      "roles": "Define what each role can see and do, then assign roles to members and groups.",
+      "groups": "Organize members into groups to grant roles, quotas and data access together.",
+      "quotas": "Cap monthly AI and data usage for members, groups and roles.",
+      "models": "Connect LLM providers and choose which models your workspace can use.",
+      "identityProvider": "Sync users, groups and profile details from your identity provider.",
+      "smtp": "The server that sends system emails — invites, report shares and scheduled-report results. When enabled, it overrides the server configured for this instance."
+    },
+    "generalSections": {
+      "workspace": "Workspace",
+      "workspaceHint": "How your organization appears across the app.",
+      "assistant": "AI analyst",
+      "assistantHint": "The name your team sees when the analyst replies.",
+      "region": "Language & region",
+      "regionHint": "Defaults for the interface, the AI's replies and dates."
+    },
+    "smtpPage": {
+      "status": {
+        "orgTitle": "System email uses this SMTP server.",
+        "orgDetail": "Sending via {host}.",
+        "yourRelay": "your relay",
+        "globalTitle": "System email uses the globally configured SMTP server.",
+        "globalDetail": "Enable a custom SMTP server below to send from your own relay instead.",
+        "noneTitle": "No SMTP server is configured.",
+        "noneDetail": "Invites, report shares and scheduled-report emails are not being sent."
+      },
+      "mailboxNoteTitle": "Not the AI mailbox.",
+      "mailboxNote": "This server only sends system notifications. The AI analyst's replies always come from the separate AI Mailbox — configure them independently.",
+      "serverSection": "Mail server",
+      "serverSectionHint": "Connection details for your SMTP relay.",
+      "enableLabel": "Use a custom SMTP server",
+      "enableOn": "System email is sent through the server below.",
+      "enableOffGlobal": "Off — system email falls back to the globally configured SMTP server. Your settings below are kept.",
+      "enableOffNone": "Off — and no SMTP server is configured globally, so no system email will be sent at all. Your settings below are kept.",
+      "fromName": "From name",
+      "fromAddress": "From address",
+      "host": "Host",
+      "port": "Port",
+      "username": "Username",
+      "password": "Password",
+      "passwordUnchanged": "•••••••• (unchanged)",
+      "passwordKeep": "Leave blank to keep the saved password.",
+      "authHint": "Leave username and password empty for an open relay that doesn't require authentication.",
+      "security": "Security",
+      "securityNone": "None",
+      "validateCerts": "Validate TLS certificates",
+      "validateCertsHint": "Turn off for self-signed or internal-CA relays.",
+      "save": "Save",
+      "saving": "Saving…",
+      "sendTest": "Save & send test email",
+      "sendingTest": "Sending…",
+      "sendsTo": "Sends to {email}",
+      "saved": "SMTP saved",
+      "saveFailed": "Failed to save SMTP",
+      "saveFailedDetail": "Could not save the SMTP settings",
+      "notSaved": "Not saved",
+      "testRequestFailed": "The test request failed",
+      "testFailed": "Test failed",
+      "testDelivered": "Test email delivered to {recipient}",
+      "testDeliveredDetail": "Sent via {source}. Check your inbox to confirm it arrived.",
+      "testDeliveredDetailAs": "Sent via {source} as {from}. Check your inbox to confirm it arrived.",
+      "testFailureDetail": "{error} — {hint} (transport: {source})",
+      "unknownError": "Unknown error",
+      "fail": {
+        "connect": "Could not reach the mail server",
+        "connectHint": "check the host and port, and that outbound SMTP is not blocked by a firewall",
+        "tls": "TLS negotiation failed",
+        "tlsHint": "try a different Security setting, or turn off certificate validation for an internal relay",
+        "auth": "The mail server rejected the credentials",
+        "authHint": "check the username and password",
+        "sender": "The mail server refused the From address",
+        "senderHint": "the relay will not send as this address — use one it is authorised for",
+        "recipient": "The mail server refused to relay to that address",
+        "recipientHint": "the relay does not accept mail for this recipient",
+        "config": "The SMTP settings are incomplete",
+        "configHint": "fill in the missing field and try again",
+        "other": "The mail server rejected the message",
+        "otherHint": "see the server response above"
+      },
+      "source": {
+        "org": "this SMTP server",
+        "global": "the globally configured SMTP server",
+        "mailbox": "the AI mailbox",
+        "none": "no transport"
+      },
+      "alertsHint": "Which system emails go out. In-app notifications are always delivered."
     }
   },
   "data": {

@@ -1,5 +1,5 @@
 <template>
-    <div class="mt-6">
+    <div>
         <LLMsComponent :organization="organization" />
     </div>
 </template>

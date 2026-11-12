@@ -1,5 +1,5 @@
 <template>
-    <div class="mt-6">
+    <div>
         <!-- Sub-page navigation (Members, Roles, Groups, …) lives in the admin
              sidebar under "Access"; the selected one is ?tab=<key>. -->
         <MembersComponent v-if="activeTab === 'members'" :organization="organization" />

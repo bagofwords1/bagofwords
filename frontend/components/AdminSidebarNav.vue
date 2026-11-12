@@ -170,7 +170,8 @@ const rowClass = (isActive: boolean, isParentOfActive: boolean, isChild = false)
 // moving, so the measurement is corrected by the height the sub-list is about
 // to gain or lose: the pill heads straight for the row's final position
 // instead of chasing it.
-const listEl = ref<HTMLElement | null>(null)
+// shallowRef: a deep ref unwraps the element type and stops it matching `Element`.
+const listEl = shallowRef<HTMLElement | null>(null)
 const pillTop = ref(0)
 const pillLeft = ref(0)
 const pillWidth = ref(0)
