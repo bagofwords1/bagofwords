@@ -231,12 +231,13 @@ def _recording_client(module: str, class_name: str, *, keep_name: bool = False):
     return type(name, (base,), {"__init__": __init__, "execute_query": execute_query})()
 
 
-def _sql_received(module: str, class_name: str, sql: str, value, captured=None, **kw) -> str:
+def _sql_received(module: str, class_name: str, sql: str, value, captured=None, values=None, **kw) -> str:
     from app.ai.code_execution.code_execution import QueryCapturingClientWrapper
 
     client = _recording_client(module, class_name, **kw)
     QueryCapturingClientWrapper(client, captured if captured is not None else [], [],
-                                query_timeout_seconds=30).execute_query(sql, params={"v": value})
+                                query_timeout_seconds=30).execute_query(
+                                    sql, params=values if values is not None else {"v": value})
     (received,) = client.received
     return received
 
@@ -328,13 +329,69 @@ _JSON_QUERY_CLIENTS = [
 
 
 @pytest.mark.parametrize("module,class_name,query", _JSON_QUERY_CLIENTS)
-def test_a_json_query_refuses_parameters(module, class_name, query):
+@pytest.mark.parametrize("value", ['x", "collection": "users", "z": "', "plain", True, None, [1, 2],
+                                   {"$ne": 1}, date(2024, 1, 1), float("nan")])
+def test_a_json_query_refuses_a_parameter_that_is_not_a_number(module, class_name, query, value):
     from app.ai.code_execution.code_execution import QueryCapturingClientWrapper
 
     client = _recording_client(module, class_name)
     with pytest.raises(ParamError):
         QueryCapturingClientWrapper(client, [], [], query_timeout_seconds=30).execute_query(
-            query, params={"v": 'x", "collection": "users", "z": "'})
+            query, params={"v": value})
+    assert client.received == []
+
+
+_JSON_NUMBER_QUERIES = [
+    ("servicenow_client", "ServiceNowClient", '{"table": "incident", "limit": :n}', {"table", "limit"}),
+    ("zabbix_client", "ZabbixClient", '{"table": "history", "time_from": :n}', {"table", "time_from"}),
+    ("mongodb_client", "MongodbClient", '{"collection": "orders", "find": {"qty": {"$gt": :n}}}',
+     {"collection", "find"}),
+    ("elasticsearch_client", "ElasticsearchClient", '{"index": "logs", "size": :n}', {"index", "size"}),
+    ("opensearch_client", "OpenSearchClient", '{"index": "logs", "size": :n}', {"index", "size"}),
+]
+
+
+@pytest.mark.parametrize("module,class_name,query,keys", _JSON_NUMBER_QUERIES)
+@pytest.mark.parametrize("number", [5, 2.5, -3])
+def test_a_json_query_takes_a_number_parameter(module, class_name, query, keys, number):
+    """A finite number is written as a bare JSON number: the document keeps
+    exactly its keys and holds the number where the placeholder was."""
+    import json
+
+    parsed = json.loads(_sql_received(module, class_name, query, None, values={"n": number}))
+    assert set(parsed) == keys
+
+    def numbers(node):
+        if isinstance(node, dict):
+            return [n for v in node.values() for n in numbers(v)]
+        if isinstance(node, list):
+            return [n for v in node for n in numbers(v)]
+        return [node] if isinstance(node, (int, float)) and not isinstance(node, bool) else []
+
+    assert numbers(parsed) == [number]
+
+
+def test_a_mongo_range_query_takes_a_number():
+    import json
+
+    parsed = json.loads(_sql_received("mongodb_client", "MongodbClient",
+                                      '{"collection": "orders", "find": {"qty": {"$gt": :n}}}', None,
+                                      values={"n": 5}))
+    assert parsed == {"collection": "orders", "find": {"qty": {"$gt": 5}}}
+
+
+def test_a_non_string_query_with_parameters_is_refused():
+    """A query handed over as a dict is never rendered, so its placeholders
+    would run as written: refused instead."""
+    from app.ai.code_execution.code_execution import QueryCapturingClientWrapper
+
+    client = _recording_client("elasticsearch_client", "ElasticsearchClient")
+    with pytest.raises(ParamError):
+        QueryCapturingClientWrapper(client, [], [], query_timeout_seconds=30).execute_query(
+            {"index": "logs", "query": {"term": {"owner": ":v"}}}, params={"v": "a@x.com"})
+    with pytest.raises(ParamError):
+        QueryCapturingClientWrapper(client, [], [], query_timeout_seconds=30).execute_query(
+            '{"index": "logs"}', params=[("v", 1)])
     assert client.received == []
 
 
@@ -374,7 +431,7 @@ def test_a_param_outside_the_envelopes_sql_is_refused(module, class_name, dialec
     from app.ai.code_execution.code_execution import QueryCapturingClientWrapper
 
     client = _recording_client(module, class_name)
-    with pytest.raises(ParamError):
+    with pytest.raises(ParamError, match="sql"):
         QueryCapturingClientWrapper(client, [], [], query_timeout_seconds=30).execute_query(
             '{"index": "orders", "query": {"term": {"owner": ":v"}}}', params={"v": "a@x.com"})
     assert client.received == []
@@ -420,7 +477,7 @@ _EXPECTED_LITERAL_RULES = {
     "InforEpmClient": "standard", "InforOlapClient": "standard", "IntuneClient": "standard",
     "JaegerClient": "standard", "KmsLighthouseClient": "standard", "KubernetesClient": "standard",
     "MSSQLClient": "standard", "MariadbClient": "doubled", "MecmClient": "standard",
-    "MondayClient": "standard", "MongodbClient": None, "MysqlClient": "doubled",
+    "MondayClient": "standard", "MongodbClient": "standard", "MysqlClient": "doubled",
     "Neo4jClient": "standard", "NetAppOntapClient": "standard", "NetsuiteClient": "standard",
     "NetworkDirClient": "standard", "ObjectStoreClient": "standard", "OnedriveClient": "standard",
     "OnenoteClient": "standard", "OpenSearchClient": "doubled+envelope", "OracleBIClient": "doubled",
@@ -438,6 +495,18 @@ _EXPECTED_LITERAL_RULES = {
     "TrinoClient": "standard", "VCenterClient": "standard", "VerticaClient": "doubled",
     "XmlaClient": "standard", "ZabbixClient": "standard",
 }
+
+
+def test_the_identity_check_reads_no_envelope_sql_another_key_runs_instead_of():
+    """Elasticsearch runs "esql" (and a dashboard / saved search) before
+    "sql": the envelope's SQL is then not the executed statement."""
+    from app.ai.code_execution.identity_bind import CapturedQuery
+
+    specs = _specs({"name": "v", "type": "string", "source": "identity"})
+    for first in ('"esql": "FROM t"', '"dashboard": "space/title"', '"saved_search": "space/s"'):
+        capture = CapturedQuery('{' + first + ', "sql": "SELECT * FROM t WHERE owner = \'a@x.com\'"}',
+                                "ElasticsearchClient", "standard")
+        assert verify_identity_binds_in_queries([capture], {"v": "a@x.com"}, specs) is not None, first
 
 
 def test_every_query_client_has_the_literal_rule_listed_for_it():

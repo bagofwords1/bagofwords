@@ -416,14 +416,9 @@ def render_sql_with_params(
         )
     elif literal_style not in _LITERAL_STYLES:
         raise ParamError(f"unknown SQL literal style: {literal_style!r}")
-    if sql_in_json_envelope:
-        return _render_envelope_sql(sql, values, client_type_name=client_type_name,
-                                    literal_style=literal_style)
-    if literal_style_required and sql.lstrip()[:1] in ("{", "["):
-        raise ParamError(
-            f"{client_type_name or 'This source'} takes a JSON query document; query "
-            "parameters are rendered only into SQL text, not into a JSON document"
-        )
+    if sql_in_json_envelope or (literal_style_required and sql.lstrip()[:1] in ("{", "[")):
+        return _render_json_query(sql, values, client_type_name=client_type_name,
+                                  literal_style=literal_style, sql_field=sql_in_json_envelope)
     unicode_prefix = client_type_name in _UNICODE_PREFIX_CLIENTS
 
     missing: List[str] = []
@@ -445,27 +440,93 @@ def render_sql_with_params(
     return rendered
 
 
-def _render_envelope_sql(envelope_text: str, values: Dict[str, Any], *, client_type_name: str,
-                         literal_style: str) -> str:
-    """Render the placeholders of a JSON query envelope's "sql" field and
-    serialize the envelope again: the value is a SQL literal of that SQL,
-    and json.dumps escapes it for the JSON string it lives in, so it can
-    neither end the SQL string nor the JSON one. A placeholder anywhere else
-    in the envelope (the query DSL, ES|QL) is refused."""
-    try:
-        envelope = json.loads(envelope_text)
-    except ValueError:
-        raise ParamError(f"{client_type_name or 'This source'}: the query envelope is not valid JSON")
-    sql = envelope.get("sql") if isinstance(envelope, dict) else None
-    rest = {k: v for k, v in envelope.items() if k != "sql"} if isinstance(envelope, dict) else envelope
-    if _PLACEHOLDER_RE.search(json.dumps(rest, ensure_ascii=False)) or not isinstance(sql, str):
+def _json_number(value: Any) -> bool:
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and value == value and value not in (float("inf"), float("-inf")))
+
+
+def _render_json_query(text: str, values: Dict[str, Any], *, client_type_name: str,
+                       literal_style: str, sql_field: bool) -> str:
+    """Render the placeholders of a connector's JSON query document.
+
+    Each placeholder is first swapped for a unique stand-in number, so the
+    document parses wherever the placeholder sits; the parsed document is
+    then walked and serialized again with json.dumps:
+
+    - in the envelope's top-level "sql" string (`sql_field`: Elasticsearch,
+      OpenSearch), the SQL is rendered with the engine's literal style --
+      json.dumps then escapes it for the JSON string, so a value can end
+      neither the SQL string nor the JSON one;
+    - a placeholder standing as a JSON value takes a finite number only,
+      written as a bare JSON number ("limit": :n, {"$gt": :n}), which cannot
+      end a string or add a key;
+    - any other placeholder -- inside another string or key, or a value that
+      is not a finite number -- is refused.
+    """
+    who = client_type_name or "This source"
+    missing: List[str] = []
+    stand_ins: Dict[str, str] = {}  # stand-in digits -> placeholder name
+    base = 7301000000000000000
+    while str(base)[:12] in text:
+        base += 1000000000000000
+    width = len(str(base))
+
+    def _stand_in(m: "re.Match[str]") -> str:
+        name = m.group(1)
+        if name not in values:
+            missing.append(name)
+        token = str(base + len(stand_ins)).zfill(width)
+        stand_ins[token] = name
+        return token
+
+    stood = _PLACEHOLDER_RE.sub(_stand_in, text)
+    if missing:
         raise ParamError(
-            f"{client_type_name or 'This source'}: query parameters are rendered only into "
-            "the envelope's \"sql\" field"
+            "query uses parameter placeholder(s) with no value: " + ", ".join(sorted(set(missing)))
         )
-    envelope["sql"] = render_sql_with_params(sql, values, client_type_name=client_type_name,
-                                             literal_style=literal_style)
-    return json.dumps(envelope, ensure_ascii=False)
+    try:
+        document = json.loads(stood)
+    except ValueError:
+        raise ParamError(f"{who}: the JSON query document is not valid JSON")
+
+    def _refuse(where: str):
+        raise ParamError(
+            f"{who}: a query parameter {where} -- in a JSON query a parameter is rendered only "
+            "as a number value" + (" or into the envelope's \"sql\" field" if sql_field else "")
+        )
+
+    def _holds_stand_in(s: str) -> bool:
+        return any(token in s for token in stand_ins)
+
+    def _walk(node: Any, *, is_sql: bool = False) -> Any:
+        if isinstance(node, dict):
+            out = {}
+            for key, value in node.items():
+                if _holds_stand_in(key):
+                    _refuse("in a key")
+                out[key] = _walk(value, is_sql=sql_field and node is document and key == "sql")
+            return out
+        if isinstance(node, list):
+            return [_walk(item) for item in node]
+        if isinstance(node, str):
+            if is_sql:
+                for token, name in stand_ins.items():
+                    node = node.replace(token, ":" + name)
+                return render_sql_with_params(node, values, client_type_name=client_type_name,
+                                              literal_style=literal_style)
+            if _holds_stand_in(node):
+                _refuse("inside a string")
+            return node
+        if isinstance(node, int) and not isinstance(node, bool) and str(node) in stand_ins:
+            value = values[stand_ins[str(node)]]
+            if not _json_number(value):
+                _refuse(f"value of type {type(value).__name__}")
+            return value
+        if isinstance(node, (int, float)) and not isinstance(node, bool) and _holds_stand_in(repr(node)):
+            _refuse("where no value can stand")  # e.g. a placeholder run into other digits
+        return node
+
+    return json.dumps(_walk(document), ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------
@@ -662,16 +723,26 @@ def _heuristic_binds_value(capture: str, needles: List[str]) -> bool:
     return any(n in tail for n in needles)
 
 
-def _envelope_sql(text: str) -> Optional[str]:
-    """The "sql" of a JSON query envelope ({"sql": "SELECT ..."}), else None."""
+# Envelope keys Elasticsearch runs before "sql" (elasticsearch_client.execute_query).
+_ENVELOPE_KEYS_RUN_BEFORE_SQL = ("dashboard", "saved_search", "esql")
+
+
+def _envelope_sql(text: str) -> tuple[bool, Optional[str]]:
+    """(whether `text` is a JSON envelope carrying "sql", the SQL it runs).
+    The SQL is None when another key the client runs first is present
+    (_ENVELOPE_KEYS_RUN_BEFORE_SQL): then the "sql" is not what executed."""
     if not text.lstrip().startswith("{"):
-        return None
+        return False, None
     try:
         envelope = json.loads(text)
     except ValueError:
-        return None
+        return False, None
     sql = envelope.get("sql") if isinstance(envelope, dict) else None
-    return sql if isinstance(sql, str) and sql.strip() else None
+    if not (isinstance(sql, str) and sql.strip()):
+        return False, None
+    if any(envelope.get(k) or (k == "esql" and k in envelope) for k in _ENVELOPE_KEYS_RUN_BEFORE_SQL):
+        return True, None
+    return True, sql
 
 
 def _query_binds_value(capture: str, needles: List[str], param: str = "") -> bool:
@@ -684,7 +755,10 @@ def _query_binds_value(capture: str, needles: List[str], param: str = "") -> boo
     from app.ai.code_execution.identity_bind import log_fallback, structural_binds
 
     client_type = getattr(capture, "client_type", None)
-    envelope_sql = _envelope_sql(str(capture))
+    is_envelope, envelope_sql = _envelope_sql(str(capture))
+    if is_envelope and envelope_sql is None:
+        # Its "sql" is not the statement that ran: nothing shows the filter.
+        return False
     if envelope_sql is not None:
         # A JSON query envelope carrying SQL: the SQL is what filters.
         from app.ai.code_execution.identity_bind import CapturedQuery

@@ -141,9 +141,10 @@ class DataSourceClient(DiscoveryClient, ABC):
     # written with a quoting rule known to be wrong for it.
     sql_literal_style: Optional[str] = "standard"
     # True for a connector whose query is a JSON envelope carrying its SQL in
-    # a "sql" field (Elasticsearch, OpenSearch): parameters render only there,
-    # and the envelope is serialized again so a value stays inside its JSON
-    # string. Any other connector's JSON query document refuses parameters.
+    # a "sql" field (Elasticsearch, OpenSearch): a value renders there as a
+    # SQL literal, and the envelope is serialized again so it stays inside its
+    # JSON string. Elsewhere in a JSON query document -- any connector's -- a
+    # parameter renders only as a bare JSON number value.
     sql_in_json_envelope: bool = False
 
     # When True, listing files live from the source is cheap enough to do on

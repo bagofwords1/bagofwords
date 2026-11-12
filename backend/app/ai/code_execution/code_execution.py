@@ -976,6 +976,14 @@ class QueryCapturingClientWrapper:
                 native_params = kwargs["params"]
             else:
                 param_values = kwargs.pop("params")
+                if param_values and not (isinstance(query, str) and isinstance(param_values, dict)):
+                    # Only query text is rendered: a dict query (or params that
+                    # are not a name -> value dict) would run with its
+                    # placeholders as written.
+                    from app.ai.code_execution.query_params import ParamError
+                    raise ParamError(
+                        "query parameters are rendered only into a query string, with params as "
+                        "a dict of name -> value; pass the query as text")
                 if isinstance(query, str) and isinstance(param_values, dict) and param_values:
                     from app.ai.code_execution.query_params import render_sql_with_params
                     from app.data_sources.clients.base import DataSourceClient
