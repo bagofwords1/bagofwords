@@ -1677,6 +1677,47 @@ def test_a_source_name_inside_an_identifier_does_not_narrow_a_step_reaching_ever
     assert not (fstep["data"] or {}).get("rows"), "the fork received the owner's rows"
 
 
+# generate_df names the clients dict `clients` and hands it to a helper whose
+# parameter is called ds_clients and reads a plain source by key; the
+# row-filtered source is reached through the renamed name.
+RENAMED_CLIENTS_CODE = """
+def fetch(ds_clients, sql):
+    return ds_clients["{plain}"].execute_query(sql)
+
+
+def generate_df(clients, excel_files):
+    import pandas as pd
+    if False:
+        fetch(clients, "SELECT 1")
+        clients["{rls}"].execute_query("SELECT 1")
+    return pd.DataFrame({{"month": ["2024-01", "2024-02"], "revenue": [10, 20]}})
+"""
+
+
+@pytest.mark.e2e
+def test_a_renamed_clients_parameter_still_counts_the_sources_it_reaches(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, monkeypatch,
+):
+    """generate_df receives the clients dict positionally under any name.
+    Reaching the row-filtered source through that name, and handing the dict
+    to a helper, makes the report read the row-filtered relation, whatever the
+    helper's parameter is called: a fork copies none of its rows."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    org_id = admin["org_id"]
+    plain = _run(_source_name(_run(_attach_source_with_connection(report["id"], "system_only", attach=False))))
+    rls = _run(_source_name(_run(_attach_rls_relation(report["id"], attach=False))))
+    _run(_set_step_code(seeded["step_ids"][0], RENAMED_CLIENTS_CODE.format(plain=plain, rls=rls)))
+
+    assert _report_flags(test_client, report["id"], owner, org_id)[0] is True
+
+    monkeypatch.setattr("app.core.fire_and_forget.spawn", lambda job: None)
+    fstep = _fork_default_step_as(test_client, report["id"], viewer, org_id)
+    assert not (fstep["data"] or {}).get("rows"), "the fork received the owner's rows"
+
+
 @pytest.mark.e2e
 def test_a_stored_owner_credential_result_gives_way_to_the_viewers_own_older_result(
     test_client, create_report, bootstrap_admin, invite_user_to_org,

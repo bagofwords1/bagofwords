@@ -3,8 +3,19 @@
 The step a dashboard renders for a query, a rerun re-executes, and the
 viewer policy asks about: the query's default step, else its latest
 successful step, else its latest step (by widget; a query without a widget,
-a published dashboard's copy, by its own steps). Mirrors
-query_service.get_default_step_for_query -- keep them in sync.
+a published dashboard's copy, by its own steps). Follows
+query_service.get_default_step_for_query -- keep them in sync -- with two
+differences, both resolving a step where that function returns none:
+
+- a dangling default (default_step_id names no step): that function stops
+  and serves nothing; this falls back to the latest step;
+- a query with no widget: that function looks for `widget_id == "None"`
+  and finds nothing; this looks at the query's own steps.
+
+Returning a step there is safe for both callers: a rerun has something to
+run instead of counting the query as failed, and the viewer policy counts
+that step's sources too -- one step more can only widen the sources a
+refusal is asked about, never narrow them.
 """
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession

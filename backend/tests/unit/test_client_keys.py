@@ -11,7 +11,7 @@ import pytest
 from app.services.client_keys import (
     client_reach,
     literal_client_keys,
-    source_name_for_key,
+    source_names_for_key,
     sources_for_client_keys,
 )
 
@@ -24,6 +24,9 @@ from app.services.client_keys import (
     ('def generate_df(ds_clients, excel_files):\n    return ds_clients["A:c"].execute_query("x")\n', ["A:c"]),
     # Python reads identifiers in NFKC form: a full-width underscore is the same name.
     ('ds＿clients["A:c"]', ["A:c"]),
+    # generate_df receives the dict positionally, under whatever name it gives it.
+    ('def generate_df(clients, excel_files):\n    return clients["A:c"].execute_query("x")\n', ["A:c"]),
+    ('async def generate_df(c, excel_files):\n    return c.get("A:c")\n', ["A:c"]),
     # Comments, strings, column names and other identifiers are not a reach.
     ('# ds_clients["A:c"] and ds_clients.values()\nsql = "SELECT ds_clients FROM t"', []),
     ("db_rows = 1", []),
@@ -45,6 +48,18 @@ def test_literal_keys_are_the_clients_the_code_reaches(code, expected):
     "ds_clients.get(name)",
     # Code that is not Python cannot be read, so it tells nothing either.
     "def generate_df(:\n",
+    # A helper given the dict under a renamed parameter: the literal key inside
+    # the helper does not tell which clients the renamed name reaches.
+    'def fetch(ds_clients, sql):\n    return ds_clients["db:pg"].execute_query(sql)\n\n'
+    'def generate_df(clients, excel_files):\n    fetch(clients, "x")\n'
+    '    return clients["Warehouse:x::fast"].execute_query("y")\n',
+    'def generate_df(clients, excel_files):\n    for c in clients.values():\n        pass\n',
+    # The namespace reached by name.
+    'locals()["ds_clients"]["A:c"]',
+    'globals()["ds_clients"]',
+    'vars()["ds_clients"]',
+    'eval("ds_clients")',
+    'exec("x = ds_clients")',
 ])
 def test_any_other_reach_of_the_clients_means_unknown(code):
     assert literal_client_keys(code) is None
@@ -58,21 +73,22 @@ def test_the_literal_keys_are_kept_beside_another_reach():
 
 
 @pytest.mark.parametrize("key, expected", [
-    ("Sales:pg", "Sales"),
-    ("Sales:pg::fast", "Sales"),
-    ("Sales", "Sales"),  # the single-connection alias
+    ("Sales:pg", ["Sales"]),
+    ("Sales:pg::fast", ["Sales"]),
+    ("Sales", ["Sales"]),  # the single-connection alias
     # The name must end at ':' -- "Sales Archive" is another source.
-    ("Sales Archive:pg", "Sales Archive"),
-    ("SalesX:pg", None),
-    ("Sale:pg", None),
-    # A source called "Sales:EU" wins over "Sales" for its own keys.
-    ("Sales:EU:pg", "Sales:EU"),
-    ("Sales:EU", "Sales:EU"),
-    ("Other:pg", None),
+    ("Sales Archive:pg", ["Sales Archive"]),
+    ("SalesX:pg", []),
+    ("Sale:pg", []),
+    # "Sales:EU:pg" is source "Sales:EU" on connection "pg", or source "Sales"
+    # on a connection named "EU:pg": both count.
+    ("Sales:EU:pg", ["Sales", "Sales:EU"]),
+    ("Sales:EU", ["Sales", "Sales:EU"]),
+    ("Other:pg", []),
 ])
-def test_a_key_belongs_to_the_longest_source_name_it_starts_with(key, expected):
+def test_a_key_belongs_to_every_source_name_it_starts_with(key, expected):
     names = ["Sales", "Sales Archive", "Sales:EU", "Sale "]
-    assert source_name_for_key(names, key) == expected
+    assert sorted(source_names_for_key(names, key)) == expected
 
 
 def test_keys_map_to_source_ids_and_unmatched_keys_are_reported():

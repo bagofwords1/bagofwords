@@ -419,6 +419,54 @@ def test_generate_dfs_own_parameter_is_not_a_reach_of_the_clients(clients, expec
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("driver_error", [
+    'permission denied for table orders',
+    "SQL compilation error: Object 'ORDERS' does not exist or not authorized.",
+    "403 Access Denied: Table proj:sales.orders: User does not have permission",
+])
+async def test_a_refusal_the_source_words_its_own_way_keeps_no_code(driver_error):
+    """The forker holds the client, but their own login lacks a grant and the
+    driver says so in words the access check does not know. Only a failure
+    that is positively a parameter problem keeps the code; this one keeps
+    neither the SQL nor the source's error text."""
+    report, user, org = _report(), SimpleNamespace(id="u-1"), MagicMock()
+    org.get_settings = AsyncMock(return_value=None)
+    session = _Session(report, user, org)
+    code = 'def generate_df(ds_clients, excel_files):\n    return ds_clients["agent:conn"].execute_query("SELECT * FROM orders")\n'
+
+    async def _rerun(db, step_id, **kwargs):
+        raise RuntimeError(driver_error)
+
+    with patch("app.services.report_service.ReportService.archive_report", AsyncMock()):
+        out, _, _ = await _run_hydration(session, _rerun, {"s1": code}, with_client=True)
+
+    assert out["failed"] == 1
+    settled = "\n".join(session.settled("steps", "error"))
+    assert settled, "the failed step was not settled"
+    assert "code=" not in settled and "SELECT * FROM orders" not in settled
+    assert driver_error not in settled
+
+
+@pytest.mark.asyncio
+async def test_a_parameter_error_under_the_forkers_own_client_keeps_its_code():
+    from app.ai.code_execution.query_params import ParamError
+
+    report, user, org = _report(), SimpleNamespace(id="u-1"), MagicMock()
+    org.get_settings = AsyncMock(return_value=None)
+    session = _Session(report, user, org)
+    code = 'df = ds_clients["agent:conn"].execute_query("x WHERE y = :year", params={})'
+
+    async def _rerun(db, step_id, **kwargs):
+        raise ParamError("SQL uses parameter placeholder(s) with no value: year")
+
+    with patch("app.services.report_service.ReportService.archive_report", AsyncMock()):
+        await _run_hydration(session, _rerun, {"s1": code}, with_client=True)
+
+    (settled,) = session.settled("steps", "error")
+    assert 'ds_clients["agent:conn"]' in settled
+
+
+@pytest.mark.asyncio
 async def test_pending_steps_are_heartbeated_as_the_pass_runs():
     """`is_hydrating` ages a pending step out after a fixed window. Keyed on
     created_at that window was a budget for the WHOLE pass, so a hydration

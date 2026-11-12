@@ -47,6 +47,7 @@ FORK_PENDING_STATUS = "pending"
 # gives up while the server still calls the fork hydrating.
 FORK_HYDRATION_STALE_SECONDS = 300
 
+
 def _reaches_only_usable_clients(code: str, clients: dict) -> bool:
     """True when every client the code reaches is one the forker holds.
 
@@ -65,6 +66,31 @@ def _reaches_only_usable_clients(code: str, clients: dict) -> bool:
     if not keys:
         return False
     return all(k in clients for k in keys)
+
+
+def _failure_keeps_code(error: BaseException, code: str, clients: dict) -> bool:
+    """Whether a hydration run that failed may write its code into the fork.
+
+    Only when the failure is positively a parameter problem -- a ParamError,
+    or a KeyError for a name that is not a client key (params["depot"]) -- and
+    every client the code reaches is one the forker holds
+    (_reaches_only_usable_clients). Anything else keeps no code: a driver
+    refusing the forker's own login words it its own way ("permission denied
+    for table ...", "does not exist or not authorized", "Access Denied"), so
+    an unrecognised failure is not taken for a broken query.
+    """
+    from app.ai.code_execution.query_params import ParamError
+
+    if not _reaches_only_usable_clients(code, clients):
+        return False
+    if isinstance(error, ParamError):
+        return True
+    if isinstance(error, KeyError):
+        from app.services.client_keys import literal_client_keys
+
+        missing = error.args[0] if error.args else None
+        return missing not in clients and missing not in (literal_client_keys(code) or [])
+    return False
 
 
 class ForkEligibility:
@@ -609,7 +635,7 @@ class ForkService:
                     from app.services.access_errors import is_access_denied
                     if is_access_denied(e):
                         refused.add(step_id)
-                    elif _reaches_only_usable_clients(code, db_clients):
+                    elif _failure_keeps_code(e, code, db_clients):
                         # Same wording a viewer's own failed run gets
                         # (StepService.run_step_to_user_result).
                         repairable[step_id] = str(e)[:2000] or e.__class__.__name__
