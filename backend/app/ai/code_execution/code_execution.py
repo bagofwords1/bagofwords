@@ -1216,10 +1216,14 @@ class QueryCapturingClientWrapper:
             # check (which reads only text) sees it.
             try:
                 return json.dumps(statement, sort_keys=True, default=str)
-            except (TypeError, ValueError):
-                # Keys JSON cannot sort or hold; the guard refuses the
-                # envelope, and the capture shows what was attempted.
-                return repr(statement)
+            except (TypeError, ValueError, RecursionError):
+                # Keys JSON cannot sort or hold, or nesting too deep to
+                # encode; the guard refuses the envelope, and the capture
+                # shows what was attempted when it can be shown at all.
+                try:
+                    return repr(statement)
+                except RecursionError:
+                    return "<dict envelope that cannot be shown as text>"
         if kwargs.get("params"):
             # Native params (Cypher's $name): captured with the query, so the
             # identity check still sees the values.

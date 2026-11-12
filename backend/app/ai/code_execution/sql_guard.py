@@ -76,21 +76,46 @@ _LITERALS_AND_COMMENTS = re.compile(
 # Reads that only look like these (inputlookup, loadjob, rest) stay allowed.
 # A command starts after a `|` or at the opening `[` of a bracketed block (an
 # appendpipe/append/join subpipeline or a subsearch), so both positions match.
+# Between that mark and the command name Splunk may read whitespace, inline
+# comments (```...```) and macros (`name(args)`, which can expand to nothing),
+# so all three count as the gap, and so does a backtick left over from a run
+# of more than three (such a run pairs more than one way). The quantifiers are
+# possessive: each attempt takes the longest gap and never backtracks, which
+# keeps the match linear.
 # Search macros expand on the server, so a macro body is never seen by this
 # check; that residual risk rests on the connection using a read-only role.
+_SPL_GAP = r"(?:\s|```(?:(?!```).)*+```|`[^`]*+`|`)*+"
 _SPL_WRITE_COMMANDS = re.compile(
-    r"[|\[]\s*(delete|outputlookup|outputcsv|outputtext|collect|summaryindex|mcollect"
+    r"(?P<mark>[|\[])" + _SPL_GAP
+    + r"(?P<name>delete|outputlookup|outputcsv|outputtext|collect|summaryindex|mcollect"
     r"|meventcollect|tscollect|dump|crawl|input|sendemail|sendalert|outputtelemetry"
     r"|dbxoutput|script|run|runshellscript|dbxquery|savedsearch|map|deletemodel)\b",
-    re.IGNORECASE,
+    re.IGNORECASE | re.DOTALL,
 )
+# `from savedsearch:<name>` / `union savedsearch:<name>` run a stored search as
+# a dataset, like the savedsearch command. Refused wherever the word is.
+_SPL_SAVEDSEARCH_DATASET = re.compile(r"\bsavedsearch" + _SPL_GAP + ":", re.IGNORECASE | re.DOTALL)
 # MLTK `fit ... into <model>` saves the model as a lookup; plain `fit` (and
 # `apply`) only read. Refused conservatively: a `fit` with the word `into`
 # anywhere after it, so a later command that uses the word is refused too.
-_SPL_FIT_INTO = re.compile(r"[|\[]\s*fit\b.*?\binto\b", re.IGNORECASE | re.DOTALL)
-# Splunk replaces a triple-backtick inline comment with a space before it
-# parses the search, so the check reads the search with comments removed too.
+# Two searches (the first fit, then one `into` after it) keep this linear.
+_SPL_FIT = re.compile(r"[|\[]" + _SPL_GAP + r"fit\b", re.IGNORECASE | re.DOTALL)
+_SPL_INTO = re.compile(r"\binto\b", re.IGNORECASE)
+# Inline comments, paired left to right.
 _SPL_INLINE_COMMENT = re.compile(r"```.*?```", re.DOTALL)
+_SPL_MACRO = re.compile(r"`[^`]*+`")
+# The same spans with double-quoted values kept as text (a ``` inside a quoted
+# value is then not a comment mark). A quote or comment left open runs to the
+# end; an open comment is reported through the `close` group being empty.
+_SPL_QUOTED_OR_SPAN = re.compile(
+    r'(?P<quote>"(?:[^"\\]|\\.?)*+(?:"|\Z))'
+    r"|(?P<comment>```(?:(?!```).)*+(?P<close>```)?)"
+    r"|(?P<macro>`[^`]*+`)",
+    re.DOTALL,
+)
+_SPL_UNCLOSED_COMMENT = (
+    "SPL has an inline comment (```) that is never closed. Close it with ``` or remove it."
+)
 
 # How a Splunk query is written; repeated when an envelope's SPL is not text.
 SPL_ENVELOPE_GUIDANCE = (
@@ -351,22 +376,67 @@ def check_spl(spl: str) -> None:
         raise ReadOnlyViolation(
             f"The SPL in a Splunk query must be text, not {type(spl).__name__}. {SPL_ENVELOPE_GUIDANCE}"
         )
-    uncommented = _SPL_INLINE_COMMENT.sub(" ", spl)
-    if "```" in uncommented:
-        raise ReadOnlyViolation(
-            "SPL has an inline comment (```) that is never closed. Close it with ``` or remove it."
-        )
-    # Both readings are checked: with comments removed (how Splunk parses the
-    # search) and as written (in case Splunk keeps a ``` inside a quoted value
-    # that the removal above treated as a comment).
-    for text in (uncommented, spl):
+    for text in _spl_readings(spl):
         match = _SPL_WRITE_COMMANDS.search(text)
         if match:
+            mark, name = match.group("mark"), match.group("name")
             raise ReadOnlyViolation(
-                f"SPL command '{match.group(1)}' is not allowed: only searches that read data can run."
+                f"SPL command '{name}' is not allowed: only searches that read data can run. "
+                f'If "{mark}{name}" is literal text inside a quoted value (such as a bracketed '
+                f'log tag), it is still refused; search for it with a wildcard in place of the '
+                f'"{mark}", for example "*{name}" instead of "{mark}{name}".'
             )
-        if _SPL_FIT_INTO.search(text):
+        if _SPL_SAVEDSEARCH_DATASET.search(text):
+            raise ReadOnlyViolation(
+                "SPL dataset 'savedsearch:' is not allowed: it runs a stored search whose SPL "
+                "is not checked. Write the stored search's SPL in the query instead."
+            )
+        fit = _SPL_FIT.search(text)
+        if fit and _SPL_INTO.search(text, fit.end()):
             raise ReadOnlyViolation(
                 "SPL command 'fit ... into' is not allowed: it saves a model. "
                 "Run fit without 'into', or apply an existing model."
             )
+
+
+def _spl_readings(spl: str) -> list[str]:
+    """The texts `check_spl` matches, refusing if any one shows a refused
+    command: Splunk's exact handling of comments, macros and quotes is not
+    something this check can rely on, so it fails closed across all of them.
+
+    - as written (comments and macros are gaps in the command pattern, paired
+      from each `|` / `[`);
+    - comments paired left to right and removed, with a space or with nothing
+      (a removed span can rejoin a split command name), each also with macros
+      removed with nothing;
+    - the same with ``` inside a double-quoted value kept as text.
+
+    An inline comment left open in either pairing is refused.
+    """
+    if "`" not in spl:
+        return [spl]
+    readings = [spl]
+    if "```" in _SPL_INLINE_COMMENT.sub(" ", spl):
+        raise ReadOnlyViolation(_SPL_UNCLOSED_COMMENT)
+    for sep in (" ", ""):
+        uncommented = _SPL_INLINE_COMMENT.sub(sep, spl)
+        readings += [uncommented, _SPL_MACRO.sub("", uncommented)]
+
+    pieces: list[tuple[str, str]] = []
+    last = 0
+    for m in _SPL_QUOTED_OR_SPAN.finditer(spl):
+        pieces.append(("text", spl[last:m.start()]))
+        kind = next(k for k in ("quote", "comment", "macro") if m.group(k) is not None)
+        if kind == "comment" and m.group("close") is None:
+            raise ReadOnlyViolation(_SPL_UNCLOSED_COMMENT)
+        pieces.append((kind, m.group()))
+        last = m.end()
+    pieces.append(("text", spl[last:]))
+    for comment_sep, macro_sep in ((" ", None), ("", None), (" ", ""), ("", "")):
+        readings.append("".join(
+            comment_sep if kind == "comment"
+            else (macro_sep if macro_sep is not None else piece) if kind == "macro"
+            else piece
+            for kind, piece in pieces
+        ))
+    return list(dict.fromkeys(readings))

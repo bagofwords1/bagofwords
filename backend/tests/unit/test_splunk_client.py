@@ -617,6 +617,21 @@ _HIDDEN_PANEL_XML = """
 _HIDDEN_SAVED = {"name": "Hidden rollup", "acl": {"app": "ops", "owner": "sre"},
                  "content": {"search": "index=web | stats count | appendpipe [collect index=summary]"}}
 
+# Stored searches whose write shows only in a reading where a ``` inside a
+# quoted value shifts which comment runs pair, or that read another stored
+# search as a `from` / `union` dataset.
+_SHIFTED_PANEL_XML = """
+<dashboard>
+  <label>Ops</label>
+  <row><panel><title>Export</title><table>
+    <search><query>index=web x="```" | ```c``` delete y="```"</query></search>
+  </table></panel></row>
+</dashboard>
+"""
+
+_DATASET_SAVED = {"name": "Dataset rollup", "acl": {"app": "ops", "owner": "sre"},
+                  "content": {"search": "index=web | union savedsearch:Nightly"}}
+
 
 class _SplunkHttp:
     """Fake `pinned_request`: answers knowledge-object GETs from canned
@@ -645,6 +660,10 @@ class _SplunkHttp:
                 return _Body({"entry": [_WRITING_SAVED]})
             if path == "/servicesNS/-/ops/saved/searches/Hidden rollup":
                 return _Body({"entry": [_HIDDEN_SAVED]})
+            if path == "/servicesNS/-/ops/data/ui/views/shifted_board":
+                return _Body({"entry": [_view_entry("ops", "shifted_board", _SHIFTED_PANEL_XML)]})
+            if path == "/servicesNS/-/ops/saved/searches/Dataset rollup":
+                return _Body({"entry": [_DATASET_SAVED]})
             if path == "/servicesNS/-/-/data/ui/views":
                 return _Body({"entry": [_view_entry("payments", "checkout_health", _SIMPLE_XML)]})
             if path in ("/servicesNS/-/-/saved/searches", "/services/data/indexes"):
@@ -762,6 +781,35 @@ _REFUSED_SPL += [
     "index=web | appendpipe [fit KMeans x k=3 into m]",
 ]
 
+# Readings of comments and quotes the check cannot rule out, so any of them
+# showing a refused command refuses the search: a ``` inside a quoted value
+# shifting which comment runs pair; a comment, or a macro that expands to
+# nothing, removed with no space so it rejoins a split command name, or
+# standing between the pipe and the command; and `from` / `union` reading a
+# stored search as a dataset (its SPL is never in the text checked here).
+_REFUSED_SPL += [
+    'index=web x="```" | ```c``` delete y="```"',
+    'index=web x="```" | appendpipe [```c``` outputlookup hosts.csv] y="```"',
+    'index=web x="a\\"```" | ```c``` collect index=summary y="```"',
+    "index=web | output```x```lookup hosts.csv",
+    "index=web | col```x```lect index=summary",
+    "index=web | appendpipe [out```x```putlookup hosts.csv]",
+    "index=web | f```x```it LinearRegression y from x into m",
+    'index=web | `comment("x")` delete',
+    'index=web | appendpipe [`comment("x")` outputlookup hosts.csv]',
+    'index=web | out`comment("x")`putlookup hosts.csv',
+    'index=web | out`comment("x")`put```y```lookup hosts.csv',
+    "| from savedsearch:Nightly",
+    'index=web | union savedsearch:"Nightly rollup"',
+    "index=web [| from savedsearch:Nightly]",
+    "index=web | appendpipe [union savedsearch : Nightly]",
+    "| FROM SavedSearch:Nightly",
+    "| from saved```x```search:Nightly",
+    # A run of more than three backticks pairs more than one way.
+    "index=web | ``````` delete",
+    "index=web | ````x```` outputlookup hosts.csv",
+]
+
 
 @pytest.mark.parametrize("spl", [
     "index=web | stats count | ```unterminated",
@@ -781,6 +829,8 @@ def test_spl_with_an_unterminated_inline_comment_is_refused(splunk_http, spl):
 @pytest.mark.parametrize("query", [
     {"dashboard": "ops/hidden_board", "panel": "Export"},
     {"saved_search": "ops/Hidden rollup"},
+    {"dashboard": "ops/shifted_board", "panel": "Export"},
+    {"saved_search": "ops/Dataset rollup"},
 ])
 def test_stored_search_hiding_a_write_is_refused_before_it_is_sent(splunk_http, query):
     from app.ai.code_execution.sql_guard import ReadOnlyViolation
@@ -816,6 +866,11 @@ def test_spl_command_that_writes_or_runs_other_searches_is_refused(splunk_http, 
     ("index=web [search index=hosts | fields host]", "search index=web [search index=hosts | fields host]"),
     ("index=web | fit LinearRegression y from x", "search index=web | fit LinearRegression y from x"),
     ("index=web | apply m", "search index=web | apply m"),
+    ('index=web msg="```code```" | stats count', 'search index=web msg="```code```" | stats count'),
+    ('index=web | `comment("note")` stats count', 'search index=web | `comment("note")` stats count'),
+    ("| from datamodel:Web", "| from datamodel:Web"),
+    ("| from inputlookup:hosts.csv", "| from inputlookup:hosts.csv"),
+    ("index=web | loadjob savedsearch=\"sre:ops:Nightly\"", "search index=web | loadjob savedsearch=\"sre:ops:Nightly\""),
 ])
 def test_read_spl_still_posts_exactly_one_search(splunk_http, spl, expected):
     client, http = splunk_http
@@ -823,6 +878,55 @@ def test_read_spl_still_posts_exactly_one_search(splunk_http, spl, expected):
     assert http.searches == [expected]
     client.execute_query({"spl": spl})
     assert http.searches == [expected, expected]
+
+
+def test_refused_word_inside_a_quoted_value_refusal_says_how_to_match_it(splunk_http):
+    # A listed word after a `[` is refused even inside a quoted value (the
+    # check does not trust quotes); the message says how to search for it.
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation
+
+    client, http = splunk_http
+    with pytest.raises(ReadOnlyViolation) as refused:
+        client.execute_query('index=web msg="[run] started" | stats count')
+    message = str(refused.value)
+    assert "'run'" in message
+    assert "quoted value" in message
+    assert '"*run"' in message and '"[run"' in message
+    assert http.searches == []
+
+
+# ---------- the check runs in linear time ---------- #
+#
+# Python's `re` holds the GIL while it matches, so a check that grows
+# quadratically with the search would stall every request on the worker.
+# About 1 MB of each shape below must be checked in well under a second.
+
+@pytest.mark.parametrize("spl", [
+    "index=web " + "| fit a " * 131_072,
+    "index=web |" + " ```c``` " * 116_508,
+    "index=web " + "| ```c``` ```d``` " * 58_254,
+    "index=web " + "| fit a ```c``` " * 65_536,
+    "index=web x=\"" + "\\\"" * 524_288,
+    "index=web " + "[ " * 524_288,
+    "index=web " + "`a" * 524_288,
+    "index=web " + "```| " * 209_715,
+    "index=web " + "savedsearch " * 87_381,
+    "index=web " + '"```" | ' * 131_072,
+    "index=web " + "| ` " * 262_144,
+    "index=web " + "|```|``` " * 116_508 + "`",
+    "index=web | " + "`a`" * 349_525,
+])
+def test_check_spl_is_linear_on_large_input(spl):
+    import time
+
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation, check_spl
+
+    start = time.perf_counter()
+    try:
+        check_spl(spl)
+    except ReadOnlyViolation:
+        pass
+    assert time.perf_counter() - start < 1.0
 
 
 # ---------- envelopes the wrapper cannot read are refusals ---------- #
@@ -848,6 +952,25 @@ def test_too_deeply_nested_json_envelope_is_a_refusal_with_capture(splunk_http):
         wrapper.execute_query(envelope)
     assert '{"spl":' in str(refused.value)
     assert [str(q) for q in captured] == [envelope]
+    assert http.searches == []
+
+
+def test_too_deeply_nested_dict_envelope_is_a_refusal_with_capture(splunk_http):
+    # Too deep for json.dumps or repr: the capture is a fixed description,
+    # and the guard refuses the envelope (its SPL is not text).
+    from app.ai.code_execution.code_execution import UnsafeSQLError
+
+    client, http = splunk_http
+    deep: dict = {}
+    node = deep
+    for _ in range(100_000):
+        node["a"] = {}
+        node = node["a"]
+    wrapper, captured = _wrapped(client)
+    with pytest.raises(UnsafeSQLError) as refused:
+        wrapper.execute_query({"spl": deep})
+    assert '{"spl":' in str(refused.value)
+    assert [str(q) for q in captured] == ["<dict envelope that cannot be shown as text>"]
     assert http.searches == []
 
 

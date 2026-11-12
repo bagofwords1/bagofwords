@@ -415,6 +415,13 @@ def test_splunk_write_hidden_in_a_json_envelope_is_refused(mode, splunk):
 @pytest.mark.parametrize("spl", [
     "search index=crm | ```c``` delete",
     "search index=crm | appendpipe [outputlookup users.csv]",
+    'search index=crm x="```" | ```c``` delete y="```"',
+    'search index=crm x="```" | appendpipe [```c``` outputlookup users.csv] y="```"',
+    "search index=crm | output```c```lookup users.csv",
+    "search index=crm | col```c```lect index=summary",
+    "| from savedsearch:Nightly",
+    "search index=crm | union savedsearch:Nightly",
+    "search index=crm [| from savedsearch:Nightly]",
 ])
 def test_splunk_write_behind_a_comment_or_bracket_is_refused(mode, splunk, spl):
     client, http = splunk
@@ -423,3 +430,21 @@ def test_splunk_write_behind_a_comment_or_bracket_is_refused(mode, splunk, spl):
     with pytest.raises(UnsafeSQLError):
         _run({"spl": client}, f"return ds_clients['spl'].execute_query({spl!r})")
     assert http.searches == []
+
+
+@pytest.mark.parametrize("spl", [
+    "search index=crm ```note``` | stats count",
+    "search index=crm | ```note``` stats count",
+    'search index=crm msg="```code```" | stats count',
+    "| from datamodel:Web",
+    "| from inputlookup:users.csv",
+    "search index=crm | fit LinearRegression y from x",
+    "search index=crm | apply m",
+    "search index=crm | stats count | appendpipe [stats sum(count) as total]",
+    "search index=crm [search index=users | fields user]",
+    "search index=crm | `top_users` | stats count",
+])
+def test_splunk_read_behind_a_comment_or_bracket_posts_once(mode, splunk, spl):
+    client, http = splunk
+    _run({"spl": client}, f"return ds_clients['spl'].execute_query({{'spl': {spl!r}}})")
+    assert http.searches == [spl]
