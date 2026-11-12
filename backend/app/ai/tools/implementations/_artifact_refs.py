@@ -336,7 +336,13 @@ def chart_prop_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
     if "TrendChart" not in src and "RankChart" not in src:
         return []
     vizs = {str(v.get("id")): v for v in (artifact_data or {}).get("visualizations") or [] if isinstance(v, dict) and v.get("id")}
-    names = {m.group(1): m.group(2) for m in _VIZ_ASSIGN_RE.finditer(src)}
+    # One id per identifier. Two components may each declare `const viz =
+    # vizById(...)` for different vizzes; such an identifier is ambiguous here
+    # (no scope analysis), so charts that use it are skipped, never misjudged.
+    seen: Dict[str, set] = {}
+    for m in _VIZ_ASSIGN_RE.finditer(src):
+        seen.setdefault(m.group(1), set()).add(m.group(2))
+    names = {k: next(iter(v)) for k, v in seen.items() if len(v) == 1}
     errors: List[str] = []
     for m in _CHART_TAG_RE.finditer(src):
         comp = m.group(1)

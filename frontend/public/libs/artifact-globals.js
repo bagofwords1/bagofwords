@@ -2107,6 +2107,30 @@
     if (g === 'week') return t + 7 * _DAY;
     return t + _DAY;
   }
+  function _chPrev(t, g) {
+    var d = new Date(t), y = d.getUTCFullYear(), mo = d.getUTCMonth();
+    if (g === 'year') return Date.UTC(y - 1, 0, 1);
+    if (g === 'quarter') return Date.UTC(y, mo - 3, 1);
+    if (g === 'month') return Date.UTC(y, mo - 1, 1);
+    if (g === 'week') return t - 7 * _DAY;
+    return t - _DAY;
+  }
+  // The coarsest grain the gaps allow AND the dates line up with: two daily
+  // dates 28 days apart (Jan 1, Jan 29) are days, not one month. Months,
+  // quarters and years line up when every date is the period's first day, or
+  // every date its last (month-end data); weeks when every date shares a weekday.
+  function _chAligned(ts, g) {
+    if (g === 'day') return true;
+    if (g === 'week') { var wd = new Date(ts[0]).getUTCDay(); return ts.every(function(t) { return new Date(t).getUTCDay() === wd; }); }
+    return ts.every(function(t) { return _chFloor(t, g) === t; }) ||
+           ts.every(function(t) { return _chNext(_chFloor(t, g), g) - _DAY === t; });
+  }
+  function _chAlignedGrain(ts) {
+    var order = ['year', 'quarter', 'month', 'week', 'day'];
+    var g = _chGrainFromGap(ts) || 'day';
+    for (var i = order.indexOf(g); i < order.length; i++) if (_chAligned(ts, order[i])) return order[i];
+    return 'day';
+  }
   function _chGrainFromGap(ts) {
     var gap = Infinity;
     for (var i = 1; i < ts.length; i++) { var dg = (ts[i] - ts[i - 1]) / _DAY; if (dg > 0 && dg < gap) gap = dg; }
@@ -2200,19 +2224,25 @@
     if (isTime) {
       var distinct = parsed.map(function(p) { return p.t; }).filter(function(t, i, a) { return a.indexOf(t) === i; }).sort(function(a, b) { return a - b; });
       var hints = parsed.map(function(p) { return p.hint; }).filter(function(h0, i, a) { return h0 && a.indexOf(h0) === i; });
-      grain = hints.length === 1 && parsed.every(function(p) { return p.hint === hints[0]; }) ? hints[0] : (_chGrainFromGap(distinct) || hints[0] || 'day');
-      var want = props.grain && _CH_GRAINS.indexOf(props.grain) > _CH_GRAINS.indexOf(grain) ? props.grain : null;
-      if (want && additive) grain = want; // a finer grain than the data is ignored; non-additive data is aggregated in the query
+      grain = hints.length === 1 && parsed.every(function(p) { return p.hint === hints[0]; }) ? hints[0] : _chAlignedGrain(distinct);
+      // An explicit grain wins when it is finer than the data's; a coarser one
+      // sums rows, so only for additive data (otherwise aggregate in the query).
+      if (props.grain && _CH_GRAINS.indexOf(props.grain) !== -1) {
+        var gp = _CH_GRAINS.indexOf(props.grain), gd = _CH_GRAINS.indexOf(grain);
+        if (gp < gd || (gp > gd && additive)) grain = props.grain;
+      }
     }
     var minT = Infinity, maxT = -Infinity;
     if (isTime) parsed.forEach(function(p) { if (p.t < minT) minT = p.t; if (p.t > maxT) maxT = p.t; });
 
     // Group into (period, series) cells.
-    var seriesNames = [], cells = {}, order = [], dup = false;
+    var seriesNames = [], cells = Object.create(null), order = [], dup = false;
+    var MULTI = {}, rawOf = Object.create(null); // period → the source x value, for onClick
     rows.forEach(function(r, i) {
       if (!r) return;
       var k = isTime ? _chFloor(parsed[i].t, grain) : String(r[props.x]);
       if (!isTime && order.indexOf(k) === -1) order.push(k);
+      if (!(k in rawOf)) rawOf[k] = r[props.x]; else if (rawOf[k] !== r[props.x]) rawOf[k] = MULTI;
       var names = props.series != null ? [String(r[props.series] == null ? '—' : r[props.series])] : ys;
       names.forEach(function(nm, j) {
         if (seriesNames.indexOf(nm) === -1) seriesNames.push(nm);
@@ -2226,7 +2256,16 @@
 
     // Periods, filled from first to last.
     var periods = [];
-    if (isTime) { for (var t = _chFloor(minT, grain), guard = 0; t <= maxT && guard < 5000; t = _chNext(t, grain), guard++) periods.push(t); }
+    if (isTime) {
+      var tStart = _chFloor(minT, grain), tEnd = _chFloor(maxT, grain), CAP = 100000;
+      for (var t = tStart; t <= tEnd && periods.length < CAP; t = _chNext(t, grain)) periods.push(t);
+      if (periods.length && periods[periods.length - 1] < tEnd) {
+        // Capped: keep the newest periods, not the oldest.
+        periods = [];
+        for (var tb = tEnd; tb >= tStart && periods.length < CAP; tb = _chPrev(tb, grain)) periods.push(tb);
+        periods.reverse();
+      }
+    }
     else periods = order;
     var total = periods.length, caption = [];
 
@@ -2252,7 +2291,7 @@
           if (buckets.length && _chFloor(minT, grain) > buckets[0]) { buckets.shift(); dropped = true; }
           if (buckets.length && _chNext(_chFloor(maxT, grain), grain) < _chNext(buckets[buckets.length - 1], g2)) { buckets.pop(); dropped = true; }
           if (buckets.length <= maxPoints || gi === _CH_GRAINS.length - 1) {
-            var newCells = {};
+            var newCells = Object.create(null);
             periods.forEach(function(p) {
               var b = _chFloor(p, g2);
               if (buckets.indexOf(b) === -1) return;
@@ -2314,7 +2353,10 @@
         return item;
       })
     };
-    var keys = periods.map(function(p) { return isTime ? new Date(p).toISOString().slice(0, 10) : p; });
+    var keys = periods.map(function(p) {
+      if (labelGrain === grain && p in rawOf && rawOf[p] !== MULTI) return rawOf[p]; // the source key, e.g. "2025-01"
+      return isTime ? new Date(p).toISOString().slice(0, 10) : p; // a rolled-up or filled period: its start, with grain
+    });
     return { option: option, caption: caption.join(' · '), click: function(p) {
       return p ? { x: keys[p.dataIndex], grain: isTime ? labelGrain : null, series: p.seriesName, value: p.value && typeof p.value === 'object' ? p.value.value : p.value } : null;
     } };
@@ -2332,7 +2374,7 @@
     if (miss.length && fields.length) return _chErr('RankChart: no field named ' + miss.join(', ') + '.', fields);
     if (!rows.length) return { empty: true, noData: L.noData };
     var additive = props.additive === true, unit = props.unit || 'number';
-    var vals = {}, names = [], dup = false;
+    var vals = Object.create(null), names = [], dup = false;
     rows.forEach(function(r) {
       if (!r) return;
       var nm = String(r[props.label] == null ? '—' : r[props.label]), v = _chNum(r[props.value]);
