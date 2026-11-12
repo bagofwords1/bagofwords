@@ -2044,7 +2044,6 @@
     "defaultRoleHint": "Ce rôle est intégré. Son nom est fixe — personnalisez ses autorisations ci-dessous.",
     "edit": "Modifier",
     "fullAdmin": "Administrateur complet",
-    "permissionsCount": "{n} autorisations",
     "editRole": "Modifier le rôle",
     "createRole": "Créer un rôle",
     "nameLabel": "Nom",
@@ -2053,10 +2052,6 @@
     "descriptionPlaceholder": "Facultatif",
     "fullAdminAccess": "Accès administrateur complet",
     "fullAdminBypass": "Contourne toutes les vérifications",
-    "allResources": "Toutes les ressources",
-    "orgWidePermissions": "Autorisations à l'échelle de l'organisation",
-    "ds": "Agent",
-    "addDataSource": "+ Ajouter une source de données...",
     "cancel": "Annuler",
     "save": "Enregistrer",
     "create": "Créer",
@@ -2090,20 +2085,111 @@
       "create_data_sources": "Créer des agents",
       "manage_connection": "Gérer la connexion",
       "manage_data_sources": "Gérer les agents",
-      "manage_service_accounts": "Gérer les comptes de service"
+      "manage_service_accounts": "Gérer les comptes de service",
+      "view_code": "Voir le code généré",
+      "run_custom_code": "Modifier et exécuter du code personnalisé"
     },
-    "addAgent": "+ Ajouter un agent...",
-    "advancedPermissions": "Permissions avancées",
-    "tiers": {
-      "query": "Peut interroger",
-      "queryHint": "Poser des questions à cet agent",
-      "manage": "Peut gérer",
-      "manageHint": "Modifier les instructions, entités, évaluations, paramètres et membres"
+    "delete": "Supprimer",
+    "duplicate": "Dupliquer",
+    "copyOf": "Copie de {name}",
+    "loadingRole": "Chargement du rôle…",
+    "loadFailed": "Impossible de charger les agents, connexions et modèles de ce rôle.",
+    "retry": "Réessayer",
+    "saving": "Enregistrement…",
+    "unsavedChanges": "Modifications non enregistrées",
+    "startFrom": "Partir de",
+    "startFromDefault": "Permissions par défaut",
+    "canReach": "Accès à",
+    "canAlso": "Peut aussi",
+    "customize": "Personnaliser",
+    "hideCustomize": "Retour au résumé",
+    "addAccess": "+ Ajouter un agent, une connexion ou un modèle…",
+    "publicAgents": "Les agents publics ({n}) sont accessibles à tous.",
+    "reachEmpty": "Agents publics uniquement. Ajoutez un agent, une connexion ou un modèle pour donner plus d'accès à ce rôle.",
+    "agents": "Agents",
+    "connections": "Connexions",
+    "models": "Modèles restreints",
+    "levels": {
+      "use": "Utiliser",
+      "manage": "Gérer",
+      "custom": "Personnalisé",
+      "buildAgents": "Créer des agents"
     },
-    "modelAccess": "Accès aux modèles",
-    "modelAccessHint": "Modèles restreints",
-    "noRestrictedModels": "Aucun modèle restreint",
-    "connection": "Connexion"
+    "agentLevelsHint": "Utiliser : poser des questions. Gérer : modifier aussi ses instructions, entités, évaluations et partage.",
+    "connectionLevelsHint": "Créer des agents : créer des agents dessus. Gérer : aussi la modifier, la tester et la réindexer.",
+    "removeAccess": "Retirer",
+    "code": {
+      "label": "Voir le code généré",
+      "hint": "SQL et Python écrits par l'agent",
+      "hidden": "Masqué",
+      "view": "Voir",
+      "run": "Voir et exécuter"
+    },
+    "bundles": {
+      "build": {
+        "label": "Créer des agents et des connexions",
+        "hint": "Ils sont propriétaires de ce qu'ils créent"
+      },
+      "knowledge": {
+        "label": "Modifier les connaissances de tous les agents",
+        "hint": "Instructions, entités et évaluations sur tous les agents"
+      },
+      "connections": {
+        "label": "Gérer toutes les connexions",
+        "hint": "Modifier, tester, réindexer et supprimer n'importe quelle connexion"
+      },
+      "people": {
+        "label": "Gérer les personnes",
+        "hint": "Inviter des personnes, changer les rôles, créer des clés API"
+      },
+      "admin": {
+        "label": "Paramètres d'administration",
+        "hint": "Paramètres de l'organisation, fournisseurs LLM, connexion et journaux d'audit"
+      }
+    },
+    "sensitive": "Sensible",
+    "partial": "Partiel",
+    "includedBy": "Inclus par {name}",
+    "fullAdminOn": "Ce rôle a un accès administrateur complet. Il peut tout faire, donc les réglages ci-dessous ne s'appliquent pas.",
+    "removeFullAdmin": "Utiliser des permissions personnalisées",
+    "categories": {
+      "data": "Données et connexions",
+      "instructions": "Instructions",
+      "entities": "Entités",
+      "evals": "Évaluations",
+      "code": "Code",
+      "members": "Membres",
+      "settings": "Paramètres",
+      "enterprise": "Enterprise"
+    },
+    "summary": {
+      "fullAdmin": "Les personnes ayant ce rôle peuvent tout faire.",
+      "none": "Les personnes ayant ce rôle peuvent uniquement utiliser les agents publics.",
+      "can": "Les personnes ayant ce rôle peuvent {list}.",
+      "listFullAdmin": "Tout",
+      "listNone": "Agents publics uniquement",
+      "useAgentsOne": "utiliser 1 agent",
+      "useAgentsMany": "utiliser {n} agents",
+      "manageAgentsOne": "gérer 1 agent",
+      "manageAgentsMany": "gérer {n} agents",
+      "buildOnOne": "créer des agents sur 1 connexion",
+      "buildOnMany": "créer des agents sur {n} connexions",
+      "manageConnectionsOne": "gérer 1 connexion",
+      "manageConnectionsMany": "gérer {n} connexions",
+      "customOne": "avoir un accès personnalisé à 1 ressource",
+      "customMany": "avoir un accès personnalisé à {n} ressources",
+      "modelsOne": "utiliser 1 modèle restreint",
+      "modelsMany": "utiliser {n} modèles restreints",
+      "viewCode": "voir le code généré",
+      "runCode": "voir et exécuter du code",
+      "build": "créer des agents et des connexions",
+      "knowledge": "modifier les connaissances de tous les agents",
+      "connections": "gérer toutes les connexions",
+      "people": "gérer les personnes",
+      "admin": "modifier les paramètres d'administration"
+    },
+    "toastCreatedNamed": "{name} créé",
+    "toastUpdatedNamed": "{name} enregistré"
   },
   "groupsManager": {
     "searchPlaceholder": "Rechercher des groupes...",

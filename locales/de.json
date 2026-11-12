@@ -2044,7 +2044,6 @@
     "defaultRoleHint": "Dies ist eine integrierte Rolle. Ihr Name ist fest – passen Sie unten ihre Berechtigungen an.",
     "edit": "Bearbeiten",
     "fullAdmin": "Vollständiger Administrator",
-    "permissionsCount": "{n} Berechtigungen",
     "editRole": "Rolle bearbeiten",
     "createRole": "Rolle erstellen",
     "nameLabel": "Name",
@@ -2053,10 +2052,6 @@
     "descriptionPlaceholder": "Optional",
     "fullAdminAccess": "Vollständiger Administratorzugriff",
     "fullAdminBypass": "Umgeht alle Prüfungen",
-    "allResources": "Alle Ressourcen",
-    "orgWidePermissions": "Organisationsweite Berechtigungen",
-    "ds": "Agent",
-    "addDataSource": "+ Datenquelle hinzufügen ...",
     "cancel": "Abbrechen",
     "save": "Speichern",
     "create": "Erstellen",
@@ -2090,20 +2085,111 @@
       "create_data_sources": "Agenten erstellen",
       "manage_connection": "Verbindung verwalten",
       "manage_data_sources": "Agenten verwalten",
-      "manage_service_accounts": "Dienstkonten verwalten"
+      "manage_service_accounts": "Dienstkonten verwalten",
+      "view_code": "Generierten Code ansehen",
+      "run_custom_code": "Eigenen Code bearbeiten und ausführen"
     },
-    "addAgent": "+ Agent hinzufügen ...",
-    "advancedPermissions": "Erweiterte Berechtigungen",
-    "tiers": {
-      "query": "Darf abfragen",
-      "queryHint": "Diesem Agenten Fragen stellen",
-      "manage": "Darf verwalten",
-      "manageHint": "Anweisungen, Entitäten, Auswertungen, Einstellungen und Mitglieder bearbeiten"
+    "delete": "Löschen",
+    "duplicate": "Duplizieren",
+    "copyOf": "Kopie von {name}",
+    "loadingRole": "Rolle wird geladen…",
+    "loadFailed": "Agenten, Verbindungen und Modelle dieser Rolle konnten nicht geladen werden.",
+    "retry": "Erneut versuchen",
+    "saving": "Wird gespeichert…",
+    "unsavedChanges": "Nicht gespeicherte Änderungen",
+    "startFrom": "Ausgehend von",
+    "startFromDefault": "Standardberechtigungen",
+    "canReach": "Zugriff auf",
+    "canAlso": "Darf außerdem",
+    "customize": "Anpassen",
+    "hideCustomize": "Zurück zur Übersicht",
+    "addAccess": "+ Agent, Verbindung oder Modell hinzufügen…",
+    "publicAgents": "Öffentliche Agenten ({n}) stehen allen zur Verfügung.",
+    "reachEmpty": "Nur öffentliche Agenten. Fügen Sie einen Agenten, eine Verbindung oder ein Modell hinzu, um dieser Rolle mehr Zugriff zu geben.",
+    "agents": "Agenten",
+    "connections": "Verbindungen",
+    "models": "Eingeschränkte Modelle",
+    "levels": {
+      "use": "Nutzen",
+      "manage": "Verwalten",
+      "custom": "Benutzerdefiniert",
+      "buildAgents": "Agenten erstellen"
     },
-    "modelAccess": "Modellzugriff",
-    "modelAccessHint": "Eingeschränkte Modelle",
-    "noRestrictedModels": "Keine eingeschränkten Modelle",
-    "connection": "Verbindung"
+    "agentLevelsHint": "Nutzen: Fragen stellen. Verwalten: außerdem Anweisungen, Entitäten, Auswertungen und Freigaben bearbeiten.",
+    "connectionLevelsHint": "Agenten erstellen: Agenten darauf anlegen. Verwalten: außerdem bearbeiten, testen und neu indexieren.",
+    "removeAccess": "Entfernen",
+    "code": {
+      "label": "Generierten Code sehen",
+      "hint": "SQL und Python, die der Agent schreibt",
+      "hidden": "Ausgeblendet",
+      "view": "Ansehen",
+      "run": "Ansehen & ausführen"
+    },
+    "bundles": {
+      "build": {
+        "label": "Agenten und Verbindungen erstellen",
+        "hint": "Sie besitzen, was sie erstellen"
+      },
+      "knowledge": {
+        "label": "Wissen aller Agenten bearbeiten",
+        "hint": "Anweisungen, Entitäten und Auswertungen aller Agenten"
+      },
+      "connections": {
+        "label": "Alle Verbindungen verwalten",
+        "hint": "Jede Verbindung bearbeiten, testen, neu indexieren und löschen"
+      },
+      "people": {
+        "label": "Personen verwalten",
+        "hint": "Personen einladen, Rollen ändern, API-Schlüssel erstellen"
+      },
+      "admin": {
+        "label": "Admin-Einstellungen",
+        "hint": "Organisationseinstellungen, LLM-Anbieter, Anmeldung und Audit-Logs"
+      }
+    },
+    "sensitive": "Sensibel",
+    "partial": "Teilweise",
+    "includedBy": "Enthalten in {name}",
+    "fullAdminOn": "Diese Rolle hat vollen Admin-Zugriff. Sie darf alles, daher gelten die Einstellungen unten nicht.",
+    "removeFullAdmin": "Stattdessen benutzerdefinierte Berechtigungen verwenden",
+    "categories": {
+      "data": "Daten & Verbindungen",
+      "instructions": "Anweisungen",
+      "entities": "Entitäten",
+      "evals": "Auswertungen",
+      "code": "Code",
+      "members": "Mitglieder",
+      "settings": "Einstellungen",
+      "enterprise": "Enterprise"
+    },
+    "summary": {
+      "fullAdmin": "Personen mit dieser Rolle dürfen alles.",
+      "none": "Personen mit dieser Rolle dürfen nur öffentliche Agenten nutzen.",
+      "can": "Personen mit dieser Rolle dürfen {list}.",
+      "listFullAdmin": "Alles",
+      "listNone": "Nur öffentliche Agenten",
+      "useAgentsOne": "1 Agenten nutzen",
+      "useAgentsMany": "{n} Agenten nutzen",
+      "manageAgentsOne": "1 Agenten verwalten",
+      "manageAgentsMany": "{n} Agenten verwalten",
+      "buildOnOne": "Agenten auf 1 Verbindung erstellen",
+      "buildOnMany": "Agenten auf {n} Verbindungen erstellen",
+      "manageConnectionsOne": "1 Verbindung verwalten",
+      "manageConnectionsMany": "{n} Verbindungen verwalten",
+      "customOne": "benutzerdefinierten Zugriff auf 1 Ressource haben",
+      "customMany": "benutzerdefinierten Zugriff auf {n} Ressourcen haben",
+      "modelsOne": "1 eingeschränktes Modell nutzen",
+      "modelsMany": "{n} eingeschränkte Modelle nutzen",
+      "viewCode": "generierten Code ansehen",
+      "runCode": "Code ansehen und ausführen",
+      "build": "Agenten und Verbindungen erstellen",
+      "knowledge": "das Wissen aller Agenten bearbeiten",
+      "connections": "alle Verbindungen verwalten",
+      "people": "Personen verwalten",
+      "admin": "Admin-Einstellungen ändern"
+    },
+    "toastCreatedNamed": "{name} erstellt",
+    "toastUpdatedNamed": "{name} gespeichert"
   },
   "groupsManager": {
     "searchPlaceholder": "Gruppen suchen ...",

@@ -2044,7 +2044,6 @@
     "defaultRoleHint": "Esta é uma função interna. O nome é fixo — personalize as permissões abaixo.",
     "edit": "Editar",
     "fullAdmin": "Administrador total",
-    "permissionsCount": "{n} permissões",
     "editRole": "Editar função",
     "createRole": "Criar função",
     "nameLabel": "Nome",
@@ -2053,10 +2052,6 @@
     "descriptionPlaceholder": "Opcional",
     "fullAdminAccess": "Acesso total de administrador",
     "fullAdminBypass": "Ignora todas as verificações",
-    "allResources": "Todos os recursos",
-    "orgWidePermissions": "Permissões em toda a organização",
-    "ds": "Agente",
-    "addDataSource": "+ Adicionar fonte de dados...",
     "cancel": "Cancelar",
     "save": "Salvar",
     "create": "Criar",
@@ -2090,20 +2085,111 @@
       "create_data_sources": "Criar agentes",
       "manage_connection": "Gerenciar conexão",
       "manage_data_sources": "Gerenciar agentes",
-      "manage_service_accounts": "Gerenciar contas de serviço"
+      "manage_service_accounts": "Gerenciar contas de serviço",
+      "view_code": "Ver código gerado",
+      "run_custom_code": "Editar e executar código personalizado"
     },
-    "addAgent": "+ Adicionar agente...",
-    "advancedPermissions": "Permissões avançadas",
-    "tiers": {
-      "query": "Pode consultar",
-      "queryHint": "Fazer perguntas a este agente",
-      "manage": "Pode gerenciar",
-      "manageHint": "Editar instruções, entidades, avaliações, configurações e membros"
+    "delete": "Excluir",
+    "duplicate": "Duplicar",
+    "copyOf": "Cópia de {name}",
+    "loadingRole": "Carregando função…",
+    "loadFailed": "Não foi possível carregar os agentes, conexões e modelos desta função.",
+    "retry": "Tentar novamente",
+    "saving": "Salvando…",
+    "unsavedChanges": "Alterações não salvas",
+    "startFrom": "Começar de",
+    "startFromDefault": "Permissões padrão",
+    "canReach": "Acesso a",
+    "canAlso": "Também pode",
+    "customize": "Personalizar",
+    "hideCustomize": "Voltar ao resumo",
+    "addAccess": "+ Adicionar agente, conexão ou modelo…",
+    "publicAgents": "Os agentes públicos ({n}) estão disponíveis para todos.",
+    "reachEmpty": "Somente agentes públicos. Adicione um agente, conexão ou modelo para dar mais acesso a esta função.",
+    "agents": "Agentes",
+    "connections": "Conexões",
+    "models": "Modelos restritos",
+    "levels": {
+      "use": "Usar",
+      "manage": "Gerenciar",
+      "custom": "Personalizado",
+      "buildAgents": "Criar agentes"
     },
-    "modelAccess": "Acesso a modelos",
-    "modelAccessHint": "Modelos restritos",
-    "noRestrictedModels": "Nenhum modelo restrito",
-    "connection": "Conexão"
+    "agentLevelsHint": "Usar: fazer perguntas. Gerenciar: também editar instruções, entidades, avaliações e compartilhamento.",
+    "connectionLevelsHint": "Criar agentes: criar agentes nela. Gerenciar: também editá-la, testá-la e reindexá-la.",
+    "removeAccess": "Remover",
+    "code": {
+      "label": "Ver código gerado",
+      "hint": "SQL e Python que o agente escreve",
+      "hidden": "Oculto",
+      "view": "Ver",
+      "run": "Ver e executar"
+    },
+    "bundles": {
+      "build": {
+        "label": "Criar agentes e conexões",
+        "hint": "São donos do que criam"
+      },
+      "knowledge": {
+        "label": "Editar o conhecimento de todos os agentes",
+        "hint": "Instruções, entidades e avaliações em todos os agentes"
+      },
+      "connections": {
+        "label": "Gerenciar todas as conexões",
+        "hint": "Editar, testar, reindexar e excluir qualquer conexão"
+      },
+      "people": {
+        "label": "Gerenciar pessoas",
+        "hint": "Convidar pessoas, alterar funções, criar chaves de API"
+      },
+      "admin": {
+        "label": "Configurações de administração",
+        "hint": "Configurações da organização, provedores de LLM, login e logs de auditoria"
+      }
+    },
+    "sensitive": "Sensível",
+    "partial": "Parcial",
+    "includedBy": "Incluído por {name}",
+    "fullAdminOn": "Esta função tem acesso total de administrador. Pode fazer tudo, então as configurações abaixo não se aplicam.",
+    "removeFullAdmin": "Usar permissões personalizadas",
+    "categories": {
+      "data": "Dados e conexões",
+      "instructions": "Instruções",
+      "entities": "Entidades",
+      "evals": "Avaliações",
+      "code": "Código",
+      "members": "Membros",
+      "settings": "Configurações",
+      "enterprise": "Enterprise"
+    },
+    "summary": {
+      "fullAdmin": "Pessoas com esta função podem fazer tudo.",
+      "none": "Pessoas com esta função só podem usar agentes públicos.",
+      "can": "Pessoas com esta função podem {list}.",
+      "listFullAdmin": "Tudo",
+      "listNone": "Somente agentes públicos",
+      "useAgentsOne": "usar 1 agente",
+      "useAgentsMany": "usar {n} agentes",
+      "manageAgentsOne": "gerenciar 1 agente",
+      "manageAgentsMany": "gerenciar {n} agentes",
+      "buildOnOne": "criar agentes em 1 conexão",
+      "buildOnMany": "criar agentes em {n} conexões",
+      "manageConnectionsOne": "gerenciar 1 conexão",
+      "manageConnectionsMany": "gerenciar {n} conexões",
+      "customOne": "ter acesso personalizado a 1 recurso",
+      "customMany": "ter acesso personalizado a {n} recursos",
+      "modelsOne": "usar 1 modelo restrito",
+      "modelsMany": "usar {n} modelos restritos",
+      "viewCode": "ver o código gerado",
+      "runCode": "ver e executar código",
+      "build": "criar agentes e conexões",
+      "knowledge": "editar o conhecimento de todos os agentes",
+      "connections": "gerenciar todas as conexões",
+      "people": "gerenciar pessoas",
+      "admin": "alterar configurações de administração"
+    },
+    "toastCreatedNamed": "{name} criada",
+    "toastUpdatedNamed": "{name} salva"
   },
   "groupsManager": {
     "searchPlaceholder": "Buscar grupos...",

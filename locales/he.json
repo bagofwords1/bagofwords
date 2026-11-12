@@ -2220,7 +2220,6 @@
     "defaultRoleHint": "זהו תפקיד מובנה. שמו קבוע — התאימו את ההרשאות שלו למטה.",
     "edit": "עריכה",
     "fullAdmin": "אדמין מלא",
-    "permissionsCount": "{n} הרשאות",
     "editRole": "עריכת תפקיד",
     "createRole": "יצירת תפקיד",
     "nameLabel": "שם",
@@ -2229,10 +2228,6 @@
     "descriptionPlaceholder": "אופציונלי",
     "fullAdminAccess": "גישת אדמין מלאה",
     "fullAdminBypass": "עוקף את כל הבדיקות",
-    "allResources": "כל המשאבים",
-    "orgWidePermissions": "הרשאות כלל-ארגוניות",
-    "ds": "סוכן",
-    "addDataSource": "+ הוסף מקור נתונים...",
     "cancel": "ביטול",
     "save": "שמירה",
     "create": "יצירה",
@@ -2250,9 +2245,9 @@
       "create_data_source": "יצירת סוכן",
       "create_connections": "יצירת חיבורים",
       "manage_connections": "ניהול חיבורים",
-      "manage_instructions": "ניהול הוראות",
+      "manage_instructions": "ניהול הנחיות",
       "manage_entities": "ניהול ישויות",
-      "manage_evals": "ניהול הערכות",
+      "manage_evals": "ניהול בדיקות איכות",
       "view_code": "צפייה בקוד שנוצר",
       "run_custom_code": "עריכה והרצה של קוד מותאם",
       "view_members": "צפייה בחברים",
@@ -2270,18 +2265,107 @@
       "create_data_sources": "צור סוכנים",
       "manage_data_sources": "נהל סוכנים"
     },
-    "addAgent": "+ הוסף סוכן...",
-    "advancedPermissions": "הרשאות מתקדמות",
-    "tiers": {
-      "query": "יכול לשאול",
-      "queryHint": "לשאול את הסוכן הזה שאלות",
-      "manage": "יכול לנהל",
-      "manageHint": "עריכת הוראות, ישויות, הערכות, הגדרות וחברים"
+    "delete": "מחיקה",
+    "duplicate": "שכפול",
+    "copyOf": "עותק של {name}",
+    "loadingRole": "טוען תפקיד…",
+    "loadFailed": "לא ניתן היה לטעון את הסוכנים, החיבורים והמודלים של התפקיד.",
+    "retry": "נסו שוב",
+    "saving": "שומר…",
+    "unsavedChanges": "שינויים שלא נשמרו",
+    "startFrom": "להתחיל מ",
+    "startFromDefault": "הרשאות ברירת מחדל",
+    "canReach": "גישה ל",
+    "canAlso": "יכולים גם",
+    "customize": "התאמה אישית",
+    "hideCustomize": "חזרה לסיכום",
+    "addAccess": "+ הוספת סוכן, חיבור או מודל…",
+    "publicAgents": "סוכנים ציבוריים ({n}) זמינים לכולם.",
+    "reachEmpty": "סוכנים ציבוריים בלבד. הוסיפו סוכן, חיבור או מודל כדי לתת לתפקיד הזה גישה נוספת.",
+    "agents": "סוכנים",
+    "connections": "חיבורים",
+    "models": "מודלים מוגבלים",
+    "levels": {
+      "use": "שימוש",
+      "manage": "ניהול",
+      "custom": "מותאם",
+      "buildAgents": "בניית סוכנים"
     },
-    "modelAccess": "גישה למודלים",
-    "modelAccessHint": "מודלים מוגבלים",
-    "noRestrictedModels": "אין מודלים מוגבלים",
-    "connection": "חיבור"
+    "agentLevelsHint": "שימוש: לשאול שאלות. ניהול: גם לערוך את ההנחיות, הישויות, בדיקות האיכות והשיתוף שלו.",
+    "connectionLevelsHint": "בניית סוכנים: ליצור עליו סוכנים. ניהול: גם לערוך, לבדוק ולאנדקס אותו מחדש.",
+    "removeAccess": "הסרה",
+    "code": {
+      "label": "צפייה בקוד שנוצר",
+      "hint": "SQL ו-Python שהסוכן כותב",
+      "hidden": "מוסתר",
+      "view": "צפייה",
+      "run": "צפייה והרצה"
+    },
+    "bundles": {
+      "build": {
+        "label": "בניית סוכנים וחיבורים",
+        "hint": "הם הבעלים של מה שהם יוצרים"
+      },
+      "knowledge": {
+        "label": "עריכת הידע של כל הסוכנים",
+        "hint": "הנחיות, ישויות ובדיקות איכות בכל הסוכנים"
+      },
+      "connections": {
+        "label": "ניהול כל החיבורים",
+        "hint": "עריכה, בדיקה, אינדוקס מחדש ומחיקה של כל חיבור"
+      },
+      "people": {
+        "label": "ניהול אנשים",
+        "hint": "הזמנת אנשים, שינוי תפקידים, יצירת מפתחות API"
+      },
+      "admin": {
+        "label": "הגדרות ניהול",
+        "hint": "הגדרות הארגון, ספקי LLM, התחברות ויומני ביקורת"
+      }
+    },
+    "sensitive": "רגיש",
+    "partial": "חלקי",
+    "includedBy": "כלול ב{name}",
+    "fullAdminOn": "לתפקיד הזה יש גישת אדמין מלאה. הוא יכול לעשות הכול, ולכן ההגדרות למטה לא חלות עליו.",
+    "removeFullAdmin": "שימוש בהרשאות מותאמות במקום",
+    "categories": {
+      "data": "נתונים וחיבורים",
+      "instructions": "הנחיות",
+      "entities": "ישויות",
+      "evals": "בדיקות איכות",
+      "code": "קוד",
+      "members": "חברים",
+      "settings": "הגדרות",
+      "enterprise": "Enterprise"
+    },
+    "summary": {
+      "fullAdmin": "בעלי התפקיד הזה יכולים לעשות הכול.",
+      "none": "בעלי התפקיד הזה יכולים להשתמש בסוכנים ציבוריים בלבד.",
+      "can": "בעלי התפקיד הזה יכולים {list}.",
+      "listFullAdmin": "הכול",
+      "listNone": "סוכנים ציבוריים בלבד",
+      "useAgentsOne": "להשתמש בסוכן אחד",
+      "useAgentsMany": "להשתמש ב-{n} סוכנים",
+      "manageAgentsOne": "לנהל סוכן אחד",
+      "manageAgentsMany": "לנהל {n} סוכנים",
+      "buildOnOne": "לבנות סוכנים על חיבור אחד",
+      "buildOnMany": "לבנות סוכנים על {n} חיבורים",
+      "manageConnectionsOne": "לנהל חיבור אחד",
+      "manageConnectionsMany": "לנהל {n} חיבורים",
+      "customOne": "לקבל גישה מותאמת למשאב אחד",
+      "customMany": "לקבל גישה מותאמת ל-{n} משאבים",
+      "modelsOne": "להשתמש במודל מוגבל אחד",
+      "modelsMany": "להשתמש ב-{n} מודלים מוגבלים",
+      "viewCode": "לצפות בקוד שנוצר",
+      "runCode": "לצפות בקוד ולהריץ אותו",
+      "build": "לבנות סוכנים וחיבורים",
+      "knowledge": "לערוך את הידע של כל הסוכנים",
+      "connections": "לנהל את כל החיבורים",
+      "people": "לנהל אנשים",
+      "admin": "לשנות הגדרות ניהול"
+    },
+    "toastCreatedNamed": "{name} נוצר",
+    "toastUpdatedNamed": "{name} נשמר"
   },
   "groupsManager": {
     "searchPlaceholder": "חיפוש קבוצות...",

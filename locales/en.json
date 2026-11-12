@@ -2246,7 +2246,6 @@
     "defaultRoleHint": "This is a built-in role. Its name is fixed — customize its permissions below.",
     "edit": "Edit",
     "fullAdmin": "Full Admin",
-    "permissionsCount": "{n} permissions",
     "editRole": "Edit Role",
     "createRole": "Create Role",
     "nameLabel": "Name",
@@ -2255,10 +2254,6 @@
     "descriptionPlaceholder": "Optional",
     "fullAdminAccess": "Full Admin Access",
     "fullAdminBypass": "Bypasses all checks",
-    "allResources": "All resources",
-    "orgWidePermissions": "Org-wide permissions",
-    "ds": "Agent",
-    "addDataSource": "+ Add data source...",
     "cancel": "Cancel",
     "save": "Save",
     "create": "Create",
@@ -2296,18 +2291,107 @@
       "create_data_sources": "Create agents",
       "manage_data_sources": "Manage agents"
     },
-    "connection": "Connection",
-    "addAgent": "+ Add agent or connection...",
-    "advancedPermissions": "Advanced permissions",
-    "tiers": {
-      "query": "Can query",
-      "queryHint": "Ask this agent questions",
-      "manage": "Can manage",
-      "manageHint": "Edit instructions, entities, evals, settings and members"
+    "delete": "Delete",
+    "duplicate": "Duplicate",
+    "copyOf": "Copy of {name}",
+    "loadingRole": "Loading role…",
+    "loadFailed": "Couldn't load this role's agents, connections and models.",
+    "retry": "Try again",
+    "saving": "Saving…",
+    "unsavedChanges": "Unsaved changes",
+    "startFrom": "Start from",
+    "startFromDefault": "Default permissions",
+    "canReach": "Can reach",
+    "canAlso": "Can also",
+    "customize": "Customize",
+    "hideCustomize": "Back to summary",
+    "addAccess": "+ Add agent, connection or model…",
+    "publicAgents": "Public agents ({n}) are available to everyone.",
+    "reachEmpty": "Only public agents. Add an agent, connection or model to give this role more access.",
+    "agents": "Agents",
+    "connections": "Connections",
+    "models": "Restricted models",
+    "levels": {
+      "use": "Use",
+      "manage": "Manage",
+      "custom": "Custom",
+      "buildAgents": "Build agents"
     },
-    "modelAccess": "Model access",
-    "modelAccessHint": "Restricted models",
-    "noRestrictedModels": "No restricted models"
+    "agentLevelsHint": "Use: ask questions. Manage: also edit its instructions, entities, quality checks and sharing.",
+    "connectionLevelsHint": "Build agents: create agents on it. Manage: also edit, test and reindex it.",
+    "removeAccess": "Remove",
+    "code": {
+      "label": "See generated code",
+      "hint": "SQL and Python the agent writes",
+      "hidden": "Hidden",
+      "view": "View",
+      "run": "View & run"
+    },
+    "bundles": {
+      "build": {
+        "label": "Build agents and connections",
+        "hint": "They own what they create"
+      },
+      "knowledge": {
+        "label": "Edit every agent's knowledge",
+        "hint": "Instructions, entities and quality checks on all agents"
+      },
+      "connections": {
+        "label": "Manage all connections",
+        "hint": "Edit, test, reindex and delete any connection"
+      },
+      "people": {
+        "label": "Manage people",
+        "hint": "Invite people, change roles, create API keys"
+      },
+      "admin": {
+        "label": "Admin settings",
+        "hint": "Org settings, LLM providers, sign-in and audit logs"
+      }
+    },
+    "sensitive": "Sensitive",
+    "partial": "Partial",
+    "includedBy": "Included by {name}",
+    "fullAdminOn": "This role has full admin access. It can do everything, so the settings below don't apply.",
+    "removeFullAdmin": "Use custom permissions instead",
+    "categories": {
+      "data": "Data & connections",
+      "instructions": "Instructions",
+      "entities": "Entities",
+      "evals": "Quality checks",
+      "code": "Code",
+      "members": "Members",
+      "settings": "Settings",
+      "enterprise": "Enterprise"
+    },
+    "summary": {
+      "fullAdmin": "People with this role can do everything.",
+      "none": "People with this role can use public agents only.",
+      "can": "People with this role can {list}.",
+      "listFullAdmin": "Everything",
+      "listNone": "Public agents only",
+      "useAgentsOne": "use 1 agent",
+      "useAgentsMany": "use {n} agents",
+      "manageAgentsOne": "manage 1 agent",
+      "manageAgentsMany": "manage {n} agents",
+      "buildOnOne": "build agents on 1 connection",
+      "buildOnMany": "build agents on {n} connections",
+      "manageConnectionsOne": "manage 1 connection",
+      "manageConnectionsMany": "manage {n} connections",
+      "customOne": "have custom access to 1 resource",
+      "customMany": "have custom access to {n} resources",
+      "modelsOne": "use 1 restricted model",
+      "modelsMany": "use {n} restricted models",
+      "viewCode": "view generated code",
+      "runCode": "view and run code",
+      "build": "build agents and connections",
+      "knowledge": "edit every agent's knowledge",
+      "connections": "manage all connections",
+      "people": "manage people",
+      "admin": "change admin settings"
+    },
+    "toastCreatedNamed": "{name} created",
+    "toastUpdatedNamed": "{name} saved"
   },
   "serviceAccounts": {
     "title": "Service Accounts",

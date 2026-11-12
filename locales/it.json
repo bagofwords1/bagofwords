@@ -2044,7 +2044,6 @@
     "defaultRoleHint": "Questo è un ruolo integrato. Il nome è fisso: personalizza le sue autorizzazioni qui sotto.",
     "edit": "Modifica",
     "fullAdmin": "Amministratore completo",
-    "permissionsCount": "{n} autorizzazioni",
     "editRole": "Modifica ruolo",
     "createRole": "Crea ruolo",
     "nameLabel": "Nome",
@@ -2053,10 +2052,6 @@
     "descriptionPlaceholder": "Opzionale",
     "fullAdminAccess": "Accesso amministratore completo",
     "fullAdminBypass": "Bypassa tutti i controlli",
-    "allResources": "Tutte le risorse",
-    "orgWidePermissions": "Autorizzazioni a livello di organizzazione",
-    "ds": "Agente",
-    "addDataSource": "+ Aggiungi origine dati...",
     "cancel": "Annulla",
     "save": "Salva",
     "create": "Crea",
@@ -2090,20 +2085,111 @@
       "create_data_sources": "Creare agenti",
       "manage_connection": "Gestire la connessione",
       "manage_data_sources": "Gestire gli agenti",
-      "manage_service_accounts": "Gestire gli account di servizio"
+      "manage_service_accounts": "Gestire gli account di servizio",
+      "view_code": "Vedere il codice generato",
+      "run_custom_code": "Modificare ed eseguire codice personalizzato"
     },
-    "addAgent": "+ Aggiungi agente...",
-    "advancedPermissions": "Autorizzazioni avanzate",
-    "tiers": {
-      "query": "Può interrogare",
-      "queryHint": "Fare domande a questo agente",
-      "manage": "Può gestire",
-      "manageHint": "Modificare istruzioni, entità, valutazioni, impostazioni e membri"
+    "delete": "Elimina",
+    "duplicate": "Duplica",
+    "copyOf": "Copia di {name}",
+    "loadingRole": "Caricamento ruolo…",
+    "loadFailed": "Impossibile caricare agenti, connessioni e modelli di questo ruolo.",
+    "retry": "Riprova",
+    "saving": "Salvataggio…",
+    "unsavedChanges": "Modifiche non salvate",
+    "startFrom": "Parti da",
+    "startFromDefault": "Permessi predefiniti",
+    "canReach": "Accesso a",
+    "canAlso": "Può anche",
+    "customize": "Personalizza",
+    "hideCustomize": "Torna al riepilogo",
+    "addAccess": "+ Aggiungi agente, connessione o modello…",
+    "publicAgents": "Gli agenti pubblici ({n}) sono disponibili per tutti.",
+    "reachEmpty": "Solo agenti pubblici. Aggiungi un agente, una connessione o un modello per dare più accesso a questo ruolo.",
+    "agents": "Agenti",
+    "connections": "Connessioni",
+    "models": "Modelli con restrizioni",
+    "levels": {
+      "use": "Usa",
+      "manage": "Gestisci",
+      "custom": "Personalizzato",
+      "buildAgents": "Crea agenti"
     },
-    "modelAccess": "Accesso ai modelli",
-    "modelAccessHint": "Modelli con restrizioni",
-    "noRestrictedModels": "Nessun modello con restrizioni",
-    "connection": "Connessione"
+    "agentLevelsHint": "Usa: fare domande. Gestisci: anche modificarne istruzioni, entità, valutazioni e condivisione.",
+    "connectionLevelsHint": "Crea agenti: creare agenti su di essa. Gestisci: anche modificarla, testarla e reindicizzarla.",
+    "removeAccess": "Rimuovi",
+    "code": {
+      "label": "Vedere il codice generato",
+      "hint": "SQL e Python scritti dall'agente",
+      "hidden": "Nascosto",
+      "view": "Visualizza",
+      "run": "Visualizza ed esegui"
+    },
+    "bundles": {
+      "build": {
+        "label": "Creare agenti e connessioni",
+        "hint": "Sono proprietari di ciò che creano"
+      },
+      "knowledge": {
+        "label": "Modificare la conoscenza di tutti gli agenti",
+        "hint": "Istruzioni, entità e valutazioni su tutti gli agenti"
+      },
+      "connections": {
+        "label": "Gestire tutte le connessioni",
+        "hint": "Modificare, testare, reindicizzare ed eliminare qualsiasi connessione"
+      },
+      "people": {
+        "label": "Gestire le persone",
+        "hint": "Invitare persone, cambiare ruoli, creare chiavi API"
+      },
+      "admin": {
+        "label": "Impostazioni di amministrazione",
+        "hint": "Impostazioni dell'organizzazione, provider LLM, accesso e log di audit"
+      }
+    },
+    "sensitive": "Sensibile",
+    "partial": "Parziale",
+    "includedBy": "Incluso da {name}",
+    "fullAdminOn": "Questo ruolo ha accesso amministrativo completo. Può fare tutto, quindi le impostazioni qui sotto non si applicano.",
+    "removeFullAdmin": "Usa permessi personalizzati",
+    "categories": {
+      "data": "Dati e connessioni",
+      "instructions": "Istruzioni",
+      "entities": "Entità",
+      "evals": "Valutazioni",
+      "code": "Codice",
+      "members": "Membri",
+      "settings": "Impostazioni",
+      "enterprise": "Enterprise"
+    },
+    "summary": {
+      "fullAdmin": "Le persone con questo ruolo possono fare tutto.",
+      "none": "Le persone con questo ruolo possono usare solo agenti pubblici.",
+      "can": "Le persone con questo ruolo possono {list}.",
+      "listFullAdmin": "Tutto",
+      "listNone": "Solo agenti pubblici",
+      "useAgentsOne": "usare 1 agente",
+      "useAgentsMany": "usare {n} agenti",
+      "manageAgentsOne": "gestire 1 agente",
+      "manageAgentsMany": "gestire {n} agenti",
+      "buildOnOne": "creare agenti su 1 connessione",
+      "buildOnMany": "creare agenti su {n} connessioni",
+      "manageConnectionsOne": "gestire 1 connessione",
+      "manageConnectionsMany": "gestire {n} connessioni",
+      "customOne": "avere accesso personalizzato a 1 risorsa",
+      "customMany": "avere accesso personalizzato a {n} risorse",
+      "modelsOne": "usare 1 modello con restrizioni",
+      "modelsMany": "usare {n} modelli con restrizioni",
+      "viewCode": "vedere il codice generato",
+      "runCode": "vedere ed eseguire codice",
+      "build": "creare agenti e connessioni",
+      "knowledge": "modificare la conoscenza di tutti gli agenti",
+      "connections": "gestire tutte le connessioni",
+      "people": "gestire le persone",
+      "admin": "modificare le impostazioni di amministrazione"
+    },
+    "toastCreatedNamed": "{name} creato",
+    "toastUpdatedNamed": "{name} salvato"
   },
   "groupsManager": {
     "searchPlaceholder": "Cerca gruppi...",

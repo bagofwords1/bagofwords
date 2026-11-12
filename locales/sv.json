@@ -2044,7 +2044,6 @@
     "defaultRoleHint": "Detta är en inbyggd roll. Dess namn är fast – anpassa dess behörigheter nedan.",
     "edit": "Redigera",
     "fullAdmin": "Fullständig administratör",
-    "permissionsCount": "{n} behörigheter",
     "editRole": "Redigera roll",
     "createRole": "Skapa roll",
     "nameLabel": "Namn",
@@ -2053,10 +2052,6 @@
     "descriptionPlaceholder": "Valfritt",
     "fullAdminAccess": "Fullständig administratörsåtkomst",
     "fullAdminBypass": "Förbigår alla kontroller",
-    "allResources": "Alla resurser",
-    "orgWidePermissions": "Organisationsövergripande behörigheter",
-    "ds": "Agent",
-    "addDataSource": "+ Lägg till datakälla...",
     "cancel": "Avbryt",
     "save": "Spara",
     "create": "Skapa",
@@ -2090,20 +2085,111 @@
       "create_data_sources": "Skapa agenter",
       "manage_connection": "Hantera anslutning",
       "manage_data_sources": "Hantera agenter",
-      "manage_service_accounts": "Hantera tjänstkonton"
+      "manage_service_accounts": "Hantera tjänstkonton",
+      "view_code": "Visa genererad kod",
+      "run_custom_code": "Redigera och köra egen kod"
     },
-    "addAgent": "+ Lägg till agent...",
-    "advancedPermissions": "Avancerade behörigheter",
-    "tiers": {
-      "query": "Kan fråga",
-      "queryHint": "Ställ frågor till denna agent",
-      "manage": "Kan hantera",
-      "manageHint": "Redigera instruktioner, entiteter, utvärderingar, inställningar och medlemmar"
+    "delete": "Ta bort",
+    "duplicate": "Duplicera",
+    "copyOf": "Kopia av {name}",
+    "loadingRole": "Läser in roll…",
+    "loadFailed": "Det gick inte att läsa in rollens agenter, anslutningar och modeller.",
+    "retry": "Försök igen",
+    "saving": "Sparar…",
+    "unsavedChanges": "Osparade ändringar",
+    "startFrom": "Utgå från",
+    "startFromDefault": "Standardbehörigheter",
+    "canReach": "Åtkomst till",
+    "canAlso": "Kan också",
+    "customize": "Anpassa",
+    "hideCustomize": "Tillbaka till sammanfattningen",
+    "addAccess": "+ Lägg till agent, anslutning eller modell…",
+    "publicAgents": "Offentliga agenter ({n}) är tillgängliga för alla.",
+    "reachEmpty": "Endast offentliga agenter. Lägg till en agent, anslutning eller modell för att ge rollen mer åtkomst.",
+    "agents": "Agenter",
+    "connections": "Anslutningar",
+    "models": "Begränsade modeller",
+    "levels": {
+      "use": "Använd",
+      "manage": "Hantera",
+      "custom": "Anpassad",
+      "buildAgents": "Skapa agenter"
     },
-    "modelAccess": "Modellåtkomst",
-    "modelAccessHint": "Begränsade modeller",
-    "noRestrictedModels": "Inga begränsade modeller",
-    "connection": "Anslutning"
+    "agentLevelsHint": "Använd: ställa frågor. Hantera: även redigera dess instruktioner, entiteter, utvärderingar och delning.",
+    "connectionLevelsHint": "Skapa agenter: skapa agenter på den. Hantera: även redigera, testa och indexera om den.",
+    "removeAccess": "Ta bort",
+    "code": {
+      "label": "Se genererad kod",
+      "hint": "SQL och Python som agenten skriver",
+      "hidden": "Dold",
+      "view": "Visa",
+      "run": "Visa och kör"
+    },
+    "bundles": {
+      "build": {
+        "label": "Skapa agenter och anslutningar",
+        "hint": "De äger det de skapar"
+      },
+      "knowledge": {
+        "label": "Redigera alla agenters kunskap",
+        "hint": "Instruktioner, entiteter och utvärderingar på alla agenter"
+      },
+      "connections": {
+        "label": "Hantera alla anslutningar",
+        "hint": "Redigera, testa, indexera om och ta bort valfri anslutning"
+      },
+      "people": {
+        "label": "Hantera personer",
+        "hint": "Bjuda in personer, ändra roller, skapa API-nycklar"
+      },
+      "admin": {
+        "label": "Administratörsinställningar",
+        "hint": "Organisationsinställningar, LLM-leverantörer, inloggning och granskningsloggar"
+      }
+    },
+    "sensitive": "Känslig",
+    "partial": "Delvis",
+    "includedBy": "Ingår i {name}",
+    "fullAdminOn": "Den här rollen har full administratörsåtkomst. Den kan göra allt, så inställningarna nedan gäller inte.",
+    "removeFullAdmin": "Använd anpassade behörigheter i stället",
+    "categories": {
+      "data": "Data och anslutningar",
+      "instructions": "Instruktioner",
+      "entities": "Entiteter",
+      "evals": "Utvärderingar",
+      "code": "Kod",
+      "members": "Medlemmar",
+      "settings": "Inställningar",
+      "enterprise": "Enterprise"
+    },
+    "summary": {
+      "fullAdmin": "Personer med den här rollen kan göra allt.",
+      "none": "Personer med den här rollen kan bara använda offentliga agenter.",
+      "can": "Personer med den här rollen kan {list}.",
+      "listFullAdmin": "Allt",
+      "listNone": "Endast offentliga agenter",
+      "useAgentsOne": "använda 1 agent",
+      "useAgentsMany": "använda {n} agenter",
+      "manageAgentsOne": "hantera 1 agent",
+      "manageAgentsMany": "hantera {n} agenter",
+      "buildOnOne": "skapa agenter på 1 anslutning",
+      "buildOnMany": "skapa agenter på {n} anslutningar",
+      "manageConnectionsOne": "hantera 1 anslutning",
+      "manageConnectionsMany": "hantera {n} anslutningar",
+      "customOne": "ha anpassad åtkomst till 1 resurs",
+      "customMany": "ha anpassad åtkomst till {n} resurser",
+      "modelsOne": "använda 1 begränsad modell",
+      "modelsMany": "använda {n} begränsade modeller",
+      "viewCode": "se genererad kod",
+      "runCode": "se och köra kod",
+      "build": "skapa agenter och anslutningar",
+      "knowledge": "redigera alla agenters kunskap",
+      "connections": "hantera alla anslutningar",
+      "people": "hantera personer",
+      "admin": "ändra administratörsinställningar"
+    },
+    "toastCreatedNamed": "{name} skapad",
+    "toastUpdatedNamed": "{name} sparad"
   },
   "groupsManager": {
     "searchPlaceholder": "Sök grupper...",
