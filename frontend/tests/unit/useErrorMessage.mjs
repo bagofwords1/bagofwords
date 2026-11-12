@@ -88,7 +88,7 @@ for (const unreadable of [undefined, null, '', {}, { message: '' }, { metric: 'd
 // language, with their own numbers and reasons. A query the code swallowed
 // names the underlying query errors (a refusal among them): the catalog line
 // must not hide them, and a list reads as text, not as JSON.
-const catalogs = Object.fromEntries(['en', 'es', 'he'].map((loc) => {
+const catalogs = Object.fromEntries(['en', 'es', 'he', 'fr', 'sv', 'ar', 'ru', 'de', 'pt', 'it'].map((loc) => {
   const messages = JSON.parse(readFileSync(new URL(`../../../locales/${loc}.json`, import.meta.url)))
   const g = createI18n({ legacy: false, locale: loc, missingWarn: false, fallbackWarn: false,
     messages: { [loc]: messages } }).global

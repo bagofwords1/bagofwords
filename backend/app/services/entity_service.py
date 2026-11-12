@@ -26,6 +26,38 @@ from app.errors.redact import describe_for_log
 logger = logging.getLogger(__name__)
 
 
+def is_run_refusal(exc: Optional[BaseException]) -> bool:
+    """True when a run was refused rather than failed: the query guard or the
+    code scan, in-process execution refused on this host, a host without the
+    sandbox, a connection rate limit or a usage quota, raised in the parent or
+    reported by the sandbox child by type name. The route answers each with
+    its own status and text."""
+    from app.ai.code_execution.code_execution import CodeSecurityError
+    from app.ai.code_execution.sandbox.runner import (
+        SandboxExecutionError,
+        SandboxModeRefused,
+        SandboxUnavailableError,
+    )
+    from app.services.connection_rate_limit_service import RateLimitExceeded
+    from app.services.usage_policy_service import UsageLimitExceeded
+
+    if isinstance(exc, (CodeSecurityError, SandboxModeRefused, SandboxUnavailableError,
+                        UsageLimitExceeded, RateLimitExceeded)):
+        return True
+    return isinstance(exc, SandboxExecutionError) and exc.exc_type in ("RateLimitExceeded", "UsageLimitExceeded")
+
+
+def _result_not_saved(entity_id, err: BaseException) -> AppError:
+    """The answer to a run whose result the app database did not store.
+
+    Told apart by where it happens (the save), not by the error's type: a
+    warehouse client raises the same SQLAlchemy errors for a builder's own
+    query. The app database's error quotes its statement and bound values, so
+    neither the answer nor the log line carries its text."""
+    logger.error("Entity %s: the run's result was not saved: %s", entity_id, describe_for_log(err))
+    return AppError(ErrorCode.INTERNAL, "The run's result could not be saved.", status_code=500)
+
+
 class EntityService:
 
     def __init__(self):
@@ -121,27 +153,31 @@ class EntityService:
         from app.ai.code_execution.query_params import params_fingerprint
         from app.models.entity_user_result import EntityUserResult
         fingerprint = params_fingerprint(resolved_params)
-        row = (await db.execute(
-            select(EntityUserResult).where(
-                EntityUserResult.entity_id == str(entity.id),
-                EntityUserResult.user_id == str(user.id),
-                EntityUserResult.params_fingerprint == fingerprint,
-            )
-        )).scalars().first()
-        if row is None:
-            row = EntityUserResult(
-                entity_id=str(entity.id),
-                user_id=str(user.id),
-                organization_id=str(entity.organization_id),
-                params_fingerprint=fingerprint,
-            )
-        row.status = "success"
-        row.status_reason = None
-        row.data = df
-        row.applied_params = dict(resolved_params) if resolved_params else None
-        row.last_run_at = datetime.utcnow()
-        db.add(row)
-        await db.commit()
+        try:
+            # The lookup flushes what the run changed on the entity (autoflush).
+            row = (await db.execute(
+                select(EntityUserResult).where(
+                    EntityUserResult.entity_id == str(entity.id),
+                    EntityUserResult.user_id == str(user.id),
+                    EntityUserResult.params_fingerprint == fingerprint,
+                )
+            )).scalars().first()
+            if row is None:
+                row = EntityUserResult(
+                    entity_id=str(entity.id),
+                    user_id=str(user.id),
+                    organization_id=str(entity.organization_id),
+                    params_fingerprint=fingerprint,
+                )
+            row.status = "success"
+            row.status_reason = None
+            row.data = df
+            row.applied_params = dict(resolved_params) if resolved_params else None
+            row.last_run_at = datetime.utcnow()
+            db.add(row)
+            await db.commit()
+        except Exception as err:
+            raise _result_not_saved(entity.id, err) from None
 
     async def resolve_entity_data_for_user(
         self,
@@ -274,6 +310,19 @@ class EntityService:
                     code=entity.code or "", ds_clients=ds_clients, excel_files=[],
                     params=resolved,
                 )
+        except Exception as e:
+            # A typed error (query timeout, swallowed query failure) and a
+            # refusal keep their own answer. Any other failure (the saved
+            # code's, a data source's, the sandbox's own) is a 422 without its
+            # text: it is the owner's code and query, not this reader's
+            # request, and its message can quote SQL and bound values. The
+            # log names the types, never the message.
+            if isinstance(e, AppError) or is_run_refusal(e):
+                raise
+            logger.warning("Entity %s: its saved code failed in a run with parameter values (%s): %s",
+                           entity.id, getattr(e, "exc_type", None) or type(e).__name__, describe_for_log(e))
+            raise AppError(ErrorCode.ENTITY_RUN_FAILED, "The saved query failed to run.",
+                           status_code=422) from None
         finally:
             await flush_usage(usage_context)
         df = executor.format_df_for_widget(exec_df)
@@ -980,19 +1029,37 @@ class EntityService:
         )
 
         try:
-            from app.data_sources.query_tag import query_tag_defaults
-            with query_tag_defaults(source="entity_run", entity_id=entity.id,
-                                    org_id=getattr(organization, "id", None),
-                                    user_id=getattr(current_user, "id", None)):
-                exec_df, execution_log, _ = await executor.execute_code_async(
-                    code=code_to_run, ds_clients=ds_clients, excel_files=excel_files,
-                    params=resolved_params,
-                )
-            df = executor.format_df_for_widget(exec_df)
-            if exec_df.attrs.get("bow_source"):
-                from app.services.bow_source_access import merge_access
-                entity.bow_source_access = merge_access(entity.bow_source_access, exec_df.attrs["bow_source"])
+            try:
+                from app.data_sources.query_tag import query_tag_defaults
+                with query_tag_defaults(source="entity_run", entity_id=entity.id,
+                                        org_id=getattr(organization, "id", None),
+                                        user_id=getattr(current_user, "id", None)):
+                    exec_df, execution_log, _ = await executor.execute_code_async(
+                        code=code_to_run, ds_clients=ds_clients, excel_files=excel_files,
+                        params=resolved_params,
+                    )
+                df = executor.format_df_for_widget(exec_df)
+                if exec_df.attrs.get("bow_source"):
+                    from app.services.bow_source_access import merge_access
+                    entity.bow_source_access = merge_access(entity.bow_source_access, exec_df.attrs["bow_source"])
+            except Exception as e:
+                if persist_data:
+                    # Persist last_refreshed_at but do not overwrite existing data
+                    # on failure. Best effort: a failing save must not replace the
+                    # run's own error, which is what the caller has to act on.
+                    try:
+                        entity.last_refreshed_at = datetime.utcnow()
+                        await db.flush()
+                        await db.commit()
+                    except Exception as save_error:
+                        logger.warning("Refresh time of entity %s was not saved after a failed run: %s",
+                                       entity_id, describe_for_log(save_error))
+                # Re-raise as ValueError for the route to map; the cause is kept
+                # so a refusal (guard, quota) still maps to its own status.
+                raise ValueError(str(e)) from e
 
+            # The run succeeded; from here on a failure is the app database's
+            # (saving the result), answered by _result_not_saved.
             if not persist_data:
                 # Transient run: the caller's own slice. Cache it per
                 # (entity, user, values) so load_entity and later reads reuse
@@ -1027,25 +1094,13 @@ class EntityService:
                 if getattr(payload, "status", None) is not None:
                     entity.status = payload.status  # type: ignore
 
-            await db.flush()
-            await db.commit()
-            await db.refresh(entity)
+            try:
+                await db.flush()
+                await db.commit()
+                await db.refresh(entity)
+            except Exception as err:
+                raise _result_not_saved(entity_id, err) from None
             return entity
-        except Exception as e:
-            if persist_data:
-                # Persist last_refreshed_at but do not overwrite existing data
-                # on failure. Best effort: a failing save must not replace the
-                # run's own error, which is what the caller has to act on.
-                try:
-                    entity.last_refreshed_at = datetime.utcnow()
-                    await db.flush()
-                    await db.commit()
-                except Exception as save_error:
-                    logger.warning("Refresh time of entity %s was not saved after a failed run: %s",
-                                   entity_id, describe_for_log(save_error))
-            # Re-raise as ValueError for the route to map; the cause is kept
-            # so a refusal (guard, quota) still maps to its own status.
-            raise ValueError(str(e)) from e
         finally:
             await flush_usage(usage_context)
 

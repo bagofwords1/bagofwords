@@ -605,35 +605,171 @@ def test_an_entity_run_refusal_survives_a_failed_save_of_the_refresh_time(
     assert "database is locked" not in lost[0], lost
 
 
+def _watch_app_logs(monkeypatch):
+    """Let caplog see every app logger: alembic's fileConfig disables the
+    loggers that exist when it runs."""
+    for name, lg in list(logging.Logger.manager.loggerDict.items()):
+        if isinstance(lg, logging.Logger) and (name == "main" or name.split(".")[0] == "app"):
+            monkeypatch.setattr(lg, "disabled", False)
+
+
+def _handled_by_the_global_handler(caplog):
+    return [r for r in caplog.records if r.name == "app.errors" and r.levelno >= logging.ERROR]
+
+
+def _plain_client():
+    """What a real HTTP client receives: server errors become responses."""
+    from fastapi.testclient import TestClient
+
+    from main import app
+
+    return TestClient(app, raise_server_exceptions=False)
+
+
+# The statement a SQLAlchemy-based warehouse client sends, with one
+# placeholder more than the values bound to it.
+_REJECTED_TAIL = " WHERE id = ? OR id = ?"
+
+
+def _warehouse_rejecting(bound):
+    """SqliteClient.execute_query run the way the SQLAlchemy-based warehouse
+    clients (postgres, mysql, mssql, ...) run a statement. The driver refuses
+    it, and SQLAlchemy raises its ProgrammingError, whose text quotes the
+    statement and the bound value."""
+    import pandas as pd
+    from sqlalchemy import create_engine
+
+    def execute_query(self, sql):
+        engine = create_engine(f"sqlite:///{self.database}")
+        try:
+            with engine.connect() as conn:
+                rows = conn.exec_driver_sql(sql + _REJECTED_TAIL, (bound,)).fetchall()
+        finally:
+            engine.dispose()
+        return pd.DataFrame(rows)
+
+    return execute_query
+
+
 @pytest.mark.e2e
-def test_an_entity_run_whose_save_fails_never_answers_with_the_database_error(
-    api, create_user, login_user, whoami, tmp_path, monkeypatch, caplog,
+def test_a_builder_run_whose_warehouse_rejects_the_query_answers_422_with_the_reason(
+    create_user, login_user, whoami, tmp_path, monkeypatch, caplog,
 ):
-    """The run succeeds but saving its result fails: the app database's error
-    (its statement and bound values) never reaches the caller; the global
-    handler answers and logs it."""
+    """A warehouse client raises SQLAlchemy's own errors: that is the
+    builder's query failing, answered 422 with the driver's reason, not an
+    app-database failure. Neither the answer nor the log quotes the
+    statement's bound values."""
+    from sqlalchemy.exc import ProgrammingError
+
+    from app.data_sources.clients.sqlite_client import SqliteClient
+
+    client = _plain_client()
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db"))
+    eid = _entity(client, token, org_id, ds_id)
+    bound = f"bound-{uuid.uuid4().hex}"
+    monkeypatch.setattr(SqliteClient, "execute_query", _warehouse_rejecting(bound))
+    _watch_app_logs(monkeypatch)
+
+    with caplog.at_level(logging.WARNING):
+        resp = client.post(f"/api/entities/{eid}/run", json={}, headers=_headers(token, org_id))
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"]
+    assert ProgrammingError.__name__ in detail and "bindings" in detail, resp.text
+    assert bound not in resp.text and "[parameters:" not in resp.text, resp.text
+    assert not _handled_by_the_global_handler(caplog), caplog.text
+    assert bound not in caplog.text and _REJECTED_TAIL not in caplog.text, caplog.text
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("kind", _RUNS)
+def test_an_entity_run_whose_save_fails_never_answers_or_logs_the_database_error(
+    create_user, login_user, whoami, tmp_path, monkeypatch, caplog, kind,
+):
+    """The run succeeds but saving its result (the shared snapshot, or the
+    viewer's cached slice) fails: the caller gets a 500 without the app
+    database's error, and the log names the failure without its statement
+    and bound values."""
     from sqlalchemy.exc import OperationalError
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    client = _plain_client()
     token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
     ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db"))
-    eid = _entity(api, token, org_id, ds_id)
-    statement = "UPDATE entities SET data=? WHERE entities.id = ?"
+    eid = _entity(client, token, org_id, ds_id)
+    statement = f"UPDATE entities SET data=? WHERE entities.id = ? -- {uuid.uuid4().hex}"
     bound = f"bound-{uuid.uuid4().hex}"
 
     async def save_fails(self):
         raise OperationalError(statement, (bound, eid), Exception("disk I/O error"))
 
-    monkeypatch.setattr(logging.getLogger("app.errors"), "disabled", False)
+    _watch_app_logs(monkeypatch)
     monkeypatch.setattr(AsyncSession, "commit", save_fails)
-    with caplog.at_level(logging.ERROR, logger="app.errors"):
-        resp = api.post(f"/api/entities/{eid}/run", json={}, headers=_headers(token, org_id))
-    assert resp.status_code not in (200, 422), resp.text
-    assert statement not in resp.text and "UPDATE entities" not in resp.text, resp.text
-    assert bound not in resp.text and "disk I/O error" not in resp.text, resp.text
-    assert resp.json()["detail"] == "Internal server error", resp.text
-    assert resp.json()["request_id"], resp.text
-    assert [r for r in caplog.records if r.name == "app.errors" and r.levelno >= logging.ERROR], caplog.text
+    with caplog.at_level(logging.WARNING):
+        _, resp = _call(client, kind, token, org_id, ds_id, eid, 1)
+    assert resp.status_code == 500, resp.text
+    assert resp.json()["error_code"] == "generic", resp.text
+    for text in (resp.text, caplog.text):
+        assert statement not in text and "UPDATE entities" not in text, text
+        assert bound not in text and "disk I/O error" not in text, text
+    assert not _handled_by_the_global_handler(caplog), caplog.text
+    lost = [r.getMessage() for r in caplog.records
+            if r.name == "app.services.entity_service" and "not saved" in r.getMessage()]
+    assert len(lost) == 1, caplog.text
+    assert eid in lost[0] and "OperationalError" in lost[0], lost
+    assert "failed run" not in lost[0], lost
+
+
+_SPINNING_CODE = """
+def generate_df(ds_clients, excel_files, params):
+    while True:
+        pass
+"""
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("failure", ["warehouse_error", "sandbox_timeout", "sandbox_crash"])
+def test_a_viewer_run_that_fails_outside_the_code_answers_422_without_the_error_text(
+    create_user, login_user, whoami, tmp_path, monkeypatch, caplog, failure,
+):
+    """A run with parameter values answers every failure of the saved code's
+    execution with 422 entity.run_failed: a data-source error forwarded from
+    the client, the sandbox's own time limit and a killed sandbox process
+    included. Neither the answer nor the log carries the error's text."""
+    from app.data_sources.clients.sqlite_client import SqliteClient
+
+    client = _plain_client()
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db"))
+    bound = f"bound-{uuid.uuid4().hex}"
+    if failure == "warehouse_error":
+        eid = _entity(client, token, org_id, ds_id)
+        monkeypatch.setattr(SqliteClient, "execute_query", _warehouse_rejecting(bound))
+        hidden, error_type = [bound, _REJECTED_TAIL, "bindings"], "ProgrammingError"
+    elif failure == "sandbox_timeout":
+        # The wall-clock budget runs out before the CPU budget.
+        eid = _entity(client, token, org_id, ds_id, code=_SPINNING_CODE)
+        monkeypatch.setenv("BOW_SANDBOX_TIMEOUT_SECONDS", "2")
+        monkeypatch.setenv("BOW_SANDBOX_CPU_SECONDS", "60")
+        hidden, error_type = ["time limit"], "SandboxTimeoutError"
+    else:
+        # The CPU budget runs out first: the kernel kills the process.
+        eid = _entity(client, token, org_id, ds_id, code=_SPINNING_CODE)
+        monkeypatch.setenv("BOW_SANDBOX_TIMEOUT_SECONDS", "60")
+        monkeypatch.setenv("BOW_SANDBOX_CPU_SECONDS", "1")
+        hidden, error_type = ["ended unexpectedly", "memory limit"], "SandboxCrashError"
+    _watch_app_logs(monkeypatch)
+
+    with caplog.at_level(logging.WARNING):
+        resp = client.post(f"/api/entities/{eid}/run", json={"params": {"v": 1}}, headers=_headers(token, org_id))
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["error_code"] == "entity.run_failed", resp.text
+    assert error_type not in resp.text, resp.text
+    for text in hidden:
+        assert text not in resp.text and text not in caplog.text, (text, resp.text, caplog.text)
+    assert not _handled_by_the_global_handler(caplog), caplog.text
+    logged = [r.getMessage() for r in caplog.records if eid in r.getMessage()]
+    assert logged and all(error_type in m for m in logged), caplog.text
 
 
 @pytest.mark.e2e
@@ -644,27 +780,23 @@ def test_a_viewer_run_whose_saved_code_fails_answers_422_without_the_code_error(
     fails the caller gets a 422 that does not quote the code's error (a viewer
     may not be allowed to see the code), and the server logs it without the
     error's text."""
-    from fastapi.testclient import TestClient
-
-    from main import app
-
-    # Observe what a real HTTP client receives.
-    client = TestClient(app, raise_server_exceptions=False)
+    client = _plain_client()
     token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
     ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db"))
     marker = f"marker-{uuid.uuid4().hex[:8]}"
     eid = _entity(test_client, token, org_id, ds_id,
                   code=_code_running(f'"SELECT id FROM orders" if {{}}["{marker}"] else ""'))
 
-    monkeypatch.setattr(logging.getLogger("app.routes.entity"), "disabled", False)
-    with caplog.at_level(logging.WARNING, logger="app.routes.entity"):
+    _watch_app_logs(monkeypatch)
+    with caplog.at_level(logging.WARNING):
         resp = client.post(f"/api/entities/{eid}/run", json={"params": {"v": 1}}, headers=_headers(token, org_id))
     assert resp.status_code == 422, resp.text
     assert resp.json()["error_code"] == "entity.run_failed", resp.text
     assert marker not in resp.text and "KeyError" not in resp.text, resp.text
-    logged = [r for r in caplog.records if r.name == "app.routes.entity"]
-    assert logged, caplog.text
-    assert all(marker not in r.getMessage() for r in logged), caplog.text
+    assert marker not in caplog.text, caplog.text
+    # The log names the code's error type, never its message.
+    logged = [r.getMessage() for r in caplog.records if eid in r.getMessage()]
+    assert logged and any("KeyError" in m for m in logged), caplog.text
 
     # A builder run of the same code still reports the code's error.
     builder = client.post(f"/api/entities/{eid}/run", json={}, headers=_headers(token, org_id))

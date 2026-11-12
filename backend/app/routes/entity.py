@@ -1,7 +1,5 @@
-import logging
-
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import StatementError
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 
@@ -12,7 +10,6 @@ from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission, check_resource_permissions, require_org_permission
 from app.core.code_visibility import require_run_custom_code
 from app.errors import AppError, ErrorCode
-from app.errors.redact import describe_for_log
 
 from app.models.entity import Entity
 from app.schemas.entity_schema import (
@@ -29,7 +26,6 @@ from app.services.entity_service import EntityService
 
 router = APIRouter(prefix="/entities", tags=["entities"])
 service = EntityService()
-logger = logging.getLogger(__name__)
 
 
 async def _holds_create_entities(db, user, organization, ds_ids: List[str]) -> bool:
@@ -88,17 +84,20 @@ def _refusal_http_error(exc: Optional[BaseException]) -> Optional[HTTPException]
     in-process execution refused on this host; 429 for a connection rate
     limit or a usage quota; 503 when this host cannot provide the sandbox
     (the text tells the operator what to change). Each carries the refusal's
-    own text."""
+    own text. What counts as a refusal is `is_run_refusal`'s call, the test
+    the service also applies before it answers a failed viewer run itself."""
     from app.ai.code_execution.code_execution import CodeSecurityError
     from app.ai.code_execution.sandbox.runner import (
-        SandboxExecutionError,
         SandboxModeRefused,
         SandboxUnavailableError,
     )
     from app.routes.usage_limits import _quota_http_error
     from app.services.connection_rate_limit_service import RateLimitExceeded
+    from app.services.entity_service import is_run_refusal
     from app.services.usage_policy_service import UsageLimitExceeded
 
+    if not is_run_refusal(exc):
+        return None
     if isinstance(exc, (CodeSecurityError, SandboxModeRefused)):
         return HTTPException(status_code=403, detail=str(exc))
     if isinstance(exc, SandboxUnavailableError):
@@ -107,9 +106,8 @@ def _refusal_http_error(exc: Optional[BaseException]) -> Optional[HTTPException]
         return _quota_http_error(exc)
     if isinstance(exc, RateLimitExceeded):
         return HTTPException(status_code=429, detail=exc.detail)
-    if isinstance(exc, SandboxExecutionError) and exc.exc_type in ("RateLimitExceeded", "UsageLimitExceeded"):
-        return HTTPException(status_code=429, detail=exc.message)
-    return None
+    # Reported by the sandbox child by type name.
+    return HTTPException(status_code=429, detail=exc.message)
 
 
 # EntityRunPayload fields a run persists onto the entity (besides the data).
@@ -576,34 +574,32 @@ async def run_entity(
         # missing, wrong type) are a client error, not a missing entity.
         raise HTTPException(status_code=400, detail=str(e))
     except ValueError as e:
-        # A builder run reports its failure as ValueError, caused by the
-        # original error, which keeps its own status: a refusal its refusal
-        # status, a typed error (query timeout 408, swallowed query failure
-        # 422, ...) the one its handler gives. A failure of the app database
-        # (saving the result) goes to the global handler, which keeps its
-        # statement and values out of the answer. Any other failure of the
-        # code is a 422 with its error.
+        # A builder run reports a failed execution as ValueError, caused by
+        # the original error, which keeps its own status: a refusal its
+        # refusal status, a typed error (query timeout 408, swallowed query
+        # failure 422, ...) the one its handler gives. Any other failure of
+        # the code or its queries is a 422 with its reason; a warehouse
+        # client's SQLAlchemy error gives the driver's reason, without the
+        # statement and bound values SQLAlchemy appends. (A failed save of
+        # the result is not a ValueError: the service answers it itself.)
         cause = e.__cause__
         refusal = _refusal_http_error(cause)
         if refusal is not None:
             raise refusal from e
-        if isinstance(cause, (AppError, SQLAlchemyError)):
+        if isinstance(cause, AppError):
             raise cause
+        if isinstance(cause, StatementError) and cause.orig is not None:
+            raise HTTPException(status_code=422, detail=f"{type(cause).__name__}: {cause.orig}") from e
         raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception as e:
-        # A viewer run (params) lets the original error through, except a
-        # refusal and a failure of the saved code: a viewer may not be
-        # allowed to see the code, so that answer and its log line leave
-        # out the code's error.
-        from app.ai.code_execution.sandbox.runner import SandboxExecutionError
+        # A viewer run (params) answers a failure of the saved code's
+        # execution itself (422 entity.run_failed, without the error's text):
+        # that keeps the owner's code error, and the SQL and values it can
+        # quote, out of another reader's answer and out of the log. A refusal
+        # reaches here unchanged and gets its own status.
         refusal = _refusal_http_error(e)
         if refusal is not None:
             raise refusal from e
-        if isinstance(e, SandboxExecutionError):
-            logger.warning("Entity %s: its saved code failed in a run with parameter values: %s",
-                           entity_id, describe_for_log(e))
-            raise AppError(ErrorCode.ENTITY_RUN_FAILED, "The saved query failed to run.",
-                           status_code=422) from e
         raise
 
 
