@@ -59,7 +59,7 @@ class ConnectionFileScope(BaseModel):
 
     base: Optional[str] = Field(None, description="Root path / bucket prefix the connection is scoped to.")
     include_globs: List[str] = Field(default_factory=list, description="Configured include glob patterns.")
-    index_mode: Optional[str] = Field(None, description="'content' or 'metadata' indexing.")
+    index_mode: Optional[str] = Field(None, description="Indexing tier: 'none', 'metadata' (file list), 'content' (keywords) or 'fulltext' (every word, ranked search).")
     token_scoped: bool = Field(
         False,
         description="True when the user's own signed-in account defines the scope (OneDrive/GDrive/Outlook).",

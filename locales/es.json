@@ -1838,6 +1838,22 @@
       "filesSkippedSingular": "{count} archivo omitido ({reasons})",
       "filesSkippedPlural": "{count} archivos omitidos ({reasons})"
     },
+    "searchFiles": {
+      "foundIn": "Encontrado en:",
+      "fileName": "nombre del archivo",
+      "page": "página {n}",
+      "sheet": "hoja {name}",
+      "offset": "posición {n}",
+      "partlyIndexed": "Indexado solo en parte (límite de tamaño)",
+      "noText": "Sin texto buscable (escaneado o binario)",
+      "notIndexed": "No se pudo indexar",
+      "indexFulltext": "Índice de texto completo",
+      "indexKeywords": "Índice de palabras clave",
+      "indexNames": "Coincidencia por nombre de archivo",
+      "liveScan": "Búsqueda en vivo",
+      "plusLiveScan": "{index} + búsqueda en vivo",
+      "indexedAt": "indexado {when}"
+    },
     "webFetch": {
       "fetching": "Obteniendo",
       "fetched": "Obtenido",

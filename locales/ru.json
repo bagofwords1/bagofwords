@@ -1799,6 +1799,22 @@
       "filesSkippedSingular": "{count} файл пропущен ({reasons})",
       "filesSkippedPlural": "{count} файлов пропущено ({reasons})"
     },
+    "searchFiles": {
+      "foundIn": "Найдено в:",
+      "fileName": "имя файла",
+      "page": "страница {n}",
+      "sheet": "лист {name}",
+      "offset": "позиция {n}",
+      "partlyIndexed": "Проиндексирован частично (ограничение размера)",
+      "noText": "Нет текста для поиска (скан или двоичный файл)",
+      "notIndexed": "Не удалось проиндексировать",
+      "indexFulltext": "Полнотекстовый индекс",
+      "indexKeywords": "Индекс ключевых слов",
+      "indexNames": "Совпадение по имени файла",
+      "liveScan": "Прямой поиск",
+      "plusLiveScan": "{index} + прямой поиск",
+      "indexedAt": "проиндексировано {when}"
+    },
     "listAgentExecutions": {
       "empty": "Запуски не найдены",
       "failed": "Не удалось загрузить запуски агента",

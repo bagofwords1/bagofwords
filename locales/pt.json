@@ -1799,6 +1799,22 @@
       "filesSkippedSingular": "{count} arquivo ignorado ({reasons})",
       "filesSkippedPlural": "{count} arquivos ignorados ({reasons})"
     },
+    "searchFiles": {
+      "foundIn": "Encontrado em:",
+      "fileName": "nome do arquivo",
+      "page": "página {n}",
+      "sheet": "planilha {name}",
+      "offset": "posição {n}",
+      "partlyIndexed": "Indexado apenas em parte (limite de tamanho)",
+      "noText": "Sem texto pesquisável (digitalizado ou binário)",
+      "notIndexed": "Não foi possível indexar",
+      "indexFulltext": "Índice de texto completo",
+      "indexKeywords": "Índice de palavras-chave",
+      "indexNames": "Correspondência pelo nome do arquivo",
+      "liveScan": "Busca ao vivo",
+      "plusLiveScan": "{index} + busca ao vivo",
+      "indexedAt": "indexado {when}"
+    },
     "listAgentExecutions": {
       "empty": "Nenhuma execução encontrada",
       "failed": "Falha ao carregar as execuções do agente",

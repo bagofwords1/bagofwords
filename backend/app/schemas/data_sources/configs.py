@@ -3635,23 +3635,27 @@ class NetworkDirConfig(BaseModel):
         json_schema_extra={"ui:type": "number"}
     )
     index_mode: str = Field(
-        "content",
+        "fulltext",
         title="Indexing",
         description=(
-            "How much to cache from the source. 'none' → nothing cached; the "
-            "agent lists/reads live every time (freshest, best for volatile or "
-            "huge dirs). 'metadata' → cache the file list on a schedule "
-            "(fast listing, no content search). 'content' → also extract "
-            "keywords from PDF/Word/PowerPoint/Excel/CSV/email (.eml/.msg) so "
-            "the agent can find files by topic. Reads are always live regardless."
+            "How much to store about the files — and so how well the agent "
+            "can search them. Live: nothing stored; search is by file name "
+            "plus a slow scan of the source. File list: names, sizes and "
+            "dates. Keywords: also up to 50 keywords per file, from the start "
+            "of its text. Full text: also a search index of every word in "
+            "every file (PDF, Office, CSV, text, email), so the agent finds "
+            "exact words, IDs and phrases anywhere, with the page or sheet. "
+            "The index holds the words, not the files, and is removed with "
+            "the connection. Only changed files are re-read."
         ),
         json_schema_extra={
             "ui:type": "select",
-            "enum": ["none", "metadata", "content"],
+            "enum": ["none", "metadata", "content", "fulltext"],
             "ui:enumLabels": {
-                "none": "None (live only)",
+                "none": "Live (nothing stored)",
                 "metadata": "File list",
-                "content": "Contents (searchable)",
+                "content": "Keywords",
+                "fulltext": "Full text (recommended)",
             },
         },
     )
@@ -3760,21 +3764,27 @@ class S3Config(BaseModel):
         json_schema_extra={"ui:type": "number"},
     )
     index_mode: str = Field(
-        "content",
+        "fulltext",
         title="Indexing",
         description=(
-            "How much to cache from the bucket. 'none' → nothing cached; list/"
-            "read go live (best for huge or volatile buckets). 'metadata' → "
-            "cache the object list only. 'content' → also extract keywords for "
-            "topic search. Reads are always live regardless."
+            "How much to store about the objects — and so how well the agent "
+            "can search them. Live: nothing stored; list and read go to the "
+            "bucket every time. Object list: keys, sizes and dates. Keywords: "
+            "also up to 50 keywords per object, from the start of its text. "
+            "Full text: also a search index of every word in every object, "
+            "so the agent finds exact words, IDs and phrases anywhere, with "
+            "the page or sheet. The index holds the words, not the objects, "
+            "and is removed with the connection. Only changed objects are "
+            "downloaded again."
         ),
         json_schema_extra={
             "ui:type": "select",
-            "enum": ["none", "metadata", "content"],
+            "enum": ["none", "metadata", "content", "fulltext"],
             "ui:enumLabels": {
-                "none": "None (live only)",
+                "none": "Live (nothing stored)",
                 "metadata": "Object list",
-                "content": "Contents (searchable)",
+                "content": "Keywords",
+                "fulltext": "Full text (recommended)",
             },
         },
     )

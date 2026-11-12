@@ -4255,7 +4255,7 @@ class DataSourceService:
         # with the conditional joins below). NULL connection_table_id (legacy
         # tables) is kept.
         _FILE_SOURCE_TYPES = [
-            "network_dir", "s3", "sharepoint", "sharepoint_onprem", "documentum", "onedrive", "google_drive",
+            "network_dir", "s3", "gcs", "azure_blob", "sharepoint", "sharepoint_onprem", "documentum", "onedrive", "google_drive",
             "outlook_mail", "gmail_mail", "teams_messages",
             "github_repo", "gitlab_repo", "bitbucket_repo",
             "kms_lighthouse",
@@ -6279,9 +6279,20 @@ class DataSourceService:
                 # list threw away the only thing that made it reusable — which
                 # connection each table came from — so it could not be handed to
                 # a per-connection overlay sync without cross-contaminating them.
-                prefetched_by_conn: dict[str, list] = await self._refresh_shared_connections(
-                    shared_conns, current_user=current_user, caller_id=caller_id,
-                )
+                # Each connection is crawled in its own session, so THIS
+                # session waits idle inside its transaction for the whole
+                # crawl. On Postgres the server drops such a session after its
+                # idle-in-transaction limit (5 minutes), which failed a Reload
+                # of any source that takes longer to crawl. Keep it alive.
+                from app.services.connection_service import _SessionKeepalive
+                keepalive = _SessionKeepalive(db)
+                keepalive.start()
+                try:
+                    prefetched_by_conn: dict[str, list] = await self._refresh_shared_connections(
+                        shared_conns, current_user=current_user, caller_id=caller_id,
+                    )
+                finally:
+                    await keepalive.stop()
 
                 prefetched = prefetched_by_conn or None
 

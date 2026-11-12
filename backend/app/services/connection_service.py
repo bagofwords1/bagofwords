@@ -203,6 +203,57 @@ def _looks_like_auth_challenge(message: str | None) -> bool:
 VALIDATION_FILE_CAP = 200
 
 
+class _SessionKeepalive:
+    """Keeps a Postgres session from being dropped as idle-in-transaction
+    while its owner waits on something long that does not use the session.
+
+    Runs `SELECT 1` on the session at an interval well under the server's
+    limit. `stop()` lets a statement in flight finish instead of cancelling
+    it — a cancelled statement would abort the very transaction this
+    protects. The owner must not use the session between `start()` and the
+    end of `stop()`. No-op on SQLite, which has no such limit.
+    """
+
+    INTERVAL_S = 20.0
+
+    def __init__(self, db: AsyncSession):
+        self._db = db
+        self._stop = asyncio.Event()
+        self._task: Optional[asyncio.Task] = None
+
+    def start(self) -> None:
+        try:
+            if self._db.get_bind().dialect.name != "postgresql":
+                return
+        except Exception:
+            return
+        self._task = asyncio.create_task(self._run())
+
+    async def _run(self) -> None:
+        from sqlalchemy import text
+        while not self._stop.is_set():
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=self.INTERVAL_S)
+                return
+            except asyncio.TimeoutError:
+                pass
+            try:
+                await self._db.execute(text("SELECT 1"))
+            except Exception:
+                # The session is gone or busy; the owner will see the real
+                # error on its next statement.
+                return
+
+    async def stop(self) -> None:
+        self._stop.set()
+        task, self._task = self._task, None
+        if task is not None:
+            try:
+                await asyncio.shield(task)
+            except Exception:
+                pass
+
+
 async def _acount_files_for_validation(client, limit: int | None = None) -> int | None:
     """Metadata-only inventory count for validating file or mail sources.
 
@@ -1043,6 +1094,12 @@ class ConnectionService:
             # Idempotent, which matters because the caller retries this whole
             # function on a concurrent-write FK violation.
             _invalidate_engine_pool(connection)
+
+            # The connection's full-text index goes with it. Removed here
+            # rather than left to the foreign key: SQLite does not enforce
+            # cascades in this app, and its FTS rows hang off no key at all.
+            from app.services.file_index_store import FileIndexStore
+            await FileIndexStore(db).clear(str(connection.id))
 
             # Agents that existed only through this connection were deleted
             # above, through the agent delete; any left here share another
@@ -1931,6 +1988,38 @@ class ConnectionService:
 
         return visible
 
+    async def _open_fulltext_sink(self, db: AsyncSession, client, connection_id: str):
+        """A sink for the client's full-text sections, or None when the
+        connection is not on the full-text tier (any index left over from an
+        earlier setting is removed then)."""
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        from app.data_sources.clients._file_source_common import INDEX_FULLTEXT
+        from app.data_sources.clients.base import _accepts_kwarg
+        from app.services.file_index_store import FileIndexSink, FileIndexStore
+
+        store = FileIndexStore(db)
+        # Index writes get their own short transactions, never this refresh's
+        # session: on SQLite a write held open here for the whole crawl would
+        # block every progress update.
+        factory = async_sessionmaker(db.bind, class_=AsyncSession, expire_on_commit=False)
+        wants = (
+            getattr(client, "index_mode", None) == INDEX_FULLTEXT
+            and _accepts_kwarg(client.get_schemas, "section_sink")
+        )
+        if not wants:
+            if hasattr(client, "index_mode") and await store.has_index(connection_id):
+                async with factory() as own:
+                    removed = await FileIndexStore(own).clear(connection_id)
+                    await own.commit()
+                logger.info(
+                    "refresh_schema: connection %s is no longer on the full-text tier — "
+                    "removed its index (%d files)", connection_id, removed,
+                )
+            return None
+        prior = await store.prior_versions(connection_id)
+        return FileIndexSink(asyncio.get_running_loop(), factory, connection_id, prior)
+
     async def _rename_user_overlays(self, db: AsyncSession, connection_id: str, renamed) -> None:
         """Carry table renames to the per-user visibility rows, which store the
         name too, so a user's schema shows the new name before their next sync.
@@ -2226,11 +2315,31 @@ class ConnectionService:
                 _extra["prior_tables"] = prior_tables_arg
             if introspection == "full" and _accepts_kwarg(client.aget_schemas, "force_refresh"):
                 _extra["force_refresh"] = True
-            fresh_tables = await client.aget_schemas(
-                progress_callback=progress_callback,
-                prior_catalog=prior_catalog,
-                **_extra,
-            )
+            # Full-text index tier: the client streams each file's sections to
+            # a sink while it walks, committed in small batches on their own
+            # sessions — an interrupted run keeps what it finished and the
+            # next one resumes. Other tiers drop any index left from before.
+            section_sink = await self._open_fulltext_sink(db, client, connection_id_str)
+            if section_sink is not None:
+                _extra["section_sink"] = section_sink
+            # This session already read the catalog, so on Postgres it sits
+            # idle inside a transaction for as long as discovery takes. The
+            # server drops such a session after its idle-in-transaction limit
+            # (5 minutes on the request engine), which failed the save of any
+            # crawl longer than that. A trivial statement now and then keeps
+            # it alive; nothing else touches `db` while discovery runs.
+            keepalive = _SessionKeepalive(db)
+            keepalive.start()
+            try:
+                fresh_tables = await client.aget_schemas(
+                    progress_callback=progress_callback,
+                    prior_catalog=prior_catalog,
+                    **_extra,
+                )
+            finally:
+                await keepalive.stop()
+                if section_sink is not None:
+                    await section_sink.aflush()
             from app.data_sources.clients.discovery import require_complete_discovery
             fresh_tables = require_complete_discovery(client, fresh_tables)
             if not getattr(client, "catalog_identity_available", True):
@@ -2310,6 +2419,15 @@ class ConnectionService:
                     "with (this source has no app-only mode) — result treated as "
                     "non-authoritative; nothing is pruned.",
                     connection.id,
+                )
+            self.last_fulltext_stats = None
+            if section_sink is not None:
+                # Only a complete crawl as the connection's own identity may
+                # remove index entries for files it did not see.
+                self.last_fulltext_stats = await section_sink.finish(prune=authoritative)
+                logger.info(
+                    "refresh_schema: full-text index for connection %s — %s",
+                    connection.id, self.last_fulltext_stats,
                 )
             if not authoritative:
                 logger.info(
