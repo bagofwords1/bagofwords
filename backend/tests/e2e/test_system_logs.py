@@ -29,10 +29,8 @@ log.setLevel(logging.INFO)
 def _fresh_capture_state():
     # The switch and buffer are per process; each test gets a new database,
     # so start (and leave) the process with nothing captured.
-    # Building the test database runs alembic's fileConfig, which disables
-    # loggers that already exist and resets root's handlers; production runs
-    # migrations in a separate process, so the app never sees that.
-    log.disabled = False
+    # Building the test database runs alembic's fileConfig, which resets the
+    # root logger's handlers; attach ours again.
     app_log_service.install_log_handler()
     app_log_service.reset()
     yield
