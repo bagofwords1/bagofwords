@@ -43,14 +43,15 @@ otherwise --
   else in the code (any node, any field -- a match capture, an except
   name, an import, a string);
 - every import's root module is a library on DATA_LIBRARIES (no star or
-  relative import; pandas / numpy as the package only, not a submodule;
-  `from functools` / `from typing` only the names listed);
+  relative import; no internal pandas / numpy submodule -- core, testing,
+  _private -- public ones like pandas.api.types are fine; `from functools`
+  / `from typing` only the names listed);
 - no name that reaches a variable by its name (locals(), getattr(), ...),
   no private attribute (`._rpc`) and no namespace-holding attribute;
 - no string names a clients name; pandas' query()/eval() are called
   directly with a plain string with no `@` (they resolve @names from the
   caller's frame) -- a client's own .query(), the execute_query alias, is
-  not pandas'; no `.core` / `.testing` attribute.
+  not pandas'; no `.core` / `.testing` attribute of pandas or numpy.
 """
 from __future__ import annotations
 
@@ -104,9 +105,12 @@ DATA_LIBRARIES = {
     "scipy": "models",
     "warnings": "silencing",
 }
-# Roots imported only as the package itself: their submodules (pandas.core,
-# numpy.testing, ...) hold internals and are counted as another reach.
+# Roots whose internal submodules (pandas.core, pandas._libs, numpy.testing,
+# ...: a component on _INTERNAL_ATTRIBUTES or starting with "_") count as
+# another reach; their public ones (pandas.api.types, numpy.linalg) do not.
 _ROOT_ONLY = frozenset({"pandas", "numpy"})
+# The run's namespace binds pandas and numpy under these names.
+_NAMESPACE_LIBRARY_NAMES = frozenset({"pd", "np"})
 # Names that may be imported from a module that is otherwise off the list.
 _IMPORTABLE_NAMES = {
     "functools": frozenset({"reduce", "partial"}),
@@ -181,9 +185,13 @@ def _entry_parameter(tree) -> tuple[Optional[str], bool]:
     return positional[0].arg, True
 
 
+def _internal_component(name: str) -> bool:
+    return name in _INTERNAL_ATTRIBUTES or name.startswith("_")
+
+
 def _module_off_the_allowlist(module: str) -> bool:
-    root = module.split(".")[0]
-    return root not in DATA_LIBRARIES or (root in _ROOT_ONLY and module != root)
+    root, *rest = module.split(".")
+    return root not in DATA_LIBRARIES or (root in _ROOT_ONLY and any(_internal_component(c) for c in rest))
 
 
 def _import_off_the_allowlist(node) -> bool:
@@ -195,13 +203,65 @@ def _import_off_the_allowlist(node) -> bool:
             return True
         if module in _IMPORTABLE_NAMES:
             return any(a.name not in _IMPORTABLE_NAMES[module] for a in node.names)
-        if module.split(".")[0] in _ROOT_ONLY and any(a.name in _FRAME_EVALUATORS for a in node.names):
-            return True  # pandas.eval / query under a name of the code's choosing
+        if module.split(".")[0] in _ROOT_ONLY and any(
+                a.name in _FRAME_EVALUATORS or _internal_component(a.name) for a in node.names):
+            return True  # pandas.eval / query under a name of the code's choosing, or an internal
         return _module_off_the_allowlist(module)
     return False
 
 
-def _reaches_by_name(node, mentions, client_receivers: set, evaluator_calls: set) -> bool:
+def _chain_base(node):
+    while isinstance(node, ast.Attribute):
+        node = node.value
+    return node.id if isinstance(node, ast.Name) else None
+
+
+def _library_names(tree) -> frozenset:
+    """Names pandas and numpy (and their submodules) go by in the code."""
+    names = set(_NAMESPACE_LIBRARY_NAMES)
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Import):
+            for a in n.names:
+                if a.name.split(".")[0] in _ROOT_ONLY:
+                    names.add(a.asname or a.name.split(".")[0])
+        elif isinstance(n, ast.ImportFrom) and (n.module or "").split(".")[0] in _ROOT_ONLY:
+            names.update(a.asname or a.name for a in n.names)
+    return frozenset(names)
+
+
+def _bound_names(tree) -> dict:
+    """How many times each name is bound, by any binding form: assignment
+    targets, parameters, except clauses, match captures, imports, defs and
+    classes."""
+    counts: dict[str, int] = {}
+
+    def bind(name):
+        if name:
+            counts[name] = counts.get(name, 0) + 1
+
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Name) and not isinstance(n.ctx, ast.Load):
+            bind(n.id)
+        elif isinstance(n, ast.arg):
+            bind(n.arg)
+        elif isinstance(n, ast.ExceptHandler):
+            bind(n.name)
+        elif isinstance(n, (ast.MatchAs, ast.MatchStar)):
+            bind(n.name)
+        elif isinstance(n, ast.MatchMapping):
+            bind(n.rest)
+        elif isinstance(n, ast.alias):
+            bind(n.asname or n.name.split(".")[0])
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bind(n.name)
+        elif isinstance(n, (ast.Global, ast.Nonlocal)):
+            for name in n.names:
+                bind(name)
+    return counts
+
+
+def _reaches_by_name(node, mentions, client_receivers: set, evaluator_calls: set,
+                     library_names: frozenset) -> bool:
     if isinstance(node, ast.Name):
         return node.id in _NAMESPACE_NAMES
     if isinstance(node, ast.Attribute):
@@ -210,7 +270,9 @@ def _reaches_by_name(node, mentions, client_receivers: set, evaluator_calls: set
             # only a direct call with a plain string (checked below) is read.
             if id(node) not in evaluator_calls:
                 return True
-        return node.attr in _NAMESPACE_ATTRIBUTES or node.attr in _INTERNAL_ATTRIBUTES or (
+        if node.attr in _INTERNAL_ATTRIBUTES and _chain_base(node.value) in library_names:
+            return True  # pandas / numpy internals (pd.core, np.testing)
+        return node.attr in _NAMESPACE_ATTRIBUTES or (
             node.attr.startswith("_") and node.attr not in _ALLOWED_PRIVATE_ATTRIBUTES)
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return bool(mentions.search(node.value))
@@ -269,25 +331,23 @@ def client_reach(code: Optional[str]) -> ClientReach:
     accesses = {id(n) for n in ast.walk(tree)
                 if (isinstance(n, ast.Subscript) and id(n.value) in keyed)
                 or (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and id(n.func.value) in keyed)}
-    bindings: dict[str, list] = {}
-    for n in ast.walk(tree):
-        if isinstance(n, ast.Name) and not isinstance(n.ctx, ast.Load):
-            bindings.setdefault(n.id, []).append(n)
+    bindings = _bound_names(tree)
     client_names = set()
     for n in ast.walk(tree):
         if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name) \
-                and id(n.value) in accesses and len(bindings.get(n.targets[0].id, [])) == 1:
+                and id(n.value) in accesses and bindings.get(n.targets[0].id, 0) == 1:
             client_names.add(n.targets[0].id)
     client_receivers = set(accesses) | {
         id(n) for n in ast.walk(tree) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
         and n.id in client_names}
+    library_names = _library_names(tree)
     evaluator_calls = {id(n.func) for n in ast.walk(tree)
                        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
 
     other = not plain_entry or any(
         (_is_clients(node) and id(node) not in keyed)
         or (id(node) not in key_constants
-            and _reaches_by_name(node, mentions, client_receivers, evaluator_calls))
+            and _reaches_by_name(node, mentions, client_receivers, evaluator_calls, library_names))
         for node in ast.walk(tree)
     )
     return ClientReach(tuple(keys), other)

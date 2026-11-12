@@ -46,6 +46,11 @@ from app.services.client_keys import (
      'import warnings\nds_clients["A:c"]', ["A:c"]),
     ('from functools import reduce, partial\nfrom typing import Dict, List, Optional\nds_clients["A:c"]',
      ["A:c"]),
+    # Public pandas / numpy submodules, as their attribute form already is.
+    ('from pandas.api.types import is_numeric_dtype\nfrom pandas.tseries.offsets import MonthEnd\n'
+     'from numpy.linalg import lstsq\nimport pandas.api.types as pt\nds_clients["A:c"]', ["A:c"]),
+    # A `.core` attribute of something that is not pandas or numpy.
+    ('rows = [r.core for r in df.itertuples()]\nds_clients["A:c"]', ["A:c"]),
     ("db_rows = 1", []),
     ("", []),
     (None, []),
@@ -133,7 +138,21 @@ def test_literal_keys_are_the_clients_the_code_reaches(code, expected):
     'ds_clients["A:c"]\nx = pd.core.frame',
     'ds_clients["A:c"]\nx = np.testing',
     'ds_clients["A:c"]\nq = df.query\nq("a > 1")',
-    'sales = ds_clients["A:c"]\nsales = df\nsales.query("@db_clients")',
+    'sales = ds_clients["A:c"]\nsales = df\nsales.query("x > @t")',
+    # A name bound again by a parameter, an except clause, a match capture,
+    # an import or a def is no client receiver.
+    'db = ds_clients["A:pg"]\ndef f(db):\n    return db.query("x > @t")\n',
+    'c = ds_clients["A:pg"]\ng = lambda c: c.query("x > @t")\n',
+    'c = ds_clients["A:pg"]\ntry:\n    pass\nexcept Exception as c:\n    pass\nc.query("x > @t")\n',
+    'c = ds_clients["A:pg"]\nmatch y:\n    case [*c]:\n        pass\nc.query("x > @t")\n',
+    'c = ds_clients["A:pg"]\nmatch y:\n    case {**c}:\n        pass\nc.query("x > @t")\n',
+    'c = ds_clients["A:pg"]\nfrom pandas import DataFrame as c\nc.query("x > @t")\n',
+    'c = ds_clients["A:pg"]\ndef c():\n    pass\nc.query("x > @t")\n',
+    # pandas / numpy internals by submodule.
+    'import pandas._libs\nds_clients["A:c"]',
+    'import pandas.core.computation\nds_clients["A:c"]',
+    'from pandas import core\nds_clients["A:c"]',
+    'from numpy import testing\nds_clients["A:c"]',
     'from functools import wraps\nds_clients["A:c"]',
     'from typing import get_type_hints\nds_clients["A:c"]',
 ])

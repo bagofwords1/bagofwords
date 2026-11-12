@@ -471,8 +471,10 @@ def _render_json_query(text: str, values: Dict[str, Any], *, client_type_name: s
     who = client_type_name or "This source"
     missing: List[str] = []
     stand_ins: Dict[str, str] = {}  # stand-in digits -> placeholder name
+    # Stand-in digits that occur nowhere in the document or in any value.
+    seen_text = text + "\n" + repr(values)
     base = 7301000000000000000
-    while str(base)[:12] in text:
+    while str(base)[:12] in seen_text:
         base += 1000000000000000
     width = len(str(base))
 
@@ -505,13 +507,20 @@ def _render_json_query(text: str, values: Dict[str, Any], *, client_type_name: s
         return any(token in s for token in stand_ins)
 
     used: set = set()
+    # Every stand-in is replaced in one pass, so a rendered value is never
+    # scanned again for another stand-in (a value carrying one's digits
+    # would otherwise pull that placeholder's value into itself).
+    stand_in_re = re.compile("|".join(re.escape(t) for t in stand_ins)) if stand_ins else None
 
     def _in_string(s: str, render) -> str:
-        for token, name in stand_ins.items():
-            if token in s:
-                used.add(token)
-                s = s.replace(token, render(name))
-        return s
+        if stand_in_re is None:
+            return s
+
+        def _one(m: "re.Match[str]") -> str:
+            used.add(m.group(0))
+            return render(stand_ins[m.group(0)])
+
+        return stand_in_re.sub(_one, s)
 
     def _walk(node: Any, *, is_sql: bool = False) -> Any:
         if isinstance(node, dict):

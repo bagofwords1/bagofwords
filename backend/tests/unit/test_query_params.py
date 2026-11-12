@@ -409,6 +409,54 @@ def test_a_placeholder_run_into_other_digits_is_refused():
     assert client.received == []
 
 
+def _one_pass_render(text: str, values: dict) -> str:
+    """How a string with placeholders renders in one pass (as on main):
+    each placeholder by the value's literal, the rendered values never
+    scanned again."""
+    from app.ai.code_execution.query_params import _PLACEHOLDER_RE, _render_literal
+
+    return _PLACEHOLDER_RE.sub(lambda m: _render_literal(values[m.group(1)], literal_style="standard"), text)
+
+
+def test_a_value_holding_another_placeholders_stand_in_stays_its_own_literal():
+    """A value that carries the digits a later placeholder is swapped for
+    while rendering must not pull that placeholder's value into itself."""
+    import json
+
+    from app.ai.code_execution.identity_bind import CapturedQuery
+
+    filter_text = "deviceName eq :p and model eq :c and userPrincipalName eq :me"
+    values = {"p": "x7301000000000000001", "c": " or true or model ne ", "me": "a@x.com"}
+    captured: list = []
+    rendered = _sql_received("intune_client", "IntuneClient",
+                             json.dumps({"table": "managed_devices", "filter": filter_text}),
+                             None, values=values, captured=captured)
+    parsed = json.loads(rendered)
+    assert parsed["filter"] == ("deviceName eq 'x7301000000000000001' and model eq ' or true or model ne ' "
+                                "and userPrincipalName eq 'a@x.com'")
+    assert set(parsed) == {"table", "filter"}
+
+
+@pytest.mark.parametrize("values", [
+    {"a": "7301000000000000001", "b": "x", "c": "y"},
+    {"a": "'7301000000000000002'", "b": "7301000000000000000", "c": "q"},
+    {"a": "7301000000000000001 7301000000000000002", "b": " or 1=1 or ", "c": "z"},
+    {"a": "8301000000000000001", "b": "7301000000000000002", "c": "8301000000000000000"},
+])
+def test_every_string_renders_as_a_one_pass_render_of_its_placeholders(values):
+    import json
+
+    document = {"table": "t", "one": "x = :a and y = :b", "two": ":c then :a", "nested": {"three": ":b:c"}}
+    parsed = json.loads(_sql_received("servicenow_client", "ServiceNowClient", json.dumps(document), None,
+                                      values=values))
+    assert parsed == {
+        "table": "t",
+        "one": _one_pass_render(document["one"], values),
+        "two": _one_pass_render(document["two"], values),
+        "nested": {"three": _one_pass_render(document["nested"]["three"], values)},
+    }
+
+
 def test_only_an_envelope_client_has_its_captured_sql_read_as_the_statement():
     """A JSON capture of a client that takes no SQL envelope keeps the check
     it had: its "esql"/"sql" keys mean nothing to that client."""
