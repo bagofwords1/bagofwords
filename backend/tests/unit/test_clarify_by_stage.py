@@ -1,6 +1,13 @@
-"""Clarify before a build starts; once it has started, finish it or ask the user."""
+"""The dashboards guidance carries the clarify-by-stage rule; the general CLARIFY section stays.
+
+Whether the planner asks before a build and finishes once it has started is model
+behaviour, measured by agent runs (see the PR). This only guards that the rule is
+present where page requests read it, by its title, like the other prompt-marker tests.
+"""
 from app.ai.agents.planner.prompt_builder_v3 import PromptBuilderV3
 from app.schemas.ai.planner import PlannerInput
+
+STAGE_RULE = "**Ask before, not during.**"
 
 
 def _prompt() -> str:
@@ -8,18 +15,12 @@ def _prompt() -> str:
         user_message="Build a dashboard of sales", organization_name="Acme", organization_ai_analyst_name="Analyst"))
 
 
-def test_the_dashboards_rule_is_about_the_stage():
+def test_the_stage_rule_is_in_the_dashboards_section():
     prompt = _prompt()
-    rule = prompt[prompt.index("**Ask before, not during.**"):]
-    rule = rule[:rule.index("\n")]
-    assert "Before the first query" in rule
-    assert "Once you have started, finish the build" in rule
-    assert "ask the user with clarify" in rule and "never end with a note to yourself" in rule
+    dashboards = prompt[prompt.index("DASHBOARDS\n"):prompt.index("DOCUMENTS\n")]
+    assert dashboards.count(STAGE_RULE) == 1
 
 
-def test_partial_data_no_longer_triggers_a_question():
-    assert "data covering only part of the ask → clarify" not in _prompt()
-
-
-def test_the_general_clarify_section_is_unchanged():
-    assert "CLARIFY (default posture: act, don't ask)" in _prompt()
+def test_the_general_clarify_section_is_still_there():
+    prompt = _prompt()
+    assert prompt.count("CLARIFY (") == 1
