@@ -1303,7 +1303,7 @@
     var subCls = _mergeClasses(_join('text-xs mt-2', onAccent ? 'opacity-75' : 'text-ink-3'), props.subtitleClassName);
     var hasDelta = typeof props.delta === 'number';
     var sparkColor = onAccent ? 'currentColor' : (props.sparkColor || 'var(--bow-accent)');
-    return h('div', { className: cls, style: props.style, 'data-bow-kpi': '1' }, [
+    return h('div', { className: cls, style: props.style, 'data-bow-kpi': '1', 'data-bow-viz-host': props.viz && props.viz.id != null ? String(props.viz.id) : undefined }, [
       props.viz ? h('div', { key: 'info', className: 'absolute top-2.5 end-2.5 z-10' }, h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc })) : null,
       h('div', { key: 'head', className: 'flex items-center gap-2 pe-6' }, [
         props.icon ? h('span', { key: 'ic', className: _join('inline-flex items-center justify-center w-6 h-6 rounded-chip', onAccent ? 'bg-white/15' : 'bg-accent/10 text-accent') }, h(window.Icon, { name: props.icon, size: 13 })) : null,
@@ -1339,7 +1339,9 @@
     var titleCls = _mergeClasses('text-[15px] font-semibold leading-snug text-ink', props.titleClassName);
     var subCls = _mergeClasses(_join('text-xs mt-0.5', onAccent ? 'opacity-75' : 'text-ink-3'), props.subtitleClassName);
     var hasHeader = props.title || props.eyebrow || props.actions;
-    return h('section', { className: cls, style: props.style }, [
+    // data-bow-viz-host: a TrendChart/RankChart inside this card leaves out its own ⓘ
+    // for the same viz. Not data-bow-viz, which the ⓘ overlay draws a marker for.
+    return h('section', { className: cls, style: props.style, 'data-bow-viz-host': props.viz && props.viz.id != null ? String(props.viz.id) : undefined }, [
       props.viz ? h('div', { key: 'info', className: 'absolute top-3 end-3 z-10' }, h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc })) : null,
       hasHeader ? h('div', { key: 'hdr', className: _join('flex items-start justify-between gap-3', props.viz ? 'pe-6' : '', props.headerClassName || 'mb-4') }, [
         h('div', { key: 'l', className: 'min-w-0' }, [
@@ -2036,6 +2038,397 @@
       chart
     ]);
   };
+
+  // ── TrendChart / RankChart ────────────────────────────────────────────────
+  // Charts that take the data and its meaning, not a chart setup, and make the
+  // decisions generated pages get wrong: how many points, the units, the labels
+  // and the order. Each is a pure builder (rows + props → option + caption)
+  // drawn by EChart, so theme, resize, lazy loading and option diffing are
+  // EChart's. The builders are exposed on window.__bowCharts for tests.
+  var _CH_LABELS = {
+    en: { latest: 'Latest {n} of {total} {unit}', rollup: '{total} {from} grouped into {n} {to}', dropped: 'incomplete periods at the ends left out',
+      top: 'Top {n} of {total}', bottom: 'Bottom {n} of {total}', other: 'Other ({n})', noData: 'No data', series: 'Showing {n} of {total} series',
+      q: 'Q{q} {y}', w: 'W{w} {y}',
+      units: { day: ['day', 'days'], week: ['week', 'weeks'], month: ['month', 'months'], quarter: ['quarter', 'quarters'], year: ['year', 'years'], point: ['point', 'points'] } },
+    he: { latest: 'התקופה האחרונה: {n} מתוך {total} {unit}', rollup: 'הנתונים מקובצים: {total} {from} ב-{n} {to}', dropped: 'תקופות חלקיות בקצוות הושמטו',
+      top: 'מוצגים {n} מתוך {total}', bottom: 'מוצגים {n} מתוך {total}', other: 'אחר ({n})', noData: 'אין נתונים', series: 'מוצגות {n} מתוך {total} סדרות',
+      q: 'Q{q} {y}', w: 'שבוע {w} {y}',
+      units: { day: ['יום', 'ימים'], week: ['שבוע', 'שבועות'], month: ['חודש', 'חודשים'], quarter: ['רבעון', 'רבעונים'], year: ['שנה', 'שנים'], point: ['נקודה', 'נקודות'] } },
+    es: { latest: 'Periodo más reciente: {n} de {total} {unit}', rollup: 'Datos agrupados: {total} {from} en {n} {to}', dropped: 'se omitieron periodos incompletos en los extremos',
+      top: 'Se muestran {n} de {total}', bottom: 'Se muestran {n} de {total}', other: 'Otros ({n})', noData: 'Sin datos', series: 'Se muestran {n} de {total} series',
+      q: 'T{q} {y}', w: 'S{w} {y}',
+      units: { day: ['día', 'días'], week: ['semana', 'semanas'], month: ['mes', 'meses'], quarter: ['trimestre', 'trimestres'], year: ['año', 'años'], point: ['punto', 'puntos'] } }
+  };
+  var _CH_LOCALE = { en: 'en-US', he: 'he-IL', es: 'es-ES' };
+  var _CH_GRAINS = ['day', 'week', 'month', 'quarter', 'year'];
+  var _DAY = 86400000;
+
+  function _chFill(tpl, vars) { return String(tpl).replace(/\{(\w+)\}/g, function(m, k) { return vars && vars[k] != null ? String(vars[k]) : m; }); }
+  function _chLabels(lang, over) {
+    var base = _CH_LABELS[lang] || _CH_LABELS.en, out = {};
+    for (var k in base) out[k] = over && typeof over[k] === 'string' ? over[k] : base[k];
+    return out;
+  }
+  function _chUnitWord(L, grain, n) { var u = (L.units && L.units[grain]) || L.units.point; return n === 1 ? u[0] : u[1]; }
+
+
+  // Read a time value by its string pattern, in UTC. Never new Date(string):
+  // a UTC midnight would move to the previous day for viewers west of UTC.
+  function _chParseTime(v) {
+    if (typeof v === 'number' && isFinite(v) && Math.floor(v) === v && v >= 1000 && v <= 9999) return { t: Date.UTC(v, 0, 1), hint: 'year' };
+    if (v == null) return null;
+    var s = String(v).trim(), m;
+    if ((m = /^(\d{4})$/.exec(s))) return { t: Date.UTC(+m[1], 0, 1), hint: 'year' };
+    if ((m = /^(\d{4})[- ]?Q([1-4])$/i.exec(s))) return { t: Date.UTC(+m[1], (+m[2] - 1) * 3, 1), hint: 'quarter' };
+    if ((m = /^(\d{4})-?W(\d{2})$/i.exec(s))) return { t: _chIsoWeekStart(+m[1], +m[2]), hint: 'week' };
+    if ((m = /^(\d{4})-(\d{2})$/.exec(s))) return { t: Date.UTC(+m[1], +m[2] - 1, 1), hint: 'month' };
+    if ((m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?(?:Z|[+-]\d{2}:?\d{2})?$/.exec(s))) {
+      return { t: Date.UTC(+m[1], +m[2] - 1, +m[3]), hint: null }; // sub-day times floor to the day
+    }
+    return null;
+  }
+  function _chIsoWeekStart(y, w) {
+    var jan4 = Date.UTC(y, 0, 4), dow = (new Date(jan4).getUTCDay() + 6) % 7;
+    return jan4 - dow * _DAY + (w - 1) * 7 * _DAY;
+  }
+  function _chFloor(t, g) {
+    var d = new Date(t), y = d.getUTCFullYear(), mo = d.getUTCMonth();
+    if (g === 'year') return Date.UTC(y, 0, 1);
+    if (g === 'quarter') return Date.UTC(y, mo - (mo % 3), 1);
+    if (g === 'month') return Date.UTC(y, mo, 1);
+    if (g === 'week') { var day = Date.UTC(y, mo, d.getUTCDate()); return day - ((new Date(day).getUTCDay() + 6) % 7) * _DAY; }
+    return Date.UTC(y, mo, d.getUTCDate());
+  }
+  function _chNext(t, g) {
+    var d = new Date(t), y = d.getUTCFullYear(), mo = d.getUTCMonth();
+    if (g === 'year') return Date.UTC(y + 1, 0, 1);
+    if (g === 'quarter') return Date.UTC(y, mo + 3, 1);
+    if (g === 'month') return Date.UTC(y, mo + 1, 1);
+    if (g === 'week') return t + 7 * _DAY;
+    return t + _DAY;
+  }
+  function _chGrainFromGap(ts) {
+    var gap = Infinity;
+    for (var i = 1; i < ts.length; i++) { var dg = (ts[i] - ts[i - 1]) / _DAY; if (dg > 0 && dg < gap) gap = dg; }
+    if (!isFinite(gap)) return null;
+    if (gap >= 360) return 'year';
+    if (gap >= 88) return 'quarter';
+    if (gap >= 28) return 'month';
+    if (gap >= 7) return 'week';
+    return 'day';
+  }
+  function _chTimeLabel(t, g, lang, L) {
+    var d = new Date(t), y = d.getUTCFullYear();
+    if (g === 'year') return String(y);
+    if (g === 'quarter') return _chFill(L.q, { q: Math.floor(d.getUTCMonth() / 3) + 1, y: y });
+    if (g === 'week') {
+      var th = t + 3 * _DAY, wy = new Date(th).getUTCFullYear();
+      var w = Math.floor((th - _chIsoWeekStart(wy, 1)) / (7 * _DAY)) + 1;
+      return _chFill(L.w, { w: w, y: wy });
+    }
+    var loc = _CH_LOCALE[lang] || 'en-US';
+    try {
+      if (g === 'month') return new Intl.DateTimeFormat(loc, { month: 'short', year: 'numeric', timeZone: 'UTC' }).format(d);
+      return new Intl.DateTimeFormat(loc, { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(d);
+    } catch (e) { return new Date(t).toISOString().slice(0, g === 'month' ? 7 : 10); }
+  }
+
+  // Numbers by unit. percent = already ×100; ratio = 0–1. Never fmt()'s
+  // per-value percent guess, which would print 0.8 → "80%" next to 1.2 → "1.2%".
+  function _chNumber(unit, n, decimals, lang) {
+    if (n == null || typeof n !== 'number' || !isFinite(n)) return '—';
+    var loc = _CH_LOCALE[lang] || 'en-US', abs = Math.abs(n), compact = abs >= 1e6;
+    var u = unit || 'number';
+    var opts = { minimumFractionDigits: compact ? 0 : decimals, maximumFractionDigits: compact ? 1 : decimals };
+    if (compact) opts.notation = 'compact';
+    try {
+      if (u === 'percent') return new Intl.NumberFormat(loc, opts).format(n) + '%';
+      if (u === 'ratio') return new Intl.NumberFormat(loc, opts).format(n * 100) + '%';
+      if (u === 'currency' || /^[A-Z]{3}$/.test(u)) { opts.style = 'currency'; opts.currency = u === 'currency' ? 'USD' : u; return new Intl.NumberFormat(loc, opts).format(n); }
+      return new Intl.NumberFormat(loc, opts).format(n);
+    } catch (e) { return String(n); }
+  }
+  function _chStepDecimals(min, max, unit) {
+    var lo = Math.min(0, min), hi = Math.max(0, max), span = (hi - lo) * (unit === 'ratio' ? 100 : 1);
+    if (!(span > 0)) return 0;
+    var raw = span / 5, mag = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / mag;
+    var step = (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * mag;
+    return Math.max(0, Math.min(4, -Math.floor(Math.log10(step) + 1e-9)));
+  }
+  function _chValueDecimals(unit, absMax, values) {
+    if (unit === 'percent' || unit === 'ratio') return 1;
+    // Whole-number data (counts) prints without decimals: 59, not 59.0.
+    if (values && values.length && values.every(function(v) { return v == null || Math.floor(v) === v; })) return 0;
+    if (unit === 'currency' || /^[A-Z]{3}$/.test(unit || '')) return absMax < 1000 ? 2 : 0;
+    return absMax < 10 ? 2 : absMax < 1000 ? 1 : 0;
+  }
+
+  function _chFields(props, rows, viz) {
+    if (Array.isArray(props.rows) && props.rows.length && props.rows[0] && typeof props.rows[0] === 'object') return Object.keys(props.rows[0]);
+    var cols = (viz && Array.isArray(viz.columns)) ? viz.columns.map(function(c) { return c && (c.field || c.name); }).filter(Boolean) : [];
+    if (cols.length) return cols;
+    return rows.length && rows[0] ? Object.keys(rows[0]) : [];
+  }
+  function _chMissing(need, fields) { return need.filter(function(f) { return f != null && fields.indexOf(f) === -1; }); }
+  function _chErr(msg, fields) { return { error: msg + (fields && fields.length ? ' Available fields: ' + fields.join(', ') + '.' : '') }; }
+  function _chNum(v) { return typeof v === 'number' ? v : (v != null && v !== '' && !isNaN(Number(v)) ? Number(v) : null); }
+  function _chColorFor(name, i, props, theme) {
+    if (props.colors && props.colors[name]) return props.colors[name];
+    var pal = (theme && theme.chart) || [];
+    return pal.length ? pal[i % pal.length] : undefined;
+  }
+
+  function _buildTrend(props, theme, lang) {
+    props = props || {};
+    var viz = props.viz;
+    var L = _chLabels(lang, props.labels);
+    if (!viz) return { error: 'TrendChart needs viz={vizById("…")}.' };
+    var rows = Array.isArray(props.rows) ? props.rows : (Array.isArray(viz.rows) ? viz.rows : []);
+    var fields = _chFields(props, rows, viz);
+    var ys = Array.isArray(props.y) ? props.y.slice() : (props.y != null ? [props.y] : []);
+    if (props.x == null || !ys.length) return _chErr('TrendChart needs x and y.', fields);
+    if (props.series != null && ys.length > 1) return _chErr('TrendChart takes either series or several y fields, not both.', fields);
+    var miss = _chMissing([props.x, props.series].concat(ys), fields);
+    if (miss.length && fields.length) return _chErr('TrendChart: no field named ' + miss.join(', ') + '.', fields);
+    if (!rows.length) return { empty: true, noData: L.noData };
+    var additive = props.additive === true, unit = props.unit || 'number';
+
+    // Time or ordered category.
+    var parsed = rows.map(function(r) { return _chParseTime(r ? r[props.x] : null); });
+    var isTime = parsed.every(function(p) { return p !== null; });
+    var keyOf, grain = null, labelOf;
+    if (isTime) {
+      var distinct = parsed.map(function(p) { return p.t; }).filter(function(t, i, a) { return a.indexOf(t) === i; }).sort(function(a, b) { return a - b; });
+      var hints = parsed.map(function(p) { return p.hint; }).filter(function(h0, i, a) { return h0 && a.indexOf(h0) === i; });
+      grain = hints.length === 1 && parsed.every(function(p) { return p.hint === hints[0]; }) ? hints[0] : (_chGrainFromGap(distinct) || hints[0] || 'day');
+      var want = props.grain && _CH_GRAINS.indexOf(props.grain) > _CH_GRAINS.indexOf(grain) ? props.grain : null;
+      if (want && additive) grain = want; // a finer grain than the data is ignored; non-additive data is aggregated in the query
+    }
+    var minT = Infinity, maxT = -Infinity;
+    if (isTime) parsed.forEach(function(p) { if (p.t < minT) minT = p.t; if (p.t > maxT) maxT = p.t; });
+
+    // Group into (period, series) cells.
+    var seriesNames = [], cells = {}, order = [], dup = false;
+    rows.forEach(function(r, i) {
+      if (!r) return;
+      var k = isTime ? _chFloor(parsed[i].t, grain) : String(r[props.x]);
+      if (!isTime && order.indexOf(k) === -1) order.push(k);
+      var names = props.series != null ? [String(r[props.series] == null ? '—' : r[props.series])] : ys;
+      names.forEach(function(nm, j) {
+        if (seriesNames.indexOf(nm) === -1) seriesNames.push(nm);
+        var v = _chNum(props.series != null ? r[ys[0]] : r[ys[j]]);
+        var ck = k + '|' + nm;
+        if (ck in cells) { if (!additive) dup = true; else cells[ck] = (cells[ck] || 0) + (v || 0); }
+        else cells[ck] = v;
+      });
+    });
+    if (dup) return _chErr('TrendChart needs one row per ' + (props.series != null ? props.x + ' and ' + props.series : props.x) + '. Is this measure additive? Pass additive, or aggregate in the query.', fields);
+
+    // Periods, filled from first to last.
+    var periods = [];
+    if (isTime) { for (var t = _chFloor(minT, grain), guard = 0; t <= maxT && guard < 5000; t = _chNext(t, grain), guard++) periods.push(t); }
+    else periods = order;
+    var total = periods.length, caption = [];
+
+    // Series safety net: 0 of 97 measured charts needed it.
+    if (seriesNames.length > 6) {
+      var sums = seriesNames.map(function(nm) { var s = 0; periods.forEach(function(p) { s += Math.abs(cells[p + '|' + nm] || 0); }); return [nm, s]; });
+      sums.sort(function(a, b) { return b[1] - a[1] || String(a[0]).localeCompare(String(b[0])); });
+      caption.push(_chFill(L.series, { n: 6, total: seriesNames.length }));
+      seriesNames = sums.slice(0, 6).map(function(s) { return s[0]; });
+    }
+    var defMax = seriesNames.length > 1 ? 24 : 60;
+    var maxPoints = Math.max(2, Math.min(120, Math.floor(props.maxPoints) || defMax));
+
+    var labelGrain = grain;
+    if (periods.length > maxPoints) {
+      var rolled = false;
+      if (props.overflow === 'rollup' && additive && isTime) {
+        for (var gi = _CH_GRAINS.indexOf(grain) + 1; gi < _CH_GRAINS.length; gi++) {
+          var g2 = _CH_GRAINS[gi], buckets = [], seen = {};
+          periods.forEach(function(p) { var b = _chFloor(p, g2); if (!seen[b]) { seen[b] = 1; buckets.push(b); } });
+          // A bucket is incomplete when the data's first or last date falls inside it.
+          var dropped = false;
+          if (buckets.length && _chFloor(minT, grain) > buckets[0]) { buckets.shift(); dropped = true; }
+          if (buckets.length && _chNext(_chFloor(maxT, grain), grain) < _chNext(buckets[buckets.length - 1], g2)) { buckets.pop(); dropped = true; }
+          if (buckets.length <= maxPoints || gi === _CH_GRAINS.length - 1) {
+            var newCells = {};
+            periods.forEach(function(p) {
+              var b = _chFloor(p, g2);
+              if (buckets.indexOf(b) === -1) return;
+              seriesNames.forEach(function(nm) { var v = cells[p + '|' + nm]; newCells[b + '|' + nm] = (newCells[b + '|' + nm] || 0) + (v || 0); });
+            });
+            caption.push(_chFill(L.rollup, { total: total, from: _chUnitWord(L, grain, total), n: buckets.length, to: _chUnitWord(L, g2, buckets.length) }) + (dropped ? '; ' + L.dropped : ''));
+            cells = newCells; periods = buckets; labelGrain = g2; rolled = true;
+            break;
+          }
+        }
+      }
+      if (!rolled) {
+        periods = periods.slice(periods.length - maxPoints);
+        caption.push(_chFill(L.latest, { n: maxPoints, total: total, unit: _chUnitWord(L, isTime ? grain : null, total) }));
+      }
+    }
+
+    var kind = props.kind === 'bar' || props.kind === 'area' ? props.kind : 'line';
+    var stacked = props.stacked === true && additive;
+    var cats = periods.map(function(p) { return isTime ? _chTimeLabel(p, labelGrain, lang, L) : String(p); });
+    var all = [], hasGap = false;
+    var series = seriesNames.map(function(nm, i) {
+      var data = periods.map(function(p) {
+        var v = cells[p + '|' + nm];
+        if (v == null && additive) v = 0;
+        if (v == null) hasGap = true; else all.push(v);
+        return v == null ? null : v;
+      });
+      return { name: nm, data: data, color: _chColorFor(nm, i, props, theme) };
+    });
+    var lo = all.length ? Math.min.apply(null, all) : 0, hi = all.length ? Math.max.apply(null, all) : 0;
+    var tickDec = _chStepDecimals(lo, hi, unit), valDec = _chValueDecimals(unit, Math.max(Math.abs(lo), Math.abs(hi)), all);
+    var direct = series.length >= 2 && series.length <= 4 && kind !== 'bar';
+    var single = series.length === 1;
+    var ink3 = theme && theme.colors ? theme.colors.ink3 : undefined;
+    var option = {
+      grid: { left: 8, right: direct ? 96 : (single ? 56 : 16), top: direct || single ? 20 : 36, bottom: 8, containLabel: true },
+      legend: direct || single ? { show: false } : { top: 0 },
+      tooltip: { trigger: 'axis', valueFormatter: function(v) { return _chNumber(unit, v, valDec, lang); } },
+      // Time labels stay horizontal; ECharts spaces them to the width. Rotated
+      // labels were cut off at the chart edge and read as generated.
+      xAxis: { type: 'category', data: cats, boundaryGap: kind === 'bar', axisLabel: { interval: 'auto', rotate: 0, hideOverlap: true } },
+      yAxis: { type: 'value', axisLabel: { formatter: function(v) { return _chNumber(unit, v, tickDec, lang); } } },
+      series: series.map(function(s) {
+        var lastIdx = -1;
+        for (var q = s.data.length - 1; q >= 0; q--) if (s.data[q] != null) { lastIdx = q; break; }
+        var item = { name: s.name, type: kind === 'bar' ? 'bar' : 'line', smooth: false, connectNulls: false,
+          showSymbol: hasGap, symbolSize: hasGap ? 5 : 6, itemStyle: s.color ? { color: s.color } : undefined, data: s.data };
+        // The last point is marked, and a single line carries its latest value.
+        if (kind !== 'bar' && lastIdx >= 0) {
+          item.markPoint = { silent: true, symbol: 'circle', symbolSize: 7, label: { show: false }, data: [{ coord: [lastIdx, s.data[lastIdx]] }] };
+          if (single) item.endLabel = { show: true, color: ink3, distance: 6, formatter: function(p) { return _chNumber(unit, p.value, valDec, lang); } };
+        }
+        if (kind === 'line' || kind === 'area') item.lineStyle = { width: 2 };
+        if (kind === 'area') item.areaStyle = { opacity: 0.12 };
+        if (stacked) item.stack = 'total';
+        if (kind === 'bar') item.itemStyle = { color: s.color, borderRadius: [3, 3, 0, 0] };
+        if (direct) item.endLabel = { show: true, formatter: '{a}', color: ink3, distance: 6 };
+        return item;
+      })
+    };
+    var keys = periods.map(function(p) { return isTime ? new Date(p).toISOString().slice(0, 10) : p; });
+    return { option: option, caption: caption.join(' · '), click: function(p) {
+      return p ? { x: keys[p.dataIndex], grain: isTime ? labelGrain : null, series: p.seriesName, value: p.value && typeof p.value === 'object' ? p.value.value : p.value } : null;
+    } };
+  }
+
+  function _buildRank(props, theme, lang, rtl) {
+    props = props || {};
+    var viz = props.viz;
+    var L = _chLabels(lang, props.labels);
+    if (!viz) return { error: 'RankChart needs viz={vizById("…")}.' };
+    var rows = Array.isArray(props.rows) ? props.rows : (Array.isArray(viz.rows) ? viz.rows : []);
+    var fields = _chFields(props, rows, viz);
+    if (props.label == null || props.value == null) return _chErr('RankChart needs label and value.', fields);
+    var miss = _chMissing([props.label, props.value], fields);
+    if (miss.length && fields.length) return _chErr('RankChart: no field named ' + miss.join(', ') + '.', fields);
+    if (!rows.length) return { empty: true, noData: L.noData };
+    var additive = props.additive === true, unit = props.unit || 'number';
+    var vals = {}, names = [], dup = false;
+    rows.forEach(function(r) {
+      if (!r) return;
+      var nm = String(r[props.label] == null ? '—' : r[props.label]), v = _chNum(r[props.value]);
+      if (nm in vals) { if (!additive) dup = true; else vals[nm] = (vals[nm] || 0) + (v || 0); }
+      else { vals[nm] = v; names.push(nm); }
+    });
+    if (dup) return _chErr('RankChart needs one row per ' + props.label + '. Is this measure additive? Pass additive, or aggregate in the query.', fields);
+    var asc = props.order === 'asc';
+    var items = names.map(function(nm) { return [nm, vals[nm]]; }).filter(function(it) { return it[1] != null; });
+    items.sort(function(a, b) { return (asc ? a[1] - b[1] : b[1] - a[1]) || String(a[0]).localeCompare(String(b[0])); });
+    var top = Math.max(1, Math.min(25, Math.floor(props.top) || 10)), caption = '', other = null, total = items.length;
+    if (items.length > top) {
+      var rest = items.slice(top);
+      items = items.slice(0, top);
+      if (additive) { var s = 0; rest.forEach(function(it) { s += it[1] || 0; }); other = [_chFill(L.other, { n: rest.length }), s]; }
+      else caption = _chFill(asc ? L.bottom : L.top, { n: top, total: total });
+    }
+    var bars = other ? items.concat([other]) : items;
+    var all = bars.map(function(b) { return b[1]; });
+    var lo = Math.min.apply(null, all.concat([0])), hi = Math.max.apply(null, all.concat([0]));
+    var tickDec = _chStepDecimals(lo, hi, unit), valDec = _chValueDecimals(unit, Math.max(Math.abs(lo), Math.abs(hi)), all);
+    // Bar-end values: whole units once the bars reach 100 ($827, not $826.65).
+    var barDec = Math.max(Math.abs(lo), Math.abs(hi)) >= 100 && unit !== 'percent' && unit !== 'ratio' ? 0 : valDec;
+    var c = theme && theme.colors ? theme.colors : {};
+    var accent = c.accent || undefined;
+    var height = Math.max(Math.floor(props.height) || 0, 24 + bars.length * 30);
+    var option = {
+      // containLabel leaves out the bar-end values, so the side they grow
+      // towards gets room for the longest one (and the axis's last tick).
+      grid: { left: rtl ? 64 : 8, right: rtl ? 8 : 64, top: 8, bottom: 8, containLabel: true },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: function(v) { return _chNumber(unit, v, valDec, lang); } },
+      xAxis: { type: 'value', inverse: !!rtl, axisLabel: { formatter: function(v) { return _chNumber(unit, v, tickDec, lang); } } },
+      yAxis: { type: 'category', inverse: true, position: rtl ? 'right' : 'left', data: bars.map(function(b) { return b[0]; }),
+        axisLabel: { interval: 0, hideOverlap: false, width: 150, overflow: 'truncate' } },
+      series: [{ type: 'bar', barMaxWidth: 20,
+        label: { show: true, position: rtl ? 'left' : 'right', color: c.ink2, formatter: function(p) { return _chNumber(unit, p.value, barDec, lang); } },
+        data: bars.map(function(b, i) {
+          var isOther = other && i === bars.length - 1;
+          var nm = b[0], col = isOther ? (c.line2 || '#cbd5e1') : (props.colors && props.colors[nm]) || accent;
+          return { value: b[1], itemStyle: { color: col, borderRadius: rtl ? [3, 0, 0, 3] : [0, 3, 3, 0] } };
+        }) }]
+    };
+    return { option: option, caption: caption, height: height, click: function(p) {
+      if (!p) return null;
+      var isOther = other && p.dataIndex === bars.length - 1;
+      return { label: isOther ? null : bars[p.dataIndex][0], value: bars[p.dataIndex][1], other: !!isOther };
+    } };
+  }
+
+  window.__bowCharts = { buildTrend: _buildTrend, buildRank: _buildRank, parseTime: _chParseTime, number: _chNumber };
+
+  function _chartComponent(kind) {
+    return function(props) {
+      props = props || {};
+      var theme = window.useTheme();
+      var ref = React.useRef(null);
+      var builtRef = React.useRef(null);
+      var clickRef = React.useRef(props.onClick);
+      clickRef.current = props.onClick;
+      // The ⓘ is drawn after a mount check, so a chart inside a card that
+      // already shows one for the same viz never flashes a second ⓘ.
+      var _i = React.useState(false), showInfo = _i[0], setShowInfo = _i[1];
+      var vizId = props.viz && props.viz.id != null ? String(props.viz.id) : null;
+      React.useEffect(function() {
+        var el = ref.current; if (!el || !vizId) { setShowInfo(false); return; }
+        var host = el.parentElement ? el.parentElement.closest('[data-bow-viz-host]') : null;
+        setShowInfo(!(host && host.getAttribute('data-bow-viz-host') === vizId));
+      }, [vizId]);
+      var rows = Array.isArray(props.rows) ? props.rows : (props.viz && Array.isArray(props.viz.rows) ? props.viz.rows : []);
+      var cols = props.viz && Array.isArray(props.viz.columns) ? props.viz.columns.map(function(c) { return { header: c.headerName || c.field }; }) : [];
+      var lang = _dtLang(props.lang, cols, rows);
+      var rtl = props.dir ? props.dir === 'rtl' : lang === 'he';
+      var built;
+      try { built = kind === 'rank' ? _buildRank(props, theme, lang, rtl) : _buildTrend(props, theme, lang); }
+      catch (e) { built = { error: (kind === 'rank' ? 'RankChart' : 'TrendChart') + ' could not draw: ' + (e && e.message ? e.message : String(e)) }; }
+      builtRef.current = built;
+      var height = built.height || props.height || 300;
+      var body;
+      if (built.error) {
+        if (typeof console !== 'undefined') console.warn('[bow-chart] ' + built.error);
+        body = h('div', { key: 'err', role: 'alert', dir: 'auto', className: 'rounded-chip border border-warning/40 bg-warning/10 text-sm text-ink-2 p-3' }, built.error);
+      } else if (built.empty) {
+        body = h('div', { key: 'empty', className: 'flex items-center justify-center text-sm text-ink-3', style: { height: Math.min(height, 160) } }, built.noData);
+      } else {
+        body = h(window.EChart, { key: 'chart', option: built.option, height: height,
+          onClick: function(p) { var f = clickRef.current, b = builtRef.current; if (f && b && b.click) f(b.click(p)); } });
+      }
+      return h('div', { ref: ref, className: 'relative' + (props.className ? ' ' + props.className : ''), style: props.style, 'data-bow-chart': kind, dir: rtl ? 'rtl' : undefined }, [
+        showInfo && props.viz ? h('div', { key: 'info', className: 'absolute top-0 end-0 z-10' }, h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc })) : null,
+        body,
+        built.caption ? h('p', { key: 'cap', dir: 'auto', className: 'text-xs text-ink-3 mt-1.5', 'data-bow-chart-caption': '1' }, built.caption) : null
+      ]);
+    };
+  }
+  window.TrendChart = _chartComponent('trend');
+  window.RankChart = _chartComponent('rank');
 
   window.resizeAllCharts = function() {
     if (typeof echarts !== 'undefined') {
