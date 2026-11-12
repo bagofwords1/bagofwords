@@ -206,6 +206,7 @@ async def _embedding(db, artifact: ArtifactModel, organization, user) -> Artifac
     return ArtifactEmbeddingSchema(
         artifact_id=str(artifact.id), visibility=str(artifact.visibility or "none"),
         hosts=hosts, can_manage_hosts=perms.has_org_permission("manage_settings"),
+        allow_popups=bool(artifact.allow_popups),
     )
 
 
@@ -248,4 +249,10 @@ async def set_artifact_embedding(
         await audit(db, organization.id, "artifact.embedding_updated", user_id=str(current_user.id),
                     resource_type="artifact", resource_id=str(artifact.id), request=request,
                     details={"added": sorted(after - before), "removed": sorted(before - after)})
+    if payload.allow_popups is not None and bool(artifact.allow_popups) != payload.allow_popups:
+        artifact.allow_popups = bool(payload.allow_popups)
+        await db.commit()
+        await audit(db, organization.id, "artifact.embedding_updated", user_id=str(current_user.id),
+                    resource_type="artifact", resource_id=str(artifact.id), request=request,
+                    details={"allow_popups": artifact.allow_popups})
     return await _embedding(db, artifact, organization, current_user)

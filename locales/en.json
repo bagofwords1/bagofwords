@@ -7444,7 +7444,10 @@
       "ssoSignIn": "BOW sign-in",
       "noteAssertion": "Your backend signs a 60-second assertion for the signed-in user with the host application's private key. The key never goes to the browser.",
       "noteIdp": "The page passes the user's ID token from your identity provider; BOW checks it with the provider's published keys.",
-      "noteSso": "The first time, people sign in to BOW in a small window. Use this when the other application can't sign assertions."
+      "noteSso": "The first time, people sign in to BOW in a small window. Use this when the other application can't sign assertions.",
+      "permissionsTitle": "Permissions",
+      "allowPopups": "Allow links to open in a new tab",
+      "allowPopupsHelp": "By default, links and buttons in this dashboard can't open new tabs or pop-up windows. Turn this on to allow it."
     }
   },
   "hostApps": {

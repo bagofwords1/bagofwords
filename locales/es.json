@@ -7415,7 +7415,10 @@
       "ssoSignIn": "inicio de sesión de BOW",
       "noteAssertion": "Tu backend firma una aserción de 60 segundos para el usuario con la clave privada de la aplicación anfitriona. La clave nunca llega al navegador.",
       "noteIdp": "La página entrega el token de ID del usuario de tu proveedor de identidad; BOW lo verifica con las claves publicadas del proveedor.",
-      "noteSso": "La primera vez, las personas inician sesión en BOW en una ventana pequeña. Úsalo cuando la otra aplicación no pueda firmar aserciones."
+      "noteSso": "La primera vez, las personas inician sesión en BOW en una ventana pequeña. Úsalo cuando la otra aplicación no pueda firmar aserciones.",
+      "permissionsTitle": "Permisos",
+      "allowPopups": "Permitir que los enlaces se abran en una pestaña nueva",
+      "allowPopupsHelp": "De forma predeterminada, los enlaces y botones de este panel no pueden abrir pestañas nuevas ni ventanas emergentes. Actívalo para permitirlo."
     }
   },
   "hostApps": {

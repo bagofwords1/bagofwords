@@ -20,6 +20,7 @@ from app.errors import AppError, ErrorCode
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.artifact import ArtifactVersion as ArtifactModel
+from app.models.artifact import Artifact as ArtifactParent
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.models.report import Report as ReportModel
@@ -324,6 +325,14 @@ async def edit_doc_content(
     return ArtifactSchema.model_validate(artifact)
 
 
+async def _attach_allow_popups(db: AsyncSession, version, schema: ArtifactSchema) -> None:
+    """Set the iframe sandbox flag from the parent Artifact. Done here, not via a
+    column_property on the version, so the subquery never rides on every
+    ArtifactVersion SELECT (that breaks against pre-migration corpus schemas)."""
+    parent = await db.get(ArtifactParent, str(version.artifact_id))
+    schema.allow_popups = bool(getattr(parent, "allow_popups", False))
+
+
 @router.get("/{artifact_id}", response_model=ArtifactSchema)
 @requires_permission('view_reports', model=ArtifactModel, owner_only=True, allow_public=True)
 async def get_artifact(
@@ -338,6 +347,7 @@ async def get_artifact(
         raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND, "Artifact not found")
     schema = ArtifactSchema.model_validate(artifact)
     attach_compiled(schema)
+    await _attach_allow_popups(db, artifact, schema)
     return schema
 
 
@@ -372,6 +382,7 @@ async def get_latest_artifact(
         raise HTTPException(status_code=404, detail="No artifacts found for this report")
     schema = ArtifactSchema.model_validate(artifact)
     attach_compiled(schema)
+    await _attach_allow_popups(db, artifact, schema)
     return schema
 
 
