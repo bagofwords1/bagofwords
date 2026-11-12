@@ -74,48 +74,88 @@ _LITERALS_AND_COMMENTS = re.compile(
 #   (a stored search), map (builds and runs a search per input row);
 # - delete a Machine Learning Toolkit model: deletemodel.
 # Reads that only look like these (inputlookup, loadjob, rest) stay allowed.
-# A command starts after a `|` or at the opening `[` of a bracketed block (an
-# appendpipe/append/join subpipeline or a subsearch), so both positions match.
-# Between that mark and the command name Splunk may read whitespace, inline
-# comments (```...```) and macros (`name(args)`, which can expand to nothing),
-# so all three count as the gap, and so does a backtick left over from a run
-# of more than three (such a run pairs more than one way). The quantifiers are
-# possessive: each attempt takes the longest gap and never backtracks, which
-# keeps the match linear.
+_SPL_REFUSED_COMMANDS = (
+    "delete", "outputlookup", "outputcsv", "outputtext", "collect", "summaryindex",
+    "mcollect", "meventcollect", "tscollect", "dump", "crawl", "input", "sendemail",
+    "sendalert", "outputtelemetry", "dbxoutput", "script", "run", "runshellscript",
+    "dbxquery", "savedsearch", "map", "deletemodel",
+)
+# How the check finds a command without depending on how backticks or quotes
+# pair (this check cannot know Splunk's exact lexer, so it assumes none):
+# - A command starts after a `|` or at the opening `[` of a bracketed block
+#   (an appendpipe/append/join subpipeline or a subsearch). Between that mark
+#   and the name Splunk may skip whitespace, inline comments (```...```) and
+#   macros (`name(args)`, which can expand to nothing). Every comment and
+#   macro ends with a backtick, wherever it ends (a macro argument can hold a
+#   quoted or escaped backtick), so a command Splunk could run follows `|`, `[`
+#   or a backtick, then optional whitespace. A listed name in any such place
+#   is refused; that includes the first word of a comment or macro, and text
+#   in a quoted value (the message says how to search for such text).
+# - A comment or macro removed with nothing joins the letters on its two
+#   sides, so a name can be spelled across backtick spans. A span starts at a
+#   backtick and ends at any later backtick, so the pieces that can join are
+#   words glued to a backtick, in text order, any of them skipped (see
+#   `_spl_words_across_backticks`).
+# Each rule is one left-to-right pass (possessive quantifiers, one search per
+# rule), so the check is linear in the length of the search.
 # Search macros expand on the server, so a macro body is never seen by this
 # check; that residual risk rests on the connection using a read-only role.
-_SPL_GAP = r"(?:\s|```(?:(?!```).)*+```|`[^`]*+`|`)*+"
-_SPL_WRITE_COMMANDS = re.compile(
-    r"(?P<mark>[|\[])" + _SPL_GAP
-    + r"(?P<name>delete|outputlookup|outputcsv|outputtext|collect|summaryindex|mcollect"
-    r"|meventcollect|tscollect|dump|crawl|input|sendemail|sendalert|outputtelemetry"
-    r"|dbxoutput|script|run|runshellscript|dbxquery|savedsearch|map|deletemodel)\b",
-    re.IGNORECASE | re.DOTALL,
+_SPL_COMMAND = re.compile(
+    r"(?P<mark>[|\[`])\s*+(?P<name>" + "|".join(_SPL_REFUSED_COMMANDS) + r")\b",
+    re.IGNORECASE,
 )
 # `from savedsearch:<name>` / `union savedsearch:<name>` run a stored search as
-# a dataset, like the savedsearch command. Refused wherever the word is.
-_SPL_SAVEDSEARCH_DATASET = re.compile(r"\bsavedsearch" + _SPL_GAP + ":", re.IGNORECASE | re.DOTALL)
+# a dataset, like the savedsearch command. Refused wherever the word is, with
+# whitespace, comments or macros before the colon: the word then whitespace
+# then a backtick, and any later backtick then whitespace then the colon.
+_SPL_DATASET = re.compile(r"\bsavedsearch\s*+:", re.IGNORECASE)
+_SPL_DATASET_THEN_BACKTICK = re.compile(r"\bsavedsearch\s*+`", re.IGNORECASE)
+_SPL_BACKTICK_THEN_COLON = re.compile(r"`\s*+:")
 # MLTK `fit ... into <model>` saves the model as a lookup; plain `fit` (and
 # `apply`) only read. Refused conservatively: a `fit` with the word `into`
 # anywhere after it, so a later command that uses the word is refused too.
 # Two searches (the first fit, then one `into` after it) keep this linear.
-_SPL_FIT = re.compile(r"[|\[]" + _SPL_GAP + r"fit\b", re.IGNORECASE | re.DOTALL)
+_SPL_FIT = re.compile(r"[|\[`]\s*+fit\b", re.IGNORECASE)
 _SPL_INTO = re.compile(r"\binto\b", re.IGNORECASE)
+# A word with a backtick on its left or on its right.
+_SPL_GLUED_WORD = re.compile(r"(?<=`)\w++|\b\w++(?=`)")
+# Whitespace then `|`, `[` or a backtick, matched on the reversed text: the
+# place before a word where Splunk could start a command.
+_SPL_MARK_BEFORE = re.compile(r"\s*+[|\[`]")
 # Inline comments, paired left to right.
 _SPL_INLINE_COMMENT = re.compile(r"```.*?```", re.DOTALL)
-_SPL_MACRO = re.compile(r"`[^`]*+`")
-# The same spans with double-quoted values kept as text (a ``` inside a quoted
-# value is then not a comment mark). A quote or comment left open runs to the
-# end; an open comment is reported through the `close` group being empty.
-_SPL_QUOTED_OR_SPAN = re.compile(
-    r'(?P<quote>"(?:[^"\\]|\\.?)*+(?:"|\Z))'
-    r"|(?P<comment>```(?:(?!```).)*+(?P<close>```)?)"
-    r"|(?P<macro>`[^`]*+`)",
-    re.DOTALL,
-)
 _SPL_UNCLOSED_COMMENT = (
-    "SPL has an inline comment (```) that is never closed. Close it with ``` or remove it."
+    "SPL has an inline comment (```) that is never closed. Close it with ``` or remove it. "
+    'If the ``` is literal text inside a quoted value, it is still read as a comment mark; '
+    'search for the value with a wildcard in its place, for example "*" instead of "```".'
 )
+
+
+# Words checked when spelled across backticks: names that count where a
+# command can start, and words that count anywhere (the dataset word, and the
+# `into` that makes a `fit` save its model).
+_SPL_JOINED_COMMANDS = frozenset(_SPL_REFUSED_COMMANDS + ("fit",))
+_SPL_JOINED_ANYWHERE = frozenset(("savedsearch", "into"))
+
+
+def _spl_word_pieces() -> dict[str, list[tuple[str, str]]]:
+    """For each piece of a checked word, the (prefix before it, word) pairs
+    it can continue."""
+    pieces: dict[str, list[tuple[str, str]]] = {}
+    for word in sorted(_SPL_JOINED_COMMANDS | _SPL_JOINED_ANYWHERE):
+        for start in range(1, len(word)):
+            for end in range(start + 1, len(word) + 1):
+                pieces.setdefault(word[start:end], []).append((word[:start], word))
+    return pieces
+
+
+def _spl_prefixes(words) -> frozenset[str]:
+    return frozenset(w[:i] for w in words for i in range(1, len(w)))
+
+
+_SPL_WORD_PIECES = _spl_word_pieces()
+_SPL_COMMAND_PREFIXES = _spl_prefixes(_SPL_JOINED_COMMANDS)
+_SPL_ANYWHERE_PREFIXES = _spl_prefixes(_SPL_JOINED_ANYWHERE)
 
 # How a Splunk query is written; repeated when an envelope's SPL is not text.
 SPL_ENVELOPE_GUIDANCE = (
@@ -376,67 +416,103 @@ def check_spl(spl: str) -> None:
         raise ReadOnlyViolation(
             f"The SPL in a Splunk query must be text, not {type(spl).__name__}. {SPL_ENVELOPE_GUIDANCE}"
         )
-    for text in _spl_readings(spl):
-        match = _SPL_WRITE_COMMANDS.search(text)
-        if match:
-            mark, name = match.group("mark"), match.group("name")
-            raise ReadOnlyViolation(
-                f"SPL command '{name}' is not allowed: only searches that read data can run. "
-                f'If "{mark}{name}" is literal text inside a quoted value (such as a bracketed '
-                f'log tag), it is still refused; search for it with a wildcard in place of the '
-                f'"{mark}", for example "*{name}" instead of "{mark}{name}".'
-            )
-        if _SPL_SAVEDSEARCH_DATASET.search(text):
-            raise ReadOnlyViolation(
-                "SPL dataset 'savedsearch:' is not allowed: it runs a stored search whose SPL "
-                "is not checked. Write the stored search's SPL in the query instead."
-            )
-        fit = _SPL_FIT.search(text)
-        if fit and _SPL_INTO.search(text, fit.end()):
-            raise ReadOnlyViolation(
-                "SPL command 'fit ... into' is not allowed: it saves a model. "
-                "Run fit without 'into', or apply an existing model."
-            )
-
-
-def _spl_readings(spl: str) -> list[str]:
-    """The texts `check_spl` matches, refusing if any one shows a refused
-    command: Splunk's exact handling of comments, macros and quotes is not
-    something this check can rely on, so it fails closed across all of them.
-
-    - as written (comments and macros are gaps in the command pattern, paired
-      from each `|` / `[`);
-    - comments paired left to right and removed, with a space or with nothing
-      (a removed span can rejoin a split command name), each also with macros
-      removed with nothing;
-    - the same with ``` inside a double-quoted value kept as text.
-
-    An inline comment left open in either pairing is refused.
-    """
-    if "`" not in spl:
-        return [spl]
-    readings = [spl]
     if "```" in _SPL_INLINE_COMMENT.sub(" ", spl):
         raise ReadOnlyViolation(_SPL_UNCLOSED_COMMENT)
-    for sep in (" ", ""):
-        uncommented = _SPL_INLINE_COMMENT.sub(sep, spl)
-        readings += [uncommented, _SPL_MACRO.sub("", uncommented)]
+    match = _SPL_COMMAND.search(spl)
+    if match:
+        mark, name = match.group("mark"), match.group("name")
+        raise ReadOnlyViolation(
+            f"SPL command '{name}' is not allowed: only searches that read data can run. "
+            f'It is refused wherever Splunk could start it: after "|", after "[", or after a '
+            f"backtick that ends an inline comment or a macro. "
+            f'If "{mark}{name}" is literal text inside a quoted value (such as a bracketed '
+            f"log tag) or a comment, it is still refused; reword the comment, or search for "
+            f'the value with a wildcard in place of the "{mark}", for example "*{name}" '
+            f'instead of "{mark}{name}".'
+        )
+    joined, fit_end, into_end = _spl_words_across_backticks(spl)
+    if joined:
+        raise ReadOnlyViolation(
+            f"SPL command '{joined}' is not allowed: only searches that read data can run. "
+            "Its letters are split by backticks (inline comments or macros inside the word), "
+            "which Splunk can join back into the command. Write words without backticks inside them."
+        )
+    if _SPL_DATASET.search(spl) or _spl_dataset_behind_backticks(spl):
+        raise ReadOnlyViolation(
+            "SPL dataset 'savedsearch:' is not allowed: it runs a stored search whose SPL "
+            "is not checked. Write the stored search's SPL in the query instead. "
+            'If "savedsearch:" is literal text inside a quoted value, it is still refused; '
+            'search for it with a wildcard in place of the ":", for example "savedsearch*" '
+            'instead of "savedsearch:".'
+        )
+    fit = _SPL_FIT.search(spl)
+    if fit:
+        fit_end = fit.end() if fit_end is None else min(fit_end, fit.end())
+    if fit_end is not None and (
+        _SPL_INTO.search(spl, fit_end) or (into_end is not None and into_end > fit_end)
+    ):
+        raise ReadOnlyViolation(
+            "SPL command 'fit ... into' is not allowed: it saves a model. "
+            "Run fit without 'into', or apply an existing model."
+        )
 
-    pieces: list[tuple[str, str]] = []
-    last = 0
-    for m in _SPL_QUOTED_OR_SPAN.finditer(spl):
-        pieces.append(("text", spl[last:m.start()]))
-        kind = next(k for k in ("quote", "comment", "macro") if m.group(k) is not None)
-        if kind == "comment" and m.group("close") is None:
-            raise ReadOnlyViolation(_SPL_UNCLOSED_COMMENT)
-        pieces.append((kind, m.group()))
-        last = m.end()
-    pieces.append(("text", spl[last:]))
-    for comment_sep, macro_sep in ((" ", None), ("", None), (" ", ""), ("", "")):
-        readings.append("".join(
-            comment_sep if kind == "comment"
-            else (macro_sep if macro_sep is not None else piece) if kind == "macro"
-            else piece
-            for kind, piece in pieces
-        ))
-    return list(dict.fromkeys(readings))
+
+def _spl_dataset_behind_backticks(spl: str) -> bool:
+    """`savedsearch` then comments or macros, then the colon."""
+    word = _SPL_DATASET_THEN_BACKTICK.search(spl)
+    return bool(word and _SPL_BACKTICK_THEN_COLON.search(spl, word.end() - 1))
+
+
+def _spl_words_across_backticks(spl: str) -> tuple[Optional[str], Optional[int], Optional[int]]:
+    """Words Splunk could read once comments or macros inside them are
+    removed with nothing: a refused name (where a command can start) or
+    `savedsearch` (anywhere), else None; where the first `fit` read that way
+    ends; and where the last `into` read that way ends.
+
+    The pieces that join are words glued to backticks: the first piece has a
+    backtick on its right and, for a command name, starts where a command can
+    start (after `|`, `[` or a backtick, then optional whitespace); each later
+    piece has a backtick on its left, and every piece but the last also one on
+    its right. A removed span can end at any later backtick, so any glued
+    words in between may be skipped: the scan keeps every prefix seen so far
+    and extends it by each later piece. One pass over the glued words; the
+    prefixes are bounded by the checked words, so the work per word is too.
+    """
+    if "`" not in spl:
+        return None, None, None
+    reversed_spl = spl[::-1]
+    size = len(spl)
+    command_prefixes: set[str] = set()
+    anywhere_prefixes: set[str] = set()
+    fit_end: Optional[int] = None
+    into_end: Optional[int] = None
+    for match in _SPL_GLUED_WORD.finditer(spl):
+        start, end = match.span()
+        piece = match.group().lower()
+        glued_left = start > 0 and spl[start - 1] == "`"
+        glued_right = end < size and spl[end] == "`"
+        if glued_left:
+            for prefix, word in _SPL_WORD_PIECES.get(piece, ()):
+                as_command = word in _SPL_JOINED_COMMANDS and prefix in command_prefixes
+                as_anywhere = word in _SPL_JOINED_ANYWHERE and prefix in anywhere_prefixes
+                if not (as_command or as_anywhere):
+                    continue
+                joined = prefix + piece
+                if joined == word:
+                    if word == "fit":
+                        fit_end = end if fit_end is None else fit_end
+                    elif word == "into":
+                        into_end = end
+                    else:
+                        return word, fit_end, into_end
+                elif glued_right:
+                    if as_command:
+                        command_prefixes.add(joined)
+                    if as_anywhere:
+                        anywhere_prefixes.add(joined)
+        if glued_right:
+            if piece in _SPL_COMMAND_PREFIXES and _SPL_MARK_BEFORE.match(reversed_spl, size - start):
+                command_prefixes.add(piece)
+            if piece in _SPL_ANYWHERE_PREFIXES:
+                anywhere_prefixes.add(piece)
+    return None, fit_end, into_end

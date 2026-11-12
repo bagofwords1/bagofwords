@@ -632,6 +632,21 @@ _SHIFTED_PANEL_XML = """
 _DATASET_SAVED = {"name": "Dataset rollup", "acl": {"app": "ops", "owner": "sre"},
                   "content": {"search": "index=web | union savedsearch:Nightly"}}
 
+# Stored searches whose write shows only if a macro argument holds a quoted
+# backtick, or if a command name split across backtick spans rejoins under a
+# quote model other than double quotes with escapes.
+_MACRO_ARG_PANEL_XML = """
+<dashboard>
+  <label>Ops</label>
+  <row><panel><title>Export</title><table>
+    <search><query>index=web | `comment("`")` outputlookup hosts.csv</query></search>
+  </table></panel></row>
+</dashboard>
+"""
+
+_SPLIT_SAVED = {"name": "Split rollup", "acl": {"app": "ops", "owner": "sre"},
+                "content": {"search": "index=web x='```' | col```c```lect index=summary y='```'"}}
+
 
 class _SplunkHttp:
     """Fake `pinned_request`: answers knowledge-object GETs from canned
@@ -664,6 +679,10 @@ class _SplunkHttp:
                 return _Body({"entry": [_view_entry("ops", "shifted_board", _SHIFTED_PANEL_XML)]})
             if path == "/servicesNS/-/ops/saved/searches/Dataset rollup":
                 return _Body({"entry": [_DATASET_SAVED]})
+            if path == "/servicesNS/-/ops/data/ui/views/macro_arg_board":
+                return _Body({"entry": [_view_entry("ops", "macro_arg_board", _MACRO_ARG_PANEL_XML)]})
+            if path == "/servicesNS/-/ops/saved/searches/Split rollup":
+                return _Body({"entry": [_SPLIT_SAVED]})
             if path == "/servicesNS/-/-/data/ui/views":
                 return _Body({"entry": [_view_entry("payments", "checkout_health", _SIMPLE_XML)]})
             if path in ("/servicesNS/-/-/saved/searches", "/services/data/indexes"):
@@ -810,6 +829,41 @@ _REFUSED_SPL += [
     "index=web | ````x```` outputlookup hosts.csv",
 ]
 
+# The verdict must not depend on how backticks and quotes pair. A macro
+# argument can hold a quoted or escaped backtick, so a macro need not end at
+# the next backtick: a listed name right after any backtick is refused. And a
+# name split across backtick spans is refused however the spans pair, under
+# single quotes, an escaped quote outside a quoted value, or double quotes
+# read without escapes.
+_REFUSED_SPL += [
+    'index=web | `comment("`")` delete',
+    "index=web | `comment('`')` delete",
+    'index=web | `comment("\\`")` delete',
+    "index=web | `comment(\\`)` outputlookup hosts.csv",
+    'index=web | appendpipe [`comment("`")` collect index=summary]',
+    'index=web | `comment("``")` savedsearch Nightly',
+    "index=web x='```' | out```c```putlookup hosts.csv y='```'",
+    "index=web x='```' | appendpipe [out```c```putlookup hosts.csv] y='```'",
+    'index=web a=\\" b="```" | out```c```putlookup hosts.csv z="```"',
+    'index=web x="a\\" ```c``` y="```" | out```c```putlookup hosts.csv z="```"',
+    'index=web x="a\\" | ```" | col```c```lect index=summary y="```"',
+    'index=web | out`comment("`")`putlookup hosts.csv',
+    "index=web | out`comment('`')`putlookup hosts.csv",
+    "index=web | out```x`y`z```putlookup hosts.csv",
+    "index=web | o`a`u`b`t```c```putlookup hosts.csv",
+    "index=web | OUT```c```PutLookup hosts.csv",
+    'index=web | from saved`comment("`")`search:Nightly',
+    "index=web | union saved`x`search:Nightly",
+    "index=web | from savedsearch`x`:Nightly",
+    "index=web | from savedsearch ```x``` :Nightly",
+    'index=web | f`comment("`")`it LinearRegression y from x into m',
+    "index=web | `m` fit LinearRegression y from x into m",
+    # The `into` that saves the model can be split across backticks too.
+    "index=web | fit LinearRegression y from x in```c```to m",
+    'index=web | fit LinearRegression y from x in`comment("`")`to m',
+    "index=web | f```c```it LinearRegression y from x I`m`NTO m",
+]
+
 
 @pytest.mark.parametrize("spl", [
     "index=web | stats count | ```unterminated",
@@ -831,6 +885,8 @@ def test_spl_with_an_unterminated_inline_comment_is_refused(splunk_http, spl):
     {"saved_search": "ops/Hidden rollup"},
     {"dashboard": "ops/shifted_board", "panel": "Export"},
     {"saved_search": "ops/Dataset rollup"},
+    {"dashboard": "ops/macro_arg_board", "panel": "Export"},
+    {"saved_search": "ops/Split rollup"},
 ])
 def test_stored_search_hiding_a_write_is_refused_before_it_is_sent(splunk_http, query):
     from app.ai.code_execution.sql_guard import ReadOnlyViolation
@@ -871,6 +927,13 @@ def test_spl_command_that_writes_or_runs_other_searches_is_refused(splunk_http, 
     ("| from datamodel:Web", "| from datamodel:Web"),
     ("| from inputlookup:hosts.csv", "| from inputlookup:hosts.csv"),
     ("index=web | loadjob savedsearch=\"sre:ops:Nightly\"", "search index=web | loadjob savedsearch=\"sre:ops:Nightly\""),
+    ('index=web | `top_hosts("web", 10)` | stats count', 'search index=web | `top_hosts("web", 10)` | stats count'),
+    ("index=web | `run_report` | `map_hosts(web)` | stats count",
+     "search index=web | `run_report` | `map_hosts(web)` | stats count"),
+    ("index=web ```output of the nightly job``` | stats count",
+     "search index=web ```output of the nightly job``` | stats count"),
+    ("| loadjob savedsearch=\"sre:ops:Nightly\" | `comment(\"x\")` table host",
+     "| loadjob savedsearch=\"sre:ops:Nightly\" | `comment(\"x\")` table host"),
 ])
 def test_read_spl_still_posts_exactly_one_search(splunk_http, spl, expected):
     client, http = splunk_http
@@ -895,26 +958,72 @@ def test_refused_word_inside_a_quoted_value_refusal_says_how_to_match_it(splunk_
     assert http.searches == []
 
 
+@pytest.mark.parametrize("spl,shown", [
+    pytest.param('index=web msg="```" | stats count', "```", id="open-comment-mark"),
+    pytest.param('index=web msg="savedsearch:Nightly" | stats count', "savedsearch:", id="dataset-word"),
+    pytest.param('index=web msg="`delete`" | stats count', "`delete", id="name-after-backtick"),
+])
+def test_refused_text_inside_a_quoted_value_refusal_says_how_to_match_it(splunk_http, spl, shown):
+    # The check does not trust quotes, so these refuse even when they sit
+    # inside a quoted value; the message names the text and the wildcard way
+    # to search for it.
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation
+
+    client, http = splunk_http
+    with pytest.raises(ReadOnlyViolation) as refused:
+        client.execute_query(spl)
+    message = str(refused.value)
+    assert shown in message
+    assert "quoted value" in message and "wildcard" in message
+    assert http.searches == []
+
+
 # ---------- the check runs in linear time ---------- #
 #
 # Python's `re` holds the GIL while it matches, so a check that grows
 # quadratically with the search would stall every request on the worker.
 # About 1 MB of each shape below must be checked in well under a second.
 
+_MB = 1 << 20
+
+
+def _about_1mb(piece: str, head: str = "index=web ", tail: str = "") -> str:
+    return head + piece * (_MB // len(piece)) + tail
+
+
 @pytest.mark.parametrize("spl", [
-    "index=web " + "| fit a " * 131_072,
-    "index=web |" + " ```c``` " * 116_508,
-    "index=web " + "| ```c``` ```d``` " * 58_254,
-    "index=web " + "| fit a ```c``` " * 65_536,
-    "index=web x=\"" + "\\\"" * 524_288,
-    "index=web " + "[ " * 524_288,
-    "index=web " + "`a" * 524_288,
-    "index=web " + "```| " * 209_715,
-    "index=web " + "savedsearch " * 87_381,
-    "index=web " + '"```" | ' * 131_072,
-    "index=web " + "| ` " * 262_144,
-    "index=web " + "|```|``` " * 116_508 + "`",
-    "index=web | " + "`a`" * 349_525,
+    pytest.param(_about_1mb("| fit a "), id="fit-after-pipes"),
+    pytest.param(_about_1mb(" ```c``` ", head="index=web |"), id="comments-after-one-pipe"),
+    pytest.param(_about_1mb("| ```c``` ```d``` "), id="pipe-two-comments"),
+    pytest.param(_about_1mb("| fit a ```c``` "), id="fit-and-comment"),
+    pytest.param(_about_1mb("\\\"", head="index=web x=\""), id="escaped-quotes"),
+    pytest.param(_about_1mb("[ "), id="open-brackets"),
+    pytest.param(_about_1mb("`a"), id="backtick-letter"),
+    pytest.param(_about_1mb("```| "), id="comment-mark-pipe"),
+    pytest.param(_about_1mb("savedsearch "), id="savedsearch-words"),
+    pytest.param(_about_1mb('"```" | '), id="quoted-comment-mark"),
+    pytest.param(_about_1mb("| ` "), id="pipe-lone-backtick"),
+    pytest.param(_about_1mb("|```|``` ", tail="`"), id="pipes-in-comments"),
+    pytest.param(_about_1mb("`a`", head="index=web | "), id="macro-run"),
+    # Markers each followed by a run of four backticks (the comment marks all
+    # close, so the whole text is scanned), and long runs of one marker
+    # between backtick runs.
+    pytest.param(_about_1mb("|````", tail="```"), id="pipe-4-backticks"),
+    pytest.param(_about_1mb("[````", tail="```"), id="bracket-4-backticks"),
+    pytest.param(_about_1mb("savedsearch````", tail="```"), id="savedsearch-4-backticks"),
+    pytest.param(_about_1mb("| ````x"), id="pipe-4-backticks-letter"),
+    pytest.param(_about_1mb("|", head="index=web ````", tail="````"), id="pipes-between-4-backtick-runs"),
+    pytest.param(_about_1mb("[", head="index=web ````", tail="````"), id="brackets-between-4-backtick-runs"),
+    pytest.param(_about_1mb("savedsearch", head="index=web ````", tail="````"),
+                 id="savedsearch-between-4-backtick-runs"),
+    # Pieces of command names glued to backticks.
+    pytest.param(_about_1mb("out`x`", head="index=web | "), id="name-piece-macros"),
+    pytest.param(_about_1mb("| out`"), id="name-prefix-per-pipe"),
+    pytest.param(_about_1mb("| o`u`"), id="short-name-pieces"),
+    pytest.param(_about_1mb("saved`"), id="dataset-prefix-pieces"),
+    pytest.param(_about_1mb("`` ", head="index=web | out"), id="prefix-then-backtick-pairs"),
+    pytest.param(_about_1mb('| out`comment("`")`'), id="macro-argument-backticks"),
+    pytest.param(_about_1mb("a", head="index=web | o`"), id="long-word-after-prefix"),
 ])
 def test_check_spl_is_linear_on_large_input(spl):
     import time
