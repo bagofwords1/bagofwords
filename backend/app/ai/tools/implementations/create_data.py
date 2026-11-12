@@ -1092,10 +1092,10 @@ axis and tooltip), you may add a top-level "display" object:
 - currency: ISO-4217 code (ILS, USD, EUR, ...) — set it whenever format is "currency"
 - prefix / suffix: short literal unit strings (e.g. "%", " units") when a currency code doesn't apply
 
-Choose based on the metric's meaning. The currency is the one the DATA is in: from organization instructions,
-the source, or column names (e.g. an org that states its sales are in shekels → {{"format": "currency", "currency": "ILS"}}).
-Never infer the currency from the user's language: a Hebrew question about dollar data is still USD. When the
-currency isn't stated anywhere, use USD for money. Never use another code unless something states it.
+Choose based on the metric's meaning. The currency is the one the DATA is in, as stated by the organization
+instructions, the source or the column names (e.g. {{"format": "currency", "currency": "EUR"}} when they say so).
+The language of the question never sets the currency. When the currency isn't stated anywhere, use USD for money;
+never use another code unless something states it.
 A percentage → {{"format": "percent"}}; "percent" means the values are already percentages (12.5 means 12.5%).
 Omit "display" when plain numbers are right.
 
