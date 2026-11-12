@@ -328,7 +328,11 @@
       ':where(#root :is(a[href], button, summary, [role="button"], [role="tab"], [role="menuitem"], [tabindex]:not([tabindex="-1"])):focus-visible) { outline: 2px solid var(--bow-accent); outline-offset: 2px; }',
       '#root ::selection { background: color-mix(in srgb, var(--bow-accent) 22%, transparent); }',
       '@media (prefers-reduced-motion: reduce) { #root * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }',
-      '@media print { .bow-dt-offpage { display: table-row !important; } .bow-dt-chrome { display: none !important; } .bow-dt-scroll { max-height: none !important; overflow: visible !important; } }'
+      '@media print { .bow-dt-offpage { display: table-row !important; } .bow-dt-chrome { display: none !important; } .bow-dt-scroll { max-height: none !important; overflow: visible !important; } }',
+      // A card that shows its own info icon (data-bow-viz-host) keeps the table's
+      // toolbar clear of it: the CSV button sat under the icon in an untitled card.
+      '[data-bow-viz-host] .bow-dt-toolbar { padding-inline-end: 1.75rem; }',
+      '.bow-dt-row:focus-visible { outline: 2px solid var(--bow-accent); outline-offset: -2px; }'
     ].join('\n');
     (document.head || document.documentElement).appendChild(st);
   })();
@@ -1497,6 +1501,15 @@
     var _sel = React.useState(null), selRow = _sel[0], setSelRow = _sel[1];
     var dir = props.dir || _dtDetectDir(cols, baseRows);
     var L = _dtLabels(props.labels, _dtLang(props.lang, cols, baseRows));
+    // Years and IDs are labels, not quantities: 2025, not "2,025" or "2.0K".
+    var plainByField = React.useMemo(function() {
+      var m = {};
+      for (var i = 0; i < cols.length; i++) {
+        var nm = String(cols[i].field || '') + ' ' + String(cols[i].header || '');
+        m[cols[i].field] = /(^|[\s_-])(year|yr|fiscal_year|id)([\s_-]|$)|[a-z]Id(\s|$)|שנה|año/i.test(nm);
+      }
+      return m;
+    }, [cols]);
     var numericByField = React.useMemo(function() {
       var m = {};
       for (var i = 0; i < cols.length; i++) m[cols[i].field] = _dtColIsNumeric(cols[i], baseRows);
@@ -1538,15 +1551,18 @@
         return null;
       });
     }
+    // Selection survives a data refresh when rows have a stable key (rowKey="id");
+    // without one it is the row object, as before.
+    var keyOf = function(row) { return props.rowKey && row ? row[props.rowKey] : row; };
     function clickRow(row, absIdx) {
       if (props.onRowClick) props.onRowClick(row, absIdx);
-      if (selectable) setSelRow(function(cur) { return cur === row ? null : row; });
+      if (selectable) setSelRow(function(cur) { var k = keyOf(row); return cur === k ? null : k; });
     }
     var isRtl = dir === 'rtl';
     var render = props.renderCell || null;
     var toolbar = null;
     if (searchable || exportable) {
-      toolbar = h('div', { key: 'tb', className: 'bow-dt-chrome flex items-center justify-between gap-2 mb-2' }, [
+      toolbar = h('div', { key: 'tb', className: 'bow-dt-chrome bow-dt-toolbar flex items-center justify-between gap-2 mb-2' + (props.info && props.viz ? ' pe-7' : '') }, [
         searchable ? h('input', { key: 's', type: 'text', value: query, 'data-testid': 'bow-dt-search', placeholder: props.searchPlaceholder || L.search,
           onChange: function(e) { setQuery(e.target.value); setPage(0); }, className: DT.input }) : h('span', { key: 's' }),
         exportable ? h('button', { key: 'x', type: 'button', 'data-testid': 'bow-dt-export', title: L.download,
@@ -1566,15 +1582,20 @@
     })));
     var tbody = h('tbody', { key: 'b' }, domRows.map(function(row, i) {
       var onPage = i >= start && i < end;
-      var isSel = selectable && selRow === row;
+      var isSel = selectable && selRow != null && selRow === keyOf(row);
       var zebra = props.striped && ((i - start) % 2 === 1);
+      // Rows that open something are reachable by keyboard: Tab, then Enter or Space.
+      var clickable = selectable || !!props.onRowClick;
       return h('tr', { key: i, onClick: function() { clickRow(row, i); },
-        className: (onPage ? '' : 'bow-dt-offpage hidden ') + DT.tr + (isSel ? DT.trSel : (zebra ? DT.trZebra : '') + DT.trHover) + ((selectable || props.onRowClick) ? 'cursor-pointer' : '') },
+        tabIndex: clickable && onPage ? 0 : undefined, 'aria-selected': selectable ? isSel : undefined,
+        onKeyDown: clickable ? function(e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); clickRow(row, i); } } : undefined,
+        className: 'bow-dt-row ' + (onPage ? '' : 'bow-dt-offpage hidden ') + DT.tr + (isSel ? DT.trSel : (zebra ? DT.trZebra : '') + DT.trHover) + (clickable ? 'cursor-pointer' : '') },
         cols.map(function(c, j) {
           var numeric = numericByField[c.field];
           var raw = row ? row[c.field] : null;
           var content = render ? render(raw, row, c) : null;
-          if (content == null) content = (numeric && typeof raw === 'number' && props.format) ? props.format(raw, c) : _infoCell(raw);
+          if (content == null) content = plainByField[c.field] && typeof raw === 'number' ? String(raw)
+            : (numeric && typeof raw === 'number' && props.format) ? props.format(raw, c) : _infoCell(raw);
           var short = raw == null || typeof raw === 'number' || String(raw).length <= 28;
           return h('td', { key: j, dir: 'auto', className: DT.td + (compact ? 'py-1 ' : '') + (numeric ? 'text-end tabular-nums' : 'text-start') + (short ? ' whitespace-nowrap' : '') + (j === 0 && props.emphasizeFirst !== false && !numeric ? ' font-medium text-ink' : '') }, content);
         }));

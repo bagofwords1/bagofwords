@@ -97,7 +97,7 @@ COMPONENTS (all globals; `className` MERGES with the defaults — layout classes
     Add a comparison only when it is useful and backed by a valid baseline. `delta` is a ratio when deltaPct (0.18 = +18%).
   <SectionCard title="" subtitle="" eyebrow="" actions={[…]} variant="card|plain|inset|lift|accent|inverse|outline" padding="none|sm|md|lg" viz={…} rows={…} calc="">…</SectionCard>
   <EChart height={N} option={{…}} viz={…} rows={…} calc="" palette={[…]} onClick={fn} />  — themed ECharts wrapper; pass `viz` when it is not inside a SectionCard.
-  <DataTable viz={…} rows={filtered} columns={[{field:'album_title',headerName:'Album'},…] } pageSize={15} density="compact" searchable striped sortable exportable selectable onRowClick={(row)=>…}
+  <DataTable viz={…} rows={filtered} columns={[{field:'album_title',headerName:'Album'},…] } pageSize={15} density="compact" searchable striped sortable exportable selectable rowKey="id" onRowClick={(row)=>…}
     Pass `columns` with a readable `headerName` (and only the columns worth showing) whenever the raw field names are database-shaped
     (TOTALDURATIONMS, unit_price); the table title-cases what it can but cannot invent "Duration" from "TOTALDURATIONMILLISECONDS".
              renderCell={(value,row,col)=>node|null} format={(n,col)=>string} maxHeight={400} />  — sort, paginate, RTL, CSV, print-safe.
