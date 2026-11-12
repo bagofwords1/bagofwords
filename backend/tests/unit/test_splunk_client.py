@@ -27,7 +27,10 @@ The search boundary (`_run_search`) is mocked, so these run with no live Splunk.
 """
 from __future__ import annotations
 
+import itertools
 import json
+import random
+import re
 
 import pandas as pd
 import pytest
@@ -930,6 +933,15 @@ _REFUSED_SPL += [
     "`m` fit LinearRegression y from x into m",
     "index=web `m` out`n`putlookup x.csv",
     "```note``` `m` delete",
+    # A comment closer looks like a comment opener, so before the first pipe
+    # or bracket every backtick but the first in the text is such a place.
+    "`m` ``` note ``` delete",
+    "`m` ``` note ``` out`n`putlookup x.csv",
+    "`m` ``` note ``` fit LinearRegression y from x into m",
+    "```Run hourly``` | stats count",
+    "```delete old rows first``` index=web | stats count",
+    "```out```put```lookup``` index=web | stats count",
+    "index=web ```Run hourly``` | stats count",
 ]
 
 # A letter outside ASCII that case-folds to an ASCII one counts as that letter
@@ -1034,15 +1046,10 @@ def test_spl_command_that_writes_or_runs_other_searches_is_refused(splunk_http, 
     ('index=web city="Zürich" | where status="deleted" | stats count',
      'search index=web city="Zürich" | where status="deleted" | stats count'),
     ("index=web\n| stats count\tby host", "search index=web\n| stats count\tby host"),
-    # A comment or macro before the first pipe cannot start a command, so its
-    # first word may be a listed name.
-    ("```Run hourly``` | stats count", "search ```Run hourly``` | stats count"),
-    ("```delete old rows first``` index=web | stats count",
-     "search ```delete old rows first``` index=web | stats count"),
+    # Nothing is open before the first backtick in the text, so a listed name
+    # right after it cannot start a command.
     ("`collect(web)` | stats count", "search `collect(web)` | stats count"),
-    ("```out```put```lookup``` index=web | stats count",
-     "search ```out```put```lookup``` index=web | stats count"),
-    ("index=web ```Run hourly``` | stats count", "search index=web ```Run hourly``` | stats count"),
+    ("```note: run hourly``` | stats count", "search ```note: run hourly``` | stats count"),
     # A quote or backslash joins only the letters right next to it, and the
     # dataset word counts only before a colon.
     ('index=web | where info="saved" | search action="search" | stats count',
@@ -1065,6 +1072,17 @@ def test_spl_command_that_writes_or_runs_other_searches_is_refused(splunk_http, 
      '| tstats count where index=web sourcetype="collect" by host'),
     ('index=web | search name="\u0130stanbul" | stats count',
      'search index=web | search name="\u0130stanbul" | stats count'),
+    # Values written with invisible marks that text in some languages needs: a
+    # Hebrew word with a right-to-left mark, an emoji with its presentation
+    # selector, a Persian word with a zero-width non-joiner.
+    ('index=web | search name="\u05e9\u05dc\u05d5\u05dd\u200f" | stats count',
+     'search index=web | search name="\u05e9\u05dc\u05d5\u05dd\u200f" | stats count'),
+    ('index=web | search msg="\u2764\ufe0f thanks" | stats count',
+     'search index=web | search msg="\u2764\ufe0f thanks" | stats count'),
+    ('index=web | search city="\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645" | stats count',
+     'search index=web | search city="\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645" | stats count'),
+    ('index=web | eval label="\u200f\u05e9\u05dc\u05d5\u05dd" | stats count by label',
+     'search index=web | eval label="\u200f\u05e9\u05dc\u05d5\u05dd" | stats count by label'),
 ])
 def test_read_spl_still_posts_exactly_one_search(splunk_http, spl, expected):
     client, http = splunk_http
@@ -1127,6 +1145,56 @@ def test_refusal_names_the_text_that_was_matched(splunk_http, spl, shown):
     assert http.searches == []
 
 
+@pytest.mark.parametrize("spl", [
+    "```Run hourly``` | stats count",
+    "index=web ```delete old rows first``` | stats count",
+])
+def test_comment_starting_with_a_listed_name_refusal_says_how_to_reword_it(splunk_http, spl):
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation
+
+    client, http = splunk_http
+    with pytest.raises(ReadOnlyViolation) as refused:
+        client.execute_query(spl)
+    message = str(refused.value)
+    assert "comment" in message
+    assert "start the comment with another word" in message and "drop it" in message
+    assert http.searches == []
+
+
+def test_refusal_quotes_a_short_window_of_long_matched_text(splunk_http):
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation
+
+    client, http = splunk_http
+    with pytest.raises(ReadOnlyViolation) as refused:
+        client.execute_query("index=web |" + " " * 5000 + "\\" * 5000 + "delete")
+    message = str(refused.value)
+    assert "\\delete" in message
+    assert len(message) < 2000
+    assert http.searches == []
+
+
+# Characters a search cannot carry cleanly: control characters other than
+# tab, newline and carriage return (C0, DEL, C1), lone surrogates and
+# private-use characters. Refused anywhere, even in a quoted value.
+@pytest.mark.parametrize("char", [
+    pytest.param("\x00", id="NUL"), pytest.param("\x07", id="BEL"), pytest.param("\x1b", id="ESC"),
+    pytest.param("\x7f", id="DEL"), pytest.param("\x85", id="NEL"), pytest.param("\x9f", id="C1-end"),
+    pytest.param("\ud800", id="lone-high-surrogate"), pytest.param("\udfff", id="lone-low-surrogate"),
+    pytest.param("\ue000", id="private-use"), pytest.param("\U000f0000", id="private-use-plane-15"),
+    pytest.param("\U0010fffd", id="private-use-plane-16"),
+])
+def test_character_a_search_cannot_carry_is_refused_anywhere(splunk_http, char):
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation
+
+    client, http = splunk_http
+    for spl in (f'index=web | search msg="a{char}b" | stats count', f"index=web{char} | stats count"):
+        with pytest.raises(ReadOnlyViolation):
+            client.execute_query(spl)
+        with pytest.raises(ReadOnlyViolation):
+            client.execute_query({"spl": spl})
+    assert http.searches == []
+
+
 # Every code point Splunk might drop and so join the letters around it:
 # Unicode control characters (Cc) other than tab, newline and carriage return,
 # format characters (Cf), and the Default_Ignorable_Code_Point ranges of
@@ -1155,17 +1223,42 @@ def _invisible_groups():
 
 @pytest.mark.parametrize("codes", list(_invisible_groups()))
 def test_invisible_character_inside_a_command_name_is_refused(splunk_http, codes):
+    # Splunk may drop the character, read it as a space, or keep it: a search
+    # that is refused under any of those readings is refused.
     from app.ai.code_execution.sql_guard import ReadOnlyViolation
 
     client, http = splunk_http
     passed = []
     for code in codes:
-        try:
-            client.execute_query(f"index=web | del{chr(code)}ete")
-            passed.append(f"U+{code:04X}")
-        except ReadOnlyViolation:
-            pass
+        char = chr(code)
+        for spl in (
+            f"index=web | del{char}ete",
+            f"index=web |{char}delete",
+            f'index=web | out"{char}putlookup x.csv',
+            f"index=web | from savedsearch{char}:Nightly",
+            f"index=web | del{char}ete{char}x",
+        ):
+            try:
+                client.execute_query(spl)
+                passed.append((f"U+{code:04X}", spl))
+            except ReadOnlyViolation:
+                pass
     assert passed == []
+    assert http.searches == []
+
+
+@pytest.mark.parametrize("spl,code", [
+    pytest.param("index=web |\u200fdelete", "U+200F", id="dropped"),
+    pytest.param('index=web | out"\ufe0fputlookup x.csv', "U+FE0F", id="dropped-joins-quoted-pieces"),
+    pytest.param("index=web | from savedsearch\u200c:Nightly", "U+200C", id="dataset-word"),
+])
+def test_refusal_under_a_reading_of_an_invisible_character_names_it(splunk_http, spl, code):
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation
+
+    client, http = splunk_http
+    with pytest.raises(ReadOnlyViolation) as refused:
+        client.execute_query(spl)
+    assert code in str(refused.value)
     assert http.searches == []
 
 
@@ -1173,99 +1266,291 @@ def test_invisible_character_inside_a_command_name_is_refused(splunk_http, codes
 #
 # Python's `re` holds the GIL while it matches, so a check that grows
 # quadratically with the search would stall every request on the worker.
-# About 1 MB of each shape below must be checked in well under a second, by
-# everything the query wrapper runs on it. The default head has a pipe, so the
+# Each shape below (a head, a piece repeated, a tail) is checked, by
+# everything the query wrapper runs on it, at 2 MB in at most about three
+# times the CPU time of 1 MB (linear doubles it, quadratic quadruples it),
+# and at 64 KB and 1 MB under loose caps. The default head has a pipe, so the
 # rules that start at the first pipe or bracket scan the whole shape.
 
 _MB = 1 << 20
 
 
-def _about_1mb(piece: str, head: str = "index=web | ", tail: str = "") -> str:
-    return head + piece * (_MB // len(piece)) + tail
+def _shape(piece: str, head: str = "index=web | ", tail: str = "") -> tuple[str, str, str]:
+    return head, piece, tail
 
 
-@pytest.mark.parametrize("spl", [
-    pytest.param(_about_1mb("| fit a "), id="fit-after-pipes"),
-    pytest.param(_about_1mb(" ```c``` ", head="index=web |"), id="comments-after-one-pipe"),
-    pytest.param(_about_1mb("| ```c``` ```d``` "), id="pipe-two-comments"),
-    pytest.param(_about_1mb("| fit a ```c``` "), id="fit-and-comment"),
-    pytest.param(_about_1mb("\\\"", head="index=web x=\""), id="escaped-quotes"),
-    pytest.param(_about_1mb("[ "), id="open-brackets"),
-    pytest.param(_about_1mb("`a"), id="backtick-letter"),
-    pytest.param(_about_1mb("```| ", head="index=web "), id="comment-mark-pipe"),
-    pytest.param(_about_1mb("savedsearch ", head="index=web "), id="savedsearch-words"),
-    pytest.param(_about_1mb('"```" | '), id="quoted-comment-mark"),
-    pytest.param(_about_1mb("| ` "), id="pipe-lone-backtick"),
-    pytest.param(_about_1mb("|```|``` ", tail="`"), id="pipes-in-comments"),
-    pytest.param(_about_1mb("`a`", head="index=web | "), id="macro-run"),
-    # Markers each followed by a run of four backticks (the comment marks all
-    # close, so the whole text is scanned), and long runs of one marker
-    # between backtick runs.
-    pytest.param(_about_1mb("|````", tail="```"), id="pipe-4-backticks"),
-    pytest.param(_about_1mb("[````", tail="```"), id="bracket-4-backticks"),
-    pytest.param(_about_1mb("savedsearch````", head="index=web ", tail="```"), id="savedsearch-4-backticks"),
-    pytest.param(_about_1mb("| ````x"), id="pipe-4-backticks-letter"),
-    pytest.param(_about_1mb("|", head="index=web ````", tail="````"), id="pipes-between-4-backtick-runs"),
-    pytest.param(_about_1mb("[", head="index=web ````", tail="````"), id="brackets-between-4-backtick-runs"),
-    pytest.param(_about_1mb("savedsearch", head="index=web ````", tail="````"),
-                 id="savedsearch-between-4-backtick-runs"),
-    # Pieces of command names glued to backticks.
-    pytest.param(_about_1mb("out`x`", head="index=web | "), id="name-piece-macros"),
-    pytest.param(_about_1mb("| out`"), id="name-prefix-per-pipe"),
-    pytest.param(_about_1mb("| o`u`"), id="short-name-pieces"),
-    pytest.param(_about_1mb("saved`"), id="dataset-prefix-pieces"),
-    pytest.param(_about_1mb("`` ", head="index=web | out"), id="prefix-then-backtick-pairs"),
-    pytest.param(_about_1mb('| out`comment("`")`'), id="macro-argument-backticks"),
-    pytest.param(_about_1mb("a", head="index=web | o`"), id="long-word-after-prefix"),
-    # One letter that is a piece of many checked words, glued to backticks.
-    pytest.param(_about_1mb("`t"), id="backtick-t"),
-    pytest.param(_about_1mb("t`"), id="t-backtick"),
-    pytest.param(_about_1mb("`e"), id="backtick-e"),
-    # The same shapes glued to quotes and backslashes, and those characters
-    # between a mark or the dataset word and what follows.
-    pytest.param(_about_1mb('"t'), id="quote-t"),
-    pytest.param(_about_1mb("t'"), id="t-single-quote"),
-    pytest.param(_about_1mb("\\e"), id="backslash-e"),
-    pytest.param(_about_1mb('| "'), id="pipe-quote"),
-    pytest.param(_about_1mb("| \\"), id="pipe-backslash"),
-    pytest.param(_about_1mb('| out"'), id="name-prefix-quote-per-pipe"),
-    pytest.param(_about_1mb('| o"u"'), id="short-name-pieces-quoted"),
-    pytest.param(_about_1mb('saved"'), id="dataset-prefix-quoted"),
-    pytest.param(_about_1mb('savedsearch" ', head="index=web | x "), id="dataset-word-quote"),
-    pytest.param(_about_1mb('" '), id="quote-runs"),
-    # Backticks before the first pipe, where the command rules also look.
-    pytest.param(_about_1mb("`m` ", head="index=web "), id="macros-before-any-pipe"),
-    pytest.param(_about_1mb("`t", head="index=web "), id="backtick-t-before-any-pipe"),
-    pytest.param(_about_1mb("```c``` ", head="index=web "), id="comments-before-any-pipe"),
-    pytest.param(_about_1mb("`m` fit a ", head="index=web "), id="fit-after-macros-before-any-pipe"),
-    # Quote runs between pieces, and folded letters in pieces.
-    pytest.param(_about_1mb('"t"'), id="quoted-t-runs"),
-    pytest.param(_about_1mb('| o"u" '), id="pipe-quoted-pieces"),
-    pytest.param(_about_1mb('saved" "'), id="dataset-prefix-quote-runs"),
-    pytest.param(_about_1mb("\u212a`"), id="kelvin-backtick"),
-    pytest.param(_about_1mb("| o\u212a`"), id="pipe-kelvin-pieces"),
-    pytest.param(_about_1mb("in`\u212a"), id="into-prefix-kelvin"),
-    # The same shapes inside a JSON-string envelope, escaped as JSON.
-    pytest.param('{"spl": "index=web | ' + '| o\\"u\\" ' * (_MB // 10) + '"}', id="json-quoted-pieces"),
-    pytest.param('{"spl": "index=web ' + "\\u0060m\\u0060 " * (_MB // 14) + '"}', id="json-escaped-macros"),
-    pytest.param('{"spl": "index=web | ' + "\\\\e" * (_MB // 4) + '"}', id="json-backslash-e"),
-    # Many name prefixes started first, then pieces that can continue them.
-    pytest.param(_about_1mb("`t `e `l `o `u `a `s ", head="index=web " + "".join(
-        f"| {name[:i]}` " for name in ("outputlookup", "collect", "sendemail", "deletemodel", "tscollect")
-        for i in range(1, len(name)))), id="many-live-prefixes"),
-])
-def test_check_spl_is_linear_on_large_input(spl):
+def _sized(shape: tuple[str, str, str], size: int) -> str:
+    # An even count of pieces, so a mark that pairs (a comment run) pairs the
+    # same way at every size.
+    head, piece, tail = shape
+    return head + piece * (size // len(piece) // 2 * 2) + tail
+
+
+def _cpu_seconds(spl: str) -> float:
+    import contextlib
     import time
 
     from app.ai.code_execution.sql_guard import ReadOnlyViolation, ensure_read_only
 
     client = SplunkClient(host="h", api_token="t")
-    start = time.perf_counter()
-    try:
+    start = time.process_time()
+    with contextlib.suppress(ReadOnlyViolation):
         ensure_read_only(client, spl)
-    except ReadOnlyViolation:
-        pass
-    assert time.perf_counter() - start < 1.0
+    return time.process_time() - start
+
+
+@pytest.mark.parametrize("shape", [
+    pytest.param(_shape("| fit a "), id="fit-after-pipes"),
+    pytest.param(_shape(" ```c``` ", head="index=web |"), id="comments-after-one-pipe"),
+    pytest.param(_shape("| ```c``` ```d``` "), id="pipe-two-comments"),
+    pytest.param(_shape("| fit a ```c``` "), id="fit-and-comment"),
+    pytest.param(_shape("\\\"", head="index=web x=\""), id="escaped-quotes"),
+    pytest.param(_shape("[ "), id="open-brackets"),
+    pytest.param(_shape("`a"), id="backtick-letter"),
+    pytest.param(_shape("```| ", head="index=web "), id="comment-mark-pipe"),
+    pytest.param(_shape("savedsearch ", head="index=web "), id="savedsearch-words"),
+    pytest.param(_shape('"```" | '), id="quoted-comment-mark"),
+    pytest.param(_shape("| ` "), id="pipe-lone-backtick"),
+    pytest.param(_shape("|```|``` ", tail="`"), id="pipes-in-comments"),
+    pytest.param(_shape("`a`", head="index=web | "), id="macro-run"),
+    # Markers each followed by a run of four backticks (the comment marks all
+    # close, so the whole text is scanned), and long runs of one marker
+    # between backtick runs.
+    pytest.param(_shape("|````", tail="```"), id="pipe-4-backticks"),
+    pytest.param(_shape("[````", tail="```"), id="bracket-4-backticks"),
+    pytest.param(_shape("savedsearch````", head="index=web ", tail="```"), id="savedsearch-4-backticks"),
+    pytest.param(_shape("| ````x"), id="pipe-4-backticks-letter"),
+    pytest.param(_shape("|", head="index=web ````", tail="````"), id="pipes-between-4-backtick-runs"),
+    pytest.param(_shape("[", head="index=web ````", tail="````"), id="brackets-between-4-backtick-runs"),
+    pytest.param(_shape("savedsearch", head="index=web ````", tail="````"),
+                 id="savedsearch-between-4-backtick-runs"),
+    # Pieces of command names glued to backticks.
+    pytest.param(_shape("out`x`", head="index=web | "), id="name-piece-macros"),
+    pytest.param(_shape("| out`"), id="name-prefix-per-pipe"),
+    pytest.param(_shape("| o`u`"), id="short-name-pieces"),
+    pytest.param(_shape("saved`"), id="dataset-prefix-pieces"),
+    pytest.param(_shape("`` ", head="index=web | out"), id="prefix-then-backtick-pairs"),
+    pytest.param(_shape('| out`comment("`")`'), id="macro-argument-backticks"),
+    pytest.param(_shape("a", head="index=web | o`"), id="long-word-after-prefix"),
+    # One letter that is a piece of many checked words, glued to backticks.
+    pytest.param(_shape("`t"), id="backtick-t"),
+    pytest.param(_shape("t`"), id="t-backtick"),
+    pytest.param(_shape("`e"), id="backtick-e"),
+    # The same shapes glued to quotes and backslashes, and those characters
+    # between a mark or the dataset word and what follows.
+    pytest.param(_shape('"t'), id="quote-t"),
+    pytest.param(_shape("t'"), id="t-single-quote"),
+    pytest.param(_shape("\\e"), id="backslash-e"),
+    pytest.param(_shape('| "'), id="pipe-quote"),
+    pytest.param(_shape("| \\"), id="pipe-backslash"),
+    pytest.param(_shape('| out"'), id="name-prefix-quote-per-pipe"),
+    pytest.param(_shape('| o"u"'), id="short-name-pieces-quoted"),
+    pytest.param(_shape('saved"'), id="dataset-prefix-quoted"),
+    pytest.param(_shape('savedsearch" ', head="index=web | x "), id="dataset-word-quote"),
+    pytest.param(_shape('" '), id="quote-runs"),
+    # Backticks before the first pipe, where the command rules also look.
+    pytest.param(_shape("`m` ", head="index=web "), id="macros-before-any-pipe"),
+    pytest.param(_shape("`t", head="index=web "), id="backtick-t-before-any-pipe"),
+    pytest.param(_shape("```c``` ", head="index=web "), id="comments-before-any-pipe"),
+    pytest.param(_shape("`m` fit a ", head="index=web "), id="fit-after-macros-before-any-pipe"),
+    # Quote runs between pieces, and folded letters in pieces.
+    pytest.param(_shape('"t"'), id="quoted-t-runs"),
+    pytest.param(_shape('| o"u" '), id="pipe-quoted-pieces"),
+    pytest.param(_shape('saved" "'), id="dataset-prefix-quote-runs"),
+    pytest.param(_shape("\u212a`"), id="kelvin-backtick"),
+    pytest.param(_shape("| o\u212a`"), id="pipe-kelvin-pieces"),
+    pytest.param(_shape("in`\u212a"), id="into-prefix-kelvin"),
+    # The same shapes inside a JSON-string envelope, escaped as JSON.
+    pytest.param(_shape('| o\\"u\\" ', head='{"spl": "index=web | ', tail='"}'), id="json-quoted-pieces"),
+    pytest.param(_shape("\\u0060m\\u0060 ", head='{"spl": "index=web ', tail='"}'), id="json-escaped-macros"),
+    pytest.param(_shape("\\\\e", head='{"spl": "index=web | ', tail='"}'), id="json-backslash-e"),
+    # Letters that case-fold to ASCII glued to quotes or backslashes, each one
+    # a place a command can start, with only quotes, backslashes, spaces and
+    # such letters back to the pipe.
+    pytest.param(_shape('"\u017f'), id="quote-long-s"),
+    pytest.param(_shape("\\\u0130"), id="backslash-dotted-i"),
+    pytest.param(_shape('" \u017f'), id="quote-space-long-s"),
+    pytest.param(_shape('"\u0131'), id="quote-dotless-i"),
+    pytest.param(_shape('"\u212ao'), id="quote-kelvin-letter"),
+    pytest.param(_shape('"o\u212a'), id="quote-letter-kelvin"),
+    pytest.param(_shape('"\u017f', head="index=web ` "), id="quote-long-s-after-a-backtick"),
+    # Invisible characters, so each rule also runs on the text read without
+    # them and with a space for each.
+    pytest.param(_shape("\u200f "), id="rlm-spaces"),
+    pytest.param(_shape('| \u200f"'), id="pipe-rlm-quote"),
+    pytest.param(_shape("o\u200c`"), id="zwnj-piece-backtick"),
+    pytest.param(_shape('"\ufe0f\u017f'), id="quote-vs16-long-s"),
+    pytest.param(_shape("\u200b|"), id="zwsp-pipes"),
+    # Many name prefixes started first, then pieces that can continue them.
+    pytest.param(_shape("`t `e `l `o `u `a `s ", head="index=web " + "".join(
+        f"| {name[:i]}` " for name in ("outputlookup", "collect", "sendemail", "deletemodel", "tscollect")
+        for i in range(1, len(name)))), id="many-live-prefixes"),
+])
+def test_check_spl_is_linear_on_large_input(shape):
+    # CPU time of this process, so other work on the machine barely moves it.
+    # 64 KB first: a shape that grows quadratically fails in seconds there.
+    # The caps are loose (a search with an invisible character is checked
+    # three times); the growth ratio is what proves the check linear.
+    small = _cpu_seconds(_sized(shape, _MB // 16))
+    assert small < 0.5, f"64 KB took {small:.3f}s of CPU"
+    one, two = _cpu_seconds(_sized(shape, _MB)), _cpu_seconds(_sized(shape, 2 * _MB))
+    if two > 3 * one + 0.05:
+        # One more measurement of each, keeping the faster, before failing.
+        one = min(one, _cpu_seconds(_sized(shape, _MB)))
+        two = min(two, _cpu_seconds(_sized(shape, 2 * _MB)))
+    assert one < 5.0, f"1 MB took {one:.3f}s of CPU"
+    assert two <= 3 * one + 0.05, f"1 MB took {one:.3f}s and 2 MB {two:.3f}s of CPU"
+
+
+def test_check_spl_keeps_no_query_text_after_it_returns():
+    # Nothing the check reads stays referenced once it returns, so a large
+    # search costs memory only while it is being checked.
+    import gc
+    import tracemalloc
+
+    from app.ai.code_execution.sql_guard import check_spl
+
+    check_spl('index=web | x "\u017fwarm" | stats count')
+    piece = "a" * (_MB // 2)
+    spls = [f'index=web | x "\u017f{n}{piece}" | stats count' for n in range(4)]
+    gc.collect()
+    tracemalloc.start()
+    try:
+        before = tracemalloc.get_traced_memory()[0]
+        for spl in spls:
+            check_spl(spl)
+        gc.collect()
+        kept = tracemalloc.get_traced_memory()[0] - before
+    finally:
+        tracemalloc.stop()
+    assert kept < 256 * 1024, f"{kept} bytes still held after the check"
+
+
+# ---------- the check against a model of how Splunk may read a search ---------- #
+#
+# The model reads a search the ways Splunk might: inline comments paired left
+# to right and removed with nothing or with a space; each macro expanded to
+# nothing, a space, a pipe or a bracket; quotes and backslashes kept, or all
+# dropped; letters that case-fold to ASCII read as that letter. A search is
+# runnable with a listed command when some reading has, after a pipe or a
+# bracket, a listed name as a command, `fit` as a command with `into` later,
+# or `savedsearch` then a colon. Every search the model finds runnable must be
+# refused. Random searches are built from marks, quotes, backslashes, comment
+# runs, macros and pieces of listed names, from a fixed seed.
+
+_MODEL_REFUSED = frozenset((
+    "delete", "outputlookup", "outputcsv", "outputtext", "collect", "summaryindex",
+    "mcollect", "meventcollect", "tscollect", "dump", "crawl", "input", "sendemail",
+    "sendalert", "outputtelemetry", "dbxoutput", "script", "run", "runshellscript",
+    "dbxquery", "savedsearch", "map", "deletemodel",
+))
+_MODEL_FOLD = str.maketrans({"\u0130": "i", "\u0131": "i", "\u017f": "s", "\u212a": "k"})
+_MODEL_EXPANSIONS = ("", " ", " | ", " [ ")
+_MODEL_DROPPED = re.compile(r"[\"'\\]")
+_MODEL_FIRST_MARK = re.compile(r"[|\[]")
+_MODEL_COMMAND = re.compile(r"[|\[]\s*([a-z0-9_]*)")
+_MODEL_INTO = re.compile(r"(?<![a-z0-9_])into(?![a-z0-9_])")
+_MODEL_DATASET = re.compile(r"(?<![a-z0-9_])savedsearch\s*:")
+# A search is built as some text, then marks and what may stand after one,
+# then pieces of listed names, then more text.
+_FUZZ_TEXT = (
+    "x", "index=web", " ", "\n", ":", "=", '"', "'", "\\", "`", "```", "|", "[", "`m`",
+    "``` c ```", "```c```", '`m("`")`', " into m", "in", "to", "\u212a", "\u017f",
+)
+_FUZZ_MARKS = (
+    "|", "[", " ", "`m`", "`m` ", "``` c ```", "```c```", "```", "`", '"', "'", "\\", "\u017f", "\u0131",
+)
+_FUZZ_NAME_PIECES = (
+    "delete", "del", "ete", "out", "put", "lookup", "outputloo", "\u212a", "up", "collect", "col",
+    "lect", "run", "r", "un", "saved", "search", "savedsearch", ":", "fit", "f", "it", "map", "s",
+    "cript", "\u017fcript", "\u0131nput", "input", "`", "```", "`m`", "```c```", '"', "\\", " ",
+)
+
+
+def _model_parts(spl: str):
+    """The text around each comment and macro, paired left to right, and the
+    kind of each; None when one is never closed (Splunk refuses the search)."""
+    texts, kinds = [[]], []
+    at = 0
+    while at < len(spl):
+        if spl.startswith("```", at):
+            end = spl.find("```", at + 3)
+            kind, after = "comment", end + 3
+        elif spl[at] == "`":
+            end = spl.find("`", at + 1)
+            kind, after = "macro", end + 1
+        else:
+            texts[-1].append(spl[at])
+            at += 1
+            continue
+        if end < 0:
+            return None
+        kinds.append(kind)
+        texts.append([])
+        at = after
+    return ["".join(text) for text in texts], kinds
+
+
+def _model_readings(spl: str):
+    parts = _model_parts(spl)
+    if parts is None:
+        return
+    texts, kinds = parts
+    for comment in ("", " "):
+        for expansions in itertools.product(_MODEL_EXPANSIONS, repeat=kinds.count("macro")):
+            picked = iter(expansions)
+            out = [texts[0]]
+            for kind, text in zip(kinds, texts[1:], strict=True):
+                out += [comment if kind == "comment" else next(picked), text]
+            reading = "".join(out).translate(_MODEL_FOLD).lower()
+            yield reading
+            yield _MODEL_DROPPED.sub("", reading)
+
+
+def _model_runnable(spl: str) -> bool:
+    for text in _model_readings(spl):
+        first = _MODEL_FIRST_MARK.search(text)
+        if first is None:
+            continue
+        if _MODEL_DATASET.search(text, first.start()):
+            return True
+        for command in _MODEL_COMMAND.finditer(text):
+            word = command.group(1)
+            if word in _MODEL_REFUSED or (word == "fit" and _MODEL_INTO.search(text, command.end())):
+                return True
+    return False
+
+
+def _fuzz_searches(seed: int, count: int):
+    rng = random.Random(seed)
+
+    def pick(tokens, low, high):
+        return "".join(rng.choice(tokens) for _ in range(rng.randint(low, high)))
+
+    for _ in range(count):
+        spl = (pick(_FUZZ_TEXT, 0, 3) + pick(_FUZZ_MARKS, 1, 3) + pick(_FUZZ_NAME_PIECES, 1, 4)
+               + pick(_FUZZ_TEXT, 0, 3))
+        if spl.count("`") <= 8:
+            yield spl
+
+
+def test_check_spl_refuses_every_search_the_model_finds_runnable():
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation, check_spl
+
+    runnable, accepted = 0, []
+    for spl in _fuzz_searches(seed=20261112, count=40000):
+        if not _model_runnable(spl):
+            continue
+        runnable += 1
+        try:
+            check_spl(spl)
+        except ReadOnlyViolation:
+            continue
+        accepted.append(spl)
+    assert accepted == []
+    # The model must find enough runnable searches for the comparison to mean
+    # something.
+    assert runnable >= 600
 
 
 # ---------- envelopes the wrapper cannot read are refusals ---------- #

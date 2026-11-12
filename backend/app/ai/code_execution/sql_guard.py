@@ -26,7 +26,6 @@ This is defence in depth, not a substitute for read-only database accounts:
 a SELECT can still call a function with side effects.
 """
 
-import functools
 import logging
 import re
 from typing import Optional, Union
@@ -90,9 +89,9 @@ _SPL_REFUSED_COMMANDS = (
 #   in `|` or `[` ends. The client sends text that does not start with `|` as
 #   `search <text>`, so the search starts with that command. Before the first
 #   `|` or `[`, a command can start only after a backtick that may end a
-#   macro: not the first backtick in the text (nothing is open before it),
-#   and not the third of a run of exactly three at the start or after
-#   whitespace (it opens a comment, or ends a macro with no name).
+#   macro or a comment: any backtick but the first in the text (nothing is
+#   open before it). A backtick that opens a comment looks like one that
+#   closes it, so no other backtick is let off.
 # - It assumes a command name is ASCII letters, digits and underscores, or
 #   letters outside ASCII that case-fold to one of those (the Kelvin sign,
 #   long s and dotted or dotless i), and that the name may end at any other
@@ -107,17 +106,21 @@ _SPL_REFUSED_COMMANDS = (
 #   escaped backtick), so a command Splunk could run follows `|`, `[` or a
 #   backtick, then optional whitespace, quotes or backslashes. A listed name
 #   in any such place is refused; that includes the first word of a comment
-#   or macro after the first `|` or `[`, and text in a quoted value (the
-#   message says how to search for such text).
+#   or macro (unless it opens at the first backtick in the text), and text
+#   in a quoted value (the message says how to search for such text).
 # - A comment or macro removed with nothing joins the letters on its two
 #   sides; it starts at a backtick and ends at any later backtick, so words
 #   in between may be skipped. A quote or backslash dropped joins only the
 #   letters right next to it. So a name can be spelled across backticks,
 #   quotes and backslashes (see `_spl_split_words`).
-# - It does not assume what Splunk does with control characters, format
-#   characters or characters that are invisible by default (it might drop
-#   them and join the letters around them), so those are refused anywhere in
-#   the search.
+# - It does not assume what Splunk does with format characters or characters
+#   that are invisible by default (it might drop them, read them as spaces or
+#   keep them), so the rules run on the search as written, without them, and
+#   with a space for each, and one between two letters, digits or
+#   underscores is refused. Text in some languages needs them (direction
+#   marks, zero-width joiners, emoji selectors). Control characters other
+#   than tab, newline and carriage return, lone surrogates and private-use
+#   characters cannot be sent cleanly, so they are refused anywhere.
 # Each rule is one left-to-right pass (possessive quantifiers, one search per
 # rule), so the check is linear in the length of the search.
 # Search macros expand on the server, so a macro body is never seen by this
@@ -143,14 +146,12 @@ _SPL_GLUE = "`\"'\\"
 _SPL_GLUE_CLASS = r"[`\"'\\]"
 _SPL_GLUE_RUN = re.compile(_SPL_GLUE_CLASS + r"*+")
 _SPL_NAMES = r"(?P<name>" + "|".join(_SPL_REFUSED_COMMANDS) + r")" + _SPL_WORD_END
-# A backtick before the first `|` or `[` that may end a macro, searched from
-# after the first backtick: any but the third of a run of exactly three at
-# the start of the text or after whitespace.
-_SPL_EARLY_MARK = r"(?<!(?<!\S)``)`"
-_SPL_EARLY_BACKTICK = re.compile(_SPL_EARLY_MARK)
+# Searched from after the first backtick before the first `|` or `[`, or else
+# from the first `|` or `[`.
 _SPL_COMMAND = re.compile(r"(?P<mark>[|\[`])" + _SPL_NAME_GAP + _SPL_NAMES, re.IGNORECASE)
-_SPL_EARLY_COMMAND = re.compile(r"(?P<mark>" + _SPL_EARLY_MARK + r")" + _SPL_NAME_GAP + _SPL_NAMES, re.IGNORECASE)
 _SPL_FIRST_MARK = re.compile(r"[|\[]")
+# How much of the matched text a refusal quotes.
+_SPL_SHOWN_MAX = 80
 # `from savedsearch:<name>` / `union savedsearch:<name>` run a stored search as
 # a dataset, like the savedsearch command. Refused wherever the word is, with
 # whitespace, quotes, backslashes, comments or macros before the colon: the
@@ -173,7 +174,6 @@ _SPL_LAST_BACKTICK_THEN_COLON = re.compile(r":" + _SPL_GAP + r"`")
 # anywhere after it, so a later command that uses the word is refused too.
 # Two searches (the first fit, then one `into` after it) keep this linear.
 _SPL_FIT = re.compile(r"[|\[`]" + _SPL_NAME_GAP + r"fit" + _SPL_WORD_END, re.IGNORECASE)
-_SPL_EARLY_FIT = re.compile(_SPL_EARLY_MARK + _SPL_NAME_GAP + r"fit" + _SPL_WORD_END, re.IGNORECASE)
 _SPL_INTO = re.compile(_SPL_WORD_START + r"into" + _SPL_WORD_END, re.IGNORECASE)
 # A word glued on its left (group `left`), or else on its right (group
 # `right`), to a backtick, quote or backslash, and the glue run after it.
@@ -183,14 +183,20 @@ _SPL_GLUED_WORD = re.compile(
     r"|(?<!" + _SPL_NAME_CHAR + r")(?P<right>" + _SPL_NAME_CHAR + r"++)(?P<right_run>"
     + _SPL_GLUE_CLASS + r"++)"
 )
-# The gap then `|`, `[` or a backtick, matched on the reversed text: the
-# place before a word where Splunk could start a command.
-_SPL_MARK_BEFORE = re.compile(_SPL_GAP + r"[|\[`]")
-# Unicode control characters (Cc) other than tab, newline and carriage
-# return, format characters (Cf) and default-ignorable code points: none of
-# them shows, and Splunk may drop any of them. Built once, from the `regex`
-# module's Unicode tables.
-_SPL_INVISIBLE = regex.compile(r"(?![\t\n\r])[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]")
+# The gap, matched on the reversed text back from a word: what may stand
+# between the word and the mark before it.
+_SPL_GAP_BEFORE = re.compile(_SPL_GAP)
+# Built once, from the `regex` module's Unicode tables. Control characters
+# (Cc) other than tab, newline and carriage return, lone surrogates (Cs) and
+# private-use characters (Co): a search cannot carry them cleanly.
+_SPL_UNSENDABLE = regex.compile(r"(?![\t\n\r])[\p{Cc}\p{Cs}\p{Co}]")
+# Format characters (Cf) and default-ignorable code points: none of them
+# shows, and Splunk may drop them, read them as spaces or keep them.
+_SPL_INVISIBLE = regex.compile(r"[\p{Cf}\p{Default_Ignorable_Code_Point}]")
+# A run of them between two characters a name is made of.
+_SPL_INVISIBLE_IN_WORD = regex.compile(
+    r"(?<=" + _SPL_NAME_CHAR + r")[\p{Cf}\p{Default_Ignorable_Code_Point}]++(?=" + _SPL_NAME_CHAR + r")"
+)
 # Inline comments, paired left to right.
 _SPL_INLINE_COMMENT = re.compile(r"```.*?```", re.DOTALL)
 _SPL_UNCLOSED_COMMENT = (
@@ -499,36 +505,54 @@ def check_spl(spl: str) -> None:
         raise ReadOnlyViolation(
             f"The SPL in a Splunk query must be text, not {type(spl).__name__}. {SPL_ENVELOPE_GUIDANCE}"
         )
-    invisible = _SPL_INVISIBLE.search(spl)
-    if invisible:
+    unsendable = _SPL_UNSENDABLE.search(spl)
+    if unsendable:
         raise ReadOnlyViolation(
-            f"SPL contains an invisible character (U+{ord(invisible.group()):04X}): a control "
-            "character, a format character (such as a zero-width space or a text direction "
-            "mark) or another character that does not show, which Splunk may drop and so join "
-            "the letters around it. Remove it; only tab, newline and carriage return are allowed."
+            f"SPL contains a character a search cannot carry (U+{ord(unsendable.group()):04X}): "
+            "a control character, a lone surrogate or a private-use character. Remove it; "
+            "only tab, newline and carriage return are allowed."
         )
+    invisible = _SPL_INVISIBLE.search(spl)
+    if invisible is None:
+        _check_spl_reading(spl)
+        return
+    code = f"U+{ord(invisible.group()):04X}"
+    in_word = _SPL_INVISIBLE_IN_WORD.search(spl)
+    if in_word:
+        raise ReadOnlyViolation(
+            f"SPL contains an invisible character (U+{ord(in_word.group()[0]):04X}) between two "
+            "letters, digits or underscores, which Splunk may drop and so join the words around "
+            "it. Remove it."
+        )
+    _check_spl_reading(spl)
+    for reading in (_SPL_INVISIBLE.sub("", spl), _SPL_INVISIBLE.sub(" ", spl)):
+        try:
+            _check_spl_reading(reading)
+        except ReadOnlyViolation as refused:
+            raise ReadOnlyViolation(
+                f"SPL contains an invisible character ({code}), such as a zero-width space or a "
+                "text direction mark, which Splunk may drop or read as a space. Read that way, "
+                f"the search is refused; remove the character. {refused}"
+            ) from refused
+
+
+def _check_spl_reading(spl: str) -> None:
+    """The rules, on one reading of the search."""
     if "```" in _SPL_INLINE_COMMENT.sub(" ", spl):
         raise ReadOnlyViolation(_SPL_UNCLOSED_COMMENT)
     first_mark = _SPL_FIRST_MARK.search(spl)
-    # Before the first `|` or `[`, only a backtick that may end a macro can be
-    # followed by a command.
     early_end = first_mark.start() if first_mark else len(spl)
+    # Before the first `|` or `[`, a command can start only after a backtick
+    # that may end a macro or a comment: any but the first in the text.
     first_backtick = spl.find("`", 0, early_end)
-    early = (
-        _SPL_EARLY_BACKTICK.search(spl, first_backtick + 1, early_end) if first_backtick >= 0 else None
-    )
+    begin = first_backtick + 1 if first_backtick >= 0 else early_end
     joined, fit_end, into_end = None, None, None
-    if early or first_mark:
-        match = early and _SPL_EARLY_COMMAND.search(spl, early.start(), early_end)
-        if not match and first_mark:
-            match = _SPL_COMMAND.search(spl, early_end)
+    if begin < len(spl):
+        match = _SPL_COMMAND.search(spl, begin)
         if match:
             raise _spl_command_refusal(match)
-        begin = early.start() if early else early_end
-        joined, fit_end, into_end = _spl_split_words(spl, begin, early_end, first_backtick)
-        fit = early and _SPL_EARLY_FIT.search(spl, early.start(), early_end)
-        if not fit and first_mark:
-            fit = _SPL_FIT.search(spl, early_end)
+        joined, fit_end, into_end = _spl_split_words(spl, begin, first_backtick)
+        fit = _SPL_FIT.search(spl, begin)
         if fit:
             fit_end = fit.end() if fit_end is None else min(fit_end, fit.end())
     if joined:
@@ -564,13 +588,21 @@ def _spl_dataset_behind_backticks(spl: str) -> bool:
 
 def _spl_command_refusal(match: re.Match) -> ReadOnlyViolation:
     """The refusal for a listed name where a command can start, quoting the
-    text as written from the mark to the end of the name."""
+    text as written from the mark to the end of the name (its two ends, when
+    it is long)."""
     mark, name, shown = match.group("mark"), match.group("name"), match.group()
+    if len(shown) > _SPL_SHOWN_MAX:
+        shown = shown[:20] + " ... " + shown[25 - _SPL_SHOWN_MAX:]
+    comment = (
+        "If it is the first word of an inline comment, start the comment with another word "
+        "(for example ```note: ...```) or drop it. "
+        if mark == "`" else ""
+    )
     return ReadOnlyViolation(
         f"SPL command '{name}' is not allowed: only searches that read data can run. "
         'It is refused wherever Splunk could start it: after "|", after "[", or after a '
         "backtick that can end an inline comment or a macro, with any whitespace, quotes "
-        f"or backslashes in between. Found: {shown}. "
+        f"or backslashes in between. Found: {shown}. {comment}"
         f"If this is literal text inside a quoted value (such as a bracketed log tag) or a "
         f"comment, it is still refused; reword the comment, or search for the value with a "
         f'wildcard in place of the "{mark}", for example "*{name}" instead of "{shown}". '
@@ -580,7 +612,7 @@ def _spl_command_refusal(match: re.Match) -> ReadOnlyViolation:
 
 
 def _spl_split_words(
-    spl: str, begin: int, early_end: int, first_backtick: int
+    spl: str, begin: int, first_backtick: int
 ) -> tuple[Optional[str], Optional[int], Optional[int]]:
     """Words Splunk could read, from `begin` on, once comments or macros
     inside them are removed with nothing and quotes or backslashes inside
@@ -608,7 +640,9 @@ def _spl_split_words(
     the live words it can continue are looked up; a piece seen again with no
     new word live across a comment or macro since its last look-up is not
     looked up again, and each glue run is scanned at most twice. The work
-    per word is a constant.
+    per word is a constant. Looking back from a piece for the mark before it
+    stops at the last place looked back from, so each character is looked
+    back over at most once.
     """
     if not any(glue in spl for glue in _SPL_GLUE):
         return None, None, None
@@ -645,10 +679,31 @@ def _spl_split_words(
             colon_tick.append(size - last.end() if last else -1)
         return colon_tick[0] >= tick.end() - 1
 
+    # The last place looked back from, and whether a command can start there.
+    # A later place with only the gap back to it has the same answer.
+    asked = [0, False]
+
+    def can_start(at: int) -> bool:
+        """Whether a command can start at `at`: after `|`, `[` or a backtick
+        (but the first one before the first `|` or `[`), then the gap."""
+        last, answer = asked
+        if at < last:
+            last, answer = 0, False
+        if at and spl[at - 1] in "|[`":
+            # The mark is right before it (the common case, without a search).
+            answer = at - 1 != first_backtick
+        else:
+            gap_end = _SPL_GAP_BEFORE.match(reversed_spl, size - at, size - last).end()
+            if gap_end < size - last:
+                mark = size - 1 - gap_end
+                answer = spl[mark] in "|[`" and mark != first_backtick
+        asked[0], asked[1] = at, answer
+        return answer
+
     relevant, command_prefixes, anywhere_prefixes = (
         _SPL_RELEVANT_PIECES, _SPL_COMMAND_PREFIXES, _SPL_ANYWHERE_PREFIXES
     )
-    only, continuations, can_start = _SPL_ONLY, _spl_continuations, _spl_command_can_start
+    only, continuations, folded = _SPL_ONLY, _spl_continuations, _spl_folded
     starts = _SPL_STARTS
     # Whether any word is live: when none is, a piece that cannot start one
     # changes nothing.
@@ -668,7 +723,7 @@ def _spl_split_words(
                 continue
             fold = fold_last = None
         else:
-            piece, fold, fold_last = _spl_folded(raw)
+            piece, fold, fold_last = folded(raw)
             if not live and piece not in starts and piece[fold_last + 1:] not in starts:
                 last_end = -1
                 continue
@@ -716,17 +771,13 @@ def _spl_split_words(
             # A word already live across a comment or macro needs no second
             # look when this run holds a backtick: the next piece continues
             # the live words then.
-            if piece in command_prefixes and not (tick and piece in span_command) and (
-                can_start(spl, reversed_spl, start, early_end, first_backtick)
-            ):
+            if piece in command_prefixes and not (tick and piece in span_command) and can_start(start):
                 ending_command = ending_command | only[piece] if ending_command else only[piece]
             if piece in anywhere_prefixes and not (tick and piece in span_anywhere):
                 ending_anywhere = ending_anywhere | only[piece] if ending_anywhere else only[piece]
             if fold is not None:
                 tail = piece[fold_last + 1:]
-                if tail in command_prefixes and can_start(
-                    spl, reversed_spl, start + fold_last + 1, early_end, first_backtick
-                ):
+                if tail in command_prefixes and can_start(start + fold_last + 1):
                     ending_command = ending_command | only[tail]
                 if tail in anywhere_prefixes:
                     ending_anywhere = ending_anywhere | only[tail]
@@ -743,7 +794,6 @@ def _spl_split_words(
     return None, fit_end, into_end
 
 
-@functools.lru_cache(maxsize=1024)
 def _spl_folded(raw: str) -> tuple[str, int, int]:
     """A piece holding a letter that case-folds to ASCII: the piece read with
     that letter, and where the first and the last such letter are."""
@@ -789,22 +839,3 @@ def _spl_continuations(from_command, from_anywhere, piece: str, fold: Optional[i
             or ending_command or ending_anywhere):
         return None
     return refused, fit_at, into_at, tuple(dataset_at), frozenset(ending_command), frozenset(ending_anywhere)
-
-
-def _spl_command_can_start(
-    spl: str, reversed_spl: str, start: int, early_end: int, first_backtick: int
-) -> bool:
-    """Whether a command can start at `start`: after `|`, `[` or a backtick,
-    then optional whitespace, quotes or backslashes; before the first `|` or
-    `[`, only after a backtick that may end a macro."""
-    if start and spl[start - 1] in "|[`":
-        # The mark is right before it (the common case, without a search).
-        at = start - 1
-    else:
-        size = len(spl)
-        mark = _SPL_MARK_BEFORE.match(reversed_spl, size - start)
-        if not mark:
-            return False
-        at = size - mark.end()
-    return at >= early_end or (at > first_backtick and _SPL_EARLY_BACKTICK.match(spl, at) is not None)
-
