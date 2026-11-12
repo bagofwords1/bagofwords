@@ -1003,6 +1003,7 @@ function asReport(meta: any) {
         title: meta.title,
         general: meta.general || {},
         include_data_tab: meta.include_data_tab,
+        show_widget_info: !!meta.show_widget_info,
         artifact_chat_enabled: !!meta.chat_enabled,
         refresh_on_view: !!meta.refresh_on_view,
         data_sources: meta.data_sources || [],
@@ -1684,6 +1685,8 @@ function iframeOptions(art: any, seed: any) {
         mode: art?.mode || 'page',
         resourceApp: art?.content?.sdk_version === 1,
         colorMode: artifactColorMode,
+        // The per-widget ⓘ provenance popover, off by default (per dashboard).
+        showWidgetInfo: !!report.value?.show_widget_info,
         // Used only when its key matches the code above (else in-iframe Babel).
         precompiled: { js: art?.compiled_js, key: art?.compiled_js_key },
     };

@@ -1799,6 +1799,22 @@
       "filesSkippedSingular": "{count} fichier ignoré ({reasons})",
       "filesSkippedPlural": "{count} fichiers ignorés ({reasons})"
     },
+    "searchFiles": {
+      "foundIn": "Trouvé dans :",
+      "fileName": "nom du fichier",
+      "page": "page {n}",
+      "sheet": "feuille {name}",
+      "offset": "position {n}",
+      "partlyIndexed": "Indexé en partie seulement (limite de taille)",
+      "noText": "Aucun texte interrogeable (numérisé ou binaire)",
+      "notIndexed": "Indexation impossible",
+      "indexFulltext": "Index plein texte",
+      "indexKeywords": "Index de mots-clés",
+      "indexNames": "Correspondance sur le nom du fichier",
+      "liveScan": "Analyse en direct",
+      "plusLiveScan": "{index} + analyse en direct",
+      "indexedAt": "indexé {when}"
+    },
     "listAgentExecutions": {
       "empty": "Aucune exécution trouvée",
       "failed": "Échec du chargement des exécutions de l'agent",
@@ -2400,14 +2416,7 @@
           "socketStep3": "Event Subscriptions → activez les événements (aucune Request URL nécessaire) et abonnez-vous à : message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
           "socketStep4": "Agents → activez « Agent experience » pour le volet d'assistant natif, le nommage des fils et les prompts suggérés",
           "socketStep5": "App Home → activez l'onglet Messages et autorisez les utilisateurs à envoyer des messages",
-          "socketStep6": "Install App → installez l'app dans votre espace de travail et copiez le Bot User OAuth Token (xoxb-…)",
-          "channelRoutingTitle": "Routage canal → agent",
-          "channelRoutingDesc": "Dirigez un canal vers des agents spécifiques. Un canal sans mappage utilise la valeur par défaut de la connexion ; sans valeur par défaut, il expose tout ce à quoi l'utilisateur a accès. Le routage ne fait que restreindre l'accès, il n'accorde jamais plus que ce que l'utilisateur possède déjà.",
-          "connectionDefaultLabel": "Par défaut de la connexion",
-          "connectionDefaultDesc": "Utilisé pour les canaux sans mappage propre.",
-          "channelPickerPlaceholder": "Choisir des agents…",
-          "noChannelsYet": "Aucun canal pour l'instant. Mentionnez le bot dans un canal et il apparaîtra ici, ou ajoutez-en un par id ci-dessous.",
-          "channelsHeading": "Canaux"
+          "socketStep6": "Install App → installez l'app dans votre espace de travail et copiez le Bot User OAuth Token (xoxb-…)"
         },
         "teams": {
           "title": "Intégration Teams",
@@ -2709,6 +2718,15 @@
           "subscriptionPlaceholder": "projects/<project>/subscriptions/<name>",
           "subtitle": "Configurez et gérez l'intégration Google Chat pour votre organisation",
           "title": "Intégration Google Chat"
+        },
+        "routing": {
+          "title": "Routage canal → agent",
+          "desc": "Dirigez un canal vers des agents spécifiques. Un canal sans mappage utilise la valeur par défaut de la connexion ; sans valeur par défaut, il expose tout ce à quoi l'utilisateur a accès. Le routage ne fait que restreindre l'accès, il n'accorde jamais plus que ce que l'utilisateur possède déjà.",
+          "connectionDefaultLabel": "Par défaut de la connexion",
+          "connectionDefaultDesc": "Utilisé pour les canaux sans mappage propre.",
+          "pickerPlaceholder": "Choisir des agents…",
+          "channelsHeading": "Canaux",
+          "noChannelsYet": "Aucun canal pour l'instant. Mentionnez le bot dans un canal et il apparaîtra ici, ou ajoutez-en un par id ci-dessous."
         }
       },
       "emptyTitle": "Faites fonctionner BOW avec vos outils",
@@ -6815,6 +6833,8 @@
     "tabViewers": "Lecteurs",
     "tabData": "Données",
     "viewersDesc": "Ce que reçoivent les personnes avec qui vous le partagez.",
+    "widgetInfoTitle": "Afficher les détails sur les widgets",
+    "widgetInfoDesc": "Ajoute une icône ⓘ à chaque widget pour ouvrir ses données, son code et son calcul.",
     "dataDesc": "Les requêtes derrière ce tableau de bord.",
     "unsaved": "Modifications non enregistrées",
     "tabGeneral": "Général",
@@ -7001,5 +7021,35 @@
       "search": "recherche",
       "read": "lecture"
     }
+  },
+  "agentAccess": {
+    "addMember": "Ajouter un membre",
+    "membersHint": "Les membres peuvent interroger cet agent. Attribuez des permissions supplémentaires ci-dessous.",
+    "everyone": "Toute l’organisation",
+    "query": "Peut interroger",
+    "manage": "Peut gérer",
+    "custom": "Accès personnalisé",
+    "ownerHint": "Le propriétaire peut toujours gérer cet agent.",
+    "editFor": "Modifier l’accès de {name}",
+    "removeHint": "Supprime l’adhésion et les permissions explicites. L’accès public, de groupe ou d’organisation peut subsister.",
+    "remove": "Retirer",
+    "noMembers": "Aucun membre explicite.",
+    "addTo": "Ajouter des personnes à {name}",
+    "thisAgent": "cet agent",
+    "who": "Qui",
+    "access": "Accès",
+    "advanced": "Permissions avancées",
+    "cancel": "Annuler",
+    "saving": "Enregistrement…",
+    "save": "Enregistrer",
+    "queryHint": "Poser des questions à cet agent",
+    "manageHint": "Configurer l’agent et gérer ses membres",
+    "addCount": "Ajouter {count}",
+    "add": "Ajouter",
+    "updated": "Permissions mises à jour",
+    "updateFailed": "Échec de la mise à jour des permissions",
+    "addIncomplete": "Certaines adhésions ou permissions n’ont pas été enregistrées. Vérifiez la liste et réessayez.",
+    "added": "Membres ajoutés",
+    "addFailed": "Échec de l’ajout des membres"
   }
 }

@@ -445,7 +445,12 @@ async function testConnection() {
   try {
     const { data, error } = await useMyFetch(`/connections/${props.connection.id}/test`, { method: 'POST' })
     if (error.value) {
-      testResult.value = { success: false, message: error.value.message || t('data.testFailed') }
+      const body = (error.value as any)?.data
+      const detail = typeof body?.detail === 'string' ? body.detail : null
+      const message = detail && body?.request_id
+        ? t('data.errorWithReference', { message: detail, id: body.request_id })
+        : detail || t('data.testFailed')
+      testResult.value = { success: false, message }
     } else {
       const result = data.value as any
       testResult.value = {

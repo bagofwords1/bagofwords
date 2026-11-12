@@ -1799,6 +1799,22 @@
       "filesSkippedSingular": "{count} fil hoppades över ({reasons})",
       "filesSkippedPlural": "{count} filer hoppades över ({reasons})"
     },
+    "searchFiles": {
+      "foundIn": "Hittades i:",
+      "fileName": "filnamn",
+      "page": "sida {n}",
+      "sheet": "blad {name}",
+      "offset": "position {n}",
+      "partlyIndexed": "Endast delvis indexerad (storleksgräns)",
+      "noText": "Ingen sökbar text (skannad eller binär)",
+      "notIndexed": "Kunde inte indexeras",
+      "indexFulltext": "Fulltextindex",
+      "indexKeywords": "Nyckelordsindex",
+      "indexNames": "Träff på filnamn",
+      "liveScan": "Livesökning",
+      "plusLiveScan": "{index} + livesökning",
+      "indexedAt": "indexerad {when}"
+    },
     "listAgentExecutions": {
       "empty": "Inga körningar hittades",
       "failed": "Det gick inte att läsa in agentens körningar",
@@ -2400,14 +2416,7 @@
           "socketStep3": "Event Subscriptions → aktivera händelser (ingen Request URL behövs) och prenumerera på: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
           "socketStep4": "Agents → slå PÅ ”Agent experience” för den inbyggda assistentpanelen, trådnamn och föreslagna prompter",
           "socketStep5": "App Home → aktivera fliken Messages och låt användare skicka meddelanden",
-          "socketStep6": "Install App → installera i din arbetsyta och kopiera Bot User OAuth Token (xoxb-…)",
-          "channelRoutingTitle": "Kanal → agent-routing",
-          "channelRoutingDesc": "Rikta en kanal till specifika agenter. En kanal utan mappning använder anslutningens standard; utan standard exponerar den allt som användaren har åtkomst till. Routing begränsar bara åtkomsten – den ger aldrig mer än vad användaren redan har.",
-          "connectionDefaultLabel": "Anslutningens standard",
-          "connectionDefaultDesc": "Används för kanaler utan egen mappning.",
-          "channelPickerPlaceholder": "Välj agenter…",
-          "noChannelsYet": "Inga kanaler ännu. Nämn boten i en kanal så visas den här, eller lägg till en via id nedan.",
-          "channelsHeading": "Kanaler"
+          "socketStep6": "Install App → installera i din arbetsyta och kopiera Bot User OAuth Token (xoxb-…)"
         },
         "teams": {
           "title": "Teams-integration",
@@ -2709,6 +2718,15 @@
           "subscriptionPlaceholder": "projects/<project>/subscriptions/<name>",
           "subtitle": "Konfigurera och hantera integrationen med Google Chat för din organisation",
           "title": "Integration med Google Chat"
+        },
+        "routing": {
+          "title": "Kanal → agent-routing",
+          "desc": "Rikta en kanal till specifika agenter. En kanal utan mappning använder anslutningens standard; utan standard exponerar den allt som användaren har åtkomst till. Routing begränsar bara åtkomsten – den ger aldrig mer än vad användaren redan har.",
+          "connectionDefaultLabel": "Anslutningens standard",
+          "connectionDefaultDesc": "Används för kanaler utan egen mappning.",
+          "pickerPlaceholder": "Välj agenter…",
+          "channelsHeading": "Kanaler",
+          "noChannelsYet": "Inga kanaler ännu. Nämn boten i en kanal så visas den här, eller lägg till en via id nedan."
         }
       },
       "emptyTitle": "Få BOW att fungera med dina verktyg",
@@ -6815,6 +6833,8 @@
     "tabViewers": "Tittare",
     "tabData": "Data",
     "viewersDesc": "Vad personerna du delar med får.",
+    "widgetInfoTitle": "Visa detaljer på widgetar",
+    "widgetInfoDesc": "Lägger till en ⓘ-ikon på varje widget som öppnar dess data, kod och beräkning.",
     "dataDesc": "Frågorna bakom instrumentpanelen.",
     "unsaved": "Osparade ändringar",
     "tabGeneral": "Allmänt",
@@ -7001,5 +7021,35 @@
       "search": "sökning",
       "read": "läsning"
     }
+  },
+  "agentAccess": {
+    "addMember": "Lägg till medlem",
+    "membersHint": "Medlemmar kan fråga agenten. Tilldela ytterligare behörigheter nedan.",
+    "everyone": "Alla i organisationen",
+    "query": "Kan fråga",
+    "manage": "Kan hantera",
+    "custom": "Anpassad åtkomst",
+    "ownerHint": "Ägaren kan alltid hantera agenten.",
+    "editFor": "Redigera åtkomst för {name}",
+    "removeHint": "Tar bort uttryckligt medlemskap och behörigheter. Offentlig åtkomst eller åtkomst via grupp eller organisation kan kvarstå.",
+    "remove": "Ta bort",
+    "noMembers": "Inga uttryckliga medlemmar ännu.",
+    "addTo": "Lägg till personer i {name}",
+    "thisAgent": "den här agenten",
+    "who": "Vem",
+    "access": "Åtkomst",
+    "advanced": "Avancerade behörigheter",
+    "cancel": "Avbryt",
+    "saving": "Sparar…",
+    "save": "Spara",
+    "queryHint": "Ställ frågor till agenten",
+    "manageHint": "Konfigurera agenten och hantera dess medlemmar",
+    "addCount": "Lägg till {count}",
+    "add": "Lägg till",
+    "updated": "Behörigheter uppdaterade",
+    "updateFailed": "Kunde inte uppdatera behörigheter",
+    "addIncomplete": "Vissa medlemskap eller behörigheter kunde inte sparas. Granska listan och försök igen.",
+    "added": "Medlemmar tillagda",
+    "addFailed": "Kunde inte lägga till medlemmar"
   }
 }

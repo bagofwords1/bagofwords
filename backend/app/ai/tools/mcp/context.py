@@ -128,6 +128,10 @@ async def build_rich_context(
             logger.warning(f"Failed to connect to data source {ds.name}: {e}")
             failed_sources.append(ds.name)
     
+    # Install the same authenticated, scope-enforcing history client as training.
+    from app.data_sources.clients.bow_client import install_bow_client
+    await install_bow_client(db, organization, user, report, ds_clients, include_bow_history=True)
+
     # Create ContextHub for context building
     context_hub = ContextHub(
         db=db,
@@ -136,6 +140,8 @@ async def build_rich_context(
         data_sources=data_sources,
         user=user,
     )
+    # Discover history without changing the report mode used to resolve instructions.
+    context_hub.schema_builder.include_bow_history = True
     
     # Prime static context with the user's prompt for intelligent instruction search
     # This loads: schemas, instructions, resources, files in parallel

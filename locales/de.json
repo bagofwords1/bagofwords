@@ -1799,6 +1799,22 @@
       "filesSkippedSingular": "{count} Datei übersprungen ({reasons})",
       "filesSkippedPlural": "{count} Dateien übersprungen ({reasons})"
     },
+    "searchFiles": {
+      "foundIn": "Gefunden in:",
+      "fileName": "Dateiname",
+      "page": "Seite {n}",
+      "sheet": "Blatt {name}",
+      "offset": "Position {n}",
+      "partlyIndexed": "Nur teilweise indexiert (Größenlimit)",
+      "noText": "Kein durchsuchbarer Text (gescannt oder binär)",
+      "notIndexed": "Konnte nicht indexiert werden",
+      "indexFulltext": "Volltextindex",
+      "indexKeywords": "Stichwortindex",
+      "indexNames": "Treffer im Dateinamen",
+      "liveScan": "Live-Suche",
+      "plusLiveScan": "{index} + Live-Suche",
+      "indexedAt": "indexiert {when}"
+    },
     "listAgentExecutions": {
       "empty": "Keine Ausführungen gefunden",
       "failed": "Agentenausführungen konnten nicht geladen werden",
@@ -2400,14 +2416,7 @@
           "socketStep3": "Event Subscriptions → Ereignisse aktivieren (keine Request URL nötig) und abonnieren: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
           "socketStep4": "Agents → „Agent experience“ EINSCHALTEN für den nativen Assistenzbereich, die Thread-Benennung und Prompt-Vorschläge",
           "socketStep5": "App Home → den Messages-Tab aktivieren und Nachrichten von Nutzenden erlauben",
-          "socketStep6": "Install App → in deinem Workspace installieren und das Bot User OAuth Token kopieren (xoxb-…)",
-          "channelRoutingTitle": "Kanal → Agent-Routing",
-          "channelRoutingDesc": "Leiten Sie einen Kanal an bestimmte Agenten weiter. Ein Kanal ohne Zuordnung nutzt den Verbindungsstandard; ohne Standard stellt er alles bereit, worauf der Benutzer zugreifen kann. Das Routing schränkt den Zugriff nur ein – es gewährt nie mehr, als der Benutzer bereits hat.",
-          "connectionDefaultLabel": "Verbindungsstandard",
-          "connectionDefaultDesc": "Wird für Kanäle ohne eigene Zuordnung verwendet.",
-          "channelPickerPlaceholder": "Agenten auswählen…",
-          "noChannelsYet": "Noch keine Kanäle. Erwähnen Sie den Bot in einem Kanal, damit er hier erscheint, oder fügen Sie unten einen per ID hinzu.",
-          "channelsHeading": "Kanäle"
+          "socketStep6": "Install App → in deinem Workspace installieren und das Bot User OAuth Token kopieren (xoxb-…)"
         },
         "teams": {
           "title": "Teams-Integration",
@@ -2709,6 +2718,15 @@
           "subscriptionPlaceholder": "projects/<project>/subscriptions/<name>",
           "subtitle": "Google-Chat-Integration für deine Organisation konfigurieren und verwalten",
           "title": "Google-Chat-Integration"
+        },
+        "routing": {
+          "title": "Kanal → Agent-Routing",
+          "desc": "Leiten Sie einen Kanal an bestimmte Agenten weiter. Ein Kanal ohne Zuordnung nutzt den Verbindungsstandard; ohne Standard stellt er alles bereit, worauf der Benutzer zugreifen kann. Das Routing schränkt den Zugriff nur ein – es gewährt nie mehr, als der Benutzer bereits hat.",
+          "connectionDefaultLabel": "Verbindungsstandard",
+          "connectionDefaultDesc": "Wird für Kanäle ohne eigene Zuordnung verwendet.",
+          "pickerPlaceholder": "Agenten auswählen…",
+          "channelsHeading": "Kanäle",
+          "noChannelsYet": "Noch keine Kanäle. Erwähnen Sie den Bot in einem Kanal, damit er hier erscheint, oder fügen Sie unten einen per ID hinzu."
         }
       },
       "emptyTitle": "Bringen Sie BOW mit Ihren Tools zum Einsatz",
@@ -6815,6 +6833,8 @@
     "tabViewers": "Betrachter",
     "tabData": "Daten",
     "viewersDesc": "Was die Personen bekommen, mit denen Sie es teilen.",
+    "widgetInfoTitle": "Details auf Widgets anzeigen",
+    "widgetInfoDesc": "Fügt jedem Widget ein ⓘ-Symbol hinzu, das seine Daten, seinen Code und seine Berechnung öffnet.",
     "dataDesc": "Die Abfragen hinter diesem Dashboard.",
     "unsaved": "Ungespeicherte Änderungen",
     "tabGeneral": "Allgemein",
@@ -7001,5 +7021,35 @@
       "search": "Suche",
       "read": "Lesen"
     }
+  },
+  "agentAccess": {
+    "addMember": "Mitglied hinzufügen",
+    "membersHint": "Mitglieder können diesen Agenten befragen. Zusätzliche Berechtigungen unten zuweisen.",
+    "everyone": "Alle in der Organisation",
+    "query": "Darf abfragen",
+    "manage": "Darf verwalten",
+    "custom": "Benutzerdefinierter Zugriff",
+    "ownerHint": "Der Eigentümer kann diesen Agenten immer verwalten.",
+    "editFor": "Zugriff für {name} bearbeiten",
+    "removeHint": "Entfernt direkte Mitgliedschaft und Berechtigungen. Öffentlicher Zugriff sowie Gruppen- oder Organisationszugriff können weiter gelten.",
+    "remove": "Entfernen",
+    "noMembers": "Noch keine direkten Mitglieder.",
+    "addTo": "Personen zu {name} hinzufügen",
+    "thisAgent": "diesem Agenten",
+    "who": "Wer",
+    "access": "Zugriff",
+    "advanced": "Erweiterte Berechtigungen",
+    "cancel": "Abbrechen",
+    "saving": "Speichern…",
+    "save": "Speichern",
+    "queryHint": "Diesem Agenten Fragen stellen",
+    "manageHint": "Agenten konfigurieren und Mitglieder verwalten",
+    "addCount": "{count} hinzufügen",
+    "add": "Hinzufügen",
+    "updated": "Berechtigungen aktualisiert",
+    "updateFailed": "Berechtigungen konnten nicht aktualisiert werden",
+    "addIncomplete": "Einige Mitgliedschaften oder Berechtigungen konnten nicht gespeichert werden. Liste prüfen und erneut versuchen.",
+    "added": "Mitglieder hinzugefügt",
+    "addFailed": "Mitglieder konnten nicht hinzugefügt werden"
   }
 }

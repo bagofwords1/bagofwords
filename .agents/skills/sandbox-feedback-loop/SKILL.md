@@ -20,7 +20,10 @@ fix. Examples of the format live in `docs/feedback-loops/` (e.g.
 4. **Write the doc** to `docs/feedback-loops/<topic>.md` (do NOT add new
    `sandbox-feedback-loop-*.md` files at the repo root).
 
-## Environment setup (fresh sandbox)
+Check `echo $BOW_SANDBOX_DEVBOX` first and follow only the matching
+environment section below.
+
+## Environment setup — fresh sandbox (`BOW_SANDBOX_DEVBOX` unset or `0`)
 
 The app targets **Python 3.13** (3.12+ works; needs 3.12 f-string syntax; the sandbox default
 `python` may be 3.11).
@@ -41,6 +44,20 @@ mkdir -p db
   `playwright install`.
 - Full running stack when the loop needs the real UI:
   `tools/agent/boot_stack.sh` then `cd backend && uv run python ../tools/agent/seed_org.py`.
+
+## Environment setup — DevBox (`BOW_SANDBOX_DEVBOX=1`)
+
+- The backend and frontend are managed by `bow-stack`; run `bow-stack --help`
+  for the available commands (start, stop, restart, etc.).
+- Use it instead of `tools/agent/boot_stack.sh` and manual `uvicorn`/`nuxt`
+  starts. Never kill backend/frontend processes yourself (`kill`, `fuser -k`).
+- The user, org and LLM are already seeded — don't run `seed_org.py`.
+- Skip the fresh-sandbox section above; `bow-stack` manages the environment,
+  including the database. Running tests still applies.
+- Playwright browsers are pre-installed in the default location: don't set
+  `PLAYWRIGHT_BROWSERS_PATH`, and never run `playwright install`.
+- Everything else in this skill (process, tests, verification, doc template)
+  still applies.
 
 ## Doc template
 

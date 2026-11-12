@@ -3,6 +3,35 @@ from typing import Any, List, Optional
 from pydantic import BaseModel, Field
 
 
+class CustomQueryRefreshConfig(BaseModel):
+    """How a custom table refreshes beyond its schedule.
+
+    Only meaningful fields need sending; on update, omitted ones keep their
+    stored value.
+    """
+
+    # The column whose value grows when a row is added or changed.
+    cursor_column: Optional[str] = None
+    # 'timestamp' | 'date' | 'number' | 'text'. Needed up front only when the
+    # query places the filter itself with {{since}} / {{until}}.
+    cursor_kind: Optional[str] = None
+    # Merge only: the column(s) that identify a row.
+    unique_key: Optional[List[str]] = None
+    # How far before the checkpoint each refresh re-reads, to catch rows that
+    # arrive late. Seconds for dates/timestamps, plain units for numbers.
+    lookback_seconds: Optional[int] = None
+    lookback_units: Optional[int] = None
+    # Where the first load starts (older rows are left out).
+    initial_value: Optional[str] = None
+    # 'hour' | 'day' | 'month': start each refresh at a whole period, for a
+    # query that aggregates by one.
+    grain: Optional[str] = None
+    # Rebuild from scratch this often; the only way deleted rows disappear.
+    full_refresh_every_days: Optional[int] = None
+    # Keep the previous data when the row count falls by more than this share.
+    row_drop_guard_pct: Optional[int] = None
+
+
 class CustomQueryCreate(BaseModel):
     name: str
     definition_sql: str
@@ -17,6 +46,10 @@ class CustomQueryCreate(BaseModel):
     refresh_schedule_mode: str = "interval"   # 'interval' | 'time'
     refresh_interval_minutes: Optional[int] = 60
     refresh_at_time: Optional[str] = None      # "HH:MM"
+    # 'full' (default) rebuilds every time; 'append' / 'merge' fetch only what
+    # is new since the last refresh.
+    refresh_mode: Optional[str] = None
+    refresh_config: Optional[CustomQueryRefreshConfig] = None
 
 
 class CustomQueryUpdate(BaseModel):
@@ -28,6 +61,8 @@ class CustomQueryUpdate(BaseModel):
     refresh_schedule_mode: Optional[str] = None
     refresh_interval_minutes: Optional[int] = None
     refresh_at_time: Optional[str] = None
+    refresh_mode: Optional[str] = None
+    refresh_config: Optional[CustomQueryRefreshConfig] = None
 
 
 class CustomQueryRlsUpdate(BaseModel):
@@ -87,6 +122,8 @@ class CustomQueryRlsOptions(BaseModel):
 class CustomQueryPreviewRequest(BaseModel):
     definition_sql: str
     target: Optional[dict] = None
+    # So a query using {{since}} / {{until}} can be previewed before saving.
+    refresh_config: Optional[CustomQueryRefreshConfig] = None
 
 
 class CustomQueryTarget(BaseModel):
@@ -118,6 +155,10 @@ class CustomQueryPreviewResponse(BaseModel):
     # Set when the *unbounded* query would exceed a materialization budget. The
     # preview still returns rows — this tells the UI it cannot be saved as-is.
     budget_error: Optional[str] = None
+    # Whether an incremental refresh can ask this source for only the new
+    # rows. False: its query runs whole each time and what is new is taken
+    # from the result — still incremental here, no lighter on the source.
+    filters_at_source: bool = True
 
 
 class CustomQuerySchema(BaseModel):
@@ -145,6 +186,14 @@ class CustomQuerySchema(BaseModel):
     rls_policy: Optional[dict] = None
     rls_default_deny: bool = True
     target: Optional[dict] = None
+    refresh_mode: str = "full"
+    refresh_config: Optional[dict] = None
+    # Incremental tables: the highest cursor value the copy holds — the next
+    # refresh reads from here (minus the lookback).
+    checkpoint: Optional[dict] = None
+    last_full_refresh_at: Optional[str] = None
+    # A first load still in progress: windows finished so far.
+    load_progress: Optional[dict] = None
 
     class Config:
         from_attributes = True
@@ -153,6 +202,19 @@ class CustomQuerySchema(BaseModel):
     def from_model(cls, cq, active_agent_count: int = 0, next_run_at=None) -> "CustomQuerySchema":
         meta = cq.metadata_json if isinstance(getattr(cq, "metadata_json", None), dict) else {}
         target = meta.get("target") if isinstance(meta.get("target"), dict) else None
+        state = getattr(cq, "refresh_state", None)
+        state = state if isinstance(state, dict) else {}
+        load = state.get("load") if isinstance(state.get("load"), dict) else None
+        progress = None
+        if load and load.get("windows"):
+            windows = load["windows"]
+            progress = {
+                "windows_total": len(windows),
+                "windows_done": sum(1 for w in windows if w.get("status") == "done"),
+                "rows": load.get("rows") or 0,
+                "source_rows": load.get("source_rows"),
+            }
+        config = getattr(cq, "refresh_config", None)
         return cls(
             id=str(cq.id),
             name=cq.name,
@@ -178,4 +240,50 @@ class CustomQuerySchema(BaseModel):
             rls_policy=getattr(cq, "rls_policy", None),
             rls_default_deny=bool(getattr(cq, "rls_default_deny", True)),
             target=target or None,
+            refresh_mode=getattr(cq, "refresh_mode", None) or "full",
+            refresh_config=config if isinstance(config, dict) else None,
+            checkpoint=state.get("checkpoint") if isinstance(state.get("checkpoint"), dict) else None,
+            last_full_refresh_at=state.get("last_full_refresh_at"),
+            load_progress=progress,
         )
+
+
+class CustomTableRunSummary(BaseModel):
+    """One refresh of a custom table, as the history lists it."""
+
+    id: str
+    trigger: str
+    mode: str
+    status: str
+    started_at: Optional[Any] = None
+    finished_at: Optional[Any] = None
+    elapsed_ms: Optional[int] = None
+    # The cursor range covered: read from / checkpoint left behind.
+    window_from: Optional[dict] = None
+    window_to: Optional[dict] = None
+    rows_read: Optional[int] = None
+    rows_inserted: Optional[int] = None
+    rows_updated: Optional[int] = None
+    rows_deleted: Optional[int] = None
+    row_count: Optional[int] = None
+    artifact_bytes: Optional[int] = None
+    error: Optional[str] = None
+    triggered_by: Optional[dict] = None
+    chunks_total: Optional[int] = None
+    chunks_done: Optional[int] = None
+
+
+class CustomTableRunList(BaseModel):
+    runs: List[CustomTableRunSummary] = []
+    has_more: bool = False
+    next_before: Optional[str] = None
+
+
+class CustomTableRunDetail(CustomTableRunSummary):
+    """A run in full: the query as sent, each window, and the event log."""
+
+    rendered_query: Optional[str] = None
+    chunks: List[dict] = []
+    events: List[dict] = []
+    inputs: Optional[dict] = None
+    schema_fingerprint: Optional[str] = None

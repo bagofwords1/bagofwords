@@ -474,7 +474,6 @@ async def filter_run(db, artifact: Artifact, release: ArtifactRelease, query: Qu
         verify_identity_binds_in_queries,
     )
     from app.models.organization import Organization
-    from app.models.step_user_result import StepUserResult
     from app.schemas.param_schema import parse_param_specs
     from app.services.access_errors import (CREDENTIALS_REQUIRED_REASON, NO_ACCESS_REASON, is_access_denied,
                                             needs_credentials)
@@ -504,11 +503,9 @@ async def filter_run(db, artifact: Artifact, release: ArtifactRelease, query: Qu
         raise AppError.bad_request(ErrorCode.VALIDATION, str(e))
     fingerprint = params_fingerprint(resolved)
 
-    existing = (await db.execute(
-        select(StepUserResult).where(StepUserResult.step_id == str(step.id),
-                                     StepUserResult.user_id == str(caller.id),
-                                     StepUserResult.params_fingerprint == fingerprint)
-    )).scalars().first()
+    from app.services.viewer_result_store import find_viewer_result
+    existing = await find_viewer_result(
+        db, step_id=step.id, user_id=caller.id, params_fingerprint=fingerprint)
     try:
         _, upstream = await step_identity_scope(db, step)
     except Exception:

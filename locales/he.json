@@ -1838,6 +1838,22 @@
       "filesSkippedSingular": "קובץ {count} דולג ({reasons})",
       "filesSkippedPlural": "{count} קבצים דולגו ({reasons})"
     },
+    "searchFiles": {
+      "foundIn": "נמצא ב:",
+      "fileName": "שם הקובץ",
+      "page": "עמוד {n}",
+      "sheet": "גיליון {name}",
+      "offset": "מיקום {n}",
+      "partlyIndexed": "אונדקס חלקית בלבד (מגבלת גודל)",
+      "noText": "אין טקסט לחיפוש (סרוק או בינארי)",
+      "notIndexed": "לא ניתן היה לאנדקס",
+      "indexFulltext": "אינדקס טקסט מלא",
+      "indexKeywords": "אינדקס מילות מפתח",
+      "indexNames": "התאמה לפי שם קובץ",
+      "liveScan": "סריקה חיה",
+      "plusLiveScan": "{index} + סריקה חיה",
+      "indexedAt": "אונדקס {when}"
+    },
     "webFetch": {
       "fetching": "מאחזר",
       "fetched": "אוחזר",
@@ -2646,14 +2662,7 @@
           "socketStep3": "Event Subscriptions ← הפעל אירועים (ללא צורך ב-Request URL) והירשם ל: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
           "socketStep4": "Agents ← הפעל את \"Agent experience\" עבור חלונית העוזר המובנית, מתן שמות לשרשורים והצעות פרומפטים",
           "socketStep5": "App Home ← הפעל את לשונית ההודעות ואפשר למשתמשים לשלוח הודעות",
-          "socketStep6": "Install App ← התקן בסביבת העבודה והעתק את ה-Bot User OAuth Token ‏(xoxb-…)",
-          "channelRoutingTitle": "ניתוב ערוצים לסוכנים",
-          "channelRoutingDesc": "כוונו ערוץ לסוכנים מסוימים. ערוץ ללא מיפוי משתמש בברירת‑המחדל של החיבור; ללא ברירת‑מחדל הוא חושף כל מה שהמשתמש מורשה לגשת אליו. הניתוב רק מצמצם גישה — הוא לעולם לא מעניק יותר ממה שלמשתמש כבר יש.",
-          "connectionDefaultLabel": "ברירת‑מחדל לחיבור",
-          "connectionDefaultDesc": "משמשת לערוצים ללא מיפוי משלהם.",
-          "channelPickerPlaceholder": "בחרו סוכנים…",
-          "noChannelsYet": "אין עדין ערוצים. תייגו את הבוט בערוץ והוא יופיע כאן, או הוסיפו ערוץ לפי מזהה למטה.",
-          "channelsHeading": "ערוצים"
+          "socketStep6": "Install App ← התקן בסביבת העבודה והעתק את ה-Bot User OAuth Token ‏(xoxb-…)"
         },
         "teams": {
           "title": "אינטגרציית Teams",
@@ -2955,6 +2964,15 @@
           "subscriptionPlaceholder": "projects/<project>/subscriptions/<name>",
           "subtitle": "הגדרה וניהול של האינטגרציה עם Google Chat עבור הארגון שלך",
           "title": "אינטגרציה עם Google Chat"
+        },
+        "routing": {
+          "title": "ניתוב ערוצים לסוכנים",
+          "desc": "כוונו ערוץ לסוכנים מסוימים. ערוץ ללא מיפוי משתמש בברירת‑המחדל של החיבור; ללא ברירת‑מחדל הוא חושף כל מה שהמשתמש מורשה לגשת אליו. הניתוב רק מצמצם גישה — הוא לעולם לא מעניק יותר ממה שלמשתמש כבר יש.",
+          "connectionDefaultLabel": "ברירת‑מחדל לחיבור",
+          "connectionDefaultDesc": "משמשת לערוצים ללא מיפוי משלהם.",
+          "pickerPlaceholder": "בחרו סוכנים…",
+          "channelsHeading": "ערוצים",
+          "noChannelsYet": "אין עדין ערוצים. תייגו את הבוט בערוץ והוא יופיע כאן, או הוסיפו ערוץ לפי מזהה למטה."
         }
       },
       "emptyTitle": "גרום ל-BOW לעבוד עם הכלים שלך",
@@ -4188,6 +4206,7 @@
     "saving": "שומר…",
     "saveAndContinue": "שמירה והמשך",
     "requestFailed": "הבקשה נכשלה",
+    "errorWithReference": "{message} (מזהה לתמיכה: {id})",
     "unexpectedError": "שגיאה לא צפויה",
     "errorTitle": "שגיאה",
     "updateConnectionFailed": "עדכון החיבור נכשל",
@@ -7348,6 +7367,8 @@
     "tabViewers": "צופים",
     "tabData": "נתונים",
     "viewersDesc": "מה מקבלים האנשים שאיתם משתפים.",
+    "widgetInfoTitle": "הצגת פרטים על כל אובייקט",
+    "widgetInfoDesc": "מוסיף אייקון ⓘ לכל אובייקט שפותח את הנתונים, הקוד והחישוב שלו.",
     "dataDesc": "השאילתות שמאחורי הגלריה.",
     "unsaved": "שינויים שלא נשמרו",
     "tabGeneral": "כללי",
@@ -7632,5 +7653,35 @@
       "search": "חיפוש",
       "read": "קריאה"
     }
+  },
+  "agentAccess": {
+    "addMember": "הוספת חבר",
+    "membersHint": "חברים יכולים לשאול את הסוכן שאלות. ניתן להקצות הרשאות נוספות בהמשך.",
+    "everyone": "כל חברי הארגון",
+    "query": "יכול לשאול",
+    "manage": "יכול לנהל",
+    "custom": "גישה מותאמת אישית",
+    "ownerHint": "הבעלים תמיד יכול לנהל את הסוכן.",
+    "editFor": "עריכת הגישה של {name}",
+    "removeHint": "מסיר חברות והרשאות מפורשות. ייתכן שעדיין קיימת גישה ציבורית, קבוצתית או ארגונית.",
+    "remove": "הסרה",
+    "noMembers": "אין עדיין חברים מפורשים.",
+    "addTo": "הוספת אנשים אל {name}",
+    "thisAgent": "הסוכן הזה",
+    "who": "מי",
+    "access": "גישה",
+    "advanced": "הרשאות מתקדמות",
+    "cancel": "ביטול",
+    "saving": "שומר…",
+    "save": "שמירה",
+    "queryHint": "לשאול את הסוכן שאלות",
+    "manageHint": "להגדיר את הסוכן ולנהל את החברים שלו",
+    "addCount": "הוספת {count}",
+    "add": "הוספה",
+    "updated": "ההרשאות עודכנו",
+    "updateFailed": "עדכון ההרשאות נכשל",
+    "addIncomplete": "חלק מהחברויות או ההרשאות לא נשמרו. בדקו את רשימת החברים ונסו שוב.",
+    "added": "החברים נוספו",
+    "addFailed": "הוספת החברים נכשלה"
   }
 }

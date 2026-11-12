@@ -1799,6 +1799,22 @@
       "filesSkippedSingular": "تم تخطّي {count} ملف ({reasons})",
       "filesSkippedPlural": "تم تخطّي {count} ملفات ({reasons})"
     },
+    "searchFiles": {
+      "foundIn": "موجود في:",
+      "fileName": "اسم الملف",
+      "page": "الصفحة {n}",
+      "sheet": "الورقة {name}",
+      "offset": "الموضع {n}",
+      "partlyIndexed": "مفهرس جزئيًا فقط (حد الحجم)",
+      "noText": "لا يوجد نص قابل للبحث (ممسوح ضوئيًا أو ثنائي)",
+      "notIndexed": "تعذّرت الفهرسة",
+      "indexFulltext": "فهرس النص الكامل",
+      "indexKeywords": "فهرس الكلمات المفتاحية",
+      "indexNames": "تطابق مع اسم الملف",
+      "liveScan": "فحص مباشر",
+      "plusLiveScan": "{index} + فحص مباشر",
+      "indexedAt": "تمت الفهرسة {when}"
+    },
     "listAgentExecutions": {
       "empty": "لم يتم العثور على عمليات تشغيل",
       "failed": "تعذّر تحميل عمليات تشغيل الوكيل",
@@ -2400,14 +2416,7 @@
           "socketStep3": "Event Subscriptions ← فعّل الأحداث (دون حاجة إلى Request URL) واشترك في: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
           "socketStep4": "Agents ← فعّل \"Agent experience\" للحصول على لوحة المساعد الأصلية وتسمية المحادثات والاقتراحات",
           "socketStep5": "App Home ← فعّل تبويب Messages واسمح للمستخدمين بإرسال الرسائل",
-          "socketStep6": "Install App ← ثبّت التطبيق في مساحة عملك وانسخ Bot User OAuth Token ‏(xoxb-…)",
-          "channelRoutingTitle": "توجيه القناة إلى الوكيل",
-          "channelRoutingDesc": "وجّه قناة إلى وكلاء محددين. القناة بدون تعيين تستخدم الإعداد الافتراضي للاتصال؛ وبدون إعداد افتراضي تكشف كل ما يمكن للمستخدم الوصول إليه. التوجيه يضيّق الوصول فقط ولا يمنح أبدًا أكثر مما لدى المستخدم بالفعل.",
-          "connectionDefaultLabel": "الإعداد الافتراضي للاتصال",
-          "connectionDefaultDesc": "يُستخدم للقنوات التي ليس لها تعيين خاص.",
-          "channelPickerPlaceholder": "اختر الوكلاء…",
-          "noChannelsYet": "لا توجد قنوات بعد. اذكر البوت في قناة وسيظهر هنا، أو أضف قناة بالمعرّف أدناه.",
-          "channelsHeading": "القنوات"
+          "socketStep6": "Install App ← ثبّت التطبيق في مساحة عملك وانسخ Bot User OAuth Token ‏(xoxb-…)"
         },
         "teams": {
           "title": "تكامل Teams",
@@ -2709,6 +2718,15 @@
           "subscriptionPlaceholder": "projects/<project>/subscriptions/<name>",
           "subtitle": "إعداد وإدارة التكامل مع Google Chat لمؤسستك",
           "title": "التكامل مع Google Chat"
+        },
+        "routing": {
+          "title": "توجيه القناة إلى الوكيل",
+          "desc": "وجّه قناة إلى وكلاء محددين. القناة بدون تعيين تستخدم الإعداد الافتراضي للاتصال؛ وبدون إعداد افتراضي تكشف كل ما يمكن للمستخدم الوصول إليه. التوجيه يضيّق الوصول فقط ولا يمنح أبدًا أكثر مما لدى المستخدم بالفعل.",
+          "connectionDefaultLabel": "الإعداد الافتراضي للاتصال",
+          "connectionDefaultDesc": "يُستخدم للقنوات التي ليس لها تعيين خاص.",
+          "pickerPlaceholder": "اختر الوكلاء…",
+          "channelsHeading": "القنوات",
+          "noChannelsYet": "لا توجد قنوات بعد. اذكر البوت في قناة وسيظهر هنا، أو أضف قناة بالمعرّف أدناه."
         }
       },
       "emptyTitle": "اجعل BOW يعمل مع أدواتك",
@@ -6815,6 +6833,8 @@
     "tabViewers": "المشاهدون",
     "tabData": "البيانات",
     "viewersDesc": "ما يحصل عليه الأشخاص الذين تشاركها معهم.",
+    "widgetInfoTitle": "إظهار التفاصيل على العناصر",
+    "widgetInfoDesc": "يضيف أيقونة ⓘ لكل عنصر تفتح بياناته وكوده وحسابه.",
     "dataDesc": "الاستعلامات وراء لوحة المعلومات هذه.",
     "unsaved": "تغييرات غير محفوظة",
     "tabGeneral": "عام",
@@ -7001,5 +7021,35 @@
       "search": "البحث",
       "read": "القراءة"
     }
+  },
+  "agentAccess": {
+    "addMember": "إضافة عضو",
+    "membersHint": "يمكن للأعضاء سؤال هذا الوكيل. عيّن أذونات إضافية أدناه.",
+    "everyone": "الجميع في المؤسسة",
+    "query": "يمكنه الاستعلام",
+    "manage": "يمكنه الإدارة",
+    "custom": "وصول مخصص",
+    "ownerHint": "يمكن للمالك إدارة هذا الوكيل دائمًا.",
+    "editFor": "تعديل وصول {name}",
+    "removeHint": "يزيل العضوية والأذونات الصريحة. قد يستمر الوصول العام أو عبر المجموعة أو المؤسسة.",
+    "remove": "إزالة",
+    "noMembers": "لا يوجد أعضاء صريحون بعد.",
+    "addTo": "إضافة أشخاص إلى {name}",
+    "thisAgent": "هذا الوكيل",
+    "who": "من",
+    "access": "الوصول",
+    "advanced": "أذونات متقدمة",
+    "cancel": "إلغاء",
+    "saving": "جارٍ الحفظ…",
+    "save": "حفظ",
+    "queryHint": "طرح أسئلة على هذا الوكيل",
+    "manageHint": "تكوين الوكيل وإدارة أعضائه",
+    "addCount": "إضافة {count}",
+    "add": "إضافة",
+    "updated": "تم تحديث الأذونات",
+    "updateFailed": "تعذر تحديث الأذونات",
+    "addIncomplete": "تعذر حفظ بعض العضويات أو الأذونات. راجع القائمة وحاول مجددًا.",
+    "added": "تمت إضافة الأعضاء",
+    "addFailed": "تعذرت إضافة الأعضاء"
   }
 }

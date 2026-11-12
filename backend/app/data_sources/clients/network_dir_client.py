@@ -44,7 +44,9 @@ from app.data_sources.clients._email_text import EMAIL_EXTS
 from app.data_sources.clients._file_source_common import (
     EXCEL_EXTS,
     read_excel_sheet,
+    CONTENT_INDEX_MODES,
     INDEX_CONTENT,
+    INDEX_FULLTEXT,
     INDEX_METADATA,
     INDEX_NONE,
     FileTooLargeError,
@@ -60,6 +62,8 @@ from app.data_sources.clients._file_source_common import (
     path_matches_globs,
     recover_filename,
 )
+from app.data_sources.clients._fulltext import FileSections, name_section
+from app.data_sources.clients._fulltext_extract import file_sections_from_path
 from app.data_sources.clients._keywords import extract_file_keywords
 from app.data_sources.clients.progress import IndexingCancelled
 from app.data_sources.clients.base import Capability, DataSourceClient
@@ -155,6 +159,9 @@ class NetworkDirClient(DataSourceClient):
     # Local FS walk is cheap → list files live, per-connection (see base).
     cheap_live_listing = True
 
+    #: How many files the connection test looks at before it stops walking.
+    TEST_CONNECTION_FILE_PROBE = 200
+
     # Root-policy exemption for app-owned directories (see
     # ``for_app_owned_dir``). Deliberately NOT an ``__init__`` parameter:
     # connection configs are splatted into the constructor
@@ -210,7 +217,7 @@ class NetworkDirClient(DataSourceClient):
         # Effective index tier: none/metadata/content. Falls back to the legacy
         # index_content boolean when index_mode isn't set.
         self.index_mode = normalize_index_mode(index_mode, index_content_legacy=index_content)
-        self.index_content = self.index_mode == INDEX_CONTENT
+        self.index_content = self.index_mode in CONTENT_INDEX_MODES
         # Hard cap on how many files we ever enumerate — guards indexing AND
         # live listing from a directory with millions of files (OOM / DB blowup).
         self.max_catalog_objects = int(max_catalog_objects) if max_catalog_objects else 10000
@@ -241,12 +248,38 @@ class NetworkDirClient(DataSourceClient):
             return True
         return _ext(name) in self.allowed_extensions
 
+    # The last root-policy verdict: (real path of root_path, allowlist it was
+    # checked under) → the resolved root. Every id → path resolution goes
+    # through `_root()`, twice per file on a walk, and running the full
+    # policy check each time (a dozen containment tests on Path objects) was
+    # half the cost of listing or indexing a large share. The verdict depends
+    # only on where `root_path` really points and on the allowlist, so it is
+    # reused while both are unchanged — `os.path.realpath` is re-read on EVERY
+    # call, so a root re-pointed after save (symlink swap) is re-checked, and
+    # refused, on the very next operation.
+    _root_checked: Optional[Tuple[str, tuple, Path]] = None
+
+    @staticmethod
+    def _allowed_roots_key() -> tuple:
+        try:
+            from app.settings.config import settings
+            return tuple(settings.bow_config.security.network_dir_allowed_roots or ())
+        except Exception:
+            return ()
+
     def _checked_root(self) -> Path:
         """Resolve ``root_path`` through the connection-root policy, or only
         through the filesystem for an app-owned root (``for_app_owned_dir``)."""
         if self._root_policy_exempt:
             return Path(self.root_path).expanduser().resolve()
-        return check_network_dir_root(self.root_path)
+        real = os.path.realpath(os.path.expanduser(self.root_path))
+        allowed = self._allowed_roots_key()
+        cached = self._root_checked
+        if cached and cached[0] == real and cached[1] == allowed:
+            return cached[2]
+        root = check_network_dir_root(self.root_path)
+        self._root_checked = (real, allowed, root)
+        return root
 
     def _root(self) -> Path:
         if not self.root_path:
@@ -469,8 +502,13 @@ class NetworkDirClient(DataSourceClient):
     # ---------------------------------------------------- public capabilities
 
     def list_files(
-        self, folder_id: Optional[str] = None, recursive: Optional[bool] = None
+        self, folder_id: Optional[str] = None, recursive: Optional[bool] = None,
+        *, limit: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
+        """Files under `folder_id` (or the root). `limit` stops the walk after
+        that many files — for callers that only need proof the directory is
+        readable (the connection test), where walking a share of tens of
+        thousands of files takes longer than a request may."""
         root = self._root()
         # A folder is a container, not a glob-matched file — don't scope-enforce
         # the folder path itself; the files inside are filtered by _iter_files.
@@ -478,7 +516,7 @@ class NetworkDirClient(DataSourceClient):
         if not base.is_dir():
             raise ValueError(f"Not a folder: {folder_id}")
         rec = self.recursive if recursive is None else bool(recursive)
-        files = self._iter_files(base, rec)
+        files = self._iter_files(base, rec, limit=limit)
         files.sort(key=lambda p: p.as_posix().lower())
         return self._entries(files)
 
@@ -631,6 +669,11 @@ class NetworkDirClient(DataSourceClient):
             raise
         except Exception:
             return ""
+
+    def _file_sections(self, path: Path, name: str) -> Tuple[FileSections, str]:
+        """Full-text sections of a file plus the text sample its catalog
+        keywords are built from — see `_fulltext_extract.file_sections_from_path`."""
+        return file_sections_from_path(path, name, max_file_bytes=self.max_file_bytes)
 
     def read_raw_bytes(
         self, file_id: str, *, max_bytes: Optional[int] = None
@@ -927,8 +970,14 @@ class NetworkDirClient(DataSourceClient):
                     "success": False,
                     "message": f"'Allow Writes' is on but the directory is not writable: {self.root_path}",
                 }
-            n = len(self.list_files(recursive=self.recursive))
-            return {"success": True, "message": f"Connected — {n} file(s) visible in {self.root_path}"}
+            # Bounded on purpose: this proves the directory is readable, it
+            # does not count it. A full walk of a large share takes longer
+            # than the request that asked for the test can wait (and on
+            # Postgres the idle transaction is dropped after 60s, failing the
+            # save). The index run counts the files.
+            n = len(self.list_files(recursive=self.recursive, limit=self.TEST_CONNECTION_FILE_PROBE))
+            count = f"{n}+" if self._last_walk_truncated else str(n)
+            return {"success": True, "message": f"Connected — {count} file(s) visible in {self.root_path}"}
         except Exception as e:
             return {"success": False, "message": str(e)}
 
@@ -943,7 +992,7 @@ class NetworkDirClient(DataSourceClient):
         return {}
 
     @discovery_progress
-    def get_schemas(self, progress_callback=None, prior_catalog=None) -> List[Table]:
+    def get_schemas(self, progress_callback=None, prior_catalog=None, section_sink=None) -> List[Table]:
         """Index the directory into catalog rows per the connection's index tier:
 
         - `none`     → no catalog at all (listing/search go live at the tool
@@ -951,6 +1000,11 @@ class NetworkDirClient(DataSourceClient):
         - `metadata` → one row per file with name/size/mtime, NO content read.
         - `content`  → metadata + extracted keywords/hash so search_files can
                        match by topic without re-parsing every file.
+        - `fulltext` → content + every section of every file handed to
+                       `section_sink` (the full-text index), which commits as
+                       the walk goes. A file the sink already holds at the
+                       same size+mtime is skipped, so an interrupted run
+                       resumes where it stopped.
 
         `prior_catalog` ({table_name: metadata_json} from the previous index
         run) makes content indexing INCREMENTAL: a file whose size+mtime match
@@ -982,7 +1036,43 @@ class NetworkDirClient(DataSourceClient):
             description = (
                 f"File '{f['name']}' (type: {f.get('mime_type') or _ext(f['name']) or 'unknown'})."
             )
-            if self.index_content:
+            fulltext = self.index_mode == INDEX_FULLTEXT and section_sink is not None
+            if fulltext:
+                meta["index_version"] = 2
+                version = f"{f.get('size')}:{f.get('modified_at')}"
+                if section_sink.is_current(f["id"], version):
+                    stored = section_sink.prior_meta(f["id"])
+                    meta["keywords"] = stored.get("keywords") or []
+                    meta["content_hash"] = stored.get("content_hash")
+                    status = section_sink.prior_status(f["id"]) or "indexed"
+                else:
+                    try:
+                        path = self._resolve(f["id"], must_exist=True)
+                        doc, sample = self._file_sections(path, name)
+                    except IndexingCancelled:
+                        raise
+                    except Exception:
+                        doc, sample = FileSections(sections=[name_section(name)], status="error"), ""
+                    meta["keywords"] = extract_file_keywords(sample, name, self.max_keywords)
+                    meta["content_hash"] = hashlib.sha1(
+                        sample.encode("utf-8", "ignore")
+                    ).hexdigest() if sample else None
+                    status = doc.status
+                    section_sink.write(f["id"], name, version, doc, meta={
+                        "keywords": meta["keywords"], "content_hash": meta["content_hash"],
+                    })
+                meta["indexed"] = status != "error"
+                meta["fulltext"] = status
+                meta["content_coverage"] = {
+                    "indexed": "full", "partial": "partial",
+                }.get(status, "unavailable")
+                description += " Full text is indexed." if status == "indexed" else (
+                    " Full text is indexed up to a size limit." if status == "partial"
+                    else " No extractable text; findable by name only."
+                )
+                if meta.get("keywords"):
+                    description += " Keywords: " + ", ".join(meta["keywords"][:15]) + "."
+            elif self.index_content:
                 meta["index_version"] = 2
                 meta["content_coverage"] = "prefix_sample"
                 meta["sample_max_bytes"] = 200_000 if _ext(f["name"]) in TEXT_EXTS | {"csv", "tsv"} else None
@@ -1033,6 +1123,9 @@ class NetworkDirClient(DataSourceClient):
             # callback raises IndexingCancelled here once a cancel is requested.
             reporter.tick(f["id"])
         reporter.done()
+        if section_sink is not None and self.index_mode == INDEX_FULLTEXT:
+            section_sink.walk_truncated = bool(self._last_walk_truncated)
+            section_sink.flush()
         if self._last_walk_truncated:
             import logging
             logging.getLogger(__name__).warning(

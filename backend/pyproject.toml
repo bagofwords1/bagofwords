@@ -132,6 +132,14 @@ dependencies = [
     "neo4j>=6.4.1,<6.5",
     "azure-storage-blob>=12.31.1,<12.32",
     "pyvmomi>=9.1.1,<10",
+    "google-cloud-storage>=3.4,<4",
+    "azure-cosmos>=4.9,<5",
+    "pyhive[hive-pure-sasl]>=0.7,<0.8",
+    "cassandra-driver>=3.29,<3.30",
+    "couchbase>=4.4,<5",
+    "pyiceberg[glue,pyarrow]>=0.10,<0.12",
+    "ibm-db>=3.3.0,<3.4 ; platform_machine != 'aarch64'",
+    "mapepire-python>=2.0.0,<2.1",
 ]
 
 [project.optional-dependencies]

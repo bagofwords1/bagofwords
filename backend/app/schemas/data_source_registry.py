@@ -11,6 +11,42 @@ from app.schemas.data_sources.remote_server import (
 )
 
 # Import provider Config/Credentials from the provider module
+from app.schemas.data_sources.cloud_storage import (
+    AzureBlobAccountKeyCredentials,
+    AzureBlobConfig,
+    AzureBlobConnectionStringCredentials,
+    AzureBlobDefaultCredentials,
+    AzureBlobSasCredentials,
+    AzureBlobServicePrincipalCredentials,
+    GCSConfig,
+    GCSDefaultCredentials,
+    GCSServiceAccountCredentials,
+)
+from app.schemas.data_sources.nosql import (
+    CassandraConfig,
+    CassandraCredentials,
+    CosmosDBConfig,
+    CosmosDBDefaultCredentials,
+    CosmosDBKeyCredentials,
+    CosmosDBServicePrincipalCredentials,
+    CouchbaseConfig,
+    CouchbaseCredentials,
+    DynamoDBConfig,
+)
+from app.schemas.data_sources.lakehouse import (
+    DremioConfig,
+    DremioPasswordCredentials,
+    DremioTokenCredentials,
+    HiveConfig,
+    HiveLdapCredentials,
+    HiveNoAuthCredentials,
+    IcebergAwsDefaultCredentials,
+    IcebergAwsKeyCredentials,
+    IcebergBearerCredentials,
+    IcebergConfig,
+    IcebergNoAuthCredentials,
+    IcebergOAuthCredentials,
+)
 from app.schemas.data_sources.configs import (
     # Configs
     PostgreSQLConfig,
@@ -30,6 +66,8 @@ from app.schemas.data_sources.configs import (
     SQLiteConfig,
     OracleConfig,
     SapHanaConfig,
+    Db2Config,
+    IbmiConfig,
     SapDatasphereConfig,
     BusinessObjectsConfig,
     SapBwXmlaConfig,
@@ -225,6 +263,8 @@ from app.schemas.data_sources.configs import (
     SQLiteCredentials,
     OracleCredentials,
     SapHanaCredentials,
+    Db2Credentials,
+    IbmiCredentials,
     SapDatasphereCredentials,
     BusinessObjectsCredentials,
     BusinessObjectsTrustedCredentials,
@@ -639,6 +679,29 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "userpass": AuthVariant(title="Username / Password", schema=OracleCredentials, scopes=["system","user"])
         }),
         client_path=None
+    ),
+    "db2": DataSourceRegistryEntry(
+        type="db2",
+        title="IBM Db2",
+        description="IBM Db2 for Linux, Unix and Windows (incl. Db2 on Cloud and Db2 Warehouse) and Db2 for z/OS. Detects the product and reads its catalog automatically. z/OS needs Db2 Connect activated on the server.",
+        config_schema=Db2Config,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username / Password", schema=Db2Credentials, scopes=["system", "user"])
+        }),
+        client_path="app.data_sources.clients.db2_client.Db2Client",
+        # IBM publishes no ibm_db build for Linux ARM64; hide the connector
+        # where the driver is missing instead of failing at connect.
+        requires_module="ibm_db",
+    ),
+    "ibmi": DataSourceRegistryEntry(
+        type="ibmi",
+        title="IBM i (Db2 for i)",
+        description="Db2 for IBM i (AS/400, iSeries) through IBM's open-source Mapepire server — no Db2 Connect license or ODBC driver needed.",
+        config_schema=IbmiConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="User profile / Password", schema=IbmiCredentials, scopes=["system", "user"])
+        }),
+        client_path="app.data_sources.clients.ibmi_client.IbmiClient",
     ),
     "sap_hana": DataSourceRegistryEntry(
         type="sap_hana",
@@ -1445,6 +1508,118 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         is_document_based=True,
         data_shape="objects",
     ),
+    "iceberg": DataSourceRegistryEntry(
+        type="iceberg",
+        title="Apache Iceberg",
+        description=(
+            "Iceberg lakehouse tables through their catalog — Iceberg REST (Polaris, Nessie, "
+            "Gravitino, Lakekeeper, Unity …), AWS Glue or Amazon S3 Tables — queried read-only "
+            "with SQL, with partition pruning and time travel."
+        ),
+        config_schema=IcebergConfig,
+        credentials_auth=AuthOptions(
+            default="oauth2",
+            by_auth={
+                "oauth2": AuthVariant(title="OAuth2 Client Credentials", schema=IcebergOAuthCredentials, scopes=["system"]),
+                "bearer": AuthVariant(title="Bearer Token", schema=IcebergBearerCredentials, scopes=["system", "user"]),
+                "none": AuthVariant(title="No Authentication", schema=IcebergNoAuthCredentials, scopes=["system"]),
+                "aws_keys": AuthVariant(title="AWS Access Key (Glue / S3 Tables)", schema=IcebergAwsKeyCredentials, scopes=["system"]),
+                "aws_default": AuthVariant(title="AWS Default Chain (Glue / S3 Tables)", schema=IcebergAwsDefaultCredentials, scopes=["system"]),
+            },
+        ),
+        client_path="app.data_sources.clients.iceberg_client.IcebergClient",
+        version="beta",
+    ),
+    "dremio": DataSourceRegistryEntry(
+        type="dremio",
+        title="Dremio",
+        description="Lakehouse query engine and semantic layer (Dremio Software or Dremio Cloud), queried read-only with SQL.",
+        config_schema=DremioConfig,
+        credentials_auth=AuthOptions(
+            default="token",
+            by_auth={
+                "token": AuthVariant(title="Personal Access Token", schema=DremioTokenCredentials, scopes=["system", "user"]),
+                "userpass": AuthVariant(title="Username / Password", schema=DremioPasswordCredentials, scopes=["system", "user"]),
+            },
+        ),
+        client_path="app.data_sources.clients.dremio_client.DremioClient",
+        version="beta",
+    ),
+    "hive": DataSourceRegistryEntry(
+        type="hive",
+        title="Apache Hive / Impala",
+        description="Hadoop SQL engines over HiveServer2 — Apache Hive, Apache Impala or Spark Thrift Server — queried read-only.",
+        config_schema=HiveConfig,
+        credentials_auth=AuthOptions(
+            default="none",
+            by_auth={
+                "none": AuthVariant(title="No Authentication", schema=HiveNoAuthCredentials, scopes=["system"]),
+                "ldap": AuthVariant(title="LDAP Username / Password", schema=HiveLdapCredentials, scopes=["system", "user"]),
+            },
+        ),
+        client_path="app.data_sources.clients.hive_client.HiveClient",
+        version="beta",
+    ),
+    "dynamodb": DataSourceRegistryEntry(
+        type="dynamodb",
+        title="Amazon DynamoDB",
+        description="Key-value and document tables on AWS, queried read-only with PartiQL.",
+        config_schema=DynamoDBConfig,
+        credentials_auth=AuthOptions(
+            default="aws_keys",
+            by_auth={
+                "aws_keys": AuthVariant(title="AWS Access Key", schema=S3KeyCredentials, scopes=["system"]),
+                "aws_role": AuthVariant(title="AWS Assume Role (STS)", schema=S3RoleCredentials, scopes=["system"]),
+                "aws_default": AuthVariant(title="AWS Default Chain", schema=S3DefaultCredentials, scopes=["system"]),
+            },
+        ),
+        client_path="app.data_sources.clients.dynamodb_client.DynamodbClient",
+        version="beta",
+    ),
+    "cosmosdb": DataSourceRegistryEntry(
+        type="cosmosdb",
+        title="Azure Cosmos DB",
+        description="Globally distributed document database (NoSQL API), queried read-only with Cosmos SQL.",
+        config_schema=CosmosDBConfig,
+        credentials_auth=AuthOptions(
+            default="account_key",
+            by_auth={
+                "account_key": AuthVariant(title="Account Key", schema=CosmosDBKeyCredentials, scopes=["system"]),
+                "service_principal": AuthVariant(title="Service Principal", schema=CosmosDBServicePrincipalCredentials, scopes=["system"]),
+                "managed_identity": AuthVariant(title="Managed Identity", schema=CosmosDBDefaultCredentials, scopes=["system"]),
+            },
+        ),
+        client_path="app.data_sources.clients.cosmosdb_client.CosmosdbClient",
+        version="beta",
+    ),
+    "couchbase": DataSourceRegistryEntry(
+        type="couchbase",
+        title="Couchbase",
+        description="JSON document database (self-managed or Capella), queried read-only with SQL++.",
+        config_schema=CouchbaseConfig,
+        credentials_auth=AuthOptions(
+            default="userpass",
+            by_auth={
+                "userpass": AuthVariant(title="Username / Password", schema=CouchbaseCredentials, scopes=["system", "user"]),
+            },
+        ),
+        client_path="app.data_sources.clients.couchbase_client.CouchbaseClient",
+        version="beta",
+    ),
+    "cassandra": DataSourceRegistryEntry(
+        type="cassandra",
+        title="Apache Cassandra",
+        description="Wide-column database — Apache Cassandra, ScyllaDB or Amazon Keyspaces — queried read-only with CQL.",
+        config_schema=CassandraConfig,
+        credentials_auth=AuthOptions(
+            default="userpass",
+            by_auth={
+                "userpass": AuthVariant(title="Username / Password", schema=CassandraCredentials, scopes=["system", "user"]),
+            },
+        ),
+        client_path="app.data_sources.clients.cassandra_client.CassandraClient",
+        version="beta",
+    ),
     "neo4j": DataSourceRegistryEntry(
         type="neo4j",
         title="Neo4j",
@@ -1807,6 +1982,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "s3": DataSourceRegistryEntry(
         type="s3",
+        category="files",
         title="Amazon S3",
         description=(
             "Browse and read files from an Amazon S3 bucket. Reads inside PDF, "
@@ -1843,6 +2019,86 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         # the single source of truth for everyone (like a SharePoint library),
         # so the catalog is shared. Community tier (no license gate) — a bucket
         # is treated like a plain directory, same as network_dir.
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="shared",
+        version="beta",
+    ),
+    "gcs": DataSourceRegistryEntry(
+        type="gcs",
+        category="files",
+        title="Google Cloud Storage",
+        description=(
+            "Browse and read files from a Google Cloud Storage bucket. Reads inside "
+            "PDF, Word, PowerPoint, Excel, CSV and email files, and can attach "
+            "objects to a report. Large objects can be read in byte-range windows."
+        ),
+        config_schema=GCSConfig,
+        credentials_auth=AuthOptions(
+            default="service_account",
+            by_auth={
+                "service_account": AuthVariant(
+                    title="Service Account Key",
+                    schema=GCSServiceAccountCredentials,
+                    scopes=["system"],
+                ),
+                "adc": AuthVariant(
+                    title="Application Default Credentials",
+                    schema=GCSDefaultCredentials,
+                    scopes=["system"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.gcs_client.GCSClient",
+        # Same shape as s3: one admin-scoped bucket/prefix is the catalog of
+        # truth for everyone; community tier like network_dir.
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="shared",
+        version="beta",
+    ),
+    "azure_blob": DataSourceRegistryEntry(
+        type="azure_blob",
+        category="files",
+        title="Azure Blob Storage",
+        description=(
+            "Browse and read files from an Azure Blob Storage container (Data Lake "
+            "Storage Gen2 included). Reads inside PDF, Word, PowerPoint, Excel, CSV "
+            "and email files, and can attach objects to a report. Large objects can "
+            "be read in byte-range windows."
+        ),
+        config_schema=AzureBlobConfig,
+        credentials_auth=AuthOptions(
+            default="connection_string",
+            by_auth={
+                "connection_string": AuthVariant(
+                    title="Connection String",
+                    schema=AzureBlobConnectionStringCredentials,
+                    scopes=["system"],
+                ),
+                "account_key": AuthVariant(
+                    title="Account Key",
+                    schema=AzureBlobAccountKeyCredentials,
+                    scopes=["system"],
+                ),
+                "sas": AuthVariant(
+                    title="SAS Token",
+                    schema=AzureBlobSasCredentials,
+                    scopes=["system"],
+                ),
+                "service_principal": AuthVariant(
+                    title="Service Principal",
+                    schema=AzureBlobServicePrincipalCredentials,
+                    scopes=["system"],
+                ),
+                "managed_identity": AuthVariant(
+                    title="Managed Identity",
+                    schema=AzureBlobDefaultCredentials,
+                    scopes=["system"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.azure_blob_client.AzureBlobClient",
         is_document_based=True,
         data_shape="files",
         catalog_ownership="shared",

@@ -1925,6 +1925,22 @@
       "filesSkippedSingular": "{count} file skipped ({reasons})",
       "filesSkippedPlural": "{count} files skipped ({reasons})"
     },
+    "searchFiles": {
+      "foundIn": "Found in:",
+      "fileName": "file name",
+      "page": "page {n}",
+      "sheet": "sheet {name}",
+      "offset": "offset {n}",
+      "partlyIndexed": "Only partly indexed (size limit)",
+      "noText": "No searchable text (scanned or binary)",
+      "notIndexed": "Could not be indexed",
+      "indexFulltext": "Full-text index",
+      "indexKeywords": "Keyword index",
+      "indexNames": "File name match",
+      "liveScan": "Live scan",
+      "plusLiveScan": "{index} + live scan",
+      "indexedAt": "indexed {when}"
+    },
     "readFile": {
       "reading": "Reading {name}…",
       "read": "Read {name}",
@@ -2721,14 +2737,7 @@
           "socketStep3": "Event Subscriptions → enable events (no Request URL needed) and subscribe to: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
           "socketStep4": "Agents → turn ON \"Agent experience\" for the native assistant pane, thread naming, and suggested prompts",
           "socketStep5": "App Home → enable the Messages tab and allow users to send messages",
-          "socketStep6": "Install App → install to your workspace and copy the Bot User OAuth Token (xoxb-…)",
-          "channelRoutingTitle": "Channel → agent routing",
-          "channelRoutingDesc": "Point a channel at specific agents. A channel with none mapped uses the connection default; with no default it exposes everything the user can access. Routing only narrows access — it never grants more than a user already has.",
-          "connectionDefaultLabel": "Connection default",
-          "connectionDefaultDesc": "Used for channels without their own mapping.",
-          "channelPickerPlaceholder": "Choose agents…",
-          "noChannelsYet": "No channels yet. Mention the bot in a channel and it will show up here, or add one by id below.",
-          "channelsHeading": "Channels"
+          "socketStep6": "Install App → install to your workspace and copy the Bot User OAuth Token (xoxb-…)"
         },
         "teams": {
           "title": "Teams Integration",
@@ -3030,6 +3039,15 @@
           "tenantWide": "Tenant-wide deployment",
           "tenantWideDesc": "For organization-wide rollout, your Microsoft 365 admin can upload this manifest via Admin Center → Settings → Integrated apps.",
           "failedLoadManifest": "Failed to load manifest"
+        },
+        "routing": {
+          "title": "Channel → agent routing",
+          "desc": "Point a channel at specific agents. A channel with none mapped uses the connection default; with no default it exposes everything the user can access. Routing only narrows access — it never grants more than a user already has.",
+          "connectionDefaultLabel": "Connection default",
+          "connectionDefaultDesc": "Used for channels without their own mapping.",
+          "pickerPlaceholder": "Choose agents…",
+          "channelsHeading": "Channels",
+          "noChannelsYet": "No channels yet. Mention the bot in a channel and it will show up here, or add one by id below."
         }
       }
     },
@@ -4260,6 +4278,7 @@
     "saving": "Saving…",
     "saveAndContinue": "Save and Continue",
     "requestFailed": "Request failed",
+    "errorWithReference": "{message} (support reference: {id})",
     "unexpectedError": "Unexpected error",
     "errorTitle": "Error",
     "updateConnectionFailed": "Failed to update connection",
@@ -7357,6 +7376,8 @@
     "tabViewers": "Viewers",
     "tabData": "Data",
     "viewersDesc": "What the people you share it with get.",
+    "widgetInfoTitle": "Show details on widgets",
+    "widgetInfoDesc": "Adds an ⓘ to each widget that opens its data, code and calculation.",
     "dataDesc": "The queries behind this dashboard.",
     "unsaved": "Unsaved changes",
     "tabGeneral": "General",
@@ -7641,5 +7662,35 @@
       "search": "search",
       "read": "read"
     }
+  },
+  "agentAccess": {
+    "addMember": "Add member",
+    "membersHint": "Members can query this agent. Assign additional permissions below.",
+    "everyone": "Everyone in the organization",
+    "query": "Can query",
+    "manage": "Can manage",
+    "custom": "Custom access",
+    "ownerHint": "The owner can always manage this agent.",
+    "editFor": "Edit access for {name}",
+    "removeHint": "Removes explicit membership and permissions. Public, group or organization access may still apply.",
+    "remove": "Remove",
+    "noMembers": "No explicit members yet.",
+    "addTo": "Add people to {name}",
+    "thisAgent": "this agent",
+    "who": "Who",
+    "access": "Access",
+    "advanced": "Advanced permissions",
+    "cancel": "Cancel",
+    "saving": "Saving…",
+    "save": "Save",
+    "queryHint": "Ask this agent questions",
+    "manageHint": "Configure the agent and manage its members",
+    "addCount": "Add {count}",
+    "add": "Add",
+    "updated": "Permissions updated",
+    "updateFailed": "Failed to update permissions",
+    "addIncomplete": "Some memberships or permissions could not be saved. Review the member list and retry.",
+    "added": "Members added",
+    "addFailed": "Failed to add members"
   }
 }

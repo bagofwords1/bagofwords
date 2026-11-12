@@ -728,7 +728,10 @@ function fieldLabel(name: string): string {
 function describeApiError(err: any): string | null {
   const detail = err?.data?.detail ?? err?.response?._data?.detail
   if (!detail) return null
-  if (typeof detail === 'string') return detail
+  // A server error is deliberately generic ("Internal server error"); its
+  // request id is what lets an operator find the real cause in the logs.
+  const requestId = err?.data?.request_id ?? err?.response?._data?.request_id
+  if (typeof detail === 'string') return requestId ? t('data.errorWithReference', { message: detail, id: requestId }) : detail
   if (!Array.isArray(detail)) return null
   const parts = detail.map((d: any) => {
     const loc = Array.isArray(d?.loc) ? d.loc : []
@@ -963,10 +966,10 @@ async function testConnection() {
       testResultLevel.value = 'error'
       testResultMessage.value = String(msg)
     }
-  } catch (e) {
+  } catch (e: any) {
     connectionTestPassed.value = false
     testResultLevel.value = 'error'
-    testResultMessage.value = t('data.requestFailed')
+    testResultMessage.value = describeApiError(e) || t('data.requestFailed')
   } finally {
     isTestingConnection.value = false
   }

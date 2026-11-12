@@ -44,6 +44,14 @@ async def purge_orphaned_fast_artifacts(session_factory=None) -> dict:
             references = list((await db.execute(
                 select(ConnectionTable.artifact_path).where(ConnectionTable.artifact_path.is_not(None))
             )).scalars())
+            # A first load in progress keeps its part file between windows;
+            # it is referenced from the row's refresh state, not artifact_path.
+            for state in (await db.execute(
+                select(ConnectionTable.refresh_state).where(ConnectionTable.refresh_state.is_not(None))
+            )).scalars():
+                load = state.get("load") if isinstance(state, dict) else None
+                if isinstance(load, dict) and load.get("path"):
+                    references.append(load["path"])
         protected = artifacts.protected_paths(references)
     except Exception:
         logger.exception("fast.artifact.reference_snapshot_failed")

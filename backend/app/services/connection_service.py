@@ -203,6 +203,57 @@ def _looks_like_auth_challenge(message: str | None) -> bool:
 VALIDATION_FILE_CAP = 200
 
 
+class _SessionKeepalive:
+    """Keeps a Postgres session from being dropped as idle-in-transaction
+    while its owner waits on something long that does not use the session.
+
+    Runs `SELECT 1` on the session at an interval well under the server's
+    limit. `stop()` lets a statement in flight finish instead of cancelling
+    it — a cancelled statement would abort the very transaction this
+    protects. The owner must not use the session between `start()` and the
+    end of `stop()`. No-op on SQLite, which has no such limit.
+    """
+
+    INTERVAL_S = 20.0
+
+    def __init__(self, db: AsyncSession):
+        self._db = db
+        self._stop = asyncio.Event()
+        self._task: Optional[asyncio.Task] = None
+
+    def start(self) -> None:
+        try:
+            if self._db.get_bind().dialect.name != "postgresql":
+                return
+        except Exception:
+            return
+        self._task = asyncio.create_task(self._run())
+
+    async def _run(self) -> None:
+        from sqlalchemy import text
+        while not self._stop.is_set():
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=self.INTERVAL_S)
+                return
+            except asyncio.TimeoutError:
+                pass
+            try:
+                await self._db.execute(text("SELECT 1"))
+            except Exception:
+                # The session is gone or busy; the owner will see the real
+                # error on its next statement.
+                return
+
+    async def stop(self) -> None:
+        self._stop.set()
+        task, self._task = self._task, None
+        if task is not None:
+            try:
+                await asyncio.shield(task)
+            except Exception:
+                pass
+
+
 async def _acount_files_for_validation(client, limit: int | None = None) -> int | None:
     """Metadata-only inventory count for validating file or mail sources.
 
@@ -347,7 +398,7 @@ def _invalidate_engine_pool(connection) -> None:
         allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
         client = ClientClass(**allowed)
         for attr in ("pg_uri", "mysql_uri", "mariadb_uri", "sql_server_uri",
-                     "oracle_uri", "trino_uri", "presto_uri", "teradata_uri"):
+                     "oracle_uri", "trino_uri", "presto_uri", "teradata_uri", "db2_uri"):
             uri = getattr(client, attr, None)
             if uri:
                 n = dispose_for_uri(uri)
@@ -1044,6 +1095,12 @@ class ConnectionService:
             # function on a concurrent-write FK violation.
             _invalidate_engine_pool(connection)
 
+            # The connection's full-text index goes with it. Removed here
+            # rather than left to the foreign key: SQLite does not enforce
+            # cascades in this app, and its FTS rows hang off no key at all.
+            from app.services.file_index_store import FileIndexStore
+            await FileIndexStore(db).clear(str(connection.id))
+
             # Agents that existed only through this connection were deleted
             # above, through the agent delete; any left here share another
             # connection and only lose this link (domain_connection cascade).
@@ -1277,7 +1334,8 @@ class ConnectionService:
                     if (config or {}).get("auth_type") == "dcr":
                         result = await self._verify_dcr_discovery(config, credentials, result)
                     return result
-                return connection_status
+                from app.errors.redact import connection_secrets
+                return self._safe_status(connection_status, connection_secrets(config, credentials))
 
             # For tool providers (MCP/API), list tools instead of schema access
             if data_source_type in self._TOOL_PROVIDER_TYPES:
@@ -1300,9 +1358,11 @@ class ConnectionService:
                         "table_count": tool_count,
                     }
                 except Exception as e:
+                    from app.errors.redact import connection_secrets, user_facing_error
                     return {
                         "success": False,
-                        "message": f"Connected but failed to list tools: {e}",
+                        "message": "Connected but failed to list tools: "
+                                   + user_facing_error(e, connection_secrets(config, credentials)),
                         "connectivity": True,
                         "schema_access": False,
                     }
@@ -1315,9 +1375,13 @@ class ConnectionService:
                 schema_status = await self._avalidate_schema_access(client)
 
             if not schema_status.get("success"):
+                from app.errors.redact import connection_secrets, sanitize_user_message
                 return {
                     "success": False,
-                    "message": schema_status.get("message", "Schema validation failed"),
+                    "message": sanitize_user_message(
+                        schema_status.get("message") or "Schema validation failed",
+                        connection_secrets(config, credentials),
+                    ),
                     "connectivity": True,
                     "schema_access": False,
                 }
@@ -1336,9 +1400,10 @@ class ConnectionService:
                 "table_count": table_count,
             }
         except Exception as e:
+            from app.errors.redact import connection_secrets, user_facing_error
             return {
                 "success": False,
-                "message": str(e),
+                "message": user_facing_error(e, connection_secrets(config, credentials)),
                 "connectivity": False,
                 "schema_access": False,
             }
@@ -1365,6 +1430,9 @@ class ConnectionService:
         """
         import time as _time
         connection = await self.get_connection(db, connection_id, organization)
+        # Read before the probe: a failure can leave the session unusable, and
+        # then even reading an attribute of `connection` raises.
+        secrets = self._error_secrets(connection, config_overrides, credential_overrides)
 
         t0 = _time.perf_counter()
         try:
@@ -1380,6 +1448,8 @@ class ConnectionService:
                 connection_status = await client.atest_connection()
 
             success = bool(connection_status.get("success")) if isinstance(connection_status, dict) else bool(connection_status)
+
+            connection_status = self._safe_status(connection_status, secrets)
 
             if not persist:
                 return self._finish_status(connection_status, t0)
@@ -1399,23 +1469,103 @@ class ConnectionService:
             return self._finish_status(connection_status, t0)
 
         except Exception as e:
+            from app.errors.redact import describe_for_log, user_facing_error
+            logger.warning("connection test failed for %s: %s", connection_id, describe_for_log(e))
+            message = user_facing_error(e, secrets)
             if persist:
-                if current_user is None:
-                    connection.last_connection_status = "not_connected"
-                    connection.last_connection_checked_at = datetime.utcnow()
+                # A failure inside the client or the DB (a dropped connection,
+                # a failed flush) can leave the session unusable: committing on
+                # it raised and turned a readable probe failure into a bare
+                # "Internal server error". Retry once on a clean session, and
+                # never let recording the outcome hide the outcome itself.
+                async def _record_failure(conn: Connection) -> None:
+                    if current_user is None:
+                        conn.last_connection_status = "not_connected"
+                        conn.last_connection_checked_at = datetime.utcnow()
+                    if conn.auth_policy == "system_only":
+                        self._record_probe_outcome(conn, False)
+                        self._sync_agents_with_connection(conn)
+                    await db.commit()
+                    await self._alert_on_health_transition(db, conn, current_user)
 
-                if connection.auth_policy == "system_only":
-                    self._record_probe_outcome(connection, False)
-                    self._sync_agents_with_connection(connection)
-
-                await db.commit()
-                await self._alert_on_health_transition(db, connection, current_user)
+                for attempt in range(2):
+                    try:
+                        if attempt:
+                            await db.rollback()
+                            # Rollback expired every loaded object (the org
+                            # too): reload by the id already authorized above,
+                            # overwriting the expired instance in place.
+                            from app.models.data_source import DataSource
+                            connection = (await db.execute(
+                                select(Connection)
+                                .options(selectinload(Connection.data_sources)
+                                         .selectinload(DataSource.connections))
+                                .where(Connection.id == str(connection_id))
+                                .execution_options(populate_existing=True)
+                            )).scalar_one()
+                        await _record_failure(connection)
+                        break
+                    except Exception as persist_exc:
+                        if attempt:
+                            logger.warning(
+                                "could not record failed connection test for %s: %s",
+                                connection_id, describe_for_log(persist_exc),
+                            )
+                            try:
+                                await db.rollback()
+                            except Exception:
+                                pass
             return {
                 "success": False,
-                "message": str(e),
+                "message": message,
                 "timings": {"total_ms": round((_time.perf_counter() - t0) * 1000, 1)},
                 "details": {},
             }
+
+    @staticmethod
+    def _error_secrets(connection: Connection, config_overrides: dict = None,
+                       credential_overrides: dict = None) -> list:
+        """Secret values to mask out of a test/indexing error shown to the
+        admin: the connection's passwords, tokens and keys, stored and as
+        overridden by the form. Best-effort; patterns still apply when a
+        blob can't be read."""
+        import json as _json
+        from app.errors.redact import connection_secrets
+
+        try:
+            config = connection.config
+            if isinstance(config, str):
+                config = _json.loads(config or "{}")
+        except Exception:
+            config = {}
+        try:
+            credentials = connection.decrypt_credentials() if connection.credentials else {}
+        except Exception:
+            credentials = {}
+        merged_config = {**(config or {}), **(config_overrides or {})}
+        merged_creds = {**(credentials or {}), **(credential_overrides or {})}
+        try:
+            return connection_secrets(merged_config, merged_creds)
+        except Exception:
+            return []
+
+    @staticmethod
+    def _safe_status(connection_status, secrets) -> dict:
+        """Redact a client's failure message before it reaches the UI.
+
+        Clients put the driver's own text in ``message`` (that's what makes it
+        actionable), and drivers echo connection strings and tokens.
+        Success messages are ours ("Connected. Found N tables") and kept."""
+        from app.errors.redact import sanitize_user_message
+
+        if not isinstance(connection_status, dict):
+            return {"success": bool(connection_status), "message": ""}
+        if not connection_status.get("success") and connection_status.get("message"):
+            connection_status = dict(connection_status)
+            connection_status["message"] = sanitize_user_message(
+                connection_status["message"], secrets,
+            )
+        return connection_status
 
     @staticmethod
     def _record_probe_outcome(connection: Connection, success: bool) -> None:
@@ -1546,6 +1696,7 @@ class ConnectionService:
         try:
             client = await self.construct_client(db, connection, current_user)
             connection_status = await client.atest_connection()
+            connection_status = self._safe_status(connection_status, self._error_secrets(connection))
             success = bool(connection_status.get("success")) if isinstance(connection_status, dict) else bool(connection_status)
 
             # Kerberos SSO has no stored credential — record a status-only marker
@@ -1572,12 +1723,14 @@ class ConnectionService:
 
             return connection_status
         except Exception as e:
+            from app.errors.redact import user_facing_error
+            message = user_facing_error(e, self._error_secrets(connection))
             if supports_user_kerberos_sso(connection):
                 try:
-                    await record_kerberos_verification(db, connection, current_user, False, error=str(e))
+                    await record_kerberos_verification(db, connection, current_user, False, error=message)
                 except Exception:
                     pass
-            return {"success": False, "message": str(e)}
+            return {"success": False, "message": message}
 
     @staticmethod
     def _kms_credentials_error(exc: ValueError):
@@ -1834,6 +1987,38 @@ class ConnectionService:
                 visible.update(r for r in rows if r)
 
         return visible
+
+    async def _open_fulltext_sink(self, db: AsyncSession, client, connection_id: str):
+        """A sink for the client's full-text sections, or None when the
+        connection is not on the full-text tier (any index left over from an
+        earlier setting is removed then)."""
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        from app.data_sources.clients._file_source_common import INDEX_FULLTEXT
+        from app.data_sources.clients.base import _accepts_kwarg
+        from app.services.file_index_store import FileIndexSink, FileIndexStore
+
+        store = FileIndexStore(db)
+        # Index writes get their own short transactions, never this refresh's
+        # session: on SQLite a write held open here for the whole crawl would
+        # block every progress update.
+        factory = async_sessionmaker(db.bind, class_=AsyncSession, expire_on_commit=False)
+        wants = (
+            getattr(client, "index_mode", None) == INDEX_FULLTEXT
+            and _accepts_kwarg(client.get_schemas, "section_sink")
+        )
+        if not wants:
+            if hasattr(client, "index_mode") and await store.has_index(connection_id):
+                async with factory() as own:
+                    removed = await FileIndexStore(own).clear(connection_id)
+                    await own.commit()
+                logger.info(
+                    "refresh_schema: connection %s is no longer on the full-text tier — "
+                    "removed its index (%d files)", connection_id, removed,
+                )
+            return None
+        prior = await store.prior_versions(connection_id)
+        return FileIndexSink(asyncio.get_running_loop(), factory, connection_id, prior)
 
     async def _rename_user_overlays(self, db: AsyncSession, connection_id: str, renamed) -> None:
         """Carry table renames to the per-user visibility rows, which store the
@@ -2130,11 +2315,31 @@ class ConnectionService:
                 _extra["prior_tables"] = prior_tables_arg
             if introspection == "full" and _accepts_kwarg(client.aget_schemas, "force_refresh"):
                 _extra["force_refresh"] = True
-            fresh_tables = await client.aget_schemas(
-                progress_callback=progress_callback,
-                prior_catalog=prior_catalog,
-                **_extra,
-            )
+            # Full-text index tier: the client streams each file's sections to
+            # a sink while it walks, committed in small batches on their own
+            # sessions — an interrupted run keeps what it finished and the
+            # next one resumes. Other tiers drop any index left from before.
+            section_sink = await self._open_fulltext_sink(db, client, connection_id_str)
+            if section_sink is not None:
+                _extra["section_sink"] = section_sink
+            # This session already read the catalog, so on Postgres it sits
+            # idle inside a transaction for as long as discovery takes. The
+            # server drops such a session after its idle-in-transaction limit
+            # (5 minutes on the request engine), which failed the save of any
+            # crawl longer than that. A trivial statement now and then keeps
+            # it alive; nothing else touches `db` while discovery runs.
+            keepalive = _SessionKeepalive(db)
+            keepalive.start()
+            try:
+                fresh_tables = await client.aget_schemas(
+                    progress_callback=progress_callback,
+                    prior_catalog=prior_catalog,
+                    **_extra,
+                )
+            finally:
+                await keepalive.stop()
+                if section_sink is not None:
+                    await section_sink.aflush()
             from app.data_sources.clients.discovery import require_complete_discovery
             fresh_tables = require_complete_discovery(client, fresh_tables)
             if not getattr(client, "catalog_identity_available", True):
@@ -2214,6 +2419,15 @@ class ConnectionService:
                     "with (this source has no app-only mode) — result treated as "
                     "non-authoritative; nothing is pruned.",
                     connection.id,
+                )
+            self.last_fulltext_stats = None
+            if section_sink is not None:
+                # Only a complete crawl as the connection's own identity may
+                # remove index entries for files it did not see.
+                self.last_fulltext_stats = await section_sink.finish(prune=authoritative)
+                logger.info(
+                    "refresh_schema: full-text index for connection %s — %s",
+                    connection.id, self.last_fulltext_stats,
                 )
             if not authoritative:
                 logger.info(
