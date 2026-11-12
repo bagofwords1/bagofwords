@@ -935,18 +935,21 @@ def test_two_viewer_runs_of_the_same_slice_at_the_same_time_both_succeed(
 
 
 @contextmanager
-def _database_refusing_slices_of(entity_id, message):
+def _database_refusing_slices_of(entity_id, message, *, whole_transaction=False):
     """The app database itself refuses every insert and update of the slices
     of `entity_id` (a trigger, as a full disk or a broken row would), with an
-    error whose text is `message`."""
+    error whose text is `message`. `whole_transaction` (SQLite): the refusal
+    rolls back the whole transaction, as SQLite answers a full disk or an I/O
+    error."""
     from sqlalchemy import text
 
     engine = _other_engine()
     name = f"refuse_{uuid.uuid4().hex[:10]}"
     if engine.dialect.name == "sqlite":
+        kind = "ROLLBACK" if whole_transaction else "ABORT"
         create = [
             f"CREATE TRIGGER {name}_{op} BEFORE {op} ON entity_user_results "
-            f"WHEN NEW.entity_id = '{entity_id}' BEGIN SELECT RAISE(ABORT, '{message}'); END"
+            f"WHEN NEW.entity_id = '{entity_id}' BEGIN SELECT RAISE({kind}, '{message}'); END"
             for op in ("INSERT", "UPDATE")
         ]
         drop = [f"DROP TRIGGER IF EXISTS {name}_{op}" for op in ("INSERT", "UPDATE")]
@@ -1290,14 +1293,22 @@ async def _monitoring_entity_and_publishing_release(org_id, admin_id, eid):
     publishing release of a dashboard (not public)."""
     from sqlalchemy import update
 
-    from app.models.artifact import Artifact
-    from app.models.artifact_release import ArtifactRelease
     from app.models.entity import Entity
 
     async with async_session_maker() as db:
         await db.execute(update(Entity).where(Entity.id == eid).values(
             bow_source_access=_monitoring_access(org_id), parameters=[],
             data={"rows": [{"m": 1}], "columns": [{"field": "m", "headerName": "m"}]}))
+        await db.commit()
+    return await _publishing_release(org_id, admin_id)
+
+
+async def _publishing_release(org_id, admin_id):
+    """Opens a publishing release of a dashboard (not public)."""
+    from app.models.artifact import Artifact
+    from app.models.artifact_release import ArtifactRelease
+
+    async with async_session_maker() as db:
         artifact = Artifact(organization_id=org_id, created_by=admin_id, mode="page", visibility="none")
         db.add(artifact)
         await db.flush()
@@ -1379,6 +1390,207 @@ def test_load_entity_while_publishing_keeps_an_earlier_entitys_monitoring_marker
         assert result["errors"] == [], result["errors"]
         assert result["entities"][b].to_dict("records") == [{"viewer": admin_email}], result
         assert [r.data["rows"] for r in _run(_slice_rows(b))] == [[{"viewer": admin_email}]]
+
+
+async def _publish_whose_transaction_the_database_loses(org_id, user_id, release_id, refs):
+    """load_entity of `refs` in one code run of a dashboard's publish, then
+    the publish's commit. Returns what the load gave (its result or its
+    error), what the commit gave (True or its error type) and the release's
+    access as stored."""
+    from app.ai.code_execution.loadables import LoadablesResolver
+    from app.models.artifact_release import ArtifactRelease
+    from app.models.organization import Organization
+    from app.models.user import User
+
+    async with async_session_maker() as db:
+        org = await db.get(Organization, org_id)
+        user = await db.get(User, user_id)
+        release = await db.get(ArtifactRelease, release_id)
+        try:
+            loaded = await LoadablesResolver(db, org, None, user, release=release).resolve([], refs)
+        except Exception as err:  # noqa: BLE001 - reported to the assertion
+            loaded = err
+        try:
+            await db.commit()
+            committed = True
+        except Exception as err:  # noqa: BLE001 - reported to the assertion
+            committed = type(err).__name__
+    async with async_session_maker() as other:
+        stored = (await other.execute(select(ArtifactRelease.bow_source_access)
+                                      .where(ArtifactRelease.id == release_id))).scalar_one()
+    return loaded, committed, stored
+
+
+@pytest.mark.e2e
+def test_a_publish_whose_transaction_the_database_rolls_back_while_a_slice_is_saved_fails(
+    api, create_user, login_user, whoami, monkeypatch, caplog,
+):
+    """Entity A is monitoring sourced: loading it marks the publishing
+    release in the publish's transaction. Saving B's slice joins that
+    transaction, and the database answers it by rolling the whole transaction
+    back (SQLite, on a full disk or an I/O error): the publish must fail, not
+    commit without A's marker."""
+    import json
+
+    from app.errors import AppError
+
+    if async_session_maker.kw["bind"].dialect.name != "sqlite":
+        pytest.skip("a refusal that rolls back the whole transaction is SQLite's")
+    token, org_id, admin_id = _bootstrap_admin(create_user, login_user, whoami)
+    member_id = _invite_member(api, token, org_id, create_user, login_user, whoami)
+    a, b = _identity_entities(api, token, org_id, 2)
+    release_id = _run(_monitoring_entity_and_publishing_release(org_id, admin_id, a))
+    _run(_owned_by(b, member_id))
+    message = _refusal_message()
+    _watch_app_logs(monkeypatch)
+
+    with caplog.at_level(logging.WARNING), _database_refusing_slices_of(b, message, whole_transaction=True):
+        loaded, committed, stored = _run(_publish_whose_transaction_the_database_loses(
+            org_id, admin_id, release_id, [a, b]))
+    assert isinstance(loaded, AppError) and loaded.status_code == 500, loaded
+    assert loaded.message == "The run's result could not be saved.", loaded.message
+    assert committed is not True, "the publish committed after its transaction was lost"
+    assert stored is None, stored
+    _assert_no_database_text(message, _REFUSED_VALUE, json.dumps(loaded.message), caplog.text)
+    # The log names what the database refused with, not the failed undo of
+    # the savepoint.
+    lost = [r.getMessage() for r in caplog.records
+            if r.name == "app.services.entity_service" and "transaction was lost" in r.getMessage()]
+    assert len(lost) == 1 and b in lost[0], caplog.text
+    assert "IntegrityError" in lost[0] and "OperationalError" not in lost[0], lost
+    assert not _run(_slice_rows(b))
+
+
+# One step of a refresh, or of a publish, may take longer than this; a step
+# that waits on a lock its own transaction holds does not come back sooner
+# than the database's lock timeout (30 s).
+_BOUND_SECONDS = 15
+
+
+async def _from_a_step_of(report_id, org_id, user_id, eid, owner_id):
+    """`eid` saved from a step of the conversation `report_id`, and owned by
+    `owner_id`. Direct model writes: a run of a monitoring-sourced entity
+    needs the conversation it came from, and no route saves an entity over a
+    local-file warehouse from a conversation's step."""
+    from sqlalchemy import update
+
+    from app.models.entity import Entity
+    from app.models.query import Query
+    from app.models.step import Step
+
+    async with async_session_maker() as db:
+        query = Query(title="Q", report_id=report_id, organization_id=org_id, user_id=user_id)
+        db.add(query)
+        await db.flush()
+        step = Step(title="Q", slug=f"step-{uuid.uuid4().hex[:8]}", status="success", code="",
+                    type="table", query_id=str(query.id))
+        db.add(step)
+        await db.flush()
+        await db.execute(update(Entity).where(Entity.id == eid).values(source_step_id=step.id, owner_id=owner_id))
+        await db.commit()
+
+
+def _monitored_identity_entity(api, create_report, token, org_id, admin_id, owner_id, ds_id, monkeypatch):
+    """An identity-scoped entity over the warehouse, saved from a
+    conversation and owned by `owner_id`, whose runs read monitoring data
+    (the data-source client reports it, as the built-in monitoring client
+    does). Its code sends no query, so its runs are not metered."""
+    from app.data_sources.clients.sqlite_client import SqliteClient
+
+    resp = api.post("/api/entities", headers=_headers(token, org_id), json={
+        "type": "model", "title": f"e-{uuid.uuid4().hex[:6]}", "code": _IDENTITY_CODE,
+        "status": "published", "parameters": [_VIEWER_SPEC], "data_source_ids": [ds_id]})
+    assert resp.status_code == 200, resp.text
+    eid = resp.json()["id"]
+    report_id = create_report(user_token=token, org_id=org_id)["id"]
+    _run(_from_a_step_of(report_id, org_id, admin_id, eid, owner_id))
+    monkeypatch.setattr(SqliteClient, "_bow_access", _monitoring_access(org_id), raising=False)
+    return eid
+
+
+async def _loads_in_one_refresh(org_id, user_id, release_id, ref, steps):
+    """`steps` steps of one dashboard refresh each load `ref`, on the
+    refresh's session and in its one transaction, which then commits."""
+    from app.ai.code_execution.loadables import LoadablesResolver
+    from app.models.artifact_release import ArtifactRelease
+    from app.models.organization import Organization
+    from app.models.user import User
+
+    async with async_session_maker() as db:
+        org = await db.get(Organization, org_id)
+        user = await db.get(User, user_id)
+        release = await db.get(ArtifactRelease, release_id)
+        results = [await LoadablesResolver(db, org, None, user, release=release).resolve([], [ref])
+                   for _ in range(steps)]
+        await db.commit()
+        return results
+
+
+async def _stored_access(model, row_id):
+    async with async_session_maker() as db:
+        return (await db.execute(select(model.bow_source_access).where(model.id == row_id))).scalar_one()
+
+
+@pytest.mark.e2e
+def test_a_refresh_whose_steps_load_one_monitoring_entity_serves_each_step_without_waiting_on_itself(
+    api, create_user, create_report, login_user, whoami, tmp_path, monkeypatch,
+):
+    from app.models.artifact_release import ArtifactRelease
+    from app.models.entity import Entity
+
+    token, org_id, admin_id = _bootstrap_admin(create_user, login_user, whoami)
+    member_id = _invite_member(api, token, org_id, create_user, login_user, whoami)
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, admin_id, tmp_path / "wh.db"))
+    eid = _monitored_identity_entity(api, create_report, token, org_id, admin_id, member_id, ds_id, monkeypatch)
+    release_id = _run(_publishing_release(org_id, admin_id))
+    admin_email = _run(_email_of(admin_id))
+
+    results = _run(asyncio.wait_for(_loads_in_one_refresh(org_id, admin_id, release_id, eid, 2), _BOUND_SECONDS))
+    for result in results:
+        assert result["errors"] == [], result["errors"]
+        assert result["entities"][eid].to_dict("records") == [{"viewer": admin_email}], result
+        assert result["entities"][eid].attrs["bow_source"] == _monitoring_access(org_id), result
+    assert _run(_stored_access(Entity, eid)) == _monitoring_access(org_id)
+    assert _run(_stored_access(ArtifactRelease, release_id)) == _monitoring_access(org_id)
+    assert [r.data["rows"] for r in _run(_slice_rows(eid))] == [[{"viewer": admin_email}]]
+
+
+async def _viewer_run_while_holding_the_entity(org_id, user_id, eid):
+    """A viewer run on a session that has written the entity's row without
+    committing (its transaction holds the row's lock). Returns the run's
+    error and whether the session's next write is stored."""
+    from sqlalchemy import update
+
+    from app.errors import AppError
+    from app.models.entity import Entity
+    from app.services.entity_service import EntityService
+
+    async with async_session_maker() as db:
+        org, user, entity = await _session_objects(db, org_id, user_id, eid)
+        await db.execute(update(Entity).where(Entity.id == eid).values(description="held"))
+        try:
+            await EntityService().run_entity_for_user(db, entity, org, user)
+            error = None
+        except AppError as err:
+            error = (err.status_code, err.message)
+        return error, await _write_on(db, eid)
+
+
+@pytest.mark.e2e
+def test_a_viewer_run_whose_save_waits_on_a_lock_of_its_callers_transaction_fails_fast_with_a_fixed_500(
+    api, create_user, create_report, login_user, whoami, tmp_path, monkeypatch,
+):
+    if async_session_maker.kw["bind"].dialect.name != "postgresql":
+        pytest.skip("on SQLite the save joins the caller's transaction")
+    token, org_id, admin_id = _bootstrap_admin(create_user, login_user, whoami)
+    member_id = _invite_member(api, token, org_id, create_user, login_user, whoami)
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, admin_id, tmp_path / "wh.db"))
+    eid = _monitored_identity_entity(api, create_report, token, org_id, admin_id, member_id, ds_id, monkeypatch)
+
+    error, written = _run(asyncio.wait_for(_viewer_run_while_holding_the_entity(org_id, admin_id, eid),
+                                           _BOUND_SECONDS))
+    assert error == (500, "The run's result could not be saved."), error
+    assert written, "a write on the caller's session after the failed save was lost"
 
 
 # ── A viewer run answers the reader's own mistakes and a busy source honestly ─
