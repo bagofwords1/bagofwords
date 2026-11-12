@@ -603,6 +603,20 @@ _WRITING_PANEL_XML = """
 _WRITING_SAVED = {"name": "Nightly rollup", "acl": {"app": "ops", "owner": "sre"},
                   "content": {"search": "index=web | stats count | collect index=summary"}}
 
+# Stored searches whose writing command opens a bracketed block or sits behind
+# an inline comment, so it never directly follows a `|` in the raw text.
+_HIDDEN_PANEL_XML = """
+<dashboard>
+  <label>Ops</label>
+  <row><panel><title>Export</title><table>
+    <search><query>index=web | stats count by host | ```c``` outputlookup hosts.csv</query></search>
+  </table></panel></row>
+</dashboard>
+"""
+
+_HIDDEN_SAVED = {"name": "Hidden rollup", "acl": {"app": "ops", "owner": "sre"},
+                 "content": {"search": "index=web | stats count | appendpipe [collect index=summary]"}}
+
 
 class _SplunkHttp:
     """Fake `pinned_request`: answers knowledge-object GETs from canned
@@ -625,8 +639,12 @@ class _SplunkHttp:
         if method == "GET":
             if path == "/servicesNS/-/ops/data/ui/views/ops_board":
                 return _Body({"entry": [_view_entry("ops", "ops_board", _WRITING_PANEL_XML)]})
+            if path == "/servicesNS/-/ops/data/ui/views/hidden_board":
+                return _Body({"entry": [_view_entry("ops", "hidden_board", _HIDDEN_PANEL_XML)]})
             if path == "/servicesNS/-/ops/saved/searches/Nightly rollup":
                 return _Body({"entry": [_WRITING_SAVED]})
+            if path == "/servicesNS/-/ops/saved/searches/Hidden rollup":
+                return _Body({"entry": [_HIDDEN_SAVED]})
             if path == "/servicesNS/-/-/data/ui/views":
                 return _Body({"entry": [_view_entry("payments", "checkout_health", _SIMPLE_XML)]})
             if path in ("/servicesNS/-/-/saved/searches", "/services/data/indexes"):
@@ -721,6 +739,58 @@ _REFUSED_SPL = [
 ]
 
 
+# The same commands where Splunk reads them but they do not follow a `|` in
+# the raw text: opening a bracketed block (appendpipe subpipeline, subsearch),
+# behind a triple-backtick inline comment (Splunk turns it into a space before
+# parsing), plus the MLTK commands that save or delete a model.
+_REFUSED_SPL += [
+    "index=web | stats count | appendpipe [outputlookup hosts.csv]",
+    "index=web | stats count | appendpipe [collect index=summary]",
+    "index=web | stats count | appendpipe [map search=\"search index=web\"]",
+    "index=web [savedsearch Nightly]",
+    "index=web | appendpipe[ \n\t outputlookup hosts.csv ]",
+    "index=web [\n  savedsearch Nightly ]",
+    "index=web |```x```delete",
+    "index=web | ```x``` outputlookup hosts.csv",
+    "index=web | ```a``` ```b``` delete",
+    "index=web | ```multi\nline``` collect index=summary",
+    "index=web | appendpipe [```x``` outputlookup hosts.csv]",
+    "index=web | stats count | ```x``` deletemodel m",
+    "| deletemodel m",
+    "index=web | fit LinearRegression y from x into m",
+    "index=web | fit LinearRegression y from x\n into m",
+    "index=web | appendpipe [fit KMeans x k=3 into m]",
+]
+
+
+@pytest.mark.parametrize("spl", [
+    "index=web | stats count | ```unterminated",
+    "index=web ```a``` | ```b",
+])
+def test_spl_with_an_unterminated_inline_comment_is_refused(splunk_http, spl):
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation
+
+    client, http = splunk_http
+    with pytest.raises(ReadOnlyViolation):
+        client.execute_query(spl)
+    with pytest.raises(ReadOnlyViolation):
+        client.execute_query({"spl": spl})
+    assert http.searches == []
+
+
+@pytest.mark.parametrize("query", [
+    {"dashboard": "ops/hidden_board", "panel": "Export"},
+    {"saved_search": "ops/Hidden rollup"},
+])
+def test_stored_search_hiding_a_write_is_refused_before_it_is_sent(splunk_http, query):
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation
+
+    client, http = splunk_http
+    with pytest.raises(ReadOnlyViolation):
+        client.execute_query(query)
+    assert http.searches == []
+
+
 @pytest.mark.parametrize("spl", _REFUSED_SPL)
 def test_spl_command_that_writes_or_runs_other_searches_is_refused(splunk_http, spl):
     from app.ai.code_execution.sql_guard import ReadOnlyViolation
@@ -738,11 +808,58 @@ def test_spl_command_that_writes_or_runs_other_searches_is_refused(splunk_http, 
     ("index=web | table host count", "search index=web | table host count"),
     ("search index=web status=500", "search index=web status=500"),
     ("index=web runtime>5 | inputlookup hosts.csv", "search index=web runtime>5 | inputlookup hosts.csv"),
+    ("index=web ```note``` | stats count", "search index=web ```note``` | stats count"),
+    ("index=web | ```note``` stats count", "search index=web | ```note``` stats count"),
+    ("index=web | `top_hosts` | stats count", "search index=web | `top_hosts` | stats count"),
+    ("index=web | stats count | appendpipe [stats sum(count) as total]",
+     "search index=web | stats count | appendpipe [stats sum(count) as total]"),
+    ("index=web [search index=hosts | fields host]", "search index=web [search index=hosts | fields host]"),
+    ("index=web | fit LinearRegression y from x", "search index=web | fit LinearRegression y from x"),
+    ("index=web | apply m", "search index=web | apply m"),
 ])
 def test_read_spl_still_posts_exactly_one_search(splunk_http, spl, expected):
     client, http = splunk_http
     client.execute_query(spl)
     assert http.searches == [expected]
+    client.execute_query({"spl": spl})
+    assert http.searches == [expected, expected]
+
+
+# ---------- envelopes the wrapper cannot read are refusals ---------- #
+#
+# Through the query wrapper the sandbox uses: an envelope that cannot be
+# decoded or captured is refused like any other refused query (UnsafeSQLError),
+# the attempted text is captured, and nothing reaches Splunk.
+
+def _wrapped(client):
+    from app.ai.code_execution.code_execution import QueryCapturingClientWrapper
+
+    captured: list = []
+    return QueryCapturingClientWrapper(client, captured, [], client_key="splunk:1"), captured
+
+
+def test_too_deeply_nested_json_envelope_is_a_refusal_with_capture(splunk_http):
+    from app.ai.code_execution.code_execution import UnsafeSQLError
+
+    client, http = splunk_http
+    envelope = '{"spl": ' + "[" * 200_000 + "]" * 200_000 + "}"
+    wrapper, captured = _wrapped(client)
+    with pytest.raises(UnsafeSQLError) as refused:
+        wrapper.execute_query(envelope)
+    assert '{"spl":' in str(refused.value)
+    assert [str(q) for q in captured] == [envelope]
+    assert http.searches == []
+
+
+def test_envelope_with_non_text_keys_is_a_refusal_with_capture(splunk_http):
+    from app.ai.code_execution.code_execution import UnsafeSQLError
+
+    client, http = splunk_http
+    wrapper, captured = _wrapped(client)
+    with pytest.raises(UnsafeSQLError):
+        wrapper.execute_query({"spl": "index=web | stats count", 1: "x"})
+    assert len(captured) == 1 and "index=web | stats count" in str(captured[0])
+    assert http.searches == []
 
 
 @pytest.mark.parametrize("query", [

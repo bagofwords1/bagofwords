@@ -1214,7 +1214,12 @@ class QueryCapturingClientWrapper:
         if isinstance(statement, dict):
             # Every dict envelope is captured as JSON text so the identity
             # check (which reads only text) sees it.
-            return json.dumps(statement, sort_keys=True, default=str)
+            try:
+                return json.dumps(statement, sort_keys=True, default=str)
+            except (TypeError, ValueError):
+                # Keys JSON cannot sort or hold; the guard refuses the
+                # envelope, and the capture shows what was attempted.
+                return repr(statement)
         if kwargs.get("params"):
             # Native params (Cypher's $name): captured with the query, so the
             # identity check still sees the values.

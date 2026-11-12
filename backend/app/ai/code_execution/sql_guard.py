@@ -71,16 +71,26 @@ _LITERALS_AND_COMMENTS = re.compile(
 # - alert or send data out: sendemail, sendalert, outputtelemetry, dbxoutput;
 # - run external code: script (alias run), runshellscript, dbxquery;
 # - run another search whose SPL is not in the text checked here: savedsearch
-#   (a stored search), map (builds and runs a search per input row).
+#   (a stored search), map (builds and runs a search per input row);
+# - delete a Machine Learning Toolkit model: deletemodel.
 # Reads that only look like these (inputlookup, loadjob, rest) stay allowed.
+# A command starts after a `|` or at the opening `[` of a bracketed block (an
+# appendpipe/append/join subpipeline or a subsearch), so both positions match.
 # Search macros expand on the server, so a macro body is never seen by this
 # check; that residual risk rests on the connection using a read-only role.
 _SPL_WRITE_COMMANDS = re.compile(
-    r"\|\s*(delete|outputlookup|outputcsv|outputtext|collect|summaryindex|mcollect"
+    r"[|\[]\s*(delete|outputlookup|outputcsv|outputtext|collect|summaryindex|mcollect"
     r"|meventcollect|tscollect|dump|crawl|input|sendemail|sendalert|outputtelemetry"
-    r"|dbxoutput|script|run|runshellscript|dbxquery|savedsearch|map)\b",
+    r"|dbxoutput|script|run|runshellscript|dbxquery|savedsearch|map|deletemodel)\b",
     re.IGNORECASE,
 )
+# MLTK `fit ... into <model>` saves the model as a lookup; plain `fit` (and
+# `apply`) only read. Refused conservatively: a `fit` with the word `into`
+# anywhere after it, so a later command that uses the word is refused too.
+_SPL_FIT_INTO = re.compile(r"[|\[]\s*fit\b.*?\binto\b", re.IGNORECASE | re.DOTALL)
+# Splunk replaces a triple-backtick inline comment with a space before it
+# parses the search, so the check reads the search with comments removed too.
+_SPL_INLINE_COMMENT = re.compile(r"```.*?```", re.DOTALL)
 
 # How a Splunk query is written; repeated when an envelope's SPL is not text.
 SPL_ENVELOPE_GUIDANCE = (
@@ -194,6 +204,8 @@ def ensure_read_only(client, query) -> Union[str, dict]:
         return query
     if not isinstance(query, str):
         if isinstance(query, dict) and profile.accepts_dict:
+            if any(not isinstance(key, str) for key in query):
+                raise ReadOnlyViolation(f"Envelope keys must be text. {SPL_ENVELOPE_GUIDANCE}")
             if profile.kind == "spl":
                 _check_spl_envelope(query)
             return query
@@ -224,7 +236,12 @@ def _check_spl_envelope(query) -> None:
     client decodes it before running it."""
     from app.data_sources.clients.splunk_client import SplunkClient
 
-    spl = SplunkClient.inline_spl(query)
+    try:
+        spl = SplunkClient.inline_spl(query)
+    except (RecursionError, ValueError) as e:
+        # JSON the decoder gives up on (nested too deep, a number too long)
+        # is not a query the client could run either.
+        raise ReadOnlyViolation(SPL_ENVELOPE_GUIDANCE) from e
     if spl is not None:
         check_spl(spl)
 
@@ -334,8 +351,22 @@ def check_spl(spl: str) -> None:
         raise ReadOnlyViolation(
             f"The SPL in a Splunk query must be text, not {type(spl).__name__}. {SPL_ENVELOPE_GUIDANCE}"
         )
-    match = _SPL_WRITE_COMMANDS.search(spl)
-    if match:
+    uncommented = _SPL_INLINE_COMMENT.sub(" ", spl)
+    if "```" in uncommented:
         raise ReadOnlyViolation(
-            f"SPL command '{match.group(1)}' is not allowed: only searches that read data can run."
+            "SPL has an inline comment (```) that is never closed. Close it with ``` or remove it."
         )
+    # Both readings are checked: with comments removed (how Splunk parses the
+    # search) and as written (in case Splunk keeps a ``` inside a quoted value
+    # that the removal above treated as a comment).
+    for text in (uncommented, spl):
+        match = _SPL_WRITE_COMMANDS.search(text)
+        if match:
+            raise ReadOnlyViolation(
+                f"SPL command '{match.group(1)}' is not allowed: only searches that read data can run."
+            )
+        if _SPL_FIT_INTO.search(text):
+            raise ReadOnlyViolation(
+                "SPL command 'fit ... into' is not allowed: it saves a model. "
+                "Run fit without 'into', or apply an existing model."
+            )

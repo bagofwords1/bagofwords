@@ -410,3 +410,16 @@ def test_splunk_write_hidden_in_a_json_envelope_is_refused(mode, splunk):
     with pytest.raises(UnsafeSQLError):
         _run({"spl": client}, f"return ds_clients['spl'].execute_query('{envelope}')")
     assert http.searches == []
+
+
+@pytest.mark.parametrize("spl", [
+    "search index=crm | ```c``` delete",
+    "search index=crm | appendpipe [outputlookup users.csv]",
+])
+def test_splunk_write_behind_a_comment_or_bracket_is_refused(mode, splunk, spl):
+    client, http = splunk
+    with pytest.raises(UnsafeSQLError):
+        _run({"spl": client}, f"return ds_clients['spl'].execute_query({{'spl': {spl!r}}})")
+    with pytest.raises(UnsafeSQLError):
+        _run({"spl": client}, f"return ds_clients['spl'].execute_query({spl!r})")
+    assert http.searches == []
