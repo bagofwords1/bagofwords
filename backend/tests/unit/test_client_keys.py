@@ -153,6 +153,8 @@ def test_literal_keys_are_the_clients_the_code_reaches(code, expected):
     'import pandas.core.computation\nds_clients["A:c"]',
     'from pandas import core\nds_clients["A:c"]',
     'from numpy import testing\nds_clients["A:c"]',
+    'import numpy.ctypeslib\nds_clients["A:c"]',
+    'import numpy.f2py\nds_clients["A:c"]',
     'from functools import wraps\nds_clients["A:c"]',
     'from typing import get_type_hints\nds_clients["A:c"]',
 ])

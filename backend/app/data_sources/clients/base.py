@@ -144,7 +144,8 @@ class DataSourceClient(DiscoveryClient, ABC):
     # a "sql" field (Elasticsearch, OpenSearch): a value renders there as a
     # SQL literal, and the envelope is serialized again so it stays inside its
     # JSON string. Elsewhere in a JSON query document -- any connector's -- a
-    # parameter renders only as a bare JSON number value.
+    # parameter renders as the engine's literal inside a string value
+    # (JSON-escaped), as a finite number as a bare value, and never in a key.
     sql_in_json_envelope: bool = False
 
     # When True, listing files live from the source is cheap enough to do on

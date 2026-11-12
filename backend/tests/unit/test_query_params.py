@@ -442,6 +442,11 @@ def test_a_value_holding_another_placeholders_stand_in_stays_its_own_literal():
     {"a": "'7301000000000000002'", "b": "7301000000000000000", "c": "q"},
     {"a": "7301000000000000001 7301000000000000002", "b": " or 1=1 or ", "c": "z"},
     {"a": "8301000000000000001", "b": "7301000000000000002", "c": "8301000000000000000"},
+    # A value made of every stand-in base the renderer could pick: the base
+    # is chosen from the document alone, and the value still renders as its
+    # own literal.
+    {"a": "".join(str(7301000000000000000 + i * 1000000000000000)[:12] for i in range(40)),
+     "b": "7301000000000000001", "c": "q"},
 ])
 def test_every_string_renders_as_a_one_pass_render_of_its_placeholders(values):
     import json

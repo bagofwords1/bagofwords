@@ -395,11 +395,13 @@ def render_sql_with_params(
     `literal_style_required` (the run's query wrapper, for a connector): then
     the source has no known rule and the parameters are refused. For a
     connector (`literal_style_required`) whose query text is a JSON document,
-    a value is never written into it as a SQL literal (it could end a JSON
-    string and add keys): refused, unless the connector's SQL sits in the
-    document's "sql" field (`sql_in_json_envelope`), which is then the only
-    place a value is rendered. Nothing is refused when no placeholder of
-    the query matches.
+    the document is parsed and serialized again so no value can end a JSON
+    string or add a key (`_render_json_query`): inside a string value a
+    placeholder renders as the engine's literal, then JSON-escaped; as a
+    bare JSON value it takes a finite number only; in a key it is refused.
+    The "sql" field of a JSON envelope (`sql_in_json_envelope`) renders with
+    the engine's literal style. Nothing is refused when no placeholder of the
+    query matches.
     """
     if not _PLACEHOLDER_RE.search(sql):
         return sql
@@ -471,10 +473,12 @@ def _render_json_query(text: str, values: Dict[str, Any], *, client_type_name: s
     who = client_type_name or "This source"
     missing: List[str] = []
     stand_ins: Dict[str, str] = {}  # stand-in digits -> placeholder name
-    # Stand-in digits that occur nowhere in the document or in any value.
-    seen_text = text + "\n" + repr(values)
+    # Stand-in digits that occur nowhere in the document. Values need no
+    # check: stand-ins are replaced in one pass, so a rendered value is
+    # never scanned again (and scanning viewer values here would make the
+    # cost depend on their length).
     base = 7301000000000000000
-    while str(base)[:12] in seen_text:
+    while str(base)[:12] in text:
         base += 1000000000000000
     width = len(str(base))
 

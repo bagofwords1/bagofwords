@@ -118,7 +118,7 @@ _IMPORTABLE_NAMES = {
                          "Mapping", "Callable", "Set"}),
 }
 # Attributes of pandas / numpy that lead into their internals.
-_INTERNAL_ATTRIBUTES = frozenset({"core", "testing"})
+_INTERNAL_ATTRIBUTES = frozenset({"core", "testing", "ctypeslib", "f2py"})
 # Names that reach a variable by its name, or the run's namespace.
 _NAMESPACE_NAMES = frozenset({
     "locals", "globals", "vars", "eval", "exec", "compile", "getattr", "setattr", "delattr",
