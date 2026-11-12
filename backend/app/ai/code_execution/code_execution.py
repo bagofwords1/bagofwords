@@ -1018,7 +1018,8 @@ class QueryCapturingClientWrapper:
             from app.ai.code_execution.identity_bind import CapturedQuery
             self._captured_queries.append(CapturedQuery(
                 capture, type(self._original).__name__,
-                getattr(self._original, "sql_literal_style", None)))
+                getattr(self._original, "sql_literal_style", None),
+                bool(getattr(self._original, "sql_in_json_envelope", False))))
         idx = len(self._captured_timings)
         _q_start = _time.monotonic()
         with _tracer.start_as_current_span("datasource.execute_query") as span:

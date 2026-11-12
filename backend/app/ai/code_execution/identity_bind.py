@@ -68,15 +68,20 @@ class CapturedQuery(str):
     # so a client sqlglot has no dialect for is read with one whose string
     # literals follow the same rule (_STYLE_DIALECTS).
     literal_style: Optional[str]
+    # The client's sql_in_json_envelope: its query is a JSON envelope whose
+    # "sql" field is the statement (Elasticsearch, OpenSearch).
+    sql_in_json_envelope: bool
 
-    def __new__(cls, text: str, client_type: Optional[str] = None, literal_style: Optional[str] = None):
+    def __new__(cls, text: str, client_type: Optional[str] = None, literal_style: Optional[str] = None,
+                sql_in_json_envelope: bool = False):
         obj = super().__new__(cls, text)
         obj.client_type = client_type
         obj.literal_style = literal_style
+        obj.sql_in_json_envelope = bool(sql_in_json_envelope)
         return obj
 
     def __reduce__(self):
-        return (CapturedQuery, (str(self), self.client_type, self.literal_style))
+        return (CapturedQuery, (str(self), self.client_type, self.literal_style, self.sql_in_json_envelope))
 
 
 def _matches(text: str, needles: Tuple[str, ...], fold: bool = False) -> bool:

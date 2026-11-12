@@ -319,12 +319,15 @@ def test_a_query_with_no_placeholder_runs_even_where_parameters_are_refused(modu
     assert _sql_received(module, class_name, "StormEvents | take 10", "it's") == "StormEvents | take 10"
 
 
-# Connectors whose query text is a JSON document, not SQL: a value written as
-# a SQL literal inside a JSON string could end that string and add keys.
+# Connectors whose query text is a JSON document, not SQL: a placeholder that
+# stands as a JSON value takes a number only (anything else would have to be
+# written as JSON there).
 _JSON_QUERY_CLIENTS = [
-    ("mongodb_client", "MongodbClient", '{"collection": "orders", "find": {"owner": ":v"}}'),
-    ("servicenow_client", "ServiceNowClient", '{"table": "incident", "query": "caller=:v"}'),
-    ("zabbix_client", "ZabbixClient", '{"table": "hosts", "filter": {"host": ":v"}}'),
+    ("mongodb_client", "MongodbClient", '{"collection": "orders", "find": {"owner": :v}}'),
+    ("servicenow_client", "ServiceNowClient", '{"table": "incident", "limit": :v}'),
+    ("zabbix_client", "ZabbixClient", '{"table": "hosts", "filter": {"hostid": :v}}'),
+    # A placeholder as a key is refused whatever the value.
+    ("servicenow_client", "ServiceNowClient", '{"table": "incident", ":v": 1}'),
 ]
 
 
@@ -369,6 +372,52 @@ def test_a_json_query_takes_a_number_parameter(module, class_name, query, keys, 
         return [node] if isinstance(node, (int, float)) and not isinstance(node, bool) else []
 
     assert numbers(parsed) == [number]
+
+
+# A placeholder inside a JSON string value is written as main wrote it (the
+# client's literal), and json.dumps then escapes it for that string.
+_JSON_STRING_QUERIES = [
+    ("intune_client", "IntuneClient", '{"table": "managed_devices", "filter": "complianceState eq :s"}',
+     {"s": "noncompliant"}, "filter", "complianceState eq 'noncompliant'"),
+    ("servicenow_client", "ServiceNowClient", '{"table": "incident", "query": "priority=:p"}',
+     {"p": 1}, "query", "priority=1"),
+    ("servicenow_client", "ServiceNowClient", '{"table": "incident", "query": "caller=:c"}',
+     {"c": 'a", "x": "y'}, "query", 'caller=\'a", "x": "y\''),
+]
+
+
+@pytest.mark.parametrize("module,class_name,query,values,field,expected", _JSON_STRING_QUERIES)
+def test_a_placeholder_inside_a_json_string_renders_as_before_and_stays_in_it(
+        module, class_name, query, values, field, expected):
+    import json
+
+    original = json.loads(query)  # placeholders inside strings: valid JSON as written
+    parsed = json.loads(_sql_received(module, class_name, query, None, values=values))
+    assert set(parsed) == set(original)
+    assert parsed[field] == expected
+
+
+def test_a_placeholder_run_into_other_digits_is_refused():
+    """`:n.5` is no placeholder value of the document: nothing may be left
+    standing in for one."""
+    from app.ai.code_execution.code_execution import QueryCapturingClientWrapper
+
+    client = _recording_client("servicenow_client", "ServiceNowClient")
+    with pytest.raises(ParamError):
+        QueryCapturingClientWrapper(client, [], [], query_timeout_seconds=30).execute_query(
+            '{"table": "incident", "x": :n.5}', params={"n": 5})
+    assert client.received == []
+
+
+def test_only_an_envelope_client_has_its_captured_sql_read_as_the_statement():
+    """A JSON capture of a client that takes no SQL envelope keeps the check
+    it had: its "esql"/"sql" keys mean nothing to that client."""
+    from app.ai.code_execution.identity_bind import CapturedQuery
+
+    specs = _specs({"name": "v", "type": "string", "source": "identity"})
+    text = '{"esql": "FROM t", "sql": "SELECT * FROM t WHERE owner = \'a@x.com\'"}'
+    other_client = CapturedQuery(text, "MongodbClient", "standard")
+    assert verify_identity_binds_in_queries([other_client], {"v": "a@x.com"}, specs) is None
 
 
 def test_a_mongo_range_query_takes_a_number():
@@ -427,14 +476,26 @@ def test_a_param_in_the_envelopes_sql_stays_one_literal_of_that_sql(module, clas
 
 
 @pytest.mark.parametrize("module,class_name,dialect", _ENVELOPE_SQL_CLIENTS)
-def test_a_param_outside_the_envelopes_sql_is_refused(module, class_name, dialect):
+def test_a_param_as_an_envelope_key_or_a_non_number_value_is_refused(module, class_name, dialect):
     from app.ai.code_execution.code_execution import QueryCapturingClientWrapper
 
     client = _recording_client(module, class_name)
-    with pytest.raises(ParamError, match="sql"):
-        QueryCapturingClientWrapper(client, [], [], query_timeout_seconds=30).execute_query(
-            '{"index": "orders", "query": {"term": {"owner": ":v"}}}', params={"v": "a@x.com"})
+    for envelope in ('{"index": "orders", "query": {"term": {":v": "x"}}}',
+                     '{"index": "orders", "size": :v}'):
+        with pytest.raises(ParamError, match="sql"):
+            QueryCapturingClientWrapper(client, [], [], query_timeout_seconds=30).execute_query(
+                envelope, params={"v": "a@x.com"})
     assert client.received == []
+
+
+@pytest.mark.parametrize("module,class_name,dialect", _ENVELOPE_SQL_CLIENTS)
+def test_a_param_in_an_envelope_dsl_string_renders_as_before(module, class_name, dialect):
+    import json
+
+    parsed = json.loads(_sql_received(module, class_name,
+                                      '{"index": "orders", "query": {"term": {"owner": ":v"}}}', 'a"b'))
+    assert set(parsed) == {"index", "query"}
+    assert parsed["query"] == {"term": {"owner": "'a\"b'"}}
 
 
 def test_the_identity_check_reads_the_sql_inside_an_envelope():
@@ -443,9 +504,9 @@ def test_the_identity_check_reads_the_sql_inside_an_envelope():
     specs = _specs({"name": "v", "type": "string", "source": "identity"})
     from app.ai.code_execution.identity_bind import CapturedQuery
 
-    scoped = CapturedQuery('{"sql": "SELECT * FROM t WHERE owner = \'a@x.com\'"}', "ElasticsearchClient", "standard")
+    scoped = CapturedQuery('{"sql": "SELECT * FROM t WHERE owner = \'a@x.com\'"}', "ElasticsearchClient", "standard", True)
     widened = CapturedQuery('{"sql": "SELECT * FROM t WHERE owner = \'a@x.com\' OR 1 = 1"}',
-                            "ElasticsearchClient", "standard")
+                            "ElasticsearchClient", "standard", True)
     assert verify_identity_binds_in_queries([scoped], {"v": "a@x.com"}, specs) is None
     assert verify_identity_binds_in_queries([widened], {"v": "a@x.com"}, specs) is not None
 
@@ -505,7 +566,7 @@ def test_the_identity_check_reads_no_envelope_sql_another_key_runs_instead_of():
     specs = _specs({"name": "v", "type": "string", "source": "identity"})
     for first in ('"esql": "FROM t"', '"dashboard": "space/title"', '"saved_search": "space/s"'):
         capture = CapturedQuery('{' + first + ', "sql": "SELECT * FROM t WHERE owner = \'a@x.com\'"}',
-                                "ElasticsearchClient", "standard")
+                                "ElasticsearchClient", "standard", True)
         assert verify_identity_binds_in_queries([capture], {"v": "a@x.com"}, specs) is not None, first
 
 

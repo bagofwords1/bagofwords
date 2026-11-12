@@ -457,11 +457,16 @@ def _render_json_query(text: str, values: Dict[str, Any], *, client_type_name: s
       OpenSearch), the SQL is rendered with the engine's literal style --
       json.dumps then escapes it for the JSON string, so a value can end
       neither the SQL string nor the JSON one;
+    - inside any other string value ("filter": "state eq :s"), the value is
+      written as before this rule existed (the client's literal, 'it''s'),
+      and json.dumps escapes it for that string, so it cannot end the string
+      or add a key;
     - a placeholder standing as a JSON value takes a finite number only,
       written as a bare JSON number ("limit": :n, {"$gt": :n}), which cannot
       end a string or add a key;
-    - any other placeholder -- inside another string or key, or a value that
-      is not a finite number -- is refused.
+    - a placeholder in a key, a value that is not a finite number where a
+      JSON value stands, or a stand-in left over (run into other digits,
+      `:n.5`) is refused.
     """
     who = client_type_name or "This source"
     missing: List[str] = []
@@ -492,11 +497,21 @@ def _render_json_query(text: str, values: Dict[str, Any], *, client_type_name: s
     def _refuse(where: str):
         raise ParamError(
             f"{who}: a query parameter {where} -- in a JSON query a parameter is rendered only "
-            "as a number value" + (" or into the envelope's \"sql\" field" if sql_field else "")
+            "as a number value or inside a string value"
+            + (", or into the envelope's \"sql\" field" if sql_field else "")
         )
 
     def _holds_stand_in(s: str) -> bool:
         return any(token in s for token in stand_ins)
+
+    used: set = set()
+
+    def _in_string(s: str, render) -> str:
+        for token, name in stand_ins.items():
+            if token in s:
+                used.add(token)
+                s = s.replace(token, render(name))
+        return s
 
     def _walk(node: Any, *, is_sql: bool = False) -> Any:
         if isinstance(node, dict):
@@ -510,23 +525,21 @@ def _render_json_query(text: str, values: Dict[str, Any], *, client_type_name: s
             return [_walk(item) for item in node]
         if isinstance(node, str):
             if is_sql:
-                for token, name in stand_ins.items():
-                    node = node.replace(token, ":" + name)
-                return render_sql_with_params(node, values, client_type_name=client_type_name,
-                                              literal_style=literal_style)
-            if _holds_stand_in(node):
-                _refuse("inside a string")
-            return node
+                return render_sql_with_params(_in_string(node, lambda name: ":" + name), values,
+                                              client_type_name=client_type_name, literal_style=literal_style)
+            return _in_string(node, lambda name: _render_literal(values[name], literal_style=literal_style))
         if isinstance(node, int) and not isinstance(node, bool) and str(node) in stand_ins:
+            used.add(str(node))
             value = values[stand_ins[str(node)]]
             if not _json_number(value):
                 _refuse(f"value of type {type(value).__name__}")
             return value
-        if isinstance(node, (int, float)) and not isinstance(node, bool) and _holds_stand_in(repr(node)):
-            _refuse("where no value can stand")  # e.g. a placeholder run into other digits
         return node
 
-    return json.dumps(_walk(document), ensure_ascii=False)
+    rendered = json.dumps(_walk(document), ensure_ascii=False)
+    if used != set(stand_ins):
+        _refuse("where no value can stand (run into other characters)")
+    return rendered
 
 
 # ---------------------------------------------------------------------------
@@ -755,7 +768,9 @@ def _query_binds_value(capture: str, needles: List[str], param: str = "") -> boo
     from app.ai.code_execution.identity_bind import log_fallback, structural_binds
 
     client_type = getattr(capture, "client_type", None)
-    is_envelope, envelope_sql = _envelope_sql(str(capture))
+    # Only a client that takes a SQL envelope runs its "sql" field.
+    is_envelope, envelope_sql = (_envelope_sql(str(capture)) if getattr(capture, "sql_in_json_envelope", False)
+                                 else (False, None))
     if is_envelope and envelope_sql is None:
         # Its "sql" is not the statement that ran: nothing shows the filter.
         return False
@@ -763,7 +778,7 @@ def _query_binds_value(capture: str, needles: List[str], param: str = "") -> boo
         # A JSON query envelope carrying SQL: the SQL is what filters.
         from app.ai.code_execution.identity_bind import CapturedQuery
 
-        capture = CapturedQuery(envelope_sql, client_type, getattr(capture, "literal_style", None))
+        capture = CapturedQuery(envelope_sql, client_type, getattr(capture, "literal_style", None), True)
     stripped = _strip_sql_comments(capture)
     looks_sql = bool(_SQL_START_RE.match(stripped))
     verdict = structural_binds(str(capture), client_type, tuple(needles), looks_sql,
