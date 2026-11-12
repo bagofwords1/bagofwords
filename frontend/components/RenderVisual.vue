@@ -430,7 +430,7 @@ function buildCartesianOptions(normalizedRows: DataRow[], dataModel: DataModel):
         splitLine: showGrid ? { show: true, lineStyle: { color: gridColor, width: 1 } } : { show: false }
     }
     // A crowded new chart (showDataZoom) opens on its latest points.
-    const zoom = props.view?.view?.showDataZoom ? latestWindowZoom(categories.length, series.length, isHorizontal ? 'yAxisIndex' : 'xAxisIndex') : null;
+    const zoom = props.view?.view?.showDataZoom ? latestWindowZoom(categories, series.length, isHorizontal ? 'yAxisIndex' : 'xAxisIndex') : null;
 
     // Only include legend when it should be shown. With many series a single
     // horizontal row is useless, so dock a scrollable vertical legend on the

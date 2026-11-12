@@ -518,7 +518,7 @@ function buildCartesianOptions(rows: any[], dm: any): EChartsOption {
     : undefined
 
   // A crowded new chart (showDataZoom) opens on its latest points.
-  const zoom = viewV2?.showDataZoom ? latestWindowZoom(categories.length, series.length, isHorizontal ? 'yAxisIndex' : 'xAxisIndex') : null
+  const zoom = viewV2?.showDataZoom ? latestWindowZoom(categories, series.length, isHorizontal ? 'yAxisIndex' : 'xAxisIndex') : null
   return {
     ...(gridOverride ? { grid: gridOverride } : {}),
     // Room under the plot for the slider; other margins as the base grid.

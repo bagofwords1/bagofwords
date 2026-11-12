@@ -41,11 +41,31 @@ export function zoomWindow(points: number, series: number): number | null {
   return points > cap ? cap : null;
 }
 
-/** dataZoom for a crowded chart: open on the latest `zoomWindow` points, slider to the rest. */
-export function latestWindowZoom(points: number, series: number, axisIndexKey: 'xAxisIndex' | 'yAxisIndex' = 'xAxisIndex') {
+/** A sortable key for a time-like category label (date, year, YYYY-MM, quarter), else null. */
+function timeKey(label: unknown): number | null {
+  const s = String(label ?? '').trim();
+  let m = s.match(/^(\d{4})[-\s]?Q([1-4])$/i) || s.match(/^Q([1-4])[-\s]?(\d{4})$/i);
+  if (m) { const [y, q] = /^\d{4}$/.test(m[1]) ? [m[1], m[2]] : [m[2], m[1]]; return Number(y) * 4 + Number(q); }
+  if (/^\d{4}$/.test(s)) return Number(s) * 12 * 31;
+  if (/^\d{4}[-/]\d{1,2}([-/]\d{1,2})?([T ].*)?$/.test(s)) { const t = Date.parse(s.length === 7 ? s + '-01' : s); return Number.isNaN(t) ? null : t; }
+  return null;
+}
+
+/** True when time-like categories run newest first (rows ordered DESC). */
+export function isNewestFirst(categories: unknown[]): boolean {
+  if (!categories || categories.length < 2) return false;
+  const a = timeKey(categories[0]), b = timeKey(categories[categories.length - 1]);
+  return a !== null && b !== null && a > b;
+}
+
+/** dataZoom for a crowded chart: open on the latest `zoomWindow` points, slider to the rest.
+ *  The latest points are at the end of oldest-first categories and at the start of newest-first ones. */
+export function latestWindowZoom(categories: unknown[] | number, series: number, axisIndexKey: 'xAxisIndex' | 'yAxisIndex' = 'xAxisIndex') {
+  const points = Array.isArray(categories) ? categories.length : categories;
   const win = zoomWindow(points, series);
   if (!win) return null;
-  const startValue = points - win, endValue = points - 1;
+  const newestFirst = Array.isArray(categories) && isNewestFirst(categories);
+  const startValue = newestFirst ? 0 : points - win, endValue = newestFirst ? win - 1 : points - 1;
   return [
     { type: 'inside', [axisIndexKey]: 0, startValue, endValue, filterMode: 'weakFilter' },
     { type: 'slider', [axisIndexKey]: 0, startValue, endValue, bottom: 4, height: 18, brushSelect: false },
