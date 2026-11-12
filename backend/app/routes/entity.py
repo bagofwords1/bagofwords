@@ -1,4 +1,7 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 
@@ -9,6 +12,7 @@ from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission, check_resource_permissions, require_org_permission
 from app.core.code_visibility import require_run_custom_code
 from app.errors import AppError, ErrorCode
+from app.errors.redact import describe_for_log
 
 from app.models.entity import Entity
 from app.schemas.entity_schema import (
@@ -25,6 +29,7 @@ from app.services.entity_service import EntityService
 
 router = APIRouter(prefix="/entities", tags=["entities"])
 service = EntityService()
+logger = logging.getLogger(__name__)
 
 
 async def _holds_create_entities(db, user, organization, ds_ids: List[str]) -> bool:
@@ -574,23 +579,32 @@ async def run_entity(
         # A builder run reports its failure as ValueError, caused by the
         # original error, which keeps its own status: a refusal its refusal
         # status, a typed error (query timeout 408, swallowed query failure
-        # 422, ...) the one its handler gives. Only the entity itself
-        # missing is a 404; any other failure of the code is a 422.
+        # 422, ...) the one its handler gives. A failure of the app database
+        # (saving the result) goes to the global handler, which keeps its
+        # statement and values out of the answer. Any other failure of the
+        # code is a 422 with its error.
         cause = e.__cause__
         refusal = _refusal_http_error(cause)
         if refusal is not None:
             raise refusal from e
-        if isinstance(cause, AppError):
+        if isinstance(cause, (AppError, SQLAlchemyError)):
             raise cause
-        if cause is None and str(e) == "Entity not found":
-            raise HTTPException(status_code=404, detail=str(e))
         raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception as e:
-        # A viewer run (params) lets the original error through.
+        # A viewer run (params) lets the original error through, except a
+        # refusal and a failure of the saved code: a viewer may not be
+        # allowed to see the code, so that answer and its log line leave
+        # out the code's error.
+        from app.ai.code_execution.sandbox.runner import SandboxExecutionError
         refusal = _refusal_http_error(e)
-        if refusal is None:
-            raise
-        raise refusal from e
+        if refusal is not None:
+            raise refusal from e
+        if isinstance(e, SandboxExecutionError):
+            logger.warning("Entity %s: its saved code failed in a run with parameter values: %s",
+                           entity_id, describe_for_log(e))
+            raise AppError(ErrorCode.ENTITY_RUN_FAILED, "The saved query failed to run.",
+                           status_code=422) from e
+        raise
 
 
 @router.post("/{entity_id}/preview")

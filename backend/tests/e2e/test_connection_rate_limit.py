@@ -13,6 +13,7 @@ Covers:
 """
 
 import asyncio
+import logging
 import sqlite3
 import uuid
 
@@ -571,7 +572,7 @@ def test_an_entity_run_whose_code_fails_is_not_answered_as_a_missing_entity(
 
 @pytest.mark.e2e
 def test_an_entity_run_refusal_survives_a_failed_save_of_the_refresh_time(
-    api, create_user, login_user, whoami, tmp_path, monkeypatch,
+    api, create_user, login_user, whoami, tmp_path, monkeypatch, caplog,
 ):
     """After a refused run the service records the refresh time; when that
     save fails too, the caller still gets the refusal, not the save error."""
@@ -587,9 +588,85 @@ def test_an_entity_run_refusal_survives_a_failed_save_of_the_refresh_time(
     async def database_down(self):
         raise OperationalError("COMMIT", {}, Exception("database is locked"))
 
+    # alembic's fileConfig disables the loggers that exist when it runs.
+    monkeypatch.setattr(logging.getLogger("app.services.entity_service"), "disabled", False)
     monkeypatch.setattr(AsyncSession, "commit", database_down)
-    served, resp = _call(api, "entity_run", token, org_id, ds_id, eid, 1)
+    with caplog.at_level(logging.WARNING, logger="app.services.entity_service"):
+        served, resp = _call(api, "entity_run", token, org_id, ds_id, eid, 1)
     assert not served, resp.text
     reason = _refusal_text("entity_run", resp, 403)
     assert reason and "database is locked" not in reason, resp.text
     assert _order_count(db_path) == 3
+    # The lost save is logged, without the save error's text.
+    lost = [r.getMessage() for r in caplog.records
+            if r.name == "app.services.entity_service" and "not saved" in r.getMessage()]
+    assert len(lost) == 1, caplog.text
+    assert eid in lost[0] and "OperationalError" in lost[0], lost
+    assert "database is locked" not in lost[0], lost
+
+
+@pytest.mark.e2e
+def test_an_entity_run_whose_save_fails_never_answers_with_the_database_error(
+    api, create_user, login_user, whoami, tmp_path, monkeypatch, caplog,
+):
+    """The run succeeds but saving its result fails: the app database's error
+    (its statement and bound values) never reaches the caller; the global
+    handler answers and logs it."""
+    from sqlalchemy.exc import OperationalError
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db"))
+    eid = _entity(api, token, org_id, ds_id)
+    statement = "UPDATE entities SET data=? WHERE entities.id = ?"
+    bound = f"bound-{uuid.uuid4().hex}"
+
+    async def save_fails(self):
+        raise OperationalError(statement, (bound, eid), Exception("disk I/O error"))
+
+    monkeypatch.setattr(logging.getLogger("app.errors"), "disabled", False)
+    monkeypatch.setattr(AsyncSession, "commit", save_fails)
+    with caplog.at_level(logging.ERROR, logger="app.errors"):
+        resp = api.post(f"/api/entities/{eid}/run", json={}, headers=_headers(token, org_id))
+    assert resp.status_code not in (200, 422), resp.text
+    assert statement not in resp.text and "UPDATE entities" not in resp.text, resp.text
+    assert bound not in resp.text and "disk I/O error" not in resp.text, resp.text
+    assert resp.json()["detail"] == "Internal server error", resp.text
+    assert resp.json()["request_id"], resp.text
+    assert [r for r in caplog.records if r.name == "app.errors" and r.levelno >= logging.ERROR], caplog.text
+
+
+@pytest.mark.e2e
+def test_a_viewer_run_whose_saved_code_fails_answers_422_without_the_code_error(
+    test_client, create_user, login_user, whoami, tmp_path, monkeypatch, caplog,
+):
+    """A run with parameter values executes the saved code; when that code
+    fails the caller gets a 422 that does not quote the code's error (a viewer
+    may not be allowed to see the code), and the server logs it without the
+    error's text."""
+    from fastapi.testclient import TestClient
+
+    from main import app
+
+    # Observe what a real HTTP client receives.
+    client = TestClient(app, raise_server_exceptions=False)
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db"))
+    marker = f"marker-{uuid.uuid4().hex[:8]}"
+    eid = _entity(test_client, token, org_id, ds_id,
+                  code=_code_running(f'"SELECT id FROM orders" if {{}}["{marker}"] else ""'))
+
+    monkeypatch.setattr(logging.getLogger("app.routes.entity"), "disabled", False)
+    with caplog.at_level(logging.WARNING, logger="app.routes.entity"):
+        resp = client.post(f"/api/entities/{eid}/run", json={"params": {"v": 1}}, headers=_headers(token, org_id))
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["error_code"] == "entity.run_failed", resp.text
+    assert marker not in resp.text and "KeyError" not in resp.text, resp.text
+    logged = [r for r in caplog.records if r.name == "app.routes.entity"]
+    assert logged, caplog.text
+    assert all(marker not in r.getMessage() for r in logged), caplog.text
+
+    # A builder run of the same code still reports the code's error.
+    builder = client.post(f"/api/entities/{eid}/run", json={}, headers=_headers(token, org_id))
+    assert builder.status_code == 422, builder.text
+    assert "KeyError" in builder.json()["detail"], builder.text

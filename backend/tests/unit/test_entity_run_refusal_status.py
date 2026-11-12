@@ -41,3 +41,28 @@ def test_a_host_without_the_sandbox_answers_503_with_the_operator_remedy():
 ])
 def test_an_ordinary_failure_is_not_a_refusal(exc):
     assert _refusal_http_error(exc) is None
+
+
+@pytest.mark.db
+def test_running_a_missing_entity_is_a_typed_not_found():
+    """The service says the entity is missing with a typed 404, so the route
+    never has to tell it from a failed run by the message text."""
+    import asyncio
+    import uuid
+    from types import SimpleNamespace
+
+    from app.dependencies import async_session_maker
+    from app.errors import AppError
+    from app.schemas.entity_schema import EntityRunPayload
+    from app.services.entity_service import EntityService
+
+    async def run_missing():
+        async with async_session_maker() as db:
+            await EntityService().run_entity_with_update(
+                db, str(uuid.uuid4()), EntityRunPayload(), SimpleNamespace(id=str(uuid.uuid4())),
+            )
+
+    with pytest.raises(AppError) as raised:
+        asyncio.run(run_missing())
+    assert raised.value.status_code == 404
+    assert raised.value.error_code == "entity.not_found"

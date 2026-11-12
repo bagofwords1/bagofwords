@@ -2155,6 +2155,7 @@
     "stepRequired": "Se requiere un paso para guardar",
     "publishedToast": "Consulta publicada en el catálogo",
     "suggestedToast": "Sugerencia enviada para revisión",
+    "savedRunFailed": "Se guardó, pero la consulta no se pudo ejecutar",
     "parametersHeading": "Parámetros",
     "parametersBody": "Se guardan con la consulta. Quien cargue esta entidad puede pasar sus propios valores; los parámetros de identidad siempre se vinculan al usuario que la ve. La comprobación del filtro de identidad es una salvaguarda; para un aislamiento estricto usa seguridad a nivel de fila en la base de datos o credenciales por usuario.",
     "paramIdentity": "según el usuario",
@@ -4615,6 +4616,7 @@
     "locale.invalid": "Ese idioma no está habilitado",
     "report.not_found": "Informe no encontrado",
     "entity.not_found": "Entidad no encontrada",
+    "entity.run_failed": "La consulta guardada no se pudo ejecutar. Pide a su propietario que la revise.",
     "user.not_found": "Usuario no encontrado",
     "membership.not_found": "Membresía no encontrada",
     "role.not_found": "Rol no encontrado",
@@ -4630,7 +4632,8 @@
     "resource.duplicate": "Recurso duplicado",
     "setting.update_failed": "No se pudo actualizar la configuración",
     "query": {
-      "failed_silently": "Una consulta falló, pero el código generado devolvió un resultado vacío en lugar de informarlo"
+      "failed_silently": "Una consulta falló, pero el código generado devolvió un resultado vacío en lugar de informarlo: {query_errors}",
+      "timeout": "La consulta tardó más de {timeout_seconds} segundos y se detuvo. Acótala con filtros, un límite de filas o una agregación, o divídela en consultas más pequeñas."
     },
     "llm": {
       "model_id_required": "El ID del modelo no puede estar vacío",

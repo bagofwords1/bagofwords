@@ -39,7 +39,13 @@ export function catalogMessage(
   const code = payload.error_code
   if (!code) return null
   const key = errorCatalogKeys(code).find((k) => te(k))
-  return key ? t(key, (payload.params ?? {}) as Record<string, unknown>) : null
+  if (!key) return null
+  // A list parameter (the query errors of a swallowed failure) reads as
+  // text, not as the JSON vue-i18n would print for it.
+  const params = Object.fromEntries(Object.entries(payload.params ?? {}).map(
+    ([name, value]) => [name, Array.isArray(value) ? value.join('; ') : value],
+  ))
+  return t(key, params)
 }
 
 /**

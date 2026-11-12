@@ -84,4 +84,29 @@ for (const unreadable of [undefined, null, '', {}, { message: '' }, { metric: 'd
   assert.equal(detailText(unreadable), null, `no text in ${JSON.stringify(unreadable)}`)
 }
 
+// The data-execution errors a run answers with read in every shipped
+// language, with their own numbers and reasons. A query the code swallowed
+// names the underlying query errors (a refusal among them): the catalog line
+// must not hide them, and a list reads as text, not as JSON.
+const catalogs = Object.fromEntries(['en', 'es', 'he'].map((loc) => {
+  const messages = JSON.parse(readFileSync(new URL(`../../../locales/${loc}.json`, import.meta.url)))
+  const g = createI18n({ legacy: false, locale: loc, missingWarn: false, fallbackWarn: false,
+    messages: { [loc]: messages } }).global
+  return [loc, g]
+}))
+for (const [loc, g] of Object.entries(catalogs)) {
+  const swallowed = catalogMessage({ error_code: 'query.failed_silently',
+    params: { query_errors: ['no such column: totl', 'Query refused: writes are not allowed'] } }, g.t, g.te)
+  assert.ok(swallowed, `${loc}: query.failed_silently has a line`)
+  assert.ok(swallowed.includes('no such column: totl'), `${loc}: the first query error is shown: ${swallowed}`)
+  assert.ok(swallowed.includes('Query refused: writes are not allowed'), `${loc}: every query error is shown`)
+  assert.ok(!swallowed.includes('["') && !swallowed.includes('"]'), `${loc}: the errors read as text: ${swallowed}`)
+
+  const timeout = catalogMessage({ error_code: 'query.timeout', params: { timeout_seconds: 45 } }, g.t, g.te)
+  assert.ok(timeout, `${loc}: query.timeout has a line`)
+  assert.ok(timeout.includes('45'), `${loc}: the timeout names its budget: ${timeout}`)
+
+  assert.ok(catalogMessage({ error_code: 'entity.run_failed' }, g.t, g.te), `${loc}: entity.run_failed has a line`)
+}
+
 console.log(`useErrorMessage: ${codes.length} codes resolve (${dotted.length} dotted)`)

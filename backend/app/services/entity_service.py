@@ -20,6 +20,7 @@ from app.core.telemetry import telemetry
 from app.ee.audit.service import audit_service
 from app.dependencies import async_session_maker
 from app.services.usage_policy_service import UsageLimitContext
+from app.errors import AppError, ErrorCode
 from app.errors.redact import describe_for_log
 
 logger = logging.getLogger(__name__)
@@ -911,7 +912,7 @@ class EntityService:
         result = await db.execute(select(Entity).where(Entity.id == str(entity_id), Entity.organization_id == str(organization.id)))
         entity = result.scalar_one_or_none()
         if not entity:
-            raise ValueError("Entity not found")
+            raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND, "Entity not found")
 
         # Parameter VALUES make this a viewer-mode run: execute the SAVED code
         # with those values as the caller, serve/cache per (entity, user,
