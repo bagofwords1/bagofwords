@@ -30,8 +30,11 @@ from app.services.client_keys import (
     # The run's namespace also binds the dict as the global `db_clients`.
     ('def generate_df(ds_clients, e):\n    ds_clients["Public:pg"]\n'
      '    return db_clients["Secret:pg"].execute_query("x")\n', ["Public:pg", "Secret:pg"]),
-    # Comments, strings, column names and other identifiers are not a reach.
-    ('# ds_clients["A:c"] and ds_clients.values()\nsql = "SELECT ds_clients FROM t"', []),
+    # Comments, column names and other identifiers are not a reach.
+    ('# ds_clients["A:c"] and ds_clients.values()\nsql = "SELECT amount FROM t"', []),
+    # The libraries step code needs, and pandas query/eval without @names.
+    ('import pandas as pd\nimport numpy as np\nfrom datetime import date\nimport json, re, math\n'
+     'ds_clients["A:c"]\ndf.query("a > 1")', ["A:c"]),
     ("db_rows = 1", []),
     ("", []),
     (None, []),
@@ -86,10 +89,63 @@ def test_literal_keys_are_the_clients_the_code_reaches(code, expected):
     'ds_clients["A:c"]\nf.f_locals',
     'def generate_df(ds_clients, e):\n    ds_clients["A:c"]\n    return generate_df.__globals__["db_clients"]\n',
     'ds_clients["A:c"]\n__import__("sys")',
+    # Any other binding of the entry function's name, str-field binders included.
+    'ds_clients["A:c"]\ndef generate_df(c, e):\n    return c["A:c"]\n'
+    'match x:\n    case generate_df:\n        pass\n',
+    'ds_clients["A:c"]\ndef generate_df(c, e):\n    return c["A:c"]\n'
+    'match x:\n    case [*generate_df]:\n        pass\n',
+    'ds_clients["A:c"]\ndef generate_df(c, e):\n    return c["A:c"]\n'
+    'match x:\n    case {**generate_df}:\n        pass\n',
+    'ds_clients["A:c"]\ndef generate_df(c, e):\n    return c["A:c"]\n'
+    'try:\n    pass\nexcept Exception as generate_df:\n    pass\n',
+    'ds_clients["A:c"]\ndef generate_df(c, e):\n    return c["A:c"]\nfrom helpers import *\n',
+    'ds_clients["A:c"]\ndef generate_df(c, e):\n    return c["A:c"]\nx = "generate_df"\n',
+    # A module off the data-library allowlist can reach objects by a string.
+    'import operator\ndef generate_df(ds_clients, e):\n    ds_clients["A:c"]\n'
+    '    return operator.attrgetter("__globals__")(generate_df)\n',
+    'import gc\nds_clients["A:c"]\ngc.get_objects()',
+    'import string\nds_clients["A:c"]\nstring.Formatter().get_field("0.__globals__", [f], {})',
+    'from operator import attrgetter\nds_clients["A:c"]\nattrgetter("_rpc")(ds_clients["A:c"])',
+    'def generate_df(ds_clients, e):\n    import types\n    ds_clients["A:c"]\n',
+    # A private attribute of a client object.
+    'ds_clients["A:c"]._rpc.call("execute_query", client="Secret:sf")',
+    # pandas resolves @names (and the clients' names in strings) from the frame.
+    'ds_clients["A:c"]\ndf.query("@db_clients")',
+    'ds_clients["A:c"]\npd.eval(expr)',
+    'ds_clients["A:c"]\nsql = "SELECT ds_clients FROM t"',
 ])
 def test_any_other_reach_of_the_clients_means_unknown(code):
     assert literal_client_keys(code) is None
     assert client_reach(code).other is True
+
+
+# The modules step code is expected to import: anything else counts as
+# another reach (client_keys.DATA_LIBRARIES).
+def _stdlib_modules_the_code_check_accepts():
+    import sys as _sys
+
+    from app.ai.code_execution.code_execution import FORBIDDEN_MODULES, ML_TRAINING_MODULES
+
+    return sorted(m for m in _sys.stdlib_module_names
+                  if not m.startswith("_") and m not in FORBIDDEN_MODULES | ML_TRAINING_MODULES)
+
+
+def test_every_accepted_stdlib_module_off_the_allowlist_counts_as_another_reach():
+    from app.services.client_keys import DATA_LIBRARIES
+
+    off_list = [m for m in _stdlib_modules_the_code_check_accepts() if m not in DATA_LIBRARIES]
+    assert off_list, "the code check accepts no stdlib module off the allowlist?"
+    reached = {m: client_reach(f'import {m}\nds_clients["A:c"]').other for m in off_list}
+    reached.update({f"from {m}": client_reach(f'from {m} import x\nds_clients["A:c"]').other
+                    for m in off_list})
+    assert all(reached.values()), sorted(k for k, v in reached.items() if not v)
+
+
+def test_the_allowlisted_libraries_keep_the_literal_keys():
+    from app.services.client_keys import DATA_LIBRARIES
+
+    for m in sorted(DATA_LIBRARIES):
+        assert literal_client_keys(f'import {m}\nds_clients["A:c"]') == ["A:c"], m
 
 
 def test_the_literal_keys_are_kept_beside_another_reach():
