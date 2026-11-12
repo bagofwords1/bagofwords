@@ -569,9 +569,10 @@ def test_the_identity_check_reads_the_sql_inside_an_envelope():
 # connectors whose query is a JSON document -- those refuse parameters by the
 # document's shape (test_a_json_query_refuses_parameters). "+envelope": the
 # SQL in the JSON envelope's "sql" field. None: parameters refused.
-# (MsFabricClient "standard" and SybaseClient "doubled" are declared too; their
-# modules need the ODBC driver to import here.)
+# MsFabricClient and SybaseClient import only where the ODBC driver is
+# installed (CI); elsewhere their entries are simply not compared.
 _EXPECTED_LITERAL_RULES = {
+    "MsFabricClient": "standard", "SybaseClient": "doubled",
     "AnalysisServicesClient": "standard", "AppDynamicsClient": "standard", "AriaOperationsClient": "standard",
     "AwsAthenaClient": "standard", "AwsCloudWatchClient": "standard", "AwsCostClient": "standard",
     "AwsRedshiftClient": "doubled", "AzureBlobClient": "standard", "AzureCostClient": "standard",
