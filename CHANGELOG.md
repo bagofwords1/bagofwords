@@ -1,5 +1,15 @@
 # Release Notes
 
+## Version 0.0.617 (November 12, 2026)
+- Added a Full text indexing mode for network drive and S3 connections: the agent finds exact words, IDs and phrases anywhere in a file, with the page or sheet (#1683) — "Indexing → Full text" in the connection settings (default for new connections; existing ones keep their mode)
+- Added Google Cloud Storage and Azure Blob Storage as read-only file sources (#1698)
+- Added DynamoDB, Azure Cosmos DB, Couchbase and Cassandra as read-only data sources (#1698)
+- Added Apache Iceberg (REST, AWS Glue, Amazon S3 Tables), Dremio and Hive / Impala / Spark as read-only data sources (#1698)
+- Changed the add-connection search to also match aliases such as "nosql" or "bucket"; Amazon S3 is now listed under Files & object store (#1698)
+- Fixed network drive connections taking over a minute to create or list on large shares (#1683)
+- Fixed file reindexing failing with "connection is closed" on Postgres when a crawl ran longer than five minutes (#1683)
+- Fixed S3 keyword indexing downloading every object on every refresh; unchanged objects are now skipped (#1683)
+
 ## Version 0.0.616 (November 11, 2026)
 - Added incremental refresh for custom tables: the first load runs in resumable chunks, then each refresh reads only new or changed rows (#1692) — "What each refresh fetches → Only what is new" in the custom table's settings (default: Everything, every time)
 - Added a run history to custom tables: each refresh's mode, window, rows read/inserted/updated and errors (#1692)

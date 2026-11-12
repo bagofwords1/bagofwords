@@ -10,6 +10,7 @@ chunked body used for streamed grep.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 import pytest
 
@@ -233,3 +234,78 @@ def test_chunked_body_reads_are_lossless_and_bounded(sizes):
     assert out == payload
     body.close()
     assert body.closed
+
+
+# ------------------------------------------- index tiers are provider-neutral
+
+
+class _MemoryStore(ObjectStoreClient):
+    """A store that keeps its objects in a dict and counts downloads."""
+
+    scheme = "mem"
+    metadata_key = "mem"
+    bucket_noun = "bucket"
+
+    def __init__(self, objects, **kwargs):
+        super().__init__(bucket="b", **kwargs)
+        self.objects = dict(objects)
+        self.downloads = []
+
+    def _iter_list(self, list_prefix, recursive):
+        for key, data in sorted(self.objects.items()):
+            yield {"key": key, "size": len(data), "modified": datetime(2026, 1, 1, tzinfo=UTC)}
+
+    def _download(self, key, start=None, end=None):
+        self.downloads.append(key)
+        data = self.objects[key]
+        return (data if start is None else data[start:(end + 1 if end is not None else None)]), len(data)
+
+
+class _Sink:
+    def __init__(self):
+        self.docs = {}
+        self.walk_truncated = None
+
+    def is_current(self, file_id, version):
+        return file_id in self.docs and self.docs[file_id][0] == version
+
+    def prior_meta(self, file_id):
+        return self.docs[file_id][2]
+
+    def prior_status(self, file_id):
+        return self.docs[file_id][1].status
+
+    def write(self, file_id, path, version, doc, meta=None):
+        self.docs[file_id] = (version, doc, meta)
+
+    def flush(self):
+        pass
+
+
+def test_any_object_store_feeds_the_full_text_index_and_skips_unchanged_objects():
+    body = ("filler about budgets\n" * 50 + "Reference PO-48213 was approved\n").encode()
+    sink = _Sink()
+    store = _MemoryStore({"orders/batch.txt": body}, index_mode="fulltext")
+    row = store.get_schemas(section_sink=sink)[0].metadata_json["mem"]
+
+    _version, doc, _meta = sink.docs["orders/batch.txt"]
+    assert row["fulltext"] == doc.status == "indexed"
+    assert "48213" in {t.base for s in doc.sections for t in s.terms}
+    assert sink.walk_truncated is False
+
+    again = _MemoryStore({"orders/batch.txt": body}, index_mode="fulltext")
+    again_row = again.get_schemas(section_sink=sink)[0].metadata_json["mem"]
+    assert again.downloads == []
+    assert again_row["keywords"] == row["keywords"]
+
+
+def test_any_object_store_reuses_keywords_for_unchanged_objects():
+    objects = {"a.txt": b"renewal clause for the warehouse lease\n"}
+    first = _MemoryStore(objects, index_mode="content")
+    tables = first.get_schemas()
+    assert "warehouse" in tables[0].metadata_json["mem"]["keywords"]
+
+    second = _MemoryStore(objects, index_mode="content")
+    reused = second.get_schemas(prior_catalog={t.name: t.metadata_json for t in tables})
+    assert second.downloads == []
+    assert reused[0].metadata_json["mem"]["keywords"] == tables[0].metadata_json["mem"]["keywords"]
