@@ -21,6 +21,11 @@ class MongodbClient(DataSourceClient):
     For MongoDB Atlas:
         MongodbClient(host="cluster0.abc123.mongodb.net", database="mydb", user="admin", password="secret", use_srv=True)
     """
+
+    # The query is a JSON document (find / aggregate), not SQL text: no SQL
+    # literal is a value of it, and one written inside a JSON string could end
+    # that string and add keys. Query parameters are refused.
+    sql_literal_style = None
     
     def __init__(
         self,

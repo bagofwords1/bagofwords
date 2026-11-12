@@ -379,6 +379,7 @@ def render_sql_with_params(
     client_type_name: str = "",
     literal_style: Optional[str] = None,
     literal_style_required: bool = False,
+    sql_in_json_envelope: bool = False,
 ) -> str:
     """Substitute `:name` placeholders in `sql` with safely rendered literals.
 
@@ -392,8 +393,16 @@ def render_sql_with_params(
     LITERAL_STYLE_*; the client's `sql_literal_style`). Without it the style
     is derived from `client_type_name` as before -- unless
     `literal_style_required` (the run's query wrapper, for a connector): then
-    the source has no known rule and the parameters are refused.
+    the source has no known rule and the parameters are refused. For a
+    connector (`literal_style_required`) whose query text is a JSON document,
+    a value is never written into it as a SQL literal (it could end a JSON
+    string and add keys): refused, unless the connector's SQL sits in the
+    document's "sql" field (`sql_in_json_envelope`), which is then the only
+    place a value is rendered. Nothing is refused when no placeholder of
+    the query matches.
     """
+    if not _PLACEHOLDER_RE.search(sql):
+        return sql
     if literal_style is None and literal_style_required:
         raise ParamError(
             f"{client_type_name or 'This source'} has no known rule for writing a string "
@@ -407,6 +416,14 @@ def render_sql_with_params(
         )
     elif literal_style not in _LITERAL_STYLES:
         raise ParamError(f"unknown SQL literal style: {literal_style!r}")
+    if sql_in_json_envelope:
+        return _render_envelope_sql(sql, values, client_type_name=client_type_name,
+                                    literal_style=literal_style)
+    if literal_style_required and sql.lstrip()[:1] in ("{", "["):
+        raise ParamError(
+            f"{client_type_name or 'This source'} takes a JSON query document; query "
+            "parameters are rendered only into SQL text, not into a JSON document"
+        )
     unicode_prefix = client_type_name in _UNICODE_PREFIX_CLIENTS
 
     missing: List[str] = []
@@ -426,6 +443,29 @@ def render_sql_with_params(
             "SQL uses parameter placeholder(s) with no value: " + ", ".join(sorted(set(missing)))
         )
     return rendered
+
+
+def _render_envelope_sql(envelope_text: str, values: Dict[str, Any], *, client_type_name: str,
+                         literal_style: str) -> str:
+    """Render the placeholders of a JSON query envelope's "sql" field and
+    serialize the envelope again: the value is a SQL literal of that SQL,
+    and json.dumps escapes it for the JSON string it lives in, so it can
+    neither end the SQL string nor the JSON one. A placeholder anywhere else
+    in the envelope (the query DSL, ES|QL) is refused."""
+    try:
+        envelope = json.loads(envelope_text)
+    except ValueError:
+        raise ParamError(f"{client_type_name or 'This source'}: the query envelope is not valid JSON")
+    sql = envelope.get("sql") if isinstance(envelope, dict) else None
+    rest = {k: v for k, v in envelope.items() if k != "sql"} if isinstance(envelope, dict) else envelope
+    if _PLACEHOLDER_RE.search(json.dumps(rest, ensure_ascii=False)) or not isinstance(sql, str):
+        raise ParamError(
+            f"{client_type_name or 'This source'}: query parameters are rendered only into "
+            "the envelope's \"sql\" field"
+        )
+    envelope["sql"] = render_sql_with_params(sql, values, client_type_name=client_type_name,
+                                             literal_style=literal_style)
+    return json.dumps(envelope, ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------
@@ -622,6 +662,18 @@ def _heuristic_binds_value(capture: str, needles: List[str]) -> bool:
     return any(n in tail for n in needles)
 
 
+def _envelope_sql(text: str) -> Optional[str]:
+    """The "sql" of a JSON query envelope ({"sql": "SELECT ..."}), else None."""
+    if not text.lstrip().startswith("{"):
+        return None
+    try:
+        envelope = json.loads(text)
+    except ValueError:
+        return None
+    sql = envelope.get("sql") if isinstance(envelope, dict) else None
+    return sql if isinstance(sql, str) and sql.strip() else None
+
+
 def _query_binds_value(capture: str, needles: List[str], param: str = "") -> bool:
     """Whether one executed query restricts its rows by an identity value.
 
@@ -632,6 +684,12 @@ def _query_binds_value(capture: str, needles: List[str], param: str = "") -> boo
     from app.ai.code_execution.identity_bind import log_fallback, structural_binds
 
     client_type = getattr(capture, "client_type", None)
+    envelope_sql = _envelope_sql(str(capture))
+    if envelope_sql is not None:
+        # A JSON query envelope carrying SQL: the SQL is what filters.
+        from app.ai.code_execution.identity_bind import CapturedQuery
+
+        capture = CapturedQuery(envelope_sql, client_type, getattr(capture, "literal_style", None))
     stripped = _strip_sql_comments(capture)
     looks_sql = bool(_SQL_START_RE.match(stripped))
     verdict = structural_binds(str(capture), client_type, tuple(needles), looks_sql,

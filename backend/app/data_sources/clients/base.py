@@ -140,6 +140,11 @@ class DataSourceClient(DiscoveryClient, ABC):
     # it (KQL, PromQL, SPL), a query with parameters is refused rather than
     # written with a quoting rule known to be wrong for it.
     sql_literal_style: Optional[str] = "standard"
+    # True for a connector whose query is a JSON envelope carrying its SQL in
+    # a "sql" field (Elasticsearch, OpenSearch): parameters render only there,
+    # and the envelope is serialized again so a value stays inside its JSON
+    # string. Any other connector's JSON query document refuses parameters.
+    sql_in_json_envelope: bool = False
 
     # When True, listing files live from the source is cheap enough to do on
     # every list_files call (local FS walk, bounded S3 LIST) — so list_files

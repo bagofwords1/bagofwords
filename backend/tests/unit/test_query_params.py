@@ -282,8 +282,6 @@ _REFUSING_LITERAL_CLIENTS = [
 # Connectors whose grammar is not established to need another style: they
 # render parameters as before (standard).
 _UNESTABLISHED_LITERAL_CLIENTS = [
-    ("elasticsearch_client", "ElasticsearchClient"),
-    ("opensearch_client", "OpenSearchClient"),
     ("sisense_client", "SisenseClient"),
     ("timbr_client", "TimbrClient"),
     ("timbr_a2a_client", "TimbrA2aClient"),
@@ -313,18 +311,144 @@ def test_a_source_without_a_literal_rule_refuses_query_parameters(module, class_
     assert client.received == []
 
 
-def test_every_query_client_states_its_literal_rule_or_none():
-    """Every connector in the clients package has one of the known literal
-    styles (standard unless it declares another) or None, the refusal."""
+@pytest.mark.parametrize("module,class_name", _REFUSING_LITERAL_CLIENTS)
+def test_a_query_with_no_placeholder_runs_even_where_parameters_are_refused(module, class_name):
+    """Values handed along with a query that uses none of them render
+    nothing, so there is nothing to refuse."""
+    assert _sql_received(module, class_name, "StormEvents | take 10", "it's") == "StormEvents | take 10"
+
+
+# Connectors whose query text is a JSON document, not SQL: a value written as
+# a SQL literal inside a JSON string could end that string and add keys.
+_JSON_QUERY_CLIENTS = [
+    ("mongodb_client", "MongodbClient", '{"collection": "orders", "find": {"owner": ":v"}}'),
+    ("servicenow_client", "ServiceNowClient", '{"table": "incident", "query": "caller=:v"}'),
+    ("zabbix_client", "ZabbixClient", '{"table": "hosts", "filter": {"host": ":v"}}'),
+]
+
+
+@pytest.mark.parametrize("module,class_name,query", _JSON_QUERY_CLIENTS)
+def test_a_json_query_refuses_parameters(module, class_name, query):
+    from app.ai.code_execution.code_execution import QueryCapturingClientWrapper
+
+    client = _recording_client(module, class_name)
+    with pytest.raises(ParamError):
+        QueryCapturingClientWrapper(client, [], [], query_timeout_seconds=30).execute_query(
+            query, params={"v": 'x", "collection": "users", "z": "'})
+    assert client.received == []
+
+
+# Elasticsearch SQL / the OpenSearch SQL plugin, inside the JSON envelope's
+# "sql" field. (Stand-in dialects: '' only for Elasticsearch SQL, '' and a
+# backslash for OpenSearch's doubled literals.)
+_ENVELOPE_SQL_CLIENTS = [
+    ("elasticsearch_client", "ElasticsearchClient", "postgres"),
+    ("opensearch_client", "OpenSearchClient", "snowflake"),
+]
+_ENVELOPE_VALUES = _AWKWARD_VALUES + [
+    'x", "sql": "SELECT * FROM orders", "z": "',
+    'tab\there "quoted" \u0041',
+]
+
+
+@pytest.mark.parametrize("module,class_name,dialect", _ENVELOPE_SQL_CLIENTS)
+@pytest.mark.parametrize("value", _ENVELOPE_VALUES)
+def test_a_param_in_the_envelopes_sql_stays_one_literal_of_that_sql(module, class_name, dialect, value):
+    """The envelope parses with exactly its own keys, and its SQL reads the
+    value back as one string literal equal to it."""
+    import json
+
+    from sqlglot.dialects.dialect import Dialect
+    from sqlglot.tokens import TokenType
+
+    envelope = '{"index": "orders", "sql": "SELECT * FROM orders WHERE owner = :v"}'
+    parsed = json.loads(_sql_received(module, class_name, envelope, value))
+    assert set(parsed) == {"index", "sql"} and parsed["index"] == "orders"
+    strings = [t for t in Dialect.get_or_raise(dialect).tokenize(parsed["sql"])
+               if t.token_type == TokenType.STRING]
+    assert [t.text for t in strings] == [value], parsed["sql"]
+
+
+@pytest.mark.parametrize("module,class_name,dialect", _ENVELOPE_SQL_CLIENTS)
+def test_a_param_outside_the_envelopes_sql_is_refused(module, class_name, dialect):
+    from app.ai.code_execution.code_execution import QueryCapturingClientWrapper
+
+    client = _recording_client(module, class_name)
+    with pytest.raises(ParamError):
+        QueryCapturingClientWrapper(client, [], [], query_timeout_seconds=30).execute_query(
+            '{"index": "orders", "query": {"term": {"owner": ":v"}}}', params={"v": "a@x.com"})
+    assert client.received == []
+
+
+def test_the_identity_check_reads_the_sql_inside_an_envelope():
+    """The SQL of an Elasticsearch envelope is checked by its structure: a
+    value present but not restricting the rows is not a filter."""
+    specs = _specs({"name": "v", "type": "string", "source": "identity"})
+    from app.ai.code_execution.identity_bind import CapturedQuery
+
+    scoped = CapturedQuery('{"sql": "SELECT * FROM t WHERE owner = \'a@x.com\'"}', "ElasticsearchClient", "standard")
+    widened = CapturedQuery('{"sql": "SELECT * FROM t WHERE owner = \'a@x.com\' OR 1 = 1"}',
+                            "ElasticsearchClient", "standard")
+    assert verify_identity_binds_in_queries([scoped], {"v": "a@x.com"}, specs) is None
+    assert verify_identity_binds_in_queries([widened], {"v": "a@x.com"}, specs) is not None
+
+
+# Every connector's literal rule, written out: a new connector must be added
+# here on purpose, not inherit "standard" unseen. "standard" also covers the
+# connectors whose query is a JSON document -- those refuse parameters by the
+# document's shape (test_a_json_query_refuses_parameters). "+envelope": the
+# SQL in the JSON envelope's "sql" field. None: parameters refused.
+# (MsFabricClient "standard" and SybaseClient "doubled" are declared too; their
+# modules need the ODBC driver to import here.)
+_EXPECTED_LITERAL_RULES = {
+    "AnalysisServicesClient": "standard", "AppDynamicsClient": "standard", "AriaOperationsClient": "standard",
+    "AwsAthenaClient": "standard", "AwsCloudWatchClient": "standard", "AwsCostClient": "standard",
+    "AwsRedshiftClient": "doubled", "AzureBlobClient": "standard", "AzureCostClient": "standard",
+    "AzureDataExplorerClient": None, "BigqueryClient": "backslash", "BitbucketRepoClient": "standard",
+    "BrocadeClient": "standard", "BrowserClient": "standard", "BusinessObjectsClient": "standard",
+    "CSVClient": "standard", "CassandraClient": "standard", "CheckPointClient": "standard",
+    "CiscoApicClient": "standard", "ClickhouseClient": "doubled", "CosmosdbClient": "backslash",
+    "CouchbaseClient": "backslash", "CrowdStrikeClient": "standard", "DataSourceClient": "standard",
+    "DatabricksSqlClient": "backslash", "Db2Client": "standard", "DellOmeClient": "standard",
+    "DocumentumClient": "standard", "DremioClient": "standard", "DruidClient": "standard",
+    "DuckDBClient": "standard", "DynamodbClient": "doubled", "ElasticsearchClient": "standard+envelope",
+    "F5BigIpClient": "standard", "GCSClient": "standard", "GitHubRepoClient": "standard",
+    "GitLabRepoClient": "standard", "GitRepoClient": "standard", "GmailMailClient": "standard",
+    "GoogleDriveClient": "standard", "GraphDriveClient": "standard", "GraphMailClient": "standard",
+    "GraphOneNoteClient": "standard", "GraphTeamsClient": "standard", "HiveClient": "backslash",
+    "HpeOneViewClient": "standard", "IbmiClient": "standard", "IcebergClient": "standard",
+    "InforEpmClient": "standard", "InforOlapClient": "standard", "IntuneClient": "standard",
+    "JaegerClient": "standard", "KmsLighthouseClient": "standard", "KubernetesClient": "standard",
+    "MSSQLClient": "standard", "MariadbClient": "doubled", "MecmClient": "standard",
+    "MondayClient": "standard", "MongodbClient": None, "MysqlClient": "doubled",
+    "Neo4jClient": "standard", "NetAppOntapClient": "standard", "NetsuiteClient": "standard",
+    "NetworkDirClient": "standard", "ObjectStoreClient": "standard", "OnedriveClient": "standard",
+    "OnenoteClient": "standard", "OpenSearchClient": "doubled+envelope", "OracleBIClient": "doubled",
+    "OracledbClient": "standard", "PBIXClient": "standard", "PinotClient": "standard",
+    "PostHogClient": "doubled", "PostgresqlClient": "standard", "PowerBIClient": "standard",
+    "PowerBIReportServerClient": "standard", "PrestoClient": "standard", "PriorityErpClient": "standard",
+    "PrometheusClient": None, "QVDClient": "standard", "QlikSenseClient": "standard",
+    "QlikSenseOnPremClient": "standard", "S3Client": "standard", "SalesforceClient": "backslash",
+    "SapBwXmlaClient": "standard", "SapDatasphereClient": "standard", "SapHanaClient": "standard",
+    "ServiceDemoClient": "standard", "ServiceNowClient": "standard", "SharepointClient": "standard",
+    "SharepointListsClient": "standard", "SharepointOnpremClient": "standard", "SisenseClient": "standard",
+    "SnowflakeClient": "doubled", "SparkConnectClient": "backslash", "SpectrumClient": "standard",
+    "SplunkClient": None, "SqliteClient": "standard", "TableauClient": "standard",
+    "TeradataClient": "standard", "TimbrA2aClient": "standard", "TimbrClient": "standard",
+    "TrinoClient": "standard", "VCenterClient": "standard", "VerticaClient": "doubled",
+    "XmlaClient": "standard", "ZabbixClient": "standard",
+}
+
+
+def test_every_query_client_has_the_literal_rule_listed_for_it():
     import importlib
     import inspect
     import pkgutil
 
     import app.data_sources.clients as package
-    from app.ai.code_execution.query_params import _LITERAL_STYLES
     from app.data_sources.clients.base import DataSourceClient
 
-    assert DataSourceClient.sql_literal_style == "standard"
+    found = {}
     for info in pkgutil.iter_modules(package.__path__):
         try:
             module = importlib.import_module(f"{package.__name__}.{info.name}")
@@ -332,7 +456,12 @@ def test_every_query_client_states_its_literal_rule_or_none():
             continue  # a driver this environment lacks (ODBC)
         for _, cls in inspect.getmembers(module, inspect.isclass):
             if issubclass(cls, DataSourceClient) and cls.__module__ == module.__name__:
-                assert cls.sql_literal_style in _LITERAL_STYLES | {None}, cls
+                rule = cls.sql_literal_style
+                found[cls.__name__] = f"{rule}+envelope" if cls.sql_in_json_envelope else rule
+    unlisted = sorted(set(found) - set(_EXPECTED_LITERAL_RULES))
+    assert not unlisted, f"connectors with no literal rule listed here: {unlisted}"
+    assert {n: found[n] for n in _EXPECTED_LITERAL_RULES if n in found} == {
+        n: r for n, r in _EXPECTED_LITERAL_RULES.items() if n in found}
 
 
 @pytest.mark.parametrize("module,class_name,dialect", _STANDARD_LITERAL_CLIENTS)

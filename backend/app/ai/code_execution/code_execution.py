@@ -24,6 +24,7 @@ from app.ai.code_execution.sandbox.namespace import (  # noqa: F401 - re-exporte
     # READ_TEXT_* and _build_read_text stay importable from this module: tests
     # and callers reference them here, the sandbox child imports them from
     # sandbox.namespace.
+    CLIENTS_GLOBAL,
     READ_TEXT_MAX_CHARS,
     READ_TEXT_REFUSES as _READ_TEXT_REFUSES,
     build_loadable_closures as _build_loadable_closures_impl,
@@ -988,6 +989,8 @@ class QueryCapturingClientWrapper:
                         # (Anything else handed in as a client keeps the
                         # rule derived from its class name.)
                         literal_style_required=isinstance(self._original, DataSourceClient),
+                        # Its SQL sits in a JSON envelope's "sql" field.
+                        sql_in_json_envelope=bool(getattr(self._original, "sql_in_json_envelope", False)),
                     )
         if query is _NO_QUERY:
             capture = _describe_keyword_call(kwargs)
@@ -1637,7 +1640,7 @@ class StreamingCodeExecutor:
         local_namespace = {
             'pd': pd,
             'np': np,
-            'db_clients': wrapped_clients,
+            CLIENTS_GLOBAL: wrapped_clients,
             'excel_files': excel_files,
             'load_step': load_step,
             'load_entity': load_entity,

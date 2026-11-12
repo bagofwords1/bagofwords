@@ -22,6 +22,13 @@ class OpenSearchClient(DataSourceClient):
     (security disabled / network-gated dev clusters).
     """
 
+    # Parameters render only into the envelope's "sql" field (the OpenSearch
+    # SQL plugin). A quote inside its string literal is doubled; whether a
+    # backslash escapes is not established, so it is doubled too, which keeps
+    # one literal either way.
+    sql_literal_style = "doubled"
+    sql_in_json_envelope = True
+
     # Keys the query envelope may pass through to POST /{index}/_search.
     SEARCH_KEYS = {"query", "aggs", "aggregations", "size", "sort", "_source",
                    "from", "search_after", "timeout"}
