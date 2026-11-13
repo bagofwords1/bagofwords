@@ -395,6 +395,14 @@ class DescribeEntityTool(Tool):
                         AxisOptions.model_validate(stored_axis) if isinstance(stored_axis, dict)
                         else AxisOptions(rotate=45, interval=0)
                     )
+                    # The value axis (its number format) and the zoom window
+                    # are the saved chart's too, not the rebuild's defaults.
+                    stored_y = stored_inner.get("axisY")
+                    view_schema.view.axisY = (
+                        AxisOptions.model_validate(stored_y) if isinstance(stored_y, dict)
+                        else AxisOptions(show=True, rotate=0, interval=0)
+                    )
+                    view_schema.view.showDataZoom = bool(stored_inner.get("showDataZoom", False))
                 # A reused entity keeps its saved line shape. Views saved before
                 # `smooth` was stored were drawn curved, the old default.
                 if view_schema is not None and getattr(view_schema.view, "type", None) in ("line_chart", "area_chart"):

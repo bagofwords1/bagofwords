@@ -529,11 +529,26 @@ def derive_kpi_row_filter(
     return None
 
 
+# A new chart with more points than this opens on the latest window, with a
+# slider back to the full range (showDataZoom). Several series crowd sooner.
+_ZOOM_CAP_MULTI, _ZOOM_CAP_SINGLE = 24, 60
+
+
+def _crowded_chart(rows: Optional[List[Dict[str, Any]]], x_key: str, group_by: Optional[str], n_measures: int) -> bool:
+    if not rows:
+        return False
+    xs = {str(r.get(x_key)) for r in rows if isinstance(r, dict)}
+    n_series = len({str(r.get(group_by)) for r in rows if isinstance(r, dict)}) if group_by else n_measures
+    cap = _ZOOM_CAP_MULTI if n_series > 1 else _ZOOM_CAP_SINGLE
+    return len(xs) > cap
+
+
 def build_view_from_data_model(
     data_model: Dict[str, Any],
     title: Optional[str] = None,
     palette_theme: Optional[str] = None,
     available_columns: Optional[List[str]] = None,
+    rows: Optional[List[Dict[str, Any]]] = None,
 ) -> Optional[ViewSchema]:
     try:
         chart_type = str((data_model or {}).get("type") or "").lower()
@@ -582,7 +597,15 @@ def build_view_from_data_model(
         # Leave the category labels to the renderer, which thins them as
         # categories grow. Stamping interval=0 forced every label onto the axis.
         view.axisX = AxisOptions(rotate=None, interval=None)
-        view.axisY = AxisOptions(show=True, rotate=0, interval=0)
+        # Units on the value axis and tooltip, from the inferred `display`
+        # (currency for revenue, percent for a share). Plain numbers otherwise.
+        disp = sanitize_display_options(data_model.get("display")) or {}
+        fmt = disp.get("format") if disp.get("format") in ("currency", "percent", "compact") else None
+        view.axisY = AxisOptions(show=True, rotate=0, interval=0, format=fmt,
+                                 currency=disp.get("currency") if fmt == "currency" else None)
+        # Too many points: open on the latest window, the rest a scroll away.
+        if _crowded_chart(rows, str(x_key), group_by, len(value_cols)):
+            view.showDataZoom = True
         return ViewSchema(view=view)
 
     if chart_type == "pie_chart":
@@ -1056,11 +1079,12 @@ Prefer aggregation when the intent is "all data, summarized". Prefer filters
 when the intent is "this specific slice". Setting both is rarely useful.
 
 ═══════════════════════════════════════════════════════════════════════════════
-DISPLAY FORMATTING (optional, for count / metric_card)
+DISPLAY FORMATTING (optional: count / metric_card, and the values of line, bar and area charts)
 ═══════════════════════════════════════════════════════════════════════════════
 
 The data is raw numeric; presentation is applied at render time. For a
-single-value card you may add a top-level "display" object:
+single-value card, or for the values of a line, bar or area chart (its value
+axis and tooltip), you may add a top-level "display" object:
 
 {{"display": {{"format": "currency", "currency": "ILS"}}}}
 
@@ -1068,9 +1092,12 @@ single-value card you may add a top-level "display" object:
 - currency: ISO-4217 code (ILS, USD, EUR, ...) — set it whenever format is "currency"
 - prefix / suffix: short literal unit strings (e.g. "%", " units") when a currency code doesn't apply
 
-Choose based on the metric's meaning, the user's language/locale, and the
-organization instructions (e.g. revenue for an Israeli org → {{"format": "currency", "currency": "ILS"}};
-a ratio → {{"format": "percent"}}). Omit "display" when plain numbers are right.
+Choose based on the metric's meaning. The currency is the one the DATA is in, as stated by the organization
+instructions, the source or the column names (e.g. {{"format": "currency", "currency": "EUR"}} when they say so).
+The language of the question never sets the currency. When the currency isn't stated anywhere, use USD for money;
+never use another code unless something states it.
+A percentage → {{"format": "percent"}}; "percent" means the values are already percentages (12.5 means 12.5%).
+Omit "display" when plain numbers are right.
 
 ═══════════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT
@@ -2342,7 +2369,8 @@ Do not use generic placeholders like "value" unless that is the actual column na
         palette_theme = _infer_palette_theme(runtime_ctx) or "default"
         # Extract available column names from formatted data for fallback inference
         available_columns = [c.get("field") for c in formatted.get("columns", []) if c.get("field")]
-        view_schema = build_view_from_data_model(final_dm, title=data.title, palette_theme=palette_theme, available_columns=available_columns)
+        view_schema = build_view_from_data_model(final_dm, title=data.title, palette_theme=palette_theme, available_columns=available_columns,
+                                                 rows=formatted.get("rows") or [])
         view_payload = view_schema.model_dump(exclude_none=True) if view_schema else None
         if not view_payload and final_dm.get("type"):
             view_payload = {"version": "v2", "view": {"type": final_dm.get("type")}}
