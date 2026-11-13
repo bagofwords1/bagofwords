@@ -5,6 +5,7 @@
 - Added requesting view access to a dashboard you can't open; editors approve or deny from the share settings (#1706) — "Allow access requests" in AI settings (default: on)
 - Added a per-dashboard option to let its page open links in a new tab (#1705) — Embed → Permissions (default: off)
 - Added TrendChart and RankChart for trends and rankings in agent-built pages (#1704)
+- Changed the role editor to one dialog with Permissions and Access tabs and a single Save (#1711)
 - Changed agent-built pages to use the standard table, search box and dropdown controls (#1667)
 - Changed the agent to ask clarifying questions before it starts building a dashboard, not midway (#1709)
 - Fixed forks, "Run on my behalf" and stored results of chat-created reports showing the owner's rows over per-user or row-filtered sources (#1680)
