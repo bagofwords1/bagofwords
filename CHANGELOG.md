@@ -4,6 +4,7 @@
 - Added an admin console: Admin swaps the sidebar for the admin menu, and every settings page shares one layout (#1710)
 - Added requesting view access to a dashboard you can't open; editors approve or deny from the share settings (#1706) — "Allow access requests" in AI settings (default: on)
 - Added a per-dashboard option to let its page open links in a new tab (#1705) — Embed → Permissions (default: off)
+- Added deleting files and a nightly file cleanup (#1646) — "File retention (days)" in AI settings (default: 0, keep forever)
 - Added TrendChart and RankChart for trends and rankings in agent-built pages (#1704)
 - Changed the role editor to one dialog with Permissions and Access tabs and a single Save (#1711)
 - Changed agent-built pages to use the standard table, search box and dropdown controls (#1667)
@@ -12,6 +13,7 @@
 - Fixed string parameters containing a quote breaking queries on BigQuery, Databricks and Spark (#1680)
 - Fixed agent edits that add an uploaded image, such as a new logo, showing "File not found" (#1649)
 - Fixed saved document and dashboard charts losing their units; money with no stated currency shows in USD (#1707)
+- Fixed scheduled reports listing every past tool-output file in the prompt; the Files page now shows only your own files (#1646)
 - Fixed tables in agent-built pages adding thousands separators to years and IDs, and added keyboard row navigation (#1708)
 
 ## Version 0.0.617 (November 12, 2026)
