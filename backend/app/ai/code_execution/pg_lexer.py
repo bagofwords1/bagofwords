@@ -37,22 +37,29 @@ unquoted name holding such a character must be exactly one name to
 sqlglot's tokenizer, and no sqlglot keyword may start with it (or the text
 after it could join it into one); every dollar-quote tag holding one must
 be read by sqlglot as the same delimiter. Otherwise the text is refused.
-Names and tags in ASCII are read alike and skip this check.
+Names and tags in ASCII are read alike (a '$' inside a name included: both
+read it as a name character) and skip this check. When sqlglot's tokenizer
+fails on a name or tag other than by reporting a token error, the text
+could not be checked and is refused as such.
 
 `mode="redshift"` also refuses E-strings and any backslash in a literal
 value: Redshift reads backslashes in plain strings as escapes. It checks
 names and tags against sqlglot's Redshift tokenizer.
 
-Pure: no I/O.
+Pure: no I/O, apart from a warning logged when the tokenizer fails.
 """
 
+import logging
 import re
 from dataclasses import dataclass
 
+from sqlglot.errors import TokenError
 from sqlglot.tokens import TokenType
 from sqlglot.trie import TrieResult, in_trie
 
 from app.ai.code_execution.sql_guard import ReadOnlyViolation
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -116,8 +123,15 @@ class _SqlglotReading:
             self._tokenizer = Dialect.get_or_raise(self._mode).tokenizer()
         try:
             return self._tokenizer.tokenize(text)
-        except Exception:
-            return None
+        except Exception as exc:
+            # The type only: the text is the query's.
+            logger.warning("pg_lexer.sqlglot_tokenizer_failed error=%s", type(exc).__name__)
+            if isinstance(exc, TokenError):
+                return None  # sqlglot reads no token there (a name holding a space): read differently
+            raise ReadOnlyViolation(
+                "The query could not be checked: the query checks could not read one of its names "
+                "or dollar-quote tags. Quote the name, or use an ASCII name or tag."
+            ) from None
 
     def one_name(self, name: str) -> bool:
         tokens = self._tokens(name)

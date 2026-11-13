@@ -312,6 +312,45 @@ def test_a_dollar_tag_sqlglot_reads_the_same_way_is_kept(tag):
     assert _text("SELECT $" + tag + "$v$" + tag + "$ AS v") == "SELECT 'v' AS v"
 
 
+@pytest.mark.parametrize("sql", ["SELECT 1 AS a" + E_ACUTE + "b", "SELECT $" + E_ACUTE + "$v$" + E_ACUTE + "$ AS v"],
+                         ids=["name", "dollar tag"])
+def test_a_name_or_tag_the_sqlglot_tokenizer_fails_on_is_refused_as_not_checked(monkeypatch, caplog, sql):
+    import logging
+
+    from sqlglot.tokens import Tokenizer
+
+    def fail(self, text):
+        raise RuntimeError("detail that must stay out of the log")
+
+    monkeypatch.setattr(Tokenizer, "tokenize", fail)
+    logger = logging.getLogger("app.ai.code_execution.pg_lexer")
+    monkeypatch.setattr(logger, "disabled", False)
+    with caplog.at_level(logging.WARNING, logger=logger.name):
+        with pytest.raises(ReadOnlyViolation, match="could not be checked") as refused:
+            lex_postgres(sql)
+    assert "outside ASCII" not in str(refused.value)
+    logged = [r.getMessage() for r in caplog.records if r.name == logger.name]
+    assert len(logged) == 1 and "RuntimeError" in logged[0] and "detail" not in logged[0]
+
+
+# Postgres 15 reads '$' inside an unquoted ASCII name as a name character
+# (probed on the server); sqlglot's tokenizer reads each such name as one
+# name too, so no dollar string or parameter hides behind one.
+DOLLAR_NAMES = ["a$b$c", "a$1", "a$1$", "a$$", "a$"]
+
+
+@pytest.mark.parametrize("name", DOLLAR_NAMES)
+def test_an_ascii_name_holding_a_dollar_is_one_name_to_sqlglot(name):
+    from sqlglot.dialects.dialect import Dialect
+    from sqlglot.tokens import TokenType
+
+    sql = "SELECT 1 AS " + name + ", (SELECT s FROM secret) AS x, 2 AS z" + name + " FROM t"
+    assert _text(sql) == sql
+    tokens = Dialect.get_or_raise("postgres").tokenizer().tokenize(sql)
+    names = [t.text for t in tokens if t.token_type is TokenType.VAR]
+    assert names == [name, "s", "secret", "x", "z" + name, "t"]
+
+
 def _sqlglot_reads_one_name(sql: str, prefix: list[tuple[str, str]], name: str) -> bool:
     """Whether sqlglot's Postgres tokenizer reads `sql` as `prefix` tokens
     then exactly `name` as one VAR, in context."""
@@ -513,6 +552,7 @@ ENGINE_SAMPLES = [
     "SELECT u&E'3' AS v FROM (SELECT 1 AS u) z",
     "SELECT U&$$3$$ AS v FROM (SELECT 1 AS U) z",
     "SELECT $" + chr(0xE9) + "$it's$" + chr(0xE9) + "$ AS v, 1 AS a" + chr(0xB2) + "b, 2 AS " + chr(0x5E9) + "x",
+    "SELECT 1 AS a$b$c, 2 AS a$1, 3 AS a$1$, 4 AS a$$, 5 AS a$, 'x' AS w",
 ]
 
 

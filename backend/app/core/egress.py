@@ -48,7 +48,9 @@ import enum
 import ipaddress
 import socket
 import urllib.request
-from typing import Any, Optional
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Any, Callable, Iterator, Optional
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
@@ -506,6 +508,21 @@ def _pinned_pools(policy: Policy) -> dict:
 
 _PINNED_POOLS = {policy: _pinned_pools(policy) for policy in Policy}
 
+_SEND_OBSERVER: ContextVar[Optional[Callable[[requests.PreparedRequest], None]]] = ContextVar(
+    "bow_egress_send_observer", default=None)
+
+
+@contextmanager
+def observing_sends(observer: Callable[[requests.PreparedRequest], None]) -> Iterator[None]:
+    """Call ``observer`` with every request a pinned session is about to send
+    from this context (this thread, unless the context is copied). What it
+    raises stops that request: nothing is sent."""
+    token = _SEND_OBSERVER.set(observer)
+    try:
+        yield
+    finally:
+        _SEND_OBSERVER.reset(token)
+
 
 class PinnedHTTPAdapter(HTTPAdapter):
     """``HTTPAdapter`` whose direct connections are pinned. Auth handlers,
@@ -528,6 +545,9 @@ class PinnedHTTPAdapter(HTTPAdapter):
             # module's docstring. Check the name, as the httpx transports do.
             if select_proxy(request.url, proxies):
                 check_url(request.url, self._policy)
+            observer = _SEND_OBSERVER.get()
+            if observer is not None:
+                observer(request)
             return super().send(request, stream=stream, timeout=timeout, verify=verify, cert=cert, proxies=proxies)
         except UnsafeURLError as e:
             raise RequestsEgressBlocked(str(e), request=request) from None
