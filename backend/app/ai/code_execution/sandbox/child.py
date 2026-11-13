@@ -33,6 +33,7 @@ import pandas as pd
 from app.ai.code_execution.sandbox import landlock, seccomp
 from app.ai.code_execution.sandbox.config import DEFAULT_MAX_RESULT_MB
 from app.ai.code_execution.sandbox.namespace import (
+    CLIENTS_GLOBAL,
     BrowserHelper,
     ListsHelper,
     SandboxFile,
@@ -227,7 +228,7 @@ def _run_data_job(job: Dict[str, Any], rpc: _Rpc):
     namespace: Dict[str, Any] = {
         "pd": pd,
         "np": np,
-        "db_clients": clients,
+        CLIENTS_GLOBAL: clients,
         "excel_files": excel_files,
         "load_step": load_step,
         "load_entity": load_entity,

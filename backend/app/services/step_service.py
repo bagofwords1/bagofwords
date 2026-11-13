@@ -363,7 +363,13 @@ class StepService:
             ds_service = DataSourceService()
             db_clients = {}
             for data_source in ctx.data_sources:
-                ds_clients = await ds_service.construct_clients(db, data_source, current_user=ctx.credential_user)
+                # Row-level security filters for whose result this is: the
+                # user load_step/load_entity resolve as below (a viewer's or
+                # reader's run), else the credential user.
+                ds_clients = await ds_service.construct_clients(
+                    db, data_source, current_user=ctx.credential_user,
+                    row_filter_user=ctx.loadables_user or ctx.credential_user,
+                )
                 db_clients.update(ds_clients)
 
         excel_files = ctx.files
@@ -595,6 +601,12 @@ class StepService:
                 report, credential_user=credential_user,
                 organization=organization, organization_settings=organization_settings,
             )
+            # The result is run_user's: what the code loads (load_step,
+            # load_entity) resolves as them, and row-level security filters
+            # for them when the clients are built here, even when the owner's
+            # credentials run it -- as ExecContext.from_release(reader=...)
+            # does for a published dashboard.
+            ctx.loadables_user = run_user
             data = await self._execute_step_code(
                 db, step, ctx, db_clients=db_clients, params=params, param_specs=specs,
             )

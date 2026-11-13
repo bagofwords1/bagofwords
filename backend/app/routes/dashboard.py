@@ -567,11 +567,31 @@ async def _has_own_run(db, release, user) -> bool:
 
     if user is None:
         return False
+    from app.services.dashboard_data import release_creator_result_holds_owner_slice
+
+    # Results resolve_release_step refuses (run under the owner's credentials
+    # over an RLS source) are not a run of theirs either. Decided before the
+    # stream below, which holds the session's connection.
+    creator_rows = (await db.execute(
+        select(StepUserResult.id, StepUserResult.executed_as, Step.id.label("step_id"), Step.code)
+        .join(Step, Step.id == StepUserResult.step_id)
+        .join(Query, Query.id == Step.query_id)
+        .where(Query.artifact_release_id == str(release.id), StepUserResult.user_id == str(user.id),
+               StepUserResult.status == "success", StepUserResult.executed_as == "creator")
+    )).all()
+    refused_steps: dict[str, bool] = {}  # the rule is per step: asked once for each
+    refused: list[str] = []
+    for row in creator_rows:
+        step_key = str(row.step_id)
+        if step_key not in refused_steps:
+            refused_steps[step_key] = await release_creator_result_holds_owner_slice(db, row, release, row.code)
+        if refused_steps[step_key]:
+            refused.append(str(row.id))
     rows = await db.stream(
         select(StepUserResult.data).join(Step, Step.id == StepUserResult.step_id)
         .join(Query, Query.id == Step.query_id)
         .where(Query.artifact_release_id == str(release.id), StepUserResult.user_id == str(user.id),
-               StepUserResult.status == "success")
+               StepUserResult.status == "success", StepUserResult.id.notin_(refused))
         .order_by(StepUserResult.last_run_at.desc().nullslast(), StepUserResult.id)
         .execution_options(yield_per=1)
     )

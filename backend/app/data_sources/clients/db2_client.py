@@ -58,6 +58,10 @@ def short_error(e: Exception) -> str:
 
 class Db2Client(DataSourceClient):
 
+    # Db2 SQL: a quote in a character constant is written '' and a backslash
+    # is ordinary (IBM Db2 SQL Reference, Constants).
+    sql_literal_style = "standard"
+
     relative_date_hint = catalog.RELATIVE_DATE_HINT
 
     # Catalog schema override, per platform. Not user-configurable: the test

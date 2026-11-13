@@ -207,6 +207,12 @@ def _invalidate_agent_schema_cache(organization) -> None:
     except Exception:
         logger.debug("schema cache invalidation skipped", exc_info=True)
 
+
+# construct_clients' default for `row_filter_user`: row-level security filters
+# for the credential user. A sentinel, because None already means anonymous.
+SAME_AS_CURRENT_USER = object()
+
+
 class DataSourceService:
 
     def __init__(self):
@@ -2977,6 +2983,7 @@ class DataSourceService:
     async def construct_clients(
         self, db: AsyncSession, data_source: DataSource, current_user: User | None,
         *, connection_errors: Optional[list] = None,
+        row_filter_user: Any = SAME_AS_CURRENT_USER,
     ) -> Dict[str, Any]:
         """
         Construct clients for ALL connections in the domain.
@@ -2986,6 +2993,13 @@ class DataSourceService:
 
         For backward compatibility with legacy code, also adds aliases:
         - "{domain_name}" (only if single connection, for legacy ds_clients.get("name") pattern)
+
+        `current_user` is whose credentials the clients use. `row_filter_user`
+        is whose identity the row-level security of accelerated relations
+        filters for; by default the same user. A run that lends someone
+        else's credentials for a viewer's result ("run on my behalf") passes
+        the viewer, so the rows stay the viewer's. None means anonymous,
+        exactly as for `current_user`.
 
         By default the first connection that fails aborts the whole data
         source. Passing a `connection_errors` list opts into building each
@@ -3079,7 +3093,9 @@ class DataSourceService:
                 # boundary and it is structural, since a relation absent from the
                 # DuckDB catalog cannot be named at all.
                 fast_client = await self._construct_fast_client(
-                    db, data_source, conn, current_user=current_user
+                    db, data_source, conn,
+                    row_filter_user=current_user if row_filter_user is SAME_AS_CURRENT_USER
+                    else row_filter_user,
                 )
                 if fast_client is not None:
                     fast_key = f"{key}::fast"
@@ -3128,13 +3144,13 @@ class DataSourceService:
         return clients
 
     async def _construct_fast_client(self, db: AsyncSession, data_source: DataSource,
-                                     connection, current_user: User | None = None):
+                                     connection, row_filter_user: User | None = None):
         """Build the FastQueryClient for the custom tables this agent activated.
 
         Returns None when the agent has activated none — most agents, most of the
         time — so no extra client appears in the common case.
 
-        `current_user` decides which ROWS come back from any relation carrying
+        `row_filter_user` decides which ROWS come back from any relation carrying
         an RLS policy. It has no permissive default: None resolves to an
         anonymous identity, which sees nothing from a protected relation. A
         background path that legitimately needs rows must name a real user.
@@ -3169,7 +3185,7 @@ class DataSourceService:
             # Only pay for identity resolution when something actually needs it.
             from app.services.rls_identity_service import resolve_identity
             identity = await resolve_identity(
-                db, current_user, str(data_source.organization_id)
+                db, row_filter_user, str(data_source.organization_id)
             )
         return CustomQueryService.build_fast_client(
             list(rows), connection_name=connection.name, identity=identity

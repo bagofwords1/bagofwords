@@ -64,14 +64,24 @@ class CapturedQuery(str):
     everywhere else (equality, JSON, logging)."""
 
     client_type: Optional[str]
+    # The client's sql_literal_style: how its parameter values were written,
+    # so a client sqlglot has no dialect for is read with one whose string
+    # literals follow the same rule (_STYLE_DIALECTS).
+    literal_style: Optional[str]
+    # The client's sql_in_json_envelope: its query is a JSON envelope whose
+    # "sql" field is the statement (Elasticsearch, OpenSearch).
+    sql_in_json_envelope: bool
 
-    def __new__(cls, text: str, client_type: Optional[str] = None):
+    def __new__(cls, text: str, client_type: Optional[str] = None, literal_style: Optional[str] = None,
+                sql_in_json_envelope: bool = False):
         obj = super().__new__(cls, text)
         obj.client_type = client_type
+        obj.literal_style = literal_style
+        obj.sql_in_json_envelope = bool(sql_in_json_envelope)
         return obj
 
     def __reduce__(self):
-        return (CapturedQuery, (str(self), self.client_type))
+        return (CapturedQuery, (str(self), self.client_type, self.literal_style, self.sql_in_json_envelope))
 
 
 def _matches(text: str, needles: Tuple[str, ...], fold: bool = False) -> bool:
@@ -322,14 +332,22 @@ def _spl_search_binds(text: str, needles: Tuple[str, ...]) -> Optional[bool]:
 
 # ------------------------------------------------------------------------ entry
 
-def _dialect_for(client_type: Optional[str]) -> Optional[str]:
+# For a client sqlglot has no dialect for: a dialect whose string literals
+# follow the client's literal style. "doubled": '' and a backslash both
+# escape; "backslash": only a backslash does. ("standard" reads in sqlglot's
+# generic dialect, where '' is the only escape.)
+_STYLE_DIALECTS = {"doubled": "snowflake", "backslash": "spark"}
+
+
+def _dialect_for(client_type: Optional[str], literal_style: Optional[str] = None) -> Optional[str]:
     from app.ai.code_execution.sql_guard import CLIENT_DIALECTS
 
-    return CLIENT_DIALECTS.get(client_type or "")
+    return CLIENT_DIALECTS.get(client_type or "") or _STYLE_DIALECTS.get(literal_style or "")
 
 
 @functools.lru_cache(maxsize=2048)
-def structural_binds(text: str, client_type: Optional[str], needles: Tuple[str, ...], looks_sql: bool) -> Optional[bool]:
+def structural_binds(text: str, client_type: Optional[str], needles: Tuple[str, ...], looks_sql: bool,
+                     literal_style: Optional[str] = None) -> Optional[bool]:
     """True/False when the query's structure decides it; None when it can't
     (caller falls back to the text heuristic). Cached per query string."""
     if client_type == SPLUNK_CLIENT:
@@ -340,7 +358,7 @@ def structural_binds(text: str, client_type: Optional[str], needles: Tuple[str, 
         return cypher_binds(text, needles)
     if not looks_sql:
         return None
-    return _sql_binds(text, _dialect_for(client_type), needles)
+    return _sql_binds(text, _dialect_for(client_type, literal_style), needles)
 
 
 def log_fallback(capture: str, client_type: Optional[str], param: str) -> None:
