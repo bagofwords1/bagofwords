@@ -819,7 +819,7 @@ def test_a_reading_count_that_differs_between_template_and_rendered_text_fails_c
     )
 
 
-@pytest.mark.parametrize("value", [b"it's", bytearray(b"x")], ids=["bytes", "bytearray"])
+@pytest.mark.parametrize("value", [b"it's", bytearray(b"x"), memoryview(b"x")], ids=["bytes", "bytearray", "memoryview"])
 @pytest.mark.parametrize("name", sorted(query_params._RENDERERS))
 def test_a_bytes_value_is_refused_not_rendered_as_its_repr(name, value):
     with pytest.raises(ParamError):
@@ -878,6 +878,49 @@ def test_odata_params_are_refused_when_the_text_holds_a_fragment_mark_or_an_enco
         render_sql_with_params(template, {"me": "alice"}, renderer=renderer)
     with pytest.raises(ParamError):
         render_sql_with_params(template, {"me": 7}, renderer=renderer)
+
+
+ODATA_FAMILIES = ["PriorityErpClient", "SapDatasphereClient", "MecmClient"]
+ODATA_INLINE_AFTER_END = ["$select=Name#&$filter=Owner eq 'alice'", "$select=Name%00&$filter=Owner eq 'alice'"]
+
+
+@pytest.mark.parametrize("text", ODATA_INLINE_AFTER_END)
+@pytest.mark.parametrize("family", ODATA_FAMILIES)
+def test_an_odata_identity_value_after_a_fragment_mark_or_an_encoded_nul_does_not_bind(family, text):
+    from app.ai.code_execution.identity_bind import CapturedQuery
+
+    spec = [ParamSpec.model_validate({"name": "me", "type": "string", "source": "identity"})]
+    assert verify_identity_binds_in_queries([CapturedQuery(text, family)], {"me": "alice"}, spec) is not None
+    before_end = "$filter=Owner eq 'alice'&$select=Name"
+    assert verify_identity_binds_in_queries([CapturedQuery(before_end, family)], {"me": "alice"}, spec) is None
+
+
+def _recording_odata_clients():
+    from app.data_sources.clients.mecm_client import MecmClient
+    from app.data_sources.clients.priority_erp_client import PriorityErpClient
+    from app.data_sources.clients.sap_datasphere_client import SapDatasphereClient
+
+    def recording(cls):
+        def __init__(self):
+            self.received = []
+
+        def execute_query(self, query=None, **kwargs):
+            self.received.append(query)
+            return pd.DataFrame([{"rows": 1}])
+
+        return type("Recording" + cls.__name__, (cls,), {"__init__": __init__, "execute_query": execute_query})()
+
+    return [recording(c) for c in (PriorityErpClient, SapDatasphereClient, MecmClient)]
+
+
+@pytest.mark.parametrize("text", ODATA_INLINE_AFTER_END)
+def test_odata_text_holding_a_fragment_mark_or_an_encoded_nul_is_refused_before_it_is_sent(mode, text):
+    for client in _recording_odata_clients():
+        with pytest.raises(Exception, match="'#' or '%00'"):
+            _run({"c": client}, f"return ds_clients['c'].execute_query({text!r})")
+        assert client.received == [], type(client).__name__
+        df, _, _ = _run({"c": client}, "return ds_clients['c'].execute_query(\"$filter=Owner eq 'alice'\")")
+        assert client.received == ["$filter=Owner eq 'alice'"], type(client).__name__
 
 
 def test_odata_params_still_render_without_a_fragment_mark_or_an_encoded_nul():

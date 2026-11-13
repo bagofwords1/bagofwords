@@ -1001,7 +1001,7 @@ def _rendered_value(value: Any, renderer: LiteralRenderer) -> Tuple[str, List[Tu
         return "(" + ", ".join(parts) + ")", spans
     if isinstance(value, dict):
         raise ParamError("object values cannot be rendered into SQL directly")
-    if isinstance(value, (bytes, bytearray)):
+    if isinstance(value, (bytes, bytearray, memoryview)):
         raise ParamError("byte values cannot be rendered into a query; pass text")
     value = str(value)
     if _NUL in value:
@@ -1447,6 +1447,13 @@ def _query_binds_value(capture: str, needles: List[str], param: str = "") -> boo
     from app.ai.code_execution.identity_bind import log_fallback, structural_binds
 
     client_type = getattr(capture, "client_type", None)
+    renderer = renderer_for_name(client_type or "")
+    if renderer is not None and renderer.name == "odata":
+        # The server never receives OData text after a '#' (the client drops
+        # the fragment) or a '%00' (decoded to a NUL): it filters nothing.
+        end = _ODATA_TEXT_END.search(capture)
+        if end is not None:
+            capture = capture[:end.start()]
     stripped = _strip_sql_comments(capture)
     looks_sql = bool(_SQL_START_RE.match(stripped))
     verdict = structural_binds(str(capture), client_type, tuple(needles), looks_sql)

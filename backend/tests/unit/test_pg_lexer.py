@@ -242,6 +242,120 @@ def test_an_unknown_mode_is_an_error():
         lex_postgres("SELECT 1", mode="mysql")
 
 
+# --------------------------------------------------------------- non-ASCII spaces in names
+
+# Postgres reads every character >= 0x80 as part of a name; sqlglot ends a
+# name at any character Python calls a space. A `$tag$` glued to such a
+# character then opens a dollar string for sqlglot and not for Postgres.
+NBSP = chr(0xA0)
+NAME_SPACES = [chr(code) for code in (0x85, 0xA0, 0x1680, 0x2000, 0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000)]
+
+
+@pytest.mark.parametrize("space", NAME_SPACES, ids=lambda c: f"U+{ord(c):04X}")
+def test_a_name_holding_a_non_ascii_space_is_refused(space):
+    for sql in ("SELECT a" + space + "b FROM t", "SELECT 1 AS v" + space, "SELECT " + space + "x",
+                "SELECT 1 as" + space + "$x$, b FROM t as" + space + "$x$", "SELECT $1" + space):
+        with pytest.raises(ReadOnlyViolation, match="space"):
+            lex_postgres(sql)
+
+
+def test_a_non_ascii_space_in_a_literal_quoted_name_or_comment_is_kept():
+    sql = "SELECT 'a" + NBSP + "b', $$c" + NBSP + "$$, E'd" + NBSP + "' AS \"x" + NBSP + "y\" -- " + NBSP
+    assert _text(sql) == "SELECT 'a" + NBSP + "b', 'c" + NBSP + "', 'd" + NBSP + "' AS \"x" + NBSP + "y\"  "
+    assert _text("SELECT " + chr(0x5E9) + "x FROM t") == "SELECT " + chr(0x5E9) + "x FROM t"
+
+
+def _sqlglot_splits_a_name_at(chars: list[str]) -> list[str]:
+    """The characters at which sqlglot's Postgres tokenizer ends a name."""
+    from sqlglot.dialects.dialect import Dialect
+
+    dialect = Dialect.get_or_raise("postgres")
+
+    def kept_whole(text: str) -> set[str]:
+        try:
+            tokens = dialect.tokenize(text)
+        except Exception:
+            return set()
+        return {t.text[1] for t in tokens if t.token_type.name == "VAR" and len(t.text) == 3
+                and t.text[0] == "a" and t.text[2] == "b"}
+
+    kept = kept_whole(" ".join("a" + c + "b" for c in chars))
+    # A character the batch did not keep is checked on its own, so one odd
+    # character cannot mark its neighbours.
+    return [c for c in chars if c not in kept and c not in kept_whole("a" + c + "b")]
+
+
+def test_every_character_that_ends_a_sqlglot_name_is_refused_inside_a_name():
+    codes = [code for code in range(0x80, 0x30000) if not 0xD800 <= code <= 0xDFFF]
+    splits = []
+    for at in range(0, len(codes), 2_000):
+        splits += _sqlglot_splits_a_name_at([chr(code) for code in codes[at:at + 2_000]])
+    assert NBSP in splits  # still true of this sqlglot; a change shows here
+    not_refused = []
+    for c in splits:
+        try:
+            lex_postgres("SELECT a" + c + "b FROM t")
+            not_refused.append(f"U+{ord(c):04X}")
+        except ReadOnlyViolation:
+            pass
+    assert not_refused == []
+
+
+# --------------------------------------------------------------- canonical text is a fixed point
+
+# A literal re-emitted as '...' right after a standalone `u&` would read as a
+# U& string; the canonical text puts a space between them.
+@pytest.mark.parametrize("sql, text", [
+    ("SELECT u&E'3' AS v", "SELECT u& '3' AS v"),
+    ("SELECT U&$$3$$ AS v", "SELECT U& '3' AS v"),
+    ("SELECT u&/**/E'3'", "SELECT u& '3'"),
+    ("SELECT xu&E'3', u &E'3'", "SELECT xu&'3', u &'3'"),
+])
+def test_a_literal_after_a_standalone_u_ampersand_is_spaced_from_it(sql, text):
+    assert _text(sql) == text
+    assert _text(text) == text
+
+
+_FUZZ_PIECES = {
+    "name": ["u", "U", "e", "E", "n", "N", "b", "x", "X", "t", "a$b", "select", chr(0x5E9)],
+    "operator": ["&", "+", "-", "*", "/", "::", "(", ")", ",", ".", "=", "<", "@", "|", "!", "~", "%", "^", "#", "?", ":"],
+    "number": ["1", "2.5", ".5", "1e3", "0"],
+    "parameter": ["$1", "$2"],
+    "literal": ["'a'", "''", "'it''s'", "E'x'", "e'" + BS + "''", "E'" + BS + "n'", "E'" + BS + BS + "'",
+                "E'" + BS + "u05e9'", "$$v$$", "$q$w'$q$", "$$$$", "N'n'", "B'01'", "X'1f'", "'" + BS + "'"],
+    "quoted name": ['"q"', '"a""b"', "\"'\""],
+    "comment": ["--c" + NL, "/*c*/", "/*a/*b*/c*/", "--" + CR, "/*" + NL + "*/"],
+    "semicolon": [";"],
+}
+_FUZZ_GAPS = ["", "", " ", NL, TAB]
+
+
+def test_the_canonical_text_is_a_fixed_point_of_the_lexer_for_generated_queries():
+    import random
+
+    rng = random.Random(20261112)
+    classes = sorted(_FUZZ_PIECES)
+    accepted = 0
+    for _ in range(6_000):
+        pieces = []
+        for _ in range(rng.randint(1, 10)):
+            pieces.append(rng.choice(_FUZZ_PIECES[rng.choice(classes)]))
+            pieces.append(rng.choice(_FUZZ_GAPS))
+        sql = "".join(pieces)
+        try:
+            first = lex_postgres(sql)
+        except ReadOnlyViolation:
+            continue
+        accepted += 1
+        try:
+            again = lex_postgres(first.text)
+        except ReadOnlyViolation as e:
+            pytest.fail(f"the canonical text of {sql!r} is refused: {e}")
+        assert (again.text, again.code_only, again.statements, again.has_backslash_literal) == \
+            (first.text, first.code_only, first.statements, first.has_backslash_literal), sql
+    assert accepted > 2_000
+
+
 def test_the_lexer_runs_in_linear_time():
     import time
 
@@ -286,8 +400,10 @@ def pg():
         cur.execute("SHOW standard_conforming_strings")
         assert cur.fetchone()[0] == "on"
 
-        def run(sql):
+        def run(sql, fetch=True):
             cur.execute(sql)  # no parameters: psycopg2 sends the text as it is
+            if not fetch:
+                return None
             return [d.name for d in cur.description], cur.fetchall()
 
         yield run
@@ -312,6 +428,8 @@ ENGINE_SAMPLES = [
     "SELECT a, b FROM t WHERE b = E'" + BS + "x79' -- trailing",
     "SELECT $q$" + NL + "line" + CR + NL + "$q$ AS v, '" + NL + "' AS w",
     "SELECT 'a' AS v;",
+    "SELECT u&E'3' AS v FROM (SELECT 1 AS u) z",
+    "SELECT U&$$3$$ AS v FROM (SELECT 1 AS U) z",
 ]
 
 
@@ -320,6 +438,35 @@ def test_postgres_returns_the_same_columns_and_values_for_the_canonical_text(pg,
     result = lex_postgres(sql)
     assert result.statements == 1
     assert pg(result.text) == pg(sql)
+
+
+def _sqlglot_tables_and_into(sql):
+    import sqlglot
+    from sqlglot import exp
+
+    tree = sqlglot.parse_one(sql, read="postgres")
+    return [t.name for t in tree.find_all(exp.Table)], tree.find(exp.Into) is not None
+
+
+def test_postgres_reads_a_table_inside_a_name_holding_a_non_ascii_space_so_the_lexer_refuses_it(pg):
+    sql = "SELECT 1 as" + NBSP + "$x$, b FROM t as" + NBSP + "$x$"
+    columns, rows = pg(sql)
+    assert columns == ["as" + NBSP + "$x$", "b"] and sorted(rows) == [(1, "x"), (1, "y")]
+    assert _sqlglot_tables_and_into(sql) == ([], False)  # sqlglot reads a string where the table is
+    with pytest.raises(ReadOnlyViolation):
+        lex_postgres(sql)
+
+
+def test_postgres_runs_a_select_into_inside_a_name_holding_a_non_ascii_space_so_the_lexer_refuses_it(pg):
+    sql = "SELECT 1 as" + NBSP + "$x$ INTO t_copy FROM t as" + NBSP + "$x$"
+    pg(sql, fetch=False)
+    try:
+        assert pg("SELECT count(*) AS n FROM t_copy") == (["n"], [(2,)])
+    finally:
+        pg("DROP TABLE IF EXISTS t_copy", fetch=False)
+    assert _sqlglot_tables_and_into(sql) == ([], False)
+    with pytest.raises(ReadOnlyViolation):
+        lex_postgres(sql)
 
 
 def test_postgres_ends_a_line_comment_at_a_carriage_return_as_the_lexer_does(pg):

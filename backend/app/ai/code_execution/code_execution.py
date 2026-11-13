@@ -1313,6 +1313,18 @@ class QueryCapturingClientWrapper:
                         ",".join(sorted(_loggable_name(k) for k in param_values))
                         if isinstance(param_values, dict) else _loggable_name(type(param_values).__name__),
                     )
+        if isinstance(query, str):
+            from app.ai.code_execution.query_params import _ODATA_TEXT_END, renderer_for
+
+            renderer = renderer_for(self._original)
+            if renderer is not None and renderer.name == "odata" and _ODATA_TEXT_END.search(query):
+                # The options text travels in a URL: the client drops what
+                # follows a '#' and the server decodes '%00' to a NUL, so the
+                # text checked here would not be the text applied.
+                raise UnsafeSQLError(
+                    "OData options cannot hold '#' or '%00'; remove it "
+                    "(write a literal '#' in a value as %23, or pass it as a parameter)"
+                )
         if query is _NO_QUERY:
             capture = _describe_keyword_call(kwargs)
         elif native_params:

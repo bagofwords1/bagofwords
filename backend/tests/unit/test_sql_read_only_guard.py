@@ -226,6 +226,146 @@ def test_the_unparsed_fallback_keeps_describe_outside_postgres(unparsable, diale
     check_sql("DESC orders", dialect)
 
 
+# Unparsed text is read with the dialect's own string and comment rules: a
+# quote inside a `#` comment, or a backslash-escaped quote, must not let a
+# write or a second statement pass as the inside of a literal.
+NL = chr(10)
+BS = chr(92)
+HASH_COMMENT_DIALECTS = ["mysql", "bigquery", "clickhouse"]
+BACKSLASH_DIALECTS = ["mysql", "bigquery", "clickhouse", "snowflake", "databricks", "hive", "spark", "athena",
+                      "redshift"]
+HASH_COMMENT_HIDES = [
+    "SELECT a FROM t # it's" + NL + "INTO OUTFILE '/tmp/x' #'",
+    "SELECT a FROM t # it's" + NL + "; DROP TABLE t #'",
+    "SELECT a FROM t # it's" + NL + "UNION SELECT b FROM u WHERE c = 1 FOR UPDATE; DELETE FROM t #'",
+]
+BACKSLASH_HIDES = [
+    "SELECT 'x" + BS + "'' AS a INTO OUTFILE '/tmp/x' -- '",
+    "SELECT 'x" + BS + "'' AS a; DROP TABLE t -- '",
+    "SELECT \"x" + BS + "\"\" AS a, 1 INTO OUTFILE '/tmp/x' -- \"",
+]
+
+
+@pytest.mark.parametrize("dialect", HASH_COMMENT_DIALECTS)
+@pytest.mark.parametrize("sql", HASH_COMMENT_HIDES)
+def test_the_unparsed_fallback_reads_hash_comments_as_the_dialect_does(unparsable, dialect, sql):
+    with pytest.raises(ReadOnlyViolation):
+        check_sql(sql, dialect)
+
+
+@pytest.mark.parametrize("dialect", BACKSLASH_DIALECTS)
+@pytest.mark.parametrize("sql", BACKSLASH_HIDES)
+def test_the_unparsed_fallback_reads_backslash_escapes_as_the_dialect_does(unparsable, dialect, sql):
+    with pytest.raises(ReadOnlyViolation):
+        check_sql(sql, dialect)
+
+
+@pytest.mark.parametrize("dialect", [d for d in NON_TERADATA if d != "postgres"])
+@pytest.mark.parametrize("sql", HASH_COMMENT_HIDES + BACKSLASH_HIDES)
+def test_the_unparsed_fallback_refuses_what_any_reading_would_run(unparsable, dialect, sql):
+    # Every reading is checked: one where `#` starts a comment, one where a
+    # backslash escapes a quote, and the plain one. (Postgres text is read by
+    # its own lexer, as the server reads it.)
+    with pytest.raises(ReadOnlyViolation):
+        check_sql(sql, dialect)
+
+
+@pytest.mark.parametrize("dialect", [d for d in NON_TERADATA if d != "postgres"])
+def test_the_unparsed_fallback_reads_a_double_dash_without_a_space_as_code_as_mysql_does(unparsable, dialect):
+    # MySQL starts a `--` comment only before whitespace; `1--1` is arithmetic.
+    # (Postgres always starts one there, and its lexer reads it so.)
+    with pytest.raises(ReadOnlyViolation):
+        check_sql("SELECT a FROM t WHERE b = 1--1 INTO OUTFILE '/tmp/x'", dialect)
+
+
+def test_the_unparsed_fallback_refuses_text_the_dialect_cannot_tokenize(unparsable):
+    with pytest.raises(ReadOnlyViolation):
+        check_sql("SELECT 'unterminated FROM t", "mysql")
+
+
+@pytest.mark.parametrize("dialect, sql", [
+    *[(d, "SELECT a FROM t # a note" + NL + "WHERE b = 1") for d in HASH_COMMENT_DIALECTS],
+    # Not Athena: its query engine has no backslash escapes, and its
+    # tokenizer cannot read this text, so it is refused.
+    *[(d, "SELECT a FROM t WHERE b = 'it" + BS + "'s'") for d in BACKSLASH_DIALECTS if d != "athena"],
+    *[(d, "SELECT a FROM t WHERE b = 'x # y' AND c = '-- z'") for d in NON_TERADATA],
+    *[(d, "SELECT t1do, col2set FROM t WHERE note = 'please delete'") for d in NON_TERADATA],
+])
+def test_the_unparsed_fallback_still_lets_ordinary_reads_through(unparsable, dialect, sql):
+    check_sql(sql, dialect)
+
+
+def test_the_unparsed_fallback_stays_linear():
+    import time
+
+    def took(n):
+        sql = ("SELECT 'it" + BS + "'s' AS a, `b`, \"c\" FROM t # x" + NL + "/* y */ -- z" + NL) * n
+        start = time.perf_counter()
+        try:
+            check_sql(sql + " @@ x", "mysql")
+        except ReadOnlyViolation:
+            pass
+        return time.perf_counter() - start
+
+    took(100)
+    small, large = min(took(500) for _ in range(3)), min(took(5_000) for _ in range(3))
+    assert large < small * 30  # 10x the text, far below quadratic growth
+
+
+# A MySQL 8 read sqlglot cannot parse, so the guard takes its unparsed path.
+MYSQL_UNPARSABLE_READ = "SELECT WEIGHT_STRING('a' AS CHAR(3)) AS w"
+
+
+def _docker_available() -> bool:
+    try:
+        import docker
+
+        docker.from_env().ping()
+        return True
+    except Exception:
+        return False
+
+
+@pytest.fixture(scope="module")
+def mysql_root():
+    """A cursor on a throwaway MySQL 8 server, as root (who may write files)."""
+    if not _docker_available():
+        pytest.skip("Docker daemon not reachable")
+    import pymysql
+    from testcontainers.mysql import MySqlContainer
+
+    with MySqlContainer("mysql:8") as db:
+        con = pymysql.connect(host=db.get_container_host_ip(), port=int(db.get_exposed_port(3306)),
+                              user="root", password=db.root_password, autocommit=True)
+        yield con.cursor()
+        con.close()
+
+
+def _file_on_server(cur, path):
+    cur.execute("SELECT LOAD_FILE(%s)", (path,))
+    return cur.fetchone()[0]
+
+
+@pytest.mark.parametrize("name, hidden", [
+    ("hash", " # it's" + NL + "INTO OUTFILE '{path}' #'"),
+    ("backslash", ", 'x" + BS + "'' AS q INTO OUTFILE '{path}' -- '"),
+])
+def test_mysql_writes_a_file_for_text_the_guard_now_refuses_before_sending(mysql_root, name, hidden):
+    from app.data_sources.clients.mysql_client import MysqlClient
+
+    path = f"/var/lib/mysql-files/guard-{name}.txt"
+    sql = MYSQL_UNPARSABLE_READ + hidden.format(path=path)
+    try:
+        ensure_read_only(object.__new__(MysqlClient), sql)
+        refused = None
+    except ReadOnlyViolation as e:
+        refused = e
+    assert _file_on_server(mysql_root, path) is None  # the guard sends nothing
+    mysql_root.execute(sql)  # the same text, sent as it is
+    assert _file_on_server(mysql_root, path) is not None
+    assert refused is not None, "the guard let through text that writes a file on MySQL"
+
+
 def test_non_sql_clients_are_not_checked():
     class SalesforceClient:  # SOQL / HogQL / etc. go through unchanged
         pass

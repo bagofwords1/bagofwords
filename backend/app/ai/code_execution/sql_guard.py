@@ -15,7 +15,10 @@ Policy, per client:
     `SELECT ... INTO`) is refused. If sqlglot cannot parse the text (or fails
     in any way), we do not block a possibly-valid read on a parser gap; we
     fall back to an allowlist over the text with string literals and
-    comments removed: one statement, a read verb first, no write word.
+    comments removed: one statement, a read verb first, no write word. The
+    text is read with the dialect's own tokenizer and in each generic way
+    (`#` comments or not, backslash escapes or not); any reading refusing
+    refuses.
     Postgres text is first read by its own lexer (`pg_lexer`), as the server
     reads it: one statement only, and the lexer's canonical text is what is
     checked and what is sent.
@@ -72,17 +75,42 @@ _LITERALS_AND_COMMENTS = re.compile(
 
 # Text sqlglot cannot parse (`check_unparsed`): the verbs a read may start
 # with, and every word that changes data, state or the session, matched as a
-# whole name the way Postgres splits names (a word right after digits is a
-# separate word to older servers).
+# whole name the way Postgres splits names: a name runs over letters, digits,
+# `_` and `$`, and a word right after a number is a separate word to older
+# servers (`1do` is a number then DO; `t1do` is one name).
 _UNPARSED_READ_VERBS = frozenset({"SELECT", "WITH", "VALUES", "SHOW", "EXPLAIN"})
 _NAME_CHAR = r"A-Za-z0-9_$\x80-\U0010FFFF"
-_UNPARSED_WRITE_WORDS = re.compile(
-    r"(?<![A-Za-z_$\x80-\U0010FFFF])(?:INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER|CREATE|GRANT|REVOKE"
-    r"|EXEC|EXECUTE|MERGE|CALL|UPSERT|LOAD|COPY|VACUUM|ATTACH|DETACH|SET|INTO|COMMIT|ROLLBACK"
-    r"|BEGIN|START|LOCK|LISTEN|UNLISTEN|NOTIFY|SECURITY|IMPORT|REASSIGN|PREPARE|DEALLOCATE|DISCARD"
-    r"|RESET|CHECKPOINT|CLUSTER|REINDEX|REFRESH|DO)(?![" + _NAME_CHAR + r"])",
-    re.IGNORECASE,
+_UNPARSED_WRITE_WORDS = frozenset({
+    "INSERT", "UPDATE", "DELETE", "DROP", "TRUNCATE", "ALTER", "CREATE", "GRANT", "REVOKE",
+    "EXEC", "EXECUTE", "MERGE", "CALL", "UPSERT", "LOAD", "COPY", "VACUUM", "ATTACH", "DETACH", "SET", "INTO",
+    "COMMIT", "ROLLBACK", "BEGIN", "START", "LOCK", "LISTEN", "UNLISTEN", "NOTIFY", "SECURITY", "IMPORT",
+    "REASSIGN", "PREPARE", "DEALLOCATE", "DISCARD", "RESET", "CHECKPOINT", "CLUSTER", "REINDEX", "REFRESH", "DO",
+})
+_UNPARSED_WORD = re.compile(
+    r"(?P<name>[A-Za-z_\x80-\U0010FFFF][" + _NAME_CHAR + r"]*)"
+    r"|(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?"
 )
+# The readings of unparsed text besides the dialect's own tokenizer, each a
+# (`#` starts a comment, a backslash escapes the next character) pair: the
+# standard one, and the MySQL / BigQuery / ClickHouse / Hive-like ones.
+# Only the standard one reads `[...]` as a quoted name (SQL Server, SQLite);
+# to the others `[` is code (an array subscript).
+_GENERIC_READINGS = ((False, False), (True, False), (False, True), (True, True))
+_GENERIC_STARTS = {
+    (False, False): re.compile(r"['\"`\[]|--|/\*"),
+    (True, False): re.compile(r"['\"`#]|--|/\*"),
+    (False, True): re.compile(r"['\"`]|--|/\*"),
+    (True, True): re.compile(r"['\"`#]|--|/\*"),
+}
+_QUOTE_STOPS = {
+    (close, backslash): re.compile("[" + re.escape(close) + ("\\\\" if backslash else "") + "]")
+    for close in ("'", '"', "`", "]") for backslash in (False, True)
+}
+# sqlglot token types that are a literal's value, not code.
+_LITERAL_TOKENS = frozenset({
+    "STRING", "NATIONAL_STRING", "RAW_STRING", "BIT_STRING", "HEX_STRING", "BYTE_STRING", "HEREDOC_STRING",
+    "UNICODE_STRING",
+})
 _QUOTED_NAME = re.compile(r'"(?:[^"]|"")*"')
 _LEADING_WORD = re.compile(r"[\s(]*([A-Za-z_][" + _NAME_CHAR + r"]*)")
 
@@ -460,8 +488,10 @@ def check_sql(sql: str, dialect: str) -> None:
             _keyword_check(_TERADATA_CHARSET_CLAUSE.sub(" ", sql))
             _single_statement_check(sql)
         else:
-            check_unparsed(_LITERALS_AND_COMMENTS.sub(" ", sql),
-                           read_verbs=_UNPARSED_READ_VERBS | {"DESCRIBE", "DESC"})
+            # Refused if any reading refuses: a quote in a `#` comment or a
+            # backslash-escaped quote must not hide code in one of them.
+            for code_only in _unparsed_readings(sql, dialect):
+                check_unparsed(code_only, read_verbs=_UNPARSED_READ_VERBS | {"DESCRIBE", "DESC"})
 
     _check_parsed(sql, dialect, unparsed)
 
@@ -579,12 +609,89 @@ def check_unparsed(code_only: str, *, read_verbs: frozenset[str], extra_write_wo
         raise ReadOnlyViolation(
             f"Statement '{verb or '(empty)'}' is not allowed. Only SELECT queries are allowed."
         )
-    for pattern in (_UNPARSED_WRITE_WORDS, extra_write_words):
-        match = pattern.search(words) if pattern is not None else None
-        if match:
+    for word in _UNPARSED_WORD.finditer(words):
+        name = word.group("name")
+        if name is not None and name.upper() in _UNPARSED_WRITE_WORDS:
             raise ReadOnlyViolation(
-                f"Query contains forbidden operation '{match.group().upper()}'. Only SELECT queries are allowed."
+                f"Query contains forbidden operation '{name.upper()}'. Only SELECT queries are allowed."
             )
+    match = extra_write_words.search(words) if extra_write_words is not None else None
+    if match:
+        raise ReadOnlyViolation(
+            f"Query contains forbidden operation '{match.group().upper()}'. Only SELECT queries are allowed."
+        )
+
+
+def _unparsed_readings(sql: str, dialect: str) -> list[str]:
+    """Text sqlglot could not parse, with its literals and comments emptied,
+    in every way it may be read: by the dialect's own tokenizer (refused if
+    that tokenizer cannot read it), and by each generic reading."""
+    from sqlglot.dialects.dialect import Dialect
+
+    try:
+        tokens = Dialect.get_or_raise(dialect).tokenize(sql)
+    except Exception as e:
+        raise ReadOnlyViolation(
+            "The query could not be read as SQL (an unterminated string, quoted name or comment?). Fix it and retry."
+        ) from e
+    pieces = []
+    for token in tokens:
+        kind = token.token_type.name
+        pieces.append("''" if kind in _LITERAL_TOKENS else '""' if kind == "IDENTIFIER" else token.text)
+    return [" ".join(pieces)] + [_generic_reading(sql, h, b) for h, b in _GENERIC_READINGS]
+
+
+def _generic_reading(sql: str, hash_comments: bool, backslash: bool) -> str:
+    """`sql` with each literal, quoted name and comment replaced by a space:
+    quotes doubled to escape them, plus `#` line comments and backslash
+    escapes when asked (and `[...]` names when neither is). In a `#`
+    reading (MySQL's), `--` starts a comment only before whitespace or a
+    control character. From anything left open, the rest is read as code.
+    One pass."""
+    starts = _GENERIC_STARTS[(hash_comments, backslash)]
+    out = []
+    i, n = 0, len(sql)
+    while True:
+        m = starts.search(sql, i)
+        if m is None:
+            out.append(sql[i:])
+            break
+        mark, start = m.group(), m.start()
+        if mark == "--" and hash_comments and sql[m.end():m.end() + 1] > " ":
+            out.append(sql[i:m.end()])
+            i = m.end()
+            continue
+        out.append(sql[i:start])
+        if mark in ("--", "#"):
+            end = sql.find("\n", m.end())
+            end = n if end < 0 else end
+        elif mark == "/*":
+            end = sql.find("*/", m.end())
+            end = -1 if end < 0 else end + 2
+        else:
+            end = _quoted_end(sql, start, "]" if mark == "[" else mark, backslash and mark in "'\"")
+        if end < 0:
+            out.append(sql[start:])
+            break
+        out.append(" ")
+        i = end
+    return "".join(out)
+
+
+def _quoted_end(sql: str, start: int, close: str, backslash: bool) -> int:
+    """Where the quoted text opening at `start` ends (exclusive), or -1."""
+    stop = _QUOTE_STOPS[(close, backslash)]
+    i = start + 1
+    while True:
+        m = stop.search(sql, i)
+        if m is None:
+            return -1
+        if m.group() == "\\":
+            i = m.end() + 1
+        elif close != "]" and sql.startswith(close, m.end()):
+            i = m.end() + 1
+        else:
+            return m.end()
 
 
 def _single_statement_check(sql: str) -> None:

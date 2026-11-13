@@ -84,6 +84,35 @@ def test_table_scope_on_the_checked_text_sees_the_tables_postgres_reads():
         check_table_scope(checked, "postgres", SCOPE)
 
 
+# A name holding a character >= 0x80 that Python calls a space: one name to
+# Postgres, a name then a dollar string to sqlglot, which then sees no table
+# and no INTO.
+NAME_SPACE_SHAPES = [
+    "SELECT 1 as{s}$x$, code FROM secret as{s}$x$",
+    "SELECT 1 as{s}$x$ INTO orders_copy FROM orders as{s}$x$",
+    "SELECT 1 as{s}$x$, (SELECT code FROM secret LIMIT 1) as{s}$x$ FROM orders",
+]
+
+
+@pytest.mark.parametrize("space", [chr(0x85), chr(0xA0), chr(0x2028), chr(0x3000)], ids=lambda c: f"U+{ord(c):04X}")
+@pytest.mark.parametrize("shape", NAME_SPACE_SHAPES)
+def test_a_name_split_by_a_non_ascii_space_is_refused_by_the_guard_and_never_scoped(shape, space):
+    sql = shape.format(s=space)
+    with pytest.raises(ReadOnlyViolation):
+        _checked(sql)
+    with pytest.raises(ReadOnlyViolation):
+        check_sql(sql, "postgres")
+    with pytest.raises(ReadOnlyViolation):
+        _scoped(sql)
+
+
+def test_a_non_ascii_space_in_a_literal_or_quoted_name_still_passes():
+    nbsp = chr(0xA0)
+    sql = "SELECT id AS \"order" + nbsp + "id\" FROM orders WHERE note = 'a" + nbsp + "b'"
+    assert _checked(sql) == sql
+    check_table_scope(sql, "postgres", SCOPE)
+
+
 @pytest.mark.parametrize("sql", [
     "SELECT 'a'" + NL + "'b' FROM orders",
     "SELECT U&'d0061' FROM orders",
@@ -190,6 +219,8 @@ def test_any_parser_exception_falls_back_in_the_guard_and_fails_closed_in_table_
     "SELECT 1", "with x as (select 1) select * from x", "VALUES (1)", "SHOW search_path",
     "EXPLAIN SELECT 1", "  ((SELECT 1))", "SELECT '' AS note;", 'SELECT "begin", "do" FROM t',
     "SELECT start_date, settings, into_x, x_into FROM t", "SELECT a$into FROM t",
+    # A write word inside a name that holds digits is part of that name.
+    "SELECT t1do, col2set, x9into, a1b2lock FROM t",
 ])
 def test_check_unparsed_allows_one_read(code_only):
     check_unparsed(code_only, read_verbs=frozenset({"SELECT", "WITH", "VALUES", "SHOW", "EXPLAIN"}))
@@ -199,6 +230,8 @@ def test_check_unparsed_allows_one_read(code_only):
     "", ";", "SELECT 1; SELECT 2", "TABLE orders", "LOCK TABLE t", "CALL p()", "SELECT1",
     "SELECT 1 INTO t", "SELECT 1into t", "SELECT 1 FROM t FOR UPDATE; COMMIT", "SELECT 1 WHERE x = 1 -- c; RESET ALL",
     "SELECT * FROM t WHERE a = 1 AND START", "select refresh(1)", "WITH x AS (DELETE FROM t) SELECT 1",
+    # A number then a write word: two tokens to older servers.
+    "SELECT 1do", "SELECT 2.5set", "SELECT 1e5into t", "SELECT $1do",
 ])
 def test_check_unparsed_refuses_anything_else(code_only):
     with pytest.raises(ReadOnlyViolation):
@@ -264,6 +297,7 @@ def test_the_client_receives_the_canonical_text_the_checks_read(mode):
 @pytest.mark.parametrize("sql, error", [
     (E_STRING_READS[0], TableAccessError),
     (E_STRING_STATEMENTS[2], UnsafeSQLError),  # no write word for the code scan to catch first
+    (NAME_SPACE_SHAPES[0].format(s=chr(0xA0)), UnsafeSQLError),
 ])
 def test_a_hidden_read_or_statement_never_reaches_the_client(mode, sql, error):
     client = _recording(scoped=True)

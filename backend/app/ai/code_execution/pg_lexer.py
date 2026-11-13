@@ -7,11 +7,16 @@ name, comment and statement boundaries the way Postgres's own scanner does
 (src/backend/parser/scan.l, with standard_conforming_strings on) and gives
 back one canonical text:
 
-  * every comment replaced by one space, keeping the line breaks inside it
-    (so line numbers in the text shown to users stay right);
+  * every comment replaced by one space, keeping the line breaks inside it;
   * every string literal (standard, E'...', dollar-quoted) written as a
     standard '...' literal with the same value: quotes doubled, backslashes
-    as they are;
+    as they are. An E-string's \\n and \\r escapes become real line breaks
+    inside that literal, so the canonical text can have more lines than the
+    original;
+  * one space before such a literal where writing it right after the code
+    before it would change how it reads: after another literal (the two
+    would join into one) or after a standalone `u&` (it would become a
+    U&'...' string). The canonical text is a fixed point of this lexer;
   * N'...', B'...' and X'...' literals, quoted names and all other code as
     written.
 
@@ -22,8 +27,10 @@ the next line (it keeps the first piece's escape rules), U&'...' and U&"..."
 (their own escape syntax), a NUL anywhere (the client library stops reading
 at it), anything unterminated, E-string escapes that make a byte >= 0x80 or
 a NUL, bit or hex strings with other digits, `{#` (a comment to sqlglot,
-code to Postgres), and a prefixed string glued to a number (read one way by
-Postgres 15, another by older servers).
+code to Postgres), a prefixed string glued to a number (read one way by
+Postgres 15, another by older servers), and a name holding a character
+>= 0x80 that is a space to Python (part of the name to Postgres, the end of
+it to sqlglot).
 
 `mode="redshift"` also refuses E-strings and any backslash in a literal
 value: Redshift reads backslashes in plain strings as escapes.
@@ -227,6 +234,13 @@ def lex_postgres(sql: str, *, mode: str = "postgres") -> PgLexResult:
                     "Remove the backslash, or match it with a wildcard."
                 )
             backslash = True
+        if written.startswith("'") and text and (
+            text[-1].endswith("'") or (text[-1] == "&" and len(text) > 1 and text[-2] in ("u", "U"))
+        ):
+            # Written right there, the literal would join the one before it,
+            # or turn a standalone `u&` into a U&'...' string.
+            text.append(" ")
+            code.append(" ")
         text.append(written)
         code.append(prefix + "''")
         content = True
@@ -333,7 +347,13 @@ def lex_postgres(sql: str, *, mode: str = "postgres") -> PgLexResult:
             end = i + 1
             while end < n and _is_name_part(sql[end]):
                 end += 1
-            other(sql[i:end])
+            name = sql[i:end]
+            if any(ch.isspace() for ch in name):
+                raise ReadOnlyViolation(
+                    "A name holds a space character outside ASCII (such as a no-break space), which the "
+                    "server reads as part of the name. Use a plain space, or quote the name."
+                )
+            other(name)
             i = end
         elif c in _DIGITS or (c == "." and nxt in _DIGITS):
             end = _NUMBER.match(sql, i).end()
