@@ -1,74 +1,56 @@
 <template>
-    <div class="mt-4">
-        <!-- Header with search and actions -->
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
-            <div class="flex-1 max-w-md w-full">
-                <div class="relative">
-                    <input
-                        v-model="searchQuery"
-                        type="text"
-                        :placeholder="$t('rolesManager.searchPlaceholder')"
-                        class="w-full ps-10 pe-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    />
-                    <UIcon
-                        name="i-heroicons-magnifying-glass"
-                        class="absolute start-3 top-2.5 h-4 w-4 text-ink-muted"
-                    />
-                </div>
-            </div>
-            <div class="flex items-center justify-end gap-2 w-full md:w-auto">
-                <UButton
-                    v-if="useCan('manage_roles')"
-                    color="blue"
-                    variant="solid"
-                    size="xs"
-                    icon="i-heroicons-plus"
-                    @click="openCreateModal"
-                >
-                    {{ $t('rolesManager.newRole') }}
-                </UButton>
-            </div>
+    <div>
+        <!-- Primary action lives in the page header (settings shell). -->
+        <Teleport to="#settings-page-actions" defer>
+            <UButton v-if="useCan('manage_roles')" color="blue" icon="i-heroicons-plus" @click="openCreateModal">
+                {{ $t('rolesManager.newRole') }}
+            </UButton>
+        </Teleport>
+
+        <div class="mb-4">
+            <UInput
+                v-model="searchQuery"
+                icon="i-heroicons-magnifying-glass"
+                :placeholder="$t('rolesManager.searchPlaceholder')"
+                class="w-full sm:max-w-xs"
+            />
         </div>
 
-        <!-- Role cards -->
-        <div class="bg-white dark:bg-gray-900 shadow-sm border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden divide-y divide-gray-200 dark:divide-gray-700">
-            <div v-if="isLoading" class="px-6 py-12 text-center">
-                <div class="flex items-center justify-center text-gray-500 dark:text-gray-400">
-                    <Spinner class="w-4 h-4 me-2" />
-                    <span class="text-sm">{{ $t('rolesManager.loading') }}</span>
-                </div>
-            </div>
-            <div v-else-if="filteredRoles.length === 0" class="px-6 py-12 text-center">
-                <div class="flex flex-col items-center">
-                    <Icon name="heroicons:shield-check" class="mx-auto h-12 w-12 text-ink-muted" />
-                    <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">{{ $t('rolesManager.noRolesFound') }}</h3>
-                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ $t('rolesManager.noRolesHint') }}</p>
-                </div>
-            </div>
+        <!-- Roles: a list rather than a table — each row is a role with its
+             badges, summary, quota and actions. -->
+        <div class="bow-table-card divide-y divide-line-subtle">
+            <SettingsLoading v-if="isLoading" />
+            <SettingsEmpty
+                v-else-if="filteredRoles.length === 0"
+                icon="i-heroicons-shield-check"
+                :title="$t('rolesManager.noRolesFound')"
+                :description="$t('rolesManager.noRolesHint')"
+            />
             <div
                 v-else
                 v-for="role in filteredRoles"
                 :key="role.id"
-                class="p-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800"
+                class="group/role px-5 py-4 flex items-center justify-between gap-4 hover:bg-ink/[0.03] transition-colors"
             >
-                <div>
-                    <div class="flex items-center gap-2">
-                        <span class="font-medium">{{ role.name }}</span>
-                        <UBadge v-if="isOrgDefaultRole(role)" size="xs" color="gray">{{ $t('rolesManager.default') }}</UBadge>
-                        <UBadge v-else-if="role.is_system" size="xs" color="gray">{{ $t('rolesManager.system') }}</UBadge>
-                        <UBadge
-                            v-if="role.permissions?.includes('full_admin_access')"
-                            size="xs"
-                            color="blue"
-                        >
-                            {{ $t('rolesManager.fullAdmin') }}
-                        </UBadge>
+                <div class="flex items-center gap-3 min-w-0">
+                    <span class="flex items-center justify-center w-8 h-8 rounded-md bg-surface-muted text-ink-muted shrink-0">
+                        <UIcon :name="role.permissions?.includes('full_admin_access') ? 'i-heroicons-shield-check' : 'i-heroicons-identification'" class="w-4 h-4" />
+                    </span>
+                    <div class="min-w-0">
+                        <div class="flex items-center gap-2">
+                            <span class="text-sm font-medium text-ink">{{ cap(role.name) }}</span>
+                            <UBadge v-if="isOrgDefaultRole(role)" size="xs" color="gray" variant="subtle">{{ $t('rolesManager.default') }}</UBadge>
+                            <UBadge v-else-if="role.is_system" size="xs" color="gray" variant="subtle">{{ $t('rolesManager.system') }}</UBadge>
+                            <UBadge v-if="role.permissions?.includes('full_admin_access')" size="xs" color="blue" variant="subtle">
+                                {{ $t('rolesManager.fullAdmin') }}
+                            </UBadge>
+                        </div>
+                        <p class="mt-0.5 text-sm text-ink-muted truncate">
+                            {{ role.description || $t('rolesManager.permissionsCount', { n: rolePermissionCount(role) }) }}
+                        </p>
                     </div>
-                    <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        {{ role.description || $t('rolesManager.permissionsCount', { n: rolePermissionCount(role) }) }}
-                    </p>
                 </div>
-                <div class="flex items-center gap-3">
+                <div class="flex items-center gap-3 shrink-0">
                     <USelectMenu
                         v-if="showQuotaColumn"
                         :model-value="getDirectQuotaId('role', role.id)"
@@ -92,19 +74,21 @@
                                 >
                                     {{ policy.name }}
                                 </UBadge>
-                                <span v-if="getRoleQuotaPolicies(role).length === 0" class="text-ink-muted text-sm italic">{{ $t('quotaPolicies.unlimited') }}</span>
+                                <span v-if="getRoleQuotaPolicies(role).length === 0" class="text-ink-muted">{{ $t('quotaPolicies.unlimited') }}</span>
                             </span>
                         </template>
                         <template #option="{ option }">
                             <span class="text-sm">{{ option.label }}</span>
                         </template>
                     </USelectMenu>
-                    <div class="flex gap-2">
+                    <div class="flex gap-1 w-14 justify-end opacity-60 group-hover/role:opacity-100 focus-within:opacity-100 transition-opacity">
                         <UTooltip v-if="role.is_editable && useCan('manage_roles')" :text="$t('rolesManager.edit')">
                             <UButton
+                                color="gray"
                                 variant="ghost"
                                 size="xs"
-                                icon="i-heroicons-pencil"
+                                icon="i-heroicons-pencil-square"
+                                :aria-label="$t('rolesManager.edit')"
                                 @click="openEditModal(role)"
                             />
                         </UTooltip>
@@ -114,6 +98,7 @@
                             size="xs"
                             color="red"
                             icon="i-heroicons-trash"
+                            :aria-label="$t('common.delete')"
                             @click="deleteRole(role)"
                         />
                     </div>
@@ -135,20 +120,20 @@
                 <!-- Name + Description -->
                 <div class="grid grid-cols-2 gap-3 mb-4">
                     <div>
-                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ $t('rolesManager.nameLabel') }}</label>
+                        <label class="block text-xs font-medium text-ink-muted mb-1">{{ $t('rolesManager.nameLabel') }}</label>
                         <UInput v-model="form.name" :placeholder="$t('rolesManager.namePlaceholder')" size="sm" :disabled="editingDefaultRole" />
                     </div>
                     <div>
-                        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ $t('rolesManager.descriptionLabel') }}</label>
+                        <label class="block text-xs font-medium text-ink-muted mb-1">{{ $t('rolesManager.descriptionLabel') }}</label>
                         <UInput v-model="form.description" :placeholder="$t('rolesManager.descriptionPlaceholder')" size="sm" />
                     </div>
                 </div>
 
                 <!-- Full Admin Toggle -->
-                <div class="mb-5 px-3 py-2.5 bg-gray-50 dark:bg-gray-900 rounded-lg flex items-center justify-between">
+                <div class="mb-5 px-3 py-2.5 bg-surface-subtle rounded-lg flex items-center justify-between">
                     <div>
                         <span class="text-sm font-medium">{{ $t('rolesManager.fullAdminAccess') }}</span>
-                        <p class="text-xs text-gray-500 dark:text-gray-400">{{ $t('rolesManager.fullAdminBypass') }}</p>
+                        <p class="text-xs text-ink-muted">{{ $t('rolesManager.fullAdminBypass') }}</p>
                     </div>
                     <UToggle v-model="isFullAdmin" />
                 </div>
@@ -158,9 +143,9 @@
 
                     <!-- Org-wide card -->
                     <div class="border rounded-lg overflow-hidden">
-                        <div class="px-3 py-2 bg-gray-50 dark:bg-gray-900 border-b flex items-center justify-between">
+                        <div class="px-3 py-2 bg-surface-subtle border-b flex items-center justify-between">
                             <div class="flex items-center gap-2">
-                                <UIcon name="i-heroicons-globe-alt" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                                <UIcon name="i-heroicons-globe-alt" class="w-4 h-4 text-ink-muted" />
                                 <span class="text-sm font-medium">{{ $t('rolesManager.allResources') }}</span>
                             </div>
                             <span class="text-xs text-ink-muted">{{ $t('rolesManager.orgWidePermissions') }}</span>
@@ -177,7 +162,7 @@
                                         @update:model-value="togglePermission(perm, $event)"
                                         size="xs"
                                     />
-                                    <span class="text-gray-700 dark:text-gray-300">{{ formatPermission(perm) }}</span>
+                                    <span class="text-ink-2">{{ formatPermission(perm) }}</span>
                                 </label>
                             </div>
                         </div>
@@ -189,7 +174,7 @@
                         :key="`grant-${idx}`"
                         class="border rounded-lg overflow-hidden"
                     >
-                        <div class="px-3 py-2 bg-gray-50 dark:bg-gray-900 border-b flex items-center justify-between">
+                        <div class="px-3 py-2 bg-surface-subtle border-b flex items-center justify-between">
                             <div class="flex items-center gap-2">
                                 <UBadge size="xs" :color="grant.resource_type === 'connection' ? 'gray' : 'blue'">{{ grant.resource_type === 'connection' ? $t('rolesManager.connection') : $t('rolesManager.ds') }}</UBadge>
                                 <span class="text-sm font-medium">{{ grant.resource_name }}</span>
@@ -214,24 +199,24 @@
                                         v-for="tier in DS_ACCESS_TIERS"
                                         :key="tier.key"
                                         type="button"
-                                        class="w-full flex items-start gap-2 px-2 py-1.5 rounded-md text-start hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                                        class="w-full flex items-start gap-2 px-2 py-1.5 rounded-md text-start hover:bg-ink/[0.03]/50"
                                         @click="selectGrantTier(grant, tier.key)"
                                     >
                                         <span
                                             class="mt-0.5 w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0"
-                                            :class="grantTier(grant) === tier.key ? 'border-gray-900 dark:border-white' : 'border-gray-300 dark:border-gray-700'"
+                                            :class="grantTier(grant) === tier.key ? 'border-gray-900 dark:border-white' : 'border-line-strong'"
                                         >
                                             <span v-if="grantTier(grant) === tier.key" class="w-1.5 h-1.5 rounded-full bg-gray-900 dark:bg-white" />
                                         </span>
                                         <span class="min-w-0">
-                                            <span class="block text-sm text-gray-900 dark:text-white">{{ $t(`rolesManager.tiers.${tier.key}`) }}</span>
-                                            <span class="block text-xs text-gray-500 dark:text-gray-400">{{ $t(`rolesManager.tiers.${tier.key}Hint`) }}</span>
+                                            <span class="block text-sm text-ink">{{ $t(`rolesManager.tiers.${tier.key}`) }}</span>
+                                            <span class="block text-xs text-ink-muted">{{ $t(`rolesManager.tiers.${tier.key}Hint`) }}</span>
                                         </span>
                                     </button>
                                 </div>
                                 <button
                                     type="button"
-                                    class="mt-1 inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                                    class="mt-1 inline-flex items-center gap-1 text-xs text-ink-muted hover:text-gray-700 dark:hover:text-gray-200"
                                     @click="grant.showAdvanced = !grant.showAdvanced"
                                 >
                                     {{ $t('rolesManager.advancedPermissions') }}
@@ -257,7 +242,7 @@
                                         @update:model-value="toggleResourcePerm(grant, perm, $event)"
                                         size="xs"
                                     />
-                                    <span class="text-gray-700 dark:text-gray-300">{{ formatPermission(perm) }}</span>
+                                    <span class="text-ink-2">{{ formatPermission(perm) }}</span>
                                 </label>
                             </div>
                         </div>
@@ -277,9 +262,9 @@
 
                     <!-- Model access (enterprise: per-model LLM access control) -->
                     <div v-if="showModelAccess" class="border rounded-lg overflow-hidden">
-                        <div class="px-3 py-2 bg-gray-50 dark:bg-gray-900 border-b flex items-center justify-between">
+                        <div class="px-3 py-2 bg-surface-subtle border-b flex items-center justify-between">
                             <div class="flex items-center gap-2">
-                                <UIcon name="i-heroicons-cpu-chip" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                                <UIcon name="i-heroicons-cpu-chip" class="w-4 h-4 text-ink-muted" />
                                 <span class="text-sm font-medium">{{ $t('rolesManager.modelAccess') }}</span>
                             </div>
                             <span class="text-xs text-ink-muted">{{ $t('rolesManager.modelAccessHint') }}</span>
@@ -300,7 +285,7 @@
                                         @update:model-value="toggleModelAccess(model, $event)"
                                         size="xs"
                                     />
-                                    <span class="text-gray-700 dark:text-gray-300 truncate">{{ model.name }}</span>
+                                    <span class="text-ink-2 truncate">{{ model.name }}</span>
                                 </label>
                             </div>
                         </div>
@@ -320,6 +305,14 @@
 </template>
 
 <script setup lang="ts">
+import SettingsEmpty from '~/components/settings/SettingsEmpty.vue'
+import SettingsLoading from '~/components/settings/SettingsLoading.vue'
+
+// Role names are stored lowercase ("admin", "member"); show them titled.
+function cap(name?: string): string {
+    if (!name) return ''
+    return name.charAt(0).toUpperCase() + name.slice(1)
+}
 import Spinner from '@/components/Spinner.vue'
 import { useCan } from '~/composables/usePermissions'
 import { useI18n } from 'vue-i18n'

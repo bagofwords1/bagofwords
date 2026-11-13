@@ -1,57 +1,54 @@
 <template>
-    <div class="mt-4">
-        <!-- Header -->
-        <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3 mb-6">
-            <div>
-                <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ $t('serviceAccounts.title') }}</h3>
-                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 max-w-xl">{{ $t('serviceAccounts.subtitle') }}</p>
-            </div>
+    <div>
+        <!-- Title + description come from the settings shell; the primary
+             action lives in its header. -->
+        <Teleport to="#settings-page-actions" defer>
             <UButton
                 v-if="useCan('manage_service_accounts')"
-                color="blue" variant="solid" size="xs" icon="i-heroicons-plus"
+                color="blue" icon="i-heroicons-plus"
                 @click="openCreateModal"
             >
                 {{ $t('serviceAccounts.newAccount') }}
             </UButton>
-        </div>
+        </Teleport>
 
         <!-- Table -->
-        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+        <div class="bow-table-card">
             <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-100 dark:divide-gray-800">
-                    <thead class="bg-gray-50/60 dark:bg-gray-900">
+                <table class="bow-table">
+                    <thead v-if="accounts.length">
                         <tr>
-                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('serviceAccounts.colName') }}</th>
-                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('serviceAccounts.colRole') }}</th>
-                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('serviceAccounts.colKeys') }}</th>
-                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('serviceAccounts.colStatus') }}</th>
-                            <th class="px-4 py-2 text-end text-xs font-medium text-gray-500 dark:text-gray-400"></th>
+                            <th>{{ $t('serviceAccounts.colName') }}</th>
+                            <th>{{ $t('serviceAccounts.colRole') }}</th>
+                            <th>{{ $t('serviceAccounts.colKeys') }}</th>
+                            <th>{{ $t('serviceAccounts.colStatus') }}</th>
+                            <th class="text-end"></th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
-                        <tr v-for="sa in accounts" :key="sa.id" class="hover:bg-gray-50/70 dark:hover:bg-gray-800/50">
-                            <td class="px-4 py-3">
-                                <div class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ sa.name }}</div>
-                                <div v-if="sa.description" class="text-xs text-gray-500 dark:text-gray-400">{{ sa.description }}</div>
+                    <tbody>
+                        <tr v-for="sa in accounts" :key="sa.id">
+                            <td>
+                                <div class="bow-cell-primary">{{ sa.name }}</div>
+                                <div v-if="sa.description" class="bow-cell-secondary">{{ sa.description }}</div>
                             </td>
-                            <td class="px-4 py-3">
+                            <td>
                                 <UBadge v-for="r in sa.roles" :key="r.id" size="xs" color="gray" variant="subtle" class="me-1">{{ r.name }}</UBadge>
-                                <span v-if="!sa.roles.length" class="text-xs text-ink-muted italic">{{ $t('serviceAccounts.noRole') }}</span>
+                                <span v-if="!sa.roles.length" class="bow-cell-empty">{{ $t('serviceAccounts.noRole') }}</span>
                             </td>
-                            <td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">{{ sa.key_count }}</td>
-                            <td class="px-4 py-3">
+                            <td class="tabular-nums">{{ sa.key_count }}</td>
+                            <td>
                                 <UBadge v-if="sa.disabled" size="xs" color="red" variant="subtle">{{ $t('serviceAccounts.disabled') }}</UBadge>
                                 <UBadge v-else size="xs" color="green" variant="subtle">{{ $t('serviceAccounts.active') }}</UBadge>
                             </td>
-                            <td class="px-4 py-3 text-end">
-                                <UDropdown :items="rowActions(sa)" v-if="useCan('manage_service_accounts')">
+                            <td class="text-end">
+                                <UDropdown :items="rowActions(sa)" v-if="useCan('manage_service_accounts')" class="bow-row-actions" :popper="{ placement: 'bottom-end' }">
                                     <UButton color="gray" variant="ghost" size="xs" icon="i-heroicons-ellipsis-horizontal" />
                                 </UDropdown>
                             </td>
                         </tr>
-                        <tr v-if="!accounts.length">
-                            <td colspan="5" class="px-4 py-10 text-center text-sm text-ink-muted">
-                                {{ $t('serviceAccounts.empty') }}
+                        <tr v-if="!accounts.length" class="bow-table-static">
+                            <td colspan="5">
+                                <SettingsEmpty icon="i-heroicons-command-line" :title="$t('serviceAccounts.empty')" />
                             </td>
                         </tr>
                     </tbody>
@@ -65,15 +62,15 @@
                 <h3 class="text-base font-semibold mb-4">{{ $t('serviceAccounts.newAccount') }}</h3>
                 <form @submit.prevent="createAccount" class="space-y-4">
                     <div>
-                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">{{ $t('serviceAccounts.colName') }}</label>
+                        <label class="block text-xs font-medium text-ink-2 mb-1">{{ $t('serviceAccounts.colName') }}</label>
                         <UInput v-model="form.name" required placeholder="CI Pipeline" />
                     </div>
                     <div>
-                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">{{ $t('serviceAccounts.description') }}</label>
+                        <label class="block text-xs font-medium text-ink-2 mb-1">{{ $t('serviceAccounts.description') }}</label>
                         <UInput v-model="form.description" placeholder="Automated report generation" />
                     </div>
                     <div>
-                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">{{ $t('serviceAccounts.colRole') }}</label>
+                        <label class="block text-xs font-medium text-ink-2 mb-1">{{ $t('serviceAccounts.colRole') }}</label>
                         <USelectMenu
                             v-model="form.role_id"
                             :options="roleOptions"
@@ -114,26 +111,26 @@
                     </div>
                 </div>
 
-                <table class="min-w-full divide-y divide-gray-100 dark:divide-gray-800">
+                <table class="bow-table">
                     <thead>
                         <tr>
-                            <th class="px-2 py-2 text-start text-xs font-medium text-gray-500">{{ $t('serviceAccounts.keyName') }}</th>
-                            <th class="px-2 py-2 text-start text-xs font-medium text-gray-500">{{ $t('serviceAccounts.keyPrefix') }}</th>
-                            <th class="px-2 py-2 text-start text-xs font-medium text-gray-500">{{ $t('serviceAccounts.keyLastUsed') }}</th>
-                            <th class="px-2 py-2"></th>
+                            <th>{{ $t('serviceAccounts.keyName') }}</th>
+                            <th>{{ $t('serviceAccounts.keyPrefix') }}</th>
+                            <th>{{ $t('serviceAccounts.keyLastUsed') }}</th>
+                            <th></th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+                    <tbody>
                         <tr v-for="k in activeAccount.keys" :key="k.id">
-                            <td class="px-2 py-2 text-sm">{{ k.name }}</td>
-                            <td class="px-2 py-2 text-xs font-mono text-gray-500">{{ k.key_prefix }}…</td>
-                            <td class="px-2 py-2 text-xs text-gray-500">{{ k.last_used_at ? new Date(k.last_used_at).toLocaleString() : $t('serviceAccounts.never') }}</td>
-                            <td class="px-2 py-2 text-end">
+                            <td>{{ k.name }}</td>
+                            <td class="font-mono">{{ k.key_prefix }}…</td>
+                            <td>{{ k.last_used_at ? new Date(k.last_used_at).toLocaleString() : $t('serviceAccounts.never') }}</td>
+                            <td class="text-end">
                                 <UButton size="xs" color="red" variant="ghost" icon="i-heroicons-trash" @click="revokeKey(k.id)" />
                             </td>
                         </tr>
                         <tr v-if="!activeAccount.keys.length">
-                            <td colspan="4" class="px-2 py-6 text-center text-xs text-ink-muted">{{ $t('serviceAccounts.noKeys') }}</td>
+                            <td colspan="4" class="text-center text-ink-muted">{{ $t('serviceAccounts.noKeys') }}</td>
                         </tr>
                     </tbody>
                 </table>
@@ -143,6 +140,7 @@
 </template>
 
 <script setup lang="ts">
+import SettingsEmpty from '~/components/settings/SettingsEmpty.vue'
 import { useCan } from '~/composables/usePermissions'
 
 interface Role { id: string; name: string }

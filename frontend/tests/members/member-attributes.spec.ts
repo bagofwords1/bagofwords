@@ -20,7 +20,8 @@ test('admin adds and removes a member attribute', async ({ browser }) => {
 
   await page.goto('/settings/members', { waitUntil: 'commit' });
   await page.waitForLoadState('domcontentloaded');
-  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 30000 });
+  // The settings shell titles each page by name (the old 'Settings' heading is gone).
+  await expect(page.getByRole('heading', { name: 'Members', exact: true })).toBeVisible({ timeout: 30000 });
 
   const row = page.locator('tr').filter({ hasText: admin.email });
   await expect(row).toBeVisible({ timeout: 30000 });

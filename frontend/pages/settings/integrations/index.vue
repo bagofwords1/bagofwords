@@ -1,38 +1,30 @@
 <template>
-  <div class="mt-6">
-    <h2 class="text-lg font-medium text-gray-900 dark:text-white">
-      {{ $t('settings.integrations.title') }}
-      <p class="text-sm text-gray-500 dark:text-gray-400 font-normal mb-6">
-        {{ $t('settings.integrations.subtitle') }}
-      </p>
-    </h2>
-  </div>
-
-  <!-- Two-pane layout: list on the left, detail / empty state on the right -->
-  <div class="mt-2 flex gap-8 min-h-[26rem]">
+  <!-- Two-pane layout: list on the left, detail / empty state on the right.
+       Title + description come from the settings shell. -->
+  <div class="flex flex-col md:flex-row gap-6 md:gap-8 min-h-[26rem]">
     <!-- Left pane: integrations list -->
-    <nav class="w-64 shrink-0 space-y-0.5">
+    <nav class="md:w-60 shrink-0 space-y-0.5">
       <button
         v-for="item in integrations"
         :key="item.key"
         type="button"
-        class="group w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-start transition-colors"
-        :class="selectedKey === item.key ? 'bg-gray-100 dark:bg-gray-800' : 'hover:bg-gray-50 dark:hover:bg-gray-800'"
+        class="group w-full flex items-center gap-3 rounded-md px-2.5 py-2 text-start transition-colors"
+        :class="selectedKey === item.key ? 'bg-surface-muted' : 'hover:bg-ink/[0.03]'"
         @click="selectedKey = item.key"
       >
         <span class="w-6 h-6 shrink-0 flex items-center justify-center">
           <img v-if="item.iconType === 'img'" :src="item.icon" :alt="item.name" class="w-6 h-6" />
-          <McpIcon v-else-if="item.iconType === 'mcp'" class="w-5 h-5 text-gray-600 dark:text-gray-400" />
-          <UIcon v-else :name="item.icon" class="w-5 h-5 text-gray-500 dark:text-gray-400" />
+          <McpIcon v-else-if="item.iconType === 'mcp'" class="w-5 h-5 text-ink-2" />
+          <UIcon v-else :name="item.icon" class="w-5 h-5 text-ink-muted" />
         </span>
         <span
           class="flex-1 min-w-0 truncate text-sm"
-          :class="selectedKey === item.key ? 'font-medium text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400'"
+          :class="selectedKey === item.key ? 'font-medium text-ink' : 'text-ink-2'"
         >
           {{ item.name }}
         </span>
         <span
-          class="w-2 h-2 shrink-0 rounded-full"
+          class="w-1.5 h-1.5 shrink-0 rounded-full"
           :class="item.connected ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'"
           :title="item.connected ? $t('settings.integrations.connected') : $t('settings.integrations.notConnected')"
         />
@@ -40,7 +32,7 @@
     </nav>
 
     <!-- Right pane: detail / empty state -->
-    <div class="flex-1 min-w-0 border-l border-gray-100 dark:border-gray-800 pl-8">
+    <div class="flex-1 min-w-0 md:border-s border-line md:ps-8">
       <!-- Empty state: illustration as backdrop with icon + copy centered on top -->
       <div
         v-if="!selectedItem"
@@ -52,16 +44,16 @@
           <img
             src="/assets/empty-states/empty-integrations.png"
             alt=""
-            class="absolute inset-x-0 bottom-0 w-full opacity-80 select-none pointer-events-none"
+            class="absolute inset-x-0 bottom-0 w-full opacity-80 select-none pointer-events-none dark:hidden"
           />
           <div class="absolute inset-x-0 bottom-0 flex flex-col items-center justify-center text-center px-6 pb-2">
-            <div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white/70 backdrop-blur-sm ring-1 ring-gray-200/70 shadow-sm">
+            <div class="w-11 h-11 flex items-center justify-center rounded-lg bg-surface-elevated/80 backdrop-blur-sm ring-1 ring-line shadow-sm">
               <UIcon name="i-heroicons-squares-plus" class="w-5 h-5 text-ink-muted" />
             </div>
-            <h3 class="mt-3 text-base font-medium text-gray-900 dark:text-white">
+            <h3 class="mt-3 text-sm font-semibold text-ink">
               {{ $t('settings.integrations.emptyTitle') }}
             </h3>
-            <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500 dark:text-gray-400">
+            <p class="mt-1 max-w-xs text-sm leading-relaxed text-ink-muted">
               {{ $t('settings.integrations.emptySubtitle') }}
             </p>
           </div>
@@ -71,23 +63,23 @@
       <!-- MCP toggle (no modal component) -->
       <div v-else-if="selectedItem.kind === 'toggle'" class="h-full flex flex-col">
         <div class="flex items-center gap-3">
-          <McpIcon class="w-7 h-7 text-gray-700 dark:text-gray-300" />
+          <McpIcon class="w-7 h-7 text-ink-2" />
           <div class="min-w-0">
-            <h3 class="text-base font-medium text-gray-900 dark:text-white leading-tight">{{ selectedItem.name }}</h3>
-            <span class="inline-flex items-center gap-1.5 text-xs" :class="selectedItem.connected ? 'text-green-600' : 'text-ink-muted'">
+            <h3 class="text-base font-semibold text-ink leading-tight">{{ selectedItem.name }}</h3>
+            <span class="inline-flex items-center gap-1.5 text-xs" :class="selectedItem.connected ? 'text-green-700 dark:text-green-400' : 'text-ink-muted'">
               <span class="w-1.5 h-1.5 rounded-full" :class="selectedItem.connected ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'" />
               {{ selectedItem.connected ? $t('settings.integrations.connected') : $t('settings.integrations.notConnected') }}
             </span>
           </div>
         </div>
-        <p class="mt-4 max-w-md text-sm leading-relaxed text-gray-500 dark:text-gray-400">{{ selectedItem.description }}</p>
+        <p class="mt-4 max-w-md text-sm leading-relaxed text-ink-muted">{{ selectedItem.description }}</p>
         <div class="mt-6 flex items-center gap-3">
           <UToggle
             v-model="mcpEnabled"
             :loading="mcpUpdating"
             @update:model-value="toggleMcp"
           />
-          <span class="text-sm text-gray-500 dark:text-gray-400">
+          <span class="text-sm text-ink-2">
             {{ mcpEnabled ? $t('settings.integrations.connected') : $t('settings.integrations.notConnected') }}
           </span>
         </div>
@@ -118,7 +110,7 @@ import ExcelAddinModal from '~/components/ExcelAddinModal.vue'
 import ConnectedApplicationsPanel from '~/components/embed/ConnectedApplicationsPanel.vue'
 import McpIcon from '~/components/icons/McpIcon.vue'
 
-definePageMeta({ auth: true, permissions: ['manage_settings'], layout: 'settings' })
+definePageMeta({ auth: true, permissions: ['manage_settings'] })
 
 const { t } = useI18n()
 

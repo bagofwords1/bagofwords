@@ -1,40 +1,38 @@
 <template>
   <div data-testid="audit-streams">
-    <div class="flex items-start justify-between gap-4 mb-3">
+    <div class="flex items-start justify-between gap-4 mb-4">
       <div class="min-w-0">
-        <h3 class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('settings.audit.streams.title') }}</h3>
-        <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 max-w-2xl">{{ $t('settings.audit.streams.subtitle') }}</p>
+        <h2 class="text-base font-semibold text-ink">{{ $t('settings.audit.streams.title') }}</h2>
+        <p class="text-sm text-ink-muted mt-1 max-w-2xl leading-relaxed">{{ $t('settings.audit.streams.subtitle') }}</p>
       </div>
-      <UButton v-if="canManage" size="xs" icon="i-heroicons-plus" data-testid="stream-add" @click="openNew">
+      <UButton v-if="canManage" color="gray" icon="i-heroicons-plus" data-testid="stream-add" @click="openNew">
         {{ $t('settings.audit.streams.add') }}
       </UButton>
     </div>
 
-    <p v-if="!canManage" class="text-2xs text-ink-muted mb-2">{{ $t('settings.audit.streams.manageRequired') }}</p>
+    <p v-if="!canManage" class="text-xs text-ink-muted mb-3">{{ $t('settings.audit.streams.manageRequired') }}</p>
 
     <div v-if="loading && !streams.length" class="py-8 text-center">
-      <div class="inline-block w-4 h-4 border-2 border-gray-200 dark:border-gray-700 border-t-gray-500 rounded-full animate-spin"></div>
+      <div class="inline-block w-4 h-4 border-2 border-line border-t-gray-500 rounded-full animate-spin"></div>
     </div>
     <div v-else-if="error" class="py-6 text-center text-xs text-red-500">{{ error }}</div>
 
-    <div v-else-if="!streams.length" class="rounded border border-dashed border-gray-200 dark:border-gray-700 py-10 px-6 text-center">
-      <UIcon name="i-heroicons-arrow-up-tray" class="w-6 h-6 text-gray-300 mx-auto mb-2" />
-      <p class="text-sm text-gray-700 dark:text-gray-200">{{ $t('settings.audit.streams.empty') }}</p>
-      <p class="text-xs text-ink-muted mt-1 max-w-md mx-auto">{{ $t('settings.audit.streams.emptyHint') }}</p>
+    <div v-else-if="!streams.length" class="rounded-lg border border-dashed border-line">
+      <SettingsEmpty icon="i-heroicons-arrow-up-tray" :title="$t('settings.audit.streams.empty')" :description="$t('settings.audit.streams.emptyHint')" />
     </div>
 
-    <div v-else class="border border-gray-200 dark:border-gray-700 rounded divide-y divide-gray-100 dark:divide-gray-800">
-      <div v-for="s in streams" :key="s.id" data-testid="stream-row" class="px-3 py-2.5 text-xs flex items-center gap-3">
+    <div v-else class="bow-table-card divide-y divide-line-subtle">
+      <div v-for="s in streams" :key="s.id" data-testid="stream-row" class="px-5 py-3 text-xs flex items-center gap-3">
         <AuditStreamIcon :destination="s.destination" size="md" />
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2 min-w-0">
-            <span class="text-sm text-gray-900 dark:text-white truncate">{{ s.name }}</span>
+            <span class="text-sm font-medium text-ink truncate">{{ s.name }}</span>
             <span data-testid="stream-state" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs font-medium shrink-0" :class="stateClass(s.state)">
               <span class="w-1.5 h-1.5 rounded-full" :class="dotClass(s.state)"></span>
               {{ $t(`settings.audit.streams.state.${s.state}`) }}
             </span>
           </div>
-          <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5 text-gray-500 dark:text-gray-400">
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5 text-ink-muted">
             <span>{{ $t(`settings.audit.streams.destinations.${s.destination}`) }}</span>
             <span>{{ $t('settings.audit.streams.delivered', { n: s.delivered_count.toLocaleString() }) }}</span>
             <span v-if="s.status.pending" :class="s.state === 'active' ? '' : 'text-amber-600'">
@@ -72,6 +70,7 @@
 </template>
 
 <script setup lang="ts">
+import SettingsEmpty from '~/components/settings/SettingsEmpty.vue'
 import AuditStreamForm from '~/components/audit/AuditStreamForm.vue'
 import AuditStreamIcon from '~/components/audit/AuditStreamIcon.vue'
 import { useAuditStreams, type AuditStream, type StreamState } from '~/ee/composables/useAuditStreams'

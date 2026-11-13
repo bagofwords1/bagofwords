@@ -1,160 +1,112 @@
 <template>
-  <div class="mt-6">
-    <h2 class="text-lg font-medium text-gray-900 dark:text-white">
-      SMTP Server
-      <p class="text-sm text-gray-500 dark:text-gray-400 font-normal mb-6">
-        The server used to send your organization's <strong>system emails</strong> —
-        report shares, scheduled‑report results, invites, welcome and account emails.
-        When enabled, it overrides the SMTP server configured globally.
-      </p>
-    </h2>
-
+  <div>
     <!-- Which transport system mail is actually leaving through right now. -->
-    <div v-if="loaded" class="md:w-2/3 mb-4 rounded-lg border px-3 py-2.5 flex items-start gap-2 text-xs"
-      :class="activeBanner.class">
-      <UIcon :name="activeBanner.icon" class="w-4 h-4 shrink-0 mt-px" />
-      <span data-testid="smtp-active-source"><strong>{{ activeBanner.title }}</strong> {{ activeBanner.detail }}</span>
+    <div v-if="loaded" :class="['rounded-lg border px-4 py-3 flex items-start gap-3 text-sm', activeBanner.class]">
+      <UIcon :name="activeBanner.icon" class="w-4 h-4 shrink-0 mt-0.5" />
+      <span data-testid="smtp-active-source"><span class="font-medium">{{ activeBanner.title }}</span> {{ activeBanner.detail }}</span>
     </div>
 
-    <div class="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-3 my-3 text-xs text-blue-800 dark:text-blue-200 md:w-2/3">
-      <strong>SMTP Server vs AI Mailbox.</strong> This SMTP server only sends
-      <em>system</em> notifications. It is <em>not</em> used by the AI analyst —
-      the analyst's replies and answers always come from the separate
-      <strong>AI Mailbox</strong>. Configure them independently.
-    </div>
+    <form class="mt-8" @submit.prevent="save">
+      <SettingsSection :title="$t('settings.smtpPage.serverSection')" :description="$t('settings.smtpPage.serverSectionHint')">
+        <!-- Enable/disable is its own switch: blanking the host to "turn it off"
+             used to throw the whole configuration away. -->
+        <SettingsRow :label="$t('settings.smtpPage.enableLabel')" :description="enableHint">
+          <UToggle v-model="form.enabled" data-testid="smtp-enabled-toggle" />
+        </SettingsRow>
 
-    <form class="md:w-2/3 mt-4" @submit.prevent="save">
-      <!-- Enable/disable is its own switch: blanking the host to "turn it off"
-           used to throw the whole configuration away. -->
-      <div class="flex items-start gap-3 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2.5 mb-4">
-        <UToggle v-model="form.enabled" data-testid="smtp-enabled-toggle" class="mt-0.5" />
-        <div class="text-sm">
-          <div class="font-medium text-gray-900 dark:text-white">Use a custom SMTP server</div>
-          <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            <template v-if="form.enabled">
-              System email is sent through the server below.
-            </template>
-            <template v-else-if="serverState.global_configured">
-              Off — system email falls back to the globally configured SMTP server.
-              Your settings below are kept.
-            </template>
-            <template v-else>
-              Off — and no SMTP server is configured globally, so <strong>no system email
-              will be sent at all</strong>. Your settings below are kept.
-            </template>
-          </p>
-        </div>
-      </div>
+        <!-- The fields dim when the server is off: the settings are kept,
+             but editing them has no effect until it is switched back on. -->
+        <fieldset :disabled="!form.enabled" class="mt-6 min-w-0 border-0 p-0 m-0 transition-opacity" :class="form.enabled ? '' : 'opacity-50'">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-5">
+            <SettingsRow :label="$t('settings.smtpPage.fromName')" stacked for-id="smtp-from-name">
+              <UInput id="smtp-from-name" v-model="form.from_name" data-testid="smtp-from-name" placeholder="Acme" />
+            </SettingsRow>
+            <SettingsRow :label="$t('settings.smtpPage.fromAddress')" stacked for-id="smtp-from-address">
+              <template #label-extra><span v-if="form.enabled" class="text-red-600" aria-hidden="true">*</span></template>
+              <UInput id="smtp-from-address" v-model="form.from_address" type="email" data-testid="smtp-from-address" placeholder="noreply@acme.com" />
+            </SettingsRow>
+            <SettingsRow :label="$t('settings.smtpPage.host')" stacked for-id="smtp-host">
+              <template #label-extra><span v-if="form.enabled" class="text-red-600" aria-hidden="true">*</span></template>
+              <UInput id="smtp-host" v-model="form.host" data-testid="smtp-host" placeholder="smtp.acme.com" />
+            </SettingsRow>
+            <SettingsRow :label="$t('settings.smtpPage.port')" stacked for-id="smtp-port">
+              <UInput id="smtp-port" v-model.number="form.port" type="number" data-testid="smtp-port" />
+            </SettingsRow>
+            <SettingsRow :label="$t('settings.smtpPage.username')" optional stacked for-id="smtp-username">
+              <UInput id="smtp-username" v-model="form.username" data-testid="smtp-username" autocomplete="off" />
+            </SettingsRow>
+            <SettingsRow :label="$t('settings.smtpPage.password')" optional stacked for-id="smtp-password"
+              :description="passwordSet ? $t('settings.smtpPage.passwordKeep') : ''">
+              <UInput id="smtp-password" v-model="form.password" type="password" data-testid="smtp-password" autocomplete="new-password"
+                :placeholder="passwordSet ? $t('settings.smtpPage.passwordUnchanged') : ''" />
+            </SettingsRow>
+          </div>
+          <p class="mt-2 text-xs text-ink-muted">{{ $t('settings.smtpPage.authHint') }}</p>
 
-      <!-- The whole block dims when the server is off: the settings are kept,
-           but editing them has no effect until it is switched back on. -->
-      <fieldset :disabled="!form.enabled"
-        class="min-w-0 border-0 p-0 m-0"
-        :class="form.enabled ? '' : 'opacity-60'">
-      <div class="grid grid-cols-2 gap-3 mb-3">
-        <div>
-          <label class="block text-sm font-medium mb-1">From name</label>
-          <input v-model="form.from_name" type="text" data-testid="smtp-from-name" :disabled="!form.enabled" :class="fieldClass" placeholder="Acme" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium mb-1">
-            From address
-            <span v-if="form.enabled" class="text-red-500">*</span>
-          </label>
-          <input v-model="form.from_address" type="email" data-testid="smtp-from-address" :disabled="!form.enabled" :class="fieldClass" placeholder="noreply@acme.com" />
-        </div>
-      </div>
-      <div class="grid grid-cols-2 gap-3 mb-3">
-        <div>
-          <label class="block text-sm font-medium mb-1">
-            Host
-            <span v-if="form.enabled" class="text-red-500">*</span>
-          </label>
-          <input v-model="form.host" type="text" data-testid="smtp-host" :disabled="!form.enabled" :class="fieldClass" placeholder="smtp.acme.com" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium mb-1">Port</label>
-          <input v-model.number="form.port" type="number" data-testid="smtp-port" :disabled="!form.enabled" :class="fieldClass" />
-        </div>
-      </div>
-      <div class="grid grid-cols-2 gap-3 mb-1">
-        <div>
-          <label class="block text-sm font-medium mb-1">Username <span class="text-ink-muted font-normal">(optional)</span></label>
-          <input v-model="form.username" type="text" data-testid="smtp-username" :disabled="!form.enabled" :class="fieldClass" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium mb-1">Password <span class="text-ink-muted font-normal">(optional)</span></label>
-          <input v-model="form.password" type="password" data-testid="smtp-password" :disabled="!form.enabled" :class="fieldClass"
-            :placeholder="passwordSet ? '•••••••• (unchanged)' : ''" />
-          <p v-if="passwordSet" class="text-xs text-gray-500 dark:text-gray-400 mt-1">Leave blank to keep the saved password.</p>
-        </div>
-      </div>
-      <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">Leave username &amp; password empty for an open relay that doesn't require authentication.</p>
-      <div class="mb-3">
-        <label class="block text-sm font-medium mb-1">Security</label>
-        <select v-model="form.security" data-testid="smtp-security" :disabled="!form.enabled" :class="fieldClass">
-          <option value="starttls">STARTTLS (587)</option>
-          <option value="ssl">SSL/TLS (465)</option>
-          <option value="none">None</option>
-        </select>
-      </div>
-      <label v-if="form.security !== 'none'" class="flex items-center gap-2 mb-4"
-        :class="form.enabled ? 'cursor-pointer' : 'cursor-default'">
-        <UToggle v-model="form.validate_certs" :disabled="!form.enabled" />
-        <span class="text-sm text-gray-700 dark:text-gray-300">Validate TLS certificates</span>
-        <span class="text-xs text-ink-muted">— turn off for self-signed / internal-CA relays</span>
-      </label>
-      </fieldset>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-5 mt-5">
+            <SettingsRow :label="$t('settings.smtpPage.security')" stacked for-id="smtp-security">
+              <USelect id="smtp-security" v-model="form.security" data-testid="smtp-security" :options="securityOptions" option-attribute="label" value-attribute="value" />
+            </SettingsRow>
+          </div>
+          <div v-if="form.security !== 'none'" class="mt-5">
+            <SettingsRow :label="$t('settings.smtpPage.validateCerts')" :description="$t('settings.smtpPage.validateCertsHint')">
+              <UToggle v-model="form.validate_certs" />
+            </SettingsRow>
+          </div>
+        </fieldset>
 
-      <div class="flex items-center gap-2">
-        <button type="submit" :disabled="busy" data-testid="smtp-save"
-          class="bg-blue-600 text-white text-sm px-3 py-1.5 rounded-md disabled:opacity-50">
-          {{ saving ? 'Saving…' : 'Save' }}
-        </button>
-        <button type="button" v-if="form.enabled" :disabled="busy" @click="test" data-testid="smtp-test"
-          class="border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm px-3 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
-          {{ testing ? 'Sending…' : 'Save & send test email' }}
-        </button>
-        <span v-if="form.enabled && currentUserEmail" class="text-xs text-ink-muted">
-          sends to {{ currentUserEmail }}
-        </span>
-      </div>
-
-      <div v-if="visibleTestResult" data-testid="smtp-test-result"
-        class="text-sm mt-3 rounded-md border px-3 py-2 flex items-start gap-2"
-        :class="visibleTestResult.ok
-          ? 'border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950 text-green-800 dark:text-green-200'
-          : 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950 text-red-800 dark:text-red-200'">
-        <UIcon :name="visibleTestResult.ok ? 'i-heroicons-check-circle' : 'i-heroicons-x-circle'" class="w-4 h-4 shrink-0 mt-0.5" />
-        <div>
-          <div class="font-medium">{{ visibleTestResult.text }}</div>
-          <div v-if="visibleTestResult.detail" class="text-xs mt-0.5 opacity-90 break-words">{{ visibleTestResult.detail }}</div>
+        <div v-if="visibleTestResult" data-testid="smtp-test-result"
+          class="mt-6 text-sm rounded-lg border px-4 py-3 flex items-start gap-3"
+          :class="visibleTestResult.ok
+            ? 'border-green-200 dark:border-green-900/60 bg-green-50 dark:bg-green-950/40 text-green-800 dark:text-green-200'
+            : 'border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-200'">
+          <UIcon :name="visibleTestResult.ok ? 'i-heroicons-check-circle' : 'i-heroicons-x-circle'" class="w-4 h-4 shrink-0 mt-0.5" />
+          <div class="min-w-0">
+            <div class="font-medium">{{ visibleTestResult.text }}</div>
+            <div v-if="visibleTestResult.detail" class="text-xs mt-0.5 opacity-90 break-words">{{ visibleTestResult.detail }}</div>
+          </div>
         </div>
-      </div>
+
+        <SettingsFooter>
+          <template #note>
+            <span class="inline-flex items-start gap-1.5">
+              <UIcon name="i-heroicons-information-circle" class="w-4 h-4 shrink-0" />
+              <span><span class="font-medium text-ink-2">{{ $t('settings.smtpPage.mailboxNoteTitle') }}</span> {{ $t('settings.smtpPage.mailboxNote') }}</span>
+            </span>
+          </template>
+          <UTooltip v-if="form.enabled && currentUserEmail" :text="$t('settings.smtpPage.sendsTo', { email: currentUserEmail })">
+            <UButton type="button" color="gray" :disabled="busy" :loading="testing" data-testid="smtp-test" @click="test">
+              {{ testing ? $t('settings.smtpPage.sendingTest') : $t('settings.smtpPage.sendTest') }}
+            </UButton>
+          </UTooltip>
+          <UButton type="submit" color="blue" :disabled="busy" :loading="saving && !testing" data-testid="smtp-save">
+            {{ saving && !testing ? $t('settings.smtpPage.saving') : $t('settings.smtpPage.save') }}
+          </UButton>
+        </SettingsFooter>
+      </SettingsSection>
     </form>
 
-    <!-- Org-wide "connection down" alert emails. Its own card — matching the
-         "Use a custom SMTP server" switch above — and saves on its own, since it
-         governs which system emails go out, not the transport. The in-app inbox
-         notification is always delivered. -->
-    <div class="md:w-2/3 mt-8 pt-6 border-t border-gray-200 dark:border-gray-800">
-      <h3 class="text-sm font-medium text-gray-900 dark:text-white mb-3">{{ $t('settings.connectionAlerts.heading') }}</h3>
-      <div class="flex items-start gap-3 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2.5">
-        <UToggle v-model="connAlertsEmail" :disabled="connAlertsSaving" class="mt-0.5"
-          data-testid="connection-alerts-toggle" @update:model-value="saveConnAlerts" />
-        <div class="text-sm">
-          <div class="font-medium text-gray-900 dark:text-white">{{ $t('settings.connectionAlerts.label') }}</div>
-          <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('settings.connectionAlerts.description') }}</p>
-        </div>
-      </div>
+    <!-- Org-wide "connection down" alert emails. Saves on its own, since it
+         governs which system emails go out, not the transport. The in-app
+         inbox notification is always delivered. -->
+    <div class="mt-10 pt-8 border-t border-line">
+      <SettingsSection :title="$t('settings.connectionAlerts.heading')" :description="$t('settings.smtpPage.alertsHint')">
+        <SettingsRow :label="$t('settings.connectionAlerts.label')" :description="$t('settings.connectionAlerts.description')">
+          <UToggle v-model="connAlertsEmail" :disabled="connAlertsSaving"
+            data-testid="connection-alerts-toggle" @update:model-value="saveConnAlerts" />
+        </SettingsRow>
+      </SettingsSection>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { reactive, ref, computed, nextTick, onMounted } from 'vue'
+import SettingsSection from '~/components/settings/SettingsSection.vue'
+import SettingsRow from '~/components/settings/SettingsRow.vue'
+import SettingsFooter from '~/components/settings/SettingsFooter.vue'
 
-definePageMeta({ auth: true, permissions: ['manage_settings'], layout: 'settings' })
+definePageMeta({ auth: true, permissions: ['manage_settings'] })
 
 const toast = useToast()
 const { t } = useI18n()
@@ -204,37 +156,40 @@ async function showResult(result: { ok: boolean; text: string; detail?: string }
   testedSignature.value = result ? formSignature.value : null
 }
 
-/** Inputs read as off — greyed and not editable — while the server is disabled. */
-const fieldClass = computed(() => [
-  'w-full border rounded px-2 py-1',
-  form.enabled
-    ? 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white'
-    : 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800'
-      + ' text-gray-500 dark:text-gray-400 cursor-not-allowed',
+const securityOptions = computed(() => [
+  { value: 'starttls', label: 'STARTTLS (587)' },
+  { value: 'ssl', label: 'SSL/TLS (465)' },
+  { value: 'none', label: t('settings.smtpPage.securityNone') },
 ])
+
+const enableHint = computed(() => {
+  if (form.enabled) return t('settings.smtpPage.enableOn')
+  if (serverState.global_configured) return t('settings.smtpPage.enableOffGlobal')
+  return t('settings.smtpPage.enableOffNone')
+})
 
 const activeBanner = computed(() => {
   if (serverState.active_source === 'org_smtp') {
     return {
-      class: 'border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950 text-green-800 dark:text-green-200',
+      class: 'border-green-200 dark:border-green-900/60 bg-green-50 dark:bg-green-950/40 text-green-800 dark:text-green-200',
       icon: 'i-heroicons-check-circle',
-      title: 'System email uses this SMTP server.',
-      detail: `Sending via ${serverState.host || 'your relay'}.`,
+      title: t('settings.smtpPage.status.orgTitle'),
+      detail: t('settings.smtpPage.status.orgDetail', { host: serverState.host || t('settings.smtpPage.status.yourRelay') }),
     }
   }
   if (serverState.active_source === 'global') {
     return {
-      class: 'border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950 text-amber-800 dark:text-amber-200',
+      class: 'border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-200',
       icon: 'i-heroicons-information-circle',
-      title: 'System email uses the globally configured SMTP server.',
-      detail: 'Enable a custom SMTP server below to send from your own relay instead.',
+      title: t('settings.smtpPage.status.globalTitle'),
+      detail: t('settings.smtpPage.status.globalDetail'),
     }
   }
   return {
-    class: 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950 text-red-800 dark:text-red-200',
+    class: 'border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-200',
     icon: 'i-heroicons-exclamation-triangle',
-    title: 'No SMTP server is configured.',
-    detail: 'Invites, report shares and scheduled-report emails are not being sent.',
+    title: t('settings.smtpPage.status.noneTitle'),
+    detail: t('settings.smtpPage.status.noneDetail'),
   }
 })
 
@@ -302,9 +257,9 @@ function payload() {
 async function persist(): Promise<boolean> {
   const res = await useMyFetch('/api/organization/smtp', { method: 'PUT', body: payload() })
   if (res.status.value !== 'success') {
-    const detail = (res.error.value as any)?.data?.detail || 'Could not save the SMTP settings'
-    toast.add({ title: 'Failed to save SMTP', description: detail, color: 'red' })
-    await showResult({ ok: false, text: 'Not saved', detail })
+    const detail = (res.error.value as any)?.data?.detail || t('settings.smtpPage.saveFailedDetail')
+    toast.add({ title: t('settings.smtpPage.saveFailed'), description: detail, color: 'red' })
+    await showResult({ ok: false, text: t('settings.smtpPage.notSaved'), detail })
     return false
   }
   const s = res.data.value as any
@@ -317,7 +272,7 @@ async function save() {
   saving.value = true
   await showResult(null)
   try {
-    if (await persist()) toast.add({ title: 'SMTP saved', color: 'green' })
+    if (await persist()) toast.add({ title: t('settings.smtpPage.saved'), color: 'green' })
   } finally {
     saving.value = false
   }
@@ -335,8 +290,8 @@ async function test() {
 
     const res = await useMyFetch('/api/organization/smtp/test', { method: 'POST', body: {} })
     if (res.status.value !== 'success') {
-      const detail = (res.error.value as any)?.data?.detail || 'The test request failed'
-      await showResult({ ok: false, text: 'Test failed', detail })
+      const detail = (res.error.value as any)?.data?.detail || t('settings.smtpPage.testRequestFailed')
+      await showResult({ ok: false, text: t('settings.smtpPage.testFailed'), detail })
       return
     }
     const data = res.data.value as any
@@ -346,16 +301,17 @@ async function test() {
     if (data?.success) {
       await showResult({
         ok: true,
-        text: `Test email delivered to ${data.recipient}`,
-        detail: `Sent via ${sourceLabel(data.source)}${data.from_address ? ` as ${data.from_address}` : ''}. `
-          + 'Check your inbox to confirm it arrived.',
+        text: t('settings.smtpPage.testDelivered', { recipient: data.recipient }),
+        detail: data.from_address
+          ? t('settings.smtpPage.testDeliveredDetailAs', { source: sourceLabel(data.source), from: data.from_address })
+          : t('settings.smtpPage.testDeliveredDetail', { source: sourceLabel(data.source) }),
       })
     } else {
       const { text, hint } = failureCopy(data?.stage)
       await showResult({
         ok: false,
         text,
-        detail: `${data?.error || 'Unknown error'} — ${hint} (transport: ${sourceLabel(data?.source)})`,
+        detail: t('settings.smtpPage.testFailureDetail', { error: data?.error || t('settings.smtpPage.unknownError'), hint, source: sourceLabel(data?.source) }),
       })
     }
   } finally {
@@ -367,49 +323,17 @@ async function test() {
 /** Name the step that failed, and what to look at. "Rejected" is wrong for a
  * server that never answered — the stage is what tells an admin where to look. */
 function failureCopy(stage?: string): { text: string; hint: string } {
-  switch (stage) {
-    case 'connect':
-      return {
-        text: 'Could not reach the mail server',
-        hint: 'check the host and port, and that outbound SMTP is not blocked by a firewall',
-      }
-    case 'tls':
-      return {
-        text: 'TLS negotiation failed',
-        hint: 'try a different Security setting, or turn off certificate validation for an internal relay',
-      }
-    case 'auth':
-      return {
-        text: 'The mail server rejected the credentials',
-        hint: 'check the username and password',
-      }
-    case 'sender':
-      return {
-        text: 'The mail server refused the From address',
-        hint: 'the relay will not send as this address — use one it is authorised for',
-      }
-    case 'recipient':
-      return {
-        text: 'The mail server refused to relay to that address',
-        hint: 'the relay does not accept mail for this recipient',
-      }
-    case 'config':
-      return {
-        text: 'The SMTP settings are incomplete',
-        hint: 'fill in the missing field and try again',
-      }
-    default:
-      return {
-        text: 'The mail server rejected the message',
-        hint: 'see the server response above',
-      }
+  const key = ['connect', 'tls', 'auth', 'sender', 'recipient', 'config'].includes(stage || '') ? stage : 'other'
+  return {
+    text: t(`settings.smtpPage.fail.${key}`),
+    hint: t(`settings.smtpPage.fail.${key}Hint`),
   }
 }
 
 function sourceLabel(source?: string) {
-  if (source === 'org_smtp') return 'this SMTP server'
-  if (source === 'global') return 'the globally configured SMTP server'
-  if (source === 'ai_mailbox') return 'the AI mailbox'
-  return 'no transport'
+  if (source === 'org_smtp') return t('settings.smtpPage.source.org')
+  if (source === 'global') return t('settings.smtpPage.source.global')
+  if (source === 'ai_mailbox') return t('settings.smtpPage.source.mailbox')
+  return t('settings.smtpPage.source.none')
 }
 </script>
