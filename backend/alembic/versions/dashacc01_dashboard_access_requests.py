@@ -22,7 +22,15 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _has_table() -> bool:
+    return sa.inspect(op.get_bind()).has_table('dashboard_access_requests')
+
+
 def upgrade() -> None:
+    # Idempotent: the dashboard test corpus applies this unstamped
+    # (SCHEMA_ONLY_AFTER_DATA_MIGRATION), then `upgrade head` runs it again.
+    if _has_table():
+        return
     op.create_table(
         'dashboard_access_requests',
         sa.Column('id', sa.String(length=36), nullable=False),
@@ -65,6 +73,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if not _has_table():
+        return
     op.drop_index('uq_dashboard_access_request_pending', table_name='dashboard_access_requests')
     op.drop_index('ix_dashboard_access_requests_artifact_status', table_name='dashboard_access_requests')
     op.drop_index('ix_dashboard_access_requests_requester_user_id', table_name='dashboard_access_requests')
