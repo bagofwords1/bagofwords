@@ -111,7 +111,7 @@
                                 <div v-if="!hasQuery" class="my-1 border-t border-gray-100 dark:border-gray-800" />
                                 <template v-for="group in filteredGroups" :key="group.key">
                                 <div v-if="group.divider" class="my-1 border-t border-gray-100 dark:border-gray-800" />
-                                <div v-if="group.label" class="px-2 pt-1 pb-0.5 text-2xs font-medium uppercase tracking-wide text-ink-muted">
+                                <div v-if="group.label" class="px-2 pt-1 pb-0.5 text-start text-2xs font-medium uppercase tracking-wide text-ink-muted">
                                     {{ group.label }}
                                 </div>
                                 <div
@@ -212,6 +212,7 @@ import AgentIcon from '~/components/icons/AgentIcon.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import { usePermissions, usePermissionsLoaded, useResourcePermissions } from '~/composables/usePermissions'
 import { deriveStage, stageMeta } from '~/composables/useDataSourcePublishStatus'
+import { splitRecent } from '~/utils/recentItems'
 
 type DataSource = { id: string; name: string; type?: string; auth_policy?: string; publish_status?: string; reliability_status?: string; connections?: any[]; user_status?: { effective_auth?: string; has_user_credentials?: boolean; uses_fallback?: boolean } }
 
@@ -474,20 +475,31 @@ const nonDefaultSources = computed(() => {
     const ids = new Set(projectDefaultSources.value.map((ds: any) => String(ds.id)))
     return visibleDataSources.value.filter((ds: any) => !ids.has(String(ds.id)))
 })
-// Panel row groups: defaults first under a "From {project}" header, then the
-// rest after a divider. A single unlabeled group outside a project.
+// Panel row groups, top to bottom:
+//   1. project defaults under "From {project}" (an admin's deliberate choice),
+//   2. "Recent" — the few agents this user last chatted with (last_used_at
+//      from /data_sources/active; see utils/recentItems.ts),
+//   3. everything else, A–Z, so that part never moves with usage.
+// A search drops the Recent head: matches list A–Z, each agent once.
+const byName = (a: any, b: any) => String(a?.name || '').localeCompare(String(b?.name || ''))
 const sourceGroups = computed(() => {
-    if (!projectDefaultSources.value.length) {
-        return [{ key: 'all', label: '', divider: false, items: visibleDataSources.value }]
+    const groups: any[] = []
+    if (projectDefaultSources.value.length) {
+        groups.push({
+            key: 'project',
+            label: t('projects.overview.fromProject', { name: props.projectName }),
+            divider: false,
+            items: projectDefaultSources.value,
+        })
     }
-    const groups: any[] = [{
-        key: 'project',
-        label: t('projects.overview.fromProject', { name: props.projectName }),
-        divider: false,
-        items: projectDefaultSources.value,
-    }]
-    if (nonDefaultSources.value.length) {
-        groups.push({ key: 'rest', label: '', divider: true, items: nonDefaultSources.value })
+    const { recent, rest } = hasQuery.value
+        ? { recent: [], rest: nonDefaultSources.value }
+        : splitRecent(nonDefaultSources.value)
+    if (recent.length) {
+        groups.push({ key: 'recent', label: t('prompt.recent'), divider: groups.length > 0, items: recent })
+    }
+    if (rest.length) {
+        groups.push({ key: 'rest', label: '', divider: groups.length > 0, items: [...rest].sort(byName) })
     }
     return groups
 })

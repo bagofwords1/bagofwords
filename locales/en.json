@@ -697,6 +697,7 @@
     "autoAgentsHint": "Any agent you can access",
     "searchAgents": "Search agents…",
     "noAgentsMatch": "No agents match",
+    "recent": "Recent",
     "loadingDataSources": "Loading data sources…",
     "noDataSources": "No data sources found",
     "effort": {

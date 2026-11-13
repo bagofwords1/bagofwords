@@ -707,7 +707,8 @@
         "cancel": "Annuler",
         "dismiss": "Fermer"
       }
-    }
+    },
+    "recent": "Récents"
   },
   "reports": {
     "title": "Rapports",

@@ -707,7 +707,8 @@
         "cancel": "Abbrechen",
         "dismiss": "Schließen"
       }
-    }
+    },
+    "recent": "Zuletzt verwendet"
   },
   "reports": {
     "title": "Berichte",

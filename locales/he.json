@@ -680,6 +680,7 @@
     "autoAgentsHint": "כל סוכן שיש לך גישה אליו",
     "searchAgents": "חיפוש סוכנים…",
     "noAgentsMatch": "אין סוכנים תואמים",
+    "recent": "אחרונים",
     "loadingDataSources": "טוען מקורות נתונים…",
     "noDataSources": "לא נמצאו מקורות נתונים",
     "effort": {
