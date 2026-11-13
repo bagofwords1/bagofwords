@@ -818,8 +818,11 @@ def _inside_every(span_lists: List[List[Tuple[int, int]]], positions: List[int])
 # Line ends other than LF (a CR before an LF ends the line where the LF
 # does). Readers disagree on them in a line comment: sqlglot, Postgres and
 # DuckDB end one at a CR, SQLite and MySQL do not; VT, FF, FS, GS, RS, NEL,
-# LS and PS end a line for some text readers.
+# LS and PS end a line for some text readers. Readers also disagree on where
+# the text ends: libpq and DuckDB stop at a NUL, sqlglot and the scanned
+# readings read past it, so render_sql_with_params refuses a NUL anywhere.
 _OTHER_LINE_BREAK_RE = re.compile("\r(?!\n)|[\x0b\x0c\x1c-\x1e\x85\u2028\u2029]")
+_NUL = chr(0)
 # How a comment span of a scanned reading starts (_Reading.line_comments and
 # block comments); every other span is a string or a quoted name.
 _COMMENT_MARKS = ("--", "//", "#", "/*")
@@ -998,7 +1001,10 @@ def _rendered_value(value: Any, renderer: LiteralRenderer) -> Tuple[str, List[Tu
         return "(" + ", ".join(parts) + ")", spans
     if isinstance(value, dict):
         raise ParamError("object values cannot be rendered into SQL directly")
-    text = renderer.quote(str(value))
+    value = str(value)
+    if _NUL in value:
+        raise ParamError("a parameter value holds a NUL character, which cannot be sent in a query")
+    text = renderer.quote(value)
     return text, [(0, len(text))]
 
 
@@ -1039,11 +1045,13 @@ def _refuse_prefixes(sql: str, matches: List["re.Match[str]"], renderer: Literal
 
 def _separated(sql: str, start: int, text: str) -> str:
     """`text` as written at `start`: a value starting with '-' gets a space
-    after a '-', which it would join into '--', a comment. A space separates
-    tokens in every grammar rendered here and keeps the minus a unary minus;
-    elsewhere nothing is added (OData allows no space in a key or an option
-    value)."""
-    if text.startswith("-") and start and sql[start - 1] == "-":
+    after any character but a space. After a '-' it would make '--', a
+    comment; after another operator character a Postgres-family lexer joins
+    the minus to it, making an operator that does not exist. A space
+    separates tokens in every grammar rendered here and keeps the minus a
+    unary minus. Not called for OData, which allows no space in a key or an
+    option value."""
+    if text.startswith("-") and start and sql[start - 1] not in _SPACES:
         return " " + text
     return text
 
@@ -1065,7 +1073,10 @@ def _check_rendered(sql: str, matches: List["re.Match[str]"], placed: List[Tuple
         _check_tokens(sql, matches, placed, rendered, dialect)
     if readings is not None:
         may_skip = renderer.name == "odata"
-        for template_spans, rendered_spans in zip(readings(sql), readings(rendered), strict=True):
+        template_lists, rendered_lists = readings(sql), readings(rendered)
+        if len(template_lists) != len(rendered_lists):
+            raise ParamError("parameters cannot be checked for this connection")
+        for template_spans, rendered_spans in zip(template_lists, rendered_lists):
             _check_spans(matches, placed, template_spans, rendered_spans, may_skip)
 
 
@@ -1178,6 +1189,9 @@ def render_sql_with_params(
     matches = list(_PLACEHOLDER_RE.finditer(sql))
     if not matches:
         return sql
+    if _NUL in sql:
+        # Some engines read only up to it; the checks below read past it.
+        raise ParamError("parameters cannot be placed in a query that holds a NUL character; remove it")
     _refuse_prefixes(sql, matches, renderer)
     misplaced = _misplaced_placeholders(sql, matches, renderer)
     if misplaced:
@@ -1195,7 +1209,7 @@ def render_sql_with_params(
     pos, length = 0, 0
     for m in matches:
         text, spans = _rendered_value(values[m.group(1)], renderer)
-        written = _separated(sql, m.start(), text)
+        written = text if renderer.name == "odata" else _separated(sql, m.start(), text)
         lead = len(written) - len(text)
         parts.append(sql[pos:m.start()])
         length += m.start() - pos

@@ -759,12 +759,41 @@ def test_a_scanned_placeholder_followed_by_a_dot_or_a_name_character_is_refused(
         render_sql_with_params("a = :v" + after + " and b", {"v": 5}, renderer=query_params._RENDERERS[name])
 
 
-def test_a_negative_number_is_spaced_only_after_a_minus():
+def test_a_negative_number_is_spaced_after_any_character_but_a_space_except_on_odata():
     odata = query_params._RENDERERS["odata"]
     assert render_sql_with_params("Orders(:k)?$top=:n", {"k": -5, "n": -1}, renderer=odata) == "Orders(-5)?$top=-1"
-    for name in ("ansi", "postgres", "kql"):
+    assert render_sql_with_params("$filter=A eq :k and B eq (:k)", {"k": -5}, renderer=odata) == "$filter=A eq -5 and B eq (-5)"
+    for name in sorted(set(query_params._RENDERERS) - {"odata"}):
         renderer = query_params._RENDERERS[name]
-        assert render_sql_with_params("f(:a, =:a, 1-:a)", {"a": -5}, renderer=renderer) == "f(-5, =-5, 1- -5)"
+        assert render_sql_with_params("f(:a, =:a, 1-:a)", {"a": -5}, renderer=renderer) == "f( -5, = -5, 1- -5)", name
+        assert render_sql_with_params(":a = 1 - :a", {"a": -5}, renderer=renderer) == "-5 = 1 - -5", name
+        for c in sorted(OPERATORS_BEFORE | set("=(,")):
+            assert render_sql_with_params("x " + c + ":v y", {"v": -5}, renderer=renderer) == "x " + c + " -5 y", (name, c)
+        assert render_sql_with_params("x ||:v y", {"v": -5}, renderer=renderer) == "x || -5 y", name
+
+
+# Postgres-family lexers join a minus to the operator characters before it
+# into one operator ('!=-', '%-', '^-'), which does not exist.
+GLUED_OPERATOR_FILTERS = [
+    "SELECT id FROM s WHERE 3 !=:p AND is_public = 1",
+    "SELECT id FROM s WHERE 7 %:p = 2 AND is_public = 1",
+    "SELECT id FROM s WHERE 2 ^:p < 1 AND is_public = 1",
+]
+
+
+# The Postgres run doubles '%' (postgres_rows), so '%' runs on DuckDB only.
+@pytest.mark.parametrize("engine, family, template", [
+    ("duckdb", "CSVClient", template) for template in GLUED_OPERATOR_FILTERS
+] + [
+    ("postgres", "PostgresqlClient", template) for template in GLUED_OPERATOR_FILTERS if "%" not in template
+])
+def test_a_negative_number_after_an_operator_character_runs_on_the_engine(request, engine, family, template):
+    run = _engine(engine, request)
+    with pytest.raises(Exception):  # glued: one operator the engine does not know
+        run(template.replace(":p", "-5"))
+    rendered = render_sql_with_params(template, {"p": -5}, renderer=query_params.renderer_for_name(family))
+    assert rendered == template.replace(":p", " -5")
+    assert run(rendered) == [1, 3]
 
 
 def test_an_odata_value_that_cannot_be_encoded_is_a_param_error():
@@ -776,8 +805,63 @@ def test_a_reading_count_that_differs_between_template_and_rendered_text_fails_c
     # One list for the template, two for the rendered text: nothing may be
     # left unchecked.
     monkeypatch.setitem(query_params._READINGS, "ansi", lambda text: [[]] * (1 + (":" not in text)))
-    with pytest.raises(ValueError):
+    with pytest.raises(ParamError, match="^parameters cannot be checked for this connection$"):
         render_sql_with_params("a = :v", {"v": 5}, renderer=query_params._RENDERERS["ansi"])
+
+
+# libpq and DuckDB read a query only up to its first NUL; the check reads
+# past it. Anything after one, an identity filter included, would be checked
+# and never run.
+NUL = chr(0)
+
+
+def _nul_templates(name):
+    quote = '"' if name == "spl" else "'"
+    templates = [
+        "a = :v and b = 1" + NUL,
+        "a = 1" + NUL + " and b = :v",
+        "a = " + quote + "x" + NUL + quote + " and b = :v",
+    ]
+    mark = LINE_COMMENT_RENDERERS.get(name)
+    if mark is not None:
+        templates.append("a = 1 " + mark + " c" + NUL + NL + "and b = :v")
+    return templates
+
+
+@pytest.mark.parametrize("name", sorted(query_params._RENDERERS))
+def test_a_nul_in_a_template_with_params_is_refused(name):
+    renderer = query_params._RENDERERS[name]
+    for template in _nul_templates(name):
+        with pytest.raises(ParamError):
+            render_sql_with_params(template, {"v": "x"}, renderer=renderer)
+        with pytest.raises(ParamError):
+            render_sql_with_params(template, {"v": 5}, renderer=renderer)
+
+
+@pytest.mark.parametrize("name", sorted(query_params._RENDERERS))
+@pytest.mark.parametrize("value", ["x" + NUL, NUL, ["a", "b" + NUL + "c"]], ids=["end", "alone", "list"])
+def test_a_nul_in_a_value_is_refused(name, value):
+    with pytest.raises(ParamError):
+        render_sql_with_params("a = :v", {"v": value}, renderer=query_params._RENDERERS[name])
+
+
+NUL_ENGINE_TEMPLATES = [
+    "SELECT id FROM t WHERE id > 0 -- note" + NUL + NL + "AND owner = :me",
+    "SELECT id FROM t WHERE id > 0" + NUL + " AND owner = :me",
+]
+
+
+@pytest.mark.parametrize("engine, family", [("duckdb", "CSVClient"), ("postgres", "PostgresqlClient")])
+@pytest.mark.parametrize("template", NUL_ENGINE_TEMPLATES, ids=["comment", "code"])
+def test_a_nul_that_ends_the_query_for_the_engine_is_refused_before_anything_is_sent(request, engine, family, template):
+    run = _engine(engine, request)
+    renderer = query_params.renderer_for_name(family)
+    # As written today: the engine stops at the NUL, so the owner filter
+    # never runs and every row comes back.
+    assert run(template.replace(":me", renderer.quote("alice"))) == [1, 2, 3]
+    assert run(render_sql_with_params(template.replace(NUL, ""), {"me": "alice"}, renderer=renderer)) == [1]
+    with pytest.raises(ParamError):
+        render_sql_with_params(template, {"me": "alice"}, renderer=renderer)
 
 
 # Through the wrapper (StreamingCodeExecutor), in both sandbox modes.
