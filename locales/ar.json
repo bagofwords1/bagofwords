@@ -2039,7 +2039,6 @@
     "loading": "جارٍ التحميل...",
     "noRolesFound": "لا توجد أدوار",
     "noRolesHint": "أنشئ دورًا لإدارة الصلاحيات.",
-    "system": "النظام",
     "default": "افتراضي",
     "defaultRoleHint": "هذا دور مدمج. اسمه ثابت — خصّص أذوناته في الأسفل.",
     "edit": "تعديل",
@@ -2051,13 +2050,10 @@
     "namePlaceholder": "مثال: محلل",
     "descriptionPlaceholder": "اختياري",
     "fullAdminAccess": "صلاحيات مسؤول كاملة",
-    "fullAdminBypass": "يتجاوز جميع عمليات التحقق",
     "cancel": "إلغاء",
     "save": "حفظ",
     "create": "إنشاء",
     "confirmDelete": "هل تريد حذف الدور \"{name}\"؟",
-    "toastCreated": "تم إنشاء الدور",
-    "toastUpdated": "تم تحديث الدور",
     "toastDeleted": "تم حذف الدور",
     "failedToLoad": "تعذّر تحميل الأدوار",
     "failedToCreate": "تعذّر إنشاء الدور",
@@ -2093,103 +2089,68 @@
     "duplicate": "تكرار",
     "copyOf": "نسخة من {name}",
     "loadingRole": "جارٍ تحميل الدور…",
-    "loadFailed": "تعذّر تحميل الوكلاء والاتصالات والنماذج الخاصة بهذا الدور.",
+    "loadFailed": "تعذّر تحميل الوكلاء والاتصالات والنماذج.",
     "retry": "إعادة المحاولة",
-    "saving": "جارٍ الحفظ…",
-    "unsavedChanges": "تغييرات غير محفوظة",
-    "startFrom": "البدء من",
-    "startFromDefault": "الأذونات الافتراضية",
-    "canReach": "الوصول إلى",
-    "canAlso": "يمكنهم أيضًا",
-    "customize": "تخصيص",
-    "hideCustomize": "العودة إلى الملخص",
-    "addAccess": "+ إضافة وكيل أو اتصال أو نموذج…",
-    "publicAgents": "الوكلاء العامّون ({n}) متاحون للجميع.",
-    "reachEmpty": "الوكلاء العامّون فقط. أضف وكيلًا أو اتصالًا أو نموذجًا لمنح هذا الدور وصولًا إضافيًا.",
-    "agents": "الوكلاء",
-    "connections": "الاتصالات",
-    "models": "النماذج المقيّدة",
-    "levels": {
-      "use": "استخدام",
-      "manage": "إدارة",
-      "custom": "مخصّص",
-      "buildAgents": "إنشاء وكلاء"
-    },
-    "agentLevelsHint": "استخدام: طرح الأسئلة. إدارة: أيضًا تحرير التعليمات والكيانات والتقييمات والمشاركة.",
-    "connectionLevelsHint": "إنشاء وكلاء: إنشاء وكلاء عليه. إدارة: أيضًا تحريره واختباره وإعادة فهرسته.",
-    "removeAccess": "إزالة",
-    "code": {
-      "label": "عرض الشيفرة المُنشأة",
-      "hint": "SQL وPython التي يكتبها الوكيل",
-      "hidden": "مخفي",
-      "view": "عرض",
-      "run": "عرض وتشغيل"
-    },
-    "bundles": {
-      "build": {
-        "label": "إنشاء الوكلاء والاتصالات",
-        "hint": "يملكون ما ينشئونه"
-      },
-      "knowledge": {
-        "label": "تحرير معرفة جميع الوكلاء",
-        "hint": "التعليمات والكيانات والتقييمات في جميع الوكلاء"
-      },
-      "connections": {
-        "label": "إدارة جميع الاتصالات",
-        "hint": "تحرير أي اتصال واختباره وإعادة فهرسته وحذفه"
-      },
-      "people": {
-        "label": "إدارة الأشخاص",
-        "hint": "دعوة الأشخاص وتغيير الأدوار وإنشاء مفاتيح API"
-      },
-      "admin": {
-        "label": "إعدادات الإدارة",
-        "hint": "إعدادات المؤسسة ومزوّدو LLM وتسجيل الدخول وسجلات التدقيق"
-      }
-    },
-    "sensitive": "حسّاس",
-    "partial": "جزئي",
-    "includedBy": "مضمَّن في {name}",
-    "fullAdminOn": "لهذا الدور وصول إداري كامل. يمكنه فعل كل شيء، لذا لا تنطبق الإعدادات أدناه.",
-    "removeFullAdmin": "استخدام أذونات مخصّصة بدلًا من ذلك",
-    "categories": {
-      "data": "البيانات والاتصالات",
-      "instructions": "التعليمات",
-      "entities": "الكيانات",
-      "evals": "التقييمات",
-      "code": "الشيفرة",
-      "members": "الأعضاء",
-      "settings": "الإعدادات",
-      "enterprise": "Enterprise"
-    },
-    "summary": {
-      "fullAdmin": "يمكن لأصحاب هذا الدور فعل كل شيء.",
-      "none": "يمكن لأصحاب هذا الدور استخدام الوكلاء العامّين فقط.",
-      "can": "يمكن لأصحاب هذا الدور {list}.",
-      "listFullAdmin": "كل شيء",
-      "listNone": "الوكلاء العامّون فقط",
-      "useAgentsOne": "استخدام وكيل واحد",
-      "useAgentsMany": "استخدام {n} وكلاء",
-      "manageAgentsOne": "إدارة وكيل واحد",
-      "manageAgentsMany": "إدارة {n} وكلاء",
-      "buildOnOne": "إنشاء وكلاء على اتصال واحد",
-      "buildOnMany": "إنشاء وكلاء على {n} اتصالات",
-      "manageConnectionsOne": "إدارة اتصال واحد",
-      "manageConnectionsMany": "إدارة {n} اتصالات",
-      "customOne": "الوصول المخصّص إلى مورد واحد",
-      "customMany": "الوصول المخصّص إلى {n} موارد",
-      "modelsOne": "استخدام نموذج مقيّد واحد",
-      "modelsMany": "استخدام {n} نماذج مقيّدة",
-      "viewCode": "عرض الشيفرة المُنشأة",
-      "runCode": "عرض الشيفرة وتشغيلها",
-      "build": "إنشاء الوكلاء والاتصالات",
-      "knowledge": "تحرير معرفة جميع الوكلاء",
-      "connections": "إدارة جميع الاتصالات",
-      "people": "إدارة الأشخاص",
-      "admin": "تغيير إعدادات الإدارة"
-    },
     "toastCreatedNamed": "تم إنشاء {name}",
-    "toastUpdatedNamed": "تم حفظ {name}"
+    "toastUpdatedNamed": "تم حفظ {name}",
+    "moreActions": "إجراءات أخرى",
+    "tabs": {
+      "permissions": "الأذونات",
+      "access": "الوصول"
+    },
+    "groups": {
+      "agents": "الوكلاء والبيانات",
+      "knowledge": "معرفة الوكلاء",
+      "code": "الشيفرة",
+      "admin": "الإدارة",
+      "other": "أخرى"
+    },
+    "permissionHints": {
+      "create_data_source": "إنشاء وكلاء على الاتصالات المتاحة لهم",
+      "create_connections": "إضافة اتصالات بيانات",
+      "manage_connections": "تحرير أي اتصال واختباره وحذفه",
+      "manage_instructions": "تحرير تعليمات جميع الوكلاء",
+      "manage_entities": "تعريف الجداول والمقاييس والمصطلحات في جميع الوكلاء",
+      "manage_evals": "إنشاء التقييمات وتشغيلها في جميع الوكلاء",
+      "view_code": "عرض شيفرة SQL وPython التي يكتبها الوكلاء",
+      "run_custom_code": "تحرير الشيفرة وتشغيلها في التقارير",
+      "manage_members": "دعوة الأشخاص وتغيير أدوارهم",
+      "manage_service_accounts": "إنشاء مفاتيح API",
+      "manage_settings": "تغيير إعدادات المؤسسة",
+      "manage_llm": "إعداد مزوّدي ونماذج LLM",
+      "view_audit_logs": "معرفة من فعل ماذا ومتى",
+      "manage_identity_providers": "إعداد تسجيل الدخول الموحّد"
+    },
+    "fullAdminHint": "يمكنه فعل كل شيء في المؤسسة",
+    "fullAdminAccessTab": "يشمل الوصول الإداري الكامل جميع الوكلاء والاتصالات والنماذج.",
+    "includedWith": "مضمَّن في {name}",
+    "searchResources": "بحث…",
+    "addAccess": "إضافة وكيل أو اتصال أو نموذج",
+    "accessEmpty": "لا يوجد وكلاء أو اتصالات أو نماذج بعد. الوكلاء العامّون متاحون دائمًا.",
+    "publicAgents": "{n} من الوكلاء العامّين متاحون للجميع.",
+    "types": {
+      "data_source": "وكيل",
+      "connection": "اتصال",
+      "llm_model": "نموذج"
+    },
+    "levels": {
+      "use": "يمكنه الاستخدام",
+      "manage": "يمكنه الإدارة",
+      "build": "يمكنه إنشاء وكلاء",
+      "custom": "مخصّص"
+    },
+    "removeAccess": "إزالة",
+    "meta": {
+      "permissionsOne": "إذن واحد",
+      "permissionsMany": "{n} أذونات",
+      "agentsOne": "وكيل واحد",
+      "agentsMany": "{n} وكلاء",
+      "connectionsOne": "اتصال واحد",
+      "connectionsMany": "{n} اتصالات",
+      "modelsOne": "نموذج واحد",
+      "modelsMany": "{n} نماذج",
+      "everything": "كل الأذونات"
+    }
   },
   "groupsManager": {
     "searchPlaceholder": "ابحث في المجموعات...",

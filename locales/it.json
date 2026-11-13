@@ -2039,7 +2039,6 @@
     "loading": "Caricamento...",
     "noRolesFound": "Nessun ruolo trovato",
     "noRolesHint": "Crea un ruolo per gestire le autorizzazioni.",
-    "system": "sistema",
     "default": "Predefinito",
     "defaultRoleHint": "Questo è un ruolo integrato. Il nome è fisso: personalizza le sue autorizzazioni qui sotto.",
     "edit": "Modifica",
@@ -2051,13 +2050,10 @@
     "namePlaceholder": "es. Analista",
     "descriptionPlaceholder": "Opzionale",
     "fullAdminAccess": "Accesso amministratore completo",
-    "fullAdminBypass": "Bypassa tutti i controlli",
     "cancel": "Annulla",
     "save": "Salva",
     "create": "Crea",
     "confirmDelete": "Eliminare il ruolo \"{name}\"?",
-    "toastCreated": "Ruolo creato",
-    "toastUpdated": "Ruolo aggiornato",
     "toastDeleted": "Ruolo eliminato",
     "failedToLoad": "Impossibile caricare i ruoli",
     "failedToCreate": "Impossibile creare il ruolo",
@@ -2093,103 +2089,68 @@
     "duplicate": "Duplica",
     "copyOf": "Copia di {name}",
     "loadingRole": "Caricamento ruolo…",
-    "loadFailed": "Impossibile caricare agenti, connessioni e modelli di questo ruolo.",
+    "loadFailed": "Impossibile caricare agenti, connessioni e modelli.",
     "retry": "Riprova",
-    "saving": "Salvataggio…",
-    "unsavedChanges": "Modifiche non salvate",
-    "startFrom": "Parti da",
-    "startFromDefault": "Permessi predefiniti",
-    "canReach": "Accesso a",
-    "canAlso": "Può anche",
-    "customize": "Personalizza",
-    "hideCustomize": "Torna al riepilogo",
-    "addAccess": "+ Aggiungi agente, connessione o modello…",
-    "publicAgents": "Gli agenti pubblici ({n}) sono disponibili per tutti.",
-    "reachEmpty": "Solo agenti pubblici. Aggiungi un agente, una connessione o un modello per dare più accesso a questo ruolo.",
-    "agents": "Agenti",
-    "connections": "Connessioni",
-    "models": "Modelli con restrizioni",
-    "levels": {
-      "use": "Usa",
-      "manage": "Gestisci",
-      "custom": "Personalizzato",
-      "buildAgents": "Crea agenti"
-    },
-    "agentLevelsHint": "Usa: fare domande. Gestisci: anche modificarne istruzioni, entità, valutazioni e condivisione.",
-    "connectionLevelsHint": "Crea agenti: creare agenti su di essa. Gestisci: anche modificarla, testarla e reindicizzarla.",
-    "removeAccess": "Rimuovi",
-    "code": {
-      "label": "Vedere il codice generato",
-      "hint": "SQL e Python scritti dall'agente",
-      "hidden": "Nascosto",
-      "view": "Visualizza",
-      "run": "Visualizza ed esegui"
-    },
-    "bundles": {
-      "build": {
-        "label": "Creare agenti e connessioni",
-        "hint": "Sono proprietari di ciò che creano"
-      },
-      "knowledge": {
-        "label": "Modificare la conoscenza di tutti gli agenti",
-        "hint": "Istruzioni, entità e valutazioni su tutti gli agenti"
-      },
-      "connections": {
-        "label": "Gestire tutte le connessioni",
-        "hint": "Modificare, testare, reindicizzare ed eliminare qualsiasi connessione"
-      },
-      "people": {
-        "label": "Gestire le persone",
-        "hint": "Invitare persone, cambiare ruoli, creare chiavi API"
-      },
-      "admin": {
-        "label": "Impostazioni di amministrazione",
-        "hint": "Impostazioni dell'organizzazione, provider LLM, accesso e log di audit"
-      }
-    },
-    "sensitive": "Sensibile",
-    "partial": "Parziale",
-    "includedBy": "Incluso da {name}",
-    "fullAdminOn": "Questo ruolo ha accesso amministrativo completo. Può fare tutto, quindi le impostazioni qui sotto non si applicano.",
-    "removeFullAdmin": "Usa permessi personalizzati",
-    "categories": {
-      "data": "Dati e connessioni",
-      "instructions": "Istruzioni",
-      "entities": "Entità",
-      "evals": "Valutazioni",
-      "code": "Codice",
-      "members": "Membri",
-      "settings": "Impostazioni",
-      "enterprise": "Enterprise"
-    },
-    "summary": {
-      "fullAdmin": "Le persone con questo ruolo possono fare tutto.",
-      "none": "Le persone con questo ruolo possono usare solo agenti pubblici.",
-      "can": "Le persone con questo ruolo possono {list}.",
-      "listFullAdmin": "Tutto",
-      "listNone": "Solo agenti pubblici",
-      "useAgentsOne": "usare 1 agente",
-      "useAgentsMany": "usare {n} agenti",
-      "manageAgentsOne": "gestire 1 agente",
-      "manageAgentsMany": "gestire {n} agenti",
-      "buildOnOne": "creare agenti su 1 connessione",
-      "buildOnMany": "creare agenti su {n} connessioni",
-      "manageConnectionsOne": "gestire 1 connessione",
-      "manageConnectionsMany": "gestire {n} connessioni",
-      "customOne": "avere accesso personalizzato a 1 risorsa",
-      "customMany": "avere accesso personalizzato a {n} risorse",
-      "modelsOne": "usare 1 modello con restrizioni",
-      "modelsMany": "usare {n} modelli con restrizioni",
-      "viewCode": "vedere il codice generato",
-      "runCode": "vedere ed eseguire codice",
-      "build": "creare agenti e connessioni",
-      "knowledge": "modificare la conoscenza di tutti gli agenti",
-      "connections": "gestire tutte le connessioni",
-      "people": "gestire le persone",
-      "admin": "modificare le impostazioni di amministrazione"
-    },
     "toastCreatedNamed": "{name} creato",
-    "toastUpdatedNamed": "{name} salvato"
+    "toastUpdatedNamed": "{name} salvato",
+    "moreActions": "Altre azioni",
+    "tabs": {
+      "permissions": "Permessi",
+      "access": "Accesso"
+    },
+    "groups": {
+      "agents": "Agenti e dati",
+      "knowledge": "Conoscenza degli agenti",
+      "code": "Codice",
+      "admin": "Amministrazione",
+      "other": "Altro"
+    },
+    "permissionHints": {
+      "create_data_source": "Creare agenti sulle connessioni utilizzabili",
+      "create_connections": "Aggiungere connessioni dati",
+      "manage_connections": "Modificare, testare ed eliminare qualsiasi connessione",
+      "manage_instructions": "Modificare le istruzioni di tutti gli agenti",
+      "manage_entities": "Definire tabelle, metriche e termini su tutti gli agenti",
+      "manage_evals": "Creare ed eseguire valutazioni su tutti gli agenti",
+      "view_code": "Vedere SQL e Python scritti dagli agenti",
+      "run_custom_code": "Modificare ed eseguire codice nei report",
+      "manage_members": "Invitare persone e cambiare i loro ruoli",
+      "manage_service_accounts": "Creare chiavi API",
+      "manage_settings": "Modificare le impostazioni dell'organizzazione",
+      "manage_llm": "Configurare provider e modelli LLM",
+      "view_audit_logs": "Vedere chi ha fatto cosa e quando",
+      "manage_identity_providers": "Configurare il single sign-on"
+    },
+    "fullAdminHint": "Può fare tutto nell'organizzazione",
+    "fullAdminAccessTab": "L'accesso amministrativo completo include tutti gli agenti, le connessioni e i modelli.",
+    "includedWith": "Incluso con {name}",
+    "searchResources": "Cerca…",
+    "addAccess": "Aggiungi agente, connessione o modello",
+    "accessEmpty": "Ancora nessun agente, connessione o modello. Gli agenti pubblici sono sempre disponibili.",
+    "publicAgents": "{n} agenti pubblici sono disponibili per tutti.",
+    "types": {
+      "data_source": "Agente",
+      "connection": "Connessione",
+      "llm_model": "Modello"
+    },
+    "levels": {
+      "use": "Può usare",
+      "manage": "Può gestire",
+      "build": "Può creare agenti",
+      "custom": "Personalizzato"
+    },
+    "removeAccess": "Rimuovi",
+    "meta": {
+      "permissionsOne": "1 permesso",
+      "permissionsMany": "{n} permessi",
+      "agentsOne": "1 agente",
+      "agentsMany": "{n} agenti",
+      "connectionsOne": "1 connessione",
+      "connectionsMany": "{n} connessioni",
+      "modelsOne": "1 modello",
+      "modelsMany": "{n} modelli",
+      "everything": "Tutti i permessi"
+    }
   },
   "groupsManager": {
     "searchPlaceholder": "Cerca gruppi...",
