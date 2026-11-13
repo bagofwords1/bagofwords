@@ -277,6 +277,136 @@ def test_check_unparsed_takes_extra_write_words():
         check_unparsed("SELECT qcmdexc('x')", read_verbs=frozenset({"SELECT"}), extra_write_words=words)
 
 
+# --------------------------------------------------------------- the TABLE shorthand
+
+# Postgres reads `TABLE name` as `SELECT * FROM name`; sqlglot reads it as a
+# column named table, so neither check would see the table.
+TABLE_SHORTHAND = [
+    "TABLE secret",
+    "table secret",
+    "WITH x AS (TABLE secret) SELECT * FROM x",
+    "SELECT 1 AS v WHERE 'k1' = ANY (TABLE secret)",
+    "SELECT (TABLE secret LIMIT 1) AS v",
+    "SELECT 'x' AS code UNION ALL TABLE secret",
+    "EXPLAIN TABLE secret",
+    f"SELECT 1 WHERE {UNPARSABLE} UNION ALL TABLE secret",
+]
+
+
+@pytest.mark.parametrize("sql", TABLE_SHORTHAND)
+def test_the_table_shorthand_is_refused(sql):
+    with pytest.raises(ReadOnlyViolation, match="TABLE"):
+        _checked(sql)
+    with pytest.raises(ReadOnlyViolation, match="TABLE"):
+        check_sql(sql, "postgres")
+
+
+@pytest.mark.parametrize("sql", [
+    'SELECT "table" FROM orders',
+    "SELECT table_name FROM information_schema.tables",
+    "SELECT 'TABLE secret' AS note, $$table$$ AS kind FROM orders -- TABLE secret",
+])
+def test_the_word_table_as_a_quoted_name_part_of_a_name_or_in_a_literal_still_passes(sql):
+    _checked(sql)
+
+
+# --------------------------------------------------------------- function deny list
+
+# Functions that run SQL held in a string, reach another connection, or
+# change the session or the server outside the read.
+DENIED = [
+    "ts_stat", "ts_rewrite",
+    "query_to_xml", "query_to_xml_and_xmlschema", "query_to_xmlschema",
+    "table_to_xml", "table_to_xml_and_xmlschema", "table_to_xmlschema",
+    "cursor_to_xml", "cursor_to_xmlschema",
+    "dblink", "dblink_exec", "dblink_connect", "dblink_send_query",
+    "pg_advisory_lock", "pg_advisory_lock_shared", "pg_try_advisory_lock", "pg_try_advisory_lock_shared",
+    "pg_advisory_unlock", "pg_advisory_unlock_shared", "pg_advisory_unlock_all",
+    "set_config", "setval", "nextval", "pg_notify",
+    "pg_cancel_backend", "pg_terminate_backend", "pg_reload_conf",
+]
+SPELLINGS = {
+    "plain": "SELECT {n}('a') FROM orders",
+    "upper case": "SELECT {N}('a') FROM orders",
+    "schema-qualified": "SELECT pg_catalog.{n}('a') FROM orders",
+    "quoted": 'SELECT "{n}"(\'a\') FROM orders',
+    "quoted and qualified": 'SELECT "pg_catalog" . "{n}" (\'a\') FROM orders',
+    "as a row source": "SELECT * FROM {n}('a') AS f",
+    "with a comment before the call": "SELECT {n} /* c */ ('a') FROM orders",
+    "in text sqlglot cannot parse": "SELECT {n}('a') FROM orders WHERE " + UNPARSABLE,
+}
+
+
+@pytest.mark.parametrize("spelling", SPELLINGS)
+@pytest.mark.parametrize("name", DENIED)
+def test_each_denied_function_is_refused_in_every_spelling(name, spelling):
+    sql = SPELLINGS[spelling].format(n=name, N=name.upper())
+    with pytest.raises(ReadOnlyViolation, match="(?i)" + name):
+        _checked(sql)
+
+
+@pytest.mark.parametrize("spelling", ["plain", "upper case", "schema-qualified", "quoted", "as a row source"])
+@pytest.mark.parametrize("name", DENIED)
+def test_each_denied_function_is_refused_on_the_parsed_tree_for_redshift(name, spelling):
+    sql = SPELLINGS[spelling].format(n=name, N=name.upper())
+    with pytest.raises(ReadOnlyViolation, match="(?i)" + name):
+        check_sql(sql, "redshift")
+
+
+def test_a_function_that_runs_sql_in_a_string_is_refused_on_an_unscoped_client():
+    sql = "SELECT word FROM ts_stat('SELECT to_tsvector(code) FROM secret')"
+    with pytest.raises(ReadOnlyViolation, match="TS_STAT"):
+        _checked(sql)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT pg_advisory_xact_lock(1), pg_advisory_xact_lock_shared(2), pg_try_advisory_xact_lock(3) FROM orders",
+    "SELECT current_setting('search_path'), currval('s') FROM orders",
+    "SELECT nextval, setval FROM orders",
+    "SELECT my_set_config(1), set_configx(1), nextval_of(1) FROM orders",
+    "SELECT 'nextval(1)' AS a, $$set_config(1)$$ AS b FROM orders -- setval(1)",
+    'SELECT 1 AS "setval" FROM orders',
+])
+def test_transaction_scoped_locks_reads_and_lookalike_names_still_pass(sql):
+    _checked(sql)
+
+
+# --------------------------------------------------------------- EXPLAIN
+
+@pytest.mark.parametrize("sql", [
+    "EXPLAIN ANALYZE SELECT 1 AS a INTO made",
+    "explain analyse select id into made from orders",
+    "EXPLAIN ANALYZE VERBOSE WITH x AS (SELECT 1 AS a) SELECT * INTO made FROM x",
+    "EXPLAIN (ANALYZE, BUFFERS) SELECT set_config('application_name', 'x', false)",
+    "EXPLAIN ANALYZE SELECT nextval('s')",
+    "EXPLAIN(ANALYZE)SELECT pg_advisory_lock(1)",
+    "EXPLAIN ANALYZE EXECUTE p",
+    "EXPLAIN ANALYZE DECLARE c CURSOR FOR SELECT 1",
+    "EXPLAIN (ANALYZE) CREATE TABLE made AS SELECT 1",
+    "EXPLAIN ANALYZE MERGE INTO orders o USING orders s ON false WHEN NOT MATCHED THEN DO NOTHING",
+    "EXPLAIN ANALYZE SELECT 1 AS a INTO made WHERE " + UNPARSABLE,
+])
+def test_explain_checks_the_statement_it_explains(sql):
+    with pytest.raises(ReadOnlyViolation):
+        _checked(sql)
+
+
+@pytest.mark.parametrize("sql", [
+    "EXPLAIN SELECT 1",
+    "EXPLAIN SELECT id FROM orders",
+    "EXPLAIN ANALYZE SELECT id FROM orders",
+    "EXPLAIN ANALYZE VERBOSE SELECT 1",
+    "EXPLAIN VERBOSE SELECT 1",
+    "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) SELECT id FROM orders",
+    "EXPLAIN (FORMAT 'yaml') SELECT 1",
+    "EXPLAIN (SELECT 1)",
+    "explain (costs off) values (1)",
+    "EXPLAIN WITH x AS (SELECT id FROM orders) SELECT * FROM x",
+])
+def test_explain_of_a_read_still_passes(sql):
+    _checked(sql)
+
+
 # --------------------------------------------------------------- through the wrapper
 
 class RecordingPostgresqlClient(PostgresqlClient):
@@ -335,3 +465,165 @@ def test_a_hidden_read_or_statement_never_reaches_the_client(mode, sql, error):
     with pytest.raises(error):
         _run(client, sql)
     assert client.sent == []
+
+
+# --------------------------------------------------------------- engine (Postgres 15)
+
+def _docker_available() -> bool:
+    try:
+        import docker
+
+        docker.from_env().ping()
+        return True
+    except Exception:
+        return False
+
+
+@pytest.fixture(scope="module")
+def server():
+    """A throwaway Postgres 15 holding a table the agent must not read, and
+    sequences; yields its connection settings."""
+    if not _docker_available():
+        pytest.skip("Docker daemon not reachable")
+    import psycopg2
+    from testcontainers.postgres import PostgresContainer
+
+    with PostgresContainer("postgres:15") as container:
+        settings = {"host": container.get_container_host_ip(), "port": int(container.get_exposed_port(5432)),
+                    "user": container.username, "password": container.password, "dbname": container.dbname}
+        con = psycopg2.connect(**settings)
+        con.autocommit = True
+        with con.cursor() as cur:
+            for sql in ["CREATE TABLE secret (code text)", "INSERT INTO secret VALUES ('k1')",
+                        "CREATE TABLE orders (id int)", "INSERT INTO orders VALUES (1)",
+                        "CREATE TABLE quiet (id int)",
+                        "CREATE EXTENSION dblink"] + [f"CREATE SEQUENCE s{i}" for i in range(1, 8)]:
+                cur.execute(sql)
+        con.close()
+        # dblink connects from inside the server, to itself.
+        settings["dsn"] = f"host=localhost dbname={container.dbname} user={container.username} password={container.password}"
+        yield settings
+
+
+@pytest.fixture
+def pg(server):
+    """Run one statement on its own connection, as it is (no parameters, so
+    psycopg2 sends the text unchanged), then `then` on the same connection;
+    return the rows of each."""
+    import psycopg2
+
+    def run(sql, then=None):
+        con = psycopg2.connect(**{k: v for k, v in server.items() if k != "dsn"})
+        con.autocommit = True
+        try:
+            with con.cursor() as cur:
+                cur.execute(sql)
+                rows = cur.fetchall() if cur.description else None
+                if then is None:
+                    return rows, None
+                cur.execute(then)
+                return rows, cur.fetchall()
+        finally:
+            con.close()
+
+    return run
+
+
+LOCKS_HELD = "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid()"
+# (statement, a statement run after it on the same connection, what that
+# shows): each statement reads the table or has an effect outside the read.
+# None: the statement ran, and its effect is not visible to a query.
+ENGINE_SHAPES = [
+    ("TABLE secret", None, None),
+    ("WITH x AS (TABLE secret) SELECT * FROM x", None, None),
+    ("SELECT 1 AS v WHERE 'k1' = ANY (TABLE secret)", None, None),
+    ("SELECT (TABLE secret LIMIT 1) AS v", None, None),
+    ("SELECT 'x' AS code UNION ALL TABLE secret", None, None),
+    ("SELECT word FROM ts_stat('SELECT to_tsvector(''simple'', code) FROM secret')", None, None),
+    ("SELECT ts_rewrite('a'::tsquery, 'SELECT ''a''::tsquery, to_tsquery(''simple'', code) FROM secret') AS v",
+     None, None),
+    ("SELECT query_to_xml('SELECT code FROM secret', true, false, '') AS v", None, None),
+    ("SELECT table_to_xml('secret', true, false, '') AS v", None, None),
+    ("SELECT * FROM dblink('{dsn}', 'SELECT code FROM secret') AS r(code text)", None, None),
+    ("SELECT dblink_exec('{dsn}', 'CREATE TABLE made_by_link (a int)')",
+     "SELECT to_regclass('made_by_link')::text", [("made_by_link",)]),
+    ("SELECT pg_advisory_lock(41)", LOCKS_HELD, [(1,)]),
+    ("SELECT pg_try_advisory_lock(42)", LOCKS_HELD, [(1,)]),
+    ("SELECT pg_advisory_lock_shared(43)", LOCKS_HELD, [(1,)]),
+    ("SELECT pg_advisory_lock(44), pg_advisory_unlock(44)", LOCKS_HELD, [(0,)]),
+    ("SELECT set_config('search_path', 'elsewhere', false)", "SHOW search_path", [("elsewhere",)]),
+    ('SELECT "pg_catalog"."set_config"(\'search_path\', \'elsewhere\', false)', "SHOW search_path",
+     [("elsewhere",)]),
+    ("SELECT setval('s1', 100)", "SELECT last_value FROM s1", [(100,)]),
+    ("SELECT nextval('s2')", "SELECT is_called FROM s2", [(True,)]),
+    ("SELECT pg_catalog.nextval('s3')", "SELECT is_called FROM s3", [(True,)]),
+    ("SELECT pg_notify('c', 'x')", None, None),
+    ("SELECT pg_cancel_backend(0)", None, None),
+    ("SELECT pg_terminate_backend(0)", None, None),
+    ("SELECT pg_reload_conf()", None, None),
+    ("EXPLAIN ANALYZE SELECT 1 AS a INTO made_by_explain",
+     "SELECT to_regclass('made_by_explain')::text", [("made_by_explain",)]),
+    ("EXPLAIN ANALYZE SELECT nextval('s4')", "SELECT is_called FROM s4", [(True,)]),
+    ("EXPLAIN (ANALYZE, BUFFERS) SELECT set_config('search_path', 'elsewhere', false)", "SHOW search_path",
+     [("elsewhere",)]),
+]
+
+
+@pytest.mark.parametrize("sql, then, shows", ENGINE_SHAPES, ids=[s[0][:60] for s in ENGINE_SHAPES])
+def test_postgres_runs_each_refused_shape_and_the_guard_refuses_it(pg, server, sql, then, shows):
+    sql = sql.replace("{dsn}", server["dsn"])
+    rows, after = pg(sql, then)
+    if then is None:
+        assert rows is not None
+        if "secret" in sql:
+            assert "k1" in str(rows) or rows == [(1,)]  # the table's rows, or a test on them
+    else:
+        assert after == shows
+    with pytest.raises(ReadOnlyViolation):
+        _checked(sql)
+
+
+def test_postgres_runs_the_reads_the_guard_lets_through(pg):
+    for sql in ["EXPLAIN SELECT 1", "EXPLAIN (SELECT 1)", "SELECT pg_advisory_xact_lock(9)", 'SELECT "table" FROM (SELECT 1 AS "table") t']:
+        assert _checked(sql) == sql
+        assert pg(sql)[0]
+
+
+class LivePostgresqlClient(PostgresqlClient):
+    """The real Postgres client on the test server, recording what reaches
+    `execute_query` before passing it on."""
+
+    def execute_query(self, sql):
+        self.sent.append(sql)
+        return super().execute_query(sql)
+
+
+def _live(server):
+    client = LivePostgresqlClient(host=server["host"], port=server["port"], database=server["dbname"],
+                                  user=server["user"], password=server["password"])
+    client.sent = []
+    return client
+
+
+@pytest.mark.parametrize("sql, then, unchanged", [
+    ("SELECT setval('s5', 100)", "SELECT last_value, is_called FROM s5", [(1, False)]),
+    ("EXPLAIN ANALYZE SELECT nextval('s6')", "SELECT last_value, is_called FROM s6", [(1, False)]),
+    ("EXPLAIN ANALYZE SELECT 1 AS a INTO made_through_the_wrapper",
+     "SELECT to_regclass('made_through_the_wrapper')::text", [(None,)]),
+    ("SELECT dblink_exec('{dsn}', 'ANALYZE quiet')",
+     "SELECT last_analyze IS NOT NULL FROM pg_stat_user_tables WHERE relname = 'quiet'", [(False,)]),
+    ("WITH x AS (TABLE secret) SELECT * FROM x", "SELECT 1", [(1,)]),
+])
+def test_a_refused_shape_never_reaches_the_server(mode, pg, server, sql, then, unchanged):
+    client = _live(server)
+    with pytest.raises(UnsafeSQLError):
+        _run(client, sql.replace("{dsn}", server["dsn"]))
+    assert client.sent == []
+    assert pg(then)[0] == unchanged
+
+
+def test_a_read_through_the_wrapper_reaches_the_server(mode, server):
+    client = _live(server)
+    result = _run(client, "EXPLAIN SELECT id FROM orders")
+    assert client.sent == ["EXPLAIN SELECT id FROM orders"]
+    assert "Seq Scan on orders" in str(result)

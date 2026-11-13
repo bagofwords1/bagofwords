@@ -135,7 +135,7 @@ _SAFE_TABLE_FUNCTIONS = frozenset({
 # Functions that read a table named in a string, run SQL held in a string, or
 # reach outside the connection. Refused wherever they appear.
 _DENIED_FUNCTION = re.compile(
-    r"^(identifier|result_scan|table|infer_schema|get_ddl|"
+    r"^(identifier|result_scan|table|infer_schema|get_ddl|ts_stat|ts_rewrite|"
     r"query_to_xml.*|table_to_xml.*|schema_to_xml.*|database_to_xml.*|cursor_to_xml.*|"
     r"dblink.*|pg_read_.*|pg_ls_.*|lo_.*|"
     r"system\$.*|external_query|"

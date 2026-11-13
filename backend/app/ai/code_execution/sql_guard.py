@@ -21,7 +21,10 @@ Policy, per client:
     them); any reading refusing refuses, and the error names it.
     Postgres text is first read by its own lexer (`pg_lexer`), as the server
     reads it: one statement only, and the lexer's canonical text is what is
-    checked and what is sent.
+    checked and what is sent. On that text it also refuses the TABLE
+    shorthand and calls to a short list of functions (`DENIED_FUNCTIONS`)
+    that run SQL held in a string or change the session or the server, and
+    checks the statement an EXPLAIN explains like unparsed text.
   * **Splunk**: SPL is not SQL but can write; its writing commands are refused.
   * **Db2** (LUW, z/OS, IBM i): sqlglot has no Db2 dialect. One statement, a
     read verb (SELECT / WITH / VALUES) and no write keyword, generic or Db2's.
@@ -133,6 +136,32 @@ _LITERAL_TOKENS = frozenset({
 })
 _QUOTED_NAME = re.compile(r'"(?:[^"]|"")*"')
 _LEADING_WORD = re.compile(r"[\s(]*([A-Za-z_][" + _NAME_CHAR + r"]*)")
+
+# Functions a read must not call, per dialect, matched on the bare function
+# name (lowercased, without its schema or quotes): they run SQL held in a
+# string, reach another connection, or change the session or the server
+# beyond the read. Transaction-scoped advisory locks end with the read and
+# stay allowed.
+_PG_DENIED_FUNCTION = re.compile(
+    r"ts_stat|ts_rewrite|query_to_xml\w*|table_to_xml\w*|cursor_to_xml\w*|dblink\w*"
+    r"|pg_advisory_lock\w*|pg_try_advisory_lock\w*|pg_advisory_unlock\w*"
+    r"|set_config|setval|nextval|pg_notify|pg_cancel_backend|pg_terminate_backend|pg_reload_conf"
+)
+DENIED_FUNCTIONS: dict[str, re.Pattern] = {"postgres": _PG_DENIED_FUNCTION, "redshift": _PG_DENIED_FUNCTION}
+# A name in code text, quoted or not, or a number (so a name glued after a
+# number is read as its own name, as by `check_unparsed`).
+_CODE_NAME = re.compile(r'"(?P<quoted>(?:[^"]|"")*)"|' + _UNPARSED_WORD.pattern)
+_CALL_OPEN = re.compile(r"\s*\(")
+# EXPLAIN and its options, before the statement it explains: a parenthesised
+# option list (not a parenthesised statement), or the older ANALYZE / VERBOSE
+# words.
+_EXPLAIN_HEAD = re.compile(
+    r"\s*EXPLAIN(?![" + _NAME_CHAR + r"])\s*"
+    r"(?:\((?!\s*(?:\(|(?:SELECT|WITH|VALUES|TABLE)(?![" + _NAME_CHAR + r"])))[^()]*\)\s*"
+    r"|(?:ANALY[SZ]E(?![" + _NAME_CHAR + r"])\s*)?(?:VERBOSE(?![" + _NAME_CHAR + r"])\s*)?)",
+    re.IGNORECASE,
+)
+_EXPLAINED_VERBS = frozenset({"SELECT", "WITH", "VALUES"})
 
 # SPL commands an agent search must not run, by what they do:
 # - write to indexes, lookups, inputs or files on the search head: delete,
@@ -513,6 +542,7 @@ def check_sql(sql: str, dialect: str) -> None:
             for reading, code_only in _unparsed_readings(sql, dialect):
                 try:
                     check_unparsed(code_only, read_verbs=_UNPARSED_READ_VERBS | {"DESCRIBE", "DESC"})
+                    _check_denied_calls(code_only, dialect)
                 except ReadOnlyViolation as e:
                     raise ReadOnlyViolation(f"{e} (This is how the text reads {reading}.)") from e
 
@@ -529,9 +559,60 @@ def _check_postgres(sql: str) -> str:
         raise ReadOnlyViolation(
             f"Only a single read-only statement is allowed; got {lex.statements} statements."
         )
+    _check_postgres_code(lex.code_only)
     _check_parsed(lex.text, "postgres",
                   lambda: check_unparsed(lex.code_only, read_verbs=_UNPARSED_READ_VERBS))
     return lex.text
+
+
+def _check_postgres_code(code_only: str) -> None:
+    """The Postgres rules read on the lexer's code (literal bodies emptied),
+    parsed or not: no TABLE shorthand, no denied function, and the statement
+    an EXPLAIN explains is itself a read."""
+    words = _QUOTED_NAME.sub(" ", code_only)
+    for word in _UNPARSED_WORD.finditer(words):
+        if (word.group("name") or "").upper() == "TABLE":
+            raise ReadOnlyViolation(
+                "The TABLE shorthand is not allowed; write SELECT * FROM the table instead. "
+                "Only SELECT queries are allowed."
+            )
+    _check_denied_calls(code_only, "postgres")
+    leading = _LEADING_WORD.match(words)
+    if leading and leading.group(1).upper() == "EXPLAIN":
+        head = _EXPLAIN_HEAD.match(words)
+        if head is None:
+            raise ReadOnlyViolation("EXPLAIN must be followed by a SELECT statement.")
+        check_unparsed(words[head.end():], read_verbs=_EXPLAINED_VERBS)
+
+
+def _denied_function(name: str) -> ReadOnlyViolation:
+    return ReadOnlyViolation(
+        f"The function {name.upper()}() is not allowed in agent queries: it runs SQL held in a string, "
+        "reaches another connection, or changes the session or the server. Only SELECT queries are allowed."
+    )
+
+
+def _check_denied_calls(code: str, dialect: str) -> None:
+    """Refuse a call to a function denied for `dialect` in code text
+    (literal bodies emptied): any name, quoted or not and with or without a
+    schema before it, followed by '('."""
+    denied = DENIED_FUNCTIONS.get(dialect)
+    if denied is None:
+        return
+    for match in _CODE_NAME.finditer(code):
+        quoted = match.group("quoted")
+        name = quoted.replace('""', '"') if quoted is not None else match.group("name")
+        if name is not None and denied.fullmatch(name.lower()) and _CALL_OPEN.match(code, match.end()):
+            raise _denied_function(name)
+
+
+def _func_names(node) -> list[str]:
+    """The names a sqlglot function node may have been written as."""
+    from sqlglot import exp
+
+    if isinstance(node, exp.Anonymous):
+        return [str(node.name or "")]
+    return list(type(node).sql_names())
 
 
 def _check_parsed(sql: str, dialect: str, unparsed) -> None:
@@ -601,11 +682,16 @@ def _check_parsed(sql: str, dialect: str, unparsed) -> None:
 
     writes = (exp.Insert, exp.Update, exp.Delete, exp.Merge, exp.Create, exp.Drop,
               exp.Alter, exp.TruncateTable, exp.Command, exp.Into, exp.Copy)
+    denied = DENIED_FUNCTIONS.get(dialect)
     for node in stmt.walk():
         if isinstance(node, writes):
             raise ReadOnlyViolation(
                 f"Query contains a write operation ('{node.key.upper()}'). Only SELECT queries are allowed."
             )
+        if denied is not None and isinstance(node, exp.Func):
+            for name in _func_names(node):
+                if denied.fullmatch(name.strip('"').lower()):
+                    raise _denied_function(name)
 
 
 def _keyword_check(sql: str) -> None:

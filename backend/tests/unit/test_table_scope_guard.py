@@ -96,6 +96,19 @@ def test_quoted_names_and_indirect_reads_are_refused(sql, dialect):
         check_table_scope(sql, dialect, SCOPE)
 
 
+@pytest.mark.parametrize("dialect", ["postgres", "redshift"])
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM ts_stat('SELECT to_tsvector(code) FROM sales.payroll')",
+    "SELECT word FROM pg_catalog.ts_stat('SELECT v FROM sales.payroll') AS s",
+    "SELECT \"ts_stat\"('SELECT v FROM sales.payroll') FROM sales.orders",
+    "SELECT ts_rewrite(q, 'SELECT a, b FROM sales.payroll') FROM sales.orders",
+    "SELECT pg_catalog.\"ts_rewrite\"(q, 'SELECT a, b FROM sales.payroll') FROM sales.orders",
+])
+def test_functions_that_run_sql_held_in_a_string_are_refused(sql, dialect):
+    with pytest.raises(TableScopeViolation, match="TS_"):
+        check_table_scope(sql, dialect, SCOPE)
+
+
 @pytest.mark.parametrize("sql,dialect", [
     ("DESCRIBE TABLE sales.orders", "snowflake"),
     ("SELECT f.value FROM sales.orders o, LATERAL FLATTEN(input => o.items) f", "snowflake"),
