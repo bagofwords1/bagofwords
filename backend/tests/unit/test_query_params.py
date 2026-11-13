@@ -1400,10 +1400,8 @@ def test_an_odata_expand_in_a_loose_spelling_fails_the_identity_check(mode, odat
     assert not _bound(queries)
 
 
-# '.' and '..' path segments written percent-encoded reach the server as
-# dot segments, which it resolves: a key predicate before one is discarded.
-# The servers (IIS, HTTP.sys) also read a backslash, which the client sends
-# as %5C, as a path separator.
+# Dot segments written percent-encoded or with a backslash: a path the
+# server may read differently from the client.
 BACKSLASH = chr(92)
 ODATA_ENCODED_DOT_SEGMENTS = [
     "%2E%2E", "%2e%2e", ".%2E", "%2E.", "%2E",
@@ -1427,8 +1425,8 @@ def test_an_odata_path_with_an_encoded_dot_segment_is_refused_before_it_is_sent(
     assert _reads(queries) == []  # the call raised before sending anything
 
 
-# A backslash dot segment with no '/' around it: the server reads the
-# backslashes as separators and resolves the '..', dropping the key.
+# A backslash dot segment with no '/' around it: also a path the server may
+# read differently.
 ODATA_BACKSLASH_DOT_PATHS = [
     "{key}" + BACKSLASH + ".." + BACKSLASH + "{entity}",
     "{key}%5C..%5C{entity}",

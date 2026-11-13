@@ -1040,9 +1040,8 @@ def _odata_option_name(name: str) -> str:
 
 
 def _odata_dot_segment(path: str) -> bool:
-    """Whether the percent-decoded `path` has a '.' or '..' segment, which the
-    server resolves after decoding (the client resolves only literal ones).
-    A backslash separates segments too: the servers read it as '/'."""
+    """Whether the percent-decoded `path` has a '.' or '..' segment, split on
+    '/' and '\\': a path the server may read differently from the client."""
     from urllib.parse import unquote
 
     return any(segment in (".", "..") for segment in re.split(r"[/\\]", unquote(path)))
@@ -1324,8 +1323,10 @@ class QueryCapturingClientWrapper:
                             self._refund_query_quota(usage_event)
                         raise
                     finally:
-                        # A call that raised before sending anything returned
-                        # no rows: the identity check reads nothing of it.
+                        # Every path that returns rows must set identity_reads:
+                        # the identity check passes a call left at (), which is
+                        # right only because such a call always raised before
+                        # sending anything and returned no rows.
                         if odata and (returned or sent):
                             captured.identity_reads = self._sent_reads(sent)
                 _q_ms = (_time.monotonic() - _q_start) * 1000.0
@@ -1343,9 +1344,9 @@ class QueryCapturingClientWrapper:
                     "sql": capture[:500] if isinstance(capture, str) else None,
                 }
                 _attrs = getattr(result, "attrs", None)
-                sent = _attrs.get(SENT_REQUEST_ATTR) if isinstance(_attrs, dict) else None
-                if isinstance(sent, str) and sent.strip():
-                    timing["sent_request"] = sent[:SENT_REQUEST_MAX_CHARS]
+                sent_request = _attrs.get(SENT_REQUEST_ATTR) if isinstance(_attrs, dict) else None
+                if isinstance(sent_request, str) and sent_request.strip():
+                    timing["sent_request"] = sent_request[:SENT_REQUEST_MAX_CHARS]
                 note = query_notice(result)
                 if note:
                     timing["notice"] = note.strip()[:QUERY_NOTICE_MAX_CHARS]
@@ -1500,8 +1501,8 @@ class QueryCapturingClientWrapper:
         """Record the URL of every request the OData client sends, as it
         reaches the wire. A request whose URL holds a fragment mark (the
         client drops what follows it) or an encoded NUL, or whose decoded path
-        has a '.' or '..' segment (the server resolves it, dropping what came
-        before), is not sent: the server would apply less than the code wrote;
+        has a '.' or '..' segment (a path the server may read differently), is
+        not sent: the server could apply less than the code wrote;
         the refusal is added to `refused`. The connection's own OAuth token
         grant reads no rows and is not recorded."""
         from app.ai.code_execution.query_params import _ODATA_TEXT_END, ParamError

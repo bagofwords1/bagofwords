@@ -151,7 +151,7 @@ class _BudgetExceeded(Exception):
 
 def _dot_segment(path: str) -> bool:
     """Whether the percent-decoded `path` has a '.' or '..' segment, split on
-    '/' and on '\\', which IIS reads as '/'."""
+    '/' and on '\\': a path the server may read differently."""
     return any(seg in (".", "..") for seg in re.split(r"[/\\]", unquote(path)))
 
 
@@ -524,8 +524,7 @@ class MecmClient(DataSourceClient):
         if path.lower().startswith("adminservice/"):
             path = path.split("/", 1)[1]
         segments = [s for s in path.split("/") if s]
-        # Percent-decoded too: the server resolves an encoded dot segment,
-        # and reads a backslash as '/'.
+        # Percent-decoded too: a path the server may read differently.
         if not segments or _dot_segment(path):
             raise ValueError(f"Invalid class path '{path}'.")
         if segments[0].lower() not in (_WMI, _V1):
