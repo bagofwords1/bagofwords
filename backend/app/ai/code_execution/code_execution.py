@@ -1016,35 +1016,106 @@ def _sends_odata(client) -> bool:
 
 # The query options that can restrict which rows an OData server returns.
 _ODATA_ROW_OPTIONS = frozenset({"$filter", "$expand", "$apply"})
+# A key predicate in the path: Orders('x'), Entity(KEY='x').
+_ODATA_KEY_RE = re.compile(r"\([^)]*\)")
 
 
-def _odata_request_texts(path_url: str) -> List[str]:
+def _odata_option_name(name: str) -> str:
+    """An option name as a server may read it: percent-decoded, trimmed,
+    case folded, its '$' optional."""
+    from urllib.parse import unquote_plus
+
+    name = unquote_plus(name).strip().casefold()
+    return name if name.startswith("$") else "$" + name
+
+
+def _odata_row_root(client) -> Tuple[Optional[str], bool]:
+    """The decoded URL path `client`'s data requests are made under (its
+    configured service root), and whether a key predicate in the path below
+    it restricts rows. SAP Datasphere's parenthesised path segment holds the
+    model's input parameters, not a row filter. None for a client this does
+    not know: every request it sends reads as blank."""
+    from urllib.parse import unquote, urlsplit
+
+    from app.data_sources.clients.mecm_client import MecmClient
+    from app.data_sources.clients.priority_erp_client import PriorityErpClient
+    from app.data_sources.clients.sap_datasphere_client import SapDatasphereClient
+
+    if isinstance(client, PriorityErpClient):
+        return unquote(urlsplit(client.service_root).path).rstrip("/"), True
+    if isinstance(client, MecmClient):
+        return unquote(urlsplit(client.base_url).path).rstrip("/"), True
+    if isinstance(client, SapDatasphereClient):
+        return unquote(client.consumption_path).rstrip("/"), False
+    return None, False
+
+
+def _odata_request_texts(path_url: str, root: Optional[str], keys: bool) -> List[str]:
     """What the identity check reads of one OData request as it was sent
-    (`path_url`: path and query, no fragment): the path, then each option that
-    can restrict rows, split on '&' and '=' before percent-decoding, as the
-    server reads them. An option name only counts written as is, an option
-    given twice not at all (the server may apply either). '+' in a value may
-    read as a space or as itself, so when the two differ both texts are
-    returned and each must bind. '%' and '#' are written back as %25 and %23:
-    the captured text is OData options text, which the check reads as the
-    server percent-decodes it."""
+    (`path_url`: path and query, no fragment): only text that restricts rows.
+    That is each key predicate in the decoded path below `root` (when `keys`;
+    see _odata_row_root), then each option that can restrict rows, split on
+    '&' and '=' before percent-decoding, as the server reads them; never the
+    root, entity set or model names. A request outside `root` reads as blank.
+    Option names are read as a server may read them (_odata_option_name); when
+    a row option is given more than once, no row option counts (the server
+    may apply either). '+' in a value may read as a space or as itself, so
+    when the two differ both texts are returned and each must bind. '%' and
+    '#' are written back as %25 and %23: the captured text is OData text,
+    which the check reads as the server percent-decodes it."""
     from collections import Counter
     from urllib.parse import unquote, unquote_plus
 
     path, _, query = path_url.partition("?")
+    path = unquote(path)
+    if root is None or not (path == root or path.startswith(root + "/")):
+        return [""]
+    found = _ODATA_KEY_RE.finditer(path[len(root):]) if keys else ()
+    key_text = "".join("/" + key.group(0) for key in found)
     pairs = [pair.partition("=") for pair in query.split("&")] if query else []
-    given = Counter(name for name, _, _ in pairs)
-    kept = [(name, value) for name, _, value in pairs if name in _ODATA_ROW_OPTIONS and given[name] == 1]
+    named = [(_odata_option_name(name), value) for name, _, value in pairs]
+    rows = [(name, value) for name, value in named if name in _ODATA_ROW_OPTIONS]
+    kept = [] if any(n > 1 for n in Counter(name for name, _ in rows).values()) else rows
+
+    def escaped(text: str) -> str:
+        return text.replace("%", "%25").replace("#", "%23")
 
     def text(decode) -> str:
-        options = "&".join(name + "=" + decode(value).replace("%", "%25").replace("#", "%23")
-                           for name, value in kept)
-        return unquote(path).replace("%", "%25").replace("#", "%23") + ("?" + options if options else "")
+        options = "&".join(name + "=" + escaped(decode(value)) for name, value in kept)
+        return escaped(key_text) + ("?" + options if options else "")
 
     texts = [text(unquote)]
     if text(unquote_plus) != texts[0]:
         texts.append(text(unquote_plus))
     return texts
+
+
+def _odata_next_page(path_url: str, first: str) -> bool:
+    """Whether `path_url` only continues the call's first request `first`:
+    the same decoded path, and one option, a `$skiptoken`."""
+    from urllib.parse import unquote
+
+    path, _, query = path_url.partition("?")
+    return (unquote(path) == unquote(first.partition("?")[0])
+            and "&" not in query and query.startswith("$skiptoken="))
+
+
+def _same_endpoint(a: str, b: str) -> bool:
+    """Whether two URLs name the same endpoint: scheme and host compared
+    case-insensitively, the effective port, and the decoded path (an empty
+    path is '/'). The query is not compared."""
+    from urllib.parse import unquote, urlsplit
+
+    def endpoint(url: str):
+        parts = urlsplit(url)
+        scheme = parts.scheme.lower()
+        return (scheme, parts.hostname or "", parts.port or {"http": 80, "https": 443}.get(scheme),
+                unquote(parts.path) or "/")
+
+    try:
+        return endpoint(a) == endpoint(b)
+    except ValueError:  # a port that is not a number
+        return False
 
 
 class QueryCapturingClientWrapper:
@@ -1185,9 +1256,11 @@ class QueryCapturingClientWrapper:
                     wait_seconds=self._query_timeout_seconds,
                     connection_name=getattr(self._original, "_bow_connection_name", None),
                 ):
+                    returned = False
                     try:
                         result = self._call_with_timeout(
                             checked, args, kwargs, self._odata_send_observer(sent) if odata else None)
+                        returned = True
                     except (UnsafeSQLError, TableAccessError):
                         # Refused by the client's own check before the query
                         # ran (Splunk SPL stored in a dashboard or saved search
@@ -1197,7 +1270,9 @@ class QueryCapturingClientWrapper:
                         self._refund_query_quota(usage_event)
                         raise
                     finally:
-                        if odata:
+                        # A call that raised before sending anything returned
+                        # no rows: it leaves no capture.
+                        if odata and (returned or sent):
                             self._capture_sent(sent)
                 _q_ms = (_time.monotonic() - _q_start) * 1000.0
                 rows = len(result) if hasattr(result, '__len__') else None
@@ -1326,22 +1401,31 @@ class QueryCapturingClientWrapper:
         return statement
 
     def _capture(self, capture) -> None:
-        if isinstance(capture, dict):
-            return
         # Tagged with the client family so the identity-bind check can parse
-        # it in the right grammar (SQL dialect / SPL); still a str. A call
-        # whose statement is not text is recorded blank: the client may
-        # still read a request from it, and the identity check refuses a
-        # blank capture.
+        # it in the right grammar (SQL dialect / SPL); still a str. A dict
+        # statement is recorded as its JSON text, as for the structured
+        # clients. Any other statement that is not text is recorded blank
+        # (so is a dict JSON cannot hold): the client may still read a
+        # request from it, and the identity check refuses a blank capture.
         from app.ai.code_execution.identity_bind import CapturedQuery
         text = capture if isinstance(capture, str) else ""
+        if isinstance(capture, dict):
+            try:
+                text = json.dumps(capture, sort_keys=True, default=str, ensure_ascii=False)
+            except (TypeError, ValueError, RecursionError):
+                text = ""
         self._captured_queries.append(CapturedQuery(text, family_name(self._original)))
 
     def _capture_sent(self, sent: List[str]) -> None:
         """Capture each request an OData client sent (see _odata_request_texts),
-        or one blank capture when it sent none."""
+        or one blank capture when it sent none. A next page that only
+        continues the call's first request is read through that request
+        (_odata_next_page)."""
         from app.ai.code_execution.identity_bind import CapturedQuery
-        texts = [text for path in list(sent) for text in _odata_request_texts(path)]
+        root, keys = _odata_row_root(self._original)
+        paths = list(sent)
+        texts = [text for i, path in enumerate(paths) if not (i and _odata_next_page(path, paths[0]))
+                 for text in _odata_request_texts(path, root, keys)]
         for text in texts or [""]:
             self._captured_queries.append(CapturedQuery(text, family_name(self._original)))
 
@@ -1357,7 +1441,7 @@ class QueryCapturingClientWrapper:
 
         def observe(request) -> None:
             if (request.method == "POST" and isinstance(token_url, str)
-                    and request.url.split("?", 1)[0] == token_url.split("?", 1)[0]):
+                    and _same_endpoint(request.url or "", token_url)):
                 return
             if _ODATA_TEXT_END.search(request.url or ""):
                 raise ParamError(

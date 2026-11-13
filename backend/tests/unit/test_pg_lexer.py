@@ -333,6 +333,26 @@ def test_a_name_or_tag_the_sqlglot_tokenizer_fails_on_is_refused_as_not_checked(
     assert len(logged) == 1 and "RuntimeError" in logged[0] and "detail" not in logged[0]
 
 
+def test_a_token_error_from_the_sqlglot_tokenizer_is_logged_at_debug_only(monkeypatch, caplog):
+    import logging
+
+    from sqlglot.errors import TokenError
+    from sqlglot.tokens import Tokenizer
+
+    def fail(self, text):
+        raise TokenError("detail that must stay out of the log")
+
+    monkeypatch.setattr(Tokenizer, "tokenize", fail)
+    logger = logging.getLogger("app.ai.code_execution.pg_lexer")
+    monkeypatch.setattr(logger, "disabled", False)
+    with caplog.at_level(logging.DEBUG, logger=logger.name):
+        with pytest.raises(ReadOnlyViolation):
+            lex_postgres("SELECT 1 AS a" + E_ACUTE + "b")
+    records = [r for r in caplog.records if r.name == logger.name]
+    assert records and all(r.levelno == logging.DEBUG for r in records)
+    assert all("TokenError" in r.getMessage() and "detail" not in r.getMessage() for r in records)
+
+
 # Postgres 15 reads '$' inside an unquoted ASCII name as a name character
 # (probed on the server); sqlglot's tokenizer reads each such name as one
 # name too, so no dollar string or parameter hides behind one.

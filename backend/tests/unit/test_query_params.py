@@ -1044,7 +1044,7 @@ def test_an_odata_table_name_holding_a_fragment_mark_is_refused_before_it_is_sen
     # Configuration Manager and SAP Datasphere refuse the name itself first.
     assert error is not None and ("'#'" in str(error) or family != "PriorityErpClient")
     assert odata_http == []
-    assert verify_identity_binds_in_queries(queries, {"me": "alice"}, IDENTITY_ME) is not None
+    assert queries == []  # the call raised before sending anything
 
 
 def test_a_caught_odata_fragment_refusal_is_recorded_as_a_fixable_error(mode, odata_http):
@@ -1060,8 +1060,8 @@ def test_a_caught_odata_fragment_refusal_is_recorded_as_a_fixable_error(mode, od
     refused = timings[0]
     assert "'#'" in refused["error"] and refused["sql"] == "$select=Name#x"
     assert "refusal" not in refused  # a fixable error, not a security refusal
-    # The refused call sent nothing, so it is captured blank.
-    assert [str(q) for q in queries] == ["", DSP_DATA_PATH + "?$filter=OWNER eq 'alice'"]
+    # The refused call raised before sending anything: it leaves no capture.
+    assert [str(q) for q in queries] == ["?$filter=OWNER eq 'alice'"]
 
 
 # What the identity check reads for these clients is each request as it
@@ -1107,7 +1107,7 @@ def test_a_datasphere_model_name_passed_as_the_statement_is_checked_on_the_reque
     client = _odata_client("SapDatasphereClient")
     queries, _, error = _run_capturing(client, f"return ds_clients['c'].execute_query('S/M', filter={FILTER_ME!r})")
     assert error is None and len(odata_http) == 1
-    assert [str(q) for q in queries] == [DSP_DATA_PATH + "?$filter=" + FILTER_ME]
+    assert [str(q) for q in queries] == ["?$filter=" + FILTER_ME]
     assert _bound(queries)
     del odata_http[:]
     queries, _, error = _run_capturing(client, "return ds_clients['c'].execute_query('S/M')")
@@ -1121,12 +1121,13 @@ def test_a_datasphere_parameter_value_that_cuts_the_request_fails_the_identity_c
     body = "return ds_clients['c'].execute_query(None, 'S/M', parameters={{'P': {v!r}}}, filter=" + repr(FILTER_ME) + ")"
     queries, _, error = _run_capturing(client, body.format(v="x" + mark + "y"))
     if mark == "#":
-        assert error is not None and "'#'" in str(error) and odata_http == []  # not sent
+        # Not sent: the call raised, so it returned no rows and leaves no capture.
+        assert error is not None and "'#'" in str(error) and odata_http == [] and queries == []
     else:
         # Sent: the '?' ends the path, and the filter becomes part of an
         # option name the server does not read as a filter.
         assert error is None and len(odata_http) == 1
-    assert not _bound(queries)
+        assert not _bound(queries)
     del odata_http[:]
     queries, _, error = _run_capturing(client, body.format(v="xy"))
     assert error is None and len(odata_http) == 1 and "alice" in odata_http[0]
@@ -1165,7 +1166,7 @@ def test_an_odata_plus_sign_must_bind_both_ways_the_server_may_read_it(mode, oda
 def test_every_odata_request_a_call_sends_must_bind_the_identity(mode, odata_http):
     client = _odata_client("SapDatasphereClient")
     body = f"return ds_clients['c'].execute_query(None, 'S/M', filter={FILTER_ME!r})"
-    odata_http.next_link = "https://dsp.example.com" + DSP_DATA_PATH + "?$skiptoken=2"
+    odata_http.next_link = "https://dsp.example.com" + DSP_DATA_PATH + "?$filter=OWNER%20eq%20'bob'&$skiptoken=2"
     queries, _, error = _run_capturing(client, body)
     assert error is None and len(odata_http) == 2 and "alice" not in odata_http[1]
     assert not _bound(queries)
@@ -1174,6 +1175,202 @@ def test_every_odata_request_a_call_sends_must_bind_the_identity(mode, odata_htt
     queries, _, error = _run_capturing(client, body)
     assert error is None and len(odata_http) == 2
     assert _bound(queries)
+
+
+DSP_HOST = "https://dsp.example.com"
+
+
+@pytest.mark.parametrize("filtered", [True, False])
+def test_a_datasphere_next_page_carrying_only_its_skiptoken_is_read_through_the_first_page(mode, odata_http, filtered):
+    # The server's next link keeps the first request's path and holds only
+    # $skiptoken: what the first request asked for is what the next page reads.
+    body = "return ds_clients['c'].execute_query(None, 'S/M'" + (f", filter={FILTER_ME!r})" if filtered else ")")
+    odata_http.next_link = DSP_HOST + DSP_DATA_PATH + "?$skiptoken=2"
+    queries, _, error = _run_capturing(_odata_client("SapDatasphereClient"), body)
+    assert error is None and len(odata_http) == 2
+    assert _bound(queries) is filtered
+
+
+@pytest.mark.parametrize("next_link", [
+    DSP_DATA_PATH + "X?$skiptoken=2",  # another path
+    DSP_DATA_PATH + "?$skiptoken=2&$top=5",  # another option
+    DSP_DATA_PATH + "?$skiptoken=2&$skiptoken=3",
+    DSP_DATA_PATH + "?$skiptoken=2&$filter=OWNER%20eq%20'bob'",
+    "/elsewhere/S/M/M?$filter=OWNER%20eq%20'alice'",  # outside the consumption root
+])
+def test_a_datasphere_next_page_that_is_not_only_a_skiptoken_is_checked(mode, odata_http, next_link):
+    odata_http.next_link = DSP_HOST + next_link
+    body = f"return ds_clients['c'].execute_query(None, 'S/M', filter={FILTER_ME!r})"
+    queries, _, error = _run_capturing(_odata_client("SapDatasphereClient"), body)
+    assert error is None and len(odata_http) == 2
+    assert not _bound(queries)
+
+
+# What the identity check reads of an OData request is only text that
+# restricts rows: the row options and a key predicate in the path, never the
+# configured service root, the entity set, the space or the model.
+ODATA_ROOT_VALUES = [
+    ("PriorityErpClient", "odata"), ("PriorityErpClient", "Priority"), ("PriorityErpClient", "t.ini"),
+    ("PriorityErpClient", "c"), ("PriorityErpClient", "CUSTOMERS"),
+    ("MecmClient", "AdminService"), ("MecmClient", "Admin"), ("MecmClient", "wmi"), ("MecmClient", "SMS_R_System"),
+    ("SapDatasphereClient", "1"), ("SapDatasphereClient", "consumption"), ("SapDatasphereClient", "analytical"),
+    ("SapDatasphereClient", "S"), ("SapDatasphereClient", "M"),
+]
+
+
+def _bound_to(queries, value) -> bool:
+    return verify_identity_binds_in_queries(queries, {"me": value}, IDENTITY_ME) is None
+
+
+@pytest.mark.parametrize("family, value", ODATA_ROOT_VALUES)
+def test_an_identity_value_found_only_in_the_odata_request_root_is_not_a_bind(mode, odata_http, family, value):
+    call = "return ds_clients['c']." + ODATA_CALL_WITH_OPTIONS[family]
+    queries, _, error = _run_capturing(_odata_client(family), call.format(options="$filter=N gt 0"))
+    assert error is None and len(odata_http) == 1 and value in odata_http[0]
+    assert not _bound_to(queries, value)
+    del odata_http[:]
+    queries, _, error = _run_capturing(_odata_client(family), call.format(options=f"$filter=OWNER eq '{value}'"))
+    assert error is None and len(odata_http) == 1
+    assert _bound_to(queries, value)
+
+
+@pytest.mark.parametrize("family, target, binds", [
+    ("PriorityErpClient", "CUSTOMERS('alice')", True),
+    ("PriorityErpClient", "CUSTOMERS(CUSTNAME='alice')/ORDERS_SUBFORM", True),
+    ("PriorityErpClient", "CUSTOMERS('x')/alice_SUBFORM", False),
+    ("PriorityErpClient", "CUSTOMERS(SELECT 1)", False),
+    ("MecmClient", "SMS_R_System('alice')", True),
+    ("MecmClient", "SMS_R_System('x')", False),
+])
+def test_an_odata_key_predicate_in_the_path_is_read_as_a_row_filter(mode, odata_http, family, target, binds):
+    queries, _, error = _run_capturing(_odata_client(family), f"return ds_clients['c'].execute_query({target!r})")
+    assert error is None and len(odata_http) == 1
+    assert _bound(queries) is binds
+
+
+def test_a_datasphere_input_parameter_is_not_a_row_filter(mode, odata_http):
+    client = _odata_client("SapDatasphereClient")
+    queries, _, error = _run_capturing(client, "return ds_clients['c'].execute_query(None, 'S/M', parameters={'P': 'alice'})")
+    assert error is None and len(odata_http) == 1 and "alice" in odata_http[0]
+    assert not _bound(queries)
+
+
+# A row option spelled another way the server may read as that option.
+ODATA_FILTER_SPELLINGS = ["%24filter", "$FILTER", "filter", "$filter%20", "%20$Filter"]
+
+
+@pytest.mark.parametrize("spelling", ODATA_FILTER_SPELLINGS)
+@pytest.mark.parametrize("family", ODATA_FAMILIES)
+def test_an_odata_row_option_given_twice_in_any_spelling_fails_the_identity_check(mode, odata_http, family, spelling):
+    call = "return ds_clients['c']." + ODATA_CALL_WITH_OPTIONS[family]
+    options = f"$filter=OWNER eq 'alice'&{spelling}=N gt 0"
+    queries, _, error = _run_capturing(_odata_client(family), call.format(options=options))
+    assert error is None and len(odata_http) == 1
+    assert not _bound(queries)
+    del odata_http[:]
+    queries, _, error = _run_capturing(_odata_client(family), call.format(options=f"{spelling}=OWNER eq 'alice'"))
+    assert error is None and len(odata_http) == 1
+    assert _bound(queries)
+
+
+def _priority_answering_without_a_request():
+    from app.data_sources.clients.priority_erp_client import PriorityErpClient
+
+    class Answering(PriorityErpClient):
+        def execute_query(self, query=None, table_name=None, max_rows=None):
+            return pd.DataFrame([{"OWNER": "bob"}])
+
+    return Answering(service_root="https://erp.example.com/odata/Priority/t.ini/c", pat="token")
+
+
+def test_an_odata_call_that_raised_before_sending_leaves_no_capture(mode, odata_http):
+    body = (
+        "try:\n"
+        "    ds_clients['c'].execute_query('$top=1', 'Other/Model')\n"
+        "except Exception:\n"
+        "    pass\n"
+        f"return ds_clients['c'].execute_query(None, 'S/M', filter={FILTER_ME!r})"
+    )
+    queries, timings, error = _run_capturing(_odata_client("SapDatasphereClient"), body)
+    assert error is None and len(odata_http) == 1
+    assert timings[0]["error"]  # the failed call is still recorded
+    assert [str(q) for q in queries] == ["?$filter=" + FILTER_ME]
+    assert _bound(queries)
+
+
+def test_an_odata_call_that_returned_rows_without_sending_fails_the_identity_check(mode, odata_http):
+    queries, _, error = _run_capturing(_priority_answering_without_a_request(),
+                                       f"return ds_clients['c'].execute_query({'CUSTOMERS?$filter=' + FILTER_ME!r})")
+    assert error is None and odata_http == []
+    assert [str(q) for q in queries] == [""]
+    assert not _bound(queries)
+
+
+@pytest.mark.parametrize("token_url", [
+    "https://AUTH.Example.COM/oauth/token",
+    "HTTPS://auth.example.com:443/oauth/token",
+    "https://auth.example.com",
+])
+def test_a_datasphere_token_grant_is_recognised_however_its_url_is_written(mode, odata_http, token_url):
+    from app.data_sources.clients.sap_datasphere_client import SapDatasphereClient
+
+    client = SapDatasphereClient(host="dsp.example.com", token_url=token_url, client_id="id", client_secret="pw")
+    client.attach_table_metadata([{"name": "S/M", "metadata_json": {"sap_datasphere": {
+        "data_url": DSP_HOST + DSP_DATA_PATH}}}])
+    queries, _, error = _run_capturing(client, f"return ds_clients['c'].execute_query(None, 'S/M', filter={FILTER_ME!r})")
+    assert error is None and len(odata_http) == 2
+    assert _bound(queries)
+
+
+@pytest.fixture
+def servicenow_http(monkeypatch):
+    """The transport under the ServiceNow client's session: records each
+    request's URL and answers with one record."""
+    import json
+    import requests
+    from requests.adapters import HTTPAdapter
+
+    sent = []
+
+    def send(adapter, request, **kwargs):
+        sent.append(request.url)
+        response = requests.Response()
+        response.status_code = 200
+        response._content = json.dumps({"result": [{"number": "INC1", "caller_id": "bob"}]}).encode()
+        response.headers["Content-Type"] = "application/json"
+        response.url = request.url
+        response.request = request
+        return response
+
+    monkeypatch.setattr(HTTPAdapter, "send", send)
+    return sent
+
+
+# A dict statement to an unguarded client is captured as its JSON text.
+@pytest.mark.parametrize("spec, binds", [
+    ({"table": "incident"}, False),
+    ({"table": "incident", "query": "caller_id=alice"}, True),
+])
+def test_a_servicenow_dict_statement_is_what_the_identity_check_reads(mode, servicenow_http, spec, binds):
+    from app.data_sources.clients.servicenow_client import ServiceNowClient
+
+    client = ServiceNowClient(instance_url="https://sn.example.com", access_token="tok")
+    queries, _, error = _run_capturing(client, f"return ds_clients['c'].execute_query({spec!r})")
+    assert error is None and len(servicenow_http) == 1
+    assert ("alice" in servicenow_http[0]) is binds
+    assert len(queries) == 1 and _bound(queries) is binds
+
+
+@pytest.mark.parametrize("spec, binds", [
+    ({"list": "2017_Expense_Data"}, False),
+    ({"list": "2017_Expense_Data", "filter": "Title eq 'alice'"}, True),
+])
+def test_a_sharepoint_list_dict_statement_is_what_the_identity_check_reads(mode, spec, binds):
+    items = []
+    queries, _, error = _run_capturing(_sharepoint_list_client(items), f"return ds_clients['c'].execute_query({spec!r})")
+    assert error is None and len(items) == 1
+    assert ("alice" in items[0]) is binds
+    assert len(queries) == 1 and _bound(queries) is binds
 
 
 def test_a_datasphere_token_grant_is_not_read_as_a_query(mode, odata_http):
@@ -1256,6 +1453,13 @@ def test_every_executed_call_to_an_unguarded_client_adds_exactly_one_captured_qu
     for statement in statements:
         wrapper.execute_query(statement)
     assert [str(q) for q in queries] == ["SELECT 1"] + [""] * (len(statements) - 1)
+    # A dict statement is captured as its JSON text, keys sorted, characters
+    # as written; one JSON cannot hold is captured blank.
+    del queries[:]
+    accented = "caf" + chr(0xE9)
+    for statement in [{"table": "t", "query": "a=1"}, {"q": accented}, {1: "a", "b": 2}]:
+        wrapper.execute_query(statement)
+    assert [str(q) for q in queries] == ['{"query": "a=1", "table": "t"}', '{"q": "' + accented + '"}', ""]
 
 
 @pytest.mark.parametrize("blank", ["", "   "])

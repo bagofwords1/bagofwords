@@ -125,9 +125,12 @@ class _SqlglotReading:
             return self._tokenizer.tokenize(text)
         except Exception as exc:
             # The type only: the text is the query's.
-            logger.warning("pg_lexer.sqlglot_tokenizer_failed error=%s", type(exc).__name__)
             if isinstance(exc, TokenError):
-                return None  # sqlglot reads no token there (a name holding a space): read differently
+                # The expected path: sqlglot reads no token there (a name
+                # holding a space), so the name reads differently.
+                logger.debug("pg_lexer.sqlglot_tokenizer_failed error=%s", type(exc).__name__)
+                return None
+            logger.warning("pg_lexer.sqlglot_tokenizer_failed error=%s", type(exc).__name__)
             raise ReadOnlyViolation(
                 "The query could not be checked: the query checks could not read one of its names "
                 "or dollar-quote tags. Quote the name, or use an ASCII name or tag."
