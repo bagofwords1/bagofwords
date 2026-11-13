@@ -100,6 +100,20 @@ _POSTGRES = [
     "SELECT id, updated_at, E'it" + BS + "'s' AS lit /* note */ FROM items",
     "SELECT COUNT(*) FROM (SELECT * FROM orders WHERE seq >= 200) bow_count",
     "/*+ SeqScan(orders) */ SELECT COUNT(*) FROM orders",
+    # Common report shapes.
+    "SELECT region, status, SUM(amount) FROM orders GROUP BY GROUPING SETS ((region), (status), ())",
+    "SELECT region, status, COUNT(*) FROM orders GROUP BY ROLLUP (region, status)",
+    "WITH totals AS (SELECT customer_id, SUM(amount) AS total FROM orders GROUP BY customer_id) "
+    "SELECT a.customer_id, a.total FROM totals a JOIN totals b ON b.total > a.total",
+    "SELECT c.id, x.last_order FROM customers c LEFT JOIN LATERAL "
+    "(SELECT MAX(created_at) AS last_order FROM orders o WHERE o.customer_id = c.id) x ON true",
+    "SELECT * FROM events WHERE data ? 'kind'",
+    "SELECT * FROM events WHERE data ?| array['kind', 'name']",
+    "SELECT data #>> '{tags,0}' AS first_tag FROM events",
+    "SELECT id, SUM(amount) OVER w AS running, AVG(amount) OVER w AS average FROM orders "
+    "WINDOW w AS (PARTITION BY customer_id ORDER BY created_at)",
+    "SELECT id FROM customers EXCEPT SELECT customer_id FROM orders",
+    "SELECT created_at AT TIME ZONE 'UTC' AS created_utc FROM orders",
 ]
 
 _OTHER_DIALECTS = {
@@ -126,6 +140,21 @@ _OTHER_DIALECTS = {
         "SELECT * FROM dbo.users WHERE login = 'DOMAIN" + BS + "user'",
         "WITH t AS (SELECT * FROM dbo.orders) SELECT COUNT(*) FROM t",
         "SELECT * FROM dbo.orders ORDER BY id OFFSET 10 ROWS FETCH NEXT 10 ROWS ONLY",
+        "SELECT id, amount FROM dbo.orders WITH (NOLOCK) WHERE status = 'open'",
+        "SELECT c.id, x.total FROM dbo.customers c CROSS APPLY "
+        "(SELECT SUM(amount) AS total FROM dbo.orders o WHERE o.customer_id = c.id) x",
+        "SELECT CONVERT(varchar(10), created_at, 120) AS d, COUNT(*) FROM dbo.orders "
+        "GROUP BY CONVERT(varchar(10), created_at, 120)",
+        "SELECT IIF(amount > 100, 'big', 'small') AS size FROM dbo.orders",
+    ],
+    "fabric": [
+        "SELECT TOP 10 id, amount FROM dbo.orders ORDER BY amount DESC",
+        "SELECT * FROM dbo.orders WITH (NOLOCK) WHERE status = 'open'",
+        "SELECT c.id, x.total FROM dbo.customers c CROSS APPLY "
+        "(SELECT SUM(amount) AS total FROM dbo.orders o WHERE o.customer_id = c.id) x",
+        "SELECT CONVERT(varchar(7), created_at, 120) AS ym, COUNT(*) FROM dbo.orders "
+        "GROUP BY CONVERT(varchar(7), created_at, 120)",
+        "SELECT * FROM dbo.orders WHERE created_at >= DATEADD(day, -7, GETDATE())",
     ],
     "oracle": [
         "SELECT * FROM orders FETCH FIRST 10 ROWS ONLY",
@@ -165,6 +194,31 @@ _OTHER_DIALECTS = {
         "SELECT date_trunc('month', created_at) AS m, COUNT(*) FROM orders GROUP BY 1",
         "SELECT * FROM orders WHERE created_at >= current_date - interval '7' day",
         "SELECT approx_percentile(amount, 0.5) FROM orders",
+    ],
+    "presto": [
+        "SELECT o.id, t.tag FROM orders o CROSS JOIN UNNEST(o.tags) AS t(tag)",
+        "SELECT json_extract_scalar(payload, '$.kind') AS kind, COUNT(*) FROM events GROUP BY 1",
+        "SELECT date_trunc('day', created_at) AS d, COUNT(*) FROM orders GROUP BY 1",
+        "SELECT approx_distinct(customer_id) FROM orders WHERE created_at >= current_date - interval '7' day",
+    ],
+    "spark": [
+        "SELECT id, tag FROM orders LATERAL VIEW explode(tags) t AS tag",
+        "SELECT explode(tags) AS tag FROM orders",
+        "SELECT date_format(created_at, 'yyyy-MM') AS ym, COUNT(*) FROM orders GROUP BY 1",
+        "SELECT `id`, `amount` FROM orders WHERE created_at >= date_sub(current_date(), 7)",
+    ],
+    "teradata": [
+        "SELECT TOP 10 id, amount FROM orders ORDER BY amount DESC",
+        "SELECT * FROM orders SAMPLE 100",
+        "SEL id, amount FROM orders WHERE status = 'open'",
+        "SELECT * FROM orders QUALIFY ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY created_at DESC) = 1",
+        "LOCKING ROW FOR ACCESS SELECT id FROM orders",
+    ],
+    "druid": [
+        "SELECT TIME_FLOOR(__time, 'P1D') AS d, COUNT(*) FROM events GROUP BY 1",
+        "SELECT * FROM events WHERE __time >= CURRENT_TIMESTAMP - INTERVAL '7' DAY",
+        "SELECT kind, SUM(amount) FROM events GROUP BY kind ORDER BY 2 DESC LIMIT 10",
+        "SELECT APPROX_COUNT_DISTINCT(customer_id) FROM orders",
     ],
     "clickhouse": [
         "SELECT toStartOfMonth(created_at) AS m, count() FROM orders GROUP BY m",

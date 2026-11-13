@@ -271,6 +271,26 @@ def test_a_schema_setting_the_server_cannot_apply_fails_with_an_error_naming_it(
     assert all(schema not in r.getMessage() for r in warnings), "the log holds no schema value"
 
 
+def test_a_schema_setting_failure_whose_rollback_fails_too_still_names_the_setting(server, caplog):
+    import sqlalchemy
+
+    logging.getLogger(CLIENT_LOGGER).disabled = False
+    caplog.set_level(logging.WARNING, logger=CLIENT_LOGGER)
+    schema = "needs-quoting"
+    client = PostgresqlClient(host=server["host"], port=server["port"], database=server["dbname"],
+                              user=server["user"], password=server["password"], schema=schema)
+
+    def rollback_fails(self):
+        raise ConnectionError("server closed the connection unexpectedly")
+
+    with patch.object(sqlalchemy.engine.Connection, "rollback", rollback_fails), \
+            pytest.raises(RuntimeError, match="schema setting"), client.connect(read_only=True) as conn:
+        conn.exec_driver_sql("SELECT 1").scalar()
+    warnings = _client_warnings(caplog)
+    assert any("rollback" in r.getMessage() for r in warnings), "the failed rollback is logged"
+    assert all(schema not in r.getMessage() for r in warnings), "the log holds no schema value"
+
+
 def test_a_read_whose_rollback_fails_is_logged_and_its_session_is_not_reused(server, caplog):
     logging.getLogger(CLIENT_LOGGER).disabled = False
     caplog.set_level(logging.WARNING, logger=CLIENT_LOGGER)

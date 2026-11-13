@@ -1317,8 +1317,9 @@ class CustomQueryService:
         try:
             est = extractor.estimate(run.client, run.sql)
             extractor.check_budget(est)
-            # What was attempted, until the send succeeds; then what was sent.
-            run.rendered_query = run.sql
+            # Only text that passed the checks is recorded: the text the
+            # extraction sends (the guard returns the same text every time).
+            _src, run.rendered_query = extractor.checked_source(run.client, run.sql)
             result = extractor.extract_to_artifact(
                 run.client, run.sql, run.name, run.connection_id,
                 should_abort=run.abort.is_set, run_id=run.run_id, config=run.config,
@@ -1467,11 +1468,11 @@ class CustomQueryService:
         run.window_from = window.lo
         try:
             rendered = self._render(run, window)
-            run.rendered_query = rendered
             est = extractor.estimate(run.client, rendered)
             extractor.check_budget(est)
             src, checked = self._checked_source(run, rendered)
-            # Before the send, so a failed increment records the text it sent.
+            # Once checked and before the send, so a failed increment records
+            # the text it sent and a refused one records nothing.
             run.rendered_query = checked
             return loader.apply_increment(
                 src, checked, run.previous_path, run.previous_key,

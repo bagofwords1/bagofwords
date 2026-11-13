@@ -189,14 +189,78 @@ async def test_a_failed_increment_records_the_checked_text_it_was_sending(lab, s
     server["admin"].cursor().execute(
         "INSERT INTO items SELECT g, now() AT TIME ZONE 'UTC' FROM generate_series(46, 48) g")
 
-    def source_went_away(self, sql, batch_rows):
-        raise ConnectionError("source went away")
-
-    with patch.object(SqlAlchemySource, "stream_batches", source_went_away), pytest.raises(HTTPException):
+    sent: list = []
+    with patch.object(SqlAlchemySource, "stream_batches", _failing_send(sent)), pytest.raises(HTTPException):
         await lab.refresh()
     run = await lab.last_run()
     assert (run["mode"], run["status"]) == ("incremental", "failed")
     _assert_checked([run["rendered_query"]])
+    assert sent == [run["rendered_query"]]
+
+
+def _failing_send(sent: list):
+    """The source's send, failing once it has the text it was given."""
+    def source_went_away(self, sql, batch_rows):
+        sent.append(sql)
+        raise ConnectionError("source went away")
+    return source_went_away
+
+
+async def test_a_full_refresh_that_fails_in_the_send_records_the_checked_text(lab, server):
+    from fastapi import HTTPException
+
+    from app.data_sources.fast.sources import SqlAlchemySource
+
+    await lab.table(DEFINITION, incremental.MODE_FULL)
+    sent: list = []
+    with patch.object(SqlAlchemySource, "stream_batches", _failing_send(sent)), pytest.raises(HTTPException):
+        await lab.refresh()
+    run = await lab.last_run()
+    assert run["status"] == "failed"
+    assert sent == [CHECKED_DEFINITION]
+    assert run["rendered_query"] == CHECKED_DEFINITION, "the text the source was given, never the definition"
+
+
+# A definition with a comment that the guard refuses (it calls a function
+# that reads a server file).
+REFUSED_DEFINITION = "SELECT id, updated_at, pg_read_file('x') AS lit /* note */ FROM items"
+
+
+async def test_a_refused_full_refresh_records_no_query_sent(lab, server):
+    from fastapi import HTTPException
+
+    await lab.table(REFUSED_DEFINITION, incremental.MODE_FULL)
+    before = len(_received(server))
+    with pytest.raises(HTTPException):
+        await lab.refresh()
+    run = await lab.last_run()
+    assert run["status"] == "failed"
+    assert run["rendered_query"] is None
+    assert not any("pg_read_file" in s for s in _received(server)[before:])
+
+
+async def test_a_refused_increment_records_no_query_sent(lab, server):
+    from fastapi import HTTPException
+
+    from app.models.connection_table import ConnectionTable as Row
+
+    await lab.table(DEFINITION, incremental.MODE_MERGE, cursor_column="updated_at", unique_key=["id"])
+    await lab.refresh()
+    # The definition as stored before the guard refused it: the table keeps
+    # its checkpoint, so the next refresh is an increment.
+    async with async_session_maker() as db:
+        row = await db.get(Row, lab.table_id)
+        row.definition_sql = REFUSED_DEFINITION
+        row.refresh_state = {**row.refresh_state, "definition_hash": incremental.definition_hash(
+            REFUSED_DEFINITION, CustomQueryService.target_of(row), incremental.RefreshConfig.from_row(row))}
+        await db.commit()
+    before = len(_received(server))
+    with pytest.raises(HTTPException):
+        await lab.refresh()
+    run = await lab.last_run()
+    assert (run["mode"], run["status"]) == ("incremental", "failed")
+    assert run["rendered_query"] is None
+    assert not any("pg_read_file" in s for s in _received(server)[before:])
 
 
 async def test_a_full_refresh_sends_and_records_the_checked_text(lab, server):

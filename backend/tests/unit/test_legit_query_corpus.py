@@ -20,51 +20,54 @@ import importlib
 
 import pytest
 
-from app.ai.code_execution.client_profiles import family_name
+from app.ai.code_execution.client_profiles import _CLIENT_TABLE, family_name
 from app.ai.code_execution.identity_bind import CapturedQuery
 from app.ai.code_execution.query_params import render_sql_with_params, renderer_for, verify_identity_binds_in_queries
-from app.ai.code_execution.sql_guard import ensure_read_only
-from app.ai.code_execution.table_scope import TableScope, check_table_scope
+from app.ai.code_execution.sql_guard import ReadOnlyViolation, ensure_read_only
+from app.ai.code_execution.table_scope import TableScope, TableScopeViolation, check_table_scope, dialect_for_client
 from app.schemas.param_schema import ParamSpec
 from tests.unit.sql_corpus.legit_queries import CORPUS_TABLES, IDENTITY_QUERIES, KNOWN_OVER_REFUSALS, LEGIT_QUERIES
 
 BS = chr(92)
 
-# The connector each dialect's queries are sent to.
-CLIENTS = {
-    "postgres": ("postgresql_client", "PostgresqlClient"),
-    "redshift": ("aws_redshift_client", "AwsRedshiftClient"),
-    "mysql": ("mysql_client", "MysqlClient"),
-    "tsql": ("mssql_client", "MSSQLClient"),
-    "oracle": ("oracledb_client", "OracledbClient"),
-    "sqlite": ("sqlite_client", "SqliteClient"),
-    "snowflake": ("snowflake_client", "SnowflakeClient"),
-    "bigquery": ("bigquery_client", "BigqueryClient"),
-    "athena": ("aws_athena_client", "AwsAthenaClient"),
-    "trino": ("trino_client", "TrinoClient"),
-    "clickhouse": ("clickhouse_client", "ClickhouseClient"),
-    "databricks": ("databricks_sql_client", "DatabricksSqlClient"),
-    "duckdb": ("duckdb_client", "DuckDBClient"),
-}
+
+def _sql_clients() -> dict:
+    """Every client the guard checks as parsed SQL, from its own registry,
+    by family. No connection is opened: the checks read the client's type
+    only."""
+    clients = {}
+    for (module, name), entry in _CLIENT_TABLE.items():
+        if entry.profile is not None and entry.profile.kind == "sql":
+            clients[entry.family] = object.__new__(getattr(importlib.import_module(module), name))
+    return clients
+
+
+CLIENTS = _sql_clients()
+# Each client's dialect as the guard and table scope read it.
+DIALECTS = {family: dialect_for_client(client) for family, client in CLIENTS.items()}
 
 SCOPE = TableScope.from_names(active=CORPUS_TABLES, inactive=[])
 SPEC = [ParamSpec.model_validate({"name": "owner", "type": "string", "source": "identity"})]
 
 
-def _client(dialect: str):
-    module, name = CLIENTS[dialect]
-    cls = getattr(importlib.import_module(f"app.data_sources.clients.{module}"), name)
-    # No connection is opened: the checks read the client's type only.
-    return object.__new__(cls)
+def _per_client(entries) -> list:
+    """Each entry (dialect first) once for every client of its dialect."""
+    return [pytest.param(family, *entry, id=f"{family}-{i}")
+            for family, dialect in DIALECTS.items()
+            for i, entry in enumerate(entries) if entry[0] == dialect]
 
 
-def _ids(entries) -> list[str]:
-    return [f"{entry[0]}-{i}" for i, entry in enumerate(entries)]
+def _over_refusals() -> list:
+    return [pytest.param(*p.values, marks=pytest.mark.xfail(
+        strict=True, raises=(ReadOnlyViolation, TableScopeViolation), reason=f"known over-refusal: {p.values[-1]}"),
+        id=p.id) for p in _per_client(KNOWN_OVER_REFUSALS)]
 
 
 def test_the_corpus_covers_every_dialect_and_the_shapes_that_must_keep_working():
     dialects = {dialect for dialect, _sql in LEGIT_QUERIES}
-    assert dialects == set(CLIENTS)
+    assert dialects == set(DIALECTS.values()), sorted(dialects ^ set(DIALECTS.values()))
+    for dialect in dialects:
+        assert sum(d == dialect for d, _sql in LEGIT_QUERIES) >= 3, dialect
     postgres = [sql for dialect, sql in LEGIT_QUERIES if dialect == "postgres"]
     assert any("date_part('year'" in sql for sql in postgres)
     assert any(BS in sql for sql in postgres), "a backslash in a standard literal"
@@ -78,25 +81,23 @@ def test_the_corpus_covers_every_dialect_and_the_shapes_that_must_keep_working()
     assert {dialect for dialect, _t, _v in IDENTITY_QUERIES} >= {"postgres", "mysql", "tsql", "snowflake"}
 
 
-@pytest.mark.parametrize("dialect,sql", LEGIT_QUERIES, ids=_ids(LEGIT_QUERIES))
-def test_a_legitimate_query_passes_the_guard_and_table_scope(dialect, sql):
-    checked = ensure_read_only(_client(dialect), sql)
+@pytest.mark.parametrize("family,dialect,sql", _per_client(LEGIT_QUERIES))
+def test_a_legitimate_query_passes_the_guard_and_table_scope(family, dialect, sql):
+    checked = ensure_read_only(CLIENTS[family], sql)
     check_table_scope(checked, dialect, SCOPE)
 
 
-@pytest.mark.parametrize("dialect,sql", [
-    pytest.param(dialect, sql, marks=pytest.mark.xfail(strict=True, reason=f"known over-refusal: {reason}"))
-    for dialect, sql, reason in KNOWN_OVER_REFUSALS
-], ids=_ids(KNOWN_OVER_REFUSALS))
-def test_a_known_over_refusal_is_still_refused_until_its_rule_is_fixed(dialect, sql):
+@pytest.mark.parametrize("family,dialect,sql,reason", _over_refusals())
+def test_a_known_over_refusal_is_still_refused_until_its_rule_is_fixed(family, dialect, sql, reason):
     """Strict: once the checks let one of these through, this fails, and
-    the query moves to LEGIT_QUERIES."""
-    test_a_legitimate_query_passes_the_guard_and_table_scope(dialect, sql)
+    the query moves to LEGIT_QUERIES. Only a refusal counts as the expected
+    failure."""
+    test_a_legitimate_query_passes_the_guard_and_table_scope(family, dialect, sql)
 
 
-@pytest.mark.parametrize("dialect,template,value", IDENTITY_QUERIES, ids=_ids(IDENTITY_QUERIES))
-def test_an_identity_scoped_query_passes_every_check_and_binds_the_identity(dialect, template, value):
-    client = _client(dialect)
+@pytest.mark.parametrize("family,dialect,template,value", _per_client(IDENTITY_QUERIES))
+def test_an_identity_scoped_query_passes_every_check_and_binds_the_identity(family, dialect, template, value):
+    client = CLIENTS[family]
     rendered = render_sql_with_params(template, {"owner": value}, renderer=renderer_for(client))
     checked = ensure_read_only(client, rendered)
     check_table_scope(checked, dialect, SCOPE)

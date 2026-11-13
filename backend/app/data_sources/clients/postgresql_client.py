@@ -107,7 +107,13 @@ class PostgresqlClient(DataSourceClient):
                 except Exception as e:
                     # The type only: the error text holds the schema names.
                     logger.warning("postgresql.schema_setting_failed setting=schema error=%s", type(e).__name__)
-                    conn.rollback()
+                    try:
+                        conn.rollback()
+                    except Exception as rollback_error:
+                        # The connection is closed below either way; the
+                        # schema error stays the one raised.
+                        logger.warning("postgresql.schema_setting_rollback_failed error=%s",
+                                       type(rollback_error).__name__)
                     raise RuntimeError(
                         "The connection's schema setting could not be applied on the server "
                         f"(SET search_path failed: {type(e).__name__}). Check the schema names in the "
