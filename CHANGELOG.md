@@ -6,6 +6,8 @@
 - Added a per-dashboard option to let its page open links in a new tab (#1705) — Embed → Permissions (default: off)
 - Added deleting files and a nightly file cleanup (#1646) — "File retention (days)" in AI settings (default: 0, keep forever)
 - Added multiple Glue databases per AWS Athena connection — list, glob or `!`-exclude them in Database; tables are named `database.table` (#1713)
+- Added MCP Apps: an MCP server's interactive tool UI shows in report chat, in a sandboxed frame (#1714) — "MCP Apps" in AI settings (default: on)
+- Added MCP protocol 2026-07-28, with fallback for older MCP servers (#1714)
 - Added TrendChart and RankChart for trends and rankings in agent-built pages (#1704)
 - Changed the role editor to one dialog with Permissions and Access tabs and a single Save (#1711)
 - Changed agent-built pages to use the standard table, search box and dropdown controls (#1667)
