@@ -19,7 +19,13 @@ import pytest
 
 from app.ai.code_execution import sql_parser
 from app.ai.code_execution.code_execution import StreamingCodeExecutor, TableAccessError, UnsafeSQLError
-from app.ai.code_execution.sql_guard import ReadOnlyViolation, check_sql, check_unparsed, ensure_read_only
+from app.ai.code_execution.sql_guard import (
+    DENIED_FUNCTIONS,
+    ReadOnlyViolation,
+    check_sql,
+    check_unparsed,
+    ensure_read_only,
+)
 from app.ai.code_execution.table_scope import TABLE_SCOPE_ATTR, TableScope, TableScopeViolation, check_table_scope
 from app.data_sources.clients.postgresql_client import PostgresqlClient
 
@@ -279,8 +285,7 @@ def test_check_unparsed_takes_extra_write_words():
 
 # --------------------------------------------------------------- the TABLE shorthand
 
-# Postgres reads `TABLE name` as `SELECT * FROM name`; sqlglot reads it as a
-# column named table, so neither check would see the table.
+# The TABLE shorthand reads a whole table; it is refused wherever it stands.
 TABLE_SHORTHAND = [
     "TABLE secret",
     "table secret",
@@ -312,8 +317,10 @@ def test_the_word_table_as_a_quoted_name_part_of_a_name_or_in_a_literal_still_pa
 
 # --------------------------------------------------------------- function deny list
 
-# Functions that run SQL held in a string, reach another connection, or
-# change the session or the server outside the read.
+# Functions that run SQL held in a string, reach another connection or the
+# server's files, or change the session or the server outside the read
+# (replication slots and origins, logical decoding, statistics, WAL, backup,
+# recovery, logs, index maintenance, server internals, large objects).
 DENIED = [
     "ts_stat", "ts_rewrite",
     "query_to_xml", "query_to_xml_and_xmlschema", "query_to_xmlschema",
@@ -324,7 +331,26 @@ DENIED = [
     "pg_advisory_unlock", "pg_advisory_unlock_shared", "pg_advisory_unlock_all",
     "set_config", "setval", "nextval", "pg_notify",
     "pg_cancel_backend", "pg_terminate_backend", "pg_reload_conf",
+    "pg_create_physical_replication_slot", "pg_create_logical_replication_slot",
+    "pg_copy_physical_replication_slot", "pg_copy_logical_replication_slot",
+    "pg_drop_replication_slot", "pg_replication_slot_advance",
+    "pg_logical_emit_message", "pg_logical_slot_get_changes", "pg_logical_slot_peek_binary_changes",
+    "pg_replication_origin_create", "pg_replication_origin_session_setup", "pg_replication_origin_advance",
+    "pg_stat_reset", "pg_stat_reset_shared", "pg_stat_reset_single_table_counters", "pg_stat_statements_reset",
+    "pg_switch_wal", "pg_switch_xlog", "pg_create_restore_point",
+    "pg_backup_start", "pg_backup_stop", "pg_start_backup", "pg_stop_backup",
+    "pg_promote", "pg_wal_replay_pause", "pg_xlog_replay_resume",
+    "pg_rotate_logfile", "pg_rotate_logfile_old", "pg_log_backend_memory_contexts", "pg_import_system_collations",
+    "brin_summarize_range", "brin_summarize_new_values", "brin_desummarize_range", "gin_clean_pending_list",
+    "binary_upgrade_set_next_pg_type_oid", "pg_nextoid", "pg_stop_making_pinned_objects",
+    "pg_extension_config_dump",
+    "pg_file_write", "pg_file_rename", "pg_file_unlink", "pg_file_sync", "pg_logdir_ls",
+    "pg_read_file", "pg_read_binary_file", "pg_ls_dir", "pg_ls_waldir", "pg_stat_file",
+    "lo_import", "lo_export", "lo_unlink", "lo_put", "lo_get", "lo_from_bytea", "lo_create", "lo_open",
+    "loread", "lowrite",
 ]
+# A denied name is refused wherever it stands in the code, also as a field,
+# a column or an alias.
 SPELLINGS = {
     "plain": "SELECT {n}('a') FROM orders",
     "upper case": "SELECT {N}('a') FROM orders",
@@ -334,7 +360,17 @@ SPELLINGS = {
     "as a row source": "SELECT * FROM {n}('a') AS f",
     "with a comment before the call": "SELECT {n} /* c */ ('a') FROM orders",
     "in text sqlglot cannot parse": "SELECT {n}('a') FROM orders WHERE " + UNPARSABLE,
+    "as a field of its argument": "SELECT ('a'::text).{n} FROM orders",
+    "as a quoted field of its argument": "SELECT ('a'::text).\"{n}\" FROM orders",
+    "as a field, with a comment before it": "SELECT (1) /* c */ . {n} FROM orders",
+    "as a field of a table alias": "SELECT o.{n} FROM orders o",
+    "as a field in text sqlglot cannot parse": "SELECT (1).{n} FROM orders WHERE " + UNPARSABLE,
+    "as a bare name": "SELECT {n} FROM orders",
+    "as a quoted alias": 'SELECT 1 AS "{n}" FROM orders',
 }
+REDSHIFT_SPELLINGS = ["plain", "upper case", "schema-qualified", "quoted", "as a row source",
+                      "as a field of its argument", "as a quoted field of its argument", "as a field of a table alias",
+                      "as a bare name"]
 
 
 @pytest.mark.parametrize("spelling", SPELLINGS)
@@ -345,12 +381,26 @@ def test_each_denied_function_is_refused_in_every_spelling(name, spelling):
         _checked(sql)
 
 
-@pytest.mark.parametrize("spelling", ["plain", "upper case", "schema-qualified", "quoted", "as a row source"])
+@pytest.mark.parametrize("spelling", REDSHIFT_SPELLINGS)
 @pytest.mark.parametrize("name", DENIED)
 def test_each_denied_function_is_refused_on_the_parsed_tree_for_redshift(name, spelling):
     sql = SPELLINGS[spelling].format(n=name, N=name.upper())
     with pytest.raises(ReadOnlyViolation, match="(?i)" + name):
         check_sql(sql, "redshift")
+
+
+@pytest.mark.parametrize("sql", [
+    'SELECT "pg_terminate_backend"(1) FROM orders WHERE ' + UNPARSABLE,
+    'SELECT "pg_catalog"."NEXTVAL"(1) FROM orders WHERE ' + UNPARSABLE,
+    'SELECT (1)."pg_advisory_lock" FROM orders WHERE ' + UNPARSABLE,
+])
+def test_a_quoted_denied_name_in_redshift_text_sqlglot_cannot_parse_is_refused(sql):
+    with pytest.raises(ReadOnlyViolation, match="(?i)pg_terminate_backend|nextval|pg_advisory_lock"):
+        check_sql(sql, "redshift")
+
+
+def test_a_quoted_write_word_in_redshift_text_sqlglot_cannot_parse_still_passes():
+    check_sql('SELECT "delete", "a""set" FROM orders WHERE ' + UNPARSABLE, "redshift")
 
 
 def test_a_function_that_runs_sql_in_a_string_is_refused_on_an_unscoped_client():
@@ -362,13 +412,36 @@ def test_a_function_that_runs_sql_in_a_string_is_refused_on_an_unscoped_client()
 @pytest.mark.parametrize("sql", [
     "SELECT pg_advisory_xact_lock(1), pg_advisory_xact_lock_shared(2), pg_try_advisory_xact_lock(3) FROM orders",
     "SELECT current_setting('search_path'), currval('s') FROM orders",
-    "SELECT nextval, setval FROM orders",
-    "SELECT my_set_config(1), set_configx(1), nextval_of(1) FROM orders",
+    "SELECT my_set_config(1), set_configx(1), nextval_of(1), o.lo_price, lo_bound FROM orders o",
     "SELECT 'nextval(1)' AS a, $$set_config(1)$$ AS b FROM orders -- setval(1)",
-    'SELECT 1 AS "setval" FROM orders',
+    "SELECT pg_sleep(0), setseed(0.5), random(), clock_timestamp() FROM orders",
+    "SELECT * FROM pg_catalog.pg_file_settings",
+    "SELECT * FROM pg_catalog.pg_replication_origin_status",
+    "SELECT slot_name FROM pg_replication_slots",
 ])
 def test_transaction_scoped_locks_reads_and_lookalike_names_still_pass(sql):
     _checked(sql)
+
+
+# Reads an agent writes every day, each with a function or clause near a
+# denied one.
+LEGITIMATE_READS = [
+    "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'",
+    "SELECT pg_size_pretty(pg_total_relation_size('orders')) AS size",
+    "SELECT obj_description('orders'::regclass, 'pg_class') AS note",
+    "SELECT pg_advisory_xact_lock(7), pg_try_advisory_xact_lock(8)",
+    "SELECT format('%s-%s', id, id) AS v FROM orders",
+    "SELECT xpath('/a/text()', '<a>x</a>'::xml) AS v",
+    "SELECT row_to_json(o) AS v FROM orders o",
+    "SELECT date_part('year', now()) AS v",
+    "SELECT id FROM orders TABLESAMPLE SYSTEM (100)",
+    "SELECT v FROM XMLTABLE('/r/i' PASSING ('<r><i>1</i></r>'::xml) COLUMNS v int PATH '.') AS x",
+]
+
+
+@pytest.mark.parametrize("sql", LEGITIMATE_READS + ["SELECT currval('s1') AS v", "SELECT lastval() AS v"])
+def test_legitimate_reads_still_pass(sql):
+    assert _checked(sql) == sql
 
 
 # --------------------------------------------------------------- EXPLAIN
@@ -402,9 +475,15 @@ def test_explain_checks_the_statement_it_explains(sql):
     "EXPLAIN (SELECT 1)",
     "explain (costs off) values (1)",
     "EXPLAIN WITH x AS (SELECT id FROM orders) SELECT * FROM x",
+    'EXPLAIN SELECT "start", "set" FROM orders',
 ])
 def test_explain_of_a_read_still_passes(sql):
     _checked(sql)
+
+
+def test_an_explain_refused_for_a_name_that_is_also_an_sql_word_says_to_quote_it():
+    with pytest.raises(ReadOnlyViolation, match="START.*double quotes"):
+        _checked("EXPLAIN SELECT start FROM orders")
 
 
 # --------------------------------------------------------------- through the wrapper
@@ -479,16 +558,22 @@ def _docker_available() -> bool:
         return False
 
 
+READER = "bow_reader"
+_CONNECT_KEYS = ("host", "port", "user", "password", "dbname")
+
+
 @pytest.fixture(scope="module")
 def server():
-    """A throwaway Postgres 15 holding a table the agent must not read, and
-    sequences; yields its connection settings."""
+    """A throwaway Postgres 15 (logical WAL, so slots can decode) holding a
+    table the agent must not read, sequences, replication slots, a large
+    object, adminpack and a role that may only SELECT; yields its connection
+    settings."""
     if not _docker_available():
         pytest.skip("Docker daemon not reachable")
     import psycopg2
     from testcontainers.postgres import PostgresContainer
 
-    with PostgresContainer("postgres:15") as container:
+    with PostgresContainer("postgres:15").with_command("postgres -c wal_level=logical") as container:
         settings = {"host": container.get_container_host_ip(), "port": int(container.get_exposed_port(5432)),
                     "user": container.username, "password": container.password, "dbname": container.dbname}
         con = psycopg2.connect(**settings)
@@ -496,8 +581,18 @@ def server():
         with con.cursor() as cur:
             for sql in ["CREATE TABLE secret (code text)", "INSERT INTO secret VALUES ('k1')",
                         "CREATE TABLE orders (id int)", "INSERT INTO orders VALUES (1)",
-                        "CREATE TABLE quiet (id int)",
-                        "CREATE EXTENSION dblink"] + [f"CREATE SEQUENCE s{i}" for i in range(1, 8)]:
+                        "CREATE TABLE quiet (id int)", "CREATE TABLE changes (id int)",
+                        "CREATE EXTENSION dblink", "CREATE EXTENSION adminpack",
+                        "SELECT lo_from_bytea(4242, 'x')",
+                        "SELECT pg_create_physical_replication_slot('bow_slot')",
+                        "SELECT pg_create_physical_replication_slot('bow_slot2')",
+                        "SELECT pg_create_physical_replication_slot('bow_kept')",
+                        "SELECT pg_create_logical_replication_slot('bow_cdc', 'test_decoding')",
+                        "SELECT pg_create_logical_replication_slot('bow_messages', 'test_decoding')",
+                        "INSERT INTO changes VALUES (1)",
+                        f"CREATE ROLE {READER} LOGIN PASSWORD '{READER}'",
+                        f"GRANT SELECT ON orders TO {READER}",
+                        ] + [f"CREATE SEQUENCE s{i}" for i in range(1, 10)]:
                 cur.execute(sql)
         con.close()
         # dblink connects from inside the server, to itself.
@@ -513,7 +608,7 @@ def pg(server):
     import psycopg2
 
     def run(sql, then=None):
-        con = psycopg2.connect(**{k: v for k, v in server.items() if k != "dsn"})
+        con = psycopg2.connect(**{k: server[k] for k in _CONNECT_KEYS})
         con.autocommit = True
         try:
             with con.cursor() as cur:
@@ -566,6 +661,26 @@ ENGINE_SHAPES = [
     ("EXPLAIN ANALYZE SELECT nextval('s4')", "SELECT is_called FROM s4", [(True,)]),
     ("EXPLAIN (ANALYZE, BUFFERS) SELECT set_config('search_path', 'elsewhere', false)", "SHOW search_path",
      [("elsewhere",)]),
+    # Effects a rollback does not undo: replication slots, decoded changes,
+    # statistics, server files.
+    ("SELECT pg_drop_replication_slot('bow_slot')",
+     "SELECT count(*) FROM pg_replication_slots WHERE slot_name = 'bow_slot'", [(0,)]),
+    ("SELECT pg_create_physical_replication_slot('bow_made')",
+     "SELECT count(*) FROM pg_replication_slots WHERE slot_name = 'bow_made'", [(1,)]),
+    ("SELECT count(*) FROM pg_logical_slot_get_changes('bow_cdc', NULL, NULL)",
+     "SELECT count(*) FROM pg_logical_slot_peek_changes('bow_cdc', NULL, NULL)", [(0,)]),
+    ("SELECT pg_stat_reset()",
+     "SELECT stats_reset IS NOT NULL FROM pg_stat_database WHERE datname = current_database()", [(True,)]),
+    ("SELECT pg_catalog.pg_file_write('/tmp/bow_admin_write', 'w', false)",
+     "SELECT pg_read_file('/tmp/bow_admin_write')", [("w",)]),
+    ("SELECT lo_export(4242, '/tmp/bow_lo_export')", "SELECT pg_read_file('/tmp/bow_lo_export')", [("x",)]),
+    # The same functions written as a field.
+    ("SELECT (('s7'::regclass)).nextval", "SELECT is_called FROM s7", [(True,)]),
+    ("SELECT (45::bigint).pg_advisory_lock", LOCKS_HELD, [(1,)]),
+    ("SELECT (0).pg_cancel_backend", None, None),
+    ("SELECT ('SELECT to_tsvector(''simple'', code) FROM public.secret'::text).ts_stat", None, None),
+    ("SELECT ('bow_slot2'::name).pg_drop_replication_slot",
+     "SELECT count(*) FROM pg_replication_slots WHERE slot_name = 'bow_slot2'", [(0,)]),
 ]
 
 
@@ -583,10 +698,101 @@ def test_postgres_runs_each_refused_shape_and_the_guard_refuses_it(pg, server, s
         _checked(sql)
 
 
+def test_postgres_reads_an_inactive_table_through_a_field_call_and_table_scope_refuses_it(pg):
+    sql = "SELECT ('SELECT to_tsvector(''simple'', code) FROM public.secret'::text).ts_stat AS v FROM orders"
+    assert "k1" in str(pg(sql)[0])
+    with pytest.raises(TableScopeViolation, match="TS_STAT"):
+        check_table_scope(sql, "postgres", SCOPE)
+
+
+def test_a_select_only_role_writes_a_message_that_survives_rollback_and_the_guard_refuses_it(pg, server):
+    import psycopg2
+
+    sql = "SELECT pg_logical_emit_message(false, 'bow_reader_note', 'x')"
+    reader = psycopg2.connect(**{**{k: server[k] for k in _CONNECT_KEYS}, "user": READER, "password": READER})
+    try:
+        with reader.cursor() as cur:
+            cur.execute("SELECT count(*) FROM orders")
+            cur.execute(sql)
+        reader.rollback()
+    finally:
+        reader.close()
+    # Any commit flushes the WAL the message went to; the slot then decodes it.
+    pg("CREATE TABLE flushes_the_wal (id int)")
+    peek = "SELECT count(*) FROM pg_logical_slot_peek_changes('bow_messages', NULL, NULL) WHERE data LIKE '%bow_reader_note%'"
+    assert pg(peek)[0] == [(1,)]
+    with pytest.raises(ReadOnlyViolation, match="PG_LOGICAL_EMIT_MESSAGE"):
+        _checked(sql)
+
+
 def test_postgres_runs_the_reads_the_guard_lets_through(pg):
-    for sql in ["EXPLAIN SELECT 1", "EXPLAIN (SELECT 1)", "SELECT pg_advisory_xact_lock(9)", 'SELECT "table" FROM (SELECT 1 AS "table") t']:
+    for sql in ["EXPLAIN SELECT 1", "EXPLAIN (SELECT 1)", "SELECT pg_advisory_xact_lock(9)",
+                'SELECT "table" FROM (SELECT 1 AS "table") t'] + LEGITIMATE_READS:
         assert _checked(sql) == sql
         assert pg(sql)[0]
+
+
+# Volatile functions in pg_catalog a read may call from SQL: not type I/O,
+# trigger, handler or support functions (they take or return an internal
+# type, so SQL cannot call them).
+VOLATILE_CATALOG_FUNCTIONS = """
+SELECT DISTINCT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = 'pg_catalog' AND p.provolatile = 'v' AND p.prokind = 'f'
+  AND p.prorettype NOT IN ('trigger'::regtype, 'event_trigger'::regtype, 'internal'::regtype,
+                           'language_handler'::regtype, 'fdw_handler'::regtype, 'index_am_handler'::regtype,
+                           'table_am_handler'::regtype, 'tsm_handler'::regtype, 'cstring'::regtype)
+  AND NOT ('internal'::regtype = ANY (p.proargtypes::regtype[]))
+  AND NOT ('cstring'::regtype = ANY (p.proargtypes::regtype[]))
+"""
+# Reviewed: volatile, and still fine in a read.
+REVIEWED_ALLOWED = {
+    # Clocks, random values and the seed (session state of no consequence).
+    "clock_timestamp", "timeofday", "random", "setseed", "gen_random_uuid",
+    # Sequence values this session already drew; no sequence moves.
+    "currval", "lastval", "pg_sequence_last_value",
+    # Advisory locks that end with the transaction.
+    "pg_advisory_xact_lock", "pg_advisory_xact_lock_shared",
+    "pg_try_advisory_xact_lock", "pg_try_advisory_xact_lock_shared",
+    # Sleeping holds the connection; the query timeout bounds it.
+    "pg_sleep", "pg_sleep_for", "pg_sleep_until",
+    # A snapshot others may import until this transaction ends.
+    "pg_export_snapshot",
+    # This session's statistics snapshot and flush timing.
+    "pg_stat_clear_snapshot", "pg_stat_force_next_flush",
+    # Sizes, locks, activity, WAL positions, recovery and control state.
+    "pg_database_size", "pg_indexes_size", "pg_relation_size", "pg_table_size", "pg_tablespace_size",
+    "pg_total_relation_size", "pg_blocking_pids", "pg_safe_snapshot_blocking_pids", "pg_lock_status",
+    "pg_isolation_test_session_is_blocked", "pg_get_multixact_members", "pg_prepared_xact",
+    "pg_notification_queue_usage", "pg_current_wal_lsn", "pg_current_wal_insert_lsn",
+    "pg_current_wal_flush_lsn", "pg_last_wal_receive_lsn", "pg_last_wal_replay_lsn",
+    "pg_last_xact_replay_timestamp", "pg_is_in_recovery", "pg_is_wal_replay_paused",
+    "pg_get_wal_replay_pause_state", "pg_get_wal_resource_managers", "pg_stat_get_recovery_prefetch",
+    "pg_control_checkpoint", "pg_control_init", "pg_control_recovery", "pg_control_system",
+    "pg_last_committed_xact", "pg_xact_commit_timestamp", "pg_xact_commit_timestamp_origin",
+    "pg_xact_status", "txid_status", "pg_jit_available", "pg_get_backend_memory_contexts",
+    "pg_get_shmem_allocations", "pg_show_replication_origin_status", "pg_stat_have_stats",
+    "pg_stat_get_xact_blocks_fetched", "pg_stat_get_xact_blocks_hit", "pg_stat_get_xact_function_calls",
+    "pg_stat_get_xact_function_self_time", "pg_stat_get_xact_function_total_time",
+    "pg_stat_get_xact_numscans", "pg_stat_get_xact_tuples_deleted", "pg_stat_get_xact_tuples_fetched",
+    "pg_stat_get_xact_tuples_hot_updated", "pg_stat_get_xact_tuples_inserted",
+    "pg_stat_get_xact_tuples_returned", "pg_stat_get_xact_tuples_updated",
+    # Server settings and access rules, as the server holds them (superuser
+    # or pg_read_all_settings only).
+    "pg_hba_file_rules", "pg_ident_file_mappings", "pg_show_all_file_settings", "pg_current_logfile",
+    # The query text, catalog validators and lookups, collation versions,
+    # partitions, row lookups by position.
+    "current_query", "amvalidate", "plpgsql_validator", "pg_collation_actual_version",
+    "pg_database_collation_actual_version", "pg_partition_ancestors", "pg_partition_tree", "currtid2",
+}
+
+
+def test_every_volatile_catalog_function_is_denied_or_reviewed(pg):
+    denied = DENIED_FUNCTIONS["postgres"]
+    names = {row[0] for row in pg(VOLATILE_CATALOG_FUNCTIONS)[0]}
+    assert len(names) > 150  # the listing works
+    assert sorted(n for n in names if not denied.fullmatch(n) and n not in REVIEWED_ALLOWED) == []
+    assert sorted(n for n in REVIEWED_ALLOWED if denied.fullmatch(n)) == []
+    assert sorted(REVIEWED_ALLOWED - names) == []  # no stale entry
 
 
 class LivePostgresqlClient(PostgresqlClient):
@@ -613,6 +819,11 @@ def _live(server):
     ("SELECT dblink_exec('{dsn}', 'ANALYZE quiet')",
      "SELECT last_analyze IS NOT NULL FROM pg_stat_user_tables WHERE relname = 'quiet'", [(False,)]),
     ("WITH x AS (TABLE secret) SELECT * FROM x", "SELECT 1", [(1,)]),
+    ("SELECT (('s8'::regclass)).nextval", "SELECT last_value, is_called FROM s8", [(1, False)]),
+    ("SELECT pg_catalog.pg_file_write('/tmp/bow_never_written', 'w', false)",
+     "SELECT (pg_stat_file('/tmp/bow_never_written', true)).size", [(None,)]),
+    ("SELECT ('bow_kept'::name).pg_drop_replication_slot",
+     "SELECT count(*) FROM pg_replication_slots WHERE slot_name = 'bow_kept'", [(1,)]),
 ])
 def test_a_refused_shape_never_reaches_the_server(mode, pg, server, sql, then, unchanged):
     client = _live(server)

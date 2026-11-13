@@ -109,6 +109,22 @@ def test_functions_that_run_sql_held_in_a_string_are_refused(sql, dialect):
         check_table_scope(sql, dialect, SCOPE)
 
 
+# The same functions written as a field or a column.
+@pytest.mark.parametrize("dialect", ["postgres", "redshift"])
+@pytest.mark.parametrize("sql, name", [
+    ("SELECT ('SELECT to_tsvector(code) FROM sales.payroll'::text).ts_stat", "TS_STAT"),
+    ("SELECT ('SELECT v FROM sales.payroll'::text).\"ts_stat\" FROM sales.orders", "TS_STAT"),
+    ("SELECT ('select v from sales.payroll'::text).dblink FROM sales.orders", "DBLINK"),
+    ("SELECT ('/srv/data/payroll.csv'::text).pg_read_file FROM sales.orders", "PG_READ_FILE"),
+    ("SELECT ('/srv/data'::text).pg_ls_dir FROM sales.orders", "PG_LS_DIR"),
+    ("SELECT (o.id::oid).lo_get FROM sales.orders o", "LO_GET"),
+    ("SELECT o.pg_read_binary_file FROM sales.orders o", "PG_READ_BINARY_FILE"),
+])
+def test_functions_called_as_a_field_are_refused(sql, name, dialect):
+    with pytest.raises(TableScopeViolation, match=name):
+        check_table_scope(sql, dialect, SCOPE)
+
+
 @pytest.mark.parametrize("sql,dialect", [
     ("DESCRIBE TABLE sales.orders", "snowflake"),
     ("SELECT f.value FROM sales.orders o, LATERAL FLATTEN(input => o.items) f", "snowflake"),
@@ -116,6 +132,8 @@ def test_functions_that_run_sql_held_in_a_string_are_refused(sql, dialect):
     ("SELECT * FROM SEMANTIC_VIEW(sales.orders DIMENSIONS a.b METRICS c.d)", "snowflake"),
     ("SELECT * FROM generate_series(1, 3) g", "postgres"),
     ("SELECT * FROM sales.orders o, jsonb_array_elements(o.items) i", "postgres"),
+    ("SELECT o.lo_price, lo_bound, o.url, file FROM sales.orders o", "postgres"),
+    ("SELECT o.lo_price, o.url FROM sales.orders o", "redshift"),
     ("SELECT * FROM UNNEST([1, 2])", "bigquery"),
 ])
 def test_dialect_features_over_active_tables_still_run(sql, dialect):

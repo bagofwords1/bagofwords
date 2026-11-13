@@ -34,7 +34,7 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
-from app.ai.code_execution.sql_guard import dialect_for_client
+from app.ai.code_execution.sql_guard import DENIED_FUNCTIONS, dialect_for_client
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +146,13 @@ _DENIED_FUNCTION = re.compile(
 )
 
 
+def _unverifiable_function(name: str) -> TableScopeViolation:
+    return TableScopeViolation(
+        f"The function {name.upper()}() is not allowed in agent queries, because "
+        "the table it reads cannot be checked. Query the enabled tables directly."
+    )
+
+
 def _func_name(node) -> str:
     from sqlglot import exp
 
@@ -222,10 +229,16 @@ def check_table_scope(sql: str, dialect: str, scope: TableScope) -> None:
         for fn in stmt.find_all(exp.Func):
             name = _func_name(fn)
             if name and _DENIED_FUNCTION.match(name):
-                raise TableScopeViolation(
-                    f"The function {name.upper()}() is not allowed in agent queries, because "
-                    "the table it reads cannot be checked. Query the enabled tables directly."
-                )
+                raise _unverifiable_function(name)
+        # A denied name as a column or a field: the read-only guard's list,
+        # which holds every Postgres entry above that takes one argument
+        # (the large-object ones by exact name, so a column such as lo_price
+        # still reads).
+        field_denied = DENIED_FUNCTIONS.get(dialect)
+        if field_denied is not None:
+            for node in stmt.find_all(exp.Column, exp.Dot):
+                if field_denied.fullmatch(node.name.lower()):
+                    raise _unverifiable_function(node.name)
 
         for tfr in stmt.find_all(exp.TableFromRows):
             inner = tfr.this

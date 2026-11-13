@@ -22,9 +22,10 @@ Policy, per client:
     Postgres text is first read by its own lexer (`pg_lexer`), as the server
     reads it: one statement only, and the lexer's canonical text is what is
     checked and what is sent. On that text it also refuses the TABLE
-    shorthand and calls to a short list of functions (`DENIED_FUNCTIONS`)
-    that run SQL held in a string or change the session or the server, and
-    checks the statement an EXPLAIN explains like unparsed text.
+    shorthand and the names of functions (`DENIED_FUNCTIONS`) that run SQL
+    held in a string, reach the server's files, or change the session or
+    the server, wherever such a name stands, and checks the statement an
+    EXPLAIN explains like unparsed text.
   * **Splunk**: SPL is not SQL but can write; its writing commands are refused.
   * **Db2** (LUW, z/OS, IBM i): sqlglot has no Db2 dialect. One statement, a
     read verb (SELECT / WITH / VALUES) and no write keyword, generic or Db2's.
@@ -139,19 +140,38 @@ _LEADING_WORD = re.compile(r"[\s(]*([A-Za-z_][" + _NAME_CHAR + r"]*)")
 
 # Functions a read must not call, per dialect, matched on the bare function
 # name (lowercased, without its schema or quotes): they run SQL held in a
-# string, reach another connection, or change the session or the server
-# beyond the read. Transaction-scoped advisory locks end with the read and
-# stay allowed.
+# string, reach another connection or the server's files, or change the
+# session or the server beyond the read, often in ways a rollback does not
+# undo. Transaction-scoped advisory locks end with the read and stay allowed.
+# The Postgres engine test lists every volatile catalog function and fails on
+# one that is neither matched here nor reviewed as fine in a read.
 _PG_DENIED_FUNCTION = re.compile(
+    # SQL in a string, other connections.
     r"ts_stat|ts_rewrite|query_to_xml\w*|table_to_xml\w*|cursor_to_xml\w*|dblink\w*"
+    # Session locks and settings, sequences, notifications, other backends.
     r"|pg_advisory_lock\w*|pg_try_advisory_lock\w*|pg_advisory_unlock\w*"
     r"|set_config|setval|nextval|pg_notify|pg_cancel_backend|pg_terminate_backend|pg_reload_conf"
+    # Replication slots and origins, logical decoding.
+    r"|pg_(?:create|copy)_\w*replication_slot|pg_drop_replication_slot|pg_replication_slot_advance"
+    r"|pg_logical_\w*|pg_replication_origin_(?!status\Z)\w*"
+    # Statistics, WAL, backup, recovery, logs, collations.
+    r"|pg_stat_reset\w*|pg_stat_statements_reset"
+    r"|pg_switch_(?:wal|xlog)|pg_create_restore_point|pg_backup_\w*|pg_(?:start|stop)_backup"
+    r"|pg_promote|pg_(?:wal|xlog)_replay_\w*"
+    r"|pg_rotate_logfile\w*|pg_log_backend_memory_contexts|pg_import_system_collations"
+    # Index maintenance, upgrade and catalog internals.
+    r"|brin_summarize_\w*|brin_desummarize_range|gin_clean_pending_list"
+    r"|binary_upgrade_\w*|pg_nextoid|pg_stop_making_pinned_objects|pg_extension_config_dump"
+    # Server files (adminpack included) and large objects. Exact large-object
+    # names, so a column such as lo_price still reads.
+    r"|pg_file_(?!settings\Z)\w*|pg_logdir_ls|pg_read_\w*|pg_ls_\w*|pg_stat_file"
+    r"|lo_(?:close|creat|create|export|from_bytea|get|import|lseek(?:64)?|open|put|tell(?:64)?"
+    r"|truncate(?:64)?|unlink)|loread|lowrite"
 )
 DENIED_FUNCTIONS: dict[str, re.Pattern] = {"postgres": _PG_DENIED_FUNCTION, "redshift": _PG_DENIED_FUNCTION}
 # A name in code text, quoted or not, or a number (so a name glued after a
 # number is read as its own name, as by `check_unparsed`).
 _CODE_NAME = re.compile(r'"(?P<quoted>(?:[^"]|"")*)"|' + _UNPARSED_WORD.pattern)
-_CALL_OPEN = re.compile(r"\s*\(")
 # EXPLAIN and its options, before the statement it explains: a parenthesised
 # option list (not a parenthesised statement), or the older ANALYZE / VERBOSE
 # words.
@@ -582,27 +602,34 @@ def _check_postgres_code(code_only: str) -> None:
         head = _EXPLAIN_HEAD.match(words)
         if head is None:
             raise ReadOnlyViolation("EXPLAIN must be followed by a SELECT statement.")
-        check_unparsed(words[head.end():], read_verbs=_EXPLAINED_VERBS)
+        try:
+            check_unparsed(words[head.end():], read_verbs=_EXPLAINED_VERBS)
+        except ReadOnlyViolation as e:
+            raise ReadOnlyViolation(
+                f"{e} In an EXPLAIN, a column or table name that is also an SQL word must be written "
+                'in double quotes, for example "start".'
+            ) from e
 
 
 def _denied_function(name: str) -> ReadOnlyViolation:
     return ReadOnlyViolation(
         f"The function {name.upper()}() is not allowed in agent queries: it runs SQL held in a string, "
-        "reaches another connection, or changes the session or the server. Only SELECT queries are allowed."
+        "reaches another connection or the server's files, or changes the session or the server. "
+        "Its name is refused anywhere in the query, also as a column or alias. Only SELECT queries are allowed."
     )
 
 
 def _check_denied_calls(code: str, dialect: str) -> None:
-    """Refuse a call to a function denied for `dialect` in code text
-    (literal bodies emptied): any name, quoted or not and with or without a
-    schema before it, followed by '('."""
+    """Refuse a name denied for `dialect` anywhere in code text (literal
+    bodies emptied), quoted or not, with or without a schema before it, and
+    whether or not '(' follows it."""
     denied = DENIED_FUNCTIONS.get(dialect)
     if denied is None:
         return
     for match in _CODE_NAME.finditer(code):
         quoted = match.group("quoted")
         name = quoted.replace('""', '"') if quoted is not None else match.group("name")
-        if name is not None and denied.fullmatch(name.lower()) and _CALL_OPEN.match(code, match.end()):
+        if name is not None and denied.fullmatch(name.lower()):
             raise _denied_function(name)
 
 
@@ -692,6 +719,10 @@ def _check_parsed(sql: str, dialect: str, unparsed) -> None:
             for name in _func_names(node):
                 if denied.fullmatch(name.strip('"').lower()):
                     raise _denied_function(name)
+        if denied is not None and isinstance(node, (exp.Column, exp.Dot)):
+            # A denied name as a column or a field is refused too.
+            if denied.fullmatch(node.name.lower()):
+                raise _denied_function(node.name)
 
 
 def _keyword_check(sql: str) -> None:
@@ -748,7 +779,14 @@ def _unparsed_readings(sql: str, dialect: str) -> list[tuple[str, str]]:
     pieces = []
     for token in tokens:
         kind = token.token_type.name
-        pieces.append("''" if kind in _LITERAL_TOKENS else '""' if kind == "IDENTIFIER" else token.text)
+        if kind in _LITERAL_TOKENS:
+            pieces.append("''")
+        elif kind == "IDENTIFIER":
+            # Kept, quoted: the write-word scan skips quoted names, and the
+            # deny-list scan reads them.
+            pieces.append('"' + token.text.replace('"', '""') + '"')
+        else:
+            pieces.append(token.text)
     backslash = dialect in _BACKSLASH_ESCAPE_DIALECTS
     return [(f"as the {dialect} tokenizer reads it", " ".join(pieces))] + [
         (_READING_NAMES[(h, b)], _generic_reading(sql, h, b)) for h, b in _GENERIC_READINGS if backslash or not b
