@@ -1001,6 +1001,8 @@ def _rendered_value(value: Any, renderer: LiteralRenderer) -> Tuple[str, List[Tu
         return "(" + ", ".join(parts) + ")", spans
     if isinstance(value, dict):
         raise ParamError("object values cannot be rendered into SQL directly")
+    if isinstance(value, (bytes, bytearray)):
+        raise ParamError("byte values cannot be rendered into a query; pass text")
     value = str(value)
     if _NUL in value:
         raise ParamError("a parameter value holds a NUL character, which cannot be sent in a query")
@@ -1025,6 +1027,9 @@ _BEFORE_PLACEHOLDER = _SPACES | frozenset("=<>!+-*/%|^&~([,;")
 # key), '(' or ','; after '&', '?', ';', '/' or an operator character the
 # server would read it as an option name, a path or a different value.
 _BEFORE_ODATA_PLACEHOLDER = _SPACES | frozenset("=(,")
+# Where an OData options text stops for the server: a URL fragment mark, or
+# a percent-encoded NUL.
+_ODATA_TEXT_END = re.compile(r"#|%00")
 
 
 def _refuse_prefixes(sql: str, matches: List["re.Match[str]"], renderer: LiteralRenderer) -> None:
@@ -1043,15 +1048,19 @@ def _refuse_prefixes(sql: str, matches: List["re.Match[str]"], renderer: Literal
             )
 
 
-def _separated(sql: str, start: int, text: str) -> str:
+def _separated(sql: str, start: int, text: str, renderer: LiteralRenderer) -> str:
     """`text` as written at `start`: a value starting with '-' gets a space
     after any character but a space. After a '-' it would make '--', a
     comment; after another operator character a Postgres-family lexer joins
     the minus to it, making an operator that does not exist. A space
     separates tokens in every grammar rendered here and keeps the minus a
-    unary minus. Not called for OData, which allows no space in a key or an
-    option value."""
-    if text.startswith("-") and start and sql[start - 1] not in _SPACES:
+    unary minus. SPL is spaced only after a '-': it reads `field=value` as
+    one pair, so the value stays glued to the '=' before it. OData is never
+    spaced: it allows no space in a key or an option value."""
+    if not text.startswith("-") or not start or renderer.name == "odata":
+        return text
+    before = sql[start - 1]
+    if before == "-" or (renderer.name != "spl" and before not in _SPACES):
         return " " + text
     return text
 
@@ -1075,7 +1084,10 @@ def _check_rendered(sql: str, matches: List["re.Match[str]"], placed: List[Tuple
         may_skip = renderer.name == "odata"
         template_lists, rendered_lists = readings(sql), readings(rendered)
         if len(template_lists) != len(rendered_lists):
-            raise ParamError("parameters cannot be checked for this connection")
+            raise ParamError(
+                "the query with its parameter values was not read the way its template was, "
+                "so the values were not placed"
+            )
         for template_spans, rendered_spans in zip(template_lists, rendered_lists):
             _check_spans(matches, placed, template_spans, rendered_spans, may_skip)
 
@@ -1192,6 +1204,14 @@ def render_sql_with_params(
     if _NUL in sql:
         # Some engines read only up to it; the checks below read past it.
         raise ParamError("parameters cannot be placed in a query that holds a NUL character; remove it")
+    if renderer.name == "odata" and _ODATA_TEXT_END.search(sql):
+        # The options text travels in a URL: the client drops what follows a
+        # '#', and the server decodes '%00' to a NUL. Either way, text after
+        # it would be checked here and never applied.
+        raise ParamError(
+            "parameters cannot be placed in OData options that hold '#' or '%00'; remove it "
+            "(write a literal '#' in a value as a parameter)"
+        )
     _refuse_prefixes(sql, matches, renderer)
     misplaced = _misplaced_placeholders(sql, matches, renderer)
     if misplaced:
@@ -1209,7 +1229,7 @@ def render_sql_with_params(
     pos, length = 0, 0
     for m in matches:
         text, spans = _rendered_value(values[m.group(1)], renderer)
-        written = text if renderer.name == "odata" else _separated(sql, m.start(), text)
+        written = _separated(sql, m.start(), text, renderer)
         lead = len(written) - len(text)
         parts.append(sql[pos:m.start()])
         length += m.start() - pos

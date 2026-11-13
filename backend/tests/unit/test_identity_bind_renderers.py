@@ -86,6 +86,13 @@ def test_a_splunk_field_filter_on_the_identity_binds_and_a_bare_term_does_not(va
         assert verify_identity_binds_in_queries([CapturedQuery(query, "SplunkClient")], {"v": value}, SPEC) is not None
 
 
+def test_a_splunk_field_filter_on_a_negative_identity_number_binds():
+    # SPL reads `owner=-5` as one field pair; a space after '=' would not be.
+    assert render_sql_with_params(SPL_SCOPED, {"v": -5}, renderer=query_params.renderer_for_name("SplunkClient")) == \
+        "search index=x owner=-5"
+    assert _verdict(SPL_SCOPED, "SplunkClient", -5) is None
+
+
 @pytest.mark.parametrize("value", IDENTITIES + ["alice@example.com", "a&b"])
 @pytest.mark.parametrize("family", ["PriorityErpClient", "SapDatasphereClient", "MecmClient"])
 def test_an_odata_filter_binds_the_identity_it_was_rendered_with_and_not_another(family, value):

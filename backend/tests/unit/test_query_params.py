@@ -659,7 +659,7 @@ RECHECK_CASES = [
 
 def _without_the_specific_rules(monkeypatch):
     # raising=False: before the rules exist, this patches nothing.
-    monkeypatch.setattr(query_params, "_separated", lambda sql, start, text: text, raising=False)
+    monkeypatch.setattr(query_params, "_separated", lambda sql, start, text, renderer: text, raising=False)
     monkeypatch.setattr(query_params, "_refuse_prefixes", lambda sql, matches, renderer: None, raising=False)
     monkeypatch.setattr(query_params, "_refuse_engine_comments", lambda sql, tokens, dialect: None, raising=False)
 
@@ -759,11 +759,16 @@ def test_a_scanned_placeholder_followed_by_a_dot_or_a_name_character_is_refused(
         render_sql_with_params("a = :v" + after + " and b", {"v": 5}, renderer=query_params._RENDERERS[name])
 
 
-def test_a_negative_number_is_spaced_after_any_character_but_a_space_except_on_odata():
+def test_a_negative_number_is_spaced_after_any_character_but_a_space_except_on_odata_and_spl():
     odata = query_params._RENDERERS["odata"]
     assert render_sql_with_params("Orders(:k)?$top=:n", {"k": -5, "n": -1}, renderer=odata) == "Orders(-5)?$top=-1"
     assert render_sql_with_params("$filter=A eq :k and B eq (:k)", {"k": -5}, renderer=odata) == "$filter=A eq -5 and B eq (-5)"
-    for name in sorted(set(query_params._RENDERERS) - {"odata"}):
+    # SPL reads `field=value` as one pair: the value stays glued to '=',
+    # spaced only after a '-' (which would make '--').
+    spl = query_params._RENDERERS["spl"]
+    assert render_sql_with_params("search owner=:v n>:v", {"v": -5}, renderer=spl) == "search owner=-5 n>-5"
+    assert render_sql_with_params("eval x=1-:v", {"v": -5}, renderer=spl) == "eval x=1- -5"
+    for name in sorted(set(query_params._RENDERERS) - {"odata", "spl"}):
         renderer = query_params._RENDERERS[name]
         assert render_sql_with_params("f(:a, =:a, 1-:a)", {"a": -5}, renderer=renderer) == "f( -5, = -5, 1- -5)", name
         assert render_sql_with_params(":a = 1 - :a", {"a": -5}, renderer=renderer) == "-5 = 1 - -5", name
@@ -803,10 +808,83 @@ def test_an_odata_value_that_cannot_be_encoded_is_a_param_error():
 
 def test_a_reading_count_that_differs_between_template_and_rendered_text_fails_closed(monkeypatch):
     # One list for the template, two for the rendered text: nothing may be
-    # left unchecked.
+    # left unchecked. The refusal says so, not that the connection has no
+    # checker (a different failure).
     monkeypatch.setitem(query_params._READINGS, "ansi", lambda text: [[]] * (1 + (":" not in text)))
-    with pytest.raises(ParamError, match="^parameters cannot be checked for this connection$"):
+    with pytest.raises(ParamError) as refused:
         render_sql_with_params("a = :v", {"v": 5}, renderer=query_params._RENDERERS["ansi"])
+    assert str(refused.value) != "parameters cannot be checked for this connection"
+    assert str(refused.value) == (
+        "the query with its parameter values was not read the way its template was, so the values were not placed"
+    )
+
+
+@pytest.mark.parametrize("value", [b"it's", bytearray(b"x")], ids=["bytes", "bytearray"])
+@pytest.mark.parametrize("name", sorted(query_params._RENDERERS))
+def test_a_bytes_value_is_refused_not_rendered_as_its_repr(name, value):
+    with pytest.raises(ParamError):
+        render_sql_with_params("a = :v", {"v": value}, renderer=query_params._RENDERERS[name])
+    with pytest.raises(ParamError):
+        render_sql_with_params("a = :v", {"v": ["ok", value]}, renderer=query_params._RENDERERS[name])
+
+
+# OData options text travels in a URL: requests drops everything after a '#'
+# (a fragment), and the server decodes '%00' to a NUL, where it may stop.
+# Either way a filter written after it is checked here and never applied.
+def _odata_urls(text):
+    """The URL each OData client builds from `text`, as requests sends it."""
+    import requests
+    from app.data_sources.clients.mecm_client import MecmClient
+    from app.data_sources.clients.priority_erp_client import PriorityErpClient
+    from app.data_sources.clients.sap_datasphere_client import SapDatasphereClient
+
+    sap = "https://dsp.example.com/api/v1/dwc/consumption/analytical/S/M/M"
+    sap += "?" + SapDatasphereClient._build_query_string(text, None, None, None, None)
+    priority = object.__new__(PriorityErpClient)
+    priority.service_root = "https://erp.example.com/odata/Priority/t.ini/c"
+    path, _, query_string = ("ORDERS?" + text).partition("?")
+    priority_url = f"{priority.service_root}/{path}?{query_string}"  # as execute_query and _get join it
+    mecm = object.__new__(MecmClient)
+    mecm.base_url = "https://cm.example.com/AdminService"
+    mecm._known = {}
+    path, query_string = mecm._resolve("SMS_R_System?" + text)
+    mecm_url = mecm._url(path) + "?" + query_string
+    return {
+        name: requests.Request("GET", url).prepare().path_url
+        for name, url in (("sap", sap), ("priority", priority_url), ("mecm", mecm_url))
+    }
+
+
+ODATA_END_TEMPLATES = [
+    "$select=Name#&$filter=Owner eq :me",
+    "$select=Name%00&$filter=Owner eq :me",
+    "$select=Name%00x&$filter=Owner eq :me",
+    "$filter=Owner eq :me&$select=Name#x",
+]
+
+
+@pytest.mark.parametrize("template", ODATA_END_TEMPLATES)
+def test_odata_params_are_refused_when_the_text_holds_a_fragment_mark_or_an_encoded_nul(template):
+    renderer = query_params._RENDERERS["odata"]
+    written = template.replace(":me", renderer.quote("alice"))
+    for name, path_url in _odata_urls(written).items():
+        if "#" in template:
+            assert "#" not in path_url, name
+            if template.index("#") < template.index(":me"):
+                assert "Owner" not in path_url, name  # the filter never reaches the server
+        else:
+            assert "%00" in path_url, name  # sent as is; the server decodes it to NUL
+    with pytest.raises(ParamError):
+        render_sql_with_params(template, {"me": "alice"}, renderer=renderer)
+    with pytest.raises(ParamError):
+        render_sql_with_params(template, {"me": 7}, renderer=renderer)
+
+
+def test_odata_params_still_render_without_a_fragment_mark_or_an_encoded_nul():
+    renderer = query_params._RENDERERS["odata"]
+    assert render_sql_with_params("$filter=Owner eq :me&$select=Pct%25", {"me": "a#b"}, renderer=renderer) == \
+        "$filter=Owner eq 'a%23b'&$select=Pct%25"
+    assert all("Owner" in url for url in _odata_urls("$filter=Owner eq 'a%23b'").values())
 
 
 # libpq and DuckDB read a query only up to its first NUL; the check reads
