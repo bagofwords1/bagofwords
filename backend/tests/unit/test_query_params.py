@@ -23,6 +23,7 @@ from app.ai.code_execution.query_params import (
     resolve_param_values,
     verify_identity_binds_in_queries,
 )
+from tests.unit.test_splunk_client import metering_on  # noqa: F401  (fixture)
 
 
 class FakeIdentity:
@@ -1044,7 +1045,32 @@ def test_an_odata_table_name_holding_a_fragment_mark_is_refused_before_it_is_sen
     # Configuration Manager and SAP Datasphere refuse the name itself first.
     assert error is not None and ("'#'" in str(error) or family != "PriorityErpClient")
     assert odata_http == []
-    assert queries == []  # the call raised before sending anything
+    assert [str(q) for q in queries] == [""]  # the statement the code wrote
+    assert _reads(queries) == []  # the call raised before sending anything
+
+
+def _reads(queries) -> list:
+    """What the identity check reads of each OData call: the requests it sent."""
+    return [str(r) for q in queries for r in q.identity_reads]
+
+
+# The Queries tab, the planner's observation and the tool audit show
+# `executed_queries`: for an OData call that is the query the code wrote,
+# whatever the identity check reads of the requests it sent.
+ODATA_TOP_FIVE = {"PriorityErpClient": "CUSTOMERS?$top=5", "MecmClient": "SMS_R_System?$top=5",
+                  "SapDatasphereClient": "$top=5"}
+
+
+@pytest.mark.parametrize("family", list(ODATA_TOP_FIVE))
+def test_an_odata_call_records_the_query_the_code_wrote(mode, odata_http, family):
+    import json
+
+    call = "return ds_clients['c']." + ODATA_CALL_WITH_OPTIONS[family].format(options="$top=5")
+    queries, timings, error = _run_capturing(_odata_client(family), call)
+    assert error is None and len(odata_http) == 1
+    assert json.loads(json.dumps(queries)) == [ODATA_TOP_FIVE[family]]
+    assert timings[0]["sql"] == ODATA_TOP_FIVE[family]
+    assert not _bound(queries)  # the request sent reads as blank: it restricts no rows
 
 
 def test_a_caught_odata_fragment_refusal_is_recorded_as_a_fixable_error(mode, odata_http):
@@ -1060,8 +1086,10 @@ def test_a_caught_odata_fragment_refusal_is_recorded_as_a_fixable_error(mode, od
     refused = timings[0]
     assert "'#'" in refused["error"] and refused["sql"] == "$select=Name#x"
     assert "refusal" not in refused  # a fixable error, not a security refusal
-    # The refused call raised before sending anything: it leaves no capture.
-    assert [str(q) for q in queries] == ["?$filter=OWNER eq 'alice'"]
+    # The refused call raised before sending anything: the identity check
+    # reads nothing of it.
+    assert [str(q) for q in queries] == ["$select=Name#x", "$filter=OWNER eq 'alice'"]
+    assert _reads(queries) == ["?$filter=OWNER eq 'alice'"]
 
 
 # What the identity check reads for these clients is each request as it
@@ -1107,7 +1135,7 @@ def test_a_datasphere_model_name_passed_as_the_statement_is_checked_on_the_reque
     client = _odata_client("SapDatasphereClient")
     queries, _, error = _run_capturing(client, f"return ds_clients['c'].execute_query('S/M', filter={FILTER_ME!r})")
     assert error is None and len(odata_http) == 1
-    assert [str(q) for q in queries] == ["?$filter=" + FILTER_ME]
+    assert [str(q) for q in queries] == ["S/M"] and _reads(queries) == ["?$filter=" + FILTER_ME]
     assert _bound(queries)
     del odata_http[:]
     queries, _, error = _run_capturing(client, "return ds_clients['c'].execute_query('S/M')")
@@ -1122,7 +1150,7 @@ def test_a_datasphere_parameter_value_that_cuts_the_request_fails_the_identity_c
     queries, _, error = _run_capturing(client, body.format(v="x" + mark + "y"))
     if mark == "#":
         # Not sent: the call raised, so it returned no rows and leaves no capture.
-        assert error is not None and "'#'" in str(error) and odata_http == [] and queries == []
+        assert error is not None and "'#'" in str(error) and odata_http == [] and _reads(queries) == []
     else:
         # Sent: the '?' ends the path, and the filter becomes part of an
         # option name the server does not read as a filter.
@@ -1244,11 +1272,36 @@ def test_an_identity_value_found_only_in_the_odata_request_root_is_not_a_bind(mo
     ("PriorityErpClient", "CUSTOMERS(SELECT 1)", False),
     ("MecmClient", "SMS_R_System('alice')", True),
     ("MecmClient", "SMS_R_System('x')", False),
+] + [("PriorityErpClient", target, False) for target in [
+    "(S(alice))/CUSTOMERS", "('alice')/CUSTOMERS", "CUSTOMERS/(S(alice))", "CUSTOMERS%3F$filter=(OWNER eq 'alice')",
+]] + [
+    ("MecmClient", "SMS_R_System/(S(alice))", False),
 ])
 def test_an_odata_key_predicate_in_the_path_is_read_as_a_row_filter(mode, odata_http, family, target, binds):
     queries, _, error = _run_capturing(_odata_client(family), f"return ds_clients['c'].execute_query({target!r})")
     assert error is None and len(odata_http) == 1
     assert _bound(queries) is binds
+
+
+# Only a path segment that is a name and one key predicate is read as a key.
+# Any other segment holding a parenthesis (ASP.NET's cookieless session
+# segment, a predicate with no name, an encoded '?') reads as blank.
+ODATA_PATH_PARENTHESES_NOT_A_KEY = [
+    "/(S(alice))/CUSTOMERS", "/('alice')/CUSTOMERS", "/CUSTOMERS/(S(alice))",
+    "/CUSTOMERS%3F$filter=(OWNER eq 'alice')", "/CUSTOMERS('x')" + chr(92) + "(S(alice))",
+    "/CUSTOMERS('alice'", "/CUSTOMERS)('alice')",
+]
+
+
+def test_an_odata_path_segment_with_parentheses_that_is_not_a_key_reads_as_blank():
+    from app.ai.code_execution.code_execution import _odata_request_texts
+
+    root = "/odata/Priority/t.ini/c"
+    for rest in ODATA_PATH_PARENTHESES_NOT_A_KEY:
+        assert _odata_request_texts(root + rest, root, True) == [""], rest
+    assert _odata_request_texts(root + "/CUSTOMERS('alice')", root, True) == ["/('alice')"]
+    assert _odata_request_texts(root + "/CUSTOMERS(CUSTNAME='alice')/ORDERS_SUBFORM", root, True) == \
+        ["/(CUSTNAME='alice')"]
 
 
 def test_a_datasphere_input_parameter_is_not_a_row_filter(mode, odata_http):
@@ -1299,7 +1352,6 @@ def test_an_odata_row_option_alone_in_a_loose_spelling_fails_the_identity_check(
     (family, options) for family in ODATA_FAMILIES
     for options in ["$filter=OWNER eq 'alice'", "%24filter=OWNER eq 'alice'", "$top=5&$filter=OWNER eq 'alice'"]
 ] + [
-    ("MecmClient", "$apply=filter(OWNER eq 'alice')"),
     ("SapDatasphereClient", "$apply=filter(OWNER eq 'alice')"),
 ])
 def test_an_odata_row_option_in_its_exact_name_binds(mode, odata_http, family, options):
@@ -1307,6 +1359,21 @@ def test_an_odata_row_option_in_its_exact_name_binds(mode, odata_http, family, o
     queries, _, error = _run_capturing(_odata_client(family), call.format(options=options))
     assert error is None and len(odata_http) == 1
     assert _bound(queries)
+
+
+# Configuration Manager's AdminService documents no $apply: a server that
+# ignores it returns every row. There $apply never binds, and it still counts
+# as a row option given twice.
+@pytest.mark.parametrize("options, binds", [
+    ("$apply=filter(OWNER eq 'alice')", False),
+    ("$filter=OWNER eq 'alice'&$apply=filter(OWNER eq 'alice')&$APPLY=filter(N gt 0)", False),
+    ("$filter=OWNER eq 'alice'&$apply=groupby((OWNER))", True),
+])
+def test_an_odata_apply_does_not_bind_on_configuration_manager(mode, odata_http, options, binds):
+    call = "return ds_clients['c']." + ODATA_CALL_WITH_OPTIONS["MecmClient"]
+    queries, _, error = _run_capturing(_odata_client("MecmClient"), call.format(options=options))
+    assert error is None and len(odata_http) == 1
+    assert _bound(queries) is binds
 
 
 # OData returns every top-level row whatever an $expand filters: a filter
@@ -1357,7 +1424,7 @@ def test_an_odata_path_with_an_encoded_dot_segment_is_refused_before_it_is_sent(
     # Configuration Manager refuses the class path itself first.
     assert error is not None and ("'.'" in str(error) or (family == "MecmClient" and "Invalid class path" in str(error)))
     assert odata_http == []
-    assert queries == []  # the call raised before sending anything
+    assert _reads(queries) == []  # the call raised before sending anything
 
 
 # A backslash dot segment with no '/' around it: the server reads the
@@ -1383,7 +1450,7 @@ def test_an_odata_path_with_a_backslash_dot_segment_is_refused_before_it_is_sent
     queries, _, error = _run_capturing(_odata_client(family), f"return ds_clients['c'].execute_query({target!r})")
     assert error is not None and ("'.'" in str(error) or (family == "MecmClient" and "Invalid class path" in str(error)))
     assert odata_http == []
-    assert queries == []
+    assert [str(q) for q in queries] == [target] and _reads(queries) == []
 
 
 @pytest.mark.parametrize("shape", ODATA_BACKSLASH_DOT_PATHS + ["{key}%2F%2E%2E%2F{entity}"])
@@ -1440,7 +1507,26 @@ def test_an_odata_backslash_dot_segment_never_reaches_the_server(mode, wire, sha
     queries, _, error = _run_capturing(client, f"return ds_clients['c'].execute_query({target!r})")
     assert [path for _, path, _ in seen] == []
     assert error is not None and "'.'" in str(error)
-    assert queries == []
+    assert [str(q) for q in queries] == [target] and _reads(queries) == []
+
+
+@pytest.mark.parametrize("target, binds", [
+    ("(S(alice))/CUSTOMERS", False), ("('alice')/CUSTOMERS", False), ("CUSTOMERS/(S(alice))", False),
+    ("CUSTOMERS%3F$filter=(OWNER eq 'alice')", False),
+    ("CUSTOMERS('alice')", True), ("CUSTOMERS(CUSTNAME='alice')/ORDERS_SUBFORM", True),
+])
+def test_a_parenthesised_path_segment_reaches_the_server_and_binds_only_as_a_key(mode, wire, target, binds):
+    from urllib.parse import unquote
+
+    from app.data_sources.clients.priority_erp_client import PriorityErpClient
+
+    root, seen = wire
+    client = PriorityErpClient(service_root=root, pat="token")
+    queries, _, error = _run_capturing(client, f"return ds_clients['c'].execute_query({target!r})")
+    assert error is None
+    paths = [unquote(path) for _, path, _ in seen]
+    assert len(paths) == 1 and "alice" in paths[0], paths  # sent as written
+    assert _bound(queries) is binds
 
 
 @pytest.mark.parametrize("url", ["https://[erp.example.com/c/CUSTOMERS?$skiptoken=2", "https://erp.example.com:x/c?$skiptoken=2"])
@@ -1510,7 +1596,7 @@ def _priority_answering_without_a_request():
     return Answering(service_root="https://erp.example.com/odata/Priority/t.ini/c", pat="token")
 
 
-def test_an_odata_call_that_raised_before_sending_leaves_no_capture(mode, odata_http):
+def test_an_odata_call_that_raised_before_sending_leaves_nothing_for_the_identity_check(mode, odata_http):
     body = (
         "try:\n"
         "    ds_clients['c'].execute_query('$top=1', 'Other/Model')\n"
@@ -1521,7 +1607,8 @@ def test_an_odata_call_that_raised_before_sending_leaves_no_capture(mode, odata_
     queries, timings, error = _run_capturing(_odata_client("SapDatasphereClient"), body)
     assert error is None and len(odata_http) == 1
     assert timings[0]["error"]  # the failed call is still recorded
-    assert [str(q) for q in queries] == ["?$filter=" + FILTER_ME]
+    assert [str(q) for q in queries] == ["$top=1", ""]  # the statements the code wrote
+    assert _reads(queries) == ["?$filter=" + FILTER_ME]
     assert _bound(queries)
 
 
@@ -1529,7 +1616,7 @@ def test_an_odata_call_that_returned_rows_without_sending_fails_the_identity_che
     queries, _, error = _run_capturing(_priority_answering_without_a_request(),
                                        f"return ds_clients['c'].execute_query({'CUSTOMERS?$filter=' + FILTER_ME!r})")
     assert error is None and odata_http == []
-    assert [str(q) for q in queries] == [""]
+    assert [str(q) for q in queries] == ["CUSTOMERS?$filter=" + FILTER_ME] and _reads(queries) == [""]
     assert not _bound(queries)
 
 
@@ -1610,6 +1697,95 @@ def test_a_datasphere_token_grant_is_not_read_as_a_query(mode, odata_http):
     queries, _, error = _run_capturing(client, f"return ds_clients['c'].execute_query(None, 'S/M', filter={FILTER_ME!r})")
     assert error is None and odata_http[0] == "https://auth.example.com/oauth/token" and len(odata_http) == 2
     assert _bound(queries)
+
+
+# A request the send check refuses was never sent: like a guard refusal, it
+# is not charged as a data query. The rate-limit request stays counted.
+@pytest.mark.db
+@pytest.mark.asyncio
+@pytest.mark.parametrize("target, charged", [
+    ("CUSTOMERS?$top=1&$select=NAME%00", 0),
+    ("CUSTOMERS('alice')/%2E%2E/ORDERS?$top=1", 0),
+    ("CUSTOMERS?$top=1", 1),
+])
+async def test_an_odata_request_refused_before_it_is_sent_is_not_charged(odata_http, metering_on, target, charged):
+    from app.ai.code_execution.code_execution import QueryCapturingClientWrapper
+    from app.dependencies import async_session_maker
+    from app.services.usage_policy_service import UsageLimitContext
+    from tests.unit.test_splunk_client import _metered_splunk, _usage_and_limiter
+
+    client = _odata_client("PriorityErpClient")
+    org_id, user_id, conn_id = await _metered_splunk(client)
+    ctx = UsageLimitContext(organization_id=org_id, user_id=user_id, source="agent",
+                            source_ref_id="run-1", session_maker=async_session_maker)
+    ctx.loop = asyncio.get_running_loop()
+    wrapper = QueryCapturingClientWrapper(client, [], [], usage_context=ctx, client_key="priority:1")
+    outcome = None
+    try:
+        await asyncio.to_thread(wrapper.execute_query, target)
+    except Exception as e:
+        outcome = e
+    await ctx.flush()
+    assert (outcome is None) is bool(charged), outcome
+    assert len(odata_http) == charged
+    assert await _usage_and_limiter(org_id, conn_id) == (charged, 1)
+
+
+@pytest.fixture
+def ntlm_http(monkeypatch, tmp_path):
+    """The transport under Configuration Manager's session, answering as an
+    NTLM server: a request with no credentials gets a 401, the negotiate leg
+    a challenge, the authenticate leg (checked by a real NTLM acceptor) the
+    rows. Records each request's URL as it reached the transport."""
+    import base64
+    import json
+
+    import requests
+    import spnego
+    from requests.adapters import HTTPAdapter
+
+    users = tmp_path / "ntlm-users"
+    users.write_text(":svc:pw\n")
+    monkeypatch.setenv("NTLM_USER_FILE", str(users))
+    sent = []
+    acceptor = {}
+
+    def send(adapter, request, **kwargs):
+        sent.append(request.url)
+        response = requests.Response()
+        response.url = request.url
+        response.request = request
+        response.connection = adapter
+        response.raw = type("Raw", (), {"release_conn": lambda self: None})()
+        auth = request.headers.get("Authorization", "")
+        token = base64.b64decode(auth[len("NTLM "):]) if auth.startswith("NTLM ") else None
+        if token is None:
+            response.status_code, response._content = 401, b""
+            response.headers["WWW-Authenticate"] = "NTLM"
+        elif "server" not in acceptor:
+            acceptor["server"] = spnego.server(protocol="ntlm")
+            challenge = acceptor["server"].step(token)
+            response.status_code, response._content = 401, b""
+            response.headers["WWW-Authenticate"] = "NTLM " + base64.b64encode(challenge).decode()
+        else:
+            acceptor.pop("server").step(token)  # raises unless the client signed in as svc
+            response.status_code = 200
+            response._content = json.dumps({"value": [{"OWNER": "bob", "N": 1}]}).encode()
+            response.headers["Content-Type"] = "application/json"
+        return response
+
+    monkeypatch.setattr(HTTPAdapter, "send", send)
+    return sent
+
+
+@pytest.mark.parametrize("options, binds", [("$filter=OWNER eq 'alice'", True), ("$top=5", False)])
+def test_an_ntlm_handshake_leaves_one_capture_per_configuration_manager_call(mode, ntlm_http, options, binds):
+    call = "return ds_clients['c']." + ODATA_CALL_WITH_OPTIONS["MecmClient"].format(options=options)
+    queries, timings, error = _run_capturing(_odata_client("MecmClient"), call)
+    assert error is None and len(ntlm_http) == 3  # the same request, once per handshake leg
+    assert [str(q) for q in queries] == ["SMS_R_System?" + options] and len(timings) == 1
+    assert len(_reads(queries)) == 1
+    assert _bound(queries) is binds
 
 
 def _sharepoint_list_client(items_seen: list):

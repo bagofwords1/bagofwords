@@ -1472,11 +1472,22 @@ def _rendered_needles(client_type: Optional[str], needles: List[str]) -> List[st
         return []
     out = []
     for needle in needles:
+        if renderer.name == "odata":
+            # An OData capture is the request as the server decodes it, '%'
+            # and '#' written back (odata_written_back): a quote stays doubled.
+            out.append("'" + odata_written_back(needle.replace("'", "''")) + "'")
         try:
             out.append(renderer.quote(needle))
         except ParamError:
             continue  # a value this connection cannot carry was never rendered
     return out
+
+
+def odata_written_back(text: str) -> str:
+    """Decoded OData text with '%' and '#' written back as %25 and %23, as
+    the OData captures hold it: the identity check reads them as the server
+    percent-decodes them."""
+    return text.replace("%", "%25").replace("#", "%23")
 
 
 def verify_identity_binds_in_queries(
@@ -1498,6 +1509,9 @@ def verify_identity_binds_in_queries(
     if not identity_specs:
         return None
     queries = [q for q in (captured_queries or []) if isinstance(q, str)]
+    # An OData call is read through the requests it sent (CapturedQuery.identity_reads).
+    queries = [read for q in queries
+               for read in ((q,) if getattr(q, "identity_reads", None) is None else q.identity_reads)]
     if any(getattr(q, "outside_root", False) for q in queries):
         return (
             "an executed request left the connection's configured path, so the identity check "

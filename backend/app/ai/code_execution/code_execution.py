@@ -80,8 +80,9 @@ QUERY_NOTICE_MAX_CHARS = 1000
 # (Priority answering a subform table through its parent's $expand) records the
 # request it actually sent here. The query wrapper copies it onto the query's
 # timing record as `sent_request`, which the Queries tab shows under the query
-# the agent wrote. The agent's own query stays in `executed_queries` untouched:
-# the identity-bind check reads that list.
+# the agent wrote. The agent's own query stays in `executed_queries` untouched;
+# the identity-bind check reads that list, and an OData call through the
+# requests it sent (CapturedQuery.identity_reads).
 SENT_REQUEST_ATTR = "bow_sent_request"
 SENT_REQUEST_MAX_CHARS = 1000
 
@@ -1016,11 +1017,12 @@ def _sends_odata(client) -> bool:
 
 # The query options that bear on which rows an OData server returns. Only
 # $filter and $apply restrict the top-level rows: a filter inside $expand
-# restricts the expanded rows only, so $expand never binds.
+# restricts the expanded rows only, so $expand never binds. $apply binds only
+# where the server applies it (see _odata_row_root).
 _ODATA_ROW_OPTIONS = frozenset({"$filter", "$expand", "$apply"})
-_ODATA_BINDING_OPTIONS = frozenset({"$filter", "$apply"})
-# A key predicate in the path: Orders('x'), Entity(KEY='x').
-_ODATA_KEY_RE = re.compile(r"\([^)]*\)")
+# A path segment that is a name and one key predicate: Orders('x'),
+# Entity(KEY='x'). Group 1 is the predicate.
+_ODATA_KEY_SEGMENT_RE = re.compile(r"[A-Za-z_][\w.]*(\([^()]*\))")
 
 
 # Dotless i and dotted capital I, which casefold does not turn into 'i' but
@@ -1054,12 +1056,14 @@ def _odata_path_url(url: str) -> str:
     return (parts.path or "/") + ("?" + parts.query if parts.query else "")
 
 
-def _odata_row_root(client) -> Tuple[Optional[str], bool]:
+def _odata_row_root(client) -> Tuple[Optional[str], bool, bool]:
     """The decoded URL path `client`'s data requests are made under (its
-    configured service root), and whether a key predicate in the path below
-    it restricts rows. SAP Datasphere's parenthesised path segment holds the
-    model's input parameters, not a row filter. None for a client this does
-    not know: every request it sends reads as blank."""
+    configured service root), whether a key predicate in the path below it
+    restricts rows, and whether $apply does. SAP Datasphere's parenthesised
+    path segment holds the model's input parameters, not a row filter; it is
+    the one client whose server applies $apply (Configuration Manager
+    documents none, and Priority's client refuses it). None for a client
+    this does not know: every request it sends reads as blank."""
     from urllib.parse import unquote, urlsplit
 
     from app.data_sources.clients.mecm_client import MecmClient
@@ -1067,22 +1071,26 @@ def _odata_row_root(client) -> Tuple[Optional[str], bool]:
     from app.data_sources.clients.sap_datasphere_client import SapDatasphereClient
 
     if isinstance(client, PriorityErpClient):
-        return unquote(urlsplit(client.service_root).path).rstrip("/"), True
+        return unquote(urlsplit(client.service_root).path).rstrip("/"), True, False
     if isinstance(client, MecmClient):
-        return unquote(urlsplit(client.base_url).path).rstrip("/"), True
+        return unquote(urlsplit(client.base_url).path).rstrip("/"), True, False
     if isinstance(client, SapDatasphereClient):
-        return unquote(client.consumption_path).rstrip("/"), False
-    return None, False
+        return unquote(client.consumption_path).rstrip("/"), False, True
+    return None, False, False
 
 
-def _odata_request_texts(path_url: str, root: Optional[str], keys: bool) -> Optional[List[str]]:
+def _odata_request_texts(path_url: str, root: Optional[str], keys: bool,
+                         apply_binds: bool = False) -> Optional[List[str]]:
     """What the identity check reads of one OData request as it was sent
     (`path_url`: path and query, no fragment): only text that restricts the
     top-level rows. That is each key predicate in the decoded path below
-    `root` (when `keys`; see _odata_row_root), then each $filter and $apply,
-    split on '&' and '=' before percent-decoding, as the server reads them;
-    never the root, entity set or model names, nor $expand. None for a
-    request outside `root`; a path with a dot segment reads as blank.
+    `root` (when `keys`; see _odata_row_root), then each $filter and (when
+    `apply_binds`) $apply, split on '&' and '=' before percent-decoding, as
+    the server reads them; never the root, entity set or model names, nor
+    $expand. None for a request outside `root`; a path with a dot segment
+    reads as blank. With `keys`, a key is read only from a path segment
+    (split on '/' and '\\') that is a name and one predicate; any other
+    segment holding a parenthesis makes the request read as blank.
     Only an option whose percent-decoded name is exactly '$filter' or
     '$apply' binds. A name a server may read as a row option in another
     spelling (_odata_option_name), or a row option given more than once,
@@ -1094,27 +1102,33 @@ def _odata_request_texts(path_url: str, root: Optional[str], keys: bool) -> Opti
     from collections import Counter
     from urllib.parse import unquote, unquote_plus
 
+    from app.ai.code_execution.query_params import odata_written_back
+
     path, _, query = path_url.partition("?")
     if _odata_dot_segment(path):
         return [""]
     path = unquote(path)
     if root is None or not (path == root or path.startswith(root + "/")):
         return None
-    found = _ODATA_KEY_RE.finditer(path[len(root):]) if keys else ()
-    key_text = "".join("/" + key.group(0) for key in found)
+    key_text = ""
+    for segment in re.split(r"[/\\]", path[len(root):]) if keys else ():
+        if "(" not in segment and ")" not in segment:
+            continue
+        key = _ODATA_KEY_SEGMENT_RE.fullmatch(segment)
+        if key is None:
+            return [""]
+        key_text += "/" + key.group(1)
+    binding = {"$filter", "$apply"} if apply_binds else {"$filter"}
     pairs = [pair.partition("=") for pair in query.split("&")] if query else []
     rows = [(unquote(name), _odata_option_name(name), value) for name, _, value in pairs]
     rows = [(raw, loose, value) for raw, loose, value in rows if loose in _ODATA_ROW_OPTIONS]
     loose_counts = Counter(loose for _, loose, _ in rows)
     exact = all(raw == loose for raw, loose, _ in rows) and all(n == 1 for n in loose_counts.values())
-    kept = [(raw, value) for raw, _, value in rows if raw in _ODATA_BINDING_OPTIONS] if exact else []
-
-    def escaped(text: str) -> str:
-        return text.replace("%", "%25").replace("#", "%23")
+    kept = [(raw, value) for raw, _, value in rows if raw in binding] if exact else []
 
     def text(decode) -> str:
-        options = "&".join(name + "=" + escaped(decode(value)) for name, value in kept)
-        return escaped(key_text) + ("?" + options if options else "")
+        options = "&".join(name + "=" + odata_written_back(decode(value)) for name, value in kept)
+        return odata_written_back(key_text) + ("?" + options if options else "")
 
     texts = [text(unquote)]
     if text(unquote_plus) != texts[0]:
@@ -1244,9 +1258,12 @@ class QueryCapturingClientWrapper:
         else:
             query, capture, unrendered_note = self._prepare_unguarded(query, kwargs)
         # The OData clients build their request from several arguments; what
-        # the identity check reads of their calls is each request as sent.
+        # the identity check reads of their calls is each request as sent
+        # (identity_reads: none until one is sent).
         odata = not guarded and _sends_odata(self._original)
+        reads = () if odata else None
         sent: List[str] = []
+        refused: List[BaseException] = []
         idx = len(self._captured_timings)
         _q_start = _time.monotonic()
         with _tracer.start_as_current_span("datasource.execute_query") as span:
@@ -1266,12 +1283,11 @@ class QueryCapturingClientWrapper:
                 try:
                     checked = ensure_read_only(self._original, query)
                 except ReadOnlyViolation as e:
-                    self._capture(capture)
+                    self._capture(capture, reads)
                     raise UnsafeSQLError(str(e)) from e
                 if guarded:
                     capture = self._guarded_capture(checked, kwargs)
-                if not odata:
-                    self._capture(capture)
+                captured = self._capture(capture, reads)
                 # The agent's table selection holds at query time, not only in
                 # the schema it is shown.
                 try:
@@ -1295,21 +1311,23 @@ class QueryCapturingClientWrapper:
                     returned = False
                     try:
                         result = self._call_with_timeout(
-                            checked, args, kwargs, self._odata_send_observer(sent) if odata else None)
+                            checked, args, kwargs, self._odata_send_observer(sent, refused) if odata else None)
                         returned = True
-                    except (UnsafeSQLError, TableAccessError):
+                    except Exception as e:
                         # Refused by the client's own check before the query
                         # ran (Splunk SPL stored in a dashboard or saved search
-                        # is only known there): the query is not charged. The
+                        # is only known there), or by the OData send check
+                        # with nothing sent: the query is not charged. The
                         # rate-limit request stays counted, as for any call
                         # that reached the client.
-                        self._refund_query_quota(usage_event)
+                        if isinstance(e, (UnsafeSQLError, TableAccessError)) or (refused and not sent):
+                            self._refund_query_quota(usage_event)
                         raise
                     finally:
                         # A call that raised before sending anything returned
-                        # no rows: it leaves no capture.
+                        # no rows: the identity check reads nothing of it.
                         if odata and (returned or sent):
-                            self._capture_sent(sent)
+                            captured.identity_reads = self._sent_reads(sent)
                 _q_ms = (_time.monotonic() - _q_start) * 1000.0
                 rows = len(result) if hasattr(result, '__len__') else None
                 result_bytes = estimate_result_size_bytes(result)
@@ -1436,13 +1454,15 @@ class QueryCapturingClientWrapper:
                               sort_keys=True, default=str, ensure_ascii=False)
         return statement
 
-    def _capture(self, capture) -> None:
+    def _capture(self, capture, identity_reads=None):
         # Tagged with the client family so the identity-bind check can parse
         # it in the right grammar (SQL dialect / SPL); still a str. A dict
         # statement is recorded as its JSON text, as for the structured
         # clients. Any other statement that is not text is recorded blank
         # (so is a dict JSON cannot hold): the client may still read a
         # request from it, and the identity check refuses a blank capture.
+        # Returns the capture, so an OData call can set what the identity
+        # check reads of it once its requests are sent.
         from app.ai.code_execution.identity_bind import CapturedQuery
         text = capture if isinstance(capture, str) else ""
         if isinstance(capture, dict):
@@ -1450,51 +1470,59 @@ class QueryCapturingClientWrapper:
                 text = json.dumps(capture, sort_keys=True, default=str, ensure_ascii=False)
             except (TypeError, ValueError, RecursionError):
                 text = ""
-        self._captured_queries.append(CapturedQuery(text, family_name(self._original)))
+        captured = CapturedQuery(text, family_name(self._original), identity_reads=identity_reads)
+        self._captured_queries.append(captured)
+        return captured
 
-    def _capture_sent(self, sent: List[str]) -> None:
-        """Capture each request an OData client sent (see _odata_request_texts),
-        or one blank capture when it sent none. A next page that only
-        continues the call's first request is read through that request
-        (_odata_next_page). A request outside the configured root is captured
-        blank and marked so (CapturedQuery.outside_root)."""
+    def _sent_reads(self, sent: List[str]) -> tuple:
+        """What the identity check reads of an OData call: each request it
+        sent (see _odata_request_texts), or one blank capture when it sent
+        none. A request sent again as it was (an NTLM handshake leg) is read
+        once. A next page that only continues the call's first request is
+        read through that request (_odata_next_page). A request outside the
+        configured root reads blank and is marked so
+        (CapturedQuery.outside_root)."""
         from app.ai.code_execution.identity_bind import CapturedQuery
-        root, keys = _odata_row_root(self._original)
-        urls = list(sent)
+        root, keys, apply_binds = _odata_row_root(self._original)
+        urls = [url for i, url in enumerate(sent) if not i or url != sent[i - 1]]
         captures = []
         for i, url in enumerate(urls):
             if i and _odata_next_page(url, urls[0]):
                 continue
-            texts = _odata_request_texts(_odata_path_url(url), root, keys)
+            texts = _odata_request_texts(_odata_path_url(url), root, keys, apply_binds)
             if texts is None:
                 captures.append(CapturedQuery("", family_name(self._original), outside_root=True))
             else:
                 captures.extend(CapturedQuery(text, family_name(self._original)) for text in texts)
-        self._captured_queries.extend(captures or [CapturedQuery("", family_name(self._original))])
+        return tuple(captures or [CapturedQuery("", family_name(self._original))])
 
-    def _odata_send_observer(self, sent: List[str]):
+    def _odata_send_observer(self, sent: List[str], refused: List[BaseException]):
         """Record the URL of every request the OData client sends, as it
         reaches the wire. A request whose URL holds a fragment mark (the
         client drops what follows it) or an encoded NUL, or whose decoded path
         has a '.' or '..' segment (the server resolves it, dropping what came
-        before), is not sent: the server would apply less than the code wrote.
-        The connection's own OAuth token grant reads no rows and is not
-        recorded."""
+        before), is not sent: the server would apply less than the code wrote;
+        the refusal is added to `refused`. The connection's own OAuth token
+        grant reads no rows and is not recorded."""
         from app.ai.code_execution.query_params import _ODATA_TEXT_END, ParamError
 
         token_url = getattr(self._original, "token_url", None)
+
+        def refuse(message: str) -> None:
+            refused.append(ParamError(message))
+            raise refused[-1]
 
         def observe(request) -> None:
             if (request.method == "POST" and isinstance(token_url, str)
                     and _same_endpoint(request.url or "", token_url)):
                 return
             if _ODATA_TEXT_END.search(request.url or ""):
-                raise ParamError(
+                refuse(
                     "OData options cannot hold '#' or '%00'; remove it "
                     "(write a literal '#' in a value as %23, or pass it as a parameter)"
                 )
             if _odata_dot_segment(request.path_url.partition("?")[0]):
-                raise ParamError(
+                refuse(
                     "OData request paths cannot hold a '.' or '..' segment, written plain or "
                     "percent-encoded; name the entity path directly"
                 )

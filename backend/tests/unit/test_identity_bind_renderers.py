@@ -17,6 +17,7 @@ from app.ai.code_execution.identity_bind import CapturedQuery
 from app.ai.code_execution.query_params import ParamError, render_sql_with_params, verify_identity_binds_in_queries
 from app.ai.code_execution.sql_guard import CLIENT_DIALECTS
 from app.schemas.param_schema import ParamSpec
+from tests.unit.test_query_params import _odata_client, _run_capturing, mode, odata_http  # noqa: F401  (fixtures)
 
 BACKSLASH = chr(92)
 IDENTITIES = ["it's", "DOMAIN" + BACKSLASH + "user", 'a"b', "x" + BACKSLASH]
@@ -93,12 +94,28 @@ def test_a_splunk_field_filter_on_a_negative_identity_number_binds():
     assert _verdict(SPL_SCOPED, "SplunkClient", -5) is None
 
 
-@pytest.mark.parametrize("value", IDENTITIES + ["alice@example.com", "a&b"])
-@pytest.mark.parametrize("family", ["PriorityErpClient", "SapDatasphereClient", "MecmClient"])
-def test_an_odata_filter_binds_the_identity_it_was_rendered_with_and_not_another(family, value):
-    template = "$filter=Owner eq :v&$top=5"
-    assert _verdict(template, family, value) is None
-    assert verify_identity_binds_in_queries([_capture(template, family, "someone@else")], {"v": value}, SPEC) is not None
+# The OData clients are checked on the requests they send: the real clients
+# run, with only the transport under their sessions stubbed.
+ODATA_IDENTITIES = IDENTITIES + [
+    "alice@example.com", "a&b", "100%", "a+b", "O'Brien", "".join(chr(c) for c in (0x5D3, 0x5E0, 0x5D4)),
+]
+ODATA_PARAM_CALLS = {
+    "PriorityErpClient": "execute_query('CUSTOMERS?$filter=Owner eq :v&$top=5', params={{'v': {v!r}}})",
+    "MecmClient": "execute_query('SMS_R_System?$filter=Owner eq :v&$top=5', params={{'v': {v!r}}})",
+    "SapDatasphereClient": "execute_query('$filter=Owner eq :v&$top=5', 'S/M', params={{'v': {v!r}}})",
+}
+
+
+@pytest.mark.parametrize("value", ODATA_IDENTITIES)
+@pytest.mark.parametrize("family", list(ODATA_PARAM_CALLS))
+def test_an_odata_filter_binds_the_identity_it_was_rendered_with_and_not_another(mode, odata_http, family, value):
+    client = _odata_client(family)
+    queries, _, error = _run_capturing(client, "return ds_clients['c']." + ODATA_PARAM_CALLS[family].format(v=value))
+    assert error is None and len(odata_http) == 1
+    assert verify_identity_binds_in_queries(queries, {"v": value}, SPEC) is None
+    queries, _, error = _run_capturing(client, "return ds_clients['c']." + ODATA_PARAM_CALLS[family].format(v="someone@else"))
+    assert error is None and len(odata_http) == 2
+    assert verify_identity_binds_in_queries(queries, {"v": value}, SPEC) is not None
 
 
 @pytest.mark.parametrize("value", IDENTITIES)

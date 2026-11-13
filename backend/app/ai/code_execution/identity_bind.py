@@ -62,19 +62,25 @@ class CapturedQuery(str):
     """An executed query's text, tagged with the client class that ran it so
     the identity check can pick the right grammar. Behaves as a plain ``str``
     everywhere else (equality, JSON, logging). `outside_root` marks the blank
-    capture of a request that left the connection's configured path."""
+    capture of a request that left the connection's configured path.
+    `identity_reads`, when not None, is what the identity check reads instead
+    of the text: for an OData call, one capture per request it sent (the text
+    stays the query the code wrote, which users and the audit see)."""
 
     client_type: Optional[str]
     outside_root: bool
+    identity_reads: Optional[Tuple["CapturedQuery", ...]]
 
-    def __new__(cls, text: str, client_type: Optional[str] = None, outside_root: bool = False):
+    def __new__(cls, text: str, client_type: Optional[str] = None, outside_root: bool = False,
+                identity_reads: Optional[Tuple["CapturedQuery", ...]] = None):
         obj = super().__new__(cls, text)
         obj.client_type = client_type
         obj.outside_root = outside_root
+        obj.identity_reads = identity_reads
         return obj
 
     def __reduce__(self):
-        return (CapturedQuery, (str(self), self.client_type, self.outside_root))
+        return (CapturedQuery, (str(self), self.client_type, self.outside_root, self.identity_reads))
 
 
 def _matches(text: str, needles: Tuple[str, ...], fold: bool = False) -> bool:
