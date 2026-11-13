@@ -4160,6 +4160,11 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "Dokumentbibliotekets namn, eller * för alla synliga bibliotek. Ett tomt fält väljer standardbiblioteket endast i läget Modern REST."
     },
+    "athena": {
+      "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
+      "tableExcludeTitle": "Table Exclude Pattern",
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+    },
     "qlikOnPrem": {
       "appFilterTitle": "Appfilter",
       "appFilterDescription": "Valfria kommaseparerade appnamn eller ID:n inom valda strömmar. Tomt inkluderar alla matchande appar. Använd ID:n för namn med kommatecken.",
@@ -4304,6 +4309,8 @@
     "shell_confirmation.invalid_scope": "Ogiltig behörighetsomfattning.",
     "shell_confirmation.report_required": "Sessionsbehörigheter kräver en rapport.",
     "shell_confirmation.rule_mismatch": "Ogiltig kommandoregel, eller mönstret matchar inte det här kommandot.",
+    "connection.config_invalid": "Invalid connection configuration: {detail}",
+    "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
     "catalog_discovery_incomplete": "Kataloguppdateringen misslyckades eftersom identifieringen var ofullständig. Den tidigare katalogen och tabellvalen behölls.",
     "saml_unavailable": "SSO-konfigurationen är inte tillgänglig. Kontakta administratören.",
     "saml_login_failed": "SSO-inloggningen misslyckades. Försök igen eller kontakta administratören.",

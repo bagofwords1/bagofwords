@@ -4668,6 +4668,11 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "Document library name, or * for all visible libraries. Blank selects the default library in Modern REST mode only."
     },
+    "athena": {
+      "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
+      "tableExcludeTitle": "Table Exclude Pattern",
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+    },
     "qlikOnPrem": {
       "appFilterTitle": "App Filter",
       "appFilterDescription": "Optional comma-separated app names or IDs, within the selected streams. Empty includes all matching apps. Use IDs for names containing commas.",
@@ -4817,6 +4822,8 @@
     "shell_confirmation.invalid_scope": "Invalid permission scope.",
     "shell_confirmation.report_required": "Session permissions require a report.",
     "shell_confirmation.rule_mismatch": "Invalid command rule, or the pattern does not match this command.",
+    "connection.config_invalid": "Invalid connection configuration: {detail}",
+    "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
     "catalog_discovery_incomplete": "Catalog refresh failed because discovery was incomplete. The previous catalog and table selections were retained.",
     "saml_unavailable": "SSO configuration is unavailable. Contact your administrator.",
     "saml_login_failed": "SSO sign-in failed. Try again or contact your administrator.",

@@ -4606,6 +4606,11 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "Nombre de la biblioteca de documentos, o * para todas las bibliotecas visibles. Dejarlo vacío selecciona la biblioteca predeterminada solo en el modo REST moderno."
     },
+    "athena": {
+      "databaseDescription": "Un nombre de base de datos de Glue, o una lista separada por comas de nombres, patrones glob y exclusiones con !, para indexar varias, p. ej. *_db, !billing_db, analytics_history. Con varias, las tablas se llaman base_de_datos.tabla.",
+      "tableExcludeTitle": "Patrón de exclusión de tablas",
+      "tableExcludeDescription": "Expresión regular opcional; las tablas cuyo nombre coincida no se indexan, p. ej. ^day_\\d{'{'}2{'}'}. Al cambiarla, en la siguiente indexación se eliminan las tablas recién excluidas y su selección en el agente."
+    },
     "qlikOnPrem": {
       "appFilterTitle": "Filtro de aplicaciones",
       "appFilterDescription": "Nombres o ID de aplicaciones separados por comas, dentro de los streams seleccionados. Vacío incluye todas las aplicaciones coincidentes. Use ID para nombres con comas.",
@@ -4755,6 +4760,8 @@
     "shell_confirmation.invalid_scope": "Alcance de permiso no válido.",
     "shell_confirmation.report_required": "Los permisos de sesión requieren un informe.",
     "shell_confirmation.rule_mismatch": "Regla de comando no válida, o el patrón no coincide con este comando.",
+    "connection.config_invalid": "Configuración de conexión no válida: {detail}",
+    "connection.athena_mode_switch": "Una conexión de Athena no puede cambiar entre una base de datos y varias. Crea una conexión nueva.",
     "catalog_discovery_incomplete": "La actualización del catálogo falló porque la detección quedó incompleta. Se conservaron el catálogo anterior y las selecciones de tablas.",
     "saml_unavailable": "La configuración de SSO no está disponible. Contacta con tu administrador.",
     "saml_login_failed": "Error al iniciar sesión con SSO. Inténtalo de nuevo o contacta con tu administrador.",

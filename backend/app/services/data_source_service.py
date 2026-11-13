@@ -9,6 +9,7 @@ from app.models.user import User
 logger = logging.getLogger(__name__)
 from app.models.organization import Organization
 from app.models.data_source import DataSource
+from app.errors import AppError
 from app.errors.redact import redact_error
 from app.core.egress import acheck_connection_params as _acheck_connection_destination
 from app.schemas.data_source_registry import (
@@ -776,8 +777,9 @@ class DataSourceService:
             # Extract connection-related fields
             ds_type = data_source_dict.pop("type", None)
             # Save-time guards (the validation above is skipped for user_required).
-            from app.services.connection_service import _check_network_dir_root, _reject_unsafe_google_keys
+            from app.services.connection_service import _check_network_dir_root, _reject_unsafe_google_keys, _validate_connection_config
             _check_network_dir_root(ds_type, config)
+            _validate_connection_config(ds_type, config)
             _reject_unsafe_google_keys(credentials)
             allowed_user_auth_modes = data_source_dict.pop("allowed_user_auth_modes", None)
 
@@ -2587,7 +2589,9 @@ class DataSourceService:
                 _check_network_dir_root,
                 _check_tool_provider_url,
                 _reject_unsafe_google_keys,
+                _validate_connection_config,
             )
+            _validate_connection_config(data_source_type, config)
             try:
                 _check_tool_provider_url(data_source_type, config)
                 _check_network_dir_root(data_source_type, config)
@@ -2638,11 +2642,12 @@ class DataSourceService:
             
             table_count = schema_status.get("table_count", 0)
             from app.services.connection_service import _connected_message
+            from app.data_sources.clients.progress import unreadable_note
             message = _connected_message(
                 data_source_type, table_count,
                 approximate=bool(schema_status.get("table_count_approximate")),
                 config=config,
-            )
+            ) + unreadable_note(schema_status.get("unreadable"))
             return {
                 "success": True,
                 "message": message,
@@ -2650,6 +2655,8 @@ class DataSourceService:
                 "schema_access": True,
                 "table_count": table_count,
             }
+        except AppError:
+            raise
         except Exception as e:
             return {
                 "success": False,
@@ -2672,6 +2679,7 @@ class DataSourceService:
                 VALIDATION_FILE_CAP,
                 _acount_files_for_validation,
                 _acount_tables_for_validation,
+                _unreadable_after_count,
             )
             file_count = await _acount_files_for_validation(
                 client, limit=VALIDATION_FILE_CAP
@@ -2686,6 +2694,7 @@ class DataSourceService:
             # Tabular sources that can count from a catalog view skip the full
             # column introspection — the test only needs the count.
             table_count = await _acount_tables_for_validation(client)
+            unreadable = _unreadable_after_count(client) if table_count is not None else []
             if table_count is None:
                 # Try aget_schemas first (most clients), fall back to get_tables
                 tables = None
@@ -2708,6 +2717,7 @@ class DataSourceService:
             return {
                 "success": True,
                 "table_count": table_count,
+                "unreadable": unreadable,
             }
         except Exception as e:
             return {

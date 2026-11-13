@@ -4160,6 +4160,11 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "Nom de la bibliothèque de documents, ou * pour toutes les bibliothèques visibles. Un champ vide sélectionne la bibliothèque par défaut uniquement en mode REST moderne."
     },
+    "athena": {
+      "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
+      "tableExcludeTitle": "Table Exclude Pattern",
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+    },
     "qlikOnPrem": {
       "appFilterTitle": "Filtre des applications",
       "appFilterDescription": "Noms ou identifiants séparés par des virgules, dans les flux sélectionnés. Vide inclut toutes les applications correspondantes. Utilisez les identifiants pour les noms contenant des virgules.",
@@ -4304,6 +4309,8 @@
     "shell_confirmation.invalid_scope": "Portée d'autorisation non valide.",
     "shell_confirmation.report_required": "Les autorisations de session nécessitent un rapport.",
     "shell_confirmation.rule_mismatch": "Règle de commande non valide, ou le motif ne correspond pas à cette commande.",
+    "connection.config_invalid": "Invalid connection configuration: {detail}",
+    "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
     "catalog_discovery_incomplete": "L’actualisation du catalogue a échoué car la découverte était incomplète. Le catalogue précédent et les sélections de tables ont été conservés.",
     "saml_unavailable": "La configuration SSO est indisponible. Contactez votre administrateur.",
     "saml_login_failed": "La connexion SSO a échoué. Réessayez ou contactez votre administrateur.",

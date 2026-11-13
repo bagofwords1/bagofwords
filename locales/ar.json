@@ -4160,6 +4160,11 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "اسم مكتبة المستندات، أو * لجميع المكتبات المرئية. يؤدي تركه فارغًا إلى اختيار المكتبة الافتراضية في وضع REST الحديث فقط."
     },
+    "athena": {
+      "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
+      "tableExcludeTitle": "Table Exclude Pattern",
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+    },
     "qlikOnPrem": {
       "appFilterTitle": "تصفية التطبيقات",
       "appFilterDescription": "أسماء التطبيقات أو معرّفاتها مفصولة بفواصل ضمن التدفقات المحددة. يشمل الحقل الفارغ جميع التطبيقات المطابقة. استخدم المعرّفات للأسماء التي تحتوي على فواصل.",
@@ -4304,6 +4309,8 @@
     "shell_confirmation.invalid_scope": "نطاق إذن غير صالح.",
     "shell_confirmation.report_required": "تتطلب أذونات الجلسة تقريرًا.",
     "shell_confirmation.rule_mismatch": "قاعدة أمر غير صالحة، أو أن النمط لا يطابق هذا الأمر.",
+    "connection.config_invalid": "Invalid connection configuration: {detail}",
+    "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
     "catalog_discovery_incomplete": "فشل تحديث الكتالوج لأن الاكتشاف لم يكتمل. تم الاحتفاظ بالكتالوج السابق واختيارات الجداول.",
     "saml_unavailable": "إعدادات تسجيل الدخول الموحد غير متاحة. تواصل مع المسؤول.",
     "saml_login_failed": "فشل تسجيل الدخول الموحد. أعد المحاولة أو تواصل مع المسؤول.",

@@ -193,3 +193,7 @@ class ErrorCode(str, Enum):
     SHELL_CONFIRMATION_RULE_MISMATCH = "shell_confirmation.rule_mismatch"
 
     SSH_KEY_DISCOVERY_FAILED = "ssh.key_discovery_failed"
+
+    # Connections
+    CONNECTION_CONFIG_INVALID = "connection.config_invalid"
+    CONNECTION_ATHENA_MODE_SWITCH = "connection.athena_mode_switch"
