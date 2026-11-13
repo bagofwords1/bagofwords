@@ -81,7 +81,9 @@ const props = defineProps<{
   forcedStepKey?: 'onboarding'|'llm_configured'|'data_source_created'|'schema_selected'|'instructions_added',
   forceCompleted?: boolean,
   hideNextButton?: boolean,
-  hideSidebar?: boolean
+  hideSidebar?: boolean,
+  // Awaited before navigating on "Next" (e.g. to save a choice made on this step).
+  beforeNext?: () => Promise<void> | void
 }>()
 
 const router = useRouter()
@@ -309,7 +311,10 @@ async function skipForNow() {
   router.push('/')
 }
 
-function goToNextStep() {
+async function goToNextStep() {
+  if (props.beforeNext) {
+    try { await props.beforeNext() } catch (_) { /* never block onboarding */ }
+  }
   const next = nextRouteForStep()
   router.push(next)
 }

@@ -47,6 +47,12 @@
           <input id="password" v-model="password" type="password" autocomplete="new-password" :class="inputClass" />
         </div>
 
+        <ProductUpdatesOptIn
+          v-if="productUpdatesPrompt"
+          v-model="productUpdates"
+          class="mt-4"
+        />
+
         <button type="submit" :disabled="isSubmitting" :class="primaryButtonClass">
           <template v-if="isSubmitting">
             <Spinner class="h-3.5 w-3.5 me-2" />
@@ -78,6 +84,7 @@
 import qs from 'qs'
 import { ref, computed, onMounted } from 'vue'
 import Spinner from '~/components/Spinner.vue'
+import ProductUpdatesOptIn from '~/components/ProductUpdatesOptIn.vue'
 import { definePageMeta, useAuth, useRuntimeConfig, useRoute } from '#imports'
 const { t } = useI18n()
 const { rawToken } = useAuthState()
@@ -118,6 +125,10 @@ const isSubmitting = ref(false)
 const authMode = ref<'hybrid'|'local_only'|'sso_only'>('hybrid')
 // No user has claimed this instance yet: this signup bootstraps the admin.
 const setupRequired = ref(false)
+// The instance's first user may opt in to product updates. Unticked by
+// default, and only sent in the register payload when the checkbox is shown.
+const productUpdatesPrompt = ref(false)
+const productUpdates = ref(false)
 
 const showCredentials = computed(() => authMode.value !== 'sso_only')
 const showSso = computed(() =>
@@ -179,6 +190,7 @@ onMounted(async () => {
     }
     googleSignIn.value = settings?.google_oauth?.enabled ?? false
     setupRequired.value = settings?.setup_required ?? false
+    productUpdatesPrompt.value = settings?.product_updates_prompt ?? false
   } catch (_) {}
   const emailFromQuery = route.query.email as string
   if (emailFromQuery) {
@@ -230,13 +242,16 @@ async function signInWithCredentials(email: string, password: string) {
 async function submit() {
 isSubmitting.value = true
 error_message.value = ''
-const payload: Record<string, string> = {
+const payload: Record<string, string | boolean> = {
   name: name.value,
   email: email.value,
   password: password.value
 }
 if (inviteToken.value) {
   payload.invite_token = inviteToken.value
+}
+if (productUpdatesPrompt.value) {
+  payload.product_updates = productUpdates.value
 }
 
 try {

@@ -92,6 +92,7 @@ from app.routes import (
     branding,
     metadata_resource,
     bow_settings,
+    product_updates,
     external_platform,
     external_user_mapping,
     slack_webhook,
@@ -338,6 +339,7 @@ app.include_router(organization_settings.router, prefix="/api")
 app.include_router(branding.router, prefix="/api")
 app.include_router(metadata_resource.router, prefix="/api")
 app.include_router(bow_settings.router, prefix="/api")
+app.include_router(product_updates.router, prefix="/api")
 app.include_router(changelog.router, prefix="/api")
 app.include_router(external_platform.router, prefix="/api")
 app.include_router(external_user_mapping.router, prefix="/api")

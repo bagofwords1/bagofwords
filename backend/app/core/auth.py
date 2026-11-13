@@ -755,7 +755,17 @@ class UserManager(BaseUserManager[User, str]):
         
         # Call parent create method
         user = await super().create(user_create, safe, request)
-        
+
+        # First user's product-updates checkbox (best-effort: never fails sign-up).
+        opted_in = getattr(user_create, "product_updates", None)
+        if opted_in is not None:
+            try:
+                from app.services.product_updates_service import record_signup_choice
+                async with self.user_db.session as session:
+                    await record_signup_choice(session, user, opted_in)
+            except Exception:
+                logger.exception("product_updates: failed to record sign-up choice")
+
         return user
 
     async def _validate_user_creation(self, user_create: UserCreate) -> None:

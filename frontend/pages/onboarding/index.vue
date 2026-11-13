@@ -9,7 +9,7 @@
           </div>
         </div>
         <div v-else key="content">
-          <OnboardingView forcedStepKey="onboarding" :hideNextButton="false" :hideSidebar="true">
+          <OnboardingView forcedStepKey="onboarding" :hideNextButton="false" :hideSidebar="true" :beforeNext="saveProductUpdates">
             <template #onboarding>
               <div>
                 <div class="mb-5">
@@ -20,6 +20,15 @@
                     {{ $t('onboarding.intro2') }}
                   </p>
                 </div>
+                <!-- The first admin who signed up through SSO never saw the
+                     sign-up checkbox: ask once here. "Skip" sends nothing. -->
+                <ProductUpdatesOptIn
+                  v-if="productUpdatesAsk"
+                  v-model="productUpdates"
+                  :email="productUpdatesEmail"
+                  input-id="onboarding-product-updates"
+                  class="mt-2"
+                />
               </div>
 
             </template>
@@ -38,13 +47,39 @@
 definePageMeta({ auth: true, layout: 'users' })
 import OnboardingView from '@/components/onboarding/OnboardingView.vue'
 import Spinner from '@/components/Spinner.vue'
+import ProductUpdatesOptIn from '@/components/ProductUpdatesOptIn.vue'
 const { updateOnboarding } = useOnboarding()
 const router = useRouter()
 const { fetchOnboarding, onboarding } = useOnboarding()
 const loading = ref(true)
+const productUpdatesAsk = ref(false)
+const productUpdates = ref(false)
+const productUpdatesEmail = ref<string | null>(null)
+
+async function loadProductUpdates() {
+  try {
+    // 403 for non-admins; unavailable when telemetry is off or on the cloud.
+    const resp = await useMyFetch('/api/product-updates')
+    const s = resp.data.value as { available?: boolean; decided?: boolean; current_user_email?: string } | null
+    if (resp.status.value === 'success' && s?.available && !s.decided) {
+      productUpdatesAsk.value = true
+      productUpdatesEmail.value = s.current_user_email ?? null
+    }
+  } catch (_) {}
+}
+
+async function saveProductUpdates() {
+  if (!productUpdatesAsk.value) return
+  await useMyFetch('/api/product-updates', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ opted_in: productUpdates.value, source: 'onboarding' }),
+  })
+}
+
 onMounted(async () => {
   try {
-    await fetchOnboarding()
+    await Promise.all([fetchOnboarding(), loadProductUpdates()])
   } finally {
     loading.value = false
   }

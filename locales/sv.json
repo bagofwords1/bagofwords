@@ -7147,5 +7147,15 @@
     "addIncomplete": "Vissa medlemskap eller behörigheter kunde inte sparas. Granska listan och försök igen.",
     "added": "Medlemmar tillagda",
     "addFailed": "Kunde inte lägga till medlemmar"
+  },
+  "productUpdates": {
+    "checkbox": "Skicka produktnyheter och versionsinformation till mig",
+    "checkboxWithEmail": "Skicka produktnyheter och versionsinformation till {email}",
+    "disclosure": "Din e-postadress kopplas till den här instansens anonyma användningsdata. Avsluta prenumerationen när som helst.",
+    "settingsTitle": "Produktnyheter",
+    "settingsHint": "Versionsinformation, säkerhetsuppdateringar och produktnyheter från Bag of Words.",
+    "toggleLabel": "Mejla mig produktnyheter",
+    "sentTo": "Skickas till {email}.",
+    "notSubscribed": "Av. Om du slår på detta skickas {email} till Bag of Words."
   }
 }

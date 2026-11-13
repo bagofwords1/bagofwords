@@ -7900,5 +7900,15 @@
     "addIncomplete": "Some memberships or permissions could not be saved. Review the member list and retry.",
     "added": "Members added",
     "addFailed": "Failed to add members"
+  },
+  "productUpdates": {
+    "checkbox": "Send me product updates and release notes",
+    "checkboxWithEmail": "Send product updates and release notes to {email}",
+    "disclosure": "Your email is linked to this instance's anonymous usage data. Unsubscribe anytime.",
+    "settingsTitle": "Product updates",
+    "settingsHint": "Release notes, security updates and product news from Bag of Words.",
+    "toggleLabel": "Email me product updates",
+    "sentTo": "Sent to {email}.",
+    "notSubscribed": "Off. Turning this on sends {email} to Bag of Words."
   }
 }

@@ -7147,5 +7147,15 @@
     "addIncomplete": "Einige Mitgliedschaften oder Berechtigungen konnten nicht gespeichert werden. Liste prüfen und erneut versuchen.",
     "added": "Mitglieder hinzugefügt",
     "addFailed": "Mitglieder konnten nicht hinzugefügt werden"
+  },
+  "productUpdates": {
+    "checkbox": "Produktneuigkeiten und Versionshinweise an mich senden",
+    "checkboxWithEmail": "Produktneuigkeiten und Versionshinweise an {email} senden",
+    "disclosure": "Ihre E-Mail-Adresse wird mit den anonymen Nutzungsdaten dieser Instanz verknüpft. Abmeldung jederzeit möglich.",
+    "settingsTitle": "Produktneuigkeiten",
+    "settingsHint": "Versionshinweise, Sicherheitsupdates und Produktneuigkeiten von Bag of Words.",
+    "toggleLabel": "Produktneuigkeiten per E-Mail erhalten",
+    "sentTo": "Wird an {email} gesendet.",
+    "notSubscribed": "Aus. Beim Einschalten wird {email} an Bag of Words gesendet."
   }
 }
