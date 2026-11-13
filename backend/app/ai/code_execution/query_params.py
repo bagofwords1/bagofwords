@@ -19,9 +19,10 @@ import ast
 import hashlib
 import json
 import re
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from app.schemas.param_schema import (
     IDENTITY_ATTR_PREFIX,
@@ -287,25 +288,258 @@ def missing_required_inputs(specs: List[ParamSpec], values: Optional[Dict[str, A
 # ---------------------------------------------------------------------------
 # Safe SQL rendering
 # ---------------------------------------------------------------------------
+#
+# A string value is written the way the connection's engine reads a string
+# literal (a `LiteralRenderer`), so it reaches the engine as one string with
+# exactly that value. SQL dialects use sqlglot's literal generator for the
+# dialect, which its tokenizer (the reading the guard and table scope use)
+# reads back as the value; a few engines override it. Connections without a
+# sqlglot dialect have their own rule and scanner. Which renderer a client
+# gets is declared by type in `client_profiles`.
 
-# Clients whose string literals treat backslash as an escape character by
-# default; both ' and \ must be escaped there.
-_BACKSLASH_DIALECT_CLIENTS = {"MysqlClient", "MariadbClient", "MariaDBClient"}
+@dataclass(frozen=True)
+class LiteralRenderer:
+    """How one engine writes a string literal.
 
-# T-SQL clients: a plain 'literal' is a varchar in the database's default
-# collation, so any character outside that code page is silently replaced by
-# '?' at parse time (a Hebrew value on a SQL_Latin1_General database becomes
-# '???' and matches nothing). Non-ASCII strings must be N'literal' (nvarchar)
-# there. ASCII stays plain so comparisons against varchar columns keep their
-# type and index behaviour.
-_UNICODE_PREFIX_CLIENTS = {"MSSQLClient", "MsFabricClient"}
+    quote: the value as a complete literal (delimiters and any prefix).
+    string_spans: (start, end) of every string literal in a statement, end
+    exclusive; a literal left open runs to the end of the text.
+    decode: a literal's body (between its delimiters) as the value the
+    engine reads; the inverse of the body `quote` writes.
+    """
+
+    name: str
+    quote: Callable[[str], str]
+    string_spans: Callable[[str], List[Tuple[int, int]]]
+    decode: Callable[[str], str]
+
+
+_STRING_TOKEN_NAMES = frozenset({
+    "STRING", "NATIONAL_STRING", "HEREDOC_STRING", "RAW_STRING", "BYTE_STRING",
+    "BIT_STRING", "HEX_STRING", "UNICODE_STRING",
+})
+
+
+def _sqlglot_spans(dialect: str) -> Callable[[str], List[Tuple[int, int]]]:
+    def spans(sql: str) -> List[Tuple[int, int]]:
+        import sqlglot
+
+        try:
+            tokens = sqlglot.tokenize(sql, read=dialect)
+        except Exception as exc:
+            # Strings that cannot be told apart from the rest: no placeholder
+            # can be shown to sit outside one.
+            raise ParamError("the query's quoted strings could not be read, so parameters cannot be placed") from exc
+        return [(t.start, t.end + 1) for t in tokens if t.token_type.name in _STRING_TOKEN_NAMES]
+    return spans
+
+
+def _sqlglot_decode(dialect: str) -> Callable[[str], str]:
+    def decode(body: str) -> str:
+        import sqlglot
+
+        tokens = sqlglot.tokenize("'" + body + "'", read=dialect)
+        if len(tokens) != 1 or tokens[0].token_type.name not in _STRING_TOKEN_NAMES:
+            raise ParamError("not the body of one string literal")
+        return tokens[0].text
+    return decode
+
+
+def _sqlglot_quote(dialect: str) -> Callable[[str], str]:
+    def quote(value: str) -> str:
+        from sqlglot import exp
+
+        return exp.Literal.string(value).sql(dialect=dialect)
+    return quote
+
+
+def _doubled(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _refuse_backslash(engine: str) -> Callable[[str], str]:
+    def quote(value: str) -> str:
+        if "\\" in value:
+            raise ParamError(
+                f"a parameter value containing a backslash cannot be passed to {engine} safely"
+            )
+        return _doubled(value)
+    return quote
+
+
+def _mysql_quote(value: str) -> str:
+    # Backslash is an escape character in MySQL / MariaDB string literals.
+    return "'" + value.replace("'", "''").replace("\\", "\\\\") + "'"
+
+
+def _national_when_needed(value: str) -> str:
+    # T-SQL: a plain 'literal' is a varchar in the database's default
+    # collation, so any character outside that code page is silently replaced
+    # by '?' at parse time (a Hebrew value on a SQL_Latin1_General database
+    # becomes '???' and matches nothing). Non-ASCII strings must be
+    # N'literal' (nvarchar) there. ASCII stays plain so comparisons against
+    # varchar columns keep their type and index behaviour.
+    return ("" if value.isascii() else "N") + _doubled(value)
+
+
+def _scanned_spans(quotes: str, backslash: bool) -> Callable[[str], List[Tuple[int, int]]]:
+    """Literal spans for a grammar without a sqlglot dialect: strings open with
+    one of `quotes` and close with the same character, which is escaped by
+    doubling it or (when `backslash`) by a preceding backslash."""
+    def spans(text: str) -> List[Tuple[int, int]]:
+        out: List[Tuple[int, int]] = []
+        i, n = 0, len(text)
+        while i < n:
+            delimiter = text[i]
+            if delimiter not in quotes:
+                i += 1
+                continue
+            start, i = i, i + 1
+            while i < n:
+                ch = text[i]
+                if backslash and ch == "\\":
+                    i += 2
+                    continue
+                if ch == delimiter:
+                    if i + 1 < n and text[i + 1] == delimiter and not backslash:
+                        i += 2
+                        continue
+                    break
+                i += 1
+            i = min(i + 1, n)
+            out.append((start, i))
+        return out
+    return spans
+
+
+def _backslash_decode(escapes: Dict[str, str], only: Optional[str] = None) -> Callable[[str], str]:
+    """Body -> value for literals that escape with a backslash: a backslash
+    and c read as escapes.get(c, c); with `only`, a backslash before any
+    other character stays as written."""
+    def decode(body: str) -> str:
+        out, i = [], 0
+        while i < len(body):
+            ch = body[i]
+            if ch == "\\" and i + 1 < len(body) and (only is None or body[i + 1] in only):
+                out.append(escapes.get(body[i + 1], body[i + 1]))
+                i += 2
+                continue
+            out.append(ch)
+            i += 1
+        return "".join(out)
+    return decode
+
+
+def _backslash_quote(delimiter: str) -> Callable[[str], str]:
+    def quote(value: str) -> str:
+        return delimiter + value.replace("\\", "\\\\").replace(delimiter, "\\" + delimiter) + delimiter
+    return quote
+
+
+_C_ESCAPES = {"n": "\n", "t": "\t", "r": "\r"}
+
+
+def _sql_renderer(name: str, dialect: str, quote: Optional[Callable[[str], str]] = None) -> LiteralRenderer:
+    return LiteralRenderer(
+        name=name,
+        quote=quote or _sqlglot_quote(dialect),
+        string_spans=_sqlglot_spans(dialect),
+        decode=_sqlglot_decode(dialect),
+    )
+
+
+def _build_renderers() -> Dict[str, LiteralRenderer]:
+    renderers = {
+        # ANSI: quotes doubled, nothing else (Db2, IBM i, Vertica, Sybase,
+        # SAP HANA, Pinot, NetSuite, Oracle BI, Sisense, and the OData
+        # options of Priority ERP, SAP Datasphere and MECM).
+        "ansi": LiteralRenderer(
+            name="ansi", quote=_doubled, string_spans=_scanned_spans("'", backslash=False),
+            decode=lambda body: body.replace("''", "'"),
+        ),
+        # Kusto: '...' with \\ and \'.
+        "kql": LiteralRenderer(
+            name="kql", quote=_backslash_quote("'"), string_spans=_scanned_spans("'\"", backslash=True),
+            decode=_backslash_decode(_C_ESCAPES),
+        ),
+        # Salesforce SOQL: '...' with \\ and \'.
+        "soql": LiteralRenderer(
+            name="soql", quote=_backslash_quote("'"), string_spans=_scanned_spans("'", backslash=True),
+            decode=_backslash_decode(_C_ESCAPES),
+        ),
+        # Splunk SPL (bare searches): "..." with \\ and \".
+        "spl": LiteralRenderer(
+            name="spl", quote=_backslash_quote('"'), string_spans=_scanned_spans('"', backslash=True),
+            decode=_backslash_decode({}, only='\\"'),
+        ),
+        # sqlglot's Athena tokenizer reads a backslash as an escape; the
+        # Trino-based engine Athena runs DML on does not. No rendering of a
+        # backslash satisfies both, so such a value is refused.
+        "athena": _sql_renderer("athena", "athena", _refuse_backslash("Athena")),
+        # sqlglot's Redshift generator writes \' for a quote, which the
+        # Redshift rule (no backslash in plain strings) cannot accept.
+        "redshift": _sql_renderer("redshift", "redshift", _refuse_backslash("Redshift")),
+        "mysql": _sql_renderer("mysql", "mysql", _mysql_quote),
+        "tsql": _sql_renderer("tsql", "tsql", _national_when_needed),
+        "fabric": _sql_renderer("fabric", "fabric", _national_when_needed),
+    }
+    for dialect in _SQLGLOT_RENDERER_DIALECTS:
+        renderers.setdefault(dialect, _sql_renderer(dialect, dialect))
+    return renderers
+
+
+# Renderers that are a sqlglot dialect's own reading (the name is the
+# dialect): every SQL dialect a guard profile names, plus duckdb (file
+# connections, accelerated custom tables), spark (Timbr) and clickhouse
+# (PostHog's HogQL).
+_SQLGLOT_RENDERER_DIALECTS = frozenset({
+    "postgres", "redshift", "mysql", "tsql", "fabric", "oracle", "sqlite", "snowflake", "bigquery",
+    "athena", "presto", "trino", "clickhouse", "databricks", "spark", "duckdb", "teradata", "druid",
+})
+
+_RENDERERS: Dict[str, LiteralRenderer] = _build_renderers()
+_ANSI = _RENDERERS["ansi"]
+
+
+def _sqlglot_dialect_of(renderer: Optional[LiteralRenderer]) -> Optional[str]:
+    """The sqlglot dialect whose reading `renderer` is, if it is one."""
+    if renderer is not None and renderer.name in _SQLGLOT_RENDERER_DIALECTS:
+        return renderer.name
+    return None
+
+
+def _renderer_for_entry(entry) -> Optional[LiteralRenderer]:
+    if entry is None:
+        return None
+    if entry.renderer:
+        return _RENDERERS[entry.renderer]
+    if entry.profile is not None and entry.profile.kind == "sql":
+        return _RENDERERS[entry.profile.dialect]
+    return None
+
+
+def renderer_for(client) -> Optional[LiteralRenderer]:
+    """The renderer declared for `client`'s type (`client_profiles`), or None
+    when the client has none: its parameters cannot be rendered."""
+    from app.ai.code_execution.client_profiles import client_entry
+
+    return _renderer_for_entry(client_entry(client))
+
+
+def renderer_for_name(family: str) -> Optional[LiteralRenderer]:
+    """The renderer for a client family name (a captured query's tag)."""
+    from app.ai.code_execution.client_profiles import _CLIENT_TABLE
+
+    for entry in _CLIENT_TABLE.values():
+        if entry.family == family:
+            return _renderer_for_entry(entry)
+    return None
+
 
 _PLACEHOLDER_RE = re.compile(r"(?<![:\w]):([a-zA-Z_][a-zA-Z0-9_]*)")
 
 
-def _render_literal(
-    value: Any, *, backslash_dialect: bool, unicode_prefix: bool = False
-) -> str:
+def _render_literal(value: Any, renderer: LiteralRenderer) -> str:
     if value is None:
         return "NULL"
     if isinstance(value, bool):
@@ -323,20 +557,10 @@ def _render_literal(
             # Empty IN () is invalid SQL nearly everywhere; render a
             # never-matching list instead so "no groups" means no rows.
             return "(NULL)"
-        return "(" + ", ".join(
-            _render_literal(
-                v, backslash_dialect=backslash_dialect, unicode_prefix=unicode_prefix
-            )
-            for v in items
-        ) + ")"
+        return "(" + ", ".join(_render_literal(v, renderer) for v in items) + ")"
     if isinstance(value, dict):
         raise ParamError("object values cannot be rendered into SQL directly")
-    s = str(value)
-    s = s.replace("'", "''")
-    if backslash_dialect:
-        s = s.replace("\\", "\\\\")
-    prefix = "N" if (unicode_prefix and not s.isascii()) else ""
-    return prefix + "'" + s + "'"
+    return renderer.quote(str(value))
 
 
 def render_sql_with_params(
@@ -344,28 +568,44 @@ def render_sql_with_params(
     values: Dict[str, Any],
     *,
     client_type_name: str = "",
+    renderer: Optional[LiteralRenderer] = None,
 ) -> str:
     """Substitute `:name` placeholders in `sql` with safely rendered literals.
 
     Every placeholder must have a value in `values` (missing → ParamError).
     Extra values are fine — a multi-query generate_df doesn't use every param
-    in every statement. Values only, never identifiers: the placeholder must
-    not be quoted or backticked context-sensitively — we replace the token
-    wherever it appears as `:name`.
+    in every statement. Values only, never identifiers. A placeholder inside
+    a quoted string is refused: it would be text, not a value.
+
+    String values are written with `renderer` (the connection's, from
+    `renderer_for`); without one, with the renderer of the family
+    `client_type_name` names, else ANSI (quotes doubled).
     """
-    backslash = client_type_name in _BACKSLASH_DIALECT_CLIENTS
-    unicode_prefix = client_type_name in _UNICODE_PREFIX_CLIENTS
+    renderer = renderer or renderer_for_name(client_type_name) or _ANSI
+    if renderer.name == "spl" and sql.lstrip().startswith("{"):
+        # A JSON envelope: its SPL sits inside a JSON string, where an SPL
+        # literal is not what the search receives.
+        raise ParamError("parameters are not supported with a JSON search envelope; pass the SPL as text")
 
     missing: List[str] = []
+    inside: List[str] = []
+    matches = list(_PLACEHOLDER_RE.finditer(sql))
+    spans = renderer.string_spans(sql) if matches else []
+    for m in matches:
+        if any(start <= m.start() < end for start, end in spans):
+            inside.append(m.group(1))
+    if inside:
+        raise ParamError(
+            "parameter placeholder(s) inside a quoted string: " + ", ".join(sorted(set(inside)))
+            + "; put the placeholder where the value goes, without quotes"
+        )
 
     def _sub(m: "re.Match[str]") -> str:
         name = m.group(1)
         if name not in values:
             missing.append(name)
             return m.group(0)
-        return _render_literal(
-            values[name], backslash_dialect=backslash, unicode_prefix=unicode_prefix
-        )
+        return _render_literal(values[name], renderer)
 
     rendered = _PLACEHOLDER_RE.sub(_sub, sql)
     if missing:
@@ -586,7 +826,22 @@ def _query_binds_value(capture: str, needles: List[str], param: str = "") -> boo
         return verdict
     if looks_sql or client_type == "SplunkClient":
         log_fallback(str(capture), client_type, param)
-    return _heuristic_binds_value(capture, needles)
+    return _heuristic_binds_value(capture, needles + _rendered_needles(client_type, needles))
+
+
+def _rendered_needles(client_type: Optional[str], needles: List[str]) -> List[str]:
+    """Each value as the capture's renderer writes it, quotes included: where
+    the renderer escapes a character the raw value is not in the text."""
+    renderer = renderer_for_name(client_type or "")
+    if renderer is None:
+        return []
+    out = []
+    for needle in needles:
+        try:
+            out.append(renderer.quote(needle))
+        except ParamError:
+            continue  # a value this connection cannot carry was never rendered
+    return out
 
 
 def verify_identity_binds_in_queries(

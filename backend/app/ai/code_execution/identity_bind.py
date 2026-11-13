@@ -294,7 +294,7 @@ def _spl_search_binds(text: str, needles: Tuple[str, ...]) -> Optional[bool]:
                 if m:
                     v = m.group(2)
                     if v.startswith('"'):
-                        v = v[1:-1].replace('\\"', '"')
+                        v = _renderer(SPLUNK_CLIENT).decode(v[1:-1])
                     items.append(("pair", m.group(1), v))
                 elif "=" in t:
                     items.append(("other", t))
@@ -322,10 +322,41 @@ def _spl_search_binds(text: str, needles: Tuple[str, ...]) -> Optional[bool]:
 
 # ------------------------------------------------------------------------ entry
 
+def _renderer(client_type: Optional[str]):
+    from app.ai.code_execution.query_params import renderer_for_name
+
+    return renderer_for_name(client_type or "")
+
+
 def _dialect_for(client_type: Optional[str]) -> Optional[str]:
+    """The sqlglot dialect a capture is parsed with: the guard's, else the one
+    its parameter renderer writes literals for, so a rendered literal is read
+    back as the value."""
+    from app.ai.code_execution.query_params import _sqlglot_dialect_of
     from app.ai.code_execution.sql_guard import CLIENT_DIALECTS
 
-    return CLIENT_DIALECTS.get(client_type or "")
+    return CLIENT_DIALECTS.get(client_type or "") or _sqlglot_dialect_of(_renderer(client_type))
+
+
+def _as_standard_literals(text: str, client_type: Optional[str]) -> Optional[str]:
+    """SOQL with each string literal rewritten as a standard one ('' for a
+    quote) holding the same value, so sqlglot's generic dialect reads the
+    value SOQL does. None when a literal is left open."""
+    from app.ai.code_execution.query_params import _ANSI
+
+    renderer = _renderer(client_type)
+    spans = renderer.string_spans(text)
+    # Only the last literal can be open; if it is, it also takes in text
+    # added after the end.
+    if spans and renderer.string_spans(text + " ")[-1][1] > len(text):
+        return None
+    out, last = [], 0
+    for start, end in spans:
+        out.append(text[last:start])
+        out.append(_ANSI.quote(renderer.decode(text[start + 1:end - 1])))
+        last = end
+    out.append(text[last:])
+    return "".join(out)
 
 
 @functools.lru_cache(maxsize=2048)
@@ -340,6 +371,10 @@ def structural_binds(text: str, client_type: Optional[str], needles: Tuple[str, 
         return cypher_binds(text, needles)
     if not looks_sql:
         return None
+    if client_type in SOQL_CLIENTS:
+        text = _as_standard_literals(text, client_type)
+        if text is None:
+            return None
     return _sql_binds(text, _dialect_for(client_type), needles)
 
 

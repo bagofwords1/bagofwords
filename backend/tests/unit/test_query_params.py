@@ -127,6 +127,179 @@ def test_render_non_finite_rejected():
 
 
 # ---------------------------------------------------------------------------
+# Rendering per connection: each engine's own string literal, refusals where
+# no rendering is declared or the placeholder sits inside a string
+# ---------------------------------------------------------------------------
+
+import sys
+
+import pandas as pd
+
+from app.ai.code_execution import query_params
+from app.ai.code_execution.client_profiles import guard_profile
+from app.data_sources.clients.discovery import DiscoveryClient
+
+_LINUX = sys.platform.startswith("linux")
+
+
+@pytest.mark.parametrize("sql, client_type_name", [
+    ("WHERE a = ':v'", ""),
+    ("WHERE a = 'x :v y'", ""),
+    ("WHERE a = 'it''s :v'", ""),
+    ("WHERE a = $$ :v $$", "PostgresqlClient"),
+    ("WHERE a = 'x\\' :v'", "MysqlClient"),
+    ("WHERE a = N':v'", "MSSQLClient"),
+])
+def test_placeholder_inside_a_quoted_string_is_refused(sql, client_type_name):
+    with pytest.raises(ParamError):
+        render_sql_with_params(sql, {"v": "x"}, client_type_name=client_type_name)
+
+
+def test_placeholder_inside_a_quoted_spl_value_is_refused():
+    spl = query_params.renderer_for_name("SplunkClient")
+    with pytest.raises(ParamError):
+        render_sql_with_params('search index=web user=":v"', {"v": "x"}, renderer=spl)
+    assert render_sql_with_params('search index=web note=":" user=:v', {"v": "x"}, renderer=spl) == \
+        'search index=web note=":" user="x"'
+
+
+def test_placeholder_next_to_a_quoted_string_still_renders():
+    out = render_sql_with_params("WHERE a = 'x:' AND b = :v AND c = 'y'", {"v": "it's"})
+    assert out == "WHERE a = 'x:' AND b = 'it''s' AND c = 'y'"
+
+
+def test_a_json_envelope_with_params_is_refused_for_splunk():
+    spl = query_params.renderer_for_name("SplunkClient")
+    with pytest.raises(ParamError):
+        render_sql_with_params('{"spl": "search user=:v"}', {"v": "x"}, renderer=spl)
+
+
+@pytest.mark.parametrize("cls_path", [
+    "app.data_sources.clients.oracle_bi_client.OracleBIClient",
+    "app.data_sources.clients.sisense_client.SisenseClient",
+    "app.data_sources.clients.priority_erp_client.PriorityErpClient",
+    "app.data_sources.clients.sap_datasphere_client.SapDatasphereClient",
+    "app.data_sources.clients.mecm_client.MecmClient",
+    "app.data_sources.clients.vertica_client.VerticaClient",
+    "app.data_sources.clients.netsuite_client.NetsuiteClient",
+])
+def test_ansi_connections_render_as_today_and_stay_unguarded(cls_path):
+    import importlib
+
+    module, _, name = cls_path.rpartition(".")
+    client = object.__new__(getattr(importlib.import_module(module), name))
+    renderer = query_params.renderer_for(client)
+    assert renderer.name == "ansi"
+    assert guard_profile(client) is None
+    assert render_sql_with_params("Name eq :v", {"v": "it's"}, renderer=renderer) == "Name eq 'it''s'"
+
+
+def test_timbr_renders_like_spark_and_stays_unguarded():
+    from app.data_sources.clients.timbr_client import TimbrClient
+
+    client = object.__new__(TimbrClient)
+    renderer = query_params.renderer_for(client)
+    assert renderer.name == "spark"
+    assert guard_profile(client) is None
+    assert render_sql_with_params("WHERE a = :v", {"v": "it's"}, renderer=renderer) == "WHERE a = 'it\\'s'"
+
+
+# Through the wrapper (StreamingCodeExecutor), in both sandbox modes.
+
+@pytest.fixture(params=[
+    "inprocess",
+    pytest.param("subprocess", marks=pytest.mark.skipif(not _LINUX, reason="sandbox child needs Linux")),
+])
+def mode(request, monkeypatch):
+    monkeypatch.setenv("BOW_CODE_SANDBOX", request.param)
+    if request.param == "inprocess":
+        # In-process mode is for local development only; CI runs with
+        # ENVIRONMENT=production, so the test names the environment itself.
+        monkeypatch.setenv("ENVIRONMENT", "development")
+    return request.param
+
+
+def _run(clients, body: str):
+    from app.ai.code_execution.code_execution import StreamingCodeExecutor
+
+    code = "def generate_df(ds_clients, excel_files):\n" + "".join(
+        f"    {line}\n" for line in body.strip().splitlines()
+    )
+    return StreamingCodeExecutor().execute_code(code=code, ds_clients=clients, excel_files=[])
+
+
+class _ConnectorWithoutRenderer(DiscoveryClient):
+    """A connector nobody declared a parameter rendering for; records what
+    reaches it (the driver boundary)."""
+
+    def __init__(self):
+        self.received: list = []
+
+    def execute_query(self, query=None, **kwargs):
+        self.received.append((query, kwargs))
+        return pd.DataFrame([{"rows": 1}])
+
+
+def test_params_on_a_connector_without_a_renderer_are_refused(mode):
+    client = _ConnectorWithoutRenderer()
+    with pytest.raises(ParamError):
+        _run({"c": client}, "return ds_clients['c'].execute_query('owner = :v', params={'v': 'x'})")
+    assert client.received == []
+
+
+def test_a_keyword_only_call_with_params_on_such_a_connector_is_unchanged(mode):
+    client = _ConnectorWithoutRenderer()
+    df, _, _ = _run({"c": client},
+                    "return ds_clients['c'].execute_query(table_name='t', params={'v': 'x'})")
+    assert df["rows"].tolist() == [1]
+    assert client.received == [(None, {"table_name": "t"})]
+
+
+class _PlainObjectClient:
+    """Not a connector (a test or helper object): today's ANSI rendering."""
+
+    def __init__(self):
+        self.received: list = []
+
+    def execute_query(self, sql):
+        self.received.append(sql)
+        return pd.DataFrame([{"rows": 1}])
+
+
+def test_params_on_an_object_that_is_not_a_connector_render_as_today(mode):
+    client = _PlainObjectClient()
+    _run({"c": client}, "return ds_clients['c'].execute_query('WHERE a = :v', params={'v': \"it's\"})")
+    assert client.received == ["WHERE a = 'it''s'"]
+
+
+@pytest.mark.parametrize("statement", [
+    "{'spl': 'search index=web user=:v'}",
+    "'{\"spl\": \"search index=web user=:v\"}'",
+])
+def test_params_with_a_splunk_envelope_are_refused(mode, monkeypatch, statement):
+    from app.data_sources.clients.splunk_client import SplunkClient
+
+    sent = []
+    monkeypatch.setattr("app.data_sources.clients.splunk_client.pinned_request",
+                        lambda *a, **k: sent.append(a) or pytest.fail("nothing may be sent"))
+    client = SplunkClient(host="splunk.example.com", api_token="t")
+    with pytest.raises(ParamError):
+        _run({"spl": client}, f"return ds_clients['spl'].execute_query({statement}, params={{'v': 'x'}})")
+    assert sent == []
+
+
+def test_params_on_a_csv_connection_render_for_duckdb(mode, tmp_path):
+    from app.data_sources.clients.csv_client import CSVClient
+
+    value = "it's \\ ok"
+    pd.DataFrame({"id": [1, 2, 3], "v": ["plain", value, "it''s \\\\ ok"]}).to_csv(tmp_path / "items.csv", index=False)
+    client = CSVClient(file_paths=f"{tmp_path}/*.csv")
+    df, _, _ = _run({"files": client},
+                    f"return ds_clients['files'].execute_query('SELECT id FROM items WHERE v = :v', params={{'v': {value!r}}})")
+    assert df["id"].tolist() == [2]
+
+
+# ---------------------------------------------------------------------------
 # Resolution
 # ---------------------------------------------------------------------------
 

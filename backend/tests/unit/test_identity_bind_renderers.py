@@ -1,0 +1,95 @@
+"""An identity filter written by any renderer is read back as that identity.
+
+Contract: when a viewer's identity value is rendered into a scoping query by
+the connection's own renderer (whatever it escapes: quotes, backslashes,
+double quotes), `verify_identity_binds_in_queries` accepts the query. For the
+grammars it reads structurally (SQL, SOQL, HogQL, SPL) it still refuses the
+same value used outside a filter, and a filter on a different identity whose
+text happens to equal the value's escaped form. Connections it reads as text
+(KQL) accept the value anywhere, as before.
+"""
+from __future__ import annotations
+
+import pytest
+
+from app.ai.code_execution import query_params
+from app.ai.code_execution.identity_bind import CapturedQuery
+from app.ai.code_execution.query_params import ParamError, render_sql_with_params, verify_identity_binds_in_queries
+from app.ai.code_execution.sql_guard import CLIENT_DIALECTS
+from app.schemas.param_schema import ParamSpec
+
+BACKSLASH = chr(92)
+IDENTITIES = ["it's", "DOMAIN" + BACKSLASH + "user", 'a"b', "x" + BACKSLASH]
+SPEC = [ParamSpec.model_validate({"name": "v", "type": "string", "source": "identity"})]
+
+SQL_FAMILIES = sorted(set(CLIENT_DIALECTS) | {
+    "Db2Client", "IbmiClient", "VerticaClient", "SybaseClient", "SapHanaClient", "PinotClient", "TimbrClient",
+    "NetsuiteClient", "OracleBIClient", "SisenseClient", "CSVClient", "QVDClient", "PBIXClient",
+    "PowerBIReportServerClient", "FastQueryClient", "PostHogClient", "SalesforceClient",
+})
+NO_BACKSLASH = {"AwsAthenaClient", "AwsRedshiftClient"}
+
+SCOPED = "SELECT id FROM orders WHERE owner = :v"
+SELECT_LIST_ONLY = "SELECT :v AS owner, id FROM orders"
+SPL_SCOPED = "search index=x owner=:v"
+SPL_BARE_TERM = "search index=x :v"
+KQL_SCOPED = "T | where owner == :v"
+KQL_ANYWHERE = "T | project c = :v"
+
+
+def _capture(template, family, value):
+    text = render_sql_with_params(template, {"v": value}, renderer=query_params.renderer_for_name(family))
+    return CapturedQuery(text, family)
+
+
+def _verdict(template, family, value):
+    return verify_identity_binds_in_queries([_capture(template, family, value)], {"v": value}, SPEC)
+
+
+def _escaped_twice(family, value):
+    """The value's literal body, as a value of its own: a different identity
+    whose text equals how the renderer wrote the first one."""
+    literal = query_params.renderer_for_name(family).quote(value)
+    return literal[literal.index(literal[-1]) + 1:-1]
+
+
+@pytest.mark.parametrize("value", IDENTITIES)
+@pytest.mark.parametrize("family", SQL_FAMILIES)
+def test_a_sql_filter_on_the_identity_binds_and_one_outside_a_filter_does_not(family, value):
+    if family in NO_BACKSLASH and BACKSLASH in value:
+        with pytest.raises(ParamError):
+            _capture(SCOPED, family, value)
+        return
+    assert _verdict(SCOPED, family, value) is None
+    assert _verdict(SELECT_LIST_ONLY, family, value) is not None
+
+
+@pytest.mark.parametrize("value", IDENTITIES)
+@pytest.mark.parametrize("family", SQL_FAMILIES)
+def test_a_sql_filter_on_the_identity_escaped_twice_does_not_bind(family, value):
+    if family in NO_BACKSLASH and BACKSLASH in value:
+        return  # refused at render, above
+    other = _escaped_twice(family, value)
+    if other == value:
+        return  # this renderer writes the value as it is
+    query = render_sql_with_params(SCOPED, {"v": other}, renderer=query_params.renderer_for_name(family))
+    assert verify_identity_binds_in_queries([CapturedQuery(query, family)], {"v": value}, SPEC) is not None
+
+
+@pytest.mark.parametrize("value", IDENTITIES)
+def test_a_splunk_field_filter_on_the_identity_binds_and_a_bare_term_does_not(value):
+    assert _verdict(SPL_SCOPED, "SplunkClient", value) is None
+    assert _verdict(SPL_BARE_TERM, "SplunkClient", value) is not None
+    other = _escaped_twice("SplunkClient", value)
+    if other != value:
+        query = render_sql_with_params(SPL_SCOPED, {"v": other}, renderer=query_params.renderer_for_name("SplunkClient"))
+        assert verify_identity_binds_in_queries([CapturedQuery(query, "SplunkClient")], {"v": value}, SPEC) is not None
+
+
+@pytest.mark.parametrize("value", IDENTITIES)
+def test_kql_is_read_as_text_and_accepts_the_value_anywhere(value):
+    assert _verdict(KQL_SCOPED, "AzureDataExplorerClient", value) is None
+    assert _verdict(KQL_ANYWHERE, "AzureDataExplorerClient", value) is None
+    assert verify_identity_binds_in_queries(
+        [CapturedQuery("T | where owner == 'someone else'", "AzureDataExplorerClient")], {"v": value}, SPEC,
+    ) is not None

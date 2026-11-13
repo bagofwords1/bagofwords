@@ -1239,12 +1239,8 @@ class QueryCapturingClientWrapper:
                 attempted = _describe_keyword_call({"query": query, **kwargs})
             return query, (), {}, attempted, refusal
         statement = resolved.statement
-        if isinstance(statement, str) and isinstance(resolved.params, dict) and resolved.params:
-            from app.ai.code_execution.query_params import render_sql_with_params
-            statement = render_sql_with_params(
-                statement, resolved.params,
-                client_type_name=type(self._original).__name__,
-            )
+        if isinstance(resolved.params, dict) and resolved.params:
+            statement = self._rendered(statement, resolved.params)
         return statement, (), resolved.kwargs, self._guarded_capture(statement, resolved.kwargs), None
 
     @staticmethod
@@ -1292,12 +1288,10 @@ class QueryCapturingClientWrapper:
                 native_params = kwargs["params"]
             else:
                 param_values = kwargs.pop("params")
+                # A keyword-only call has no statement to render into: its
+                # params are dropped, as they always were.
                 if isinstance(query, str) and isinstance(param_values, dict) and param_values:
-                    from app.ai.code_execution.query_params import render_sql_with_params
-                    query = render_sql_with_params(
-                        query, param_values,
-                        client_type_name=type(self._original).__name__,
-                    )
+                    query = self._rendered(query, param_values)
         if query is _NO_QUERY:
             capture = _describe_keyword_call(kwargs)
         elif native_params:
@@ -1311,6 +1305,19 @@ class QueryCapturingClientWrapper:
         ):
             capture = json.dumps(capture, sort_keys=True, default=str)
         return query, capture
+
+    def _rendered(self, statement, params: dict):
+        """`statement` with `params` rendered in the client's own string
+        literals. A connector with no declared renderer, or a statement that is
+        not text (an envelope), takes no params: ParamError. An object that is
+        not a connector keeps the ANSI rendering it always had."""
+        from app.ai.code_execution.query_params import ParamError, render_sql_with_params, renderer_for
+        from app.data_sources.clients.discovery import DiscoveryClient
+
+        renderer = renderer_for(self._original)
+        if not isinstance(statement, str) or (renderer is None and isinstance(self._original, DiscoveryClient)):
+            raise ParamError("Parameters are not supported for this connection")
+        return render_sql_with_params(statement, params, renderer=renderer)
 
     def _recorded_error(self, e: BaseException, limit: int = 200) -> str:
         text = str(e)
