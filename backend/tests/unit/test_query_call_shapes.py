@@ -696,3 +696,47 @@ raise LookupError('the code failed after the refusal')
     replaced = [r for r in caplog.records if "LookupError" in r.getMessage()]
     assert len(replaced) == 1, [r.getMessage() for r in caplog.records]
     assert "the code failed after the refusal" not in replaced[0].getMessage()
+
+
+@pytest.mark.skipif(not _LINUX, reason="sandbox child needs Linux")
+def test_an_error_type_name_the_sandboxed_code_chose_is_logged_only_when_it_is_an_identifier(shop, caplog, monkeypatch):
+    import logging
+
+    monkeypatch.setenv("BOW_CODE_SANDBOX", "subprocess")
+    logger = logging.getLogger("app.ai.code_execution.code_execution")
+    logger.disabled = False  # alembic's fileConfig disables existing loggers
+    program = _program(f"""
+try:
+    ds_clients['shop'].execute_query({_RUNTIME_DROP})
+except Exception:
+    pass
+class Failure(Exception):
+    pass
+Failure.__name__ = 'Named' + chr(10) + 'second log line'
+raise Failure('x')
+""")
+    with caplog.at_level(logging.INFO, logger="app.ai.code_execution.code_execution"):
+        _, events, _ = _loop({"shop": SqliteClient(database=str(shop))}, [program])
+    assert _violations(events) == ["unsafe_sql"]
+    replaced = [r.getMessage() for r in caplog.records if "caught_refusal_replaces_error" in r.getMessage()]
+    assert len(replaced) == 1, [r.getMessage() for r in caplog.records]
+    assert "sandbox_type=<non-identifier>" in replaced[0]
+    assert "second log line" not in replaced[0] and chr(10) not in replaced[0]
+
+
+@pytest.mark.parametrize("escaping", [
+    "execute_query(statement='SELECT COUNT(*) AS n FROM orders')",
+    "execute_query('SELECT COUNT(*) AS n FROM orders', timeout=5)",
+])
+def test_a_caught_agent_written_refusal_is_reported_over_a_call_shape_refusal_that_escapes(mode, shop, escaping):
+    program = _program(f"""
+try:
+    ds_clients['shop'].execute_query('SELECT * FROM secret')
+except Exception:
+    pass
+return ds_clients['shop'].{escaping}
+""")
+    done, events, calls = _loop({"shop": _scoped(SqliteClient(database=str(shop)))}, [program, program])
+    assert len(calls) == 1
+    assert _violations(events) == ["table_access"]
+    assert done["df"] is None

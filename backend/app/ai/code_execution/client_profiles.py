@@ -93,14 +93,14 @@ _CLIENT_TABLE: dict[tuple[str, str], ClientEntry] = dict([
     _renders("sybase_client", "SybaseClient", "ansi"),
     _renders("sap_hana_client", "SapHanaClient", "ansi"),
     _renders("pinot_client", "PinotClient", "ansi"),
-    _renders("timbr_client", "TimbrClient", "spark"),
+    _renders("timbr_client", "TimbrClient", "timbr"),
     _renders("netsuite_client", "NetsuiteClient", "ansi"),
     _renders("oracle_bi_client", "OracleBIClient", "ansi"),
     _renders("sisense_client", "SisenseClient", "ansi"),
-    # OData options text: its string literals double the quote, like ANSI.
-    _renders("priority_erp_client", "PriorityErpClient", "ansi"),
-    _renders("sap_datasphere_client", "SapDatasphereClient", "ansi"),
-    _renders("mecm_client", "MecmClient", "ansi"),
+    # OData options text, which the server percent-decodes.
+    _renders("priority_erp_client", "PriorityErpClient", "odata"),
+    _renders("sap_datasphere_client", "SapDatasphereClient", "odata"),
+    _renders("mecm_client", "MecmClient", "odata"),
     # DuckDB file connections (PBIRS: the query its file route runs on DuckDB)
     # and accelerated custom tables.
     _renders("csv_client", "CSVClient", "duckdb"),
@@ -202,7 +202,15 @@ def guard_profile(client) -> GuardProfile | None:
     return entry.profile if entry is not None else None
 
 
+_FAMILIES = frozenset(entry.family for entry in _CLIENT_TABLE.values())
+
+
 def family_name(client) -> str:
-    """Display / identity-bind name: the registered family, else the class name."""
+    """Display / identity-bind name: the registered family, else the class
+    name; the full dotted path when that name is a registered family's, so
+    an unregistered class is never read with that family's grammar."""
     entry = client_entry(client)
-    return entry.family if entry is not None else type(client).__name__
+    if entry is not None:
+        return entry.family
+    cls = type(client)
+    return cls.__name__ if cls.__name__ not in _FAMILIES else f"{cls.__module__}.{cls.__qualname__}"

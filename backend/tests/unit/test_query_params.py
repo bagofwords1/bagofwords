@@ -174,34 +174,222 @@ def test_a_json_envelope_with_params_is_refused_for_splunk():
         render_sql_with_params('{"spl": "search user=:v"}', {"v": "x"}, renderer=spl)
 
 
+def _bare(cls_path):
+    import importlib
+
+    module, _, name = cls_path.rpartition(".")
+    return object.__new__(getattr(importlib.import_module(module), name))
+
+
 @pytest.mark.parametrize("cls_path", [
     "app.data_sources.clients.oracle_bi_client.OracleBIClient",
     "app.data_sources.clients.sisense_client.SisenseClient",
-    "app.data_sources.clients.priority_erp_client.PriorityErpClient",
-    "app.data_sources.clients.sap_datasphere_client.SapDatasphereClient",
-    "app.data_sources.clients.mecm_client.MecmClient",
     "app.data_sources.clients.vertica_client.VerticaClient",
     "app.data_sources.clients.netsuite_client.NetsuiteClient",
 ])
 def test_ansi_connections_render_as_today_and_stay_unguarded(cls_path):
-    import importlib
-
-    module, _, name = cls_path.rpartition(".")
-    client = object.__new__(getattr(importlib.import_module(module), name))
+    client = _bare(cls_path)
     renderer = query_params.renderer_for(client)
     assert renderer.name == "ansi"
     assert guard_profile(client) is None
     assert render_sql_with_params("Name eq :v", {"v": "it's"}, renderer=renderer) == "Name eq 'it''s'"
 
 
-def test_timbr_renders_like_spark_and_stays_unguarded():
+ODATA_CLIENTS = [
+    "app.data_sources.clients.priority_erp_client.PriorityErpClient",
+    "app.data_sources.clients.sap_datasphere_client.SapDatasphereClient",
+    "app.data_sources.clients.mecm_client.MecmClient",
+]
+
+
+@pytest.mark.parametrize("cls_path", ODATA_CLIENTS)
+def test_odata_connections_percent_encode_the_literal_body_and_stay_unguarded(cls_path):
+    client = _bare(cls_path)
+    renderer = query_params.renderer_for(client)
+    assert renderer.name == "odata"
+    assert guard_profile(client) is None
+    assert render_sql_with_params("$filter=Name eq :v", {"v": "it's"}, renderer=renderer) == \
+        "$filter=Name eq 'it%27%27s'"
+
+
+# Values holding what the server decodes or splits the options text on.
+ODATA_VALUES = ["%27", "a&$top=1", "a#b", "a+b", "it's", "x%27 or 1 eq 1 or Name eq %27y", "50%", "a=b", "%2527"]
+
+
+@pytest.mark.parametrize("value", ODATA_VALUES)
+@pytest.mark.parametrize("cls_path", ODATA_CLIENTS)
+def test_the_odata_server_reads_a_rendered_value_as_that_value_in_one_literal(cls_path, value):
+    import re
+    from urllib.parse import parse_qs
+
+    renderer = query_params.renderer_for(_bare(cls_path))
+    options = render_sql_with_params("$filter=Name eq :v and Id gt 5&$top=10", {"v": value}, renderer=renderer)
+    # The server's reading: options split at '&', each value percent-decoded.
+    assert parse_qs(options, keep_blank_values=True, strict_parsing=True) == {
+        "$filter": ["Name eq '" + value.replace("'", "''") + "' and Id gt 5"],
+        "$top": ["10"],
+    }
+    body = options[options.index("'") + 1:options.rindex("'")]
+    assert re.fullmatch(r"[A-Za-z0-9_.~%-]*", body), options  # no '#', '&', '+' or quote as written
+
+
+def test_timbr_doubles_quotes_and_refuses_a_backslash_and_stays_unguarded():
     from app.data_sources.clients.timbr_client import TimbrClient
 
     client = object.__new__(TimbrClient)
     renderer = query_params.renderer_for(client)
-    assert renderer.name == "spark"
+    assert renderer.name == "timbr"
     assert guard_profile(client) is None
-    assert render_sql_with_params("WHERE a = :v", {"v": "it's"}, renderer=renderer) == "WHERE a = 'it\\'s'"
+    assert render_sql_with_params("WHERE a = :v", {"v": "it's"}, renderer=renderer) == "WHERE a = 'it''s'"
+    with pytest.raises(ParamError):
+        render_sql_with_params("WHERE a = :v", {"v": "a" + chr(92) + "b"}, renderer=renderer)
+
+
+# A placeholder is rendered only where it stands as code. In a comment, a
+# quoted identifier, or a string some reader of the text may see (an E'..'
+# with a backslash, a q'..' quote, a verbatim or multi-line string, the text
+# an OData server decodes) the value would land somewhere else: refused.
+B = chr(92)
+MISPLACED = [
+    ("PostgresqlClient", "SELECT 1 -- :v"),
+    ("PostgresqlClient", "SELECT 1 /* :v */"),
+    ("PostgresqlClient", 'SELECT ":v"'),
+    ("PostgresqlClient", "SELECT E'a" + B + "' AND :v = '1'"),
+    ("PostgresqlClient", "SELECT 1 /* /* */ :v */"),
+    ("DuckDBClient", "SELECT E'a" + B + "' AND :v = '1'"),
+    ("FastQueryClient", "SELECT 1 -- :v"),
+    ("AwsRedshiftClient", "SELECT E'a" + B + "' AND :v = '1'"),
+    ("SqliteClient", 'SELECT ":v"'),
+    ("SqliteClient", "SELECT [:v]"),
+    ("SqliteClient", "SELECT `:v`"),
+    ("MysqlClient", "SELECT 1 # :v"),
+    ("MysqlClient", "SELECT `:v`"),
+    ("MysqlClient", "SELECT /*! 1 */ :v"),
+    ("MSSQLClient", "SELECT [:v]"),
+    ("BigqueryClient", "SELECT '':v"),
+    ("BigqueryClient", "SELECT ''' :v '''"),
+    ("OracledbClient", "SELECT q'[ ' :v ' ]' FROM dual"),
+    ("SnowflakeClient", "SELECT $$ :v $$"),
+    ("SparkConnectClient", "SELECT `:v`"),
+    ("VerticaClient", "SELECT 1 -- :v"),
+    ("VerticaClient", "SELECT 1 /* :v */"),
+    ("VerticaClient", 'SELECT ":v"'),
+    ("VerticaClient", "SELECT E'a" + B + "' AND :v = '1'"),
+    ("VerticaClient", "SELECT $$ :v $$"),
+    ("SybaseClient", "SELECT [:v]"),
+    ("Db2Client", "SELECT 1 /* /* */ :v */"),
+    ("AzureDataExplorerClient", "T | where c == 'a' // :v"),
+    ("AzureDataExplorerClient", "T | where c == ```x :v```"),
+    ("AzureDataExplorerClient", "T | where c == @'a" + B + "' or c == ' :v '"),
+    ("AzureDataExplorerClient", "T | where c == h@'a" + B + "' or c == ' :v '"),
+    ("SplunkClient", "search index=x ``` :v ```"),
+    ("SplunkClient", "search index=x | eval c=':v'"),
+    ("SplunkClient", "search index=x a" + B + '" b " :v "'),
+    ("TimbrClient", "SELECT `:v`"),
+    ("TimbrClient", "SELECT 'a" + B + "' AND :v = '1'"),
+    ("MecmClient", "$filter=Name eq %27 :v %27"),
+    ("PriorityErpClient", "ORDERS?$filter=A eq 'x&$top=' :v '"),
+    ("SapDatasphereClient", "$filter=A eq 'x':v"),
+]
+
+
+@pytest.mark.parametrize("family, template", MISPLACED)
+def test_a_placeholder_that_is_not_code_is_refused(family, template):
+    with pytest.raises(ParamError):
+        render_sql_with_params(template, {"v": "x"}, renderer=query_params.renderer_for_name(family))
+
+
+@pytest.mark.parametrize("family, template, expected", [
+    ("PostgresqlClient", "SELECT x::text FROM t WHERE a = :v -- owner filter",
+     "SELECT x::text FROM t WHERE a = 'x' -- owner filter"),
+    ("SqliteClient", 'SELECT "a" FROM t WHERE "a" = :v', "SELECT \"a\" FROM t WHERE \"a\" = 'x'"),
+    ("BigqueryClient", "SELECT a FROM t WHERE a = :v AND b = ''", "SELECT a FROM t WHERE a = 'x' AND b = ''"),
+    ("VerticaClient", "SELECT 1 FROM t WHERE a = :v /* c */", "SELECT 1 FROM t WHERE a = 'x' /* c */"),
+    ("AzureDataExplorerClient", "T | where c == :v // owner", "T | where c == 'x' // owner"),
+    ("SplunkClient", "search index=x ``` scoped ``` user=:v", 'search index=x ``` scoped ``` user="x"'),
+    ("MecmClient", "$filter=Name eq :v&$top=5", "$filter=Name eq 'x'&$top=5"),
+    ("TimbrClient", "SELECT `a` FROM t WHERE a = :v", "SELECT `a` FROM t WHERE a = 'x'"),
+])
+def test_a_placeholder_that_is_code_still_renders(family, template, expected):
+    assert render_sql_with_params(template, {"v": "x"}, renderer=query_params.renderer_for_name(family)) == expected
+
+
+# On the engines themselves: the literal written where such a placeholder
+# stands reads every row; the same value where a value goes matches none.
+NL = chr(10)
+_ROWS = [(1, "alice"), (2, "bob"), (3, "carol")]
+ENGINE_CASES = [
+    ("duckdb", "CSVClient", "SELECT id FROM t WHERE owner = 'nobody' -- :v", "x" + NL + "OR 1=1 --"),
+    ("duckdb", "CSVClient", "SELECT id FROM t WHERE owner = E'a" + B + "' AND :v = '1'", " OR 1=1 --"),
+    ("duckdb", "CSVClient", "SELECT id FROM t WHERE owner = 'nobody' /* :v */", "*/ OR 1=1 --"),
+    ("sqlite", "SqliteClient", 'SELECT id FROM t WHERE owner = ":v"', 'x" OR 1=1 --'),
+    ("sqlite", "SqliteClient", "SELECT id FROM t WHERE owner = 'nobody' -- :v", "x" + NL + "OR 1=1 --"),
+    ("postgres", "PostgresqlClient", "SELECT id FROM t WHERE owner = E'a" + B + "' AND :v = '1'", " OR 1=1 --"),
+    ("postgres", "PostgresqlClient", "SELECT id FROM t WHERE owner = 'nobody' -- :v", "x" + NL + "OR 1=1 --"),
+]
+
+
+def _docker_available() -> bool:
+    try:
+        import docker
+
+        docker.from_env().ping()
+        return True
+    except Exception:
+        return False
+
+
+@pytest.fixture(scope="module")
+def postgres_rows():
+    """A run_query over a throwaway Postgres server holding _ROWS."""
+    if not _docker_available():
+        pytest.skip("Docker daemon not reachable")
+    import psycopg2
+    from testcontainers.postgres import PostgresContainer
+
+    with PostgresContainer("postgres:15") as pg:
+        con = psycopg2.connect(host=pg.get_container_host_ip(), port=pg.get_exposed_port(5432),
+                               user=pg.username, password=pg.password, dbname=pg.dbname)
+        con.autocommit = True
+        cur = con.cursor()
+        cur.execute("CREATE TABLE t (id INT, owner TEXT)")
+        cur.executemany("INSERT INTO t VALUES (%s, %s)", _ROWS)
+
+        def run(sql):
+            cur.execute(sql.replace("%", "%%"))
+            return sorted(r[0] for r in cur.fetchall())
+
+        yield run
+        con.close()
+
+
+def _engine(name, request):
+    if name == "postgres":
+        return request.getfixturevalue("postgres_rows")
+    if name == "duckdb":
+        import duckdb
+
+        con = duckdb.connect()
+        con.execute("CREATE TABLE t (id INT, owner TEXT)")
+        con.executemany("INSERT INTO t VALUES (?, ?)", _ROWS)
+        return lambda sql: sorted(r[0] for r in con.execute(sql).fetchall())
+    import sqlite3
+
+    con = sqlite3.connect(":memory:")
+    con.execute("CREATE TABLE t (id INT, owner TEXT)")
+    con.executemany("INSERT INTO t VALUES (?, ?)", _ROWS)
+    return lambda sql: sorted(r[0] for r in con.execute(sql).fetchall())
+
+
+@pytest.mark.parametrize("engine, family, template, value", ENGINE_CASES)
+def test_a_placeholder_the_engine_reads_outside_code_is_refused_before_anything_is_sent(
+        request, engine, family, template, value):
+    run = _engine(engine, request)
+    renderer = query_params.renderer_for_name(family)
+    assert run(template.replace(":v", renderer.quote(value))) == [1, 2, 3]
+    assert run(render_sql_with_params("SELECT id FROM t WHERE owner = :v", {"v": value}, renderer=renderer)) == []
+    with pytest.raises(ParamError):
+        render_sql_with_params(template, {"v": value}, renderer=renderer)
 
 
 # Through the wrapper (StreamingCodeExecutor), in both sandbox modes.
@@ -270,6 +458,47 @@ def test_params_on_an_object_that_is_not_a_connector_render_as_today(mode):
     client = _PlainObjectClient()
     _run({"c": client}, "return ds_clients['c'].execute_query('WHERE a = :v', params={'v': \"it's\"})")
     assert client.received == ["WHERE a = 'it''s'"]
+
+
+def test_an_object_named_like_a_connector_is_read_back_as_the_ansi_it_was_rendered_with(mode):
+    from app.ai.code_execution.client_profiles import family_name
+
+    # Not a connector, so its params render ANSI; its captured query must not
+    # be read back with the grammar of the connector whose name it shares.
+    impostor = type("SalesforceClient", (_PlainObjectClient,), {})()
+    _, _, captured = _run({"c": impostor}, "return ds_clients['c'].execute_query('WHERE a = :v', params={'v': \"it's\"})")
+    assert impostor.received == ["WHERE a = 'it''s'"]
+    assert [q.client_type for q in captured] == [family_name(impostor)]
+    assert family_name(impostor) != "SalesforceClient"
+    assert query_params.renderer_for_name(family_name(impostor)) is None
+
+
+def test_a_keyword_call_whose_params_are_not_rendered_is_logged_by_structure_and_noted_on_its_error(mode, caplog):
+    import logging
+
+    class _Failing(_ConnectorWithoutRenderer):
+        def execute_query(self, query=None, **kwargs):
+            super().execute_query(query, **kwargs)
+            raise RuntimeError("syntax error near the colon")
+
+    logger = logging.getLogger("app.ai.code_execution.code_execution")
+    logger.disabled = False  # alembic's fileConfig disables existing loggers
+    client = _Failing()
+    timings: list = []
+    from app.ai.code_execution.code_execution import StreamingCodeExecutor
+
+    code = ("def generate_df(ds_clients, excel_files):\n"
+            "    return ds_clients['c'].execute_query(sql='SELECT * FROM t WHERE a = :owner', "
+            "params={'owner': 'value-not-for-logs'})\n")
+    with caplog.at_level(logging.WARNING, logger="app.ai.code_execution.code_execution"), pytest.raises(Exception):
+        StreamingCodeExecutor().execute_code(code=code, ds_clients={"c": client}, excel_files=[],
+                                             captured_timings=timings)
+    assert client.received == [(None, {"sql": "SELECT * FROM t WHERE a = :owner"})]
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING and "params_not_rendered" in r.getMessage()]
+    assert len(warnings) == 1, [r.getMessage() for r in caplog.records]
+    assert "_Failing" in warnings[0] and "sql" in warnings[0] and "owner" in warnings[0]
+    assert "value-not-for-logs" not in warnings[0]
+    assert "first positional argument" in timings[-1]["error"]
 
 
 @pytest.mark.parametrize("statement", [

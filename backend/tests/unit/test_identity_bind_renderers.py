@@ -27,7 +27,7 @@ SQL_FAMILIES = sorted(set(CLIENT_DIALECTS) | {
     "NetsuiteClient", "OracleBIClient", "SisenseClient", "CSVClient", "QVDClient", "PBIXClient",
     "PowerBIReportServerClient", "FastQueryClient", "PostHogClient", "SalesforceClient",
 })
-NO_BACKSLASH = {"AwsAthenaClient", "AwsRedshiftClient"}
+NO_BACKSLASH = {"AwsAthenaClient", "AwsRedshiftClient", "TimbrClient"}
 
 SCOPED = "SELECT id FROM orders WHERE owner = :v"
 SELECT_LIST_ONLY = "SELECT :v AS owner, id FROM orders"
@@ -84,6 +84,14 @@ def test_a_splunk_field_filter_on_the_identity_binds_and_a_bare_term_does_not(va
     if other != value:
         query = render_sql_with_params(SPL_SCOPED, {"v": other}, renderer=query_params.renderer_for_name("SplunkClient"))
         assert verify_identity_binds_in_queries([CapturedQuery(query, "SplunkClient")], {"v": value}, SPEC) is not None
+
+
+@pytest.mark.parametrize("value", IDENTITIES + ["alice@example.com", "a&b"])
+@pytest.mark.parametrize("family", ["PriorityErpClient", "SapDatasphereClient", "MecmClient"])
+def test_an_odata_filter_binds_the_identity_it_was_rendered_with_and_not_another(family, value):
+    template = "$filter=Owner eq :v&$top=5"
+    assert _verdict(template, family, value) is None
+    assert verify_identity_binds_in_queries([_capture(template, family, "someone@else")], {"v": value}, SPEC) is not None
 
 
 @pytest.mark.parametrize("value", IDENTITIES)

@@ -932,6 +932,12 @@ def _refuse_call(reason: str) -> UnsafeSQLError:
     return refusal
 
 
+def _loggable_name(name) -> str:
+    """A name generated code chose (an exception type, a keyword, a param),
+    for a log line: kept only when it is a short identifier."""
+    return name if isinstance(name, str) and name.isidentifier() and len(name) <= 100 else "<non-identifier>"
+
+
 def _the_agent_wrote_what_was_refused(exc: BaseException) -> bool:
     """Whether a refusal judged text the agent wrote. A call's shape was not
     judged, and a search an admin stored (Splunk) is not the agent's text, so
@@ -1083,11 +1089,12 @@ class QueryCapturingClientWrapper:
         and sent positionally. Shapes that cannot be reduced are refused.
         """
         refusal: Optional[UnsafeSQLError] = None
+        unrendered_note = None
         guarded = guard_profile(self._original) is not None
         if guarded:
             query, args, kwargs, capture, refusal = self._prepare_guarded(query, args, kwargs)
         else:
-            query, capture = self._prepare_unguarded(query, kwargs)
+            query, capture, unrendered_note = self._prepare_unguarded(query, kwargs)
         idx = len(self._captured_timings)
         _q_start = _time.monotonic()
         with _tracer.start_as_current_span("datasource.execute_query") as span:
@@ -1197,7 +1204,7 @@ class QueryCapturingClientWrapper:
                     "query_ms": round(_q_ms, 1),
                     "rows": None,
                     "sql": capture[:500] if isinstance(capture, str) else None,
-                    "error": self._recorded_error(e),
+                    "error": self._recorded_error(e) + (unrendered_note or ""),
                     "terminal": bool(getattr(e, "terminal_execution_error", False)),
                     **({"source_query_id": _source_query_id(e)} if _source_query_id(e) else {}),
                     **({"error_type": "table_access_denied", "error_message": str(e)}
@@ -1277,9 +1284,11 @@ class QueryCapturingClientWrapper:
         """Today's behaviour for clients the guard does not know: keyword-only
         calls forwarded, params rendered only into a positional str.
 
-        Pops `params` from `kwargs`. Returns (query to send, capture).
+        Pops `params` from `kwargs`. Returns (query to send, capture, a note
+        for the error of a keyword call whose params were not rendered).
         """
         native_params = None
+        unrendered_note = None
         if "params" in kwargs:
             if getattr(self._original, "native_query_params", False):
                 # The client binds them itself (Cypher's $name); its own syntax
@@ -1289,9 +1298,11 @@ class QueryCapturingClientWrapper:
             else:
                 param_values = kwargs.pop("params")
                 # A keyword-only call has no statement to render into: its
-                # params are dropped, as they always were.
+                # params are dropped, as they always were, and said so.
                 if isinstance(query, str) and isinstance(param_values, dict) and param_values:
                     query = self._rendered(query, param_values)
+                elif query is _NO_QUERY and isinstance(param_values, dict) and param_values:
+                    unrendered_note = self._note_unrendered_params(kwargs, param_values)
         if query is _NO_QUERY:
             capture = _describe_keyword_call(kwargs)
         elif native_params:
@@ -1304,7 +1315,25 @@ class QueryCapturingClientWrapper:
             or getattr(self._original, "capture_structured_queries", False)
         ):
             capture = json.dumps(capture, sort_keys=True, default=str)
-        return query, capture
+        return query, capture, unrendered_note
+
+    def _note_unrendered_params(self, kwargs: dict, params: dict) -> Optional[str]:
+        """Log (names only) that a keyword call's params were not rendered.
+        Returns a note for the call's error when a keyword's text still holds
+        one of their placeholders, else None."""
+        from app.ai.code_execution.query_params import _PLACEHOLDER_RE
+
+        texts = {k: v for k, v in kwargs.items() if isinstance(v, str)}
+        logger.warning(
+            "code_execution.keyword_call_params_not_rendered client=%s keywords=%s params=%s",
+            family_name(self._original),
+            ",".join(sorted(_loggable_name(k) for k in texts)),
+            ",".join(sorted(_loggable_name(k) for k in params)),
+        )
+        if any(m.group(1) in params for text in texts.values() for m in _PLACEHOLDER_RE.finditer(text)):
+            return (" (params were not applied: this call passed its statement by keyword; "
+                    "pass the statement as the first positional argument with params=)")
+        return None
 
     def _rendered(self, statement, params: dict):
         """`statement` with `params` rendered in the client's own string
@@ -1927,7 +1956,8 @@ class StreamingCodeExecutor:
                 logger.info(
                     "code_execution.caught_refusal_replaces_error %s%s",
                     describe_for_log(cause),
-                    f" sandbox_type={cause.exc_type}" if isinstance(getattr(cause, "exc_type", None), str) else "",
+                    f" sandbox_type={_loggable_name(cause.exc_type)}"
+                    if isinstance(getattr(cause, "exc_type", None), str) else "",
                 )
             raise refusal from cause
 
@@ -2554,7 +2584,12 @@ class StreamingCodeExecutor:
                             exec_df, execution_log, _ = _execution_event["value"]
                         else:
                             yield _execution_event
-                except CodeSecurityError:
+                except CodeSecurityError as escaped:
+                    if not _the_agent_wrote_what_was_refused(escaped):
+                        # A call's shape (or an admin's stored search) is not
+                        # what the agent wrote; a refusal of what it wrote,
+                        # caught earlier, is the one the audit names.
+                        self._raise_if_a_refusal_was_caught(query_timings, cause=escaped)
                     raise
                 except Exception as exec_error:
                     self._raise_if_a_refusal_was_caught(query_timings, cause=exec_error)

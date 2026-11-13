@@ -60,7 +60,6 @@ SQL_FAMILIES = {
     "TeradataClient": "teradata",
     "DruidClient": "druid",
     # Renderer-only rows, read with the dialect their renderer generates.
-    "TimbrClient": "spark",
     "PostHogClient": "clickhouse",
     "CSVClient": "duckdb",
     "QVDClient": "duckdb",
@@ -71,7 +70,8 @@ SQL_FAMILIES = {
 
 # Engines that do not read a backslash the way sqlglot's tokenizer does
 # (approved: Athena's DML engine, Redshift): a backslash value is refused.
-NO_BACKSLASH = {"AwsAthenaClient", "AwsRedshiftClient"}
+# Timbr's lexer is not documented, so it gets doubled quotes and no backslash.
+NO_BACKSLASH = {"AwsAthenaClient", "AwsRedshiftClient", "TimbrClient"}
 
 STRING_TOKENS = {TokenType.STRING, TokenType.NATIONAL_STRING}
 
@@ -127,9 +127,10 @@ SCANNED = {
     "NetsuiteClient": "ansi",
     "OracleBIClient": "ansi",
     "SisenseClient": "ansi",
-    "PriorityErpClient": "ansi",
-    "SapDatasphereClient": "ansi",
-    "MecmClient": "ansi",
+    "PriorityErpClient": "odata",
+    "SapDatasphereClient": "odata",
+    "MecmClient": "odata",
+    "TimbrClient": "timbr",
     "AzureDataExplorerClient": "kql",
     "SalesforceClient": "soql",
     "SplunkClient": "spl",
@@ -141,6 +142,10 @@ SCANNED = {
 def test_a_scanned_literal_is_one_string_that_decodes_to_the_value(family, value):
     renderer = _renderer(family)
     assert renderer.name == SCANNED[family]
+    if family in NO_BACKSLASH and BACKSLASH in value:
+        with pytest.raises(ParamError):
+            render_sql_with_params("x = :v AND y = 1", {"v": value}, renderer=renderer)
+        return
     text = render_sql_with_params("x = :v AND y = 1", {"v": value}, renderer=renderer)
     spans = renderer.string_spans(text)
     assert len(spans) == 1, (text, spans)

@@ -17,12 +17,14 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import heapq
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Callable, Dict, List, Optional, Tuple
+from urllib.parse import quote as url_quote, unquote as url_unquote
 
 from app.schemas.param_schema import (
     IDENTITY_ATTR_PREFIX,
@@ -303,7 +305,10 @@ class LiteralRenderer:
 
     quote: the value as a complete literal (delimiters and any prefix).
     string_spans: (start, end) of every string literal in a statement, end
-    exclusive; a literal left open runs to the end of the text.
+    exclusive; a literal left open runs to the end of the text. For the
+    grammars read by a scanner (no sqlglot dialect) also every comment and
+    quoted identifier, under each reading the engines may give the text, so
+    spans of different readings may overlap (SOQL has one reading).
     decode: a literal's body (between its delimiters) as the value the
     engine reads; the inverse of the body `quote` writes.
     """
@@ -382,34 +387,182 @@ def _national_when_needed(value: str) -> str:
     return ("" if value.isascii() else "N") + _doubled(value)
 
 
-def _scanned_spans(quotes: str, backslash: bool) -> Callable[[str], List[Tuple[int, int]]]:
-    """Literal spans for a grammar without a sqlglot dialect: strings open with
-    one of `quotes` and close with the same character, which is escaped by
-    doubling it or (when `backslash`) by a preceding backslash."""
-    def spans(text: str) -> List[Tuple[int, int]]:
-        out: List[Tuple[int, int]] = []
-        i, n = 0, len(text)
-        while i < n:
-            delimiter = text[i]
-            if delimiter not in quotes:
-                i += 1
+@dataclass(frozen=True)
+class _Reading:
+    """One way an engine may read a grammar that has no sqlglot dialect:
+    where its strings, quoted identifiers and comments start and end.
+
+    quotes: characters that open a span closed by the same character.
+    backslash: those of `quotes` whose spans also escape with a backslash.
+    doubled: a doubled quote stays inside the span. Where the engine reads it
+    as two strings side by side instead, no code lies between them, so the
+    placeholder check gets the same answer either way.
+    escape_prefixes: letters that, standing alone right before a quote, make
+    its span escape with a backslash (Vertica's E'..').
+    verbatim_prefix: a character right before a quote that makes its span
+    escape nothing (KQL's @'..').
+    fences: texts that open a span closed by the same text, no escapes.
+    loose_backslash: a backslash outside any span takes the next character.
+    """
+
+    quotes: str = "'"
+    backslash: str = ""
+    doubled: bool = True
+    line_comments: Tuple[str, ...] = ()
+    block_comments: bool = False
+    brackets: bool = False
+    escape_prefixes: str = ""
+    verbatim_prefix: str = ""
+    fences: Tuple[str, ...] = ()
+    loose_backslash: bool = False
+
+
+def _quoted_end(text: str, i: int, reading: _Reading) -> int:
+    delimiter, n = text[i], len(text)
+    escapes = delimiter in reading.backslash
+    before = text[i - 1] if i else ""
+    if before and before in reading.escape_prefixes and not (i > 1 and (text[i - 2].isalnum() or text[i - 2] == "_")):
+        escapes = True
+    if before and before == reading.verbatim_prefix:
+        escapes = False
+    j = i + 1
+    while j < n:
+        ch = text[j]
+        if escapes and ch == "\\":
+            j += 2
+            continue
+        if ch == delimiter:
+            if reading.doubled and j + 1 < n and text[j + 1] == delimiter:
+                j += 2
                 continue
-            start, i = i, i + 1
-            while i < n:
-                ch = text[i]
-                if backslash and ch == "\\":
-                    i += 2
-                    continue
-                if ch == delimiter:
-                    if i + 1 < n and text[i + 1] == delimiter and not backslash:
-                        i += 2
-                        continue
-                    break
-                i += 1
-            i = min(i + 1, n)
-            out.append((start, i))
-        return out
+            return j + 1
+        j += 1
+    return n
+
+
+def _scan(text: str, reading: _Reading) -> List[Tuple[int, int]]:
+    """Every span of `text` that is not code under `reading`, in order."""
+    out: List[Tuple[int, int]] = []
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if reading.loose_backslash and ch == "\\":
+            i += 2
+            continue
+        fence = next((f for f in reading.fences if text.startswith(f, i)), None)
+        if fence is not None:
+            close = text.find(fence, i + len(fence))
+            end = n if close < 0 else close + len(fence)
+        elif any(text.startswith(c, i) for c in reading.line_comments):
+            close = text.find("\n", i)
+            end = n if close < 0 else close
+        elif reading.block_comments and text.startswith("/*", i):
+            close = text.find("*/", i + 2)
+            # A comment opened inside another is where a reader that nests
+            # comments and one that does not part ways: nothing after it is
+            # code to both.
+            end = n if close < 0 or text.find("/*", i + 2, close) >= 0 else close + 2
+        elif reading.brackets and ch == "[":
+            close = text.find("]", i + 1)
+            end = n if close < 0 else close + 1
+        elif ch in reading.quotes:
+            end = _quoted_end(text, i, reading)
+        else:
+            i += 1
+            continue
+        out.append((i, end))
+        i = end
+    return out
+
+
+def _merged(lists: List[List[Tuple[int, int]]]) -> List[Tuple[int, int]]:
+    """Sorted spans of several sorted lists, each span once."""
+    out: List[Tuple[int, int]] = []
+    for span in heapq.merge(*lists):
+        if not out or out[-1] != span:
+            out.append(span)
+    return out
+
+
+def _scanned_spans(*readings: _Reading) -> Callable[[str], List[Tuple[int, int]]]:
+    """The spans that are not code under any of `readings`: a placeholder
+    outside all of them is code whichever way the engine reads the text."""
+    def spans(text: str) -> List[Tuple[int, int]]:
+        return _merged([_scan(text, reading) for reading in readings])
     return spans
+
+
+_HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
+
+
+def _percent_decoded(text: str, lo: int, hi: int) -> Tuple[str, List[int]]:
+    """text[lo:hi] as a server reads a query option ('+' a space, %XX a
+    byte; a byte outside ASCII stands for any character that is not a
+    delimiter), and where each decoded character starts in `text` (plus
+    `hi` at the end)."""
+    out: List[str] = []
+    origin: List[int] = []
+    i = lo
+    while i < hi:
+        origin.append(i)
+        ch = text[i]
+        if ch == "%" and i + 3 <= hi and text[i + 1] in _HEX_DIGITS and text[i + 2] in _HEX_DIGITS:
+            byte = int(text[i + 1:i + 3], 16)
+            out.append(chr(byte) if byte < 0x80 else chr(0x80))
+            i += 3
+            continue
+        out.append(" " if ch == "+" else ch)
+        i += 1
+    origin.append(hi)
+    return "".join(out), origin
+
+
+def _segments(text: str, lo: int, hi: int) -> List[Tuple[int, int]]:
+    out, start = [], lo
+    while True:
+        cut = text.find("&", start, hi)
+        if cut < 0:
+            out.append((start, hi))
+            return out
+        out.append((start, cut))
+        start = cut + 1
+
+
+def _odata_spans(*readings: _Reading) -> Callable[[str], List[Tuple[int, int]]]:
+    """Spans that are not code in OData options text, as written and as the
+    server reads it: split into options at '&' (after a path ending at the
+    first '?', for a client that takes one), each option and each option's
+    value (after its first '=') percent-decoded on its own."""
+    def spans(text: str) -> List[Tuple[int, int]]:
+        lists = [_scan(text, reading) for reading in readings]
+        query = text.find("?")
+        splits = [_segments(text, 0, len(text))]
+        if query >= 0:
+            splits.append([(0, query)] + _segments(text, query + 1, len(text)))
+        for segments in splits:
+            for value_only in (False, True):
+                found: List[List[Tuple[int, int]]] = [[] for _ in readings]
+                for lo, hi in segments:
+                    if value_only:
+                        equals = text.find("=", lo, hi)
+                        lo = hi if equals < 0 else equals + 1
+                    decoded, origin = _percent_decoded(text, lo, hi)
+                    for k, reading in enumerate(readings):
+                        found[k].extend((origin[s], origin[e]) for s, e in _scan(decoded, reading))
+                lists.extend(found)
+        return _merged(lists)
+    return spans
+
+
+def _odata_quote(value: str) -> str:
+    # OData doubles a quote in a literal; the server percent-decodes the
+    # options text first, so the body is percent-encoded to reach it as
+    # written, and nothing in it splits or ends the options ('&', '#', '+').
+    return "'" + url_quote(value.replace("'", "''"), safe="") + "'"
+
+
+def _odata_decode(body: str) -> str:
+    return url_unquote(body).replace("''", "'")
 
 
 def _backslash_decode(escapes: Dict[str, str], only: Optional[str] = None) -> Callable[[str], str]:
@@ -448,28 +601,66 @@ def _sql_renderer(name: str, dialect: str, quote: Optional[Callable[[str], str]]
     )
 
 
+# How the engines behind the scanned renderers may read a statement. Where
+# they differ (or the grammar is not documented), each reading is listed and
+# a placeholder must be code under every one.
+_ANSI_READING = _Reading(quotes="'\"", line_comments=("--",), block_comments=True)
+_ANSI_READINGS = (
+    _ANSI_READING,
+    replace(_ANSI_READING, escape_prefixes="eE", fences=("$$",)),  # Vertica: E'..', $$..$$
+    replace(_ANSI_READING, brackets=True),  # [..] names (Sybase, Sisense)
+    replace(_ANSI_READING, quotes="'\"`"),  # `..` names
+)
+# Spark's lexer: backslash escapes in '..' and "..", `..` names.
+_SPARK_READING = _Reading(quotes="'\"`", backslash="'\"", line_comments=("--",), block_comments=True)
+_KQL_READING = _Reading(quotes="'\"", backslash="'\"", line_comments=("//",), verbatim_prefix="@", fences=("```",))
+_SPL_READING = _Reading(quotes='"', backslash='"', fences=("```",))
+
+
+def _ansi_decode(body: str) -> str:
+    return body.replace("''", "'")
+
+
 def _build_renderers() -> Dict[str, LiteralRenderer]:
     renderers = {
         # ANSI: quotes doubled, nothing else (Db2, IBM i, Vertica, Sybase,
-        # SAP HANA, Pinot, NetSuite, Oracle BI, Sisense, and the OData
-        # options of Priority ERP, SAP Datasphere and MECM).
+        # SAP HANA, Pinot, NetSuite, Oracle BI, Sisense).
         "ansi": LiteralRenderer(
-            name="ansi", quote=_doubled, string_spans=_scanned_spans("'", backslash=False),
-            decode=lambda body: body.replace("''", "'"),
+            name="ansi", quote=_doubled, string_spans=_scanned_spans(*_ANSI_READINGS), decode=_ansi_decode,
         ),
-        # Kusto: '...' with \\ and \'.
+        # OData options text (Priority ERP, SAP Datasphere, MECM): quotes
+        # doubled, the body percent-encoded.
+        "odata": LiteralRenderer(
+            name="odata", quote=_odata_quote,
+            string_spans=_odata_spans(_Reading(quotes="'"), _Reading(quotes="'\"")),
+            decode=_odata_decode,
+        ),
+        # Timbr: its lexer is not documented, so the text is read both the
+        # ANSI way and Spark's, quotes are doubled (the same value to ANSI;
+        # never an escape to Spark) and a backslash value is refused.
+        "timbr": LiteralRenderer(
+            name="timbr", quote=_refuse_backslash("Timbr"),
+            string_spans=_scanned_spans(*_ANSI_READINGS, _SPARK_READING), decode=_ansi_decode,
+        ),
+        # Kusto: '...' with \\ and \'; @'..' verbatim, ```..``` and ~~~..~~~
+        # multi-line, // comments.
         "kql": LiteralRenderer(
-            name="kql", quote=_backslash_quote("'"), string_spans=_scanned_spans("'\"", backslash=True),
+            name="kql", quote=_backslash_quote("'"),
+            string_spans=_scanned_spans(_KQL_READING, replace(_KQL_READING, fences=("~~~",))),
             decode=_backslash_decode(_C_ESCAPES),
         ),
-        # Salesforce SOQL: '...' with \\ and \'.
+        # Salesforce SOQL: '...' with \\ and \'; no comments.
         "soql": LiteralRenderer(
-            name="soql", quote=_backslash_quote("'"), string_spans=_scanned_spans("'", backslash=True),
+            name="soql", quote=_backslash_quote("'"),
+            string_spans=_scanned_spans(_Reading(quotes="'", backslash="'", doubled=False)),
             decode=_backslash_decode(_C_ESCAPES),
         ),
-        # Splunk SPL (bare searches): "..." with \\ and \".
+        # Splunk SPL (bare searches): "..." with \\ and \"; ```..``` comments;
+        # '..' field names in eval and where; a backslash outside quotes.
         "spl": LiteralRenderer(
-            name="spl", quote=_backslash_quote('"'), string_spans=_scanned_spans('"', backslash=True),
+            name="spl", quote=_backslash_quote('"'),
+            string_spans=_scanned_spans(_SPL_READING, replace(_SPL_READING, quotes="\"'"),
+                                        replace(_SPL_READING, loose_backslash=True)),
             decode=_backslash_decode({}, only='\\"'),
         ),
         # sqlglot's Athena tokenizer reads a backslash as an escape; the
@@ -490,8 +681,7 @@ def _build_renderers() -> Dict[str, LiteralRenderer]:
 
 # Renderers that are a sqlglot dialect's own reading (the name is the
 # dialect): every SQL dialect a guard profile names, plus duckdb (file
-# connections, accelerated custom tables), spark (Timbr) and clickhouse
-# (PostHog's HogQL).
+# connections, accelerated custom tables) and clickhouse (PostHog's HogQL).
 _SQLGLOT_RENDERER_DIALECTS = frozenset({
     "postgres", "redshift", "mysql", "tsql", "fabric", "oracle", "sqlite", "snowflake", "bigquery",
     "athena", "presto", "trino", "clickhouse", "databricks", "spark", "duckdb", "teradata", "druid",
@@ -538,6 +728,94 @@ def renderer_for_name(family: str) -> Optional[LiteralRenderer]:
 
 _PLACEHOLDER_RE = re.compile(r"(?<![:\w]):([a-zA-Z_][a-zA-Z0-9_]*)")
 
+# A placeholder is rendered only where it stands as code: there the literal
+# written for it is one value. Anywhere else (a string, a comment, a quoted
+# name) the literal's quotes would end or open something else instead.
+_QUOTED_TOKEN_NAMES = _STRING_TOKEN_NAMES | {"IDENTIFIER"}
+# Engines where E'..' escapes with a backslash, which sqlglot's tokenizer
+# ends at a backslash-quote.
+_E_STRING_DIALECTS = frozenset({"postgres", "duckdb", "redshift"})
+
+
+def _refuse_text_read_two_ways(sql: str, tokens, dialect: str) -> None:
+    """Refuse text whose strings or comments the engine may end somewhere
+    other than sqlglot's tokenizer does."""
+    for k, token in enumerate(tokens):
+        if any("/*" in c or c.startswith("!") for c in token.comments):
+            raise ParamError(
+                "parameters cannot be placed in a query with a nested or executable (/*!) comment; remove the comment"
+            )
+        kind = token.token_type.name
+        if kind not in _STRING_TOKEN_NAMES:
+            continue
+        if dialect in _E_STRING_DIALECTS and "\\" in token.text and (kind == "BYTE_STRING" or sql[token.start] in "eE"):
+            raise ParamError(
+                "parameters cannot be placed in a query with an E'...' string holding a backslash; "
+                "use a plain string or pass the value as a parameter"
+            )
+        before = tokens[k - 1] if k else None
+        if before is not None and before.token_type.name == "VAR" and before.end == token.start - 1:
+            # A string with a prefix sqlglot does not know (Oracle's q'..').
+            raise ParamError(
+                "parameters cannot be placed in a query with a prefixed string such as q'...'; use a plain string"
+            )
+
+
+def _misplaced_tokens(sql: str, matches: List["re.Match[str]"], dialect: str) -> List[str]:
+    import sqlglot
+
+    try:
+        tokens = sqlglot.tokenize(sql, read=dialect)
+    except Exception as exc:
+        # Strings that cannot be told apart from the rest: no placeholder can
+        # be shown to stand as code.
+        raise ParamError("the query's quoted strings could not be read, so parameters cannot be placed") from exc
+    _refuse_text_read_two_ways(sql, tokens, dialect)
+    at = {token.start: k for k, token in enumerate(tokens)}
+
+    def quoted(k: int) -> bool:
+        return 0 <= k < len(tokens) and tokens[k].token_type.name in _QUOTED_TOKEN_NAMES
+
+    misplaced = []
+    for m in matches:
+        k = at.get(m.start())
+        stands = (
+            k is not None and k + 1 < len(tokens)
+            and tokens[k].token_type.name == "COLON"
+            and (tokens[k + 1].start, tokens[k + 1].end) == (m.start() + 1, m.end() - 1)
+            and not quoted(k + 1)
+            # Not glued to a quoted token: the two would read as one literal.
+            and not (quoted(k - 1) and tokens[k - 1].end == m.start() - 1)
+            and not (quoted(k + 2) and tokens[k + 2].start == m.end())
+        )
+        if not stands:
+            misplaced.append(m.group(1))
+    return misplaced
+
+
+def _misplaced_spans(sql: str, matches: List["re.Match[str]"], spans: List[Tuple[int, int]]) -> List[str]:
+    """Placeholders inside or touching a span (a quote next to the literal
+    written for it would join the two)."""
+    n = len(sql)
+    delta = [0] * (n + 1)
+    for start, end in spans:
+        delta[start] += 1
+        delta[end] -= 1
+    covered = [0] * (n + 1)  # covered[i]: characters before i inside a span
+    level = 0
+    for i in range(n):
+        level += delta[i]
+        covered[i + 1] = covered[i] + (level > 0)
+    return [m.group(1) for m in matches
+            if covered[min(m.end() + 1, n)] - covered[max(m.start() - 1, 0)] > 0]
+
+
+def _misplaced_placeholders(sql: str, matches: List["re.Match[str]"], renderer: LiteralRenderer) -> List[str]:
+    dialect = _sqlglot_dialect_of(renderer)
+    if dialect is not None:
+        return _misplaced_tokens(sql, matches, dialect)
+    return _misplaced_spans(sql, matches, renderer.string_spans(sql))
+
 
 def _render_literal(value: Any, renderer: LiteralRenderer) -> str:
     if value is None:
@@ -574,8 +852,10 @@ def render_sql_with_params(
 
     Every placeholder must have a value in `values` (missing → ParamError).
     Extra values are fine — a multi-query generate_df doesn't use every param
-    in every statement. Values only, never identifiers. A placeholder inside
-    a quoted string is refused: it would be text, not a value.
+    in every statement. Values only, never identifiers. A placeholder must
+    stand as code: one inside or against a string, comment or quoted name is
+    refused, as is a query whose strings or comments the engine may read
+    differently from the check.
 
     String values are written with `renderer` (the connection's, from
     `renderer_for`); without one, with the renderer of the family
@@ -588,15 +868,12 @@ def render_sql_with_params(
         raise ParamError("parameters are not supported with a JSON search envelope; pass the SPL as text")
 
     missing: List[str] = []
-    inside: List[str] = []
     matches = list(_PLACEHOLDER_RE.finditer(sql))
-    spans = renderer.string_spans(sql) if matches else []
-    for m in matches:
-        if any(start <= m.start() < end for start, end in spans):
-            inside.append(m.group(1))
-    if inside:
+    misplaced = _misplaced_placeholders(sql, matches, renderer) if matches else []
+    if misplaced:
         raise ParamError(
-            "parameter placeholder(s) inside a quoted string: " + ", ".join(sorted(set(inside)))
+            "parameter placeholder(s) inside or against a quoted string, quoted name or comment: "
+            + ", ".join(sorted(set(misplaced)))
             + "; put the placeholder where the value goes, without quotes"
         )
 
