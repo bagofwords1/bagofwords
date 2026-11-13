@@ -573,20 +573,32 @@ def test_params_are_refused_with_a_comment_a_mysql_family_engine_runs(family, te
     ("SELECT 1 WHERE a = :v --", "SELECT 1 WHERE a = 'x' --"),
     ("SELECT 1 WHERE a = :v AND b = '--x'", "SELECT 1 WHERE a = 'x' AND b = '--x'"),
     ("SELECT 1 /* M! */ WHERE a = :v", "SELECT 1 /* M! */ WHERE a = 'x'"),
-])
+] + [(template, template.replace(":v", "'x'")) for template in [
+    # '--' inside a comment every MySQL reading sees is part of that comment.
+    "-- ---------" + NL + "SELECT 1 WHERE a = :v",
+    "SELECT 1 WHERE a = :v -- a--b",
+    "SELECT 1 /* a--b */ WHERE a = :v",
+    "SELECT 1 WHERE a = :v # see--x",
+]])
 def test_mysql_comments_the_engine_also_skips_still_render(template, expected):
     assert render_sql_with_params(template, {"v": "x"}, renderer=query_params.renderer_for_name("MariadbClient")) == expected
 
 
-@pytest.fixture(scope="module")
-def mariadb_rows():
-    """A run_query over a throwaway MariaDB server holding _ROWS."""
+def test_a_bare_dash_line_is_still_refused_on_mysql():
+    with pytest.raises(ParamError):
+        render_sql_with_params("----------" + NL + "SELECT 1 WHERE a = :v", {"v": "x"},
+                               renderer=query_params.renderer_for_name("MysqlClient"))
+
+
+@pytest.fixture(scope="module", params=["mariadb:11.4", "mysql:8"])
+def mariadb_rows(request):
+    """A run_query over a throwaway MariaDB (or MySQL) server holding _ROWS."""
     if not _docker_available():
         pytest.skip("Docker daemon not reachable")
     import pymysql
     from testcontainers.mysql import MySqlContainer
 
-    with MySqlContainer("mariadb:11.4") as db:
+    with MySqlContainer(request.param) as db:
         con = pymysql.connect(host=db.get_container_host_ip(), port=int(db.get_exposed_port(3306)),
                               user=db.username, password=db.password, database=db.dbname, autocommit=True)
         cur = con.cursor()
@@ -601,9 +613,10 @@ def mariadb_rows():
 
 
 @pytest.mark.parametrize("template", MYSQL_COMMENT_TEMPLATES)
-def test_a_comment_mariadb_runs_is_refused_before_anything_is_sent(mariadb_rows, template):
+def test_a_comment_mariadb_runs_is_refused_before_anything_is_sent(request, mariadb_rows, template):
     renderer = query_params.renderer_for_name("MariadbClient")
-    assert mariadb_rows(template.replace(":v", renderer.quote(UNSPACED))) == [1, 2, 3]
+    mysql_skips_it = "/*M!" in template and request.node.callspec.params["mariadb_rows"].startswith("mysql")
+    assert mariadb_rows(template.replace(":v", renderer.quote(UNSPACED))) == ([] if mysql_skips_it else [1, 2, 3])
     assert mariadb_rows(render_sql_with_params("SELECT id FROM t WHERE owner = :v", {"v": UNSPACED},
                                                renderer=renderer)) == []
     with pytest.raises(ParamError):
@@ -613,6 +626,17 @@ def test_a_comment_mariadb_runs_is_refused_before_anything_is_sent(mariadb_rows,
 def test_the_negative_number_filter_keeps_its_rest_on_mariadb(mariadb_rows):
     rendered = render_sql_with_params(SCORE_FILTER, {"p": -5}, renderer=query_params.renderer_for_name("MariadbClient"))
     assert mariadb_rows(rendered) == [1]
+
+
+@pytest.mark.parametrize("template", [
+    "-- ---------" + NL + "SELECT id FROM t WHERE owner = :v",
+    "SELECT id FROM t WHERE owner = :v -- a--b",
+    "SELECT id FROM t /* a--b */ WHERE owner = :v",
+    "SELECT id FROM t WHERE owner = :v # see--x",
+])
+def test_a_double_dash_inside_a_comment_renders_and_runs_on_the_engine(mariadb_rows, template):
+    rendered = render_sql_with_params(template, {"v": "bob"}, renderer=query_params.renderer_for_name("MysqlClient"))
+    assert mariadb_rows(rendered) == [2]
 
 
 # The re-check of the rendered text catches each of the cases above on its
@@ -668,6 +692,92 @@ def test_the_re_read_accepts_a_value_that_is_one_literal(monkeypatch, family, te
     rendered = render_sql_with_params(template, {"v": value}, renderer=renderer)
     literal = query_params._render_literal(value, renderer)
     assert rendered == template.replace(":v", literal)
+
+
+# A line comment ends at LF for every engine; sqlglot also ends it at CR,
+# Postgres and DuckDB at CR too, SQLite and MySQL not. Other characters some
+# reader may take for a line end: VT, FF, FS, GS, RS, NEL, LS, PS. The
+# re-read of the rendered text uses the same reading, so it cannot see this.
+CR = chr(13)
+ODD_BREAKS = [CR, chr(11), chr(12), chr(0x1C), chr(0x1D), chr(0x1E), chr(0x85), chr(0x2028), chr(0x2029)]
+# The renderers whose grammars have line comments, and how one opens.
+LINE_COMMENT_RENDERERS = {name: ("//" if name == "kql" else "--")
+                          for name in query_params._RENDERERS if name not in ("spl", "soql", "odata")}
+
+
+@pytest.mark.parametrize("brk", ODD_BREAKS, ids=lambda c: "U+%04X" % ord(c))
+@pytest.mark.parametrize("name", sorted(LINE_COMMENT_RENDERERS))
+def test_a_line_comment_holding_another_line_break_refuses_params(name, brk):
+    renderer = query_params._RENDERERS[name]
+    mark = LINE_COMMENT_RENDERERS[name]
+    for template in [
+        # Code to a reader that ends the comment at the character, comment
+        # to one that does not.
+        "SELECT 1 " + mark + " c" + brk + "AND a = :v",
+        # The other way round: a string to a reader that ends the comment
+        # at the character.
+        "SELECT 1 " + mark + " c" + brk + "' " + NL + "AND a = :v " + mark + " '",
+    ]:
+        with pytest.raises(ParamError):
+            render_sql_with_params(template, {"v": "x"}, renderer=renderer)
+
+
+@pytest.mark.parametrize("name", sorted(query_params._RENDERERS))
+def test_line_breaks_inside_a_string_and_crlf_still_render(name):
+    renderer = query_params._RENDERERS[name]
+    mark = LINE_COMMENT_RENDERERS.get(name)
+    quote = '"' if name == "spl" else "'"
+    inside = quote + "a" + "".join(ODD_BREAKS) + "b" + quote
+    template = "x = " + inside + " and y = :v"
+    assert render_sql_with_params(template, {"v": 5}, renderer=renderer) == template.replace(":v", "5")
+    if mark is not None:
+        template = "SELECT 1 " + mark + " c" + CR + NL + "AND a = :v"
+        assert render_sql_with_params(template, {"v": 5}, renderer=renderer) == template.replace(":v", "5")
+
+
+def test_a_lone_cr_in_a_comment_would_read_another_table_on_sqlite_and_is_refused_before_anything_is_sent(request):
+    run = _engine("sqlite", request)
+    renderer = query_params.renderer_for_name("SqliteClient")
+    template = "SELECT id FROM t WHERE owner = 'nobody' -- note" + CR + "OR owner = :v"
+    value = NL + "UNION SELECT score FROM s --"
+    # As written today: SQLite reads the rest of the line as the comment, so
+    # the value's text after its LF runs as SQL and reads table s.
+    assert run(template.replace(":v", renderer.quote(value))) == [50, 150, 200]
+    with pytest.raises(ParamError):
+        render_sql_with_params(template, {"v": value}, renderer=renderer)
+
+
+# Scanned grammars: what follows a placeholder must not join the value
+# either (':v.5' with 5 would read 5.5).
+SCANNED = sorted(name for name in query_params._RENDERERS if query_params._sqlglot_dialect_of(query_params._RENDERERS[name]) is None)
+
+
+@pytest.mark.parametrize("after", [".5", ".x", chr(0xE9)])
+@pytest.mark.parametrize("name", SCANNED)
+def test_a_scanned_placeholder_followed_by_a_dot_or_a_name_character_is_refused(name, after):
+    with pytest.raises(ParamError):
+        render_sql_with_params("a = :v" + after + " and b", {"v": 5}, renderer=query_params._RENDERERS[name])
+
+
+def test_a_negative_number_is_spaced_only_after_a_minus():
+    odata = query_params._RENDERERS["odata"]
+    assert render_sql_with_params("Orders(:k)?$top=:n", {"k": -5, "n": -1}, renderer=odata) == "Orders(-5)?$top=-1"
+    for name in ("ansi", "postgres", "kql"):
+        renderer = query_params._RENDERERS[name]
+        assert render_sql_with_params("f(:a, =:a, 1-:a)", {"a": -5}, renderer=renderer) == "f(-5, =-5, 1- -5)"
+
+
+def test_an_odata_value_that_cannot_be_encoded_is_a_param_error():
+    with pytest.raises(ParamError):
+        render_sql_with_params("$filter=Name eq :v", {"v": "a" + chr(0xD800)}, renderer=query_params._RENDERERS["odata"])
+
+
+def test_a_reading_count_that_differs_between_template_and_rendered_text_fails_closed(monkeypatch):
+    # One list for the template, two for the rendered text: nothing may be
+    # left unchecked.
+    monkeypatch.setitem(query_params._READINGS, "ansi", lambda text: [[]] * (1 + (":" not in text)))
+    with pytest.raises(ValueError):
+        render_sql_with_params("a = :v", {"v": 5}, renderer=query_params._RENDERERS["ansi"])
 
 
 # Through the wrapper (StreamingCodeExecutor), in both sandbox modes.

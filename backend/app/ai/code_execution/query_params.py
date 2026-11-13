@@ -606,7 +606,10 @@ def _odata_quote(value: str) -> str:
     # OData doubles a quote in a literal; the server percent-decodes the
     # options text first, so the body is percent-encoded to reach it as
     # written, and nothing in it splits or ends the options ('&', '#', '+').
-    return "'" + url_quote(value.replace("'", "''"), safe="") + "'"
+    try:
+        return "'" + url_quote(value.replace("'", "''"), safe="") + "'"
+    except UnicodeEncodeError as exc:
+        raise ParamError("a parameter value holds a character that cannot be sent in an OData query") from exc
 
 
 def _odata_decode(body: str) -> str:
@@ -732,7 +735,8 @@ def _build_renderers() -> Dict[str, LiteralRenderer]:
     }
     for dialect in _SQLGLOT_RENDERER_DIALECTS:
         renderers.setdefault(dialect, _sql_renderer(dialect, dialect))
-    _READINGS["mysql"] = _scanned_lists(*_MYSQL_READINGS)
+    for name in _MYSQL_FAMILY_RENDERERS:
+        _READINGS[name] = _scanned_lists(*_MYSQL_READINGS)
     return renderers
 
 
@@ -743,6 +747,9 @@ _SQLGLOT_RENDERER_DIALECTS = frozenset({
     "postgres", "redshift", "mysql", "tsql", "fabric", "oracle", "sqlite", "snowflake", "bigquery",
     "athena", "presto", "trino", "clickhouse", "databricks", "spark", "duckdb", "teradata", "druid",
 })
+# Renderers for MySQL-family engines: the text is also read the MySQL way
+# (_MYSQL_READINGS) and their '--' rule applies (_refuse_engine_comments).
+_MYSQL_FAMILY_RENDERERS = frozenset({"mysql"})
 
 _RENDERERS: Dict[str, LiteralRenderer] = _build_renderers()
 _ANSI = _RENDERERS["ansi"]
@@ -794,9 +801,50 @@ _QUOTED_TOKEN_NAMES = _STRING_TOKEN_NAMES | {"IDENTIFIER"}
 _E_STRING_DIALECTS = frozenset({"postgres", "duckdb", "redshift"})
 
 
+def _inside_every(span_lists: List[List[Tuple[int, int]]], positions: List[int]) -> List[bool]:
+    """For each of the sorted `positions`, whether it is inside a span of
+    every list (each list sorted, spans not overlapping, end exclusive)."""
+    inside = [True] * len(positions)
+    for spans in span_lists:
+        k = 0
+        for p, at in enumerate(positions):
+            while k < len(spans) and spans[k][1] <= at:
+                k += 1
+            if not (k < len(spans) and spans[k][0] <= at):
+                inside[p] = False
+    return inside
+
+
+# Line ends other than LF (a CR before an LF ends the line where the LF
+# does). Readers disagree on them in a line comment: sqlglot, Postgres and
+# DuckDB end one at a CR, SQLite and MySQL do not; VT, FF, FS, GS, RS, NEL,
+# LS and PS end a line for some text readers.
+_OTHER_LINE_BREAK_RE = re.compile("\r(?!\n)|[\x0b\x0c\x1c-\x1e\x85\u2028\u2029]")
+# How a comment span of a scanned reading starts (_Reading.line_comments and
+# block comments); every other span is a string or a quoted name.
+_COMMENT_MARKS = ("--", "//", "#", "/*")
+
+
+def _refuse_other_line_breaks(sql: str, kept: List[List[Tuple[int, int]]]) -> None:
+    """Refuse a line end other than LF anywhere but inside a string or quoted
+    name (a span of every list in `kept`). In a line comment, one reader may
+    end the comment there and another not, so text one takes for code the
+    other takes for comment, and a placeholder one sees as code the other
+    sees in a comment or a string. The re-read of the rendered text
+    (`_check_rendered`) reads it with this same tokenizer and these same
+    readings, so it cannot see that; this rule is its only guard."""
+    breaks = [m.start() for m in _OTHER_LINE_BREAK_RE.finditer(sql)]
+    if not all(_inside_every(kept, breaks)):
+        raise ParamError(
+            "parameters cannot be placed in a query with a line break other than a newline (a lone carriage "
+            "return or another line separator) outside a string; use plain newlines"
+        )
+
+
 def _refuse_text_read_two_ways(sql: str, tokens, dialect: str) -> None:
     """Refuse text whose strings or comments the engine may end somewhere
     other than sqlglot's tokenizer does."""
+    _refuse_other_line_breaks(sql, [[(t.start, t.end + 1) for t in tokens if t.token_type.name in _QUOTED_TOKEN_NAMES]])
     _refuse_engine_comments(sql, tokens, dialect)
     for k, token in enumerate(tokens):
         if any("/*" in c for c in token.comments):
@@ -832,15 +880,16 @@ def _refuse_engine_comments(sql: str, tokens, dialect: str) -> None:
             "parameters cannot be placed in a query with an executable comment such as /*! */ or /*M! */; "
             "remove the comment"
         )
-    if dialect != "mysql":
+    if dialect not in _MYSQL_FAMILY_RENDERERS:
         return
-    quoted = [(t.start, t.end) for t in tokens if t.token_type.name in _QUOTED_TOKEN_NAMES]
-    k = 0
-    for m in _MYSQL_CODE_DASHES_RE.finditer(sql):
-        while k < len(quoted) and quoted[k][1] < m.start():
-            k += 1
-        if k < len(quoted) and quoted[k][0] <= m.start():
-            continue  # inside a string or a quoted name
+    dashes = [m.start() for m in _MYSQL_CODE_DASHES_RE.finditer(sql)]
+    if not dashes:
+        return
+    # Fine inside a string or a quoted name, or inside a span under every
+    # MySQL reading (such as a comment both read).
+    quoted = _inside_every([[(t.start, t.end + 1) for t in tokens if t.token_type.name in _QUOTED_TOKEN_NAMES]], dashes)
+    not_code = _inside_every(_READINGS[dialect](sql), dashes)
+    if not all(a or b for a, b in zip(quoted, not_code)):
         raise ParamError(
             "parameters cannot be placed in a query with '--' not followed by a space, "
             "which MySQL reads as code; write '-- ' for a comment or '- -' for two minus signs"
@@ -896,11 +945,28 @@ def _misplaced_spans(sql: str, matches: List["re.Match[str]"], spans: List[Tuple
             if covered[min(m.end() + 1, n)] - covered[max(m.start() - 1, 0)] > 0]
 
 
+_JOINS_AFTER_RE = re.compile(r"[.\w]")
+
+
 def _misplaced_placeholders(sql: str, matches: List["re.Match[str]"], renderer: LiteralRenderer) -> List[str]:
     dialect = _sqlglot_dialect_of(renderer)
     if dialect is not None:
         return _misplaced_tokens(sql, matches, dialect)
-    return _misplaced_spans(sql, matches, renderer.string_spans(sql))
+    for m in matches:
+        # A '.' or a name character after the placeholder would join the
+        # value (':v.5' with 5 reads 5.5); the token re-read refuses this
+        # for sqlglot renderers.
+        if _JOINS_AFTER_RE.match(sql, m.end()):
+            raise ParamError(
+                f"parameter placeholder :{m.group(1)} is followed by {sql[m.end()]!r}; "
+                "put a space or an operator after it"
+            )
+    readings = _READINGS.get(renderer.name)
+    if readings is None:
+        return _misplaced_spans(sql, matches, renderer.string_spans(sql))
+    lists = readings(sql)
+    _refuse_other_line_breaks(sql, [[s for s in spans if not sql.startswith(_COMMENT_MARKS, s[0])] for spans in lists])
+    return _misplaced_spans(sql, matches, _merged(lists))
 
 
 def _rendered_value(value: Any, renderer: LiteralRenderer) -> Tuple[str, List[Tuple[int, int]]]:
@@ -973,10 +1039,11 @@ def _refuse_prefixes(sql: str, matches: List["re.Match[str]"], renderer: Literal
 
 def _separated(sql: str, start: int, text: str) -> str:
     """`text` as written at `start`: a value starting with '-' gets a space
-    after any other character, which it could join ('-' and '-5' make '--',
-    a comment). A space separates tokens in every grammar rendered here and
-    keeps the minus a unary minus."""
-    if text.startswith("-") and start and sql[start - 1] not in _SPACES:
+    after a '-', which it would join into '--', a comment. A space separates
+    tokens in every grammar rendered here and keeps the minus a unary minus;
+    elsewhere nothing is added (OData allows no space in a key or an option
+    value)."""
+    if text.startswith("-") and start and sql[start - 1] == "-":
         return " " + text
     return text
 
@@ -998,7 +1065,7 @@ def _check_rendered(sql: str, matches: List["re.Match[str]"], placed: List[Tuple
         _check_tokens(sql, matches, placed, rendered, dialect)
     if readings is not None:
         may_skip = renderer.name == "odata"
-        for template_spans, rendered_spans in zip(readings(sql), readings(rendered)):
+        for template_spans, rendered_spans in zip(readings(sql), readings(rendered), strict=True):
             _check_spans(matches, placed, template_spans, rendered_spans, may_skip)
 
 
