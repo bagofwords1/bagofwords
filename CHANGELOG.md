@@ -1,5 +1,18 @@
 # Release Notes
 
+## Version 0.0.618 (November 13, 2026)
+- Added an admin console: Admin swaps the sidebar for the admin menu, and every settings page shares one layout (#1710)
+- Added requesting view access to a dashboard you can't open; editors approve or deny from the share settings (#1706) — "Allow access requests" in AI settings (default: on)
+- Added a per-dashboard option to let its page open links in a new tab (#1705) — Embed → Permissions (default: off)
+- Added TrendChart and RankChart for trends and rankings in agent-built pages (#1704)
+- Changed agent-built pages to use the standard table, search box and dropdown controls (#1667)
+- Changed the agent to ask clarifying questions before it starts building a dashboard, not midway (#1709)
+- Fixed forks, "Run on my behalf" and stored results of chat-created reports showing the owner's rows over per-user or row-filtered sources (#1680)
+- Fixed string parameters containing a quote breaking queries on BigQuery, Databricks and Spark (#1680)
+- Fixed agent edits that add an uploaded image, such as a new logo, showing "File not found" (#1649)
+- Fixed saved document and dashboard charts losing their units; money with no stated currency shows in USD (#1707)
+- Fixed tables in agent-built pages adding thousands separators to years and IDs, and added keyboard row navigation (#1708)
+
 ## Version 0.0.617 (November 12, 2026)
 - Added a Full text indexing mode for network drive and S3 connections: the agent finds exact words, IDs and phrases anywhere in a file, with the page or sheet (#1683) — "Indexing → Full text" in the connection settings (default for new connections; existing ones keep their mode)
 - Added Google Cloud Storage and Azure Blob Storage as read-only file sources (#1698)
