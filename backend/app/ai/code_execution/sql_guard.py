@@ -167,6 +167,9 @@ _PG_DENIED_FUNCTION = re.compile(
     r"|pg_file_(?!settings\Z)\w*|pg_logdir_ls|pg_read_\w*|pg_ls_\w*|pg_stat_file"
     r"|lo_(?:close|creat|create|export|from_bytea|get|import|lseek(?:64)?|open|put|tell(?:64)?"
     r"|truncate(?:64)?|unlink)|loread|lowrite"
+    # Newer servers: planner statistics restore and clear, standby snapshots,
+    # replication slot sync.
+    r"|pg_(?:clear|restore)_(?:relation|attribute)_stats|pg_log_standby_snapshot|pg_sync_replication_slots"
 )
 DENIED_FUNCTIONS: dict[str, re.Pattern] = {"postgres": _PG_DENIED_FUNCTION, "redshift": _PG_DENIED_FUNCTION}
 # A name in code text, quoted or not, or a number (so a name glued after a
@@ -182,6 +185,9 @@ _EXPLAIN_HEAD = re.compile(
     re.IGNORECASE,
 )
 _EXPLAINED_VERBS = frozenset({"SELECT", "WITH", "VALUES"})
+# How `check_unparsed` starts a refusal for a write word (as opposed to a
+# leading verb or a second statement).
+_FORBIDDEN_OPERATION = "Query contains forbidden operation"
 
 # SPL commands an agent search must not run, by what they do:
 # - write to indexes, lookups, inputs or files on the search head: delete,
@@ -605,6 +611,8 @@ def _check_postgres_code(code_only: str) -> None:
         try:
             check_unparsed(words[head.end():], read_verbs=_EXPLAINED_VERBS)
         except ReadOnlyViolation as e:
+            if not str(e).startswith(_FORBIDDEN_OPERATION):
+                raise
             raise ReadOnlyViolation(
                 f"{e} In an EXPLAIN, a column or table name that is also an SQL word must be written "
                 'in double quotes, for example "start".'
@@ -615,7 +623,8 @@ def _denied_function(name: str) -> ReadOnlyViolation:
     return ReadOnlyViolation(
         f"The function {name.upper()}() is not allowed in agent queries: it runs SQL held in a string, "
         "reaches another connection or the server's files, or changes the session or the server. "
-        "Its name is refused anywhere in the query, also as a column or alias. Only SELECT queries are allowed."
+        "The name may be refused even where it is not a call; rename such a column or alias. "
+        "Only SELECT queries are allowed."
     )
 
 
@@ -753,12 +762,12 @@ def check_unparsed(code_only: str, *, read_verbs: frozenset[str], extra_write_wo
         name = word.group("name")
         if name is not None and name.upper() in _UNPARSED_WRITE_WORDS:
             raise ReadOnlyViolation(
-                f"Query contains forbidden operation '{name.upper()}'. Only SELECT queries are allowed."
+                f"{_FORBIDDEN_OPERATION} '{name.upper()}'. Only SELECT queries are allowed."
             )
     match = extra_write_words.search(words) if extra_write_words is not None else None
     if match:
         raise ReadOnlyViolation(
-            f"Query contains forbidden operation '{match.group().upper()}'. Only SELECT queries are allowed."
+            f"{_FORBIDDEN_OPERATION} '{match.group().upper()}'. Only SELECT queries are allowed."
         )
 
 

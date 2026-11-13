@@ -14,6 +14,8 @@ checks and another way by Postgres.
 
 from __future__ import annotations
 
+import sys
+
 import pandas as pd
 import pytest
 
@@ -348,6 +350,11 @@ DENIED = [
     "pg_read_file", "pg_read_binary_file", "pg_ls_dir", "pg_ls_waldir", "pg_stat_file",
     "lo_import", "lo_export", "lo_unlink", "lo_put", "lo_get", "lo_from_bytea", "lo_create", "lo_open",
     "loread", "lowrite",
+    # Newer servers (16-18): statistics restore and clear, standby snapshots,
+    # replication slot sync.
+    "pg_restore_relation_stats", "pg_clear_relation_stats",
+    "pg_restore_attribute_stats", "pg_clear_attribute_stats",
+    "pg_log_standby_snapshot", "pg_sync_replication_slots",
 ]
 # A denied name is refused wherever it stands in the code, also as a field,
 # a column or an alias.
@@ -486,6 +493,25 @@ def test_an_explain_refused_for_a_name_that_is_also_an_sql_word_says_to_quote_it
         _checked("EXPLAIN SELECT start FROM orders")
 
 
+@pytest.mark.parametrize("sql", [
+    "EXPLAIN INSERT INTO orders VALUES (1)",
+    "EXPLAIN SELECT 1; SELECT 2",
+])
+def test_an_explain_refused_for_its_statement_kind_does_not_tell_to_quote_names(sql):
+    with pytest.raises(ReadOnlyViolation) as refused:
+        _checked(sql)
+    assert "double quotes" not in str(refused.value)
+
+
+@pytest.mark.parametrize("dialect", ["postgres", "redshift"])
+def test_a_denied_name_refusal_says_it_may_stand_outside_a_call(dialect):
+    with pytest.raises(ReadOnlyViolation) as refused:
+        check_sql("SELECT nextval('s') AS v FROM orders", dialect)
+    message = str(refused.value)
+    assert "NEXTVAL" in message
+    assert "may be refused even where it is not a call" in message
+
+
 # --------------------------------------------------------------- through the wrapper
 
 class RecordingPostgresqlClient(PostgresqlClient):
@@ -558,6 +584,30 @@ def _docker_available() -> bool:
         return False
 
 
+def _require_docker() -> None:
+    """Skip when no Docker daemon is reachable; fail instead in CI, so a CI
+    run cannot pass without the engine tests."""
+    import os
+
+    if not _docker_available():
+        if os.environ.get("CI"):
+            pytest.fail("Docker daemon not reachable in CI: the Postgres engine tests must run")
+        pytest.skip("Docker daemon not reachable")
+
+
+def test_the_engine_tests_fail_instead_of_skipping_without_docker_in_ci(monkeypatch):
+    monkeypatch.setattr(sys.modules[__name__], "_docker_available", lambda: False)
+    outcomes = (pytest.fail.Exception, pytest.skip.Exception)
+    monkeypatch.setenv("CI", "true")
+    with pytest.raises(outcomes) as in_ci:
+        _require_docker()
+    monkeypatch.delenv("CI")
+    with pytest.raises(outcomes) as locally:
+        _require_docker()
+    assert (in_ci.type, locally.type) == (pytest.fail.Exception, pytest.skip.Exception)
+    assert "Docker" in str(in_ci.value)
+
+
 READER = "bow_reader"
 _CONNECT_KEYS = ("host", "port", "user", "password", "dbname")
 
@@ -568,8 +618,7 @@ def server():
     table the agent must not read, sequences, replication slots, a large
     object, adminpack and a role that may only SELECT; yields its connection
     settings."""
-    if not _docker_available():
-        pytest.skip("Docker daemon not reachable")
+    _require_docker()
     import psycopg2
     from testcontainers.postgres import PostgresContainer
 
@@ -732,17 +781,17 @@ def test_postgres_runs_the_reads_the_guard_lets_through(pg):
         assert pg(sql)[0]
 
 
-# Volatile functions in pg_catalog a read may call from SQL: not type I/O,
-# trigger, handler or support functions (they take or return an internal
-# type, so SQL cannot call them).
+# Volatile functions in pg_catalog a read may call from SQL: not trigger,
+# handler or support functions (they take or return an internal type, or
+# return a trigger or handler, so SQL cannot call them). Functions over
+# cstring stay listed: SQL can call them.
 VOLATILE_CATALOG_FUNCTIONS = """
 SELECT DISTINCT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE n.nspname = 'pg_catalog' AND p.provolatile = 'v' AND p.prokind = 'f'
   AND p.prorettype NOT IN ('trigger'::regtype, 'event_trigger'::regtype, 'internal'::regtype,
                            'language_handler'::regtype, 'fdw_handler'::regtype, 'index_am_handler'::regtype,
-                           'table_am_handler'::regtype, 'tsm_handler'::regtype, 'cstring'::regtype)
+                           'table_am_handler'::regtype, 'tsm_handler'::regtype)
   AND NOT ('internal'::regtype = ANY (p.proargtypes::regtype[]))
-  AND NOT ('cstring'::regtype = ANY (p.proargtypes::regtype[]))
 """
 # Reviewed: volatile, and still fine in a read.
 REVIEWED_ALLOWED = {
