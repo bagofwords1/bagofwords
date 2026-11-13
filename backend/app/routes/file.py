@@ -196,7 +196,7 @@ def _content_disposition(kind: str, filename: str) -> str:
 @router.get("/files", response_model=list[FileSchemaWithMetadata])
 @requires_permission('manage_files')
 async def get_files(current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await file_service.get_files(db, organization, current_user)
+    return await file_service.list_my_files(db, organization, current_user)
 
 async def _delete_files(request: Request, file_ids: list, current_user: User, db: AsyncSession, organization: Organization) -> dict:
     result = await file_service.delete_files(db, file_ids, organization, current_user)

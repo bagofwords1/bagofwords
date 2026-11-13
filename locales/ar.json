@@ -3235,6 +3235,10 @@
           "name": "أيام الاحتفاظ ببيانات الأدوات المرئية",
           "description": "عدد الأيام التي تُحفظ فيها بيانات الأدوات المرئية قبل حذفها."
         },
+        "file_retention_days": {
+          "name": "الاحتفاظ بالملفات (أيام)",
+          "description": "يحذف كل ليلة الملفات الأقدم من هذا العدد من الأيام. يُحتفظ بالملفات المستخدمة في لوحة معلومات، وملفات مكتبة الوكيل أو المشروع، والملفات المرفوعة إلى تقرير مجدول. القيمة 0 تحتفظ بالملفات دائمًا."
+        },
         "enable_excel_addin": {
           "name": "وظيفة Excel الإضافية",
           "description": "يفعّل وظيفة Excel الإضافية المدمجة ليتمكن المستخدمون من تحميل الملف التعريفي مباشرة من هذه النسخة"
@@ -4465,7 +4469,7 @@
   },
   "files": {
     "title": "الملفات",
-    "subtitle": "إدارة ملفات مؤسستك",
+    "subtitle": "الملفات التي رفعتها والملفات التي أنشأها الوكيل في تقاريرك.",
     "file": "ملف",
     "metadata": "البيانات الوصفية",
     "createdAt": "تاريخ الإنشاء",
@@ -4478,22 +4482,27 @@
     "search": "البحث في الملفات",
     "filterAll": "كل الملفات",
     "filterUploads": "المرفوعة",
-    "filterGenerated": "مخرجات الأدوات",
-    "sourceGenerated": "مخرجات أداة",
-    "showingCount": "{shown} من {total} ملفات",
-    "selectAll": "تحديد كل المعروض",
+    "selectAll": "تحديد الكل",
     "deleteSelected": "حذف {count} محددة",
     "delete": "حذف",
     "download": "تنزيل",
     "empty": "لا توجد ملفات مطابقة",
     "confirmTitleOne": "حذف هذا الملف؟",
     "confirmTitleMany": "حذف {count} ملفات؟",
-    "confirmBody": "تُزال الملفات المحذوفة من كل التقارير ولا يمكن استعادتها.",
+    "confirmBody": "تُزال الملفات المحذوفة من كل تقرير ووكيل ومشروع يستخدمها، ولا يمكن استعادتها.",
     "toastDeletedOne": "تم حذف الملف",
     "toastDeletedMany": "تم حذف {count} ملفات",
-    "toastPartial": "تعذر حذف {count} ملفات",
     "toastError": "تعذر حذف الملفات",
-    "toastDownloadError": "تعذر تنزيل الملف"
+    "toastDownloadError": "تعذر تنزيل الملف",
+    "filterAgent": "الوكيل",
+    "sourceAgent": "الوكيل",
+    "sourceUpload": "مرفوع",
+    "selectedCount": "تم تحديد {count}",
+    "toastPartialOne": "تعذّر حذف {count} ملف",
+    "toastPartialMany": "تعذّر حذف {count} ملفات",
+    "inUse": "مستخدم في لوحة معلومات، لذا لا يمكن حذفه",
+    "emptyNone": "لا توجد ملفات بعد",
+    "emptyNoneHint": "تظهر هنا الملفات التي ترفعها إلى تقرير والملفات التي ينشئها الوكيل."
   },
   "dashboards": {
     "title": "لوحات التحكم",
@@ -5629,8 +5638,8 @@
     "modelAuto": "تلقائي",
     "noAgents": "لا شيء",
     "project": "مشروع",
-    "toolOutputFilesOne": "{count} ملف أنتجته الأدوات",
-    "toolOutputFilesMany": "{count} ملفات أنتجتها الأدوات",
+    "toolOutputFilesOne": "{count} ملف أنشأه الوكيل",
+    "toolOutputFilesMany": "{count} ملفات أنشأها الوكيل",
     "agentsFromReport": "يستخدم وكلاء التقرير"
   },
   "errorPage": {

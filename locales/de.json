@@ -3235,6 +3235,10 @@
           "name": "Aufbewahrungstage für Widget-Daten",
           "description": "Anzahl der Tage, die Widget-Daten aufbewahrt werden, bevor sie gelöscht werden."
         },
+        "file_retention_days": {
+          "name": "Aufbewahrung von Dateien (Tage)",
+          "description": "Löscht jede Nacht Dateien, die älter als diese Anzahl Tage sind. Dateien eines Dashboards, Dateien in einer Agenten- oder Projektbibliothek und Uploads für einen geplanten Bericht bleiben erhalten. 0 bewahrt Dateien unbegrenzt auf."
+        },
         "enable_excel_addin": {
           "name": "Excel-Add-in",
           "description": "Aktiviert das integrierte Excel-Add-in, damit Nutzer das Manifest direkt aus dieser Instanz laden können"
@@ -4465,7 +4469,7 @@
   },
   "files": {
     "title": "Dateien",
-    "subtitle": "Verwalten Sie die Dateien Ihrer Organisation",
+    "subtitle": "Dateien, die du hochgeladen hast, und Dateien, die der Agent in deinen Berichten erstellt hat.",
     "file": "Datei",
     "metadata": "Metadaten",
     "createdAt": "Erstellt am",
@@ -4478,22 +4482,27 @@
     "search": "Dateien suchen",
     "filterAll": "Alle Dateien",
     "filterUploads": "Hochgeladen",
-    "filterGenerated": "Tool-Ausgabe",
-    "sourceGenerated": "Tool-Ausgabe",
-    "showingCount": "{shown} von {total} Dateien",
-    "selectAll": "Alle angezeigten auswählen",
+    "selectAll": "Alle auswählen",
     "deleteSelected": "{count} ausgewählte löschen",
     "delete": "Löschen",
     "download": "Herunterladen",
     "empty": "Keine passenden Dateien",
     "confirmTitleOne": "Diese Datei löschen?",
     "confirmTitleMany": "{count} Dateien löschen?",
-    "confirmBody": "Gelöschte Dateien werden aus allen Berichten entfernt und können nicht wiederhergestellt werden.",
+    "confirmBody": "Gelöschte Dateien werden aus allen Berichten, Agenten und Projekten entfernt, die sie verwenden, und können nicht wiederhergestellt werden.",
     "toastDeletedOne": "Datei gelöscht",
     "toastDeletedMany": "{count} Dateien gelöscht",
-    "toastPartial": "{count} Dateien konnten nicht gelöscht werden",
     "toastError": "Die Dateien konnten nicht gelöscht werden",
-    "toastDownloadError": "Die Datei konnte nicht heruntergeladen werden"
+    "toastDownloadError": "Die Datei konnte nicht heruntergeladen werden",
+    "filterAgent": "Agent",
+    "sourceAgent": "Agent",
+    "sourceUpload": "Hochgeladen",
+    "selectedCount": "{count} ausgewählt",
+    "toastPartialOne": "{count} Datei konnte nicht gelöscht werden",
+    "toastPartialMany": "{count} Dateien konnten nicht gelöscht werden",
+    "inUse": "Wird von einem Dashboard verwendet und kann nicht gelöscht werden",
+    "emptyNone": "Noch keine Dateien",
+    "emptyNoneHint": "Dateien, die du in einen Bericht hochlädst, und Dateien, die der Agent erstellt, erscheinen hier."
   },
   "dashboards": {
     "title": "Dashboards",
@@ -5629,8 +5638,8 @@
     "modelAuto": "Auto",
     "noAgents": "Keine",
     "project": "Projekt",
-    "toolOutputFilesOne": "{count} von Tools erzeugte Datei",
-    "toolOutputFilesMany": "{count} von Tools erzeugte Dateien",
+    "toolOutputFilesOne": "{count} Datei vom Agenten erstellt",
+    "toolOutputFilesMany": "{count} Dateien vom Agenten erstellt",
     "agentsFromReport": "Verwendet die Agenten des Berichts"
   },
   "errorPage": {

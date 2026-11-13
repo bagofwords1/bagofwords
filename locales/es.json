@@ -3493,6 +3493,10 @@
           "name": "Días de retención de datos de widgets",
           "description": "Número de días durante los que se conservan los datos de los widgets antes de purgarlos."
         },
+        "file_retention_days": {
+          "name": "Retención de archivos (días)",
+          "description": "Elimina cada noche los archivos con más de estos días. Se conservan los archivos que usa un panel, los de la biblioteca de un agente o proyecto y los subidos a un informe programado. 0 los conserva para siempre."
+        },
         "enable_excel_addin": {
           "name": "Complemento de Excel",
           "description": "Activa el complemento de Excel integrado para que los usuarios puedan cargar el manifiesto directamente desde esta instancia"
@@ -4847,7 +4851,7 @@
   },
   "files": {
     "title": "Archivos",
-    "subtitle": "Administra los archivos de tu organización",
+    "subtitle": "Los archivos que subiste y los que el agente creó en tus informes.",
     "file": "Archivo",
     "metadata": "Metadatos",
     "createdAt": "Creado el",
@@ -4860,22 +4864,27 @@
     "search": "Buscar archivos",
     "filterAll": "Todos los archivos",
     "filterUploads": "Subidos",
-    "filterGenerated": "Salida de herramientas",
-    "sourceGenerated": "Salida de herramienta",
-    "showingCount": "{shown} de {total} archivos",
-    "selectAll": "Seleccionar todos los visibles",
+    "selectAll": "Seleccionar todo",
     "deleteSelected": "Eliminar {count} seleccionados",
     "delete": "Eliminar",
     "download": "Descargar",
     "empty": "Ningún archivo coincide",
     "confirmTitleOne": "¿Eliminar este archivo?",
     "confirmTitleMany": "¿Eliminar {count} archivos?",
-    "confirmBody": "Los archivos eliminados se quitan de todos los informes y no se pueden recuperar.",
+    "confirmBody": "Los archivos eliminados se quitan de todos los informes, agentes y proyectos que los usan, y no se pueden recuperar.",
     "toastDeletedOne": "Archivo eliminado",
     "toastDeletedMany": "{count} archivos eliminados",
-    "toastPartial": "No se pudieron eliminar {count} archivos",
     "toastError": "No se pudieron eliminar los archivos",
-    "toastDownloadError": "No se pudo descargar el archivo"
+    "toastDownloadError": "No se pudo descargar el archivo",
+    "filterAgent": "Agente",
+    "sourceAgent": "Agente",
+    "sourceUpload": "Subido",
+    "selectedCount": "{count} seleccionados",
+    "toastPartialOne": "No se pudo eliminar {count} archivo",
+    "toastPartialMany": "No se pudieron eliminar {count} archivos",
+    "inUse": "Lo usa un panel, así que no se puede eliminar",
+    "emptyNone": "Todavía no hay archivos",
+    "emptyNoneHint": "Aquí aparecen los archivos que subes a un informe y los que crea el agente."
   },
   "dashboards": {
     "title": "Paneles",
@@ -6070,8 +6079,8 @@
     "modelAuto": "Auto",
     "noAgents": "Ninguno",
     "project": "Proyecto",
-    "toolOutputFilesOne": "{count} archivo generado por herramientas",
-    "toolOutputFilesMany": "{count} archivos generados por herramientas",
+    "toolOutputFilesOne": "{count} archivo creado por el agente",
+    "toolOutputFilesMany": "{count} archivos creados por el agente",
     "agentsFromReport": "Usa los agentes del informe"
   },
   "errorPage": {

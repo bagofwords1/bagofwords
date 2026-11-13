@@ -3579,6 +3579,10 @@
           "name": "Widget Data Retention Days",
           "description": "Number of days to retain widgets data before purging."
         },
+        "file_retention_days": {
+          "name": "File retention (days)",
+          "description": "Delete files older than this many days, every night. Files used by a dashboard, files in an agent or project library, and uploads that feed a scheduled report are kept. 0 keeps files forever."
+        },
         "enable_excel_addin": {
           "name": "Excel Add-in",
           "description": "Enable the built-in Excel Add-in so users can sideload the manifest directly from this instance"
@@ -4927,7 +4931,7 @@
   },
   "files": {
     "title": "Files",
-    "subtitle": "Manage your organization files",
+    "subtitle": "Files you uploaded, and files the agent created in your reports.",
     "file": "File",
     "metadata": "Metadata",
     "createdAt": "Created At",
@@ -4939,23 +4943,28 @@
     "noMetadata": "No metadata",
     "search": "Search files",
     "filterAll": "All files",
-    "filterUploads": "Uploaded",
-    "filterGenerated": "Tool output",
-    "sourceGenerated": "Tool output",
-    "showingCount": "{shown} of {total} files",
-    "selectAll": "Select all shown",
+    "filterUploads": "Uploads",
+    "selectAll": "Select all",
     "deleteSelected": "Delete {count} selected",
     "delete": "Delete",
     "download": "Download",
     "empty": "No files match",
     "confirmTitleOne": "Delete this file?",
     "confirmTitleMany": "Delete {count} files?",
-    "confirmBody": "Deleted files are removed from every report and cannot be recovered.",
+    "confirmBody": "Deleted files are removed from every report, agent and project that uses them, and cannot be recovered.",
     "toastDeletedOne": "File deleted",
     "toastDeletedMany": "{count} files deleted",
-    "toastPartial": "{count} files could not be deleted",
     "toastError": "Could not delete the files",
-    "toastDownloadError": "Could not download the file"
+    "toastDownloadError": "Could not download the file",
+    "filterAgent": "Agent",
+    "sourceAgent": "Agent",
+    "sourceUpload": "Upload",
+    "selectedCount": "{count} selected",
+    "toastPartialOne": "{count} file could not be deleted",
+    "toastPartialMany": "{count} files could not be deleted",
+    "inUse": "Used by a dashboard, so it can't be deleted",
+    "emptyNone": "No files yet",
+    "emptyNoneHint": "Files you upload to a report, and files the agent creates, show up here."
   },
   "dashboards": {
     "title": "Dashboards",
@@ -6161,8 +6170,8 @@
     "modelAuto": "Auto",
     "noAgents": "None",
     "project": "Project",
-    "toolOutputFilesOne": "{count} file produced by tool runs",
-    "toolOutputFilesMany": "{count} files produced by tool runs",
+    "toolOutputFilesOne": "{count} file created by the agent",
+    "toolOutputFilesMany": "{count} files created by the agent",
     "agentsFromReport": "Uses the report's agents"
   },
   "errorPage": {

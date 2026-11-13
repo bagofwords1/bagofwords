@@ -3235,6 +3235,10 @@
           "name": "Dias de retenção dos dados de widgets",
           "description": "Número de dias durante os quais os dados dos widgets são mantidos antes da limpeza."
         },
+        "file_retention_days": {
+          "name": "Retenção de arquivos (dias)",
+          "description": "Exclui todas as noites os arquivos mais antigos que este número de dias. Arquivos usados por um painel, arquivos na biblioteca de um agente ou projeto e envios para um relatório agendado são mantidos. 0 mantém os arquivos para sempre."
+        },
         "enable_excel_addin": {
           "name": "Suplemento do Excel",
           "description": "Ativa o suplemento do Excel integrado para que os usuários possam carregar o manifesto diretamente desta instância"
@@ -4465,7 +4469,7 @@
   },
   "files": {
     "title": "Arquivos",
-    "subtitle": "Gerencie os arquivos da sua organização",
+    "subtitle": "Os arquivos que você enviou e os que o agente criou nos seus relatórios.",
     "file": "Arquivo",
     "metadata": "Metadados",
     "createdAt": "Criado em",
@@ -4478,22 +4482,27 @@
     "search": "Pesquisar arquivos",
     "filterAll": "Todos os arquivos",
     "filterUploads": "Enviados",
-    "filterGenerated": "Saída de ferramentas",
-    "sourceGenerated": "Saída de ferramenta",
-    "showingCount": "{shown} de {total} arquivos",
-    "selectAll": "Selecionar todos os exibidos",
+    "selectAll": "Selecionar tudo",
     "deleteSelected": "Excluir {count} selecionados",
     "delete": "Excluir",
     "download": "Baixar",
     "empty": "Nenhum arquivo corresponde",
     "confirmTitleOne": "Excluir este arquivo?",
     "confirmTitleMany": "Excluir {count} arquivos?",
-    "confirmBody": "Arquivos excluídos são removidos de todos os relatórios e não podem ser recuperados.",
+    "confirmBody": "Os arquivos excluídos são removidos de todos os relatórios, agentes e projetos que os usam e não podem ser recuperados.",
     "toastDeletedOne": "Arquivo excluído",
     "toastDeletedMany": "{count} arquivos excluídos",
-    "toastPartial": "{count} arquivos não puderam ser excluídos",
     "toastError": "Não foi possível excluir os arquivos",
-    "toastDownloadError": "Não foi possível baixar o arquivo"
+    "toastDownloadError": "Não foi possível baixar o arquivo",
+    "filterAgent": "Agente",
+    "sourceAgent": "Agente",
+    "sourceUpload": "Enviado",
+    "selectedCount": "{count} selecionados",
+    "toastPartialOne": "Não foi possível excluir {count} arquivo",
+    "toastPartialMany": "Não foi possível excluir {count} arquivos",
+    "inUse": "Usado por um painel, por isso não pode ser excluído",
+    "emptyNone": "Ainda não há arquivos",
+    "emptyNoneHint": "Os arquivos que você envia para um relatório e os que o agente cria aparecem aqui."
   },
   "dashboards": {
     "title": "Painéis",
@@ -5629,8 +5638,8 @@
     "modelAuto": "Auto",
     "noAgents": "Nenhum",
     "project": "Projeto",
-    "toolOutputFilesOne": "{count} arquivo gerado por ferramentas",
-    "toolOutputFilesMany": "{count} arquivos gerados por ferramentas",
+    "toolOutputFilesOne": "{count} arquivo criado pelo agente",
+    "toolOutputFilesMany": "{count} arquivos criados pelo agente",
     "agentsFromReport": "Usa os agentes do relatório"
   },
   "errorPage": {

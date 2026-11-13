@@ -3235,6 +3235,10 @@
           "name": "Giorni di conservazione dei dati dei widget",
           "description": "Numero di giorni per cui i dati dei widget vengono conservati prima dell'eliminazione."
         },
+        "file_retention_days": {
+          "name": "Conservazione dei file (giorni)",
+          "description": "Ogni notte elimina i file più vecchi di questo numero di giorni. I file usati da una dashboard, quelli nella libreria di un agente o progetto e i caricamenti per un report pianificato vengono conservati. 0 li conserva per sempre."
+        },
         "enable_excel_addin": {
           "name": "Componente aggiuntivo di Excel",
           "description": "Attiva il componente aggiuntivo di Excel integrato, così gli utenti possono caricare il manifest direttamente da questa istanza"
@@ -4465,7 +4469,7 @@
   },
   "files": {
     "title": "File",
-    "subtitle": "Gestisci i file della tua organizzazione",
+    "subtitle": "I file che hai caricato e quelli creati dall'agente nei tuoi report.",
     "file": "File",
     "metadata": "Metadati",
     "createdAt": "Creato il",
@@ -4478,22 +4482,27 @@
     "search": "Cerca file",
     "filterAll": "Tutti i file",
     "filterUploads": "Caricati",
-    "filterGenerated": "Output degli strumenti",
-    "sourceGenerated": "Output strumento",
-    "showingCount": "{shown} di {total} file",
-    "selectAll": "Seleziona tutti i visibili",
+    "selectAll": "Seleziona tutto",
     "deleteSelected": "Elimina {count} selezionati",
     "delete": "Elimina",
     "download": "Scarica",
     "empty": "Nessun file corrispondente",
     "confirmTitleOne": "Eliminare questo file?",
     "confirmTitleMany": "Eliminare {count} file?",
-    "confirmBody": "I file eliminati vengono rimossi da tutti i report e non possono essere recuperati.",
+    "confirmBody": "I file eliminati vengono rimossi da tutti i report, agenti e progetti che li usano e non possono essere recuperati.",
     "toastDeletedOne": "File eliminato",
     "toastDeletedMany": "{count} file eliminati",
-    "toastPartial": "Impossibile eliminare {count} file",
     "toastError": "Impossibile eliminare i file",
-    "toastDownloadError": "Impossibile scaricare il file"
+    "toastDownloadError": "Impossibile scaricare il file",
+    "filterAgent": "Agente",
+    "sourceAgent": "Agente",
+    "sourceUpload": "Caricato",
+    "selectedCount": "{count} selezionati",
+    "toastPartialOne": "Impossibile eliminare {count} file",
+    "toastPartialMany": "Impossibile eliminare {count} file",
+    "inUse": "Usato da una dashboard, quindi non può essere eliminato",
+    "emptyNone": "Ancora nessun file",
+    "emptyNoneHint": "Qui compaiono i file che carichi in un report e quelli creati dall'agente."
   },
   "dashboards": {
     "title": "Dashboard",
@@ -5629,8 +5638,8 @@
     "modelAuto": "Auto",
     "noAgents": "Nessuno",
     "project": "Progetto",
-    "toolOutputFilesOne": "{count} file prodotto dagli strumenti",
-    "toolOutputFilesMany": "{count} file prodotti dagli strumenti",
+    "toolOutputFilesOne": "{count} file creato dall'agente",
+    "toolOutputFilesMany": "{count} file creati dall'agente",
     "agentsFromReport": "Usa gli agenti del report"
   },
   "errorPage": {

@@ -6,9 +6,11 @@ way to delete them, and every run's prompt listed all of them, so run cost
 grew with the report's history.
 
 Contract:
-  * a file's creator (or a full admin) can delete it, one at a time or in
-    bulk; it is then gone everywhere: the Files page, the report, its content;
-  * anyone else gets "not found" for that id, and the file stays;
+  * the Files page lists the user's own files only — admins included;
+  * a file's creator can delete it, one at a time or in bulk; it is then gone
+    everywhere: the Files page, the report, its content;
+  * anyone else — an admin too — gets "not found" for that id, and the file
+    stays;
   * a bulk delete reports each refused id and still deletes the rest;
   * the files the agent produced itself are listed in the prompt up to a
     fixed cap, newest first, however many earlier runs left behind; uploads
@@ -201,23 +203,27 @@ def test_a_single_delete_removes_one_file(test_client, org, planner):
     assert again.json()["error_code"] == "file.not_found"
 
 
-def test_a_member_cannot_delete_someone_elses_file_but_an_admin_can(test_client, org, planner):
-    admin, member = org["admin"], org["member"]
-    admins_report = _report(test_client, admin, org)
-    admins_file = _upload(test_client, admin, org, admins_report)
-    members_report = _report(test_client, member, org)
-    members_file = _upload(test_client, member, org, members_report)
+@pytest.mark.parametrize("deleter,owner", [("member", "admin"), ("admin", "member")])
+def test_only_the_creator_can_delete_a_file_whatever_the_role(test_client, org, planner, deleter, owner):
+    owners_file = _upload(test_client, org[owner], org, _report(test_client, org[owner], org))
 
-    r = test_client.delete(f"/api/files/{admins_file}", headers=_h(member["token"], org["org_id"]))
+    r = test_client.delete(f"/api/files/{owners_file}", headers=_h(org[deleter]["token"], org["org_id"]))
     assert r.status_code == 404
-    assert admins_file in _org_file_ids(test_client, admin, org)
+    assert r.json()["error_code"] == "file.not_found"
+    bulk = test_client.post("/api/files/delete", headers=_h(org[deleter]["token"], org["org_id"]),
+                            json={"file_ids": [owners_file]})
+    assert bulk.status_code == 200 and bulk.json()["deleted"] == []
+    assert owners_file in _org_file_ids(test_client, org[owner], org)
 
-    listed = {f["id"]: f for f in test_client.get("/api/files", headers=_h(member["token"], org["org_id"])).json()}
-    assert listed[members_file]["can_delete"] is True
 
-    r = test_client.delete(f"/api/files/{members_file}", headers=_h(admin["token"], org["org_id"]))
-    assert r.status_code == 204, r.text
-    assert members_file not in _org_file_ids(test_client, admin, org)
+@pytest.mark.parametrize("viewer,owner", [("member", "admin"), ("admin", "member")])
+def test_the_files_page_lists_only_your_own_files_whatever_the_role(test_client, org, planner, viewer, owner):
+    mine = _upload(test_client, org[viewer], org, _report(test_client, org[viewer], org), "mine.txt")
+    theirs = _upload(test_client, org[owner], org, _report(test_client, org[owner], org), "theirs.txt")
+
+    listed = {f["id"]: f for f in test_client.get("/api/files", headers=_h(org[viewer]["token"], org["org_id"])).json()}
+    assert mine in listed and listed[mine]["can_delete"] is True
+    assert theirs not in listed
 
 
 def test_a_bulk_delete_reports_refused_ids_and_deletes_the_rest(test_client, org, planner):

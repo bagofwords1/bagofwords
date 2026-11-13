@@ -3493,6 +3493,10 @@
           "name": "ימי שמירת נתוני ווידג'טים",
           "description": "מספר הימים שבהם נשמרים נתוני הווידג'טים לפני מחיקתם."
         },
+        "file_retention_days": {
+          "name": "שמירת קבצים (ימים)",
+          "description": "מחיקה לילית של קבצים ישנים ממספר הימים הזה. קבצים שבשימוש בגלריה, קבצים בספריית סוכן או פרויקט, וקבצים שהועלו לדוח מתוזמן נשמרים. 0 שומר קבצים לתמיד."
+        },
         "enable_excel_addin": {
           "name": "תוסף Excel",
           "description": "מפעיל את תוסף ה-Excel המובנה כדי שמשתמשים יוכלו לטעון את המניפסט ישירות מהמופע הזה"
@@ -4867,7 +4871,7 @@
   },
   "files": {
     "title": "קבצים",
-    "subtitle": "ניהול קבצי הארגון",
+    "subtitle": "קבצים שהעלית וקבצים שהסוכן יצר בדוחות שלך.",
     "file": "קובץ",
     "metadata": "מטא-דאטה",
     "createdAt": "תאריך יצירה",
@@ -4880,22 +4884,27 @@
     "search": "חיפוש קבצים",
     "filterAll": "כל הקבצים",
     "filterUploads": "הועלו",
-    "filterGenerated": "פלט כלים",
-    "sourceGenerated": "פלט כלי",
-    "showingCount": "{shown} מתוך {total} קבצים",
-    "selectAll": "בחירת כל המוצגים",
+    "selectAll": "בחירת הכול",
     "deleteSelected": "מחיקת {count} שנבחרו",
     "delete": "מחיקה",
     "download": "הורדה",
     "empty": "אין קבצים תואמים",
     "confirmTitleOne": "למחוק את הקובץ?",
     "confirmTitleMany": "למחוק {count} קבצים?",
-    "confirmBody": "קבצים שנמחקו מוסרים מכל הדוחות ואי אפשר לשחזר אותם.",
+    "confirmBody": "קבצים שנמחקו מוסרים מכל דוח, סוכן ופרויקט שמשתמשים בהם, ואי אפשר לשחזר אותם.",
     "toastDeletedOne": "הקובץ נמחק",
     "toastDeletedMany": "{count} קבצים נמחקו",
-    "toastPartial": "לא ניתן היה למחוק {count} קבצים",
     "toastError": "לא ניתן היה למחוק את הקבצים",
-    "toastDownloadError": "לא ניתן היה להוריד את הקובץ"
+    "toastDownloadError": "לא ניתן היה להוריד את הקובץ",
+    "filterAgent": "סוכן",
+    "sourceAgent": "סוכן",
+    "sourceUpload": "הועלה",
+    "selectedCount": "{count} נבחרו",
+    "toastPartialOne": "לא ניתן היה למחוק קובץ {count}",
+    "toastPartialMany": "לא ניתן היה למחוק {count} קבצים",
+    "inUse": "בשימוש בגלריה, לכן אי אפשר למחוק אותו",
+    "emptyNone": "אין עדיין קבצים",
+    "emptyNoneHint": "קבצים שמעלים לדוח וקבצים שהסוכן יוצר יופיעו כאן."
   },
   "dashboards": {
     "title": "דשבורדים",
@@ -6090,8 +6099,8 @@
     "modelAuto": "אוטומטי",
     "noAgents": "ללא",
     "project": "פרויקט",
-    "toolOutputFilesOne": "קובץ אחד שנוצר על ידי כלים",
-    "toolOutputFilesMany": "{count} קבצים שנוצרו על ידי כלים",
+    "toolOutputFilesOne": "קובץ {count} שנוצר על ידי הסוכן",
+    "toolOutputFilesMany": "{count} קבצים שנוצרו על ידי הסוכן",
     "agentsFromReport": "משתמש בסוכנים של הדוח"
   },
   "errorPage": {

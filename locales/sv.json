@@ -3235,6 +3235,10 @@
           "name": "Antal dagar som widgetdata sparas",
           "description": "Antal dagar som widgetarnas data behålls innan de rensas."
         },
+        "file_retention_days": {
+          "name": "Lagring av filer (dagar)",
+          "description": "Tar varje natt bort filer som är äldre än så här många dagar. Filer som används av en instrumentpanel, filer i ett agent- eller projektbibliotek och uppladdningar till en schemalagd rapport behålls. 0 behåller filer för alltid."
+        },
         "enable_excel_addin": {
           "name": "Excel-tillägg",
           "description": "Aktiverar det inbyggda Excel-tillägget så att användare kan läsa in manifestet direkt från den här instansen"
@@ -4465,7 +4469,7 @@
   },
   "files": {
     "title": "Filer",
-    "subtitle": "Hantera din organisations filer",
+    "subtitle": "Filer du har laddat upp och filer som agenten skapat i dina rapporter.",
     "file": "Fil",
     "metadata": "Metadata",
     "createdAt": "Skapad",
@@ -4478,22 +4482,27 @@
     "search": "Sök filer",
     "filterAll": "Alla filer",
     "filterUploads": "Uppladdade",
-    "filterGenerated": "Verktygsutdata",
-    "sourceGenerated": "Verktygsutdata",
-    "showingCount": "{shown} av {total} filer",
-    "selectAll": "Markera alla som visas",
+    "selectAll": "Markera alla",
     "deleteSelected": "Ta bort {count} markerade",
     "delete": "Ta bort",
     "download": "Ladda ner",
     "empty": "Inga filer matchar",
     "confirmTitleOne": "Ta bort den här filen?",
     "confirmTitleMany": "Ta bort {count} filer?",
-    "confirmBody": "Borttagna filer tas bort från alla rapporter och kan inte återställas.",
+    "confirmBody": "Borttagna filer tas bort från alla rapporter, agenter och projekt som använder dem och kan inte återställas.",
     "toastDeletedOne": "Filen togs bort",
     "toastDeletedMany": "{count} filer togs bort",
-    "toastPartial": "{count} filer kunde inte tas bort",
     "toastError": "Det gick inte att ta bort filerna",
-    "toastDownloadError": "Det gick inte att ladda ner filen"
+    "toastDownloadError": "Det gick inte att ladda ner filen",
+    "filterAgent": "Agent",
+    "sourceAgent": "Agent",
+    "sourceUpload": "Uppladdad",
+    "selectedCount": "{count} markerade",
+    "toastPartialOne": "{count} fil kunde inte tas bort",
+    "toastPartialMany": "{count} filer kunde inte tas bort",
+    "inUse": "Används av en instrumentpanel och kan inte tas bort",
+    "emptyNone": "Inga filer än",
+    "emptyNoneHint": "Filer du laddar upp till en rapport och filer som agenten skapar visas här."
   },
   "dashboards": {
     "title": "Instrumentpaneler",
@@ -5629,8 +5638,8 @@
     "modelAuto": "Auto",
     "noAgents": "Inga",
     "project": "Projekt",
-    "toolOutputFilesOne": "{count} fil skapad av verktyg",
-    "toolOutputFilesMany": "{count} filer skapade av verktyg",
+    "toolOutputFilesOne": "{count} fil skapad av agenten",
+    "toolOutputFilesMany": "{count} filer skapade av agenten",
     "agentsFromReport": "Använder rapportens agenter"
   },
   "errorPage": {

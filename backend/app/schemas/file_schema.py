@@ -34,8 +34,9 @@ class FileSchemaWithCompletionId(FileSchema):
 class FileSchemaWithMetadata(FileSchema):
     schemas: list[SheetSchema]
     tags: list[FileTagSchema]
-    # Whether the listing user may delete this file (its creator, or a full
-    # admin). The delete endpoints check again; this only drives the UI.
+    # False when a dashboard owns the file, so a delete would be refused. The
+    # listing holds only the user's own files; the delete endpoints check
+    # again — this only drives the UI.
     can_delete: bool = False
 
 
