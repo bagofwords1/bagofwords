@@ -1498,6 +1498,11 @@ def verify_identity_binds_in_queries(
     if not identity_specs:
         return None
     queries = [q for q in (captured_queries or []) if isinstance(q, str)]
+    if any(getattr(q, "outside_root", False) for q in queries):
+        return (
+            "an executed request left the connection's configured path, so the identity check "
+            "cannot read it; refusing to serve results that may be unscoped"
+        )
     if any(not q.strip() for q in queries):
         # A call captured blank may have sent a request this check cannot
         # see: a statement that is not text, or a request that was not seen.

@@ -518,7 +518,8 @@ class MecmClient(DataSourceClient):
         if path.lower().startswith("adminservice/"):
             path = path.split("/", 1)[1]
         segments = [s for s in path.split("/") if s]
-        if not segments or any(s in (".", "..") for s in segments):
+        # Percent-decoded too: the server resolves an encoded dot segment.
+        if not segments or any(unquote(s) in (".", "..") for s in segments):
             raise ValueError(f"Invalid class path '{path}'.")
         if segments[0].lower() not in (_WMI, _V1):
             segments.insert(0, _WMI)

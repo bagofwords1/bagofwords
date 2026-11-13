@@ -1197,9 +1197,12 @@ def test_a_datasphere_next_page_carrying_only_its_skiptoken_is_read_through_the_
     DSP_DATA_PATH + "?$skiptoken=2&$skiptoken=3",
     DSP_DATA_PATH + "?$skiptoken=2&$filter=OWNER%20eq%20'bob'",
     "/elsewhere/S/M/M?$filter=OWNER%20eq%20'alice'",  # outside the consumption root
+    "https://other.example.com" + DSP_DATA_PATH + "?$skiptoken=2",  # another host
+    "http://dsp.example.com" + DSP_DATA_PATH + "?$skiptoken=2",  # another scheme
+    "https://dsp.example.com:8443" + DSP_DATA_PATH + "?$skiptoken=2",  # another port
 ])
 def test_a_datasphere_next_page_that_is_not_only_a_skiptoken_is_checked(mode, odata_http, next_link):
-    odata_http.next_link = DSP_HOST + next_link
+    odata_http.next_link = next_link if next_link.startswith("http") else DSP_HOST + next_link
     body = f"return ds_clients['c'].execute_query(None, 'S/M', filter={FILTER_ME!r})"
     queries, _, error = _run_capturing(_odata_client("SapDatasphereClient"), body)
     assert error is None and len(odata_http) == 2
@@ -1255,8 +1258,14 @@ def test_a_datasphere_input_parameter_is_not_a_row_filter(mode, odata_http):
     assert not _bound(queries)
 
 
-# A row option spelled another way the server may read as that option.
-ODATA_FILTER_SPELLINGS = ["%24filter", "$FILTER", "filter", "$filter%20", "%20$Filter"]
+# A row option spelled another way the server may read as that option, or
+# may ignore. Only the exact name (percent-decoded) binds; any other
+# spelling, alone or next to the exact one, fails the check.
+ODATA_FILTER_LOOSE_SPELLINGS = [
+    "$FILTER", "filter", "$filter%20", "%20$Filter", "%20$filter", "+$filter", "%24FILTER",
+    "$" + chr(0xFB01) + "lter",  # LATIN SMALL LIGATURE FI, case folded to "fi"
+]
+ODATA_FILTER_SPELLINGS = ["%24filter"] + ODATA_FILTER_LOOSE_SPELLINGS
 
 
 @pytest.mark.parametrize("spelling", ODATA_FILTER_SPELLINGS)
@@ -1267,10 +1276,113 @@ def test_an_odata_row_option_given_twice_in_any_spelling_fails_the_identity_chec
     queries, _, error = _run_capturing(_odata_client(family), call.format(options=options))
     assert error is None and len(odata_http) == 1
     assert not _bound(queries)
-    del odata_http[:]
+
+
+@pytest.mark.parametrize("spelling", ODATA_FILTER_LOOSE_SPELLINGS)
+@pytest.mark.parametrize("family", ODATA_FAMILIES)
+def test_an_odata_row_option_alone_in_a_loose_spelling_fails_the_identity_check(mode, odata_http, family, spelling):
+    call = "return ds_clients['c']." + ODATA_CALL_WITH_OPTIONS[family]
     queries, _, error = _run_capturing(_odata_client(family), call.format(options=f"{spelling}=OWNER eq 'alice'"))
+    assert error is None and len(odata_http) == 1 and "alice" in odata_http[0]
+    assert not _bound(queries)
+    # Next to an exact filter that binds, it still fails the check.
+    del odata_http[:]
+    options = f"$filter=OWNER eq 'alice'&{spelling}=OWNER eq 'alice'"
+    queries, _, error = _run_capturing(_odata_client(family), call.format(options=options))
+    assert error is None and len(odata_http) == 1
+    assert not _bound(queries)
+
+
+@pytest.mark.parametrize("family, options", [
+    (family, options) for family in ODATA_FAMILIES
+    for options in ["$filter=OWNER eq 'alice'", "%24filter=OWNER eq 'alice'", "$top=5&$filter=OWNER eq 'alice'"]
+] + [
+    ("MecmClient", "$apply=filter(OWNER eq 'alice')"),
+    ("SapDatasphereClient", "$apply=filter(OWNER eq 'alice')"),
+])
+def test_an_odata_row_option_in_its_exact_name_binds(mode, odata_http, family, options):
+    call = "return ds_clients['c']." + ODATA_CALL_WITH_OPTIONS[family]
+    queries, _, error = _run_capturing(_odata_client(family), call.format(options=options))
     assert error is None and len(odata_http) == 1
     assert _bound(queries)
+
+
+# OData returns every top-level row whatever an $expand filters: a filter
+# inside $expand restricts only the expanded rows.
+@pytest.mark.parametrize("family", ODATA_FAMILIES)
+def test_an_odata_filter_inside_expand_is_not_a_row_filter(mode, odata_http, family):
+    call = "return ds_clients['c']." + ODATA_CALL_WITH_OPTIONS[family]
+    expand = "$top=5&$expand=Nav($filter=OWNER eq 'alice')"  # $top: no Priority size probe
+    queries, _, error = _run_capturing(_odata_client(family), call.format(options=expand))
+    assert error is None and len(odata_http) == 1 and "alice" in odata_http[0]
+    assert not _bound(queries)
+    del odata_http[:]
+    queries, _, error = _run_capturing(_odata_client(family), call.format(options=expand + "&$filter=OWNER eq 'alice'"))
+    assert error is None and len(odata_http) == 1
+    assert _bound(queries)
+
+
+@pytest.mark.parametrize("spelling", ["$EXPAND", "expand", "%20$expand"])
+def test_an_odata_expand_in_a_loose_spelling_fails_the_identity_check(mode, odata_http, spelling):
+    call = "return ds_clients['c']." + ODATA_CALL_WITH_OPTIONS["MecmClient"]
+    options = f"$filter=OWNER eq 'alice'&{spelling}=Nav"
+    queries, _, error = _run_capturing(_odata_client("MecmClient"), call.format(options=options))
+    assert error is None and len(odata_http) == 1
+    assert not _bound(queries)
+
+
+# '.' and '..' path segments written percent-encoded reach the server as
+# dot segments, which it resolves: a key predicate before one is discarded.
+ODATA_ENCODED_DOT_SEGMENTS = ["%2E%2E", "%2e%2e", ".%2E", "%2E.", "%2E"]
+
+
+@pytest.mark.parametrize("dots", ODATA_ENCODED_DOT_SEGMENTS)
+@pytest.mark.parametrize("family, target", [
+    ("PriorityErpClient", "CUSTOMERS('alice')/{dots}/ORDERS"),
+    ("PriorityErpClient", "CUSTOMERS('alice')/{dots}"),
+    ("MecmClient", "SMS_R_System('alice')/{dots}/SMS_R_User"),
+    ("MecmClient", "wmi/SMS_R_System('alice')/{dots}"),
+    ("MecmClient", "SMS_R_System('alice')%2F{dots}"),  # past the client's own check
+])
+def test_an_odata_path_with_an_encoded_dot_segment_is_refused_before_it_is_sent(mode, odata_http, family, target, dots):
+    queries, _, error = _run_capturing(_odata_client(family), f"return ds_clients['c'].execute_query({target.format(dots=dots)!r})")
+    # Configuration Manager refuses the class path itself first.
+    assert error is not None and ("'.'" in str(error) or (family == "MecmClient" and "Invalid class path" in str(error)))
+    assert odata_http == []
+    assert queries == []  # the call raised before sending anything
+
+
+@pytest.mark.parametrize("family, target", [
+    ("PriorityErpClient", "CUSTOMERS('alice')/../ORDERS"),
+    ("MecmClient", "SMS_R_System('alice')/../SMS_R_User"),
+])
+def test_an_odata_path_with_a_literal_dot_segment_behaves_as_before(mode, odata_http, family, target):
+    queries, _, error = _run_capturing(_odata_client(family), f"return ds_clients['c'].execute_query({target!r})")
+    if family == "MecmClient":
+        # The client refuses the class path itself; nothing is sent.
+        assert error is not None and "Invalid class path" in str(error) and odata_http == []
+        return
+    # The client resolves it before sending: the key predicate is not sent.
+    assert error is None and len(odata_http) == 1 and "alice" not in odata_http[0]
+    assert not _bound(queries)
+
+
+def test_an_odata_request_path_with_a_dot_segment_reads_as_blank():
+    from app.ai.code_execution.code_execution import _odata_request_texts
+
+    root = "/odata/Priority/t.ini/c"
+    assert _odata_request_texts(root + "/CUSTOMERS('alice')/%2E%2E/ORDERS", root, True) == [""]
+    assert _odata_request_texts(root + "/CUSTOMERS('alice')/ORDERS", root, True) == ["/('alice')"]
+
+
+def test_an_odata_request_outside_the_configured_root_gets_its_own_refusal(mode, odata_http):
+    odata_http.next_link = DSP_HOST + "/elsewhere/S/M/M?$filter=OWNER%20eq%20'alice'"
+    body = f"return ds_clients['c'].execute_query(None, 'S/M', filter={FILTER_ME!r})"
+    queries, _, error = _run_capturing(_odata_client("SapDatasphereClient"), body)
+    assert error is None and len(odata_http) == 2
+    message = verify_identity_binds_in_queries(queries, {"me": "alice"}, IDENTITY_ME)
+    assert message is not None and "configured path" in message and "left nothing" not in message
+    assert "alice" not in message and "elsewhere" not in message
 
 
 def _priority_answering_without_a_request():

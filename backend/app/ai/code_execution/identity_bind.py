@@ -61,17 +61,20 @@ SOQL_CLIENTS = {"SalesforceClient"}
 class CapturedQuery(str):
     """An executed query's text, tagged with the client class that ran it so
     the identity check can pick the right grammar. Behaves as a plain ``str``
-    everywhere else (equality, JSON, logging)."""
+    everywhere else (equality, JSON, logging). `outside_root` marks the blank
+    capture of a request that left the connection's configured path."""
 
     client_type: Optional[str]
+    outside_root: bool
 
-    def __new__(cls, text: str, client_type: Optional[str] = None):
+    def __new__(cls, text: str, client_type: Optional[str] = None, outside_root: bool = False):
         obj = super().__new__(cls, text)
         obj.client_type = client_type
+        obj.outside_root = outside_root
         return obj
 
     def __reduce__(self):
-        return (CapturedQuery, (str(self), self.client_type))
+        return (CapturedQuery, (str(self), self.client_type, self.outside_root))
 
 
 def _matches(text: str, needles: Tuple[str, ...], fold: bool = False) -> bool:

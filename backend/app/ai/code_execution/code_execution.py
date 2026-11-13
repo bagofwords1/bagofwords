@@ -1014,8 +1014,11 @@ def _sends_odata(client) -> bool:
     return renderer is not None and renderer.name == "odata"
 
 
-# The query options that can restrict which rows an OData server returns.
+# The query options that bear on which rows an OData server returns. Only
+# $filter and $apply restrict the top-level rows: a filter inside $expand
+# restricts the expanded rows only, so $expand never binds.
 _ODATA_ROW_OPTIONS = frozenset({"$filter", "$expand", "$apply"})
+_ODATA_BINDING_OPTIONS = frozenset({"$filter", "$apply"})
 # A key predicate in the path: Orders('x'), Entity(KEY='x').
 _ODATA_KEY_RE = re.compile(r"\([^)]*\)")
 
@@ -1027,6 +1030,22 @@ def _odata_option_name(name: str) -> str:
 
     name = unquote_plus(name).strip().casefold()
     return name if name.startswith("$") else "$" + name
+
+
+def _odata_dot_segment(path: str) -> bool:
+    """Whether the percent-decoded `path` has a '.' or '..' segment, which the
+    server resolves after decoding (the client resolves only literal ones)."""
+    from urllib.parse import unquote
+
+    return any(segment in (".", "..") for segment in unquote(path).split("/"))
+
+
+def _odata_path_url(url: str) -> str:
+    """The path and query of `url`, as requests' PreparedRequest.path_url."""
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(url)
+    return (parts.path or "/") + ("?" + parts.query if parts.query else "")
 
 
 def _odata_row_root(client) -> Tuple[Optional[str], bool]:
@@ -1050,32 +1069,39 @@ def _odata_row_root(client) -> Tuple[Optional[str], bool]:
     return None, False
 
 
-def _odata_request_texts(path_url: str, root: Optional[str], keys: bool) -> List[str]:
+def _odata_request_texts(path_url: str, root: Optional[str], keys: bool) -> Optional[List[str]]:
     """What the identity check reads of one OData request as it was sent
-    (`path_url`: path and query, no fragment): only text that restricts rows.
-    That is each key predicate in the decoded path below `root` (when `keys`;
-    see _odata_row_root), then each option that can restrict rows, split on
-    '&' and '=' before percent-decoding, as the server reads them; never the
-    root, entity set or model names. A request outside `root` reads as blank.
-    Option names are read as a server may read them (_odata_option_name); when
-    a row option is given more than once, no row option counts (the server
-    may apply either). '+' in a value may read as a space or as itself, so
-    when the two differ both texts are returned and each must bind. '%' and
-    '#' are written back as %25 and %23: the captured text is OData text,
-    which the check reads as the server percent-decodes it."""
+    (`path_url`: path and query, no fragment): only text that restricts the
+    top-level rows. That is each key predicate in the decoded path below
+    `root` (when `keys`; see _odata_row_root), then each $filter and $apply,
+    split on '&' and '=' before percent-decoding, as the server reads them;
+    never the root, entity set or model names, nor $expand. None for a
+    request outside `root`; a path with a dot segment reads as blank.
+    Only an option whose percent-decoded name is exactly '$filter' or
+    '$apply' binds. A name a server may read as a row option in another
+    spelling (_odata_option_name), or a row option given more than once,
+    leaves no row option counted (the server may apply or ignore either).
+    '+' in a value may read as a space or as itself, so when the two differ
+    both texts are returned and each must bind. '%' and '#' are written back
+    as %25 and %23: the captured text is OData text, which the check reads as
+    the server percent-decodes it."""
     from collections import Counter
     from urllib.parse import unquote, unquote_plus
 
     path, _, query = path_url.partition("?")
+    if _odata_dot_segment(path):
+        return [""]
     path = unquote(path)
     if root is None or not (path == root or path.startswith(root + "/")):
-        return [""]
+        return None
     found = _ODATA_KEY_RE.finditer(path[len(root):]) if keys else ()
     key_text = "".join("/" + key.group(0) for key in found)
     pairs = [pair.partition("=") for pair in query.split("&")] if query else []
-    named = [(_odata_option_name(name), value) for name, _, value in pairs]
-    rows = [(name, value) for name, value in named if name in _ODATA_ROW_OPTIONS]
-    kept = [] if any(n > 1 for n in Counter(name for name, _ in rows).values()) else rows
+    rows = [(unquote(name), _odata_option_name(name), value) for name, _, value in pairs]
+    rows = [(raw, loose, value) for raw, loose, value in rows if loose in _ODATA_ROW_OPTIONS]
+    loose_counts = Counter(loose for _, loose, _ in rows)
+    exact = all(raw == loose for raw, loose, _ in rows) and all(n == 1 for n in loose_counts.values())
+    kept = [(raw, value) for raw, _, value in rows if raw in _ODATA_BINDING_OPTIONS] if exact else []
 
     def escaped(text: str) -> str:
         return text.replace("%", "%25").replace("#", "%23")
@@ -1090,14 +1116,14 @@ def _odata_request_texts(path_url: str, root: Optional[str], keys: bool) -> List
     return texts
 
 
-def _odata_next_page(path_url: str, first: str) -> bool:
-    """Whether `path_url` only continues the call's first request `first`:
-    the same decoded path, and one option, a `$skiptoken`."""
-    from urllib.parse import unquote
+def _odata_next_page(url: str, first: str) -> bool:
+    """Whether the request to `url` only continues the call's first request
+    to `first`: the same endpoint (_same_endpoint: scheme, host, port and
+    decoded path), and one option, a `$skiptoken`."""
+    from urllib.parse import urlsplit
 
-    path, _, query = path_url.partition("?")
-    return (unquote(path) == unquote(first.partition("?")[0])
-            and "&" not in query and query.startswith("$skiptoken="))
+    query = urlsplit(url).query
+    return _same_endpoint(url, first) and "&" not in query and query.startswith("$skiptoken=")
 
 
 def _same_endpoint(a: str, b: str) -> bool:
@@ -1420,21 +1446,30 @@ class QueryCapturingClientWrapper:
         """Capture each request an OData client sent (see _odata_request_texts),
         or one blank capture when it sent none. A next page that only
         continues the call's first request is read through that request
-        (_odata_next_page)."""
+        (_odata_next_page). A request outside the configured root is captured
+        blank and marked so (CapturedQuery.outside_root)."""
         from app.ai.code_execution.identity_bind import CapturedQuery
         root, keys = _odata_row_root(self._original)
-        paths = list(sent)
-        texts = [text for i, path in enumerate(paths) if not (i and _odata_next_page(path, paths[0]))
-                 for text in _odata_request_texts(path, root, keys)]
-        for text in texts or [""]:
-            self._captured_queries.append(CapturedQuery(text, family_name(self._original)))
+        urls = list(sent)
+        captures = []
+        for i, url in enumerate(urls):
+            if i and _odata_next_page(url, urls[0]):
+                continue
+            texts = _odata_request_texts(_odata_path_url(url), root, keys)
+            if texts is None:
+                captures.append(CapturedQuery("", family_name(self._original), outside_root=True))
+            else:
+                captures.extend(CapturedQuery(text, family_name(self._original)) for text in texts)
+        self._captured_queries.extend(captures or [CapturedQuery("", family_name(self._original))])
 
     def _odata_send_observer(self, sent: List[str]):
-        """Record the path and query of every request the OData client sends,
-        as they reach the wire. A request whose URL holds a fragment mark (the
-        client drops what follows it) or an encoded NUL is not sent: the
-        server would apply less than the code wrote. The connection's own
-        OAuth token grant reads no rows and is not recorded."""
+        """Record the URL of every request the OData client sends, as it
+        reaches the wire. A request whose URL holds a fragment mark (the
+        client drops what follows it) or an encoded NUL, or whose decoded path
+        has a '.' or '..' segment (the server resolves it, dropping what came
+        before), is not sent: the server would apply less than the code wrote.
+        The connection's own OAuth token grant reads no rows and is not
+        recorded."""
         from app.ai.code_execution.query_params import _ODATA_TEXT_END, ParamError
 
         token_url = getattr(self._original, "token_url", None)
@@ -1448,7 +1483,12 @@ class QueryCapturingClientWrapper:
                     "OData options cannot hold '#' or '%00'; remove it "
                     "(write a literal '#' in a value as %23, or pass it as a parameter)"
                 )
-            sent.append(request.path_url)
+            if _odata_dot_segment(request.path_url.partition("?")[0]):
+                raise ParamError(
+                    "OData request paths cannot hold a '.' or '..' segment, written plain or "
+                    "percent-encoded; name the entity path directly"
+                )
+            sent.append(request.url)
 
         return observe
 
