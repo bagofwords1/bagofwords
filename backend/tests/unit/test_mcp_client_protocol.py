@@ -137,7 +137,7 @@ def test_hidden_tag_characters_are_stripped_from_results(servers):
 
 def _fresh_server_app():
     """A new server instance — an MCP session manager can only run once."""
-    from mcp.server.fastmcp import FastMCP
+    from mcp.server.mcpserver import MCPServer as FastMCP
 
     m = FastMCP("restartable")
 

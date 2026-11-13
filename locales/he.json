@@ -1503,7 +1503,17 @@
       "allowedByYou": "אושר על ידך",
       "deniedByYou": "נדחה על ידך",
       "records": "{n} רשומות",
-      "recordsPartial": "{shown} מתוך {total} רשומות"
+      "recordsPartial": "{shown} מתוך {total} רשומות",
+      "app": {
+        "loading": "טוען את האפליקציה…",
+        "loadFailed": "לא ניתן להציג את האפליקציה",
+        "exitFullscreen": "יציאה ממסך מלא",
+        "confirmTool": "{app} מבקשת להריץ את {tool}. לאשר?",
+        "confirmLink": "{app} מבקשת לפתוח את הקישור הזה:",
+        "openLink": "פתיחת קישור",
+        "cancel": "ביטול",
+        "contextShared": "האפליקציה שיתפה את הבחירה שלך עם העוזר."
+      }
     },
     "answerQuestion": {
       "thought": "חשב על התשובה"
@@ -3516,6 +3526,10 @@
         "enable_mcp_tools": {
           "name": "כלי MCP ו-API מותאם",
           "description": "מאפשר לחבר שרתי MCP חיצוניים ונקודות קצה מותאמות של API אל מקורות נתונים כספקי כלים"
+        },
+        "enable_mcp_apps": {
+          "name": "אפליקציות MCP",
+          "description": "הצגת האפליקציה האינטראקטיבית ששרת MCP מצרף לכלי (MCP Apps, משאבי ui://) בתוך הצ'אט, במסגרת מבודדת. כבוי: תוצאות הכלים מוצגות כטקסט בלבד."
         },
         "tools_max": {
           "name": "מספר כלים מרבי",

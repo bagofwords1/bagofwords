@@ -32,11 +32,11 @@ import argparse
 import base64
 import json
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer as FastMCP
 from mcp.types import (
     BlobResourceContents,
     CallToolResult,
-    ListToolsRequest,
+    PaginatedRequestParams,
     ListToolsResult,
     Tool,
     ToolAnnotations,
@@ -200,21 +200,21 @@ paged = FastMCP("mock-paged")
 PAGED_TOOL_NAMES = [f"tool_{i}" for i in range(5)]
 
 
-@paged._mcp_server.list_tools()
-async def _paged_list(req: ListToolsRequest) -> ListToolsResult:
-    cursor = int((req.params.cursor if req.params else None) or 0)
+async def _paged_list(ctx, params: PaginatedRequestParams | None) -> ListToolsResult:
+    cursor = int((params.cursor if params else None) or 0)
     page = PAGED_TOOL_NAMES[cursor:cursor + 2]
     nxt = cursor + 2
     return ListToolsResult(
-        tools=[Tool(name=n, description=n, inputSchema={"type": "object"}) for n in page],
-        nextCursor=str(nxt) if nxt < len(PAGED_TOOL_NAMES) else None,
+        tools=[Tool(name=n, description=n, input_schema={"type": "object"}) for n in page],
+        next_cursor=str(nxt) if nxt < len(PAGED_TOOL_NAMES) else None,
     )
+
+
+paged._lowlevel_server.add_request_handler("tools/list", PaginatedRequestParams, _paged_list)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=3334)
     args = parser.parse_args()
-    mcp.settings.host = "127.0.0.1"
-    mcp.settings.port = args.port
-    mcp.run(transport="streamable-http")
+    mcp.run(transport="streamable-http", host="127.0.0.1", port=args.port)

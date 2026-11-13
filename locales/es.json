@@ -1503,7 +1503,17 @@
       "allowedByYou": "Permitido por ti",
       "deniedByYou": "Denegado por ti",
       "records": "{n} registros",
-      "recordsPartial": "{shown} de {total} registros"
+      "recordsPartial": "{shown} de {total} registros",
+      "app": {
+        "loading": "Cargando la aplicación…",
+        "loadFailed": "No se pudo mostrar la aplicación",
+        "exitFullscreen": "Salir de pantalla completa",
+        "confirmTool": "{app} quiere ejecutar {tool}. ¿Lo permites?",
+        "confirmLink": "{app} quiere abrir este enlace:",
+        "openLink": "Abrir enlace",
+        "cancel": "Cancelar",
+        "contextShared": "La aplicación compartió tu selección con el asistente."
+      }
     },
     "answerQuestion": {
       "thought": "Pensó la respuesta"
@@ -3516,6 +3526,10 @@
         "enable_mcp_tools": {
           "name": "Herramientas MCP y de API personalizada",
           "description": "Permite conectar servidores MCP externos y puntos finales de API personalizados a las fuentes de datos como proveedores de herramientas"
+        },
+        "enable_mcp_apps": {
+          "name": "Aplicaciones MCP",
+          "description": "Muestra en el chat, dentro de un marco aislado, la aplicación interactiva que un servidor MCP adjunta a una herramienta (MCP Apps, recursos ui://). Desactivado: los resultados se muestran solo como texto."
         },
         "tools_max": {
           "name": "Máximo de herramientas",

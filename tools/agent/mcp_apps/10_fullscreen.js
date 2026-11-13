@@ -1,0 +1,23 @@
+const { launch, BASE, DIR } = require('./common');
+const fs = require('fs');
+const { id } = JSON.parse(fs.readFileSync(__dirname + '/report.json'));
+(async () => {
+  const { browser, page } = await launch({ dsf: 2 });
+  await page.goto(`${BASE}/reports/${id}`, { waitUntil: 'commit', timeout: 180000 });
+  const inner = page.frameLocator('[data-testid="mcp-app-frame"]').first().frameLocator('iframe');
+  await inner.locator('.row').first().waitFor({ timeout: 180000 });
+  await inner.locator('#fullscreen').click();
+  await page.locator('[data-testid="mcp-app-exit-fullscreen"]').waitFor();
+  await page.waitForTimeout(1200);
+  await page.screenshot({ path: `${DIR}/shots/06_7_fullscreen.png` });
+  const before = await inner.locator('#subtitle').innerText();
+  await page.locator('[data-testid="mcp-app-exit-fullscreen"]').focus();
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(800);
+  console.log('after Escape, still fullscreen:', await page.locator('[data-testid="mcp-app-exit-fullscreen"]').count());
+  console.log('app told inline:', await inner.locator('#fullscreen').innerText());
+  console.log('state kept across modes:', before === await inner.locator('#subtitle').innerText(), '|', before);
+  const box = await page.locator('[data-testid="mcp-app"]').boundingBox();
+  console.log('inline box', JSON.stringify(box));
+  await browser.close();
+})().catch(e => { console.error(e); process.exit(1); });

@@ -182,7 +182,10 @@ class GetConnectionTool(Tool):
                     .where(ConnectionTool.connection_id == str(conn.id))
                     .order_by(ConnectionTool.name)
                 )
-                rows = [t for t in tool_q.scalars().all() if _matches(t.name or "")]
+                from app.services.mcp_apps import model_visible
+                # App-only MCP Apps tools are not the agent's to call.
+                rows = [t for t in tool_q.scalars().all()
+                        if _matches(t.name or "") and model_visible(getattr(t, "metadata_json", None))]
                 output.total = len(rows)
                 output.has_more = end < len(rows)
                 output.tools = [

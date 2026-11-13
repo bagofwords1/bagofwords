@@ -1601,7 +1601,17 @@
       "allowedByYou": "Allowed by you",
       "deniedByYou": "Denied by you",
       "records": "{n} records",
-      "recordsPartial": "{shown} of {total} records"
+      "recordsPartial": "{shown} of {total} records",
+      "app": {
+        "loading": "Loading the app…",
+        "loadFailed": "The app could not be shown",
+        "exitFullscreen": "Exit full screen",
+        "confirmTool": "{app} wants to run {tool}. Allow it?",
+        "confirmLink": "{app} wants to open this link:",
+        "openLink": "Open link",
+        "cancel": "Cancel",
+        "contextShared": "The app shared what you selected with the assistant."
+      }
     },
     "answerQuestion": {
       "thought": "Thought about answer"
@@ -3602,6 +3612,10 @@
         "enable_mcp_tools": {
           "name": "MCP & Custom API Tools",
           "description": "Allow connecting external MCP servers and custom API endpoints to data sources as tool providers"
+        },
+        "enable_mcp_apps": {
+          "name": "MCP Apps",
+          "description": "Show the interactive app an MCP server attaches to a tool (MCP Apps, ui:// resources) inside the chat, in a sandboxed frame. Off: tool results show as text only."
         },
         "tools_max": {
           "name": "Tools max",
