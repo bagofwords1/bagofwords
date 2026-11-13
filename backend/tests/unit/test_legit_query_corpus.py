@@ -65,11 +65,19 @@ SCOPE = TableScope.from_names(active=CORPUS_TABLES, inactive=[])
 SPEC = [ParamSpec.model_validate({"name": "owner", "type": "string", "source": "identity"})]
 
 
+# Timbr: its renderer refuses a backslash in a value, and writes a quote
+# doubled, which Spark SQL (how the checks read Timbr) reads as two strings
+# side by side, so the identity check refuses a value holding a quote.
+# Both fail closed; such values are left out here.
+UNRENDERED_VALUES = {"TimbrClient": (BS, "'")}
+
+
 def _per_client(entries) -> list:
     """Each entry (dialect first) once for every client of its dialect."""
     return [pytest.param(family, *entry, id=f"{family}-{i}")
             for family, dialect in DIALECTS.items()
-            for i, entry in enumerate(entries) if entry[0] == dialect]
+            for i, entry in enumerate(entries) if entry[0] == dialect
+            and not (entries is IDENTITY_QUERIES and any(c in entry[-1] for c in UNRENDERED_VALUES.get(family, ())))]
 
 
 def _over_refusals() -> list:

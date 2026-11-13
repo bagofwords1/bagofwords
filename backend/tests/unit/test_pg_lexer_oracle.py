@@ -139,8 +139,8 @@ def _tables_read(tree) -> frozenset[tuple[str, ...]]:
     """The tables Postgres reads: every RangeVar except an unqualified one
     naming a CTE visible where it stands (a CTE is visible in its query and
     the queries nested in it; inside a CTE's body, only the CTEs before it,
-    plus itself when the WITH is RECURSIVE). Lower-cased, as table scope
-    compares names."""
+    plus itself when the WITH is RECURSIVE). Names as Postgres folded them,
+    as table scope compares Postgres names."""
     out = set()
 
     def walk(node, visible: frozenset[str]) -> None:
@@ -164,7 +164,7 @@ def _tables_read(tree) -> frozenset[tuple[str, ...]]:
             if key == "RangeVar":
                 ref = tuple(value.get(k) for k in ("catalogname", "schemaname", "relname") if value.get(k))
                 if not (len(ref) == 1 and ref[0] in visible):
-                    out.add(tuple(p.lower() for p in ref))
+                    out.add(tuple(ref))
                 continue
             walk(value, visible)
 
@@ -181,7 +181,8 @@ def _guard_tables(text: str) -> frozenset[tuple[str, ...]] | None:
         statements = parse_guard_sql(text, "postgres")
     except Exception:
         return None
-    return frozenset(ref for statement in statements if statement is not None for ref in tables_read(statement))
+    return frozenset(ref for statement in statements if statement is not None
+                     for ref in tables_read(statement, "postgres"))
 
 
 def _disagreements(sql: str, lex: PgLexResult) -> list[str]:
@@ -540,7 +541,7 @@ def test_the_oracle_reads_the_guard_tables_with_table_scope_s_own_walk():
     assert not hasattr(sys.modules[__name__], "_resolves_to_cte")
     sql = "WITH o AS (SELECT 1) SELECT * FROM o, Public.Items"
     [statement] = parse_guard_sql(sql, "postgres")
-    assert _guard_tables(sql) == frozenset(table_scope.tables_read(statement))
+    assert _guard_tables(sql) == frozenset(table_scope.tables_read(statement, "postgres")) == {("public", "items")}
 
 
 def test_the_oracle_sets_aside_only_the_cte_references_visible_where_they_stand():

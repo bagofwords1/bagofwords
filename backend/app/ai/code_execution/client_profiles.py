@@ -25,6 +25,9 @@ class GuardProfile:
     statement; any other keyword is refused.
     accepts_dict: the statement may be a dict envelope (checked by the client
     at its dispatch point).
+    engine: for "nonparsing_sql", whose literal, comment and write-word
+    rules the text is read with ("db2", "vertica", "sybase", "hana",
+    "pinot").
     """
 
     family: str
@@ -32,6 +35,7 @@ class GuardProfile:
     dialect: str | None
     extra_kwargs: frozenset[str] = field(default_factory=frozenset)
     accepts_dict: bool = False
+    engine: str | None = None
 
 
 @dataclass(frozen=True)
@@ -44,9 +48,11 @@ class ClientEntry:
 _CLIENTS = "app.data_sources.clients"
 
 
-def _sql(module: str, name: str, dialect: str, extra_kwargs: frozenset[str] = frozenset()):
+def _sql(module: str, name: str, dialect: str, extra_kwargs: frozenset[str] = frozenset(),
+         renderer: str | None = None):
     return (f"{_CLIENTS}.{module}", name), ClientEntry(
         family=name, profile=GuardProfile(family=name, kind="sql", dialect=dialect, extra_kwargs=extra_kwargs),
+        renderer=renderer,
     )
 
 
@@ -84,16 +90,18 @@ _CLIENT_TABLE: dict[tuple[str, str], ClientEntry] = dict([
     _sql("duckdb_client", "DuckDBClient", "duckdb"),
     _sql("teradata_client", "TeradataClient", "teradata"),
     _sql("druid_client", "DruidClient", "druid"),
-    _entry("db2_client", "Db2Client", "nonparsing_sql", renderer="ansi"),
-    _entry("ibmi_client", "IbmiClient", "nonparsing_sql", renderer="ansi"),
+    # Timbr's own discovery SQL is Spark SQL (backtick names).
+    _sql("timbr_client", "TimbrClient", "spark", renderer="timbr"),
+    # SQL with no sqlglot dialect: checked without a parser.
+    _entry("db2_client", "Db2Client", "nonparsing_sql", renderer="ansi", engine="db2"),
+    _entry("ibmi_client", "IbmiClient", "nonparsing_sql", renderer="ansi", engine="db2"),
+    _entry("vertica_client", "VerticaClient", "nonparsing_sql", renderer="ansi", engine="vertica"),
+    _entry("sybase_client", "SybaseClient", "nonparsing_sql", renderer="ansi", engine="sybase"),
+    _entry("sap_hana_client", "SapHanaClient", "nonparsing_sql", renderer="ansi", engine="hana"),
+    _entry("pinot_client", "PinotClient", "nonparsing_sql", renderer="ansi", engine="pinot"),
     _entry("splunk_client", "SplunkClient", "spl", renderer="spl", accepts_dict=True),
     _entry("neo4j_client", "Neo4jClient", "cypher", extra_kwargs=frozenset({"params"})),
     # Parameter rendering only; these are not checked at the wrapper.
-    _renders("vertica_client", "VerticaClient", "ansi"),
-    _renders("sybase_client", "SybaseClient", "ansi"),
-    _renders("sap_hana_client", "SapHanaClient", "ansi"),
-    _renders("pinot_client", "PinotClient", "ansi"),
-    _renders("timbr_client", "TimbrClient", "timbr"),
     _renders("netsuite_client", "NetsuiteClient", "ansi"),
     _renders("oracle_bi_client", "OracleBIClient", "ansi"),
     _renders("sisense_client", "SisenseClient", "ansi"),

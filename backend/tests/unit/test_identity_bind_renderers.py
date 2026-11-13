@@ -29,6 +29,10 @@ SQL_FAMILIES = sorted(set(CLIENT_DIALECTS) | {
     "PowerBIReportServerClient", "FastQueryClient", "PostHogClient", "SalesforceClient",
 })
 NO_BACKSLASH = {"AwsAthenaClient", "AwsRedshiftClient", "TimbrClient"}
+# Timbr is read as Spark SQL, where the doubled quote its renderer writes is
+# two strings side by side: a value holding a quote reads as another value,
+# so the identity check refuses the query (fails closed).
+QUOTE_READ_AS_TWO_STRINGS = {"TimbrClient"}
 
 SCOPED = "SELECT id FROM orders WHERE owner = :v"
 SELECT_LIST_ONLY = "SELECT :v AS owner, id FROM orders"
@@ -60,6 +64,9 @@ def test_a_sql_filter_on_the_identity_binds_and_one_outside_a_filter_does_not(fa
     if family in NO_BACKSLASH and BACKSLASH in value:
         with pytest.raises(ParamError):
             _capture(SCOPED, family, value)
+        return
+    if family in QUOTE_READ_AS_TWO_STRINGS and "'" in value:
+        assert _verdict(SCOPED, family, value) is not None
         return
     assert _verdict(SCOPED, family, value) is None
     assert _verdict(SELECT_LIST_ONLY, family, value) is not None

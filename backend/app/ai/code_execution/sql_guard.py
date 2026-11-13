@@ -19,26 +19,39 @@ Policy, per client:
     text is read with the dialect's own tokenizer and in each generic way
     (`#` comments or not; backslash escapes or not, where the engine reads
     them); any reading refusing refuses, and the error names it.
-    Postgres text is first read by its own lexer (`pg_lexer`), as the server
-    reads it: one statement only, and the lexer's canonical text is what is
-    checked and what is sent. On that text it also refuses the TABLE
-    shorthand and the names of functions (`DENIED_FUNCTIONS`) that run SQL
-    held in a string, reach the server's files, or change the session or
-    the server, wherever such a name stands, and checks the statement an
-    EXPLAIN explains like unparsed text.
+    Postgres and Redshift text is first read by the Postgres lexer
+    (`pg_lexer`), as the server reads it: one statement only, and the
+    lexer's canonical text is what is checked and what is sent. On that text
+    it also refuses the TABLE shorthand and the names of functions
+    (`DENIED_FUNCTIONS`) that run SQL held in a string, reach the server's
+    files, or change the session or the server, wherever such a name
+    stands, and checks the statement an EXPLAIN explains like unparsed text.
+    Text in the other dialects is first read for what sqlglot's tokenizer
+    and the engine read differently (`check_engine_reading`): comments one
+    of them runs as code, comment, string and name boundaries they place
+    differently, spaces, line breaks and names outside ASCII; such text is
+    refused before sqlglot parses it.
   * **Splunk**: SPL is not SQL but can write; its writing commands are refused.
-  * **Db2** (LUW, z/OS, IBM i): sqlglot has no Db2 dialect. One statement, a
-    read verb (SELECT / WITH / VALUES) and no write keyword, generic or Db2's.
+  * **SQL with no sqlglot dialect** (Db2 LUW, z/OS and IBM i, Vertica,
+    Sybase, SAP HANA, Pinot): one statement, a read verb (SELECT / WITH /
+    VALUES) and no write word, generic or the engine's, with literals and
+    comments read by the engine's rules.
   * **Everything else** (Salesforce SOQL, PostHog HogQL, Mongo, Qlik, ...): not
     checked here. Their query APIs are read-only, and connections are expected
     to use read-only credentials regardless.
+
+A NUL character is refused in every checked statement: some drivers and
+engines stop reading there while the checks read on.
 
 This is defence in depth, not a substitute for read-only database accounts:
 a SELECT can still call a function with side effects.
 """
 
+import bisect
+import functools
 import logging
 import re
+import unicodedata
 from typing import Optional, Union
 
 import regex
@@ -114,11 +127,11 @@ _READING_NAMES = {
 }
 # Dialects whose engine (or a server mode, a string prefix or a statement
 # kind it also runs) reads a backslash in a literal as an escape: only for
-# these are the backslash readings taken. Redshift is here until it gets its
-# own lexer; Athena runs Hive DDL.
+# these are the backslash readings taken. Athena runs Hive DDL. (Redshift
+# text is read by the Postgres lexer.)
 _BACKSLASH_ESCAPE_DIALECTS = frozenset({
     "mysql", "bigquery", "clickhouse", "snowflake", "hive", "spark", "spark2", "databricks", "duckdb",
-    "redshift", "athena",
+    "athena",
 })
 _GENERIC_STARTS = {
     (False, False): re.compile(r"['\"`\[]|--|/\*"),
@@ -432,39 +445,51 @@ def _check_teradata(sql: str) -> str:
     return body
 
 
-# Db2 (LUW, z/OS, IBM i) has no sqlglot dialect, so its reads are checked by
-# an allowlist on the leading verb plus the keyword blocklist, like Teradata's
-# unparsed path (guard profile kind "nonparsing_sql").
-_DB2_READ_VERBS = {"SELECT", "WITH", "VALUES", "("}
+# SQL with no sqlglot dialect (guard profile kind "nonparsing_sql", by
+# engine): an allowlist on the leading verb, one statement and no write word,
+# on the text with its literals and comments emptied the way the engine
+# reads them.
+_NONPARSING_READ_VERBS = frozenset({"SELECT", "WITH", "VALUES", "("})
 # Db2-specific statements and routines that change state. QCMDEXC runs an IBM i
 # CL command and is callable as a scalar function inside a SELECT; ADMIN_CMD
-# runs Db2 LUW administrative commands.
+# runs Db2 LUW administrative commands. `SELECT ... FROM FINAL TABLE (INSERT
+# ...)` (a data-change table reference) is caught by the generic write words.
 _DB2_WRITE_KEYWORDS = re.compile(
     r"\b(LOCK|REFRESH|DECLARE|RENAME|COMMENT|LABEL|QCMDEXC|ADMIN_CMD|SYSPROC|EXPORT|IMPORT"
     r"|RUNSTATS|REORG|TRANSFER|SAVEPOINT|ROLLBACK|COMMIT|RELEASE|CONNECT|DISCONNECT)\b",
     re.IGNORECASE,
 )
+_NONPARSING_WRITE_WORDS = {"db2": _DB2_WRITE_KEYWORDS}
+# Engines that also read a backslash escape in a string (Vertica's E'...'),
+# that read `[...]` as a quoted name (Sybase), and that read `//` as a line
+# comment (Pinot's Calcite parser).
+_NONPARSING_BACKSLASH = frozenset({"vertica"})
+_NONPARSING_BRACKETS = frozenset({"sybase"})
+_NONPARSING_SLASH_COMMENTS = frozenset({"pinot"})
 
 
-def _check_db2(sql: str) -> None:
-    """Db2 read-only check: one statement, a read verb, no write keyword.
-
-    `SELECT ... FROM FINAL TABLE (INSERT ...)` (a data-change table reference)
-    starts with SELECT but is caught by the INSERT/UPDATE/DELETE/MERGE keywords.
-    """
-    _single_statement_check(sql)
-    text = _LITERALS_AND_COMMENTS.sub(" ", sql).strip().rstrip(";").strip()
-    verb = "(" if text.startswith("(") else (text.split(None, 1)[0].upper() if text else "")
-    if verb not in _DB2_READ_VERBS:
+def _check_nonparsing(sql: str, engine: Optional[str]) -> None:
+    """One read statement, as the engine's literal and comment rules read
+    `sql` (each reading must pass). A comment opened inside another is
+    refused: Db2 and Sybase nest comments, the readings here do not."""
+    standard = _standard_spans(sql)
+    for kind, start, end in standard:
+        if kind == "comment" and sql.startswith("/*", start) and "/*" in sql[start + 2:end]:
+            raise _comment_inside_comment()
+    if engine in _NONPARSING_SLASH_COMMENTS and "//" in _masked(sql, [(s, e) for _k, s, e in standard]):
         raise ReadOnlyViolation(
-            f"Statement '{verb or '(empty)'}' is not allowed. Only SELECT queries are allowed."
+            "The query has '//' outside a string, which this source reads as the start of a comment. "
+            "Remove it, or write the division with a space between the slashes."
         )
-    _keyword_check(sql)
-    match = _DB2_WRITE_KEYWORDS.search(text)
-    if match:
-        raise ReadOnlyViolation(
-            f"Query contains forbidden operation '{match.group().upper()}'. Only SELECT queries are allowed."
-        )
+    readings = [("with standard quoting", _generic_reading(sql, False, False, brackets=engine in _NONPARSING_BRACKETS))]
+    if engine in _NONPARSING_BACKSLASH:
+        readings.append((_READING_NAMES[(False, True)], _generic_reading(sql, False, True)))
+    for reading, code_only in readings:
+        try:
+            check_unparsed(code_only, read_verbs=_NONPARSING_READ_VERBS,
+                           extra_write_words=_NONPARSING_WRITE_WORDS.get(engine))
+        except ReadOnlyViolation as e:
+            raise ReadOnlyViolation(f"{e} (This is how the text reads {reading}.)") from e
 
 
 def dialect_for_client(client) -> Optional[str]:
@@ -476,9 +501,10 @@ def ensure_read_only(client, query) -> Union[str, dict]:
     """Return exactly what `client` must be sent for `query`, or raise
     ReadOnlyViolation if it would modify the source behind `client`.
 
-    A `str` comes back as the text to send: for Postgres the lexer's
-    canonical text (comments dropped, every string written as a standard
-    literal), the text that was checked; for other clients the input. A `dict` envelope
+    A `str` comes back as the text to send: for Postgres and Redshift the
+    lexer's canonical text (comments dropped, every string written as a
+    standard literal), the text that was checked; for other clients the
+    input. A `str` holding a NUL is refused for every guarded client. A `dict` envelope
     on a client that accepts one (Splunk) comes back unchanged. Splunk SPL
     carried inline (bare, dict or JSON string) is checked here after decoding,
     so a refusal happens before the query is metered; SPL stored in a
@@ -506,13 +532,17 @@ def ensure_read_only(client, query) -> Union[str, dict]:
         raise ReadOnlyViolation(
             f"execute_query takes the statement as text, not {type(query).__name__}."
         )
+    if _NUL in query:
+        raise ReadOnlyViolation(
+            "The query holds a NUL character, after which the source would not read it. Remove it."
+        )
     if not query.strip():
         return query
     if profile.kind == "spl":
         check_spl(query)
         _check_spl_envelope(query, checked=query)
     elif profile.kind == "nonparsing_sql":
-        _check_db2(query)
+        _check_nonparsing(query, profile.engine)
     elif profile.kind == "cypher":
         from app.data_sources.clients.cypher_guard import CypherNotAllowed, check_cypher
 
@@ -520,8 +550,8 @@ def ensure_read_only(client, query) -> Union[str, dict]:
             check_cypher(query, allow_gds=client.allow_gds)
         except CypherNotAllowed as e:
             raise ReadOnlyViolation(str(e)) from e
-    elif profile.dialect == "postgres":
-        return _check_postgres(query)
+    elif profile.dialect in _LEXED_DIALECTS:
+        return _check_postgres(query, profile.dialect)
     elif profile.dialect:
         check_sql(query, profile.dialect)
     return query
@@ -546,10 +576,11 @@ def _check_spl_envelope(query, checked: Optional[str] = None) -> None:
 
 
 def check_sql(sql: str, dialect: str) -> None:
-    if dialect == "postgres":
-        _check_postgres(sql)
+    if dialect in _LEXED_DIALECTS:
+        _check_postgres(sql, dialect)
         return
 
+    check_engine_reading(sql, dialect)
     teradata = dialect == "teradata"
     if teradata:
         _check_teradata(sql)
@@ -575,26 +606,26 @@ def check_sql(sql: str, dialect: str) -> None:
     _check_parsed(sql, dialect, unparsed)
 
 
-def _check_postgres(sql: str) -> str:
-    """Check Postgres text as the server reads it; return the canonical
-    text, which is what must be sent."""
+def _check_postgres(sql: str, dialect: str = "postgres") -> str:
+    """Check Postgres (or Redshift) text as the server reads it; return the
+    canonical text, which is what must be sent."""
     from app.ai.code_execution.pg_lexer import lex_postgres
 
-    lex = lex_postgres(sql)
+    lex = lex_postgres(sql, mode=dialect)
     if lex.statements != 1:
         raise ReadOnlyViolation(
             f"Only a single read-only statement is allowed; got {lex.statements} statements."
         )
-    _check_postgres_code(lex.code_only)
-    _check_parsed(lex.text, "postgres",
+    _check_postgres_code(lex.code_only, dialect)
+    _check_parsed(lex.text, dialect,
                   lambda: check_unparsed(lex.code_only, read_verbs=_UNPARSED_READ_VERBS))
     return lex.text
 
 
-def _check_postgres_code(code_only: str) -> None:
-    """The Postgres rules read on the lexer's code (literal bodies emptied),
-    parsed or not: no TABLE shorthand, no denied function, and the statement
-    an EXPLAIN explains is itself a read."""
+def _check_postgres_code(code_only: str, dialect: str = "postgres") -> None:
+    """The Postgres (and Redshift) rules read on the lexer's code (literal
+    bodies emptied), parsed or not: no TABLE shorthand, no denied function,
+    and the statement an EXPLAIN explains is itself a read."""
     words = _QUOTED_NAME.sub(" ", code_only)
     for word in _UNPARSED_WORD.finditer(words):
         if (word.group("name") or "").upper() == "TABLE":
@@ -602,7 +633,7 @@ def _check_postgres_code(code_only: str) -> None:
                 "The TABLE shorthand is not allowed; write SELECT * FROM the table instead. "
                 "Only SELECT queries are allowed."
             )
-    _check_denied_calls(code_only, "postgres")
+    _check_denied_calls(code_only, dialect)
     leading = _LEADING_WORD.match(words)
     if leading and leading.group(1).upper() == "EXPLAIN":
         head = _EXPLAIN_HEAD.match(words)
@@ -708,7 +739,7 @@ def _check_parsed(sql: str, dialect: str, unparsed) -> None:
             return
         raise ReadOnlyViolation("Only 'USE WAREHOUSE' is allowed. Only SELECT queries are allowed.")
 
-    reads = (exp.Select, exp.SetOperation, exp.Subquery, exp.Describe, exp.Show, exp.Pragma)
+    reads = (exp.Select, exp.SetOperation, exp.Subquery, exp.Values, exp.Describe, exp.Show, exp.Pragma)
     if not isinstance(stmt, reads):
         raise ReadOnlyViolation(
             f"Statement '{stmt.key.upper()}' is not allowed. Only SELECT queries are allowed."
@@ -802,14 +833,17 @@ def _unparsed_readings(sql: str, dialect: str) -> list[tuple[str, str]]:
     ]
 
 
-def _generic_reading(sql: str, hash_comments: bool, backslash: bool) -> str:
+def _generic_reading(sql: str, hash_comments: bool, backslash: bool, brackets: Optional[bool] = None) -> str:
     """`sql` with each literal, quoted name and comment replaced by a space:
     quotes doubled to escape them, plus `#` line comments and backslash
-    escapes when asked (and `[...]` names when neither is). In a `#`
-    reading (MySQL's), `--` starts a comment only before whitespace or a
-    control character. From anything left open, the rest is read as code.
-    One pass."""
+    escapes when asked (and `[...]` names when neither is, or when
+    `brackets` says so). In a `#` reading (MySQL's), `--` starts a comment
+    only before whitespace or a control character. From anything left open,
+    the rest is read as code. One pass."""
     starts = _GENERIC_STARTS[(hash_comments, backslash)]
+    if brackets is not None and not (hash_comments or backslash):
+        # The same marks as the backslash reading, which has no `[...]`.
+        starts = _GENERIC_STARTS[(False, not brackets)]
     out = []
     i, n = 0, len(sql)
     while True:
@@ -860,6 +894,330 @@ def _single_statement_check(sql: str) -> None:
     parts = _LITERALS_AND_COMMENTS.sub(" ", sql).split(";")
     if any(p.strip() for p in parts[1:]):
         raise ReadOnlyViolation("Only a single read-only statement is allowed.")
+
+
+# ----------------------------------------------------------------------------
+# Where sqlglot's tokenizer and the engine read the text differently
+# ----------------------------------------------------------------------------
+
+_NUL = chr(0)
+# Read by the Postgres lexer (`pg_lexer`), which does this check itself.
+_LEXED_DIALECTS = frozenset({"postgres", "redshift"})
+_UNREADABLE = "The query could not be read as SQL (an unterminated string, quoted name or comment?). Fix it and retry."
+# Line ends other than LF (a CR before an LF ends the line where the LF
+# does): readers disagree on whether they end a line comment.
+_OTHER_LINE_BREAK = re.compile("\r(?!\n)|[\x0b\x0c\x1c-\x1e\x85" + chr(0x2028) + chr(0x2029) + "]")
+# The characters outside ASCII that `str.isspace()` takes for whitespace, as
+# sqlglot does; an engine may read them as name characters.
+_NON_ASCII_SPACES = frozenset(
+    chr(c) for c in (0x85, 0xA0, 0x1680, *range(0x2000, 0x200B), 0x2028, 0x2029, 0x202F, 0x205F, 0x3000)
+)
+_NON_ASCII_SPACE = re.compile("[" + "".join(sorted(_NON_ASCII_SPACES)) + "]")
+# The ones an engine was shown to read as whitespace, by dialect (pinned by
+# the dialect tests): SQL Server 2019 every one; DuckDB 1.5.4 all but U+0085,
+# U+1680, U+2028 and U+2029, which it reads as name characters.
+_ENGINE_SPACES = {
+    "tsql": _NON_ASCII_SPACES,
+    "duckdb": _NON_ASCII_SPACES - {chr(0x85), chr(0x1680), chr(0x2028), chr(0x2029)},
+}
+# Dialects whose sqlglot tokenizer nests block comments while the engine
+# may not (Calcite, Teradata, ClickHouse, Fabric are not shown to nest them).
+_UNNESTED_COMMENT_DIALECTS = frozenset({"druid", "teradata", "clickhouse", "fabric"})
+# A comment MySQL and MariaDB run as code (`/*!`, `/*M!`, and any other
+# letter before the `!`), by its text after `/*`, and by its opening.
+_EXECUTABLE_COMMENT_TEXT = re.compile(r"[A-Za-z]?!")
+_EXECUTABLE_COMMENT_START = re.compile(r"/\*[A-Za-z]?!")
+# A dollar-quote delimiter as DuckDB (Postgres's lexer) reads one.
+_DOLLAR_DELIMITER = re.compile(r"\$(?:[A-Za-z_\x80-\U0010FFFF][A-Za-z0-9_\x80-\U0010FFFF]*)?\$")
+_NAME_CLASS = "A-Za-z0-9_$\x80-\U0010FFFF"
+
+
+def _comment_inside_comment() -> ReadOnlyViolation:
+    return ReadOnlyViolation(
+        "The query has a comment inside a comment (/* ... /* ... */), which this source may end at the first */. "
+        "Remove the inner /*."
+    )
+
+
+def _masked(sql: str, spans) -> str:
+    """`sql` with each (start, end) span written as spaces, so positions
+    stay where they are."""
+    out, at = [], 0
+    for start, end in sorted(spans):
+        if start < at:
+            continue
+        out.append(sql[at:start])
+        out.append(" " * (end - start))
+        at = end
+    out.append(sql[at:])
+    return "".join(out)
+
+
+def _standard_spans(sql: str) -> list[tuple[str, int, int]]:
+    """The literal spans of `sql` read with standard-SQL rules: ('string',
+    ...) for '...' (a doubled quote stays inside), ('name', ...) for "...",
+    ('comment', ...) for -- and /* */ (not nested). Each (kind, start, end
+    exclusive); one left open runs to the end. One pass."""
+    out = []
+    i, n = 0, len(sql)
+    starts = re.compile(r"['\"]|--|/\*")
+    while True:
+        m = starts.search(sql, i)
+        if m is None:
+            return out
+        mark, start = m.group(), m.start()
+        if mark == "--":
+            end = sql.find("\n", start)
+            end, kind = (n if end < 0 else end), "comment"
+        elif mark == "/*":
+            end = sql.find("*/", start + 2)
+            end, kind = (n if end < 0 else end + 2), "comment"
+        else:
+            end = _quoted_end(sql, start, mark, False)
+            end, kind = (n if end < 0 else end), ("string" if mark == "'" else "name")
+        out.append((kind, start, end))
+        i = end
+
+
+def _refuse_athena_backslash(sql: str) -> None:
+    """Approved rule: a backslash outside a "..." name is refused (Athena
+    runs text on a Hive-based or a Trino-based engine, which read a
+    backslash in a string differently)."""
+    names = [(s, e) for kind, s, e in _standard_spans(sql) if kind == "name"]
+    if "\\" in _masked(sql, names):
+        raise ReadOnlyViolation(
+            "Athena queries cannot hold a backslash outside a double-quoted name: its engines read a backslash "
+            "in a string differently. Remove it, or match the character with a wildcard or a regex class."
+        )
+
+
+def _is_name_char(c: str) -> bool:
+    return c.isalnum() or c in "_$#"
+
+
+def _refuse_alternative_quotes(sql: str) -> None:
+    """Oracle q'<d>...<d>' strings (and the n/N-prefixed ones): sqlglot's
+    Oracle tokenizer does not read them, so it places the literal's end
+    elsewhere than Oracle does."""
+    for kind, start, _end in _standard_spans(sql):
+        if kind != "string" or start == 0 or sql[start - 1] not in "qQ":
+            continue
+        prefix = start - 1
+        if prefix > 0 and sql[prefix - 1] in "nN":
+            prefix -= 1
+        if prefix == 0 or not _is_name_char(sql[prefix - 1]):
+            raise ReadOnlyViolation(
+                "Oracle alternative-quote strings (q'[...]', nq'[...]' and similar) are not allowed. "
+                "Write a standard string, doubling each quote inside it ('it''s')."
+            )
+
+
+@functools.lru_cache(maxsize=None)
+def _name_run(spaces: frozenset[str]) -> re.Pattern:
+    """A run of characters an engine may read as one name, ending at the
+    characters it reads as whitespace (`spaces`)."""
+    if not spaces:
+        return re.compile("[" + _NAME_CLASS + "]+")
+    return re.compile("(?:(?![" + "".join(sorted(spaces)) + "])[" + _NAME_CLASS + "])+")
+
+
+def _gap_comments(sql: str, tokens, tokenizer_class) -> list[tuple[str, int, int]]:
+    """The comments sqlglot's tokenizer read between its tokens, each
+    (opening mark, start, end exclusive), read the way that tokenizer reads
+    them (nested where it nests them)."""
+    closes: dict[str, Optional[str]] = {}
+    for comment in tokenizer_class.COMMENTS:
+        if isinstance(comment, str):
+            closes[comment] = None
+        else:
+            closes[comment[0]] = comment[1]
+    marks = sorted(closes, key=len, reverse=True)
+    nested = tokenizer_class.NESTED_COMMENTS
+    gaps, at = [], 0
+    for token in tokens:
+        gaps.append((at, token.start))
+        at = token.end + 1
+    gaps.append((at, len(sql)))
+    out = []
+    for lo, hi in gaps:
+        i = lo
+        while i < hi:
+            mark = next((m for m in marks if sql.startswith(m, i)), None)
+            if mark is None:
+                i += 1
+                continue
+            close, j = closes[mark], i + len(mark)
+            if close is None:
+                while j < hi and sql[j] not in "\n\r":
+                    j += 1
+            else:
+                depth = 1
+                while j < hi:
+                    if sql.startswith(close, j):
+                        depth, j = depth - 1, j + len(close)
+                        if not depth:
+                            break
+                    elif nested and sql.startswith(mark, j):
+                        depth, j = depth + 1, j + len(mark)
+                    else:
+                        j += 1
+            out.append((mark, i, j))
+            i = j
+    return out
+
+
+def check_engine_reading(sql: str, dialect: str) -> None:
+    """Refuse `sql` where sqlglot's `dialect` tokenizer and the engine read
+    it differently, so the checks would vouch for a statement the engine
+    does not run. Postgres and Redshift text is read by their lexer instead.
+    Raises ReadOnlyViolation."""
+    if dialect in _LEXED_DIALECTS:
+        return
+    if _NUL in sql:
+        raise ReadOnlyViolation("The query holds a NUL character, after which the source would not read it. Remove it.")
+    if dialect == "athena":
+        _refuse_athena_backslash(sql)
+    elif dialect == "oracle":
+        _refuse_alternative_quotes(sql)
+    from sqlglot.dialects.dialect import Dialect
+
+    reader = Dialect.get_or_raise(dialect)
+    try:
+        tokens = reader.tokenize(sql)
+    except Exception as e:
+        raise ReadOnlyViolation(_UNREADABLE) from e
+    # Strings and quoted names (an IDENTIFIER token sqlglot read from
+    # unquoted text is code).
+    literal = [(t.start, t.end + 1) for t in tokens if t.token_type.name in _LITERAL_TOKENS
+               or (t.token_type.name == "IDENTIFIER" and sql[t.start:t.start + 1] in ("\"", "`", "["))]
+    literal_starts = {start for start, _end in literal}
+    code = [t for t in tokens if t.start not in literal_starts]
+    masked = _masked(sql, literal)
+    if "{#" in masked:
+        raise ReadOnlyViolation("The query has '{#', which some readers take as the start of a comment. Remove it.")
+    if _OTHER_LINE_BREAK.search(masked):
+        raise ReadOnlyViolation(
+            "The query has a line break other than a newline (a lone carriage return, a vertical tab, a form feed "
+            "or a Unicode line separator) outside a string, which readers end comments at differently. "
+            "Use plain newlines."
+        )
+    spaces = _ENGINE_SPACES.get(dialect, frozenset())
+    for space in _NON_ASCII_SPACE.finditer(masked):
+        if space.group() not in spaces:
+            raise ReadOnlyViolation(
+                f"The query has a space outside ASCII (U+{ord(space.group()):04X}) outside a string or a quoted "
+                "name, which this source may read as part of a name. Use a plain space."
+            )
+    _check_names_outside_ascii(masked, code, spaces)
+    comments = _gap_comments(sql, tokens, reader.tokenizer_class)
+    if dialect == "mysql":
+        _check_mysql_comments(sql, tokens, comments)
+    if dialect in _UNNESTED_COMMENT_DIALECTS:
+        if any(mark == "/*" and "/*" in sql[start + 2:end] for mark, start, end in comments):
+            raise _comment_inside_comment()
+    code_starts = [t.start for t in code]
+    if dialect == "druid" and any(_in_token(code, code_starts, m.start()) for m in re.finditer("//", masked)):
+        raise ReadOnlyViolation(
+            "The query has '//' outside a string, which Druid reads as the start of a comment. "
+            "Remove it, or write the division with a space between the slashes."
+        )
+    if dialect == "bigquery":
+        if any(t.token_type.name == "IDENTIFIER" and sql[t.start] == "`" and "\\" in sql[t.start:t.end + 1]
+               for t in tokens):
+            raise ReadOnlyViolation(
+                "A backtick-quoted name holds a backslash, which BigQuery reads as an escape. Remove it."
+            )
+    if dialect in ("spark", "databricks"):
+        if any(mark == "--" and end < len(sql) and sql[end - 1] == "\\" for mark, start, end in comments):
+            raise ReadOnlyViolation(
+                "A -- comment ends in a backslash, which Spark reads as continuing the comment on the next line. "
+                "Remove the backslash."
+            )
+    if dialect in ("tsql", "fabric"):
+        _check_glued_constants(sql, code)
+    if dialect == "duckdb":
+        _check_dollar_tags(sql, masked, tokens)
+
+
+def _in_token(tokens, starts: list[int], at: int) -> bool:
+    """Whether position `at` is inside one of `tokens` (sorted by start;
+    `starts` their starts)."""
+    i = bisect.bisect_right(starts, at) - 1
+    return i >= 0 and tokens[i].start <= at <= tokens[i].end
+
+
+def _check_names_outside_ascii(masked: str, code, spaces: frozenset[str]) -> None:
+    """Every name in code holding a character outside ASCII must be exactly
+    one name to sqlglot: engines that take such characters in names read
+    the whole run as one, while sqlglot may read a number (a digit outside
+    ASCII), a keyword (a letter that upper-cases to ASCII) or a split."""
+    if masked.isascii():
+        return
+    by_start = {t.start: t for t in code}
+    starts = [t.start for t in code]
+    for run in _name_run(spaces).finditer(masked):
+        if run.group().isascii() or not _in_token(code, starts, run.start()):
+            continue
+        token = by_start.get(run.start())
+        if token is None or token.token_type.name != "VAR" or token.end != run.end() - 1:
+            raise ReadOnlyViolation(
+                "A name holds a character outside ASCII that the query checks read differently from the source "
+                "(a digit outside ASCII at its start, a letter read as a keyword, or a space). "
+                "Quote the name."
+            )
+
+
+def _check_mysql_comments(sql: str, tokens, comments) -> None:
+    if (any(_EXECUTABLE_COMMENT_TEXT.match(c) for t in tokens for c in t.comments)
+            or any(_EXECUTABLE_COMMENT_START.match(sql, start) for mark, start, _end in comments if mark == "/*")):
+        raise ReadOnlyViolation(
+            "The query has an executable comment (/*! ... */ or /*M! ... */), which MySQL and MariaDB run as code. "
+            "Remove it, or write its text as plain SQL."
+        )
+    for mark, start, _end in comments:
+        if mark == "--" and start + 2 < len(sql) and sql[start + 2] > " ":
+            raise ReadOnlyViolation(
+                "The query has '--' not followed by a space, which MySQL reads as two minus signs, not a comment. "
+                "Write '-- ' for a comment, or '- -' for two minus signs."
+            )
+
+
+def _check_glued_constants(sql: str, code) -> None:
+    """SQL Server reads a hex (0x..) or money ($1, and other currency signs)
+    constant and then a word where sqlglot reads one name."""
+    for token in code:
+        raw = sql[token.start:token.end + 1]
+        hex_glued = raw[:2] in ("0x", "0X") and token.token_type.name != "HEX_STRING"
+        money_glued = (len(raw) > 1 and unicodedata.category(raw[0]) == "Sc" and raw[1].isdigit()
+                       and any(c.isalpha() or c == "_" for c in raw[1:]))
+        if hex_glued or money_glued:
+            raise ReadOnlyViolation(
+                "The query has a hex or money constant written right before a word, which SQL Server reads as the "
+                "constant and then that word. Put a space or an operator between them."
+            )
+
+
+def _check_dollar_tags(sql: str, masked: str, tokens) -> None:
+    """A dollar-quote tag outside ASCII must be read by sqlglot as the same
+    delimiter DuckDB reads (sqlglot's own dollar string, opened and closed
+    by that tag)."""
+    for m in _DOLLAR_DELIMITER.finditer(masked):
+        if not m.group().isascii():
+            raise ReadOnlyViolation(
+                "A dollar-quote tag holds a character outside ASCII that the query checks read differently "
+                "from the source. Use an ASCII tag such as $q$, or a standard string."
+            )
+    for token in tokens:
+        if token.token_type.name != "HEREDOC_STRING":
+            continue
+        raw = sql[token.start:token.end + 1]
+        tag = _DOLLAR_DELIMITER.match(raw)
+        if tag is not None and not tag.group().isascii() and not (len(raw) >= 2 * len(tag.group())
+                                                                   and raw.endswith(tag.group())):
+            raise ReadOnlyViolation(
+                "A dollar-quote tag holds a character outside ASCII that the query checks read differently "
+                "from the source. Use an ASCII tag such as $q$, or a standard string."
+            )
 
 
 def check_spl(spl: str) -> None:

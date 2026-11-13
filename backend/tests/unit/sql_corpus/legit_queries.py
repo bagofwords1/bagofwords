@@ -89,6 +89,7 @@ _POSTGRES = [
     "SELECT * FROM orders WHERE id = ANY (ARRAY[1, 2, 3])",
     "SELECT round(avg(amount)::numeric, 2) AS avg_amount FROM orders",
     "SELECT * FROM (VALUES (1, 'a'), (2, 'b')) AS v(id, label)",
+    "VALUES (1, 'a'), (2, 'b')",
     "(SELECT 1)",
     "SELECT pg_advisory_xact_lock(1)",
     "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'",
@@ -122,6 +123,11 @@ _OTHER_DIALECTS = {
         "SELECT date_trunc('month', created_at) AS m, SUM(amount) FROM orders GROUP BY 1",
         "SELECT * FROM orders WHERE status = 'it''s fine' LIMIT 10",
         "SELECT listagg(name, ', ') WITHIN GROUP (ORDER BY name) FROM customers",
+        "-- weekly totals" + NL + "SELECT date_trunc('week', created_at) AS w, SUM(amount) FROM orders /* all */ GROUP BY 1",
+        'SELECT "Order Date" FROM "Order Details" WHERE note LIKE \'%chair%\'',
+        "SELECT o.id, c.name FROM public.orders o JOIN public.customers c ON c.id = o.customer_id",
+        "SELECT * FROM orders WHERE created_at >= DATEADD(day, -7, CURRENT_DATE) ORDER BY id LIMIT 100",
+        "SELECT * FROM orders;",
     ],
     "mysql": [
         "SELECT `id`, `amount` FROM `orders` WHERE `status` = 'open' LIMIT 10",
@@ -131,6 +137,13 @@ _OTHER_DIALECTS = {
         "SELECT GROUP_CONCAT(name SEPARATOR ', ') FROM customers",
         "SELECT IFNULL(amount, 0) AS a FROM orders -- note",
         "SELECT * FROM orders WHERE note LIKE '%" + BS + BS + "%'",
+        "SELECT * FROM orders -- the open ones" + NL + "WHERE status = 'open'",
+        "SELECT * FROM orders # the open ones" + NL + "WHERE status = 'open'",
+        "SELECT /*+ MAX_EXECUTION_TIME(1000) */ id FROM orders /* note */",
+        "SELECT 3 - -1 AS a, amount - 1 AS b FROM orders",
+        "SELECT * FROM orders WHERE note = '--x' OR note = '/*!x*/'",
+        "SELECT * FROM orders --",
+        "WITH t AS (SELECT * FROM orders) SELECT COUNT(*) FROM t",
     ],
     "tsql": [
         "SELECT TOP 10 [id], [amount] FROM [dbo].[orders] ORDER BY [amount] DESC",
@@ -246,11 +259,7 @@ LEGIT_QUERIES: list[tuple[str, str]] = [("postgres", sql) for sql in _POSTGRES] 
 # Legitimate queries the checks refuse today, and why. Each is expected to
 # fail until the rule is fixed; then it moves to LEGIT_QUERIES.
 # (dialect, sql, reason)
-KNOWN_OVER_REFUSALS: list[tuple[str, str, str]] = [
-    ("postgres", "VALUES (1, 'a'), (2, 'b')",
-     "a top-level VALUES parses as a Values statement, which the parsed path's read statements do not "
-     "include (unchanged from before this PR; VALUES inside a FROM passes)"),
-]
+KNOWN_OVER_REFUSALS: list[tuple[str, str, str]] = []
 
 _IDENTITY_VALUES = ["sarah@example.com", "DOMAIN" + BS + "user", "it's", "o'neil" + BS + "x"]
 # Engines whose renderer refuses a backslash in a value.

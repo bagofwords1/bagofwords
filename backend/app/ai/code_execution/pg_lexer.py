@@ -45,8 +45,10 @@ fails on a name or tag other than by reporting a token error, the text
 could not be checked and is refused as such.
 
 `mode="redshift"` also refuses E-strings and any backslash in a literal
-value: Redshift reads backslashes in plain strings as escapes. It checks
-names and tags against sqlglot's Redshift tokenizer.
+value: Redshift reads backslashes in plain strings as escapes. It refuses a
+comment opened inside a comment (Redshift is not shown to nest them, as
+Postgres does). It checks names and tags against sqlglot's Redshift
+tokenizer.
 
 Pure: no I/O, apart from a warning logged when the tokenizer fails.
 """
@@ -268,13 +270,19 @@ def _e_string_body(sql: str, start: int) -> tuple[str, int]:
     raise _unterminated("string literal")
 
 
-def _block_comment_end(sql: str, start: int) -> int:
-    """Where the (nested) comment opening at `start` ends (exclusive)."""
+def _block_comment_end(sql: str, start: int, nested: bool = True) -> int:
+    """Where the (nested) comment opening at `start` ends (exclusive). With
+    `nested` false, a comment opened inside it is refused."""
     depth = 0
     i = start
     n = len(sql)
     while i < n:
         if sql.startswith("/*", i):
+            if depth and not nested:
+                raise ReadOnlyViolation(
+                    "The query has a comment inside a comment (/* ... /* ... */), which this source may end at "
+                    "the first */. Remove the inner /*."
+                )
             depth += 1
             i += 2
         elif sql.startswith("*/", i):
@@ -365,7 +373,7 @@ def lex_postgres(sql: str, *, mode: str = "postgres") -> PgLexResult:
             code.append(" ")
             i = end
         elif c == "/" and nxt == "*":
-            end = _block_comment_end(sql, i)
+            end = _block_comment_end(sql, i, nested=not redshift)
             breaks = "".join(ch for ch in sql[i:end] if ch in _NEWLINES)
             text.append(" " + breaks)
             code.append(" " + breaks)

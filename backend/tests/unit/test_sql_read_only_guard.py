@@ -220,7 +220,13 @@ def test_the_unparsed_fallback_lets_reads_through(unparsable, dialect, sql):
     check_sql(sql, dialect)
 
 
-@pytest.mark.parametrize("dialect", [d for d in NON_TERADATA if d != "postgres"])
+# Postgres and Redshift text is read by the Postgres lexer, as the server
+# reads it, not by the generic readings below (test_sql_guard_postgres.py,
+# test_sql_guard_dialects.py).
+LEXED = {"postgres", "redshift"}
+
+
+@pytest.mark.parametrize("dialect", [d for d in NON_TERADATA if d not in LEXED])
 def test_the_unparsed_fallback_keeps_describe_outside_postgres(unparsable, dialect):
     check_sql("DESCRIBE orders", dialect)
     check_sql("DESC orders", dialect)
@@ -232,8 +238,7 @@ def test_the_unparsed_fallback_keeps_describe_outside_postgres(unparsable, diale
 NL = chr(10)
 BS = chr(92)
 HASH_COMMENT_DIALECTS = ["mysql", "bigquery", "clickhouse"]
-BACKSLASH_DIALECTS = ["mysql", "bigquery", "clickhouse", "snowflake", "databricks", "hive", "spark", "athena",
-                      "redshift"]
+BACKSLASH_DIALECTS = ["mysql", "bigquery", "clickhouse", "snowflake", "databricks", "hive", "spark", "athena"]
 HASH_COMMENT_HIDES = [
     "SELECT a FROM t # it's" + NL + "INTO OUTFILE '/tmp/x' #'",
     "SELECT a FROM t # it's" + NL + "; DROP TABLE t #'",
@@ -260,12 +265,12 @@ def test_the_unparsed_fallback_reads_backslash_escapes_as_the_dialect_does(unpar
         check_sql(sql, dialect)
 
 
-@pytest.mark.parametrize("dialect", [d for d in NON_TERADATA if d != "postgres"])
+@pytest.mark.parametrize("dialect", [d for d in NON_TERADATA if d not in LEXED])
 @pytest.mark.parametrize("sql", HASH_COMMENT_HIDES)
 def test_the_unparsed_fallback_refuses_what_any_reading_would_run(unparsable, dialect, sql):
     # Every reading is checked: one where `#` starts a comment and the plain
     # one (and, where the engine reads them, backslash escapes). Postgres
-    # text is read by its own lexer, as the server reads it.
+    # and Redshift text is read by their lexer, as the server reads it.
     with pytest.raises(ReadOnlyViolation):
         check_sql(sql, dialect)
 
@@ -309,16 +314,18 @@ def test_a_refusal_names_the_reading_that_refused(unparsable):
 # the engine ends it: a word glued to it is a separate word.
 @pytest.mark.parametrize("dialect", ["tsql", "fabric"])
 def test_the_unparsed_fallback_reads_a_word_after_a_hex_number_as_a_word(unparsable, dialect):
-    with pytest.raises(ReadOnlyViolation, match="INTO"):
+    # Refused before the parser runs too (the glued-constant rule), or by
+    # the fallback's word scan.
+    with pytest.raises(ReadOnlyViolation, match="INTO|hex or money constant"):
         check_sql("SELECT 0x1into x FROM t", dialect)
     check_sql("SELECT 0x1F", dialect)
     check_sql("SELECT 0x1F AS v, 0xdeadbeef AS w FROM t", dialect)
 
 
-@pytest.mark.parametrize("dialect", [d for d in NON_TERADATA if d != "postgres"])
+@pytest.mark.parametrize("dialect", [d for d in NON_TERADATA if d not in LEXED])
 def test_the_unparsed_fallback_reads_a_double_dash_without_a_space_as_code_as_mysql_does(unparsable, dialect):
     # MySQL starts a `--` comment only before whitespace; `1--1` is arithmetic.
-    # (Postgres always starts one there, and its lexer reads it so.)
+    # (Postgres and Redshift always start one there, and their lexer reads it so.)
     with pytest.raises(ReadOnlyViolation):
         check_sql("SELECT a FROM t WHERE b = 1--1 INTO OUTFILE '/tmp/x'", dialect)
 

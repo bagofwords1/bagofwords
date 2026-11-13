@@ -15,7 +15,13 @@ How it works:
   * The code-execution wrapper calls `enforce_table_scope` on the final query
     text, next to the read-only guard.
 
-The check fails closed. If sqlglot cannot parse the query, or the query reads
+Names are compared the way the engine reads them: Postgres names folded
+as Postgres folds them (unquoted ones with their ASCII letters lowered,
+quoted ones as written) against the names as the catalog stores them;
+other dialects' names case-insensitively.
+
+The check fails closed. If sqlglot cannot parse the query, reads it
+differently from the engine (`sql_guard.check_engine_reading`), or the query reads
 through something whose target cannot be named (`SHOW`, `EXPLAIN`,
 `IDENTIFIER('...')`, `RESULT_SCAN(...)`, an unknown table function, functions
 that run SQL held in a string such as Postgres `query_to_xml`), the query is
@@ -31,10 +37,16 @@ from __future__ import annotations
 
 import logging
 import re
+import string
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
-from app.ai.code_execution.sql_guard import DENIED_FUNCTIONS, dialect_for_client
+from app.ai.code_execution.sql_guard import (
+    DENIED_FUNCTIONS,
+    ReadOnlyViolation,
+    check_engine_reading,
+    dialect_for_client,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +60,17 @@ class TableScopeViolation(ValueError):
     tables cannot be verified."""
 
 
-def _split_name(name: str) -> Name:
-    parts = [p.strip().strip('"`[]').lower() for p in str(name).split(".")]
-    return tuple(p for p in parts if p)
+def _split_name(name: str, lower: bool = True) -> Name:
+    parts = [p.strip().strip('"`[]') for p in str(name).split(".")]
+    return tuple(p.lower() if lower else p for p in parts if p)
+
+
+# Postgres folds unquoted names to lower case, ASCII letters only, and
+# keeps quoted names as written.
+_ASCII_LOWER = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)
+# Dialects whose names are compared exactly, once folded as their engine
+# folds them, against the names as the catalog stores them.
+_ENGINE_FOLDED = frozenset({"postgres"})
 
 
 def _qualify(name: Name, default_database: str | None) -> Name:
@@ -76,6 +96,10 @@ class TableScope:
     # the old comparison allows is logged and still run, so existing saved
     # queries keep working while the log shows whether anyone relies on it.
     legacy: TableScope | None = None
+    # The same selection with each name as the catalog stores it (quotes
+    # stripped, case kept), for dialects whose names are compared the way
+    # their engine folds them (`_ENGINE_FOLDED`).
+    exact: TableScope | None = None
 
     @classmethod
     def from_names(
@@ -85,19 +109,22 @@ class TableScope:
         *,
         default_database: str | None = None,
         enforce_databases: bool = True,
+        lower: bool = True,
     ) -> TableScope:
         active, inactive = list(active), list(inactive)
-        db = (
-            default_database.strip().strip('"`[]').lower() or None
-            if isinstance(default_database, str) else None
-        )
-        act = frozenset(_qualify(n, db) for n in (_split_name(x) for x in active) if n)
+        db = default_database.strip().strip('"`[]') if isinstance(default_database, str) else ""
+        db = (db.lower() if lower else db) or None
+        act = frozenset(_qualify(n, db) for n in (_split_name(x, lower) for x in active) if n)
         # A name activated anywhere wins over an inactive duplicate.
-        ina = frozenset(_qualify(n, db) for n in (_split_name(x) for x in inactive) if n) - act
+        ina = frozenset(_qualify(n, db) for n in (_split_name(x, lower) for x in inactive) if n) - act
         legacy = None
         if db and not enforce_databases:
-            legacy = cls.from_names(active, inactive)
-        return cls(active=act, inactive=ina, default_database=db, legacy=legacy)
+            legacy = cls.from_names(active, inactive, lower=lower)
+        exact = None
+        if lower:
+            exact = cls.from_names(active, inactive, default_database=default_database,
+                                   enforce_databases=enforce_databases, lower=False)
+        return cls(active=act, inactive=ina, default_database=db, legacy=legacy, exact=exact)
 
 
 def _suffix_match(ref: Name, known: Name) -> bool:
@@ -164,9 +191,33 @@ def _func_name(node) -> str:
         return ""
 
 
-def _resolves_to_cte(table) -> bool:
+def _name_part(ident, dialect: str | None) -> str:
+    """A name (an Identifier) as `dialect`'s engine compares it: for
+    Postgres, a quoted name as written and an unquoted one with its ASCII
+    letters lowered; elsewhere lowered."""
+    name = str(ident.name or "")
+    if dialect in _ENGINE_FOLDED:
+        return name if ident.quoted else name.translate(_ASCII_LOWER)
+    return name.lower()
+
+
+def _table_ref(table, dialect: str | None) -> Name:
+    from sqlglot import exp
+
+    if dialect not in _ENGINE_FOLDED:
+        return tuple(p.lower() for p in (table.catalog, table.db, table.name) if p)
+    parts = []
+    for key in ("catalog", "db", "this"):
+        part = table.args.get(key)
+        name = _name_part(part, dialect) if isinstance(part, exp.Identifier) else table.text(key).lower()
+        if name:
+            parts.append(name)
+    return tuple(parts)
+
+
+def _resolves_to_cte(table, dialect: str | None = None) -> bool:
     """True when an unqualified table reference names a CTE visible where it
-    stands.
+    stands, the two names compared as `dialect`'s engine compares them.
 
     A WITH clause is visible only inside the query it belongs to (and the
     queries nested in it), so a CTE defined in a subquery must not exempt a
@@ -176,7 +227,7 @@ def _resolves_to_cte(table) -> bool:
     """
     from sqlglot import exp
 
-    name = str(table.name or "").lower()
+    name = _name_part(table.this, dialect)
     child, inside_cte = table, None
     node = table.parent
     while node is not None:
@@ -190,25 +241,33 @@ def _resolves_to_cte(table) -> bool:
                 visible = ctes[:i] + ([inside_cte] if w.args.get("recursive") else [])
             else:
                 visible = ctes
-            if any(str(c.alias_or_name).lower() == name for c in visible):
+            if any(_cte_name(c, dialect) == name for c in visible):
                 return True
         child, node = node, node.parent
     return False
 
 
-def tables_read(statement) -> list[Name]:
+def _cte_name(cte, dialect: str | None) -> str:
+    from sqlglot import exp
+
+    alias = cte.args.get("alias")
+    ident = alias.this if isinstance(alias, exp.TableAlias) else None
+    return _name_part(ident, dialect) if isinstance(ident, exp.Identifier) else str(cte.alias_or_name).lower()
+
+
+def tables_read(statement, dialect: str | None = None) -> list[Name]:
     """The tables `statement` reads by name, each once: every
     table reference that is an identifier (not a table function), except a
-    one-part name that refers to a CTE visible where it stands. Lowercased
-    name parts."""
+    one-part name that refers to a CTE visible where it stands. Name parts
+    lowered, or for Postgres (`dialect`) folded as Postgres folds them."""
     from sqlglot import exp
 
     out: list[Name] = []
     for t in statement.find_all(exp.Table):
         if not isinstance(t.this, exp.Identifier):
             continue
-        ref = tuple(p.lower() for p in (t.catalog, t.db, t.name) if p)
-        if (len(ref) == 1 and _resolves_to_cte(t)) or ref in out:
+        ref = _table_ref(t, dialect)
+        if (len(ref) == 1 and _resolves_to_cte(t, dialect)) or ref in out:
             continue
         out.append(ref)
     return out
@@ -223,6 +282,10 @@ def check_table_scope(sql: str, dialect: str, scope: TableScope) -> None:
     from app.ai.code_execution.sql_parser import parse_guard_sql
     from sqlglot import exp
 
+    try:
+        check_engine_reading(sql, dialect)
+    except ReadOnlyViolation as e:
+        raise TableScopeViolation(f"Could not verify which tables this query reads, so it was not run. {e}") from e
     try:
         statements = [s for s in parse_guard_sql(sql, dialect)
                       if s is not None and not isinstance(s, exp.Semicolon)]
@@ -267,14 +330,15 @@ def check_table_scope(sql: str, dialect: str, scope: TableScope) -> None:
                     "because the table it reads cannot be checked."
                 )
 
-        for ref in tables_read(stmt):
-            if not is_allowed(_qualify(ref, scope.default_database), scope):
-                if scope.legacy is not None and is_allowed(ref, scope.legacy):
+        compared = scope.exact if dialect in _ENGINE_FOLDED and scope.exact is not None else scope
+        for ref in tables_read(stmt, dialect):
+            if not is_allowed(_qualify(ref, compared.default_database), compared):
+                if compared.legacy is not None and is_allowed(ref, compared.legacy):
                     logger.warning(
                         "table_scope: allowed %s only because it matches an enabled table "
                         "outside the connection's default database %s; this will be refused "
                         "once database checks are enforced",
-                        _display(ref), (scope.default_database or "").upper(),
+                        _display(ref), (compared.default_database or "").upper(),
                     )
                     continue
                 shown = _display(ref)

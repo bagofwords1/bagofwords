@@ -185,7 +185,6 @@ def _bare(cls_path):
 @pytest.mark.parametrize("cls_path", [
     "app.data_sources.clients.oracle_bi_client.OracleBIClient",
     "app.data_sources.clients.sisense_client.SisenseClient",
-    "app.data_sources.clients.vertica_client.VerticaClient",
     "app.data_sources.clients.netsuite_client.NetsuiteClient",
 ])
 def test_ansi_connections_render_as_today_and_stay_unguarded(cls_path):
@@ -194,6 +193,20 @@ def test_ansi_connections_render_as_today_and_stay_unguarded(cls_path):
     assert renderer.name == "ansi"
     assert guard_profile(client) is None
     assert render_sql_with_params("Name eq :v", {"v": "it's"}, renderer=renderer) == "Name eq 'it''s'"
+
+
+@pytest.mark.parametrize("cls_path", [
+    "app.data_sources.clients.vertica_client.VerticaClient",
+    "app.data_sources.clients.sybase_client.SybaseClient",
+    "app.data_sources.clients.sap_hana_client.SapHanaClient",
+    "app.data_sources.clients.pinot_client.PinotClient",
+])
+def test_ansi_sql_connections_without_a_parser_dialect_render_as_today_and_are_guarded(cls_path):
+    client = _bare(cls_path)
+    renderer = query_params.renderer_for(client)
+    assert renderer.name == "ansi"
+    assert guard_profile(client).kind == "nonparsing_sql"
+    assert render_sql_with_params("WHERE a = :v", {"v": "it's"}, renderer=renderer) == "WHERE a = 'it''s'"
 
 
 ODATA_CLIENTS = [
@@ -234,13 +247,13 @@ def test_the_odata_server_reads_a_rendered_value_as_that_value_in_one_literal(cl
     assert re.fullmatch(r"[A-Za-z0-9_.~%-]*", body), options  # no '#', '&', '+' or quote as written
 
 
-def test_timbr_doubles_quotes_and_refuses_a_backslash_and_stays_unguarded():
+def test_timbr_doubles_quotes_and_refuses_a_backslash_and_is_guarded_as_spark_sql():
     from app.data_sources.clients.timbr_client import TimbrClient
 
     client = object.__new__(TimbrClient)
     renderer = query_params.renderer_for(client)
     assert renderer.name == "timbr"
-    assert guard_profile(client) is None
+    assert (guard_profile(client).kind, guard_profile(client).dialect) == ("sql", "spark")
     assert render_sql_with_params("WHERE a = :v", {"v": "it's"}, renderer=renderer) == "WHERE a = 'it''s'"
     with pytest.raises(ParamError):
         render_sql_with_params("WHERE a = :v", {"v": "a" + chr(92) + "b"}, renderer=renderer)
