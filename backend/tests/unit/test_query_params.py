@@ -1264,6 +1264,8 @@ def test_a_datasphere_input_parameter_is_not_a_row_filter(mode, odata_http):
 ODATA_FILTER_LOOSE_SPELLINGS = [
     "$FILTER", "filter", "$filter%20", "%20$Filter", "%20$filter", "+$filter", "%24FILTER",
     "$" + chr(0xFB01) + "lter",  # LATIN SMALL LIGATURE FI, case folded to "fi"
+    "$f" + chr(0x131) + "lter",  # LATIN SMALL LETTER DOTLESS I, which casefold keeps
+    "$F" + chr(0x130) + "LTER",  # LATIN CAPITAL LETTER I WITH DOT ABOVE, folded to "i" and a combining dot
 ]
 ODATA_FILTER_SPELLINGS = ["%24filter"] + ODATA_FILTER_LOOSE_SPELLINGS
 
@@ -1333,7 +1335,13 @@ def test_an_odata_expand_in_a_loose_spelling_fails_the_identity_check(mode, odat
 
 # '.' and '..' path segments written percent-encoded reach the server as
 # dot segments, which it resolves: a key predicate before one is discarded.
-ODATA_ENCODED_DOT_SEGMENTS = ["%2E%2E", "%2e%2e", ".%2E", "%2E.", "%2E"]
+# The servers (IIS, HTTP.sys) also read a backslash, which the client sends
+# as %5C, as a path separator.
+BACKSLASH = chr(92)
+ODATA_ENCODED_DOT_SEGMENTS = [
+    "%2E%2E", "%2e%2e", ".%2E", "%2E.", "%2E",
+    BACKSLASH + ".." + BACKSLASH, "%5C..%5C", "..%5C", "%5C%2E%2E", "%5c%2e%2e%5c", BACKSLASH + "..",
+]
 
 
 @pytest.mark.parametrize("dots", ODATA_ENCODED_DOT_SEGMENTS)
@@ -1350,6 +1358,110 @@ def test_an_odata_path_with_an_encoded_dot_segment_is_refused_before_it_is_sent(
     assert error is not None and ("'.'" in str(error) or (family == "MecmClient" and "Invalid class path" in str(error)))
     assert odata_http == []
     assert queries == []  # the call raised before sending anything
+
+
+# A backslash dot segment with no '/' around it: the server reads the
+# backslashes as separators and resolves the '..', dropping the key.
+ODATA_BACKSLASH_DOT_PATHS = [
+    "{key}" + BACKSLASH + ".." + BACKSLASH + "{entity}",
+    "{key}%5C..%5C{entity}",
+    "{key}/..%5C{entity}",
+    "{key}%5C%2E%2E%5C{entity}",
+    "{key}" + BACKSLASH + "..",
+]
+ODATA_KEYED = {
+    "PriorityErpClient": ("CUSTOMERS('alice')", "CUSTOMERS"),
+    "MecmClient": ("SMS_R_System('alice')", "SMS_R_System"),
+}
+
+
+@pytest.mark.parametrize("shape", ODATA_BACKSLASH_DOT_PATHS)
+@pytest.mark.parametrize("family", list(ODATA_KEYED))
+def test_an_odata_path_with_a_backslash_dot_segment_is_refused_before_it_is_sent(mode, odata_http, family, shape):
+    key, entity = ODATA_KEYED[family]
+    target = shape.format(key=key, entity=entity)
+    queries, _, error = _run_capturing(_odata_client(family), f"return ds_clients['c'].execute_query({target!r})")
+    assert error is not None and ("'.'" in str(error) or (family == "MecmClient" and "Invalid class path" in str(error)))
+    assert odata_http == []
+    assert queries == []
+
+
+@pytest.mark.parametrize("shape", ODATA_BACKSLASH_DOT_PATHS + ["{key}%2F%2E%2E%2F{entity}"])
+def test_configuration_manager_refuses_a_backslash_or_encoded_dot_class_path_itself(odata_http, shape):
+    # Without the wrapper's send check: the client's own class path check.
+    key, entity = ODATA_KEYED["MecmClient"]
+    with pytest.raises(ValueError, match="Invalid class path"):
+        _odata_client("MecmClient").execute_query(shape.format(key=key, entity=entity))
+    assert odata_http == []
+
+
+@pytest.mark.parametrize("rest", [
+    "wmi/SMS_R_System('alice')%5C..%5CSMS_R_System",
+    "wmi/SMS_R_System('alice')/..%5CSMS_R_System",
+    "wmi/SMS_R_System('alice')%5C%2E%2E",
+])
+def test_configuration_manager_stops_at_a_next_link_with_a_backslash_dot_segment(odata_http, rest):
+    from app.data_sources.clients.mecm_client import MecmError
+
+    odata_http.next_link = "https://cm.example.com/AdminService/" + rest
+    with pytest.raises(MecmError, match="'..' segments"):
+        _odata_client("MecmClient").execute_query("SMS_R_System")
+    assert len(odata_http) == 1  # the first page only
+
+
+@pytest.fixture
+def wire(monkeypatch):
+    """A real HTTP server on 127.0.0.1 answering every GET with one OData
+    row; yields (service root under it, the request paths that reached it)."""
+    from app.core import egress
+    from tests.utils.egress_fakes import local_server
+
+    class _AnyPath(dict):
+        def get(self, key, default=None):
+            return 200, {}, {"value": [{"OWNER": "bob", "N": 1}]}
+
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(egress, "block_private_outbound", lambda: False)
+    with local_server(_AnyPath()) as (port, seen):
+        yield f"http://127.0.0.1:{port}/odata/Priority/t.ini/c", seen
+
+
+@pytest.mark.parametrize("shape", ODATA_BACKSLASH_DOT_PATHS)
+def test_an_odata_backslash_dot_segment_never_reaches_the_server(mode, wire, shape):
+    from app.data_sources.clients.priority_erp_client import PriorityErpClient
+
+    root, seen = wire
+    client = PriorityErpClient(service_root=root, pat="token")
+    queries, _, error = _run_capturing(client, "return ds_clients['c'].execute_query('CUSTOMERS?$top=1')")
+    assert error is None and len(seen) == 1  # the server answers a plain read
+    del seen[:]
+    target = shape.format(key="CUSTOMERS('alice')", entity="CUSTOMERS")
+    queries, _, error = _run_capturing(client, f"return ds_clients['c'].execute_query({target!r})")
+    assert [path for _, path, _ in seen] == []
+    assert error is not None and "'.'" in str(error)
+    assert queries == []
+
+
+@pytest.mark.parametrize("url", ["https://[erp.example.com/c/CUSTOMERS?$skiptoken=2", "https://erp.example.com:x/c?$skiptoken=2"])
+def test_a_malformed_next_page_url_is_not_a_continuation(url):
+    from app.ai.code_execution.code_execution import _odata_next_page
+
+    assert _odata_next_page(url, "https://erp.example.com/c/CUSTOMERS") is False
+
+
+def test_a_priority_size_probe_refused_before_sending_is_logged_by_type(mode, odata_http, caplog):
+    import logging
+
+    name = "app.data_sources.clients.priority_erp_client"
+    logging.getLogger(name).disabled = False
+    with caplog.at_level(logging.DEBUG, logger=name):
+        _, _, error = _run_capturing(_odata_client("PriorityErpClient"),
+                                     "return ds_clients['c'].execute_query('CUSTOMERS%00?$expand=ORDERS_SUBFORM')")
+    assert error is not None and odata_http == []
+    logged = [r.getMessage() for r in caplog.records if r.name == name and "probe" in r.getMessage()]
+    assert len(logged) == 1 and "ParamError" in logged[0], [r.getMessage() for r in caplog.records]
+    assert "CUSTOMERS" not in logged[0] and "%00" not in logged[0]
 
 
 @pytest.mark.parametrize("family, target", [
@@ -1372,6 +1484,9 @@ def test_an_odata_request_path_with_a_dot_segment_reads_as_blank():
 
     root = "/odata/Priority/t.ini/c"
     assert _odata_request_texts(root + "/CUSTOMERS('alice')/%2E%2E/ORDERS", root, True) == [""]
+    for shape in ODATA_BACKSLASH_DOT_PATHS:
+        path = shape.format(key="/CUSTOMERS('alice')", entity="ORDERS")
+        assert _odata_request_texts(root + path, root, True) == [""], path
     assert _odata_request_texts(root + "/CUSTOMERS('alice')/ORDERS", root, True) == ["/('alice')"]
 
 

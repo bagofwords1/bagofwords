@@ -34,6 +34,7 @@ from __future__ import annotations
 from app.data_sources.clients.progress import discovery_progress, discovery_items
 
 import base64
+import logging
 import re
 import threading
 import time
@@ -62,6 +63,9 @@ from app.data_sources.clients.priority_odata_query import (
     with_parent_page,
 )
 from app.ai.prompt_formatters import Table, TableColumn, ForeignKey, ServiceFormatter
+from app.errors.redact import describe_for_log
+
+logger = logging.getLogger(__name__)
 
 # EDMX namespaces. Priority emits OData v4 CSDL.
 _NS = {
@@ -823,7 +827,8 @@ class PriorityErpClient(DataSourceClient):
         try:
             probe = self._get_within(session, parent_probe_path(route, post, capacity), deadline)
             more = bool((probe.json() or {}).get("value"))
-        except Exception:
+        except Exception as e:
+            logger.debug("priority_erp.read_size_probe_skipped %s", describe_for_log(e))
             return
         if more:
             raise QueryError(self._too_large_message(route, post, capacity))
@@ -870,7 +875,8 @@ class PriorityErpClient(DataSourceClient):
         probe_path = f"{path}?" + "&".join(quote(p, safe="()$,;=:'/@!*-._~") for p in probe)
         try:
             more = bool((self._get_within(session, probe_path, deadline).json() or {}).get("value"))
-        except Exception:
+        except Exception as e:
+            logger.debug("priority_erp.expand_size_probe_skipped %s", describe_for_log(e))
             return  # the budget still bounds the real request
         if more:
             child = nav_form(chain[-1])

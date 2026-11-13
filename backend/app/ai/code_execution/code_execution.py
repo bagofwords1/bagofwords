@@ -1023,21 +1023,27 @@ _ODATA_BINDING_OPTIONS = frozenset({"$filter", "$apply"})
 _ODATA_KEY_RE = re.compile(r"\([^)]*\)")
 
 
+# Dotless i and dotted capital I, which casefold does not turn into 'i' but
+# a server comparing names case-insensitively may.
+_ODATA_TURKIC_I = str.maketrans({chr(0x131): "i", chr(0x130): "i"})
+
+
 def _odata_option_name(name: str) -> str:
     """An option name as a server may read it: percent-decoded, trimmed,
-    case folded, its '$' optional."""
+    case folded (a dotless or dotted I read as 'i'), its '$' optional."""
     from urllib.parse import unquote_plus
 
-    name = unquote_plus(name).strip().casefold()
+    name = unquote_plus(name).strip().translate(_ODATA_TURKIC_I).casefold()
     return name if name.startswith("$") else "$" + name
 
 
 def _odata_dot_segment(path: str) -> bool:
     """Whether the percent-decoded `path` has a '.' or '..' segment, which the
-    server resolves after decoding (the client resolves only literal ones)."""
+    server resolves after decoding (the client resolves only literal ones).
+    A backslash separates segments too: the servers read it as '/'."""
     from urllib.parse import unquote
 
-    return any(segment in (".", "..") for segment in unquote(path).split("/"))
+    return any(segment in (".", "..") for segment in re.split(r"[/\\]", unquote(path)))
 
 
 def _odata_path_url(url: str) -> str:
@@ -1119,10 +1125,14 @@ def _odata_request_texts(path_url: str, root: Optional[str], keys: bool) -> Opti
 def _odata_next_page(url: str, first: str) -> bool:
     """Whether the request to `url` only continues the call's first request
     to `first`: the same endpoint (_same_endpoint: scheme, host, port and
-    decoded path), and one option, a `$skiptoken`."""
+    decoded path), and one option, a `$skiptoken`. A URL that does not
+    parse is not a continuation."""
     from urllib.parse import urlsplit
 
-    query = urlsplit(url).query
+    try:
+        query = urlsplit(url).query
+    except ValueError:
+        return False
     return _same_endpoint(url, first) and "&" not in query and query.startswith("$skiptoken=")
 
 
