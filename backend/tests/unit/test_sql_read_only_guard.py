@@ -261,13 +261,58 @@ def test_the_unparsed_fallback_reads_backslash_escapes_as_the_dialect_does(unpar
 
 
 @pytest.mark.parametrize("dialect", [d for d in NON_TERADATA if d != "postgres"])
-@pytest.mark.parametrize("sql", HASH_COMMENT_HIDES + BACKSLASH_HIDES)
+@pytest.mark.parametrize("sql", HASH_COMMENT_HIDES)
 def test_the_unparsed_fallback_refuses_what_any_reading_would_run(unparsable, dialect, sql):
-    # Every reading is checked: one where `#` starts a comment, one where a
-    # backslash escapes a quote, and the plain one. (Postgres text is read by
-    # its own lexer, as the server reads it.)
+    # Every reading is checked: one where `#` starts a comment and the plain
+    # one (and, where the engine reads them, backslash escapes). Postgres
+    # text is read by its own lexer, as the server reads it.
     with pytest.raises(ReadOnlyViolation):
         check_sql(sql, dialect)
+
+
+@pytest.mark.parametrize("dialect", ["duckdb", "spark2"])
+@pytest.mark.parametrize("sql", BACKSLASH_HIDES)
+def test_the_unparsed_fallback_reads_backslash_escapes_on_every_engine_that_has_them(unparsable, dialect, sql):
+    with pytest.raises(ReadOnlyViolation):
+        check_sql(sql, dialect)
+
+
+# Engines that never read a backslash as an escape: a backslash at the end
+# of a literal is a plain character, and the literal ends at the next quote.
+NO_BACKSLASH_ESCAPE_DIALECTS = ["tsql", "fabric", "trino", "presto", "oracle", "sqlite"]
+PLAIN_BACKSLASH_READS = [
+    "SELECT a FROM t WHERE p = 'C:" + BS + "' AND note = ' set x'",
+    "SELECT a FROM t WHERE p LIKE 'x" + BS + "' OR q = ' delete it' OR r = 'y'",
+]
+
+
+@pytest.mark.parametrize("dialect", NO_BACKSLASH_ESCAPE_DIALECTS)
+@pytest.mark.parametrize("sql", PLAIN_BACKSLASH_READS)
+def test_the_unparsed_fallback_reads_a_backslash_as_a_plain_character_where_the_engine_does(unparsable, dialect, sql):
+    check_sql(sql, dialect)
+
+
+@pytest.mark.parametrize("sql", PLAIN_BACKSLASH_READS)
+def test_mysql_still_reads_those_backslashes_as_escapes(unparsable, sql):
+    with pytest.raises(ReadOnlyViolation):
+        check_sql(sql, "mysql")
+
+
+def test_a_refusal_names_the_reading_that_refused(unparsable):
+    with pytest.raises(ReadOnlyViolation, match="backslash"):
+        check_sql(PLAIN_BACKSLASH_READS[0], "duckdb")  # DuckDB's own tokenizer reads it as plain
+    with pytest.raises(ReadOnlyViolation, match="#"):
+        check_sql(HASH_COMMENT_HIDES[0], "tsql")
+
+
+# A hex, octal or binary number, or one with digit separators, ends where
+# the engine ends it: a word glued to it is a separate word.
+@pytest.mark.parametrize("dialect", ["tsql", "fabric"])
+def test_the_unparsed_fallback_reads_a_word_after_a_hex_number_as_a_word(unparsable, dialect):
+    with pytest.raises(ReadOnlyViolation, match="INTO"):
+        check_sql("SELECT 0x1into x FROM t", dialect)
+    check_sql("SELECT 0x1F", dialect)
+    check_sql("SELECT 0x1F AS v, 0xdeadbeef AS w FROM t", dialect)
 
 
 @pytest.mark.parametrize("dialect", [d for d in NON_TERADATA if d != "postgres"])

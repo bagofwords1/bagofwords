@@ -17,8 +17,8 @@ Policy, per client:
     fall back to an allowlist over the text with string literals and
     comments removed: one statement, a read verb first, no write word. The
     text is read with the dialect's own tokenizer and in each generic way
-    (`#` comments or not, backslash escapes or not); any reading refusing
-    refuses.
+    (`#` comments or not; backslash escapes or not, where the engine reads
+    them); any reading refusing refuses, and the error names it.
     Postgres text is first read by its own lexer (`pg_lexer`), as the server
     reads it: one statement only, and the lexer's canonical text is what is
     checked and what is sent.
@@ -86,9 +86,15 @@ _UNPARSED_WRITE_WORDS = frozenset({
     "COMMIT", "ROLLBACK", "BEGIN", "START", "LOCK", "LISTEN", "UNLISTEN", "NOTIFY", "SECURITY", "IMPORT",
     "REASSIGN", "PREPARE", "DEALLOCATE", "DISCARD", "RESET", "CHECKPOINT", "CLUSTER", "REINDEX", "REFRESH", "DO",
 })
+# A number runs as far as the engine reads one: hex, octal and binary
+# (`0x1F`, `0o17`, `0b101`; `0x` alone is an empty binary value to SQL
+# Server) and digit separators (`1_000`), so a word glued after it is still
+# a word.
+_DIGITS_RUN = r"[0-9](?:_?[0-9])*"
 _UNPARSED_WORD = re.compile(
     r"(?P<name>[A-Za-z_\x80-\U0010FFFF][" + _NAME_CHAR + r"]*)"
-    r"|(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?"
+    r"|0[xX][0-9A-Fa-f]*|0[oO][0-7]*|0[bB][01]*"
+    r"|(?:" + _DIGITS_RUN + r"(?:\.(?:" + _DIGITS_RUN + r")?)?|\." + _DIGITS_RUN + r")(?:[eE][+-]?[0-9]+)?"
 )
 # The readings of unparsed text besides the dialect's own tokenizer, each a
 # (`#` starts a comment, a backslash escapes the next character) pair: the
@@ -96,6 +102,20 @@ _UNPARSED_WORD = re.compile(
 # Only the standard one reads `[...]` as a quoted name (SQL Server, SQLite);
 # to the others `[` is code (an array subscript).
 _GENERIC_READINGS = ((False, False), (True, False), (False, True), (True, True))
+_READING_NAMES = {
+    (False, False): "with standard quoting",
+    (True, False): "with # line comments",
+    (False, True): "with backslash escapes",
+    (True, True): "with # line comments and backslash escapes",
+}
+# Dialects whose engine (or a server mode, a string prefix or a statement
+# kind it also runs) reads a backslash in a literal as an escape: only for
+# these are the backslash readings taken. Redshift is here until it gets its
+# own lexer; Athena runs Hive DDL.
+_BACKSLASH_ESCAPE_DIALECTS = frozenset({
+    "mysql", "bigquery", "clickhouse", "snowflake", "hive", "spark", "spark2", "databricks", "duckdb",
+    "redshift", "athena",
+})
 _GENERIC_STARTS = {
     (False, False): re.compile(r"['\"`\[]|--|/\*"),
     (True, False): re.compile(r"['\"`#]|--|/\*"),
@@ -490,8 +510,11 @@ def check_sql(sql: str, dialect: str) -> None:
         else:
             # Refused if any reading refuses: a quote in a `#` comment or a
             # backslash-escaped quote must not hide code in one of them.
-            for code_only in _unparsed_readings(sql, dialect):
-                check_unparsed(code_only, read_verbs=_UNPARSED_READ_VERBS | {"DESCRIBE", "DESC"})
+            for reading, code_only in _unparsed_readings(sql, dialect):
+                try:
+                    check_unparsed(code_only, read_verbs=_UNPARSED_READ_VERBS | {"DESCRIBE", "DESC"})
+                except ReadOnlyViolation as e:
+                    raise ReadOnlyViolation(f"{e} (This is how the text reads {reading}.)") from e
 
     _check_parsed(sql, dialect, unparsed)
 
@@ -622,10 +645,12 @@ def check_unparsed(code_only: str, *, read_verbs: frozenset[str], extra_write_wo
         )
 
 
-def _unparsed_readings(sql: str, dialect: str) -> list[str]:
+def _unparsed_readings(sql: str, dialect: str) -> list[tuple[str, str]]:
     """Text sqlglot could not parse, with its literals and comments emptied,
-    in every way it may be read: by the dialect's own tokenizer (refused if
-    that tokenizer cannot read it), and by each generic reading."""
+    in every way it may be read, each with the reading's name: by the
+    dialect's own tokenizer (refused if that tokenizer cannot read it), and
+    by each generic reading (the backslash ones only where the engine reads
+    backslash escapes)."""
     from sqlglot.dialects.dialect import Dialect
 
     try:
@@ -638,7 +663,10 @@ def _unparsed_readings(sql: str, dialect: str) -> list[str]:
     for token in tokens:
         kind = token.token_type.name
         pieces.append("''" if kind in _LITERAL_TOKENS else '""' if kind == "IDENTIFIER" else token.text)
-    return [" ".join(pieces)] + [_generic_reading(sql, h, b) for h, b in _GENERIC_READINGS]
+    backslash = dialect in _BACKSLASH_ESCAPE_DIALECTS
+    return [(f"as the {dialect} tokenizer reads it", " ".join(pieces))] + [
+        (_READING_NAMES[(h, b)], _generic_reading(sql, h, b)) for h, b in _GENERIC_READINGS if backslash or not b
+    ]
 
 
 def _generic_reading(sql: str, hash_comments: bool, backslash: bool) -> str:

@@ -106,6 +106,32 @@ def test_a_name_split_by_a_non_ascii_space_is_refused_by_the_guard_and_never_sco
         _scoped(sql)
 
 
+# A name that starts with a character Python calls a digit (beyond ASCII):
+# one name to Postgres, a number then a dollar string to sqlglot.
+NAME_DIGIT_SHAPES = [
+    "SELECT 1 BETWEEN {d}$x$.id AND 2 AS v, code FROM secret AS {d}$x$",
+    "SELECT 1 BETWEEN {d}$x$.id AND 2 AS v INTO orders_copy FROM orders AS {d}$x$",
+    "SELECT id FROM orders WHERE id BETWEEN {d}$x$ AND (SELECT max(code) FROM secret) AND {d}$x$",
+]
+
+
+@pytest.mark.parametrize("digit", [chr(0xB2), chr(0x661), chr(0x966), chr(0xFF11)], ids=lambda c: f"U+{ord(c):04X}")
+@pytest.mark.parametrize("shape", NAME_DIGIT_SHAPES)
+def test_a_name_that_starts_with_a_non_ascii_digit_is_refused_by_the_guard_and_never_scoped(shape, digit):
+    sql = shape.format(d=digit)
+    with pytest.raises(ReadOnlyViolation):
+        _checked(sql)
+    with pytest.raises(ReadOnlyViolation):
+        check_sql(sql, "postgres")
+    with pytest.raises(ReadOnlyViolation):
+        _scoped(sql)
+
+
+def test_a_non_ascii_digit_inside_a_name_still_passes():
+    sql = "SELECT id" + chr(0xB2) + " FROM orders"
+    assert _checked(sql) == sql
+
+
 def test_a_non_ascii_space_in_a_literal_or_quoted_name_still_passes():
     nbsp = chr(0xA0)
     sql = "SELECT id AS \"order" + nbsp + "id\" FROM orders WHERE note = 'a" + nbsp + "b'"
@@ -221,6 +247,7 @@ def test_any_parser_exception_falls_back_in_the_guard_and_fails_closed_in_table_
     "SELECT start_date, settings, into_x, x_into FROM t", "SELECT a$into FROM t",
     # A write word inside a name that holds digits is part of that name.
     "SELECT t1do, col2set, x9into, a1b2lock FROM t",
+    "SELECT 0x1F, 0XFF, 0b101, 0o17, 1_000, 0x, 0b2 FROM t",
 ])
 def test_check_unparsed_allows_one_read(code_only):
     check_unparsed(code_only, read_verbs=frozenset({"SELECT", "WITH", "VALUES", "SHOW", "EXPLAIN"}))
@@ -232,6 +259,9 @@ def test_check_unparsed_allows_one_read(code_only):
     "SELECT * FROM t WHERE a = 1 AND START", "select refresh(1)", "WITH x AS (DELETE FROM t) SELECT 1",
     # A number then a write word: two tokens to older servers.
     "SELECT 1do", "SELECT 2.5set", "SELECT 1e5into t", "SELECT $1do",
+    # Hex, octal and binary numbers and digit separators end where the
+    # engine ends them; a word right after one is a word.
+    "SELECT 0x1into t", "SELECT 0XaFset", "SELECT 0b1do", "SELECT 0o7into t", "SELECT 1_000into t",
 ])
 def test_check_unparsed_refuses_anything_else(code_only):
     with pytest.raises(ReadOnlyViolation):
@@ -298,6 +328,7 @@ def test_the_client_receives_the_canonical_text_the_checks_read(mode):
     (E_STRING_READS[0], TableAccessError),
     (E_STRING_STATEMENTS[2], UnsafeSQLError),  # no write word for the code scan to catch first
     (NAME_SPACE_SHAPES[0].format(s=chr(0xA0)), UnsafeSQLError),
+    (NAME_DIGIT_SHAPES[0].format(d=chr(0xB2)), UnsafeSQLError),
 ])
 def test_a_hidden_read_or_statement_never_reaches_the_client(mode, sql, error):
     client = _recording(scoped=True)

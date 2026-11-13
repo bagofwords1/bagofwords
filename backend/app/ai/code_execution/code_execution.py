@@ -1088,13 +1088,13 @@ class QueryCapturingClientWrapper:
         (`resolve_guarded_call`); that statement is rendered, checked, captured
         and sent positionally. Shapes that cannot be reduced are refused.
         """
-        refusal: Optional[UnsafeSQLError] = None
+        refusal: Optional[Exception] = None
         unrendered_note = None
         guarded = guard_profile(self._original) is not None
         if guarded:
             query, args, kwargs, capture, refusal = self._prepare_guarded(query, args, kwargs)
         else:
-            query, capture, unrendered_note = self._prepare_unguarded(query, kwargs)
+            query, capture, unrendered_note, refusal = self._prepare_unguarded(query, args, kwargs)
         idx = len(self._captured_timings)
         _q_start = _time.monotonic()
         with _tracer.start_as_current_span("datasource.execute_query") as span:
@@ -1102,6 +1102,8 @@ class QueryCapturingClientWrapper:
             span.set_attribute("datasource.query_timeout_seconds", self._query_timeout_seconds)
             try:
                 if refusal is not None:
+                    # Captured and timed like any call, so a refusal the code
+                    # catches is still seen; nothing is sent.
                     self._capture(capture)
                     raise refusal
                 # Checked on the final text, after params rendered and after
@@ -1280,12 +1282,13 @@ class QueryCapturingClientWrapper:
             from app.ai.code_execution.identity_bind import CapturedQuery
             self._captured_queries.append(CapturedQuery(capture, family_name(self._original)))
 
-    def _prepare_unguarded(self, query, kwargs):
+    def _prepare_unguarded(self, query, args, kwargs):
         """Today's behaviour for clients the guard does not know: keyword-only
         calls forwarded, params rendered only into a positional str.
 
         Pops `params` from `kwargs`. Returns (query to send, capture, a note
-        for the error of a keyword call whose params were not rendered).
+        for the error of a keyword call whose params were not rendered, a
+        refusal to raise once the call is being recorded, or None).
         """
         native_params = None
         unrendered_note = None
@@ -1313,19 +1316,14 @@ class QueryCapturingClientWrapper:
                         ",".join(sorted(_loggable_name(k) for k in param_values))
                         if isinstance(param_values, dict) else _loggable_name(type(param_values).__name__),
                     )
-        if isinstance(query, str):
-            from app.ai.code_execution.query_params import _ODATA_TEXT_END, renderer_for
+        from app.ai.code_execution.query_params import _ODATA_TEXT_END, ParamError, renderer_for
 
-            renderer = renderer_for(self._original)
-            if renderer is not None and renderer.name == "odata" and _ODATA_TEXT_END.search(query):
-                # The options text travels in a URL: the client drops what
-                # follows a '#' and the server decodes '%00' to a NUL, so the
-                # text checked here would not be the text applied.
-                raise UnsafeSQLError(
-                    "OData options cannot hold '#' or '%00'; remove it "
-                    "(write a literal '#' in a value as %23, or pass it as a parameter)"
-                )
-        if query is _NO_QUERY:
+        renderer = renderer_for(self._original)
+        odata = renderer is not None and renderer.name == "odata"
+        sent = self._odata_sent_text(query, args, kwargs) if odata else None
+        if sent is not None:
+            capture = sent
+        elif query is _NO_QUERY:
             capture = _describe_keyword_call(kwargs)
         elif native_params:
             capture = json.dumps({"query": query, "params": native_params}, sort_keys=True, default=str,
@@ -1337,7 +1335,48 @@ class QueryCapturingClientWrapper:
             or getattr(self._original, "capture_structured_queries", False)
         ):
             capture = json.dumps(capture, sort_keys=True, default=str)
-        return query, capture, unrendered_note
+        refusal = None
+        if sent is not None and _ODATA_TEXT_END.search(sent):
+            # The options text travels in a URL: the client drops what
+            # follows a '#' and the server decodes '%00' to a NUL, so the text
+            # checked here would not be the text applied. Nothing is sent.
+            refusal = ParamError(
+                "OData options cannot hold '#' or '%00'; remove it "
+                "(write a literal '#' in a value as %23, or pass it as a parameter)"
+            )
+        return query, capture, unrendered_note, refusal
+
+    def _odata_sent_text(self, query, args, kwargs) -> Optional[str]:
+        """The OData text an unguarded OData client builds its request from
+        for this call: the statement, when it holds text; else its
+        `table_name` (Priority and Configuration Manager send `query or
+        table_name`) plus the option keywords it was given, written as
+        `$name=value` (SAP Datasphere builds its options from them). The
+        arguments are bound to the client's own signature, so a statement
+        passed in any position is found. None when the call does not bind
+        (it fails before anything is sent) or holds no text at all."""
+        try:
+            signature = inspect.signature(self._original.execute_query)
+            bound = signature.bind(*(() if query is _NO_QUERY else (query,)), *args, **kwargs).arguments
+        except (TypeError, ValueError):
+            return None
+        names = [name for name, p in signature.parameters.items()
+                 if p.kind not in (p.VAR_POSITIONAL, p.VAR_KEYWORD)]
+        if not names:
+            return None
+        statement = bound.get(names[0])
+        if isinstance(statement, str) and statement.strip():
+            return statement
+        if statement is not None and not isinstance(statement, str):
+            return None
+        table = bound.get("table_name")
+        # Keywords that only bound the rows read, or that the client applies
+        # elsewhere than its options, scope nothing here.
+        options = [f"${name}={bound[name]}" for name in names[1:]
+                   if name in bound and name not in ("table_name", "max_rows", "parameters")
+                   and bound[name] not in (None, "")]
+        text = (table if isinstance(table, str) else "") + ("?" + "&".join(options) if options else "")
+        return text if text.strip() else (statement if isinstance(statement, str) else None)
 
     def _note_unrendered_params(self, kwargs: dict, params: dict) -> Optional[str]:
         """Log (names only) that a keyword call's params were not rendered.

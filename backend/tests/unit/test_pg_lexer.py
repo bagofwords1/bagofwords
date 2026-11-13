@@ -265,40 +265,99 @@ def test_a_non_ascii_space_in_a_literal_quoted_name_or_comment_is_kept():
     assert _text("SELECT " + chr(0x5E9) + "x FROM t") == "SELECT " + chr(0x5E9) + "x FROM t"
 
 
-def _sqlglot_splits_a_name_at(chars: list[str]) -> list[str]:
-    """The characters at which sqlglot's Postgres tokenizer ends a name."""
+# --------------------------------------------------------------- names sqlglot reads otherwise
+
+# Postgres reads every character >= 0x80 as a name character, a name start
+# included. sqlglot starts a number at any character Python calls a digit,
+# ends a name at a space, and upper-cases some letters to ASCII keywords.
+# Every unquoted name must be one name to sqlglot too, or it is refused.
+SUPERSCRIPT_TWO = chr(0xB2)
+ARABIC_ONE = chr(0x661)
+LONG_S = chr(0x17F)
+E_ACUTE = chr(0xE9)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT " + SUPERSCRIPT_TWO + "b FROM t",
+    "SELECT 1 AS " + ARABIC_ONE + "x",
+    "SELECT t." + chr(0xFF11) + "x FROM t",
+    "SELECT 1 BETWEEN " + SUPERSCRIPT_TWO + "$x$.a AND 2 AS v, b FROM t AS " + SUPERSCRIPT_TWO + "$x$",
+    "SELECT 1 AS v FROM t " + LONG_S + "elect",
+    "SELECT a FROM t " + LONG_S + "ort BY a",
+], ids=["digit start", "arabic digit alias", "fullwidth digit after a dot", "between", "keyword", "keyword prefix"])
+def test_a_name_sqlglot_does_not_read_as_one_name_is_refused(sql):
+    with pytest.raises(ReadOnlyViolation, match="name"):
+        lex_postgres(sql)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT a" + SUPERSCRIPT_TWO + "b, " + E_ACUTE + "t, t." + E_ACUTE + "x, x" + ARABIC_ONE + " FROM t",
+    "SELECT " + chr(0x5E9) + chr(0x5DD) + " FROM " + chr(0x5D8) + "1",
+    "SELECT 1 AS " + LONG_S + "x",
+])
+def test_names_sqlglot_reads_as_one_name_are_kept(sql):
+    assert _text(sql) == sql
+
+
+@pytest.mark.parametrize("tag", [SUPERSCRIPT_TWO, SUPERSCRIPT_TWO + ARABIC_ONE, NBSP, "a" + chr(0x3000)],
+                         ids=["digit", "digits", "space", "space inside"])
+def test_a_dollar_tag_sqlglot_reads_otherwise_is_refused(tag):
+    # sqlglot reads an all-digit tag, or one holding a space, as a parameter.
+    with pytest.raises(ReadOnlyViolation, match="dollar"):
+        lex_postgres("SELECT $" + tag + "$v$" + tag + "$ AS v")
+
+
+@pytest.mark.parametrize("tag", [E_ACUTE, ARABIC_ONE + "t", "t" + SUPERSCRIPT_TWO])
+def test_a_dollar_tag_sqlglot_reads_the_same_way_is_kept(tag):
+    assert _text("SELECT $" + tag + "$v$" + tag + "$ AS v") == "SELECT 'v' AS v"
+
+
+def _sqlglot_reads_one_name(sql: str, prefix: list[tuple[str, str]], name: str) -> bool:
+    """Whether sqlglot's Postgres tokenizer reads `sql` as `prefix` tokens
+    then exactly `name` as one VAR, in context."""
     from sqlglot.dialects.dialect import Dialect
 
-    dialect = Dialect.get_or_raise("postgres")
-
-    def kept_whole(text: str) -> set[str]:
-        try:
-            tokens = dialect.tokenize(text)
-        except Exception:
-            return set()
-        return {t.text[1] for t in tokens if t.token_type.name == "VAR" and len(t.text) == 3
-                and t.text[0] == "a" and t.text[2] == "b"}
-
-    kept = kept_whole(" ".join("a" + c + "b" for c in chars))
-    # A character the batch did not keep is checked on its own, so one odd
-    # character cannot mark its neighbours.
-    return [c for c in chars if c not in kept and c not in kept_whole("a" + c + "b")]
+    try:
+        tokens = Dialect.get_or_raise("postgres").tokenize(sql)
+    except Exception:
+        return False
+    return [(t.token_type.name, t.text) for t in tokens] == prefix + [("VAR", name)]
 
 
-def test_every_character_that_ends_a_sqlglot_name_is_refused_inside_a_name():
-    codes = [code for code in range(0x80, 0x30000) if not 0xD800 <= code <= 0xDFFF]
-    splits = []
-    for at in range(0, len(codes), 2_000):
-        splits += _sqlglot_splits_a_name_at([chr(code) for code in codes[at:at + 2_000]])
-    assert NBSP in splits  # still true of this sqlglot; a change shows here
-    not_refused = []
-    for c in splits:
-        try:
-            lex_postgres("SELECT a" + c + "b FROM t")
-            not_refused.append(f"U+{ord(c):04X}")
-        except ReadOnlyViolation:
-            pass
-    assert not_refused == []
+_POSITIONS = {
+    "start": (lambda c: "SELECT " + c + "b", [("SELECT", "SELECT")], lambda c: c + "b"),
+    "middle": (lambda c: "SELECT a" + c + "b", [("SELECT", "SELECT")], lambda c: "a" + c + "b"),
+    "after a dot": (lambda c: "SELECT t." + c + "b", [("SELECT", "SELECT"), ("VAR", "t"), ("DOT", ".")],
+                    lambda c: c + "b"),
+}
+_PLANES = [(max(plane << 16, 0x80), (plane + 1) << 16) for plane in range(17)]
+
+
+@pytest.mark.parametrize("first, end", _PLANES, ids=[f"plane{p}" for p in range(17)])
+def test_every_character_is_kept_in_a_name_exactly_where_sqlglot_reads_one_name(first, end):
+    # Over every code point >= 0x80 at a name's start, middle and after a
+    # dot: refused where sqlglot does not read one name, kept where it does.
+    # A sqlglot upgrade that reads names differently fails here.
+    wrong = []
+    for code in range(first, end):
+        c = chr(code)
+        for where, (sql_for, prefix, name_for) in _POSITIONS.items():
+            sql = sql_for(c)
+            one_name = _sqlglot_reads_one_name(sql, prefix, name_for(c))
+            try:
+                kept = _text(sql) == sql
+            except ReadOnlyViolation:
+                kept = False
+            if kept != one_name:
+                wrong.append(f"U+{code:04X} {where}: {'kept' if kept else 'refused'}")
+    assert wrong == []
+
+
+def test_the_enumeration_still_sees_the_characters_that_split_a_sqlglot_name():
+    # Still true of this sqlglot; a change shows here.
+    assert not _sqlglot_reads_one_name("SELECT a" + NBSP + "b", [("SELECT", "SELECT")], "a" + NBSP + "b")
+    assert not _sqlglot_reads_one_name("SELECT " + SUPERSCRIPT_TWO + "b", [("SELECT", "SELECT")], SUPERSCRIPT_TWO + "b")
+    assert _sqlglot_reads_one_name("SELECT a" + SUPERSCRIPT_TWO + "b", [("SELECT", "SELECT")], "a" + SUPERSCRIPT_TWO + "b")
 
 
 # --------------------------------------------------------------- canonical text is a fixed point
@@ -317,17 +376,22 @@ def test_a_literal_after_a_standalone_u_ampersand_is_spaced_from_it(sql, text):
 
 
 _FUZZ_PIECES = {
-    "name": ["u", "U", "e", "E", "n", "N", "b", "x", "X", "t", "a$b", "select", chr(0x5E9)],
+    "name": ["u", "U", "e", "E", "n", "N", "b", "x", "X", "t", "a$b", "select", chr(0x5E9),
+             # Non-ASCII digits, spaces and letters, and dollar tags reused
+             # inside names.
+             SUPERSCRIPT_TWO, "a" + SUPERSCRIPT_TWO, ARABIC_ONE + "x", "x" + ARABIC_ONE, NBSP, "a" + chr(0x3000),
+             E_ACUTE, LONG_S + "t", "a$q$", "q$", "x$" + E_ACUTE + "$"],
     "operator": ["&", "+", "-", "*", "/", "::", "(", ")", ",", ".", "=", "<", "@", "|", "!", "~", "%", "^", "#", "?", ":"],
     "number": ["1", "2.5", ".5", "1e3", "0"],
     "parameter": ["$1", "$2"],
     "literal": ["'a'", "''", "'it''s'", "E'x'", "e'" + BS + "''", "E'" + BS + "n'", "E'" + BS + BS + "'",
-                "E'" + BS + "u05e9'", "$$v$$", "$q$w'$q$", "$$$$", "N'n'", "B'01'", "X'1f'", "'" + BS + "'"],
-    "quoted name": ['"q"', '"a""b"', "\"'\""],
+                "E'" + BS + "u05e9'", "$$v$$", "$q$w'$q$", "$$$$", "N'n'", "B'01'", "X'1f'", "'" + BS + "'",
+                "$" + E_ACUTE + "$v$" + E_ACUTE + "$", "$q$" + NBSP + "$q$", "'" + SUPERSCRIPT_TWO + NBSP + "'"],
+    "quoted name": ['"q"', '"a""b"', "\"'\"", '"$q$"', '"' + SUPERSCRIPT_TWO + NBSP + '"'],
     "comment": ["--c" + NL, "/*c*/", "/*a/*b*/c*/", "--" + CR, "/*" + NL + "*/"],
     "semicolon": [";"],
 }
-_FUZZ_GAPS = ["", "", " ", NL, TAB]
+_FUZZ_GAPS = ["", "", " ", NL, TAB, chr(12), chr(11)]
 
 
 def test_the_canonical_text_is_a_fixed_point_of_the_lexer_for_generated_queries():
@@ -336,7 +400,7 @@ def test_the_canonical_text_is_a_fixed_point_of_the_lexer_for_generated_queries(
     rng = random.Random(20261112)
     classes = sorted(_FUZZ_PIECES)
     accepted = 0
-    for _ in range(6_000):
+    for _ in range(10_000):
         pieces = []
         for _ in range(rng.randint(1, 10)):
             pieces.append(rng.choice(_FUZZ_PIECES[rng.choice(classes)]))
@@ -368,6 +432,24 @@ def test_the_lexer_runs_in_linear_time():
     took(200)
     small, large = min(took(2_000) for _ in range(3)), min(took(20_000) for _ in range(3))
     assert large < small * 30  # 10x the text, far below quadratic growth
+
+
+def test_the_lexer_runs_in_linear_time_over_non_ascii_names():
+    import time
+
+    def took(n):
+        sql = "SELECT " + ("a" + E_ACUTE + "b, " + E_ACUTE * 40 + ", x" + SUPERSCRIPT_TWO + ", ") * n + "1"
+        start = time.perf_counter()
+        lex_postgres(sql)
+        return time.perf_counter() - start
+
+    took(100)
+    small, large = min(took(1_000) for _ in range(3)), min(took(10_000) for _ in range(3))
+    assert large < small * 30  # 10x the text, far below quadratic growth
+    long_name = "SELECT " + E_ACUTE * 200_000
+    start = time.perf_counter()
+    lex_postgres(long_name)
+    assert time.perf_counter() - start < 5
 
 
 # --------------------------------------------------------------- engine (Postgres 15)
@@ -430,6 +512,7 @@ ENGINE_SAMPLES = [
     "SELECT 'a' AS v;",
     "SELECT u&E'3' AS v FROM (SELECT 1 AS u) z",
     "SELECT U&$$3$$ AS v FROM (SELECT 1 AS U) z",
+    "SELECT $" + chr(0xE9) + "$it's$" + chr(0xE9) + "$ AS v, 1 AS a" + chr(0xB2) + "b, 2 AS " + chr(0x5E9) + "x",
 ]
 
 
@@ -464,6 +547,17 @@ def test_postgres_runs_a_select_into_inside_a_name_holding_a_non_ascii_space_so_
         assert pg("SELECT count(*) AS n FROM t_copy") == (["n"], [(2,)])
     finally:
         pg("DROP TABLE IF EXISTS t_copy", fetch=False)
+    assert _sqlglot_tables_and_into(sql) == ([], False)
+    with pytest.raises(ReadOnlyViolation):
+        lex_postgres(sql)
+
+
+def test_postgres_reads_a_table_behind_a_name_that_starts_with_a_non_ascii_digit_so_the_lexer_refuses_it(pg):
+    # Postgres: a name, a column of t, then t's rows. sqlglot: a number, then
+    # a dollar string holding the FROM.
+    sql = "SELECT 1 BETWEEN " + SUPERSCRIPT_TWO + "$x$.a AND 2 AS v, b FROM t AS " + SUPERSCRIPT_TWO + "$x$"
+    columns, rows = pg(sql)
+    assert columns == ["v", "b"] and sorted(row[1] for row in rows) == ["x", "y"]
     assert _sqlglot_tables_and_into(sql) == ([], False)
     with pytest.raises(ReadOnlyViolation):
         lex_postgres(sql)

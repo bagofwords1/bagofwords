@@ -930,6 +930,145 @@ def test_odata_params_still_render_without_a_fragment_mark_or_an_encoded_nul():
     assert all("Owner" in url for url in _odata_urls("$filter=Owner eq 'a%23b'").values())
 
 
+# The unguarded OData clients build their request from `query or
+# table_name` (Priority, Configuration Manager), or from table_name plus
+# option keywords (SAP Datasphere). What is captured, and what the identity
+# check reads, must be that text. The real clients run; only the HTTP layer
+# is stubbed.
+ODATA_ENTITY = {"PriorityErpClient": "CUSTOMERS", "MecmClient": "SMS_R_System", "SapDatasphereClient": "S/M"}
+IDENTITY_ME = [ParamSpec.model_validate({"name": "me", "type": "string", "source": "identity"})]
+
+
+@pytest.fixture
+def odata_http(monkeypatch):
+    """The URL of every request the clients send; each is answered with one row."""
+    import json
+    import requests
+
+    sent = []
+
+    def send(session, request, **kwargs):
+        sent.append(request.url)
+        response = requests.Response()
+        response.status_code = 200
+        response._content = json.dumps({"value": [{"OWNER": "bob", "N": 1}]}).encode()
+        response.headers["Content-Type"] = "application/json"
+        response.url = request.url
+        response.request = request
+        return response
+
+    monkeypatch.setattr(requests.Session, "send", send)
+    return sent
+
+
+def _odata_client(family):
+    from app.data_sources.clients.mecm_client import MecmClient
+    from app.data_sources.clients.priority_erp_client import PriorityErpClient
+    from app.data_sources.clients.sap_datasphere_client import SapDatasphereClient
+
+    if family == "PriorityErpClient":
+        return PriorityErpClient(service_root="https://erp.example.com/odata/Priority/t.ini/c", pat="token")
+    if family == "MecmClient":
+        return MecmClient(server_url="https://cm.example.com", username="svc", password="pw")
+    client = SapDatasphereClient(host="dsp.example.com", access_token="token")
+    client.attach_table_metadata([{"name": "S/M", "metadata_json": {"sap_datasphere": {
+        "data_url": "https://dsp.example.com/api/v1/dwc/consumption/analytical/S/M/M"}}}])
+    return client
+
+
+def _run_capturing(client, body: str):
+    """Run `body` against `client`; return (captured queries, timing rows, the error raised or None)."""
+    from app.ai.code_execution.code_execution import StreamingCodeExecutor
+
+    code = "def generate_df(ds_clients, excel_files):\n" + "".join(
+        f"    {line}\n" for line in body.strip().splitlines()
+    )
+    queries, timings = [], []
+    try:
+        StreamingCodeExecutor().execute_code(code=code, ds_clients={"c": client}, excel_files=[],
+                                             captured_timings=timings, captured_queries=queries)
+    except Exception as e:
+        return queries, timings, e
+    return queries, timings, None
+
+
+@pytest.mark.parametrize("call", [
+    "execute_query('', table_name={e!r})",
+    "execute_query('', {e!r})",
+    "execute_query(None, {e!r})",
+    "execute_query(table_name={e!r})",
+])
+@pytest.mark.parametrize("family", list(ODATA_ENTITY))
+def test_an_odata_call_that_sends_only_its_entity_fails_the_identity_check(mode, odata_http, family, call):
+    entity = ODATA_ENTITY[family]
+    queries, _, error = _run_capturing(_odata_client(family), "return ds_clients['c']." + call.format(e=entity))
+    if family == "PriorityErpClient" and call.startswith("execute_query(table_name"):
+        assert "query" in str(error) and odata_http == []  # its statement is a required argument
+        return
+    assert error is None and len(odata_http) == 1  # the request went out, with no filter
+    assert "alice" not in odata_http[0]
+    assert verify_identity_binds_in_queries(queries, {"me": "alice"}, IDENTITY_ME) is not None
+
+
+@pytest.mark.parametrize("family", ["PriorityErpClient", "MecmClient"])
+def test_an_odata_statement_passed_as_table_name_is_what_the_identity_check_reads(mode, odata_http, family):
+    entity = ODATA_ENTITY[family]
+    scoped = entity + "?$filter=OWNER eq 'alice'"
+    queries, _, error = _run_capturing(_odata_client(family), f"return ds_clients['c'].execute_query('', table_name={scoped!r})")
+    assert error is None and "alice" in odata_http[0]
+    assert verify_identity_binds_in_queries(queries, {"me": "alice"}, IDENTITY_ME) is None
+
+
+def test_datasphere_option_keywords_are_what_the_identity_check_reads(mode, odata_http):
+    client = _odata_client("SapDatasphereClient")
+    queries, _, error = _run_capturing(client, "return ds_clients['c'].execute_query(None, 'S/M', filter=\"OWNER eq 'alice'\")")
+    assert error is None and "alice" in odata_http[0]
+    assert verify_identity_binds_in_queries(queries, {"me": "alice"}, IDENTITY_ME) is None
+    # Positional options win over the keywords on this client: the filter
+    # keyword is not sent, so it does not count.
+    del odata_http[:]
+    queries, _, error = _run_capturing(client, "return ds_clients['c'].execute_query('$top=5', 'S/M', filter=\"OWNER eq 'alice'\")")
+    assert error is None and "alice" not in odata_http[0]
+    assert verify_identity_binds_in_queries(queries, {"me": "alice"}, IDENTITY_ME) is not None
+
+
+@pytest.mark.parametrize("family", list(ODATA_ENTITY))
+def test_an_odata_table_name_holding_a_fragment_mark_is_refused_before_it_is_sent(mode, odata_http, family):
+    hidden = ODATA_ENTITY[family] + "#$filter=OWNER eq 'alice'"
+    queries, _, error = _run_capturing(_odata_client(family), f"return ds_clients['c'].execute_query('', table_name={hidden!r})")
+    assert error is not None and "'#'" in str(error)
+    assert odata_http == []
+    assert verify_identity_binds_in_queries(queries, {"me": "alice"}, IDENTITY_ME) is not None
+
+
+def test_a_caught_odata_fragment_refusal_is_recorded_as_a_fixable_error(mode, odata_http):
+    body = (
+        "try:\n"
+        "    ds_clients['c'].execute_query(\"$select=Name#x\")\n"
+        "except Exception:\n"
+        "    pass\n"
+        "return ds_clients['c'].execute_query(\"$filter=OWNER eq 'alice'\")"
+    )
+    queries, timings, error = _run_capturing(_odata_client("SapDatasphereClient"), body.replace("execute_query(", "execute_query(table_name='S/M', query="))
+    assert error is None and len(odata_http) == 1
+    refused = timings[0]
+    assert "'#'" in refused["error"] and refused["sql"] == "$select=Name#x"
+    assert "refusal" not in refused  # a fixable error, not a security refusal
+    assert [str(q) for q in queries] == ["$select=Name#x", "$filter=OWNER eq 'alice'"]
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_an_executed_query_with_no_text_fails_the_identity_check(blank):
+    from app.ai.code_execution.identity_bind import CapturedQuery
+
+    scoped = CapturedQuery("$filter=Owner eq 'alice'", "PriorityErpClient")
+    for queries in ([CapturedQuery(blank, "PriorityErpClient")], [scoped, CapturedQuery(blank, "MecmClient")],
+                    [blank], ["SELECT * FROM t WHERE owner = 'alice'", blank]):
+        assert verify_identity_binds_in_queries(queries, {"me": "alice"}, IDENTITY_ME) is not None
+    assert verify_identity_binds_in_queries([scoped], {"me": "alice"}, IDENTITY_ME) is None
+    assert verify_identity_binds_in_queries([], {"me": "alice"}, IDENTITY_ME) is None
+
+
 # libpq and DuckDB read a query only up to its first NUL; the check reads
 # past it. Anything after one, an identity filter included, would be checked
 # and never run.

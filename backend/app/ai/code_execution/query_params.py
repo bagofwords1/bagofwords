@@ -1497,7 +1497,14 @@ def verify_identity_binds_in_queries(
     ]
     if not identity_specs:
         return None
-    queries = [q for q in (captured_queries or []) if isinstance(q, str) and q.strip()]
+    queries = [q for q in (captured_queries or []) if isinstance(q, str)]
+    if any(not q.strip() for q in queries):
+        # A call whose captured text is empty sent something this check
+        # cannot see (a client that reads its request from other arguments).
+        return (
+            "an executed query had no text for the identity check to read; refusing to serve "
+            "results that may be unscoped (pass the statement as the first argument)"
+        )
     if not queries:
         return None
     for spec in identity_specs:

@@ -27,19 +27,30 @@ the next line (it keeps the first piece's escape rules), U&'...' and U&"..."
 (their own escape syntax), a NUL anywhere (the client library stops reading
 at it), anything unterminated, E-string escapes that make a byte >= 0x80 or
 a NUL, bit or hex strings with other digits, `{#` (a comment to sqlglot,
-code to Postgres), a prefixed string glued to a number (read one way by
-Postgres 15, another by older servers), and a name holding a character
->= 0x80 that is a space to Python (part of the name to Postgres, the end of
-it to sqlglot).
+code to Postgres), and a prefixed string glued to a number (read one way by
+Postgres 15, another by older servers).
+
+Postgres reads every character >= 0x80 as a name character, a name start
+included; sqlglot reads some of them otherwise (a space ends a name, a
+digit starts a number, some letters upper-case to a keyword). So every
+unquoted name holding such a character must be exactly one name to
+sqlglot's tokenizer, and no sqlglot keyword may start with it (or the text
+after it could join it into one); every dollar-quote tag holding one must
+be read by sqlglot as the same delimiter. Otherwise the text is refused.
+Names and tags in ASCII are read alike and skip this check.
 
 `mode="redshift"` also refuses E-strings and any backslash in a literal
-value: Redshift reads backslashes in plain strings as escapes.
+value: Redshift reads backslashes in plain strings as escapes. It checks
+names and tags against sqlglot's Redshift tokenizer.
 
 Pure: no I/O.
 """
 
 import re
 from dataclasses import dataclass
+
+from sqlglot.tokens import TokenType
+from sqlglot.trie import TrieResult, in_trie
 
 from app.ai.code_execution.sql_guard import ReadOnlyViolation
 
@@ -87,6 +98,59 @@ def _is_name_start(c: str) -> bool:
 
 def _is_name_part(c: str) -> bool:
     return _is_name_start(c) or c in _DIGITS or c == "$"
+
+
+class _SqlglotReading:
+    """How sqlglot's tokenizer for the mode reads one name or dollar tag.
+    Built on first use, so text in ASCII never builds it; each name or tag
+    is read once, in time linear in its length."""
+
+    def __init__(self, mode: str):
+        self._mode = mode
+        self._tokenizer = None
+
+    def _tokens(self, text: str):
+        if self._tokenizer is None:
+            from sqlglot.dialects.dialect import Dialect
+
+            self._tokenizer = Dialect.get_or_raise(self._mode).tokenizer()
+        try:
+            return self._tokenizer.tokenize(text)
+        except Exception:
+            return None
+
+    def one_name(self, name: str) -> bool:
+        tokens = self._tokens(name)
+        if tokens is None or len(tokens) != 1:
+            return False
+        token = tokens[0]
+        if token.token_type is not TokenType.VAR or token.text != name:
+            return False
+        # The keywords sqlglot can read across the end of a name (multi-word
+        # ones and those holding punctuation): none may start with it.
+        return in_trie(self._tokenizer._KEYWORD_TRIE, name.upper())[0] is TrieResult.FAILED
+
+    def same_dollar_tag(self, delimiter: str) -> bool:
+        tokens = self._tokens(delimiter + "v" + delimiter)
+        return (tokens is not None and len(tokens) == 1
+                and tokens[0].token_type is TokenType.HEREDOC_STRING and tokens[0].text == "v")
+
+
+def _check_name(name: str, reading: _SqlglotReading) -> None:
+    if not name.isascii() and not reading.one_name(name):
+        raise ReadOnlyViolation(
+            "A name holds a character outside ASCII that the query checks read differently from the "
+            "server (a space such as a no-break space, a digit at its start, or a letter read as a "
+            "keyword). Use a plain space, or quote the name."
+        )
+
+
+def _check_dollar_tag(delimiter: str, reading: _SqlglotReading) -> None:
+    if not delimiter.isascii() and not reading.same_dollar_tag(delimiter):
+        raise ReadOnlyViolation(
+            "A dollar-quote tag holds a character outside ASCII that the query checks read differently "
+            "from the server. Use an ASCII tag such as $q$, or a standard string."
+        )
 
 
 def _unterminated(what: str) -> ReadOnlyViolation:
@@ -207,6 +271,7 @@ def lex_postgres(sql: str, *, mode: str = "postgres") -> PgLexResult:
     if mode not in _MODES:
         raise ValueError(f"unknown lexer mode {mode!r}")
     redshift = mode == "redshift"
+    reading = _SqlglotReading(mode)
     if _NUL in sql:
         raise ReadOnlyViolation("The query holds a NUL character, after which the server would not read it. Remove it.")
 
@@ -330,6 +395,7 @@ def lex_postgres(sql: str, *, mode: str = "postgres") -> PgLexResult:
             delimiter = _DOLLAR_DELIMITER.match(sql, i)
             if delimiter:
                 tag = delimiter.group()
+                _check_dollar_tag(tag, reading)
                 end = sql.find(tag, delimiter.end())
                 if end < 0:
                     raise _unterminated("dollar-quoted string")
@@ -348,11 +414,7 @@ def lex_postgres(sql: str, *, mode: str = "postgres") -> PgLexResult:
             while end < n and _is_name_part(sql[end]):
                 end += 1
             name = sql[i:end]
-            if any(ch.isspace() for ch in name):
-                raise ReadOnlyViolation(
-                    "A name holds a space character outside ASCII (such as a no-break space), which the "
-                    "server reads as part of the name. Use a plain space, or quote the name."
-                )
+            _check_name(name, reading)
             other(name)
             i = end
         elif c in _DIGITS or (c == "." and nxt in _DIGITS):
