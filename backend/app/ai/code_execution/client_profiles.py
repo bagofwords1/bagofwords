@@ -26,8 +26,11 @@ class GuardProfile:
     accepts_dict: the statement may be a dict envelope (checked by the client
     at its dispatch point).
     engine: for "nonparsing_sql", whose literal, comment and write-word
-    rules the text is read with ("db2", "vertica", "sybase", "hana",
-    "pinot").
+    rules the text is read with (one of `NONPARSING_ENGINES`); None for
+    every other kind.
+    unknown_lexer: for "sql", the engine is checked with `dialect` but its
+    own lexer is not known, so the guard also refuses text whose reading
+    turns on a backslash or on where a number ends.
     """
 
     family: str
@@ -36,6 +39,17 @@ class GuardProfile:
     extra_kwargs: frozenset[str] = field(default_factory=frozenset)
     accepts_dict: bool = False
     engine: str | None = None
+    unknown_lexer: bool = False
+
+    def __post_init__(self):
+        if self.kind == "nonparsing_sql" and self.engine not in NONPARSING_ENGINES:
+            raise ValueError(f"{self.family}: engine {self.engine!r} is not one of {sorted(NONPARSING_ENGINES)}")
+        if self.kind != "nonparsing_sql" and self.engine is not None:
+            raise ValueError(f"{self.family}: only a nonparsing_sql profile names an engine, not {self.engine!r}")
+
+
+# The engines whose rules the guard reads SQL without a parser dialect with.
+NONPARSING_ENGINES = frozenset({"db2", "vertica", "sybase", "hana", "pinot"})
 
 
 @dataclass(frozen=True)
@@ -49,9 +63,10 @@ _CLIENTS = "app.data_sources.clients"
 
 
 def _sql(module: str, name: str, dialect: str, extra_kwargs: frozenset[str] = frozenset(),
-         renderer: str | None = None):
+         renderer: str | None = None, unknown_lexer: bool = False):
     return (f"{_CLIENTS}.{module}", name), ClientEntry(
-        family=name, profile=GuardProfile(family=name, kind="sql", dialect=dialect, extra_kwargs=extra_kwargs),
+        family=name, profile=GuardProfile(family=name, kind="sql", dialect=dialect, extra_kwargs=extra_kwargs,
+                                          unknown_lexer=unknown_lexer),
         renderer=renderer,
     )
 
@@ -90,8 +105,9 @@ _CLIENT_TABLE: dict[tuple[str, str], ClientEntry] = dict([
     _sql("duckdb_client", "DuckDBClient", "duckdb"),
     _sql("teradata_client", "TeradataClient", "teradata"),
     _sql("druid_client", "DruidClient", "druid"),
-    # Timbr's own discovery SQL is Spark SQL (backtick names).
-    _sql("timbr_client", "TimbrClient", "spark", renderer="timbr"),
+    # Timbr's own discovery SQL is Spark SQL (backtick names); its server's
+    # lexer is not known.
+    _sql("timbr_client", "TimbrClient", "spark", renderer="timbr", unknown_lexer=True),
     # SQL with no sqlglot dialect: checked without a parser.
     _entry("db2_client", "Db2Client", "nonparsing_sql", renderer="ansi", engine="db2"),
     _entry("ibmi_client", "IbmiClient", "nonparsing_sql", renderer="ansi", engine="db2"),

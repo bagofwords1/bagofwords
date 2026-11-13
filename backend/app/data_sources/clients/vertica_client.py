@@ -56,16 +56,23 @@ class VerticaClient(DataSourceClient):
             raise RuntimeError(f"Failed to connect to Vertica: {e}")
 
     def execute_query(self, sql: str) -> pd.DataFrame:
-        """Execute SQL statement and return the result as a DataFrame."""
+        """Execute SQL statement and return the result as a DataFrame.
+
+        `sql` is sent exactly as given (the read-only guard checked this
+        text), once, on the connection's vertica_python cursor. Not through
+        verticapy's vDataFrame, which rewrites a query before sending it.
+        The frame is built as vDataFrame.to_pandas built it: the driver's
+        rows, the cursor's column names, every row, and an empty result as
+        an empty frame."""
         try:
-            # Connect to Vertica
             self.connect()
-            
-            # Execute query using verticapy vDataFrame
-            result = vp.vDataFrame(sql)
-            
-            # Convert to pandas DataFrame
-            df = result.to_pandas()
+            cursor = vp.current_cursor()
+            cursor.execute(sql)
+            rows = cursor.fetchall()
+            columns = [column[0] for column in (cursor.description or [])]
+            df = pd.DataFrame(rows)
+            if not df.empty:
+                df.columns = columns
             return df
         except Exception as e:
             print(f"Error executing SQL: {e}")

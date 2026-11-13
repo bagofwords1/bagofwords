@@ -1213,8 +1213,8 @@ class CustomQueryService:
                     # Stored rows cannot be given the new shape, so the copy
                     # would stop matching the source. Rebuild instead of
                     # failing every scheduled run until someone notices.
-                    # The run then records what the rebuild sends.
-                    run.rendered_query = None
+                    # The run keeps the increment's sent text until the
+                    # rebuild sends its own.
                     run.note(f"The query's columns changed ({e}); rebuilding in full.", "warning")
                     await runs.progress(run.run_id, mode=RUN_MODE_FULL, events=run.take_events())
                 else:

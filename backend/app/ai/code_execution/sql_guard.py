@@ -133,12 +133,6 @@ _BACKSLASH_ESCAPE_DIALECTS = frozenset({
     "mysql", "bigquery", "clickhouse", "snowflake", "hive", "spark", "spark2", "databricks", "duckdb",
     "athena",
 })
-_GENERIC_STARTS = {
-    (False, False): re.compile(r"['\"`\[]|--|/\*"),
-    (True, False): re.compile(r"['\"`#]|--|/\*"),
-    (False, True): re.compile(r"['\"`]|--|/\*"),
-    (True, True): re.compile(r"['\"`#]|--|/\*"),
-}
 _QUOTE_STOPS = {
     (close, backslash): re.compile("[" + re.escape(close) + ("\\\\" if backslash else "") + "]")
     for close in ("'", '"', "`", "]") for backslash in (False, True)
@@ -460,30 +454,74 @@ _DB2_WRITE_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 _NONPARSING_WRITE_WORDS = {"db2": _DB2_WRITE_KEYWORDS}
-# Engines that also read a backslash escape in a string (Vertica's E'...'),
-# that read `[...]` as a quoted name (Sybase), and that read `//` as a line
-# comment (Pinot's Calcite parser).
-_NONPARSING_BACKSLASH = frozenset({"vertica"})
+# What each engine's literal and comment rules add to standard quoting
+# ('...' with '' inside, "..." names, -- and /* */ comments). Where it is
+# not known whether the engine reads a form (a server option, a string
+# prefix), the text is read both ways and must pass both.
+# A backslash escape in a string: Vertica's E'...'; SQL Anywhere's strings
+# (\\, \n, \x41).
+_NONPARSING_BACKSLASH = frozenset({"vertica", "sybase"})
+# `[...]` as a quoted name: SQL Anywhere.
 _NONPARSING_BRACKETS = frozenset({"sybase"})
-_NONPARSING_SLASH_COMMENTS = frozenset({"pinot"})
+# `//` as a line comment (refused outside strings): Pinot's Calcite parser,
+# SQL Anywhere.
+_NONPARSING_SLASH_COMMENTS = frozenset({"pinot", "sybase"})
+# `%` as a line comment: SQL Anywhere when its percent_as_comment option is
+# on.
+_NONPARSING_PERCENT_COMMENTS = frozenset({"sybase"})
+# Backtick-quoted names: perhaps Pinot. To the others a backtick is code.
+_NONPARSING_BACKTICKS = frozenset({"pinot"})
+# Dollar-quoted strings ($$...$$), refused outside strings: Vertica.
+_NONPARSING_DOLLAR_QUOTES = frozenset({"vertica"})
+# A dollar-quote opener: `$$`, or `$tag$` not right after a name character.
+_DOLLAR_QUOTE_OPENER = re.compile(
+    r"\$\$|(?<![A-Za-z0-9_$\x80-\U0010FFFF])\$[A-Za-z_\x80-\U0010FFFF][A-Za-z0-9_\x80-\U0010FFFF]*\$"
+)
+
+
+def _nonparsing_readings(sql: str, engine: Optional[str]) -> list[tuple[str, str]]:
+    """`sql` with its literals and comments emptied, in each way `engine`
+    may read it, each with the reading's name."""
+    out = []
+    for backslash in (False, True) if engine in _NONPARSING_BACKSLASH else (False,):
+        for percent in (False, True) if engine in _NONPARSING_PERCENT_COMMENTS else (False,):
+            for backticks in (False, True) if engine in _NONPARSING_BACKTICKS else (False,):
+                parts = [name for name, on in (("backslash escapes", backslash), ("% line comments", percent),
+                                               ("backtick-quoted names", backticks)) if on]
+                name = "with " + " and ".join(parts) if parts else "with standard quoting"
+                out.append((name, _generic_reading(sql, False, backslash, brackets=engine in _NONPARSING_BRACKETS,
+                                                   backticks=backticks, percent_comments=percent)))
+    return out
 
 
 def _check_nonparsing(sql: str, engine: Optional[str]) -> None:
     """One read statement, as the engine's literal and comment rules read
     `sql` (each reading must pass). A comment opened inside another is
-    refused: Db2 and Sybase nest comments, the readings here do not."""
-    standard = _standard_spans(sql)
-    for kind, start, end in standard:
+    refused: Db2 and Sybase nest comments, the readings here do not. So is
+    a NUL, and a line break other than a newline anywhere: the readings end
+    a line comment at a newline only."""
+    if _NUL in sql:
+        raise ReadOnlyViolation("The query holds a NUL character, after which the source would not read it. Remove it.")
+    if _OTHER_LINE_BREAK.search(sql):
+        raise ReadOnlyViolation(
+            "The query has a line break other than a newline (a lone carriage return, a vertical tab, a form feed "
+            "or a Unicode line separator), which this source may end a comment at. Use plain newlines."
+        )
+    for kind, start, end in _standard_spans(sql):
         if kind == "comment" and sql.startswith("/*", start) and "/*" in sql[start + 2:end]:
             raise _comment_inside_comment()
-    if engine in _NONPARSING_SLASH_COMMENTS and "//" in _masked(sql, [(s, e) for _k, s, e in standard]):
-        raise ReadOnlyViolation(
-            "The query has '//' outside a string, which this source reads as the start of a comment. "
-            "Remove it, or write the division with a space between the slashes."
-        )
-    readings = [("with standard quoting", _generic_reading(sql, False, False, brackets=engine in _NONPARSING_BRACKETS))]
-    if engine in _NONPARSING_BACKSLASH:
-        readings.append((_READING_NAMES[(False, True)], _generic_reading(sql, False, True)))
+    readings = _nonparsing_readings(sql, engine)
+    for _reading, code_only in readings:
+        if engine in _NONPARSING_SLASH_COMMENTS and "//" in code_only:
+            raise ReadOnlyViolation(
+                "The query has '//' outside a string, which this source reads as the start of a comment. "
+                "Remove it, or write the division with a space between the slashes."
+            )
+        if engine in _NONPARSING_DOLLAR_QUOTES and _DOLLAR_QUOTE_OPENER.search(code_only):
+            raise ReadOnlyViolation(
+                "The query has a dollar-quoted string ($$...$$), which the query checks do not read. "
+                "Write a standard string, doubling each quote inside it ('it''s')."
+            )
     for reading, code_only in readings:
         try:
             check_unparsed(code_only, read_verbs=_NONPARSING_READ_VERBS,
@@ -553,7 +591,7 @@ def ensure_read_only(client, query) -> Union[str, dict]:
     elif profile.dialect in _LEXED_DIALECTS:
         return _check_postgres(query, profile.dialect)
     elif profile.dialect:
-        check_sql(query, profile.dialect)
+        check_sql(query, profile.dialect, unknown_lexer=profile.unknown_lexer)
     return query
 
 
@@ -575,12 +613,15 @@ def _check_spl_envelope(query, checked: Optional[str] = None) -> None:
         check_spl(spl)
 
 
-def check_sql(sql: str, dialect: str) -> None:
+def check_sql(sql: str, dialect: str, *, unknown_lexer: bool = False) -> None:
+    """Refuse `sql` unless it is one read in `dialect`. `unknown_lexer`:
+    the engine is checked as `dialect` but its own lexer is not known
+    (`check_engine_reading`)."""
     if dialect in _LEXED_DIALECTS:
         _check_postgres(sql, dialect)
         return
 
-    check_engine_reading(sql, dialect)
+    check_engine_reading(sql, dialect, unknown_lexer=unknown_lexer)
     teradata = dialect == "teradata"
     if teradata:
         _check_teradata(sql)
@@ -833,17 +874,24 @@ def _unparsed_readings(sql: str, dialect: str) -> list[tuple[str, str]]:
     ]
 
 
-def _generic_reading(sql: str, hash_comments: bool, backslash: bool, brackets: Optional[bool] = None) -> str:
+@functools.lru_cache(maxsize=None)
+def _reading_starts(hash_comments: bool, brackets: bool, backticks: bool, percent_comments: bool) -> re.Pattern:
+    marks = "'\"" + ("`" if backticks else "") + ("#" if hash_comments else "") + ("%" if percent_comments else "")
+    return re.compile("[" + re.escape(marks) + (r"\[" if brackets else "") + r"]|--|/\*")
+
+
+def _generic_reading(sql: str, hash_comments: bool, backslash: bool, brackets: Optional[bool] = None, *,
+                     backticks: bool = True, percent_comments: bool = False) -> str:
     """`sql` with each literal, quoted name and comment replaced by a space:
-    quotes doubled to escape them, plus `#` line comments and backslash
-    escapes when asked (and `[...]` names when neither is, or when
+    quotes doubled to escape them, `` `...` `` names unless `backticks` is
+    off, plus `#` (or `%`) line comments and backslash escapes when asked
+    (and `[...]` names when neither `#` nor backslashes are, or when
     `brackets` says so). In a `#` reading (MySQL's), `--` starts a comment
     only before whitespace or a control character. From anything left open,
     the rest is read as code. One pass."""
-    starts = _GENERIC_STARTS[(hash_comments, backslash)]
-    if brackets is not None and not (hash_comments or backslash):
-        # The same marks as the backslash reading, which has no `[...]`.
-        starts = _GENERIC_STARTS[(False, not brackets)]
+    if brackets is None:
+        brackets = not (hash_comments or backslash)
+    starts = _reading_starts(hash_comments, brackets, backticks, percent_comments)
     out = []
     i, n = 0, len(sql)
     while True:
@@ -857,7 +905,7 @@ def _generic_reading(sql: str, hash_comments: bool, backslash: bool, brackets: O
             i = m.end()
             continue
         out.append(sql[i:start])
-        if mark in ("--", "#"):
+        if mark in ("--", "#", "%"):
             end = sql.find("\n", m.end())
             end = n if end < 0 else end
         elif mark == "/*":
@@ -904,6 +952,9 @@ _NUL = chr(0)
 # Read by the Postgres lexer (`pg_lexer`), which does this check itself.
 _LEXED_DIALECTS = frozenset({"postgres", "redshift"})
 _UNREADABLE = "The query could not be read as SQL (an unterminated string, quoted name or comment?). Fix it and retry."
+_UNKNOWN_DIALECT = "The query checks do not know this source's SQL dialect, so the query was not run."
+# A currency symbol (Unicode category Sc).
+_CURRENCY_SIGN = regex.compile(r"\p{Sc}")
 # Line ends other than LF (a CR before an LF ends the line where the LF
 # does): readers disagree on whether they end a line comment.
 _OTHER_LINE_BREAK = re.compile("\r(?!\n)|[\x0b\x0c\x1c-\x1e\x85" + chr(0x2028) + chr(0x2029) + "]")
@@ -1066,22 +1117,35 @@ def _gap_comments(sql: str, tokens, tokenizer_class) -> list[tuple[str, int, int
     return out
 
 
-def check_engine_reading(sql: str, dialect: str) -> None:
+def check_engine_reading(sql: str, dialect: str, *, unknown_lexer: bool = False) -> None:
     """Refuse `sql` where sqlglot's `dialect` tokenizer and the engine read
     it differently, so the checks would vouch for a statement the engine
     does not run. Postgres and Redshift text is read by their lexer instead.
+    `unknown_lexer`: the engine is checked as `dialect` but its own lexer is
+    not known, so text whose reading turns on a backslash or on where a
+    number ends is refused too. A missing or unknown dialect is refused.
     Raises ReadOnlyViolation."""
+    if not isinstance(dialect, str) or not dialect:
+        raise ReadOnlyViolation(_UNKNOWN_DIALECT)
     if dialect in _LEXED_DIALECTS:
         return
     if _NUL in sql:
         raise ReadOnlyViolation("The query holds a NUL character, after which the source would not read it. Remove it.")
+    if unknown_lexer and "\\" in sql:
+        raise ReadOnlyViolation(
+            "The query holds a backslash, which this source may read as an escape where the query checks do not, "
+            "or the other way round. Remove it, or match the character with a wildcard."
+        )
     if dialect == "athena":
         _refuse_athena_backslash(sql)
     elif dialect == "oracle":
         _refuse_alternative_quotes(sql)
     from sqlglot.dialects.dialect import Dialect
 
-    reader = Dialect.get_or_raise(dialect)
+    try:
+        reader = Dialect.get_or_raise(dialect)
+    except Exception as e:
+        raise ReadOnlyViolation(_UNKNOWN_DIALECT) from e
     try:
         tokens = reader.tokenize(sql)
     except Exception as e:
@@ -1135,8 +1199,66 @@ def check_engine_reading(sql: str, dialect: str) -> None:
             )
     if dialect in ("tsql", "fabric"):
         _check_glued_constants(sql, code)
+        _check_currency_signs(sql, masked, code, code_starts)
+    if dialect == "mysql" or unknown_lexer:
+        _check_digit_led_names(sql, code)
     if dialect == "duckdb":
         _check_dollar_tags(sql, masked, tokens)
+        _check_e_strings(sql, tokens)
+
+
+def _check_currency_signs(sql: str, masked: str, code, code_starts: list[int]) -> None:
+    """SQL Server reads a currency sign that starts a word as a money
+    constant (`$1.` is the number 1); sqlglot reads it as a name, so the
+    constant's end, and what follows it, differ. A `$` inside a name (after
+    a letter, `_`, `@` or `#`) continues the name for both."""
+    for sign in _CURRENCY_SIGN.finditer(masked):
+        at = sign.start()
+        if not _in_token(code, code_starts, at):
+            continue  # in a comment
+        token = code[bisect.bisect_right(code_starts, at) - 1]
+        first = sql[token.start]
+        if sign.group() == "$" and at > token.start and token.token_type.name == "VAR" \
+                and (first.isalpha() or first in "_@#"):
+            continue
+        raise ReadOnlyViolation(
+            "The query has a currency sign outside a string or a quoted name, which SQL Server reads as the start "
+            "of a money constant where the query checks read a name. Write the number without it "
+            "(CAST(1.50 AS money)), or quote the name with [ ]."
+        )
+
+
+def _check_digit_led_names(sql: str, code) -> None:
+    """MySQL and MariaDB read a number glued to a word (`1.5from`) as the
+    number and then the word; sqlglot reads one name. Any unquoted name
+    starting with a digit is refused, and so is a number glued to a word."""
+    for i, token in enumerate(code):
+        kind = token.token_type.name
+        first = sql[token.start]
+        if kind in ("VAR", "IDENTIFIER") and "0" <= first <= "9":
+            raise _digit_led_name(sql[token.start:token.end + 1])
+        if kind == "NUMBER" and i + 1 < len(code) and code[i + 1].start == token.end + 1 \
+                and _is_name_char(sql[code[i + 1].start]):
+            raise _digit_led_name(sql[token.start:code[i + 1].end + 1])
+
+
+def _digit_led_name(text: str) -> ReadOnlyViolation:
+    return ReadOnlyViolation(
+        f"A name starts with a digit ({text[:40]}), which this source may read as a number and then a word. "
+        "Quote the name with backticks, or put a space after the number."
+    )
+
+
+def _check_e_strings(sql: str, tokens) -> None:
+    """DuckDB reads backslash escapes in an E'...' string; sqlglot's DuckDB
+    tokenizer does not, so the string ends elsewhere for it."""
+    for token in tokens:
+        if token.token_type.name == "BYTE_STRING" and sql[token.start] in "eE" \
+                and "\\" in sql[token.start:token.end + 1]:
+            raise ReadOnlyViolation(
+                "An E'...' string holds a backslash, which DuckDB reads as an escape where the query checks do not. "
+                "Write a standard string ('...') holding the character itself."
+            )
 
 
 def _in_token(tokens, starts: list[int], at: int) -> bool:

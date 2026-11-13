@@ -190,6 +190,54 @@ def test_ordinary_mysql_comments_and_minus_signs_still_read(family, sql):
     _passes(family, sql)
 
 
+# A decimal glued to a word: sqlglot reads one name (`1.5from`), MySQL and
+# MariaDB read the number and then FROM (proven in the live dialect tests).
+DIGIT_GLUED = [
+    "SELECT x, 1.0from secret",
+    "SELECT id FROM orders UNION SELECT x + 0.0from secret",
+    "SELECT id FROM orders UNION SELECT x + 1.5e3from secret",
+]
+
+
+@pytest.mark.parametrize("family", ["MysqlClient", "MariadbClient"])
+@pytest.mark.parametrize("sql", DIGIT_GLUED)
+def test_a_number_glued_to_a_word_is_refused_on_mysql_by_the_guard_and_by_table_scope(family, sql):
+    _hidden_from_sqlglot(family, sql)
+    _refused(family, sql, match="starts with a digit")
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, "mysql", SCOPE)
+
+
+@pytest.mark.parametrize("family", ["MysqlClient", "MariadbClient"])
+@pytest.mark.parametrize("sql", [
+    "SELECT id FROM orders UNION SELECT .5from secret",
+    "SELECT 1from AS a FROM orders",
+    "SELECT o.1st FROM orders o",
+])
+def test_every_unquoted_name_starting_with_a_digit_is_refused_on_mysql(family, sql):
+    _refused(family, sql, match="backticks")
+
+
+@pytest.mark.parametrize("family", ["MysqlClient", "MariadbClient"])
+@pytest.mark.parametrize("sql", [
+    "SELECT `1st`, id1, x1e5 FROM orders WHERE id = 1.5 LIMIT 10",
+    "SELECT 1.5e3 AS a, .5 AS b, 0x1F AS c FROM orders",
+    "SELECT '1.5from secret' AS a FROM orders",
+])
+def test_numbers_and_quoted_names_starting_with_a_digit_still_read_on_mysql(family, sql):
+    _passes(family, sql)
+
+
+@pytest.mark.parametrize("family", ["ClickhouseClient", "SparkConnectClient", "DatabricksSqlClient"])
+def test_a_digit_led_name_still_reads_where_the_engine_never_splits_a_number_from_a_word(family):
+    # ClickHouse 25.8 refuses a decimal glued to a word ("Wrong number") and
+    # reads `1from` as one name (live dialect tests); Spark's lexer reads a
+    # decimal only before a character that is not a letter, digit or
+    # underscore (SqlBaseLexer isValidDecimal) and a digit-led word as one
+    # IDENTIFIER. Neither reads a number and then FROM.
+    ensure_read_only(_client(family), "SELECT 1abc FROM orders")
+
+
 # --------------------------------------------------------------- Druid
 
 DRUID_HIDDEN = "SELECT 2 //* */ 1 AS a, '" + NL + "UNION SELECT * FROM secret --' FROM orders"
@@ -371,6 +419,35 @@ def test_a_dollar_tag_holding_a_space_outside_ascii_is_refused_on_duckdb(sql):
     _refused("DuckDBClient", sql)
 
 
+E_STRING_HIDDEN = [
+    "SELECT E'" + BS + "'' AS a, x FROM secret --' FROM orders",
+    "SELECT e'" + BS + "'' AS a, x FROM secret --' FROM orders",
+]
+
+
+@pytest.mark.parametrize("sql", E_STRING_HIDDEN)
+def test_duckdb_reads_a_backslash_escape_in_an_e_string_that_sqlglot_does_not(sql):
+    con = duckdb.connect()
+    con.execute("CREATE TABLE orders (id INT)")
+    con.execute("CREATE TABLE secret (x INT)")
+    con.execute("INSERT INTO secret VALUES (42)")
+    # sqlglot reads one string up to the last quote, then FROM orders;
+    # DuckDB ends the string at the escaped quote and reads the secret table.
+    assert _sqlglot_tables(sql, "duckdb") == {("orders",)}
+    assert con.execute(sql).fetchall() == [("'", 42)]
+    _refused("DuckDBClient", sql, match="E'")
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, "duckdb", SCOPE)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT E'abc' AS a, 'a" + BS + "b' AS b FROM orders",
+    "SELECT 'E" + BS + "' AS a FROM orders",
+])
+def test_an_e_string_without_a_backslash_and_plain_strings_still_read_on_duckdb(sql):
+    _passes("DuckDBClient", sql)
+
+
 def test_duckdb_reads_a_dollar_tag_holding_a_space_outside_ascii_as_one_tag():
     con = duckdb.connect()
     assert con.execute("SELECT $t" + NBSP + "x$ab$t" + NBSP + "x$ AS v").fetchall() == [("ab",)]
@@ -398,11 +475,38 @@ def test_a_hex_or_money_literal_glued_to_a_word_is_refused_on_sql_server(family,
 
 @pytest.mark.parametrize("family", ["MSSQLClient", "MsFabricClient"])
 @pytest.mark.parametrize("sql", [
-    "SELECT 0x1F AS a, 0xFF AS b FROM orders",
-    "SELECT $1.50 AS price FROM orders",
-    "SELECT x = 0x1F FROM orders",
+    "SELECT $1.into t2 FROM orders",
+    "SELECT x = $1.into t2 FROM orders",
+    "SELECT x = " + chr(0xA3) + "1.into t2 FROM orders",
 ])
-def test_hex_and_money_literals_still_read_on_sql_server(family, sql):
+def test_a_money_constant_then_a_dot_and_a_word_is_refused_on_sql_server(family, sql):
+    # sqlglot reads a name, a dot and a field named INTO: no INTO clause.
+    # SQL Server reads the money constant 1. and then INTO a new table.
+    assert not list(parse_guard_sql(sql, "tsql")[0].find_all(exp.Into))
+    _refused(family, sql, match="currency sign")
+
+
+@pytest.mark.parametrize("family", ["MSSQLClient", "MsFabricClient"])
+@pytest.mark.parametrize("sql", [
+    "SELECT $1.50 AS price FROM orders",
+    "SELECT " + chr(0x20AC) + "2 AS price FROM orders",
+    "SELECT $IDENTITY FROM orders",
+])
+def test_every_currency_sign_starting_a_word_is_refused_on_sql_server(family, sql):
+    # sqlglot reads a money constant as a name (and then a dot), never as
+    # the constant SQL Server reads.
+    _refused(family, sql, match="currency sign")
+
+
+@pytest.mark.parametrize("family", ["MSSQLClient", "MsFabricClient"])
+@pytest.mark.parametrize("sql", [
+    "SELECT 0x1F AS a, 0xFF AS b FROM orders",
+    "SELECT x = 0x1F FROM orders",
+    "SELECT CAST(1.50 AS money) AS price FROM orders",
+    "SELECT '$1.into' AS a, [$1] AS b FROM orders",
+    "SELECT __$operation, a$b FROM orders -- costs $5",
+])
+def test_hex_literals_and_names_or_strings_holding_a_currency_sign_still_read_on_sql_server(family, sql):
     _passes(family, sql)
 
 
@@ -569,6 +673,80 @@ def test_db2_refuses_a_comment_inside_a_comment():
     _refused("Db2Client", "SELECT 1 FROM SYSIBM.SYSDUMMY1 /* /* */ ' */ ; DELETE FROM T --'")
 
 
+NONPARSING_FAMILIES = UNPARSED_FAMILIES + ["Db2Client", "IbmiClient"]
+
+
+@pytest.mark.parametrize("family", NONPARSING_FAMILIES)
+@pytest.mark.parametrize("brk", [CR, chr(0x0B), chr(0x0C), chr(0x85), chr(0x2028)], ids=lambda c: f"U+{ord(c):04X}")
+def test_a_line_break_other_than_a_newline_is_refused_without_a_parser_dialect(family, brk):
+    # The checks end a -- comment at a newline only; an engine that ends
+    # it at this break reads the second statement.
+    _refused(family, "SELECT 1 FROM t -- x" + brk + "; DELETE FROM orders", match="line break")
+
+
+@pytest.mark.parametrize("family", NONPARSING_FAMILIES)
+def test_windows_line_ends_still_read_without_a_parser_dialect(family):
+    sql = "SELECT id -- note" + CR + NL + "FROM orders"
+    assert ensure_read_only(_client(family), sql) == sql
+
+
+@pytest.mark.parametrize("family", NONPARSING_FAMILIES)
+def test_a_backtick_is_code_to_an_engine_that_does_not_quote_names_with_it(family):
+    # None of these engines quotes names with backticks (Pinot may), so the
+    # text between two backticks is code to them.
+    _refused(family, "SELECT 1 AS a, ` ; DROP TABLE orders --`")
+
+
+VERTICA_DOLLAR_HIDDEN = [
+    "SELECT $$'$$ AS a; DROP TABLE orders --'",
+    "SELECT $x$'$x$ AS a; DROP TABLE orders --'",
+    "SELECT 1 AS a, $$ " + BS + "' $$ AS b; DROP TABLE orders --'",
+]
+
+
+@pytest.mark.parametrize("sql", VERTICA_DOLLAR_HIDDEN)
+def test_a_dollar_quoted_string_is_refused_on_vertica(sql):
+    # Vertica reads $$...$$ as a string, so a quote inside it opens nothing
+    # and the second statement after it runs; standard quoting reads a
+    # string from that quote to the end.
+    _refused("VerticaClient", sql, match="dollar")
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT a$b, price$ FROM orders WHERE note = '$$ off'",
+    "SELECT 1 AS a FROM orders -- $$",
+])
+def test_names_holding_a_dollar_and_dollars_in_strings_still_read_on_vertica(sql):
+    assert ensure_read_only(_client("VerticaClient"), sql) == sql
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT 1 // '" + NL + "; DELETE FROM orders --'",
+    "SELECT 1 AS a FROM orders // note",
+])
+def test_a_double_slash_is_refused_on_sql_anywhere(sql):
+    # SQL Anywhere reads // as a line comment, like --.
+    _refused("SybaseClient", sql, match="//")
+
+
+def test_sql_anywhere_may_read_a_percent_sign_as_a_line_comment():
+    # With percent_as_comment on, % starts a line comment, so the quote
+    # after it opens nothing.
+    _refused("SybaseClient", "SELECT 1 % '" + NL + "; DELETE FROM orders --'")
+
+
+def test_sql_anywhere_may_read_a_backslash_escape_in_a_string():
+    _refused("SybaseClient", "SELECT 'a" + BS + "'' ; DELETE FROM orders --' AS a")
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT a % 2, a / 2 FROM orders WHERE note = 'it''s 50%'",
+    "SELECT [my col] FROM orders",
+])
+def test_sql_anywhere_reads_still_pass(sql):
+    assert ensure_read_only(_client("SybaseClient"), sql) == sql
+
+
 # --------------------------------------------------------------- Timbr
 
 def test_timbr_is_checked_as_spark_sql_and_scoped_to_its_active_concepts():
@@ -579,6 +757,67 @@ def test_timbr_is_checked_as_spark_sql_and_scoped_to_its_active_concepts():
     enforce_table_scope(timbr, ensure_read_only(timbr, "SELECT name FROM `dtimbr`.`customer` LIMIT 10"))
     with pytest.raises(TableScopeViolation, match="PAYROLL"):
         enforce_table_scope(timbr, ensure_read_only(timbr, "SELECT * FROM dtimbr.payroll"))
+
+
+def test_a_backslash_is_refused_on_timbr_whose_lexer_is_not_known():
+    # Spark reads the backslash as an escape and one string up to the last
+    # quote; a lexer without backslash escapes ends the string at the
+    # backslash and reads the secret table.
+    sql = "SELECT 'a" + BS + "' , x FROM secret --' FROM orders"
+    _hidden_from_sqlglot("TimbrClient", sql)
+    _refused("TimbrClient", sql, match="backslash")
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT `a" + BS + "` FROM orders",
+    "SELECT * FROM orders WHERE note LIKE 'a" + BS + BS + "%'",
+])
+def test_timbr_refuses_a_backslash_anywhere(sql):
+    _refused("TimbrClient", sql, match="backslash")
+
+
+@pytest.mark.parametrize("sql", DIGIT_GLUED)
+def test_a_number_glued_to_a_word_is_refused_on_timbr(sql):
+    _hidden_from_sqlglot("TimbrClient", sql)
+    _refused("TimbrClient", sql, match="starts with a digit")
+
+
+def test_the_spark_clients_whose_lexer_is_known_keep_reading_a_backslash_in_a_string():
+    for family in ("SparkConnectClient", "DatabricksSqlClient"):
+        _passes(family, "SELECT 'a" + BS + "'b' AS a FROM orders")
+
+
+# --------------------------------------------------------------- guard profiles and dialects
+
+def test_a_guard_profile_refuses_an_engine_it_does_not_know():
+    from app.ai.code_execution.client_profiles import NONPARSING_ENGINES, GuardProfile
+
+    with pytest.raises(ValueError, match="vertika"):
+        GuardProfile(family="X", kind="nonparsing_sql", dialect=None, engine="vertika")
+    with pytest.raises(ValueError):
+        GuardProfile(family="X", kind="nonparsing_sql", dialect=None)
+    with pytest.raises(ValueError):
+        GuardProfile(family="X", kind="sql", dialect="mysql", engine="db2")
+    assert {e.profile.engine for e in _CLIENT_TABLE.values()
+            if e.profile is not None and e.profile.kind == "nonparsing_sql"} == NONPARSING_ENGINES
+
+
+def test_every_engine_rule_names_an_engine_the_profiles_know():
+    from app.ai.code_execution import sql_guard
+    from app.ai.code_execution.client_profiles import NONPARSING_ENGINES
+
+    rules = [getattr(sql_guard, name) for name in dir(sql_guard) if name.startswith("_NONPARSING_")
+             and name != "_NONPARSING_READ_VERBS" and isinstance(getattr(sql_guard, name), frozenset)]
+    assert rules and all(rule <= NONPARSING_ENGINES for rule in rules)
+    assert set(sql_guard._NONPARSING_WRITE_WORDS) <= NONPARSING_ENGINES
+
+
+@pytest.mark.parametrize("dialect", [None, "", "nosuchdialect"])
+def test_reading_text_for_a_missing_or_unknown_dialect_is_refused(dialect):
+    from app.ai.code_execution.sql_guard import check_engine_reading
+
+    with pytest.raises(ReadOnlyViolation, match="dialect"):
+        check_engine_reading("SELECT 1", dialect)
 
 
 # --------------------------------------------------------------- top-level VALUES

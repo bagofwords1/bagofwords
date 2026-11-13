@@ -398,6 +398,30 @@ async def test_a_rebuild_after_the_columns_change_records_the_rebuild_s_text(lab
     assert increment != rebuild and run["rendered_query"] == rebuild
 
 
+async def test_a_rebuild_that_fails_before_sending_keeps_the_text_the_increment_sent(lab):
+    lab.shop.add(8)
+    await lab.table()
+    await lab.refresh()
+    with lab.shop.db() as db:
+        db.execute("ALTER TABLE orders ADD COLUMN region TEXT DEFAULT 'emea'")
+    lab.shop.add(1)
+    original, sized = extractor.estimate, []
+
+    def estimate(client, sql):
+        # The increment is sized first; the rebuild that follows fails
+        # while it is sized, before it sends anything.
+        sized.append(sql)
+        if len(sized) > 1:
+            raise ConnectionError("source went away")
+        return original(client, sql)
+
+    with texts_sent() as sent, patch.object(extractor, "estimate", estimate), pytest.raises(HTTPException):
+        await lab.refresh()
+    failed = (await lab.runs())[0]
+    assert failed["status"] == "failed" and len(sized) == 2
+    assert len(sent) == 1 and failed["rendered_query"] == sent[0]
+
+
 async def test_a_load_over_its_time_budget_pauses_and_the_next_run_continues_it(lab):
     lab.shop.add(50)
     await lab.table()

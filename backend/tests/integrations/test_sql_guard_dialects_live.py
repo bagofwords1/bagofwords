@@ -8,8 +8,8 @@ written, a table created, a filter dropped), and `ensure_read_only` or
 table scope refuses the text. The engine is driven through its own driver,
 never through the client, so the guard is not in the way of the proof.
 Where an engine reads a character the way sqlglot does (SQL Server's
-spaces, its nested comments), the exemption the guard makes for it is
-pinned here.
+spaces, its nested comments; ClickHouse 25.8's digit-led names, run in
+clickhouse-local), the exemption the guard makes for it is pinned here.
 
 Needs Docker. CI does not collect tests/integrations; these run on the test
 harness. Without a Docker daemon they skip, or fail when CI is set.
@@ -136,6 +136,28 @@ def test_mysql_reads_two_dashes_before_a_word_as_minus_signs_and_writes_a_file(m
         ensure_read_only(object.__new__(MysqlClient), sql)
 
 
+DIGIT_GLUED = [
+    "SELECT x, 1.0from secret",
+    "SELECT id FROM orders UNION SELECT x + 0.0from secret",
+]
+
+
+@pytest.mark.parametrize("engine_name, client_class", [("mysql", MysqlClient), ("mariadb", MariadbClient)])
+@pytest.mark.parametrize("sql", DIGIT_GLUED)
+def test_mysql_and_mariadb_read_a_number_glued_to_from_and_read_the_table_after_it(
+        request, engine_name, client_class, sql):
+    engine = request.getfixturevalue(engine_name)
+    # sqlglot reads one name `1.0from` (and `secret` as its alias): no
+    # table but the enabled one. The server reads the number, then FROM
+    # secret.
+    assert _sqlglot_tables(sql, "mysql") <= {("orders",)}
+    assert any(row[0] == SECRET for row in engine.rows(sql))
+    with pytest.raises(ReadOnlyViolation, match="starts with a digit"):
+        ensure_read_only(object.__new__(client_class), sql)
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, "mysql", SCOPE)
+
+
 @pytest.mark.parametrize("space", NON_ASCII_SPACES, ids=lambda c: f"U+{ord(c):04X}")
 def test_mysql_reads_a_space_outside_ascii_as_part_of_a_name(mysql, space):
     import pymysql
@@ -167,7 +189,7 @@ def mssql():
         conn.close()
 
 
-@pytest.mark.parametrize("glued, table", [("0x1into", "t_hex"), ("$1into", "t_money")])
+@pytest.mark.parametrize("glued, table", [("0x1into", "t_hex"), ("$1into", "t_money"), ("$1.into", "t_money_dot")])
 def test_sql_server_reads_a_constant_glued_to_into_as_a_select_into_that_creates_a_table(mssql, glued, table):
     sql = f"SELECT x = {glued} {table} FROM orders"
     from sqlglot import exp
@@ -195,6 +217,37 @@ def test_sql_server_nests_block_comments(mssql):
     sql = "SELECT id /* a /* b */ c */ FROM orders"
     assert mssql.rows(sql) == [(1,)]
     ensure_read_only(object.__new__(MSSQLClient), sql)
+
+
+# --------------------------------------------------------------- ClickHouse
+
+def _clickhouse_local(sql: str):
+    """Run `sql` with clickhouse-local in a throwaway container; return
+    (exit code, output)."""
+    _require_docker()
+    import docker
+
+    container = docker.from_env().containers.run(
+        "clickhouse/clickhouse-server:25.8", entrypoint="clickhouse", command=["local", "-q", sql], detach=True)
+    try:
+        code = container.wait(timeout=120)["StatusCode"]
+        return code, container.logs().decode()
+    finally:
+        container.remove(force=True)
+
+
+@pytest.mark.parametrize("sql", ["SELECT 1.5from system.one", "SELECT dummy FROM system.one WHERE 1 = 1.0from system.one"])
+def test_clickhouse_refuses_a_decimal_glued_to_a_word_instead_of_reading_from(sql):
+    # sqlglot's ClickHouse tokenizer reads `1.5from` as one name, like the
+    # MySQL one; ClickHouse never reads the number and then FROM, so the
+    # MySQL rule is not needed there.
+    code, out = _clickhouse_local(sql)
+    assert code != 0 and "Wrong number" in out
+
+
+def test_clickhouse_reads_a_digit_led_word_as_one_name_as_sqlglot_does():
+    code, out = _clickhouse_local("SELECT 1from FROM (SELECT 7 AS `1from`)")
+    assert code == 0 and out.strip() == "7"
 
 
 # --------------------------------------------------------------- Postgres
