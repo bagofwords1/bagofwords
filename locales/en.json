@@ -2361,6 +2361,20 @@
       "modelsOne": "1 model",
       "modelsMany": "{n} models",
       "everything": "All permissions"
+    },
+    "resourcePermissions": {
+      "data_source": {
+        "manage": "Manage (includes everything)",
+        "manage_instructions": "Edit instructions",
+        "create_entities": "Edit entities",
+        "manage_evals": "Manage quality checks",
+        "manage_members": "Manage who can use it"
+      },
+      "connection": {
+        "manage_connection": "Edit, test and reindex",
+        "create_data_sources": "Build agents on it",
+        "manage_data_sources": "Manage all its agents"
+      }
     }
   },
   "serviceAccounts": {

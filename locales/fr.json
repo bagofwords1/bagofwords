@@ -2158,6 +2158,20 @@
       "modelsOne": "1 modèle",
       "modelsMany": "{n} modèles",
       "everything": "Toutes les permissions"
+    },
+    "resourcePermissions": {
+      "data_source": {
+        "manage": "Gérer (inclut tout)",
+        "manage_instructions": "Modifier les instructions",
+        "create_entities": "Modifier les entités",
+        "manage_evals": "Gérer les évaluations",
+        "manage_members": "Gérer qui peut l'utiliser"
+      },
+      "connection": {
+        "manage_connection": "Modifier, tester et réindexer",
+        "create_data_sources": "Créer des agents dessus",
+        "manage_data_sources": "Gérer tous ses agents"
+      }
     }
   },
   "groupsManager": {

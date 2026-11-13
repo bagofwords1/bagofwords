@@ -2335,6 +2335,20 @@
       "modelsOne": "1 modelo",
       "modelsMany": "{n} modelos",
       "everything": "Todos los permisos"
+    },
+    "resourcePermissions": {
+      "data_source": {
+        "manage": "Gestionar (incluye todo)",
+        "manage_instructions": "Editar instrucciones",
+        "create_entities": "Editar entidades",
+        "manage_evals": "Gestionar evaluaciones",
+        "manage_members": "Gestionar quién puede usarlo"
+      },
+      "connection": {
+        "manage_connection": "Editar, probar y reindexar",
+        "create_data_sources": "Crear agentes en ella",
+        "manage_data_sources": "Gestionar todos sus agentes"
+      }
     }
   },
   "groupsManager": {

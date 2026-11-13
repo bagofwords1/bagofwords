@@ -2335,6 +2335,20 @@
       "modelsOne": "מודל אחד",
       "modelsMany": "{n} מודלים",
       "everything": "כל ההרשאות"
+    },
+    "resourcePermissions": {
+      "data_source": {
+        "manage": "ניהול (כולל הכול)",
+        "manage_instructions": "עריכת הנחיות",
+        "create_entities": "עריכת ישויות",
+        "manage_evals": "ניהול בדיקות איכות",
+        "manage_members": "ניהול מי יכול להשתמש בו"
+      },
+      "connection": {
+        "manage_connection": "עריכה, בדיקה ואינדוקס מחדש",
+        "create_data_sources": "בניית סוכנים עליו",
+        "manage_data_sources": "ניהול כל הסוכנים שלו"
+      }
     }
   },
   "groupsManager": {

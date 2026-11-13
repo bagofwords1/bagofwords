@@ -213,32 +213,54 @@
                             </USelectMenu>
 
                             <ul v-if="visibleGrants.length" class="mt-3 divide-y divide-line border-y border-line">
-                                <li v-for="grant in visibleGrants" :key="`${grant.resource_type}:${grant.resource_id}`" class="flex items-center gap-3 py-2">
-                                    <UIcon :name="TYPE_ICON[grant.resource_type]" class="w-4 h-4 text-ink-muted shrink-0" />
-                                    <div class="flex-1 min-w-0">
-                                        <div class="text-sm text-ink truncate" v-text-dir>{{ grant.resource_name }}</div>
-                                        <div class="text-xs text-ink-muted">{{ $t(`rolesManager.types.${grant.resource_type}`) }}</div>
+                                <li v-for="grant in visibleGrants" :key="`${grant.resource_type}:${grant.resource_id}`" class="py-2">
+                                    <div class="flex items-center gap-3">
+                                        <UIcon :name="TYPE_ICON[grant.resource_type]" class="w-4 h-4 text-ink-muted shrink-0" />
+                                        <div class="flex-1 min-w-0">
+                                            <div class="text-sm text-ink truncate" v-text-dir>{{ grant.resource_name }}</div>
+                                            <div class="text-xs text-ink-muted">{{ $t(`rolesManager.types.${grant.resource_type}`) }}</div>
+                                        </div>
+                                        <USelect
+                                            v-if="LEVELS[grant.resource_type]"
+                                            :model-value="grantLevel(grant)"
+                                            :options="levelOptions(grant)"
+                                            option-attribute="label"
+                                            value-attribute="value"
+                                            size="sm"
+                                            class="w-36 sm:w-44 shrink-0"
+                                            :aria-label="grant.resource_name"
+                                            @update:model-value="setGrantLevel(grant, $event)"
+                                        />
+                                        <span v-else class="w-36 sm:w-44 shrink-0 text-sm text-ink-2 px-2.5">{{ $t('rolesManager.levels.use') }}</span>
+                                        <UButton
+                                            variant="ghost"
+                                            color="gray"
+                                            size="xs"
+                                            icon="i-heroicons-x-mark"
+                                            :aria-label="$t('rolesManager.removeAccess')"
+                                            @click="removeGrant(grant)"
+                                        />
                                     </div>
-                                    <USelect
-                                        v-if="LEVELS[grant.resource_type]"
-                                        :model-value="grantLevel(grant)"
-                                        :options="levelOptions(grant)"
-                                        option-attribute="label"
-                                        value-attribute="value"
-                                        size="sm"
-                                        class="w-36 sm:w-44 shrink-0"
-                                        :aria-label="grant.resource_name"
-                                        @update:model-value="setGrantLevel(grant, $event)"
-                                    />
-                                    <span v-else class="w-36 sm:w-44 shrink-0 text-sm text-ink-2 px-2.5">{{ $t('rolesManager.levels.use') }}</span>
-                                    <UButton
-                                        variant="ghost"
-                                        color="gray"
-                                        size="xs"
-                                        icon="i-heroicons-x-mark"
-                                        :aria-label="$t('rolesManager.removeAccess')"
-                                        @click="removeGrant(grant)"
-                                    />
+                                    <!-- Custom: the grant's individual permissions -->
+                                    <div
+                                        v-if="grantLevel(grant) === 'custom'"
+                                        class="mt-2 ms-7 grid sm:grid-cols-2 gap-x-4 gap-y-1"
+                                        :data-testid="`role-custom-${grant.resource_id}`"
+                                    >
+                                        <label
+                                            v-for="perm in customPermissions(grant.resource_type)"
+                                            :key="perm"
+                                            class="flex items-center gap-2 text-xs"
+                                            :class="resourceImpliedBy(grant, perm) ? 'cursor-default' : 'cursor-pointer'"
+                                        >
+                                            <UCheckbox
+                                                :model-value="grant.permissions.includes(perm) || !!resourceImpliedBy(grant, perm)"
+                                                :disabled="!!resourceImpliedBy(grant, perm)"
+                                                @update:model-value="toggleGrantPermission(grant, perm, $event)"
+                                            />
+                                            <span class="text-ink-2">{{ resourcePermissionLabel(grant.resource_type, perm) }}</span>
+                                        </label>
+                                    </div>
                                 </li>
                             </ul>
                             <p v-else class="mt-6 text-sm text-ink-muted text-center">{{ $t('rolesManager.accessEmpty') }}</p>
@@ -296,6 +318,9 @@ interface RoleData {
 
 interface GrantForm extends Grant {
     resource_name: string
+    // The admin chose "Custom": show the individual permissions even when
+    // they happen to match a standard level.
+    custom?: boolean
 }
 
 interface UsagePolicyAssignment {
@@ -378,6 +403,7 @@ const isFullAdmin = computed({
 // ── Editor data (cached, prefetched when the tab opens) ──────────────────
 
 const allCategories = ref<Record<string, string[]>>({})
+const resourcePermissions = ref<Record<string, string[]>>({})
 const availableResources = ref<ResourceOption[]>([])
 const publicAgentCount = ref(0)
 // Restricted-model access is a role grant like any other (`llm_model`,
@@ -399,6 +425,7 @@ const ensureRegistry = cached(async () => {
     const { data, error } = await useMyFetch('/permissions/registry')
     if (error.value || !data.value) throw error.value || new Error('registry')
     allCategories.value = (data.value as any).categories || {}
+    resourcePermissions.value = (data.value as any).resource_permissions || {}
 })
 
 const ensureResources = cached(async () => {
@@ -508,19 +535,70 @@ const MODEL_USE = ['use']
 
 const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x))
 
-function grantLevel(grant: Grant): string {
+function grantLevel(grant: GrantForm): string {
+    if (grant.custom) return 'custom'
     return LEVELS[grant.resource_type]?.find((l) => sameSet(l.perms, grant.permissions))?.key ?? 'custom'
 }
 
-function levelOptions(grant: Grant) {
-    const opts = (LEVELS[grant.resource_type] || []).map((l) => ({ value: l.key, label: t(`rolesManager.levels.${l.key}`) }))
-    if (grantLevel(grant) === 'custom') opts.push({ value: 'custom', label: t('rolesManager.levels.custom'), disabled: true } as any)
-    return opts
+function levelOptions(grant: GrantForm) {
+    return [
+        ...(LEVELS[grant.resource_type] || []).map((l) => ({ value: l.key, label: t(`rolesManager.levels.${l.key}`) })),
+        { value: 'custom', label: t('rolesManager.levels.custom') },
+    ]
 }
 
-function setGrantLevel(grant: Grant, key: string) {
+function setGrantLevel(grant: GrantForm, key: string) {
+    if (key === 'custom') {
+        grant.custom = true
+        return
+    }
     const level = LEVELS[grant.resource_type]?.find((l) => l.key === key)
-    if (level) grant.permissions = [...level.perms]
+    if (level) {
+        grant.custom = false
+        grant.permissions = [...level.perms]
+    }
+}
+
+// Mirrors permission_resolver.RESOURCE_PERM_IMPLIES: a permission held via a
+// broader one shows checked and locked.
+const RESOURCE_IMPLIED_BY: Record<string, Record<string, string>> = {
+    data_source: {
+        manage_instructions: 'manage',
+        create_entities: 'manage',
+        manage_evals: 'manage',
+        manage_members: 'manage',
+    },
+    connection: {
+        create_data_sources: 'manage_data_sources',
+    },
+}
+
+function resourceImpliedBy(grant: Grant, perm: string): string | null {
+    const by = RESOURCE_IMPLIED_BY[grant.resource_type]?.[perm]
+    return by && grant.permissions.includes(by) ? by : null
+}
+
+function toggleGrantPermission(grant: GrantForm, perm: string, on: boolean) {
+    grant.permissions = grant.permissions.filter((p) => p !== perm)
+    if (on) grant.permissions.push(perm)
+}
+
+const RESOURCE_PERMISSION_KEYS: Record<string, Set<string>> = {
+    data_source: new Set(['manage', 'manage_instructions', 'create_entities', 'manage_evals', 'manage_members']),
+    connection: new Set(['manage_connection', 'create_data_sources', 'manage_data_sources']),
+}
+
+// The registry's per-type list, with the permission that includes the others
+// first (it locks them when checked).
+function customPermissions(type: string): string[] {
+    const perms = resourcePermissions.value[type] || []
+    const broad = new Set(Object.values(RESOURCE_IMPLIED_BY[type] || {}))
+    return [...perms.filter((p) => broad.has(p)), ...perms.filter((p) => !broad.has(p))]
+}
+
+function resourcePermissionLabel(type: string, perm: string): string {
+    if (RESOURCE_PERMISSION_KEYS[type]?.has(perm)) return t(`rolesManager.resourcePermissions.${type}.${perm}`)
+    return formatPermission(perm)
 }
 
 function resourceName(type: string, id: string): string {
