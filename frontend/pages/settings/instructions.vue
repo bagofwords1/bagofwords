@@ -2,6 +2,7 @@
 import ConsoleInstructions from '~/components/ConsoleInstructions.vue'
 
 definePageMeta({
+    titleKey: 'nav.instructions',
     layout: 'settings',
     permissions: ['manage_instructions'],
 })

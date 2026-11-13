@@ -400,6 +400,13 @@ const conversation = ref<any>({
     completions: [],
     created_at: null,
 })
+// Tab title: the conversation's title once it has loaded. A refused viewer
+// (accessError) or a failed load leaves `conversation` blank, so its title
+// never reaches the tab.
+usePageTitle(() => conversation.value?.title, {
+    loading: isLoading,
+    fallbackKey: 'pageTitles.conversation',
+})
 
 // ---------------------------------------------------------------------------
 // What this page can actually render: a user prompt, or an assistant turn with
@@ -535,6 +542,7 @@ const collapsedReasoning = ref<Set<string>>(new Set())
 const expandedToolDetails = ref<Set<string>>(new Set())
 
 definePageMeta({
+    titleKey: 'pageTitles.conversation',
     layout: false,
     auth: false,
 })

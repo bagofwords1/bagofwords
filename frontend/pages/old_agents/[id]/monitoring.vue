@@ -187,7 +187,7 @@ import DateRangePicker from '~/components/console/DateRangePicker.vue'
 import TraceModal from '~/components/console/TraceModal.vue'
 import type { Ref } from 'vue'
 
-definePageMeta({ auth: true, layout: 'data' })
+definePageMeta({ titleKey: 'nav.agents', auth: true, layout: 'data' })
 
 const { t } = useI18n()
 const { isJudgeEnabled } = useOrgSettings()

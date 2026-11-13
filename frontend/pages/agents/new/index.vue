@@ -123,7 +123,7 @@
 </template>
 
 <script setup lang="ts">
-definePageMeta({ auth: true })
+definePageMeta({ titleKey: 'pageTitles.newAgent', auth: true })
 import { useCan } from '~/composables/usePermissions'
 import Spinner from '~/components/Spinner.vue'
 import WizardSteps from '@/components/datasources/WizardSteps.vue'

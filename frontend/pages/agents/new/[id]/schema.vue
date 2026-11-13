@@ -38,7 +38,7 @@
 </template>
 
 <script setup lang="ts">
-definePageMeta({ auth: true })
+definePageMeta({ titleKey: 'pageTitles.newAgent', auth: true })
 import WizardSteps from '@/components/datasources/WizardSteps.vue'
 import AgentKnowledgeTabs from '@/components/datasources/AgentKnowledgeTabs.vue'
 import AddMCPModal from '~/components/AddMCPModal.vue'

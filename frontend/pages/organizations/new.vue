@@ -36,6 +36,7 @@ const { getSession } = useAuth()
 const name = ref('');
 
 definePageMeta({
+    titleKey: 'pageTitles.newOrganization',
     auth: true,
     layout: 'users'
 })

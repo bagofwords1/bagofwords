@@ -176,6 +176,7 @@ const { hasFeature } = useEnterprise()
 const costLicensed = computed(() => hasFeature('cost_dashboard'))
 
 definePageMeta({
+    titleKey: 'monitoring.tabCost',
     auth: true,
     layout: 'monitoring',
     // Mirrors the /console/* gate: org admins see the org-wide console, agent

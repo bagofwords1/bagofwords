@@ -45,7 +45,7 @@
 </template>
 
 <script setup lang="ts">
-definePageMeta({ auth: true, layout: 'onboarding' })
+definePageMeta({ titleKey: 'pageTitles.getStarted', auth: true, layout: 'onboarding' })
 import OnboardingView from '@/components/onboarding/OnboardingView.vue'
 import CatalogSelector from '@/components/datasources/CatalogSelector.vue'
 import ConnectionIndexingProgress from '~/components/ConnectionIndexingProgress.vue'

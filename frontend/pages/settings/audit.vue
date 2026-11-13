@@ -229,6 +229,7 @@ import { splitAction, verbClass, actorKind, type FilterOption } from '~/utils/au
 import type { AuditLog } from '~/ee/composables/useAuditLogs'
 
 definePageMeta({
+  titleKey: 'settings.auditLogs',
   auth: true,
   permissions: ['view_audit_logs'],
   layout: 'settings'

@@ -260,6 +260,7 @@
 import { computed, onMounted, ref } from 'vue'
 
 definePageMeta({
+  titleKey: 'settings.license',
   auth: true,
   permissions: ['manage_settings'],
   layout: 'settings'

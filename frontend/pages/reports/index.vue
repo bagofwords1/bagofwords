@@ -514,7 +514,7 @@ const { draggingReport, startReportDrag, endReportDrag } = useReportDrag()
 const router = useRouter()
 const { selectedAgentObjects } = useAgent()
 
-definePageMeta({ auth: true })
+definePageMeta({ titleKey: 'nav.reports', auth: true })
 
 const reports = ref<any[]>([])
 const activeFilter = ref<'my' | 'shared' | 'published'>('my')

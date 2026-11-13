@@ -438,6 +438,7 @@ const projectId = computed(() => String(route.params.id))
 
 const project = ref<any>(null)
 const loadingProject = ref(true)
+usePageTitle(() => project.value?.name, { loading: loadingProject, fallbackKey: 'pageTitles.project' })
 const savingSettings = ref(false)
 const confirmDeleteOpen = ref(false)
 const deleting = ref(false)

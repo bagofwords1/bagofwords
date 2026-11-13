@@ -113,7 +113,7 @@
 
 <script setup lang="ts">
 import { dominantTextDir } from '~/utils/textDirection'
-definePageMeta({ auth: true })
+definePageMeta({ titleKey: 'pageTitles.newAgent', auth: true })
 import WizardSteps from '@/components/datasources/WizardSteps.vue'
 import GitRepoModalComponent from '@/components/GitRepoModalComponent.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'

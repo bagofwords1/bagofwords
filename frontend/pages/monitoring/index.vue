@@ -7,6 +7,7 @@
 <script setup lang="ts">
 // Redirect to overview tab
 definePageMeta({
+    titleKey: 'monitoring.tabExplore',
     auth: true,
     layout: 'monitoring',
     // Mirrors the /console/* gate: org admins see the org-wide console, agent

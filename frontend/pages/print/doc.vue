@@ -44,6 +44,13 @@ const markdown = ref<string>(payload.markdown || '')
 const visualizations = ref<any[]>(payload.visualizations || [])
 const files = ref<Record<string, string>>(payload.files || {})
 
+// The document's name, with no "· Bag of Words": Chromium uses <title> as the
+// PDF's title metadata, and the file is the document, not the app.
+useHead({
+  title: typeof payload.title === 'string' && payload.title.trim() ? payload.title.trim() : 'Document',
+  titleTemplate: null,
+})
+
 onMounted(async () => {
   // Nuxt color mode may have restored a dark preference from storage; a PDF is
   // printed on white paper either way.

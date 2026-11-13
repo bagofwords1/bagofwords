@@ -2332,6 +2332,11 @@ const creatingPrimary = ref(false); const editingPrimary = ref(false)
 const showEditStarters = ref(false); const editStarters = ref<{ title: string; prompt: string }[]>([]); const savingStarters = ref(false)
 
 const agentDetailLoading = ref(false)
+// Tab title while an agent is open: its name from the detail fetch (only
+// set when the fetch succeeded, and only for the agent on screen). With no
+// agent open, the route default ("Agents") stays.
+usePageTitle(() => (agentView.value && agentDetail.value?.id === agentView.value.agentId) ? agentDetail.value?.name : null,
+  { loading: () => !!agentView.value && agentDetailLoading.value })
 // Conversation starters are sourced from agent-scoped starter Prompts (not the
 // legacy data_source.conversation_starters JSON). Each prompt's `text` is the
 // "title\nprompt" string.

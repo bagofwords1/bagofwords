@@ -56,6 +56,7 @@ const visibleTabs = computed(() =>
 )
 
 definePageMeta({
+    titleKey: 'settings.membersTab',
     layout: 'settings',
     permissions: ['view_members'],
 })

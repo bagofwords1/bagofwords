@@ -71,7 +71,7 @@
 
 const files = ref([]);
 
-definePageMeta({ auth: true })
+definePageMeta({ titleKey: 'nav.files', auth: true })
 
 const getFiles = async () => {
   const response = await useMyFetch('/api/files', {

@@ -185,7 +185,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 
-definePageMeta({ auth: true, permissions: ['manage_settings'], layout: 'settings' })
+definePageMeta({ titleKey: 'settings.piiTab', auth: true, permissions: ['manage_settings'], layout: 'settings' })
 
 const { t } = useI18n()
 const toast = useToast()

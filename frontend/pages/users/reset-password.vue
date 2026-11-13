@@ -70,6 +70,7 @@ import { definePageMeta, useRoute } from '#imports'
 const { t } = useI18n()
 
 definePageMeta({
+  titleKey: 'pageTitles.resetPassword',
   auth: {
     unauthenticatedOnly: true,
     navigateAuthenticatedTo: '/'
