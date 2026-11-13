@@ -1858,6 +1858,17 @@ const report = ref<any | null>(null)
 	created.value = null
 }
 provide('reportSnapshot', report)
+// MCP Apps (components/tools/McpAppFrame.vue): an app's ui/message posts into
+// this conversation as the user, the same way a follow-up chip does.
+provide('mcpAppHost', {
+	sendMessage(text: string): boolean {
+		if (isStreaming.value || isCompletionInProgress.value) return false
+		const trimmed = (text || '').trim()
+		if (!trimmed) return false
+		onSubmitCompletion({ text: trimmed, mentions: [], mode: currentPromptMode.value })
+		return true
+	},
+})
 // Active-artifact visualization ids, shared with ToolWidgetPreview so
 // "Added to Dashboard" state survives a refresh with the artifact panel
 // closed (ArtifactFrame only broadcasts once it mounts).

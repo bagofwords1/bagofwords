@@ -3,8 +3,9 @@
 Runs a real streamable-HTTP MCP server in-process and counts the JSON-RPC
 messages it receives, so the assertions are about what crosses the wire:
 
-  * repeated calls to one server open one session (one ``initialize``) and the
-    SDK lists tools once, not after every call;
+  * repeated calls to one server open one session (one ``initialize``, or one
+    ``server/discover`` on a 2026-07-28+ server) and the SDK lists tools once,
+    not after every call;
   * different credentials never share a session;
   * the cap closes the least recently used session, and pooling can be off;
   * every call still returns its tool's result.
@@ -31,7 +32,7 @@ def _free_port() -> int:
 @pytest.fixture(scope="module")
 def mcp_server():
     import uvicorn
-    from mcp.server.fastmcp import FastMCP
+    from mcp.server.mcpserver import MCPServer as FastMCP
 
     server = FastMCP("pool-test")
 
@@ -84,6 +85,12 @@ def _count(seen, method, token=""):
     return seen[(f"Bearer {token}" if token else "", method)]
 
 
+def _opens(seen, token=""):
+    """Connections opened: an ``initialize`` handshake (servers before
+    2026-07-28) or a ``server/discover`` probe (2026-07-28+, stateless)."""
+    return _count(seen, "initialize", token) + _count(seen, "server/discover", token)
+
+
 def _run(coro):
     async def wrapped():
         from app.data_sources.clients.mcp_session_pool import POOL
@@ -118,7 +125,7 @@ def test_repeated_calls_share_one_session_and_list_tools_once(mcp_server, calls)
 
     results = _run(go())
     assert [str(i + 1) in _data(r) for i, r in enumerate(results)] == [True] * calls
-    assert _count(mcp_server["seen"], "initialize") == 1
+    assert _opens(mcp_server["seen"]) == 1
     assert _count(mcp_server["seen"], "tools/list") <= 1
     assert _count(mcp_server["seen"], "tools/call") == calls
 
@@ -130,7 +137,7 @@ def test_concurrent_calls_on_one_session_all_return(mcp_server):
 
     results = _run(go())
     assert all(str(i + 10) in _data(r) for i, r in enumerate(results))
-    assert _count(mcp_server["seen"], "initialize") == 1
+    assert _opens(mcp_server["seen"]) == 1
 
 
 def test_different_credentials_never_share_a_session(mcp_server):
@@ -140,8 +147,8 @@ def test_different_credentials_never_share_a_session(mcp_server):
 
     _run(go())
     seen = mcp_server["seen"]
-    assert _count(seen, "initialize", "alice-token") == 1
-    assert _count(seen, "initialize", "bob-token") == 1
+    assert _opens(seen, "alice-token") == 1
+    assert _opens(seen, "bob-token") == 1
     assert _count(seen, "tools/call", "alice-token") == 2
 
 
@@ -154,8 +161,8 @@ def test_cap_closes_the_least_recently_used_session(mcp_server, monkeypatch):
 
     _run(go())
     # One slot: "b" evicts "a", so "a" opens again.
-    assert _count(mcp_server["seen"], "initialize", "a") == 2
-    assert _count(mcp_server["seen"], "initialize", "b") == 1
+    assert _opens(mcp_server["seen"], "a") == 2
+    assert _opens(mcp_server["seen"], "b") == 1
 
 
 def test_pool_size_zero_opens_a_session_per_call(mcp_server, monkeypatch):
@@ -167,7 +174,7 @@ def test_pool_size_zero_opens_a_session_per_call(mcp_server, monkeypatch):
             await c.acall_tool("add", {"a": 1, "b": 2})
 
     _run(go())
-    assert _count(mcp_server["seen"], "initialize") == 3
+    assert _opens(mcp_server["seen"]) == 3
 
 
 # --- Races, with a fake transport (no server) -------------------------------

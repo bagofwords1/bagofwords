@@ -358,6 +358,8 @@ app.include_router(mentions.router, prefix="/api")
 app.include_router(api_key.router, prefix="/api")
 app.include_router(service_account.router, prefix="/api")
 app.include_router(mcp.router, prefix="/api")
+from app.routes import mcp_apps as _mcp_apps_routes  # noqa: E402
+app.include_router(_mcp_apps_routes.router, prefix="/api")
 app.include_router(oauth_server.well_known_router)  # /.well-known/* at root
 app.include_router(oauth_server.router, prefix="/api")  # /api/oauth/*
 app.include_router(connection.router, prefix="/api")
