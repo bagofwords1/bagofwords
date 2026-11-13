@@ -370,6 +370,11 @@ class OrganizationSettingsConfig(BaseModel):
     # Stored visibility is left alone, so turning it back on restores the links.
     # Enforced in app/services/public_sharing_policy.py.
     allow_public_sharing: FeatureConfig = FeatureConfig(value=True, name="Public link sharing", description="Allow dashboards and conversations to be shared with anyone who has the link, including people outside the organization. When off, links that are already public only open for signed-in members of this organization; turning it back on restores them.", is_lab=False, editable=True)
+    # On by default. When off, a member who opens a dashboard they cannot see
+    # gets no "Request access" button and the backend refuses new requests;
+    # requests already sent stay answerable. Enforced in
+    # app/services/access_requests_policy.py.
+    allow_access_requests: FeatureConfig = FeatureConfig(value=True, name="Allow access requests", description="Let members ask a dashboard's editors for view access from the no-access page. When off, the page just names the owner to ask, and no new requests can be sent; requests already sent stay answerable.", is_lab=False, editable=True)
     allow_forks: FeatureConfig = FeatureConfig(value=True, name="Allow Forks", description="Allow users to fork published reports into their own workspace", is_lab=False, editable=True)
     mcp_enabled: FeatureConfig = FeatureConfig(value=True, name="MCP", description="Enable Model Context Protocol (MCP) endpoint for integration with AI assistants like Cursor, Claude, or others", is_lab=False, editable=True)
     enable_mcp_tools: FeatureConfig = FeatureConfig(value=True, name="MCP & Custom API Tools", description="Allow connecting external MCP servers and custom API endpoints to data sources as tool providers", is_lab=True, editable=True)

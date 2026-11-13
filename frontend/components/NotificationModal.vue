@@ -173,6 +173,8 @@ const TYPE_ICONS: Record<string, string> = {
   share_conversation: 'i-heroicons-chat-bubble-left-right',
   share_artifact: 'i-heroicons-chart-bar-square',
   agent_access: 'i-heroicons-user-plus',
+  access_request: 'i-heroicons-lock-open',
+  access_granted: 'i-heroicons-check-badge',
   scheduled_run: 'i-heroicons-clock',
   scheduled_run_failed: 'i-heroicons-exclamation-triangle',
   trigger_run: 'i-heroicons-bolt',

@@ -481,6 +481,14 @@
       "delivery_skipped": {
         "title": "Alguns destinatários não receberam \"{report}\"",
         "body": "{count} destinatário(s) não receberam este relatório porque ele contém dados específicos de cada usuário: {recipients}"
+      },
+      "access_request": {
+        "title": "{actor} pediu para ver {dashboard}",
+        "body": "{actor} pediu para ver «{dashboard}»."
+      },
+      "access_granted": {
+        "title": "Agora você pode ver {dashboard}",
+        "body": "Sua solicitação para ver «{dashboard}» foi aprovada."
       }
     },
     "checkin": {
@@ -3284,6 +3292,10 @@
         "enable_demo_data_generation": {
           "name": "Geração de dados de demonstração",
           "description": "No modo de treinamento, administradores que gerenciam conexões podem pedir ao agente que projete e gere um conjunto de dados SQLite fictício e realista para qualquer domínio e depois crie agentes sugeridos sobre ele. As linhas são geradas pelo modelo pequeno padrão."
+        },
+        "allow_access_requests": {
+          "name": "Permitir solicitações de acesso",
+          "description": "Permite que os membros peçam acesso de leitura aos editores de um painel na página sem acesso. Quando desativado, a página apenas indica o proprietário e não é possível enviar novas solicitações; as já enviadas continuam respondíveis."
         }
       }
     },
@@ -4351,7 +4363,15 @@
     "connection.kms_diagnostics_running": "O diagnóstico já está em curso para esta ligação. Aguarde que termine e tente novamente.",
     "connection.kms_login_rejected": "O KMS Lighthouse não aceitou este início de sessão, por isso não foi guardado. Verifique o nome de utilizador e a palavra-passe, ou o token de API, e tente novamente.",
     "connection.kms_login_paused": "O KMS Lighthouse recusou recentemente este início de sessão, por isso as novas tentativas com ele estão em pausa durante alguns minutos e não foi guardado. Verifique o início de sessão ou tente novamente mais tarde.",
-    "connection.kms_session_refused": "O KMS Lighthouse aceitou o início de sessão, mas recusou a sessão correspondente, por isso não pode ser usado e não foi guardado. Pergunte ao administrador do KMS se esta conta pode usar a API do KMS."
+    "connection.kms_session_refused": "O KMS Lighthouse aceitou o início de sessão, mas recusou a sessão correspondente, por isso não pode ser usado e não foi guardado. Pergunte ao administrador do KMS se esta conta pode usar a API do KMS.",
+    "access_request.disabled": "As solicitações de acesso estão desativadas para esta organização.",
+    "access_request.not_allowed": "Este painel não precisa de uma solicitação de acesso.",
+    "access_request.already_has_access": "Você já tem acesso a este painel.",
+    "access_request.pending": "Sua solicitação já está pendente.",
+    "access_request.too_soon": "Sua solicitação anterior foi recusada. Você pode pedir novamente mais tarde.",
+    "access_request.no_approvers": "No momento, ninguém pode aprovar solicitações para este painel.",
+    "access_request.not_found": "Esta solicitação não existe mais.",
+    "access_request.already_decided": "Esta solicitação já foi respondida."
   },
   "email": {
     "dashboardShare": {
@@ -6754,6 +6774,29 @@
       "deniedBody": "Você não tem acesso a esta página. Peça ao proprietário para compartilhá-la com você.",
       "goHome": "Ir para o início",
       "backToApp": "Voltar ao app"
+    },
+    "accessRequest": {
+      "noAccessTitle": "Você não tem acesso",
+      "ownerLine": "Este painel pertence a {owner}.",
+      "ownerUnknown": "Você não tem acesso a este painel.",
+      "requestButton": "Solicitar acesso",
+      "notePlaceholder": "Adicionar uma nota (opcional)",
+      "send": "Enviar solicitação",
+      "cancel": "Cancelar",
+      "sent": "Solicitação enviada",
+      "pending": "Sua solicitação está pendente",
+      "askOwner": "Peça acesso ao proprietário do painel, {owner}.",
+      "askOwnerGeneric": "Peça acesso ao proprietário do painel.",
+      "noApprovers": "No momento, ninguém pode aprovar solicitações para este painel.",
+      "cooldown": "Sua solicitação anterior foi recusada. Você pode pedir novamente mais tarde.",
+      "pendingTitle": "Solicitações pendentes",
+      "approve": "Aprovar",
+      "deny": "Recusar",
+      "noteFrom": "Nota de {name}",
+      "switchesPrivate": "Aprovar altera este painel para «Pessoas específicas» e adiciona esta pessoa como visualizador.",
+      "runsAsCreator": "Este painel é executado com o acesso aos dados de {creator}. Aprovar permite que esta pessoa veja o que {creator} vê.",
+      "approveTitle": "Aprovar solicitação de acesso",
+      "confirmApprove": "Aprovar"
     }
   },
   "dashboardSettings": {

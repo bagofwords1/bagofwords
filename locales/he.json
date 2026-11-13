@@ -500,6 +500,14 @@
       "delivery_skipped": {
         "title": "חלק מהנמענים לא קיבלו את \"{report}\"",
         "body": "{count} נמענים לא קיבלו את הדוח הזה כי הוא מכיל נתונים אישיים לכל צופה: {recipients}"
+      },
+      "access_request": {
+        "title": "{actor} ביקש לצפות ב{dashboard}",
+        "body": "{actor} ביקש לצפות ב”{dashboard}”."
+      },
+      "access_granted": {
+        "title": "אפשר כעת לצפות ב{dashboard}",
+        "body": "הבקשה שלך לצפות ב”{dashboard}” אושרה."
       }
     },
     "checkin": {
@@ -3610,6 +3618,10 @@
         "sandbox_lists_max_rows": {
           "name": "מספר שורות מרבי ברשימות להרצת קוד",
           "description": "כמה שורות הרצה אחת של הקוד שנוצר יכולה לשלוח לרשימות הסוכן. 1 עד 50,000."
+        },
+        "allow_access_requests": {
+          "name": "אפשר בקשות גישה",
+          "description": "אפשר לחברים לבקש גישת צפייה מעורכי הגלריה מתוך דף אין‑גישה. כאשר כבוי, הדף רק מציין את בעל הגלריה לפנייה ולא ניתן לשלוח בקשות חדשות; בקשות שכבר נשלחו נשארות ניתנות למענה."
         }
       }
     },
@@ -4725,7 +4737,15 @@
     "connection.kms_diagnostics_running": "האבחון כבר פועל עבור החיבור הזה. המתינו לסיומו ונסו שוב.",
     "connection.kms_login_rejected": "KMS Lighthouse לא קיבל את פרטי ההתחברות האלה, ולכן הם לא נשמרו. בדקו את שם המשתמש והסיסמה, או את אסימון ה-API, ונסו שוב.",
     "connection.kms_login_paused": "KMS Lighthouse דחה לאחרונה את פרטי ההתחברות האלה, ולכן ניסיונות נוספים איתם מושהים לכמה דקות והם לא נשמרו. בדקו את פרטי ההתחברות או נסו שוב מאוחר יותר.",
-    "connection.kms_session_refused": "KMS Lighthouse קיבל את פרטי ההתחברות אבל דחה את הסשן שלהם, ולכן אי אפשר להשתמש בהם והם לא נשמרו. פנו למנהל ה-KMS כדי לבדוק אם החשבון הזה רשאי להשתמש ב-API של KMS."
+    "connection.kms_session_refused": "KMS Lighthouse קיבל את פרטי ההתחברות אבל דחה את הסשן שלהם, ולכן אי אפשר להשתמש בהם והם לא נשמרו. פנו למנהל ה-KMS כדי לבדוק אם החשבון הזה רשאי להשתמש ב-API של KMS.",
+    "access_request.disabled": "בקשות גישה כבויות בארגון הזה.",
+    "access_request.not_allowed": "הגלריה הזו אינה זקוקה לבקשת גישה.",
+    "access_request.already_has_access": "כבר יש לך גישה לגלריה הזו.",
+    "access_request.pending": "הבקשה שלך כבר ממתינה.",
+    "access_request.too_soon": "הבקשה הקודמת שלך נדחתה. אפשר לבקש שוב מאוחר יותר.",
+    "access_request.no_approvers": "אין כרגע מי שיכול לאשר בקשות לגלריה הזו.",
+    "access_request.not_found": "הבקשה הזו כבר לא קיימת.",
+    "access_request.already_decided": "הבקשה הזו כבר נענתה."
   },
   "email": {
     "dashboardShare": {
@@ -7288,6 +7308,29 @@
       "deniedBody": "אין לך גישה לדף הזה. בקש/י מהבעלים לשתף אותו איתך.",
       "goHome": "לדף הבית",
       "backToApp": "חזרה לאפליקציה"
+    },
+    "accessRequest": {
+      "noAccessTitle": "אין לך גישה",
+      "ownerLine": "הגלריה הזו שייכת ל{owner}.",
+      "ownerUnknown": "אין לך גישה לגלריה הזו.",
+      "requestButton": "בקשת גישה",
+      "notePlaceholder": "הוספת הערה (רשות)",
+      "send": "שליחת בקשה",
+      "cancel": "ביטול",
+      "sent": "הבקשה נשלחה",
+      "pending": "הבקשה שלך ממתינה",
+      "askOwner": "פנה לבעלי הגלריה, {owner}.",
+      "askOwnerGeneric": "פנה לבעלי הגלריה לקבלת גישה.",
+      "noApprovers": "אין כרגע מי שיכול לאשר בקשות לגלריה הזו.",
+      "cooldown": "הבקשה הקודמת שלך נדחתה. אפשר לבקש שוב מאוחר יותר.",
+      "pendingTitle": "בקשות ממתינות",
+      "approve": "אישור",
+      "deny": "דחייה",
+      "noteFrom": "הערה מאת {name}",
+      "switchesPrivate": "אישור הבקשה יעביר את הגלריה ל”אנשים מסוימים” ויוסיף את האדם הזה כצופה.",
+      "runsAsCreator": "הגלריה הזו פועלת עם גישת הנתונים של {creator}. אישור מאפשר לאדם הזה לראות את מה ש{creator} רואה.",
+      "approveTitle": "אישור בקשת גישה",
+      "confirmApprove": "אישור"
     }
   },
   "dashboardSettings": {

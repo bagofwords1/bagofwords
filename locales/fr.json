@@ -481,6 +481,14 @@
       "delivery_skipped": {
         "title": "Certains destinataires n'ont pas reçu « {report} »",
         "body": "{count} destinataire(s) n'ont pas reçu ce rapport, car il contient des données propres à chaque lecteur : {recipients}"
+      },
+      "access_request": {
+        "title": "{actor} a demandé à voir {dashboard}",
+        "body": "{actor} a demandé à voir « {dashboard} »."
+      },
+      "access_granted": {
+        "title": "Vous pouvez maintenant voir {dashboard}",
+        "body": "Votre demande de voir « {dashboard} » a été approuvée."
       }
     },
     "checkin": {
@@ -3284,6 +3292,10 @@
         "enable_demo_data_generation": {
           "name": "Génération de données de démo",
           "description": "En mode entraînement, les administrateurs qui gèrent les connexions peuvent demander à l'agent de concevoir et générer un jeu de données SQLite fictif et réaliste pour n'importe quel domaine, puis de créer des agents suggérés dessus. Les lignes sont générées par le petit modèle par défaut."
+        },
+        "allow_access_requests": {
+          "name": "Autoriser les demandes d'accès",
+          "description": "Permet aux membres de demander l'accès en lecture aux éditeurs d'un tableau de bord depuis la page sans accès. Désactivé, la page indique seulement le propriétaire et aucune nouvelle demande ne peut être envoyée ; les demandes déjà envoyées restent traitables."
         }
       }
     },
@@ -4351,7 +4363,15 @@
     "connection.kms_diagnostics_running": "Un diagnostic est déjà en cours pour cette connexion. Attendez qu'il se termine, puis réessayez.",
     "connection.kms_login_rejected": "KMS Lighthouse n'a pas accepté cet identifiant, il n'a donc pas été enregistré. Vérifiez le nom d'utilisateur et le mot de passe, ou le jeton d'API, puis réessayez.",
     "connection.kms_login_paused": "KMS Lighthouse a récemment refusé cet identifiant : les nouvelles tentatives sont suspendues pendant quelques minutes et il n'a pas été enregistré. Vérifiez l'identifiant ou réessayez plus tard.",
-    "connection.kms_session_refused": "KMS Lighthouse a accepté cet identifiant mais a refusé sa session : il ne peut donc pas être utilisé et n'a pas été enregistré. Demandez à l'administrateur KMS si ce compte peut utiliser l'API KMS."
+    "connection.kms_session_refused": "KMS Lighthouse a accepté cet identifiant mais a refusé sa session : il ne peut donc pas être utilisé et n'a pas été enregistré. Demandez à l'administrateur KMS si ce compte peut utiliser l'API KMS.",
+    "access_request.disabled": "Les demandes d'accès sont désactivées pour cette organisation.",
+    "access_request.not_allowed": "Ce tableau de bord n'a pas besoin d'une demande d'accès.",
+    "access_request.already_has_access": "Vous avez déjà accès à ce tableau de bord.",
+    "access_request.pending": "Votre demande est déjà en attente.",
+    "access_request.too_soon": "Votre demande précédente a été refusée. Vous pourrez redemander plus tard.",
+    "access_request.no_approvers": "Personne ne peut approuver les demandes pour ce tableau de bord pour le moment.",
+    "access_request.not_found": "Cette demande n'existe plus.",
+    "access_request.already_decided": "Cette demande a déjà été traitée."
   },
   "email": {
     "dashboardShare": {
@@ -6754,6 +6774,29 @@
       "deniedBody": "Vous n'avez pas accès à cette page. Demandez à son propriétaire de la partager avec vous.",
       "goHome": "Accueil",
       "backToApp": "Retour à l'application"
+    },
+    "accessRequest": {
+      "noAccessTitle": "Vous n'avez pas accès",
+      "ownerLine": "Ce tableau de bord appartient à {owner}.",
+      "ownerUnknown": "Vous n'avez pas accès à ce tableau de bord.",
+      "requestButton": "Demander l'accès",
+      "notePlaceholder": "Ajouter une note (facultatif)",
+      "send": "Envoyer la demande",
+      "cancel": "Annuler",
+      "sent": "Demande envoyée",
+      "pending": "Votre demande est en attente",
+      "askOwner": "Demandez l'accès au propriétaire du tableau de bord, {owner}.",
+      "askOwnerGeneric": "Demandez l'accès au propriétaire du tableau de bord.",
+      "noApprovers": "Personne ne peut approuver les demandes pour ce tableau de bord pour le moment.",
+      "cooldown": "Votre demande précédente a été refusée. Vous pourrez redemander plus tard.",
+      "pendingTitle": "Demandes en attente",
+      "approve": "Approuver",
+      "deny": "Refuser",
+      "noteFrom": "Note de {name}",
+      "switchesPrivate": "L'approbation fait passer ce tableau de bord en « Personnes spécifiques » et ajoute cette personne comme lecteur.",
+      "runsAsCreator": "Ce tableau de bord s'exécute avec l'accès aux données de {creator}. L'approbation permet à cette personne de voir ce que voit {creator}.",
+      "approveTitle": "Approuver la demande d'accès",
+      "confirmApprove": "Approuver"
     }
   },
   "dashboardSettings": {

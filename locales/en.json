@@ -517,6 +517,14 @@
       "delivery_skipped": {
         "title": "Some recipients did not get \"{report}\"",
         "body": "{count} recipient(s) were not sent this report because it contains data scoped to each viewer: {recipients}"
+      },
+      "access_request": {
+        "title": "{actor} asked to view {dashboard}",
+        "body": "{actor} asked to view “{dashboard}”."
+      },
+      "access_granted": {
+        "title": "You can now view {dashboard}",
+        "body": "Your request to view “{dashboard}” was approved."
       }
     },
     "checkin": {
@@ -3696,6 +3704,10 @@
         "sandbox_lists_max_rows": {
           "name": "Max list rows per code run",
           "description": "How many rows one run of generated code may submit to Agent Lists. 1 to 50,000."
+        },
+        "allow_access_requests": {
+          "name": "Allow access requests",
+          "description": "Let members ask a dashboard's editors for view access from the no-access page. When off, the page just names the owner to ask, and no new requests can be sent; requests already sent stay answerable."
         }
       }
     },
@@ -4785,7 +4797,15 @@
     "connection.kms_diagnostics_running": "Diagnostics are already running for this connection. Wait for them to finish, then try again.",
     "connection.kms_login_rejected": "KMS Lighthouse did not accept this login, so it was not saved. Check the username and password, or the API token, and try again.",
     "connection.kms_login_paused": "KMS Lighthouse recently refused this login, so new attempts with it are paused for a few minutes and it was not saved. Check the login, or try again later.",
-    "connection.kms_session_refused": "KMS Lighthouse accepted the login but refused its session, so it cannot be used and was not saved. Ask the KMS administrator whether this account may use the KMS API."
+    "connection.kms_session_refused": "KMS Lighthouse accepted the login but refused its session, so it cannot be used and was not saved. Ask the KMS administrator whether this account may use the KMS API.",
+    "access_request.disabled": "Access requests are turned off for this organization.",
+    "access_request.not_allowed": "This dashboard does not need an access request.",
+    "access_request.already_has_access": "You already have access to this dashboard.",
+    "access_request.pending": "Your request is already pending.",
+    "access_request.too_soon": "Your previous request was declined. You can ask again later.",
+    "access_request.no_approvers": "No one can approve requests for this dashboard right now.",
+    "access_request.not_found": "This request no longer exists.",
+    "access_request.already_decided": "This request was already answered."
   },
   "email": {
     "dashboardShare": {
@@ -7297,6 +7317,29 @@
       "deniedBody": "You don't have access to this page. Ask its owner to share it with you.",
       "goHome": "Go home",
       "backToApp": "Back to app"
+    },
+    "accessRequest": {
+      "noAccessTitle": "You don't have access",
+      "ownerLine": "This dashboard belongs to {owner}.",
+      "ownerUnknown": "You don't have access to this dashboard.",
+      "requestButton": "Request access",
+      "notePlaceholder": "Add a note (optional)",
+      "send": "Send request",
+      "cancel": "Cancel",
+      "sent": "Request sent",
+      "pending": "Your request is pending",
+      "askOwner": "Ask the dashboard owner, {owner}.",
+      "askOwnerGeneric": "Ask the dashboard owner for access.",
+      "noApprovers": "No one can approve requests for this dashboard right now.",
+      "cooldown": "Your previous request was declined. You can ask again later.",
+      "pendingTitle": "Pending requests",
+      "approve": "Approve",
+      "deny": "Deny",
+      "noteFrom": "Note from {name}",
+      "switchesPrivate": "Approving switches this dashboard to “Specific people” and adds this person as a viewer.",
+      "runsAsCreator": "This dashboard runs with {creator}'s data access. Approving lets this person see what {creator} sees.",
+      "approveTitle": "Approve access request",
+      "confirmApprove": "Approve"
     }
   },
   "dashboardSettings": {

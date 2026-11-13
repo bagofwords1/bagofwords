@@ -15,11 +15,69 @@
         </div>
     </main>
     <div v-else-if="accessError === 'denied'" class="min-h-dvh w-full flex items-center justify-center bg-surface">
-        <div class="text-center max-w-sm mx-auto px-6">
+        <div class="text-center max-w-sm mx-auto px-6" data-testid="dashboard-access-request">
             <Icon name="heroicons:shield-exclamation" class="w-8 h-8 mx-auto mb-4 text-ink-muted" />
-            <h2 class="text-lg font-semibold text-ink mb-2">{{ t('dashboardCollab.access.deniedTitle') }}</h2>
-            <p class="text-sm text-ink-muted mb-6">{{ t('dashboardCollab.access.deniedBody') }}</p>
-            <UButton to="/" color="white">{{ t('dashboardCollab.access.goHome') }}</UButton>
+            <h2 class="text-lg font-semibold text-ink mb-2">{{ t('dashboardCollab.accessRequest.noAccessTitle') }}</h2>
+            <p class="text-sm text-ink-muted mb-6">
+                {{ blockedState?.owner_name
+                    ? t('dashboardCollab.accessRequest.ownerLine', { owner: blockedState.owner_name })
+                    : t('dashboardCollab.accessRequest.ownerUnknown') }}
+            </p>
+
+            <!-- Already asked: pending. -->
+            <div v-if="blockedState?.pending || accessRequestSent"
+                class="rounded-lg bg-surface-subtle px-4 py-3 text-sm text-ink" data-testid="access-request-pending">
+                <Icon name="heroicons:clock" class="w-4 h-4 inline-block me-1 -mt-0.5" />
+                {{ accessRequestSent ? t('dashboardCollab.accessRequest.sent') : t('dashboardCollab.accessRequest.pending') }}
+            </div>
+
+            <!-- Requests turned off for the org: just name the owner to ask. -->
+            <p v-else-if="blockedState && !blockedState.requests_enabled" class="text-sm text-ink-muted"
+                data-testid="access-request-off">
+                {{ blockedState.owner_name
+                    ? t('dashboardCollab.accessRequest.askOwner', { owner: blockedState.owner_name })
+                    : t('dashboardCollab.accessRequest.askOwnerGeneric') }}
+            </p>
+
+            <!-- No one left to approve. -->
+            <p v-else-if="blockedState && !blockedState.has_approvers" class="text-sm text-ink-muted"
+                data-testid="access-request-no-approvers">
+                {{ t('dashboardCollab.accessRequest.noApprovers') }}
+            </p>
+
+            <!-- Previously declined, still within the cooldown. -->
+            <p v-else-if="blockedState && blockedState.retry_at" class="text-sm text-ink-muted"
+                data-testid="access-request-cooldown">
+                {{ t('dashboardCollab.accessRequest.cooldown') }}
+            </p>
+
+            <!-- Can ask: the button, then an optional note. -->
+            <div v-else-if="blockedState && blockedState.eligible">
+                <div v-if="!accessRequestFormOpen">
+                    <UButton color="black" block data-testid="access-request-open"
+                        @click="accessRequestFormOpen = true">
+                        {{ t('dashboardCollab.accessRequest.requestButton') }}
+                    </UButton>
+                </div>
+                <div v-else class="text-start">
+                    <UTextarea v-model="accessRequestNote" :rows="3"
+                        :placeholder="t('dashboardCollab.accessRequest.notePlaceholder')"
+                        :maxlength="1000" data-testid="access-request-note" class="mb-3" />
+                    <div class="flex gap-2">
+                        <UButton color="black" :loading="accessRequesting" data-testid="access-request-send"
+                            @click="submitAccessRequest">
+                            {{ t('dashboardCollab.accessRequest.send') }}
+                        </UButton>
+                        <UButton color="white" :disabled="accessRequesting"
+                            @click="accessRequestFormOpen = false">
+                            {{ t('dashboardCollab.accessRequest.cancel') }}
+                        </UButton>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Fallback (not eligible / state unknown). -->
+            <UButton v-else to="/" color="white" class="mt-2">{{ t('dashboardCollab.access.goHome') }}</UButton>
         </div>
     </div>
 
@@ -899,6 +957,60 @@ useHead(() => ({ title: pageTitle.value }));
 // Access error state
 const accessError = ref<'login' | 'denied' | null>(null);
 
+// ── Request-to-view (access requests) ────────────────────────────────────
+// The blocked page's thin state: the owner's name, whether requests are
+// allowed, whether one is already pending, and whether anyone can approve --
+// never the dashboard's title (the backend withholds it).
+type BlockedState = {
+    owner_name: string | null;
+    requests_enabled: boolean;
+    eligible: boolean;
+    has_approvers: boolean;
+    pending: boolean;
+    retry_at: string | null;
+};
+const blockedState = ref<BlockedState | null>(null);
+const accessRequestNote = ref('');
+const accessRequestFormOpen = ref(false);
+const accessRequesting = ref(false);
+const accessRequestSent = ref(false);
+
+async function loadBlockedState(): Promise<boolean> {
+    // Only for a signed-in member; anonymous callers get the sign-in page.
+    try {
+        const { data, error } = await useMyFetch(`/artifacts/${props.id}/access_request`);
+        if (error.value || !data.value) return false;
+        blockedState.value = data.value as BlockedState;
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function submitAccessRequest() {
+    if (accessRequesting.value) return;
+    accessRequesting.value = true;
+    try {
+        const { data, error } = await useMyFetch(`/artifacts/${props.id}/access_requests`, {
+            method: 'POST',
+            body: { note: accessRequestNote.value || null },
+        });
+        if (error.value) {
+            toast.add({ description: getErrorMessage(error.value), color: 'red' });
+            // Refresh the state (pending / cooldown may now apply).
+            blockedState.value = ((error.value as any)?.data && typeof (error.value as any).data === 'object'
+                && 'owner_name' in (error.value as any).data) ? (error.value as any).data : blockedState.value;
+            await loadBlockedState();
+            return;
+        }
+        if (data.value) blockedState.value = data.value as BlockedState;
+        accessRequestSent.value = true;
+        accessRequestFormOpen.value = false;
+    } finally {
+        accessRequesting.value = false;
+    }
+}
+
 // Fetch report info
 async function loadReport() {
     try {
@@ -945,7 +1057,20 @@ async function loadReport() {
             }
             if (status === 403) {
                 accessError.value = 'denied';
+                await loadBlockedState();
                 return;
+            }
+            // A private dashboard the member may not see returns 404 (hidden by
+            // design). It may still be requestable: the access-request endpoint
+            // reveals only the owner (never the title) and only for a published
+            // dashboard, so a signed-in member sees the request page instead of
+            // a bare "not found".
+            if (status === 404 && (props.source === 'dashboard' || props.source === 'report')
+                && currentUser.value && !inHostApplication.value) {
+                if (await loadBlockedState()) {
+                    accessError.value = 'denied';
+                    return;
+                }
             }
             navigateTo('/not_found');
             return;

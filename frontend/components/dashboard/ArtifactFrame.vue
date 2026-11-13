@@ -224,7 +224,7 @@
         </div>
 
         <!-- Share Dashboard -->
-        <ShareModal v-if="report && selectedArtifact?.artifact_id" :report="report" share-type="artifact" :title="tm('share.shareDashboard', selectedArtifact?.mode)"
+        <ShareModal v-if="report && selectedArtifact?.artifact_id" ref="shareModalRef" :report="report" share-type="artifact" :title="tm('share.shareDashboard', selectedArtifact?.mode)"
           :artifact-mode="selectedArtifact.mode"
           :item-name="selectedArtifact.title" :dashboard-id="selectedArtifact.artifact_id" />
 
@@ -1914,6 +1914,24 @@ function reviewChanges() {
 
 // The settings window: its History tabs open from the ⋯ menu too.
 const settingsModalRef = ref<any>(null);
+// An access-request notification deep-links to ?share=access_requests: open
+// the share settings once the modal is mounted, then drop the query so a
+// reload does not reopen it.
+const shareModalRef = ref<any>(null);
+const sharePromptHandled = ref(false);
+watch(
+  () => [paramRoute.query.share, !!shareModalRef.value] as const,
+  ([share, ready]) => {
+    if (share === 'access_requests' && ready && !sharePromptHandled.value) {
+      sharePromptHandled.value = true;
+      shareModalRef.value?.open?.();
+      const q = { ...paramRoute.query };
+      delete q.share;
+      navigateTo({ query: q }, { replace: true });
+    }
+  },
+  { immediate: true },
+);
 const activityLogRef = ref<InstanceType<typeof ArtifactActivityLog> | null>(null);
 const inspectOpen = ref(false);
 // Remounting the Publish button re-reads what readers see now.
