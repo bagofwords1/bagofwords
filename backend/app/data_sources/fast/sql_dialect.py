@@ -170,7 +170,7 @@ def explain_mssql(conn, sql: str) -> "Estimate":
 
     conn.exec_driver_sql("SET SHOWPLAN_XML ON")
     try:
-        plan_xml = conn.exec_driver_sql(strip_trailing_semicolon(sql)).scalar()
+        plan_xml = _exact(conn, strip_trailing_semicolon(sql)).scalar()
     finally:
         conn.exec_driver_sql("SET SHOWPLAN_XML OFF")
 
@@ -221,7 +221,7 @@ def explain_oracle(conn, sql: str) -> "Estimate":
     """
     statement_id = "bow_" + _STATEMENT_ID_SAFE.sub("", uuid.uuid4().hex)[:20]
     inner = strip_trailing_semicolon(sql)
-    conn.exec_driver_sql(f"EXPLAIN PLAN SET STATEMENT_ID = '{statement_id}' FOR {inner}")
+    _exact(conn, f"EXPLAIN PLAN SET STATEMENT_ID = '{statement_id}' FOR {inner}")
     try:
         row = conn.execute(
             text(

@@ -6,7 +6,8 @@ the read-only guard returned it. Nothing rewrites it on the way: no
 unchanged, and the server's own record of the statement equals the text the
 client was handed.
 
-Needs Docker; skips without it, and fails in CI instead.
+Needs Docker. CI does not collect tests/integrations; these run on the test
+harness. Without a Docker daemon they skip, or fail when CI is set.
 """
 
 from __future__ import annotations

@@ -2,6 +2,8 @@ from app.data_sources.clients.progress import discovery_progress, discovery_phas
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.progress import make_reporter, IndexingCancelled
 
+import logging
+
 import pandas as pd
 import sqlalchemy
 
@@ -17,6 +19,8 @@ from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
 from functools import cached_property
 from app.data_sources.routines import build_routine_tables, postgres_variants, with_routines
+
+logger = logging.getLogger(__name__)
 
 
 class PostgresqlClient(DataSourceClient):
@@ -80,11 +84,13 @@ class PostgresqlClient(DataSourceClient):
         """Yield a connection to a Postgres db.
 
         `read_only=True` is for reads of agent and custom-table SQL: the
-        server refuses any write in the connection's transaction (whatever
-        the checks missed), and the transaction always ends in a rollback,
-        never a commit, so what a read could still change inside it (a large
-        object, say) does not last. Only the transaction is read-only; the
-        pooled session keeps no read-only default.
+        server refuses any write that the single checked statement makes in
+        the connection's transaction (the guard's single-statement check is
+        what keeps a text from holding more than one), and the transaction
+        always ends in a rollback, never a commit, so what a read could
+        still change inside it (a large object, say) does not last. Only the
+        transaction is read-only; the pooled session keeps no read-only
+        default.
         """
         conn = None
         try:
@@ -98,8 +104,15 @@ class PostgresqlClient(DataSourceClient):
                 search_path = ", ".join(self._schemas)
                 try:
                     conn.execute(text(f"SET search_path TO {search_path}"))
-                except Exception:
-                    pass
+                except Exception as e:
+                    # The type only: the error text holds the schema names.
+                    logger.warning("postgresql.schema_setting_failed setting=schema error=%s", type(e).__name__)
+                    conn.rollback()
+                    raise RuntimeError(
+                        "The connection's schema setting could not be applied on the server "
+                        f"(SET search_path failed: {type(e).__name__}). Check the schema names in the "
+                        "connection settings; write a name that needs quoting in double quotes."
+                    ) from e
         except Exception as e:
             if conn is not None:
                 conn.close()
@@ -120,6 +133,7 @@ class PostgresqlClient(DataSourceClient):
                 except Exception:
                     # A session that cannot roll back is not reused; the
                     # server ends its open transaction without committing.
+                    logger.warning("postgresql.read_only_rollback_failed; the connection is dropped", exc_info=True)
                     conn.invalidate()
             conn.close()
         # NB: no engine.dispose() — the engine is pooled and shared

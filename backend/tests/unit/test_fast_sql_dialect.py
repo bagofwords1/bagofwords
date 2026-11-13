@@ -121,6 +121,8 @@ class FakeConn:
     def __init__(self, replies):
         self.replies = list(replies)
         self.sent = []
+        # (statement, execution options) for every driver-level call.
+        self.driver_calls = []
 
     def _next(self):
         return self.replies.pop(0) if self.replies else FakeResult()
@@ -131,10 +133,30 @@ class FakeConn:
 
     def exec_driver_sql(self, stmt, parameters=None, execution_options=None):
         self.sent.append((str(stmt), None))
+        self.driver_calls.append((str(stmt), dict(execution_options or {})))
         return self._next()
 
     def commit(self):
         pass
+
+
+# A query whose text a parameter pass would change (`:name`, `%`).
+MARKED_QUERY = "SELECT ':x' AS a, '%' AS b FROM orders"
+
+
+@pytest.mark.parametrize("explain,replies", [
+    (sql_dialect.explain_postgresql, [FakeResult(scalar=[{"Plan": {"Plan Rows": 1, "Plan Width": 1}}])]),
+    (sql_dialect.explain_mysql, [FakeResult(mappings=[{"rows": 1}])]),
+    (sql_dialect.explain_mssql, [FakeResult(), FakeResult(scalar=None), FakeResult()]),
+    (sql_dialect.explain_oracle, [FakeResult(), FakeResult(first=None), FakeResult()]),
+    (sql_dialect.explain_snowflake, [FakeResult(scalar="{}")]),
+])
+def test_every_explain_helper_sends_the_query_text_without_parameter_processing(explain, replies):
+    conn = FakeConn(replies)
+    explain(conn, MARKED_QUERY)
+    carrying = [options for statement, options in conn.driver_calls if MARKED_QUERY in statement]
+    assert carrying, "the query text reaches the driver"
+    assert all(options.get("no_parameters") is True for options in carrying)
 
 
 def test_postgresql_reads_rows_and_width_from_the_json_plan():
@@ -202,7 +224,7 @@ def test_sql_server_always_turns_showplan_back_off():
 
 def test_sql_server_turns_showplan_off_even_when_the_query_fails():
     class Failing(FakeConn):
-        def exec_driver_sql(self, stmt):
+        def exec_driver_sql(self, stmt, parameters=None, execution_options=None):
             self.sent.append((str(stmt), None))
             if stmt.startswith("SELECT"):
                 raise RuntimeError("invalid object name")

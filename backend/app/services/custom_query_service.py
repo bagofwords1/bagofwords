@@ -1020,8 +1020,10 @@ class CustomQueryService:
             "custom_query.refresh.failed",
             extra={"custom_query": cq.name, "error": str(error)},
         )
+        # What the failed run sent (or tried to), when it got that far.
+        sent = {"rendered_query": run.rendered_query} if run.rendered_query else {}
         await runs.finish(run.run_id, status=STATUS_FAILED, error=str(error),
-                          events=run.take_events(), chunks=run.chunk_log())
+                          events=run.take_events(), chunks=run.chunk_log(), **sent)
 
     async def _in_thread(self, run: "_Run", work):
         """Run one unit of blocking work without letting go of the volume.
@@ -1469,14 +1471,14 @@ class CustomQueryService:
             est = extractor.estimate(run.client, rendered)
             extractor.check_budget(est)
             src, checked = self._checked_source(run, rendered)
-            outcome = loader.apply_increment(
+            # Before the send, so a failed increment records the text it sent.
+            run.rendered_query = checked
+            return loader.apply_increment(
                 src, checked, run.previous_path, run.previous_key,
                 run.name, run.connection_id, run.run_id, run.config, window, self._limits(run),
                 batch_rows=extractor.BATCH_ROWS, previous_rows=run.previous_rows, wrapped=run.wrapped,
                 filter_locally=not run.at_source,
             )
-            run.rendered_query = checked
-            return outcome
         except _PASS_THROUGH:
             raise
         except Exception as e:

@@ -14,11 +14,13 @@ Contract, on a real Postgres 15:
   value the guard read;
 * a query that leaves the setting off does not hand its connection back.
 
-Needs Docker; skips without it, and fails in CI instead.
+Needs Docker. CI does not collect tests/integrations; these run on the test
+harness. Without a Docker daemon they skip, or fail when CI is set.
 """
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import time
@@ -242,6 +244,46 @@ def test_a_read_that_leaves_standard_strings_off_does_not_return_its_connection(
     df = client.execute_query(
         "SELECT set_config('standard_conforming_strings', 'off', false) AS v, pg_backend_pid() AS pid")
     pid = int(df["pid"].iloc[0])
+    assert _discovery_backend(client)[0] != pid
+
+
+CLIENT_LOGGER = "app.data_sources.clients.postgresql_client"
+
+
+def _client_warnings(caplog) -> list:
+    return [r for r in caplog.records if r.name == CLIENT_LOGGER and r.levelno == logging.WARNING]
+
+
+@pytest.mark.parametrize("read_only", [True, False])
+def test_a_schema_setting_the_server_cannot_apply_fails_with_an_error_naming_it(server, caplog, read_only):
+    # alembic's logging config disables loggers that already exist.
+    logging.getLogger(CLIENT_LOGGER).disabled = False
+    caplog.set_level(logging.WARNING, logger=CLIENT_LOGGER)
+    schema = "needs-quoting"
+    client = PostgresqlClient(host=server["host"], port=server["port"], database=server["dbname"],
+                              user=server["user"], password=server["password"], schema=schema)
+    with pytest.raises(RuntimeError, match="schema setting") as error:
+        with client.connect(read_only=read_only) as conn:
+            conn.exec_driver_sql("SELECT 1").scalar()
+    assert "current transaction is aborted" not in str(error.value)
+    warnings = _client_warnings(caplog)
+    assert warnings, "the failure is logged"
+    assert all(schema not in r.getMessage() for r in warnings), "the log holds no schema value"
+
+
+def test_a_read_whose_rollback_fails_is_logged_and_its_session_is_not_reused(server, caplog):
+    logging.getLogger(CLIENT_LOGGER).disabled = False
+    caplog.set_level(logging.WARNING, logger=CLIENT_LOGGER)
+    client = _client(server)
+    with client.connect(read_only=True) as conn:
+        pid = int(conn.exec_driver_sql("SELECT pg_backend_pid()").scalar())
+        _admin(server, f"SELECT pg_terminate_backend({pid})")
+        deadline = time.monotonic() + 10
+        while _admin(server, f"SELECT count(*) FROM pg_stat_activity WHERE pid = {pid}") != [(0,)]:
+            assert time.monotonic() < deadline, "the backend did not end"
+            time.sleep(0.1)
+    warnings = _client_warnings(caplog)
+    assert warnings and all(r.exc_info for r in warnings)
     assert _discovery_backend(client)[0] != pid
 
 

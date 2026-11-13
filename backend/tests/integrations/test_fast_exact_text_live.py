@@ -10,7 +10,8 @@ that logs every statement it receives:
 * a full (non-incremental) refresh sends the definition's checked text;
 * each run's `rendered_query` is a text the server received.
 
-Needs Docker; skips without it, and fails in CI instead.
+Needs Docker. CI does not collect tests/integrations; these run on the test
+harness. Without a Docker daemon they skip, or fail when CI is set.
 """
 
 from __future__ import annotations
@@ -176,6 +177,26 @@ async def test_a_windowed_load_and_the_increment_after_it_send_the_checked_text(
     sent = _received(server)[before:]
     _assert_checked(sent)
     assert increment["rendered_query"] in sent
+
+
+async def test_a_failed_increment_records_the_checked_text_it_was_sending(lab, server):
+    from fastapi import HTTPException
+
+    from app.data_sources.fast.sources import SqlAlchemySource
+
+    await lab.table(DEFINITION, incremental.MODE_MERGE, cursor_column="updated_at", unique_key=["id"])
+    await lab.refresh()
+    server["admin"].cursor().execute(
+        "INSERT INTO items SELECT g, now() AT TIME ZONE 'UTC' FROM generate_series(46, 48) g")
+
+    def source_went_away(self, sql, batch_rows):
+        raise ConnectionError("source went away")
+
+    with patch.object(SqlAlchemySource, "stream_batches", source_went_away), pytest.raises(HTTPException):
+        await lab.refresh()
+    run = await lab.last_run()
+    assert (run["mode"], run["status"]) == ("incremental", "failed")
+    _assert_checked([run["rendered_query"]])
 
 
 async def test_a_full_refresh_sends_and_records_the_checked_text(lab, server):
