@@ -5,6 +5,8 @@ from app.data_sources.clients.progress import make_reporter, IndexingCancelled
 import pandas as pd
 import sqlalchemy
 
+from app.data_sources.clients._exact_sql import read_sql_exact
+from app.data_sources.clients._pg_session import prepare_pg_session, verify_pg_session_after
 from app.data_sources.engine_pool import get_engine
 from app.data_sources.fk_reflection import attach_foreign_keys
 from app.data_sources.query_cancellation import track
@@ -74,12 +76,23 @@ class PostgresqlClient(DataSourceClient):
         return uri
 
     @contextmanager
-    def connect(self) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
-        """Yield a connection to a Postgres db."""
+    def connect(self, *, read_only: bool = False) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
+        """Yield a connection to a Postgres db.
+
+        `read_only=True` is for reads of agent and custom-table SQL: the
+        server refuses any write in the connection's transaction (whatever
+        the checks missed), and the transaction always ends in a rollback,
+        never a commit, so what a read could still change inside it (a large
+        object, say) does not last. Only the transaction is read-only; the
+        pooled session keeps no read-only default.
+        """
         conn = None
         try:
             engine = get_engine(self.pg_uri, connect_args={"sslmode": self.sslmode})
             conn = engine.connect()
+            if read_only:
+                # Before the first statement: it applies from the BEGIN.
+                conn.execution_options(postgresql_readonly=True)
             # Set search_path if schemas are provided
             if self._schemas:
                 search_path = ", ".join(self._schemas)
@@ -101,15 +114,28 @@ class PostgresqlClient(DataSourceClient):
             with track(self, conn):
                 yield conn
         finally:
+            if read_only:
+                try:
+                    conn.rollback()
+                except Exception:
+                    # A session that cannot roll back is not reused; the
+                    # server ends its open transaction without committing.
+                    conn.invalidate()
             conn.close()
         # NB: no engine.dispose() — the engine is pooled and shared
         # (engine_pool). conn.close() above returns the connection.
 
     def execute_query(self, sql: str) -> pd.DataFrame:
-        """Execute SQL statement and return the result as a DataFrame."""
+        """Execute SQL statement and return the result as a DataFrame.
+
+        `sql` is sent exactly as given (the read-only guard returned it), in
+        a read-only transaction on a session that reads literals as the
+        guard did."""
         try:
-            with self.connect() as conn:
-                df = pd.read_sql(text(sql), conn)
+            with self.connect(read_only=True) as conn:
+                prepare_pg_session(conn, sql)
+                df = read_sql_exact(sql, conn)
+                verify_pg_session_after(conn)
             return df
         except Exception as e:
             print(f"Error executing SQL: {e}")

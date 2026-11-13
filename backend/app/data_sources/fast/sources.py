@@ -26,6 +26,7 @@ it natively is a page of code, and wide enough that nothing else has to know.
 """
 
 import logging
+from contextlib import contextmanager
 from typing import Iterator, List, NamedTuple, Optional, Protocol, Tuple
 
 logger = logging.getLogger(__name__)
@@ -276,8 +277,9 @@ class SqlAlchemySource:
 
     # -- connection ------------------------------------------------------
 
-    def _open(self):
-        """A SQLAlchemy Connection for this client.
+    @contextmanager
+    def _open(self, sql: str):
+        """A SQLAlchemy Connection for this client, ready to run `sql`.
 
         Most clients' own `connect()` already yields one, and using it is
         strictly better: it is pooled, carries the connection's schema or
@@ -289,11 +291,24 @@ class SqlAlchemySource:
         because its Entra token is handed to the driver through `attrs_before`
         and cannot live in a URL. Both provide `extraction_connect()` instead —
         one contract rather than a flag per exception.
+
+        Postgres runs `sql` as agent queries run: in a read-only transaction
+        that ends in a rollback, on a session that reads literals the way the
+        read-only guard did (checked again once the result is read).
         """
+        from app.data_sources.clients.postgresql_client import PostgresqlClient
+
+        if isinstance(self.client, PostgresqlClient):
+            from app.data_sources.clients._pg_session import prepare_pg_session, verify_pg_session_after
+
+            with self.client.connect(read_only=True) as conn:
+                prepare_pg_session(conn, sql)
+                yield conn
+                verify_pg_session_after(conn)
+            return
         opener = getattr(self.client, "extraction_connect", None)
-        if opener is not None:
-            return opener()
-        return self.client.connect()
+        with (opener() if opener is not None else self.client.connect()) as conn:
+            yield conn
 
     # -- the protocol ----------------------------------------------------
 
@@ -306,7 +321,7 @@ class SqlAlchemySource:
             return Estimate(supported=False,
                             note=f"no cost estimator for {self.dialect or 'this client'}")
         try:
-            with self._open() as conn:
+            with self._open(sql) as conn:
                 est = explainer(conn, sql)
         except Exception as e:
             return Estimate(supported=False, note=f"{self.dialect} EXPLAIN failed: {e}")
@@ -318,13 +333,12 @@ class SqlAlchemySource:
     def preview(self, sql: str, limit: int):
         import threading
 
-        from sqlalchemy import text
-
         from app.data_sources.fast import sql_dialect
 
-        with self._open() as conn:
-            result = conn.execution_options(stream_results=True).execute(
-                text(sql_dialect.strip_trailing_semicolon(sql))
+        with self._open(sql) as conn:
+            # The text exactly as checked: no `text()`, no parameters.
+            result = conn.execution_options(stream_results=True).exec_driver_sql(
+                sql_dialect.strip_trailing_semicolon(sql), execution_options={"no_parameters": True}
             )
             colnames = list(result.keys())
             rows = [list(r) for r in result.fetchmany(limit)]
@@ -336,14 +350,13 @@ class SqlAlchemySource:
         return [{"name": c, "dtype": None} for c in colnames], rows
 
     def stream_batches(self, sql: str, batch_rows: int):
-        from sqlalchemy import text
-
-        with self._open() as conn:
+        with self._open(sql) as conn:
             from app.data_sources.fast.normalize import rows_to_arrow
 
+            # The text exactly as checked: no `text()`, no parameters.
             result = conn.execution_options(
                 stream_results=True, yield_per=batch_rows
-            ).execute(text(sql))
+            ).exec_driver_sql(sql, execution_options={"no_parameters": True})
             colnames = list(result.keys())
             # The DB-API description, for the declared types. Its names are
             # the driver's, not necessarily `colnames` (see declared_decimals);

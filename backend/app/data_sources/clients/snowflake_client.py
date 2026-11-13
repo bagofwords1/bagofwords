@@ -11,6 +11,7 @@ from app.data_sources.query_tag import (
 import pandas as pd
 import sqlalchemy
 from sqlalchemy import text
+from app.data_sources.clients._exact_sql import read_sql_exact
 from contextlib import contextmanager, suppress
 from typing import Dict, Generator, List, Optional
 from app.ai.prompt_formatters import Table, TableColumn
@@ -293,8 +294,8 @@ class SnowflakeClient(DataSourceClient):
             with self.connect() as conn:
                 conn.info.pop(_LAST_QUERY_ID_KEY, None)
                 try:
-                    # Wrap SQL query with text() to handle complex SQL
-                    df = pd.read_sql(text(sql), conn)
+                    # Sent exactly as checked (no text(): it rewrites :name).
+                    df = read_sql_exact(sql, conn)
                 except Exception as e:
                     # A failed statement has a Snowflake query id too, and it
                     # is the one an admin needs to look the failure up.

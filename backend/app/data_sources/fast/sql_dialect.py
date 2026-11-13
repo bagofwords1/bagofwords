@@ -118,9 +118,15 @@ def _estimate(**kw) -> "Estimate":
     return Estimate(total_bytes=total, **kw)
 
 
+def _exact(conn, statement: str):
+    """Run `statement` as written: no `text()` (it reads `:name` as a bind
+    marker, also inside a literal) and no parameters (`%` stays `%`)."""
+    return conn.exec_driver_sql(statement, execution_options={"no_parameters": True})
+
+
 def explain_postgresql(conn, sql: str) -> "Estimate":
     """Result-size estimate from `EXPLAIN (FORMAT JSON)`."""
-    row = conn.execute(text(f"EXPLAIN (FORMAT JSON) {strip_trailing_semicolon(sql)}")).scalar()
+    row = _exact(conn, f"EXPLAIN (FORMAT JSON) {strip_trailing_semicolon(sql)}").scalar()
     plan = row[0]["Plan"] if isinstance(row, list) else row["Plan"]
     return _estimate(
         rows=int(plan.get("Plan Rows") or 0),
@@ -134,7 +140,7 @@ def explain_mysql(conn, sql: str) -> "Estimate":
     One row per accessed table; the largest `rows` is the closest thing to a
     result-size estimate MySQL offers. It reports no width.
     """
-    res = conn.execute(text(f"EXPLAIN {strip_trailing_semicolon(sql)}")).mappings().all()
+    res = _exact(conn, f"EXPLAIN {strip_trailing_semicolon(sql)}").mappings().all()
     rows = 0
     for r in res:
         v = r.get("rows") or r.get("ROWS")
@@ -280,7 +286,7 @@ def explain_snowflake(conn, sql: str) -> "Estimate":
     """
     import json as _json
 
-    raw = conn.execute(text(f"EXPLAIN USING JSON {strip_trailing_semicolon(sql)}")).scalar()
+    raw = _exact(conn, f"EXPLAIN USING JSON {strip_trailing_semicolon(sql)}").scalar()
     plan = _json.loads(raw) if isinstance(raw, (str, bytes)) else raw
     stats = (plan or {}).get("GlobalStats") or {}
     scanned = stats.get("bytesAssigned")

@@ -1315,12 +1315,15 @@ class CustomQueryService:
         try:
             est = extractor.estimate(run.client, run.sql)
             extractor.check_budget(est)
+            # What was attempted, until the send succeeds; then what was sent.
             run.rendered_query = run.sql
-            return extractor.extract_to_artifact(
+            result = extractor.extract_to_artifact(
                 run.client, run.sql, run.name, run.connection_id,
                 should_abort=run.abort.is_set, run_id=run.run_id, config=run.config,
                 previous_rows=run.previous_rows,
             )
+            run.rendered_query = result.checked_sql
+            return result
         except _PASS_THROUGH:
             raise
         except Exception as e:
@@ -1329,11 +1332,13 @@ class CustomQueryService:
     def _render(self, run: "_Run", window: incremental.Window) -> str:
         return incremental.render(run.client, run.sql, run.config.cursor_column, run.cursor_kind, window)
 
-    def _source(self, run: "_Run", rendered: str):
-        src = extractor._source(run.client, rendered)
+    def _checked_source(self, run: "_Run", rendered: str) -> tuple:
+        """(source, the text to send it): `rendered` as the read-only guard
+        returned it. Callers send that text, never `rendered` itself."""
+        src, checked = extractor.checked_source(run.client, rendered)
         if src is None:
             raise incremental.IncrementalConfigError("This connection cannot run queries.")
-        return src
+        return src, checked
 
     def _work_plan_load(self, run: "_Run") -> dict:
         """Size a load from scratch and cut it into windows. Moves no rows."""
@@ -1354,7 +1359,8 @@ class CustomQueryService:
                 run.sql, incremental.dialect_for(run.client), config.cursor_column, run.cursor_kind, whole)
             if probe is not None:
                 try:
-                    _cols, rows = self._source(run, probe).preview(probe, 1)
+                    src, checked = self._checked_source(run, probe)
+                    _cols, rows = src.preview(checked, 1)
                     lo, hi, total, with_cursor = rows[0][0], rows[0][1], int(rows[0][2] or 0), int(rows[0][3] or 0)
                 except Exception as e:
                     # Sizing is an optimisation; a source that cannot answer
@@ -1413,7 +1419,8 @@ class CustomQueryService:
 
         def count_between(a, b) -> int:
             sql = incremental.count_sql(run.sql, dialect, column, kind, incremental.Window(lo=a, hi=b))
-            _cols, rows = self._source(run, sql).preview(sql, 1)
+            src, checked = self._checked_source(run, sql)
+            _cols, rows = src.preview(checked, 1)
             return int(rows[0][0] or 0)
 
         try:
@@ -1427,14 +1434,14 @@ class CustomQueryService:
         load = run.load
         window = incremental.Window.from_json(load["windows"][index])
         try:
-            rendered = self._render(run, window)
+            src, checked = self._checked_source(run, self._render(run, window))
             rows = loader.load_window(
-                self._source(run, rendered), rendered, load["path"],
+                src, checked, load["path"],
                 artifacts.decrypt_key(load["key_enc"]), run.name, run.run_id, self._limits(run),
                 batch_rows=extractor.BATCH_ROWS, rows_before=int(load.get("rows") or 0),
                 window=index,
             )
-            return rows, rendered
+            return rows, checked
         except _PASS_THROUGH:
             raise
         except Exception as e:
@@ -1461,12 +1468,15 @@ class CustomQueryService:
             run.rendered_query = rendered
             est = extractor.estimate(run.client, rendered)
             extractor.check_budget(est)
-            return loader.apply_increment(
-                self._source(run, rendered), rendered, run.previous_path, run.previous_key,
+            src, checked = self._checked_source(run, rendered)
+            outcome = loader.apply_increment(
+                src, checked, run.previous_path, run.previous_key,
                 run.name, run.connection_id, run.run_id, run.config, window, self._limits(run),
                 batch_rows=extractor.BATCH_ROWS, previous_rows=run.previous_rows, wrapped=run.wrapped,
                 filter_locally=not run.at_source,
             )
+            run.rendered_query = checked
+            return outcome
         except _PASS_THROUGH:
             raise
         except Exception as e:

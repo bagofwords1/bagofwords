@@ -118,20 +118,25 @@ class ExtractResult:
     schema_fingerprint: str = ""
     notes: list = field(default_factory=list)
     elapsed_ms: int = 0
+    # The text the source was sent: `sql` as the read-only guard returned it.
+    checked_sql: str = ""
 
 
-def _source(client, sql: str):
-    """The extraction source for `client`, or None if it cannot be materialized.
+def checked_source(client, sql: str) -> tuple[Optional["ExtractionSource"], str]:
+    """(the extraction source for `client` or None if it cannot be
+    materialized, the text to send it).
 
     Every path that runs a custom-table definition (estimate, preview, refresh)
     resolves its source here, so this is where the definition is held to a
-    single read-only statement.
+    single read-only statement. The text to send is what the guard returned
+    (on Postgres its canonical form, which differs from `sql`): only that text
+    was checked, so callers send it and never `sql` itself.
     """
     from app.ai.code_execution.sql_guard import ensure_read_only
     from app.data_sources.fast.sources import source_for
 
-    ensure_read_only(client, sql)
-    return source_for(client)
+    checked = ensure_read_only(client, sql)
+    return source_for(client), checked
 
 
 def estimate(client, sql: str) -> Estimate:
@@ -146,11 +151,11 @@ def estimate(client, sql: str) -> Estimate:
     caller falls back to the hard caps. But it downgrades *silently*, so the
     note records what was tried and why it gave up.
     """
-    src = _source(client, sql)
+    src, checked = checked_source(client, sql)
     if src is None:
         return Estimate(supported=False, note="this connection cannot be materialized")
     try:
-        return src.estimate(sql)
+        return src.estimate(checked)
     except Exception as e:      # a source must not break the save path
         return Estimate(supported=False, note=f"estimate failed: {e}")
 
@@ -214,17 +219,17 @@ def preview(client, sql: str, limit: int = PREVIEW_ROW_LIMIT) -> tuple[list, lis
     So the bound is applied to the *fetch* instead, which no dialect can
     reinterpret, and the source stops the query once it has enough.
     """
-    src = _source(client, sql)
+    src, checked = checked_source(client, sql)
     if src is None:
         # No extraction source: the client's execute_query returns a whole
         # DataFrame by contract, so the only bound available is in the SQL.
         # Weaker and subject to the caveats above, but these client types are
         # not accelerable today (see ACCELERABLE_TYPES).
-        bounded, _ = sql_dialect.bounded_sql(sql, limit, "")
+        bounded, _ = sql_dialect.bounded_sql(checked, limit, "")
         df = client.execute_query(bounded)
         cols = [{"name": c, "dtype": str(df[c].dtype)} for c in df.columns]
         return cols, df.head(limit).astype(object).where(df.notna(), None).values.tolist()
-    return src.preview(sql, limit)
+    return src.preview(checked, limit)
 
 
 def extract_to_artifact(
@@ -256,7 +261,7 @@ def extract_to_artifact(
     from app.data_sources.fast import incremental, loader
 
     started = time.monotonic()
-    src = _source(client, sql)
+    src, checked = checked_source(client, sql)
     if src is None:
         src = _FallbackSource(client, max_rows)
     run_id = run_id or loader.new_run_id()
@@ -266,7 +271,7 @@ def extract_to_artifact(
                            deadline=started + max_seconds, should_abort=should_abort,
                            max_seconds=max_seconds)
     try:
-        read = loader.load_window(src, sql, part_path, key, relation_name, run_id, limits,
+        read = loader.load_window(src, checked, part_path, key, relation_name, run_id, limits,
                                   batch_rows=BATCH_ROWS)
         outcome = loader.finalize(part_path, key, relation_name, config,
                                   previous_rows=previous_rows, run_id=run_id)
@@ -276,6 +281,7 @@ def extract_to_artifact(
     outcome.rows_read = read
     outcome.rows_inserted = outcome.row_count
     outcome.elapsed_ms = int((time.monotonic() - started) * 1000)
+    outcome.checked_sql = checked
     return outcome
 
 

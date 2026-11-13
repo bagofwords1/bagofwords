@@ -129,7 +129,7 @@ class FakeConn:
         self.sent.append((str(stmt), params))
         return self._next()
 
-    def exec_driver_sql(self, stmt):
+    def exec_driver_sql(self, stmt, parameters=None, execution_options=None):
         self.sent.append((str(stmt), None))
         return self._next()
 
@@ -345,6 +345,11 @@ class RecordingConn:
         self.sent.append(str(stmt))
         return self
 
+    def exec_driver_sql(self, stmt, parameters=None, execution_options=None):
+        self.sent.append(stmt)
+        self.options.update(execution_options or {})
+        return self
+
     def keys(self):
         return list(self.colnames)
 
@@ -436,6 +441,74 @@ def test_preview_does_not_cancel_a_query_it_read_to_the_end(monkeypatch):
     _, rows = extractor.preview(StreamingClient(conn), "SELECT 1", limit=100)
     assert len(rows) == 2
     assert conn.invalidated is False
+
+
+# --------------------------------------------------------------------------
+# Postgres: the checked text, under the read-only floor
+# --------------------------------------------------------------------------
+
+BS = chr(92)
+# A comment and an E-string; the guard sends neither as written.
+PG_DEFINITION = "SELECT a /* why */ FROM t WHERE b = E'it" + BS + "'s'"
+PG_CHECKED = "SELECT a   FROM t WHERE b = 'it''s'"
+
+
+def _pg_session(conn):
+    """What psycopg2 reports for a session that reads standard strings."""
+    from types import SimpleNamespace
+
+    status = {"standard_conforming_strings": "on", "server_version": "15.4"}
+    conn.connection = SimpleNamespace(dbapi_connection=SimpleNamespace(
+        get_parameter_status=status.get, server_version=150004))
+    conn.info = {}
+    conn.invalidated = getattr(conn, "invalidated", False)
+    return conn
+
+
+def _recording_postgres(conn):
+    """The real Postgres client type over a recording connection."""
+    from contextlib import contextmanager
+
+    from app.data_sources.clients.postgresql_client import PostgresqlClient
+
+    class RecordingPostgres(PostgresqlClient):
+        pg_uri = "postgresql://u:p@h/d"
+
+        def __init__(self):
+            self.read_only = []
+
+        def connect(self, *, read_only=False):
+            self.read_only.append(read_only)
+
+            @contextmanager
+            def cm():
+                yield conn
+
+            return cm()
+
+    return RecordingPostgres()
+
+
+def test_a_postgres_preview_sends_the_checked_text_on_a_read_only_connection():
+    from app.data_sources.fast import extractor
+
+    conn = _pg_session(RecordingConn([("x",)]))
+    client = _recording_postgres(conn)
+    extractor.preview(client, PG_DEFINITION, limit=5)
+    assert conn.sent == [PG_CHECKED]
+    assert conn.options.get("no_parameters") is True
+    assert client.read_only == [True]
+
+
+def test_a_postgres_estimate_explains_the_checked_text_on_a_read_only_connection():
+    from app.data_sources.fast import extractor
+
+    conn = _pg_session(FakeConn([FakeResult(scalar=[{"Plan": {"Plan Rows": 7, "Plan Width": 8}}])]))
+    client = _recording_postgres(conn)
+    est = extractor.estimate(client, PG_DEFINITION)
+    assert est.rows == 7
+    assert [sql for sql, _ in conn.sent] == ["EXPLAIN (FORMAT JSON) " + PG_CHECKED]
+    assert client.read_only == [True]
 
 
 def test_preview_falls_back_to_sql_bounding_only_without_a_dialect():
