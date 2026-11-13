@@ -2,7 +2,7 @@
     <div>
         <!-- Primary action lives in the page header (settings shell). -->
         <Teleport to="#settings-page-actions" defer>
-            <UButton v-if="useCan('manage_roles')" color="blue" icon="i-heroicons-plus" @click="openCreateModal">
+            <UButton v-if="canManageRoles" color="blue" icon="i-heroicons-plus" @click="openCreateModal()">
                 {{ $t('rolesManager.newRole') }}
             </UButton>
         </Teleport>
@@ -16,7 +16,7 @@
             />
         </div>
 
-        <!-- Roles: a list rather than a table — each row is a role with its
+        <!-- Roles: a list rather than a table; each row is a role with its
              badges, summary, quota and actions. -->
         <div class="bow-table-card divide-y divide-line-subtle">
             <SettingsLoading v-if="isLoading" />
@@ -27,30 +27,25 @@
                 :description="$t('rolesManager.noRolesHint')"
             />
             <div
-                v-else
                 v-for="role in filteredRoles"
+                v-else
                 :key="role.id"
-                class="group/role px-5 py-4 flex items-center justify-between gap-4 hover:bg-ink/[0.03] transition-colors"
+                class="px-5 py-4 flex items-center justify-between gap-4 hover:bg-ink/[0.03] transition-colors"
+                :class="{ 'cursor-pointer': canEdit(role) }"
+                :data-testid="`role-row-${role.name}`"
+                @click="canEdit(role) && openEditModal(role)"
             >
-                <div class="flex items-center gap-3 min-w-0">
-                    <span class="flex items-center justify-center w-8 h-8 rounded-md bg-surface-muted text-ink-muted shrink-0">
-                        <UIcon :name="role.permissions?.includes('full_admin_access') ? 'i-heroicons-shield-check' : 'i-heroicons-identification'" class="w-4 h-4" />
-                    </span>
-                    <div class="min-w-0">
-                        <div class="flex items-center gap-2">
-                            <span class="text-sm font-medium text-ink">{{ cap(role.name) }}</span>
-                            <UBadge v-if="isOrgDefaultRole(role)" size="xs" color="gray" variant="subtle">{{ $t('rolesManager.default') }}</UBadge>
-                            <UBadge v-else-if="role.is_system" size="xs" color="gray" variant="subtle">{{ $t('rolesManager.system') }}</UBadge>
-                            <UBadge v-if="role.permissions?.includes('full_admin_access')" size="xs" color="blue" variant="subtle">
-                                {{ $t('rolesManager.fullAdmin') }}
-                            </UBadge>
-                        </div>
-                        <p class="mt-0.5 text-sm text-ink-muted truncate">
-                            {{ role.description || $t('rolesManager.permissionsCount', { n: rolePermissionCount(role) }) }}
-                        </p>
+                <div class="min-w-0">
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm font-medium text-ink" v-text-dir>{{ role.name }}</span>
+                        <UBadge v-if="isOrgDefaultRole(role)" size="xs" color="gray" variant="subtle">{{ $t('rolesManager.default') }}</UBadge>
+                        <UBadge v-if="isFullAdminRole(role)" size="xs" color="blue" variant="subtle">{{ $t('rolesManager.fullAdmin') }}</UBadge>
                     </div>
+                    <p class="text-xs text-ink-muted mt-0.5 truncate">
+                        <span v-if="role.description" v-text-dir>{{ role.description }} · </span>{{ roleMeta(role) }}
+                    </p>
                 </div>
-                <div class="flex items-center gap-3 shrink-0">
+                <div class="flex items-center gap-2 shrink-0" @click.stop>
                     <USelectMenu
                         v-if="showQuotaColumn"
                         :model-value="getDirectQuotaId('role', role.id)"
@@ -81,221 +76,183 @@
                             <span class="text-sm">{{ option.label }}</span>
                         </template>
                     </USelectMenu>
-                    <div class="flex gap-1 w-14 justify-end opacity-60 group-hover/role:opacity-100 focus-within:opacity-100 transition-opacity">
-                        <UTooltip v-if="role.is_editable && useCan('manage_roles')" :text="$t('rolesManager.edit')">
-                            <UButton
-                                color="gray"
-                                variant="ghost"
-                                size="xs"
-                                icon="i-heroicons-pencil-square"
-                                :aria-label="$t('rolesManager.edit')"
-                                @click="openEditModal(role)"
-                            />
-                        </UTooltip>
+                    <UDropdown v-if="rowActions(role).length" :items="rowActions(role)" :popper="{ placement: 'bottom-end' }">
                         <UButton
-                            v-if="role.is_deletable && useCan('manage_roles')"
                             variant="ghost"
+                            color="gray"
                             size="xs"
-                            color="red"
-                            icon="i-heroicons-trash"
-                            :aria-label="$t('common.delete')"
-                            @click="deleteRole(role)"
+                            icon="i-heroicons-ellipsis-horizontal"
+                            :aria-label="$t('rolesManager.moreActions')"
+                            :data-testid="`role-actions-${role.name}`"
                         />
-                    </div>
+                    </UDropdown>
                 </div>
             </div>
         </div>
 
-        <!-- Create/Edit Modal -->
-        <UModal v-model="showModal" :ui="{ width: 'sm:max-w-xl' }">
-            <div class="p-6">
-                <h3 class="text-lg font-medium mb-1">
-                    {{ editingRole ? $t('rolesManager.editRole') : $t('rolesManager.createRole') }}
-                </h3>
-                <p v-if="editingDefaultRole" class="text-xs text-ink-muted mb-4">
-                    {{ $t('rolesManager.defaultRoleHint') }}
-                </p>
-                <div v-else class="mb-4"></div>
-
-                <!-- Name + Description -->
-                <div class="grid grid-cols-2 gap-3 mb-4">
-                    <div>
-                        <label class="block text-xs font-medium text-ink-muted mb-1">{{ $t('rolesManager.nameLabel') }}</label>
-                        <UInput v-model="form.name" :placeholder="$t('rolesManager.namePlaceholder')" size="sm" :disabled="editingDefaultRole" />
+        <!-- Create / edit -->
+        <UModal v-model="showModal" :prevent-close="saving" :ui="{ width: 'sm:max-w-2xl' }">
+            <div class="flex flex-col max-h-[90vh]" data-testid="role-modal">
+                <div class="px-6 pt-5">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-base font-semibold text-ink">
+                            {{ editingRole ? $t('rolesManager.editRole') : $t('rolesManager.createRole') }}
+                        </h3>
+                        <UButton
+                            variant="ghost"
+                            color="gray"
+                            size="xs"
+                            icon="i-heroicons-x-mark"
+                            :aria-label="$t('common.close')"
+                            :disabled="saving"
+                            @click="showModal = false"
+                        />
                     </div>
-                    <div>
-                        <label class="block text-xs font-medium text-ink-muted mb-1">{{ $t('rolesManager.descriptionLabel') }}</label>
-                        <UInput v-model="form.description" :placeholder="$t('rolesManager.descriptionPlaceholder')" size="sm" />
-                    </div>
-                </div>
+                    <p v-if="editingBuiltinRole" class="text-xs text-ink-muted mt-1">{{ $t('rolesManager.defaultRoleHint') }}</p>
 
-                <!-- Full Admin Toggle -->
-                <div class="mb-5 px-3 py-2.5 bg-surface-subtle rounded-lg flex items-center justify-between">
-                    <div>
-                        <span class="text-sm font-medium">{{ $t('rolesManager.fullAdminAccess') }}</span>
-                        <p class="text-xs text-ink-muted">{{ $t('rolesManager.fullAdminBypass') }}</p>
-                    </div>
-                    <UToggle v-model="isFullAdmin" />
-                </div>
-
-                <!-- Permission cards (disabled when full admin) -->
-                <div :class="{ 'opacity-40 pointer-events-none': isFullAdmin }" class="space-y-3">
-
-                    <!-- Org-wide card -->
-                    <div class="border rounded-lg overflow-hidden">
-                        <div class="px-3 py-2 bg-surface-subtle border-b flex items-center justify-between">
-                            <div class="flex items-center gap-2">
-                                <UIcon name="i-heroicons-globe-alt" class="w-4 h-4 text-ink-muted" />
-                                <span class="text-sm font-medium">{{ $t('rolesManager.allResources') }}</span>
-                            </div>
-                            <span class="text-xs text-ink-muted">{{ $t('rolesManager.orgWidePermissions') }}</span>
+                    <div class="grid sm:grid-cols-2 gap-3 mt-4">
+                        <div>
+                            <label for="role-name" class="block text-xs font-medium text-ink-muted mb-1">{{ $t('rolesManager.nameLabel') }}</label>
+                            <UInput id="role-name" v-model="form.name" v-text-dir :placeholder="$t('rolesManager.namePlaceholder')" :disabled="editingBuiltinRole" />
                         </div>
-                        <div class="p-3">
-                            <div class="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                        <div>
+                            <label for="role-description" class="block text-xs font-medium text-ink-muted mb-1">{{ $t('rolesManager.descriptionLabel') }}</label>
+                            <UInput id="role-description" v-model="form.description" v-text-dir :placeholder="$t('rolesManager.descriptionPlaceholder')" />
+                        </div>
+                    </div>
+
+                    <!-- Tabs -->
+                    <div class="flex gap-5 mt-5 border-b border-line" role="tablist">
+                        <button
+                            v-for="tab in tabs"
+                            :key="tab.key"
+                            type="button"
+                            role="tab"
+                            :aria-selected="activeTab === tab.key"
+                            class="-mb-px pb-2 text-sm border-b-2 transition-colors"
+                            :class="activeTab === tab.key ? 'border-blue-500 text-ink font-medium' : 'border-transparent text-ink-muted hover:text-ink'"
+                            :data-testid="`role-tab-${tab.key}`"
+                            @click="activeTab = tab.key"
+                        >
+                            {{ tab.label }}
+                            <span v-if="tab.count" class="ms-1 text-xs text-ink-muted">{{ tab.count }}</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Body: fixed height so switching tabs or finishing a load never jumps -->
+                <div class="h-[26rem] overflow-y-auto px-6" :class="{ 'opacity-60 pointer-events-none': saving }">
+                    <div v-if="loadState === 'loading'" class="h-full flex items-center justify-center text-ink-muted" data-testid="role-loading">
+                        <Spinner class="w-4 h-4 me-2" />
+                        <span class="text-sm">{{ $t('rolesManager.loadingRole') }}</span>
+                    </div>
+
+                    <div v-else-if="loadState === 'error'" class="h-full flex flex-col items-center justify-center gap-3 text-center" data-testid="role-load-error">
+                        <p class="text-sm text-ink-2">{{ $t('rolesManager.loadFailed') }}</p>
+                        <UButton size="xs" color="gray" variant="solid" @click="retryLoad">{{ $t('rolesManager.retry') }}</UButton>
+                    </div>
+
+                    <!-- Permissions -->
+                    <div v-else-if="activeTab === 'permissions'" class="py-4" data-testid="role-permissions">
+                        <label class="flex items-start gap-3 py-2 cursor-pointer">
+                            <UCheckbox v-model="isFullAdmin" class="mt-0.5" />
+                            <span>
+                                <span class="block text-sm text-ink">{{ $t('rolesManager.fullAdminAccess') }}</span>
+                                <span class="block text-xs text-ink-muted">{{ $t('rolesManager.fullAdminHint') }}</span>
+                            </span>
+                        </label>
+
+                        <template v-if="!isFullAdmin">
+                            <div v-for="group in permissionGroups" :key="group.key" class="mt-4">
+                                <div class="text-xs font-medium text-ink-muted mb-1">{{ $t(`rolesManager.groups.${group.key}`) }}</div>
                                 <label
-                                    v-for="perm in flatOrgPermissions"
+                                    v-for="perm in group.perms"
                                     :key="perm"
-                                    class="flex items-center gap-2 text-sm cursor-pointer py-0.5"
+                                    class="flex items-start gap-3 py-1.5"
+                                    :class="impliedBy(perm) ? 'cursor-default' : 'cursor-pointer'"
                                 >
                                     <UCheckbox
-                                        :model-value="form.permissions.includes(perm)"
+                                        :model-value="form.permissions.includes(perm) || !!impliedBy(perm)"
+                                        :disabled="!!impliedBy(perm)"
+                                        class="mt-0.5"
                                         @update:model-value="togglePermission(perm, $event)"
-                                        size="xs"
                                     />
-                                    <span class="text-ink-2">{{ formatPermission(perm) }}</span>
+                                    <span>
+                                        <span class="block text-sm text-ink">{{ formatPermission(perm) }}</span>
+                                        <span class="block text-xs text-ink-muted">
+                                            {{ impliedBy(perm) ? $t('rolesManager.includedWith', { name: formatPermission(impliedBy(perm)!) }) : permissionHint(perm) }}
+                                        </span>
+                                    </span>
                                 </label>
                             </div>
-                        </div>
+                        </template>
                     </div>
 
-                    <!-- Per-resource cards -->
-                    <div
-                        v-for="(grant, idx) in form.resourceGrants"
-                        :key="`grant-${idx}`"
-                        class="border rounded-lg overflow-hidden"
-                    >
-                        <div class="px-3 py-2 bg-surface-subtle border-b flex items-center justify-between">
-                            <div class="flex items-center gap-2">
-                                <UBadge size="xs" :color="grant.resource_type === 'connection' ? 'gray' : 'blue'">{{ grant.resource_type === 'connection' ? $t('rolesManager.connection') : $t('rolesManager.ds') }}</UBadge>
-                                <span class="text-sm font-medium">{{ grant.resource_name }}</span>
-                            </div>
-                            <UButton
-                                variant="ghost"
-                                size="xs"
-                                color="red"
-                                icon="i-heroicons-x-mark"
-                                @click="form.resourceGrants.splice(idx, 1)"
-                            />
-                        </div>
-                        <div class="p-3">
-                            <!-- Agent grants use the same two access tiers as the agent
-                                 panel's "Add people" modal: an EMPTY grant is the query
-                                 tier (any grant row on a data source implies `view` in
-                                 the backend resolver), `manage` is the owner/manager
-                                 superset. Raw checkboxes live in Advanced. -->
-                            <template v-if="grant.resource_type === 'data_source'">
-                                <div class="space-y-0.5">
-                                    <button
-                                        v-for="tier in DS_ACCESS_TIERS"
-                                        :key="tier.key"
-                                        type="button"
-                                        class="w-full flex items-start gap-2 px-2 py-1.5 rounded-md text-start hover:bg-ink/[0.03]/50"
-                                        @click="selectGrantTier(grant, tier.key)"
-                                    >
-                                        <span
-                                            class="mt-0.5 w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0"
-                                            :class="grantTier(grant) === tier.key ? 'border-gray-900 dark:border-white' : 'border-line-strong'"
-                                        >
-                                            <span v-if="grantTier(grant) === tier.key" class="w-1.5 h-1.5 rounded-full bg-gray-900 dark:bg-white" />
-                                        </span>
-                                        <span class="min-w-0">
-                                            <span class="block text-sm text-ink">{{ $t(`rolesManager.tiers.${tier.key}`) }}</span>
-                                            <span class="block text-xs text-ink-muted">{{ $t(`rolesManager.tiers.${tier.key}Hint`) }}</span>
-                                        </span>
-                                    </button>
-                                </div>
-                                <button
-                                    type="button"
-                                    class="mt-1 inline-flex items-center gap-1 text-xs text-ink-muted hover:text-gray-700 dark:hover:text-gray-200"
-                                    @click="grant.showAdvanced = !grant.showAdvanced"
-                                >
-                                    {{ $t('rolesManager.advancedPermissions') }}
-                                    <UIcon
-                                        name="i-heroicons-chevron-down"
-                                        class="w-3 h-3 transition-transform"
-                                        :class="(grant.showAdvanced || grantTier(grant) === null) ? 'rotate-180' : ''"
-                                    />
-                                </button>
-                            </template>
-                            <div
-                                v-if="grant.resource_type !== 'data_source' || grant.showAdvanced || grantTier(grant) === null"
-                                class="grid grid-cols-2 gap-x-3 gap-y-1"
-                                :class="{ 'mt-2': grant.resource_type === 'data_source' }"
+                    <!-- Access -->
+                    <div v-else class="py-4" data-testid="role-access">
+                        <p v-if="isFullAdmin" class="text-sm text-ink-muted py-2">{{ $t('rolesManager.fullAdminAccessTab') }}</p>
+                        <template v-else>
+                            <USelectMenu
+                                v-model="selectedResource"
+                                :options="addableResources"
+                                option-attribute="label"
+                                value-attribute="value"
+                                searchable
+                                :searchable-placeholder="$t('rolesManager.searchResources')"
+                                :placeholder="$t('rolesManager.addAccess')"
+                                data-testid="role-add-access"
+                                @update:model-value="addResource"
                             >
-                                <label
-                                    v-for="perm in getResourcePermissions(grant.resource_type)"
-                                    :key="perm"
-                                    class="flex items-center gap-1.5 text-sm cursor-pointer py-0.5"
-                                >
-                                    <UCheckbox
-                                        :model-value="grant.permissions.includes(perm)"
-                                        @update:model-value="toggleResourcePerm(grant, perm, $event)"
-                                        size="xs"
-                                    />
-                                    <span class="text-ink-2">{{ formatPermission(perm) }}</span>
-                                </label>
-                            </div>
-                        </div>
-                    </div>
+                                <template #option="{ option }">
+                                    <span class="flex items-center gap-2 min-w-0">
+                                        <UIcon :name="TYPE_ICON[option.type]" class="w-4 h-4 text-ink-muted shrink-0" />
+                                        <span class="truncate">{{ option.label }}</span>
+                                        <span class="text-xs text-ink-muted ms-auto">{{ $t(`rolesManager.types.${option.type}`) }}</span>
+                                    </span>
+                                </template>
+                            </USelectMenu>
 
-                    <!-- Add resource -->
-                    <USelectMenu
-                        v-model="selectedResource"
-                        :options="availableResources"
-                        option-attribute="label"
-                        value-attribute="value"
-                        searchable
-                        :placeholder="$t('rolesManager.addAgent')"
-                        @update:model-value="addResource"
-                        size="sm"
-                    />
-
-                    <!-- Model access (enterprise: per-model LLM access control) -->
-                    <div v-if="showModelAccess" class="border rounded-lg overflow-hidden">
-                        <div class="px-3 py-2 bg-surface-subtle border-b flex items-center justify-between">
-                            <div class="flex items-center gap-2">
-                                <UIcon name="i-heroicons-cpu-chip" class="w-4 h-4 text-ink-muted" />
-                                <span class="text-sm font-medium">{{ $t('rolesManager.modelAccess') }}</span>
-                            </div>
-                            <span class="text-xs text-ink-muted">{{ $t('rolesManager.modelAccessHint') }}</span>
-                        </div>
-                        <div class="p-3">
-                            <div v-if="restrictedModels.length === 0" class="text-xs text-ink-muted py-0.5">
-                                {{ $t('rolesManager.noRestrictedModels') }}
-                            </div>
-                            <div v-else class="grid grid-cols-2 gap-x-4 gap-y-1.5">
-                                <label
-                                    v-for="model in restrictedModels"
-                                    :key="model.model_id"
-                                    class="flex items-center gap-2 text-sm cursor-pointer py-0.5"
-                                >
-                                    <UCheckbox
-                                        :model-value="model.granted"
-                                        :disabled="modelAccessSaving"
-                                        @update:model-value="toggleModelAccess(model, $event)"
-                                        size="xs"
+                            <ul v-if="visibleGrants.length" class="mt-3 divide-y divide-line border-y border-line">
+                                <li v-for="grant in visibleGrants" :key="`${grant.resource_type}:${grant.resource_id}`" class="flex items-center gap-3 py-2">
+                                    <UIcon :name="TYPE_ICON[grant.resource_type]" class="w-4 h-4 text-ink-muted shrink-0" />
+                                    <div class="flex-1 min-w-0">
+                                        <div class="text-sm text-ink truncate" v-text-dir>{{ grant.resource_name }}</div>
+                                        <div class="text-xs text-ink-muted">{{ $t(`rolesManager.types.${grant.resource_type}`) }}</div>
+                                    </div>
+                                    <USelect
+                                        v-if="LEVELS[grant.resource_type]"
+                                        :model-value="grantLevel(grant)"
+                                        :options="levelOptions(grant)"
+                                        option-attribute="label"
+                                        value-attribute="value"
+                                        size="sm"
+                                        class="w-36 sm:w-44 shrink-0"
+                                        :aria-label="grant.resource_name"
+                                        @update:model-value="setGrantLevel(grant, $event)"
                                     />
-                                    <span class="text-ink-2 truncate">{{ model.name }}</span>
-                                </label>
-                            </div>
-                        </div>
+                                    <span v-else class="w-36 sm:w-44 shrink-0 text-sm text-ink-2 px-2.5">{{ $t('rolesManager.levels.use') }}</span>
+                                    <UButton
+                                        variant="ghost"
+                                        color="gray"
+                                        size="xs"
+                                        icon="i-heroicons-x-mark"
+                                        :aria-label="$t('rolesManager.removeAccess')"
+                                        @click="removeGrant(grant)"
+                                    />
+                                </li>
+                            </ul>
+                            <p v-else class="mt-6 text-sm text-ink-muted text-center">{{ $t('rolesManager.accessEmpty') }}</p>
+
+                            <p v-if="publicAgentCount > 0" class="mt-3 text-xs text-ink-muted">
+                                {{ $t('rolesManager.publicAgents', { n: publicAgentCount }) }}
+                            </p>
+                        </template>
                     </div>
                 </div>
 
-                <!-- Actions -->
-                <div class="flex justify-end gap-2 mt-6">
-                    <UButton variant="ghost" @click="showModal = false">{{ $t('rolesManager.cancel') }}</UButton>
-                    <UButton color="blue" @click="saveRole" :loading="saving" :disabled="!form.name.trim()">
+                <div class="px-6 py-3 border-t border-line flex justify-end gap-2">
+                    <UButton variant="ghost" color="gray" :disabled="saving" @click="showModal = false">{{ $t('rolesManager.cancel') }}</UButton>
+                    <UButton color="blue" :disabled="!canSave" :loading="saving" data-testid="role-save" @click="saveRole">
                         {{ editingRole ? $t('rolesManager.save') : $t('rolesManager.create') }}
                     </UButton>
                 </div>
@@ -307,25 +264,29 @@
 <script setup lang="ts">
 import SettingsEmpty from '~/components/settings/SettingsEmpty.vue'
 import SettingsLoading from '~/components/settings/SettingsLoading.vue'
-
-// Role names are stored lowercase ("admin", "member"); show them titled.
-function cap(name?: string): string {
-    if (!name) return ''
-    return name.charAt(0).toUpperCase() + name.slice(1)
-}
 import Spinner from '@/components/Spinner.vue'
 import { useCan } from '~/composables/usePermissions'
 import { useI18n } from 'vue-i18n'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
 
 const { t } = useI18n()
+const toast = useToast()
+const { hasFeature } = useEnterprise()
+
+const FULL_ADMIN = 'full_admin_access'
+
+interface Grant {
+    resource_type: string
+    resource_id: string
+    permissions: string[]
+}
 
 interface RoleData {
     id: string
     name: string
     description?: string
     permissions: string[]
-    resource_grants?: { resource_type: string; resource_id: string; permissions: string[] }[]
+    resource_grants?: Grant[]
     is_system: boolean
     organization_id?: string
     overrides_system_role?: string | null
@@ -333,31 +294,13 @@ interface RoleData {
     is_deletable?: boolean
 }
 
-// The org-wide default role for new members (settings.default_member_role).
-// Drives which role wears the "Default" badge; kept in sync with the control
-// in the Members tab. Falls back to "member" when the setting is unset or the
-// endpoint is unavailable (e.g. before that feature ships).
-const defaultMemberRole = ref('member')
-
-// The role new members get by default carries the "Default" badge, and it
-// moves when an admin changes the default_member_role setting.
-function isOrgDefaultRole(role: RoleData): boolean {
-    return role.name === defaultMemberRole.value
-}
-
-// A built-in `member` role (or an org's editable override of it): editable but
-// not deletable, and its name is fixed. This is independent of which role is
-// the org default — a custom role set as default stays fully editable.
-function isBuiltinRole(role: RoleData): boolean {
-    return !!role.overrides_system_role || (role.is_system && role.is_editable === true)
-}
-
-interface ResourceGrantForm {
-    resource_type: string
-    resource_id: string
+interface GrantForm extends Grant {
     resource_name: string
-    permissions: string[]
-    showAdvanced?: boolean
+}
+
+interface UsagePolicyAssignment {
+    principal_type: 'user' | 'group' | 'role'
+    principal_id: string
 }
 
 interface UsagePolicySummary {
@@ -367,465 +310,460 @@ interface UsagePolicySummary {
     assignments: UsagePolicyAssignment[]
 }
 
-interface UsagePolicyAssignment {
-    principal_type: 'user' | 'group' | 'role'
-    principal_id: string
+interface RestrictedModel {
+    model_id: string
+    name: string
+    provider_name: string
+}
+
+interface ResourceOption {
+    label: string
+    value: string
+    type: 'data_source' | 'connection' | 'llm_model'
+    id: string
 }
 
 const props = defineProps<{
     organization: { id: string; name: string }
 }>()
 
-const toast = useToast()
+// ── Role helpers ─────────────────────────────────────────────────────────
 
-// State
+const defaultMemberRole = ref('member')
+const isOrgDefaultRole = (role: RoleData) => role.name === defaultMemberRole.value
+const isFullAdminRole = (role: RoleData) => !!role.permissions?.includes(FULL_ADMIN)
+// The built-in `member` role (or an org's override of it): editable, but its
+// name is fixed and it can't be deleted.
+const isBuiltinRole = (role: RoleData) =>
+    !!role.overrides_system_role || (role.is_system && role.is_editable === true)
+
+const canManageRoles = computed(() => useCan('manage_roles'))
+const canEdit = (role: RoleData) => !!role.is_editable && canManageRoles.value
+
+// ── State ────────────────────────────────────────────────────────────────
+
 const roles = ref<RoleData[]>([])
 const usagePolicies = ref<UsagePolicySummary[]>([])
 const isLoading = ref(true)
 const searchQuery = ref('')
 const showModal = ref(false)
 const editingRole = ref<RoleData | null>(null)
-// Editing the built-in `member` role (or its override): its name is fixed,
-// only permissions and description are customizable. Not tied to which role is
-// the org default.
-const editingDefaultRole = computed(() => !!editingRole.value && isBuiltinRole(editingRole.value))
+const editingBuiltinRole = computed(() => !!editingRole.value && isBuiltinRole(editingRole.value))
 const saving = ref(false)
-const selectedResource = ref(null)
-const showOrgDetails = ref(false)
-const { hasFeature } = useEnterprise()
+const selectedResource = ref<string | null>(null)
+const activeTab = ref<'permissions' | 'access'>('permissions')
 const showQuotaColumn = computed(() => hasFeature('usage_limits') && useCan('manage_settings'))
 
-// Per-model LLM access control (enterprise). Editing writes grants immediately,
-// independent of the role's Save button, so it only applies to a saved role.
-interface RestrictedModel {
-    model_id: string
-    name: string
-    provider_name: string
-    granted: boolean
-    grant_id: string | null
-}
-const restrictedModels = ref<RestrictedModel[]>([])
-const modelAccessSaving = ref(false)
-const showModelAccess = computed(() =>
-    hasFeature('llm_access_control') && !!editingRole.value && !isFullAdmin.value
-)
+// The editor is either loading, failed, or ready — never half loaded. (It
+// used to show the form before grants arrived, with Save enabled, so an
+// early Save replaced the role's grants with an empty list.)
+const loadState = ref<'loading' | 'error' | 'ready'>('loading')
+let pendingLoad: (() => Promise<void>) | null = null
 
 const form = reactive({
     name: '',
     description: '',
     permissions: [] as string[],
-    resourceGrants: [] as ResourceGrantForm[],
+    grants: [] as GrantForm[],
 })
 
 const isFullAdmin = computed({
-    get: () => form.permissions.includes('full_admin_access'),
-    set: (val: boolean) => {
-        if (val) {
-            if (!form.permissions.includes('full_admin_access')) {
-                form.permissions.push('full_admin_access')
-            }
-        } else {
-            form.permissions = form.permissions.filter((p) => p !== 'full_admin_access')
-        }
+    get: () => form.permissions.includes(FULL_ADMIN),
+    set: (on: boolean) => {
+        form.permissions = form.permissions.filter((p) => p !== FULL_ADMIN)
+        if (on) form.permissions.push(FULL_ADMIN)
     },
 })
 
-// ── Registry data from backend ───────────────────────────────────────────
+// ── Editor data (cached, prefetched when the tab opens) ──────────────────
 
 const allCategories = ref<Record<string, string[]>>({})
-const mergedCategories = ref<Record<string, string[]>>({})
-const resourceScopedGroups = ref<Record<string, Record<string, string[]>>>({})
-const resourcePermissions = ref<Record<string, string[]>>({})
+const availableResources = ref<ResourceOption[]>([])
+const publicAgentCount = ref(0)
+// Restricted-model access is a role grant like any other (`llm_model`,
+// `['use']`) and is saved by the same PUT as the rest of the role. The role
+// PUT replaces ALL of the role's grants, so writing models through a separate
+// endpoint (as before) let a later Save silently drop them.
+const restrictedModels = ref<RestrictedModel[]>([])
+const canManageModels = computed(() => hasFeature('llm_access_control') && useCan('manage_llm'))
 
-// A role's authority is org-wide permissions PLUS its per-resource grants.
-// Counting only `permissions` made a correctly-configured role that grants,
-// say, "Create agents" on one connection render as "0 permissions" — it looked
-// broken when it was merely scoped. An agent grant with no permission strings
-// is the query tier (the grant row itself conveys view/query access), so it
-// counts as one.
-const rolePermissionCount = (role: any) =>
-    (role?.permissions?.length || 0) +
-    (role?.resource_grants || []).reduce(
-        (n: number, g: any) => n + (g?.permissions?.length
-            || (g?.resource_type === 'data_source' ? 1 : 0)), 0)
-
-async function loadPermissionsRegistry() {
-    try {
-        const { data } = await useMyFetch('/permissions/registry')
-        if (data.value) {
-            const registry = data.value as {
-                categories: Record<string, string[]>
-                resource_permissions: Record<string, string[]>
-                merged_categories: Record<string, string[]>
-                resource_scoped_groups: Record<string, Record<string, string[]>>
-            }
-            allCategories.value = registry.categories
-            mergedCategories.value = registry.merged_categories
-            resourceScopedGroups.value = registry.resource_scoped_groups
-            resourcePermissions.value = registry.resource_permissions
-        }
-    } catch (e) {
-        console.error('Failed to load permissions registry', e)
+function cached(fn: () => Promise<void>): () => Promise<void> {
+    let p: Promise<void> | null = null
+    return () => {
+        if (!p) p = fn().catch((e) => { p = null; throw e })
+        return p
     }
 }
 
-function getResourcePermissions(resourceType: string): string[] {
-    return resourcePermissions.value[resourceType] || []
-}
+const ensureRegistry = cached(async () => {
+    const { data, error } = await useMyFetch('/permissions/registry')
+    if (error.value || !data.value) throw error.value || new Error('registry')
+    allCategories.value = (data.value as any).categories || {}
+})
 
-const flatOrgPermissions = computed(() => {
-    const out: string[] = []
-    for (const perms of Object.values(allCategories.value)) {
-        out.push(...perms)
-    }
+const ensureResources = cached(async () => {
+    // show_all: org admins see every agent, not only those they're a member of.
+    const [ds, conns] = await Promise.all([
+        useMyFetch('/data_sources/active?show_all=true'),
+        useMyFetch('/connections'),
+    ])
+    if (ds.error.value) throw ds.error.value
+    if (conns.error.value) throw conns.error.value
+    const agents = (ds.data.value || []) as any[]
+    publicAgentCount.value = agents.filter((a) => a.is_public).length
+    availableResources.value = [
+        ...agents.map((a) => ({ label: a.name, value: `data_source:${a.id}`, type: 'data_source' as const, id: a.id })),
+        ...((conns.data.value || []) as any[]).map((c) => ({ label: c.name, value: `connection:${c.id}`, type: 'connection' as const, id: c.id })),
+    ]
+})
+
+const ensureModels = cached(async () => {
+    if (!canManageModels.value) return
+    // Keyed by principal; only the list of restricted models is used here.
+    const { data, error } = await useMyFetch('/llm/model-access/by-principal?principal_type=role&principal_id=__role_editor__')
+    if (error.value) throw error.value
+    restrictedModels.value = (data.value || []) as RestrictedModel[]
+})
+
+const ensureEditorData = () => Promise.all([ensureRegistry(), ensureResources(), ensureModels()])
+
+// ── Permissions tab ──────────────────────────────────────────────────────
+
+// Display groups. Anything the server registers that isn't listed here shows
+// under "Other", so a new permission is never hidden from the editor.
+const GROUPS: { key: string; perms: string[] }[] = [
+    { key: 'agents', perms: ['create_data_source', 'create_connections', 'manage_connections'] },
+    { key: 'knowledge', perms: ['manage_instructions', 'manage_entities', 'manage_evals'] },
+    { key: 'code', perms: ['view_code', 'run_custom_code'] },
+    { key: 'admin', perms: ['manage_members', 'manage_service_accounts', 'manage_settings', 'manage_llm', 'view_audit_logs', 'manage_identity_providers'] },
+]
+
+const registeredPerms = computed(() => Object.values(allCategories.value).flat())
+
+const permissionGroups = computed(() => {
+    const known = new Set(registeredPerms.value)
+    const grouped = new Set(GROUPS.flatMap((g) => g.perms))
+    const out = GROUPS
+        .map((g) => ({ key: g.key, perms: g.perms.filter((p) => known.has(p)) }))
+        .filter((g) => g.perms.length)
+    const other = registeredPerms.value.filter((p) => !grouped.has(p))
+    if (other.length) out.push({ key: 'other', perms: other })
     return out
 })
 
-// ── Merged category tier logic (org-wide card) ───────────────────────────
-
-function getMergedPerms(catNames: string[]): string[] {
-    const perms: string[] = []
-    for (const cat of catNames) {
-        if (allCategories.value[cat]) {
-            perms.push(...allCategories.value[cat])
-        }
-    }
-    return perms
+// Mirrors permission_resolver.ORG_PERM_IMPLIES_ORG.
+const ORG_IMPLIED_BY: Record<string, string> = {
+    view_code: 'run_custom_code',
+    create_connections: 'manage_connections',
 }
 
-function getMergedTier(catNames: string[]): 'none' | 'read' | 'full' | 'custom' {
-    const perms = getMergedPerms(catNames)
-    if (perms.length === 0) return 'none'
-    const selected = perms.filter((p) => form.permissions.includes(p))
-    if (selected.length === 0) return 'none'
-    if (selected.length === perms.length) return 'full'
-    const viewPerms = perms.filter((p) => p.startsWith('view_'))
-    if (viewPerms.length > 0 && viewPerms.every((p) => form.permissions.includes(p)) && selected.length === viewPerms.length) {
-        return 'read'
-    }
-    return 'custom'
+function impliedBy(perm: string): string | null {
+    const by = ORG_IMPLIED_BY[perm]
+    return by && form.permissions.includes(by) ? by : null
 }
 
-function setMergedTier(catNames: string[], tier: 'read' | 'full') {
-    const perms = getMergedPerms(catNames)
-    const currentTier = getMergedTier(catNames)
-
-    // If clicking the active tier, toggle it off
-    if (currentTier === tier) {
-        form.permissions = form.permissions.filter((p) => !perms.includes(p))
-        return
-    }
-
-    // Remove all perms in these categories first
-    form.permissions = form.permissions.filter((p) => !perms.includes(p))
-
-    if (tier === 'read') {
-        const viewPerms = perms.filter((p) => p.startsWith('view_'))
-        form.permissions.push(...viewPerms)
-    } else {
-        form.permissions.push(...perms)
-    }
+function togglePermission(perm: string, on: boolean) {
+    form.permissions = form.permissions.filter((p) => p !== perm)
+    if (on) form.permissions.push(perm)
 }
 
-// ── Resource-scoped permission groups ────────────────────────────────────
-
-function getResourceGroups(resourceType: string): Record<string, string[]> {
-    return resourceScopedGroups.value[resourceType] || {}
-}
-
-function getResourceGroupTier(grant: ResourceGrantForm, groupPerms: string[]): 'none' | 'read' | 'full' | 'custom' {
-    const selected = groupPerms.filter((p) => grant.permissions.includes(p))
-    if (selected.length === 0) return 'none'
-    if (selected.length === groupPerms.length) return 'full'
-    const viewPerms = groupPerms.filter((p) => p.startsWith('view_') || p === 'query' || p === 'view_schema')
-    if (viewPerms.length > 0 && viewPerms.every((p) => grant.permissions.includes(p)) && selected.length === viewPerms.length) {
-        return 'read'
-    }
-    return 'custom'
-}
-
-function setResourceGroupTier(grant: ResourceGrantForm, groupPerms: string[], tier: 'read' | 'full') {
-    const currentTier = getResourceGroupTier(grant, groupPerms)
-
-    // If clicking the active tier, toggle it off
-    if (currentTier === tier) {
-        grant.permissions = grant.permissions.filter((p) => !groupPerms.includes(p))
-        return
-    }
-
-    // Remove group perms first
-    grant.permissions = grant.permissions.filter((p) => !groupPerms.includes(p))
-
-    if (tier === 'read') {
-        const viewPerms = groupPerms.filter((p) => p.startsWith('view_') || p === 'query' || p === 'view_schema')
-        grant.permissions.push(...viewPerms)
-    } else {
-        grant.permissions.push(...groupPerms)
-    }
-}
-
-function isCheckboxResource(resourceType: string): boolean {
-    const groups = resourceScopedGroups.value[resourceType] || {}
-    // Checkbox mode when every group has exactly one permission (no read/write split)
-    return Object.values(groups).every((perms) => perms.length === 1)
-}
-
-function toggleResourcePerm(grant: ResourceGrantForm, perm: string, checked: boolean) {
-    if (checked) {
-        if (!grant.permissions.includes(perm)) grant.permissions.push(perm)
-    } else {
-        grant.permissions = grant.permissions.filter((p) => p !== perm)
-    }
-}
-
-// ── Agent-grant access tiers ─────────────────────────────────────────────
-// Mirrors AgentSettingsPanel's "Add people" modal: query (empty grant) or
-// manage (`manage` implies the other manage_* perms server-side). Any other
-// combination comes from Advanced and matches no tier.
-
-const DS_ACCESS_TIERS: { key: string; perms: string[] }[] = [
-    { key: 'query', perms: [] },
-    { key: 'manage', perms: ['manage'] },
-]
-
-const sameSet = (a: string[], b: string[]) =>
-    a.length === b.length && a.every((x) => b.includes(x))
-
-function grantTier(grant: ResourceGrantForm): string | null {
-    return DS_ACCESS_TIERS.find((tier) => sameSet(tier.perms, grant.permissions))?.key ?? null
-}
-
-function selectGrantTier(grant: ResourceGrantForm, key: string) {
-    const tier = DS_ACCESS_TIERS.find((t) => t.key === key)
-    if (tier) grant.permissions = [...tier.perms]
-}
-
-// ── Available resources for the picker ───────────────────────────────────
-
-const availableResources = ref<{ label: string; value: string; type: string; id: string }[]>([])
-
-async function loadResources() {
-    try {
-        const dsResult = await useMyFetch(`/data_sources/active`)
-        const resources: any[] = []
-        if (dsResult.data.value) {
-            for (const ds of dsResult.data.value as any[]) {
-                resources.push({
-                    label: `Agent: ${ds.name}`,
-                    value: `data_source:${ds.id}`,
-                    type: 'data_source',
-                    id: ds.id,
-                })
-            }
-        }
-        // Connections — per-connection grants delegate create/manage agents and
-        // connection config without org-wide manage_connections.
-        const connResult = await useMyFetch(`/connections`)
-        if (connResult.data.value) {
-            for (const c of connResult.data.value as any[]) {
-                resources.push({
-                    label: `Connection: ${c.name}`,
-                    value: `connection:${c.id}`,
-                    type: 'connection',
-                    id: c.id,
-                })
-            }
-        }
-        availableResources.value = resources
-    } catch (e) {
-        console.error('Failed to load resources', e)
-    }
-}
-
-async function loadModelAccess(roleId: string) {
-    restrictedModels.value = []
-    if (!hasFeature('llm_access_control')) return
-    try {
-        const { data } = await useMyFetch(
-            `/llm/model-access/by-principal?principal_type=role&principal_id=${roleId}`
-        )
-        if (data.value) restrictedModels.value = data.value as RestrictedModel[]
-    } catch (e) {
-        console.error('Failed to load model access', e)
-    }
-}
-
-async function toggleModelAccess(model: RestrictedModel, checked: boolean) {
-    if (!editingRole.value) return
-    modelAccessSaving.value = true
-    try {
-        if (checked) {
-            const { data, error } = await useMyFetch(`/llm/models/${model.model_id}/access`, {
-                method: 'POST',
-                body: { principal_type: 'role', principal_id: editingRole.value.id },
-            })
-            if (error.value) {
-                toast.add({ title: error.value.data?.detail || t('rolesManager.failedToSave'), color: 'red' })
-                return
-            }
-            model.grant_id = (data.value as any)?.grant_id ?? null
-            model.granted = true
-        } else {
-            if (!model.grant_id) { model.granted = false; return }
-            const { error } = await useMyFetch(
-                `/llm/models/${model.model_id}/access/${model.grant_id}`,
-                { method: 'DELETE' }
-            )
-            if (error.value) {
-                toast.add({ title: error.value.data?.detail || t('rolesManager.failedToSave'), color: 'red' })
-                return
-            }
-            model.grant_id = null
-            model.granted = false
-        }
-    } finally {
-        modelAccessSaving.value = false
-    }
-}
-
-function addResource(selected: any) {
-    if (!selected) return
-    const resource = availableResources.value.find((r) => r.value === selected)
-    if (!resource) return
-    if (form.resourceGrants.some((g) => g.resource_type === resource.type && g.resource_id === resource.id)) {
-        selectedResource.value = null
-        return
-    }
-    form.resourceGrants.push({
-        resource_type: resource.type,
-        resource_id: resource.id,
-        resource_name: resource.label.replace(/^(Agent|Data Source|Connection): /, ''),
-        permissions: [],
-    })
-    selectedResource.value = null
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────
-
-function togglePermission(perm: string, checked: boolean) {
-    if (checked) {
-        if (!form.permissions.includes(perm)) form.permissions.push(perm)
-    } else {
-        form.permissions = form.permissions.filter((p) => p !== perm)
-    }
-}
-
-const KNOWN_PERMISSION_KEYS = new Set([
-    'manage_files',
-    'view_code',
-    'run_custom_code',
-    'create_data_source',
-    'create_connections',
-    'manage_connections',
-    'manage_instructions',
-    'manage_entities',
-    'manage_evals',
-    'view_members',
-    'manage_members',
-    'manage_service_accounts',
-    'manage_settings',
-    'manage_llm',
-    'view_audit_logs',
-    'manage_identity_providers',
-    'view',
-    'view_schema',
-    'create_entities',
-    'manage',
-    // connection-scoped
-    'manage_connection',
-    'create_data_sources',
-    'manage_data_sources',
+const KNOWN_PERMISSIONS = new Set([
+    'manage_files', 'view_code', 'run_custom_code', 'create_data_source', 'create_connections',
+    'manage_connections', 'manage_instructions', 'manage_entities', 'manage_evals', 'view_members',
+    'manage_members', 'manage_service_accounts', 'manage_settings', 'manage_llm', 'view_audit_logs',
+    'manage_identity_providers', 'view', 'view_schema', 'create_entities', 'manage',
+    'manage_connection', 'create_data_sources', 'manage_data_sources',
 ])
 
 function formatPermission(perm: string) {
-    if (KNOWN_PERMISSION_KEYS.has(perm)) return t(`rolesManager.permissions.${perm}`)
-    // Fallback: snake_case → Title Case
-    return perm.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+    if (KNOWN_PERMISSIONS.has(perm)) return t(`rolesManager.permissions.${perm}`)
+    return perm.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
-const filteredRoles = computed(() => {
-    const query = searchQuery.value.toLowerCase()
-    if (!query) return roles.value
-    return roles.value.filter(r =>
-        r.name.toLowerCase().includes(query) ||
-        (r.description || '').toLowerCase().includes(query)
-    )
+const HINTED = new Set(GROUPS.flatMap((g) => g.perms))
+const permissionHint = (perm: string) => (HINTED.has(perm) ? t(`rolesManager.permissionHints.${perm}`) : '')
+
+// ── Access tab ───────────────────────────────────────────────────────────
+
+const TYPE_ICON: Record<string, string> = {
+    data_source: 'i-heroicons-cube',
+    connection: 'i-heroicons-circle-stack',
+    llm_model: 'i-heroicons-cpu-chip',
+}
+
+// One access level per agent / connection, like Retool's Use / Edit / Own.
+// A grant matching no level (set elsewhere or by the old editor) shows as
+// "Custom" and is saved unchanged unless the admin picks a level.
+const LEVELS: Record<string, { key: string; perms: string[] }[]> = {
+    data_source: [
+        { key: 'use', perms: [] },
+        { key: 'manage', perms: ['manage'] },
+    ],
+    connection: [
+        { key: 'build', perms: ['create_data_sources'] },
+        { key: 'manage', perms: ['manage_connection', 'create_data_sources'] },
+    ],
+}
+const MODEL_USE = ['use']
+
+const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x))
+
+function grantLevel(grant: Grant): string {
+    return LEVELS[grant.resource_type]?.find((l) => sameSet(l.perms, grant.permissions))?.key ?? 'custom'
+}
+
+function levelOptions(grant: Grant) {
+    const opts = (LEVELS[grant.resource_type] || []).map((l) => ({ value: l.key, label: t(`rolesManager.levels.${l.key}`) }))
+    if (grantLevel(grant) === 'custom') opts.push({ value: 'custom', label: t('rolesManager.levels.custom'), disabled: true } as any)
+    return opts
+}
+
+function setGrantLevel(grant: Grant, key: string) {
+    const level = LEVELS[grant.resource_type]?.find((l) => l.key === key)
+    if (level) grant.permissions = [...level.perms]
+}
+
+function resourceName(type: string, id: string): string {
+    if (type === 'llm_model') return restrictedModels.value.find((m) => m.model_id === id)?.name || id
+    return availableResources.value.find((r) => r.type === type && r.id === id)?.label || id
+}
+
+// Model grants are only shown to admins who can manage models; for anyone
+// else they stay in the form untouched and are saved back as they were.
+const visibleGrants = computed(() =>
+    form.grants.filter((g) => g.resource_type !== 'llm_model' || canManageModels.value))
+
+const addableResources = computed<ResourceOption[]>(() => {
+    const granted = new Set(form.grants.map((g) => `${g.resource_type}:${g.resource_id}`))
+    const models = restrictedModels.value.map((m) => ({
+        label: m.name, value: `llm_model:${m.model_id}`, type: 'llm_model' as const, id: m.model_id,
+    }))
+    return [...availableResources.value, ...models].filter((r) => !granted.has(r.value))
 })
+
+function addResource(value: string | null) {
+    selectedResource.value = null
+    if (!value) return
+    const i = value.indexOf(':')
+    const type = value.slice(0, i)
+    const id = value.slice(i + 1)
+    if (form.grants.some((g) => g.resource_type === type && g.resource_id === id)) return
+    form.grants.push({
+        resource_type: type,
+        resource_id: id,
+        resource_name: resourceName(type, id),
+        permissions: type === 'llm_model' ? [...MODEL_USE] : [...(LEVELS[type]?.[0]?.perms || [])],
+    })
+}
+
+function removeGrant(grant: GrantForm) {
+    form.grants = form.grants.filter((g) => g !== grant)
+}
+
+const tabs = computed(() => [
+    { key: 'permissions' as const, label: t('rolesManager.tabs.permissions'), count: 0 },
+    { key: 'access' as const, label: t('rolesManager.tabs.access'), count: isFullAdmin.value ? 0 : visibleGrants.value.length },
+])
+
+// ── Dirty tracking / save gating ─────────────────────────────────────────
+
+function snapshot(): string {
+    return JSON.stringify([
+        form.name, form.description, [...form.permissions].sort(),
+        form.grants.map((g) => [g.resource_type, g.resource_id, [...g.permissions].sort()]),
+    ])
+}
+const baseline = ref('')
+const canSave = computed(() =>
+    loadState.value === 'ready' && !saving.value && !!form.name.trim() &&
+    (!editingRole.value || snapshot() !== baseline.value))
+
+// ── Open / load ──────────────────────────────────────────────────────────
+
+const toForm = (grants?: Grant[]): GrantForm[] =>
+    (grants || []).map((g) => ({
+        resource_type: g.resource_type,
+        resource_id: g.resource_id,
+        resource_name: resourceName(g.resource_type, g.resource_id),
+        permissions: [...(g.permissions || [])],
+    }))
+
+async function runLoad(loader: () => Promise<void>) {
+    pendingLoad = loader
+    loadState.value = 'loading'
+    try {
+        await loader()
+        baseline.value = snapshot()
+        loadState.value = 'ready'
+    } catch (e) {
+        console.error('Failed to load role editor data', e)
+        loadState.value = 'error'
+    }
+}
+
+const retryLoad = () => pendingLoad && runLoad(pendingLoad)
+
+// Mirrors permissions_registry.DEFAULT_ON_PERMISSIONS.
+const DEFAULT_ON_PERMISSIONS = ['view_code', 'run_custom_code']
+
+function openModal(role: RoleData | null, source: RoleData | null) {
+    editingRole.value = role
+    activeTab.value = 'permissions'
+    selectedResource.value = null
+    form.name = role ? role.name : source ? t('rolesManager.copyOf', { name: source.name }) : ''
+    form.description = role?.description || source?.description || ''
+    const from = role || source
+    form.permissions = from ? [...(from.permissions || [])] : [...DEFAULT_ON_PERMISSIONS]
+    form.grants = []
+    showModal.value = true
+    runLoad(async () => {
+        await ensureEditorData()
+        form.grants = toForm(from?.resource_grants)
+    })
+}
+
+const openCreateModal = (source?: RoleData) => openModal(null, source || null)
+const openEditModal = (role: RoleData) => openModal(role, null)
+
+// ── Save ─────────────────────────────────────────────────────────────────
+
+const errorDetail = (e: any, fallback: string) => e?.data?.detail || e?.message || fallback
+
+async function saveRole() {
+    if (!canSave.value) return
+    saving.value = true
+    const editing = editingRole.value
+    try {
+        const body = {
+            name: form.name.trim(),
+            description: form.description || null,
+            permissions: isFullAdmin.value ? [FULL_ADMIN] : form.permissions,
+            resource_grants: form.grants.map(({ resource_type, resource_id, permissions }) => ({ resource_type, resource_id, permissions })),
+        }
+        const base = `/organizations/${props.organization.id}/roles`
+        const { data, error } = await useMyFetch(editing ? `${base}/${editing.id}` : base, {
+            method: editing ? 'PUT' : 'POST',
+            body,
+        })
+        if (error.value) {
+            toast.add({ title: errorDetail(error.value, t(editing ? 'rolesManager.failedToUpdate' : 'rolesManager.failedToCreate')), color: 'red' })
+            return
+        }
+        const name = (data.value as RoleData)?.name || body.name
+        toast.add({ title: t(editing ? 'rolesManager.toastUpdatedNamed' : 'rolesManager.toastCreatedNamed', { name }), color: 'green' })
+        showModal.value = false
+        await loadRoles()
+    } catch (e: any) {
+        toast.add({ title: errorDetail(e, t('rolesManager.failedToSave')), color: 'red' })
+    } finally {
+        saving.value = false
+    }
+}
+
+// ── List ─────────────────────────────────────────────────────────────────
+
+const filteredRoles = computed(() => {
+    const q = searchQuery.value.toLowerCase()
+    if (!q) return roles.value
+    return roles.value.filter((r) => r.name.toLowerCase().includes(q) || (r.description || '').toLowerCase().includes(q))
+})
+
+function countLabel(n: number, key: string) {
+    return t(`rolesManager.meta.${key}${n === 1 ? 'One' : 'Many'}`, { n })
+}
+
+// "2 permissions · 3 agents · 1 model" — counts what the editor shows (hidden
+// baseline permissions such as reports are not counted).
+function roleMeta(role: RoleData): string {
+    if (isFullAdminRole(role)) return t('rolesManager.meta.everything')
+    const known = registeredPerms.value.length ? new Set(registeredPerms.value) : KNOWN_PERMISSIONS
+    const grants = role.resource_grants || []
+    const parts = [countLabel((role.permissions || []).filter((p) => known.has(p)).length, 'permissions')]
+    const byType = (type: string) => grants.filter((g) => g.resource_type === type).length
+    if (byType('data_source')) parts.push(countLabel(byType('data_source'), 'agents'))
+    if (byType('connection')) parts.push(countLabel(byType('connection'), 'connections'))
+    if (byType('llm_model')) parts.push(countLabel(byType('llm_model'), 'models'))
+    return parts.join(' · ')
+}
+
+function rowActions(role: RoleData) {
+    if (!canManageRoles.value) return []
+    const main: any[] = []
+    if (canEdit(role)) main.push({ label: t('rolesManager.edit'), icon: 'i-heroicons-pencil-square', click: () => openEditModal(role) })
+    main.push({ label: t('rolesManager.duplicate'), icon: 'i-heroicons-document-duplicate', click: () => openCreateModal(role) })
+    const items = [main]
+    if (role.is_deletable) items.push([{ label: t('rolesManager.delete'), icon: 'i-heroicons-trash', click: () => deleteRole(role) }])
+    return items
+}
+
+async function loadRoles() {
+    try {
+        const { data, error } = await useMyFetch(`/organizations/${props.organization.id}/roles`)
+        if (error.value) toast.add({ title: (error.value as any)?.data?.detail || t('rolesManager.failedToLoad'), color: 'red' })
+        else if (data.value) roles.value = data.value as RoleData[]
+    } finally {
+        isLoading.value = false
+    }
+}
+
+async function deleteRole(role: RoleData) {
+    if (!confirm(t('rolesManager.confirmDelete', { name: role.name }))) return
+    try {
+        const { error } = await useMyFetch(`/organizations/${props.organization.id}/roles/${role.id}`, { method: 'DELETE' })
+        if (error.value) {
+            toast.add({ title: error.value.data?.detail || t('rolesManager.failedToDelete'), color: 'red' })
+            return
+        }
+        toast.add({ title: t('rolesManager.toastDeleted') })
+        await loadRoles()
+    } catch (e: any) {
+        toast.add({ title: errorDetail(e, t('rolesManager.failedToDelete')), color: 'red' })
+    }
+}
+
+async function loadDefaultMemberRole() {
+    try {
+        const { data } = await useMyFetch('/organization/default-member-role')
+        const role = (data.value as any)?.role
+        if (role) defaultMemberRole.value = role
+    } catch {
+        // keep the "member" fallback
+    }
+}
+
+// ── Usage quotas (unchanged) ─────────────────────────────────────────────
 
 const quotaSelectOptions = computed(() => [
     { value: null, label: t('quotaPolicies.noDirectQuota') },
-    ...usagePolicies.value
-        .filter(policy => policy.enabled)
-        .map(policy => ({ value: policy.id, label: policy.name })),
+    ...usagePolicies.value.filter((p) => p.enabled).map((p) => ({ value: p.id, label: p.name })),
 ])
 
-function getRoleQuotaPolicies(role: RoleData): UsagePolicySummary[] {
-    if (!showQuotaColumn.value) return []
-    return getPrincipalQuotaPolicies('role', role.id)
+function getPrincipalQuotaPolicies(principalType: UsagePolicyAssignment['principal_type'], principalId: string) {
+    return usagePolicies.value.filter((policy) =>
+        policy.enabled && policy.assignments?.some((a) => a.principal_type === principalType && a.principal_id === principalId))
 }
 
-function getPrincipalQuotaPolicies(principalType: UsagePolicyAssignment['principal_type'], principalId: string): UsagePolicySummary[] {
-    return usagePolicies.value.filter(policy =>
-        policy.enabled &&
-        policy.assignments?.some(assignment =>
-            assignment.principal_type === principalType &&
-            assignment.principal_id === principalId
-        )
-    )
-}
-
-function getDirectQuotaId(principalType: UsagePolicyAssignment['principal_type'], principalId: string): string | null {
-    return getPrincipalQuotaPolicies(principalType, principalId)[0]?.id || null
-}
-
-function applyLocalQuotaAssignment(principalType: UsagePolicyAssignment['principal_type'], principalId: string, policyId: string | null) {
-    usagePolicies.value = usagePolicies.value.map(policy => {
-        const assignments = (policy.assignments || []).filter(
-            assignment => assignment.principal_type !== principalType || assignment.principal_id !== principalId
-        )
-        if (policyId && policy.id === policyId) {
-            assignments.push({ principal_type: principalType, principal_id: principalId })
-        }
-        return { ...policy, assignments }
-    })
-}
+const getRoleQuotaPolicies = (role: RoleData) => (showQuotaColumn.value ? getPrincipalQuotaPolicies('role', role.id) : [])
+const getDirectQuotaId = (type: UsagePolicyAssignment['principal_type'], id: string) => getPrincipalQuotaPolicies(type, id)[0]?.id || null
 
 async function updatePrincipalQuota(principalType: UsagePolicyAssignment['principal_type'], principalId: string, policyId: string | null) {
     try {
         const { error } = await useMyFetch(`/organizations/${props.organization.id}/usage-policy-assignments/principal`, {
             method: 'PUT',
-            body: {
-                principal_type: principalType,
-                principal_id: principalId,
-                policy_id: policyId,
-            },
+            body: { principal_type: principalType, principal_id: principalId, policy_id: policyId },
         })
         if (error.value) {
             toast.add({ title: error.value.data?.detail || t('quotaPolicies.failedToSave'), color: 'red' })
             return
         }
-        applyLocalQuotaAssignment(principalType, principalId, policyId)
+        usagePolicies.value = usagePolicies.value.map((policy) => {
+            const assignments = (policy.assignments || []).filter((a) => a.principal_type !== principalType || a.principal_id !== principalId)
+            if (policyId && policy.id === policyId) assignments.push({ principal_type: principalType, principal_id: principalId })
+            return { ...policy, assignments }
+        })
         toast.add({ title: t('quotaPolicies.toastAssignmentUpdated'), color: 'green' })
     } catch (e: any) {
-        const detail = e?.data?.detail || e?.message || t('quotaPolicies.failedToSave')
-        toast.add({ title: detail, color: 'red' })
-    }
-}
-
-// ── CRUD ─────────────────────────────────────────────────────────────────
-
-async function loadRoles() {
-    isLoading.value = true
-    try {
-        const { data, error } = await useMyFetch(`/organizations/${props.organization.id}/roles`)
-        if (error.value) {
-            const detail = (error.value as any)?.data?.detail || t('rolesManager.failedToLoad')
-            toast.add({ title: detail, color: 'red' })
-        } else if (data.value) {
-            roles.value = data.value as RoleData[]
-        }
-    } finally {
-        isLoading.value = false
+        toast.add({ title: errorDetail(e, t('quotaPolicies.failedToSave')), color: 'red' })
     }
 }
 
@@ -834,144 +772,22 @@ async function loadUsagePolicies() {
     try {
         const { data } = await useMyFetch(`/organizations/${props.organization.id}/usage-policies`)
         usagePolicies.value = (data.value || []) as UsagePolicySummary[]
-    } catch (e) {
+    } catch {
         usagePolicies.value = []
     }
 }
 
-// Mirrors permissions_registry.DEFAULT_ON_PERMISSIONS. A new role starts with
-// these checked so the editor's default matches the product's: every existing
-// role carries them (the migration backfilled them), so a freshly authored role
-// that silently lacked them would behave differently from every other role in
-// the org for no reason the admin chose.
-const DEFAULT_ON_PERMISSIONS = ['view_code', 'run_custom_code']
+watch(showQuotaColumn, (on) => {
+    if (on && usagePolicies.value.length === 0) loadUsagePolicies()
+})
 
-function openCreateModal() {
-    editingRole.value = null
-    form.name = ''
-    form.description = ''
-    form.permissions = [...DEFAULT_ON_PERMISSIONS]
-    form.resourceGrants = []
-    restrictedModels.value = []
-    showOrgDetails.value = false
-    showModal.value = true
-    loadResources()
-}
-
-async function openEditModal(role: RoleData) {
-    editingRole.value = role
-    form.name = role.name
-    form.description = role.description || ''
-    form.permissions = [...(role.permissions || [])]
-    form.resourceGrants = []
-    showOrgDetails.value = false
-    showModal.value = true
-    await loadResources()
-    form.resourceGrants = (role.resource_grants || []).map((g) => {
-        const found = availableResources.value.find(
-            (r) => r.type === g.resource_type && r.id === g.resource_id
-        )
-        return {
-            resource_type: g.resource_type,
-            resource_id: g.resource_id,
-            resource_name: found ? found.label.replace(/^(Agent|Data Source|Connection): /, '') : g.resource_id,
-            permissions: [...(g.permissions || [])],
-        }
-    })
-    await loadModelAccess(role.id)
-}
-
-async function saveRole() {
-    saving.value = true
-    try {
-        const body = {
-            name: form.name,
-            description: form.description || null,
-            permissions: isFullAdmin.value ? ['full_admin_access'] : form.permissions,
-            resource_grants: form.resourceGrants.map((g) => ({
-                resource_type: g.resource_type,
-                resource_id: g.resource_id,
-                permissions: g.permissions,
-            })),
-        }
-
-        if (editingRole.value) {
-            const { error } = await useMyFetch(`/organizations/${props.organization.id}/roles/${editingRole.value.id}`, {
-                method: 'PUT',
-                body,
-            })
-            if (error.value) {
-                const detail = error.value.data?.detail || t('rolesManager.failedToUpdate')
-                toast.add({ title: detail, color: 'red' })
-                return
-            }
-            toast.add({ title: t('rolesManager.toastUpdated') })
-        } else {
-            const { error } = await useMyFetch(`/organizations/${props.organization.id}/roles`, {
-                method: 'POST',
-                body,
-            })
-            if (error.value) {
-                const detail = error.value.data?.detail || t('rolesManager.failedToCreate')
-                toast.add({ title: detail, color: 'red' })
-                return
-            }
-            toast.add({ title: t('rolesManager.toastCreated') })
-        }
-
-        showModal.value = false
-        await loadRoles()
-    } catch (e: any) {
-        const detail = e?.data?.detail || e?.message || t('rolesManager.failedToSave')
-        toast.add({ title: detail, color: 'red' })
-    } finally {
-        saving.value = false
-    }
-}
-
-async function deleteRole(role: RoleData) {
-    if (!confirm(t('rolesManager.confirmDelete', { name: role.name }))) return
-    try {
-        const { error } = await useMyFetch(`/organizations/${props.organization.id}/roles/${role.id}`, {
-            method: 'DELETE',
-        })
-        if (error.value) {
-            const detail = error.value.data?.detail || t('rolesManager.failedToDelete')
-            toast.add({ title: detail, color: 'red' })
-            return
-        }
-        toast.add({ title: t('rolesManager.toastDeleted') })
-        await loadRoles()
-    } catch (e: any) {
-        const detail = e?.data?.detail || e?.message || t('rolesManager.failedToDelete')
-        toast.add({ title: detail, color: 'red' })
-    }
-}
-
-// The org-wide default role for new members. Missing endpoint / value simply
-// leaves the fallback ("member") in place, so this is safe before that setting
-// ships.
-async function loadDefaultMemberRole() {
-    try {
-        const { data } = await useMyFetch('/organization/default-member-role')
-        const role = (data.value as any)?.role
-        if (role) defaultMemberRole.value = role
-    } catch (e) {
-        // keep the "member" fallback
-    }
-}
-
-// Load on mount
 onMounted(() => {
-    loadPermissionsRegistry()
     loadRoles()
     loadUsagePolicies()
     loadDefaultMemberRole()
-})
-
-watch(showQuotaColumn, (enabled) => {
-    if (enabled && usagePolicies.value.length === 0) {
-        loadUsagePolicies()
-    }
+    ensureRegistry().catch(() => {})
+    // Prefetch so most editors open already loaded; a failure is retried
+    // (and shown) when the editor opens.
+    if (canManageRoles.value) ensureEditorData().catch(() => {})
 })
 </script>
