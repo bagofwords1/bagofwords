@@ -127,6 +127,18 @@ def test_unparseable_queries_fail_closed(dialect, sql):
         check_table_scope(sql, dialect, SCOPE)
 
 
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_any_parser_exception_fails_closed(monkeypatch, dialect):
+    from app.ai.code_execution import sql_parser
+
+    def broken(sql, dialect):
+        raise RecursionError("parser bug")  # not a sqlglot error
+
+    monkeypatch.setattr(sql_parser, "parse_guard_sql", broken)
+    with pytest.raises(TableScopeViolation, match="Could not verify"):
+        check_table_scope("SELECT * FROM sales.orders", dialect, SCOPE)
+
+
 def test_refusal_names_the_table_not_the_rest_of_the_catalog():
     with pytest.raises(TableScopeViolation) as exc:
         check_table_scope("SELECT * FROM sales.payroll", "postgres", SCOPE)

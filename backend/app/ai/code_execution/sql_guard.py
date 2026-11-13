@@ -12,9 +12,13 @@ Policy, per client:
     Snowflake, BigQuery, ...): parse it and allow exactly one read statement —
     SELECT / set operation / WITH ... SELECT, plus SHOW / DESCRIBE / EXPLAIN.
     Anything that writes anywhere in the tree (a DELETE inside a CTE,
-    `SELECT ... INTO`) is refused. If sqlglot cannot parse the text, we do not
-    block a possibly-valid read on a parser gap; we fall back to the keyword
-    blocklist over the text with string literals and comments removed.
+    `SELECT ... INTO`) is refused. If sqlglot cannot parse the text (or fails
+    in any way), we do not block a possibly-valid read on a parser gap; we
+    fall back to an allowlist over the text with string literals and
+    comments removed: one statement, a read verb first, no write word.
+    Postgres text is first read by its own lexer (`pg_lexer`), as the server
+    reads it: one statement only, and the lexer's canonical text is what is
+    checked and what is sent.
   * **Splunk**: SPL is not SQL but can write; its writing commands are refused.
   * **Db2** (LUW, z/OS, IBM i): sqlglot has no Db2 dialect. One statement, a
     read verb (SELECT / WITH / VALUES) and no write keyword, generic or Db2's.
@@ -65,6 +69,22 @@ _LITERALS_AND_COMMENTS = re.compile(
     r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|`[^`]*`|\[[^\]]*\]|--[^\n]*|/\*.*?\*/",
     re.DOTALL,
 )
+
+# Text sqlglot cannot parse (`check_unparsed`): the verbs a read may start
+# with, and every word that changes data, state or the session, matched as a
+# whole name the way Postgres splits names (a word right after digits is a
+# separate word to older servers).
+_UNPARSED_READ_VERBS = frozenset({"SELECT", "WITH", "VALUES", "SHOW", "EXPLAIN"})
+_NAME_CHAR = r"A-Za-z0-9_$\x80-\U0010FFFF"
+_UNPARSED_WRITE_WORDS = re.compile(
+    r"(?<![A-Za-z_$\x80-\U0010FFFF])(?:INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER|CREATE|GRANT|REVOKE"
+    r"|EXEC|EXECUTE|MERGE|CALL|UPSERT|LOAD|COPY|VACUUM|ATTACH|DETACH|SET|INTO|COMMIT|ROLLBACK"
+    r"|BEGIN|START|LOCK|LISTEN|UNLISTEN|NOTIFY|SECURITY|IMPORT|REASSIGN|PREPARE|DEALLOCATE|DISCARD"
+    r"|RESET|CHECKPOINT|CLUSTER|REINDEX|REFRESH|DO)(?![" + _NAME_CHAR + r"])",
+    re.IGNORECASE,
+)
+_QUOTED_NAME = re.compile(r'"(?:[^"]|"")*"')
+_LEADING_WORD = re.compile(r"[\s(]*([A-Za-z_][" + _NAME_CHAR + r"]*)")
 
 # SPL commands an agent search must not run, by what they do:
 # - write to indexes, lookups, inputs or files on the search head: delete,
@@ -353,7 +373,9 @@ def ensure_read_only(client, query) -> Union[str, dict]:
     """Return exactly what `client` must be sent for `query`, or raise
     ReadOnlyViolation if it would modify the source behind `client`.
 
-    A `str` comes back as the text to send (unchanged today). A `dict` envelope
+    A `str` comes back as the text to send: for Postgres the lexer's
+    canonical text (comments dropped, every string written as a standard
+    literal), the text that was checked; for other clients the input. A `dict` envelope
     on a client that accepts one (Splunk) comes back unchanged. Splunk SPL
     carried inline (bare, dict or JSON string) is checked here after decoding,
     so a refusal happens before the query is metered; SPL stored in a
@@ -395,6 +417,8 @@ def ensure_read_only(client, query) -> Union[str, dict]:
             check_cypher(query, allow_gds=client.allow_gds)
         except CypherNotAllowed as e:
             raise ReadOnlyViolation(str(e)) from e
+    elif profile.dialect == "postgres":
+        return _check_postgres(query)
     elif profile.dialect:
         check_sql(query, profile.dialect)
     return query
@@ -419,22 +443,15 @@ def _check_spl_envelope(query, checked: Optional[str] = None) -> None:
 
 
 def check_sql(sql: str, dialect: str) -> None:
-    from app.ai.code_execution.sql_parser import parse_guard_sql
-    from sqlglot import exp
-    from sqlglot.errors import SqlglotError
+    if dialect == "postgres":
+        _check_postgres(sql)
+        return
 
     teradata = dialect == "teradata"
     if teradata:
         _check_teradata(sql)
 
-    try:
-        # A comment after the final `;` parses as a bare Semicolon node holding
-        # only that comment; it runs nothing, so it is not a second statement.
-        statements = [s for s in parse_guard_sql(sql, dialect)
-                      if s is not None and not isinstance(s, exp.Semicolon)]
-    except SqlglotError as e:
-        logger.warning("sql_guard: %s parser could not read query, using keyword check: %s",
-                       dialect, str(e)[:200])
+    def unparsed() -> None:
         if teradata:
             # `CHARACTER SET UNICODE` in a CAST is a read; without this the
             # keyword check would see SET. The leading-verb allowlist above
@@ -443,7 +460,44 @@ def check_sql(sql: str, dialect: str) -> None:
             _keyword_check(_TERADATA_CHARSET_CLAUSE.sub(" ", sql))
             _single_statement_check(sql)
         else:
-            _keyword_check(sql)
+            check_unparsed(_LITERALS_AND_COMMENTS.sub(" ", sql),
+                           read_verbs=_UNPARSED_READ_VERBS | {"DESCRIBE", "DESC"})
+
+    _check_parsed(sql, dialect, unparsed)
+
+
+def _check_postgres(sql: str) -> str:
+    """Check Postgres text as the server reads it; return the canonical
+    text, which is what must be sent."""
+    from app.ai.code_execution.pg_lexer import lex_postgres
+
+    lex = lex_postgres(sql)
+    if lex.statements != 1:
+        raise ReadOnlyViolation(
+            f"Only a single read-only statement is allowed; got {lex.statements} statements."
+        )
+    _check_parsed(lex.text, "postgres",
+                  lambda: check_unparsed(lex.code_only, read_verbs=_UNPARSED_READ_VERBS))
+    return lex.text
+
+
+def _check_parsed(sql: str, dialect: str, unparsed) -> None:
+    """The parsed-path rules on `sql`; `unparsed()` when sqlglot cannot
+    parse it (any exception: a parser failure must not let the text run
+    unchecked)."""
+    from app.ai.code_execution.sql_parser import parse_guard_sql
+    from sqlglot import exp
+
+    teradata = dialect == "teradata"
+    try:
+        # A comment after the final `;` parses as a bare Semicolon node holding
+        # only that comment; it runs nothing, so it is not a second statement.
+        statements = [s for s in parse_guard_sql(sql, dialect)
+                      if s is not None and not isinstance(s, exp.Semicolon)]
+    except Exception as e:
+        logger.warning("sql_guard: %s parser could not read query, using the unparsed check: %s",
+                       dialect, str(e)[:200])
+        unparsed()
         return
 
     if len(statements) != 1:
@@ -507,6 +561,30 @@ def _keyword_check(sql: str) -> None:
         raise ReadOnlyViolation(
             f"Query contains forbidden operation '{match.group().upper()}'. Only SELECT queries are allowed."
         )
+
+
+def check_unparsed(code_only: str, *, read_verbs: frozenset[str], extra_write_words: Optional[re.Pattern] = None) -> None:
+    """Check text sqlglot could not parse: one statement, a read verb first,
+    and no write word anywhere. `code_only` is the text with its literals
+    and comments already emptied; quoted names are skipped here."""
+    words = _QUOTED_NAME.sub(" ", code_only)
+    parts = [part for part in words.split(";") if part.strip()]
+    if len(parts) != 1:
+        raise ReadOnlyViolation(
+            f"Only a single read-only statement is allowed; got {len(parts)} statements."
+        )
+    leading = _LEADING_WORD.match(parts[0])
+    verb = leading.group(1).upper() if leading else ""
+    if verb not in read_verbs:
+        raise ReadOnlyViolation(
+            f"Statement '{verb or '(empty)'}' is not allowed. Only SELECT queries are allowed."
+        )
+    for pattern in (_UNPARSED_WRITE_WORDS, extra_write_words):
+        match = pattern.search(words) if pattern is not None else None
+        if match:
+            raise ReadOnlyViolation(
+                f"Query contains forbidden operation '{match.group().upper()}'. Only SELECT queries are allowed."
+            )
 
 
 def _single_statement_check(sql: str) -> None:

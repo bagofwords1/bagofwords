@@ -197,12 +197,11 @@ def check_table_scope(sql: str, dialect: str, scope: TableScope) -> None:
     """Raise TableScopeViolation unless every table `sql` reads is active."""
     from app.ai.code_execution.sql_parser import parse_guard_sql
     from sqlglot import exp
-    from sqlglot.errors import SqlglotError
 
     try:
         statements = [s for s in parse_guard_sql(sql, dialect)
                       if s is not None and not isinstance(s, exp.Semicolon)]
-    except SqlglotError as e:
+    except Exception as e:  # any parser failure: the tables cannot be verified
         logger.info("table_scope: %s parser could not read query: %s", dialect, str(e)[:200])
         raise TableScopeViolation(
             "Could not verify which tables this query reads, so it was not run. "

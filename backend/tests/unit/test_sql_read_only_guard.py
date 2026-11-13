@@ -175,6 +175,57 @@ def test_teradata_reads_pass(sql):
     check_sql(sql, "teradata")
 
 
+@pytest.fixture
+def unparsable(monkeypatch):
+    """sqlglot fails on every query (any exception, not only its own)."""
+    from app.ai.code_execution import sql_parser
+
+    def broken(sql, dialect):
+        raise RecursionError("parser bug")
+
+    monkeypatch.setattr(sql_parser, "parse_guard_sql", broken)
+
+
+NON_TERADATA = [d for d in DIALECTS if d != "teradata"]
+# What the fallback must still refuse: more than one statement, a verb that
+# is not a read, and a write word anywhere outside literals.
+UNPARSED_WRITES = WRITES + [
+    "SELECT 1; COMMIT",
+    "SELECT 1; NOTIFY c",
+    "LOCK TABLE orders",
+    "START TRANSACTION",
+    "COMMIT",
+    "SECURITY LABEL ON TABLE orders IS 'x'",
+    "IMPORT FOREIGN SCHEMA s FROM SERVER x INTO y",
+    "REASSIGN OWNED BY a TO b",
+    "UNLISTEN c",
+    "SELECT id INTO orders_copy FROM orders",
+    "SELECT id FROM orders WHERE x = 1 INTO orders_copy",
+    "TABLE orders",
+    "CALL p()",
+    "SELECT 1 FROM orders WHERE a = 1 AND REFRESH",
+]
+
+
+@pytest.mark.parametrize("dialect", NON_TERADATA)
+@pytest.mark.parametrize("sql", UNPARSED_WRITES)
+def test_the_unparsed_fallback_refuses_anything_but_one_read(unparsable, dialect, sql):
+    with pytest.raises(ReadOnlyViolation):
+        check_sql(sql, dialect)
+
+
+@pytest.mark.parametrize("dialect", NON_TERADATA)
+@pytest.mark.parametrize("sql", READS + ["VALUES (1)", "(SELECT 1)", "SELECT \"into\" FROM t"])
+def test_the_unparsed_fallback_lets_reads_through(unparsable, dialect, sql):
+    check_sql(sql, dialect)
+
+
+@pytest.mark.parametrize("dialect", [d for d in NON_TERADATA if d != "postgres"])
+def test_the_unparsed_fallback_keeps_describe_outside_postgres(unparsable, dialect):
+    check_sql("DESCRIBE orders", dialect)
+    check_sql("DESC orders", dialect)
+
+
 def test_non_sql_clients_are_not_checked():
     class SalesforceClient:  # SOQL / HogQL / etc. go through unchanged
         pass
