@@ -185,14 +185,27 @@ work, include a Hebrew (`he`) capture as well.
 ### Locale / i18n
 
 - **Library**: `vue-i18n@9` in composition mode (`legacy: false`). Plugin at
-  `plugins/i18n.ts` imports the three catalogs at `/locales/{en,es,he}.json`,
-  creates the global instance, and exposes `$setLocale(code)` via
+  `plugins/i18n.ts` bundles `/locales/en.json` and lazy-loads the other nine
+  catalogs (`es`, `he`, `fr`, `sv`, `ar`, `ru`, `de`, `pt`, `it`) on first
+  use, creates the global instance, and exposes `$setLocale(code)` via
   `nuxtApp.provide`. It also sets `<html lang>` and `<html dir>` (RTL for
   `he`/`ar`/`fa`/`ur`).
-- **Catalog authoring**: always add the same key path to en/es/he in one
-  pass. A catalog sync check (`docs/design/i18n.md`) enforces identical
-  shape across locales. Use named interpolation (`t('key', { name })`) —
-  never concatenation.
+- **Catalog authoring**: always add the same key path to all ten
+  `locales/*.json` in one pass; a key missing from a locale falls back to
+  English for those users. A catalog sync check (`docs/design/i18n.md`)
+  enforces identical shape across locales. Translate what the English
+  string *means* now, and reuse the term the catalog already uses for that
+  concept (see the root `AGENTS.md`). Use named interpolation
+  (`t('key', { name })`) — never concatenation.
+- **Browser tab titles**: every page reads `<page> · Bag of Words`.
+  `plugins/page-title.ts` sets the suffix app-wide and the default title from
+  `definePageMeta({ titleKey: '<i18n key>' })`; pages in the `settings` and
+  `monitoring` layouts get their section appended
+  (`General · Settings · Bag of Words`). A page or component that shows a
+  record calls `usePageTitle(() => record.value?.name, { loading, fallbackKey })`
+  (`composables/usePageTitle.ts`) instead of `useHead({ title })`. Pass only a
+  name from a successful fetch, so a viewer without access never sees it in
+  the tab. Generic title strings live under `pageTitles.*`.
 - **In templates**: `$t('ns.key')` or `:placeholder="$t(...)"`. For inline
   markup, use `<i18n-t keypath="..." tag="span">` with named slots.
 - **In `<script setup>`**: `const { t, locale } = useI18n()`. Wrap
@@ -215,7 +228,7 @@ work, include a Hebrew (`he`) capture as well.
   Never use `dir="auto"` on empty contenteditable — it resolves to LTR
   per spec; bind `:dir` to the active locale instead.
 - **Tests**: `tests/i18n/locale-sweep.spec.ts` (run with
-  `playwright.i18n.config.ts`) covers en/es/he on unauthenticated pages
+  `playwright.i18n.config.ts`) covers all ten locales on unauthenticated pages
   (`/i18n-smoke`, `/users/sign-in`) — asserts `html[lang]`/`html[dir]` flip,
   expected strings render, no `{{…}}` or unresolved key paths leak, no
   `[intlify]` console warnings. Keep this green when adding locales or

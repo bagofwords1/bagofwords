@@ -2205,7 +2205,7 @@
     "subtitle": "Hantera arbetsytans identitet och inställningar",
     "general": "Allmänt",
     "license": "Licens",
-    "membersTab": "Medlemmar",
+    "membersTab": "Åtkomst",
     "identityProviderTab": "Identitetsleverantör",
     "identityProvider": {
       "scimTitle": "SCIM-provisionering",

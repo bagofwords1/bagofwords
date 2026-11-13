@@ -2205,7 +2205,7 @@
     "subtitle": "إدارة هوية مساحة العمل والتفضيلات",
     "general": "عام",
     "license": "الترخيص",
-    "membersTab": "الأعضاء",
+    "membersTab": "الوصول",
     "identityProviderTab": "موفّر الهوية",
     "identityProvider": {
       "scimTitle": "توفير حسابات SCIM",

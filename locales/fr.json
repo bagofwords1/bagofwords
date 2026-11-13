@@ -2205,7 +2205,7 @@
     "subtitle": "Gérer l'identité et les préférences de l'espace de travail",
     "general": "Général",
     "license": "Licence",
-    "membersTab": "Membres",
+    "membersTab": "Accès",
     "identityProviderTab": "Fournisseur d'identité",
     "identityProvider": {
       "scimTitle": "Provisionnement SCIM",

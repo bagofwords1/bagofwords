@@ -2451,7 +2451,7 @@
     "subtitle": "Gestione la identidad y las preferencias del espacio",
     "general": "General",
     "license": "Licencia",
-    "membersTab": "Miembros",
+    "membersTab": "Acceso",
     "identityProviderTab": "Proveedor de identidad",
     "identityProvider": {
       "scimTitle": "Aprovisionamiento SCIM",

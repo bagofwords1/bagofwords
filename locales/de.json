@@ -2205,7 +2205,7 @@
     "subtitle": "Identität und Einstellungen des Arbeitsbereichs verwalten",
     "general": "Allgemein",
     "license": "Lizenz",
-    "membersTab": "Mitglieder",
+    "membersTab": "Zugriff",
     "identityProviderTab": "Identitätsanbieter",
     "identityProvider": {
       "scimTitle": "SCIM-Bereitstellung",

@@ -2451,7 +2451,7 @@
     "subtitle": "ניהול זהות והעדפות של סביבת העבודה",
     "general": "כללי",
     "license": "רישיון",
-    "membersTab": "משתמשים",
+    "membersTab": "גישה",
     "identityProviderTab": "ספק זהות",
     "identityProvider": {
       "scimTitle": "הקצאה אוטומטית (SCIM)",
