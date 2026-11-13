@@ -337,8 +337,8 @@ def _unread_prefixes(client) -> tuple[str, ...]:
 
 
 def _athena_config_is_multi(config) -> bool:
-    from app.data_sources.clients.aws_athena_client import parse_database_spec
-    return parse_database_spec((config or {}).get("database"))[2]
+    from app.schemas.data_sources.configs import parse_athena_database_spec
+    return parse_athena_database_spec((config or {}).get("database"))[2]
 
 
 def _validate_connection_config(connection_type: str, config) -> None:

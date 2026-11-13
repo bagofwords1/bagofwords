@@ -441,3 +441,82 @@ def test_dotted_entries_are_not_described_as_permission_problems(wrangler):
 def test_multi_description_does_not_list_raw_spec_entries_when_nothing_is_attached(wrangler):
     text = make_client("*_db, !billing_db", FakeGlue(TENANTS)).description
     assert "*_db" not in text
+
+
+def test_exclude_pattern_timeout_reaches_the_refresh_as_its_reason(wrangler, monkeypatch):
+    from app.data_sources.clients.discovery import IncompleteDiscoveryError, require_complete_discovery
+    monkeypatch.setattr(safe_regex, "SEARCH_TIMEOUT_S", 0.001)
+    glue = FakeGlue({"acme_db": ["a" * 60 + "!"], "globex_db": ["b" * 60 + "!"]})
+    for spec in ("acme_db", "acme_db, globex_db"):
+        client = make_client(spec, glue, table_exclude_pattern=r"^(a|aa)+$")
+        with pytest.raises(IncompleteDiscoveryError) as caught:
+            require_complete_discovery(client, client.get_tables())
+        assert "table_exclude_pattern" in str(caught.value)
+
+
+def test_failed_database_listing_keeps_the_previous_catalog(wrangler):
+    from app.data_sources.clients.discovery import IncompleteDiscoveryError, require_complete_discovery
+    client = make_client("*_db", FakeGlue(TENANTS, fail_database_page=1))
+    with pytest.raises(IncompleteDiscoveryError):
+        require_complete_discovery(client, client.get_tables())
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM billing_db.costs",
+    "SELECT * FROM analytics_history.general",
+    "SELECT * FROM othercat.acme_db.assets",
+    "SELECT * FROM acme_db.assets a JOIN billing_db.costs c ON a.id = c.id",
+    "WITH x AS (SELECT * FROM billing_db.costs) SELECT * FROM x",
+])
+def test_multi_mode_refuses_databases_outside_the_spec_without_a_table_scope(wrangler, sql):
+    client = make_client("*_db, !billing_db", FakeGlue(TENANTS))
+    with pytest.raises(ValueError):
+        client.execute_query(sql)
+    assert wrangler.calls == []
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM acme_db.assets",
+    "SELECT * FROM AwsDataCatalog.globex_db.assets",
+    'SELECT * FROM "acme_db"."assets" a JOIN globex_db.alerts b ON a.id = b.id',
+])
+def test_multi_mode_runs_tables_in_the_spec(wrangler, sql):
+    make_client("*_db, !billing_db", FakeGlue(TENANTS)).execute_query(sql)
+    assert len(wrangler.calls) == 1
+
+
+def test_count_after_a_crawl_reflects_the_crawl_not_an_older_count(wrangler):
+    glue = FakeGlue({"acme_db": ["assets"], "flaky_db": _glue_error("ThrottlingException")})
+    client = make_client("acme_db, flaky_db", glue)
+    assert client.count_tables() == 1
+    assert client.unindexed_table_prefixes() == ["flaky_db"]
+
+    glue.databases["flaky_db"] = ["events", "users"]
+    tables = client.get_tables()
+    assert client.count_tables() == len(tables) == 3
+    assert client.index_stats() == {}
+    assert client.unindexed_table_prefixes() == []
+
+
+def test_indexing_progress_counts_only_tables_that_are_indexed(wrangler):
+    client = make_client("*_db", FakeGlue(TENANTS), table_exclude_pattern=r"^day_\d{2}")
+    events = []
+    tables = client.get_schemas(progress_callback=lambda *event: events.append(event))
+    labels = {item for phase, item, *_ in events if phase == "tables" and item}
+    assert labels == {t.name for t in tables}
+    assert not any("day_0" in label for label in labels)
+
+
+@pytest.mark.parametrize("dotted", [3, 51, 400])
+def test_skipped_dotted_tables_are_reported_without_listing_every_one(wrangler, dotted):
+    from app.data_sources.clients.progress import unreadable_note
+    glue = FakeGlue({"acme_db": ["assets"] + [f"t.{i}" for i in range(dotted)]})
+    client = make_client("acme_db, globex_db", glue)
+    glue.databases["globex_db"] = ["alerts"]
+    assert names(client.get_tables()) == ["acme_db.assets", "globex_db.alerts"]
+    entries = client.index_stats()["unreadable_datasets"]
+    assert len(entries) <= athena_module.MAX_SKIPPED_TABLE_ENTRIES + 1
+    listed = [e for e in entries if not e["name"].startswith("+")]
+    rolled = [e for e in entries if e["name"].startswith("+")]
+    assert len(listed) + sum(int(e["name"][1:].split()[0]) for e in rolled) == dotted
+    assert "permission" not in unreadable_note(entries).lower()

@@ -1622,6 +1622,24 @@ class AWSAthenaDefaultCredentials(BaseModel):
         extra = 'allow'
 
 
+ATHENA_DATABASE_NAME_MARKERS = "*?[!"
+
+
+def parse_athena_database_spec(spec) -> tuple[list[str], list[str], bool]:
+    """Split an Athena `database` value into (includes, !-excludes, multi).
+
+    Multi-database mode is decided by the syntax (a list, a glob or a `!`),
+    never by how many databases match, so table names do not flip when a glob
+    happens to match one database.
+    """
+    text = str(spec or "")
+    entries = [e for e in (e.strip() for e in text.split(",")) if e]
+    includes = [e for e in entries if not e.startswith("!")]
+    excludes = [e[1:].strip() for e in entries if e.startswith("!") and e[1:].strip()]
+    multi = len(entries) > 1 or any(c in text for c in ATHENA_DATABASE_NAME_MARKERS)
+    return includes, excludes, multi
+
+
 class AWSAthenaConfig(BaseModel):
     region: str = Field(..., title="Region", description="", json_schema_extra={"ui:type": "string"})
     database: str = Field(
@@ -1658,9 +1676,9 @@ class AWSAthenaConfig(BaseModel):
         entries = [e.strip() for e in self.database.split(",")]
         if any(not e or e == "!" for e in entries):
             raise ValueError("database must not contain empty entries")
-        if not any(not e.startswith("!") for e in entries):
+        includes, _, multi = parse_athena_database_spec(self.database)
+        if not includes:
             raise ValueError("database needs at least one database name or pattern, not only !-exclusions")
-        multi = len(entries) > 1 or any(c in self.database for c in "*?[!")
         if multi and self.data_source != "AwsDataCatalog":
             raise ValueError("data_source must be AwsDataCatalog when database lists several databases or patterns")
         return self

@@ -26,7 +26,7 @@ from sqlalchemy import select, desc, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.data_sources.clients.progress import (
-    IndexingCancelled, NOT_FOUND_REASON, format_name_list, split_unreadable,
+    IndexingCancelled, NOT_FOUND_REASON, SKIPPED_NAME_REASON, format_name_list, split_unreadable,
 )
 from app.models.connection import Connection
 from app.models.connection_indexing import (
@@ -1239,7 +1239,7 @@ class ConnectionIndexingService:
                     not_found, skipped, not_readable = split_unreadable(unreadable)
                     for entries, text in (
                         (not_found, NOT_FOUND_REASON),
-                        (skipped, "skipped (name contains '.')"),
+                        (skipped, f"skipped ({SKIPPED_NAME_REASON})"),
                         (not_readable, "found but not readable (check permissions)"),
                     ):
                         if entries:

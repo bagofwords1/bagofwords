@@ -62,3 +62,18 @@ def test_exclude_pattern_that_is_too_costly_is_rejected(pattern):
 ])
 def test_exclude_pattern_with_bounded_repeats_is_accepted(pattern):
     assert AWSAthenaConfig(**BASE, database="x", table_exclude_pattern=pattern).table_exclude_pattern == pattern
+
+
+@pytest.mark.parametrize("pattern", ["(a+)+$", "(a*)*x", r"(\w+){2,}", r"^(\w+_?)+#", "((ab)+c)+", "(?:x+)+"])
+def test_nested_unbounded_repeats_are_refused(pattern):
+    from pydantic import ValidationError
+    from app.schemas.data_sources.configs import AWSAthenaConfig
+    with pytest.raises(ValidationError):
+        AWSAthenaConfig(region="eu-west-1", database="acme_db", table_exclude_pattern=pattern)
+
+
+@pytest.mark.parametrize("pattern", [r"^day_\d{2}", r"^tmp_.*", r"(_bak|_old)+$", r"^(day|week)_\d+$", r"(\d{2}){3}", "[a+]+"])
+def test_ordinary_exclude_patterns_are_accepted(pattern):
+    from app.schemas.data_sources.configs import AWSAthenaConfig
+    AWSAthenaConfig(region="eu-west-1", database="acme_db", table_exclude_pattern=pattern)
+

@@ -216,10 +216,12 @@ def format_name_list(names: list[str], limit: int = 5) -> str:
 
 
 def split_unreadable(entries: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
-    not_found = [d for d in entries if d.get("reason") == NOT_FOUND_REASON]
-    skipped = [d for d in entries if d.get("reason") == SKIPPED_NAME_REASON]
-    denied = [d for d in entries if d not in not_found and d not in skipped]
-    return not_found, skipped, denied
+    """(not found, skipped by name, not readable), in one pass over `entries`."""
+    groups: dict[object, list[dict]] = {NOT_FOUND_REASON: [], SKIPPED_NAME_REASON: [], None: []}
+    for d in entries:
+        reason = d.get("reason")
+        groups[reason if reason in (NOT_FOUND_REASON, SKIPPED_NAME_REASON) else None].append(d)
+    return groups[NOT_FOUND_REASON], groups[SKIPPED_NAME_REASON], groups[None]
 
 
 def unreadable_note(entries: Optional[list]) -> str:

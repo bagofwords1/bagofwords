@@ -16,6 +16,7 @@ import os
 import fnmatch
 from botocore.config import Config as BotoConfig
 from app.utils.safe_regex import compile_bounded, pattern_cost_problem
+from app.schemas.data_sources.configs import parse_athena_database_spec as parse_database_spec
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -91,21 +92,14 @@ def log_before_retry(retry_state) -> None:
     logger.info("Retrying %s (attempt %d)", retry_state.fn.__name__, retry_state.attempt_number)
 
 _GLOB_CHARS = "*?["
-_DATABASE_NAME_MARKERS = "*?[!"
+# Skipped dotted table names are listed one by one up to this many per crawl;
+# the rest are rolled into a single "+N more" entry, so a database full of
+# dotted names cannot bloat the indexing job's stats.
+MAX_SKIPPED_TABLE_ENTRIES = 50
 
 
 class ExcludePatternTimeout(RuntimeError):
     pass
-
-
-def parse_database_spec(spec) -> tuple[list[str], list[str], bool]:
-    text = str(spec or "")
-    entries = [e.strip() for e in text.split(",")]
-    entries = [e for e in entries if e]
-    includes = [e for e in entries if not e.startswith("!")]
-    excludes = [e[1:].strip() for e in entries if e.startswith("!") and e[1:].strip()]
-    multi = len(entries) > 1 or any(c in text for c in _DATABASE_NAME_MARKERS)
-    return includes, excludes, multi
 
 
 def _is_glob(entry: str) -> bool:
@@ -192,7 +186,8 @@ class AwsAthenaClient(DataSourceClient):
         self._unread_dbs: List[str] = []
         self._diagnostics: List[dict] = []
         self._attached_dbs: List[str] = []
-        self._count_cache: Optional[int] = None
+        self._count_cache: Optional[tuple] = None
+        self._skipped_tables = 0
         self._counted_dbs = 0
 
         glue_config = BotoConfig(retries={"mode": "adaptive", "max_attempts": 10})
@@ -221,13 +216,7 @@ class AwsAthenaClient(DataSourceClient):
             pd.DataFrame: Query result as a Pandas DataFrame.
         """
         if self._multi:
-            from app.ai.code_execution.table_scope import one_part_table_refs
-            refs = one_part_table_refs(sql, "athena")
-            if refs:
-                raise ValueError(
-                    f"Unqualified table reference(s): {', '.join(refs)}. This connection has no "
-                    "default database; name every table as <database>.<table>."
-                )
+            self._check_multi_table_refs(sql)
         try:
             logger.info("Executing query: %s", sql)
             
@@ -287,7 +276,7 @@ class AwsAthenaClient(DataSourceClient):
                     f"Successfully connected to Athena: {self._counted_dbs} databases, "
                     f"{table_count} tables."
                 )
-            message += unreadable_note(self._diagnostics)
+            message += unreadable_note(self._reported_diagnostics())
             return {"success": True, "message": message}
         except Exception as e:
             if "AccessDenied" in str(e) and "S3" in str(e):
@@ -348,6 +337,32 @@ class AwsAthenaClient(DataSourceClient):
             "```\n"
         )
 
+    def _check_multi_table_refs(self, sql: str) -> None:
+        """Refuse what multi mode cannot run safely, before Athena sees it.
+
+        This holds even when no agent table scope is attached (a source not
+        indexed yet): a table must be `<database>.<table>`, in a database the
+        `database` setting includes, behind no catalog but this connection's.
+        """
+        from app.ai.code_execution.table_scope import table_refs
+        refs = table_refs(sql, "athena")
+        unqualified = [r[-1] for r in refs if len(r) == 1]
+        if unqualified:
+            raise ValueError(
+                f"Unqualified table reference(s): {', '.join(dict.fromkeys(unqualified))}. This "
+                "connection has no default database; name every table as <database>.<table>."
+            )
+        catalog = (self.data_source or "").lower()
+        outside = [
+            ".".join(r) for r in refs
+            if (len(r) == 3 and r[0] != catalog) or not self._spec_matches(r[-2])
+        ]
+        if outside:
+            raise ValueError(
+                f"Table(s) outside this connection's databases: {', '.join(dict.fromkeys(outside))}. "
+                "Only the databases in the connection's Database setting can be queried."
+            )
+
     def _spec_matches(self, database: str) -> bool:
         name = database.lower()
         included = any(
@@ -391,22 +406,38 @@ class AwsAthenaClient(DataSourceClient):
         paginator = self.glue_client.get_paginator('get_tables')
         prefix = f"{database}." if self._multi else ""
         for page in discovery_items(paginator.paginate(DatabaseName=database), 'catalog_pages'):
-            for table in discovery_items(
-                page['TableList'], 'tables', label=lambda table: f"{prefix}{table['Name']}"
-            ):
-                name = table['Name']
-                if self._multi and "." in name:
-                    self._diagnostics.append({"name": f"{database}.{name}", "reason": SKIPPED_NAME_REASON})
-                    continue
-                if matcher is not None:
-                    excluded = matcher.search(name)
-                    if matcher.dead:
-                        raise ExcludePatternTimeout(
-                            "table_exclude_pattern timed out; simplify the regular expression"
-                        )
-                    if excluded:
-                        continue
-                yield table
+            # Filter first, so indexing progress counts only tables that get indexed.
+            kept = [t for t in page['TableList'] if self._keep_table(database, t['Name'], matcher)]
+            yield from discovery_items(kept, 'tables', label=lambda table: f"{prefix}{table['Name']}")
+
+    def _keep_table(self, database: str, name: str, matcher) -> bool:
+        if self._multi and "." in name:
+            self._skip_dotted_table(f"{database}.{name}")
+            return False
+        if matcher is None:
+            return True
+        excluded = matcher.search(name)
+        if matcher.dead:
+            raise ExcludePatternTimeout(
+                "table_exclude_pattern timed out; simplify the regular expression"
+            )
+        return not excluded
+
+    def _skip_dotted_table(self, full_name: str) -> None:
+        self._skipped_tables += 1
+        if self._skipped_tables <= MAX_SKIPPED_TABLE_ENTRIES:
+            self._diagnostics.append({"name": full_name, "reason": SKIPPED_NAME_REASON})
+
+    def _reported_diagnostics(self) -> List[dict]:
+        extra = self._skipped_tables - MAX_SKIPPED_TABLE_ENTRIES
+        if extra <= 0:
+            return list(self._diagnostics)
+        return [*self._diagnostics, {"name": f"+{extra} more tables", "reason": SKIPPED_NAME_REASON}]
+
+    def _reset_run_state(self) -> None:
+        self._unread_dbs = []
+        self._diagnostics = []
+        self._skipped_tables = 0
 
     def _record_database_failure(self, database: str, exc: Exception) -> None:
         if _error_code(exc) == "EntityNotFoundException":
@@ -435,8 +466,8 @@ class AwsAthenaClient(DataSourceClient):
         )
 
     def get_tables(self) -> List[Table]:
-        self._unread_dbs = []
-        self._diagnostics = []
+        self._reset_run_state()
+        self._count_cache = None
         try:
             matcher = self._exclude_matcher()
             if not self._multi:
@@ -466,17 +497,25 @@ class AwsAthenaClient(DataSourceClient):
             
         except IndexingCancelled:
             raise
+        except ExcludePatternTimeout as e:
+            # The refresh keeps the previous catalog and shows this reason.
+            self.mark_discovery_incomplete(str(e))
+            logger.error("Error retrieving tables: %s", e)
+            return []
         except Exception as e:
-            self.mark_discovery_incomplete("aws_athena catalog")
+            self.mark_discovery_incomplete(
+                "Glue database listing failed" if self._multi else "aws_athena catalog"
+            )
             logger.error(f"Error retrieving tables: {e}")
             return []
 
     def count_tables(self) -> int:
         """One failed database is recorded in `index_stats`; raises only when none can be read."""
         if self._count_cache is not None:
-            return self._count_cache
-        self._unread_dbs = []
-        self._diagnostics = []
+            total, self._counted_dbs, diagnostics, unread, skipped = self._count_cache
+            self._diagnostics, self._unread_dbs, self._skipped_tables = list(diagnostics), list(unread), skipped
+            return total
+        self._reset_run_state()
         matcher = self._exclude_matcher()
         databases = self._resolve_databases() if self._multi else [self.database]
         if not databases:
@@ -499,18 +538,21 @@ class AwsAthenaClient(DataSourceClient):
             reasons = "; ".join(f"{d['name']}: {d['reason']}" for d in self._diagnostics[:5])
             raise RuntimeError(f"None of the Glue databases could be read. {reasons}")
         self._counted_dbs = readable
-        self._count_cache = total
+        self._count_cache = (
+            total, readable, list(self._diagnostics), list(self._unread_dbs), self._skipped_tables,
+        )
         return total
 
     def unindexed_table_prefixes(self) -> List[str]:
         return list(self._unread_dbs)
 
     def index_stats(self) -> dict:
-        if not self._diagnostics:
+        diagnostics = self._reported_diagnostics()
+        if not diagnostics:
             return {}
         return {
-            "unreadable_datasets": list(self._diagnostics),
-            "unreadable_dataset_count": len(self._diagnostics),
+            "unreadable_datasets": diagnostics,
+            "unreadable_dataset_count": len(diagnostics),
         }
 
     def attach_table_metadata(self, tables: List[dict]) -> None:

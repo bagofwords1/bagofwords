@@ -292,8 +292,11 @@ def check_table_scope(
         )
 
 
-def one_part_table_refs(sql: str, dialect: str) -> list[str]:
-    """Tables read without a database part; unreadable SQL and SHOW/DESCRIBE/USE raise, never `[]`."""
+def table_refs(sql: str, dialect: str) -> list[Name]:
+    """Every table `sql` reads, as lowercased name parts, CTE names left out.
+
+    Unreadable SQL and SHOW/DESCRIBE/USE raise, never `[]`.
+    """
     from app.ai.code_execution.sql_parser import parse_guard_sql
     from sqlglot import exp
     from sqlglot.errors import SqlglotError
@@ -307,7 +310,7 @@ def one_part_table_refs(sql: str, dialect: str) -> list[str]:
             "Rewrite it as a plain SELECT over <database>.<table> names."
         ) from e
 
-    refs: list[str] = []
+    refs: list[Name] = []
     for stmt in statements:
         if isinstance(stmt, (exp.Command, exp.Describe, exp.Use)) or type(stmt).__name__ == "Show":
             raise TableScopeViolation(
@@ -315,14 +318,19 @@ def one_part_table_refs(sql: str, dialect: str) -> list[str]:
                 "Read the enabled tables with a SELECT over <database>.<table> names."
             )
         for t in stmt.find_all(exp.Table):
-            if not isinstance(t.this, exp.Identifier) or t.db or t.catalog:
+            if not isinstance(t.this, exp.Identifier):
                 continue
-            if _resolves_to_cte(t):
+            ref = tuple(str(p).lower() for p in (t.catalog, t.db, t.name) if p)
+            if len(ref) == 1 and _resolves_to_cte(t):
                 continue
-            name = str(t.name)
-            if name not in refs:
-                refs.append(name)
+            if ref not in refs:
+                refs.append(ref)
     return refs
+
+
+def one_part_table_refs(sql: str, dialect: str) -> list[str]:
+    """Tables read without a database part; unreadable SQL and SHOW/DESCRIBE/USE raise, never `[]`."""
+    return [ref[0] for ref in table_refs(sql, dialect) if len(ref) == 1]
 
 
 def enforce_table_scope(client, query) -> None:
