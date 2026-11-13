@@ -117,6 +117,7 @@ class ErrorCode(str, Enum):
     ACCESS_REQUEST_NOT_FOUND = "access_request.not_found"
     ACCESS_REQUEST_ALREADY_DECIDED = "access_request.already_decided"
     FILE_NOT_FOUND = "file.not_found"
+    FILE_IN_USE = "file.in_use"
     DATA_SOURCE_NOT_FOUND = "data_source.not_found"
     DATA_SOURCE_IN_USE = "data_source.in_use"
     CONNECTION_NOT_FOUND = "connection.not_found"

@@ -10,7 +10,10 @@ import re
 from urllib.parse import quote
 
 from app.services.file_service import FileService
-from app.schemas.file_schema import FileSchema, FileSchemaWithMetadata, FileSchemaWithCompletionId
+from app.schemas.file_schema import (
+    FileSchema, FileSchemaWithMetadata, FileSchemaWithCompletionId, FilesDeleteRequest, FilesDeleteResult,
+)
+from app.errors import AppError, ErrorCode
 from app.models.user import User
 from app.models.file import File as FileModel
 from app.core.auth import current_user
@@ -193,7 +196,47 @@ def _content_disposition(kind: str, filename: str) -> str:
 @router.get("/files", response_model=list[FileSchemaWithMetadata])
 @requires_permission('manage_files')
 async def get_files(current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await file_service.get_files(db, organization, current_user)
+    return await file_service.list_my_files(db, organization, current_user)
+
+async def _delete_files(request: Request, file_ids: list, current_user: User, db: AsyncSession, organization: Organization) -> dict:
+    result = await file_service.delete_files(db, file_ids, organization, current_user)
+    if result["deleted"]:
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=organization.id,
+                action="file.deleted",
+                user_id=current_user.id,
+                resource_type="file",
+                resource_id=result["deleted"][0] if len(result["deleted"]) == 1 else None,
+                details={"file_ids": result["deleted"], "count": len(result["deleted"])},
+                request=request,
+            )
+        except Exception:
+            pass
+    return result
+
+
+@router.post("/files/delete", response_model=FilesDeleteResult)
+@requires_permission('manage_files')
+async def delete_files(request: Request, body: FilesDeleteRequest, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
+    """Delete several files for good. Ids the user may not delete are listed
+    under ``failed`` and do not stop the rest."""
+    return await _delete_files(request, body.file_ids, current_user, db, organization)
+
+
+@router.delete("/files/{file_id}", status_code=204)
+@requires_permission('manage_files')
+async def delete_file(file_id: str, request: Request, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
+    """Delete one file for good: its row, every link to it, and its bytes."""
+    result = await _delete_files(request, [file_id], current_user, db, organization)
+    if result["failed"]:
+        code = result["failed"][0]["error_code"]
+        if code == ErrorCode.FILE_IN_USE.value:
+            raise AppError.conflict(ErrorCode.FILE_IN_USE, "File is used by a dashboard")
+        raise AppError.not_found(ErrorCode.FILE_NOT_FOUND, "File not found")
+    return Response(status_code=204)
+
 
 @router.get("/files/{file_id}/content")
 @requires_permission('manage_files')

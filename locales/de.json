@@ -3322,6 +3322,10 @@
           "name": "Aufbewahrungstage für Widget-Daten",
           "description": "Anzahl der Tage, die Widget-Daten aufbewahrt werden, bevor sie gelöscht werden."
         },
+        "file_retention_days": {
+          "name": "Aufbewahrung von Dateien (Tage)",
+          "description": "Löscht jede Nacht Dateien, die älter als diese Anzahl Tage sind. Dateien eines Dashboards, Dateien in einer Agenten- oder Projektbibliothek und Uploads für einen geplanten Bericht bleiben erhalten. 0 bewahrt Dateien unbegrenzt auf."
+        },
         "enable_excel_addin": {
           "name": "Excel-Add-in",
           "description": "Aktiviert das integrierte Excel-Add-in, damit Nutzer das Manifest direkt aus dieser Instanz laden können"
@@ -4418,6 +4422,7 @@
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
     "ssh.key_discovery_failed": "Schlüssel konnte nicht abgerufen werden. Prüfen Sie Host, Port und Netzwerk oder geben Sie unter Erweitert einen vertrauenswürdigen Schlüssel ein.",
+    "file.in_use": "Die Datei wird von einem Dashboard verwendet",
     "connection.kms_token_format": "Das KMS-API-Token darf nur einfache Buchstaben, Ziffern und Satzzeichen enthalten, ohne Leerzeichen. Kopieren Sie es erneut aus KMS Lighthouse und fügen Sie es als reinen Text ein.",
     "connection.kms_use_connection_credentials": "KMS-Lighthouse-Anmeldungen werden in der Verbindung gespeichert. Öffnen Sie die Verbindung und verbinden Sie sich dort.",
     "connection.kms_only": "Die Diagnose gilt nur für KMS Lighthouse-Verbindungen.",
@@ -4563,7 +4568,7 @@
   },
   "files": {
     "title": "Dateien",
-    "subtitle": "Verwalten Sie die Dateien Ihrer Organisation",
+    "subtitle": "Dateien, die du hochgeladen hast, und Dateien, die der Agent in deinen Berichten erstellt hat.",
     "file": "Datei",
     "metadata": "Metadaten",
     "createdAt": "Erstellt am",
@@ -4572,7 +4577,31 @@
     "metadataFieldsMany": "{count} Metadatenfelder",
     "metadataTagsOne": "{count} Metadaten-Tag",
     "metadataTagsMany": "{count} Metadaten-Tags",
-    "noMetadata": "Keine Metadaten"
+    "noMetadata": "Keine Metadaten",
+    "search": "Dateien suchen",
+    "filterAll": "Alle Dateien",
+    "filterUploads": "Hochgeladen",
+    "selectAll": "Alle auswählen",
+    "deleteSelected": "{count} ausgewählte löschen",
+    "delete": "Löschen",
+    "download": "Herunterladen",
+    "empty": "Keine passenden Dateien",
+    "confirmTitleOne": "Diese Datei löschen?",
+    "confirmTitleMany": "{count} Dateien löschen?",
+    "confirmBody": "Gelöschte Dateien werden aus allen Berichten, Agenten und Projekten entfernt, die sie verwenden, und können nicht wiederhergestellt werden.",
+    "toastDeletedOne": "Datei gelöscht",
+    "toastDeletedMany": "{count} Dateien gelöscht",
+    "toastError": "Die Dateien konnten nicht gelöscht werden",
+    "toastDownloadError": "Die Datei konnte nicht heruntergeladen werden",
+    "filterAgent": "Agent",
+    "sourceAgent": "Agent",
+    "sourceUpload": "Hochgeladen",
+    "selectedCount": "{count} ausgewählt",
+    "toastPartialOne": "{count} Datei konnte nicht gelöscht werden",
+    "toastPartialMany": "{count} Dateien konnten nicht gelöscht werden",
+    "inUse": "Wird von einem Dashboard verwendet und kann nicht gelöscht werden",
+    "emptyNone": "Noch keine Dateien",
+    "emptyNoneHint": "Dateien, die du in einen Bericht hochlädst, und Dateien, die der Agent erstellt, erscheinen hier."
   },
   "dashboards": {
     "title": "Dashboards",
@@ -5708,6 +5737,8 @@
     "modelAuto": "Auto",
     "noAgents": "Keine",
     "project": "Projekt",
+    "toolOutputFilesOne": "{count} Datei vom Agenten erstellt",
+    "toolOutputFilesMany": "{count} Dateien vom Agenten erstellt",
     "agentsFromReport": "Verwendet die Agenten des Berichts"
   },
   "errorPage": {

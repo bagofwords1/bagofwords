@@ -3322,6 +3322,10 @@
           "name": "Дней хранения данных виджетов",
           "description": "Число дней, в течение которых данные виджетов хранятся до удаления."
         },
+        "file_retention_days": {
+          "name": "Хранение файлов (дни)",
+          "description": "Каждую ночь удаляет файлы старше указанного числа дней. Файлы, используемые дашбордом, файлы из библиотеки агента или проекта и загрузки для отчёта по расписанию сохраняются. 0 — хранить всегда."
+        },
         "enable_excel_addin": {
           "name": "Надстройка Excel",
           "description": "Включает встроенную надстройку Excel, чтобы пользователи могли загрузить манифест непосредственно из этого экземпляра"
@@ -4418,6 +4422,7 @@
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
     "ssh.key_discovery_failed": "Не удалось получить ключ. Проверьте адрес, порт и сеть или введите доверенный ключ в дополнительных настройках.",
+    "file.in_use": "Файл используется дашбордом",
     "connection.kms_token_format": "Токен API KMS может содержать только обычные буквы, цифры и знаки препинания, без пробелов. Скопируйте его ещё раз из KMS Lighthouse и вставьте как обычный текст.",
     "connection.kms_use_connection_credentials": "Данные для входа в KMS Lighthouse сохраняются в подключении. Откройте подключение и подключитесь оттуда.",
     "connection.kms_only": "Диагностика применима только к подключениям KMS Lighthouse.",
@@ -4563,7 +4568,7 @@
   },
   "files": {
     "title": "Файлы",
-    "subtitle": "Управляйте файлами вашей организации",
+    "subtitle": "Файлы, которые вы загрузили, и файлы, созданные агентом в ваших отчётах.",
     "file": "Файл",
     "metadata": "Метаданные",
     "createdAt": "Создан",
@@ -4572,7 +4577,31 @@
     "metadataFieldsMany": "{count} полей метаданных",
     "metadataTagsOne": "{count} тег метаданных",
     "metadataTagsMany": "{count} тегов метаданных",
-    "noMetadata": "Нет метаданных"
+    "noMetadata": "Нет метаданных",
+    "search": "Поиск файлов",
+    "filterAll": "Все файлы",
+    "filterUploads": "Загруженные",
+    "selectAll": "Выбрать все",
+    "deleteSelected": "Удалить выбранные ({count})",
+    "delete": "Удалить",
+    "download": "Скачать",
+    "empty": "Нет подходящих файлов",
+    "confirmTitleOne": "Удалить этот файл?",
+    "confirmTitleMany": "Удалить файлы ({count})?",
+    "confirmBody": "Удалённые файлы исчезают из всех отчётов, агентов и проектов, которые их используют, и не могут быть восстановлены.",
+    "toastDeletedOne": "Файл удалён",
+    "toastDeletedMany": "Удалено файлов: {count}",
+    "toastError": "Не удалось удалить файлы",
+    "toastDownloadError": "Не удалось скачать файл",
+    "filterAgent": "Агент",
+    "sourceAgent": "Агент",
+    "sourceUpload": "Загружен",
+    "selectedCount": "Выбрано: {count}",
+    "toastPartialOne": "Не удалось удалить файлов: {count}",
+    "toastPartialMany": "Не удалось удалить файлов: {count}",
+    "inUse": "Используется дашбордом, поэтому удалить нельзя",
+    "emptyNone": "Файлов пока нет",
+    "emptyNoneHint": "Здесь появятся файлы, которые вы загружаете в отчёт, и файлы, созданные агентом."
   },
   "dashboards": {
     "title": "Дашборды",
@@ -5708,6 +5737,8 @@
     "modelAuto": "Авто",
     "noAgents": "Нет",
     "project": "Проект",
+    "toolOutputFilesOne": "Файлов, созданных агентом: {count}",
+    "toolOutputFilesMany": "Файлов, созданных агентом: {count}",
     "agentsFromReport": "Использует агентов отчёта"
   },
   "errorPage": {

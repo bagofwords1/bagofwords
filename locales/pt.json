@@ -3322,6 +3322,10 @@
           "name": "Dias de retenção dos dados de widgets",
           "description": "Número de dias durante os quais os dados dos widgets são mantidos antes da limpeza."
         },
+        "file_retention_days": {
+          "name": "Retenção de arquivos (dias)",
+          "description": "Exclui todas as noites os arquivos mais antigos que este número de dias. Arquivos usados por um painel, arquivos na biblioteca de um agente ou projeto e envios para um relatório agendado são mantidos. 0 mantém os arquivos para sempre."
+        },
         "enable_excel_addin": {
           "name": "Suplemento do Excel",
           "description": "Ativa o suplemento do Excel integrado para que os usuários possam carregar o manifesto diretamente desta instância"
@@ -4418,6 +4422,7 @@
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
     "ssh.key_discovery_failed": "Não foi possível buscar a chave. Verifique host, porta e rede ou insira uma chave confiável nas configurações avançadas.",
+    "file.in_use": "O arquivo é usado por um painel",
     "connection.kms_token_format": "O token de API do KMS só pode conter letras, dígitos e sinais de pontuação simples, sem espaços. Copie-o novamente do KMS Lighthouse e cole-o como texto simples.",
     "connection.kms_use_connection_credentials": "Os logins do KMS Lighthouse são salvos na conexão. Abra a conexão e conecte-se a partir dela.",
     "connection.kms_only": "O diagnóstico aplica-se apenas a ligações KMS Lighthouse.",
@@ -4563,7 +4568,7 @@
   },
   "files": {
     "title": "Arquivos",
-    "subtitle": "Gerencie os arquivos da sua organização",
+    "subtitle": "Os arquivos que você enviou e os que o agente criou nos seus relatórios.",
     "file": "Arquivo",
     "metadata": "Metadados",
     "createdAt": "Criado em",
@@ -4572,7 +4577,31 @@
     "metadataFieldsMany": "{count} campos de metadados",
     "metadataTagsOne": "{count} tag de metadados",
     "metadataTagsMany": "{count} tags de metadados",
-    "noMetadata": "Sem metadados"
+    "noMetadata": "Sem metadados",
+    "search": "Pesquisar arquivos",
+    "filterAll": "Todos os arquivos",
+    "filterUploads": "Enviados",
+    "selectAll": "Selecionar tudo",
+    "deleteSelected": "Excluir {count} selecionados",
+    "delete": "Excluir",
+    "download": "Baixar",
+    "empty": "Nenhum arquivo corresponde",
+    "confirmTitleOne": "Excluir este arquivo?",
+    "confirmTitleMany": "Excluir {count} arquivos?",
+    "confirmBody": "Os arquivos excluídos são removidos de todos os relatórios, agentes e projetos que os usam e não podem ser recuperados.",
+    "toastDeletedOne": "Arquivo excluído",
+    "toastDeletedMany": "{count} arquivos excluídos",
+    "toastError": "Não foi possível excluir os arquivos",
+    "toastDownloadError": "Não foi possível baixar o arquivo",
+    "filterAgent": "Agente",
+    "sourceAgent": "Agente",
+    "sourceUpload": "Enviado",
+    "selectedCount": "{count} selecionados",
+    "toastPartialOne": "Não foi possível excluir {count} arquivo",
+    "toastPartialMany": "Não foi possível excluir {count} arquivos",
+    "inUse": "Usado por um painel, por isso não pode ser excluído",
+    "emptyNone": "Ainda não há arquivos",
+    "emptyNoneHint": "Os arquivos que você envia para um relatório e os que o agente cria aparecem aqui."
   },
   "dashboards": {
     "title": "Painéis",
@@ -5708,6 +5737,8 @@
     "modelAuto": "Auto",
     "noAgents": "Nenhum",
     "project": "Projeto",
+    "toolOutputFilesOne": "{count} arquivo criado pelo agente",
+    "toolOutputFilesMany": "{count} arquivos criados pelo agente",
     "agentsFromReport": "Usa os agentes do relatório"
   },
   "errorPage": {

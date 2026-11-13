@@ -3671,6 +3671,10 @@
           "name": "Widget Data Retention Days",
           "description": "Number of days to retain widgets data before purging."
         },
+        "file_retention_days": {
+          "name": "File retention (days)",
+          "description": "Delete files older than this many days, every night. Files used by a dashboard, files in an agent or project library, and uploads that feed a scheduled report are kept. 0 keeps files forever."
+        },
         "enable_excel_addin": {
           "name": "Excel Add-in",
           "description": "Enable the built-in Excel Add-in so users can sideload the manifest directly from this instance"
@@ -4947,6 +4951,7 @@
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
     "ssh.key_discovery_failed": "Could not fetch the server key. Check the hostname, port and network access, or enter a trusted key under Advanced.",
+    "file.in_use": "File is used by a dashboard",
     "connection.kms_token_format": "The KMS API token can contain only plain letters, digits and punctuation, with no spaces. Copy it again from KMS Lighthouse and paste it as plain text.",
     "connection.kms_use_connection_credentials": "KMS Lighthouse sign-ins are saved on the connection. Open the connection and connect from there.",
     "connection.kms_only": "Diagnostics apply to KMS Lighthouse connections only.",
@@ -5121,7 +5126,7 @@
   },
   "files": {
     "title": "Files",
-    "subtitle": "Manage your organization files",
+    "subtitle": "Files you uploaded, and files the agent created in your reports.",
     "file": "File",
     "metadata": "Metadata",
     "createdAt": "Created At",
@@ -5130,7 +5135,31 @@
     "metadataFieldsMany": "{count} metadata fields",
     "metadataTagsOne": "{count} metadata tag",
     "metadataTagsMany": "{count} metadata tags",
-    "noMetadata": "No metadata"
+    "noMetadata": "No metadata",
+    "search": "Search files",
+    "filterAll": "All files",
+    "filterUploads": "Uploads",
+    "selectAll": "Select all",
+    "deleteSelected": "Delete {count} selected",
+    "delete": "Delete",
+    "download": "Download",
+    "empty": "No files match",
+    "confirmTitleOne": "Delete this file?",
+    "confirmTitleMany": "Delete {count} files?",
+    "confirmBody": "Deleted files are removed from every report, agent and project that uses them, and cannot be recovered.",
+    "toastDeletedOne": "File deleted",
+    "toastDeletedMany": "{count} files deleted",
+    "toastError": "Could not delete the files",
+    "toastDownloadError": "Could not download the file",
+    "filterAgent": "Agent",
+    "sourceAgent": "Agent",
+    "sourceUpload": "Upload",
+    "selectedCount": "{count} selected",
+    "toastPartialOne": "{count} file could not be deleted",
+    "toastPartialMany": "{count} files could not be deleted",
+    "inUse": "Used by a dashboard, so it can't be deleted",
+    "emptyNone": "No files yet",
+    "emptyNoneHint": "Files you upload to a report, and files the agent creates, show up here."
   },
   "dashboards": {
     "title": "Dashboards",
@@ -6336,6 +6365,8 @@
     "modelAuto": "Auto",
     "noAgents": "None",
     "project": "Project",
+    "toolOutputFilesOne": "{count} file created by the agent",
+    "toolOutputFilesMany": "{count} files created by the agent",
     "agentsFromReport": "Uses the report's agents"
   },
   "errorPage": {

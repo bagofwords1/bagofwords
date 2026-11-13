@@ -3322,6 +3322,10 @@
           "name": "Jours de conservation des données de widgets",
           "description": "Nombre de jours pendant lesquels les données des widgets sont conservées avant purge."
         },
+        "file_retention_days": {
+          "name": "Conservation des fichiers (jours)",
+          "description": "Supprime chaque nuit les fichiers plus anciens que ce nombre de jours. Les fichiers utilisés par un tableau de bord, ceux d'une bibliothèque d'agent ou de projet et ceux importés dans un rapport planifié sont conservés. 0 les conserve indéfiniment."
+        },
         "enable_excel_addin": {
           "name": "Complément Excel",
           "description": "Active le complément Excel intégré afin que les utilisateurs puissent charger le manifeste directement depuis cette instance"
@@ -4418,6 +4422,7 @@
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
     "ssh.key_discovery_failed": "Impossible de récupérer la clé. Vérifiez l’hôte, le port et le réseau, ou saisissez une clé fiable dans les paramètres avancés.",
+    "file.in_use": "Le fichier est utilisé par un tableau de bord",
     "connection.kms_token_format": "Le jeton d'API KMS ne peut contenir que des lettres, des chiffres et des signes de ponctuation simples, sans espaces. Copiez-le à nouveau depuis KMS Lighthouse et collez-le en texte brut.",
     "connection.kms_use_connection_credentials": "Les identifiants KMS Lighthouse sont enregistrés sur la connexion. Ouvrez la connexion et connectez-vous depuis celle-ci.",
     "connection.kms_only": "Le diagnostic s'applique uniquement aux connexions KMS Lighthouse.",
@@ -4563,7 +4568,7 @@
   },
   "files": {
     "title": "Fichiers",
-    "subtitle": "Gérez les fichiers de votre organisation",
+    "subtitle": "Les fichiers que vous avez importés et ceux que l'agent a créés dans vos rapports.",
     "file": "Fichier",
     "metadata": "Métadonnées",
     "createdAt": "Créé le",
@@ -4572,7 +4577,31 @@
     "metadataFieldsMany": "{count} champs de métadonnées",
     "metadataTagsOne": "{count} étiquette de métadonnées",
     "metadataTagsMany": "{count} étiquettes de métadonnées",
-    "noMetadata": "Aucune métadonnée"
+    "noMetadata": "Aucune métadonnée",
+    "search": "Rechercher des fichiers",
+    "filterAll": "Tous les fichiers",
+    "filterUploads": "Importés",
+    "selectAll": "Tout sélectionner",
+    "deleteSelected": "Supprimer {count} sélectionnés",
+    "delete": "Supprimer",
+    "download": "Télécharger",
+    "empty": "Aucun fichier ne correspond",
+    "confirmTitleOne": "Supprimer ce fichier ?",
+    "confirmTitleMany": "Supprimer {count} fichiers ?",
+    "confirmBody": "Les fichiers supprimés sont retirés de tous les rapports, agents et projets qui les utilisent, et ne peuvent pas être récupérés.",
+    "toastDeletedOne": "Fichier supprimé",
+    "toastDeletedMany": "{count} fichiers supprimés",
+    "toastError": "Impossible de supprimer les fichiers",
+    "toastDownloadError": "Impossible de télécharger le fichier",
+    "filterAgent": "Agent",
+    "sourceAgent": "Agent",
+    "sourceUpload": "Importé",
+    "selectedCount": "{count} sélectionné(s)",
+    "toastPartialOne": "{count} fichier n'a pas pu être supprimé",
+    "toastPartialMany": "{count} fichiers n'ont pas pu être supprimés",
+    "inUse": "Utilisé par un tableau de bord : suppression impossible",
+    "emptyNone": "Aucun fichier pour l'instant",
+    "emptyNoneHint": "Les fichiers que vous importez dans un rapport et ceux que crée l'agent apparaissent ici."
   },
   "dashboards": {
     "title": "Tableaux de bord",
@@ -5708,6 +5737,8 @@
     "modelAuto": "Auto",
     "noAgents": "Aucun",
     "project": "Projet",
+    "toolOutputFilesOne": "{count} fichier créé par l'agent",
+    "toolOutputFilesMany": "{count} fichiers créés par l'agent",
     "agentsFromReport": "Utilise les agents du rapport"
   },
   "errorPage": {

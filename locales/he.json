@@ -3585,6 +3585,10 @@
           "name": "ימי שמירת נתוני ווידג'טים",
           "description": "מספר הימים שבהם נשמרים נתוני הווידג'טים לפני מחיקתם."
         },
+        "file_retention_days": {
+          "name": "שמירת קבצים (ימים)",
+          "description": "מחיקה לילית של קבצים ישנים ממספר הימים הזה. קבצים שבשימוש בגלריה, קבצים בספריית סוכן או פרויקט, וקבצים שהועלו לדוח מתוזמן נשמרים. 0 שומר קבצים לתמיד."
+        },
         "enable_excel_addin": {
           "name": "תוסף Excel",
           "description": "מפעיל את תוסף ה-Excel המובנה כדי שמשתמשים יוכלו לטעון את המניפסט ישירות מהמופע הזה"
@@ -4887,6 +4891,7 @@
     "APPLICATION_AGENT_FORBIDDEN": "ליישום אין גישה לסוכן הזה",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "יש לנהל יישומים ישירות ב-BOW",
     "ssh.key_discovery_failed": "לא ניתן לקבל את מפתח השרת. בדקו את שם השרת, הפורט והגישה לרשת, או הזינו מפתח מהימן בהגדרות המתקדמות.",
+    "file.in_use": "הקובץ בשימוש בגלריה",
     "connection.kms_token_format": "אסימון ה-API של KMS יכול להכיל רק אותיות, ספרות וסימני פיסוק רגילים, ללא רווחים. העתיקו אותו שוב מ-KMS Lighthouse והדביקו אותו כטקסט רגיל.",
     "connection.kms_use_connection_credentials": "פרטי ההתחברות ל-KMS Lighthouse נשמרים בחיבור. פתחו את החיבור והתחברו משם.",
     "connection.kms_only": "האבחון חל רק על חיבורי KMS Lighthouse.",
@@ -5061,7 +5066,7 @@
   },
   "files": {
     "title": "קבצים",
-    "subtitle": "ניהול קבצי הארגון",
+    "subtitle": "קבצים שהעלית וקבצים שהסוכן יצר בדוחות שלך.",
     "file": "קובץ",
     "metadata": "מטא-דאטה",
     "createdAt": "תאריך יצירה",
@@ -5070,7 +5075,31 @@
     "metadataFieldsMany": "{count} שדות מטא-דאטה",
     "metadataTagsOne": "{count} תג מטא-דאטה",
     "metadataTagsMany": "{count} תגי מטא-דאטה",
-    "noMetadata": "אין מטא-דאטה"
+    "noMetadata": "אין מטא-דאטה",
+    "search": "חיפוש קבצים",
+    "filterAll": "כל הקבצים",
+    "filterUploads": "הועלו",
+    "selectAll": "בחירת הכול",
+    "deleteSelected": "מחיקת {count} שנבחרו",
+    "delete": "מחיקה",
+    "download": "הורדה",
+    "empty": "אין קבצים תואמים",
+    "confirmTitleOne": "למחוק את הקובץ?",
+    "confirmTitleMany": "למחוק {count} קבצים?",
+    "confirmBody": "קבצים שנמחקו מוסרים מכל דוח, סוכן ופרויקט שמשתמשים בהם, ואי אפשר לשחזר אותם.",
+    "toastDeletedOne": "הקובץ נמחק",
+    "toastDeletedMany": "{count} קבצים נמחקו",
+    "toastError": "לא ניתן היה למחוק את הקבצים",
+    "toastDownloadError": "לא ניתן היה להוריד את הקובץ",
+    "filterAgent": "סוכן",
+    "sourceAgent": "סוכן",
+    "sourceUpload": "הועלה",
+    "selectedCount": "{count} נבחרו",
+    "toastPartialOne": "לא ניתן היה למחוק קובץ {count}",
+    "toastPartialMany": "לא ניתן היה למחוק {count} קבצים",
+    "inUse": "בשימוש בגלריה, לכן אי אפשר למחוק אותו",
+    "emptyNone": "אין עדיין קבצים",
+    "emptyNoneHint": "קבצים שמעלים לדוח וקבצים שהסוכן יוצר יופיעו כאן."
   },
   "dashboards": {
     "title": "דשבורדים",
@@ -6265,6 +6294,8 @@
     "modelAuto": "אוטומטי",
     "noAgents": "ללא",
     "project": "פרויקט",
+    "toolOutputFilesOne": "קובץ {count} שנוצר על ידי הסוכן",
+    "toolOutputFilesMany": "{count} קבצים שנוצרו על ידי הסוכן",
     "agentsFromReport": "משתמש בסוכנים של הדוח"
   },
   "errorPage": {

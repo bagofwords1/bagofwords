@@ -17,6 +17,41 @@ RICH_PREVIEW_TOKEN_BUDGET = 4000
 # Reports with at most this many user-attached files keep full previews for
 # all of them — the single-CSV chat flow stays exactly as before.
 SMALL_REPORT_RICH_MAX = 3
+# Files the agent produced or fetched itself (tool output, connector caches)
+# listed in <files>, newest first. A report that runs on a schedule gains one
+# per tool call per run, forever: listing them all made every run's prompt
+# grow with the report's history. Older ones stay on the report, readable by
+# id; they are only left out of the listing.
+GENERATED_FILES_MAX = 20
+
+
+def _is_generated(f) -> bool:
+    return (getattr(f, "source_kind", "") or "upload") != "upload"
+
+
+def limit_generated_files(files: list, protected_ids: Set[str], max_generated: Optional[int] = None):
+    """Keep at most ``max_generated`` agent-produced files, newest first.
+
+    Uploads and every id in ``protected_ids`` (mentioned / attached this turn,
+    agent and project library files) are always kept. Returns
+    ``(kept_files, omitted_count)``; kept files stay in their input order.
+    """
+    if max_generated is None:
+        max_generated = GENERATED_FILES_MAX
+    generated = [
+        f for f in files
+        if _is_generated(f) and str(getattr(f, "id", "")) not in protected_ids
+    ]
+    if len(generated) <= max_generated:
+        return list(files), 0
+
+    def _created(f):
+        v = getattr(f, "created_at", None)
+        return v.isoformat() if v is not None else ""
+
+    keep = {id(f) for f in sorted(generated, key=_created, reverse=True)[:max(0, max_generated)]}
+    dropped = {id(f) for f in generated} - keep
+    return [f for f in files if id(f) not in dropped], len(dropped)
 
 
 def _estimate_tokens(text: Optional[str]) -> int:
@@ -173,6 +208,7 @@ class FilesContextBuilder:
 
         agent_ids = await self._agent_file_ids() | {str(f.id) for f in library}
         forced_ids = await self._forced_rich_ids()
+        files, omitted_generated = limit_generated_files(files, agent_ids | forced_ids | project_ids)
         tiers = decide_file_tiers(files, agent_ids, forced_ids)
 
         items: List[FilesSchemaContext.FileItem] = []
@@ -217,4 +253,4 @@ class FilesContextBuilder:
                     ),
                 )
             )
-        return FilesSchemaContext(files=items)
+        return FilesSchemaContext(files=items, omitted_generated=omitted_generated)

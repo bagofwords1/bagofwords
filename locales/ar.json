@@ -3322,6 +3322,10 @@
           "name": "أيام الاحتفاظ ببيانات الأدوات المرئية",
           "description": "عدد الأيام التي تُحفظ فيها بيانات الأدوات المرئية قبل حذفها."
         },
+        "file_retention_days": {
+          "name": "الاحتفاظ بالملفات (أيام)",
+          "description": "يحذف كل ليلة الملفات الأقدم من هذا العدد من الأيام. يُحتفظ بالملفات المستخدمة في لوحة معلومات، وملفات مكتبة الوكيل أو المشروع، والملفات المرفوعة إلى تقرير مجدول. القيمة 0 تحتفظ بالملفات دائمًا."
+        },
         "enable_excel_addin": {
           "name": "وظيفة Excel الإضافية",
           "description": "يفعّل وظيفة Excel الإضافية المدمجة ليتمكن المستخدمون من تحميل الملف التعريفي مباشرة من هذه النسخة"
@@ -4418,6 +4422,7 @@
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
     "ssh.key_discovery_failed": "تعذر جلب المفتاح. تحقق من اسم الخادم والمنفذ والشبكة، أو أدخل مفتاحًا موثوقًا في الإعدادات المتقدمة.",
+    "file.in_use": "الملف مستخدم في لوحة معلومات",
     "connection.kms_token_format": "يمكن أن يحتوي رمز API الخاص بـ KMS على أحرف وأرقام وعلامات ترقيم عادية فقط، بدون مسافات. انسخه مرة أخرى من KMS Lighthouse والصقه كنص عادي.",
     "connection.kms_use_connection_credentials": "يتم حفظ بيانات تسجيل الدخول إلى KMS Lighthouse في الاتصال. افتح الاتصال واتصل من هناك.",
     "connection.kms_only": "ينطبق التشخيص على اتصالات KMS Lighthouse فقط.",
@@ -4563,7 +4568,7 @@
   },
   "files": {
     "title": "الملفات",
-    "subtitle": "إدارة ملفات مؤسستك",
+    "subtitle": "الملفات التي رفعتها والملفات التي أنشأها الوكيل في تقاريرك.",
     "file": "ملف",
     "metadata": "البيانات الوصفية",
     "createdAt": "تاريخ الإنشاء",
@@ -4572,7 +4577,31 @@
     "metadataFieldsMany": "{count} حقول بيانات وصفية",
     "metadataTagsOne": "{count} علامة بيانات وصفية",
     "metadataTagsMany": "{count} علامات بيانات وصفية",
-    "noMetadata": "لا توجد بيانات وصفية"
+    "noMetadata": "لا توجد بيانات وصفية",
+    "search": "البحث في الملفات",
+    "filterAll": "كل الملفات",
+    "filterUploads": "المرفوعة",
+    "selectAll": "تحديد الكل",
+    "deleteSelected": "حذف {count} محددة",
+    "delete": "حذف",
+    "download": "تنزيل",
+    "empty": "لا توجد ملفات مطابقة",
+    "confirmTitleOne": "حذف هذا الملف؟",
+    "confirmTitleMany": "حذف {count} ملفات؟",
+    "confirmBody": "تُزال الملفات المحذوفة من كل تقرير ووكيل ومشروع يستخدمها، ولا يمكن استعادتها.",
+    "toastDeletedOne": "تم حذف الملف",
+    "toastDeletedMany": "تم حذف {count} ملفات",
+    "toastError": "تعذر حذف الملفات",
+    "toastDownloadError": "تعذر تنزيل الملف",
+    "filterAgent": "الوكيل",
+    "sourceAgent": "الوكيل",
+    "sourceUpload": "مرفوع",
+    "selectedCount": "تم تحديد {count}",
+    "toastPartialOne": "تعذّر حذف {count} ملف",
+    "toastPartialMany": "تعذّر حذف {count} ملفات",
+    "inUse": "مستخدم في لوحة معلومات، لذا لا يمكن حذفه",
+    "emptyNone": "لا توجد ملفات بعد",
+    "emptyNoneHint": "تظهر هنا الملفات التي ترفعها إلى تقرير والملفات التي ينشئها الوكيل."
   },
   "dashboards": {
     "title": "لوحات التحكم",
@@ -5708,6 +5737,8 @@
     "modelAuto": "تلقائي",
     "noAgents": "لا شيء",
     "project": "مشروع",
+    "toolOutputFilesOne": "{count} ملف أنشأه الوكيل",
+    "toolOutputFilesMany": "{count} ملفات أنشأها الوكيل",
     "agentsFromReport": "يستخدم وكلاء التقرير"
   },
   "errorPage": {
