@@ -504,6 +504,14 @@
       "delivery_skipped": {
         "title": "Einige Empfänger haben „{report}“ nicht erhalten",
         "body": "{count} Empfänger haben diesen Bericht nicht erhalten, da er Daten enthält, die für jeden Betrachter individuell sind: {recipients}"
+      },
+      "access_request": {
+        "title": "{actor} möchte {dashboard} ansehen",
+        "body": "{actor} hat angefragt, „{dashboard}“ anzusehen."
+      },
+      "access_granted": {
+        "title": "Du kannst {dashboard} jetzt ansehen",
+        "body": "Deine Anfrage, „{dashboard}“ anzusehen, wurde genehmigt."
       }
     },
     "checkin": {
@@ -2062,12 +2070,10 @@
     "loading": "Lädt ...",
     "noRolesFound": "Keine Rollen gefunden",
     "noRolesHint": "Erstellen Sie eine Rolle, um Berechtigungen zu verwalten.",
-    "system": "System",
     "default": "Standard",
     "defaultRoleHint": "Dies ist eine integrierte Rolle. Ihr Name ist fest – passen Sie unten ihre Berechtigungen an.",
     "edit": "Bearbeiten",
     "fullAdmin": "Vollständiger Administrator",
-    "permissionsCount": "{n} Berechtigungen",
     "editRole": "Rolle bearbeiten",
     "createRole": "Rolle erstellen",
     "nameLabel": "Name",
@@ -2075,17 +2081,10 @@
     "namePlaceholder": "z. B. Analyst",
     "descriptionPlaceholder": "Optional",
     "fullAdminAccess": "Vollständiger Administratorzugriff",
-    "fullAdminBypass": "Umgeht alle Prüfungen",
-    "allResources": "Alle Ressourcen",
-    "orgWidePermissions": "Organisationsweite Berechtigungen",
-    "ds": "Agent",
-    "addDataSource": "+ Datenquelle hinzufügen ...",
     "cancel": "Abbrechen",
     "save": "Speichern",
     "create": "Erstellen",
     "confirmDelete": "Rolle „{name}“ löschen?",
-    "toastCreated": "Rolle erstellt",
-    "toastUpdated": "Rolle aktualisiert",
     "toastDeleted": "Rolle gelöscht",
     "failedToLoad": "Rollen konnten nicht geladen werden",
     "failedToCreate": "Rolle konnte nicht erstellt werden",
@@ -2113,20 +2112,90 @@
       "create_data_sources": "Agenten erstellen",
       "manage_connection": "Verbindung verwalten",
       "manage_data_sources": "Agenten verwalten",
-      "manage_service_accounts": "Dienstkonten verwalten"
+      "manage_service_accounts": "Dienstkonten verwalten",
+      "view_code": "Generierten Code ansehen",
+      "run_custom_code": "Eigenen Code bearbeiten und ausführen"
     },
-    "addAgent": "+ Agent hinzufügen ...",
-    "advancedPermissions": "Erweiterte Berechtigungen",
-    "tiers": {
-      "query": "Darf abfragen",
-      "queryHint": "Diesem Agenten Fragen stellen",
+    "delete": "Löschen",
+    "duplicate": "Duplizieren",
+    "copyOf": "Kopie von {name}",
+    "loadingRole": "Rolle wird geladen…",
+    "loadFailed": "Agenten, Verbindungen und Modelle konnten nicht geladen werden.",
+    "retry": "Erneut versuchen",
+    "toastCreatedNamed": "{name} erstellt",
+    "toastUpdatedNamed": "{name} gespeichert",
+    "moreActions": "Weitere Aktionen",
+    "tabs": {
+      "permissions": "Berechtigungen",
+      "access": "Zugriff"
+    },
+    "groups": {
+      "agents": "Agenten & Daten",
+      "knowledge": "Agentenwissen",
+      "code": "Code",
+      "admin": "Verwaltung",
+      "other": "Sonstiges"
+    },
+    "permissionHints": {
+      "create_data_source": "Agenten auf nutzbaren Verbindungen erstellen",
+      "create_connections": "Datenverbindungen hinzufügen",
+      "manage_connections": "Jede Verbindung bearbeiten, testen und löschen",
+      "manage_instructions": "Anweisungen aller Agenten bearbeiten",
+      "manage_entities": "Tabellen, Kennzahlen und Begriffe für alle Agenten festlegen",
+      "manage_evals": "Auswertungen für alle Agenten erstellen und ausführen",
+      "view_code": "SQL und Python sehen, die Agenten schreiben",
+      "run_custom_code": "Code in Berichten bearbeiten und ausführen",
+      "manage_members": "Personen einladen und ihre Rollen ändern",
+      "manage_service_accounts": "API-Schlüssel erstellen",
+      "manage_settings": "Organisationseinstellungen ändern",
+      "manage_llm": "LLM-Anbieter und -Modelle konfigurieren",
+      "view_audit_logs": "Sehen, wer was wann getan hat",
+      "manage_identity_providers": "Single Sign-on konfigurieren"
+    },
+    "fullAdminHint": "Darf alles in der Organisation",
+    "fullAdminAccessTab": "Voller Admin-Zugriff umfasst alle Agenten, Verbindungen und Modelle.",
+    "includedWith": "Enthalten in {name}",
+    "searchResources": "Suchen…",
+    "addAccess": "Agent, Verbindung oder Modell hinzufügen",
+    "accessEmpty": "Noch keine Agenten, Verbindungen oder Modelle. Öffentliche Agenten sind immer verfügbar.",
+    "publicAgents": "{n} öffentliche Agenten stehen allen zur Verfügung.",
+    "types": {
+      "data_source": "Agent",
+      "connection": "Verbindung",
+      "llm_model": "Modell"
+    },
+    "levels": {
+      "use": "Darf nutzen",
       "manage": "Darf verwalten",
-      "manageHint": "Anweisungen, Entitäten, Auswertungen, Einstellungen und Mitglieder bearbeiten"
+      "build": "Darf Agenten erstellen",
+      "custom": "Benutzerdefiniert"
     },
-    "modelAccess": "Modellzugriff",
-    "modelAccessHint": "Eingeschränkte Modelle",
-    "noRestrictedModels": "Keine eingeschränkten Modelle",
-    "connection": "Verbindung"
+    "removeAccess": "Entfernen",
+    "meta": {
+      "permissionsOne": "1 Berechtigung",
+      "permissionsMany": "{n} Berechtigungen",
+      "agentsOne": "1 Agent",
+      "agentsMany": "{n} Agenten",
+      "connectionsOne": "1 Verbindung",
+      "connectionsMany": "{n} Verbindungen",
+      "modelsOne": "1 Modell",
+      "modelsMany": "{n} Modelle",
+      "everything": "Alle Berechtigungen"
+    },
+    "resourcePermissions": {
+      "data_source": {
+        "manage": "Verwalten (umfasst alles)",
+        "manage_instructions": "Anweisungen bearbeiten",
+        "create_entities": "Entitäten bearbeiten",
+        "manage_evals": "Auswertungen verwalten",
+        "manage_members": "Verwalten, wer ihn nutzen darf"
+      },
+      "connection": {
+        "manage_connection": "Bearbeiten, testen und neu indexieren",
+        "create_data_sources": "Agenten darauf erstellen",
+        "manage_data_sources": "Alle ihre Agenten verwalten"
+      }
+    }
   },
   "groupsManager": {
     "searchPlaceholder": "Gruppen suchen ...",
@@ -3276,6 +3345,10 @@
           "name": "Aufbewahrungstage für Widget-Daten",
           "description": "Anzahl der Tage, die Widget-Daten aufbewahrt werden, bevor sie gelöscht werden."
         },
+        "file_retention_days": {
+          "name": "Aufbewahrung von Dateien (Tage)",
+          "description": "Löscht jede Nacht Dateien, die älter als diese Anzahl Tage sind. Dateien eines Dashboards, Dateien in einer Agenten- oder Projektbibliothek und Uploads für einen geplanten Bericht bleiben erhalten. 0 bewahrt Dateien unbegrenzt auf."
+        },
         "enable_excel_addin": {
           "name": "Excel-Add-in",
           "description": "Aktiviert das integrierte Excel-Add-in, damit Nutzer das Manifest direkt aus dieser Instanz laden können"
@@ -3307,6 +3380,10 @@
         "enable_demo_data_generation": {
           "name": "Demo-Datengenerierung",
           "description": "Im Trainingsmodus können Admins, die Verbindungen verwalten dürfen, den Agenten bitten, einen realistischen fiktiven SQLite-Datensatz für jede Domäne zu entwerfen und zu erzeugen und darauf vorgeschlagene Agenten anzulegen. Die Zeilen erzeugt das kleine Standardmodell."
+        },
+        "allow_access_requests": {
+          "name": "Zugriffsanfragen zulassen",
+          "description": "Lass Mitglieder auf der Seite ohne Zugriff die Bearbeiter eines Dashboards um Lesezugriff bitten. Wenn deaktiviert, nennt die Seite nur den Eigentümer und es können keine neuen Anfragen gesendet werden; bereits gesendete Anfragen bleiben beantwortbar."
         }
       }
     },
@@ -4106,6 +4183,11 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "Name der Dokumentbibliothek oder * für alle sichtbaren Bibliotheken. Ein leeres Feld wählt die Standardbibliothek nur im Modus „Modernes REST“."
     },
+    "athena": {
+      "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
+      "tableExcludeTitle": "Table Exclude Pattern",
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+    },
     "qlikOnPrem": {
       "appFilterTitle": "App-Filter",
       "appFilterDescription": "Optionale, durch Kommas getrennte App-Namen oder IDs in den ausgewählten Streams. Leer umfasst alle passenden Apps. Verwenden Sie IDs für Namen mit Kommas.",
@@ -4250,6 +4332,8 @@
     "shell_confirmation.invalid_scope": "Ungültiger Berechtigungsbereich.",
     "shell_confirmation.report_required": "Sitzungsberechtigungen erfordern einen Bericht.",
     "shell_confirmation.rule_mismatch": "Ungültige Befehlsregel, oder das Muster passt nicht zu diesem Befehl.",
+    "connection.config_invalid": "Invalid connection configuration: {detail}",
+    "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
     "catalog_discovery_incomplete": "Die Katalogaktualisierung ist fehlgeschlagen, da die Erkennung unvollständig war. Der bisherige Katalog und die Tabellenauswahl wurden beibehalten.",
     "saml_unavailable": "Die SSO-Konfiguration ist nicht verfügbar. Wenden Sie sich an Ihren Administrator.",
     "saml_login_failed": "Die SSO-Anmeldung ist fehlgeschlagen. Versuchen Sie es erneut oder kontaktieren Sie Ihren Administrator.",
@@ -4368,13 +4452,22 @@
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
     "ssh.key_discovery_failed": "Schlüssel konnte nicht abgerufen werden. Prüfen Sie Host, Port und Netzwerk oder geben Sie unter Erweitert einen vertrauenswürdigen Schlüssel ein.",
+    "file.in_use": "Die Datei wird von einem Dashboard verwendet",
     "connection.kms_token_format": "Das KMS-API-Token darf nur einfache Buchstaben, Ziffern und Satzzeichen enthalten, ohne Leerzeichen. Kopieren Sie es erneut aus KMS Lighthouse und fügen Sie es als reinen Text ein.",
     "connection.kms_use_connection_credentials": "KMS-Lighthouse-Anmeldungen werden in der Verbindung gespeichert. Öffnen Sie die Verbindung und verbinden Sie sich dort.",
     "connection.kms_only": "Die Diagnose gilt nur für KMS Lighthouse-Verbindungen.",
     "connection.kms_diagnostics_running": "Für diese Verbindung läuft bereits eine Diagnose. Warten Sie, bis sie abgeschlossen ist, und versuchen Sie es dann erneut.",
     "connection.kms_login_rejected": "KMS Lighthouse hat diese Anmeldung nicht akzeptiert, daher wurde sie nicht gespeichert. Prüfen Sie Benutzername und Passwort oder das API-Token und versuchen Sie es erneut.",
     "connection.kms_login_paused": "KMS Lighthouse hat diese Anmeldung kürzlich abgelehnt. Neue Versuche damit sind für einige Minuten pausiert, und sie wurde nicht gespeichert. Prüfen Sie die Anmeldung oder versuchen Sie es später erneut.",
-    "connection.kms_session_refused": "KMS Lighthouse hat die Anmeldung akzeptiert, aber ihre Sitzung abgelehnt. Sie kann daher nicht verwendet werden und wurde nicht gespeichert. Fragen Sie den KMS-Administrator, ob dieses Konto die KMS-API verwenden darf."
+    "connection.kms_session_refused": "KMS Lighthouse hat die Anmeldung akzeptiert, aber ihre Sitzung abgelehnt. Sie kann daher nicht verwendet werden und wurde nicht gespeichert. Fragen Sie den KMS-Administrator, ob dieses Konto die KMS-API verwenden darf.",
+    "access_request.disabled": "Zugriffsanfragen sind für diese Organisation deaktiviert.",
+    "access_request.not_allowed": "Dieses Dashboard benötigt keine Zugriffsanfrage.",
+    "access_request.already_has_access": "Du hast bereits Zugriff auf dieses Dashboard.",
+    "access_request.pending": "Deine Anfrage ist bereits ausstehend.",
+    "access_request.too_soon": "Deine vorherige Anfrage wurde abgelehnt. Du kannst es später erneut versuchen.",
+    "access_request.no_approvers": "Derzeit kann niemand Anfragen für dieses Dashboard genehmigen.",
+    "access_request.not_found": "Diese Anfrage existiert nicht mehr.",
+    "access_request.already_decided": "Diese Anfrage wurde bereits beantwortet."
   },
   "email": {
     "dashboardShare": {
@@ -4505,7 +4598,7 @@
   },
   "files": {
     "title": "Dateien",
-    "subtitle": "Verwalten Sie die Dateien Ihrer Organisation",
+    "subtitle": "Dateien, die du hochgeladen hast, und Dateien, die der Agent in deinen Berichten erstellt hat.",
     "file": "Datei",
     "metadata": "Metadaten",
     "createdAt": "Erstellt am",
@@ -4514,7 +4607,31 @@
     "metadataFieldsMany": "{count} Metadatenfelder",
     "metadataTagsOne": "{count} Metadaten-Tag",
     "metadataTagsMany": "{count} Metadaten-Tags",
-    "noMetadata": "Keine Metadaten"
+    "noMetadata": "Keine Metadaten",
+    "search": "Dateien suchen",
+    "filterAll": "Alle Dateien",
+    "filterUploads": "Hochgeladen",
+    "selectAll": "Alle auswählen",
+    "deleteSelected": "{count} ausgewählte löschen",
+    "delete": "Löschen",
+    "download": "Herunterladen",
+    "empty": "Keine passenden Dateien",
+    "confirmTitleOne": "Diese Datei löschen?",
+    "confirmTitleMany": "{count} Dateien löschen?",
+    "confirmBody": "Gelöschte Dateien werden aus allen Berichten, Agenten und Projekten entfernt, die sie verwenden, und können nicht wiederhergestellt werden.",
+    "toastDeletedOne": "Datei gelöscht",
+    "toastDeletedMany": "{count} Dateien gelöscht",
+    "toastError": "Die Dateien konnten nicht gelöscht werden",
+    "toastDownloadError": "Die Datei konnte nicht heruntergeladen werden",
+    "filterAgent": "Agent",
+    "sourceAgent": "Agent",
+    "sourceUpload": "Hochgeladen",
+    "selectedCount": "{count} ausgewählt",
+    "toastPartialOne": "{count} Datei konnte nicht gelöscht werden",
+    "toastPartialMany": "{count} Dateien konnten nicht gelöscht werden",
+    "inUse": "Wird von einem Dashboard verwendet und kann nicht gelöscht werden",
+    "emptyNone": "Noch keine Dateien",
+    "emptyNoneHint": "Dateien, die du in einen Bericht hochlädst, und Dateien, die der Agent erstellt, erscheinen hier."
   },
   "dashboards": {
     "title": "Dashboards",
@@ -5650,6 +5767,8 @@
     "modelAuto": "Auto",
     "noAgents": "Keine",
     "project": "Projekt",
+    "toolOutputFilesOne": "{count} Datei vom Agenten erstellt",
+    "toolOutputFilesMany": "{count} Dateien vom Agenten erstellt",
     "agentsFromReport": "Verwendet die Agenten des Berichts"
   },
   "errorPage": {
@@ -6777,6 +6896,29 @@
       "deniedBody": "Sie haben keinen Zugriff auf diese Seite. Bitten Sie den Eigentümer, sie mit Ihnen zu teilen.",
       "goHome": "Zur Startseite",
       "backToApp": "Zurück zur App"
+    },
+    "accessRequest": {
+      "noAccessTitle": "Du hast keinen Zugriff",
+      "ownerLine": "Dieses Dashboard gehört {owner}.",
+      "ownerUnknown": "Du hast keinen Zugriff auf dieses Dashboard.",
+      "requestButton": "Zugriff anfragen",
+      "notePlaceholder": "Notiz hinzufügen (optional)",
+      "send": "Anfrage senden",
+      "cancel": "Abbrechen",
+      "sent": "Anfrage gesendet",
+      "pending": "Deine Anfrage ist ausstehend",
+      "askOwner": "Frage den Dashboard-Eigentümer, {owner}.",
+      "askOwnerGeneric": "Frage den Dashboard-Eigentümer um Zugriff.",
+      "noApprovers": "Derzeit kann niemand Anfragen für dieses Dashboard genehmigen.",
+      "cooldown": "Deine vorherige Anfrage wurde abgelehnt. Du kannst es später erneut versuchen.",
+      "pendingTitle": "Ausstehende Anfragen",
+      "approve": "Genehmigen",
+      "deny": "Ablehnen",
+      "noteFrom": "Notiz von {name}",
+      "switchesPrivate": "Beim Genehmigen wird dieses Dashboard auf „Bestimmte Personen“ umgestellt und diese Person als Betrachter hinzugefügt.",
+      "runsAsCreator": "Dieses Dashboard läuft mit dem Datenzugriff von {creator}. Beim Genehmigen sieht diese Person, was {creator} sieht.",
+      "approveTitle": "Zugriffsanfrage genehmigen",
+      "confirmApprove": "Genehmigen"
     }
   },
   "dashboardSettings": {

@@ -131,6 +131,23 @@ class DataSourceClient(DiscoveryClient, ABC):
     # sources (mail, files, metrics APIs).
     relative_date_hint: Optional[str] = None
 
+    # How a query parameter's string value is written as a literal in this
+    # engine's query language (app/ai/code_execution/query_params.py,
+    # LITERAL_STYLE_*): "standard" doubles the quote; engines that read a
+    # backslash as an escape inside strings declare "doubled" or "backslash",
+    # citing their grammar. None refuses parameters: for a language where a
+    # backslash escapes inside strings and no style here is established for
+    # it (KQL, PromQL, SPL), a query with parameters is refused rather than
+    # written with a quoting rule known to be wrong for it.
+    sql_literal_style: Optional[str] = "standard"
+    # True for a connector whose query is a JSON envelope carrying its SQL in
+    # a "sql" field (Elasticsearch, OpenSearch): a value renders there as a
+    # SQL literal, and the envelope is serialized again so it stays inside its
+    # JSON string. Elsewhere in a JSON query document -- any connector's -- a
+    # parameter renders as the engine's literal inside a string value
+    # (JSON-escaped), as a finite number as a bare value, and never in a key.
+    sql_in_json_envelope: bool = False
+
     # When True, listing files live from the source is cheap enough to do on
     # every list_files call (local FS walk, bounded S3 LIST) — so list_files
     # reads the live per-connection client instead of the shared, per-data-
@@ -273,6 +290,8 @@ class DataSourceClient(DiscoveryClient, ABC):
         UI can show how big the indexed data was. Default empty."""
         return {}
 
+    unindexed_table_prefix_separator = "/"
+
     def unindexed_table_prefixes(self) -> List[str]:
         """Table-name prefixes the last `get_schemas` call could not read.
 
@@ -282,7 +301,8 @@ class DataSourceClient(DiscoveryClient, ABC):
         Absent from the result is not the same as gone from the source, so the
         schema refresh keeps existing tables under these prefixes (and the
         agents' selection of them) instead of pruning them. Each prefix covers
-        names that start with ``prefix + "/"``. Default: nothing unread.
+        names that start with ``prefix + unindexed_table_prefix_separator``.
+        Default: nothing unread.
         """
         return []
 

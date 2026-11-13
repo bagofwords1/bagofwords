@@ -9,6 +9,7 @@ planner can correct in its own loop — the planner IS the repair loop here.
 """
 
 import logging
+import re
 from types import SimpleNamespace
 from typing import Any, AsyncIterator, Dict, List, Optional, Type
 
@@ -27,11 +28,24 @@ from app.ai.tools.schemas import (
 )
 from app.ai.tools.schemas.edit_artifact import EditArtifactInput, EditArtifactOutput
 from app.ai.tools.artifact_verification import with_automatic_artifact_check
-from app.ai.tools.implementations._artifact_refs import migrate_positional_viz_refs, viz_reference_errors, design_errors
+from app.ai.tools.implementations._artifact_refs import migrate_positional_viz_refs, viz_reference_errors, design_errors, chart_prop_errors
 from app.models.artifact import ArtifactVersion
 from app.services.artifact_service import new_version
 
 logger = logging.getLogger(__name__)
+
+# A literal id on a <BowFile>: id="x", id='x', id={"x"}, id={`x`}. An id held in
+# a variable can't be resolved here and is left to the runtime's placeholder.
+_BOW_FILE_ID = re.compile(r"""<BowFile\b[^>]*?\sid\s*=\s*\{?\s*["'`]([^"'`]+)["'`]""")
+
+
+def _bow_file_ids(code: str) -> set[str]:
+    return {file_id for file_id in _BOW_FILE_ID.findall(code or "") if "${" not in file_id}
+
+
+def _attachable_type(content_type: Optional[str]) -> bool:
+    media_type = (content_type or "").split(";", 1)[0].strip().lower()
+    return media_type.startswith("image/") or media_type == "application/pdf"
 
 
 class EditArtifactTool(Tool):
@@ -54,7 +68,9 @@ class EditArtifactTool(Tool):
                 "render-validates before persisting; on any failure NOTHING is applied and the error tells "
                 "you exactly what to correct — fix the ops and call again. If the current code is not in your "
                 "context, call read_artifact first. For a from-scratch redesign, author new source and call "
-                "create_artifact with `code`. For slides, ops edit the python-pptx script; validation = the script executes and saves a deck."
+                "create_artifact with `code`. To show a file the artifact does not have yet (a new logo, for example), add its "
+                "<BowFile id=\"...\" /> in the ops AND pass its id in `file_ids`. For slides, ops edit the python-pptx script; "
+                "validation = the script executes and saves a deck."
             ),
             category="action",
             version="1.0.0",
@@ -96,6 +112,27 @@ class EditArtifactTool(Tool):
                 "observation": obs,
             },
         )
+
+    async def _attachable_files(self, db, *, user, report, organization, file_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+        """The requested files this run may attach, as content.files entries.
+
+        Attaching makes a file readable by everyone who can view the artifact,
+        and the ids come from the model, so they go through the same check as
+        create_artifact. A failed check attaches nothing.
+        """
+        from app.models.file import File
+        from app.services.file_access_service import run_viewable_file_ids
+
+        try:
+            allowed = await run_viewable_file_ids(db, user=user, report=report, organization=organization, file_ids=file_ids)
+            rows = (await db.execute(select(File).where(File.id.in_(list(allowed))))).scalars().all()
+        except Exception as e:
+            logger.warning(f"edit_artifact: failed to resolve file_ids: {e}")
+            return {}
+        return {
+            str(f.id): {"id": str(f.id), "content_type": f.content_type or "application/octet-stream", "filename": f.filename}
+            for f in rows if _attachable_type(f.content_type)
+        }
 
     @with_automatic_artifact_check
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
@@ -190,6 +227,40 @@ class EditArtifactTool(Tool):
             return
         new_code = working
 
+        # Merge embedded files: existing + new. Every requested id must resolve;
+        # the same answer for missing, forbidden and wrong-type ids reveals
+        # nothing about files this user can't see.
+        merged_files: List[Dict[str, Any]] = list(content.get("files") or [])
+        attached_ids = {str(f.get("id")) for f in merged_files if isinstance(f, dict)}
+        requested_file_ids = list(dict.fromkeys(str(f) for f in (data.file_ids or []) if str(f) not in attached_ids))
+        if requested_file_ids:
+            attachable = await self._attachable_files(
+                db, user=user, report=report, organization=runtime_ctx.get("organization"), file_ids=requested_file_ids,
+            )
+            refused = [fid for fid in requested_file_ids if fid not in attachable]
+            if refused:
+                yield self._fail(
+                    artifact, "file_not_attachable",
+                    f"Cannot attach file {refused[0]}: it does not exist, you cannot access it, or it is not an image or PDF.",
+                    {"file_ids": refused, "remediation": "Pass only ids of images or PDFs from the conversation's files."},
+                )
+                return
+            merged_files.extend(attachable[fid] for fid in requested_file_ids)
+            attached_ids.update(requested_file_ids)
+
+        # A <BowFile> for a file that isn't attached renders "File not found"
+        # while the render check still passes. References the artifact already
+        # had are left alone, so an unrelated edit isn't blocked by them.
+        if artifact.mode == "page":
+            unattached = sorted(_bow_file_ids(new_code) - _bow_file_ids(code) - attached_ids)
+            if unattached:
+                yield self._fail(
+                    artifact, "file_not_attached",
+                    f"The edits add <BowFile id=\"{unattached[0]}\" /> but that file is not attached to the artifact.",
+                    {"file_ids": unattached, "remediation": "Call edit_artifact again with the same edits and this id in `file_ids`."},
+                )
+                return
+
         # Validation payload straight from the shared payload builder, against
         # the MERGED viz set; enrich with declared params for the wiring gate.
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "validating"})
@@ -198,7 +269,7 @@ class EditArtifactTool(Tool):
             report_id=artifact.report_id,
             content={
                 "visualization_ids": merged_viz_ids,
-                "files": content.get("files") or [],
+                "files": merged_files,
                 "runtime_version": content.get("runtime_version"),
             },
         )
@@ -255,7 +326,7 @@ class EditArtifactTool(Tool):
                 artifact_data.get("visualizations") or [],
                 report_data,
                 _pptx_tmp,
-                await load_image_bytes(db, content.get("files") or []),
+                await load_image_bytes(db, merged_files),
                 runtime_ctx,
                 max_repairs=0,
             ):
@@ -293,6 +364,7 @@ class EditArtifactTool(Tool):
             gate_errors: List[str] = viz_reference_errors(new_code, artifact_data)
             gate_errors += self._create_tool.params_wiring_errors(new_code, artifact_data, previous_code=code, previous_visualization_ids=existing_viz_ids)
             gate_errors += design_errors(new_code, artifact_data)
+            gate_errors += chart_prop_errors(new_code, artifact_data)
             if gate_errors:
                 yield self._fail(
                     artifact, "contract_errors",
@@ -323,8 +395,8 @@ class EditArtifactTool(Tool):
         )
         prev_spec = artifact.generation_prompt or ""
         new_content: Dict[str, Any] = {"code": new_code, "visualization_ids": merged_viz_ids}
-        if content.get("files"):
-            new_content["files"] = content.get("files")
+        if merged_files:
+            new_content["files"] = merged_files
         # The runtime generation travels with the row: a legacy artifact stays
         # legacy across edits (its code was written for that look); a themed
         # one stays themed.

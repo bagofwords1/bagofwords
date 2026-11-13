@@ -10,8 +10,11 @@ import { useI18n } from 'vue-i18n'
  *    whole app, and a default title from the route: a page declares
  *    `definePageMeta({ titleKey: 'pageTitles.signIn' })` and the plugin
  *    translates it (and re-translates it when the locale changes). Pages in
- *    the settings and monitoring layouts get their section appended
- *    (`Access · Settings · Bag of Words`), see `LAYOUT_SECTION_KEYS`.
+ *    the monitoring layout get their section appended
+ *    (`Explore · Monitoring · Bag of Words`), see `LAYOUT_SECTION_KEYS`.
+ *    The admin console (/settings/*) is titled by its parent route,
+ *    pages/settings.vue, from the same heading it shows on the page
+ *    (`Roles · Settings · Bag of Words`).
  *
  * 2. A page (or component) that shows a record calls `usePageTitle()` with the
  *    record's name. Its title is registered after the plugin's, so it wins

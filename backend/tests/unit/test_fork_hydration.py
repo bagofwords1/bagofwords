@@ -355,11 +355,15 @@ async def test_a_query_that_broke_under_the_forkers_own_client_keeps_its_code():
     not_held = 'df = ds_clients["other:conn"].execute_query("EVALUATE secret_orders")'
     refused_code = 'df = ds_clients["agent:conn"].execute_query("EVALUATE refused_model")'
 
+    from app.ai.code_execution.sandbox.runner import SandboxExecutionError
+
+    # What the default (subprocess) sandbox relays for user code's KeyError:
+    # the type name and repr(key).
     async def _rerun(db, step_id, **kwargs):
         if step_id == "broken":
-            raise KeyError("depot")
+            raise SandboxExecutionError("KeyError", "'depot'")
         if step_id == "missing":
-            raise KeyError("other:conn")
+            raise SandboxExecutionError("KeyError", "'other:conn'")
         raise RuntimeError('DAX query failed: HTTP 403 {"model":"refused_model"}')
 
     with patch("app.services.report_service.ReportService.archive_report",
@@ -405,6 +409,100 @@ def test_reaches_only_usable_clients(code, clients, expected):
     from app.services.fork_service import _reaches_only_usable_clients
 
     assert _reaches_only_usable_clients(code, clients) is expected
+
+
+@pytest.mark.parametrize("clients, expected", [({"a:c": 1}, True), ({"b:c": 1}, False)])
+def test_generate_dfs_own_parameter_is_not_a_reach_of_the_clients(clients, expected):
+    """Saved step code declares `def generate_df(ds_clients, ...)`; the
+    declaration is not a use of the dict, so a step whose body reaches only a
+    held client by key stays repairable."""
+    from app.services.fork_service import _reaches_only_usable_clients
+
+    code = 'def generate_df(ds_clients, excel_files):\n    return ds_clients["a:c"].execute_query("x")\n'
+    assert _reaches_only_usable_clients(code, clients) is expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("driver_error", [
+    'permission denied for table orders',
+    "SQL compilation error: Object 'ORDERS' does not exist or not authorized.",
+    "403 Access Denied: Table proj:sales.orders: User does not have permission",
+])
+async def test_a_refusal_the_source_words_its_own_way_keeps_no_code(driver_error):
+    """The forker holds the client, but their own login lacks a grant and the
+    driver says so in words the access check does not know. Only a failure
+    that is positively a parameter problem keeps the code; this one keeps
+    neither the SQL nor the source's error text."""
+    report, user, org = _report(), SimpleNamespace(id="u-1"), MagicMock()
+    org.get_settings = AsyncMock(return_value=None)
+    session = _Session(report, user, org)
+    code = 'def generate_df(ds_clients, excel_files):\n    return ds_clients["agent:conn"].execute_query("SELECT * FROM orders")\n'
+
+    async def _rerun(db, step_id, **kwargs):
+        raise RuntimeError(driver_error)
+
+    with patch("app.services.report_service.ReportService.archive_report", AsyncMock()):
+        out, _, _ = await _run_hydration(session, _rerun, {"s1": code}, with_client=True)
+
+    assert out["failed"] == 1
+    settled = "\n".join(session.settled("steps", "error"))
+    assert settled, "the failed step was not settled"
+    assert "code=" not in settled and "SELECT * FROM orders" not in settled
+    assert driver_error not in settled
+
+
+@pytest.mark.asyncio
+async def test_a_parameter_error_under_the_forkers_own_client_keeps_its_code():
+    from app.ai.code_execution.query_params import ParamError
+
+    report, user, org = _report(), SimpleNamespace(id="u-1"), MagicMock()
+    org.get_settings = AsyncMock(return_value=None)
+    session = _Session(report, user, org)
+    code = 'df = ds_clients["agent:conn"].execute_query("x WHERE y = :year", params={})'
+
+    async def _rerun(db, step_id, **kwargs):
+        raise ParamError("SQL uses parameter placeholder(s) with no value: year")
+
+    with patch("app.services.report_service.ReportService.archive_report", AsyncMock()):
+        await _run_hydration(session, _rerun, {"s1": code}, with_client=True)
+
+    (settled,) = session.settled("steps", "error")
+    assert 'ds_clients["agent:conn"]' in settled
+
+
+_HELD_KEY_MISSING_PARAM = """
+def generate_df(ds_clients, excel_files, params):
+    return ds_clients["agent:conn"].execute_query(params["depot"])
+"""
+_UNHELD_CLIENT_BY_GLOBAL = """
+def generate_df(ds_clients, excel_files):
+    ds_clients["agent:conn"]
+    return db_clients["Secret:pg"].execute_query("select 1")
+"""
+
+
+@pytest.mark.parametrize("mode", ["subprocess", "inprocess"])
+@pytest.mark.parametrize("code, keeps", [(_HELD_KEY_MISSING_PARAM, True), (_UNHELD_CLIENT_BY_GLOBAL, False)])
+def test_what_the_executor_raises_decides_whether_a_failed_run_keeps_its_code(monkeypatch, mode, code, keeps):
+    """Run for real in each sandbox mode: a missing parameter keeps the code;
+    a client the forker does not hold, reached through the `db_clients`
+    global, keeps none -- whichever way the KeyError arrives."""
+    import pandas as pd
+
+    from app.ai.code_execution.code_execution import StreamingCodeExecutor
+    from app.services.fork_service import _failure_keeps_code
+
+    monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+
+    class _Held:
+        def execute_query(self, *a, **k):
+            return pd.DataFrame({"a": [1]})
+
+    clients = {"agent:conn": _Held()}
+    with pytest.raises(Exception) as raised:
+        StreamingCodeExecutor(organization_settings=None).execute_code(
+            code=code, ds_clients=clients, excel_files=[], params={})
+    assert _failure_keeps_code(raised.value, code, clients) is keeps, repr(raised.value)
 
 
 @pytest.mark.asyncio

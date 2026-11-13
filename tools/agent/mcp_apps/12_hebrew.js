@@ -1,0 +1,32 @@
+const { launch, api, BASE, DIR } = require('./common');
+const fs = require('fs');
+const ids = JSON.parse(fs.readFileSync(__dirname + '/ids.json'));
+(async () => {
+  const { browser, context, page } = await launch({ dsf: 2 });
+  await context.addInitScript(() => { try { localStorage.setItem('bow.locale', 'he') } catch {} });
+  await page.goto(BASE + '/settings/models', { waitUntil: 'commit', timeout: 180000 });
+  await page.waitForTimeout(2500);
+  const rep = await api(page, 'POST', '/api/reports', { title: 'מכירות אזוריות', data_sources: [ids.data_source_id] });
+  await page.goto(`${BASE}/reports/${rep.body.id}`, { waitUntil: 'commit', timeout: 180000 });
+  const input = page.locator('[contenteditable="true"]').first();
+  await input.waitFor({ timeout: 180000 });
+  await page.waitForTimeout(1500);
+  await input.click();
+  await page.keyboard.type('הצג את לוח המכירות האזורי לרבעון Q3');
+  await page.locator('button[class*="rounded-full"]').last().click();
+  await page.waitForTimeout(4000);
+  for (let i = 0; i < 120; i++) { if (!(await page.locator('[data-testid="stop-button"]').count())) break; await page.waitForTimeout(1000); }
+  const inner = page.frameLocator('[data-testid="mcp-app-frame"]').first().frameLocator('iframe');
+  await inner.locator('.row').first().waitFor({ timeout: 60000 });
+  console.log('html dir:', await page.locator('html').getAttribute('dir'), '| app dir:', await inner.locator('html').getAttribute('dir'));
+  await inner.locator('#followup').click();
+  await page.locator('[data-testid="mcp-app-confirm"]').waitFor({ timeout: 30000 });
+  const el = page.locator('[data-testid="mcp-app"]').first();
+  await el.scrollIntoViewIfNeeded();
+  await page.waitForTimeout(600);
+  const b = await el.boundingBox();
+  await page.screenshot({ path: `${DIR}/shots/12_hebrew.png`, clip: { x: Math.max(0, b.x - 24), y: Math.max(0, b.y - 80), width: b.width + 48, height: Math.min(b.height + 110, 900) } });
+  console.log('confirm text:', await page.locator('[data-testid="mcp-app-confirm"]').innerText());
+  await page.locator('[data-testid="mcp-app-confirm-deny"]').click();
+  await browser.close();
+})().catch(e => { console.error(e); process.exit(1); });

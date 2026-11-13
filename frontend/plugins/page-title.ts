@@ -1,9 +1,9 @@
 import { formatTitle, TITLE_SEPARATOR } from '~/composables/usePageTitle'
 
 // Pages in these layouts are one tab of a section; the section name follows
-// the page's own title: "Access · Settings · Bag of Words".
+// the page's own title: "Explore · Monitoring · Bag of Words". (/settings is a
+// nested route, not a layout: pages/settings.vue titles its own pages.)
 const LAYOUT_SECTION_KEYS: Record<string, string> = {
-  settings: 'nav.settings',
   monitoring: 'monitoring.title',
 }
 

@@ -462,3 +462,212 @@ def test_connection_timestamps_are_explicit_utc(
                 _assert_explicit_utc(payload[field], field=f"{source}.{field}", lower=started, upper=finished)
 
     delete_connection(connection_id=connection["id"], user_token=user_token, org_id=org_id)
+
+
+@pytest.fixture
+def athena_glue(monkeypatch):
+    """Fake only boto3's Glue client and awswrangler; services, routes and DB run for real."""
+    from app.data_sources.clients import aws_athena_client as athena_module
+    from tests.unit.test_aws_athena_client import FakeGlue, FakeWrangler, _glue_error
+
+    for var in ("AWS_PROFILE", "AWS_DEFAULT_PROFILE"):
+        monkeypatch.delenv(var, raising=False)
+    glue = FakeGlue({
+        "acme_db": ["assets", "users"],
+        "globex_db": ["assets", "alerts"],
+        "ghost_db": _glue_error("EntityNotFoundException"),
+    })
+
+    class _Session:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def client(self, *args, **kwargs):
+            return glue
+
+    monkeypatch.setattr(athena_module.boto3, "Session", _Session)
+    monkeypatch.setattr(athena_module, "wr", FakeWrangler())
+    return glue
+
+
+def _athena_config(database, **extra):
+    return {"region": "eu-west-1", "database": database, "workgroup": "primary",
+            "data_source": "AwsDataCatalog", **extra}
+
+
+@pytest.mark.e2e
+def test_athena_update_cannot_switch_between_one_database_and_several(
+    athena_glue, create_connection, update_connection, test_client, create_user, login_user, whoami,
+):
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    single = create_connection(
+        name="Athena single", type="aws_athena", config=_athena_config("acme_db"),
+        credentials={}, user_token=token, org_id=org_id,
+    )
+    for target in ("acme_db, globex_db", "*_db", "acme_db, !globex_db"):
+        response = test_client.put(
+            f"/api/connections/{single['id']}",
+            json={"config": _athena_config(target)}, headers=headers,
+        )
+        assert response.status_code == 400, response.text
+
+    same_mode = update_connection(
+        connection_id=single["id"],
+        payload={"config": _athena_config("globex_db", table_exclude_pattern="^tmp_")},
+        user_token=token, org_id=org_id,
+    )
+    assert same_mode["id"] == single["id"]
+
+    multi = create_connection(
+        name="Athena multi", type="aws_athena", config=_athena_config("acme_db, globex_db"),
+        credentials={}, user_token=token, org_id=org_id,
+    )
+    response = test_client.put(
+        f"/api/connections/{multi['id']}",
+        json={"config": _athena_config("acme_db")}, headers=headers,
+    )
+    assert response.status_code == 400, response.text
+    reshuffled = update_connection(
+        connection_id=multi["id"],
+        payload={"config": _athena_config("globex_db, acme_db")},
+        user_token=token, org_id=org_id,
+    )
+    assert reshuffled["id"] == multi["id"]
+
+
+@pytest.mark.e2e
+def test_athena_tests_succeed_and_name_a_missing_database_before_and_after_saving(
+    athena_glue, create_connection, test_connection_connectivity, test_client, create_user, login_user, whoami,
+):
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+    config = _athena_config("acme_db, globex_db, ghost_db")
+
+    pre_save = test_client.post(
+        "/api/data_sources/test_connection",
+        json={"name": "Athena", "type": "aws_athena", "config": config, "credentials": {}},
+        headers=headers,
+    )
+    assert pre_save.status_code == 200, pre_save.text
+    assert pre_save.json()["success"] is True
+    assert "ghost_db" in pre_save.json()["message"]
+
+    connection = create_connection(
+        name="Athena with a missing database", type="aws_athena", config=config,
+        credentials={}, user_token=token, org_id=org_id,
+    )
+    saved = test_connection_connectivity(connection_id=connection["id"], user_token=token, org_id=org_id)
+    assert saved["success"] is True
+    assert "ghost_db" in saved["message"]
+
+    params = test_client.post(
+        "/api/connections/test-params",
+        json={"name": "Athena", "type": "aws_athena", "config": config, "credentials": {}},
+        headers=headers,
+    )
+    assert params.status_code == 200, params.text
+    assert params.json()["success"] is True and "ghost_db" in params.json()["message"]
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("bad_config", [
+    _athena_config("acme_db, globex_db", data_source="Other"),
+    _athena_config("*_db", data_source="Another"),
+    _athena_config("acme_db,,globex_db"),
+    _athena_config("!acme_db"),
+    _athena_config("acme_db", table_exclude_pattern="(unclosed"),
+    _athena_config("acme_db", table_exclude_pattern="x{5000}"),
+])
+def test_athena_config_is_validated_on_every_api_path(
+    athena_glue, create_connection, test_client, create_user, login_user, whoami, bad_config,
+):
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+    body = {"name": "Athena", "type": "aws_athena", "config": bad_config, "credentials": {}}
+
+    for url in ("/api/connections", "/api/connections/test-params", "/api/data_sources/test_connection"):
+        response = test_client.post(url, json=body, headers=headers)
+        assert response.status_code == 400, (url, response.text)
+        assert response.json()["error_code"] == "connection.config_invalid", response.text
+
+    for auth_policy in ("system_only", "user_required"):
+        response = test_client.post("/api/data_sources", json={
+            **body, "auth_policy": auth_policy, "generate_summary": False,
+            "generate_conversation_starters": False, "generate_ai_rules": False,
+        }, headers=headers)
+        assert response.status_code == 400, (auth_policy, response.text)
+        assert response.json()["error_code"] == "connection.config_invalid", response.text
+
+    for stored in ("acme_db", "acme_db, globex_db"):
+        connection = create_connection(
+            name=f"Athena {stored}", type="aws_athena", config=_athena_config(stored),
+            credentials={}, user_token=token, org_id=org_id,
+        )
+        updated = test_client.put(
+            f"/api/connections/{connection['id']}", json={"config": bad_config}, headers=headers,
+        )
+        assert updated.status_code == 400, updated.text
+        assert updated.json()["error_code"] == "connection.config_invalid", updated.text
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("spec", ["acme_db", "acme_db, globex_db"])
+@pytest.mark.parametrize("blank", [None, ""])
+def test_athena_config_with_blank_optional_fields_uses_the_defaults(
+    athena_glue, test_client, create_user, login_user, whoami, spec, blank,
+):
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+    config = {**_athena_config(spec), "workgroup": blank, "data_source": blank, "table_exclude_pattern": blank}
+
+    response = test_client.post(
+        "/api/connections/test-params",
+        json={"name": "Athena", "type": "aws_athena", "config": config, "credentials": {}},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["success"] is True, response.text
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("stored,target", [
+    ("acme_db", "acme_db, globex_db"),
+    ("acme_db", "*_db"),
+    ("acme_db", "acme_db, !globex_db"),
+    ("acme_db, globex_db", "acme_db"),
+    ("*_db", "globex_db"),
+])
+def test_athena_mode_switch_is_a_typed_400_and_the_same_mode_update_succeeds(
+    athena_glue, create_connection, update_connection, test_client, create_user, login_user, whoami, stored, target,
+):
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+    connection = create_connection(
+        name=f"Athena {stored}", type="aws_athena", config=_athena_config(stored),
+        credentials={}, user_token=token, org_id=org_id,
+    )
+
+    switched = test_client.put(
+        f"/api/connections/{connection['id']}", json={"config": _athena_config(target)}, headers=headers,
+    )
+    assert switched.status_code == 400, switched.text
+    assert switched.json()["error_code"] == "connection.athena_mode_switch", switched.text
+
+    same_mode = "globex_db, acme_db" if "," in stored or "*" in stored else "globex_db"
+    kept = update_connection(
+        connection_id=connection["id"], payload={"config": _athena_config(same_mode)},
+        user_token=token, org_id=org_id,
+    )
+    assert kept["id"] == connection["id"]

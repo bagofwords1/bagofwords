@@ -199,9 +199,12 @@ work, include a Hebrew (`he`) capture as well.
   (`t('key', { name })`) — never concatenation.
 - **Browser tab titles**: every page reads `<page> · Bag of Words`.
   `plugins/page-title.ts` sets the suffix app-wide and the default title from
-  `definePageMeta({ titleKey: '<i18n key>' })`; pages in the `settings` and
-  `monitoring` layouts get their section appended
-  (`General · Settings · Bag of Words`). A page or component that shows a
+  `definePageMeta({ titleKey: '<i18n key>' })`; pages in the `monitoring`
+  layout get their section appended (`Explore · Monitoring · Bag of Words`).
+  Admin console pages (`/settings/*`) are titled by `pages/settings.vue` from
+  the same heading the console shows (`useAdminNav`), e.g.
+  `Roles · Settings · Bag of Words`, so a new admin page needs only its
+  `useAdminNav` entry. A page or component that shows a
   record calls `usePageTitle(() => record.value?.name, { loading, fallbackKey })`
   (`composables/usePageTitle.ts`) instead of `useHead({ title })`. Pass only a
   name from a successful fetch, so a viewer without access never sees it in

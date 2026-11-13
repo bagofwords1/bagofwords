@@ -285,16 +285,22 @@ def _fmt_ip(ip: IPAddress) -> str:
 
 
 class _PinCore:
+    # The HTTP library and the "blocked" error this transport raises. httpx by
+    # default; the mcp 2.x SDK runs on httpx2 (an API-compatible fork), whose
+    # transports must build httpx2 requests and raise an httpx2 ConnectError.
+    _http: Any = httpx
+    _blocked: Any = EgressBlockedError
+
     def __init__(self, policy: Policy | str = Policy.ADMIN, **transport_kwargs: Any):
         self._policy = Policy(policy)
         self._trust_env = transport_kwargs.pop("trust_env", True)
         self._kwargs = transport_kwargs
         self._pools: dict[tuple, Any] = {}
 
-    def _plan(self, request: httpx.Request) -> tuple[tuple, httpx.Request]:
+    def _plan(self, request: Any) -> tuple[tuple, Any]:
         url = request.url
         if url.scheme not in ("http", "https"):
-            raise EgressBlockedError(f"Scheme {url.scheme!r} is not allowed.", request=request)
+            raise self._blocked(f"Scheme {url.scheme!r} is not allowed.", request=request)
         host = url.host
         proxy = env_proxy_for(str(url)) if self._trust_env else None
         try:
@@ -303,7 +309,7 @@ class _PinCore:
             # there; a name that does resolve is still validated.
             addrs = check_host(host, self._policy, require_resolution=not proxy)
         except UnsafeURLError as e:
-            raise EgressBlockedError(str(e), request=request) from None
+            raise self._blocked(str(e), request=request) from None
         if proxy:
             # The proxy resolves; the hostname check above is all we can do.
             return ("proxy", proxy), request
@@ -312,7 +318,7 @@ class _PinCore:
         extensions = dict(request.extensions)
         if url.scheme == "https":
             extensions["sni_hostname"] = host
-        pinned = httpx.Request(
+        pinned = self._http.Request(
             request.method,
             url.copy_with(host=_fmt_ip(ip)),
             headers=request.headers,  # keeps the original Host header
@@ -349,13 +355,13 @@ class PinnedTransport(_PinCore, httpx.BaseTransport):
 class AsyncPinnedTransport(_PinCore, httpx.AsyncBaseTransport):
     """Async httpx transport that validates and pins every request."""
 
-    def _pool(self, key) -> httpx.AsyncHTTPTransport:
+    def _pool(self, key) -> Any:
         pool = self._pools.get(key)
         if pool is None:
             kw = dict(self._kwargs)
             if key[0] == "proxy":
                 kw["proxy"] = key[1]
-            pool = self._pools[key] = httpx.AsyncHTTPTransport(**kw)
+            pool = self._pools[key] = self._http.AsyncHTTPTransport(**kw)
         return pool
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
@@ -390,19 +396,90 @@ def pinned_async_client(policy: Policy | str = Policy.ADMIN, **kwargs: Any) -> h
     return httpx.AsyncClient(transport=AsyncPinnedTransport(policy, **transport_kw), **client_kw)
 
 
-def mcp_client_factory(policy: Policy | str = Policy.ADMIN):
-    """An ``httpx_client_factory`` for ``mcp.client.{sse,streamable_http}``
-    with the SDK's own defaults (30s / 300s read, no auto-redirects)."""
+def _httpx2_pinned():
+    """The httpx2 flavour of the pinned async transport (built on first use).
 
-    def factory(headers=None, timeout=None, auth=None) -> httpx.AsyncClient:
+    The mcp 2.x SDK talks to servers through httpx2, not httpx. Its client
+    needs a transport of its own kind, so the same validate-then-pin logic is
+    re-based on httpx2 here. Cached: one class, one error type per process.
+    """
+    global _HTTPX2_PINNED
+    if _HTTPX2_PINNED is None:
+        import httpx2
+
+        class EgressBlockedError2(UnsafeURLError, httpx2.ConnectError):
+            """``EgressBlockedError`` for httpx2 callers (see its docstring)."""
+
+            def __init__(self, message: str, *, request: Any = None):
+                UnsafeURLError.__init__(self, message)
+                httpx2.ConnectError.__init__(self, message, request=request)
+
+        class AsyncPinnedTransport2(AsyncPinnedTransport, httpx2.AsyncBaseTransport):
+            _http = httpx2
+            _blocked = EgressBlockedError2
+
+        _HTTPX2_PINNED = (httpx2, AsyncPinnedTransport2, EgressBlockedError2)
+    return _HTTPX2_PINNED
+
+
+_HTTPX2_PINNED: Optional[tuple] = None
+
+
+def pinned_async_client_httpx2(policy: Policy | str = Policy.ADMIN, **kwargs: Any):
+    """``pinned_async_client`` for httpx2 (the HTTP library of the mcp 2.x SDK)."""
+    httpx2, transport_cls, _ = _httpx2_pinned()
+    transport_kw, client_kw = _split_kwargs(dict(kwargs))
+    return httpx2.AsyncClient(transport=transport_cls(policy, **transport_kw), **client_kw)
+
+
+def mcp_http_client(
+    policy: Policy | str = Policy.ADMIN,
+    headers: Optional[dict] = None,
+    timeout: Optional[float] = None,
+):
+    """A pinned httpx2 ``AsyncClient`` for the mcp 2.x streamable-HTTP client.
+
+    Same defaults as the SDK's own client (30s connect / 300s read, redirects
+    not followed: a redirect could carry the auth headers to another host).
+    """
+    httpx2, _, _ = _httpx2_pinned()
+    kw: dict[str, Any] = {
+        "timeout": httpx2.Timeout(timeout or 30.0, read=300.0),
+        "follow_redirects": False,
+    }
+    if headers:
+        kw["headers"] = headers
+    return pinned_async_client_httpx2(policy, **kw)
+
+
+def mcp_client_factory(policy: Policy | str = Policy.ADMIN):
+    """An ``httpx_client_factory`` for the mcp SDK's legacy ``sse_client``
+    with the SDK's own defaults (30s / 300s read, no auto-redirects).
+
+    The mcp 2.x SDK builds httpx2 clients; earlier SDKs built httpx ones. The
+    factory hands back whichever the installed SDK expects.
+    """
+
+    def factory(headers=None, timeout=None, auth=None):
+        try:
+            httpx2, _, _ = _httpx2_pinned()
+        except ImportError:  # mcp 1.x: plain httpx
+            if timeout is None:
+                timeout = httpx.Timeout(30.0, read=300.0)
+            kw: dict[str, Any] = {"timeout": timeout}
+            if headers is not None:
+                kw["headers"] = headers
+            if auth is not None:
+                kw["auth"] = auth
+            return pinned_async_client(policy, **kw)
         if timeout is None:
-            timeout = httpx.Timeout(30.0, read=300.0)
-        kw: dict[str, Any] = {"timeout": timeout}
+            timeout = httpx2.Timeout(30.0, read=300.0)
+        kw = {"timeout": timeout, "follow_redirects": False}
         if headers is not None:
             kw["headers"] = headers
         if auth is not None:
             kw["auth"] = auth
-        return pinned_async_client(policy, **kw)
+        return pinned_async_client_httpx2(policy, **kw)
 
     return factory
 

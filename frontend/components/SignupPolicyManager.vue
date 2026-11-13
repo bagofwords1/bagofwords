@@ -1,105 +1,77 @@
 <template>
-    <div class="mt-4 max-w-2xl">
-        <div>
-            <h3 class="text-base font-medium text-gray-900 dark:text-white">{{ $t('signupPolicy.title') }}</h3>
-            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                {{ $t('signupPolicy.description') }}
-            </p>
+    <div>
+        <!-- Page title + description come from the settings shell. -->
+        <div
+            v-if="globalUninvitedDisabled && form.enabled"
+            class="mb-6 rounded-lg border border-amber-200 bg-amber-50/70 dark:border-amber-900/60 dark:bg-amber-950/40 px-4 py-3 text-sm text-amber-800 dark:text-amber-300"
+        >
+            <b>{{ $t('signupPolicy.headsUpPrefix') }}</b> {{ $t('signupPolicy.headsUpMiddle') }}
+            <code class="font-mono text-xs">allow_uninvited_signups</code> {{ $t('signupPolicy.headsUpFlagOff') }} <b>{{ $t('signupPolicy.headsUpOff') }}</b>{{ $t('signupPolicy.headsUpSuffix') }}
+        </div>
 
-            <div
-                v-if="globalUninvitedDisabled && form.enabled"
-                class="mt-4 rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950 px-3 py-2 text-xs text-amber-800"
-            >
-                <b>{{ $t('signupPolicy.headsUpPrefix') }}</b> {{ $t('signupPolicy.headsUpMiddle') }}
-                <code class="font-mono">allow_uninvited_signups</code> {{ $t('signupPolicy.headsUpFlagOff') }} <b>{{ $t('signupPolicy.headsUpOff') }}</b>{{ $t('signupPolicy.headsUpSuffix') }}
-            </div>
-
-            <!-- Enabled toggle -->
-            <div class="mt-5 flex items-center justify-between">
-                <div>
-                    <div class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('signupPolicy.enable') }}</div>
-                    <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('signupPolicy.enableHint') }}</div>
-                </div>
+        <SettingsSection>
+            <SettingsRow :label="$t('signupPolicy.enable')" :description="$t('signupPolicy.enableHint')">
                 <UToggle v-model="form.enabled" />
-            </div>
+            </SettingsRow>
+        </SettingsSection>
 
-            <!-- Domains -->
-            <div class="mt-5">
-                <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">{{ $t('signupPolicy.allowedDomains') }}</label>
+        <SettingsSection :title="$t('signupPolicy.title')">
+            <SettingsRow :label="$t('signupPolicy.allowedDomains')" :description="$t('signupPolicy.domainsHint')" stacked for-id="signup-domain">
                 <div class="flex items-center gap-2">
-                    <input
+                    <UInput
+                        id="signup-domain"
                         v-model="domainInput"
-                        type="text"
+                        class="flex-1"
                         :placeholder="$t('signupPolicy.domainPlaceholder')"
-                        class="flex-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         @keydown.enter.prevent="addDomain"
                         @keydown.,.prevent="addDomain"
                     />
-                    <UButton size="xs" variant="solid" color="blue" @click="addDomain">{{ $t('signupPolicy.add') }}</UButton>
+                    <UButton color="gray" icon="i-heroicons-plus" @click="addDomain">{{ $t('signupPolicy.add') }}</UButton>
                 </div>
                 <div v-if="form.allowed_domains.length" class="flex flex-wrap gap-2 mt-3">
                     <span
                         v-for="d in form.allowed_domains"
                         :key="d"
-                        class="inline-flex items-center gap-1.5 text-xs bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-full px-2.5 py-1"
+                        class="inline-flex items-center gap-1 text-xs font-medium bg-surface-muted text-ink-2 rounded-md ps-2.5 pe-1 py-1"
                     >
                         {{ d }}
                         <button
-                            class="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+                            type="button"
+                            class="flex items-center justify-center w-4 h-4 rounded text-ink-muted hover:text-ink hover:bg-surface-subtle"
                             @click="removeDomain(d)"
                             :aria-label="$t('signupPolicy.removeDomainAria')"
                         >
-                            <Icon name="heroicons:x-mark" class="h-3.5 w-3.5" />
+                            <Icon name="heroicons:x-mark" class="h-3 w-3" />
                         </button>
                     </span>
                 </div>
-                <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                    {{ $t('signupPolicy.domainsHint') }}
-                </p>
-            </div>
+            </SettingsRow>
 
-            <!-- Role -->
-            <div class="mt-5">
-                <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">{{ $t('signupPolicy.autoInviteRole') }}</label>
+            <SettingsRow :label="$t('signupPolicy.autoInviteRole')" :description="$t('signupPolicy.roleHint')" stacked>
                 <USelectMenu
                     v-if="roles.length"
                     v-model="form.auto_invite_role"
                     :options="roles.map((r) => r.name)"
-                    size="sm"
-                    class="w-60"
+                    class="w-64"
                 />
-                <input
-                    v-else
-                    v-model="form.auto_invite_role"
-                    type="text"
-                    class="w-60 text-sm border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-                <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                    {{ $t('signupPolicy.roleHint') }}
-                </p>
-            </div>
+                <UInput v-else v-model="form.auto_invite_role" class="w-64" />
+            </SettingsRow>
+        </SettingsSection>
 
-            <!-- Footer -->
-            <div class="mt-6 flex items-center justify-between pt-4 border-t border-gray-100 dark:border-gray-800">
-                <p class="text-xs text-gray-500 dark:text-gray-400">
-                    {{ $t('signupPolicy.removeHint') }}
-                </p>
-                <UButton
-                    color="blue"
-                    size="sm"
-                    :loading="saving"
-                    :disabled="!isDirty"
-                    @click="save"
-                >
-                    {{ $t('signupPolicy.save') }}
-                </UButton>
-            </div>
-        </div>
+        <SettingsFooter>
+            <template #note>{{ $t('signupPolicy.removeHint') }}</template>
+            <UButton color="blue" :loading="saving" :disabled="!isDirty" @click="save">
+                {{ $t('signupPolicy.save') }}
+            </UButton>
+        </SettingsFooter>
     </div>
 </template>
 
 <script setup lang="ts">
 import { useAppSettings } from '~/composables/useAppSettings'
+import SettingsSection from '~/components/settings/SettingsSection.vue'
+import SettingsRow from '~/components/settings/SettingsRow.vue'
+import SettingsFooter from '~/components/settings/SettingsFooter.vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()

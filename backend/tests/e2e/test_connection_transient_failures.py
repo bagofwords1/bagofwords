@@ -19,6 +19,7 @@ Only the network client is faked; services, models and the DB run for real.
 """
 import asyncio
 import uuid
+from pathlib import Path
 
 import pytest
 from sqlalchemy import select
@@ -36,6 +37,9 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.services.connection_service import ConnectionService
 from app.services.data_source_service import DataSourceService
+
+
+CHINOOK_DB = (Path(__file__).resolve().parent.parent / "config" / "chinook.sqlite").resolve()
 
 
 def _run(coro):
@@ -321,6 +325,134 @@ def test_agent_test_follows_the_connection_not_one_probe(fake_client, monkeypatc
     fake_client(probe_ok=True)
     _run(_probe_agent(ids))
     assert _run(_active_flags(ids)) == (True, True)
+
+
+class _DottedClient(_FakeClient):
+    unindexed_table_prefix_separator = "."
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("unread,gone", [("acme_db", "globex_db"), ("zeta_db", "alpha_db")])
+def test_unread_database_keeps_its_rows_and_selection_while_a_missing_one_is_pruned(
+    fake_client, monkeypatch, unread, gone,
+):
+    ids = _run(_seed([f"{unread}.assets", f"{unread}.users", f"{gone}.assets", "live_db.events"]))
+    _install(monkeypatch, _DottedClient(names=["live_db.events"], unread=[unread]))
+    _run(_reindex(ids))
+
+    tables = _run(_agent_tables(ids))
+    assert tables.get(f"{unread}.assets") is True
+    assert tables.get(f"{unread}.users") is True
+    assert tables.get("live_db.events") is True
+    assert f"{gone}.assets" not in _run(_catalog(ids))
+    assert f"{gone}.assets" not in tables
+
+
+@pytest.mark.e2e
+def test_default_separator_does_not_protect_dotted_names(fake_client):
+    ids = _run(_seed(["acme_db.assets", "live_db.events"]))
+    fake_client(names=["live_db.events"], unread=["acme_db"])
+    _run(_reindex(ids))
+    assert "acme_db.assets" not in _run(_catalog(ids))
+
+
+def _install(monkeypatch, client):
+    async def _construct(self, db, connection, current_user=None, **kw):
+        await self.resolve_credentials(db, connection, current_user)
+        return client
+
+    monkeypatch.setattr(ConnectionService, "construct_client", _construct)
+
+
+class _DiagnosticClient(_FakeClient):
+    unindexed_table_prefix_separator = "."
+
+    def __init__(self, names=(), diagnostics=()):
+        super().__init__(names=names)
+        self._diagnostics = list(diagnostics)
+
+    def index_stats(self):
+        if not self._diagnostics:
+            return {}
+        return {"unreadable_datasets": self._diagnostics,
+                "unreadable_dataset_count": len(self._diagnostics)}
+
+    async def awarm_all(self, **kwargs):
+        return None
+
+
+def reindex_with_diagnostics(monkeypatch, test_client, headers, connection_id, diagnostics):
+    """Reindex through the public route with a fake client; returns the finished job."""
+    import threading
+    import time
+
+    from sqlalchemy import event
+    from sqlalchemy.orm import Session
+
+    client = _DiagnosticClient(names=["live_db.events"], diagnostics=diagnostics)
+
+    async def _construct(self, db, connection, current_user=None, **kw):
+        return client
+
+    monkeypatch.setattr(ConnectionService, "construct_client", _construct)
+    committed = threading.Event()
+
+    def on_commit(session):
+        committed.set()
+
+    event.listen(Session, "after_commit", on_commit)
+    try:
+        response = test_client.post(f"/api/connections/{connection_id}/reindex?force=true", headers=headers)
+        assert response.status_code == 200, response.text
+        deadline = time.monotonic() + 30
+        names = [d["name"] for d in diagnostics]
+        while True:
+            committed.clear()
+            r = test_client.get(f"/api/connections/{connection_id}/indexing", headers=headers)
+            assert r.status_code == 200, r.text
+            job = r.json()
+            warned = " ".join(e["message"] for e in job["events"] if e.get("level") == "warn")
+            if job["status"] in {"failed", "cancelled"} or (
+                job["status"] == "completed" and all(n in warned for n in names)
+            ):
+                return job
+            remaining = deadline - time.monotonic()
+            assert remaining > 0 and committed.wait(remaining), "Reindex did not finish"
+    finally:
+        event.remove(Session, "after_commit", on_commit)
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("missing,denied,skipped", [
+    ("ghost_db", "locked_db", "odd.one"), ("gone_a", "denied_b", "odd.two"),
+])
+def test_unreadable_entries_land_on_the_indexing_job_as_separate_warn_events(
+    monkeypatch, test_client, create_user, login_user, whoami, create_connection, missing, denied, skipped,
+):
+    if not CHINOOK_DB.exists():
+        pytest.skip(f"SQLite test database missing at {CHINOOK_DB}")
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+    connection = create_connection(
+        name=f"Src {uuid.uuid4().hex[:6]}", type="sqlite",
+        config={"database": str(CHINOOK_DB)}, credentials={}, user_token=token, org_id=org_id,
+    )
+
+    job = reindex_with_diagnostics(monkeypatch, test_client, headers, connection["id"], [
+        {"name": missing, "reason": "not found"},
+        {"name": denied, "reason": "AccessDeniedException"},
+        {"name": skipped, "reason": "name contains '.'"},
+    ])
+    assert job["status"] == "completed", job
+
+    assert {d["name"] for d in job["stats"]["unreadable_datasets"]} == {missing, denied, skipped}
+    warns = [e["message"] for e in job["events"] if e.get("level") == "warn"]
+    by_name = {n: [m for m in warns if n in m] for n in (missing, denied, skipped)}
+    assert all(by_name.values()), warns
+    assert len({tuple(v) for v in by_name.values()}) == 3
+    assert not any("permission" in m.lower() for m in by_name[skipped] + by_name[missing])
 
 
 # ---------------------------------------------------------------------------

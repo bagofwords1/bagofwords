@@ -288,9 +288,34 @@ def missing_required_inputs(specs: List[ParamSpec], values: Optional[Dict[str, A
 # Safe SQL rendering
 # ---------------------------------------------------------------------------
 
-# Clients whose string literals treat backslash as an escape character by
-# default; both ' and \ must be escaped there.
-_BACKSLASH_DIALECT_CLIENTS = {"MysqlClient", "MariadbClient", "MariaDBClient"}
+# How a string value is written as a SQL literal. Each client class declares
+# its engine's style as `sql_literal_style` (DataSourceClient, where each
+# declaration cites its grammar); the run's query wrapper reads it off the
+# client instance, so a subclass inherits it. A connector that declares None
+# (a language where "standard" is unsafe and no style is established: KQL,
+# PromQL, SPL) refuses a query with parameters.
+#
+# - "standard": a quote is doubled ('it''s'); a backslash is an ordinary
+#   character, and so is a line break. Postgres, DuckDB, SQL Server, Oracle,
+#   Trino/Presto/Athena, Teradata, SQLite, Druid, ...
+# - "doubled": the quote is doubled AND a backslash is doubled. For engines
+#   that read a backslash as an escape inside strings but also accept '' as
+#   a quote (MySQL, MariaDB, Snowflake, ClickHouse, Redshift, ...). It stays
+#   one literal if the server turns backslash escapes off, too. A raw line
+#   break is valid inside these literals and is left as it is.
+# - "backslash": a backslash is doubled, then a quote is written \', and a
+#   line break as \n / \r. For engines where '' is not a quote inside a
+#   string at all (BigQuery, Databricks, Spark -- for the last two, under the
+#   default spark.sql.parser.escapedStringLiterals=false). A single-quoted
+#   BigQuery literal cannot hold a raw line break (only a triple-quoted one
+#   can); every engine of this style reads \n and \r as those characters.
+LITERAL_STYLE_STANDARD = "standard"
+LITERAL_STYLE_DOUBLED = "doubled"
+LITERAL_STYLE_BACKSLASH = "backslash"
+_LITERAL_STYLES = {LITERAL_STYLE_STANDARD, LITERAL_STYLE_DOUBLED, LITERAL_STYLE_BACKSLASH}
+
+# The style for callers that only pass `client_type_name` (kept for them).
+_DOUBLED_STYLE_CLIENT_NAMES = {"MysqlClient", "MariadbClient", "MariaDBClient"}
 
 # T-SQL clients: a plain 'literal' is a varchar in the database's default
 # collation, so any character outside that code page is silently replaced by
@@ -303,8 +328,19 @@ _UNICODE_PREFIX_CLIENTS = {"MSSQLClient", "MsFabricClient"}
 _PLACEHOLDER_RE = re.compile(r"(?<![:\w]):([a-zA-Z_][a-zA-Z0-9_]*)")
 
 
+def _quote_string(s: str, literal_style: str) -> str:
+    if literal_style == LITERAL_STYLE_BACKSLASH:
+        # The backslash first: the escapes written after it are not doubled.
+        return (s.replace("\\", "\\\\").replace("'", "\\'")
+                .replace("\n", "\\n").replace("\r", "\\r"))
+    s = s.replace("'", "''")
+    if literal_style == LITERAL_STYLE_DOUBLED:
+        s = s.replace("\\", "\\\\")
+    return s
+
+
 def _render_literal(
-    value: Any, *, backslash_dialect: bool, unicode_prefix: bool = False
+    value: Any, *, literal_style: str, unicode_prefix: bool = False
 ) -> str:
     if value is None:
         return "NULL"
@@ -325,16 +361,13 @@ def _render_literal(
             return "(NULL)"
         return "(" + ", ".join(
             _render_literal(
-                v, backslash_dialect=backslash_dialect, unicode_prefix=unicode_prefix
+                v, literal_style=literal_style, unicode_prefix=unicode_prefix
             )
             for v in items
         ) + ")"
     if isinstance(value, dict):
         raise ParamError("object values cannot be rendered into SQL directly")
-    s = str(value)
-    s = s.replace("'", "''")
-    if backslash_dialect:
-        s = s.replace("\\", "\\\\")
+    s = _quote_string(str(value), literal_style)
     prefix = "N" if (unicode_prefix and not s.isascii()) else ""
     return prefix + "'" + s + "'"
 
@@ -344,6 +377,9 @@ def render_sql_with_params(
     values: Dict[str, Any],
     *,
     client_type_name: str = "",
+    literal_style: Optional[str] = None,
+    literal_style_required: bool = False,
+    sql_in_json_envelope: bool = False,
 ) -> str:
     """Substitute `:name` placeholders in `sql` with safely rendered literals.
 
@@ -352,8 +388,39 @@ def render_sql_with_params(
     in every statement. Values only, never identifiers: the placeholder must
     not be quoted or backticked context-sensitively — we replace the token
     wherever it appears as `:name`.
+
+    `literal_style` is the engine's string-literal style (see
+    LITERAL_STYLE_*; the client's `sql_literal_style`). Without it the style
+    is derived from `client_type_name` as before -- unless
+    `literal_style_required` (the run's query wrapper, for a connector): then
+    the source has no known rule and the parameters are refused. For a
+    connector (`literal_style_required`) whose query text is a JSON document,
+    the document is parsed and serialized again so no value can end a JSON
+    string or add a key (`_render_json_query`): inside a string value a
+    placeholder renders as the engine's literal, then JSON-escaped; as a
+    bare JSON value it takes a finite number only; in a key it is refused.
+    The "sql" field of a JSON envelope (`sql_in_json_envelope`) renders with
+    the engine's literal style. Nothing is refused when no placeholder of the
+    query matches.
     """
-    backslash = client_type_name in _BACKSLASH_DIALECT_CLIENTS
+    if not _PLACEHOLDER_RE.search(sql):
+        return sql
+    if literal_style is None and literal_style_required:
+        raise ParamError(
+            f"{client_type_name or 'This source'} has no known rule for writing a string "
+            "literal in its query language, so query parameters cannot be rendered into its "
+            "queries"
+        )
+    if literal_style is None:
+        literal_style = (
+            LITERAL_STYLE_DOUBLED if client_type_name in _DOUBLED_STYLE_CLIENT_NAMES
+            else LITERAL_STYLE_STANDARD
+        )
+    elif literal_style not in _LITERAL_STYLES:
+        raise ParamError(f"unknown SQL literal style: {literal_style!r}")
+    if sql_in_json_envelope or (literal_style_required and sql.lstrip()[:1] in ("{", "[")):
+        return _render_json_query(sql, values, client_type_name=client_type_name,
+                                  literal_style=literal_style, sql_field=sql_in_json_envelope)
     unicode_prefix = client_type_name in _UNICODE_PREFIX_CLIENTS
 
     missing: List[str] = []
@@ -364,7 +431,7 @@ def render_sql_with_params(
             missing.append(name)
             return m.group(0)
         return _render_literal(
-            values[name], backslash_dialect=backslash, unicode_prefix=unicode_prefix
+            values[name], literal_style=literal_style, unicode_prefix=unicode_prefix
         )
 
     rendered = _PLACEHOLDER_RE.sub(_sub, sql)
@@ -372,6 +439,119 @@ def render_sql_with_params(
         raise ParamError(
             "SQL uses parameter placeholder(s) with no value: " + ", ".join(sorted(set(missing)))
         )
+    return rendered
+
+
+def _json_number(value: Any) -> bool:
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and value == value and value not in (float("inf"), float("-inf")))
+
+
+def _render_json_query(text: str, values: Dict[str, Any], *, client_type_name: str,
+                       literal_style: str, sql_field: bool) -> str:
+    """Render the placeholders of a connector's JSON query document.
+
+    Each placeholder is first swapped for a unique stand-in number, so the
+    document parses wherever the placeholder sits; the parsed document is
+    then walked and serialized again with json.dumps:
+
+    - in the envelope's top-level "sql" string (`sql_field`: Elasticsearch,
+      OpenSearch), the SQL is rendered with the engine's literal style --
+      json.dumps then escapes it for the JSON string, so a value can end
+      neither the SQL string nor the JSON one;
+    - inside any other string value ("filter": "state eq :s"), the value is
+      written as before this rule existed (the client's literal, 'it''s'),
+      and json.dumps escapes it for that string, so it cannot end the string
+      or add a key;
+    - a placeholder standing as a JSON value takes a finite number only,
+      written as a bare JSON number ("limit": :n, {"$gt": :n}), which cannot
+      end a string or add a key;
+    - a placeholder in a key, a value that is not a finite number where a
+      JSON value stands, or a stand-in left over (run into other digits,
+      `:n.5`) is refused.
+    """
+    who = client_type_name or "This source"
+    missing: List[str] = []
+    stand_ins: Dict[str, str] = {}  # stand-in digits -> placeholder name
+    # Stand-in digits that occur nowhere in the document. Values need no
+    # check: stand-ins are replaced in one pass, so a rendered value is
+    # never scanned again (and scanning viewer values here would make the
+    # cost depend on their length).
+    base = 7301000000000000000
+    while str(base)[:12] in text:
+        base += 1000000000000000
+    width = len(str(base))
+
+    def _stand_in(m: "re.Match[str]") -> str:
+        name = m.group(1)
+        if name not in values:
+            missing.append(name)
+        token = str(base + len(stand_ins)).zfill(width)
+        stand_ins[token] = name
+        return token
+
+    stood = _PLACEHOLDER_RE.sub(_stand_in, text)
+    if missing:
+        raise ParamError(
+            "query uses parameter placeholder(s) with no value: " + ", ".join(sorted(set(missing)))
+        )
+    try:
+        document = json.loads(stood)
+    except ValueError:
+        raise ParamError(f"{who}: the JSON query document is not valid JSON")
+
+    def _refuse(where: str):
+        raise ParamError(
+            f"{who}: a query parameter {where} -- in a JSON query a parameter is rendered only "
+            "as a number value or inside a string value"
+            + (", or into the envelope's \"sql\" field" if sql_field else "")
+        )
+
+    def _holds_stand_in(s: str) -> bool:
+        return any(token in s for token in stand_ins)
+
+    used: set = set()
+    # Every stand-in is replaced in one pass, so a rendered value is never
+    # scanned again for another stand-in (a value carrying one's digits
+    # would otherwise pull that placeholder's value into itself).
+    stand_in_re = re.compile("|".join(re.escape(t) for t in stand_ins)) if stand_ins else None
+
+    def _in_string(s: str, render) -> str:
+        if stand_in_re is None:
+            return s
+
+        def _one(m: "re.Match[str]") -> str:
+            used.add(m.group(0))
+            return render(stand_ins[m.group(0)])
+
+        return stand_in_re.sub(_one, s)
+
+    def _walk(node: Any, *, is_sql: bool = False) -> Any:
+        if isinstance(node, dict):
+            out = {}
+            for key, value in node.items():
+                if _holds_stand_in(key):
+                    _refuse("in a key")
+                out[key] = _walk(value, is_sql=sql_field and node is document and key == "sql")
+            return out
+        if isinstance(node, list):
+            return [_walk(item) for item in node]
+        if isinstance(node, str):
+            if is_sql:
+                return render_sql_with_params(_in_string(node, lambda name: ":" + name), values,
+                                              client_type_name=client_type_name, literal_style=literal_style)
+            return _in_string(node, lambda name: _render_literal(values[name], literal_style=literal_style))
+        if isinstance(node, int) and not isinstance(node, bool) and str(node) in stand_ins:
+            used.add(str(node))
+            value = values[stand_ins[str(node)]]
+            if not _json_number(value):
+                _refuse(f"value of type {type(value).__name__}")
+            return value
+        return node
+
+    rendered = json.dumps(_walk(document), ensure_ascii=False)
+    if used != set(stand_ins):
+        _refuse("where no value can stand (run into other characters)")
     return rendered
 
 
@@ -569,6 +749,28 @@ def _heuristic_binds_value(capture: str, needles: List[str]) -> bool:
     return any(n in tail for n in needles)
 
 
+# Envelope keys Elasticsearch runs before "sql" (elasticsearch_client.execute_query).
+_ENVELOPE_KEYS_RUN_BEFORE_SQL = ("dashboard", "saved_search", "esql")
+
+
+def _envelope_sql(text: str) -> tuple[bool, Optional[str]]:
+    """(whether `text` is a JSON envelope carrying "sql", the SQL it runs).
+    The SQL is None when another key the client runs first is present
+    (_ENVELOPE_KEYS_RUN_BEFORE_SQL): then the "sql" is not what executed."""
+    if not text.lstrip().startswith("{"):
+        return False, None
+    try:
+        envelope = json.loads(text)
+    except ValueError:
+        return False, None
+    sql = envelope.get("sql") if isinstance(envelope, dict) else None
+    if not (isinstance(sql, str) and sql.strip()):
+        return False, None
+    if any(envelope.get(k) or (k == "esql" and k in envelope) for k in _ENVELOPE_KEYS_RUN_BEFORE_SQL):
+        return True, None
+    return True, sql
+
+
 def _query_binds_value(capture: str, needles: List[str], param: str = "") -> bool:
     """Whether one executed query restricts its rows by an identity value.
 
@@ -579,9 +781,21 @@ def _query_binds_value(capture: str, needles: List[str], param: str = "") -> boo
     from app.ai.code_execution.identity_bind import log_fallback, structural_binds
 
     client_type = getattr(capture, "client_type", None)
+    # Only a client that takes a SQL envelope runs its "sql" field.
+    is_envelope, envelope_sql = (_envelope_sql(str(capture)) if getattr(capture, "sql_in_json_envelope", False)
+                                 else (False, None))
+    if is_envelope and envelope_sql is None:
+        # Its "sql" is not the statement that ran: nothing shows the filter.
+        return False
+    if envelope_sql is not None:
+        # A JSON query envelope carrying SQL: the SQL is what filters.
+        from app.ai.code_execution.identity_bind import CapturedQuery
+
+        capture = CapturedQuery(envelope_sql, client_type, getattr(capture, "literal_style", None), True)
     stripped = _strip_sql_comments(capture)
     looks_sql = bool(_SQL_START_RE.match(stripped))
-    verdict = structural_binds(str(capture), client_type, tuple(needles), looks_sql)
+    verdict = structural_binds(str(capture), client_type, tuple(needles), looks_sql,
+                               getattr(capture, "literal_style", None))
     if verdict is not None:
         return verdict
     if looks_sql or client_type == "SplunkClient":

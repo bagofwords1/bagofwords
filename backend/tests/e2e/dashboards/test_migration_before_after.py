@@ -180,6 +180,11 @@ def test_every_reader_lists_the_same_conversations(migrated_corpus, corpus_rows,
                 # it. A display flag: public links are gated elsewhere.
                 if field == "public_sharing_allowed" and old is None and new is True:
                     continue
+                # Added to every card after main's record (#1684): the
+                # dashboard's "Show details on widgets" setting, off by default
+                # on existing dashboards too.
+                if field == "show_widget_info" and old is None and new is False:
+                    continue
                 if old != new:
                     problems.append(f"{reader}: {key[0]} {key[1]}: {field} {old!r} -> {new!r}")
     assert not problems, "\n".join(problems[:40])

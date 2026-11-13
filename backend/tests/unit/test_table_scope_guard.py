@@ -24,6 +24,8 @@ from app.ai.code_execution.table_scope import (
     TableScopeViolation,
     check_table_scope,
     enforce_table_scope,
+    is_allowed,
+    one_part_table_refs,
 )
 from app.data_sources.clients.sqlite_client import SqliteClient
 
@@ -295,3 +297,80 @@ def test_sandbox_code_cannot_hide_an_inactive_table_behind_a_nested_cte(clinic_d
         StreamingCodeExecutor().execute_code(
             code=NESTED_CTE_SHADOW_CODE, ds_clients={"clinic": _scoped_client(clinic_db)}, excel_files=[]
         )
+
+
+# ---------------------------------------------------------------------------
+# Athena: databases named in the table, and no default database
+# ---------------------------------------------------------------------------
+
+ATHENA_SCOPE = TableScope.from_names(
+    active=["globex_db.assets", "acme_db.assets", "globex_db.my-table"],
+    inactive=["other_db.secrets"],
+)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM globex_db.assets",
+    "SELECT * FROM awsdatacatalog.globex_db.assets",
+    'SELECT * FROM "globex_db"."my-table"',
+])
+def test_athena_allows_active_database_qualified_tables(sql):
+    check_table_scope(sql, "athena", ATHENA_SCOPE)
+
+
+def test_athena_refuses_a_table_of_an_inactive_database():
+    scope = TableScope.from_names(active=["globex_db.assets"], inactive=["acme_db.assets"])
+    with pytest.raises(TableScopeViolation):
+        check_table_scope("SELECT * FROM acme_db.assets", "athena", scope)
+
+
+def test_unqualified_name_passes_is_allowed_when_every_namesake_is_active_but_is_found_by_one_part_check():
+    scope = TableScope.from_names(active=["globex_db.assets", "acme_db.assets"], inactive=[])
+    assert is_allowed(("assets",), scope) is True
+    assert one_part_table_refs("SELECT * FROM assets", "athena") == ["assets"]
+
+
+def test_one_part_check_ignores_qualified_names_and_ctes():
+    assert one_part_table_refs("SELECT * FROM globex_db.assets a JOIN acme_db.assets b ON a.id = b.id", "athena") == []
+    assert one_part_table_refs("WITH users AS (SELECT 1 AS id) SELECT * FROM users", "athena") == []
+    assert one_part_table_refs("SELECT 1", "athena") == []
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT FROM FROM (",
+    "SHOW TABLES IN globex_db",
+    "DESCRIBE globex_db.assets",
+    "USE globex_db",
+])
+def test_one_part_check_refuses_what_it_cannot_verify(sql):
+    with pytest.raises(TableScopeViolation):
+        one_part_table_refs(sql, "athena")
+
+
+EXACT_SCOPE = TableScope.from_names(active=["globex_db.asset", "asset"], inactive=["acme_db.asset"])
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM asset",
+    "SELECT * FROM acme_db.asset",
+    "SELECT * FROM billing_db.asset",
+    "SELECT * FROM othercat.globex_db.asset",
+    "SELECT * FROM a.b.globex_db.asset",
+])
+def test_exact_scope_refuses_what_suffix_matching_would_let_through(sql):
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, "athena", EXACT_SCOPE, exact_catalogs=("awsdatacatalog",))
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM globex_db.asset",
+    "SELECT * FROM awsdatacatalog.globex_db.asset",
+    "WITH asset AS (SELECT 1 AS id) SELECT * FROM asset",
+])
+def test_exact_scope_allows_database_qualified_active_tables_and_ctes(sql):
+    check_table_scope(sql, "athena", EXACT_SCOPE, exact_catalogs=("awsdatacatalog",))
+
+
+def test_default_scope_matching_is_unchanged_by_the_exact_option():
+    scope = TableScope.from_names(active=["globex_db.asset", "asset"], inactive=[])
+    check_table_scope("SELECT * FROM billing_db.asset", "athena", scope)

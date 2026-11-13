@@ -68,6 +68,12 @@ class PrometheusClient(DataSourceClient):
     Mimir).
     """
 
+    # PromQL: in a single- or double-quoted string a backslash begins an
+    # escape sequence and '' is not a quote (Prometheus, Querying basics,
+    # String literals): a standard literal could end early. No style here
+    # is established for it, so query parameters are refused.
+    sql_literal_style = None
+
     # PromQL's own relative windows are the range selectors inside the query;
     # the instant/range boundary lives in execute_query's start/end args, which
     # are Python-side and so must be computed from `now` rather than frozen as

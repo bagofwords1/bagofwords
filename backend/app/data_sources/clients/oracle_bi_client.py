@@ -37,6 +37,11 @@ class OracleBIClient(DataSourceClient):
     the same v12 WSDL at /analytics-ws/saw.dll/wsdl/v12.
     """
 
+    # Logical SQL: '' is a quote (Oracle BI EE Logical SQL Reference);
+    # doubling the backslash too keeps one literal whether or not a backslash
+    # escapes.
+    sql_literal_style = "doubled"
+
     def __init__(
         self,
         host: str,

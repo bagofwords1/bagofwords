@@ -3,12 +3,13 @@ import { test, expect } from '../fixtures/feature-test';
 test('can view settings page', async ({ page }) => {
   await page.goto('/settings', { waitUntil: 'commit' });
 
-  // Verify page heading (longer timeout for CI)
-  await expect(page.getByRole('heading', { name: 'Settings', exact: true }))
+  // /settings redirects to /settings/members; the heading names the current
+  // page (the admin sidebar replaced the tab strip). Longer timeout for CI.
+  await expect(page.getByRole('heading', { name: 'Members', exact: true }))
     .toBeVisible({ timeout: 15000 });
 
-  // Verify settings tabs are present (redirects to /settings/members).
-  // The members tab is now labelled "Access" (settings.membersTab).
+  // Admin nav entries are present in the sidebar. The members entry is
+  // labelled "Access" (settings.membersTab).
   await expect(page.getByRole('link', { name: 'Access' }))
     .toBeVisible({ timeout: 10000 });
   await expect(page.getByRole('link', { name: 'LLM' }))

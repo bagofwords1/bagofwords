@@ -110,6 +110,10 @@ def _get_warmup_semaphore() -> asyncio.Semaphore:
 class QVDClient(DataSourceClient):
     """Read QVD (QlikView Data) files and query them via SQL using DuckDB."""
 
+    # DuckDB SQL underneath: '' is the only quote escape (sqlglot duckdb
+    # tokenizer).
+    sql_literal_style = "standard"
+
     def __init__(self, file_paths: str):
         """
         Args:

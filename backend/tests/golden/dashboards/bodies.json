@@ -2676,31 +2676,6 @@
    "widget_id": "<sched_prompt_spawn/run_1/q_sales/widget>"
   }
  ],
- "0a9024bdbe892314": {
-  "artifact_id": "<fork_retired/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<fork_retired/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<fork_retired/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<fork_retired>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:forker>",
-  "version": 1
- },
  "0ac63df93736c05b": [
   {
    "default_step_id": "<conv_enabled_mismatch/q_sales/step>",
@@ -2850,31 +2825,6 @@
    "viewer_result": null
   }
  },
- "0b8cd57a231b9794": {
-  "artifact_id": "<vis_shared_group/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<vis_shared_group/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<vis_shared_group/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<vis_shared_group>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "0ba89bf5d7ca9e5f": {
   "id": "<test_report/q_sales/viz>",
   "query_id": "<test_report/q_sales>",
@@ -2889,31 +2839,6 @@
    "version": "v2",
    "view": null
   }
- },
- "0be09e6cf3491d56": {
-  "artifact_id": "<in_project_private/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<in_project_private/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<in_project_private/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<in_project_private>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
  },
  "0c09dd87010de6e3": [
   {
@@ -3335,31 +3260,6 @@
     "y": 0
    }
   ]
- },
- "0cc23ace472331e9": {
-  "artifact_id": "<no_data_tab/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<no_data_tab/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<no_data_tab/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<no_data_tab>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
  },
  "0ce823e2f7f0f399": {
   "created_at": "<ts>",
@@ -5239,6 +5139,32 @@
   "view": {},
   "viewer_result": null
  },
+ "1067412677f0af59": {
+  "allow_popups": false,
+  "artifact_id": "<vis_none/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<vis_none/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<vis_none/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<vis_none>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "1083a12cedb4e344": {
   "applied_params": null,
   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
@@ -6268,31 +6194,6 @@
   ],
   "widget_id": "<cron_job_orphan/q_sales/widget>"
  },
- "148513b5a63bf274": {
-  "artifact_id": "<conv_three_dash/dash_stock>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מלאי</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<conv_three_dash/q_stock/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<conv_three_dash/dash_stock/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<conv_three_dash>",
-  "status": "completed",
-  "title": "לוח מלאי",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "14b9f1d30e13b0b7": {
   "app_version": "<volatile>",
   "artifact_chat_data_source_ids": null,
@@ -7318,6 +7219,32 @@
   },
   "viewer_result": null
  },
+ "17ac4d0ace85a70b": {
+  "allow_popups": false,
+  "artifact_id": "<stale_shares/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<stale_shares/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<stale_shares/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<stale_shares>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "17f6331f9bc79fee": {
   "busy_completion_id": null,
   "compaction": {
@@ -7607,53 +7534,6 @@
     "y": 0
    }
   ]
- },
- "187368bfa15c961e": {
-  "artifact_id": "<identity_param/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>הלוח שלי</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<identity_param/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<identity_param/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<identity_param>",
-  "status": "completed",
-  "title": "הלוח שלי",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
- "18859c8e0b2df6b7": {
-  "artifact_id": "<doc_after_page/doc>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "markdown": "# סיכום כתוב",
-   "visualization_ids": []
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<doc_after_page/doc/v1>",
-  "mode": "doc",
-  "organization_id": "<org>",
-  "report_id": "<doc_after_page>",
-  "status": "completed",
-  "title": "סיכום כתוב",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
  },
  "18a28e3ac20bd4aa": {
   "app_version": "<volatile>",
@@ -8081,31 +7961,6 @@
    ]
   }
  ],
- "191d294fb9cb124d": {
-  "artifact_id": "<widget_elsewhere/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<widget_elsewhere/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<widget_elsewhere/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<widget_elsewhere>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "194866529e19369d": [
   {
    "artifact_id": "<default_states/dash>",
@@ -8120,59 +7975,6 @@
    "version": 1
   }
  ],
- "19580ce42271c99b": {
-  "artifact_id": "<dash_newest_stopped/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<dash_newest_stopped/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<dash_newest_stopped/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<dash_newest_stopped>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
- "1a12208f83a0b936": {
-  "artifact_id": "<slides_previews/deck>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "from pptx import Presentation",
-   "preview_images": [
-    "pptx_previews/deck/slide-1.png"
-   ],
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<slides_previews/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<slides_previews/deck/v1>",
-  "mode": "slides",
-  "organization_id": "<org>",
-  "report_id": "<slides_previews>",
-  "status": "completed",
-  "title": "מצגת",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "1a330d3024d369be": {
   "id": "<cron_legacy_none/q_sales/viz>",
   "query_id": "<cron_legacy_none/q_sales>",
@@ -8398,31 +8200,6 @@
    }
   ],
   "widget_id": "<load_step/q_base/widget>"
- },
- "1b3a8d13d6e4143f": {
-  "artifact_id": "<surfaces_differ/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<surfaces_differ/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<surfaces_differ/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<surfaces_differ>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
  },
  "1b5b4e1e763541c9": {
   "applied_params": null,
@@ -8653,6 +8430,32 @@
    "view": null
   }
  },
+ "1c83f34b5ad91d52": {
+  "allow_popups": false,
+  "artifact_id": "<vis_shared_group/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<vis_shared_group/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<vis_shared_group/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<vis_shared_group>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "1cff33a6080a3f59": {
   "id": "<refs_in_code/q_by_slug/viz>",
   "query_id": "<refs_in_code/q_by_slug>",
@@ -8747,6 +8550,79 @@
   "type": "table",
   "view": {},
   "viewer_result": null
+ },
+ "1d8896858d0099f9": {
+  "app_version": "<volatile>",
+  "artifact_chat_data_source_ids": null,
+  "artifact_chat_enabled": false,
+  "artifact_chat_model_id": null,
+  "artifact_count": 1,
+  "artifact_modes": [],
+  "artifact_shared_group_ids": [],
+  "artifact_shared_user_ids": [],
+  "artifact_visibility": "internal",
+  "conversation_share_enabled": false,
+  "conversation_share_token": null,
+  "conversation_shared_group_ids": [],
+  "conversation_shared_user_ids": [],
+  "conversation_visibility": "none",
+  "created_at": "<ts>",
+  "cron_schedule": null,
+  "dashboard_layout_versions": [],
+  "data_sources": [],
+  "external_platform": null,
+  "focused_data_source_ids": [],
+  "follow_ups": null,
+  "forked_from_artifact_id": null,
+  "forked_from_id": null,
+  "forked_from_title": null,
+  "forked_from_user_name": null,
+  "general": null,
+  "has_rls": true,
+  "has_scheduled_prompts": false,
+  "has_user_scoped": true,
+  "id": "<auto_conv>",
+  "include_data_tab": true,
+  "instruction_count": 0,
+  "is_starred": false,
+  "last_activity_at": "<ts>",
+  "last_run_at": null,
+  "mode": "chat",
+  "model_id": null,
+  "notification_subscribers": null,
+  "origin_app": null,
+  "project": null,
+  "project_id": null,
+  "public_sharing_allowed": true,
+  "query_count": 1,
+  "reasoning_effort": null,
+  "refresh_on_view": true,
+  "report_type": "regular",
+  "scheduled_prompt_count": 0,
+  "scheduled_prompt_id": null,
+  "shared_run_identity": "viewer",
+  "show_widget_info": false,
+  "slug": "auto-conv",
+  "status": "published",
+  "suggest_instructions": null,
+  "theme_name": null,
+  "theme_overrides": {},
+  "thumbnail_url": null,
+  "title": "לוח מכירות",
+  "tools": null,
+  "updated_at": "<ts>",
+  "user": {
+   "email": "owner@corpus.com",
+   "external_user_mappings": [],
+   "id": "<user:owner>",
+   "image_url": null,
+   "last_login": "<volatile>",
+   "last_seen": "<volatile>",
+   "name": "corpus owner"
+  },
+  "webhook_count": 0,
+  "webhook_id": null,
+  "widgets": []
  },
  "1dcd741e79367d34": {
   "busy_completion_id": null,
@@ -8918,31 +8794,6 @@
   "type": "table",
   "view": {},
   "viewer_result": null
- },
- "1eb30625d0ddb197": {
-  "artifact_id": "<legacy_grown/old/v1>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<legacy_grown/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<legacy_grown/old/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<legacy_grown>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
  },
  "1ecc22d1aa3d7686": {
   "app_version": "<volatile>",
@@ -9387,31 +9238,6 @@
   "webhook_id": null,
   "widgets": []
  },
- "20660abf82be52a3": {
-  "artifact_id": "<cron_job_by_admin/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<cron_job_by_admin/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<cron_job_by_admin/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<cron_job_by_admin>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "2085c1ac5ece38c9": {
   "created_at": "<ts>",
   "credential_scoped": false,
@@ -9725,31 +9551,6 @@
    "view": null
   }
  },
- "218a78f703fb9252": {
-  "artifact_id": "<dash_many_versions/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<dash_many_versions/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<dash_many_versions/dash/v2>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<dash_many_versions>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 2
- },
  "219c74dc0afcc1b4": {
   "created_at": "<ts>",
   "credential_scoped": false,
@@ -9988,31 +9789,6 @@
    "view": null
   },
   "viewer_result": null
- },
- "229a55b63b531107": {
-  "artifact_id": "<dash_newest_failed/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<dash_newest_failed/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<dash_newest_failed/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<dash_newest_failed>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
  },
  "22dc72fa2d90f928": [
   {
@@ -10395,31 +10171,6 @@
    }
   ],
   "widget_id": "<fork_stale/q_sales/widget>"
- },
- "23f66d78def4a812": {
-  "artifact_id": "<cron_job_orphan/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<cron_job_orphan/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<cron_job_orphan/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<cron_job_orphan>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
  },
  "241ca6dbdb032935": {
   "busy_completion_id": null,
@@ -11478,31 +11229,6 @@
   "view": {},
   "viewer_result": null
  },
- "28b6d5da1980b9d4": {
-  "artifact_id": "<vis_shared_user/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<vis_shared_user/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<vis_shared_user/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<vis_shared_user>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "28e9b2cd85257bcf": [
   {
    "default_step_id": "<conv_public/q_sales/step>",
@@ -11525,31 +11251,6 @@
    ]
   }
  ],
- "28fa2a396ddc1f9c": {
-  "artifact_id": "<settings_set/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<settings_set/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<settings_set/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<settings_set>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "2918d0db39b895c7": {
   "step": {
    "applied_params": null,
@@ -11738,6 +11439,32 @@
    }
   ]
  },
+ "2981f3ed15fea95e": {
+  "allow_popups": false,
+  "artifact_id": "<training_mode/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<training_mode/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<training_mode/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<training_mode>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "29b396299d6b2c52": {
   "id": "<settings_set/q_sales/viz>",
   "query_id": "<settings_set/q_sales>",
@@ -11752,6 +11479,32 @@
    "version": "v2",
    "view": null
   }
+ },
+ "29fa1ce92f93677d": {
+  "allow_popups": false,
+  "artifact_id": "<surfaces_differ/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<surfaces_differ/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<surfaces_differ/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<surfaces_differ>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
  },
  "2a0c290ad5250238": {
   "app_version": "<volatile>",
@@ -12901,6 +12654,32 @@
    "user_name": "עזב"
   }
  ],
+ "2c76692071a4f6d2": {
+  "allow_popups": false,
+  "artifact_id": "<user_required/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<user_required/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<user_required/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<user_required>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "2c7d524e596d99fc": {
   "agents": [
    {
@@ -12913,6 +12692,32 @@
   "enabled": true,
   "reason": null,
   "scope": "agents"
+ },
+ "2cada44b2533d858": {
+  "allow_popups": false,
+  "artifact_id": "<settings_set/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<settings_set/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<settings_set/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<settings_set>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
  },
  "2d413344b86fd664": {
   "created_at": "<ts>",
@@ -14309,6 +14114,32 @@
     "y": 0
    }
   ]
+ },
+ "3189bb2d00b9b6b4": {
+  "allow_popups": false,
+  "artifact_id": "<conv_three_dash/dash_stock>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מלאי</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<conv_three_dash/q_stock/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<conv_three_dash/dash_stock/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<conv_three_dash>",
+  "status": "completed",
+  "title": "לוח מלאי",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
  },
  "31bc54be1d818ede": [
   {
@@ -16408,33 +16239,28 @@
   ],
   "widget_id": "<slides_previews/q_sales/widget>"
  },
- "375b4cb1dd066aab": {
-  "artifact_id": "<dash_many_versions/dash>",
+ "378236f71910cb1a": {
+  "detail": "Not found"
+ },
+ "37846aa3302b467b": {
+  "allow_popups": false,
+  "artifact_id": "<dash_newest_stopped/dash>",
   "compiled_js": null,
   "compiled_js_key": null,
   "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<dash_many_versions/q_sales/viz>"
-   ]
-  },
+  "content": {},
   "created_at": "<ts>",
   "generation_prompt": null,
-  "id": "<dash_many_versions/dash/v4>",
+  "id": "<dash_newest_stopped/dash/v2>",
   "mode": "page",
   "organization_id": "<org>",
-  "report_id": "<dash_many_versions>",
-  "status": "completed",
+  "report_id": "<dash_newest_stopped>",
+  "status": "stopped",
   "title": "לוח מכירות",
   "updated_at": "<ts>",
   "used_visualization_ids": [],
   "user_id": "<user:owner>",
-  "version": 4
- },
- "378236f71910cb1a": {
-  "detail": "Not found"
+  "version": 2
  },
  "37e98eb78e54ea1b": {
   "id": "<load_step/q_base/viz>",
@@ -16612,6 +16438,32 @@
    }
   ]
  },
+ "383f4c9cfae66bb9": {
+  "allow_popups": false,
+  "artifact_id": "<dash_fully_deleted/dash_live>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח חי</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<dash_fully_deleted/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<dash_fully_deleted/dash_live/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<dash_fully_deleted>",
+  "status": "completed",
+  "title": "לוח חי",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "386872c2f13f256a": {
   "applied_params": null,
   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
@@ -16685,31 +16537,6 @@
    "version": 1
   }
  ],
- "3880a096542908bc": {
-  "artifact_id": "<sched_prompt_spawn/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<sched_prompt_spawn/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<sched_prompt_spawn/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<sched_prompt_spawn>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "38aee1b6d80f09bf": {
   "app_version": "<volatile>",
   "artifact_chat_data_source_ids": null,
@@ -16942,25 +16769,6 @@
   "total_steps_created": 0,
   "total_widgets_created": 0
  },
- "3945fdd01e305d02": {
-  "artifact_id": "<dash_newest_stopped/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {},
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<dash_newest_stopped/dash/v2>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<dash_newest_stopped>",
-  "status": "stopped",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 2
- },
  "394b0d6414e4ec23": {
   "applied_params": null,
   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
@@ -17030,6 +16838,32 @@
    ]
   }
  ],
+ "3af452c50f95aab4": {
+  "allow_popups": false,
+  "artifact_id": "<sched_prompt/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<sched_prompt/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<sched_prompt/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<sched_prompt>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "3b02ed322b3c1039": {
   "applied_params": null,
   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
@@ -17148,6 +16982,84 @@
  ],
  "3bccf7957ba119f7": {
   "detail": "Object not found or access denied"
+ },
+ "3c074822fa1660a6": {
+  "allow_popups": false,
+  "artifact_id": "<publication_pin/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<publication_pin/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<publication_pin/dash/v2>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<publication_pin>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 2
+ },
+ "3c176cd334926602": {
+  "allow_popups": false,
+  "artifact_id": "<cron_job/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<cron_job/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<cron_job/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<cron_job>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
+ "3c223eaf3af32f14": {
+  "allow_popups": false,
+  "artifact_id": "<thumbnail/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<thumbnail/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<thumbnail/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<thumbnail>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
  },
  "3c353977310dd53b": {
   "app_version": "<volatile>",
@@ -17520,31 +17432,6 @@
    }
   ]
  },
- "3d7028f395654a79": {
-  "artifact_id": "<conv_shared_user/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<conv_shared_user/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<conv_shared_user/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<conv_shared_user>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "3d9d92175d3798a4": {
   "applied_params": null,
   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
@@ -17575,31 +17462,6 @@
   "type": "table",
   "view": {},
   "viewer_result": null
- },
- "3da9614141daee3f": {
-  "artifact_id": "<archived_private/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<archived_private/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<archived_private/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<archived_private>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
  },
  "3db2d5edbb201927": [
   {
@@ -17975,26 +17837,27 @@
    }
   ]
  },
- "3e55fad78cf62dca": {
-  "artifact_id": "<sched_prompt_spawn/run_1/dash>",
+ "3e94d59b5206ed83": {
+  "allow_popups": false,
+  "artifact_id": "<orphans/dash>",
   "compiled_js": null,
   "compiled_js_key": null,
   "completion_id": null,
   "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>דוח יומי · ריצה</h1><BowChart index={0} /></div>;\n}\n",
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
    "runtime_version": 1,
    "visualization_ids": [
-    "<sched_prompt_spawn/run_1/q_sales/viz>"
+    "<orphans/q_sales/viz>"
    ]
   },
   "created_at": "<ts>",
   "generation_prompt": null,
-  "id": "<sched_prompt_spawn/run_1/dash/v1>",
+  "id": "<orphans/dash/v1>",
   "mode": "page",
   "organization_id": "<org>",
-  "report_id": "<sched_prompt_spawn/run_1>",
+  "report_id": "<orphans>",
   "status": "completed",
-  "title": "דוח יומי · ריצה",
+  "title": "לוח מכירות",
   "updated_at": "<ts>",
   "used_visualization_ids": [],
   "user_id": "<user:owner>",
@@ -18962,6 +18825,32 @@
    }
   ],
   "widget_id": "<conv_public/q_sales/widget>"
+ },
+ "414c0812f8f60a48": {
+  "allow_popups": false,
+  "artifact_id": "<refresh_off/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<refresh_off/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<refresh_off/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<refresh_off>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
  },
  "41830acaf43ac1e2": {
   "busy_completion_id": null,
@@ -20326,6 +20215,33 @@
   ],
   "widget_id": "<embedded_files/q_sales/widget>"
  },
+ "45fb22c665877377": {
+  "allow_popups": false,
+  "artifact_id": "<conv_one_dash/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<conv_one_dash/q_sales/viz>",
+    "<conv_one_dash/q_customers/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<conv_one_dash/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<conv_one_dash>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "46214d3cac66a9e2": {
   "id": "<encrypted/q_plain/viz>",
   "query_id": "<encrypted/q_plain>",
@@ -21395,6 +21311,35 @@
   ],
   "slide_count": 1
  },
+ "49f662c035b0d45c": {
+  "allow_popups": false,
+  "artifact_id": "<default_states/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מצבים</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<default_states/q_ok/viz>",
+    "<default_states/q_draft/viz>",
+    "<default_states/q_error/viz>",
+    "<default_states/q_purged/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<default_states/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<default_states>",
+  "status": "completed",
+  "title": "לוח מצבים",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "4a03ca56bbbab17b": {
   "step": {
    "applied_params": null,
@@ -21561,31 +21506,6 @@
     "y": 0
    }
   ]
- },
- "4a84c8128d2951d8": {
-  "artifact_id": "<conv_three_dash/dash_sales>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<conv_three_dash/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<conv_three_dash/dash_sales/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<conv_three_dash>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
  },
  "4a8fc7ff3cc41a77": {
   "busy_completion_id": null,
@@ -22413,6 +22333,32 @@
   },
   "viewer_result": null
  },
+ "4c771db951a0d749": {
+  "allow_popups": false,
+  "artifact_id": "<doc_only/doc>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "file_ids": [
+    "<doc_only/file>"
+   ],
+   "markdown": "# מסמך\n\n{{file:<doc_only/file>}}",
+   "visualization_ids": []
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<doc_only/doc/v1>",
+  "mode": "doc",
+  "organization_id": "<org>",
+  "report_id": "<doc_only>",
+  "status": "completed",
+  "title": "מסמך",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "4c8276f499631bf5": {
   "applied_params": null,
   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
@@ -22497,6 +22443,32 @@
    ]
   }
  ],
+ "4d05a952ddc4a75c": {
+  "allow_popups": false,
+  "artifact_id": "<owner_departed/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<owner_departed/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<owner_departed/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<owner_departed>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "4d1f1dcfee04d781": {
   "created_at": "<ts>",
   "credential_scoped": false,
@@ -23893,6 +23865,32 @@
    ]
   }
  ],
+ "51212b3c5b04b340": {
+  "allow_popups": false,
+  "artifact_id": "<rls/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<rls/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<rls/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<rls>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "5160acf3ebc52b03": {
   "created_at": "<ts>",
   "credential_scoped": false,
@@ -23998,31 +23996,6 @@
    ]
   }
  ],
- "51b378e659f1626b": {
-  "artifact_id": "<shared_widget/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<shared_widget/q_first/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<shared_widget/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<shared_widget>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "5277a8e8ce1e5a1b": {
   "detail": "Report not found"
  },
@@ -24196,6 +24169,32 @@
   "type": "table",
   "view": {},
   "viewer_result": null
+ },
+ "53fc01a552dcbb31": {
+  "allow_popups": false,
+  "artifact_id": "<dash_many_versions/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<dash_many_versions/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<dash_many_versions/dash/v4>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<dash_many_versions>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 4
  },
  "540fb4271df1159f": [
   {
@@ -24743,31 +24742,6 @@
   },
   "viewer_result": null
  },
- "54f10c76bdc2c202": {
-  "artifact_id": "<cron_legacy_empty/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<cron_legacy_empty/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<cron_legacy_empty/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<cron_legacy_empty>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "550b52685eac434a": {
   "app_version": "<volatile>",
   "artifact_chat_data_source_ids": null,
@@ -25121,31 +25095,6 @@
   "type": "table",
   "view": {},
   "viewer_result": null
- },
- "5571d79f5b82583a": {
-  "artifact_id": "<owner_departed/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<owner_departed/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<owner_departed/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<owner_departed>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
  },
  "55806ec4b6a72de9": {
   "applied_params": null,
@@ -25689,31 +25638,6 @@
    }
   ]
  },
- "56ed983ccc685b02": {
-  "artifact_id": "<in_project_deleted/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<in_project_deleted/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<in_project_deleted/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<in_project_deleted>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "5702425c4da8ca84": [
   {
    "artifact_id": "<dash_many_versions/dash>",
@@ -26179,6 +26103,32 @@
    "version": "v2",
    "view": null
   }
+ },
+ "592c4e284efb9053": {
+  "allow_popups": false,
+  "artifact_id": "<legacy_grown/old/v1>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<legacy_grown/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<legacy_grown/old/v2>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<legacy_grown>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 2
  },
  "59374a999526de76": {
   "completions": [
@@ -26680,6 +26630,29 @@
    "widget_id": "<bow_source/q_sales/widget>"
   }
  ],
+ "59fe75e9a9e59cde": {
+  "allow_popups": false,
+  "artifact_id": "<doc_after_page/doc>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "markdown": "# סיכום כתוב",
+   "visualization_ids": []
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<doc_after_page/doc/v1>",
+  "mode": "doc",
+  "organization_id": "<org>",
+  "report_id": "<doc_after_page>",
+  "status": "completed",
+  "title": "סיכום כתוב",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "5a01d13cbde207b3": [
   {
    "created_at": "<ts>",
@@ -27270,31 +27243,6 @@
    },
    "viewer_result": null
   }
- },
- "5b57d994421bb262": {
-  "artifact_id": "<rls/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<rls/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<rls/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<rls>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
  },
  "5b6d91c04dd9cf34": {
   "applied_params": null,
@@ -28090,31 +28038,6 @@
   "total_completions": 2,
   "total_steps_created": 0,
   "total_widgets_created": 0
- },
- "5cb9122af3fe0a0d": {
-  "artifact_id": "<doc_after_page/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<doc_after_page/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<doc_after_page/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<doc_after_page>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
  },
  "5ce3508645405c3f": [
   {
@@ -31003,6 +30926,32 @@
   ],
   "widget_id": "<user_required/q_sales/widget>"
  },
+ "6392ad1849b98444": {
+  "allow_popups": false,
+  "artifact_id": "<shared_widget/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<shared_widget/q_first/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<shared_widget/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<shared_widget>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "63c5d680be131043": {
   "app_version": "<volatile>",
   "artifact_chat_data_source_ids": null,
@@ -32526,32 +32475,6 @@
    ]
   }
  ],
- "67ded1d5aa071528": {
-  "artifact_id": "<encrypted/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מוצפן</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<encrypted/q_sealed/viz>",
-    "<encrypted/q_plain/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<encrypted/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<encrypted>",
-  "status": "completed",
-  "title": "לוח מוצפן",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "6839f20c780d3576": [
   {
    "artifact_id": "<artver01_chain/legacy_3/v1>",
@@ -33210,31 +33133,6 @@
   },
   "viewer_result": null
  },
- "6a8e85f30ec998a1": {
-  "artifact_id": "<stale_shares/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<stale_shares/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<stale_shares/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<stale_shares>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "6a9846cf31fc71a4": [
   {
    "artifact_id": "<bow_source/dash>",
@@ -33307,6 +33205,32 @@
    "version": 1
   }
  ],
+ "6bfa5eba67431617": {
+  "allow_popups": false,
+  "artifact_id": "<dash_many_versions/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<dash_many_versions/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<dash_many_versions/dash/v3>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<dash_many_versions>",
+  "status": "failed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 3
+ },
  "6c27878d36c12743": {
   "created_at": "<ts>",
   "credential_scoped": false,
@@ -33757,6 +33681,32 @@
    },
    "viewer_result": null
   }
+ },
+ "6d3c00baf4670575": {
+  "allow_popups": false,
+  "artifact_id": "<conv_three_dash/dash_sales>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<conv_three_dash/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<conv_three_dash/dash_sales/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<conv_three_dash>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
  },
  "6d7c92a9e572f43f": {
   "applied_params": null,
@@ -34240,37 +34190,6 @@
    "version": "v2",
    "view": null
   }
- },
- "6f59e884cc98ffd1": {
-  "artifact_id": "<live_resources/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>טופס</h1><BowChart index={0} /></div>;\n}\n",
-   "resource_requirements": {
-    "collections": [
-     "entries"
-    ]
-   },
-   "runtime_version": 1,
-   "sdk_version": 1,
-   "visualization_ids": [
-    "<live_resources/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<live_resources/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<live_resources>",
-  "status": "completed",
-  "title": "טופס בקשות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
  },
  "6f97352e741a8630": [
   {
@@ -34900,6 +34819,32 @@
   },
   "viewer_result": null
  },
+ "70413429f18edb4c": {
+  "allow_popups": false,
+  "artifact_id": "<fork_stale/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<fork_stale/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<fork_stale/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<fork_stale>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:forker>",
+  "version": 1
+ },
  "708335c15e0127ea": {
   "step": {
    "applied_params": null,
@@ -34994,6 +34939,32 @@
     "user_id": "<user:proj_owner>"
    }
   ]
+ },
+ "70f6cd6d9166ea1f": {
+  "allow_popups": false,
+  "artifact_id": "<test_report/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<test_report/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<test_report/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<test_report>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
  },
  "71034ea9bebf251e": [
   {
@@ -35252,6 +35223,32 @@
   "webhook_count": 0,
   "webhook_id": null,
   "widgets": []
+ },
+ "71f5102c2c908a42": {
+  "allow_popups": false,
+  "artifact_id": "<cron_legacy_none/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<cron_legacy_none/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<cron_legacy_none/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<cron_legacy_none>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
  },
  "721c316780f7cafc": {
   "app_version": "<volatile>",
@@ -35579,6 +35576,32 @@
    }
   ],
   "widget_id": "<archived_private/q_sales/widget>"
+ },
+ "72c963d2c951373f": {
+  "allow_popups": false,
+  "artifact_id": "<in_project_deleted/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<in_project_deleted/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<in_project_deleted/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<in_project_deleted>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
  },
  "72f1cdc45e426c52": [
   {
@@ -36454,8 +36477,60 @@
   "title": "לוח מכירות",
   "user_name": "corpus owner"
  },
+ "760d0ee7a833cef0": {
+  "allow_popups": false,
+  "artifact_id": "<chat_enabled/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<chat_enabled/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<chat_enabled/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<chat_enabled>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "76a41c5bbf16b56e": {
   "hydrating": false
+ },
+ "76a4999fe8a17b4a": {
+  "allow_popups": false,
+  "artifact_id": "<dash_newest_stopped/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<dash_newest_stopped/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<dash_newest_stopped/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<dash_newest_stopped>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
  },
  "76dae5fb3d8a2e58": [
   {
@@ -36614,6 +36689,58 @@
    "widget_id": "<shared_no_dash/q_sales/widget>"
   }
  ],
+ "78018bbabf7a9f45": {
+  "allow_popups": false,
+  "artifact_id": "<cron_legacy_empty/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<cron_legacy_empty/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<cron_legacy_empty/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<cron_legacy_empty>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
+ "7865e6dcddc55b85": {
+  "allow_popups": false,
+  "artifact_id": "<artver01_chain/legacy_2/v1>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<artver01_chain/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<artver01_chain/legacy_2/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<artver01_chain>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 2
+ },
  "78baa981dc329876": {
   "created_at": "<ts>",
   "credential_scoped": false,
@@ -36969,6 +37096,32 @@
   "webhook_id": null,
   "widgets": []
  },
+ "7967d436e51e545c": {
+  "allow_popups": false,
+  "artifact_id": "<artver01_chain/legacy_3/v1>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<artver01_chain/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<artver01_chain/legacy_3/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<artver01_chain>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 5
+ },
  "797066296498ba1b": {
   "created_at": "<ts>",
   "credential_scoped": false,
@@ -37171,31 +37324,6 @@
    "updated_at": "<ts>"
   }
  ],
- "7a0e6b265c5418d8": {
-  "artifact_id": "<orphans/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<orphans/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<orphans/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<orphans>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "7a0fe9babb84b5e9": {
   "detail": "Visualization not found"
  },
@@ -37331,31 +37459,6 @@
   },
   "viewer_result": null
  },
- "7b61e280e7568858": {
-  "artifact_id": "<artver01_chain/legacy_1/v1>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<artver01_chain/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<artver01_chain/legacy_1/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<artver01_chain>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "7b76831927a5d539": [
   {
    "default_step_id": "<shares_gone/q_sales/step>",
@@ -37378,26 +37481,27 @@
    ]
   }
  ],
- "7b85ddad37cd003f": {
-  "artifact_id": "<conv_three_dash/deck>",
+ "7baf7cdd1f4629ed": {
+  "allow_popups": false,
+  "artifact_id": "<publication_pin/dash>",
   "compiled_js": null,
   "compiled_js_key": null,
   "completion_id": null,
   "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>מצגת רבעונית</h1><BowChart index={0} /></div>;\n}\n",
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
    "runtime_version": 1,
    "visualization_ids": [
-    "<conv_three_dash/q_sales/viz>"
+    "<publication_pin/q_sales/viz>"
    ]
   },
   "created_at": "<ts>",
   "generation_prompt": null,
-  "id": "<conv_three_dash/deck/v1>",
-  "mode": "slides",
+  "id": "<publication_pin/dash/v1>",
+  "mode": "page",
   "organization_id": "<org>",
-  "report_id": "<conv_three_dash>",
+  "report_id": "<publication_pin>",
   "status": "completed",
-  "title": "מצגת רבעונית",
+  "title": "לוח מכירות",
   "updated_at": "<ts>",
   "used_visualization_ids": [],
   "user_id": "<user:owner>",
@@ -37641,31 +37745,6 @@
   },
   "viewer_result": null
  },
- "7d0218f5e7e0c5ed": {
-  "artifact_id": "<shares_gone/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<shares_gone/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<shares_gone/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<shares_gone>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "7d11e0cc46989443": {
   "app_version": "<volatile>",
   "artifact_chat_data_source_ids": null,
@@ -37866,31 +37945,6 @@
     "status_reason": null
    }
   }
- },
- "7dd18e1ad6901348": {
-  "artifact_id": "<conv_public/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<conv_public/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<conv_public/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<conv_public>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
  },
  "7e306a645556db31": {
   "app_version": "<volatile>",
@@ -38663,6 +38717,32 @@
   ],
   "widget_id": "<options_sources/q_by_id/widget>"
  },
+ "7edd5215720f5b8d": {
+  "allow_popups": false,
+  "artifact_id": "<auto_conv/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<auto_conv/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<auto_conv/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<auto_conv>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "7eefbb536670016c": {
   "app_version": "<volatile>",
   "artifact_chat_data_source_ids": null,
@@ -38795,8 +38875,9 @@
    "user_name": null
   }
  ],
- "7f4f9d8d9038580a": {
-  "artifact_id": "<run_creator/dash>",
+ "7f89520b0058a7f9": {
+  "allow_popups": false,
+  "artifact_id": "<run_viewer_results/dash>",
   "compiled_js": null,
   "compiled_js_key": null,
   "completion_id": null,
@@ -38804,94 +38885,21 @@
    "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
    "runtime_version": 1,
    "visualization_ids": [
-    "<run_creator/q_sales/viz>"
+    "<run_viewer_results/q_sales/viz>"
    ]
   },
   "created_at": "<ts>",
   "generation_prompt": null,
-  "id": "<run_creator/dash/v1>",
+  "id": "<run_viewer_results/dash/v1>",
   "mode": "page",
   "organization_id": "<org>",
-  "report_id": "<run_creator>",
+  "report_id": "<run_viewer_results>",
   "status": "completed",
   "title": "לוח מכירות",
   "updated_at": "<ts>",
   "used_visualization_ids": [],
   "user_id": "<user:owner>",
   "version": 1
- },
- "7f5ed4bd6d7b42c0": {
-  "app_version": "<volatile>",
-  "artifact_chat_data_source_ids": null,
-  "artifact_chat_enabled": false,
-  "artifact_chat_model_id": null,
-  "artifact_count": 1,
-  "artifact_modes": [],
-  "artifact_shared_group_ids": [],
-  "artifact_shared_user_ids": [],
-  "artifact_visibility": "internal",
-  "conversation_share_enabled": false,
-  "conversation_share_token": null,
-  "conversation_shared_group_ids": [],
-  "conversation_shared_user_ids": [],
-  "conversation_visibility": "none",
-  "created_at": "<ts>",
-  "cron_schedule": null,
-  "dashboard_layout_versions": [],
-  "data_sources": [],
-  "external_platform": null,
-  "focused_data_source_ids": [],
-  "follow_ups": null,
-  "forked_from_artifact_id": null,
-  "forked_from_id": null,
-  "forked_from_title": null,
-  "forked_from_user_name": null,
-  "general": null,
-  "has_rls": false,
-  "has_scheduled_prompts": false,
-  "has_user_scoped": false,
-  "id": "<auto_conv>",
-  "include_data_tab": true,
-  "instruction_count": 0,
-  "is_starred": false,
-  "last_activity_at": "<ts>",
-  "last_run_at": null,
-  "mode": "chat",
-  "model_id": null,
-  "notification_subscribers": null,
-  "origin_app": null,
-  "project": null,
-  "project_id": null,
-  "public_sharing_allowed": true,
-  "query_count": 1,
-  "reasoning_effort": null,
-  "refresh_on_view": true,
-  "report_type": "regular",
-  "scheduled_prompt_count": 0,
-  "scheduled_prompt_id": null,
-  "shared_run_identity": "viewer",
-  "show_widget_info": false,
-  "slug": "auto-conv",
-  "status": "published",
-  "suggest_instructions": null,
-  "theme_name": null,
-  "theme_overrides": {},
-  "thumbnail_url": null,
-  "title": "לוח מכירות",
-  "tools": null,
-  "updated_at": "<ts>",
-  "user": {
-   "email": "owner@corpus.com",
-   "external_user_mappings": [],
-   "id": "<user:owner>",
-   "image_url": null,
-   "last_login": "<volatile>",
-   "last_seen": "<volatile>",
-   "name": "corpus owner"
-  },
-  "webhook_count": 0,
-  "webhook_id": null,
-  "widgets": []
  },
  "7fc5c6bc990e24d9": {
   "created_at": "<ts>",
@@ -39001,56 +39009,6 @@
    },
    "viewer_result": null
   }
- },
- "80033583af2e4244": {
-  "artifact_id": "<chat_enabled/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<chat_enabled/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<chat_enabled/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<chat_enabled>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
- "8014d1aff7ff06c8": {
-  "artifact_id": "<vis_none/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<vis_none/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<vis_none/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<vis_none>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
  },
  "805500c87a2d376b": [
   {
@@ -39980,31 +39938,6 @@
    "viewer_result": null
   }
  },
- "83efff199d3c903d": {
-  "artifact_id": "<vis_internal/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<vis_internal/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<vis_internal/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<vis_internal>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "8403825535c55e27": {
   "app_version": "<volatile>",
   "artifact_chat_data_source_ids": null,
@@ -40651,31 +40584,6 @@
   "total_completions": 2,
   "total_steps_created": 0,
   "total_widgets_created": 0
- },
- "85ab4a3e4a8b5251": {
-  "artifact_id": "<training_mode/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<training_mode/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<training_mode/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<training_mode>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
  },
  "85d545586d6f3d37": {
   "applied_params": null,
@@ -41562,6 +41470,32 @@
    ]
   }
  ],
+ "87cf9d31b2813c8c": {
+  "allow_popups": false,
+  "artifact_id": "<dash_deleted_version/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<dash_deleted_version/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<dash_deleted_version/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<dash_deleted_version>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "87d61ff3940a7e08": [
   {
    "default_step_id": "<report_deleted_at/q_sales/step>",
@@ -42474,6 +42408,35 @@
    "widget_id": "<in_project_private/q_sales/widget>"
   }
  ],
+ "8b640bddc1f7eb73": {
+  "allow_popups": false,
+  "artifact_id": "<slides_previews/deck>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "from pptx import Presentation",
+   "preview_images": [
+    "pptx_previews/deck/slide-1.png"
+   ],
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<slides_previews/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<slides_previews/deck/v1>",
+  "mode": "slides",
+  "organization_id": "<org>",
+  "report_id": "<slides_previews>",
+  "status": "completed",
+  "title": "מצגת",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "8b76920a4c758640": {
   "id": "<in_project_deleted/q_sales/viz>",
   "query_id": "<in_project_deleted/q_sales>",
@@ -42488,6 +42451,32 @@
    "version": "v2",
    "view": null
   }
+ },
+ "8bac892c5e41ed2e": {
+  "allow_popups": false,
+  "artifact_id": "<cron/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<cron/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<cron/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<cron>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
  },
  "8bfaf5e9ddea88be": {
   "app_version": "<volatile>",
@@ -43550,6 +43539,32 @@
    }
   ]
  },
+ "8e1813c4995fcb6d": {
+  "allow_popups": false,
+  "artifact_id": "<legacy_grown/old/v1>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<legacy_grown/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<legacy_grown/old/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<legacy_grown>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "8e2e9a95ccce32c8": [
   {
    "created_at": "<ts>",
@@ -44087,6 +44102,38 @@
    "widget_id": "<rls/q_sales/widget>"
   }
  ],
+ "8fd0998680d68906": {
+  "allow_popups": false,
+  "artifact_id": "<embedded_files/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>חדש</h1><BowChart index={0} /></div>;\n}\n",
+   "files": [
+    {
+     "content_type": "image/png",
+     "filename": "לוגו.png",
+     "id": "<embedded_files/file_new>"
+    }
+   ],
+   "visualization_ids": [
+    "<embedded_files/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<embedded_files/dash/v2>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<embedded_files>",
+  "status": "completed",
+  "title": "לוח עם לוגו",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 2
+ },
  "901de1118ea50023": [
   {
    "created_at": "<ts>",
@@ -44606,6 +44653,32 @@
    "viewer_result": null
   }
  },
+ "922118448b62376c": {
+  "allow_popups": false,
+  "artifact_id": "<conv_public/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<conv_public/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<conv_public/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<conv_public>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "924529fa9e906ca3": {
   "step": {
    "applied_params": null,
@@ -44721,31 +44794,6 @@
    "widget_id": "<dash_newest_failed/q_sales/widget>"
   }
  ],
- "9295ff21f8e9e71f": {
-  "artifact_id": "<created_by_other/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<created_by_other/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<created_by_other/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<created_by_other>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "92bcf0183b987232": {
   "applied_params": null,
   "code": null,
@@ -45449,6 +45497,32 @@
    }
   ]
  },
+ "941ca4a9a05628fc": {
+  "allow_popups": false,
+  "artifact_id": "<created_by_other/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<created_by_other/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<created_by_other/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<created_by_other>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "943100746ff21e8c": {
   "applied_params": null,
   "code": "def generate_df(ds_clients, excel_files, load_step):\n    return load_step('נסתרת · ריצה')\n",
@@ -45510,31 +45584,6 @@
   "type": "table",
   "view": {},
   "viewer_result": null
- },
- "94b61d1edf87fb69": {
-  "artifact_id": "<fork_filling/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<fork_filling/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<fork_filling/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<fork_filling>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:forker>",
-  "version": 1
  },
  "94ecbc45d767fdc0": {
   "applied_params": null,
@@ -45968,31 +46017,6 @@
   "view": {},
   "viewer_result": null
  },
- "97056b5421c5d549": {
-  "artifact_id": "<archived_public/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<archived_public/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<archived_public/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<archived_public>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "9758c3582bc59a3e": {
   "app_version": "<volatile>",
   "artifact_chat_data_source_ids": null,
@@ -46103,31 +46127,6 @@
   "webhook_count": 0,
   "webhook_id": null,
   "widgets": []
- },
- "97ab702e8fb8b833": {
-  "artifact_id": "<bow_source/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<bow_source/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<bow_source/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<bow_source>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
  },
  "97ad0ce05bf09259": {
   "applied_params": null,
@@ -47759,31 +47758,6 @@
    "widget_id": "<cron_job_private/q_sales/widget>"
   }
  ],
- "9b4b58060b18422e": {
-  "artifact_id": "<fork_stale/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<fork_stale/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<fork_stale/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<fork_stale>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:forker>",
-  "version": 1
- },
  "9b4fcd1a27212d9c": {
   "app_version": "<volatile>",
   "artifact_chat_data_source_ids": null,
@@ -48818,31 +48792,6 @@
    }
   ]
  },
- "9dc6638609e4503a": {
-  "artifact_id": "<auto_conv/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<auto_conv/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<auto_conv/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<auto_conv>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "9dcbb1f59d781f29": {
   "id": "<widgets_cron/q_sales/viz>",
   "query_id": "<widgets_cron/q_sales>",
@@ -49006,6 +48955,32 @@
    ]
   }
  ],
+ "9e221f6f332c4531": {
+  "allow_popups": false,
+  "artifact_id": "<cron_job_by_admin/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<cron_job_by_admin/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<cron_job_by_admin/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<cron_job_by_admin>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "9e25a59609a8cff1": {
   "app_version": "<volatile>",
   "artifact_chat_data_source_ids": null,
@@ -49738,31 +49713,6 @@
   },
   "viewer_result": null
  },
- "a0773e8958de894d": {
-  "artifact_id": "<cron_job_private/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<cron_job_private/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<cron_job_private/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<cron_job_private>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "a09770e31b6347d2": {
   "app_version": "<volatile>",
   "artifact_chat_data_source_ids": null,
@@ -50196,6 +50146,32 @@
    "viewer_result": null
   }
  },
+ "a2492b6d53ce3ef9": {
+  "allow_popups": false,
+  "artifact_id": "<sched_prompt_spawn/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<sched_prompt_spawn/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<sched_prompt_spawn/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<sched_prompt_spawn>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "a292e53b772454be": {
   "applied_params": null,
   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
@@ -50409,6 +50385,32 @@
   "webhook_count": 0,
   "webhook_id": null,
   "widgets": []
+ },
+ "a32efeacc7e6887a": {
+  "allow_popups": false,
+  "artifact_id": "<sched_prompt_spawn/run_1/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>דוח יומי · ריצה</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<sched_prompt_spawn/run_1/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<sched_prompt_spawn/run_1/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<sched_prompt_spawn/run_1>",
+  "status": "completed",
+  "title": "דוח יומי · ריצה",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
  },
  "a3492c7c0e4a100d": {
   "app_version": "<volatile>",
@@ -51696,6 +51698,32 @@
    }
   ]
  },
+ "a6a21484ca98d852": {
+  "allow_popups": false,
+  "artifact_id": "<dash_many_versions/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<dash_many_versions/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<dash_many_versions/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<dash_many_versions>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "a6ac7a10204e5bd6": [
   {
    "artifact_id": "<conv_one_dash/dash>",
@@ -51756,56 +51784,6 @@
    "view": null
   },
   "viewer_result": null
- },
- "a6c268689015f4ba": {
-  "artifact_id": "<sched_prompt/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<sched_prompt/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<sched_prompt/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<sched_prompt>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
- "a6df7bbe6ab6c5b2": {
-  "artifact_id": "<cron_legacy_none/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<cron_legacy_none/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<cron_legacy_none/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<cron_legacy_none>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
  },
  "a6ec2e378cfaf301": {
   "busy_completion_id": null,
@@ -52039,6 +52017,32 @@
   "webhook_id": null,
   "widgets": []
  },
+ "a7e3320c38521ffe": {
+  "allow_popups": false,
+  "artifact_id": "<fork_done/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<fork_done/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<fork_done/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<fork_done>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:forker>",
+  "version": 1
+ },
  "a80ef343def9cc30": [
   {
    "artifact_id": "<test_report/dash>",
@@ -52053,31 +52057,6 @@
    "version": 1
   }
  ],
- "a812a52ae99ed1a3": {
-  "artifact_id": "<multi_source/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<multi_source/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<multi_source/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<multi_source>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "a83e479619feb348": {
   "applied_params": null,
   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
@@ -53126,31 +53105,6 @@
   "view": {},
   "viewer_result": null
  },
- "acd505930986cff1": {
-  "artifact_id": "<publication_pin/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<publication_pin/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<publication_pin/dash/v2>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<publication_pin>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 2
- },
  "ad69db0b844ce274": {
   "applied_params": null,
   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
@@ -53181,31 +53135,6 @@
   "type": "table",
   "view": {},
   "viewer_result": null
- },
- "adc717569eae4865": {
-  "artifact_id": "<cron_job/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<cron_job/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<cron_job/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<cron_job>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
  },
  "aec067e8d12d981f": {
   "app_version": "<volatile>",
@@ -53313,30 +53242,25 @@
   "webhook_id": null,
   "widgets": []
  },
- "af04be8e849152df": {
-  "artifact_id": "<user_required/dash>",
+ "af05e803078b34bd": {
+  "allow_popups": false,
+  "artifact_id": "<dash_newest_pending/dash>",
   "compiled_js": null,
   "compiled_js_key": null,
   "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<user_required/q_sales/viz>"
-   ]
-  },
+  "content": {},
   "created_at": "<ts>",
   "generation_prompt": null,
-  "id": "<user_required/dash/v1>",
+  "id": "<dash_newest_pending/dash/v2>",
   "mode": "page",
   "organization_id": "<org>",
-  "report_id": "<user_required>",
-  "status": "completed",
+  "report_id": "<dash_newest_pending>",
+  "status": "pending",
   "title": "לוח מכירות",
   "updated_at": "<ts>",
   "used_visualization_ids": [],
   "user_id": "<user:owner>",
-  "version": 1
+  "version": 2
  },
  "af4876ef103c7c45": [
   {
@@ -53468,6 +53392,32 @@
    "view": null
   },
   "viewer_result": null
+ },
+ "afa21c8a5038883f": {
+  "allow_popups": false,
+  "artifact_id": "<doc_after_page/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<doc_after_page/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<doc_after_page/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<doc_after_page>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
  },
  "afb09b8dddbfdecb": {
   "created_at": "<ts>",
@@ -53685,31 +53635,6 @@
     "name": "חנות מוזיקה"
    }
   ]
- },
- "b011c23a0e788195": {
-  "artifact_id": "<vis_public/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<vis_public/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<vis_public/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<vis_public>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
  },
  "b0544ff3c6c7fe11": [
   {
@@ -54022,6 +53947,32 @@
    }
   ]
  },
+ "b076cf65d0cb5236": {
+  "allow_popups": false,
+  "artifact_id": "<artver01_chain/legacy_1/v1>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<artver01_chain/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<artver01_chain/legacy_1/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<artver01_chain>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "b0ad3853c53adafd": {
   "applied_params": null,
   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
@@ -54052,56 +54003,6 @@
   "type": "table",
   "view": {},
   "viewer_result": null
- },
- "b0db9b9db3ff9cc1": {
-  "artifact_id": "<dash_newest_failed/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<dash_newest_failed/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<dash_newest_failed/dash/v2>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<dash_newest_failed>",
-  "status": "failed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 2
- },
- "b110e5b183dd920c": {
-  "artifact_id": "<doc_only/doc>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "file_ids": [
-    "<doc_only/file>"
-   ],
-   "markdown": "# מסמך\n\n{{file:<doc_only/file>}}",
-   "visualization_ids": []
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<doc_only/doc/v1>",
-  "mode": "doc",
-  "organization_id": "<org>",
-  "report_id": "<doc_only>",
-  "status": "completed",
-  "title": "מסמך",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
  },
  "b1242c7c1015a3b3": {
   "app_version": "<volatile>",
@@ -55184,6 +55085,32 @@
   ],
   "widget_id": "<report_deleted_at/q_sales/widget>"
  },
+ "b37316a45804e078": {
+  "allow_popups": false,
+  "artifact_id": "<in_project_org/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<in_project_org/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<in_project_org/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<in_project_org>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "b3848d45ad88733d": {
   "created_at": "<ts>",
   "credential_scoped": false,
@@ -55520,28 +55447,59 @@
   ],
   "widget_id": "<training_mode/q_sales/widget>"
  },
- "b4c3b8f4d4d5560c": {
-  "artifact_id": "<options_sources/dash>",
+ "b45d5cb834fea8e0": {
+  "allow_popups": false,
+  "artifact_id": "<archived_public/dash>",
   "compiled_js": null,
   "compiled_js_key": null,
   "completion_id": null,
   "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח עם בחירה</h1><BowChart index={0} /></div>;\n}\n",
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
    "runtime_version": 1,
    "visualization_ids": [
-    "<options_sources/q_genres/viz>",
-    "<options_sources/q_by_id/viz>",
-    "<options_sources/q_by_title/viz>"
+    "<archived_public/q_sales/viz>"
    ]
   },
   "created_at": "<ts>",
   "generation_prompt": null,
-  "id": "<options_sources/dash/v1>",
+  "id": "<archived_public/dash/v1>",
   "mode": "page",
   "organization_id": "<org>",
-  "report_id": "<options_sources>",
+  "report_id": "<archived_public>",
   "status": "completed",
-  "title": "לוח עם בחירה",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
+ "b4e6fef9600d98b3": {
+  "allow_popups": false,
+  "artifact_id": "<live_resources/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>טופס</h1><BowChart index={0} /></div>;\n}\n",
+   "resource_requirements": {
+    "collections": [
+     "entries"
+    ]
+   },
+   "runtime_version": 1,
+   "sdk_version": 1,
+   "visualization_ids": [
+    "<live_resources/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<live_resources/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<live_resources>",
+  "status": "completed",
+  "title": "טופס בקשות",
   "updated_at": "<ts>",
   "used_visualization_ids": [],
   "user_id": "<user:owner>",
@@ -56160,32 +56118,6 @@
   "view": {},
   "viewer_result": null
  },
- "b7af2037d56380a2": {
-  "artifact_id": "<load_step/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח נגזר</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<load_step/q_base/viz>",
-    "<load_step/q_derived/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<load_step/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<load_step>",
-  "status": "completed",
-  "title": "לוח נגזר",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "b7b95be9bb94c1f9": {
   "busy_completion_id": null,
   "compaction": {
@@ -56677,6 +56609,32 @@
   "type": "table",
   "view": {},
   "viewer_result": null
+ },
+ "b9fe1489685bd147": {
+  "allow_popups": false,
+  "artifact_id": "<cron_job_orphan/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<cron_job_orphan/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<cron_job_orphan/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<cron_job_orphan>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
  },
  "ba1ff172ee902b9e": {
   "id": "<fork_filling/q_sales/viz>",
@@ -57325,6 +57283,32 @@
   "view": {},
   "viewer_result": null
  },
+ "bbb976d4dc8ba8d0": {
+  "allow_popups": false,
+  "artifact_id": "<archived_private/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<archived_private/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<archived_private/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<archived_private>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "bbc77f011957d3d7": {
   "created_at": "<ts>",
   "credential_scoped": false,
@@ -57788,6 +57772,32 @@
   "error_code": "access.denied",
   "params": {},
   "status_code": 403
+ },
+ "be257948d4e24b0a": {
+  "allow_popups": false,
+  "artifact_id": "<widget_elsewhere/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<widget_elsewhere/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<widget_elsewhere/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<widget_elsewhere>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
  },
  "be4749d837b84a7d": [
   {
@@ -58601,8 +58611,9 @@
    "viewer_result": null
   }
  },
- "c07cefaec5db22e1": {
-  "artifact_id": "<publication_pin/dash>",
+ "c09f59b0dc93167e": {
+  "allow_popups": false,
+  "artifact_id": "<archived_shared/dash>",
   "compiled_js": null,
   "compiled_js_key": null,
   "completion_id": null,
@@ -58610,15 +58621,15 @@
    "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
    "runtime_version": 1,
    "visualization_ids": [
-    "<publication_pin/q_sales/viz>"
+    "<archived_shared/q_sales/viz>"
    ]
   },
   "created_at": "<ts>",
   "generation_prompt": null,
-  "id": "<publication_pin/dash/v1>",
+  "id": "<archived_shared/dash/v1>",
   "mode": "page",
   "organization_id": "<org>",
-  "report_id": "<publication_pin>",
+  "report_id": "<archived_shared>",
   "status": "completed",
   "title": "לוח מכירות",
   "updated_at": "<ts>",
@@ -58811,6 +58822,32 @@
     "y": 0
    }
   ]
+ },
+ "c15eedce468752bf": {
+  "allow_popups": false,
+  "artifact_id": "<fork_filling/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<fork_filling/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<fork_filling/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<fork_filling>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:forker>",
+  "version": 1
  },
  "c1cfdf7940846062": {
   "app_version": "<volatile>",
@@ -59351,6 +59388,32 @@
    "view": null
   }
  },
+ "c3a3e21da0d9431a": {
+  "allow_popups": false,
+  "artifact_id": "<report_deleted_at/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<report_deleted_at/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<report_deleted_at/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<report_deleted_at>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "c3a644865868e5ec": [
   {
    "artifact_id": "<legacy_grown/old/v1>",
@@ -59391,6 +59454,32 @@
    "version": "v2",
    "view": null
   }
+ },
+ "c42c1b2cc44a450e": {
+  "allow_popups": false,
+  "artifact_id": "<no_data_tab/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<no_data_tab/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<no_data_tab/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<no_data_tab>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
  },
  "c43489d1801f05fc": {
   "app_version": "<volatile>",
@@ -59792,34 +59881,6 @@
   "webhook_count": 0,
   "webhook_id": null,
   "widgets": []
- },
- "c59313777a3f6f1a": {
-  "artifact_id": "<default_states/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מצבים</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<default_states/q_ok/viz>",
-    "<default_states/q_draft/viz>",
-    "<default_states/q_error/viz>",
-    "<default_states/q_purged/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<default_states/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<default_states>",
-  "status": "completed",
-  "title": "לוח מצבים",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
  },
  "c598121b988a8e14": {
   "applied_params": null,
@@ -60238,6 +60299,32 @@
   "view": {},
   "viewer_result": null
  },
+ "c796878347975e05": {
+  "allow_popups": false,
+  "artifact_id": "<vis_internal/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<vis_internal/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<vis_internal/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<vis_internal>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "c7b6b6089bd97424": {
   "created_at": "<ts>",
   "credential_scoped": false,
@@ -60538,56 +60625,6 @@
    "widget_id": "<fork_done/q_sales/widget>"
   }
  ],
- "c8a4c82ab941fcbd": {
-  "artifact_id": "<dash_fully_deleted/dash_live>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח חי</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<dash_fully_deleted/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<dash_fully_deleted/dash_live/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<dash_fully_deleted>",
-  "status": "completed",
-  "title": "לוח חי",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
- "c8bf55779cc9e550": {
-  "artifact_id": "<run_viewer_results/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<run_viewer_results/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<run_viewer_results/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<run_viewer_results>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "c8daeec80791e897": {
   "step": {
    "applied_params": null,
@@ -60916,31 +60953,6 @@
    ]
   }
  ],
- "c9d695b7a0193ac3": {
-  "artifact_id": "<fork_done/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<fork_done/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<fork_done/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<fork_done>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:forker>",
-  "version": 1
- },
  "c9f3622e590b648c": {
   "applied_params": null,
   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
@@ -61089,6 +61101,32 @@
   "type": "table",
   "view": {},
   "viewer_result": null
+ },
+ "ca8f2c0c863d1497": {
+  "allow_popups": false,
+  "artifact_id": "<dash_newest_failed/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<dash_newest_failed/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<dash_newest_failed/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<dash_newest_failed>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
  },
  "cac65e1552188c02": {
   "app_version": "<volatile>",
@@ -61548,6 +61586,32 @@
    "version": 1
   }
  ],
+ "cc9e462d7dea257a": {
+  "allow_popups": false,
+  "artifact_id": "<shares_gone/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<shares_gone/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<shares_gone/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<shares_gone>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "ccab6d92483cfb30": {
   "id": "<sched_prompt/q_sales/viz>",
   "query_id": "<sched_prompt/q_sales>",
@@ -62334,6 +62398,36 @@
    ]
   }
  ],
+ "ce3ee3cacfb9dfb1": {
+  "allow_popups": false,
+  "artifact_id": "<refs_in_code/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>הפניות בקוד</h1><BowChart index={0} /></div>;\n}\n\nconst first = vizById(\"<refs_in_code/q_base/viz>\"); const third = vizById(\"<refs_in_code/q_by_slug/viz:upper>\");\nconst refresh = () => useParams().apply([\"<refs_in_code/q_by_id>\"]);\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<refs_in_code/q_base/viz>",
+    "<refs_in_code/q_by_id/viz>",
+    "<refs_in_code/q_by_slug/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<refs_in_code/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<refs_in_code>",
+  "status": "completed",
+  "title": "לוח הפניות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [
+   "<refs_in_code/q_base/viz>"
+  ],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "cee5adc38cf89a3b": {
   "applied_params": null,
   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
@@ -62365,32 +62459,27 @@
   "view": {},
   "viewer_result": null
  },
- "cf2c144cf3c3236d": {
-  "artifact_id": "<embedded_files/dash>",
+ "cf0a65389b0f3db9": {
+  "allow_popups": false,
+  "artifact_id": "<dash_many_versions/dash>",
   "compiled_js": null,
   "compiled_js_key": null,
   "completion_id": null,
   "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>חדש</h1><BowChart index={0} /></div>;\n}\n",
-   "files": [
-    {
-     "content_type": "image/png",
-     "filename": "לוגו.png",
-     "id": "<embedded_files/file_new>"
-    }
-   ],
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
    "visualization_ids": [
-    "<embedded_files/q_sales/viz>"
+    "<dash_many_versions/q_sales/viz>"
    ]
   },
   "created_at": "<ts>",
   "generation_prompt": null,
-  "id": "<embedded_files/dash/v2>",
+  "id": "<dash_many_versions/dash/v2>",
   "mode": "page",
   "organization_id": "<org>",
-  "report_id": "<embedded_files>",
+  "report_id": "<dash_many_versions>",
   "status": "completed",
-  "title": "לוח עם לוגו",
+  "title": "לוח מכירות",
   "updated_at": "<ts>",
   "used_visualization_ids": [],
   "user_id": "<user:owner>",
@@ -62479,31 +62568,6 @@
   ],
   "widget_id": "<in_project_deleted/q_sales/widget>"
  },
- "d0060abb52d57c6f": {
-  "artifact_id": "<test_report/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<test_report/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<test_report/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<test_report>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "d00f35e5159a8a09": {
   "created_at": "<ts>",
   "credential_scoped": false,
@@ -62586,31 +62650,6 @@
    }
   ],
   "widget_id": "<archived_shared/q_sales/widget>"
- },
- "d03207173f65c212": {
-  "artifact_id": "<dash_many_versions/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<dash_many_versions/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<dash_many_versions/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<dash_many_versions>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
  },
  "d03e5f3c82fac799": {
   "busy_completion_id": null,
@@ -62955,33 +62994,6 @@
    "version": 1
   }
  ],
- "d0b479666a1c97a0": {
-  "artifact_id": "<viz_refs/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>הפניות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<viz_refs/q_live/viz>",
-    "<viz_refs/q_deleted/viz>",
-    "<viz_refs/missing_viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<viz_refs/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<viz_refs>",
-  "status": "completed",
-  "title": "לוח עם הפניות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "d0cfc317381807ca": [
   {
    "created_at": "<ts>",
@@ -63423,8 +63435,9 @@
    }
   ]
  },
- "d20d6db7d7ff3f60": {
-  "artifact_id": "<archived_shared/dash>",
+ "d21c0ed96b490211": {
+  "allow_popups": false,
+  "artifact_id": "<cron_job_private/dash>",
   "compiled_js": null,
   "compiled_js_key": null,
   "completion_id": null,
@@ -63432,40 +63445,15 @@
    "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
    "runtime_version": 1,
    "visualization_ids": [
-    "<archived_shared/q_sales/viz>"
+    "<cron_job_private/q_sales/viz>"
    ]
   },
   "created_at": "<ts>",
   "generation_prompt": null,
-  "id": "<archived_shared/dash/v1>",
+  "id": "<cron_job_private/dash/v1>",
   "mode": "page",
   "organization_id": "<org>",
-  "report_id": "<archived_shared>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
- "d21dbf99733c1181": {
-  "artifact_id": "<cron/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<cron/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<cron/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<cron>",
+  "report_id": "<cron_job_private>",
   "status": "completed",
   "title": "לוח מכירות",
   "updated_at": "<ts>",
@@ -63641,45 +63629,28 @@
    "widget_id": "<load_step/q_derived/widget>"
   }
  ],
- "d2340ef515f55b1d": {
-  "artifact_id": "<dash_newest_pending/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {},
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<dash_newest_pending/dash/v2>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<dash_newest_pending>",
-  "status": "pending",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 2
- },
- "d234cde3d298cf99": {
-  "artifact_id": "<conv_enabled_mismatch/dash>",
+ "d25609c1804a8514": {
+  "allow_popups": false,
+  "artifact_id": "<load_step/dash>",
   "compiled_js": null,
   "compiled_js_key": null,
   "completion_id": null,
   "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח נגזר</h1><BowChart index={0} /></div>;\n}\n",
    "runtime_version": 1,
    "visualization_ids": [
-    "<conv_enabled_mismatch/q_sales/viz>"
+    "<load_step/q_base/viz>",
+    "<load_step/q_derived/viz>"
    ]
   },
   "created_at": "<ts>",
   "generation_prompt": null,
-  "id": "<conv_enabled_mismatch/dash/v1>",
+  "id": "<load_step/dash/v1>",
   "mode": "page",
   "organization_id": "<org>",
-  "report_id": "<conv_enabled_mismatch>",
+  "report_id": "<load_step>",
   "status": "completed",
-  "title": "לוח מכירות",
+  "title": "לוח נגזר",
   "updated_at": "<ts>",
   "used_visualization_ids": [],
   "user_id": "<user:owner>",
@@ -65177,31 +65148,6 @@
   "view": {},
   "viewer_result": null
  },
- "d6439876a8a36d43": {
-  "artifact_id": "<artver01_chain/legacy_3/v1>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<artver01_chain/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<artver01_chain/legacy_3/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<artver01_chain>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 5
- },
  "d646937435d1ef07": {
   "app_version": "<volatile>",
   "artifact_chat_data_source_ids": null,
@@ -65391,6 +65337,34 @@
   ],
   "widget_id": "<vis_shared_user/q_sales/widget>"
  },
+ "d6a6c829eac42efd": {
+  "allow_popups": false,
+  "artifact_id": "<options_sources/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח עם בחירה</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<options_sources/q_genres/viz>",
+    "<options_sources/q_by_id/viz>",
+    "<options_sources/q_by_title/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<options_sources/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<options_sources>",
+  "status": "completed",
+  "title": "לוח עם בחירה",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "d6b169783a653d84": {
   "id": "<viz_refs/q_deleted/viz>",
   "query_id": "<viz_refs/q_deleted>",
@@ -65428,31 +65402,6 @@
    ]
   }
  ],
- "d6da744d94e0e616": {
-  "artifact_id": "<report_deleted_at/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<report_deleted_at/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<report_deleted_at/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<report_deleted_at>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "d6e7b5e59e9b2bd2": {
   "app_version": "<volatile>",
   "artifact_chat_data_source_ids": null,
@@ -66436,6 +66385,32 @@
   },
   "viewer_result": null
  },
+ "d95324a2756d9a8a": {
+  "allow_popups": false,
+  "artifact_id": "<multi_source/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<multi_source/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<multi_source/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<multi_source>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "d965cb7277b9fac6": {
   "applied_params": null,
   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
@@ -66497,6 +66472,32 @@
    "version": "v2",
    "view": null
   }
+ },
+ "d99604a240b02eef": {
+  "allow_popups": false,
+  "artifact_id": "<vis_public/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<vis_public/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<vis_public/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<vis_public>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
  },
  "da25b2da2f39a971": [
   {
@@ -66715,6 +66716,33 @@
    "view": null
   }
  },
+ "db4cdb9c0d8ca113": {
+  "allow_popups": false,
+  "artifact_id": "<encrypted/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מוצפן</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<encrypted/q_sealed/viz>",
+    "<encrypted/q_plain/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<encrypted/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<encrypted>",
+  "status": "completed",
+  "title": "לוח מוצפן",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "dc2175460e170b04": {
   "busy_completion_id": null,
   "compaction": {
@@ -66840,6 +66868,32 @@
   "total_completions": 2,
   "total_steps_created": 0,
   "total_widgets_created": 0
+ },
+ "dc866b708c38b642": {
+  "allow_popups": false,
+  "artifact_id": "<conv_three_dash/deck>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>מצגת רבעונית</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<conv_three_dash/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<conv_three_dash/deck/v1>",
+  "mode": "slides",
+  "organization_id": "<org>",
+  "report_id": "<conv_three_dash>",
+  "status": "completed",
+  "title": "מצגת רבעונית",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
  },
  "dc955080205f82c7": {
   "created_at": "<ts>",
@@ -67379,31 +67433,6 @@
   },
   "viewer_result": null
  },
- "de9e7402b9c1b9f1": {
-  "artifact_id": "<dash_many_versions/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<dash_many_versions/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<dash_many_versions/dash/v3>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<dash_many_versions>",
-  "status": "failed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 3
- },
  "dec2f12bc51fe575": {
   "created_at": "<ts>",
   "credential_scoped": false,
@@ -67816,31 +67845,6 @@
    }
   ]
  },
- "e0c15d95929a6c1c": {
-  "artifact_id": "<dash_newest_pending/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<dash_newest_pending/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<dash_newest_pending/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<dash_newest_pending>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "e114579d8a8d72a0": [
   {
    "created_at": "<ts>",
@@ -68240,6 +68244,32 @@
   "type": "table",
   "view": {},
   "viewer_result": null
+ },
+ "e2a65675ff6eb5f7": {
+  "allow_popups": false,
+  "artifact_id": "<identity_param/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>הלוח שלי</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<identity_param/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<identity_param/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<identity_param>",
+  "status": "completed",
+  "title": "הלוח שלי",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
  },
  "e2ca740ff4173384": {
   "applied_params": null,
@@ -69367,31 +69397,6 @@
    "viewer_result": null
   }
  },
- "e6fce68ad55c1cb7": {
-  "artifact_id": "<dash_deleted_version/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<dash_deleted_version/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<dash_deleted_version/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<dash_deleted_version>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "e70643c7c0c936d1": {
   "created_at": "<ts>",
   "credential_scoped": false,
@@ -69560,31 +69565,6 @@
    "widget_id": "<fork_retired/q_sales/widget>"
   }
  ],
- "e740a69e542c896f": {
-  "artifact_id": "<in_project_org/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<in_project_org/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<in_project_org/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<in_project_org>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "e76acc61405c5d40": {
   "busy_completion_id": null,
   "compaction": {
@@ -70160,6 +70140,32 @@
     "y": 0
    }
   ]
+ },
+ "e7febd72f40e264d": {
+  "allow_popups": false,
+  "artifact_id": "<in_project_private/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<in_project_private/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<in_project_private/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<in_project_private>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
  },
  "e80f63de77a8ae2d": {
   "app_version": "<volatile>",
@@ -71919,6 +71925,32 @@
    "widget_id": "<conv_enabled_mismatch/q_sales/widget>"
   }
  ],
+ "ea767eb082381825": {
+  "allow_popups": false,
+  "artifact_id": "<dash_newest_pending/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<dash_newest_pending/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<dash_newest_pending/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<dash_newest_pending>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "eaaba9c5671c5a90": {
   "app_version": "<volatile>",
   "artifact_chat_data_source_ids": null,
@@ -72072,8 +72104,9 @@
   },
   "viewer_result": null
  },
- "ebca0bf8527e0a00": {
-  "artifact_id": "<refresh_off/dash>",
+ "eb621cf902236f09": {
+  "allow_popups": false,
+  "artifact_id": "<conv_shared_user/dash>",
   "compiled_js": null,
   "compiled_js_key": null,
   "completion_id": null,
@@ -72081,15 +72114,41 @@
    "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
    "runtime_version": 1,
    "visualization_ids": [
-    "<refresh_off/q_sales/viz>"
+    "<conv_shared_user/q_sales/viz>"
    ]
   },
   "created_at": "<ts>",
   "generation_prompt": null,
-  "id": "<refresh_off/dash/v1>",
+  "id": "<conv_shared_user/dash/v1>",
   "mode": "page",
   "organization_id": "<org>",
-  "report_id": "<refresh_off>",
+  "report_id": "<conv_shared_user>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
+ "eb7909085eddb28d": {
+  "allow_popups": false,
+  "artifact_id": "<bow_source/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<bow_source/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<bow_source/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<bow_source>",
   "status": "completed",
   "title": "לוח מכירות",
   "updated_at": "<ts>",
@@ -72437,35 +72496,6 @@
    }
   ]
  },
- "ec843b82ae6a25b6": {
-  "artifact_id": "<refs_in_code/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>הפניות בקוד</h1><BowChart index={0} /></div>;\n}\n\nconst first = vizById(\"<refs_in_code/q_base/viz>\"); const third = vizById(\"<refs_in_code/q_by_slug/viz:upper>\");\nconst refresh = () => useParams().apply([\"<refs_in_code/q_by_id>\"]);\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<refs_in_code/q_base/viz>",
-    "<refs_in_code/q_by_id/viz>",
-    "<refs_in_code/q_by_slug/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<refs_in_code/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<refs_in_code>",
-  "status": "completed",
-  "title": "לוח הפניות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [
-   "<refs_in_code/q_base/viz>"
-  ],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "eca5476601806bf1": {
   "step": {
    "applied_params": null,
@@ -72544,6 +72574,34 @@
    },
    "viewer_result": null
   }
+ },
+ "ecdcd4095ec33d84": {
+  "allow_popups": false,
+  "artifact_id": "<viz_refs/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>הפניות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<viz_refs/q_live/viz>",
+    "<viz_refs/q_deleted/viz>",
+    "<viz_refs/missing_viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<viz_refs/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<viz_refs>",
+  "status": "completed",
+  "title": "לוח עם הפניות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
  },
  "ece656b67f99a8af": [
   {
@@ -72759,6 +72817,32 @@
    "view": null
   },
   "viewer_result": null
+ },
+ "ed5b21ef28fa6947": {
+  "allow_popups": false,
+  "artifact_id": "<conv_enabled_mismatch/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<conv_enabled_mismatch/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<conv_enabled_mismatch/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<conv_enabled_mismatch>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
  },
  "ed65a65eca42f750": {
   "busy_completion_id": null,
@@ -74576,31 +74660,6 @@
   ],
   "widget_id": "<conv_three_dash/q_sales/widget>"
  },
- "f2da3fb3890e3371": {
-  "artifact_id": "<thumbnail/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<thumbnail/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<thumbnail/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<thumbnail>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "f30728dd2603edbb": [
   {
    "created_at": "<ts>",
@@ -75206,6 +75265,32 @@
   "view": {},
   "viewer_result": null
  },
+ "f5acb7358ecc4343": {
+  "allow_popups": false,
+  "artifact_id": "<fork_retired/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<fork_retired/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<fork_retired/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<fork_retired>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:forker>",
+  "version": 1
+ },
  "f5de510799f44247": [
   {
    "artifact_id": "<viz_refs/dash>",
@@ -75562,6 +75647,32 @@
    "viewer_result": null
   }
  },
+ "f7abe3fd24813e72": {
+  "allow_popups": false,
+  "artifact_id": "<dash_newest_failed/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<dash_newest_failed/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<dash_newest_failed/dash/v2>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<dash_newest_failed>",
+  "status": "failed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 2
+ },
  "f7c191929705cf22": {
   "created_at": "<ts>",
   "credential_scoped": false,
@@ -75846,32 +75957,6 @@
   "error_code": "generic",
   "request_id": "<hex>"
  },
- "f85bf1da2185df40": {
-  "artifact_id": "<conv_one_dash/dash>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<conv_one_dash/q_sales/viz>",
-    "<conv_one_dash/q_customers/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<conv_one_dash/dash/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<conv_one_dash>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 1
- },
  "f8a2cd6ff42108fe": {
   "applied_params": null,
   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
@@ -75949,6 +76034,32 @@
    "view": null
   },
   "viewer_result": null
+ },
+ "f8e50c1c61b76398": {
+  "allow_popups": false,
+  "artifact_id": "<vis_shared_user/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<vis_shared_user/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<vis_shared_user/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<vis_shared_user>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
  },
  "f8f3e9ef0c02400f": {
   "step": {
@@ -76596,31 +76707,6 @@
   ],
   "widget_id": "<refs_in_code/q_base/widget>"
  },
- "fc538651e0734ba2": {
-  "artifact_id": "<artver01_chain/legacy_2/v1>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<artver01_chain/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<artver01_chain/legacy_2/v1>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<artver01_chain>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 2
- },
  "fc760751181f536c": {
   "id": "<vis_shared_user/q_sales/viz>",
   "query_id": "<vis_shared_user/q_sales>",
@@ -76688,31 +76774,6 @@
    "visualizations": []
   }
  ],
- "fd01d9a942d90bad": {
-  "artifact_id": "<legacy_grown/old/v1>",
-  "compiled_js": null,
-  "compiled_js_key": null,
-  "completion_id": null,
-  "content": {
-   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
-   "runtime_version": 1,
-   "visualization_ids": [
-    "<legacy_grown/q_sales/viz>"
-   ]
-  },
-  "created_at": "<ts>",
-  "generation_prompt": null,
-  "id": "<legacy_grown/old/v2>",
-  "mode": "page",
-  "organization_id": "<org>",
-  "report_id": "<legacy_grown>",
-  "status": "completed",
-  "title": "לוח מכירות",
-  "updated_at": "<ts>",
-  "used_visualization_ids": [],
-  "user_id": "<user:owner>",
-  "version": 2
- },
  "fd0a9a833ad4090e": [
   {
    "created_at": "<ts>",
@@ -76881,6 +76942,32 @@
    "widget_id": "<conv_one_dash/q_customers/widget>"
   }
  ],
+ "fd392f2f93b38ce2": {
+  "allow_popups": false,
+  "artifact_id": "<run_creator/dash>",
+  "compiled_js": null,
+  "compiled_js_key": null,
+  "completion_id": null,
+  "content": {
+   "code": "function App() {\n  return <div dir=\"rtl\"><h1>לוח מכירות</h1><BowChart index={0} /></div>;\n}\n",
+   "runtime_version": 1,
+   "visualization_ids": [
+    "<run_creator/q_sales/viz>"
+   ]
+  },
+  "created_at": "<ts>",
+  "generation_prompt": null,
+  "id": "<run_creator/dash/v1>",
+  "mode": "page",
+  "organization_id": "<org>",
+  "report_id": "<run_creator>",
+  "status": "completed",
+  "title": "לוח מכירות",
+  "updated_at": "<ts>",
+  "used_visualization_ids": [],
+  "user_id": "<user:owner>",
+  "version": 1
+ },
  "fd41994ec58f7773": {
   "step": {
    "applied_params": null,

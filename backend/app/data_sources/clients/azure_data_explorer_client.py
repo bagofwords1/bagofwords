@@ -13,6 +13,12 @@ from functools import cached_property
 
 class AzureDataExplorerClient(DataSourceClient):
     """Azure Data Explorer (Kusto) client for querying ADX clusters."""
+
+    # KQL: a backslash escapes inside a '...' or "..." string literal
+    # ('it\'s', 'C:\\temp') (Kusto string data type, escape sequences): a
+    # standard literal of a value ending in a backslash would end early. No
+    # style here is established for it, so query parameters are refused.
+    sql_literal_style = None
     
     def __init__(self, cluster_url, database, client_id=None, client_secret=None, tenant_id=None, auth_type="aad_app"):
         """

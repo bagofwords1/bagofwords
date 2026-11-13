@@ -265,3 +265,138 @@ def design_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
             "YOUR VISUALIZATIONS). Positional access silently repoints at the wrong dataset when the viz set changes."
         )
     return errors
+
+
+_CHART_TAG_RE = re.compile(r"<(TrendChart|RankChart)\b")
+_CHART_FIELD_PROPS = {"TrendChart": ("x", "y", "series"), "RankChart": ("label", "value")}
+_VIZ_ASSIGN_RE = re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*vizById\(\s*['\"]([0-9a-fA-F][0-9a-fA-F-]{10,40})['\"]\s*\)")
+
+
+def _jsx_tag_body(src: str, start: int) -> str:
+    """The attribute text of the JSX tag opening at ``start`` (``<Name …>``).
+
+    Walks braces and quotes so an ``onClick={p => …}`` arrow does not end the tag.
+    """
+    depth, quote, i = 0, None, start + 1
+    while i < len(src):
+        ch = src[i]
+        if quote:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+        elif ch in "\"'`":
+            quote = ch
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+        elif ch == ">" and depth == 0:
+            return src[start:i]
+        i += 1
+    return src[start:]
+
+
+def _jsx_prop(body: str, name: str):
+    """(kind, value) for prop ``name``: ("str", text) for name="…", ("expr", text) for name={…}."""
+    m = re.search(r"(?<![\w-])" + re.escape(name) + r"\s*=\s*", body)
+    if not m:
+        return None
+    rest = body[m.end():]
+    if rest[:1] in "\"'":
+        end = rest.find(rest[0], 1)
+        return ("str", rest[1:end]) if end > 0 else None
+    if rest[:1] == "{":
+        depth = 0
+        for j, ch in enumerate(rest):
+            depth += ch == "{"
+            depth -= ch == "}"
+            if depth == 0:
+                return ("expr", rest[1:j].strip())
+    return None
+
+
+_PARAM_LIST_RES = (
+    re.compile(r"\bfunction\b\s*[\w$]*\s*\(([^()]*)\)"),   # function Card({ viz }) / function (viz)
+    re.compile(r"\(([^()]*)\)\s*=>"),                         # ({ viz, title }) => / (viz) =>
+)
+_BARE_ARROW_PARAM_RE = re.compile(r"(?<![\w$.])([A-Za-z_$][\w$]*)\s*=>")  # viz => ...
+_IDENT_RE = re.compile(r"[A-Za-z_$][\w$]*")
+
+
+def _function_param_names(src: str) -> set:
+    """Every identifier that appears in a function's parameter list (destructured or not)."""
+    found: set = set()
+    for rx in _PARAM_LIST_RES:
+        for m in rx.finditer(src):
+            found.update(_IDENT_RE.findall(m.group(1)))
+    found.update(m.group(1) for m in _BARE_ARROW_PARAM_RE.finditer(src))
+    return found
+
+
+def chart_prop_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
+    """TrendChart/RankChart field props must name columns of their viz.
+
+    Checked only where the chart provably draws the viz's own rows: no ``rows``
+    prop, or ``rows={v.rows}`` / ``rows={filterRows(v.rows…)}`` for the same viz.
+    Derived rows, expression props and a viz that can't be resolved are skipped,
+    so a correct chart is never flagged. Runtime 11+ only, like design_errors.
+    """
+    runtime = (artifact_data or {}).get("runtime") or {}
+    try:
+        version = int(runtime.get("version") or 0)
+    except (TypeError, ValueError):
+        version = 0
+    if version < 11:
+        return []
+    src = code or ""
+    if "TrendChart" not in src and "RankChart" not in src:
+        return []
+    vizs = {str(v.get("id")): v for v in (artifact_data or {}).get("visualizations") or [] if isinstance(v, dict) and v.get("id")}
+    # One id per identifier. Two components may each declare `const viz =
+    # vizById(...)` for different vizzes; such an identifier is ambiguous here
+    # (no scope analysis), so charts that use it are skipped, never misjudged.
+    seen: Dict[str, set] = {}
+    for m in _VIZ_ASSIGN_RE.finditer(src):
+        seen.setdefault(m.group(1), set()).add(m.group(2))
+    # An identifier that is also a function parameter (a component taking its
+    # own `viz`) may hold any viz there, so it is ambiguous too.
+    params = _function_param_names(src)
+    names = {k: next(iter(v)) for k, v in seen.items() if len(v) == 1 and k not in params}
+    errors: List[str] = []
+    for m in _CHART_TAG_RE.finditer(src):
+        comp = m.group(1)
+        body = _jsx_tag_body(src, m.start())
+        viz_prop = _jsx_prop(body, "viz")
+        if not viz_prop or viz_prop[0] != "expr":
+            continue
+        expr = viz_prop[1]
+        inline = VIZ_BY_ID_RE.fullmatch(expr)
+        viz_id = inline.group(1) if inline else names.get(expr)
+        ident = None if inline else expr
+        viz = vizs.get(str(viz_id)) if viz_id else None
+        if not viz:
+            continue
+        rows_prop = _jsx_prop(body, "rows")
+        if rows_prop is not None:
+            v = rows_prop[1] if rows_prop[0] == "expr" else ""
+            own = bool(ident) and (
+                re.fullmatch(re.escape(ident) + r"\.rows", v) is not None
+                or re.fullmatch(r"filterRows\(\s*" + re.escape(ident) + r"\.rows\s*(?:,[^()]*)?\)", v) is not None
+            )
+            if not own:
+                continue
+        cols = [str(c.get("field") or c.get("name")) for c in viz.get("columns") or [] if isinstance(c, dict) and (c.get("field") or c.get("name"))]
+        if not cols:
+            continue
+        for prop in _CHART_FIELD_PROPS[comp]:
+            p = _jsx_prop(body, prop)
+            if not p or p[0] != "str" or p[1] in cols:
+                continue
+            title = viz.get("title") or "Untitled"
+            errors.append(
+                f"[chart] <{comp}> {prop}=\"{p[1]}\" is not a column of viz \"{title}\" ({viz_id}). "
+                f"Columns: {', '.join(cols)}. Use one of them, or pass rows= with the derived rows that have that field."
+            )
+    return errors

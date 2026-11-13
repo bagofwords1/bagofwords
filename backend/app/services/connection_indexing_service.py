@@ -25,7 +25,9 @@ from fastapi import HTTPException
 from sqlalchemy import select, desc, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.data_sources.clients.progress import IndexingCancelled
+from app.data_sources.clients.progress import (
+    IndexingCancelled, NOT_FOUND_REASON, SKIPPED_NAME_REASON, format_name_list, split_unreadable,
+)
 from app.models.connection import Connection
 from app.models.connection_indexing import (
     ConnectionIndexing,
@@ -1234,16 +1236,20 @@ class ConnectionIndexingService:
                         "Full-text index: " + "; ".join(_notes),
                     )
                 if unreadable:
-                    _names = ", ".join(
-                        str(d.get("datasetName") or d.get("name") or d.get("datasetId"))
-                        for d in unreadable[:5]
-                    )
-                    _more = "" if len(unreadable) <= 5 else f" (+{len(unreadable) - 5} more)"
-                    await _append_event(
-                        "warn", _state_snapshot()["phase"],
-                        f"{len(unreadable)} semantic model(s) found but not readable "
-                        f"(check permissions): {_names}{_more}",
-                    )
+                    not_found, skipped, not_readable = split_unreadable(unreadable)
+                    for entries, text in (
+                        (not_found, NOT_FOUND_REASON),
+                        (skipped, f"skipped ({SKIPPED_NAME_REASON})"),
+                        (not_readable, "found but not readable (check permissions)"),
+                    ):
+                        if entries:
+                            names = format_name_list([
+                                str(d.get("datasetName") or d.get("name") or d.get("datasetId"))
+                                for d in entries
+                            ])
+                            await _append_event(
+                                "warn", _state_snapshot()["phase"], f"{len(entries)} {text}: {names}",
+                            )
 
         except IndexingCancelled:
             # A cancel that surfaced outside the inner handlers — treat as a

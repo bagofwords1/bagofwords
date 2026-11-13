@@ -87,6 +87,10 @@ class PBIXClient(DataSourceClient):
     file — editing/refreshing the .pbix invalidates the cache automatically.
     """
 
+    # DuckDB SQL underneath: '' is the only quote escape (sqlglot duckdb
+    # tokenizer).
+    sql_literal_style = "standard"
+
     def __init__(self, file_paths: str):
         """
         Args:

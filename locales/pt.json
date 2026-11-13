@@ -504,6 +504,14 @@
       "delivery_skipped": {
         "title": "Alguns destinatários não receberam \"{report}\"",
         "body": "{count} destinatário(s) não receberam este relatório porque ele contém dados específicos de cada usuário: {recipients}"
+      },
+      "access_request": {
+        "title": "{actor} pediu para ver {dashboard}",
+        "body": "{actor} pediu para ver «{dashboard}»."
+      },
+      "access_granted": {
+        "title": "Agora você pode ver {dashboard}",
+        "body": "Sua solicitação para ver «{dashboard}» foi aprovada."
       }
     },
     "checkin": {
@@ -2062,12 +2070,10 @@
     "loading": "Carregando...",
     "noRolesFound": "Nenhuma função encontrada",
     "noRolesHint": "Crie uma função para gerenciar permissões.",
-    "system": "sistema",
     "default": "Padrão",
     "defaultRoleHint": "Esta é uma função interna. O nome é fixo — personalize as permissões abaixo.",
     "edit": "Editar",
     "fullAdmin": "Administrador total",
-    "permissionsCount": "{n} permissões",
     "editRole": "Editar função",
     "createRole": "Criar função",
     "nameLabel": "Nome",
@@ -2075,17 +2081,10 @@
     "namePlaceholder": "ex.: Analista",
     "descriptionPlaceholder": "Opcional",
     "fullAdminAccess": "Acesso total de administrador",
-    "fullAdminBypass": "Ignora todas as verificações",
-    "allResources": "Todos os recursos",
-    "orgWidePermissions": "Permissões em toda a organização",
-    "ds": "Agente",
-    "addDataSource": "+ Adicionar fonte de dados...",
     "cancel": "Cancelar",
     "save": "Salvar",
     "create": "Criar",
     "confirmDelete": "Excluir a função \"{name}\"?",
-    "toastCreated": "Função criada",
-    "toastUpdated": "Função atualizada",
     "toastDeleted": "Função excluída",
     "failedToLoad": "Falha ao carregar funções",
     "failedToCreate": "Falha ao criar função",
@@ -2113,20 +2112,90 @@
       "create_data_sources": "Criar agentes",
       "manage_connection": "Gerenciar conexão",
       "manage_data_sources": "Gerenciar agentes",
-      "manage_service_accounts": "Gerenciar contas de serviço"
+      "manage_service_accounts": "Gerenciar contas de serviço",
+      "view_code": "Ver código gerado",
+      "run_custom_code": "Editar e executar código personalizado"
     },
-    "addAgent": "+ Adicionar agente...",
-    "advancedPermissions": "Permissões avançadas",
-    "tiers": {
-      "query": "Pode consultar",
-      "queryHint": "Fazer perguntas a este agente",
+    "delete": "Excluir",
+    "duplicate": "Duplicar",
+    "copyOf": "Cópia de {name}",
+    "loadingRole": "Carregando função…",
+    "loadFailed": "Não foi possível carregar agentes, conexões e modelos.",
+    "retry": "Tentar novamente",
+    "toastCreatedNamed": "{name} criada",
+    "toastUpdatedNamed": "{name} salva",
+    "moreActions": "Mais ações",
+    "tabs": {
+      "permissions": "Permissões",
+      "access": "Acesso"
+    },
+    "groups": {
+      "agents": "Agentes e dados",
+      "knowledge": "Conhecimento dos agentes",
+      "code": "Código",
+      "admin": "Administração",
+      "other": "Outros"
+    },
+    "permissionHints": {
+      "create_data_source": "Criar agentes nas conexões que podem usar",
+      "create_connections": "Adicionar conexões de dados",
+      "manage_connections": "Editar, testar e excluir qualquer conexão",
+      "manage_instructions": "Editar as instruções de todos os agentes",
+      "manage_entities": "Definir tabelas, métricas e termos em todos os agentes",
+      "manage_evals": "Criar e executar avaliações em todos os agentes",
+      "view_code": "Ver o SQL e o Python que os agentes escrevem",
+      "run_custom_code": "Editar e executar código em relatórios",
+      "manage_members": "Convidar pessoas e alterar suas funções",
+      "manage_service_accounts": "Criar chaves de API",
+      "manage_settings": "Alterar as configurações da organização",
+      "manage_llm": "Configurar provedores e modelos de LLM",
+      "view_audit_logs": "Ver quem fez o quê e quando",
+      "manage_identity_providers": "Configurar login único (SSO)"
+    },
+    "fullAdminHint": "Pode fazer tudo na organização",
+    "fullAdminAccessTab": "O acesso total de administrador inclui todos os agentes, conexões e modelos.",
+    "includedWith": "Incluído com {name}",
+    "searchResources": "Pesquisar…",
+    "addAccess": "Adicionar agente, conexão ou modelo",
+    "accessEmpty": "Ainda não há agentes, conexões ou modelos. Agentes públicos estão sempre disponíveis.",
+    "publicAgents": "{n} agentes públicos estão disponíveis para todos.",
+    "types": {
+      "data_source": "Agente",
+      "connection": "Conexão",
+      "llm_model": "Modelo"
+    },
+    "levels": {
+      "use": "Pode usar",
       "manage": "Pode gerenciar",
-      "manageHint": "Editar instruções, entidades, avaliações, configurações e membros"
+      "build": "Pode criar agentes",
+      "custom": "Personalizado"
     },
-    "modelAccess": "Acesso a modelos",
-    "modelAccessHint": "Modelos restritos",
-    "noRestrictedModels": "Nenhum modelo restrito",
-    "connection": "Conexão"
+    "removeAccess": "Remover",
+    "meta": {
+      "permissionsOne": "1 permissão",
+      "permissionsMany": "{n} permissões",
+      "agentsOne": "1 agente",
+      "agentsMany": "{n} agentes",
+      "connectionsOne": "1 conexão",
+      "connectionsMany": "{n} conexões",
+      "modelsOne": "1 modelo",
+      "modelsMany": "{n} modelos",
+      "everything": "Todas as permissões"
+    },
+    "resourcePermissions": {
+      "data_source": {
+        "manage": "Gerenciar (inclui tudo)",
+        "manage_instructions": "Editar instruções",
+        "create_entities": "Editar entidades",
+        "manage_evals": "Gerenciar avaliações",
+        "manage_members": "Gerenciar quem pode usá-lo"
+      },
+      "connection": {
+        "manage_connection": "Editar, testar e reindexar",
+        "create_data_sources": "Criar agentes nela",
+        "manage_data_sources": "Gerenciar todos os seus agentes"
+      }
+    }
   },
   "groupsManager": {
     "searchPlaceholder": "Buscar grupos...",
@@ -3276,6 +3345,10 @@
           "name": "Dias de retenção dos dados de widgets",
           "description": "Número de dias durante os quais os dados dos widgets são mantidos antes da limpeza."
         },
+        "file_retention_days": {
+          "name": "Retenção de arquivos (dias)",
+          "description": "Exclui todas as noites os arquivos mais antigos que este número de dias. Arquivos usados por um painel, arquivos na biblioteca de um agente ou projeto e envios para um relatório agendado são mantidos. 0 mantém os arquivos para sempre."
+        },
         "enable_excel_addin": {
           "name": "Suplemento do Excel",
           "description": "Ativa o suplemento do Excel integrado para que os usuários possam carregar o manifesto diretamente desta instância"
@@ -3307,6 +3380,10 @@
         "enable_demo_data_generation": {
           "name": "Geração de dados de demonstração",
           "description": "No modo de treinamento, administradores que gerenciam conexões podem pedir ao agente que projete e gere um conjunto de dados SQLite fictício e realista para qualquer domínio e depois crie agentes sugeridos sobre ele. As linhas são geradas pelo modelo pequeno padrão."
+        },
+        "allow_access_requests": {
+          "name": "Permitir solicitações de acesso",
+          "description": "Permite que os membros peçam acesso de leitura aos editores de um painel na página sem acesso. Quando desativado, a página apenas indica o proprietário e não é possível enviar novas solicitações; as já enviadas continuam respondíveis."
         }
       }
     },
@@ -4106,6 +4183,11 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "Nome da biblioteca de documentos ou * para todas as bibliotecas visíveis. O campo vazio seleciona a biblioteca padrão apenas no modo REST moderno."
     },
+    "athena": {
+      "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
+      "tableExcludeTitle": "Table Exclude Pattern",
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+    },
     "qlikOnPrem": {
       "appFilterTitle": "Filtro de aplicações",
       "appFilterDescription": "Nomes ou IDs de aplicações separados por vírgulas, nos fluxos selecionados. Vazio inclui todas as aplicações correspondentes. Use IDs para nomes com vírgulas.",
@@ -4250,6 +4332,8 @@
     "shell_confirmation.invalid_scope": "Escopo de permissão inválido.",
     "shell_confirmation.report_required": "As permissões de sessão exigem um relatório.",
     "shell_confirmation.rule_mismatch": "Regra de comando inválida, ou o padrão não corresponde a este comando.",
+    "connection.config_invalid": "Invalid connection configuration: {detail}",
+    "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
     "catalog_discovery_incomplete": "A atualização do catálogo falhou porque a descoberta ficou incompleta. O catálogo anterior e as seleções de tabelas foram mantidos.",
     "saml_unavailable": "Configuração de SSO indisponível. Contate seu administrador.",
     "saml_login_failed": "Falha no login SSO. Tente novamente ou contate seu administrador.",
@@ -4368,13 +4452,22 @@
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
     "ssh.key_discovery_failed": "Não foi possível buscar a chave. Verifique host, porta e rede ou insira uma chave confiável nas configurações avançadas.",
+    "file.in_use": "O arquivo é usado por um painel",
     "connection.kms_token_format": "O token de API do KMS só pode conter letras, dígitos e sinais de pontuação simples, sem espaços. Copie-o novamente do KMS Lighthouse e cole-o como texto simples.",
     "connection.kms_use_connection_credentials": "Os logins do KMS Lighthouse são salvos na conexão. Abra a conexão e conecte-se a partir dela.",
     "connection.kms_only": "O diagnóstico aplica-se apenas a ligações KMS Lighthouse.",
     "connection.kms_diagnostics_running": "O diagnóstico já está em curso para esta ligação. Aguarde que termine e tente novamente.",
     "connection.kms_login_rejected": "O KMS Lighthouse não aceitou este início de sessão, por isso não foi guardado. Verifique o nome de utilizador e a palavra-passe, ou o token de API, e tente novamente.",
     "connection.kms_login_paused": "O KMS Lighthouse recusou recentemente este início de sessão, por isso as novas tentativas com ele estão em pausa durante alguns minutos e não foi guardado. Verifique o início de sessão ou tente novamente mais tarde.",
-    "connection.kms_session_refused": "O KMS Lighthouse aceitou o início de sessão, mas recusou a sessão correspondente, por isso não pode ser usado e não foi guardado. Pergunte ao administrador do KMS se esta conta pode usar a API do KMS."
+    "connection.kms_session_refused": "O KMS Lighthouse aceitou o início de sessão, mas recusou a sessão correspondente, por isso não pode ser usado e não foi guardado. Pergunte ao administrador do KMS se esta conta pode usar a API do KMS.",
+    "access_request.disabled": "As solicitações de acesso estão desativadas para esta organização.",
+    "access_request.not_allowed": "Este painel não precisa de uma solicitação de acesso.",
+    "access_request.already_has_access": "Você já tem acesso a este painel.",
+    "access_request.pending": "Sua solicitação já está pendente.",
+    "access_request.too_soon": "Sua solicitação anterior foi recusada. Você pode pedir novamente mais tarde.",
+    "access_request.no_approvers": "No momento, ninguém pode aprovar solicitações para este painel.",
+    "access_request.not_found": "Esta solicitação não existe mais.",
+    "access_request.already_decided": "Esta solicitação já foi respondida."
   },
   "email": {
     "dashboardShare": {
@@ -4505,7 +4598,7 @@
   },
   "files": {
     "title": "Arquivos",
-    "subtitle": "Gerencie os arquivos da sua organização",
+    "subtitle": "Os arquivos que você enviou e os que o agente criou nos seus relatórios.",
     "file": "Arquivo",
     "metadata": "Metadados",
     "createdAt": "Criado em",
@@ -4514,7 +4607,31 @@
     "metadataFieldsMany": "{count} campos de metadados",
     "metadataTagsOne": "{count} tag de metadados",
     "metadataTagsMany": "{count} tags de metadados",
-    "noMetadata": "Sem metadados"
+    "noMetadata": "Sem metadados",
+    "search": "Pesquisar arquivos",
+    "filterAll": "Todos os arquivos",
+    "filterUploads": "Enviados",
+    "selectAll": "Selecionar tudo",
+    "deleteSelected": "Excluir {count} selecionados",
+    "delete": "Excluir",
+    "download": "Baixar",
+    "empty": "Nenhum arquivo corresponde",
+    "confirmTitleOne": "Excluir este arquivo?",
+    "confirmTitleMany": "Excluir {count} arquivos?",
+    "confirmBody": "Os arquivos excluídos são removidos de todos os relatórios, agentes e projetos que os usam e não podem ser recuperados.",
+    "toastDeletedOne": "Arquivo excluído",
+    "toastDeletedMany": "{count} arquivos excluídos",
+    "toastError": "Não foi possível excluir os arquivos",
+    "toastDownloadError": "Não foi possível baixar o arquivo",
+    "filterAgent": "Agente",
+    "sourceAgent": "Agente",
+    "sourceUpload": "Enviado",
+    "selectedCount": "{count} selecionados",
+    "toastPartialOne": "Não foi possível excluir {count} arquivo",
+    "toastPartialMany": "Não foi possível excluir {count} arquivos",
+    "inUse": "Usado por um painel, por isso não pode ser excluído",
+    "emptyNone": "Ainda não há arquivos",
+    "emptyNoneHint": "Os arquivos que você envia para um relatório e os que o agente cria aparecem aqui."
   },
   "dashboards": {
     "title": "Painéis",
@@ -5650,6 +5767,8 @@
     "modelAuto": "Auto",
     "noAgents": "Nenhum",
     "project": "Projeto",
+    "toolOutputFilesOne": "{count} arquivo criado pelo agente",
+    "toolOutputFilesMany": "{count} arquivos criados pelo agente",
     "agentsFromReport": "Usa os agentes do relatório"
   },
   "errorPage": {
@@ -6777,6 +6896,29 @@
       "deniedBody": "Você não tem acesso a esta página. Peça ao proprietário para compartilhá-la com você.",
       "goHome": "Ir para o início",
       "backToApp": "Voltar ao app"
+    },
+    "accessRequest": {
+      "noAccessTitle": "Você não tem acesso",
+      "ownerLine": "Este painel pertence a {owner}.",
+      "ownerUnknown": "Você não tem acesso a este painel.",
+      "requestButton": "Solicitar acesso",
+      "notePlaceholder": "Adicionar uma nota (opcional)",
+      "send": "Enviar solicitação",
+      "cancel": "Cancelar",
+      "sent": "Solicitação enviada",
+      "pending": "Sua solicitação está pendente",
+      "askOwner": "Peça acesso ao proprietário do painel, {owner}.",
+      "askOwnerGeneric": "Peça acesso ao proprietário do painel.",
+      "noApprovers": "No momento, ninguém pode aprovar solicitações para este painel.",
+      "cooldown": "Sua solicitação anterior foi recusada. Você pode pedir novamente mais tarde.",
+      "pendingTitle": "Solicitações pendentes",
+      "approve": "Aprovar",
+      "deny": "Recusar",
+      "noteFrom": "Nota de {name}",
+      "switchesPrivate": "Aprovar altera este painel para «Pessoas específicas» e adiciona esta pessoa como visualizador.",
+      "runsAsCreator": "Este painel é executado com o acesso aos dados de {creator}. Aprovar permite que esta pessoa veja o que {creator} vê.",
+      "approveTitle": "Aprovar solicitação de acesso",
+      "confirmApprove": "Aprovar"
     }
   },
   "dashboardSettings": {

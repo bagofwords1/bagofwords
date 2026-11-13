@@ -10,6 +10,11 @@ from contextlib import contextmanager
 
 
 class NetsuiteClient(DataSourceClient):
+
+    # SuiteQL follows Oracle SQL syntax: '' only (NetSuite SuiteQL syntax and
+    # examples).
+    sql_literal_style = "standard"
+
     def __init__(
         self,
         account_id: str,

@@ -37,6 +37,10 @@ _FROM_IDENT = re.compile(r"\bFROM\s+([A-Za-z_][\w-]*)", re.IGNORECASE)
 
 class CosmosdbClient(DataSourceClient):
 
+    # Cosmos DB query language: string escapes are \' \" \\ \n \r ... and ''
+    # is not one (Cosmos DB query language reference, Constants).
+    sql_literal_style = "backslash"
+
     def __init__(
         self,
         endpoint: str,

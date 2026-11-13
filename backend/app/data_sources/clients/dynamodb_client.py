@@ -37,6 +37,11 @@ _DDB_TYPES = {"S": "string", "N": "number", "B": "binary"}
 
 class DynamodbClient(DataSourceClient):
 
+    # PartiQL: '' is a quote inside a string (PartiQL specification,
+    # Literals); doubling the backslash too keeps one literal whether or not a
+    # backslash escapes.
+    sql_literal_style = "doubled"
+
     def __init__(
         self,
         region: str | None = None,

@@ -357,14 +357,15 @@ class CreateDataMCPTool(MCPTool):
         # Build final data_model: use requested type, merge series/grouping from inference
         data_model = {"type": effective_type, "series": []}
         if isinstance(inferred_dm, dict):
-            for key in ("series", "group_by", "sort", "limit"):
+            for key in ("series", "group_by", "sort", "limit", "display"):
                 if inferred_dm.get(key) is not None:
                     data_model[key] = inferred_dm[key]
 
         # Build view from data_model
         palette_theme = _infer_palette_theme({"settings": rich_ctx.org_settings}) or "default"
         available_columns = [c.get("field") for c in formatted.get("columns", []) if c.get("field")]
-        view_schema = build_view_from_data_model(data_model, title=title, palette_theme=palette_theme, available_columns=available_columns)
+        view_schema = build_view_from_data_model(data_model, title=title, palette_theme=palette_theme, available_columns=available_columns,
+                                                 rows=formatted.get("rows") or [])
         view_payload = view_schema.model_dump(exclude_none=True) if view_schema else None
         if not view_payload and data_model.get("type"):
             from app.schemas.view_schema import TableView, ViewSchema as VS

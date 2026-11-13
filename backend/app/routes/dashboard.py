@@ -46,6 +46,12 @@ from app.schemas.dashboard_schema import (
     PublishedDashboardSchema,
 )
 from app.schemas.completion_v2_schema import CompletionCreate
+from app.schemas.dashboard_access_request_schema import (
+    AccessRequestBlockedSchema,
+    AccessRequestCreate,
+    AccessRequestDecisionSchema,
+    PendingRequestsSchema,
+)
 from app.schemas.query_schema import QueryRunRequest
 from app.services import dashboard_access, dashboard_settings_service
 from app.services.dashboard_list import ListQuery
@@ -86,6 +92,7 @@ async def get_published_dashboard(
         theme_name=release.theme_name, theme_overrides=release.theme_overrides,
         include_data_tab=bool(artifact.include_data_tab), chat_enabled=bool(artifact.chat_enabled),
         show_widget_info=bool(artifact.show_widget_info),
+        allow_popups=bool(artifact.allow_popups),
         general=await _general(db, artifact),
         is_owner=await dashboard_access.counts_as_owner(db, artifact, user),
         data_is_mine=await dashboard_access.holds_snapshot(db, artifact, release, user),
@@ -123,6 +130,7 @@ async def get_draft_dashboard(
         published=await dashboard_access.published_release(db, artifact) is not None,
         theme_name=report[0] if report else None, theme_overrides=report[1] if report else None,
         show_widget_info=bool(artifact.show_widget_info),
+        allow_popups=bool(artifact.allow_popups),
         general=await _general(db, artifact),
         can_edit=await dashboard_access.can_edit(db, artifact, user),
         is_owner=await dashboard_access.counts_as_owner(db, artifact, user),
@@ -393,6 +401,124 @@ async def notify_dashboard_share(
     return response
 
 
+# ── access requests (request-to-view a dashboard) ────────────────────────
+#
+# A member who cannot open a published dashboard asks its editors for view
+# access (blocked page). Editors answer from the share settings. The requester
+# routes gate on org membership only (any member may ask); the editor routes
+# gate on CAP_SHARE, like the sharing routes, so org admins get no extra
+# approval rights.
+
+async def _artifact_for_access_request(db, ref: str, organization: Organization):
+    """The dashboard a blocked member names: its id or slug, or -- for a legacy
+    /r/{report_id} link -- the conversation whose dashboard it is. Org-scoped."""
+    from sqlalchemy import or_
+    from app.models.artifact import Artifact
+
+    try:
+        artifact = await dashboard_access.resolve(db, ref)
+    except AppError:
+        artifact = None
+    if artifact is None or str(artifact.organization_id) != str(organization.id):
+        artifact = (await db.execute(
+            select(Artifact).where(
+                or_(Artifact.legacy_report_id == str(ref), Artifact.report_id == str(ref)),
+                Artifact.organization_id == str(organization.id),
+                Artifact.deleted_at.is_(None),
+            ).limit(1)
+        )).scalar_one_or_none()
+    if artifact is None:
+        raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND)
+    # Only a published dashboard can be requested: an unpublished or draft one
+    # stays hidden (its editors reach it through the draft). This keeps a
+    # private, unpublished dashboard from leaking its owner through this route.
+    if await dashboard_access.published_release(db, artifact) is None:
+        raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND)
+    return artifact
+
+
+@router.get("/artifacts/{dashboard_id}/access_request", response_model=AccessRequestBlockedSchema)
+async def get_access_request_state(
+    dashboard_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """The no-access page's thin payload: owner name, whether requests are
+    allowed, whether one is already pending, whether anyone can approve.
+    Never the dashboard's title."""
+    from app.services import dashboard_access_requests
+
+    artifact = await _artifact_for_access_request(db, dashboard_id, organization)
+    return await dashboard_access_requests.blocked_state(db, artifact, current_user)
+
+
+@router.post("/artifacts/{dashboard_id}/access_requests", response_model=AccessRequestBlockedSchema)
+async def create_access_request(
+    dashboard_id: str,
+    payload: AccessRequestCreate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """A member asks to view the dashboard. Returns the refreshed blocked state
+    (now `pending`)."""
+    from app.services import dashboard_access_requests
+
+    artifact = await _artifact_for_access_request(db, dashboard_id, organization)
+    await dashboard_access_requests.create_request(db, artifact, current_user, payload.note, organization)
+    return await dashboard_access_requests.blocked_state(db, artifact, current_user)
+
+
+@router.get("/artifacts/{dashboard_id}/access_requests", response_model=PendingRequestsSchema)
+@requires_permission("publish_reports")
+async def list_access_requests(
+    dashboard_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """The pending requests an editor answers from the share settings, with the
+    approval-dialog context (private → switches to Specific people; runs with
+    the creator's data access)."""
+    from app.services import dashboard_access_requests
+
+    artifact = await dashboard_settings_service.dashboard_for(
+        db, dashboard_id, current_user, organization, dashboard_access.CAP_SHARE)
+    return await dashboard_access_requests.list_for_editor(db, artifact)
+
+
+async def _decide_access_request(db, request_id, current_user, organization, *, approve: bool):
+    from app.services import dashboard_access_requests
+
+    req = await dashboard_access_requests.get_request(db, request_id, organization)
+    artifact = await dashboard_settings_service.dashboard_for(
+        db, req.artifact_id, current_user, organization, dashboard_access.CAP_SHARE)
+    return await dashboard_access_requests.decide(db, artifact, req, current_user, approve=approve)
+
+
+@router.post("/access_requests/{request_id}/approve", response_model=AccessRequestDecisionSchema)
+@requires_permission("publish_reports")
+async def approve_access_request(
+    request_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    return await _decide_access_request(db, request_id, current_user, organization, approve=True)
+
+
+@router.post("/access_requests/{request_id}/deny", response_model=AccessRequestDecisionSchema)
+@requires_permission("publish_reports")
+async def deny_access_request(
+    request_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    return await _decide_access_request(db, request_id, current_user, organization, approve=False)
+
+
 @router.post("/artifacts/{dashboard_id}/publish", response_model=DashboardPublishStatusSchema, status_code=202)
 @requires_permission("publish_reports")
 async def publish_dashboard(
@@ -565,11 +691,31 @@ async def _has_own_run(db, release, user) -> bool:
 
     if user is None:
         return False
+    from app.services.dashboard_data import release_creator_result_holds_owner_slice
+
+    # Results resolve_release_step refuses (run under the owner's credentials
+    # over an RLS source) are not a run of theirs either. Decided before the
+    # stream below, which holds the session's connection.
+    creator_rows = (await db.execute(
+        select(StepUserResult.id, StepUserResult.executed_as, Step.id.label("step_id"), Step.code)
+        .join(Step, Step.id == StepUserResult.step_id)
+        .join(Query, Query.id == Step.query_id)
+        .where(Query.artifact_release_id == str(release.id), StepUserResult.user_id == str(user.id),
+               StepUserResult.status == "success", StepUserResult.executed_as == "creator")
+    )).all()
+    refused_steps: dict[str, bool] = {}  # the rule is per step: asked once for each
+    refused: list[str] = []
+    for row in creator_rows:
+        step_key = str(row.step_id)
+        if step_key not in refused_steps:
+            refused_steps[step_key] = await release_creator_result_holds_owner_slice(db, row, release, row.code)
+        if refused_steps[step_key]:
+            refused.append(str(row.id))
     rows = await db.stream(
         select(StepUserResult.data).join(Step, Step.id == StepUserResult.step_id)
         .join(Query, Query.id == Step.query_id)
         .where(Query.artifact_release_id == str(release.id), StepUserResult.user_id == str(user.id),
-               StepUserResult.status == "success")
+               StepUserResult.status == "success", StepUserResult.id.notin_(refused))
         .order_by(StepUserResult.last_run_at.desc().nullslast(), StepUserResult.id)
         .execution_options(yield_per=1)
     )

@@ -6,7 +6,6 @@ queries, visualizations, widgets, and artifacts with proper ID remapping.
 Generates an AI summary of the original conversation as the first message.
 """
 
-import re
 import uuid
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Any, NamedTuple, Tuple
@@ -48,13 +47,6 @@ FORK_PENDING_STATUS = "pending"
 # gives up while the server still calls the fork hydrating.
 FORK_HYDRATION_STALE_SECONDS = 300
 
-# Step code reaches a source through `ds_clients["<agent>:<connection>"]` (or
-# `.get(...)` with the same literal key).
-_CLIENT_KEY_ACCESS = re.compile(
-    r"""\bds_clients\s*(?:\[\s*(['"])(?P<sub>[^'"\n]+)\1\s*\]|\.get\(\s*(['"])(?P<get>[^'"\n]+)\3)"""
-)
-_CLIENT_NAME = re.compile(r"\bds_clients\b")
-
 
 def _reaches_only_usable_clients(code: str, clients: dict) -> bool:
     """True when every client the code reaches is one the forker holds.
@@ -63,15 +55,59 @@ def _reaches_only_usable_clients(code: str, clients: dict) -> bool:
     usable identity for a source has no client under its key, so the run fails
     with a KeyError — the same exception a missing parameter raises, so the
     exception cannot tell "no access" from "the query broke". The keys the code
-    names can. Fails closed: code naming no client, or reaching `ds_clients` in
-    any form other than a literal key (a computed key, an alias, `.items()`),
-    counts as NOT reaching only usable clients.
+    names can (client_keys.literal_client_keys, the rule the viewer policy
+    reads sources by). Fails closed: code naming no client, or reaching
+    `ds_clients` in any form other than a literal key (a computed key, an
+    alias, `.items()`), counts as NOT reaching only usable clients.
     """
-    code = code or ""
-    keys = [m.group("sub") or m.group("get") for m in _CLIENT_KEY_ACCESS.finditer(code)]
-    if not keys or len(keys) != len(_CLIENT_NAME.findall(code)):
+    from app.services.client_keys import literal_client_keys
+
+    keys = literal_client_keys(code)
+    if not keys:
         return False
     return all(k in clients for k in keys)
+
+
+def _failure_keeps_code(error: BaseException, code: str, clients: dict) -> bool:
+    """Whether a hydration run that failed may write its code into the fork.
+
+    Only when the failure is positively a parameter problem -- a ParamError,
+    or a KeyError for a name that is not a client key (params["depot"]) -- and
+    every client the code reaches is one the forker holds
+    (_reaches_only_usable_clients). Anything else keeps no code: a driver
+    refusing the forker's own login words it its own way ("permission denied
+    for table ...", "does not exist or not authorized", "Access Denied"), so
+    an unrecognised failure is not taken for a broken query.
+    """
+    from app.ai.code_execution.query_params import ParamError
+
+    if not _reaches_only_usable_clients(code, clients):
+        return False
+    if isinstance(error, ParamError):
+        return True
+    missing = _missing_key(error)
+    if not isinstance(missing, str):
+        return False
+    from app.services.client_keys import literal_client_keys
+
+    return missing not in clients and missing not in (literal_client_keys(code) or [])
+
+
+def _missing_key(error: BaseException):
+    """The key a KeyError names, raised in this process or relayed by the
+    subprocess sandbox (SandboxExecutionError with exc_type "KeyError" and
+    repr(key) as its message); None for anything else, or a relayed message
+    that does not read back as a Python literal."""
+    if isinstance(error, KeyError):
+        return error.args[0] if error.args else None
+    if getattr(error, "exc_type", None) == "KeyError":
+        import ast
+
+        try:
+            return ast.literal_eval(str(getattr(error, "message", "")))
+        except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+            return None
+    return None
 
 
 class ForkEligibility:
@@ -252,9 +288,26 @@ class ForkService:
         # `user_can_access_data_source` — auth_policy only ever described HOW a
         # connection authenticates, never who is entitled to it.
 
-        # Check user has access to all data sources
+        # Check user has access to all data sources: the attached ones, or for
+        # a report with none attached (it runs on the organization's sources),
+        # the organization sources its code reaches by client key. Only those:
+        # a source's name in a comment, a column or a string is not a reach.
+        # What keeps a source's rows and code from the forker is the copy rule
+        # in _duplicate_assets (no rows over RLS or per-user sources, no code
+        # over per-user ones, with every source counted when the code reaches
+        # its clients another way), not this check; refusing for every source
+        # in the organization would block forking such reports org-wide.
         from app.core.permission_resolver import user_can_access_data_source
-        for ds in report.data_sources:
+        sources = list(report.data_sources)
+        if not sources:
+            from app.services.viewer_data_policy import org_sources_keyed_in_code, report_reached_codes
+            named = await org_sources_keyed_in_code(
+                db, report.organization_id, await report_reached_codes(db, str(report.id)))
+            if named:
+                sources = (await db.execute(
+                    select(DataSource).where(DataSource.id.in_(named))
+                )).scalars().all()
+        for ds in sources:
             if ds.is_public:
                 continue
             if not await user_can_access_data_source(
@@ -599,7 +652,7 @@ class ForkService:
                     from app.services.access_errors import is_access_denied
                     if is_access_denied(e):
                         refused.add(step_id)
-                    elif _reaches_only_usable_clients(code, db_clients):
+                    elif _failure_keeps_code(e, code, db_clients):
                         # Same wording a viewer's own failed run gets
                         # (StepService.run_step_to_user_result).
                         repairable[step_id] = str(e)[:2000] or e.__class__.__name__
@@ -779,23 +832,26 @@ class ForkService:
         viz_id_map: Dict[str, str] = {}
 
         # Whether the source report's step rows are credential-differentiated
-        # to the source owner and so must not be copied into the fork:
-        #   - user-scoped connections (auth_policy != system_only) — fork
-        #     eligibility already blocks these, so this is normally False; it's
-        #     defense-in-depth for the detached-source edge (a user_required
-        #     source removed from the report after its steps were materialized).
+        # to the source owner and so must not be copied into the fork. Asked
+        # of the sources the report runs on (attached, else the
+        # organization's, step by step — report_run_data_source_ids):
+        #   - user-scoped connections (auth_policy != system_only) — such a
+        #     report is forkable (see check_eligibility); the fork gets no
+        #     rows and no code, and hydrate_fork fills in what the forker's
+        #     own credentials can run.
         #   - RLS relations — the shared snapshot is the OWNER's row slice of a
         #     shared system_only materialization, so copying it hands the
         #     forker rows their own identity would never return. These live on
         #     system_only connections, so the user-scoped check alone misses
         #     them.
-        from app.services.viewer_data_policy import (
-            has_user_scoped_connections,
-            has_rls_relations,
-            redact_applied_params,
-        )
-        user_scoped = await has_user_scoped_connections(db, str(original.id))
-        strict_source = user_scoped or await has_rls_relations(db, str(original.id))
+        from app.services import viewer_data_policy
+        from app.services.viewer_data_policy import redact_applied_params
+
+        # Resolved once for both questions (as report_service.get_report does).
+        run_source_ids = await viewer_data_policy.report_run_data_source_ids(db, str(original.id))
+        user_scoped = await viewer_data_policy.has_user_scoped_connections(
+            db, str(original.id), run_source_ids=run_source_ids)
+        strict_source = user_scoped or await viewer_data_policy._any_rls_relation(db, run_source_ids)
 
         # `code` needs a NARROWER rule than `data`.
         #
