@@ -55,6 +55,9 @@ try {
       document.body.appendChild(el);
     }, {code, data: DATA, opts});
     const frame = page.frames().find(fr => fr.parentFrame());
+    // Wait for the app to render before counting: a fixed wait alone raced the
+    // in-browser compile on a loaded machine and found 0 where the ⓘ shows.
+    await frame.waitForSelector('[data-bow-viz]', {timeout: 30000});
     await page.waitForTimeout(500);
     const n = await frame.evaluate(() =>
       document.querySelectorAll('[data-bow-ibtn], [data-bow-info] button[aria-label="Details"]').length);

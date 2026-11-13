@@ -103,6 +103,12 @@ _WILDCARD_INDEX = re.compile(r'index\s*=\s*"?\*', re.IGNORECASE)
 
 class SplunkClient(DataSourceClient):
 
+    # SPL: string values are double-quoted with backslash escapes (\" and
+    # \\), and a single-quoted token names a field in eval/where (Splunk
+    # Search Reference, quotation marks and escaping): a standard '...'
+    # literal is not a string there. Query parameters are refused.
+    sql_literal_style = None
+
     def __init__(
         self,
         host: str,

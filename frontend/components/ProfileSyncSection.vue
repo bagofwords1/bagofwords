@@ -1,125 +1,89 @@
 <template>
-  <div class="border border-gray-200 dark:border-gray-700 rounded-lg">
-    <button
-      class="w-full flex items-center justify-between px-4 py-3 text-start"
-      @click="open = !open"
-    >
-      <div>
-        <h2 class="text-sm font-medium text-gray-900 dark:text-white">{{ pt('Title') }}</h2>
-        <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ pt('Subtitle') }}</p>
-      </div>
-      <svg class="w-4 h-4 text-ink-muted transition-transform flex-shrink-0" :class="open ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-      </svg>
-    </button>
+  <SettingsDisclosure v-model:open="open" :title="pt('Title')" :description="pt('Subtitle')">
+    <template #status>{{ enabled ? $t('settings.identityProvider.on') : $t('settings.identityProvider.off') }}</template>
 
-    <div v-show="open" class="px-4 pb-4 border-t border-gray-100 dark:border-gray-800 pt-4">
-      <!-- Enable toggle -->
-      <div class="flex items-start justify-between gap-4 mb-4">
-        <div class="flex-1">
-          <div class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ pt('Enable') }}</div>
-          <p class="text-2xs text-ink-muted mt-0.5">{{ pt('EnableHint') }}</p>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          :aria-checked="enabled"
-          class="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors focus:outline-none"
-          :class="enabled ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'"
-          @click="enabled = !enabled"
+    <SettingsRow :label="pt('Enable')" :description="pt('EnableHint')">
+      <UToggle v-model="enabled" />
+    </SettingsRow>
+
+    <!-- Fields to include in context -->
+    <div v-show="enabled" class="mt-6">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-sm font-medium text-ink">{{ pt('FieldsLabel') }}</span>
+        <Spinner v-if="previewLoading" class="w-3.5 h-3.5 text-ink-muted" />
+      </div>
+
+      <p v-if="preview && !preview.connected" class="text-xs text-amber-700 dark:text-amber-400 mb-2">
+        {{ previewHint }}
+      </p>
+
+      <!-- Field rows: checkbox (in context) | label | sample value | remove -->
+      <div class="rounded-lg border border-line divide-y divide-line-subtle overflow-hidden">
+        <div
+          v-for="field in shownFields"
+          :key="field"
+          class="group/field flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-ink/[0.03]"
         >
-          <span
-            class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform mt-0.5"
-            :class="enabled ? 'translate-x-4' : 'translate-x-0.5'"
-          ></span>
-        </button>
-      </div>
-
-      <!-- Fields to include in context -->
-      <div v-show="enabled">
-        <div class="flex items-center justify-between mb-2">
-          <label class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ pt('FieldsLabel') }}</label>
-          <span v-if="previewLoading" class="text-2xs text-ink-muted">
-            <span class="inline-block w-3 h-3 border-2 border-gray-200 dark:border-gray-700 border-t-gray-500 rounded-full animate-spin align-middle"></span>
+          <UCheckbox
+            :id="`${i18nPrefix}-field-${field}`"
+            :model-value="selected.has(field)"
+            @update:model-value="toggleField(field)"
+          />
+          <label :for="`${i18nPrefix}-field-${field}`" class="w-44 shrink-0 text-ink-2 cursor-pointer">
+            {{ fieldLabel(field) }}
+          </label>
+          <span class="flex-1 truncate font-mono text-xs" :class="sampleValue(field) ? 'text-ink-muted' : 'text-ink-subtle'">
+            {{ sampleValue(field) || pt('NotSet') }}
           </span>
+          <UButton
+            color="gray"
+            variant="ghost"
+            size="2xs"
+            icon="i-heroicons-x-mark"
+            class="opacity-0 group-hover/field:opacity-100 focus:opacity-100"
+            :aria-label="pt('Remove')"
+            @click="removeField(field)"
+          />
         </div>
-
-        <!-- Preview connection hint -->
-        <p v-if="preview && !preview.connected" class="text-2xs text-amber-600 dark:text-amber-500 mb-2">
-          {{ previewHint }}
-        </p>
-
-        <!-- Field rows: checkbox (in context) | label | sample value | remove -->
-        <div class="border border-gray-200 dark:border-gray-700 rounded overflow-hidden">
-          <div
-            v-for="(field, idx) in shownFields"
-            :key="field"
-            class="flex items-center gap-2 px-3 py-2 text-xs"
-            :class="{ 'border-t border-gray-100 dark:border-gray-800': idx > 0 }"
-          >
-            <input
-              :id="`${i18nPrefix}-field-${field}`"
-              type="checkbox"
-              :checked="selected.has(field)"
-              class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              @change="toggleField(field)"
-            />
-            <label :for="`${i18nPrefix}-field-${field}`" class="w-40 flex-shrink-0 text-gray-700 dark:text-gray-300 cursor-pointer">
-              {{ fieldLabel(field) }}
-            </label>
-            <span class="flex-1 truncate font-mono text-2xs" :class="sampleValue(field) ? 'text-gray-500 dark:text-gray-400' : 'text-gray-300 dark:text-gray-600 italic'">
-              {{ sampleValue(field) || pt('NotSet') }}
-            </span>
-            <button
-              class="text-gray-300 hover:text-red-500 flex-shrink-0"
-              :title="pt('Remove')"
-              @click="removeField(field)"
-            >
-              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
-            </button>
-          </div>
-          <div v-if="!shownFields.length" class="px-3 py-4 text-center text-2xs text-ink-muted">
-            {{ pt('NoFields') }}
-          </div>
-        </div>
-
-        <!-- Add attribute -->
-        <div v-if="addableFields.length" class="flex items-center gap-2 mt-2">
-          <select
-            v-model="fieldToAdd"
-            class="text-xs border border-gray-200 dark:border-gray-700 dark:bg-gray-900 rounded px-2 py-1.5 focus:outline-none focus:border-gray-400"
-          >
-            <option value="">{{ pt('AddPlaceholder') }}</option>
-            <option v-for="f in addableFields" :key="f" :value="f">{{ fieldLabel(f) }}</option>
-          </select>
-          <button
-            class="px-2 py-1.5 text-xs text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 rounded hover:border-gray-300 disabled:opacity-40"
-            :disabled="!fieldToAdd"
-            @click="addField"
-          >
-            {{ pt('Add') }}
-          </button>
+        <div v-if="!shownFields.length" class="px-4 py-6 text-center text-sm text-ink-muted">
+          {{ pt('NoFields') }}
         </div>
       </div>
 
-      <!-- Save -->
-      <div class="flex items-center gap-3 mt-4">
-        <button
-          class="px-3 py-1.5 text-xs text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-50"
-          :disabled="saving"
-          @click="handleSave"
-        >
-          {{ saving ? pt('Saving') : $t('common.save') }}
-        </button>
-        <span v-if="savedFlash" class="text-2xs text-green-600">{{ pt('Saved') }}</span>
-        <span v-if="error" class="text-2xs text-red-500">{{ error }}</span>
+      <!-- Add attribute -->
+      <div v-if="addableFields.length" class="flex items-center gap-2 mt-3">
+        <USelect
+          v-model="fieldToAdd"
+          size="sm"
+          class="w-56"
+          :options="[{ value: '', label: pt('AddPlaceholder') }, ...addableFields.map(f => ({ value: f, label: fieldLabel(f) }))]"
+          option-attribute="label"
+          value-attribute="value"
+        />
+        <UButton size="sm" color="gray" icon="i-heroicons-plus" :disabled="!fieldToAdd" @click="addField">
+          {{ pt('Add') }}
+        </UButton>
       </div>
     </div>
-  </div>
+
+    <!-- Save -->
+    <div class="flex items-center gap-3 mt-6">
+      <UButton color="blue" :loading="saving" :disabled="saving" @click="handleSave">
+        {{ saving ? pt('Saving') : $t('common.save') }}
+      </UButton>
+      <span v-if="savedFlash" class="inline-flex items-center gap-1 text-xs text-green-700 dark:text-green-400">
+        <UIcon name="i-heroicons-check" class="w-3.5 h-3.5" />{{ pt('Saved') }}
+      </span>
+      <span v-if="error" class="text-xs text-red-600 dark:text-red-400">{{ error }}</span>
+    </div>
+  </SettingsDisclosure>
 </template>
 
 <script setup lang="ts">
 import { useProfileSync } from '~/composables/useProfileSync'
+import SettingsDisclosure from '~/components/settings/SettingsDisclosure.vue'
+import SettingsRow from '~/components/settings/SettingsRow.vue'
+import Spinner from '~/components/Spinner.vue'
 
 const props = defineProps<{
   // i18n key prefix under settings.identityProvider, e.g. 'entra' | 'google'

@@ -1,0 +1,181 @@
+/*
+ * Data tables — one look for every admin table (Members, Groups, Service
+ * accounts, Quotas, LLM models, Roles, Audit).
+ *
+ * Before this, each table carried its own header band (`bg-gray-50/60`),
+ * padding, row height and text greys, so no two tables in the console
+ * matched. Apply `.bow-table` to the <table> (or a div grid built with the
+ * same row/cell classes) and wrap it in `.bow-table-card`.
+ *
+ * The look: a quiet header (small, muted, no fill), 14px body in the theme's
+ * body ink, hairline row rules, a soft hover. Everything resolves through the
+ * tokens in tokens.css, so dark mode needs no extra rules.
+ */
+
+.bow-table-card {
+  border: 1px solid rgb(var(--bow-line-rgb));
+  border-radius: 0.5rem;
+  /* Transparent, not --bow-bg-elevated: the card sits on the page surface in
+     both themes. In dark mode the elevated token is slate, which read as a
+     blue slab on the app's neutral dark canvas. */
+  background: transparent;
+  /* Clip row hover fills to the rounded corners without clipping popovers:
+     every row menu in the console is teleported, so this is safe. */
+  overflow: hidden;
+}
+
+.bow-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: rgb(var(--bow-ink-2-rgb));
+}
+
+.bow-table > thead > tr > th {
+  text-align: start;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: rgb(var(--bow-ink-muted-rgb));
+  background: transparent;
+  padding: 0.625rem 1rem;
+  border-bottom: 1px solid rgb(var(--bow-line-rgb));
+  white-space: nowrap;
+}
+
+.bow-table > tbody > tr > td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgb(var(--bow-line-subtle-rgb));
+  vertical-align: middle;
+}
+
+.bow-table > tbody > tr:last-child > td {
+  border-bottom: 0;
+}
+
+.bow-table > tbody > tr {
+  transition: background-color var(--bow-duration-fast, 120ms) ease;
+}
+
+/* Hover is a 3% wash of the ink colour: it darkens a touch on light and
+   lightens a touch on dark, so it reads the same in both themes. */
+.bow-table > tbody > tr:hover > td {
+  background-color: rgb(var(--bow-ink-rgb) / 0.03);
+}
+
+/* Rows without data (empty state, loading) never highlight. */
+.bow-table > tbody > tr.bow-table-static:hover > td {
+  background: transparent;
+}
+
+/* First and last cells sit 20px in, so the table edge lines up with the
+   card's padding instead of hugging the border. */
+.bow-table > thead > tr > th:first-child,
+.bow-table > tbody > tr > td:first-child {
+  padding-inline-start: 1.25rem;
+}
+.bow-table > thead > tr > th:last-child,
+.bow-table > tbody > tr > td:last-child {
+  padding-inline-end: 1.25rem;
+}
+
+/* Primary cell text (a name) and secondary line under it (an email, an id).
+   Not scoped to .bow-table: list rows and modals use them too. */
+.bow-cell-primary {
+  font-weight: 500;
+  color: rgb(var(--bow-ink-rgb));
+}
+.bow-cell-secondary {
+  font-size: 0.75rem;
+  line-height: 1.125rem;
+  color: rgb(var(--bow-ink-muted-rgb));
+}
+
+/* An empty value ("no groups", "no quota"): a muted dash, never italics. */
+.bow-cell-empty {
+  font-size: 0.875rem;
+  color: rgb(var(--bow-ink-subtle-rgb));
+}
+
+/* Row actions fade in on hover/focus so the table reads as data first.
+   Always visible on touch devices, which have no hover. */
+.bow-table .bow-row-actions {
+  opacity: 0.55;
+  transition: opacity var(--bow-duration-fast, 120ms) ease;
+}
+.bow-table > tbody > tr:hover .bow-row-actions,
+.bow-table .bow-row-actions:focus-within {
+  opacity: 1;
+}
+@media (hover: none) {
+  .bow-table .bow-row-actions {
+    opacity: 1;
+  }
+}
+
+/* A stack of SettingsDisclosure rows reads as one bordered list. */
+.settings-disclosure-group {
+  border: 1px solid rgb(var(--bow-line-rgb));
+  border-radius: 0.5rem;
+  background: transparent;
+  overflow: hidden;
+}
+.settings-disclosure-group > * + * {
+  border-top: 1px solid rgb(var(--bow-line-rgb));
+}
+
+/* A column pinned to the inline end (row actions on a wide, scrolling table).
+   Opaque so scrolled cells pass underneath it; the hover rule above still
+   paints it with the rest of the row. */
+.bow-table .bow-sticky-end {
+  position: sticky;
+  inset-inline-end: 0;
+  z-index: 1;
+  background: var(--bow-sticky-bg, #fff);
+}
+.dark .bow-table .bow-sticky-end {
+  --bow-sticky-bg: #121212;
+}
+
+/* A selected row (bulk selection) keeps a faint accent fill. */
+.bow-table > tbody > tr.bow-row-selected > td {
+  background: rgb(var(--bow-accent-subtle-rgb) / 0.6);
+}
+
+/* Native <select>/<input> used inline in a table row, styled to sit next to
+   Nuxt UI controls: same height, radius, border and type as a size="sm" input. */
+.bow-native-control {
+  height: 2rem;
+  padding: 0 0.625rem;
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  color: rgb(var(--bow-ink-2-rgb));
+  background-color: rgb(var(--bow-bg-elevated-rgb));
+  border: 1px solid rgb(var(--bow-line-strong-rgb));
+  border-radius: 0.375rem;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.04);
+  transition: border-color var(--bow-duration-fast, 120ms) ease, box-shadow var(--bow-duration-fast, 120ms) ease;
+}
+.bow-native-control:focus {
+  outline: none;
+  border-color: rgb(var(--bow-accent-rgb));
+  box-shadow: 0 0 0 1px rgb(var(--bow-accent-rgb));
+}
+.bow-native-control:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+select.bow-native-control {
+  padding-inline-end: 2rem;
+}
+
+/* An open row menu lives inside its row's pinned cell. Lift that cell above
+   the pinned cells of the rows below, which would otherwise paint over it. */
+.bow-table > tbody > tr:hover > td.bow-sticky-end,
+.bow-table > tbody > tr > td.bow-sticky-end:focus-within {
+  z-index: 3;
+}

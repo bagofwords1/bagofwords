@@ -1,3 +1,4 @@
+import json
 import logging
 import time
 from typing import AsyncIterator, Dict, Any, Optional, Type
@@ -425,6 +426,47 @@ def _result_summary(tool_name: str, content_type: str, output: Dict[str, Any]) -
     return summary + _files_summary(output)
 
 
+def mcp_apps_enabled(organization_settings: Any) -> bool:
+    """The org's MCP Apps switch (on unless an admin turned it off)."""
+    if organization_settings is None:
+        return True
+    try:
+        cfg = organization_settings.get_config("enable_mcp_apps")
+    except Exception:
+        return True
+    value = getattr(cfg, "value", cfg)
+    return value is not False
+
+
+def _mcp_app_payload(organization_settings, connection, tool_record, tool_name,
+                     arguments, raw_result, preview) -> Optional[Dict[str, Any]]:
+    """What the chat needs to render a tool's MCP App, or None if it has none.
+
+    ``tool_result`` is the CallToolResult verbatim. When it was too large to
+    keep (see mcp_client.raw_call_tool_result) the app gets the same bounded
+    text preview the chat shows, so it still receives a result.
+    """
+    if tool_record is None or not mcp_apps_enabled(organization_settings):
+        return None
+    from app.services.mcp_apps import tool_resource_uri
+    uri = tool_resource_uri(getattr(tool_record, "metadata_json", None))
+    if not uri:
+        return None
+    if raw_result is None:
+        text = preview if isinstance(preview, str) else json.dumps(preview, default=str)
+        raw_result = {
+            "content": [{"type": "text", "text": text or ""}],
+            "_meta": {"bagofwords/truncated": True},
+        }
+    return {
+        "resource_uri": uri,
+        "connection_id": str(connection.id),
+        "tool_name": tool_name,
+        "tool_input": arguments or {},
+        "tool_result": raw_result,
+    }
+
+
 def _files_summary(output: Dict[str, Any]) -> str:
     """Tell the agent about files the tool returned, saved or not."""
     out = ""
@@ -705,6 +747,22 @@ Do not use when:
                 tool_input_schema = filter_locked_from_schema(tool_input_schema, _cfg or {})
             except Exception:
                 pass
+        # MCP Apps: a tool whose _meta.ui.visibility leaves out "model" exists
+        # only for its app's UI (e.g. a refresh button). The spec makes hiding
+        # it from the agent a MUST; it is filtered out of every catalog the
+        # model sees, and a call by name is refused here as well.
+        from app.services.mcp_apps import model_visible
+        if tool_record is not None and not model_visible(getattr(tool_record, "metadata_json", None)):
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": {**connection_info, "success": False,
+                               "error_message": f"Tool '{data.tool_name}' can only be called from its app UI."},
+                    "observation": {"summary": f"Tool '{data.tool_name}' is app-only; the agent cannot call it.",
+                                    "success": False},
+                },
+            )
+            return
         if tool_record and not tool_record.is_enabled:
             yield ToolEndEvent(
                 type="tool.end",
@@ -1046,6 +1104,16 @@ Do not use when:
                 output["session_file_id"] = attached[0]["file_id"]
             if dropped:
                 output["dropped_files"] = dropped
+
+        # MCP Apps: the tool renders into a ui:// app. The chat shows it next to
+        # this call and hands it the arguments and the result as the server
+        # sent them. UI-only — nothing here reaches the model's observation.
+        mcp_app = _mcp_app_payload(
+            organization_settings, connection, tool_record, data.tool_name,
+            data.arguments, result.get("raw_result"), output.get("preview"),
+        )
+        if mcp_app:
+            output["mcp_app"] = mcp_app
 
         # Audit
         await log_tool_audit(

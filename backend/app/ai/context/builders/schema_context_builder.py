@@ -1239,7 +1239,11 @@ class SchemaContextBuilder:
                 )
 
             items: List[MCPToolItem] = []
+            from app.services.mcp_apps import model_visible
             for t in tools:
+                # MCP Apps: app-only tools are never shown to the agent.
+                if not model_visible(getattr(t, "metadata_json", None)):
+                    continue
                 overlay = overlays.get(str(t.id))
                 is_enabled = overlay.is_enabled if overlay else t.is_enabled
                 if not is_enabled:

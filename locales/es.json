@@ -427,6 +427,7 @@
     "prompts": "Prompts",
     "starOnGithub": "Star our GitHub",
     "admin": "Administración",
+    "backToApp": "Volver a la app",
     "notifications": "Notificaciones",
     "automations": "Automatizaciones"
   },
@@ -500,6 +501,14 @@
       "delivery_skipped": {
         "title": "Algunos destinatarios no recibieron \"{report}\"",
         "body": "{count} destinatario(s) no recibieron este informe porque contiene datos específicos de cada usuario: {recipients}"
+      },
+      "access_request": {
+        "title": "{actor} pidió ver {dashboard}",
+        "body": "{actor} pidió ver «{dashboard}»."
+      },
+      "access_granted": {
+        "title": "Ya puedes ver {dashboard}",
+        "body": "Tu solicitud para ver «{dashboard}» fue aprobada."
       }
     },
     "checkin": {
@@ -1494,7 +1503,17 @@
       "allowedByYou": "Permitido por ti",
       "deniedByYou": "Denegado por ti",
       "records": "{n} registros",
-      "recordsPartial": "{shown} de {total} registros"
+      "recordsPartial": "{shown} de {total} registros",
+      "app": {
+        "loading": "Cargando la aplicación…",
+        "loadFailed": "No se pudo mostrar la aplicación",
+        "exitFullscreen": "Salir de pantalla completa",
+        "confirmTool": "{app} quiere ejecutar {tool}. ¿Lo permites?",
+        "confirmLink": "{app} quiere abrir este enlace:",
+        "openLink": "Abrir enlace",
+        "cancel": "Cancelar",
+        "contextShared": "La aplicación compartió tu selección con el asistente."
+      }
     },
     "answerQuestion": {
       "thought": "Pensó la respuesta"
@@ -2215,12 +2234,10 @@
     "loading": "Cargando...",
     "noRolesFound": "No se encontraron roles",
     "noRolesHint": "Crea un rol para gestionar los permisos.",
-    "system": "sistema",
     "default": "Predeterminado",
     "defaultRoleHint": "Este es un rol integrado. Su nombre es fijo: personaliza sus permisos abajo.",
     "edit": "Editar",
     "fullAdmin": "Administrador total",
-    "permissionsCount": "{n} permisos",
     "editRole": "Editar rol",
     "createRole": "Crear rol",
     "nameLabel": "Nombre",
@@ -2228,17 +2245,10 @@
     "namePlaceholder": "p. ej. Analista",
     "descriptionPlaceholder": "Opcional",
     "fullAdminAccess": "Acceso de administrador total",
-    "fullAdminBypass": "Omite todas las comprobaciones",
-    "allResources": "Todos los recursos",
-    "orgWidePermissions": "Permisos a nivel de organización",
-    "ds": "Agente",
-    "addDataSource": "+ Añadir fuente de datos...",
     "cancel": "Cancelar",
     "save": "Guardar",
     "create": "Crear",
     "confirmDelete": "¿Eliminar el rol \"{name}\"?",
-    "toastCreated": "Rol creado",
-    "toastUpdated": "Rol actualizado",
     "toastDeleted": "Rol eliminado",
     "failedToLoad": "No se pudieron cargar los roles",
     "failedToCreate": "No se pudo crear el rol",
@@ -2270,18 +2280,86 @@
       "create_data_sources": "Crear agentes",
       "manage_data_sources": "Gestionar agentes"
     },
-    "addAgent": "+ Añadir agente...",
-    "advancedPermissions": "Permisos avanzados",
-    "tiers": {
-      "query": "Puede consultar",
-      "queryHint": "Hacer preguntas a este agente",
-      "manage": "Puede gestionar",
-      "manageHint": "Editar instrucciones, entidades, evaluaciones, ajustes y miembros"
+    "delete": "Eliminar",
+    "duplicate": "Duplicar",
+    "copyOf": "Copia de {name}",
+    "loadingRole": "Cargando rol…",
+    "loadFailed": "No se pudieron cargar los agentes, conexiones y modelos.",
+    "retry": "Reintentar",
+    "toastCreatedNamed": "{name} creado",
+    "toastUpdatedNamed": "{name} guardado",
+    "moreActions": "Más acciones",
+    "tabs": {
+      "permissions": "Permisos",
+      "access": "Acceso"
     },
-    "modelAccess": "Acceso a modelos",
-    "modelAccessHint": "Modelos restringidos",
-    "noRestrictedModels": "No hay modelos restringidos",
-    "connection": "Conexión"
+    "groups": {
+      "agents": "Agentes y datos",
+      "knowledge": "Conocimiento de agentes",
+      "code": "Código",
+      "admin": "Administración",
+      "other": "Otros"
+    },
+    "permissionHints": {
+      "create_data_source": "Crear agentes en las conexiones que pueden usar",
+      "create_connections": "Añadir conexiones de datos",
+      "manage_connections": "Editar, probar y eliminar cualquier conexión",
+      "manage_instructions": "Editar las instrucciones de todos los agentes",
+      "manage_entities": "Definir tablas, métricas y términos en todos los agentes",
+      "manage_evals": "Crear y ejecutar evaluaciones en todos los agentes",
+      "view_code": "Ver el SQL y Python que escriben los agentes",
+      "run_custom_code": "Editar y ejecutar código en informes",
+      "manage_members": "Invitar personas y cambiar sus roles",
+      "manage_service_accounts": "Crear claves de API",
+      "manage_settings": "Cambiar la configuración de la organización",
+      "manage_llm": "Configurar proveedores y modelos LLM",
+      "view_audit_logs": "Ver quién hizo qué y cuándo",
+      "manage_identity_providers": "Configurar el inicio de sesión único"
+    },
+    "fullAdminHint": "Puede hacer todo en la organización",
+    "fullAdminAccessTab": "El acceso de administrador total incluye todos los agentes, conexiones y modelos.",
+    "includedWith": "Incluido con {name}",
+    "searchResources": "Buscar…",
+    "addAccess": "Añadir agente, conexión o modelo",
+    "accessEmpty": "Aún no hay agentes, conexiones ni modelos. Los agentes públicos siempre están disponibles.",
+    "publicAgents": "{n} agentes públicos están disponibles para todos.",
+    "types": {
+      "data_source": "Agente",
+      "connection": "Conexión",
+      "llm_model": "Modelo"
+    },
+    "levels": {
+      "use": "Puede usar",
+      "manage": "Puede gestionar",
+      "build": "Puede crear agentes",
+      "custom": "Personalizado"
+    },
+    "removeAccess": "Quitar",
+    "meta": {
+      "permissionsOne": "1 permiso",
+      "permissionsMany": "{n} permisos",
+      "agentsOne": "1 agente",
+      "agentsMany": "{n} agentes",
+      "connectionsOne": "1 conexión",
+      "connectionsMany": "{n} conexiones",
+      "modelsOne": "1 modelo",
+      "modelsMany": "{n} modelos",
+      "everything": "Todos los permisos"
+    },
+    "resourcePermissions": {
+      "data_source": {
+        "manage": "Gestionar (incluye todo)",
+        "manage_instructions": "Editar instrucciones",
+        "create_entities": "Editar entidades",
+        "manage_evals": "Gestionar evaluaciones",
+        "manage_members": "Gestionar quién puede usarlo"
+      },
+      "connection": {
+        "manage_connection": "Editar, probar y reindexar",
+        "create_data_sources": "Crear agentes en ella",
+        "manage_data_sources": "Gestionar todos sus agentes"
+      }
+    }
   },
   "groupsManager": {
     "searchPlaceholder": "Buscar grupos...",
@@ -2534,7 +2612,10 @@
       "googleSaved": "Guardado",
       "googleSaving": "Guardando...",
       "googleSubtitle": "Sincroniza el nombre, el puesto, el departamento y otros datos del perfil desde Google al iniciar sesión",
-      "googleTitle": "Sincronización de perfil de Google"
+      "googleTitle": "Sincronización de perfil de Google",
+      "on": "Activado",
+      "off": "Desactivado",
+      "notLicensed": "Enterprise"
     },
     "auditLogs": "Registros de auditoría",
     "integrations": {
@@ -3025,7 +3106,10 @@
       "defaultRoleHint": "Rellena el rol al añadir o invitar a un miembro.",
       "defaultRoleSaved": "Rol predeterminado guardado",
       "defaultRoleFailed": "No se pudo guardar el rol predeterminado",
-      "defaultRoleShort": "Rol predeterminado"
+      "defaultRoleShort": "Rol predeterminado",
+      "importButton": "Importar",
+      "colNote": "Nota",
+      "colLastLogin": "Último inicio de sesión"
     },
     "organizationName": "Nombre de la organización",
     "organizationIcon": "Icono de la organización",
@@ -3443,6 +3527,10 @@
           "name": "Herramientas MCP y de API personalizada",
           "description": "Permite conectar servidores MCP externos y puntos finales de API personalizados a las fuentes de datos como proveedores de herramientas"
         },
+        "enable_mcp_apps": {
+          "name": "Aplicaciones MCP",
+          "description": "Muestra en el chat, dentro de un marco aislado, la aplicación interactiva que un servidor MCP adjunta a una herramienta (MCP Apps, recursos ui://). Desactivado: los resultados se muestran solo como texto."
+        },
         "tools_max": {
           "name": "Máximo de herramientas",
           "description": "Cuántas herramientas externas de MCP / API personalizada recibe el agente como herramientas propias en una ejecución. Por encima de este número se conservan las más usadas y el resto sigue disponible mediante la búsqueda de herramientas, para que un catálogo muy grande no llene cada solicitud con definiciones de herramientas."
@@ -3510,6 +3598,10 @@
         "step_retention_days": {
           "name": "Días de retención de datos de widgets",
           "description": "Número de días durante los que se conservan los datos de los widgets antes de purgarlos."
+        },
+        "file_retention_days": {
+          "name": "Retención de archivos (días)",
+          "description": "Elimina cada noche los archivos con más de estos días. Se conservan los archivos que usa un panel, los de la biblioteca de un agente o proyecto y los subidos a un informe programado. 0 los conserva para siempre."
         },
         "enable_excel_addin": {
           "name": "Complemento de Excel",
@@ -3610,6 +3702,10 @@
         "sandbox_lists_max_rows": {
           "name": "Máximo de filas de lista por ejecución",
           "description": "Cuántas filas puede enviar a las listas del agente una ejecución del código generado. De 1 a 50.000."
+        },
+        "allow_access_requests": {
+          "name": "Permitir solicitudes de acceso",
+          "description": "Permite que los miembros pidan acceso de lectura a los editores de un panel desde la página de sin acceso. Cuando está desactivado, la página solo indica a quién pedírselo y no se pueden enviar nuevas solicitudes; las ya enviadas siguen pudiéndose responder."
         }
       }
     },
@@ -3762,7 +3858,8 @@
         "restrictedDefaultHint": "Este es el modelo predeterminado de la organización. Los miembros que no aparecen abajo usan el predeterminado de su grupo.",
         "defaultForGroups": "Predeterminado para grupos",
         "defaultForGroupsHint": "Los miembros de estos grupos siempre pueden usar este modelo."
-      }
+      },
+      "colAccess": "Acceso"
     },
     "licensePage": {
       "title": "Licencia",
@@ -3916,9 +4013,98 @@
       "testPlaceholder": "Pega un texto con datos personales de ejemplo…",
       "testResult": "Resultado",
       "testTitle": "Prueba tus reglas",
-      "title": "Protección de datos personales"
+      "title": "Protección de datos personales",
+      "patternCount": "{n} patrón | {n} patrones"
     },
-    "piiTab": "Protección de datos"
+    "piiTab": "Protección de datos",
+    "adminPages": {
+      "members": "Invita a personas al espacio de trabajo y gestiona su rol, grupos y acceso.",
+      "roles": "Define qué puede ver y hacer cada rol, y asígnalos a miembros y grupos.",
+      "groups": "Organiza a los miembros en grupos para conceder roles, cuotas y acceso a datos en conjunto.",
+      "quotas": "Limita el uso mensual de IA y datos para miembros, grupos y roles.",
+      "models": "Conecta proveedores de LLM y elige qué modelos puede usar tu espacio de trabajo.",
+      "identityProvider": "Sincroniza usuarios, grupos y datos de perfil desde tu proveedor de identidad.",
+      "smtp": "El servidor que envía los correos del sistema: invitaciones, informes compartidos y resultados de informes programados. Si está activado, reemplaza al servidor configurado para esta instancia."
+    },
+    "generalSections": {
+      "workspace": "Espacio de trabajo",
+      "workspaceHint": "Cómo aparece tu organización en la aplicación.",
+      "assistant": "Analista de IA",
+      "assistantHint": "El nombre que ve tu equipo cuando responde el analista.",
+      "region": "Idioma y región",
+      "regionHint": "Valores predeterminados para la interfaz, las respuestas de la IA y las fechas."
+    },
+    "smtpPage": {
+      "status": {
+        "orgTitle": "El correo del sistema usa este servidor SMTP.",
+        "orgDetail": "Enviando mediante {host}.",
+        "yourRelay": "tu servidor de retransmisión",
+        "globalTitle": "El correo del sistema usa el servidor SMTP configurado globalmente.",
+        "globalDetail": "Activa un servidor SMTP personalizado para enviar desde tu propio servidor.",
+        "noneTitle": "No hay ningún servidor SMTP configurado.",
+        "noneDetail": "No se están enviando invitaciones, informes compartidos ni correos de informes programados."
+      },
+      "mailboxNoteTitle": "No es el buzón de IA.",
+      "mailboxNote": "Este servidor solo envía notificaciones del sistema. Las respuestas del analista de IA siempre salen del buzón de IA, que se configura por separado.",
+      "serverSection": "Servidor de correo",
+      "serverSectionHint": "Datos de conexión de tu servidor SMTP.",
+      "enableLabel": "Usar un servidor SMTP personalizado",
+      "enableOn": "El correo del sistema se envía a través del servidor de abajo.",
+      "enableOffGlobal": "Desactivado: el correo del sistema usa el servidor SMTP global. Tu configuración se conserva.",
+      "enableOffNone": "Desactivado, y no hay servidor SMTP global, así que no se enviará ningún correo del sistema. Tu configuración se conserva.",
+      "fromName": "Nombre del remitente",
+      "fromAddress": "Dirección del remitente",
+      "host": "Host",
+      "port": "Puerto",
+      "username": "Usuario",
+      "password": "Contraseña",
+      "passwordUnchanged": "•••••••• (sin cambios)",
+      "passwordKeep": "Déjala en blanco para conservar la contraseña guardada.",
+      "authHint": "Deja usuario y contraseña vacíos para un servidor abierto que no requiere autenticación.",
+      "security": "Seguridad",
+      "securityNone": "Ninguna",
+      "validateCerts": "Validar certificados TLS",
+      "validateCertsHint": "Desactívalo para servidores con certificados autofirmados o de una CA interna.",
+      "save": "Guardar",
+      "saving": "Guardando…",
+      "sendTest": "Guardar y enviar correo de prueba",
+      "sendingTest": "Enviando…",
+      "sendsTo": "Se envía a {email}",
+      "saved": "SMTP guardado",
+      "saveFailed": "No se pudo guardar el SMTP",
+      "saveFailedDetail": "No se pudo guardar la configuración SMTP",
+      "notSaved": "No guardado",
+      "testRequestFailed": "La solicitud de prueba falló",
+      "testFailed": "La prueba falló",
+      "testDelivered": "Correo de prueba entregado a {recipient}",
+      "testDeliveredDetail": "Enviado mediante {source}. Revisa tu bandeja de entrada para confirmarlo.",
+      "testDeliveredDetailAs": "Enviado mediante {source} como {from}. Revisa tu bandeja de entrada para confirmarlo.",
+      "testFailureDetail": "{error} — {hint} (transporte: {source})",
+      "unknownError": "Error desconocido",
+      "fail": {
+        "connect": "No se pudo conectar con el servidor de correo",
+        "connectHint": "revisa el host y el puerto, y que un firewall no bloquee el SMTP saliente",
+        "tls": "Falló la negociación TLS",
+        "tlsHint": "prueba otra opción de Seguridad o desactiva la validación de certificados para un servidor interno",
+        "auth": "El servidor de correo rechazó las credenciales",
+        "authHint": "revisa el usuario y la contraseña",
+        "sender": "El servidor de correo rechazó la dirección del remitente",
+        "senderHint": "el servidor no envía desde esta dirección; usa una autorizada",
+        "recipient": "El servidor de correo se negó a enviar a esa dirección",
+        "recipientHint": "el servidor no acepta correo para este destinatario",
+        "config": "La configuración SMTP está incompleta",
+        "configHint": "completa el campo que falta y vuelve a intentarlo",
+        "other": "El servidor de correo rechazó el mensaje",
+        "otherHint": "consulta la respuesta del servidor arriba"
+      },
+      "source": {
+        "org": "este servidor SMTP",
+        "global": "el servidor SMTP global",
+        "mailbox": "el buzón de IA",
+        "none": "ningún transporte"
+      },
+      "alertsHint": "Qué correos del sistema se envían. Las notificaciones en la aplicación siempre se entregan."
+    }
   },
   "data": {
     "keepSavedSecret": "Deja en blanco para conservar el secreto guardado",
@@ -4434,6 +4620,11 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "Nombre de la biblioteca de documentos, o * para todas las bibliotecas visibles. Dejarlo vacío selecciona la biblioteca predeterminada solo en el modo REST moderno."
     },
+    "athena": {
+      "databaseDescription": "Un nombre de base de datos de Glue, o una lista separada por comas de nombres, patrones glob y exclusiones con !, para indexar varias, p. ej. *_db, !billing_db, analytics_history. Con varias, las tablas se llaman base_de_datos.tabla.",
+      "tableExcludeTitle": "Patrón de exclusión de tablas",
+      "tableExcludeDescription": "Expresión regular opcional; las tablas cuyo nombre coincida no se indexan, p. ej. ^day_\\d{'{'}2{'}'}. Al cambiarla, en la siguiente indexación se eliminan las tablas recién excluidas y su selección en el agente."
+    },
     "qlikOnPrem": {
       "appFilterTitle": "Filtro de aplicaciones",
       "appFilterDescription": "Nombres o ID de aplicaciones separados por comas, dentro de los streams seleccionados. Vacío incluye todas las aplicaciones coincidentes. Use ID para nombres con comas.",
@@ -4583,6 +4774,8 @@
     "shell_confirmation.invalid_scope": "Alcance de permiso no válido.",
     "shell_confirmation.report_required": "Los permisos de sesión requieren un informe.",
     "shell_confirmation.rule_mismatch": "Regla de comando no válida, o el patrón no coincide con este comando.",
+    "connection.config_invalid": "Configuración de conexión no válida: {detail}",
+    "connection.athena_mode_switch": "Una conexión de Athena no puede cambiar entre una base de datos y varias. Crea una conexión nueva.",
     "catalog_discovery_incomplete": "La actualización del catálogo falló porque la detección quedó incompleta. Se conservaron el catálogo anterior y las selecciones de tablas.",
     "saml_unavailable": "La configuración de SSO no está disponible. Contacta con tu administrador.",
     "saml_login_failed": "Error al iniciar sesión con SSO. Inténtalo de nuevo o contacta con tu administrador.",
@@ -4719,13 +4912,22 @@
     "APPLICATION_AGENT_FORBIDDEN": "La aplicación no tiene acceso a este agente",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Administra las aplicaciones directamente en BOW",
     "ssh.key_discovery_failed": "No se pudo obtener la clave. Compruebe el servidor, puerto y red, o introduzca una clave fiable en Avanzado.",
+    "file.in_use": "El archivo lo usa un panel",
     "connection.kms_token_format": "El token de API de KMS solo puede contener letras, dígitos y signos de puntuación simples, sin espacios. Cópialo de nuevo desde KMS Lighthouse y pégalo como texto sin formato.",
     "connection.kms_use_connection_credentials": "Los inicios de sesión de KMS Lighthouse se guardan en la conexión. Abre la conexión y conéctate desde allí.",
     "connection.kms_only": "El diagnóstico solo se aplica a las conexiones de KMS Lighthouse.",
     "connection.kms_diagnostics_running": "El diagnóstico ya se está ejecutando para esta conexión. Espere a que termine e inténtelo de nuevo.",
     "connection.kms_login_rejected": "KMS Lighthouse no aceptó este inicio de sesión, así que no se guardó. Comprueba el usuario y la contraseña, o el token de API, y vuelve a intentarlo.",
     "connection.kms_login_paused": "KMS Lighthouse rechazó este inicio de sesión hace poco, así que los nuevos intentos con él están en pausa unos minutos y no se guardó. Revisa el inicio de sesión o vuelve a intentarlo más tarde.",
-    "connection.kms_session_refused": "KMS Lighthouse aceptó el inicio de sesión pero rechazó su sesión, así que no se puede usar y no se guardó. Pregunta al administrador de KMS si esta cuenta puede usar la API de KMS."
+    "connection.kms_session_refused": "KMS Lighthouse aceptó el inicio de sesión pero rechazó su sesión, así que no se puede usar y no se guardó. Pregunta al administrador de KMS si esta cuenta puede usar la API de KMS.",
+    "access_request.disabled": "Las solicitudes de acceso están desactivadas para esta organización.",
+    "access_request.not_allowed": "Este panel no necesita una solicitud de acceso.",
+    "access_request.already_has_access": "Ya tienes acceso a este panel.",
+    "access_request.pending": "Tu solicitud ya está pendiente.",
+    "access_request.too_soon": "Tu solicitud anterior fue rechazada. Puedes volver a pedirla más adelante.",
+    "access_request.no_approvers": "Ahora mismo no hay nadie que pueda aprobar solicitudes de este panel.",
+    "access_request.not_found": "Esta solicitud ya no existe.",
+    "access_request.already_decided": "Esta solicitud ya fue respondida."
   },
   "email": {
     "dashboardShare": {
@@ -4865,7 +5067,7 @@
   },
   "files": {
     "title": "Archivos",
-    "subtitle": "Administra los archivos de tu organización",
+    "subtitle": "Los archivos que subiste y los que el agente creó en tus informes.",
     "file": "Archivo",
     "metadata": "Metadatos",
     "createdAt": "Creado el",
@@ -4874,7 +5076,31 @@
     "metadataFieldsMany": "{count} campos de metadatos",
     "metadataTagsOne": "{count} etiqueta de metadatos",
     "metadataTagsMany": "{count} etiquetas de metadatos",
-    "noMetadata": "Sin metadatos"
+    "noMetadata": "Sin metadatos",
+    "search": "Buscar archivos",
+    "filterAll": "Todos los archivos",
+    "filterUploads": "Subidos",
+    "selectAll": "Seleccionar todo",
+    "deleteSelected": "Eliminar {count} seleccionados",
+    "delete": "Eliminar",
+    "download": "Descargar",
+    "empty": "Ningún archivo coincide",
+    "confirmTitleOne": "¿Eliminar este archivo?",
+    "confirmTitleMany": "¿Eliminar {count} archivos?",
+    "confirmBody": "Los archivos eliminados se quitan de todos los informes, agentes y proyectos que los usan, y no se pueden recuperar.",
+    "toastDeletedOne": "Archivo eliminado",
+    "toastDeletedMany": "{count} archivos eliminados",
+    "toastError": "No se pudieron eliminar los archivos",
+    "toastDownloadError": "No se pudo descargar el archivo",
+    "filterAgent": "Agente",
+    "sourceAgent": "Agente",
+    "sourceUpload": "Subido",
+    "selectedCount": "{count} seleccionados",
+    "toastPartialOne": "No se pudo eliminar {count} archivo",
+    "toastPartialMany": "No se pudieron eliminar {count} archivos",
+    "inUse": "Lo usa un panel, así que no se puede eliminar",
+    "emptyNone": "Todavía no hay archivos",
+    "emptyNoneHint": "Aquí aparecen los archivos que subes a un informe y los que crea el agente."
   },
   "dashboards": {
     "title": "Paneles",
@@ -6069,6 +6295,8 @@
     "modelAuto": "Auto",
     "noAgents": "Ninguno",
     "project": "Proyecto",
+    "toolOutputFilesOne": "{count} archivo creado por el agente",
+    "toolOutputFilesMany": "{count} archivos creados por el agente",
     "agentsFromReport": "Usa los agentes del informe"
   },
   "errorPage": {
@@ -7268,6 +7496,29 @@
       "deniedBody": "No tienes acceso a esta página. Pide a su propietario que la comparta contigo.",
       "goHome": "Ir al inicio",
       "backToApp": "Volver a la app"
+    },
+    "accessRequest": {
+      "noAccessTitle": "No tienes acceso",
+      "ownerLine": "Este panel pertenece a {owner}.",
+      "ownerUnknown": "No tienes acceso a este panel.",
+      "requestButton": "Solicitar acceso",
+      "notePlaceholder": "Agrega una nota (opcional)",
+      "send": "Enviar solicitud",
+      "cancel": "Cancelar",
+      "sent": "Solicitud enviada",
+      "pending": "Tu solicitud está pendiente",
+      "askOwner": "Pide acceso al propietario del panel, {owner}.",
+      "askOwnerGeneric": "Pide acceso al propietario del panel.",
+      "noApprovers": "Ahora mismo no hay nadie que pueda aprobar solicitudes de este panel.",
+      "cooldown": "Tu solicitud anterior fue rechazada. Puedes volver a pedirla más adelante.",
+      "pendingTitle": "Solicitudes pendientes",
+      "approve": "Aprobar",
+      "deny": "Denegar",
+      "noteFrom": "Nota de {name}",
+      "switchesPrivate": "Al aprobar, este panel cambia a «Personas específicas» y se añade a esta persona como visor.",
+      "runsAsCreator": "Este panel se ejecuta con el acceso a datos de {creator}. Al aprobar, esta persona verá lo que ve {creator}.",
+      "approveTitle": "Aprobar solicitud de acceso",
+      "confirmApprove": "Aprobar"
     }
   },
   "dashboardSettings": {
@@ -7415,7 +7666,10 @@
       "ssoSignIn": "inicio de sesión de BOW",
       "noteAssertion": "Tu backend firma una aserción de 60 segundos para el usuario con la clave privada de la aplicación anfitriona. La clave nunca llega al navegador.",
       "noteIdp": "La página entrega el token de ID del usuario de tu proveedor de identidad; BOW lo verifica con las claves publicadas del proveedor.",
-      "noteSso": "La primera vez, las personas inician sesión en BOW en una ventana pequeña. Úsalo cuando la otra aplicación no pueda firmar aserciones."
+      "noteSso": "La primera vez, las personas inician sesión en BOW en una ventana pequeña. Úsalo cuando la otra aplicación no pueda firmar aserciones.",
+      "permissionsTitle": "Permisos",
+      "allowPopups": "Permitir que los enlaces se abran en una pestaña nueva",
+      "allowPopupsHelp": "De forma predeterminada, los enlaces y botones de este panel no pueden abrir pestañas nuevas ni ventanas emergentes. Actívalo para permitirlo."
     }
   },
   "hostApps": {

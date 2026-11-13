@@ -35,6 +35,9 @@ _SYSTEM_SCHEMAS = ("INFORMATION_SCHEMA", "sys", "$scratch")
 
 class DremioClient(DataSourceClient):
 
+    # Dremio SQL (Calcite): '' only (sqlglot dremio).
+    sql_literal_style = "standard"
+
     relative_date_hint = "Relative dates (Dremio SQL): CURRENT_DATE, DATE_SUB(CURRENT_DATE, 7), DATE_TRUNC('MONTH', CURRENT_DATE)."
 
     def __init__(

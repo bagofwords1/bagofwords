@@ -1,95 +1,63 @@
 <template>
-  <div class="mt-4">
-    <!-- Header -->
-    <div class="mb-6">
-      <h2 class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('settings.licensePage.title') }}</h2>
-      <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('settings.licensePage.subtitle') }}</p>
-    </div>
+  <div>
+    <SettingsLoading v-if="loading" />
 
-    <div v-if="loading" class="py-8 flex justify-center">
-      <ULoader />
-    </div>
-
-    <div v-else class="space-y-4 max-w-2xl">
-      <!-- License Status Card -->
+    <div v-else>
+      <!-- Status: the one summary card on the page. -->
       <div
         :class="[
           'rounded-lg border p-5',
-          isExpired ? 'border-red-200 dark:border-red-800 bg-red-50/40 dark:bg-red-950/40' : 'border-gray-200 dark:border-gray-700'
+          isExpired ? 'border-red-200 dark:border-red-900/60 bg-red-50/50 dark:bg-red-950/30' : 'border-line'
         ]"
       >
         <div class="flex items-start justify-between gap-4">
           <div class="flex items-center gap-3">
             <div
               :class="[
-                'w-9 h-9 rounded-full flex items-center justify-center shrink-0',
-                isLicensed ? 'bg-green-50 dark:bg-green-950' : isExpired ? 'bg-red-50 dark:bg-red-950' : 'bg-gray-100 dark:bg-gray-800'
+                'w-10 h-10 rounded-lg flex items-center justify-center shrink-0',
+                isLicensed ? 'bg-green-50 text-green-600 dark:bg-green-950/50 dark:text-green-400'
+                  : isExpired ? 'bg-red-50 text-red-600 dark:bg-red-950/50 dark:text-red-400'
+                  : 'bg-surface-muted text-ink-muted'
               ]"
             >
-              <UIcon
-                v-if="isLicensed"
-                name="i-heroicons-check-badge"
-                class="w-5 h-5 text-green-600"
-              />
-              <UIcon
-                v-else-if="isExpired"
-                name="i-heroicons-exclamation-circle"
-                class="w-5 h-5 text-red-500"
-              />
-              <UIcon
-                v-else
-                name="i-heroicons-cube"
-                class="w-5 h-5 text-ink-muted"
-              />
+              <UIcon :name="isLicensed ? 'i-heroicons-check-badge' : isExpired ? 'i-heroicons-exclamation-circle' : 'i-heroicons-cube'" class="w-5 h-5" />
             </div>
             <div>
-              <p class="text-sm font-medium text-gray-900 dark:text-white">
+              <p class="text-base font-semibold text-ink">
                 {{ isLicensed ? $t('settings.licensePage.enterprise') : $t('settings.licensePage.community') }}
               </p>
-              <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                <template v-if="isLicensed && license?.org_name">
-                  {{ license.org_name }}
-                </template>
-                <template v-else-if="isExpired">
-                  {{ $t('settings.licensePage.expired') }}
-                </template>
-                <template v-else>
-                  {{ $t('settings.licensePage.free') }}
-                </template>
+              <p class="text-sm text-ink-muted">
+                <template v-if="isLicensed && license?.org_name">{{ license.org_name }}</template>
+                <template v-else-if="isExpired">{{ $t('settings.licensePage.expired') }}</template>
+                <template v-else>{{ $t('settings.licensePage.free') }}</template>
               </p>
             </div>
           </div>
-          <UBadge
-            :color="isLicensed ? 'green' : isExpired ? 'red' : 'gray'"
-            variant="subtle"
-            size="xs"
-          >
+          <UBadge :color="isLicensed ? 'green' : isExpired ? 'red' : 'gray'" variant="subtle" size="sm">
             {{ isLicensed ? $t('settings.licensePage.badgeActive') : isExpired ? $t('settings.licensePage.badgeExpired') : $t('settings.licensePage.badgeCommunity') }}
           </UBadge>
         </div>
 
-        <!-- License Details (if licensed or expired) -->
-        <dl v-if="isLicensed || isExpired" class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800 space-y-2.5">
-          <div class="flex justify-between items-center text-xs">
-            <dt class="text-gray-500 dark:text-gray-400">{{ $t('settings.licensePage.fieldTier') }}</dt>
-            <dd class="text-gray-700 dark:text-gray-300 capitalize">{{ license?.tier || '-' }}</dd>
+        <dl v-if="isLicensed || isExpired" class="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-4 pt-5 border-t border-line">
+          <div>
+            <dt class="text-xs text-ink-muted">{{ $t('settings.licensePage.fieldTier') }}</dt>
+            <dd class="mt-1 text-sm font-medium text-ink capitalize">{{ license?.tier || '—' }}</dd>
           </div>
-          <div class="flex justify-between items-center text-xs">
-            <dt class="text-gray-500 dark:text-gray-400">{{ $t('settings.licensePage.fieldLicenseId') }}</dt>
-            <dd class="font-mono text-gray-700 dark:text-gray-300">{{ license?.license_id || '-' }}</dd>
+          <div>
+            <dt class="text-xs text-ink-muted">{{ $t('settings.licensePage.fieldLicenseId') }}</dt>
+            <dd class="mt-1 font-mono text-xs text-ink-2 truncate">{{ license?.license_id || '—' }}</dd>
           </div>
-          <div v-if="expiresAt" class="flex justify-between items-center text-xs">
-            <dt class="text-gray-500 dark:text-gray-400">{{ $t('settings.licensePage.fieldExpires') }}</dt>
-            <dd :class="isExpiringSoon || isExpired ? 'text-amber-600 font-medium' : 'text-gray-700 dark:text-gray-300'">
+          <div v-if="expiresAt">
+            <dt class="text-xs text-ink-muted">{{ $t('settings.licensePage.fieldExpires') }}</dt>
+            <dd :class="['mt-1 text-sm font-medium', isExpiringSoon || isExpired ? 'text-amber-700 dark:text-amber-400' : 'text-ink']">
               {{ formatDate(expiresAt) }}
-              <span v-if="daysUntilExpiry !== null && daysUntilExpiry > 0" class="text-ink-muted">
-                · {{ $t('settings.licensePage.inDays', { days: daysUntilExpiry }) }}
+              <span v-if="daysUntilExpiry !== null && daysUntilExpiry > 0" class="block text-xs font-normal text-ink-muted">
+                {{ $t('settings.licensePage.inDays', { days: daysUntilExpiry }) }}
               </span>
             </dd>
           </div>
         </dl>
 
-        <!-- Expiry Warning -->
         <UAlert
           v-if="isExpiringSoon"
           class="mt-4"
@@ -98,8 +66,6 @@
           icon="i-heroicons-exclamation-triangle"
           :title="$t('settings.licensePage.expiresSoon', { days: daysUntilExpiry })"
         />
-
-        <!-- Expired Notice -->
         <UAlert
           v-else-if="isExpired"
           class="mt-4"
@@ -115,142 +81,104 @@
            deployment that ships a demo BOW_LICENSE_KEY is licensed on day one,
            and that is exactly the instance whose admin needs to paste the key
            they bought. -->
-      <div class="rounded-lg border border-gray-200 dark:border-gray-700 p-5">
-        <p class="text-sm font-medium text-gray-900 dark:text-white mb-1">
-          {{ $t('settings.licensePage.activateTitle') }}
-        </p>
-        <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">
-          {{ $t('settings.licensePage.activateDesc') }}
-        </p>
+      <div class="mt-10">
+        <SettingsSection :title="$t('settings.licensePage.activateTitle')" :description="$t('settings.licensePage.activateDesc')">
+          <!-- Where the active key comes from -->
+          <div class="flex items-center gap-2 flex-wrap text-sm">
+            <span class="text-ink-muted">{{ $t('settings.licensePage.sourceLabel') }}</span>
+            <UBadge :color="sourceColor" variant="subtle" size="xs" data-testid="license-key-source">
+              {{ sourceLabel }}
+            </UBadge>
+            <span v-if="keyStatus?.masked_key" class="font-mono text-xs text-ink-2">{{ keyStatus.masked_key }}</span>
+            <span v-if="keyUpdatedAt" class="text-xs text-ink-muted">
+              · {{ $t('settings.licensePage.lastUpdated') }} {{ formatDate(keyUpdatedAt) }}
+            </span>
+          </div>
 
-        <!-- Where the active key comes from -->
-        <div class="flex items-center gap-2 flex-wrap text-xs mb-3">
-          <span class="text-gray-500 dark:text-gray-400">{{ $t('settings.licensePage.sourceLabel') }}</span>
-          <UBadge :color="sourceColor" variant="subtle" size="xs" data-testid="license-key-source">
-            {{ sourceLabel }}
-          </UBadge>
-          <span v-if="keyStatus?.masked_key" class="font-mono text-gray-600 dark:text-gray-300">
-            {{ keyStatus.masked_key }}
-          </span>
-          <span v-if="keyUpdatedAt" class="text-ink-muted">
-            · {{ $t('settings.licensePage.lastUpdated') }} {{ formatDate(keyUpdatedAt) }}
-          </span>
-        </div>
+          <p v-if="keyStatus?.source === 'database' && keyStatus?.config_key_present" class="mt-2 text-sm text-ink-muted">
+            <i18n-t keypath="settings.licensePage.overridesEnv" tag="span" scope="global">
+              <template #envvar><code class="font-mono text-xs bg-surface-muted text-ink-2 px-1 py-0.5 rounded">BOW_LICENSE_KEY</code></template>
+            </i18n-t>
+          </p>
+          <p v-else-if="keyStatus?.source === 'config'" class="mt-2 text-sm text-ink-muted">
+            <i18n-t keypath="settings.licensePage.envActive" tag="span" scope="global">
+              <template #envvar><code class="font-mono text-xs bg-surface-muted text-ink-2 px-1 py-0.5 rounded">BOW_LICENSE_KEY</code></template>
+            </i18n-t>
+          </p>
+          <p v-else-if="keyStatus?.source === 'none'" class="mt-2 text-sm text-ink-muted">
+            {{ $t('settings.licensePage.noKey') }}
+          </p>
 
-        <p v-if="keyStatus?.source === 'database' && keyStatus?.config_key_present"
-          class="text-xs text-gray-500 dark:text-gray-400 mb-3">
-          <i18n-t keypath="settings.licensePage.overridesEnv" tag="span">
-            <template #envvar>
-              <code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">BOW_LICENSE_KEY</code>
-            </template>
-          </i18n-t>
-        </p>
-        <p v-else-if="keyStatus?.source === 'config'" class="text-xs text-gray-500 dark:text-gray-400 mb-3">
-          <i18n-t keypath="settings.licensePage.envActive" tag="span">
-            <template #envvar>
-              <code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">BOW_LICENSE_KEY</code>
-            </template>
-          </i18n-t>
-        </p>
-        <p v-else-if="keyStatus?.source === 'none'" class="text-xs text-gray-500 dark:text-gray-400 mb-3">
-          {{ $t('settings.licensePage.noKey') }}
-        </p>
+          <!-- Once a license is in place the key field stays folded away: replacing
+               a working (or lapsed) license is a deliberate act, not something to
+               fat-finger while reading the page. Community instances get the field
+               straight away — there is nothing to protect and everything to gain. -->
+          <div v-if="showKeyForm" class="mt-5">
+            <SettingsRow :label="$t('settings.licensePage.keyLabel')" stacked for-id="license-key">
+              <UTextarea
+                id="license-key"
+                v-model="keyInput"
+                :rows="3"
+                data-testid="license-key-input"
+                :placeholder="$t('settings.licensePage.keyPlaceholder')"
+                textarea-class="font-mono text-xs break-all"
+              />
+            </SettingsRow>
+          </div>
 
-        <!-- Once a license is in place the key field stays folded away: replacing
-             a working (or lapsed) license is a deliberate act, not something to
-             fat-finger while reading the page. Community instances get the field
-             straight away — there is nothing to protect and everything to gain. -->
-        <template v-if="showKeyForm">
-          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-            {{ $t('settings.licensePage.keyLabel') }}
-          </label>
-          <textarea
-            v-model="keyInput"
-            rows="3"
-            data-testid="license-key-input"
-            :placeholder="$t('settings.licensePage.keyPlaceholder')"
-            class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 bg-white dark:bg-gray-900 text-gray-900 dark:text-white font-mono text-xs break-all"
-          />
-        </template>
+          <p v-if="saveError" class="text-sm text-red-600 dark:text-red-400 mt-3 flex items-start gap-1.5">
+            <UIcon name="i-heroicons-x-circle" class="w-4 h-4 shrink-0 mt-0.5" />
+            <span data-testid="license-key-error">{{ saveError }}</span>
+          </p>
 
-        <p v-if="saveError" class="text-xs text-red-600 mt-2 flex items-start gap-1">
-          <UIcon name="i-heroicons-x-circle" class="w-4 h-4 shrink-0 mt-px" />
-          <span data-testid="license-key-error">{{ saveError }}</span>
-        </p>
+          <div class="flex items-center gap-2 mt-5">
+            <UButton
+              v-if="showKeyForm"
+              color="blue"
+              data-testid="license-key-save"
+              :loading="saving"
+              :disabled="saving || !keyInput.trim()"
+              @click="save"
+            >
+              {{ saving ? $t('settings.licensePage.activating') : $t('settings.licensePage.activate') }}
+            </UButton>
+            <UButton v-else color="gray" data-testid="license-key-edit" @click="startEditing">
+              {{ $t('settings.licensePage.update') }}
+            </UButton>
+            <UButton v-if="showKeyForm && hasLicense" color="gray" variant="ghost" data-testid="license-key-cancel" @click="cancelEditing">
+              {{ $t('settings.licensePage.cancel') }}
+            </UButton>
+            <UButton
+              v-if="keyStatus?.source === 'database'"
+              color="red"
+              variant="ghost"
+              data-testid="license-key-remove"
+              :loading="removing"
+              :disabled="removing"
+              @click="remove"
+            >
+              {{ removing ? $t('settings.licensePage.removing') : $t('settings.licensePage.remove') }}
+            </UButton>
+          </div>
+        </SettingsSection>
 
-        <div class="flex items-center gap-2 mt-3">
-          <button
-            v-if="showKeyForm"
-            type="button"
-            data-testid="license-key-save"
-            :disabled="saving || !keyInput.trim()"
-            class="bg-blue-600 text-white border border-transparent text-xs px-2.5 py-1 rounded-md disabled:opacity-50"
-            @click="save"
-          >
-            {{ saving ? $t('settings.licensePage.activating') : $t('settings.licensePage.activate') }}
-          </button>
-          <button
-            v-else
-            type="button"
-            data-testid="license-key-edit"
-            class="border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-xs px-2.5 py-1 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800"
-            @click="startEditing"
-          >
-            {{ $t('settings.licensePage.update') }}
-          </button>
-          <button
-            v-if="showKeyForm && hasLicense"
-            type="button"
-            data-testid="license-key-cancel"
-            class="border border-transparent text-xs px-2.5 py-1 rounded-md text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-            @click="cancelEditing"
-          >
-            {{ $t('settings.licensePage.cancel') }}
-          </button>
-          <button
-            v-if="keyStatus?.source === 'database'"
-            type="button"
-            data-testid="license-key-remove"
-            :disabled="removing"
-            class="border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-xs px-2.5 py-1 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
-            @click="remove"
-          >
-            {{ removing ? $t('settings.licensePage.removing') : $t('settings.licensePage.remove') }}
-          </button>
-        </div>
-      </div>
-
-      <!-- Enterprise Info (only show when not licensed and not expired) -->
-      <div v-if="!isLicensed && !isExpired" class="rounded-lg border border-gray-200 dark:border-gray-700 p-5">
-        <p class="text-sm text-gray-700 dark:text-gray-300 font-medium mb-1">
-          {{ $t('settings.licensePage.enterpriseTitle') }}
-        </p>
-        <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
-          {{ $t('settings.licensePage.enterpriseInfo') }}
-        </p>
-        <a
-          href="https://docs.bagofwords.com/enterprise"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
+        <!-- Enterprise info (community) / renew (expired) -->
+        <SettingsSection
+          v-if="!isLicensed"
+          :title="isExpired ? undefined : $t('settings.licensePage.enterpriseTitle')"
+          :description="isExpired ? $t('settings.licensePage.renewInfo') : $t('settings.licensePage.enterpriseInfo')"
         >
-          {{ $t('settings.licensePage.learnMore') }}
-        </a>
-      </div>
-
-      <!-- Renew CTA when expired -->
-      <div v-if="isExpired" class="rounded-lg border border-gray-200 dark:border-gray-700 p-5">
-        <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
-          {{ $t('settings.licensePage.renewInfo') }}
-        </p>
-        <a
-          href="https://docs.bagofwords.com/enterprise"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
-        >
-          {{ $t('settings.licensePage.learnMore') }}
-        </a>
+          <UButton
+            to="https://docs.bagofwords.com/enterprise"
+            target="_blank"
+            color="gray"
+            variant="ghost"
+            trailing-icon="i-heroicons-arrow-up-right"
+            class="-ms-2.5"
+          >
+            {{ $t('settings.licensePage.learnMore') }}
+          </UButton>
+        </SettingsSection>
       </div>
     </div>
   </div>
@@ -258,11 +186,13 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import SettingsSection from '~/components/settings/SettingsSection.vue'
+import SettingsRow from '~/components/settings/SettingsRow.vue'
+import SettingsLoading from '~/components/settings/SettingsLoading.vue'
 
 definePageMeta({
   auth: true,
-  permissions: ['manage_settings'],
-  layout: 'settings'
+  permissions: ['manage_settings']
 })
 
 const { license, loading, isLicensed, isExpired, expiresAt, daysUntilExpiry, isExpiringSoon, fetchLicense } = useEnterprise()

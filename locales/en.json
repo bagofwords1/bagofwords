@@ -444,6 +444,7 @@
     "prompts": "Prompts",
     "starOnGithub": "Star our GitHub",
     "admin": "Admin",
+    "backToApp": "Back to app",
     "notifications": "Notifications",
     "automations": "Automations"
   },
@@ -517,6 +518,14 @@
       "delivery_skipped": {
         "title": "Some recipients did not get \"{report}\"",
         "body": "{count} recipient(s) were not sent this report because it contains data scoped to each viewer: {recipients}"
+      },
+      "access_request": {
+        "title": "{actor} asked to view {dashboard}",
+        "body": "{actor} asked to view “{dashboard}”."
+      },
+      "access_granted": {
+        "title": "You can now view {dashboard}",
+        "body": "Your request to view “{dashboard}” was approved."
       }
     },
     "checkin": {
@@ -1592,7 +1601,17 @@
       "allowedByYou": "Allowed by you",
       "deniedByYou": "Denied by you",
       "records": "{n} records",
-      "recordsPartial": "{shown} of {total} records"
+      "recordsPartial": "{shown} of {total} records",
+      "app": {
+        "loading": "Loading the app…",
+        "loadFailed": "The app could not be shown",
+        "exitFullscreen": "Exit full screen",
+        "confirmTool": "{app} wants to run {tool}. Allow it?",
+        "confirmLink": "{app} wants to open this link:",
+        "openLink": "Open link",
+        "cancel": "Cancel",
+        "contextShared": "The app shared what you selected with the assistant."
+      }
     },
     "answerQuestion": {
       "thought": "Thought about answer"
@@ -2241,12 +2260,10 @@
     "loading": "Loading...",
     "noRolesFound": "No roles found",
     "noRolesHint": "Create a role to manage permissions.",
-    "system": "system",
     "default": "Default",
     "defaultRoleHint": "This is a built-in role. Its name is fixed — customize its permissions below.",
     "edit": "Edit",
     "fullAdmin": "Full Admin",
-    "permissionsCount": "{n} permissions",
     "editRole": "Edit Role",
     "createRole": "Create Role",
     "nameLabel": "Name",
@@ -2254,17 +2271,10 @@
     "namePlaceholder": "e.g. Analyst",
     "descriptionPlaceholder": "Optional",
     "fullAdminAccess": "Full Admin Access",
-    "fullAdminBypass": "Bypasses all checks",
-    "allResources": "All resources",
-    "orgWidePermissions": "Org-wide permissions",
-    "ds": "Agent",
-    "addDataSource": "+ Add data source...",
     "cancel": "Cancel",
     "save": "Save",
     "create": "Create",
     "confirmDelete": "Delete role \"{name}\"?",
-    "toastCreated": "Role created",
-    "toastUpdated": "Role updated",
     "toastDeleted": "Role deleted",
     "failedToLoad": "Failed to load roles",
     "failedToCreate": "Failed to create role",
@@ -2296,18 +2306,86 @@
       "create_data_sources": "Create agents",
       "manage_data_sources": "Manage agents"
     },
-    "connection": "Connection",
-    "addAgent": "+ Add agent or connection...",
-    "advancedPermissions": "Advanced permissions",
-    "tiers": {
-      "query": "Can query",
-      "queryHint": "Ask this agent questions",
-      "manage": "Can manage",
-      "manageHint": "Edit instructions, entities, evals, settings and members"
+    "delete": "Delete",
+    "duplicate": "Duplicate",
+    "copyOf": "Copy of {name}",
+    "loadingRole": "Loading role…",
+    "loadFailed": "Couldn't load agents, connections and models.",
+    "retry": "Try again",
+    "toastCreatedNamed": "{name} created",
+    "toastUpdatedNamed": "{name} saved",
+    "moreActions": "More actions",
+    "tabs": {
+      "permissions": "Permissions",
+      "access": "Access"
     },
-    "modelAccess": "Model access",
-    "modelAccessHint": "Restricted models",
-    "noRestrictedModels": "No restricted models"
+    "groups": {
+      "agents": "Agents & data",
+      "knowledge": "Agent knowledge",
+      "code": "Code",
+      "admin": "Administration",
+      "other": "Other"
+    },
+    "permissionHints": {
+      "create_data_source": "Create new agents on connections they can use",
+      "create_connections": "Add new data connections",
+      "manage_connections": "Edit, test and delete any connection",
+      "manage_instructions": "Edit the instructions agents follow, on every agent",
+      "manage_entities": "Define tables, metrics and terms, on every agent",
+      "manage_evals": "Create and run quality checks, on every agent",
+      "view_code": "See the SQL and Python agents write",
+      "run_custom_code": "Edit and run code in reports",
+      "manage_members": "Invite people and change their roles",
+      "manage_service_accounts": "Create API keys",
+      "manage_settings": "Change organization settings",
+      "manage_llm": "Configure LLM providers and models",
+      "view_audit_logs": "See who did what, and when",
+      "manage_identity_providers": "Configure single sign-on"
+    },
+    "fullAdminHint": "Can do everything in the organization",
+    "fullAdminAccessTab": "Full admin access includes every agent, connection and model.",
+    "includedWith": "Included with {name}",
+    "searchResources": "Search…",
+    "addAccess": "Add agent, connection or model",
+    "accessEmpty": "No agents, connections or models yet. Public agents are always available.",
+    "publicAgents": "{n} public agents are available to everyone.",
+    "types": {
+      "data_source": "Agent",
+      "connection": "Connection",
+      "llm_model": "Model"
+    },
+    "levels": {
+      "use": "Can use",
+      "manage": "Can manage",
+      "build": "Can build agents",
+      "custom": "Custom"
+    },
+    "removeAccess": "Remove",
+    "meta": {
+      "permissionsOne": "1 permission",
+      "permissionsMany": "{n} permissions",
+      "agentsOne": "1 agent",
+      "agentsMany": "{n} agents",
+      "connectionsOne": "1 connection",
+      "connectionsMany": "{n} connections",
+      "modelsOne": "1 model",
+      "modelsMany": "{n} models",
+      "everything": "All permissions"
+    },
+    "resourcePermissions": {
+      "data_source": {
+        "manage": "Manage (includes everything)",
+        "manage_instructions": "Edit instructions",
+        "create_entities": "Edit entities",
+        "manage_evals": "Manage quality checks",
+        "manage_members": "Manage who can use it"
+      },
+      "connection": {
+        "manage_connection": "Edit, test and reindex",
+        "create_data_sources": "Build agents on it",
+        "manage_data_sources": "Manage all its agents"
+      }
+    }
   },
   "serviceAccounts": {
     "title": "Service Accounts",
@@ -2597,7 +2675,10 @@
       "field_organization": "Organization",
       "field_location": "Location",
       "field_locale": "Locale",
-      "field_hostedDomain": "Workspace domain"
+      "field_hostedDomain": "Workspace domain",
+      "on": "On",
+      "off": "Off",
+      "notLicensed": "Enterprise"
     },
     "auditLogs": "Audit Logs",
     "integrations": {
@@ -3088,7 +3169,10 @@
       "defaultRoleHint": "Pre-fills the role when adding or inviting a member.",
       "defaultRoleSaved": "Default role saved",
       "defaultRoleFailed": "Failed to save default role",
-      "defaultRoleShort": "Default role"
+      "defaultRoleShort": "Default role",
+      "importButton": "Import",
+      "colNote": "Note",
+      "colLastLogin": "Last login"
     },
     "organizationName": "Organization name",
     "organizationIcon": "Organization icon",
@@ -3529,6 +3613,10 @@
           "name": "MCP & Custom API Tools",
           "description": "Allow connecting external MCP servers and custom API endpoints to data sources as tool providers"
         },
+        "enable_mcp_apps": {
+          "name": "MCP Apps",
+          "description": "Show the interactive app an MCP server attaches to a tool (MCP Apps, ui:// resources) inside the chat, in a sandboxed frame. Off: tool results show as text only."
+        },
         "tools_max": {
           "name": "Tools max",
           "description": "How many external MCP / custom API tools are given to the agent as its own tools in one run. Past this number, the most used tools are kept and the rest stay reachable through tool search, so a very large catalog cannot fill every request with tool definitions."
@@ -3596,6 +3684,10 @@
         "step_retention_days": {
           "name": "Widget Data Retention Days",
           "description": "Number of days to retain widgets data before purging."
+        },
+        "file_retention_days": {
+          "name": "File retention (days)",
+          "description": "Delete files older than this many days, every night. Files used by a dashboard, files in an agent or project library, and uploads that feed a scheduled report are kept. 0 keeps files forever."
         },
         "enable_excel_addin": {
           "name": "Excel Add-in",
@@ -3696,6 +3788,10 @@
         "sandbox_lists_max_rows": {
           "name": "Max list rows per code run",
           "description": "How many rows one run of generated code may submit to Agent Lists. 1 to 50,000."
+        },
+        "allow_access_requests": {
+          "name": "Allow access requests",
+          "description": "Let members ask a dashboard's editors for view access from the no-access page. When off, the page just names the owner to ask, and no new requests can be sent; requests already sent stay answerable."
         }
       }
     },
@@ -3848,7 +3944,8 @@
         "restrictedDefaultHint": "This is the organization default. Members not listed below get their group's default instead.",
         "defaultForGroups": "Default for groups",
         "defaultForGroupsHint": "Members of these groups can always use this model."
-      }
+      },
+      "colAccess": "Access"
     },
     "licensePage": {
       "title": "License",
@@ -3979,7 +4076,96 @@
       "action": "Action",
       "actionReplace": "Replace",
       "actionBlock": "Block",
-      "blocksRequest": "Blocks the request"
+      "blocksRequest": "Blocks the request",
+      "patternCount": "{n} pattern | {n} patterns"
+    },
+    "adminPages": {
+      "members": "Invite people to the workspace and manage their role, groups and access.",
+      "roles": "Define what each role can see and do, then assign roles to members and groups.",
+      "groups": "Organize members into groups to grant roles, quotas and data access together.",
+      "quotas": "Cap monthly AI and data usage for members, groups and roles.",
+      "models": "Connect LLM providers and choose which models your workspace can use.",
+      "identityProvider": "Sync users, groups and profile details from your identity provider.",
+      "smtp": "The server that sends system emails — invites, report shares and scheduled-report results. When enabled, it overrides the server configured for this instance."
+    },
+    "generalSections": {
+      "workspace": "Workspace",
+      "workspaceHint": "How your organization appears across the app.",
+      "assistant": "AI analyst",
+      "assistantHint": "The name your team sees when the analyst replies.",
+      "region": "Language & region",
+      "regionHint": "Defaults for the interface, the AI's replies and dates."
+    },
+    "smtpPage": {
+      "status": {
+        "orgTitle": "System email uses this SMTP server.",
+        "orgDetail": "Sending via {host}.",
+        "yourRelay": "your relay",
+        "globalTitle": "System email uses the globally configured SMTP server.",
+        "globalDetail": "Enable a custom SMTP server below to send from your own relay instead.",
+        "noneTitle": "No SMTP server is configured.",
+        "noneDetail": "Invites, report shares and scheduled-report emails are not being sent."
+      },
+      "mailboxNoteTitle": "Not the AI mailbox.",
+      "mailboxNote": "This server only sends system notifications. The AI analyst's replies always come from the separate AI Mailbox — configure them independently.",
+      "serverSection": "Mail server",
+      "serverSectionHint": "Connection details for your SMTP relay.",
+      "enableLabel": "Use a custom SMTP server",
+      "enableOn": "System email is sent through the server below.",
+      "enableOffGlobal": "Off — system email falls back to the globally configured SMTP server. Your settings below are kept.",
+      "enableOffNone": "Off — and no SMTP server is configured globally, so no system email will be sent at all. Your settings below are kept.",
+      "fromName": "From name",
+      "fromAddress": "From address",
+      "host": "Host",
+      "port": "Port",
+      "username": "Username",
+      "password": "Password",
+      "passwordUnchanged": "•••••••• (unchanged)",
+      "passwordKeep": "Leave blank to keep the saved password.",
+      "authHint": "Leave username and password empty for an open relay that doesn't require authentication.",
+      "security": "Security",
+      "securityNone": "None",
+      "validateCerts": "Validate TLS certificates",
+      "validateCertsHint": "Turn off for self-signed or internal-CA relays.",
+      "save": "Save",
+      "saving": "Saving…",
+      "sendTest": "Save & send test email",
+      "sendingTest": "Sending…",
+      "sendsTo": "Sends to {email}",
+      "saved": "SMTP saved",
+      "saveFailed": "Failed to save SMTP",
+      "saveFailedDetail": "Could not save the SMTP settings",
+      "notSaved": "Not saved",
+      "testRequestFailed": "The test request failed",
+      "testFailed": "Test failed",
+      "testDelivered": "Test email delivered to {recipient}",
+      "testDeliveredDetail": "Sent via {source}. Check your inbox to confirm it arrived.",
+      "testDeliveredDetailAs": "Sent via {source} as {from}. Check your inbox to confirm it arrived.",
+      "testFailureDetail": "{error} — {hint} (transport: {source})",
+      "unknownError": "Unknown error",
+      "fail": {
+        "connect": "Could not reach the mail server",
+        "connectHint": "check the host and port, and that outbound SMTP is not blocked by a firewall",
+        "tls": "TLS negotiation failed",
+        "tlsHint": "try a different Security setting, or turn off certificate validation for an internal relay",
+        "auth": "The mail server rejected the credentials",
+        "authHint": "check the username and password",
+        "sender": "The mail server refused the From address",
+        "senderHint": "the relay will not send as this address — use one it is authorised for",
+        "recipient": "The mail server refused to relay to that address",
+        "recipientHint": "the relay does not accept mail for this recipient",
+        "config": "The SMTP settings are incomplete",
+        "configHint": "fill in the missing field and try again",
+        "other": "The mail server rejected the message",
+        "otherHint": "see the server response above"
+      },
+      "source": {
+        "org": "this SMTP server",
+        "global": "the globally configured SMTP server",
+        "mailbox": "the AI mailbox",
+        "none": "no transport"
+      },
+      "alertsHint": "Which system emails go out. In-app notifications are always delivered."
     }
   },
   "data": {
@@ -4496,6 +4682,11 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "Document library name, or * for all visible libraries. Blank selects the default library in Modern REST mode only."
     },
+    "athena": {
+      "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
+      "tableExcludeTitle": "Table Exclude Pattern",
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+    },
     "qlikOnPrem": {
       "appFilterTitle": "App Filter",
       "appFilterDescription": "Optional comma-separated app names or IDs, within the selected streams. Empty includes all matching apps. Use IDs for names containing commas.",
@@ -4645,6 +4836,8 @@
     "shell_confirmation.invalid_scope": "Invalid permission scope.",
     "shell_confirmation.report_required": "Session permissions require a report.",
     "shell_confirmation.rule_mismatch": "Invalid command rule, or the pattern does not match this command.",
+    "connection.config_invalid": "Invalid connection configuration: {detail}",
+    "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
     "catalog_discovery_incomplete": "Catalog refresh failed because discovery was incomplete. The previous catalog and table selections were retained.",
     "saml_unavailable": "SSO configuration is unavailable. Contact your administrator.",
     "saml_login_failed": "SSO sign-in failed. Try again or contact your administrator.",
@@ -4779,13 +4972,22 @@
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
     "ssh.key_discovery_failed": "Could not fetch the server key. Check the hostname, port and network access, or enter a trusted key under Advanced.",
+    "file.in_use": "File is used by a dashboard",
     "connection.kms_token_format": "The KMS API token can contain only plain letters, digits and punctuation, with no spaces. Copy it again from KMS Lighthouse and paste it as plain text.",
     "connection.kms_use_connection_credentials": "KMS Lighthouse sign-ins are saved on the connection. Open the connection and connect from there.",
     "connection.kms_only": "Diagnostics apply to KMS Lighthouse connections only.",
     "connection.kms_diagnostics_running": "Diagnostics are already running for this connection. Wait for them to finish, then try again.",
     "connection.kms_login_rejected": "KMS Lighthouse did not accept this login, so it was not saved. Check the username and password, or the API token, and try again.",
     "connection.kms_login_paused": "KMS Lighthouse recently refused this login, so new attempts with it are paused for a few minutes and it was not saved. Check the login, or try again later.",
-    "connection.kms_session_refused": "KMS Lighthouse accepted the login but refused its session, so it cannot be used and was not saved. Ask the KMS administrator whether this account may use the KMS API."
+    "connection.kms_session_refused": "KMS Lighthouse accepted the login but refused its session, so it cannot be used and was not saved. Ask the KMS administrator whether this account may use the KMS API.",
+    "access_request.disabled": "Access requests are turned off for this organization.",
+    "access_request.not_allowed": "This dashboard does not need an access request.",
+    "access_request.already_has_access": "You already have access to this dashboard.",
+    "access_request.pending": "Your request is already pending.",
+    "access_request.too_soon": "Your previous request was declined. You can ask again later.",
+    "access_request.no_approvers": "No one can approve requests for this dashboard right now.",
+    "access_request.not_found": "This request no longer exists.",
+    "access_request.already_decided": "This request was already answered."
   },
   "email": {
     "dashboardShare": {
@@ -4945,7 +5147,7 @@
   },
   "files": {
     "title": "Files",
-    "subtitle": "Manage your organization files",
+    "subtitle": "Files you uploaded, and files the agent created in your reports.",
     "file": "File",
     "metadata": "Metadata",
     "createdAt": "Created At",
@@ -4954,7 +5156,31 @@
     "metadataFieldsMany": "{count} metadata fields",
     "metadataTagsOne": "{count} metadata tag",
     "metadataTagsMany": "{count} metadata tags",
-    "noMetadata": "No metadata"
+    "noMetadata": "No metadata",
+    "search": "Search files",
+    "filterAll": "All files",
+    "filterUploads": "Uploads",
+    "selectAll": "Select all",
+    "deleteSelected": "Delete {count} selected",
+    "delete": "Delete",
+    "download": "Download",
+    "empty": "No files match",
+    "confirmTitleOne": "Delete this file?",
+    "confirmTitleMany": "Delete {count} files?",
+    "confirmBody": "Deleted files are removed from every report, agent and project that uses them, and cannot be recovered.",
+    "toastDeletedOne": "File deleted",
+    "toastDeletedMany": "{count} files deleted",
+    "toastError": "Could not delete the files",
+    "toastDownloadError": "Could not download the file",
+    "filterAgent": "Agent",
+    "sourceAgent": "Agent",
+    "sourceUpload": "Upload",
+    "selectedCount": "{count} selected",
+    "toastPartialOne": "{count} file could not be deleted",
+    "toastPartialMany": "{count} files could not be deleted",
+    "inUse": "Used by a dashboard, so it can't be deleted",
+    "emptyNone": "No files yet",
+    "emptyNoneHint": "Files you upload to a report, and files the agent creates, show up here."
   },
   "dashboards": {
     "title": "Dashboards",
@@ -6160,6 +6386,8 @@
     "modelAuto": "Auto",
     "noAgents": "None",
     "project": "Project",
+    "toolOutputFilesOne": "{count} file created by the agent",
+    "toolOutputFilesMany": "{count} files created by the agent",
     "agentsFromReport": "Uses the report's agents"
   },
   "errorPage": {
@@ -7297,6 +7525,29 @@
       "deniedBody": "You don't have access to this page. Ask its owner to share it with you.",
       "goHome": "Go home",
       "backToApp": "Back to app"
+    },
+    "accessRequest": {
+      "noAccessTitle": "You don't have access",
+      "ownerLine": "This dashboard belongs to {owner}.",
+      "ownerUnknown": "You don't have access to this dashboard.",
+      "requestButton": "Request access",
+      "notePlaceholder": "Add a note (optional)",
+      "send": "Send request",
+      "cancel": "Cancel",
+      "sent": "Request sent",
+      "pending": "Your request is pending",
+      "askOwner": "Ask the dashboard owner, {owner}.",
+      "askOwnerGeneric": "Ask the dashboard owner for access.",
+      "noApprovers": "No one can approve requests for this dashboard right now.",
+      "cooldown": "Your previous request was declined. You can ask again later.",
+      "pendingTitle": "Pending requests",
+      "approve": "Approve",
+      "deny": "Deny",
+      "noteFrom": "Note from {name}",
+      "switchesPrivate": "Approving switches this dashboard to “Specific people” and adds this person as a viewer.",
+      "runsAsCreator": "This dashboard runs with {creator}'s data access. Approving lets this person see what {creator} sees.",
+      "approveTitle": "Approve access request",
+      "confirmApprove": "Approve"
     }
   },
   "dashboardSettings": {
@@ -7444,7 +7695,10 @@
       "ssoSignIn": "BOW sign-in",
       "noteAssertion": "Your backend signs a 60-second assertion for the signed-in user with the host application's private key. The key never goes to the browser.",
       "noteIdp": "The page passes the user's ID token from your identity provider; BOW checks it with the provider's published keys.",
-      "noteSso": "The first time, people sign in to BOW in a small window. Use this when the other application can't sign assertions."
+      "noteSso": "The first time, people sign in to BOW in a small window. Use this when the other application can't sign assertions.",
+      "permissionsTitle": "Permissions",
+      "allowPopups": "Allow links to open in a new tab",
+      "allowPopupsHelp": "By default, links and buttons in this dashboard can't open new tabs or pop-up windows. Turn this on to allow it."
     }
   },
   "hostApps": {

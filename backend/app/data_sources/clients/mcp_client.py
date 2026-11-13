@@ -75,7 +75,14 @@ def tool_hints(tool: Any) -> Dict[str, bool]:
         return {}
     out: Dict[str, bool] = {}
     for key in _HINT_KEYS:
-        val = ann.get(key) if isinstance(ann, dict) else getattr(ann, key, None)
+        if isinstance(ann, dict):
+            val = ann.get(key)
+        else:
+            # mcp 2.x: snake_case attributes (read_only_hint); 1.x: camelCase.
+            snake = re.sub(r"(?<!^)(?=[A-Z])", "_", key).lower()
+            val = getattr(ann, snake, None)
+            if val is None:
+                val = getattr(ann, key, None)
         if isinstance(val, bool):
             out[key] = val
     return out
@@ -136,6 +143,112 @@ def retry_kind(e: BaseException) -> Optional[str]:
         if type(leaf).__name__ in _TRANSPORT_ERROR_NAMES:
             return "transport"
     return None
+
+
+# ── SDK-shape helpers ───────────────────────────────────────────────────────
+# The mcp 2.x types are snake_case (``mime_type``, ``structured_content``,
+# ``meta``) with the camelCase wire names as aliases; the 1.x ones were
+# camelCase attributes. Read either, so result handling does not depend on the
+# installed SDK major.
+
+
+def _first_attr(obj: Any, *names: str) -> Any:
+    for name in names:
+        val = getattr(obj, name, None)
+        if val is not None:
+            return val
+    return None
+
+
+def _mime_of(obj: Any) -> Optional[str]:
+    return _first_attr(obj, "mime_type", "mimeType")
+
+
+def _meta_of(obj: Any) -> Optional[Dict[str, Any]]:
+    meta = _first_attr(obj, "meta", "_meta")
+    if meta is None:
+        return None
+    if hasattr(meta, "model_dump"):
+        meta = meta.model_dump(by_alias=True, exclude_none=True)
+    return meta if isinstance(meta, dict) and meta else None
+
+
+def _input_schema_of(tool: Any) -> Dict[str, Any]:
+    schema = _first_attr(tool, "input_schema", "inputSchema")
+    return schema if isinstance(schema, dict) else {}
+
+
+def _output_schema_of(tool: Any) -> Dict[str, Any]:
+    schema = _first_attr(tool, "output_schema", "outputSchema")
+    return schema if isinstance(schema, dict) else {}
+
+
+# An MCP App receives the tool result verbatim. Keep that copy bounded: it is
+# stored with the tool execution and sent to the browser, and a multi-megabyte
+# table belongs in the materialized file, not in an iframe message.
+MAX_RAW_RESULT_CHARS = 512_000
+
+
+def raw_call_tool_result(result: Any) -> Optional[Dict[str, Any]]:
+    """The CallToolResult as wire JSON (camelCase), or None when too large.
+
+    Binary blocks (image/audio data, embedded blobs) are left out: they are
+    saved as session files, and base64 in an iframe message buys nothing.
+    """
+    try:
+        if hasattr(result, "model_dump"):
+            raw = result.model_dump(by_alias=True, exclude_none=True, mode="json")
+        elif isinstance(result, dict):
+            raw = dict(result)
+        else:
+            return None
+    except Exception:
+        return None
+    content = []
+    for block in raw.get("content") or []:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") in ("image", "audio"):
+            continue
+        res = block.get("resource")
+        if isinstance(res, dict) and "blob" in res:
+            continue
+        content.append(block)
+    out = {"content": content}
+    for key in ("structuredContent", "_meta", "isError"):
+        if raw.get(key) is not None:
+            out[key] = raw[key]
+    out = scrub_tags(out)
+    try:
+        if len(json.dumps(out, default=str)) > MAX_RAW_RESULT_CHARS:
+            return None
+    except (TypeError, ValueError):
+        return None
+    return out
+
+
+def _client_options() -> Dict[str, Any]:
+    """Options every BOW MCP client is built with."""
+    from mcp.client.extension import advertise
+    from mcp.types import Implementation
+    from app.services.mcp_apps import UI_EXTENSION_ID, MCP_APP_MIME_TYPE
+
+    return {
+        "client_info": Implementation(name="bagofwords", version=_bow_version()),
+        # MCP Apps: we render text/html;profile=mcp-app resources in chat.
+        "extensions": [advertise(UI_EXTENSION_ID, {"mimeTypes": [MCP_APP_MIME_TYPE]})],
+        # Tool and resource lists are re-read on purpose (refresh, discovery);
+        # a response cache inside a pooled client would serve stale catalogs.
+        "cache": None,
+    }
+
+
+def _bow_version() -> str:
+    try:
+        from app.settings.config import settings
+        return str(getattr(settings, "PROJECT_VERSION", None) or "0")
+    except Exception:
+        return "0"
 
 
 class McpClient(ToolProviderClient):
@@ -208,28 +321,32 @@ class McpClient(ToolProviderClient):
         its annotation hints in ``metadata`` and, from them, the policy a
         newly-discovered tool starts on (``default_policy``).
         """
-        from mcp.types import PaginatedRequestParams
+        from app.services.mcp_apps import parse_tool_ui_meta
 
         try:
             tools = []
             async with self._connect() as session:
                 cursor = None
                 for _ in range(_MAX_TOOL_PAGES):
-                    result = await (
-                        session.list_tools(params=PaginatedRequestParams(cursor=cursor))
-                        if cursor else session.list_tools()
-                    )
+                    result = await session.list_tools(cursor=cursor)
                     for tool in result.tools:
                         hints = tool_hints(tool)
+                        metadata: Dict[str, Any] = {"annotations": hints}
+                        # MCP Apps: the ui:// resource this tool renders into
+                        # and who may call it (model / app). Kept so the agent
+                        # never sees app-only tools and the chat can show the UI.
+                        ui = parse_tool_ui_meta(_meta_of(tool))
+                        if ui:
+                            metadata["ui"] = ui
                         tools.append({
                             "name": tool.name,
                             "description": strip_unicode_tags(tool.description or ""),
-                            "input_schema": tool.inputSchema if hasattr(tool, "inputSchema") else {},
-                            "output_schema": getattr(tool, "outputSchema", None) or {},
-                            "metadata": {"annotations": hints},
+                            "input_schema": _input_schema_of(tool),
+                            "output_schema": _output_schema_of(tool),
+                            "metadata": metadata,
                             "default_policy": default_policy_for_hints(hints),
                         })
-                    cursor = getattr(result, "nextCursor", None)
+                    cursor = _first_attr(result, "next_cursor", "nextCursor")
                     if not cursor:
                         break
                 else:
@@ -275,15 +392,19 @@ class McpClient(ToolProviderClient):
                 while True:
                     result = await session.list_resources(cursor=cursor)
                     for r in (result.resources or []):
-                        resources.append({
+                        entry = {
                             "uri": str(getattr(r, "uri", "")),
                             "name": getattr(r, "name", None),
                             "description": getattr(r, "description", None),
-                            "mime_type": getattr(r, "mimeType", None),
-                        })
+                            "mime_type": _mime_of(r),
+                        }
+                        meta = _meta_of(r)
+                        if meta:
+                            entry["meta"] = scrub_tags(meta)
+                        resources.append(entry)
                         if len(resources) >= self._MAX_RESOURCES:
                             return resources
-                    cursor = getattr(result, "nextCursor", None)
+                    cursor = _first_attr(result, "next_cursor", "nextCursor")
                     if not cursor:
                         break
             return resources
@@ -303,17 +424,17 @@ class McpClient(ToolProviderClient):
                 cursor = None
                 while True:
                     result = await session.list_resource_templates(cursor=cursor)
-                    for t in (result.resourceTemplates or []):
+                    for t in (_first_attr(result, "resource_templates", "resourceTemplates") or []):
                         templates.append({
-                            "uri_template": getattr(t, "uriTemplate", None),
+                            "uri_template": _first_attr(t, "uri_template", "uriTemplate"),
                             "name": getattr(t, "name", None),
                             "description": getattr(t, "description", None),
-                            "mime_type": getattr(t, "mimeType", None),
+                            "mime_type": _mime_of(t),
                             "is_template": True,
                         })
                         if len(templates) >= self._MAX_RESOURCES:
                             return templates
-                    cursor = getattr(result, "nextCursor", None)
+                    cursor = _first_attr(result, "next_cursor", "nextCursor")
                     if not cursor:
                         break
             return templates
@@ -329,14 +450,13 @@ class McpClient(ToolProviderClient):
         bad/unknown URI, so it's reported as success=False rather than raised —
         mirroring acall_tool's contract.
         """
-        from pydantic import AnyUrl
-
         try:
             async with self._connect() as session:
-                result = await session.read_resource(AnyUrl(uri))
+                result = await session.read_resource(uri)
                 contents: List[Dict[str, Any]] = []
                 for c in (getattr(result, "contents", None) or []):
-                    mime_type = getattr(c, "mimeType", None)
+                    mime_type = _mime_of(c)
+                    item_meta = _meta_of(c)
                     c_uri = str(getattr(c, "uri", uri))
                     # The wire format distinguishes blob from text by the
                     # presence of the blob field, not by text being empty.
@@ -358,6 +478,7 @@ class McpClient(ToolProviderClient):
                             # inspect_data/create_data). Not inlined into the
                             # LLM-visible content — only used for materialization.
                             "blob_b64": blob,
+                            **({"meta": scrub_tags(item_meta)} if item_meta else {}),
                         })
                     else:
                         contents.append({
@@ -365,6 +486,9 @@ class McpClient(ToolProviderClient):
                             "text": strip_unicode_tags(getattr(c, "text", "") or ""),
                             "mime_type": mime_type,
                             "uri": c_uri,
+                            # MCP Apps: a ui:// resource carries its CSP and
+                            # iframe permissions here (_meta.ui).
+                            **({"meta": scrub_tags(item_meta)} if item_meta else {}),
                         })
                 return {"success": True, "contents": contents, "error": None}
         except BaseException as e:
@@ -420,7 +544,7 @@ class McpClient(ToolProviderClient):
             data = f"Tool returned {len(binaries)} file(s); they are attached to this session."
         content_type = self._detect_content_type(data)
 
-        is_error = bool(getattr(result, "isError", False))
+        is_error = bool(_first_attr(result, "is_error", "isError"))
         # On a tool-level error (isError=True) the MCP spec puts the
         # explanation in the content blocks, not in a transport
         # exception. Surface it in `error` so callers don't see a
@@ -439,6 +563,10 @@ class McpClient(ToolProviderClient):
             # File blobs a tool returned (EmbeddedResource/blob), surfaced
             # so execute_mcp can materialize them into session files.
             "binaries": binaries,
+            # The result as the server sent it (content blocks, structured
+            # content, _meta): an MCP App is handed exactly this. Bounded —
+            # see raw_call_tool_result.
+            "raw_result": raw_call_tool_result(result),
             "error": error_msg,
             "parse_skipped": parse_skipped,
             "size_chars": len(data) if isinstance(data, str) else None,
@@ -454,18 +582,29 @@ class McpClient(ToolProviderClient):
         structured data is the only copy (no content, or only a status line /
         prose summary next to it), it is kept: dropping it loses the result.
         """
-        structured = getattr(result, "structuredContent", None)
+        structured = _first_attr(result, "structured_content", "structuredContent")
         if structured is None:
             return data
         if data is None:
             return structured
         candidates = data if isinstance(data, list) else [data]
+        # A tool returning a plain value gets its output schema's wrapper:
+        # structuredContent {"result": <value>} next to the value as text
+        # (the SDKs do this for str/int returns). Same data, not a second copy.
+        same_as = [structured]
+        if isinstance(structured, dict) and set(structured) == {"result"}:
+            same_as.append(structured["result"])
+            if isinstance(structured["result"], str):
+                try:
+                    same_as.append(json.loads(structured["result"]))
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    pass
         for part in candidates:
-            if part == structured:
+            if any(part == s for s in same_as):
                 return data
             if isinstance(part, str):
                 try:
-                    if json.loads(part) == structured:
+                    if any(json.loads(part) == s for s in same_as):
                         return data
                 except (json.JSONDecodeError, TypeError, ValueError):
                     pass
@@ -520,7 +659,7 @@ class McpClient(ToolProviderClient):
         # Image / audio: base64 media. Saved as a session file, not inlined —
         # base64 in the result data costs tokens and no model can read it.
         if block_type in ("image", "audio") or (
-            getattr(block, "data", None) is not None and getattr(block, "mimeType", None)
+            getattr(block, "data", None) is not None and _mime_of(block)
             and not hasattr(block, "text")
         ):
             return None
@@ -536,8 +675,8 @@ class McpClient(ToolProviderClient):
         uri = getattr(block, "uri", None)
         if block_type == "resource_link" or uri:
             details = [f"uri={uri}"]
-            for attr, label in (("name", "name"), ("mimeType", "mimeType")):
-                val = getattr(block, attr, None)
+            for attr, label in (("name", "name"), ("mime_type", "mimeType")):
+                val = _mime_of(block) if attr == "mime_type" else getattr(block, attr, None)
                 if val:
                     details.append(f"{label}={val}")
             return (
@@ -586,7 +725,7 @@ class McpClient(ToolProviderClient):
                 blob = getattr(c, "data", None)
             if not blob:
                 continue
-            mime = getattr(src, "mimeType", None)
+            mime = _mime_of(src)
             uri = getattr(src, "uri", None)
             out.append({
                 "blob_b64": blob,
@@ -650,38 +789,40 @@ class McpClient(ToolProviderClient):
 
     def _connect(self):
         """
-        Create an MCP client session context manager for the configured transport.
-        Returns an async context manager that yields a ClientSession.
+        Open an MCP client for the configured transport.
+        Returns an async context manager that yields a connected ``mcp.Client``.
+
+        Streamable HTTP negotiates the protocol era itself (``mode="auto"``): a
+        2026-07-28+ server is spoken to statelessly (version and capabilities on
+        every request), an older one gets the ``initialize`` handshake. HTTP+SSE
+        only ever existed before 2026-07-28, so it goes straight to the
+        handshake. Either way the client advertises the MCP Apps extension
+        (``io.modelcontextprotocol/ui``) so servers offer their UI-bound tools.
         """
-        from mcp import ClientSession
-        from mcp.client.sse import sse_client
-        from mcp.client.streamable_http import streamablehttp_client
         from contextlib import asynccontextmanager
+        from mcp import Client
+        from mcp.client.sse import sse_client
+        from mcp.client.streamable_http import streamable_http_client
         # Pinned admin-tier client: metadata/link-local refused, private only
         # with block_private_outbound, DNS rebinding closed (app.core.egress).
-        from app.core.egress import Policy, mcp_client_factory
+        from app.core.egress import Policy, mcp_client_factory, mcp_http_client
 
         @asynccontextmanager
         async def _session():
             if self.transport == "sse":
-                async with sse_client(
+                transport = sse_client(
                     url=self.server_url,
                     headers=self._build_headers(),
                     httpx_client_factory=mcp_client_factory(Policy.ADMIN),
-                ) as (read_stream, write_stream):
-                    async with ClientSession(read_stream, write_stream) as session:
-                        await session.initialize()
-                        yield session
+                )
+                async with Client(transport, mode="legacy", **_client_options()) as client:
+                    yield client
 
             elif self.transport == "streamable_http":
-                async with streamablehttp_client(
-                    url=self.server_url,
-                    headers=self._build_headers(),
-                    httpx_client_factory=mcp_client_factory(Policy.ADMIN),
-                ) as (read_stream, write_stream, _):
-                    async with ClientSession(read_stream, write_stream) as session:
-                        await session.initialize()
-                        yield session
+                async with mcp_http_client(Policy.ADMIN, headers=self._build_headers()) as http:
+                    transport = streamable_http_client(self.server_url, http_client=http)
+                    async with Client(transport, mode="auto", **_client_options()) as client:
+                        yield client
 
             else:
                 raise ValueError(

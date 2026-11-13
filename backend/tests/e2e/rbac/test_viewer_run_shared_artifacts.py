@@ -327,7 +327,8 @@ def test_owner_rerun_invalidates_cached_viewer_results(
 
 # ── Snapshot withholding (viewer-identity mode on user-scoped connections) ──
 
-async def _attach_source_with_connection(report_id: str, auth_policy: str, is_public: bool = True):
+async def _attach_source_with_connection(report_id: str, auth_policy: str, is_public: bool = True,
+                                         attach: bool = True, name: str | None = None):
     """Attach a data source backed by a connection with the given auth_policy.
 
     Creating a user_required connection through the API requires an enterprise
@@ -335,6 +336,10 @@ async def _attach_source_with_connection(report_id: str, auth_policy: str, is_pu
     rows are seeded directly to put the report into the state the withholding
     policy reads (connection.auth_policy). The saved step code never touches
     the (unreachable) source, so runs stay deterministic.
+
+    `attach=False` only creates the source in the report's organization, the
+    way a chat-created report runs on the organization's sources without any
+    of them attached to it. `name` overrides the source's generated name.
     """
     from app.models.connection import Connection
     from app.models.data_source import DataSource
@@ -354,7 +359,7 @@ async def _attach_source_with_connection(report_id: str, auth_policy: str, is_pu
         db.add(conn)
         await db.flush()
         ds = DataSource(
-            name=f"Warehouse {suffix}",
+            name=name or f"Warehouse {suffix}",
             organization_id=report.organization_id,
             is_public=is_public,
         )
@@ -362,10 +367,37 @@ async def _attach_source_with_connection(report_id: str, auth_policy: str, is_pu
         await db.flush()
         await db.execute(domain_connection.insert().values(
             data_source_id=str(ds.id), connection_id=str(conn.id)))
-        await db.execute(report_data_source_association.insert().values(
-            report_id=str(report_id), data_source_id=str(ds.id)))
+        if attach:
+            await db.execute(report_data_source_association.insert().values(
+                report_id=str(report_id), data_source_id=str(ds.id)))
         await db.commit()
         return str(ds.id)
+
+
+def _source_key_reference(name: str) -> str:
+    """Code that reaches the source by its client key, as generated code does
+    (`ds_clients["<source name>"]`, the single-connection key), inside a
+    function the run never calls: the step names the source while its rows
+    stay those of the code around it."""
+    return f'def _reach_source(ds_clients):\n    return ds_clients["{name}"]\n\n'
+
+
+async def _name_source_in_step_code(report_id: str, data_source_id: str):
+    """Make every step of the report reach the data source by its client key
+    (_source_key_reference). A report with no attached sources runs on the
+    organization's sources its code reaches by key."""
+    from sqlalchemy import select as _select
+    from app.models.data_source import DataSource
+
+    async with async_session_maker() as db:
+        name = (await db.execute(
+            _select(DataSource.name).where(DataSource.id == data_source_id))).scalar_one()
+        steps = (await db.execute(
+            _select(Step).join(Query, Query.id == Step.query_id).where(Query.report_id == report_id)
+        )).scalars().all()
+        for step in steps:
+            step.code = _source_key_reference(name) + (step.code or "")
+        await db.commit()
 
 
 @pytest.mark.e2e
@@ -732,9 +764,13 @@ def test_step_read_drops_creator_identity_params_for_viewers(
     assert mine["applied_params"]["UserEmail"] == "owner@corp.test"
 
 
-async def _seed_viewer_result(step_id: str, viewer_email: str):
+async def _seed_viewer_result(step_id: str, viewer_email: str, executed_as: str = "viewer", *,
+                              month: str = "mine", params_fingerprint: str = "",
+                              last_run_at: datetime | None = None):
     """The viewer's own successful run of the step (normally written by a
-    viewer run, which needs a live data source)."""
+    viewer run, which needs a live data source). `executed_as` records whose
+    credentials ran it ('creator': the report owner's); its one row's month
+    is `month`, stored under `params_fingerprint` ('' = no parameters)."""
     from sqlalchemy import select as _select
     from app.models.step_user_result import StepUserResult
     from app.models.user import User as _User
@@ -744,9 +780,10 @@ async def _seed_viewer_result(step_id: str, viewer_email: str):
         viewer_id = (await db.execute(_select(_User.id).where(_User.email == viewer_email))).scalar_one()
         db.add(StepUserResult(
             step_id=step_id, user_id=viewer_id, organization_id=query.organization_id,
-            report_id=query.report_id, status="success", executed_as="viewer",
-            data={"rows": [{"month": "mine"}], "columns": [{"field": "month"}]},
-            last_run_at=datetime.utcnow(),
+            report_id=query.report_id, status="success", executed_as=executed_as,
+            data={"rows": [{"month": month}], "columns": [{"field": "month"}]},
+            params_fingerprint=params_fingerprint,
+            last_run_at=last_run_at or datetime.utcnow(),
         ))
         await db.commit()
 
@@ -1035,7 +1072,8 @@ def test_strict_mode_drops_artifact_thumbnail(
 
 # ── Built-in RLS relations (system_only, but identity-differentiated) ──
 
-async def _attach_rls_relation(report_id: str, rls_enabled: bool = True):
+async def _attach_rls_relation(report_id: str, rls_enabled: bool = True, attach: bool = True,
+                               buildable: bool = False, relation: dict | None = None):
     """Attach a system_only source whose report reads a bow custom-query
     relation with RLS enabled.
 
@@ -1045,6 +1083,12 @@ async def _attach_rls_relation(report_id: str, rls_enabled: bool = True):
     connection is system_only. Seeded directly (the fast/DuckDB path needs the
     beta flag + a reachable source neither of which this suite has); the test
     exercises the DETECTION + gating, not the row filtering itself.
+
+    `attach=False` only creates the source in the report's organization (see
+    _attach_source_with_connection). `buildable=True` backs it with an
+    in-memory SQLite connection, so a run can build its clients. `relation`
+    overrides ConnectionTable fields (an artifact and a row policy, for a
+    relation a run actually reads).
     """
     from app.models.connection import Connection
     from app.models.connection_table import ConnectionTable, KIND_BOW
@@ -1057,8 +1101,10 @@ async def _attach_rls_relation(report_id: str, rls_enabled: bool = True):
     async with async_session_maker() as db:
         report = await db.get(Report, report_id)
         conn = Connection(
-            name=f"warehouse-{suffix}", type="postgresql",
-            config={"host": "localhost", "port": 5432, "database": "nope"},
+            name=f"warehouse-{suffix}",
+            type="sqlite" if buildable else "postgresql",
+            config={"database": ":memory:"} if buildable
+            else {"host": "localhost", "port": 5432, "database": "nope"},
             organization_id=report.organization_id, auth_policy="system_only",
         )
         db.add(conn)
@@ -1066,21 +1112,24 @@ async def _attach_rls_relation(report_id: str, rls_enabled: bool = True):
         ds = DataSource(name=f"Warehouse {suffix}", organization_id=report.organization_id, is_public=True)
         db.add(ds)
         await db.flush()
-        ct = ConnectionTable(
-            connection_id=str(conn.id), name=f"sales_{suffix}", kind=KIND_BOW,
+        fields = dict(
+            name=f"sales_{suffix}",
             columns=[{"name": "month"}, {"name": "revenue"}], pks=[], fks=[],
             rls_enabled=rls_enabled,
         )
+        fields.update(relation or {})
+        ct = ConnectionTable(connection_id=str(conn.id), kind=KIND_BOW, **fields)
         db.add(ct)
         await db.flush()
         db.add(DataSourceTable(
-            name=f"sales_{suffix}", datasource_id=str(ds.id),
+            name=fields["name"], datasource_id=str(ds.id),
             connection_table_id=str(ct.id), is_active=True,
         ))
         await db.execute(domain_connection.insert().values(
             data_source_id=str(ds.id), connection_id=str(conn.id)))
-        await db.execute(report_data_source_association.insert().values(
-            report_id=str(report_id), data_source_id=str(ds.id)))
+        if attach:
+            await db.execute(report_data_source_association.insert().values(
+                report_id=str(report_id), data_source_id=str(ds.id)))
         await db.commit()
         return str(ds.id)
 
@@ -1168,12 +1217,13 @@ def test_creator_mode_blocked_on_rls_dashboards(
 # can be driven deterministically instead of racing a background task.
 
 
-async def _attach_user_scoped_source(report_id: str):
+async def _attach_user_scoped_source(report_id: str, attach: bool = True):
     """Attach a delegated (user_required) source to the report.
 
     The counterpart to _attach_rls_relation: there the connection is
     system_only and RLS differentiates the rows; here the connection itself
     resolves credentials per user, so a reader may have no access at all.
+    `attach=False` only creates it in the report's organization.
     """
     from app.models.connection import Connection
     from app.models.data_source import DataSource
@@ -1201,8 +1251,9 @@ async def _attach_user_scoped_source(report_id: str):
         await db.flush()
         await db.execute(domain_connection.insert().values(
             data_source_id=str(ds.id), connection_id=str(conn.id)))
-        await db.execute(report_data_source_association.insert().values(
-            report_id=str(report_id), data_source_id=str(ds.id)))
+        if attach:
+            await db.execute(report_data_source_association.insert().values(
+                report_id=str(report_id), data_source_id=str(ds.id)))
         await db.commit()
         return str(ds.id)
 
@@ -1313,6 +1364,860 @@ def test_fork_of_system_only_source_still_carries_code(
         "system-only fork lost its code — the withholding rule leaked past "
         "delegated sources"
     )
+
+
+# ── Reports with no attached data sources ───────────────────────────────────
+#
+# A chat-created report has no attached sources: its runs use the
+# organization's sources, and its code reaches them by name
+# (QueryService._report_data_sources). Every rule that asks whether a report
+# reads a row-filtered relation or a per-user connection answers for the
+# organization sources its code names, exactly as for attached ones.
+
+
+def _fork_default_step_as(test_client, report_id, user, org_id) -> dict:
+    resp = test_client.post(f"/api/reports/{report_id}/fork", json={}, headers=_headers(user["token"], org_id))
+    assert resp.status_code == 200, resp.json()
+    fork_id = resp.json()["id"]
+    fork_q = test_client.get(f"/api/queries?report_id={fork_id}", headers=_headers(user["token"], org_id)).json()[0]
+    return test_client.get(
+        f"/api/queries/{fork_q['id']}/default_step", headers=_headers(user["token"], org_id),
+    ).json()["step"]
+
+
+def _assert_hydration_runs_as_the_forker(test_client, spawned, query_id, forker, org_id):
+    """Run the fork's hydration (captured from spawn) for real and check what
+    it leaves: never the owner's rows (the seeded snapshot is {"month":
+    "stale"}), and the code only where the forker's own run succeeded."""
+    assert len(spawned) == 1, "hydration was not scheduled for the fork"
+    outcome = _run(spawned[0])
+    resp = test_client.get(f"/api/queries/{query_id}/default_step", headers=_headers(forker["token"], org_id))
+    if outcome.get("deleted"):
+        # The forker could run nothing: the fork is retired, rows and code never land.
+        return outcome
+    after = resp.json()["step"]
+    rows = (after.get("data") or {}).get("rows") or []
+    assert {r.get("month") for r in rows} != {"stale"}, "hydration filled the fork with the owner's rows"
+    if after.get("status") == "success":
+        assert (after.get("code") or "").strip(), "a successful run as the forker did not write its code back"
+    else:
+        assert not (after.get("code") or "").strip(), "the code came back without a successful run as the forker"
+    return outcome
+
+
+def _report_flags(test_client, report_id, owner, org_id) -> tuple:
+    resp = test_client.get(f"/api/reports/{report_id}", headers=_headers(owner["token"], org_id))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    return body.get("has_rls"), body.get("has_user_scoped")
+
+
+async def _store_run_identity(report_id: str, identity: str):
+    """Store the run identity directly. The visibility route now refuses
+    'creator' on these reports; a report saved that way before the rule
+    reached unattached reports still carries it."""
+    async with async_session_maker() as db:
+        report = await db.get(Report, report_id)
+        report.shared_run_identity = identity
+        await db.commit()
+
+
+@pytest.mark.e2e
+def test_fork_of_unattached_report_reading_a_row_filtered_relation_copies_no_rows(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """The owner's snapshot is their row slice of the relation whether or not
+    the source is attached to the report: the fork starts with no rows."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    ds_id = _run(_attach_rls_relation(report["id"], attach=False))
+    _run(_name_source_in_step_code(report["id"], ds_id))
+
+    fstep = _fork_default_step_as(test_client, report["id"], viewer, admin["org_id"])
+    assert not (fstep["data"] or {}).get("rows"), (
+        "the fork received the owner's rows of a row-filtered relation")
+
+
+@pytest.mark.e2e
+def test_fork_of_unattached_report_over_a_per_user_connection_carries_no_code_or_rows(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, monkeypatch,
+):
+    """Same rule as the attached delegated source: the fork is created with no
+    rows and no SQL, and hydration, run here for real, fills it in only from
+    the forker's own run."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    ds_id = _run(_attach_user_scoped_source(report["id"], attach=False))
+    _run(_name_source_in_step_code(report["id"], ds_id))
+    # Captured, then run once the creation-time state is read, so the
+    # background pass cannot race the first assertions.
+    spawned = []
+    monkeypatch.setattr("app.core.fire_and_forget.spawn", spawned.append)
+
+    fstep = _fork_default_step_as(test_client, report["id"], viewer, admin["org_id"])
+    assert not (fstep.get("code") or "").strip(), "the fork carried the source SQL"
+    assert not (fstep.get("data") or {}).get("rows"), "the fork carried the owner's rows"
+
+    _assert_hydration_runs_as_the_forker(test_client, spawned, fstep["query_id"], viewer, admin["org_id"])
+
+
+@pytest.mark.e2e
+def test_report_flags_describe_the_unattached_sources_its_code_names(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """has_rls / has_user_scoped follow the organization sources the code
+    names — not every source the organization happens to have."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    org_id = admin["org_id"]
+    plain_id = _run(_attach_source_with_connection(report["id"], "system_only", attach=False))
+    rls_id = _run(_attach_rls_relation(report["id"], attach=False))
+    scoped_id = _run(_attach_user_scoped_source(report["id"], attach=False))
+
+    # The organization has both kinds, but the code names only a plain source.
+    _run(_name_source_in_step_code(report["id"], plain_id))
+    assert _report_flags(test_client, report["id"], owner, org_id) == (False, False)
+
+    _run(_name_source_in_step_code(report["id"], scoped_id))
+    assert _report_flags(test_client, report["id"], owner, org_id) == (False, True)
+
+    _run(_name_source_in_step_code(report["id"], rls_id))
+    assert _report_flags(test_client, report["id"], owner, org_id) == (True, True)
+
+
+@pytest.mark.e2e
+def test_unattached_report_reading_a_row_filtered_relation_runs_viewers_as_themselves(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    ds_id = _run(_attach_rls_relation(report["id"], attach=False, buildable=True))
+    _run(_name_source_in_step_code(report["id"], ds_id))
+
+    resp = test_client.put(
+        f"/api/reports/{report['id']}/visibility/artifact",
+        json={"visibility": "internal", "run_identity": "creator"},
+        headers=_headers(owner["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 400, resp.text
+
+    # Even a report stored in creator mode runs a viewer as the viewer: the
+    # query run...
+    _run(_store_run_identity(report["id"], "creator"))
+    qid = seeded["query_ids"][0]
+    resp = test_client.post(
+        f"/api/queries/{qid}/run", json={"mode": "viewer", "params": {}},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "success", resp.json()
+    stored = _public_step(test_client, report["id"], qid, token=viewer["token"])
+    assert stored["viewer_result"]["executed_as"] == "viewer"
+    # ...and the page's run.
+    resp = test_client.post(f"/api/r/{report['id']}/run", headers=_headers(viewer["token"]))
+    assert resp.status_code == 200, resp.json()
+    assert resp.json()["executed_as"] == "viewer"
+
+
+def _row_filtered_artifact(tmp_path, relation: str, rows: list) -> tuple:
+    """A real encrypted DuckDB artifact (as tests/unit/test_custom_query_rls.py
+    builds one) holding the relation `relation(owner_email, amount)`."""
+    from app.data_sources.fast import artifacts
+
+    key = artifacts.new_artifact_key()
+    path = tmp_path / f"orders-{uuid.uuid4().hex[:6]}.duckdb"
+    con = artifacts.connect_encrypted(path, key)
+    con.execute(f"CREATE TABLE {relation} (owner_email VARCHAR, amount INTEGER)")
+    con.executemany(f"INSERT INTO {relation} VALUES (?, ?)", rows)
+    con.close()
+    return str(path), artifacts.encrypt_key(key)
+
+
+FAST_READ_CODE = """
+def _reach_source(ds_clients):
+    return ds_clients["{plain}"]
+
+
+def generate_df(ds_clients, excel_files):
+    fast = [client for key, client in ds_clients.items() if key.endswith("::fast")]
+    return fast[0].execute_query("SELECT owner_email, amount FROM {relation}")
+"""
+
+
+async def _source_name(data_source_id: str) -> str:
+    from sqlalchemy import select as _select
+    from app.models.data_source import DataSource
+
+    async with async_session_maker() as db:
+        return (await db.execute(
+            _select(DataSource.name).where(DataSource.id == data_source_id))).scalar_one()
+
+
+def _report_over_a_row_filtered_relation(test_client, create_report, bootstrap_admin, invite_user_to_org,
+                                         tmp_path, *, attach: bool):
+    """A shared report whose step reads a real row-filtered relation (one row
+    per user email: the owner's and the viewer's). Its code reaches a plain
+    source by key and the relation's client by iterating ds_clients, so
+    unattached it counts every organization source -- the relation's
+    included."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    relation = f"orders_{uuid.uuid4().hex[:6]}"
+    path, key_enc = _row_filtered_artifact(tmp_path, relation, [(owner["email"], 1), (viewer["email"], 2)])
+    _run(_attach_rls_relation(report["id"], attach=attach, buildable=True, relation={
+        "name": relation,
+        "columns": [{"name": "owner_email"}, {"name": "amount"}],
+        "artifact_path": path, "artifact_key_enc": key_enc, "no_rows": 2,
+        "rls_mode": "attribute",
+        "rls_policy": {"column": "owner_email", "source": "user.email", "op": "in"},
+        "rls_default_deny": True,
+    }))
+    plain_id = _run(_attach_source_with_connection(report["id"], "system_only", attach=False))
+    _run(_set_step_code(seeded["step_ids"][0],
+                        FAST_READ_CODE.format(plain=_run(_source_name(plain_id)), relation=relation)))
+    return admin, owner, viewer, report, seeded
+
+
+@pytest.mark.e2e
+def test_a_creator_mode_report_reaching_a_row_filtered_relation_runs_the_viewer_as_themselves(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, tmp_path,
+):
+    """The step reaches the relation's client without a key for it, beside a
+    key for a plain source: the report still counts as reading the relation,
+    so 'run on my behalf' is refused, and a report stored in that mode runs a
+    viewer as themselves -- the rows are the viewer's."""
+    admin, owner, viewer, report, seeded = _report_over_a_row_filtered_relation(
+        test_client, create_report, bootstrap_admin, invite_user_to_org, tmp_path, attach=False)
+    resp = test_client.put(
+        f"/api/reports/{report['id']}/visibility/artifact",
+        json={"visibility": "internal", "run_identity": "creator"},
+        headers=_headers(owner["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 400, resp.text
+    _run(_store_run_identity(report["id"], "creator"))
+
+    resp = test_client.post(
+        f"/api/queries/{seeded['query_ids'][0]}/run",
+        json={"mode": "viewer", "params": {}},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "success", body.get("error")
+    assert {r["owner_email"] for r in body["data"]["rows"]} == {viewer["email"]}
+    stored = _public_step(test_client, report["id"], seeded["query_ids"][0], token=viewer["token"])
+    assert stored["viewer_result"]["executed_as"] == "viewer"
+
+
+@pytest.mark.e2e
+def test_the_page_run_of_a_creator_mode_report_reaching_a_row_filtered_relation_runs_as_the_viewer(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, tmp_path,
+):
+    """The same through the shared page's run (POST /r/{id}/run)."""
+    admin, owner, viewer, report, seeded = _report_over_a_row_filtered_relation(
+        test_client, create_report, bootstrap_admin, invite_user_to_org, tmp_path, attach=False)
+    _run(_store_run_identity(report["id"], "creator"))
+
+    resp = test_client.post(f"/api/r/{report['id']}/run", headers=_headers(viewer["token"]))
+    assert resp.status_code == 200, resp.json()
+    assert resp.json()["executed_as"] == "viewer"
+    step = _public_step(test_client, report["id"], seeded["query_ids"][0], token=viewer["token"])
+    assert {r["owner_email"] for r in step["data"]["rows"]} == {viewer["email"]}
+
+
+# A plain source whose name is also part of an identifier the code uses, and
+# a row-filtered relation the code reaches by iterating ds_clients.
+IDENTIFIER_NAMING_CODE = """
+def generate_df(ds_clients, excel_files):
+    import pandas as pd
+    {plain}_rows = [client for client in ds_clients.values()]
+    return pd.DataFrame({{"month": ["2024-01", "2024-02"], "revenue": [10, 20]}})
+"""
+
+
+@pytest.mark.e2e
+def test_a_source_name_inside_an_identifier_does_not_narrow_a_step_reaching_every_client(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, monkeypatch,
+):
+    """A source counts as reached by its client key, not by its name showing
+    up in the code. A step that iterates ds_clients reaches every source,
+    a row-filtered one included, even when a plain source's name is part of a
+    variable name: the report reads a row-filtered relation, 'run on my
+    behalf' is refused, and a fork copies none of its rows."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    org_id = admin["org_id"]
+    plain = f"db{uuid.uuid4().hex[:6]}"
+    _run(_attach_source_with_connection(report["id"], "system_only", attach=False, name=plain))
+    _run(_attach_rls_relation(report["id"], attach=False))
+    _run(_set_step_code(seeded["step_ids"][0], IDENTIFIER_NAMING_CODE.format(plain=plain)))
+
+    assert _report_flags(test_client, report["id"], owner, org_id)[0] is True
+    resp = test_client.put(
+        f"/api/reports/{report['id']}/visibility/artifact",
+        json={"visibility": "internal", "run_identity": "creator"},
+        headers=_headers(owner["token"], org_id),
+    )
+    assert resp.status_code == 400, resp.text
+
+    monkeypatch.setattr("app.core.fire_and_forget.spawn", lambda job: None)
+    fstep = _fork_default_step_as(test_client, report["id"], viewer, org_id)
+    assert not (fstep["data"] or {}).get("rows"), "the fork received the owner's rows"
+
+
+# generate_df names the clients dict `clients` and hands it to a helper whose
+# parameter is called ds_clients and reads a plain source by key; the
+# row-filtered source is reached through the renamed name.
+RENAMED_CLIENTS_CODE = """
+def fetch(ds_clients, sql):
+    return ds_clients["{plain}"].execute_query(sql)
+
+
+def generate_df(clients, excel_files):
+    import pandas as pd
+    if False:
+        fetch(clients, "SELECT 1")
+        clients["{rls}"].execute_query("SELECT 1")
+    return pd.DataFrame({{"month": ["2024-01", "2024-02"], "revenue": [10, 20]}})
+"""
+
+
+@pytest.mark.e2e
+def test_a_renamed_clients_parameter_still_counts_the_sources_it_reaches(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, monkeypatch,
+):
+    """generate_df receives the clients dict positionally under any name.
+    Reaching the row-filtered source through that name, and handing the dict
+    to a helper, makes the report read the row-filtered relation, whatever the
+    helper's parameter is called: a fork copies none of its rows."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    org_id = admin["org_id"]
+    plain = _run(_source_name(_run(_attach_source_with_connection(report["id"], "system_only", attach=False))))
+    rls = _run(_source_name(_run(_attach_rls_relation(report["id"], attach=False))))
+    _run(_set_step_code(seeded["step_ids"][0], RENAMED_CLIENTS_CODE.format(plain=plain, rls=rls)))
+
+    assert _report_flags(test_client, report["id"], owner, org_id)[0] is True
+
+    monkeypatch.setattr("app.core.fire_and_forget.spawn", lambda job: None)
+    fstep = _fork_default_step_as(test_client, report["id"], viewer, org_id)
+    assert not (fstep["data"] or {}).get("rows"), "the fork received the owner's rows"
+
+
+# The run's namespace also binds the clients dict as the global `db_clients`:
+# the plain source by key on the parameter, the row-filtered one on the global.
+NAMESPACE_CLIENTS_CODE = """
+def generate_df(ds_clients, excel_files):
+    import pandas as pd
+    if False:
+        ds_clients["{plain}"].execute_query("SELECT 1")
+        db_clients["{rls}"].execute_query("SELECT 1")
+    return pd.DataFrame({{"month": ["2024-01", "2024-02"], "revenue": [10, 20]}})
+"""
+
+
+@pytest.mark.e2e
+def test_the_clients_global_of_the_run_counts_the_sources_it_reaches(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, monkeypatch,
+):
+    """A source reached through the `db_clients` global counts like one
+    reached through generate_df's parameter: the report reads the
+    row-filtered relation and a fork copies none of its rows."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    org_id = admin["org_id"]
+    plain = _run(_source_name(_run(_attach_source_with_connection(report["id"], "system_only", attach=False))))
+    rls = _run(_source_name(_run(_attach_rls_relation(report["id"], attach=False))))
+    _run(_set_step_code(seeded["step_ids"][0], NAMESPACE_CLIENTS_CODE.format(plain=plain, rls=rls)))
+
+    assert _report_flags(test_client, report["id"], owner, org_id)[0] is True
+
+    monkeypatch.setattr("app.core.fire_and_forget.spawn", lambda job: None)
+    fstep = _fork_default_step_as(test_client, report["id"], viewer, org_id)
+    assert not (fstep["data"] or {}).get("rows"), "the fork received the owner's rows"
+
+
+@pytest.mark.e2e
+def test_a_stored_owner_credential_result_gives_way_to_the_viewers_own_older_result(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """The viewer ran the step as themselves; a newer result stored under the
+    owner's credentials over a row-filtered relation is not theirs to see.
+    The page serves the viewer's own result instead of none."""
+    from app.ai.code_execution.query_params import params_fingerprint
+
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    ds_id = _run(_attach_rls_relation(report["id"], attach=False, buildable=True))
+    _run(_name_source_in_step_code(report["id"], ds_id))
+    qid, sid = seeded["query_ids"][0], seeded["step_ids"][0]
+    year = {"name": "Year", "type": "string", "label": "Year", "default": "2024", "required": False,
+            "source": "input", "identity_binding": None, "options": None, "options_source": None,
+            "strict_options": False}
+    _run(_set_query_params(qid, [year]))
+    # Seeded directly: a viewer run needs a reachable source, and the API no
+    # longer stores an owner-credential result for this report. The viewer's
+    # own run predates the query's parameter (no fingerprint); the newer one
+    # ran with its default value.
+    now = datetime.utcnow()
+    _run(_seed_viewer_result(sid, viewer["email"], "viewer", month="viewers-own",
+                             last_run_at=now - timedelta(hours=1)))
+    _run(_seed_viewer_result(sid, viewer["email"], "creator", month="owners-slice",
+                             params_fingerprint=params_fingerprint({"Year": "2024"}), last_run_at=now))
+
+    step = _public_step(test_client, report["id"], qid, token=viewer["token"])
+    assert {r["month"] for r in (step["data"] or {}).get("rows") or []} == {"viewers-own"}, step["data"]
+    assert step["viewer_result"]["executed_as"] == "viewer"
+
+
+@pytest.mark.e2e
+def test_viewer_step_run_building_its_own_clients_filters_rows_for_the_viewer(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, tmp_path,
+):
+    """StepService.run_step_to_user_result with no prebuilt clients builds
+    them itself: under the owner's credentials, the rows still filter for the
+    viewer whose result it writes. (Called directly: the HTTP routes always
+    hand it prebuilt clients.)"""
+    from sqlalchemy import select as _select
+    from sqlalchemy.orm import selectinload
+    from app.models.user import User as _User
+    from app.services.step_service import StepService
+
+    admin, owner, viewer, report, seeded = _report_over_a_row_filtered_relation(
+        test_client, create_report, bootstrap_admin, invite_user_to_org, tmp_path, attach=True)
+
+    async def run():
+        async with async_session_maker() as db:
+            loaded = (await db.execute(
+                _select(Report).options(selectinload(Report.data_sources), selectinload(Report.files))
+                .where(Report.id == report["id"])
+            )).scalar_one()
+            row = await StepService().run_step_to_user_result(
+                db, seeded["step_ids"][0],
+                run_user=await db.get(_User, viewer["user_id"]),
+                credential_user=await db.get(_User, owner["user_id"]),
+                executed_as="creator", report=loaded, db_clients=None,
+            )
+            return row.status, row.status_reason, row.data
+
+    status, reason, data = _run(run())
+    assert status == "success", reason
+    assert {r["owner_email"] for r in data["rows"]} == {viewer["email"]}
+
+
+@pytest.mark.e2e
+def test_result_stored_from_the_owners_credentials_is_not_served_on_a_row_filtered_report(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """A viewer result run under the owner's credentials on a report that
+    reads a row-filtered relation holds the owner's slice. Neither the step
+    read nor the query run's cache serves it; the run executes again."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    ds_id = _run(_attach_rls_relation(report["id"], attach=False, buildable=True))
+    _run(_name_source_in_step_code(report["id"], ds_id))
+    qid, sid = seeded["query_ids"][0], seeded["step_ids"][0]
+    # Seeded directly: the API no longer writes a creator-credential result
+    # for such a report, but rows stored before that rule remain.
+    _run(_seed_viewer_result(sid, viewer["email"], executed_as="creator"))
+
+    step = _public_step(test_client, report["id"], qid, token=viewer["token"])
+    assert not (step["data"] or {}).get("rows"), step["data"]
+    assert step["snapshot_withheld"] is True
+
+    resp = test_client.post(
+        f"/api/queries/{qid}/run",
+        json={"mode": "viewer", "params": {}},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["cached"] is False, body
+    assert {r["month"] for r in body["data"]["rows"]} == FRESH_MONTHS
+
+
+@pytest.mark.e2e
+def test_fork_eligibility_on_unattached_report_follows_the_sources_its_code_names(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """A forker needs access to the organization sources the code names; a
+    restricted source the code does not name does not stand in the way."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    restricted_id = _run(_attach_source_with_connection(
+        report["id"], "system_only", is_public=False, attach=False))
+
+    def eligibility():
+        resp = test_client.get(f"/api/r/{report['id']}", headers=_headers(viewer["token"], admin["org_id"]))
+        assert resp.status_code == 200, resp.json()
+        return resp.json()["fork_eligibility"]
+
+    assert eligibility()["can_fork"] is True
+
+    _run(_name_source_in_step_code(report["id"], restricted_id))
+    elig = eligibility()
+    assert elig["can_fork"] is False
+    assert elig["reason"] == "no_data_source_access"
+
+
+# The restricted source's name appears in a comment, in a SQL column and in a
+# string; the only client the code reaches is a plain source's, by key.
+NAME_IN_SQL_CODE = """
+def generate_df(ds_clients, excel_files):
+    import pandas as pd
+    # totals per {restricted}
+    sql = 'SELECT amount AS "{restricted}" FROM orders'
+    if False:
+        ds_clients["{plain}"].execute_query(sql)
+    return pd.DataFrame({{"month": ["2024-01", "2024-02"], "revenue": [10, 20]}})
+"""
+
+
+@pytest.mark.e2e
+def test_fork_eligibility_ignores_a_source_name_that_is_not_a_client_key(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """A restricted source whose name appears only in a comment, a SQL column
+    or a string is not one the report reaches: the forker without access to
+    it may still fork. Reaching it by key then refuses the fork."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    restricted_id = _run(_attach_source_with_connection(
+        report["id"], "system_only", is_public=False, attach=False))
+    plain_id = _run(_attach_source_with_connection(report["id"], "system_only", attach=False))
+    restricted, plain = _run(_source_name(restricted_id)), _run(_source_name(plain_id))
+    _run(_set_step_code(seeded["step_ids"][0], NAME_IN_SQL_CODE.format(restricted=restricted, plain=plain)))
+
+    def eligibility():
+        resp = test_client.get(f"/api/r/{report['id']}", headers=_headers(viewer["token"], admin["org_id"]))
+        assert resp.status_code == 200, resp.json()
+        return resp.json()["fork_eligibility"]
+
+    assert eligibility()["can_fork"] is True
+
+    _run(_name_source_in_step_code(report["id"], restricted_id))
+    elig = eligibility()
+    assert elig["can_fork"] is False
+    assert elig["reason"] == "no_data_source_access"
+
+
+# Reaches every client it was handed without naming any source.
+UNNAMED_SOURCES_CODE = """
+def generate_df(ds_clients, excel_files):
+    import pandas as pd
+    for key, client in ds_clients.items():
+        pass
+    return pd.DataFrame({"month": ["2024-01", "2024-02"], "revenue": [10, 20]})
+"""
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("kind", ["row_filtered", "per_user"])
+def test_a_step_naming_no_source_counts_every_organization_source(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, monkeypatch, kind,
+):
+    """Each step runs on the organization sources its own code names, or on
+    all of them when it names none. A sibling step naming a plain source does
+    not narrow a step that reaches its clients without naming them: the
+    report counts as reading the row-filtered or per-user source, and a fork copies none of
+    that step's rows (nor, over a per-user connection, its code)."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal", n_queries=2,
+    )
+    org_id = admin["org_id"]
+    plain_id = _run(_attach_source_with_connection(report["id"], "system_only", attach=False))
+    if kind == "row_filtered":
+        _run(_attach_rls_relation(report["id"], attach=False))
+    else:
+        _run(_attach_user_scoped_source(report["id"], attach=False))
+    named_step, unnamed_step = seeded["step_ids"]
+    _run(_set_step_code(named_step, _source_key_reference(_run(_source_name(plain_id))) + GOOD_CODE))
+    _run(_set_step_code(unnamed_step, UNNAMED_SOURCES_CODE))
+
+    has_rls, has_user_scoped = _report_flags(test_client, report["id"], owner, org_id)
+    assert (has_rls if kind == "row_filtered" else has_user_scoped) is True
+
+    # Captured, then run once the creation-time state is read.
+    spawned = []
+    monkeypatch.setattr("app.core.fire_and_forget.spawn", spawned.append)
+    resp = test_client.post(f"/api/reports/{report['id']}/fork", json={},
+                            headers=_headers(viewer["token"], org_id))
+    assert resp.status_code == 200, resp.json()
+    fork_queries = test_client.get(f"/api/queries?report_id={resp.json()['id']}",
+                                   headers=_headers(viewer["token"], org_id)).json()
+    copy = next(q for q in fork_queries if q["title"] == "Query 1")
+    fstep = test_client.get(f"/api/queries/{copy['id']}/default_step",
+                            headers=_headers(viewer["token"], org_id)).json()["step"]
+    assert not (fstep["data"] or {}).get("rows"), "the fork received the owner's rows"
+    if kind == "per_user":
+        assert not (fstep.get("code") or "").strip(), "the fork carried the source SQL"
+        _assert_hydration_runs_as_the_forker(test_client, spawned, copy["id"], viewer, org_id)
+    else:
+        # Over a system-only connection with a row-filtered relation the code
+        # is copied and nothing is left to hydrate.
+        assert not spawned, "a fork with nothing withheld scheduled hydration"
+
+
+async def _add_superseded_step(query_id: str, code: str):
+    """A failed earlier attempt of the query, no longer its default step.
+    Seeded directly: a failed builder run leaves one behind, and producing it
+    through the API needs the custom-code permission and a failing source."""
+    async with async_session_maker() as db:
+        query = await db.get(Query, query_id)
+        db.add(Step(
+            title="Earlier attempt", slug=f"earlier-{uuid.uuid4().hex[:8]}", status="error",
+            widget_id=query.widget_id, query_id=query.id, code=code,
+            created_at=datetime.utcnow() - timedelta(days=1),
+        ))
+        await db.commit()
+
+
+@pytest.mark.e2e
+def test_only_the_steps_a_report_serves_decide_its_run_sources(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """A failed earlier attempt that is no longer any query's step does not
+    run and is not served, so it does not widen the sources the report runs
+    on: a plain report stays plain and 'run on my behalf' stays available."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    plain_id = _run(_attach_source_with_connection(report["id"], "system_only", attach=False))
+    _run(_attach_rls_relation(report["id"], attach=False))
+    _run(_set_step_code(seeded["step_ids"][0], _source_key_reference(_run(_source_name(plain_id))) + GOOD_CODE))
+    _run(_add_superseded_step(seeded["query_ids"][0], UNNAMED_SOURCES_CODE))
+
+    assert _report_flags(test_client, report["id"], owner, admin["org_id"])[0] is False
+    resp = test_client.put(
+        f"/api/reports/{report['id']}/visibility/artifact",
+        json={"visibility": "internal", "run_identity": "creator"},
+        headers=_headers(owner["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.text
+
+
+def _identity_spec(name: str) -> dict:
+    return {"name": name, "type": "string", "label": name, "default": None, "required": False,
+            "source": "identity", "identity_binding": "viewer.email",
+            "options": None, "options_source": None, "strict_options": False}
+
+
+async def _set_step_data(step_id: str, data: dict):
+    async with async_session_maker() as db:
+        step = await db.get(Step, step_id)
+        step.data = data
+        await db.commit()
+
+
+LOAD_STEP_CODE = """
+def generate_df(ds_clients, excel_files):
+    return load_step('{step_id}')
+"""
+
+
+@pytest.mark.e2e
+def test_run_on_my_behalf_loads_other_steps_as_the_viewer(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """Under the owner's credentials, a step that load_step()s an
+    identity-parameter step still reads it as the viewer: the viewer's result
+    never holds the owner's slice of the step it loads."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal", n_queries=2,
+    )
+    resp = test_client.put("/api/organization/settings",
+                           json={"config": {"enable_load_step": {"value": True}}},
+                           headers=_headers(admin["token"], admin["org_id"]))
+    assert resp.status_code == 200, resp.text
+    scoped_q, loader_q = seeded["query_ids"]
+    scoped_step, loader_step = seeded["step_ids"]
+    marker = f"owner-slice-{uuid.uuid4().hex[:6]}"
+    _run(_set_query_params(scoped_q, [_identity_spec("UserEmail")]))
+    _run(_set_step_data(scoped_step, {"rows": [{"month": marker, "revenue": 1}],
+                                      "columns": [{"field": "month"}, {"field": "revenue"}]}))
+    _run(_set_step_code(loader_step, LOAD_STEP_CODE.format(step_id=scoped_step)))
+    _set_artifact_visibility(test_client, report["id"], owner, "internal", run_identity="creator")
+
+    resp = test_client.post(f"/api/r/{report['id']}/run", headers=_headers(viewer["token"]))
+    assert resp.status_code == 200, resp.json()
+    assert resp.json()["executed_as"] == "creator"
+    for qid in (scoped_q, loader_q):
+        served = test_client.get(f"/api/r/{report['id']}/queries/{qid}/step",
+                                 headers=_headers(viewer["token"]))
+        assert served.status_code == 200, served.text
+        assert marker not in served.text, f"query {qid} served the owner's slice to the viewer"
+
+
+LOAD_STEP_NAMING_CODE = """
+def _reach_source(ds_clients):
+    return ds_clients["{plain}"]
+
+
+def generate_df(ds_clients, excel_files):
+    return load_step('{step_id}')
+"""
+
+
+def _report_with_a_step_loading_a_row_filtered_step(test_client, create_report, bootstrap_admin,
+                                                     invite_user_to_org):
+    """An unattached report: step A names a source with a row-filtered
+    relation, step B names a plain source and load_step()s A, step C names
+    the plain source only. Returns (admin, viewer, report, (A, B, C) query
+    ids, (A, B, C) step ids)."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal", n_queries=3,
+    )
+    rls_id = _run(_attach_rls_relation(report["id"], attach=False, buildable=True))
+    plain_id = _run(_attach_source_with_connection(report["id"], "system_only", attach=False))
+    rls_name, plain_name = _run(_source_name(rls_id)), _run(_source_name(plain_id))
+    a, b, c = seeded["step_ids"]
+    _run(_set_step_code(a, _source_key_reference(rls_name) + GOOD_CODE))
+    _run(_set_step_code(b, LOAD_STEP_NAMING_CODE.format(plain=plain_name, step_id=a)))
+    _run(_set_step_code(c, _source_key_reference(plain_name) + GOOD_CODE))
+    return admin, viewer, report, seeded["query_ids"], seeded["step_ids"]
+
+
+@pytest.mark.e2e
+def test_a_step_reads_the_sources_of_the_steps_it_loads(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """A step that load_step()s a step over a row-filtered relation holds that
+    step's rows as the owner saw them: its snapshot is withheld from a viewer
+    like the loaded step's. A plain step loading nothing is still served."""
+    admin, viewer, report, (qa, qb, qc), _ = _report_with_a_step_loading_a_row_filtered_step(
+        test_client, create_report, bootstrap_admin, invite_user_to_org)
+
+    for qid in (qa, qb):
+        step = _public_step(test_client, report["id"], qid, token=viewer["token"])
+        assert step["snapshot_withheld"] is True, qid
+        assert not (step["data"] or {}).get("rows"), qid
+    plain = _public_step(test_client, report["id"], qc, token=viewer["token"])
+    assert plain["snapshot_withheld"] is False
+    assert {r["month"] for r in plain["data"]["rows"]} == {"stale"}
+
+
+@pytest.mark.e2e
+def test_a_creator_result_of_a_step_loading_a_row_filtered_step_is_not_served(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    admin, viewer, report, (qa, qb, qc), (sa, sb, sc) = _report_with_a_step_loading_a_row_filtered_step(
+        test_client, create_report, bootstrap_admin, invite_user_to_org)
+    # Seeded directly: viewer runs here no longer execute as the creator, but
+    # a result stored before that remains.
+    _run(_seed_viewer_result(sb, viewer["email"], executed_as="creator"))
+
+    step = _public_step(test_client, report["id"], qb, token=viewer["token"])
+    assert not (step["data"] or {}).get("rows"), step["data"]
+
+    resp = test_client.post(
+        f"/api/queries/{qb}/run", json={"mode": "viewer", "params": {}},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["cached"] is False, resp.json()
+    assert "mine" not in resp.text
+
+
+async def _clear_default_step(query_id: str) -> str:
+    """A legacy query with no default step: what it serves is its latest
+    successful step (query_service.get_default_step_for_query)."""
+    async with async_session_maker() as db:
+        query = await db.get(Query, query_id)
+        step_id = str(query.default_step_id)
+        query.default_step_id = None
+        await db.commit()
+        return step_id
+
+
+@pytest.mark.e2e
+def test_a_query_without_a_default_step_counts_the_step_it_serves(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal", n_queries=2,
+    )
+    plain_id = _run(_attach_source_with_connection(report["id"], "system_only", attach=False))
+    rls_id = _run(_attach_rls_relation(report["id"], attach=False))
+    _run(_set_step_code(seeded["step_ids"][0], _source_key_reference(_run(_source_name(plain_id))) + GOOD_CODE))
+    _run(_set_step_code(seeded["step_ids"][1], _source_key_reference(_run(_source_name(rls_id))) + GOOD_CODE))
+    _run(_clear_default_step(seeded["query_ids"][1]))
+
+    assert _report_flags(test_client, report["id"], owner, admin["org_id"])[0] is True
+
+
+async def _replace_default_step(query_id: str, code: str):
+    """The query's next successful run: a new step (new id and slug) becomes
+    its default. Seeded directly: through the API this is a builder run, which
+    needs the custom-code permission and a reachable source."""
+    async with async_session_maker() as db:
+        query = await db.get(Query, query_id)
+        step = Step(title="Next run", slug=f"next-{uuid.uuid4().hex[:8]}", status="success",
+                    widget_id=query.widget_id, query_id=query.id, code=code, data=STALE_DATA)
+        db.add(step)
+        await db.flush()
+        query.default_step_id = step.id
+        await db.commit()
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("case", ["loaded_step_superseded", "full_width_underscore", "loaded_step_has_no_code"])
+def test_a_step_loading_a_row_filtered_step_stays_withheld(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, case,
+):
+    """Step A names a plain source and load_step()s B, whose sources include a
+    row-filtered relation, so A's snapshot holds B's rows as the owner saw
+    them and stays withheld from a viewer -- also when B's query has since run
+    a new step naming only the plain source (A's snapshot still holds the old
+    B), when the call is spelled with a full-width underscore (Python reads
+    `load＿step` as `load_step`), and when B has no code to name a source
+    (so all the organization's sources count)."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal", n_queries=2,
+    )
+    rls_name = _run(_source_name(_run(_attach_rls_relation(report["id"], attach=False))))
+    plain_name = _run(_source_name(_run(_attach_source_with_connection(
+        report["id"], "system_only", attach=False))))
+    (qa, qb), (sa, sb) = seeded["query_ids"], seeded["step_ids"]
+    call = "load＿step" if case == "full_width_underscore" else "load_step"
+    _run(_set_step_code(sa, _source_key_reference(plain_name) + "def generate_df(ds_clients, excel_files):\n"
+                            f"    return {call}('{sb}')\n"))
+    _run(_set_step_code(sb, "" if case == "loaded_step_has_no_code" else _source_key_reference(rls_name) + GOOD_CODE))
+    if case == "loaded_step_superseded":
+        _run(_replace_default_step(qb, _source_key_reference(plain_name) + GOOD_CODE))
+
+    step = _public_step(test_client, report["id"], qa, token=viewer["token"])
+    assert step["snapshot_withheld"] is True
+    assert not (step["data"] or {}).get("rows")
 
 
 SOURCE_BOUND_CODE = """

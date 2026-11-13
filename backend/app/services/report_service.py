@@ -888,9 +888,13 @@ class ReportService:
         # Credential shape drives the share dialog: user-scoped sources show
         # the 'run on my behalf' toggle (hidden otherwise — it's a no-op on
         # system-only credentials), RLS presence disables it.
-        from app.services.viewer_data_policy import has_rls_relations, has_user_scoped_connections
-        report_schema.has_rls = await has_rls_relations(db, str(report.id))
-        report_schema.has_user_scoped = await has_user_scoped_connections(db, str(report.id))
+        # The run sources are resolved once for both flags.
+        from app.services.viewer_data_policy import (
+            _any_rls_relation, _any_user_scoped_connection, report_run_data_source_ids,
+        )
+        run_source_ids = await report_run_data_source_ids(db, str(report.id))
+        report_schema.has_rls = await _any_rls_relation(db, run_source_ids)
+        report_schema.has_user_scoped = await _any_user_scoped_connection(db, run_source_ids)
         from app.services.public_sharing_policy import public_sharing_allowed
         report_schema.public_sharing_allowed = await public_sharing_allowed(db, report.organization_id)
 
@@ -1375,65 +1379,16 @@ class ReportService:
         return report
 
     async def _rerun_target_steps(self, db: AsyncSession, query_ids: list[str]) -> tuple[list[tuple[str, str]], int]:
-        """Resolve which step a report rerun must re-execute for each query:
-        the same step the dashboard renders (mirrors
-        query_service.get_default_step_for_query, which must stay in sync) —
-        the query's default step, else the latest success step, else the
-        latest step by widget. Returns (deduped (step_id, code) tuples,
-        count of queries that resolved to no step at all) without hydrating
-        step payloads; the two common lookups are batched so the round-trip
-        count doesn't grow with dashboard size."""
-        if not query_ids:
-            return [], 0
-        query_rows = (await db.execute(
-            select(Query.id, Query.default_step_id, Query.widget_id)
-            .where(Query.id.in_([str(q) for q in query_ids]))
-        )).all()
+        """Which step a report rerun must re-execute for each query: the step
+        it serves (served_steps.served_steps -- the step the dashboard
+        renders). Returns (deduped (step_id, code) tuples, count of queries
+        that resolved to no step at all); each of those is logged."""
+        from app.services.served_steps import served_steps
 
-        default_ids = [r[1] for r in query_rows if r[1]]
-        steps_by_id: dict[str, str] = {}
-        if default_ids:
-            for sid, code in (await db.execute(
-                select(Step.id, Step.code).where(Step.id.in_(default_ids))
-            )).all():
-                steps_by_id[str(sid)] = code
-
-        targets: list[tuple[str, str]] = []
-        seen_steps: set[str] = set()
-        unresolved = len(query_ids) - len(query_rows)  # ids with no Query row
-
-        def _add(step_id, code) -> None:
-            step_id = str(step_id)
-            # Two queries can resolve to the same step (shared widget with no
-            # default_step_id); run it once, not once per query.
-            if step_id not in seen_steps:
-                seen_steps.add(step_id)
-                targets.append((step_id, code))
-
-        for qid, default_step_id, widget_id in query_rows:
-            if default_step_id and str(default_step_id) in steps_by_id:
-                _add(default_step_id, steps_by_id[str(default_step_id)])
-                continue
-            # Rare fallback (no or dangling default step): latest success
-            # step for the query's widget, else latest step.
-            step_row = None
-            for only_success in (True, False):
-                # A query without a widget (a published dashboard's copy) falls
-                # back to its own steps; "Step.widget_id == None" would match
-                # every widget-less step in the database.
-                stmt = select(Step.id, Step.code).where(
-                    Step.widget_id == widget_id if widget_id else Step.query_id == qid)
-                if only_success:
-                    stmt = stmt.where(Step.status == 'success')
-                step_row = (await db.execute(stmt.order_by(Step.created_at.desc()).limit(1))).first()
-                if step_row:
-                    break
-            if step_row:
-                _add(step_row[0], step_row[1])
-            else:
-                unresolved += 1
-                logger.warning(f"No step found for query {qid}; counting as failed")
-        return targets, unresolved
+        targets, unresolved = await served_steps(db, query_ids)
+        for qid in unresolved:
+            logger.warning(f"No step found for query {qid}; counting as failed")
+        return targets, len(unresolved)
 
     async def _load_report_for_rerun(self, db: AsyncSession, report_id: str) -> Report:
         """Load a report for step re-execution without the mapper-level
@@ -1916,9 +1871,11 @@ class ReportService:
         run_agents = await resolve_run_agents(db, organization, credential_user, report)
         for data_source in run_agents:
             try:
+                # Rows filter for the viewer whose result this is, also when
+                # the owner's credentials run it.
                 ds_clients = await ds_service.construct_clients(
                     db, data_source, current_user=credential_user,
-                    connection_errors=connection_errors,
+                    connection_errors=connection_errors, row_filter_user=current_user,
                 )
                 db_clients.update(ds_clients)
             except Exception as e:

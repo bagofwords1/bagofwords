@@ -814,6 +814,23 @@ class QueryService:
                 or existing.last_run_at >= freshness_floor
             )
         )
+        # Whether the report runs on a row-filtered relation: asked by the
+        # cache check below and by the choice of credentials, of the same
+        # sources (report_run_data_source_ids, the report-wide rule -- it holds
+        # this step's), and resolved at most once for this run.
+        reads_rls: list[bool] = []
+
+        async def report_reads_rls() -> bool:
+            if not reads_rls:
+                from app.services.viewer_data_policy import _any_rls_relation, report_run_data_source_ids
+                reads_rls.append(await _any_rls_relation(
+                    db, await report_run_data_source_ids(db, str(step_report))))
+            return reads_rls[0]
+
+        if cache_fresh and existing.executed_as == "creator":
+            # A result run under the owner's credentials on a report that
+            # reads a row-filtered relation is the owner's slice: run again.
+            cache_fresh = not await report_reads_rls()
         from app.services.bow_source_access import report_access, assert_read
         bow_access = await report_access(db, await query_report_id(db, q))
         await assert_read(db, bow_access, caller)
@@ -844,8 +861,7 @@ class QueryService:
         if reader_credentials:
             identity_mode = 'viewer'
         if identity_mode == 'creator' and str(caller.id) != str(report.user_id) and not bow_access:
-            from app.services.viewer_data_policy import has_rls_relations
-            if await has_rls_relations(db, str(report.id)):
+            if await report_reads_rls():
                 identity_mode = 'viewer'
         if identity_mode == 'creator' and str(caller.id) != str(report.user_id) and not bow_access:
             from app.models.membership import Membership
@@ -869,8 +885,11 @@ class QueryService:
             try:
                 # Each connection builds on its own: a viewer missing one
                 # connection's credential still gets its sibling connections.
+                # Row-level security filters for the caller, whoever's
+                # credentials run (View-as keeps filtering for the caller).
                 ds_conns = await ds_service.construct_clients(
                     db, ds, current_user=credential_user, connection_errors=[],
+                    row_filter_user=caller,
                 )
                 ds_clients.update(ds_conns)
             except Exception as e:
@@ -981,8 +1000,9 @@ class QueryService:
         2) Latest successful step by widget
         3) Latest step by widget
 
-        report_service._rerun_target_steps mirrors this resolution so report
-        reruns re-execute exactly what dashboards render — keep them in sync.
+        served_steps.served_steps mirrors this resolution so report reruns
+        and the viewer policy see exactly what dashboards render — keep them in
+        sync.
 
         Scoped to the caller's organization: a query owned by a different
         org returns None (and the route decorator returns 404 first).

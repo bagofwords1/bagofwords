@@ -290,6 +290,14 @@ class OrganizationSettingsService:
                                 status_code=400,
                                 detail="Step retention days must be between 7 and 365."
                             )
+                    if key == 'file_retention_days':
+                        from app.services.file_retention_service import MAX_RETENTION_DAYS
+                        new_value = value_update.get('value') if isinstance(value_update, dict) else value_update
+                        if isinstance(new_value, bool) or not isinstance(new_value, int) or new_value < 0 or new_value > MAX_RETENTION_DAYS:
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"File retention days must be between 0 and {MAX_RETENTION_DAYS} (0 keeps files forever).",
+                            )
                     # Enterprise check for the Auto model router. Enabling it
                     # requires the license; turning it OFF is always allowed so a
                     # lapsed license can't strand an org with routing stuck on.

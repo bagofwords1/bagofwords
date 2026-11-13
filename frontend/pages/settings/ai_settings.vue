@@ -1,23 +1,11 @@
 <template>
-    <div class="mt-6">
-        <h2 class="text-lg font-medium text-gray-900 dark:text-white">{{ $t('settings.aiSettingsPage.title') }}
-            <p class="text-sm text-gray-500 dark:text-gray-400 font-normal mb-8">
-                {{ $t('settings.aiSettingsPage.subtitle') }}
-            </p>
-        </h2>
+    <div>
+        <SettingsLoading v-if="loading" />
 
-        <!-- Loading state -->
-        <div v-if="loading" class="py-4">
-            <ULoader />
-        </div>
+        <UAlert v-if="error" color="red" variant="soft" icon="i-heroicons-exclamation-triangle" :title="error" />
 
-        <!-- Error message -->
-        <UAlert v-if="error" class="mt-4" type="danger">
-            {{ error }}
-        </UAlert>
-
-        <!-- AI Settings content: one collapsible card per section -->
-        <div v-if="!loading && !error" class="space-y-3 md:w-2/3">
+        <!-- One list, one row per section; a section expands in place. -->
+        <div v-if="!loading && !error" class="space-y-4">
             <UInput
                 v-model="query"
                 icon="i-heroicons-magnifying-glass"
@@ -37,105 +25,106 @@
                     </button>
                 </template>
             </UInput>
-            <div
-                v-for="section in visibleSections"
-                :key="section.id"
-                :data-testid="`ai-section-${section.id}`"
-                class="border border-gray-200 dark:border-gray-800 rounded-lg"
-            >
-                <button
-                    type="button"
-                    class="w-full flex items-center justify-between gap-3 px-4 py-3 text-start"
-                    :aria-expanded="isOpen(section.id)"
-                    @click="toggleSection(section.id)"
-                >
-                    <div class="min-w-0">
-                        <div class="font-medium text-gray-900 dark:text-white flex items-center">
-                            {{ $t(`settings.aiSettingsPage.sections.${section.id}.title`) }}
-                            <Icon v-if="section.hasLocked" name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-ink-muted" />
-                        </div>
-                        <div class="text-sm text-gray-500 dark:text-gray-400 truncate">
-                            {{ $t(`settings.aiSettingsPage.sections.${section.id}.description`) }}
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-3 shrink-0">
-                        <span v-if="!isOpen(section.id)" class="text-xs text-gray-500 dark:text-gray-400 hidden sm:inline">
-                            {{ sectionSummary(section) }}
-                        </span>
-                        <Icon
-                            name="heroicons:chevron-down"
-                            :class="['w-5 h-5 text-ink-muted transition-transform', isOpen(section.id) ? 'rotate-180' : '']"
-                        />
-                    </div>
-                </button>
 
-                <div v-if="isOpen(section.id)" class="px-4 pb-5 pt-1 space-y-5 border-t border-gray-100 dark:border-gray-800">
-                    <template v-for="key in section.keys" :key="key">
-                        <!-- Allow LLM See Data - highlighted, confirmation-gated -->
-                        <div v-if="key === 'allow_llm_see_data'" data-testid="ai-setting-allow_llm_see_data" class="flex flex-col mt-4 p-4 border-2 border-amber-300 bg-amber-50 dark:bg-amber-950 rounded-lg">
-                            <div class="flex items-center justify-between">
-                                <div class="font-medium flex items-center">
-                                    <Icon name="heroicons:shield-exclamation" class="me-2 w-5 h-5 text-amber-600" />
-                                    {{ featureLabel('allow_llm_see_data', configFeatures.allow_llm_see_data.name) }}
-                                    <UTooltip v-if="configFeatures.allow_llm_see_data.state === 'locked'" :text="$t('settings.aiSettingsPage.locked')">
-                                        <Icon name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-ink-muted" />
-                                    </UTooltip>
-                                </div>
-                                <UToggle
-                                    v-model="configFeatures.allow_llm_see_data.value"
-                                    :disabled="!configFeatures.allow_llm_see_data.editable || configFeatures.allow_llm_see_data.state === 'locked'"
-                                    @change="handleAllowLlmSeeDataChange"
-                                />
+            <div v-if="visibleSections.length" class="rounded-lg border border-line divide-y divide-line overflow-hidden">
+                <div
+                    v-for="section in visibleSections"
+                    :key="section.id"
+                    :data-testid="`ai-section-${section.id}`"
+                >
+                    <button
+                        type="button"
+                        class="w-full flex items-center justify-between gap-4 px-5 py-4 text-start hover:bg-ink/[0.03] transition-colors"
+                        :aria-expanded="isOpen(section.id)"
+                        @click="toggleSection(section.id)"
+                    >
+                        <div class="min-w-0">
+                            <div class="text-sm font-semibold text-ink flex items-center">
+                                {{ $t(`settings.aiSettingsPage.sections.${section.id}.title`) }}
+                                <Icon v-if="section.hasLocked" name="heroicons:lock-closed" class="ms-2 w-3.5 h-3.5 text-ink-muted" />
                             </div>
-                            <p class="text-sm text-amber-700 mt-2.5">{{ featureDescription('allow_llm_see_data', configFeatures.allow_llm_see_data.description) }}</p>
-                            <p class="text-xs text-amber-600 mt-1 font-medium">
-                                <Icon name="heroicons:exclamation-triangle" class="inline w-3 h-3 me-1" />
-                                {{ $t('settings.aiSettingsPage.llmAccessWarning') }}
-                            </p>
+                            <div class="mt-0.5 text-sm text-ink-muted truncate">
+                                {{ $t(`settings.aiSettingsPage.sections.${section.id}.description`) }}
+                            </div>
                         </div>
-                        <AiSettingRow
-                            v-else
-                            :class="key === section.keys[0] ? 'mt-4' : ''"
-                            :setting-key="key"
-                            :feature="configFeatures[key]"
-                            :label="featureLabel(key, configFeatures[key].name)"
-                            :description="featureDescription(key, configFeatures[key].description)"
-                            :child="!!FEATURE_PARENT[key]"
-                            @change="updateConfigFeature(key, configFeatures[key])"
-                        />
-                    </template>
+                        <div class="flex items-center gap-3 shrink-0">
+                            <span v-if="!isOpen(section.id)" class="hidden sm:inline text-xs text-ink-muted tabular-nums">
+                                {{ sectionSummary(section) }}
+                            </span>
+                            <Icon
+                                name="heroicons:chevron-down"
+                                :class="['w-4 h-4 text-ink-muted transition-transform duration-fast', isOpen(section.id) ? 'rotate-180' : '']"
+                            />
+                        </div>
+                    </button>
+
+                    <div v-if="isOpen(section.id)" class="px-5 pb-6 pt-2 space-y-6">
+                        <template v-for="key in section.keys" :key="key">
+                            <!-- Allow LLM See Data - highlighted, confirmation-gated -->
+                            <div v-if="key === 'allow_llm_see_data'" data-testid="ai-setting-allow_llm_see_data" class="flex flex-col p-4 rounded-lg border border-amber-200 bg-amber-50/70 dark:border-amber-900/60 dark:bg-amber-950/40">
+                                <div class="flex items-center justify-between gap-4">
+                                    <div class="text-sm font-medium text-ink flex items-center">
+                                        <Icon name="heroicons:shield-exclamation" class="me-2 w-4 h-4 text-amber-600 dark:text-amber-400" />
+                                        {{ featureLabel('allow_llm_see_data', configFeatures.allow_llm_see_data.name) }}
+                                        <UTooltip v-if="configFeatures.allow_llm_see_data.state === 'locked'" :text="$t('settings.aiSettingsPage.locked')">
+                                            <Icon name="heroicons:lock-closed" class="ms-2 w-3.5 h-3.5 text-ink-muted" />
+                                        </UTooltip>
+                                    </div>
+                                    <UToggle
+                                        v-model="configFeatures.allow_llm_see_data.value"
+                                        :disabled="!configFeatures.allow_llm_see_data.editable || configFeatures.allow_llm_see_data.state === 'locked'"
+                                        @change="handleAllowLlmSeeDataChange"
+                                    />
+                                </div>
+                                <p class="mt-1.5 text-sm text-ink-2 leading-relaxed">{{ featureDescription('allow_llm_see_data', configFeatures.allow_llm_see_data.description) }}</p>
+                                <p class="mt-2 flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+                                    <Icon name="heroicons:exclamation-triangle" class="w-3.5 h-3.5 shrink-0" />
+                                    {{ $t('settings.aiSettingsPage.llmAccessWarning') }}
+                                </p>
+                            </div>
+                            <AiSettingRow
+                                v-else
+                                :setting-key="key"
+                                :feature="configFeatures[key]"
+                                :label="featureLabel(key, configFeatures[key].name)"
+                                :description="featureDescription(key, configFeatures[key].description)"
+                                :child="!!FEATURE_PARENT[key]"
+                                @change="updateConfigFeature(key, configFeatures[key])"
+                            />
+                        </template>
+                    </div>
                 </div>
             </div>
 
-            <!-- No settings message -->
-            <div v-if="visibleSections.length === 0" class="text-center py-8">
-                <p class="text-gray-500 dark:text-gray-400">
-                    {{ query ? $t('settings.aiSettingsPage.noSearchResults') : $t('settings.aiSettingsPage.noSettings') }}
-                </p>
-            </div>
+            <SettingsEmpty
+                v-else
+                icon="i-heroicons-magnifying-glass"
+                :title="query ? $t('settings.aiSettingsPage.noSearchResults') : $t('settings.aiSettingsPage.noSettings')"
+                compact
+            />
         </div>
 
         <!-- Confirmation Modal for Allow LLM See Data -->
         <UModal v-model="showLlmConfirmModal" :ui="{ width: 'sm:max-w-lg' }">
             <UCard :ui="{ body: { padding: 'p-6' }, header: { padding: 'px-6 py-4' }, footer: { padding: 'px-6 py-4' } }">
                 <template #header>
-                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+                    <h3 class="text-lg font-semibold text-ink">
                         {{ pendingLlmValue ? $t('settings.aiSettingsPage.llmModalTitleEnable') : $t('settings.aiSettingsPage.llmModalTitleDisable') }}
                     </h3>
                 </template>
 
                 <div class="space-y-4">
                     <!-- Enable message -->
-                    <p v-if="pendingLlmValue" class="text-sm text-gray-600 dark:text-gray-400">
+                    <p v-if="pendingLlmValue" class="text-sm text-ink-muted">
                         {{ $t('settings.aiSettingsPage.llmEnableMessage') }}
                     </p>
 
                     <!-- Disable message with impact list -->
                     <template v-else>
-                        <p class="text-sm text-gray-600 dark:text-gray-400">
+                        <p class="text-sm text-ink-muted">
                             {{ $t('settings.aiSettingsPage.llmDisableIntro') }}
                         </p>
-                        <ul class="text-sm text-gray-600 dark:text-gray-400 space-y-2 ms-1">
+                        <ul class="text-sm text-ink-muted space-y-2 ms-1">
                             <li class="flex items-start gap-2">
                                 <Icon name="heroicons:x-circle" class="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
                                 <i18n-t keypath="settings.aiSettingsPage.llmImpactInspect" tag="span">
@@ -157,8 +146,8 @@
                     </template>
 
                     <div class="pt-2">
-                        <i18n-t keypath="settings.aiSettingsPage.llmConfirmLabel" tag="label" class="block text-sm text-gray-600 dark:text-gray-400 mb-2">
-                            <template #phrase><span class="font-mono bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">{{ $t('settings.aiSettingsPage.llmConfirmPhrase') }}</span></template>
+                        <i18n-t keypath="settings.aiSettingsPage.llmConfirmLabel" tag="label" class="block text-sm text-ink-muted mb-2">
+                            <template #phrase><span class="font-mono bg-surface-muted px-1.5 py-0.5 rounded">{{ $t('settings.aiSettingsPage.llmConfirmPhrase') }}</span></template>
                         </i18n-t>
                         <UInput
                             v-model="llmConfirmText"
@@ -193,6 +182,8 @@
 import { ref, computed, onMounted } from 'vue'
 import { useToast } from '#imports'
 import AiSettingRow from '~/components/settings/AiSettingRow.vue'
+import SettingsLoading from '~/components/settings/SettingsLoading.vue'
+import SettingsEmpty from '~/components/settings/SettingsEmpty.vue'
 
 // Define feature interface matching backend FeatureConfig
 interface Feature {
@@ -211,7 +202,7 @@ interface SettingsResponse {
     }
 }
 
-definePageMeta({ auth: true, permissions: ['manage_settings'], layout: 'settings' })
+definePageMeta({ auth: true, permissions: ['manage_settings'] })
 
 const { t, te } = useI18n()
 
@@ -287,7 +278,7 @@ const SECTIONS: { id: string, keys: string[] }[] = [
     { id: 'tools', keys: ['enable_mcp_tools', 'tools_max'] },
     { id: 'sub_agents', keys: ['enable_sub_agents', 'sub_agent_posture', 'sub_agent_max_steps', 'sub_agent_max_tokens', 'sub_agent_deadline_minutes', 'sub_agent_concurrency', 'sub_agent_max_per_wave', 'sub_agent_model', 'sub_agent_allow_model_override', 'sub_agent_allow_create_data'] },
     { id: 'limits', keys: ['limit_row_count', 'mcp_create_data_preview_rows', 'agent_max_steps', 'agent_loop_retries', 'limit_code_retries', 'ai_tool_concurrency', 'query_timeout_seconds', 'max_concurrent_queries_per_connection', 'max_instructions_in_context', 'smart_instructions_on_demand', 'top_k_schema', 'top_k_metadata_resources', 'agent_roster_top_k'] },
-    { id: 'workspace', keys: ['allow_public_sharing', 'allow_report_webhooks', 'allow_forks', 'step_retention_days'] },
+    { id: 'workspace', keys: ['allow_public_sharing', 'allow_access_requests', 'allow_report_webhooks', 'allow_forks', 'step_retention_days', 'file_retention_days'] },
 ]
 
 // Org settings that have a dedicated control elsewhere (LLM page: router and

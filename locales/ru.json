@@ -481,6 +481,14 @@
       "delivery_skipped": {
         "title": "Некоторые получатели не получили «{report}»",
         "body": "Отчёт не отправлен {count} получателям, так как он содержит данные, индивидуальные для каждого пользователя: {recipients}"
+      },
+      "access_request": {
+        "title": "{actor} запросил просмотр {dashboard}",
+        "body": "{actor} запросил просмотр «{dashboard}»."
+      },
+      "access_granted": {
+        "title": "Теперь вы можете просматривать {dashboard}",
+        "body": "Ваш запрос на просмотр «{dashboard}» одобрен."
       }
     },
     "checkin": {
@@ -2039,12 +2047,10 @@
     "loading": "Загрузка...",
     "noRolesFound": "Роли не найдены",
     "noRolesHint": "Создайте роль для управления разрешениями.",
-    "system": "система",
     "default": "По умолчанию",
     "defaultRoleHint": "Это встроенная роль. Её имя фиксировано — настройте её разрешения ниже.",
     "edit": "Редактировать",
     "fullAdmin": "Полный администратор",
-    "permissionsCount": "{n} разрешений",
     "editRole": "Редактировать роль",
     "createRole": "Создать роль",
     "nameLabel": "Название",
@@ -2052,17 +2058,10 @@
     "namePlaceholder": "напр. Аналитик",
     "descriptionPlaceholder": "Необязательно",
     "fullAdminAccess": "Полный административный доступ",
-    "fullAdminBypass": "Обходит все проверки",
-    "allResources": "Все ресурсы",
-    "orgWidePermissions": "Разрешения уровня организации",
-    "ds": "Агент",
-    "addDataSource": "+ Добавить источник данных...",
     "cancel": "Отмена",
     "save": "Сохранить",
     "create": "Создать",
     "confirmDelete": "Удалить роль «{name}»?",
-    "toastCreated": "Роль создана",
-    "toastUpdated": "Роль обновлена",
     "toastDeleted": "Роль удалена",
     "failedToLoad": "Не удалось загрузить роли",
     "failedToCreate": "Не удалось создать роль",
@@ -2090,20 +2089,90 @@
       "create_data_sources": "Создавать агентов",
       "manage_connection": "Управлять подключением",
       "manage_data_sources": "Управлять агентами",
-      "manage_service_accounts": "Управлять сервисными учётными записями"
+      "manage_service_accounts": "Управлять сервисными учётными записями",
+      "view_code": "Просмотр сгенерированного кода",
+      "run_custom_code": "Редактирование и запуск своего кода"
     },
-    "addAgent": "+ Добавить агента...",
-    "advancedPermissions": "Расширенные разрешения",
-    "tiers": {
-      "query": "Может запрашивать",
-      "queryHint": "Задавать вопросы этому агенту",
-      "manage": "Может управлять",
-      "manageHint": "Редактирование инструкций, сущностей, оценок, настроек и участников"
+    "delete": "Удалить",
+    "duplicate": "Дублировать",
+    "copyOf": "Копия {name}",
+    "loadingRole": "Загрузка роли…",
+    "loadFailed": "Не удалось загрузить агентов, подключения и модели.",
+    "retry": "Повторить",
+    "toastCreatedNamed": "Роль «{name}» создана",
+    "toastUpdatedNamed": "Роль «{name}» сохранена",
+    "moreActions": "Другие действия",
+    "tabs": {
+      "permissions": "Разрешения",
+      "access": "Доступ"
     },
-    "modelAccess": "Доступ к моделям",
-    "modelAccessHint": "Ограниченные модели",
-    "noRestrictedModels": "Нет ограниченных моделей",
-    "connection": "Подключение"
+    "groups": {
+      "agents": "Агенты и данные",
+      "knowledge": "Знания агентов",
+      "code": "Код",
+      "admin": "Администрирование",
+      "other": "Другое"
+    },
+    "permissionHints": {
+      "create_data_source": "Создавать агентов в доступных подключениях",
+      "create_connections": "Добавлять подключения к данным",
+      "manage_connections": "Редактировать, проверять и удалять любые подключения",
+      "manage_instructions": "Редактировать инструкции всех агентов",
+      "manage_entities": "Определять таблицы, метрики и термины во всех агентах",
+      "manage_evals": "Создавать и запускать оценки во всех агентах",
+      "view_code": "Видеть SQL и Python, которые пишут агенты",
+      "run_custom_code": "Редактировать и запускать код в отчётах",
+      "manage_members": "Приглашать людей и менять их роли",
+      "manage_service_accounts": "Создавать API-ключи",
+      "manage_settings": "Менять настройки организации",
+      "manage_llm": "Настраивать провайдеров и модели LLM",
+      "view_audit_logs": "Видеть, кто, что и когда сделал",
+      "manage_identity_providers": "Настраивать единый вход"
+    },
+    "fullAdminHint": "Может всё в организации",
+    "fullAdminAccessTab": "Полный доступ администратора включает всех агентов, подключения и модели.",
+    "includedWith": "Входит в «{name}»",
+    "searchResources": "Поиск…",
+    "addAccess": "Добавить агента, подключение или модель",
+    "accessEmpty": "Пока нет агентов, подключений или моделей. Публичные агенты доступны всегда.",
+    "publicAgents": "Публичные агенты ({n}) доступны всем.",
+    "types": {
+      "data_source": "Агент",
+      "connection": "Подключение",
+      "llm_model": "Модель"
+    },
+    "levels": {
+      "use": "Использование",
+      "manage": "Управление",
+      "build": "Создание агентов",
+      "custom": "Особый"
+    },
+    "removeAccess": "Убрать",
+    "meta": {
+      "permissionsOne": "Разрешений: 1",
+      "permissionsMany": "Разрешений: {n}",
+      "agentsOne": "Агентов: 1",
+      "agentsMany": "Агентов: {n}",
+      "connectionsOne": "Подключений: 1",
+      "connectionsMany": "Подключений: {n}",
+      "modelsOne": "Моделей: 1",
+      "modelsMany": "Моделей: {n}",
+      "everything": "Все разрешения"
+    },
+    "resourcePermissions": {
+      "data_source": {
+        "manage": "Управление (включает всё)",
+        "manage_instructions": "Редактировать инструкции",
+        "create_entities": "Редактировать сущности",
+        "manage_evals": "Управлять оценками",
+        "manage_members": "Управлять доступом к агенту"
+      },
+      "connection": {
+        "manage_connection": "Редактировать, проверять и переиндексировать",
+        "create_data_sources": "Создавать на нём агентов",
+        "manage_data_sources": "Управлять всеми его агентами"
+      }
+    }
   },
   "groupsManager": {
     "searchPlaceholder": "Поиск групп...",
@@ -3253,6 +3322,10 @@
           "name": "Дней хранения данных виджетов",
           "description": "Число дней, в течение которых данные виджетов хранятся до удаления."
         },
+        "file_retention_days": {
+          "name": "Хранение файлов (дни)",
+          "description": "Каждую ночь удаляет файлы старше указанного числа дней. Файлы, используемые дашбордом, файлы из библиотеки агента или проекта и загрузки для отчёта по расписанию сохраняются. 0 — хранить всегда."
+        },
         "enable_excel_addin": {
           "name": "Надстройка Excel",
           "description": "Включает встроенную надстройку Excel, чтобы пользователи могли загрузить манифест непосредственно из этого экземпляра"
@@ -3284,6 +3357,10 @@
         "enable_demo_data_generation": {
           "name": "Генерация демо-данных",
           "description": "В режиме обучения администраторы, которые управляют подключениями, могут попросить агента спроектировать и сгенерировать реалистичный вымышленный набор данных SQLite для любой области, а затем создать на его основе предложенных агентов. Строки генерирует малая модель по умолчанию."
+        },
+        "allow_access_requests": {
+          "name": "Разрешить запросы доступа",
+          "description": "Позволяет участникам запрашивать доступ на просмотр у редакторов панели со страницы без доступа. Когда отключено, страница лишь называет владельца, и новые запросы отправить нельзя; уже отправленные запросы остаются доступными для ответа."
         }
       }
     },
@@ -4083,6 +4160,11 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "Название библиотеки документов или * для всех видимых библиотек. Пустое поле выбирает библиотеку по умолчанию только в режиме современного REST."
     },
+    "athena": {
+      "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
+      "tableExcludeTitle": "Table Exclude Pattern",
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+    },
     "qlikOnPrem": {
       "appFilterTitle": "Фильтр приложений",
       "appFilterDescription": "Имена или идентификаторы приложений через запятую в выбранных потоках. Пустое поле включает все подходящие приложения. Для имён с запятыми используйте идентификаторы.",
@@ -4227,6 +4309,8 @@
     "shell_confirmation.invalid_scope": "Недопустимая область разрешения.",
     "shell_confirmation.report_required": "Разрешения сеанса требуют отчёта.",
     "shell_confirmation.rule_mismatch": "Недопустимое правило команды, или шаблон не соответствует этой команде.",
+    "connection.config_invalid": "Invalid connection configuration: {detail}",
+    "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
     "catalog_discovery_incomplete": "Не удалось обновить каталог: обнаружение не завершено. Предыдущий каталог и выбранные таблицы сохранены.",
     "saml_unavailable": "Настройки SSO недоступны. Обратитесь к администратору.",
     "saml_login_failed": "Не удалось войти через SSO. Повторите попытку или обратитесь к администратору.",
@@ -4345,13 +4429,22 @@
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
     "ssh.key_discovery_failed": "Не удалось получить ключ. Проверьте адрес, порт и сеть или введите доверенный ключ в дополнительных настройках.",
+    "file.in_use": "Файл используется дашбордом",
     "connection.kms_token_format": "Токен API KMS может содержать только обычные буквы, цифры и знаки препинания, без пробелов. Скопируйте его ещё раз из KMS Lighthouse и вставьте как обычный текст.",
     "connection.kms_use_connection_credentials": "Данные для входа в KMS Lighthouse сохраняются в подключении. Откройте подключение и подключитесь оттуда.",
     "connection.kms_only": "Диагностика применима только к подключениям KMS Lighthouse.",
     "connection.kms_diagnostics_running": "Диагностика этого подключения уже выполняется. Дождитесь её завершения и повторите попытку.",
     "connection.kms_login_rejected": "KMS Lighthouse не принял эти учётные данные, поэтому они не сохранены. Проверьте имя пользователя и пароль или токен API и повторите попытку.",
     "connection.kms_login_paused": "KMS Lighthouse недавно отклонил эти учётные данные, поэтому новые попытки входа с ними приостановлены на несколько минут, и они не сохранены. Проверьте учётные данные или повторите попытку позже.",
-    "connection.kms_session_refused": "KMS Lighthouse принял эти учётные данные, но отклонил их сеанс, поэтому их нельзя использовать, и они не сохранены. Уточните у администратора KMS, может ли эта учётная запись использовать API KMS."
+    "connection.kms_session_refused": "KMS Lighthouse принял эти учётные данные, но отклонил их сеанс, поэтому их нельзя использовать, и они не сохранены. Уточните у администратора KMS, может ли эта учётная запись использовать API KMS.",
+    "access_request.disabled": "Запросы доступа отключены для этой организации.",
+    "access_request.not_allowed": "Этой панели не нужен запрос доступа.",
+    "access_request.already_has_access": "У вас уже есть доступ к этой панели.",
+    "access_request.pending": "Ваш запрос уже ожидает рассмотрения.",
+    "access_request.too_soon": "Ваш предыдущий запрос был отклонён. Вы сможете запросить снова позже.",
+    "access_request.no_approvers": "Сейчас никто не может одобрить запросы для этой панели.",
+    "access_request.not_found": "Этот запрос больше не существует.",
+    "access_request.already_decided": "На этот запрос уже ответили."
   },
   "email": {
     "dashboardShare": {
@@ -4482,7 +4575,7 @@
   },
   "files": {
     "title": "Файлы",
-    "subtitle": "Управляйте файлами вашей организации",
+    "subtitle": "Файлы, которые вы загрузили, и файлы, созданные агентом в ваших отчётах.",
     "file": "Файл",
     "metadata": "Метаданные",
     "createdAt": "Создан",
@@ -4491,7 +4584,31 @@
     "metadataFieldsMany": "{count} полей метаданных",
     "metadataTagsOne": "{count} тег метаданных",
     "metadataTagsMany": "{count} тегов метаданных",
-    "noMetadata": "Нет метаданных"
+    "noMetadata": "Нет метаданных",
+    "search": "Поиск файлов",
+    "filterAll": "Все файлы",
+    "filterUploads": "Загруженные",
+    "selectAll": "Выбрать все",
+    "deleteSelected": "Удалить выбранные ({count})",
+    "delete": "Удалить",
+    "download": "Скачать",
+    "empty": "Нет подходящих файлов",
+    "confirmTitleOne": "Удалить этот файл?",
+    "confirmTitleMany": "Удалить файлы ({count})?",
+    "confirmBody": "Удалённые файлы исчезают из всех отчётов, агентов и проектов, которые их используют, и не могут быть восстановлены.",
+    "toastDeletedOne": "Файл удалён",
+    "toastDeletedMany": "Удалено файлов: {count}",
+    "toastError": "Не удалось удалить файлы",
+    "toastDownloadError": "Не удалось скачать файл",
+    "filterAgent": "Агент",
+    "sourceAgent": "Агент",
+    "sourceUpload": "Загружен",
+    "selectedCount": "Выбрано: {count}",
+    "toastPartialOne": "Не удалось удалить файлов: {count}",
+    "toastPartialMany": "Не удалось удалить файлов: {count}",
+    "inUse": "Используется дашбордом, поэтому удалить нельзя",
+    "emptyNone": "Файлов пока нет",
+    "emptyNoneHint": "Здесь появятся файлы, которые вы загружаете в отчёт, и файлы, созданные агентом."
   },
   "dashboards": {
     "title": "Дашборды",
@@ -5627,6 +5744,8 @@
     "modelAuto": "Авто",
     "noAgents": "Нет",
     "project": "Проект",
+    "toolOutputFilesOne": "Файлов, созданных агентом: {count}",
+    "toolOutputFilesMany": "Файлов, созданных агентом: {count}",
     "agentsFromReport": "Использует агентов отчёта"
   },
   "errorPage": {
@@ -6754,6 +6873,29 @@
       "deniedBody": "У вас нет доступа к этой странице. Попросите владельца поделиться ею с вами.",
       "goHome": "На главную",
       "backToApp": "Назад в приложение"
+    },
+    "accessRequest": {
+      "noAccessTitle": "У вас нет доступа",
+      "ownerLine": "Эта панель принадлежит {owner}.",
+      "ownerUnknown": "У вас нет доступа к этой панели.",
+      "requestButton": "Запросить доступ",
+      "notePlaceholder": "Добавить примечание (необязательно)",
+      "send": "Отправить запрос",
+      "cancel": "Отмена",
+      "sent": "Запрос отправлен",
+      "pending": "Ваш запрос ожидает рассмотрения",
+      "askOwner": "Запросите доступ у владельца панели, {owner}.",
+      "askOwnerGeneric": "Запросите доступ у владельца панели.",
+      "noApprovers": "Сейчас никто не может одобрить запросы для этой панели.",
+      "cooldown": "Ваш предыдущий запрос был отклонён. Вы сможете запросить снова позже.",
+      "pendingTitle": "Ожидающие запросы",
+      "approve": "Одобрить",
+      "deny": "Отклонить",
+      "noteFrom": "Примечание от {name}",
+      "switchesPrivate": "Одобрение переключает эту панель на «Определённые люди» и добавляет этого пользователя как наблюдателя.",
+      "runsAsCreator": "Эта панель работает с доступом к данным {creator}. Одобрение позволит этому пользователю видеть то, что видит {creator}.",
+      "approveTitle": "Одобрить запрос на доступ",
+      "confirmApprove": "Одобрить"
     }
   },
   "dashboardSettings": {

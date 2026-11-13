@@ -280,6 +280,7 @@ async def oauth_callback(
     state: str = None,
     error: str = None,
     error_description: str = None,
+    iss: str = None,
     db: AsyncSession = Depends(get_async_db),
 ):
     """Handle OAuth callback — exchange code for tokens and store credentials.
@@ -338,6 +339,18 @@ async def oauth_callback(
             f"OAuth callback rejected for user {user.id} connection {connection.id}: {e.detail}"
         )
         return _error_redirect(frontend_url, e.detail)
+
+    # RFC 9207 / MCP 2026-07-28: when the authorization server names itself in
+    # the response (``iss``), it must be the issuer this client registered
+    # with — otherwise a code from a different server (mix-up attack) would be
+    # redeemed at this connection's token endpoint.
+    from app.services.mcp_dcr_service import issuer_matches
+    if iss is not None and not issuer_matches(connection, iss):
+        logger.warning(
+            "OAuth callback for connection %s rejected: iss %r does not match the recorded issuer",
+            connection.id, iss,
+        )
+        return _error_redirect(frontend_url, "The sign-in response came from an unexpected authorization server.")
 
     # Get OAuth params and exchange code
     try:

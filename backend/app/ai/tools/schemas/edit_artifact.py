@@ -30,6 +30,7 @@ class EditArtifactInput(BaseModel):
     edits: List[ArtifactEditOp] = Field(..., min_length=1, description="Ordered find/replace operations, applied atomically (all or none).")
     visualization_ids: Optional[List[str]] = Field(default=None, description="NEW visualization ids to add to the artifact's data payload (existing ones are kept automatically). Your edits must add code sections rendering them via vizById(\"<uuid>\").")
     remove_visualization_ids: Optional[List[str]] = Field(default=None, description="Visualization ids to REMOVE from the payload. Your edits must delete every code section referencing them.")
+    file_ids: Optional[List[str]] = Field(default=None, description="NEW image or PDF file ids (uploaded or from generate_image) to attach to the artifact (files already attached are kept automatically). Required whenever your edits add a <BowFile id=\"<id>\" /> for a file the artifact does not have yet.")
     title: Optional[str] = Field(default=None, description="Updated artifact title (kept if omitted).")
 
     @model_validator(mode="before")

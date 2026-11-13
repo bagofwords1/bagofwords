@@ -34,6 +34,10 @@ _SYSTEM_DBS = {"information_schema", "sys", "_impala_builtins"}
 
 class HiveClient(DataSourceClient):
 
+    # HiveQL / Impala / Spark SQL: a backslash escapes inside a string and ''
+    # is not a quote (sqlglot hive and spark tokenizers).
+    sql_literal_style = "backslash"
+
     def __init__(
         self,
         host: str,

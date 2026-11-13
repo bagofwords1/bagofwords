@@ -24,6 +24,7 @@ from app.ai.code_execution.sandbox.namespace import (  # noqa: F401 - re-exporte
     # READ_TEXT_* and _build_read_text stay importable from this module: tests
     # and callers reference them here, the sandbox child imports them from
     # sandbox.namespace.
+    CLIENTS_GLOBAL,
     READ_TEXT_MAX_CHARS,
     READ_TEXT_REFUSES as _READ_TEXT_REFUSES,
     build_loadable_closures as _build_loadable_closures_impl,
@@ -975,11 +976,29 @@ class QueryCapturingClientWrapper:
                 native_params = kwargs["params"]
             else:
                 param_values = kwargs.pop("params")
+                if param_values and not (isinstance(query, str) and isinstance(param_values, dict)):
+                    # Only query text is rendered: a dict query (or params that
+                    # are not a name -> value dict) would run with its
+                    # placeholders as written.
+                    from app.ai.code_execution.query_params import ParamError
+                    raise ParamError(
+                        "query parameters are rendered only into a query string, with params as "
+                        "a dict of name -> value; pass the query as text")
                 if isinstance(query, str) and isinstance(param_values, dict) and param_values:
                     from app.ai.code_execution.query_params import render_sql_with_params
+                    from app.data_sources.clients.base import DataSourceClient
                     query = render_sql_with_params(
                         query, param_values,
                         client_type_name=type(self._original).__name__,
+                        # Read off the instance so a subclass keeps its
+                        # engine's string-literal style.
+                        literal_style=getattr(self._original, "sql_literal_style", None),
+                        # A connector declaring None (no safe rule): refused.
+                        # (Anything else handed in as a client keeps the
+                        # rule derived from its class name.)
+                        literal_style_required=isinstance(self._original, DataSourceClient),
+                        # Its SQL sits in a JSON envelope's "sql" field.
+                        sql_in_json_envelope=bool(getattr(self._original, "sql_in_json_envelope", False)),
                     )
         if query is _NO_QUERY:
             capture = _describe_keyword_call(kwargs)
@@ -997,7 +1016,10 @@ class QueryCapturingClientWrapper:
             # Tagged with the client class so the identity-bind check can
             # parse it in the right grammar (SQL dialect / SPL); still a str.
             from app.ai.code_execution.identity_bind import CapturedQuery
-            self._captured_queries.append(CapturedQuery(capture, type(self._original).__name__))
+            self._captured_queries.append(CapturedQuery(
+                capture, type(self._original).__name__,
+                getattr(self._original, "sql_literal_style", None),
+                bool(getattr(self._original, "sql_in_json_envelope", False))))
         idx = len(self._captured_timings)
         _q_start = _time.monotonic()
         with _tracer.start_as_current_span("datasource.execute_query") as span:
@@ -1627,7 +1649,7 @@ class StreamingCodeExecutor:
         local_namespace = {
             'pd': pd,
             'np': np,
-            'db_clients': wrapped_clients,
+            CLIENTS_GLOBAL: wrapped_clients,
             'excel_files': excel_files,
             'load_step': load_step,
             'load_entity': load_entity,

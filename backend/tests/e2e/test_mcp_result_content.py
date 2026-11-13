@@ -38,8 +38,6 @@ def _free_port() -> int:
 @pytest.fixture(scope="module")
 def content_url():
     port = _free_port()
-    content.mcp.settings.host = "127.0.0.1"
-    content.mcp.settings.port = port
     server = uvicorn.Server(
         uvicorn.Config(content.mcp.streamable_http_app(), host="127.0.0.1", port=port, log_level="error")
     )

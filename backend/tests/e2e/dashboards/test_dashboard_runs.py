@@ -112,6 +112,32 @@ def test_rls_and_monitoring_sources_always_run_as_the_reader(corpus, corpus_rows
 
 
 @pytest.mark.e2e
+def test_a_readers_result_from_the_owners_credentials_is_not_served_over_rls(corpus, corpus_rows, test_client,
+                                                                            credentials_used):
+    """A reader's stored result run under the owner's credentials on a
+    dashboard over an RLS source is the owner's row slice: the step read does
+    not serve it and the filter run does not reuse it (it runs again; the
+    corpus source has no reachable driver, so client construction is
+    stubbed)."""
+    aid, _, (copy,) = _published(corpus, corpus_rows, test_client, "rls/dash")
+    marker = f"owner-slice-{uuid.uuid4().hex[:6]}"
+    # Seeded directly: runs over an RLS source always execute as the reader
+    # now, but a result stored before that rule remains.
+    corpus_rows.insert("step_user_results", step_id=copy["step"], user_id=corpus.cast.id("member"),
+                       organization_id=corpus.cast.org_id, report_id=None, status="success",
+                       executed_as="creator", params_fingerprint="",
+                       data={"rows": [{"חודש": marker}], "columns": [{"field": "חודש"}]})
+
+    step = test_client.get(f"/api/d/{aid}/queries/{copy['id']}/step", headers=as_(corpus, "member"))
+    assert step.status_code == 200, step.text
+    assert marker not in step.text
+
+    run = test_client.post(f"/api/d/{aid}/queries/{copy['id']}/run", json={}, headers=as_(corpus, "member"))
+    assert run.status_code == 200, run.text
+    assert run.json()["cached"] is False and marker not in run.text
+
+
+@pytest.mark.e2e
 def test_a_filter_run_is_cached_per_reader_and_values(corpus, corpus_rows, test_client):
     aid, release, copies = _published(corpus, corpus_rows, test_client, "options_sources/dash")
     by_id = next(c for c in copies if c["title"] == "שירים לפי ז'אנר")

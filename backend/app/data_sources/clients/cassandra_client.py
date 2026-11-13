@@ -37,6 +37,10 @@ _SYSTEM_KEYSPACES = {
 
 class CassandraClient(DataSourceClient):
 
+    # CQL: a quote in a string constant is written '', a backslash is ordinary
+    # (CQL reference, Constants).
+    sql_literal_style = "standard"
+
     def __init__(
         self,
         contact_points: str,

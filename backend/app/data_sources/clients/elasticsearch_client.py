@@ -109,6 +109,13 @@ class ElasticsearchHttpError(RuntimeError):
 
 class ElasticsearchClient(DataSourceClient):
 
+    # Parameters render only into the envelope's "sql" field (Elasticsearch
+    # SQL). Its string literal is single-quoted, a quote inside is doubled and a
+    # backslash is an ordinary character (Elasticsearch SQL reference, Lexical
+    # structure: string literals): standard.
+    sql_literal_style = "standard"
+    sql_in_json_envelope = True
+
     # Keys the query envelope may pass through to POST /{index}/_search.
     SEARCH_KEYS = {"query", "aggs", "aggregations", "size", "sort", "_source",
                    "from", "search_after", "timeout", "runtime_mappings"}
