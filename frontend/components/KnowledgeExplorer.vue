@@ -2335,8 +2335,11 @@ const agentDetailLoading = ref(false)
 // Tab title while an agent is open: its name from the detail fetch (only
 // set when the fetch succeeded, and only for the agent on screen). With no
 // agent open, the route default ("Agents") stays.
+// A /agents/queries/<id> deep link fetches the query here before the query
+// pane (EntityDetailPanel, which then titles the tab itself) can mount.
+const queryLinkLoading = ref<string | null>(null)
 usePageTitle(() => (agentView.value && agentDetail.value?.id === agentView.value.agentId) ? agentDetail.value?.name : null,
-  { loading: () => !!agentView.value && agentDetailLoading.value })
+  { loading: () => (!!agentView.value && agentDetailLoading.value) || (!!queryLinkLoading.value && !queryView.value) })
 // Conversation starters are sourced from agent-scoped starter Prompts (not the
 // legacy data_source.conversation_starters JSON). Each prompt's `text` is the
 // "title\nprompt" string.
@@ -4581,6 +4584,7 @@ const restoreFromRoute = () => {
   if (seg[0] === 'queries' && seg[1]) {
     const entityId = seg[1]
     if (queryView.value?.entityId === entityId) return
+    queryLinkLoading.value = entityId
     useMyFetch<any>(`/api/entities/${entityId}`, { method: 'GET' })
       .then(({ data }: any) => {
         const ent = data?.value
@@ -4595,6 +4599,7 @@ const restoreFromRoute = () => {
         openQuery(agentId, ent)
       })
       .catch(() => {})
+      .finally(() => { if (queryLinkLoading.value === entityId) queryLinkLoading.value = null })
     return
   }
   // /agents/global-evals — org-wide evals view, not bound to an agent

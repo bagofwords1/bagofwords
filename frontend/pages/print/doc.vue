@@ -45,9 +45,11 @@ const visualizations = ref<any[]>(payload.visualizations || [])
 const files = ref<Record<string, string>>(payload.files || {})
 
 // The document's name, with no "· Bag of Words": Chromium uses <title> as the
-// PDF's title metadata, and the file is the document, not the app.
+// PDF's title metadata, and the file is the document, not the app. An
+// untitled document gets the translated "Document", not hard-coded English.
+const { t } = useI18n()
 useHead({
-  title: typeof payload.title === 'string' && payload.title.trim() ? payload.title.trim() : 'Document',
+  title: typeof payload.title === 'string' && payload.title.trim() ? payload.title.trim() : t('pageTitles.document'),
   titleTemplate: null,
 })
 
