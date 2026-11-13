@@ -3157,6 +3157,8 @@ def catalog_ownership_for(ds_type: str, config=None) -> str:
         except ValueError:
             config = None
     auth_type = (config or {}).get("auth_type") if isinstance(config, dict) else None
+    if not isinstance(auth_type, str):
+        auth_type = None
     variant = (entry.credentials_auth.by_auth or {}).get(auth_type or entry.credentials_auth.default)
     if variant and variant.catalog_ownership:
         return variant.catalog_ownership
@@ -3178,22 +3180,40 @@ def is_overlay_auth(ds_type: str, auth_mode: str) -> bool:
     return bool(variant and variant.overlay)
 
 
+# Rows for these modes are written by the server (tokens, delegation details),
+# so their keys are not the variant's form fields.
+_SERVER_WRITTEN_AUTH_MODES = frozenset({"oauth", "kerberos_delegated"})
+
+
+def _declared_user_credentials(ds_type: Optional[str], user_creds: dict, auth_mode: str) -> dict:
+    """A personal row's fields the variant declares: a client acts on any field it receives."""
+    entry = REGISTRY.get(ds_type or "")
+    variant = (entry.credentials_auth.by_auth or {}).get(auth_mode) if entry and auth_mode else None
+    if variant is None or auth_mode in _SERVER_WRITTEN_AUTH_MODES:
+        return user_creds
+    return {k: v for k, v in user_creds.items() if k in variant.schema.model_fields}
+
+
 def overlay_system_credentials(connection, user_creds: dict, auth_mode: str) -> dict:
     """Resolve an overlay variant: the user's credentials merged over the
     connection's system credentials.
 
     Empty user values are dropped before the merge so a blank optional field
     cannot clobber a value the system credential provides. Non-overlay modes
-    pass through unchanged, so every resolver can call this unconditionally.
+    keep only their declared fields and are not merged, so every resolver can
+    call this unconditionally.
     """
-    user_creds = user_creds or {}
+    user_creds = _declared_user_credentials(getattr(connection, "type", None), user_creds or {}, auth_mode)
     if not is_overlay_auth(getattr(connection, "type", None), auth_mode):
         return user_creds
     try:
         base = connection.decrypt_credentials() or {}
     except Exception:
         base = {}
-    layered = {k: v for k, v in user_creds.items() if v is not None and v != ""}
+    # Only the variant's own fields are the user's to contribute: anything else
+    # in the row must not reach the client over the system credentials.
+    declared = REGISTRY[connection.type].credentials_auth.by_auth[auth_mode].schema.model_fields
+    layered = {k: v for k, v in user_creds.items() if k in declared and v is not None and v != ""}
     return {**base, **layered}
 
 

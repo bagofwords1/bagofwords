@@ -117,6 +117,10 @@
             </div>
           </div>
 
+          <div v-if="reentryNoticeVisible" role="alert" data-testid="credentials-reentry-notice" class="mb-2 p-2 rounded border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 text-xs text-amber-800 dark:text-amber-300">
+            {{ reentryNotice }}
+          </div>
+
           <div v-if="authOptions.length > 1" class="connection-auth-selector w-48 mb-2">
             <USelectMenu v-model="selectedAuth" :options="authOptions" option-attribute="label" value-attribute="value" @change="handleAuthChange" />
           </div>
@@ -241,6 +245,8 @@ import Spinner from '@/components/Spinner.vue'
 import SSHServerVerification from './SSHServerVerification.vue'
 import MemberIdentityBindings from '@/components/datasources/MemberIdentityBindings.vue'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
+import { catalogMessage } from '~/composables/useErrorMessage'
+import { CREDENTIALS_REQUIRED_CODE, changedDestinationFields, needsCredentialReentry, reentryNoticeResolved } from '~/utils/connectionDestination'
 
 const { isLicensed } = useEnterprise()
 
@@ -506,7 +512,41 @@ const authOptions = computed(() => {
   return opts
 })
 
-const showSystemCredentialFields = computed(() =>  !!props.forceShowSystemCredentials)
+// The server refused a changed destination without the secret: show the
+// credential fields and say why, instead of failing with only a toast.
+const credentialsReentryNeeded = ref(false)
+const reentryNotice = computed(() => catalogMessage({ error_code: CREDENTIALS_REQUIRED_CODE }, t, te) || '')
+const savedDestination = ref<Record<string, any>>({})
+function noteCredentialRefusal(err: any) {
+  if (!needsCredentialReentry(err)) return
+  credentialsReentryNeeded.value = true
+  credentialsLocked.value = false
+  refusedFields.value = err?.data?.params?.fields ?? err?.response?._data?.params?.fields ?? []
+  refusedForHostChange.value = changedDestinationFields(savedDestination.value, formData.config).length > 0
+  reentryNoticeVisible.value = true
+}
+// The notice goes away once it has been acted on; the fields stay visible.
+const reentryNoticeVisible = ref(false)
+const refusedFields = ref<string[]>([])
+const refusedForHostChange = ref(false)
+watch([() => formData.credentials, () => formData.config, connectionTestPassed], () => {
+  if (reentryNoticeVisible.value && reentryNoticeResolved({
+    missingFields: refusedFields.value,
+    credentials: formData.credentials,
+    testPassed: connectionTestPassed.value,
+    refusedForHostChange: refusedForHostChange.value,
+    hostStillChanged: changedDestinationFields(savedDestination.value, formData.config).length > 0,
+  })) reentryNoticeVisible.value = false
+}, { deep: true })
+// Editing the host or URL of a connection with locked (saved) credentials
+// unlocks them so the secret can be typed before saving.
+watch(() => formData.config, (config) => {
+  if (credentialsLocked.value && Object.keys(savedDestination.value).length && changedDestinationFields(savedDestination.value, config).length) {
+    unlockCredentials()
+  }
+}, { deep: true })
+
+const showSystemCredentialFields = computed(() => !!props.forceShowSystemCredentials || credentialsReentryNeeded.value)
 
 const credentialFields = computed(() => {
   const byAuth = fields.value?.credentials_by_auth
@@ -631,6 +671,7 @@ async function fetchFields() {
         initJsonFields()
         formData.credentials = { ...formData.credentials, ...(iv.credentials_meta || {}), ...(iv.credentials || {}) }
         savedCredentialValues.value = { ...formData.credentials }
+        savedDestination.value = JSON.parse(JSON.stringify(formData.config))
         testedSettings.value = settingsSignature()
         connectionTestPassed.value = true
         // Lock credentials if they already exist on the server
@@ -726,7 +767,10 @@ function fieldLabel(name: string): string {
 }
 
 function describeApiError(err: any): string | null {
-  const detail = err?.data?.detail ?? err?.response?._data?.detail
+  const payload = err?.data ?? err?.response?._data
+  const localized = payload?.error_code ? catalogMessage(payload, t, te) : null
+  if (localized) return localized
+  const detail = payload?.detail
   if (!detail) return null
   // A server error is deliberately generic ("Internal server error"); its
   // request id is what lets an operator find the real cause in the logs.
@@ -836,8 +880,9 @@ async function onSubmit() {
         const errAny = (res.error as any)
         const err = (errAny && (errAny.value || errAny)) || {}
         const detail = err?.data?.detail || err?.data?.message || err?.message || t('data.updateConnectionFailed')
+        noteCredentialRefusal(err)
         submitError.value = describeApiError(err) || String(detail)
-        toast.add({ title: t('data.updateConnectionFailed'), description: String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
+        toast.add({ title: t('data.updateConnectionFailed'), description: describeApiError(err) || String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
       }
     } else if (isEditMode.value && props.dataSourceId) {
       const res = await useMyFetch(`/data_sources/${props.dataSourceId}`, { method: 'PUT', body: JSON.stringify(payload), headers: { 'Content-Type': 'application/json' } })
@@ -848,8 +893,9 @@ async function onSubmit() {
         const errAny = (res.error as any)
         const err = (errAny && (errAny.value || errAny)) || {}
         const detail = err?.data?.detail || err?.data?.message || err?.message || t('data.updateDataSourceFailed')
+        noteCredentialRefusal(err)
         submitError.value = describeApiError(err) || String(detail)
-        toast.add({ title: t('data.updateDataSourceFailed'), description: String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
+        toast.add({ title: t('data.updateDataSourceFailed'), description: describeApiError(err) || String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
       }
     } else if (isCreateConnectionOnly.value) {
       // Create connection only (without agent)
@@ -940,6 +986,7 @@ async function testConnection() {
     if (!data && requestError) {
       connectionTestPassed.value = false
       testResultLevel.value = 'error'
+      noteCredentialRefusal(requestError)
       testResultMessage.value = describeApiError(requestError) || t('data.connectionFailed')
       return
     }

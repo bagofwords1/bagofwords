@@ -48,6 +48,7 @@
 - Added `/compact [focus | keep N]` to the prompt box, and the agent now keeps long conversations within the model's context before each request, without losing earlier summaries (#1677)
 
 ## Version 0.0.613 (November 9, 2026)
+- Changed saved connections so a changed destination requires re-entering credentials or an org admin, and turning off per-user auth requires an admin
 - Added multiple WhatsApp numbers per org, each limited to the agents you pick (#1654)
 - Added KMS Lighthouse as a read-only data source (#1618)
 - Added a Group and sort menu to the sidebar's Reports list: group by date or status, sort by updated, created or name (#1653)

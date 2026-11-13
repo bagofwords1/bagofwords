@@ -4269,6 +4269,8 @@
     "organization.required": "Cabeçalho de ID da organização ausente",
     "api_key.invalid": "Chave de API inválida ou expirada",
     "mcp.disabled": "A integração MCP não está ativada para esta organização",
+    "connection.credentials_required": "Você alterou o destino desta conexão. Insira as credenciais novamente para testar ou salvar esta alteração.",
+    "connection.admin_required": "Somente um administrador da organização pode fazer esta alteração na conexão.",
     "mcp.dynamic_params_invalid": "Os parâmetros dinâmicos devem ser um objeto JSON de no máximo 8 KB, sem chaves vazias.",
     "feature.locked": "O recurso não pode ser modificado",
     "license.enterprise_required": "Este recurso requer uma licença enterprise.",

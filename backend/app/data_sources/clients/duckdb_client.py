@@ -69,13 +69,21 @@ class DuckDBClient(DataSourceClient):
             pass
 
         # AWS
+        # Keys go through a secret, not a setting: settings can be read back
+        # with current_setting(), while duckdb_secrets() redacts secret values.
         if self.access_key and self.secret_key:
-            con.execute(f"SET s3_access_key_id={self._sql_literal(self.access_key)};")
-            con.execute(f"SET s3_secret_access_key={self._sql_literal(self.secret_key)};")
+            parts = [
+                "TYPE S3",
+                f"KEY_ID {self._sql_literal(self.access_key)}",
+                f"SECRET {self._sql_literal(self.secret_key)}",
+                "URL_STYLE 'path'",
+                "USE_SSL true",
+            ]
             if self.region:
-                con.execute(f"SET s3_region={self._sql_literal(self.region)};")
+                parts.append(f"REGION {self._sql_literal(self.region)}")
             if self.session_token:
-                con.execute(f"SET s3_session_token={self._sql_literal(self.session_token)};")
+                parts.append(f"SESSION_TOKEN {self._sql_literal(self.session_token)}")
+            con.execute(f"CREATE OR REPLACE TEMPORARY SECRET bow_s3 ({', '.join(parts)});")
 
         # GCP
         if self.service_account_json:
@@ -85,7 +93,7 @@ class DuckDBClient(DataSourceClient):
         # Azure
         if self.connection_string:
             # DuckDB supports Azure via connection string (SAS/account key)
-            con.execute(f"SET azure_storage_connection_string={self._sql_literal(self.connection_string)};")
+            con.execute(f"CREATE OR REPLACE TEMPORARY SECRET bow_azure (TYPE AZURE, CONNECTION_STRING {self._sql_literal(self.connection_string)});")
 
     def _normalize_uri(self, pattern: str) -> str:
         """Trust user-supplied URIs.

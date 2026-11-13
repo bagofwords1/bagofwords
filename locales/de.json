@@ -4269,6 +4269,8 @@
     "organization.required": "Organisations-ID-Header fehlt",
     "api_key.invalid": "Ungültiger oder abgelaufener API-Schlüssel",
     "mcp.disabled": "MCP-Integration ist für diese Organisation nicht aktiviert",
+    "connection.credentials_required": "Sie haben das Ziel dieser Verbindung geändert. Geben Sie die Zugangsdaten erneut ein, um diese Änderung zu testen oder zu speichern.",
+    "connection.admin_required": "Nur ein Organisationsadministrator kann diese Änderung an der Verbindung vornehmen.",
     "mcp.dynamic_params_invalid": "Dynamische Parameter müssen ein JSON-Objekt mit höchstens 8 KB und ohne leere Schlüssel sein.",
     "feature.locked": "Funktion kann nicht geändert werden",
     "license.enterprise_required": "Diese Funktion erfordert eine Enterprise-Lizenz.",
