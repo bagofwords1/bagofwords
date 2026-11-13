@@ -36,7 +36,9 @@ digit starts a number, some letters upper-case to a keyword). So every
 unquoted name holding such a character must be exactly one name to
 sqlglot's tokenizer, and no sqlglot keyword may start with it (or the text
 after it could join it into one); every dollar-quote tag holding one must
-be read by sqlglot as the same delimiter. Otherwise the text is refused.
+be read by sqlglot as the same delimiter (defence in depth: dollar strings
+are rewritten as standard literals, so sqlglot never reads a tag).
+Otherwise the text is refused.
 Names and tags in ASCII are read alike (a '$' inside a name included: both
 read it as a name character) and skip this check. When sqlglot's tokenizer
 fails on a name or tag other than by reporting a token error, the text
@@ -163,6 +165,9 @@ def _check_name(name: str, reading: _SqlglotReading) -> None:
 
 
 def _check_dollar_tag(delimiter: str, reading: _SqlglotReading) -> None:
+    """Defence in depth: the canonical text writes every dollar string as a
+    standard literal, so sqlglot never reads the tag itself; this can only
+    refuse a text the checks would have read correctly."""
     if not delimiter.isascii() and not reading.same_dollar_tag(delimiter):
         raise ReadOnlyViolation(
             "A dollar-quote tag holds a character outside ASCII that the query checks read differently "

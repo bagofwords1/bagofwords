@@ -318,6 +318,21 @@ def test_ctes_in_scope_still_run(dialect, sql):
     check_table_scope(sql, dialect, SCOPE)
 
 
+def test_tables_read_lists_the_tables_a_statement_reads_by_name_without_its_cte_references():
+    """The one walk table scope and the lexer oracle share: every table
+    named as an identifier, in order, once each; a CTE reference visible
+    where it stands is not a table."""
+    from app.ai.code_execution import sql_parser, table_scope
+
+    sql = ("WITH x AS (SELECT * FROM x), y AS (SELECT * FROM sales.orders) "
+           "SELECT * FROM x JOIN y ON true JOIN Warehouse.Sales.Payroll p ON true, generate_series(1, 2) g "
+           "WHERE EXISTS (SELECT 1 FROM sales.orders)")
+    [statement] = sql_parser.parse_guard_sql(sql, "postgres")
+    found = table_scope.tables_read(statement)
+    assert len(found) == 3
+    assert set(found) == {("x",), ("sales", "orders"), ("warehouse", "sales", "payroll")}
+
+
 def test_recursive_cte_can_reference_itself():
     check_table_scope(
         "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT * FROM r",

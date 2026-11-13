@@ -196,6 +196,24 @@ def _resolves_to_cte(table) -> bool:
     return False
 
 
+def tables_read(statement) -> list[Name]:
+    """The tables `statement` reads by name, each once: every
+    table reference that is an identifier (not a table function), except a
+    one-part name that refers to a CTE visible where it stands. Lowercased
+    name parts."""
+    from sqlglot import exp
+
+    out: list[Name] = []
+    for t in statement.find_all(exp.Table):
+        if not isinstance(t.this, exp.Identifier):
+            continue
+        ref = tuple(p.lower() for p in (t.catalog, t.db, t.name) if p)
+        if (len(ref) == 1 and _resolves_to_cte(t)) or ref in out:
+            continue
+        out.append(ref)
+    return out
+
+
 def _display(ref: Name) -> str:
     return ".".join(p.upper() for p in ref)
 
@@ -249,24 +267,23 @@ def check_table_scope(sql: str, dialect: str, scope: TableScope) -> None:
                     "because the table it reads cannot be checked."
                 )
 
+        for ref in tables_read(stmt):
+            if not is_allowed(_qualify(ref, scope.default_database), scope):
+                if scope.legacy is not None and is_allowed(ref, scope.legacy):
+                    logger.warning(
+                        "table_scope: allowed %s only because it matches an enabled table "
+                        "outside the connection's default database %s; this will be refused "
+                        "once database checks are enforced",
+                        _display(ref), (scope.default_database or "").upper(),
+                    )
+                    continue
+                shown = _display(ref)
+                if shown not in denied:
+                    denied.append(shown)
+
         for t in stmt.find_all(exp.Table):
             target = t.this
             if isinstance(target, exp.Identifier):
-                ref = tuple(p.lower() for p in (t.catalog, t.db, t.name) if p)
-                if len(ref) == 1 and _resolves_to_cte(t):
-                    continue
-                if not is_allowed(_qualify(ref, scope.default_database), scope):
-                    if scope.legacy is not None and is_allowed(ref, scope.legacy):
-                        logger.warning(
-                            "table_scope: allowed %s only because it matches an enabled table "
-                            "outside the connection's default database %s; this will be refused "
-                            "once database checks are enforced",
-                            _display(ref), (scope.default_database or "").upper(),
-                        )
-                        continue
-                    shown = _display(ref)
-                    if shown not in denied:
-                        denied.append(shown)
                 continue
             if type(target).__name__ == "SemanticView":
                 continue  # its view name is a separate Table node, checked above

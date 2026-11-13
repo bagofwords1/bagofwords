@@ -273,6 +273,11 @@ _IDENTITY_TEMPLATES = {
     "clickhouse": ["SELECT * FROM orders WHERE owner = :owner"],
     "databricks": ["SELECT * FROM orders WHERE owner = :owner"],
     "duckdb": ["SELECT * FROM orders WHERE owner = :owner"],
+    "fabric": ["SELECT TOP 10 * FROM dbo.orders WHERE owner = :owner AND DATEPART(year, created_at) = 2026"],
+    "presto": ["SELECT * FROM orders WHERE owner = :owner AND year(created_at) = 2026"],
+    "spark": ["SELECT * FROM orders WHERE owner = :owner AND year(created_at) = 2026"],
+    "teradata": ["SELECT * FROM orders WHERE owner = :owner AND EXTRACT(YEAR FROM created_at) = 2026"],
+    "druid": ["SELECT COUNT(*) FROM events WHERE owner = :owner AND __time >= TIMESTAMP '2026-01-01'"],
 }
 
 # (dialect, sql with an `:owner` placeholder, the viewer's identity value)
@@ -282,4 +287,34 @@ IDENTITY_QUERIES: list[tuple[str, str, str]] = [
     for template in templates
     for value in _IDENTITY_VALUES
     if not (dialect in _NO_BACKSLASH and BS in value)
+]
+
+# Clients the guard checks without a parser (one statement, a read verb
+# first, no write word): Db2, Db2 for IBM i. The shapes are written the
+# way any of them reads them.
+NONPARSING_QUERIES: list[str] = [
+    "SELECT * FROM SALES.ORDERS FETCH FIRST 10 ROWS ONLY",
+    "SELECT ID, AMOUNT FROM SALES.ORDERS WHERE STATUS = 'open' ORDER BY AMOUNT DESC",
+    "WITH BIG AS (SELECT * FROM SALES.ORDERS WHERE AMOUNT > 100) SELECT COUNT(*) FROM BIG",
+    "SELECT * FROM SALES.ORDERS WHERE ORDER_DATE >= CURRENT DATE - 30 DAYS",
+    "SELECT YEAR(ORDER_DATE) AS Y, COUNT(*) FROM SALES.ORDERS GROUP BY YEAR(ORDER_DATE)",
+    "VALUES CURRENT DATE",
+    "SELECT CURRENT TIMESTAMP FROM SYSIBM.SYSDUMMY1",
+    "SELECT * FROM SALES.CUSTOMERS WHERE NAME = 'O''Brien'",
+    "SELECT * FROM SALES.USERS WHERE LOGIN = 'DOMAIN" + BS + "user'",
+    "SELECT * FROM SALES.ORDERS WHERE NOTE = 'please delete; drop it' AND TAG = '-- not a comment'",
+    'SELECT "Order Date", "Customer Name" FROM SALES."Order Details"',
+    "-- the newest orders" + NL + "SELECT * FROM SALES.ORDERS /* sample */ FETCH FIRST 5 ROWS ONLY",
+    "SELECT ID, ROW_NUMBER() OVER (PARTITION BY CUSTOMER_ID ORDER BY ORDER_DATE DESC) AS RN FROM SALES.ORDERS",
+    "SELECT CASE WHEN AMOUNT > 100 THEN 'big' ELSE 'small' END AS SIZE FROM SALES.ORDERS",
+    "SELECT * FROM SALES.ORDERS WHERE CUSTOMER_ID IN (SELECT ID FROM SALES.CUSTOMERS WHERE REGION = 'EU')",
+    "SELECT LISTAGG(NAME, ', ') WITHIN GROUP (ORDER BY NAME) FROM SALES.CUSTOMERS",
+    "SELECT A FROM T UNION ALL SELECT B FROM U",
+    "(SELECT 1 FROM SYSIBM.SYSDUMMY1)",
+    "SELECT * FROM SALES.PRODUCTS WHERE SKU LIKE 'A" + BS + "_%' ESCAPE '" + BS + "'",
+    "SELECT * FROM SALES.ORDERS;",
+]
+NONPARSING_IDENTITY_TEMPLATES: list[str] = [
+    "SELECT * FROM SALES.ORDERS WHERE OWNER = :owner FETCH FIRST 10 ROWS ONLY",
+    "SELECT ID FROM SALES.ORDERS WHERE OWNER = :owner AND YEAR(ORDER_DATE) = 2026",
 ]

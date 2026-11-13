@@ -1213,6 +1213,8 @@ class CustomQueryService:
                     # Stored rows cannot be given the new shape, so the copy
                     # would stop matching the source. Rebuild instead of
                     # failing every scheduled run until someone notices.
+                    # The run then records what the rebuild sends.
+                    run.rendered_query = None
                     run.note(f"The query's columns changed ({e}); rebuilding in full.", "warning")
                     await runs.progress(run.run_id, mode=RUN_MODE_FULL, events=run.take_events())
                 else:
@@ -1247,7 +1249,7 @@ class CustomQueryService:
                                       error="The table was deleted while it was loading.",
                                       events=run.take_events(), chunks=run.chunk_log())
                     return
-                rows, rendered = await self._in_thread(run, lambda i=index: self._work_window(run, i))
+                rows, _sent = await self._in_thread(run, lambda i=index: self._work_window(run, i))
                 window = load["windows"][index]
                 window["status"], window["rows"] = "done", rows
                 load["updated_at"] = datetime.utcnow().isoformat(timespec="seconds")
@@ -1255,7 +1257,6 @@ class CustomQueryService:
                 load["rows"] = int(load.get("rows") or 0) + rows
                 run.rows_read += rows
                 run.windows_done += 1
-                run.rendered_query = run.rendered_query or rendered
                 await self._save_state(run)
             await runs.progress(run.run_id, chunks=run.chunk_log(), rows_read=run.rows_read,
                                 rendered_query=run.rendered_query, events=run.take_events())
@@ -1438,6 +1439,9 @@ class CustomQueryService:
         window = incremental.Window.from_json(load["windows"][index])
         try:
             src, checked = self._checked_source(run, self._render(run, window))
+            # Once checked and before the send: the run records the last
+            # window it sent, whether or not that window loads.
+            run.rendered_query = checked
             rows = loader.load_window(
                 src, checked, load["path"],
                 artifacts.decrypt_key(load["key_enc"]), run.name, run.run_id, self._limits(run),

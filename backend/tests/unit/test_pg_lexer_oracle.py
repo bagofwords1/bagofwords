@@ -29,15 +29,15 @@ import json
 import os
 import random
 import re
+import sys
 from collections import Counter
 
 import pytest
-from sqlglot import exp
 
 from app.ai.code_execution.pg_lexer import PgLexResult, lex_postgres
 from app.ai.code_execution.sql_guard import ReadOnlyViolation
 from app.ai.code_execution.sql_parser import parse_guard_sql
-from app.ai.code_execution.table_scope import _resolves_to_cte
+from app.ai.code_execution.table_scope import tables_read
 
 try:
     import pglast  # noqa: F401
@@ -175,24 +175,13 @@ def _tables_read(tree) -> frozenset[tuple[str, ...]]:
 @functools.cache
 def _guard_tables(text: str) -> frozenset[tuple[str, ...]] | None:
     """The tables the guard finds in `text`: sqlglot's Postgres parse,
-    walked the way `check_table_scope` walks it. None when sqlglot cannot
+    walked by table scope's own `tables_read`. None when sqlglot cannot
     read the text (table scope then refuses it)."""
     try:
         statements = parse_guard_sql(text, "postgres")
     except Exception:
         return None
-    out = set()
-    for statement in statements:
-        if statement is None:
-            continue
-        for table in statement.find_all(exp.Table):
-            if not isinstance(table.this, exp.Identifier):
-                continue
-            ref = tuple(p.lower() for p in (table.catalog, table.db, table.name) if p)
-            if len(ref) == 1 and _resolves_to_cte(table):
-                continue
-            out.add(ref)
-    return frozenset(out)
+    return frozenset(ref for statement in statements if statement is not None for ref in tables_read(statement))
 
 
 def _disagreements(sql: str, lex: PgLexResult) -> list[str]:
@@ -542,6 +531,16 @@ def test_the_oracle_reports_a_table_the_guard_reads_differently():
     # Postgres reads one table here; sqlglot reads another, with an alias.
     sql = "SELECT 1 FROM a" + chr(0xA0) + "b"
     assert any("guard tables" in d for d in _disagreements(sql, _misread(sql, sql)))
+
+
+def test_the_oracle_reads_the_guard_tables_with_table_scope_s_own_walk():
+    """No copy of table scope's walk here: the oracle calls the public one."""
+    from app.ai.code_execution import table_scope
+
+    assert not hasattr(sys.modules[__name__], "_resolves_to_cte")
+    sql = "WITH o AS (SELECT 1) SELECT * FROM o, Public.Items"
+    [statement] = parse_guard_sql(sql, "postgres")
+    assert _guard_tables(sql) == frozenset(table_scope.tables_read(statement))
 
 
 def test_the_oracle_sets_aside_only_the_cte_references_visible_where_they_stand():

@@ -26,7 +26,14 @@ from app.ai.code_execution.query_params import render_sql_with_params, renderer_
 from app.ai.code_execution.sql_guard import ReadOnlyViolation, ensure_read_only
 from app.ai.code_execution.table_scope import TableScope, TableScopeViolation, check_table_scope, dialect_for_client
 from app.schemas.param_schema import ParamSpec
-from tests.unit.sql_corpus.legit_queries import CORPUS_TABLES, IDENTITY_QUERIES, KNOWN_OVER_REFUSALS, LEGIT_QUERIES
+from tests.unit.sql_corpus.legit_queries import (
+    CORPUS_TABLES,
+    IDENTITY_QUERIES,
+    KNOWN_OVER_REFUSALS,
+    LEGIT_QUERIES,
+    NONPARSING_IDENTITY_TEMPLATES,
+    NONPARSING_QUERIES,
+)
 
 BS = chr(92)
 
@@ -42,7 +49,15 @@ def _sql_clients() -> dict:
     return clients
 
 
+def _unparsed_clients() -> dict:
+    """Every client the guard checks without a parser, by family."""
+    return {entry.family: object.__new__(getattr(importlib.import_module(module), name))
+            for (module, name), entry in _CLIENT_TABLE.items()
+            if entry.profile is not None and entry.profile.kind == "nonparsing_sql"}
+
+
 CLIENTS = _sql_clients()
+UNPARSED_CLIENTS = _unparsed_clients()
 # Each client's dialect as the guard and table scope read it.
 DIALECTS = {family: dialect_for_client(client) for family, client in CLIENTS.items()}
 
@@ -93,6 +108,28 @@ def test_a_known_over_refusal_is_still_refused_until_its_rule_is_fixed(family, d
     the query moves to LEGIT_QUERIES. Only a refusal counts as the expected
     failure."""
     test_a_legitimate_query_passes_the_guard_and_table_scope(family, dialect, sql)
+
+
+def test_the_unparsed_corpus_covers_every_client_checked_without_a_parser():
+    assert {"Db2Client", "IbmiClient"} <= set(UNPARSED_CLIENTS)
+    assert len(NONPARSING_QUERIES) >= 15 and any(BS in sql for sql in NONPARSING_QUERIES)
+
+
+@pytest.mark.parametrize("family", sorted(UNPARSED_CLIENTS))
+@pytest.mark.parametrize("sql", NONPARSING_QUERIES)
+def test_a_legitimate_query_passes_the_guard_of_a_client_checked_without_a_parser(family, sql):
+    assert ensure_read_only(UNPARSED_CLIENTS[family], sql) == sql
+
+
+@pytest.mark.parametrize("family", sorted(UNPARSED_CLIENTS))
+@pytest.mark.parametrize("template", NONPARSING_IDENTITY_TEMPLATES)
+@pytest.mark.parametrize("value", ["sarah@example.com", "DOMAIN" + BS + "user", "it's"])
+def test_an_identity_scoped_query_passes_the_guard_of_a_client_checked_without_a_parser(family, template, value):
+    client = UNPARSED_CLIENTS[family]
+    rendered = render_sql_with_params(template, {"owner": value}, renderer=renderer_for(client))
+    checked = ensure_read_only(client, rendered)
+    capture = CapturedQuery(checked, family_name(client))
+    assert verify_identity_binds_in_queries([capture], {"owner": value}, SPEC) is None
 
 
 @pytest.mark.parametrize("family,dialect,template,value", _per_client(IDENTITY_QUERIES))
