@@ -45,6 +45,7 @@ from app.models.metadata_indexing_job import MetadataIndexingJob
 from app.models.metadata_resource import MetadataResource
 from app.models.organization_settings import OrganizationSettings
 from app.models.instance_settings import InstanceSettings
+from app.models.app_log import AppLog
 from app.models.external_platform import ExternalPlatform
 from app.models.external_user_mapping import ExternalUserMapping
 from app.models.external_platform_agent import ExternalPlatformAgent
@@ -155,9 +156,12 @@ def get_db_url():
 
 
 # Interpret the config file for Python logging.
-# This line sets up loggers basically.
+# This line sets up loggers basically. Loggers that already exist stay enabled:
+# the test suite runs migrations in-process, and the default (disabling them)
+# silenced whatever app loggers had been imported first, so log-asserting tests
+# passed or failed by which test came first in the worker.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # add your model's MetaData object here
 # for 'autogenerate' support

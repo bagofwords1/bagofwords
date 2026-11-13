@@ -126,6 +126,7 @@ from app.routes import (
     data_source_tools,
     agent_lists,
     changelog,
+    app_log,
 )
 from app.routes.oidc_auth import router as oidc_auth_router
 from app.ee.routes import router as enterprise_router
@@ -133,6 +134,9 @@ from app.ee.license import get_license_info, has_feature
 
 # Initialize logging
 loggers = setup_logging()
+# Settings → System logs: buffers log records only while an admin has it on.
+from app.services.app_log_service import install_log_handler  # noqa: E402
+install_log_handler()
 logger = get_logger(__name__)
 # Initialize OpenTelemetry if enabled (before app creation)
 setup_telemetry(settings.bow_config.otel)
@@ -335,6 +339,7 @@ app.include_router(usage_limits.router, prefix="/api")
 app.include_router(llm.router, prefix="/api")
 app.include_router(git.router, prefix="/api")
 app.include_router(organization_settings.router, prefix="/api")
+app.include_router(app_log.router, prefix="/api")
 app.include_router(branding.router, prefix="/api")
 app.include_router(metadata_resource.router, prefix="/api")
 app.include_router(bow_settings.router, prefix="/api")
@@ -986,6 +991,30 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Failed to start license refresher: {e}")
 
+    # Settings → System logs. Every worker keeps its own buffer and copy of the
+    # on/off switch, so like the license refresher this runs in every worker.
+    # Stream capture is installed here rather than at import so test runs,
+    # which never start the app, keep their own stdout/stderr untouched.
+    try:
+        import asyncio
+        from app.services.app_log_service import (
+            install_log_handler,
+            install_stream_capture,
+            load_at_startup as load_app_log_settings,
+            run_app_log_worker,
+        )
+
+        # uvicorn may have configured its loggers after import; attach again.
+        install_log_handler()
+        install_stream_capture()
+        await load_app_log_settings()
+        app.state.app_log_stop = asyncio.Event()
+        app.state.app_log_task = asyncio.create_task(
+            run_app_log_worker(stop_event=app.state.app_log_stop)
+        )
+    except Exception as e:
+        logger.error(f"Failed to start system logs worker: {e}")
+
     # Validate license at startup
     license_info = get_license_info()
     license_status = f"Enterprise ({license_info.org_name})" if license_info.licensed else "Community"
@@ -1043,6 +1072,15 @@ async def shutdown_event():
     if slack_socket_task is not None:
         try:
             await slack_socket_task
+        except Exception:
+            pass
+    app_log_stop = getattr(app.state, "app_log_stop", None)
+    if app_log_stop is not None:
+        app_log_stop.set()
+    app_log_task = getattr(app.state, "app_log_task", None)
+    if app_log_task is not None:
+        try:
+            await app_log_task
         except Exception:
             pass
     license_refresher_stop = getattr(app.state, "license_refresher_stop", None)

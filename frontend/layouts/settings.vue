@@ -48,6 +48,7 @@ const allTabs = [
     { name: 'general', label: 'settings.general', requiredPermission: "manage_settings" },
     { name: "integrations", label: "settings.integrations.title", requiredPermission: "manage_settings" },
     { name: 'audit', label: 'settings.auditLogs', requiredPermission: "view_audit_logs" },
+    { name: 'system-logs', label: 'settings.systemLogsTab', requiredPermission: "full_admin_access" },
     { name: 'identity-provider', label: 'settings.identityProviderTab', requiredPermission: "manage_identity_providers" },
     { name: 'smtp', label: 'settings.smtpTab', requiredPermission: "manage_settings" },
     { name: 'license', label: 'settings.license', requiredPermission: "manage_settings" },
