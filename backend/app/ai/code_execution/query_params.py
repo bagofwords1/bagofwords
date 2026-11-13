@@ -403,6 +403,11 @@ class _Reading:
     escape nothing (KQL's @'..').
     fences: texts that open a span closed by the same text, no escapes.
     loose_backslash: a backslash outside any span takes the next character.
+    doubled_brackets: ']]' stays inside a [..] span (Sybase).
+    q_quotes: q'X..X' with any delimiter X, ([{< closed by their pair
+    (Oracle-style quoting).
+    executable_comments: a block comment opened with an optional letter and
+    '!' (MySQL /*! */, MariaDB /*M! */, TiDB /*T! */) is code.
     """
 
     quotes: str = "'"
@@ -415,6 +420,29 @@ class _Reading:
     verbatim_prefix: str = ""
     fences: Tuple[str, ...] = ()
     loose_backslash: bool = False
+    doubled_brackets: bool = False
+    q_quotes: bool = False
+    executable_comments: bool = False
+
+
+_Q_CLOSERS = {"[": "]", "{": "}", "(": ")", "<": ">"}
+_EXECUTABLE_COMMENT_RE = re.compile(r"/\*[A-Za-z]?!")
+
+
+def _q_quote_end(text: str, i: int) -> int:
+    """End of a q'X..X' literal opening at i, or -1 when none opens there."""
+    n = len(text)
+    if i + 2 >= n or text[i + 1] != "'" or text[i + 2].isspace() or (i and (text[i - 1].isalnum() or text[i - 1] == "_")):
+        return -1
+    close = text.find(_Q_CLOSERS.get(text[i + 2], text[i + 2]) + "'", i + 3)
+    return n if close < 0 else close + 2
+
+
+def _bracket_end(text: str, i: int, doubled: bool) -> int:
+    close = text.find("]", i + 1)
+    while doubled and close >= 0 and text.startswith("]]", close):
+        close = text.find("]", close + 2)
+    return len(text) if close < 0 else close + 1
 
 
 def _quoted_end(text: str, i: int, reading: _Reading) -> int:
@@ -444,16 +472,23 @@ def _scan(text: str, reading: _Reading) -> List[Tuple[int, int]]:
     """Every span of `text` that is not code under `reading`, in order."""
     out: List[Tuple[int, int]] = []
     i, n = 0, len(text)
+    comment_starts = frozenset(c[0] for c in reading.line_comments)
     while i < n:
         ch = text[i]
         if reading.loose_backslash and ch == "\\":
             i += 2
             continue
+        if reading.executable_comments and ch == "/":
+            marker = _EXECUTABLE_COMMENT_RE.match(text, i)
+            if marker:
+                i = marker.end()  # the comment's text is code
+                continue
+        q_end = _q_quote_end(text, i) if reading.q_quotes and ch in "qQ" else -1
         fence = next((f for f in reading.fences if text.startswith(f, i)), None)
         if fence is not None:
             close = text.find(fence, i + len(fence))
             end = n if close < 0 else close + len(fence)
-        elif any(text.startswith(c, i) for c in reading.line_comments):
+        elif ch in comment_starts and any(text.startswith(c, i) for c in reading.line_comments):
             close = text.find("\n", i)
             end = n if close < 0 else close
         elif reading.block_comments and text.startswith("/*", i):
@@ -463,8 +498,9 @@ def _scan(text: str, reading: _Reading) -> List[Tuple[int, int]]:
             # code to both.
             end = n if close < 0 or text.find("/*", i + 2, close) >= 0 else close + 2
         elif reading.brackets and ch == "[":
-            close = text.find("]", i + 1)
-            end = n if close < 0 else close + 1
+            end = _bracket_end(text, i, reading.doubled_brackets)
+        elif q_end >= 0:
+            end = q_end
         elif ch in reading.quotes:
             end = _quoted_end(text, i, reading)
         else:
@@ -484,11 +520,21 @@ def _merged(lists: List[List[Tuple[int, int]]]) -> List[Tuple[int, int]]:
     return out
 
 
-def _scanned_spans(*readings: _Reading) -> Callable[[str], List[Tuple[int, int]]]:
-    """The spans that are not code under any of `readings`: a placeholder
-    outside all of them is code whichever way the engine reads the text."""
+_SpanLists = Callable[[str], List[List[Tuple[int, int]]]]
+
+
+def _scanned_lists(*readings: _Reading) -> _SpanLists:
+    """The spans that are not code, one sorted list per reading."""
+    def lists(text: str) -> List[List[Tuple[int, int]]]:
+        return [_scan(text, reading) for reading in readings]
+    return lists
+
+
+def _all_spans(lists: _SpanLists) -> Callable[[str], List[Tuple[int, int]]]:
+    """The spans that are not code under any reading: a placeholder outside
+    all of them is code whichever way the engine reads the text."""
     def spans(text: str) -> List[Tuple[int, int]]:
-        return _merged([_scan(text, reading) for reading in readings])
+        return _merged(lists(text))
     return spans
 
 
@@ -528,12 +574,14 @@ def _segments(text: str, lo: int, hi: int) -> List[Tuple[int, int]]:
         start = cut + 1
 
 
-def _odata_spans(*readings: _Reading) -> Callable[[str], List[Tuple[int, int]]]:
+def _odata_lists(*readings: _Reading) -> _SpanLists:
     """Spans that are not code in OData options text, as written and as the
     server reads it: split into options at '&' (after a path ending at the
     first '?', for a client that takes one), each option and each option's
-    value (after its first '=') percent-decoded on its own."""
-    def spans(text: str) -> List[Tuple[int, int]]:
+    value (after its first '=') percent-decoded on its own. One list per
+    reading and split; a value-only list does not cover the text before an
+    option's '='."""
+    def spans(text: str) -> List[List[Tuple[int, int]]]:
         lists = [_scan(text, reading) for reading in readings]
         query = text.find("?")
         splits = [_segments(text, 0, len(text))]
@@ -550,7 +598,7 @@ def _odata_spans(*readings: _Reading) -> Callable[[str], List[Tuple[int, int]]]:
                     for k, reading in enumerate(readings):
                         found[k].extend((origin[s], origin[e]) for s, e in _scan(decoded, reading))
                 lists.extend(found)
-        return _merged(lists)
+        return lists
     return spans
 
 
@@ -608,61 +656,69 @@ _ANSI_READING = _Reading(quotes="'\"", line_comments=("--",), block_comments=Tru
 _ANSI_READINGS = (
     _ANSI_READING,
     replace(_ANSI_READING, escape_prefixes="eE", fences=("$$",)),  # Vertica: E'..', $$..$$
-    replace(_ANSI_READING, brackets=True),  # [..] names (Sybase, Sisense)
+    replace(_ANSI_READING, brackets=True),  # [..] names (Sisense)
+    replace(_ANSI_READING, brackets=True, doubled_brackets=True),  # [..]] ..] names (Sybase)
     replace(_ANSI_READING, quotes="'\"`"),  # `..` names
+    replace(_ANSI_READING, q_quotes=True),  # q'[..]' (NetSuite SuiteQL, Oracle-based)
 )
 # Spark's lexer: backslash escapes in '..' and "..", `..` names.
 _SPARK_READING = _Reading(quotes="'\"`", backslash="'\"", line_comments=("--",), block_comments=True)
 _KQL_READING = _Reading(quotes="'\"", backslash="'\"", line_comments=("//",), verbatim_prefix="@", fences=("```",))
 _SPL_READING = _Reading(quotes='"', backslash='"', fences=("```",))
+# How MySQL and MariaDB read a statement where sqlglot's tokenizer does not:
+# '--' starts a comment only before a space or a control character, and an
+# executable comment's text is code. With and without NO_BACKSLASH_ESCAPES.
+_MYSQL_READING = _Reading(
+    quotes="'\"`", backslash="'\"", line_comments=("#",) + tuple("--" + chr(c) for c in range(33)),
+    block_comments=True, executable_comments=True,
+)
+_MYSQL_READINGS = (_MYSQL_READING, replace(_MYSQL_READING, backslash=""))
+
+# The readings the rendered text is re-read with (`_check_rendered`), per
+# renderer name: one span list per reading. Every renderer without a sqlglot
+# dialect has one; a sqlglot renderer has one where its engines read the
+# text other than sqlglot does.
+_READINGS: Dict[str, _SpanLists] = {}
 
 
 def _ansi_decode(body: str) -> str:
     return body.replace("''", "'")
 
 
+def _scanned(name: str, quote: Callable[[str], str], lists: _SpanLists, decode: Callable[[str], str]) -> LiteralRenderer:
+    _READINGS[name] = lists
+    return LiteralRenderer(name=name, quote=quote, string_spans=_all_spans(lists), decode=decode)
+
+
 def _build_renderers() -> Dict[str, LiteralRenderer]:
     renderers = {
         # ANSI: quotes doubled, nothing else (Db2, IBM i, Vertica, Sybase,
         # SAP HANA, Pinot, NetSuite, Oracle BI, Sisense).
-        "ansi": LiteralRenderer(
-            name="ansi", quote=_doubled, string_spans=_scanned_spans(*_ANSI_READINGS), decode=_ansi_decode,
-        ),
+        "ansi": _scanned("ansi", _doubled, _scanned_lists(*_ANSI_READINGS), _ansi_decode),
         # OData options text (Priority ERP, SAP Datasphere, MECM): quotes
         # doubled, the body percent-encoded.
-        "odata": LiteralRenderer(
-            name="odata", quote=_odata_quote,
-            string_spans=_odata_spans(_Reading(quotes="'"), _Reading(quotes="'\"")),
-            decode=_odata_decode,
-        ),
+        "odata": _scanned("odata", _odata_quote, _odata_lists(_Reading(quotes="'"), _Reading(quotes="'\"")),
+                          _odata_decode),
         # Timbr: its lexer is not documented, so the text is read both the
         # ANSI way and Spark's, quotes are doubled (the same value to ANSI;
         # never an escape to Spark) and a backslash value is refused.
-        "timbr": LiteralRenderer(
-            name="timbr", quote=_refuse_backslash("Timbr"),
-            string_spans=_scanned_spans(*_ANSI_READINGS, _SPARK_READING), decode=_ansi_decode,
-        ),
+        "timbr": _scanned("timbr", _refuse_backslash("Timbr"), _scanned_lists(*_ANSI_READINGS, _SPARK_READING),
+                          _ansi_decode),
         # Kusto: '...' with \\ and \'; @'..' verbatim, ```..``` and ~~~..~~~
         # multi-line, // comments.
-        "kql": LiteralRenderer(
-            name="kql", quote=_backslash_quote("'"),
-            string_spans=_scanned_spans(_KQL_READING, replace(_KQL_READING, fences=("~~~",))),
-            decode=_backslash_decode(_C_ESCAPES),
-        ),
+        "kql": _scanned("kql", _backslash_quote("'"),
+                        _scanned_lists(_KQL_READING, replace(_KQL_READING, fences=("~~~",))),
+                        _backslash_decode(_C_ESCAPES)),
         # Salesforce SOQL: '...' with \\ and \'; no comments.
-        "soql": LiteralRenderer(
-            name="soql", quote=_backslash_quote("'"),
-            string_spans=_scanned_spans(_Reading(quotes="'", backslash="'", doubled=False)),
-            decode=_backslash_decode(_C_ESCAPES),
-        ),
+        "soql": _scanned("soql", _backslash_quote("'"),
+                         _scanned_lists(_Reading(quotes="'", backslash="'", doubled=False)),
+                         _backslash_decode(_C_ESCAPES)),
         # Splunk SPL (bare searches): "..." with \\ and \"; ```..``` comments;
         # '..' field names in eval and where; a backslash outside quotes.
-        "spl": LiteralRenderer(
-            name="spl", quote=_backslash_quote('"'),
-            string_spans=_scanned_spans(_SPL_READING, replace(_SPL_READING, quotes="\"'"),
-                                        replace(_SPL_READING, loose_backslash=True)),
-            decode=_backslash_decode({}, only='\\"'),
-        ),
+        "spl": _scanned("spl", _backslash_quote('"'),
+                        _scanned_lists(_SPL_READING, replace(_SPL_READING, quotes="\"'"),
+                                       replace(_SPL_READING, loose_backslash=True)),
+                        _backslash_decode({}, only='\\"')),
         # sqlglot's Athena tokenizer reads a backslash as an escape; the
         # Trino-based engine Athena runs DML on does not. No rendering of a
         # backslash satisfies both, so such a value is refused.
@@ -676,6 +732,7 @@ def _build_renderers() -> Dict[str, LiteralRenderer]:
     }
     for dialect in _SQLGLOT_RENDERER_DIALECTS:
         renderers.setdefault(dialect, _sql_renderer(dialect, dialect))
+    _READINGS["mysql"] = _scanned_lists(*_MYSQL_READINGS)
     return renderers
 
 
@@ -740,11 +797,10 @@ _E_STRING_DIALECTS = frozenset({"postgres", "duckdb", "redshift"})
 def _refuse_text_read_two_ways(sql: str, tokens, dialect: str) -> None:
     """Refuse text whose strings or comments the engine may end somewhere
     other than sqlglot's tokenizer does."""
+    _refuse_engine_comments(sql, tokens, dialect)
     for k, token in enumerate(tokens):
-        if any("/*" in c or c.startswith("!") for c in token.comments):
-            raise ParamError(
-                "parameters cannot be placed in a query with a nested or executable (/*!) comment; remove the comment"
-            )
+        if any("/*" in c for c in token.comments):
+            raise ParamError("parameters cannot be placed in a query with a nested comment; remove the comment")
         kind = token.token_type.name
         if kind not in _STRING_TOKEN_NAMES:
             continue
@@ -759,6 +815,36 @@ def _refuse_text_read_two_ways(sql: str, tokens, dialect: str) -> None:
             raise ParamError(
                 "parameters cannot be placed in a query with a prefixed string such as q'...'; use a plain string"
             )
+
+
+# A comment whose text an engine runs: MySQL /*! */, MariaDB /*M! */, TiDB
+# /*T! */ (sqlglot's tokenizer keeps the comment's text without '/*').
+_RUN_COMMENT_RE = re.compile(r"[A-Za-z]?!")
+# MySQL and MariaDB read '--' as a comment only before a space or a control
+# character (or at the end); sqlglot always does.
+_MYSQL_CODE_DASHES_RE = re.compile(r"--(?![\x00-\x20]|\Z)")
+
+
+def _refuse_engine_comments(sql: str, tokens, dialect: str) -> None:
+    """Refuse comments an engine reads as code while sqlglot drops them."""
+    if any(_RUN_COMMENT_RE.match(c) for token in tokens for c in token.comments):
+        raise ParamError(
+            "parameters cannot be placed in a query with an executable comment such as /*! */ or /*M! */; "
+            "remove the comment"
+        )
+    if dialect != "mysql":
+        return
+    quoted = [(t.start, t.end) for t in tokens if t.token_type.name in _QUOTED_TOKEN_NAMES]
+    k = 0
+    for m in _MYSQL_CODE_DASHES_RE.finditer(sql):
+        while k < len(quoted) and quoted[k][1] < m.start():
+            k += 1
+        if k < len(quoted) and quoted[k][0] <= m.start():
+            continue  # inside a string or a quoted name
+        raise ParamError(
+            "parameters cannot be placed in a query with '--' not followed by a space, "
+            "which MySQL reads as code; write '-- ' for a comment or '- -' for two minus signs"
+        )
 
 
 def _misplaced_tokens(sql: str, matches: List["re.Match[str]"], dialect: str) -> List[str]:
@@ -817,16 +903,18 @@ def _misplaced_placeholders(sql: str, matches: List["re.Match[str]"], renderer: 
     return _misplaced_spans(sql, matches, renderer.string_spans(sql))
 
 
-def _render_literal(value: Any, renderer: LiteralRenderer) -> str:
+def _rendered_value(value: Any, renderer: LiteralRenderer) -> Tuple[str, List[Tuple[int, int]]]:
+    """The text written for `value`, and where its string literals are in it
+    (start, end exclusive)."""
     if value is None:
-        return "NULL"
+        return "NULL", []
     if isinstance(value, bool):
-        return "TRUE" if value else "FALSE"
+        return ("TRUE" if value else "FALSE"), []
     if isinstance(value, (int, float)):
         # Guard inf/nan from reaching SQL text.
         if isinstance(value, float) and (value != value or value in (float("inf"), float("-inf"))):
             raise ParamError("non-finite number cannot be rendered into SQL")
-        return repr(value)
+        return repr(value), []
     if isinstance(value, (date, datetime)):
         value = value.isoformat()
     if isinstance(value, (list, tuple, set)):
@@ -834,11 +922,164 @@ def _render_literal(value: Any, renderer: LiteralRenderer) -> str:
         if not items:
             # Empty IN () is invalid SQL nearly everywhere; render a
             # never-matching list instead so "no groups" means no rows.
-            return "(NULL)"
-        return "(" + ", ".join(_render_literal(v, renderer) for v in items) + ")"
+            return "(NULL)", []
+        parts, spans, at = [], [], 1
+        for item in items:
+            text, inner = _rendered_value(item, renderer)
+            spans.extend((at + s, at + e) for s, e in inner)
+            parts.append(text)
+            at += len(text) + 2
+        return "(" + ", ".join(parts) + ")", spans
     if isinstance(value, dict):
         raise ParamError("object values cannot be rendered into SQL directly")
-    return renderer.quote(str(value))
+    text = renderer.quote(str(value))
+    return text, [(0, len(text))]
+
+
+def _render_literal(value: Any, renderer: LiteralRenderer) -> str:
+    return _rendered_value(value, renderer)[0]
+
+
+_SPACES = frozenset(" \t\n\r")
+# What may stand right before a placeholder: the start of the text, a space,
+# or a character that ends an operator or opens a list. '=<>!' compare, '+-*/%'
+# compute, '|' (SQL's '||', a KQL or SPL pipe), '^&~' bit operators, '(' '['
+# ',' start an argument, list or array item, ';' ends a statement. Anything
+# else may change how the literal is read: KQL's @'..' escapes nothing, SPL's
+# backslash takes the quote, MySQL's @ names a variable, a quote, '.', '$',
+# '#' or '`' joins the literal to a name, string or comment.
+_BEFORE_PLACEHOLDER = _SPACES | frozenset("=<>!+-*/%|^&~([,;")
+# OData puts a value after an operator word, '=' (an option's value, a named
+# key), '(' or ','; after '&', '?', ';', '/' or an operator character the
+# server would read it as an option name, a path or a different value.
+_BEFORE_ODATA_PLACEHOLDER = _SPACES | frozenset("=(,")
+
+
+def _refuse_prefixes(sql: str, matches: List["re.Match[str]"], renderer: LiteralRenderer) -> None:
+    allowed = _BEFORE_ODATA_PLACEHOLDER if renderer.name == "odata" else _BEFORE_PLACEHOLDER
+    for m in matches:
+        at = m.start()
+        if at == 0:
+            continue
+        before = sql[at - 1]
+        # U&'..' is a string whose backslashes are escapes (Postgres, Trino).
+        unicode_prefix = before == "&" and at > 1 and sql[at - 2] in "uU"
+        if before not in allowed or unicode_prefix:
+            raise ParamError(
+                f"parameter placeholder :{m.group(1)} follows {before!r}; put it after a space, "
+                "an operator or an opening bracket"
+            )
+
+
+def _separated(sql: str, start: int, text: str) -> str:
+    """`text` as written at `start`: a value starting with '-' gets a space
+    after any other character, which it could join ('-' and '-5' make '--',
+    a comment). A space separates tokens in every grammar rendered here and
+    keeps the minus a unary minus."""
+    if text.startswith("-") and start and sql[start - 1] not in _SPACES:
+        return " " + text
+    return text
+
+
+def _check_rendered(sql: str, matches: List["re.Match[str]"], placed: List[Tuple[int, int, List[Tuple[int, int]]]],
+                    rendered: str, renderer: LiteralRenderer) -> None:
+    """Re-read the rendered text the way it was checked and refuse it unless
+    every value is read exactly as written: each string literal one string,
+    nothing in a value opened or closed by its neighbours, and everything
+    outside the values read as the template's code was.
+
+    placed: per match, (start, end) of the text written for it in `rendered`
+    and its string literals' spans relative to that start."""
+    dialect = _sqlglot_dialect_of(renderer)
+    readings = _READINGS.get(renderer.name)
+    if dialect is None and readings is None:
+        raise ParamError("parameters cannot be checked for this connection")
+    if dialect is not None:
+        _check_tokens(sql, matches, placed, rendered, dialect)
+    if readings is not None:
+        may_skip = renderer.name == "odata"
+        for template_spans, rendered_spans in zip(readings(sql), readings(rendered)):
+            _check_spans(matches, placed, template_spans, rendered_spans, may_skip)
+
+
+def _misread() -> ParamError:
+    return ParamError(
+        "a parameter value would not be read as one value in this query; "
+        "put the placeholder where the value goes, after a space or an operator"
+    )
+
+
+def _check_tokens(sql: str, matches, placed, rendered: str, dialect: str) -> None:
+    """The rendered text's tokens are the template's, each placeholder's two
+    (':' and its name) replaced by the tokens of the text written for it, read
+    alone; each string literal is one string token; comments are unchanged."""
+    import sqlglot
+
+    try:
+        template = sqlglot.tokenize(sql, read=dialect)
+        actual = sqlglot.tokenize(rendered, read=dialect)
+    except Exception as exc:
+        raise _misread() from exc
+    at = {token.start: k for k, token in enumerate(template)}
+    alone: Dict[str, list] = {}
+    expected, comments = [], []
+    k, shift = 0, 0
+    for m, (start, end, spans) in zip(matches, placed):
+        colon = at[m.start()]  # the placement rule found ':' and the name here
+        for token in template[k:colon]:
+            expected.append((token.token_type, token.text, token.start + shift, token.end + shift))
+            comments.extend(token.comments)
+        comments.extend(template[colon].comments + template[colon + 1].comments)
+        text = rendered[start:end]
+        if text not in alone:
+            alone[text] = sqlglot.tokenize(text, read=dialect)
+        value_tokens = alone[text]
+        strings = [(t.start, t.end + 1) for t in value_tokens if t.token_type.name in _STRING_TOKEN_NAMES]
+        if strings != spans or any(t.comments for t in value_tokens):
+            raise _misread()
+        expected.extend((t.token_type, t.text, t.start + start, t.end + start) for t in value_tokens)
+        k, shift = colon + 2, end - m.end()
+    for token in template[k:]:
+        expected.append((token.token_type, token.text, token.start + shift, token.end + shift))
+        comments.extend(token.comments)
+    if [(t.token_type, t.text, t.start, t.end) for t in actual] != expected:
+        raise _misread()
+    if [c for t in actual for c in t.comments] != comments:
+        raise _misread()
+
+
+def _check_spans(matches, placed, template_spans, rendered_spans, may_skip: bool) -> None:
+    """Under one reading: the spans outside the values are the template's,
+    none touching a placeholder, and inside each value exactly its string
+    literals (or, where the reading does not cover that part of the text,
+    nothing). No span crosses a value's edge."""
+    expected_outside: List[Tuple[int, int]] = []
+    p, shift = 0, 0
+    for s, e in template_spans:
+        while p < len(matches) and matches[p].end() < s:
+            shift = placed[p][1] - matches[p].end()
+            p += 1
+        if p < len(matches) and matches[p].start() <= e:
+            raise _misread()  # the placeholder is in or against the span: not code here
+        expected_outside.append((s + shift, e + shift))
+    outside: List[Tuple[int, int]] = []
+    inside: List[List[Tuple[int, int]]] = [[] for _ in placed]
+    p = 0
+    for s, e in rendered_spans:
+        while p < len(placed) and placed[p][1] <= s:
+            p += 1
+        if p < len(placed) and placed[p][0] < e:
+            start, end, _ = placed[p]
+            if s < start or e > end:
+                raise _misread()
+            inside[p].append((s - start, e - start))
+        else:
+            outside.append((s, e))
+    if outside != expected_outside:
+        raise _misread()
+    for (_, _, spans), got in zip(placed, inside):
+        if got != spans and not (may_skip and not got):
+            raise _misread()
 
 
 def render_sql_with_params(
@@ -867,28 +1108,37 @@ def render_sql_with_params(
         # literal is not what the search receives.
         raise ParamError("parameters are not supported with a JSON search envelope; pass the SPL as text")
 
-    missing: List[str] = []
     matches = list(_PLACEHOLDER_RE.finditer(sql))
-    misplaced = _misplaced_placeholders(sql, matches, renderer) if matches else []
+    if not matches:
+        return sql
+    _refuse_prefixes(sql, matches, renderer)
+    misplaced = _misplaced_placeholders(sql, matches, renderer)
     if misplaced:
         raise ParamError(
             "parameter placeholder(s) inside or against a quoted string, quoted name or comment: "
             + ", ".join(sorted(set(misplaced)))
             + "; put the placeholder where the value goes, without quotes"
         )
-
-    def _sub(m: "re.Match[str]") -> str:
-        name = m.group(1)
-        if name not in values:
-            missing.append(name)
-            return m.group(0)
-        return _render_literal(values[name], renderer)
-
-    rendered = _PLACEHOLDER_RE.sub(_sub, sql)
+    missing = sorted({m.group(1) for m in matches if m.group(1) not in values})
     if missing:
-        raise ParamError(
-            "SQL uses parameter placeholder(s) with no value: " + ", ".join(sorted(set(missing)))
-        )
+        raise ParamError("SQL uses parameter placeholder(s) with no value: " + ", ".join(missing))
+
+    parts: List[str] = []
+    placed: List[Tuple[int, int, List[Tuple[int, int]]]] = []
+    pos, length = 0, 0
+    for m in matches:
+        text, spans = _rendered_value(values[m.group(1)], renderer)
+        written = _separated(sql, m.start(), text)
+        lead = len(written) - len(text)
+        parts.append(sql[pos:m.start()])
+        length += m.start() - pos
+        placed.append((length, length + len(written), [(s + lead, e + lead) for s, e in spans]))
+        parts.append(written)
+        length += len(written)
+        pos = m.end()
+    parts.append(sql[pos:])
+    rendered = "".join(parts)
+    _check_rendered(sql, matches, placed, rendered, renderer)
     return rendered
 
 

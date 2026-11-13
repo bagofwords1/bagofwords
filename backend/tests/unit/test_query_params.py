@@ -290,6 +290,12 @@ MISPLACED = [
     ("MecmClient", "$filter=Name eq %27 :v %27"),
     ("PriorityErpClient", "ORDERS?$filter=A eq 'x&$top=' :v '"),
     ("SapDatasphereClient", "$filter=A eq 'x':v"),
+    # Read as a name or a string by some engine behind the ANSI renderer:
+    # Sybase's [..]] ..] and SuiteQL's q'[..]'.
+    ("SybaseClient", "SELECT [a]] :v ]"),
+    ("NetsuiteClient", "SELECT q'[ ' :v ' ]' FROM dual"),
+    # A MySQL user variable name, not a value.
+    ("MysqlClient", "SELECT @:v"),
 ]
 
 
@@ -329,6 +335,17 @@ ENGINE_CASES = [
 ]
 
 
+# id, score, is_public
+_SCORES = [(1, 200, 1), (2, 150, 0), (3, 50, 1)]
+
+
+def _fill(execute, executemany, mark):
+    execute("CREATE TABLE t (id INT, owner TEXT)")
+    executemany(f"INSERT INTO t VALUES ({mark}, {mark})", _ROWS)
+    execute("CREATE TABLE s (id INT, score INT, is_public INT)")
+    executemany(f"INSERT INTO s VALUES ({mark}, {mark}, {mark})", _SCORES)
+
+
 def _docker_available() -> bool:
     try:
         import docker
@@ -352,8 +369,7 @@ def postgres_rows():
                                user=pg.username, password=pg.password, dbname=pg.dbname)
         con.autocommit = True
         cur = con.cursor()
-        cur.execute("CREATE TABLE t (id INT, owner TEXT)")
-        cur.executemany("INSERT INTO t VALUES (%s, %s)", _ROWS)
+        _fill(cur.execute, cur.executemany, "%s")
 
         def run(sql):
             cur.execute(sql.replace("%", "%%"))
@@ -370,14 +386,12 @@ def _engine(name, request):
         import duckdb
 
         con = duckdb.connect()
-        con.execute("CREATE TABLE t (id INT, owner TEXT)")
-        con.executemany("INSERT INTO t VALUES (?, ?)", _ROWS)
+        _fill(con.execute, con.executemany, "?")
         return lambda sql: sorted(r[0] for r in con.execute(sql).fetchall())
     import sqlite3
 
     con = sqlite3.connect(":memory:")
-    con.execute("CREATE TABLE t (id INT, owner TEXT)")
-    con.executemany("INSERT INTO t VALUES (?, ?)", _ROWS)
+    _fill(con.execute, con.executemany, "?")
     return lambda sql: sorted(r[0] for r in con.execute(sql).fetchall())
 
 
@@ -390,6 +404,270 @@ def test_a_placeholder_the_engine_reads_outside_code_is_refused_before_anything_
     assert run(render_sql_with_params("SELECT id FROM t WHERE owner = :v", {"v": value}, renderer=renderer)) == []
     with pytest.raises(ParamError):
         render_sql_with_params(template, {"v": value}, renderer=renderer)
+
+
+# A value must not join the template text next to it. Written right after a
+# '-', a negative number would make '--': a line comment that drops the rest
+# of the filter.
+SCORE_FILTER = "SELECT id FROM s WHERE score >= 100-:p AND is_public = 1"
+
+
+@pytest.mark.parametrize("engine, family", [
+    ("duckdb", "CSVClient"), ("sqlite", "SqliteClient"), ("postgres", "PostgresqlClient"),
+])
+def test_a_negative_number_after_a_minus_keeps_the_rest_of_the_filter(request, engine, family):
+    run = _engine(engine, request)
+    renderer = query_params.renderer_for_name(family)
+    assert run(SCORE_FILTER.replace(":p", "-5")) == [1, 2]  # joined: the rest of the filter is a comment
+    rendered = render_sql_with_params(SCORE_FILTER, {"p": -5}, renderer=renderer)
+    assert rendered == "SELECT id FROM s WHERE score >= 100- -5 AND is_public = 1"
+    assert run(rendered) == [1]
+
+
+def test_a_negative_number_in_a_function_argument_stays_that_argument():
+    import sqlglot
+
+    rendered = render_sql_with_params("SELECT DATEADD(day, -:days, d) FROM t", {"days": -5},
+                                      renderer=query_params.renderer_for_name("MSSQLClient"))
+    assert rendered == "SELECT DATEADD(day, - -5, d) FROM t"
+    tokens = sqlglot.tokenize(rendered, read="tsql")
+    assert [t.text for t in tokens] == ["SELECT", "DATEADD", "(", "day", ",", "-", "-", "5", ",", "d", ")", "FROM", "t"]
+    assert not any(t.comments for t in tokens)
+
+
+@pytest.mark.parametrize("family", ["VerticaClient", "AzureDataExplorerClient", "SplunkClient", "SalesforceClient"])
+def test_a_negative_number_after_a_minus_is_spaced_for_scanned_grammars_too(family):
+    renderer = query_params.renderer_for_name(family)
+    assert render_sql_with_params("a >= 100-:p and b", {"p": -5}, renderer=renderer) == "a >= 100- -5 and b"
+    assert render_sql_with_params("a >= 100 - :p and b", {"p": -5}, renderer=renderer) == "a >= 100 - -5 and b"
+    assert render_sql_with_params("a >= 100-:p and b", {"p": -0.5}, renderer=renderer) == "a >= 100- -0.5 and b"
+
+
+# Only some characters may stand right before a placeholder: start of text,
+# a space, an operator or an opening bracket. Others change how the literal
+# is read: KQL's @'..' escapes nothing, SPL's backslash takes the quote,
+# MySQL's @ names a variable, a quote or a letter joins the literal.
+ALWAYS_REFUSED_BEFORE = set("@" + B + "$#`'\".?{})")
+# After a name character or a colon there is no placeholder at all (a:v, x::v).
+NOT_A_PLACEHOLDER_AFTER = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_:")
+ACCEPTED_BEFORE = set(" =(,")
+OPERATORS_BEFORE = set("<>!+-*/|%^&~;")
+PRINTABLE = [chr(c) for c in range(32, 127)] + ["\t", "\n"]
+# A value that would leave its literal wherever it is misread.
+TRICKY = "a'b\"c" + B + "d -- e /* f // g"
+
+
+def _readable_value(renderer):
+    try:
+        renderer.quote(TRICKY)
+        return TRICKY
+    except ParamError:
+        return TRICKY.replace(B, "")  # Athena, Redshift and Timbr refuse a backslash
+
+
+def _one_literal(renderer, rendered, start, end):
+    """Whether rendered[start:end] is read as exactly one string literal and
+    nothing next to it is read differently: the dialect's tokenizer, or every
+    span of the scanned grammar."""
+    import sqlglot
+
+    dialect = query_params._sqlglot_dialect_of(renderer)
+    if dialect is not None:
+        tokens = sqlglot.tokenize(rendered, read=dialect)
+        inside = [t for t in tokens if t.end >= start and t.start < end]
+        return (not any(t.comments for t in tokens)
+                and [(t.token_type.name in query_params._STRING_TOKEN_NAMES, t.start, t.end + 1) for t in inside]
+                == [(True, start, end)])
+    spans = [s for s in renderer.string_spans(rendered) if s[1] > start and s[0] < end]
+    return spans == [(start, end)]
+
+
+def _no_span_or_comment(renderer, rendered, start, end):
+    """Whether rendered[start:end] (a number) is code and nothing joins it."""
+    import sqlglot
+
+    dialect = query_params._sqlglot_dialect_of(renderer)
+    if dialect is not None:
+        tokens = sqlglot.tokenize(rendered, read=dialect)
+        return not any(t.comments for t in tokens) and [t.text for t in tokens if t.end >= start and t.start < end] == ["-", "5"]
+    return not [s for s in renderer.string_spans(rendered) if s[1] >= start and s[0] <= end]
+
+
+@pytest.mark.parametrize("name", sorted(query_params._RENDERERS))
+def test_each_character_before_a_placeholder_is_refused_or_leaves_the_value_one_literal(name):
+    renderer = query_params._RENDERERS[name]
+    value = _readable_value(renderer)
+    literal = renderer.quote(value)
+    accepted = set()
+    for c in PRINTABLE:
+        template = "x " + c + ":v y"
+        if c in NOT_A_PLACEHOLDER_AFTER:
+            assert render_sql_with_params(template, {"v": value}, renderer=renderer) == template
+            continue
+        try:
+            rendered = render_sql_with_params(template, {"v": value}, renderer=renderer)
+        except ParamError:
+            assert c not in ACCEPTED_BEFORE, (name, c)
+            continue
+        accepted.add(c)
+        assert c not in ALWAYS_REFUSED_BEFORE, (name, c, rendered)
+        assert rendered == "x " + c + literal + " y", (name, c)
+        assert _one_literal(renderer, rendered, 3, 3 + len(literal)), (name, c, rendered)
+        number = render_sql_with_params(template, {"v": -5}, renderer=renderer)
+        start = number.index("-5")
+        assert _no_span_or_comment(renderer, number, start, start + 2), (name, c, number)
+    assert ACCEPTED_BEFORE <= accepted, (name, sorted(ACCEPTED_BEFORE - accepted))
+    if name != "odata":  # the server reads an option name or a path after these
+        assert OPERATORS_BEFORE <= accepted, (name, sorted(OPERATORS_BEFORE - accepted))
+
+
+def test_a_unicode_escape_prefix_before_a_placeholder_is_refused():
+    with pytest.raises(ParamError):
+        render_sql_with_params("SELECT 1 WHERE a = U&:v", {"v": "x"}, client_type_name="PostgresqlClient")
+
+
+# The breakouts the prefix rule closes, shown in each grammar's reading.
+PREFIX_BREAKOUTS = [
+    ("AzureDataExplorerClient", "T | where c == @:v or c == 'z'", "x' or 1==1 //"),
+    ("AzureDataExplorerClient", "T | where c == h@:v or c == 'z'", "x' or 1==1 //"),
+    ("SplunkClient", "search index=x user=" + B + ":v", " OR user=*"),
+]
+
+
+@pytest.mark.parametrize("family, template, value", PREFIX_BREAKOUTS)
+def test_a_prefix_that_changes_how_the_literal_is_read_is_refused(family, template, value):
+    renderer = query_params.renderer_for_name(family)
+    written = template.replace(":v", renderer.quote(value))
+    start = template.index(":v")
+    # Today's text: the literal is not one span in some reading of the grammar.
+    assert not _one_literal(renderer, written, start, start + len(renderer.quote(value)))
+    with pytest.raises(ParamError):
+        render_sql_with_params(template, {"v": value}, renderer=renderer)
+
+
+# MySQL-family comments sqlglot drops but the engines run: MariaDB's /*M! */,
+# TiDB's /*T! */, and '--' not followed by a space (MySQL reads it as code).
+MYSQL_COMMENT_TEMPLATES = [
+    "SELECT id FROM t WHERE owner = 'nobody' /*M! OR owner = ' */ OR owner = :v /*M! ' */",
+    "SELECT id FROM t WHERE owner = 'nobody' --'" + NL + "OR owner = :v -- '",
+]
+UNSPACED = " OR 1=1 OR owner = "
+
+
+@pytest.mark.parametrize("family", ["MysqlClient", "MariadbClient"])
+@pytest.mark.parametrize("template", MYSQL_COMMENT_TEMPLATES + [
+    "SELECT 1 /*T! , 2 */ WHERE a = :v",
+    "SELECT 1 /*m! , 2 */ WHERE a = :v",
+    "SELECT 1 --x" + NL + "WHERE a = :v",
+    "SELECT 1 WHERE a = :v --x",
+    "SELECT 1 WHERE a = :v ---",
+])
+def test_params_are_refused_with_a_comment_a_mysql_family_engine_runs(family, template):
+    with pytest.raises(ParamError):
+        render_sql_with_params(template, {"v": "x"}, renderer=query_params.renderer_for_name(family))
+
+
+@pytest.mark.parametrize("template, expected", [
+    ("SELECT 1 WHERE a = :v -- note", "SELECT 1 WHERE a = 'x' -- note"),
+    ("SELECT 1 WHERE a = :v --" + chr(9) + "note", "SELECT 1 WHERE a = 'x' --" + chr(9) + "note"),
+    ("SELECT 1 WHERE a = :v --", "SELECT 1 WHERE a = 'x' --"),
+    ("SELECT 1 WHERE a = :v AND b = '--x'", "SELECT 1 WHERE a = 'x' AND b = '--x'"),
+    ("SELECT 1 /* M! */ WHERE a = :v", "SELECT 1 /* M! */ WHERE a = 'x'"),
+])
+def test_mysql_comments_the_engine_also_skips_still_render(template, expected):
+    assert render_sql_with_params(template, {"v": "x"}, renderer=query_params.renderer_for_name("MariadbClient")) == expected
+
+
+@pytest.fixture(scope="module")
+def mariadb_rows():
+    """A run_query over a throwaway MariaDB server holding _ROWS."""
+    if not _docker_available():
+        pytest.skip("Docker daemon not reachable")
+    import pymysql
+    from testcontainers.mysql import MySqlContainer
+
+    with MySqlContainer("mariadb:11.4") as db:
+        con = pymysql.connect(host=db.get_container_host_ip(), port=int(db.get_exposed_port(3306)),
+                              user=db.username, password=db.password, database=db.dbname, autocommit=True)
+        cur = con.cursor()
+        _fill(cur.execute, cur.executemany, "%s")
+
+        def run(sql):
+            cur.execute(sql)  # no args: pymysql sends the text as it is
+            return sorted(r[0] for r in cur.fetchall())
+
+        yield run
+        con.close()
+
+
+@pytest.mark.parametrize("template", MYSQL_COMMENT_TEMPLATES)
+def test_a_comment_mariadb_runs_is_refused_before_anything_is_sent(mariadb_rows, template):
+    renderer = query_params.renderer_for_name("MariadbClient")
+    assert mariadb_rows(template.replace(":v", renderer.quote(UNSPACED))) == [1, 2, 3]
+    assert mariadb_rows(render_sql_with_params("SELECT id FROM t WHERE owner = :v", {"v": UNSPACED},
+                                               renderer=renderer)) == []
+    with pytest.raises(ParamError):
+        render_sql_with_params(template, {"v": UNSPACED}, renderer=renderer)
+
+
+def test_the_negative_number_filter_keeps_its_rest_on_mariadb(mariadb_rows):
+    rendered = render_sql_with_params(SCORE_FILTER, {"p": -5}, renderer=query_params.renderer_for_name("MariadbClient"))
+    assert mariadb_rows(rendered) == [1]
+
+
+# The re-check of the rendered text catches each of the cases above on its
+# own: with the specific rules (spacing, the characters before a
+# placeholder, the MySQL-family comments) turned off, the rendered text is
+# re-read and refused.
+RECHECK_CASES = [
+    ("PostgresqlClient", SCORE_FILTER, {"p": -5}),
+    ("SqliteClient", SCORE_FILTER, {"p": -5}),
+    ("CSVClient", SCORE_FILTER, {"p": -5}),
+    ("MSSQLClient", "SELECT DATEADD(day, -:days, d) FROM t", {"days": -5}),
+    ("VerticaClient", SCORE_FILTER, {"p": -5}),
+    ("TimbrClient", SCORE_FILTER, {"p": -5.5}),
+] + [(family, template, {"v": value}) for family, template, value in PREFIX_BREAKOUTS] + [
+    ("MariadbClient", template, {"v": UNSPACED}) for template in MYSQL_COMMENT_TEMPLATES
+] + [
+    ("MysqlClient", "SELECT id FROM t WHERE owner = 'nobody' /*T! OR owner = ' */ OR owner = :v /*T! ' */", {"v": UNSPACED}),
+]
+
+
+def _without_the_specific_rules(monkeypatch):
+    # raising=False: before the rules exist, this patches nothing.
+    monkeypatch.setattr(query_params, "_separated", lambda sql, start, text: text, raising=False)
+    monkeypatch.setattr(query_params, "_refuse_prefixes", lambda sql, matches, renderer: None, raising=False)
+    monkeypatch.setattr(query_params, "_refuse_engine_comments", lambda sql, tokens, dialect: None, raising=False)
+
+
+@pytest.mark.parametrize("family, template, values", RECHECK_CASES)
+def test_the_rendered_text_is_re_read_and_refused_without_the_specific_rules(monkeypatch, family, template, values):
+    renderer = query_params.renderer_for_name(family)
+    _without_the_specific_rules(monkeypatch)
+    with pytest.raises(ParamError):
+        render_sql_with_params(template, values, renderer=renderer)
+    # Without the re-check as well, the text goes out as written today.
+    monkeypatch.setattr(query_params, "_check_rendered", lambda *a: None, raising=False)
+    render_sql_with_params(template, values, renderer=renderer)
+
+
+@pytest.mark.parametrize("family, template, value", [
+    ("PostgresqlClient", "SELECT 1 WHERE a = :v -- owner" + NL + "AND b = 2", "x" + NL + "y"),
+    ("OracledbClient", "SELECT 1 FROM dual WHERE a IN :v /* c */", ["a'b", "c"]),
+    ("MSSQLClient", "SELECT 1 WHERE a = :v", "".join(map(chr, (0x5E9, 0x5DC)))),
+    ("BigqueryClient", "SELECT 1 WHERE a = :v AND b = ''", B + "'"),
+    ("MecmClient", "$filter=Name eq :v&$top=5", "a&b=%27"),
+    ("PriorityErpClient", "ORDERS(:v)?$filter=A eq :v", "it's"),
+    ("SplunkClient", "search index=x user=:v | where a=:v", 'a"b' + B),
+    ("AzureDataExplorerClient", "T | where c == :v // owner", "x' //"),
+    ("MariadbClient", "SELECT 1 WHERE a = :v # note", "a" + B + "'b"),
+])
+def test_the_re_read_accepts_a_value_that_is_one_literal(monkeypatch, family, template, value):
+    renderer = query_params.renderer_for_name(family)
+    _without_the_specific_rules(monkeypatch)
+    rendered = render_sql_with_params(template, {"v": value}, renderer=renderer)
+    literal = query_params._render_literal(value, renderer)
+    assert rendered == template.replace(":v", literal)
 
 
 # Through the wrapper (StreamingCodeExecutor), in both sandbox modes.
@@ -499,6 +777,46 @@ def test_a_keyword_call_whose_params_are_not_rendered_is_logged_by_structure_and
     assert "_Failing" in warnings[0] and "sql" in warnings[0] and "owner" in warnings[0]
     assert "value-not-for-logs" not in warnings[0]
     assert "first positional argument" in timings[-1]["error"]
+
+
+def test_a_keyword_call_that_times_out_also_notes_its_params_were_not_rendered(mode):
+    from app.ai.code_execution.code_execution import QueryTimeoutError, StreamingCodeExecutor
+
+    class _Slow(_ConnectorWithoutRenderer):
+        def execute_query(self, query=None, **kwargs):
+            super().execute_query(query, **kwargs)
+            raise QueryTimeoutError(5)
+
+    timings: list = []
+    code = ("def generate_df(ds_clients, excel_files):\n"
+            "    return ds_clients['c'].execute_query(sql='SELECT * FROM t WHERE a = :owner', "
+            "params={'owner': 'value-not-for-logs'})\n")
+    with pytest.raises(Exception):
+        StreamingCodeExecutor().execute_code(code=code, ds_clients={"c": _Slow()}, excel_files=[],
+                                             captured_timings=timings)
+    assert timings[-1]["error_type"] == "timeout"
+    assert "first positional argument" in timings[-1]["error"]
+    assert "value-not-for-logs" not in timings[-1]["error"]
+
+
+@pytest.mark.parametrize("call, structure", [
+    ("execute_query({'q': 'SELECT 1'}, params={'owner': 'value-not-for-logs'})", ["statement=dict", "owner"]),
+    ("execute_query('SELECT * FROM t WHERE a = :owner', params=['value-not-for-logs'])", ["statement=str", "params=list"]),
+])
+def test_params_an_unguarded_connector_does_not_render_are_logged_by_structure(mode, caplog, call, structure):
+    import logging
+
+    logger = logging.getLogger("app.ai.code_execution.code_execution")
+    logger.disabled = False  # alembic's fileConfig disables existing loggers
+    client = _ConnectorWithoutRenderer()
+    with caplog.at_level(logging.WARNING, logger="app.ai.code_execution.code_execution"):
+        _run({"c": client}, "return ds_clients['c']." + call)
+    assert len(client.received) == 1 and client.received[0][1] == {}
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING and "params_not_rendered" in r.getMessage()]
+    assert len(warnings) == 1, [r.getMessage() for r in caplog.records]
+    assert "_ConnectorWithoutRenderer" in warnings[0]
+    assert all(part in warnings[0] for part in structure), warnings[0]
+    assert "value-not-for-logs" not in warnings[0]
 
 
 @pytest.mark.parametrize("statement", [

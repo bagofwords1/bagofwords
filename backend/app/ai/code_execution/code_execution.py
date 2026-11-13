@@ -1187,7 +1187,7 @@ class QueryCapturingClientWrapper:
                     "query_ms": round(_q_ms, 1),
                     "rows": None,
                     "sql": capture[:500] if isinstance(capture, str) else None,
-                    "error": self._recorded_error(e),
+                    "error": self._recorded_error(e) + (unrendered_note or ""),
                     "error_type": "timeout",
                     "timeout_seconds": self._query_timeout_seconds,
                     "cancellation": self._last_cancel_outcome,
@@ -1303,6 +1303,16 @@ class QueryCapturingClientWrapper:
                     query = self._rendered(query, param_values)
                 elif query is _NO_QUERY and isinstance(param_values, dict) and param_values:
                     unrendered_note = self._note_unrendered_params(kwargs, param_values)
+                elif param_values:
+                    # A statement that is not text, or params that are not a
+                    # dict: nothing to render into, dropped as they always were.
+                    logger.warning(
+                        "code_execution.params_not_rendered client=%s statement=%s params=%s",
+                        family_name(self._original),
+                        "keywords" if query is _NO_QUERY else _loggable_name(type(query).__name__),
+                        ",".join(sorted(_loggable_name(k) for k in param_values))
+                        if isinstance(param_values, dict) else _loggable_name(type(param_values).__name__),
+                    )
         if query is _NO_QUERY:
             capture = _describe_keyword_call(kwargs)
         elif native_params:
