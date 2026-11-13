@@ -139,7 +139,7 @@
                     ref="artifactIframeRef"
                     :srcdoc="iframeSrcdoc"
                     @load="onArtifactIframeLoad"
-                    sandbox="allow-scripts allow-downloads allow-forms"
+                    :sandbox="sandboxAttr"
                     class="absolute inset-0 w-full h-full border-0 bg-white"
                 />
 
@@ -249,6 +249,7 @@ import DocViewer from '~/components/dashboard/DocViewer.vue';
 import ViewerRunGate from '~/components/dashboard/ViewerRunGate.vue';
 import ArtifactChatBubble from '~/components/report/ArtifactChatBubble.vue';
 import { artifactRowCounts } from '~/utils/artifactRowCounts';
+import { artifactSandbox } from '~/utils/artifactSandbox';
 import { buildArtifactIframeHtml, isHtmlSlidesCode, inlineableArtifactLibs, artifactPageLibs } from '~/utils/artifactIframe';
 import { artifactLibSources, ensureArtifactLibs, whenArtifactLibsSettled } from '~/utils/artifactLibs';
 import { exportsHidden } from '~/utils/dashboardExportsHidden';
@@ -1012,6 +1013,10 @@ function asReport(meta: any) {
     };
 }
 const dashboardMeta = ref<any>(null);
+// The reader's iframe sandbox, relaxed to allow popups/new-tab links + modals
+// only when this dashboard opted in (Embed tab). allow_popups rides on the
+// published/draft dashboard schema.
+const sandboxAttr = computed(() => artifactSandbox(dashboardMeta.value?.allow_popups));
 
 // Inside a host application, a later request of the view (content, queries)
 // refused for a dead embed session: the session ended, not the load -- the

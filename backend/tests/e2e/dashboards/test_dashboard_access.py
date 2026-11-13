@@ -209,7 +209,9 @@ def test_a_viewer_gets_what_the_page_needs_and_none_of_the_settings(corpus, corp
     assert body["id"] == aid and body["release_id"] == release and body["mode"] == "page"
     assert set(body) <= {"id", "slug", "title", "mode", "release_id", "published_at", "last_run_at",
                          "theme_name", "theme_overrides", "include_data_tab", "show_widget_info",
-                         "chat_enabled", "general",
+                         "chat_enabled",
+                         # the page reads this to set its artifact iframe sandbox (popups/new-tab links)
+                         "allow_popups", "general",
                          # what /r's page reads besides the dashboard (phase 8)
                          "is_owner", "fork_eligibility", "refresh_on_view", "data_sources",
                          # whether this reader's exports hold their own rows (a yes/no)
