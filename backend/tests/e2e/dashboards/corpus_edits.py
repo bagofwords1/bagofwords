@@ -1,4 +1,4 @@
-"""Add rows to a corpus conversation inside one test (the corpus is rebuilt per test)."""
+"""Add rows to a corpus conversation inside one test (each test has its own copy of the corpus)."""
 
 
 def add_query(rows, corpus, report_key, title, *, code="def generate_df(ds_clients, excel_files):\n    return None\n",

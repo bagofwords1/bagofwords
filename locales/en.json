@@ -136,7 +136,18 @@
     "fileBrowserRetry": "Try again",
     "fileBrowserEmpty": "No files match this connection's scope.",
     "fileBrowserNoResults": "No files match “{q}”.",
+    "fileBrowserSummaryKms": "{n} files listed for browsing · KMS permissions decide what the agent can search and read",
     "fileBrowserSummary": "{n} files in scope · the agent reads only these · denials are audited",
+    "fileBrowserRootMessages": "All conversations",
+    "fileBrowserSearchMessages": "Search messages…",
+    "fileBrowserEmptyMessages": "No recent messages in the conversations you can see.",
+    "fileBrowserSummaryLive": "{n} recent messages · read live with your own access · nothing is stored",
+    "countMessages": "{n} message | {n} messages",
+    "fileBrowserNoResultsMessages": "No messages match “{q}”.",
+    "loadingMessages": "Loading messages from the source…",
+    "fileBrowserConnectRequiredMessages": "Connect your account to browse — this connection reads messages with each user's own access.",
+    "liveSourceHint": "Searched live with each user's own access — only the channels, chats or mail they can see. Nothing is copied or indexed.",
+    "liveBadge": "Live",
     "fileBrowserTruncated": "Showing the first {shown} of {total} files — narrow the connection's scope to browse the rest.",
     "fileBrowserOpenInSource": "Open in source",
     "fileBrowserClosePreview": "Close preview",
@@ -426,6 +437,7 @@
     "newReport": "New report",
     "expandSidebar": "Expand sidebar",
     "collapseSidebar": "Collapse sidebar",
+    "resizeSidebar": "Resize sidebar",
     "switchOrganization": "Switch organization",
     "version": "Version",
     "loggedInAs": "Logged in as {name}",
@@ -489,6 +501,14 @@
       },
       "automation_failed": {
         "title": "\"{name}\" failed"
+      },
+      "connection_down": {
+        "title": "Connection \"{name}\" is down",
+        "body": "\"{name}\" failed its health checks and was marked offline. Agents that rely on it can't query it until it recovers."
+      },
+      "connection_restored": {
+        "title": "Connection \"{name}\" is back online",
+        "body": "\"{name}\" reconnected and is active again."
       },
       "trigger_run": {
         "title": "⚡ \"{name}\" fired — {summary}",
@@ -701,6 +721,22 @@
         "network": "Speech recognition needs a network connection.",
         "failed": "Voice input failed. Please try again."
       }
+    },
+    "slash": {
+      "menuTitle": "Commands",
+      "compact": {
+        "description": "Summarize older turns to free up context",
+        "usage": "/compact · /compact <focus> · /compact keep 4",
+        "pending": "Will compact when the agent finishes this run",
+        "running": "Compacting context…",
+        "doneContext": "Compacted {turns} turns · context ~{before} → ~{after} tokens",
+        "doneHistory": "Compacted {turns} turns · history ~{before} → ~{after} tokens",
+        "alreadyRunning": "Compaction is already running",
+        "failed": "Couldn't compact the context",
+        "degraded": "fallback summary (no model summary)",
+        "cancel": "Cancel",
+        "dismiss": "Dismiss"
+      }
     }
   },
   "exports": {
@@ -872,7 +908,39 @@
     "artifactLoadFailed": "Could not load the dashboard. Please refresh to try again.",
     "deleteUnpublishedDashboards": "Unpublished dashboards in it will be deleted too: {names}",
     "deleteLosesUnpublishedChanges": "Unpublished changes to these dashboards will be lost (the published version stays): {names}",
-    "removedApp": "Removed app"
+    "removedApp": "Removed app",
+    "view": {
+      "groupAndSort": "Group and sort",
+      "groupBy": "Group by",
+      "sortBy": "Sort by",
+      "direction": "Direction",
+      "group": {
+        "date": "Date",
+        "status": "Status",
+        "none": "None"
+      },
+      "sort": {
+        "updated": "Last activity",
+        "created": "Created",
+        "name": "Name"
+      },
+      "dir": {
+        "desc": "Descending",
+        "asc": "Ascending"
+      },
+      "groups": {
+        "starred": "Starred",
+        "today": "Today",
+        "yesterday": "Yesterday",
+        "previous7": "Previous 7 days",
+        "previous30": "Previous 30 days",
+        "older": "Older",
+        "needsInput": "Needs input",
+        "running": "Running",
+        "queued": "Queued",
+        "idle": "Idle"
+      }
+    }
   },
   "projects": {
     "title": "Projects",
@@ -1157,6 +1225,11 @@
     "steeringApplied": "Steering applied",
     "steerQueuedFallback": "The run just finished — your message was queued instead",
     "jumpToLatest": "Jump to latest",
+    "turnNavigator": {
+      "label": "Conversation map",
+      "jumpTo": "Jump to message {n} of {total}: {text}",
+      "noResponse": "No response yet"
+    },
     "steerFailed": "Failed to steer the running completion",
     "instructionUnavailableTitle": "Instruction unavailable",
     "instructionUnavailableBody": "It may have been deleted, or you may not have access to it.",
@@ -1180,7 +1253,13 @@
       "scopeHint": "Applies to your conversations in this browser."
     },
     "readMore": "Read more",
-    "showLess": "Show less"
+    "showLess": "Show less",
+    "compactionShowSummary": "Show what the agent remembers from compacted turns",
+    "compactionSummaryTitle": "Compacted history",
+    "compactionSummaryHint": "The agent sees this summary instead of the turns above the line.",
+    "compactingContext": "Compacting context…",
+    "compactionTurns": "{turns} turns",
+    "compactionLast": "Last compaction: history ~{before} → ~{after} tokens"
   },
   "tools": {
     "common": {
@@ -1665,6 +1744,7 @@
       "toggleQueries": "Queries",
       "toggleFullCode": "Full Code",
       "sentRequest": "Sent to the data source",
+      "sourceQueryId": "Query ID in the data source",
       "attempts": "Attempts ({count})",
       "addToSpreadsheet": "Add to Spreadsheet",
       "addToSpreadsheetTitle": "Add data to Excel spreadsheet",
@@ -1844,6 +1924,22 @@
       "moreShown": "+{count} more shown to the agent",
       "filesSkippedSingular": "{count} file skipped ({reasons})",
       "filesSkippedPlural": "{count} files skipped ({reasons})"
+    },
+    "searchFiles": {
+      "foundIn": "Found in:",
+      "fileName": "file name",
+      "page": "page {n}",
+      "sheet": "sheet {name}",
+      "offset": "offset {n}",
+      "partlyIndexed": "Only partly indexed (size limit)",
+      "noText": "No searchable text (scanned or binary)",
+      "notIndexed": "Could not be indexed",
+      "indexFulltext": "Full-text index",
+      "indexKeywords": "Keyword index",
+      "indexNames": "File name match",
+      "liveScan": "Live scan",
+      "plusLiveScan": "{index} + live scan",
+      "indexedAt": "indexed {when}"
     },
     "readFile": {
       "reading": "Reading {name}…",
@@ -2058,6 +2154,28 @@
       "override": "These rules apply only to you. Connection-wide Always allow or Always deny takes precedence.",
       "save": "Save rules",
       "failed": "Could not load or save rules. Check the JSON and try again."
+    },
+    "readReport": {
+      "window": "messages {start}–{end} / {total}",
+      "charWindow": "message {index} · chars {start}–{end} / {total}",
+      "emptyWindow": "no messages at {offset} / {total}",
+      "messageTruncated": "truncated · {shown} / {total} chars"
+    },
+    "shell": {
+      "command": "Shell command",
+      "server": "Server",
+      "directory": "Directory",
+      "cancelled": "Cancelled",
+      "denied": "Denied",
+      "approval_expired": "Approval expired",
+      "execution_timed_out": "Timed out",
+      "failed": "Failed",
+      "success": "Completed",
+      "running": "Running",
+      "awaitingApproval": "Awaiting approval",
+      "unknownState": "The remote process may still be running. Check its state before retrying.",
+      "exitCode": "Exit code: {code}",
+      "cancelledBeforeExecution": "Cancelled before execution."
     }
   },
   "entityCreate": {
@@ -2099,6 +2217,7 @@
     "openPage": "Open page",
     "categories": {
       "dataSources": "Agents",
+      "connectors": "Connectors",
       "queries": "Queries",
       "files": "Files",
       "tables": "Tables",
@@ -2123,6 +2242,9 @@
     "noRolesFound": "No roles found",
     "noRolesHint": "Create a role to manage permissions.",
     "system": "system",
+    "default": "Default",
+    "defaultRoleHint": "This is a built-in role. Its name is fixed — customize its permissions below.",
+    "edit": "Edit",
     "fullAdmin": "Full Admin",
     "permissionsCount": "{n} permissions",
     "editRole": "Edit Role",
@@ -2491,10 +2613,10 @@
       "integrate": "Integrate",
       "setup": "Setup",
       "excelAddinName": "Excel Add-in",
-      "excelAddinDescription": "Sideload the Bag of Words add-in directly from this instance",
+      "excelAddinDescription": "Sideload the BOW add-in directly from this instance",
       "mcpName": "BOW MCP Server",
       "mcpDescription": "Enable MCP endpoint for integration with AI assistants like Cursor, Claude, or others",
-      "emptyTitle": "Make Bag of Words work with your tools",
+      "emptyTitle": "Make BOW work with your tools",
       "emptySubtitle": "Connect Slack, Teams, email and more so your team can reach the AI analyst where they already work. Pick an integration to get started.",
       "selectHint": "Select an integration",
       "slackDescription": "Let your team chat with the AI analyst from Slack channels and DMs.",
@@ -2534,7 +2656,8 @@
           "announceNewReportLabel": "Announce new conversation reports",
           "announceNewReportDesc": "When a message starts a new conversation report, reply with an \"I've started a new conversation report\" message linking to it. Turn off to skip that message.",
           "announceNewReportEnabled": "New report announcement enabled",
-          "announceNewReportDisabled": "New report announcement disabled"
+          "announceNewReportDisabled": "New report announcement disabled",
+          "loading": "Loading…"
         },
         "slack": {
           "title": "Slack Integration",
@@ -2628,7 +2751,30 @@
           "disconnectedToast": "WhatsApp disconnected",
           "disconnectedToastDesc": "WhatsApp integration disconnected",
           "failedDisconnect": "Failed to disconnect WhatsApp",
-          "sessionStalenessDesc": "How long a chat keeps continuing in the same conversation report. Messages after this window start a fresh report (sending \"new\" starts one immediately). Default: 24 hours."
+          "sessionStalenessDesc": "How long a chat keeps continuing in the same conversation report. Messages after this window start a fresh report (sending \"new\" starts one immediately). Default: 24 hours.",
+          "numbersTitle": "Connected numbers",
+          "addNumber": "Connect a number",
+          "addNumberTitle": "Connect another number",
+          "nameLabel": "Label",
+          "namePlaceholder": "e.g. Sales, Finance",
+          "agentScopeTitle": "Agents on this number",
+          "agentScopeDesc": "Choose which agents this number answers with. Leave empty to expose every agent the user can access.",
+          "agentScopeAll": "Exposes every agent the user can access",
+          "agentScopeCount": "{count} agents selected",
+          "agentScopeNoAgents": "No agents available",
+          "agentScopeSave": "Save agents",
+          "agentScopeSaved": "Agents updated",
+          "connectedUsersTitle": "Connected users",
+          "connectedUsersEmpty": "No one has linked this number yet",
+          "verified": "Verified",
+          "unverified": "Pending",
+          "unknownUser": "Unknown",
+          "unnamedNumber": "WhatsApp number",
+          "cancel": "Cancel",
+          "connectedUsersCount": "{count} people",
+          "usersSearchPlaceholder": "Search by name or number",
+          "usersSearchEmpty": "No users match your search",
+          "webhookSharedNote": "The same webhook URL applies to all your numbers."
         },
         "googleChat": {
           "title": "Google Chat Integration",
@@ -2805,9 +2951,9 @@
           "trustedConnecting": "Connecting to your trusted app…",
           "authorizationLoading": "Checking the authorization request…",
           "authorizationError": "Unable to authorize",
-          "goBack": "Go back to Bag of Words",
+          "goBack": "Go back to BOW",
           "authorizationTitle": "Authorize access",
-          "wantsAccess": "{name} wants to access your Bag of Words account.",
+          "wantsAccess": "{name} wants to access your BOW account.",
           "permissionsRequested": "Permissions requested",
           "appPermission": "Create and read reports, run completions, and use artifacts under your existing BOW permissions.",
           "mcpPermission": "Use the MCP tool surface under your existing BOW permissions.",
@@ -2832,7 +2978,7 @@
         },
         "excel": {
           "title": "Excel Add-in",
-          "subtitle": "Sideload the Bag of Words add-in directly from this instance.",
+          "subtitle": "Sideload the BOW add-in directly from this instance.",
           "loading": "Loading...",
           "setup": "Setup",
           "step1": "Download the manifest file below",
@@ -2849,6 +2995,15 @@
           "tenantWide": "Tenant-wide deployment",
           "tenantWideDesc": "For organization-wide rollout, your Microsoft 365 admin can upload this manifest via Admin Center → Settings → Integrated apps.",
           "failedLoadManifest": "Failed to load manifest"
+        },
+        "routing": {
+          "title": "Channel → agent routing",
+          "desc": "Point a channel at specific agents. A channel with none mapped uses the connection default; with no default it exposes everything the user can access. Routing only narrows access — it never grants more than a user already has.",
+          "connectionDefaultLabel": "Connection default",
+          "connectionDefaultDesc": "Used for channels without their own mapping.",
+          "pickerPlaceholder": "Choose agents…",
+          "channelsHeading": "Channels",
+          "noChannelsYet": "No channels yet. Mention the bot in a channel and it will show up here, or add one by id below."
         }
       }
     },
@@ -2929,14 +3084,18 @@
       "attributesInviteHint": "Optional. Identifies this member in other systems, e.g. their Qlik user or database role.",
       "attributesSaved": "Attributes saved",
       "attributesSaveFailed": "Failed to save attributes",
-      "importAttributesHint": "Add {column} columns to set member attributes, e.g. {example}. An empty cell leaves that attribute unchanged."
+      "importAttributesHint": "Add {column} columns to set member attributes, e.g. {example}. An empty cell leaves that attribute unchanged.",
+      "defaultRoleHint": "Pre-fills the role when adding or inviting a member.",
+      "defaultRoleSaved": "Default role saved",
+      "defaultRoleFailed": "Failed to save default role",
+      "defaultRoleShort": "Default role"
     },
     "organizationName": "Organization name",
     "organizationIcon": "Organization icon",
     "uploadIcon": "Upload Icon",
     "iconConstraints": "PNG/JPEG, ≤ 512 KB.",
     "aiAnalystName": "AI analyst name",
-    "showCredit": "Show \"Made with Bag of words\" credit",
+    "showCredit": "Show \"Made with BOW\" credit",
     "language": {
       "title": "Language",
       "description": "Sets the default language for the entire organization. Users will see the interface in this language and the AI will respond in it.",
@@ -2961,6 +3120,12 @@
         "monday": "Monday",
         "saturday": "Saturday"
       }
+    },
+    "connectionAlerts": {
+      "heading": "Alert emails",
+      "label": "Connection down alert emails",
+      "description": "Email connection admins when a shared connection goes down or comes back. In-app notifications are always on.",
+      "saveError": "Couldn't save the connection-alert setting."
     },
     "workspacePlaceholder": "Workspace name",
     "changeIcon": "Change Icon",
@@ -3197,6 +3362,9 @@
       "locked": "This setting is locked and cannot be changed.",
       "notEditable": "(Not directly editable)",
       "noSettings": "No AI settings available.",
+      "noSearchResults": "No settings match your search.",
+      "searchPlaceholder": "Search settings…",
+      "clearSearch": "Clear search",
       "sectionSummary": "{n} settings",
       "sectionSummaryOn": "{n} settings · {on} on",
       "sections": {
@@ -4066,6 +4234,7 @@
     "saving": "Saving…",
     "saveAndContinue": "Save and Continue",
     "requestFailed": "Request failed",
+    "errorWithReference": "{message} (support reference: {id})",
     "unexpectedError": "Unexpected error",
     "errorTitle": "Error",
     "updateConnectionFailed": "Failed to update connection",
@@ -4177,7 +4346,7 @@
     "saveIntegration": "Save Integration",
     "loadFieldsFailed": "Failed to load fields",
     "integrationReady": "Integration ready",
-    "integrationReadyDesc": "{name} is connected and a public agent was created. Users can sign in to start using it.",
+    "integrationReadyDesc": "{name} is now available to everyone as a connector. Each person signs in with their own account.",
     "integrationAgentFailed": "Integration saved, but agent creation failed",
     "updateIntegrationFailed": "Failed to update integration",
     "createIntegrationFailed": "Failed to create integration",
@@ -4239,7 +4408,7 @@
         },
         {
           "title": "Print the access file",
-          "body": "Save this as print_access_file.sh and run it. It waits for the token, then prints one self-contained file (API server URL, cluster CA, token). Verify it with: kubectl --kubeconfig access.yaml get nodes. If the server URL is private to your network, edit it to the address this Bag of Words instance can reach."
+          "body": "Save this as print_access_file.sh and run it. It waits for the token, then prints one self-contained file (API server URL, cluster CA, token). Verify it with: kubectl --kubeconfig access.yaml get nodes. If the server URL is private to your network, edit it to the address this BOW instance can reach."
         },
         {
           "title": "Paste it below and test the connection",
@@ -4249,7 +4418,7 @@
       "mecm": [
         {
           "title": "Give the account read access in Configuration Manager",
-          "body": "In the console go to Administration > Security > Administrative Users, add the account (or its AD group) and assign the Read-only Analyst role. Its security scopes and collections decide what Bag of Words can see."
+          "body": "In the console go to Administration > Security > Administrative Users, add the account (or its AD group) and assign the Read-only Analyst role. Its security scopes and collections decide what BOW can see."
         },
         {
           "title": "Check the administration service answers",
@@ -4357,6 +4526,13 @@
       "uploadInvalid": "Choose an SSH private-key file smaller than 64 KB. Public keys and other files are not accepted.",
       "keyRequired": "Verify the server’s SSH key to continue, or enter a trusted key under Advanced.",
       "required": "Complete the required fields: {fields}."
+    },
+    "connAlerts": {
+      "title": "Down-alert emails",
+      "label": "Email admins when this connection goes down",
+      "hint": "Email the admins when this connection goes down. In-app notifications are always on.",
+      "orgOffNote": "Org-wide alert emails are off (Settings → SMTP). Turn them on to control this per connection.",
+      "saveFailed": "Couldn't save the alert setting."
     }
   },
   "share": {
@@ -4448,11 +4624,23 @@
     "close": "Close",
     "copyClipboardFailed": "Failed to copy to clipboard"
   },
+  "dataGrid": {
+    "page": "Page",
+    "to": "to",
+    "of": "of",
+    "more": "more",
+    "pageSizeSelectorLabel": "Page Size:",
+    "firstPage": "First page",
+    "previousPage": "Previous page",
+    "nextPage": "Next page",
+    "lastPage": "Last page"
+  },
   "sharedReport": {
     "backToApp": "Back to app",
     "tabReport": "Report",
     "tabData": "Data ({count})",
     "refreshedAt": "Refreshed {time}",
+    "noDashboard": "No dashboard available",
     "madeWith": "Made with {brand}",
     "fork": "Fork"
   },
@@ -4464,6 +4652,7 @@
     "shell_confirmation.rule_mismatch": "Invalid command rule, or the pattern does not match this command.",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
     "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
+    "catalog_discovery_incomplete": "Catalog refresh failed because discovery was incomplete. The previous catalog and table selections were retained.",
     "saml_unavailable": "SSO configuration is unavailable. Contact your administrator.",
     "saml_login_failed": "SSO sign-in failed. Try again or contact your administrator.",
     "invitation_required": "Sign-up is disabled. Ask your admin for an invite.",
@@ -4494,6 +4683,9 @@
     "access.denied": "Access denied",
     "account.disabled": "Your account has been disabled. Contact your administrator.",
     "connection.not_found": "Connection not found",
+    "connection.table_not_found": "Table not found",
+    "connection.table_preview_unsupported": "Data preview is not available for {type} connections.",
+    "connection.table_preview_failed": "Preview failed: {reason}",
     "data_source.not_found": "Data source not found",
     "file.not_found": "File not found",
     "verification.invalid": "Invalid or expired verification token",
@@ -4519,6 +4711,7 @@
     "instruction.version_mismatch": "Version does not belong to this instruction",
     "integration.not_found": "Integration not found",
     "resource.conflict": "Resource already exists or conflicts with existing state",
+    "review.stale_main": "This changed since you last viewed it. Refresh and try again.",
     "resource.duplicate": "Duplicate resource",
     "setting.update_failed": "Failed to update setting",
     "query.failed_silently": "A query failed but the generated code returned an empty result instead of reporting it",
@@ -4592,7 +4785,14 @@
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
-    "ssh.key_discovery_failed": "Could not fetch the server key. Check the hostname, port and network access, or enter a trusted key under Advanced."
+    "ssh.key_discovery_failed": "Could not fetch the server key. Check the hostname, port and network access, or enter a trusted key under Advanced.",
+    "connection.kms_token_format": "The KMS API token can contain only plain letters, digits and punctuation, with no spaces. Copy it again from KMS Lighthouse and paste it as plain text.",
+    "connection.kms_use_connection_credentials": "KMS Lighthouse sign-ins are saved on the connection. Open the connection and connect from there.",
+    "connection.kms_only": "Diagnostics apply to KMS Lighthouse connections only.",
+    "connection.kms_diagnostics_running": "Diagnostics are already running for this connection. Wait for them to finish, then try again.",
+    "connection.kms_login_rejected": "KMS Lighthouse did not accept this login, so it was not saved. Check the username and password, or the API token, and try again.",
+    "connection.kms_login_paused": "KMS Lighthouse recently refused this login, so new attempts with it are paused for a few minutes and it was not saved. Check the login, or try again later.",
+    "connection.kms_session_refused": "KMS Lighthouse accepted the login but refused its session, so it cannot be used and was not saved. Ask the KMS administrator whether this account may use the KMS API."
   },
   "email": {
     "dashboardShare": {
@@ -4766,16 +4966,146 @@
   "dashboards": {
     "title": "Dashboards",
     "subtitle": "Browse and manage your dashboards and slides",
-    "searchPlaceholder": "Search dashboards…",
+    "searchPlaceholder": "Search dashboards or owners…",
     "myDashboards": "My dashboards",
     "sharedWithMe": "Shared with me",
     "empty": "No dashboards found",
-    "emptyDescription": "Try adjusting your search term, or create a report with a dashboard.",
+    "emptyMy": "Create a report with a dashboard and it will appear here.",
+    "emptyShared": "Nothing has been shared with you yet.",
     "showingRange": "Showing {start} to {end} of {total} dashboards",
     "fetchFailed": "Failed to fetch dashboards",
     "typeAll": "All",
     "typeDashboards": "Dashboards",
-    "typeDocs": "Docs"
+    "typeDocs": "Docs",
+    "reason": {
+      "direct": "Shared with you",
+      "group": "Group {name}",
+      "project": "Project {name}",
+      "org": "Organization",
+      "public": "Public link",
+      "other": "Shared",
+      "groupAny": "Your group",
+      "projectAny": "Your project"
+    },
+    "reasonTitle": {
+      "direct": "{owner} shared it with you",
+      "group": "Shared with your group {name}",
+      "groupOther": "Shared with one of your groups",
+      "project": "In project {name}, which you belong to",
+      "projectOther": "In a project you belong to",
+      "org": "Shared with everyone in the organization",
+      "public": "Anyone with the link",
+      "also": "also: {reason}",
+      "canEdit": "(you can edit)",
+      "viewOnly": "(view only)"
+    },
+    "card": {
+      "edited": "Edited {time}",
+      "created": "Created {date}",
+      "by": "by {name}",
+      "published": "Published {date}",
+      "dataAsOf": "Data as of {time}",
+      "refreshFailing": "Refresh failing",
+      "lastEdit": "Last edit: {time}",
+      "scheduledRefresh": "Scheduled refresh"
+    },
+    "pill": {
+      "new": "New",
+      "published": "Published",
+      "changes": "Unpublished changes",
+      "org": "Org",
+      "public": "Public"
+    },
+    "mode": {
+      "page": "Dashboard",
+      "slides": "Slides",
+      "doc": "Doc"
+    },
+    "list": {
+      "createdShort": "created {date}",
+      "directFirst": "direct shares first",
+      "dateColumns": "Edited · Created"
+    },
+    "star": "Star",
+    "unstar": "Unstar",
+    "starFailed": "Couldn't update the star",
+    "emptyFiltered": "Try another search, or {clear}.",
+    "clearTheFilters": "clear the filters",
+    "count": "{n} dashboard | {n} dashboards",
+    "tabNew": "{n} new | {n} new",
+    "pagePrevious": "Previous page",
+    "pageNext": "Next page",
+    "sort": {
+      "label": "Sort",
+      "edited": "Recently edited",
+      "newest": "Newest created",
+      "oldest": "Oldest created",
+      "title": "Title A–Z",
+      "published": "Recently published"
+    },
+    "view": {
+      "grid": "Grid",
+      "list": "List"
+    },
+    "access": {
+      "all": "All",
+      "direct": "Directly",
+      "group": "My groups",
+      "project": "Projects",
+      "org": "Organization",
+      "edit": "Can edit"
+    },
+    "presets": {
+      "any": "Any time",
+      "last7": "Last 7 days",
+      "last30": "Last 30 days",
+      "last90": "Last 90 days",
+      "year": "This year",
+      "older90": "Older than 90 days",
+      "custom": "Custom range"
+    },
+    "status": {
+      "any": "Any status",
+      "published": "Published",
+      "changes": "Unpublished changes",
+      "draft": "Draft"
+    },
+    "filters": {
+      "button": "Filters",
+      "agent": "Agent",
+      "created": "Created",
+      "edited": "Edited",
+      "owner": "Owner",
+      "status": "Status",
+      "starredOnly": "Starred only",
+      "clearAll": "Clear all",
+      "allAgents": "All agents",
+      "agentsCount": "{n} agent | {n} agents",
+      "anyone": "Anyone",
+      "ownersCount": "{n} person | {n} people",
+      "from": "From",
+      "to": "to",
+      "toLabel": "To",
+      "customRange": "{from} – {to}",
+      "rangeInvalid": "Start must be on or before end",
+      "unknownAgent": "Unavailable agent",
+      "unknownOwner": "Unknown person",
+      "resultCount": "{n} of {total}",
+      "remove": "Remove {name}"
+    },
+    "chips": {
+      "search": "“{q}”",
+      "owner": "Owner: {name}",
+      "created": "Created: {range}",
+      "edited": "Edited: {range}",
+      "starred": "Starred"
+    },
+    "attention": {
+      "title": "Needs attention",
+      "failing": "{n} failing to refresh | {n} failing to refresh",
+      "stale": "{n} not edited in 90 days | {n} not edited in 90 days",
+      "show": "Show them"
+    }
   },
   "excel": {
     "greeting": "Hi, {name} 👋",
@@ -5062,7 +5392,7 @@
   "onboarding": {
     "loading": "Loading...",
     "skip": "Skip onboarding",
-    "welcome": "Welcome to Bag of words! 🎉",
+    "welcome": "Welcome to BOW! 🎉",
     "welcomeSubtitle": "Chat with your data, run deep analysis and create dashboards in seconds",
     "next": "Next",
     "fallbackTitle": "Get Started",
@@ -5072,7 +5402,7 @@
     "intro1": "Getting started is quick: just connect your model and your data source, and you'll be ready to ask your first question.",
     "intro2": "👉 Let's set things up!",
     "steps": {
-      "onboardingTitle": "Welcome to Bag of words! 🎉",
+      "onboardingTitle": "Welcome to BOW! 🎉",
       "onboardingDescription": "Chat with your data, run deep analysis and create dashboards in seconds",
       "onboardingButton": "Welcome",
       "llmTitle": "Configure LLM",
@@ -5696,8 +6026,8 @@
     }
   },
   "mcpServerModal": {
-    "title": "Bag of words MCP Server",
-    "subtitle": "Connect Claude, Cursor, or any MCP client to query your data via the Bag of words MCP Server.",
+    "title": "BOW MCP Server",
+    "subtitle": "Connect Claude, Cursor, or any MCP client to query your data via the BOW MCP Server.",
     "loading": "Loading...",
     "tabMcpClients": "MCP Clients",
     "tabOauth": "OAuth",
@@ -5836,7 +6166,8 @@
     "modeChat": "Chat",
     "modelAuto": "Auto",
     "noAgents": "None",
-    "project": "Project"
+    "project": "Project",
+    "agentsFromReport": "Uses the report's agents"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -6670,7 +7001,9 @@
     "noConnection": "This agent has no connection yet.",
     "notFound": "This connection could not be found.",
     "forbidden": "You don't have access to this connection.",
-    "loadFailed": "Failed to load the connection. Try again later."
+    "loadFailed": "Failed to load the connection. Try again later.",
+    "connected": "Connected",
+    "connectedAs": "Connected as {identity}"
   },
   "dashboardCollab": {
     "presence": {
@@ -7004,6 +7337,8 @@
     "tabViewers": "Viewers",
     "tabData": "Data",
     "viewersDesc": "What the people you share it with get.",
+    "widgetInfoTitle": "Show details on widgets",
+    "widgetInfoDesc": "Adds an ⓘ to each widget that opens its data, code and calculation.",
     "dataDesc": "The queries behind this dashboard.",
     "unsaved": "Unsaved changes",
     "tabGeneral": "General",
@@ -7091,7 +7426,7 @@
       "notPublished": "This hasn't been published yet. It will appear here once it's published.",
       "notFound": "This isn't available. It may not be published yet, or it was removed.",
       "denied": "You don't have access to this. Ask its owner to share it with you.",
-      "notAllowed": "This isn't enabled for this application. An editor can allow it in its Embed settings in Bag of Words.",
+      "notAllowed": "This isn't enabled for this application. An editor can allow it in its Embed settings in BOW.",
       "failed": "This couldn't be loaded. Try again in a moment."
     },
     "signin": {
@@ -7198,5 +7533,125 @@
     "enabled": "Enabled",
     "embeddingEmpty": "Embedding is not configured",
     "oauthEmpty": "OAuth is not configured"
+  },
+  "connectors": {
+    "title": "Connectors",
+    "subtitle": "Your own accounts and tools the AI can use. Each connector reads with your own access — nobody else sees your data.",
+    "browse": "Browse connectors",
+    "empty": "No connectors yet.",
+    "search": "Search connectors…",
+    "noResults": "No connectors match “{q}”.",
+    "signIn": "Sign in",
+    "signOut": "Sign out",
+    "remove": "Remove",
+    "statusConnected": "Connected",
+    "statusShared": "Shared",
+    "statusServiceAccount": "Service account",
+    "statusOffline": "Reconnect",
+    "statusNotConnected": "Not connected",
+    "needsSignIn": "{n} connector needs you to sign in | {n} connectors need you to sign in",
+    "accessPersonal": "Uses your own account",
+    "accessShared": "Uses a shared account set up by an admin",
+    "addHint": "Add more connectors from Agents → Add connection.",
+    "askAdmin": "Ask an admin to add more connectors.",
+    "removeConfirm": "Remove {name} for everyone in the organization? People's sign-ins to it are removed too.",
+    "signedOut": "Signed out of {name}",
+    "removed": "{name} removed",
+    "actionFailed": "Something went wrong",
+    "shareToggleLabel": "Make available to everyone in your org",
+    "shareToggleHint": "Adds “{name}” to everyone's connectors. Each person signs in with their own account — nobody sees anyone else's data.",
+    "useAsAgent": "Use as agent",
+    "movedToAgents": "{name} is now an agent"
+  },
+  "tablePreview": {
+    "idle": "Press Run to load rows from the source.",
+    "loading": "Loading rows…",
+    "failed": "Could not load a preview of this table.",
+    "showing": "Showing {shown} rows",
+    "columns": "{count} columns",
+    "empty": "This table has no rows.",
+    "reload": "Reload",
+    "createCustomTable": "Create custom table from this",
+    "run": "Run",
+    "resetQuery": "Reset",
+    "runHint": "Ctrl/⌘ + Enter to run. Read-only queries only.",
+    "ofTotal": "~{total} rows in table",
+    "retry": "Try again",
+    "readOnlyHint": "Editing the query needs custom tables on this connection.",
+    "storageNote": "Read straight from table storage, so this preview has no query cost.",
+    "signInRequired": "This connection runs with your own credentials. Sign in to see its rows.",
+    "signIn": "Sign in",
+    "open": "Preview data in {name}",
+    "subtitle": "Sample rows from {connection}, read live from the source.",
+    "close": "Close",
+    "button": "Preview"
+  },
+  "kmsFileScope": {
+    "headerSubtitle": "The root folder sets where browsing starts. KMS permissions decide what the agent can search and read.",
+    "browsingOnly": "Browsing only",
+    "accessNote": "A root folder limits browsing only. KMS permissions for the connected identity decide what the agent can search and read, including items outside that folder. Edit the root folder or indexing on the connection itself."
+  },
+  "kmsDiagnostics": {
+    "run": "Run diagnostics",
+    "running": "Running diagnostics. This can take up to 90 seconds.",
+    "description": "Read-only checks of the network, certificate, login and KMS behaviour. Sends one login at most.",
+    "overallPass": "Automatic checks passed",
+    "overallWarn": "Finished with warnings",
+    "overallFail": "Finished with a failure",
+    "manualCheck": "One manual check remains: run this again as a restricted KMS user and compare the element names.",
+    "failedStage": "Failed at: {stage}",
+    "calls": "{calls} calls in {seconds} s",
+    "callsUnknown": "Cut off after {seconds} s. The number of calls is unknown.",
+    "copy": "Copy report",
+    "copied": "Report copied",
+    "copyFailed": "Could not copy the report. Use Download JSON.",
+    "download": "Download JSON",
+    "reportNote": "The report stays in English so it can be sent to the BOW engineers. It holds no content, names or passwords.",
+    "failed": "Diagnostics could not run.",
+    "status": {
+      "pass": "Pass",
+      "warn": "Warning",
+      "fail": "Fail",
+      "info": "Info",
+      "skipped": "Skipped"
+    },
+    "stage": {
+      "network": "network",
+      "tls": "TLS",
+      "login": "login",
+      "browse": "browse",
+      "search": "search",
+      "read": "read"
+    }
+  },
+  "agentAccess": {
+    "addMember": "Add member",
+    "membersHint": "Members can query this agent. Assign additional permissions below.",
+    "everyone": "Everyone in the organization",
+    "query": "Can query",
+    "manage": "Can manage",
+    "custom": "Custom access",
+    "ownerHint": "The owner can always manage this agent.",
+    "editFor": "Edit access for {name}",
+    "removeHint": "Removes explicit membership and permissions. Public, group or organization access may still apply.",
+    "remove": "Remove",
+    "noMembers": "No explicit members yet.",
+    "addTo": "Add people to {name}",
+    "thisAgent": "this agent",
+    "who": "Who",
+    "access": "Access",
+    "advanced": "Advanced permissions",
+    "cancel": "Cancel",
+    "saving": "Saving…",
+    "save": "Save",
+    "queryHint": "Ask this agent questions",
+    "manageHint": "Configure the agent and manage its members",
+    "addCount": "Add {count}",
+    "add": "Add",
+    "updated": "Permissions updated",
+    "updateFailed": "Failed to update permissions",
+    "addIncomplete": "Some memberships or permissions could not be saved. Review the member list and retry.",
+    "added": "Members added",
+    "addFailed": "Failed to add members"
   }
 }

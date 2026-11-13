@@ -17,6 +17,7 @@ in-flight states are deterministic; a "success" stub completes the run so the
 dispatcher chain can be observed. Everything else (routes, services, DB,
 dispatcher) runs real.
 """
+import json
 import time
 import uuid
 from datetime import datetime, timedelta
@@ -889,3 +890,238 @@ def test_queue_and_steer_reject_invalid_targets_and_anonymous_callers(
         f"/api/reports/{report['id']}/completions",
         json={"prompt": {"content": "x", "mentions": [{}]}, "queue": True},
     ).status_code == 401
+
+
+# ── MCP turns and the report's prompt queue ─────────────────────────────────
+#
+# An MCP tool call that works on a report is a turn on that report: it writes a
+# user/system completion pair, as an in-app run does. When it ends, the queue
+# is dispatched under the same policy as after an in-app run: drain after a
+# successful turn, stay paused after a failed one.
+#
+# The queued prompt is set up in-app: a run is in progress (hanging stub), a
+# prompt sent with queue_if_busy waits behind it, and the user stops the run,
+# which pauses the queue. The MCP turn then runs on that report. Stubbed:
+# AgentV2.main_execution only. Real: /api/mcp, the MCP tools, the completion
+# routes and services, the dispatcher.
+
+
+def _mcp_tool_call(client, api_key, name, arguments):
+    r = client.post(
+        "/api/mcp",
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+              "params": {"name": name, "arguments": arguments}},
+        headers={"X-API-Key": api_key},
+    )
+    assert r.status_code == 200, r.text
+    result = r.json()["result"]
+    return result, json.loads(result["content"][0]["text"])
+
+
+def _queue_prompt_behind_a_stopped_run(monkeypatch, live_client, create_report, token, org_id):
+    """A report whose queue holds one in-app prompt and is paused because the
+    run it waited behind was stopped. Returns (report_id, queued_head_id)."""
+    _stub_hang(monkeypatch)
+    report = create_report(title=f"mcp-queue-{uuid.uuid4().hex[:8]}", user_token=token,
+                           org_id=org_id, data_sources=[])
+    first = live_client.post(
+        f"/api/reports/{report['id']}/completions?background=true",
+        json={"prompt": {"content": "a run the user will stop", "mentions": [{}]}},
+        headers=_headers(token, org_id),
+    )
+    assert first.status_code == 200, first.text
+    running = next(c for c in first.json()["completions"] if c["role"] == "system")
+    queued = live_client.post(
+        f"/api/reports/{report['id']}/completions",
+        json={"queue_if_busy": True, "prompt": {"content": "waiting in line", "mentions": [{}]}},
+        headers=_headers(token, org_id),
+    )
+    assert queued.status_code == 200, queued.text
+    head = queued.json()["completions"][0]
+    assert head["role"] == "user" and head["status"] == "queued", queued.json()
+    stop = live_client.post(f"/api/completions/{running['id']}/sigkill", headers=_headers(token, org_id))
+    assert stop.status_code == 200, stop.text
+    return report["id"], head["id"]
+
+
+def _settle_queue_work(portal, timeout=30.0):
+    """Wait until no dispatcher or dispatched-run task is left on the live
+    loop, so "still queued" is a settled state rather than a race."""
+    import asyncio
+
+    names = ("CompletionService.start_next_queued_if_idle", "CompletionService._run_dispatched_agent")
+
+    async def _wait():
+        deadline = asyncio.get_running_loop().time() + timeout
+        while asyncio.get_running_loop().time() < deadline:
+            pending = [t for t in asyncio.all_tasks()
+                       if t is not asyncio.current_task() and not t.done()
+                       and t.get_coro().__qualname__.endswith(names)]
+            if not pending:
+                return
+            await asyncio.wait(pending, timeout=deadline - asyncio.get_running_loop().time())
+        raise AssertionError("queue work did not settle")
+
+    portal.call(_wait)
+
+
+@pytest.mark.e2e
+def test_successful_mcp_turn_dispatches_the_reports_queued_prompt(
+    monkeypatch, live_client, create_report, create_user, login_user, whoami,
+    create_llm_provider_and_models, create_api_key, enable_mcp,
+):
+    token, org_id = _setup_org_with_model(
+        monkeypatch, create_user, login_user, whoami, create_llm_provider_and_models
+    )
+    enable_mcp(user_token=token, org_id=org_id)
+    api_key = create_api_key(user_token=token, org_id=org_id)["key"]
+    report_id, queued_id = _queue_prompt_behind_a_stopped_run(
+        monkeypatch, live_client, create_report, token, org_id)
+    _settle_queue_work(live_client.portal)
+    assert any(c["id"] == queued_id and c["status"] == "queued"
+               for c in _get_completions(live_client, report_id, token, org_id)), \
+        "precondition: the stopped run leaves the prompt queued"
+
+    _stub_success(monkeypatch)
+    result, payload = _mcp_tool_call(live_client, api_key, "get_context", {"report_id": report_id})
+    assert result["isError"] is False, payload
+
+    def _dispatched():
+        comps = _get_completions(live_client, report_id, token, org_id)
+        runs = [c for c in comps if c["role"] == "system" and c["parent_id"] == queued_id]
+        return runs if runs and runs[0]["status"] == "success" else None
+
+    runs = _wait_until(_dispatched)
+    assert runs, "the in-app prompt queued on the report was not dispatched after the MCP turn succeeded"
+    assert len(runs) == 1
+    # The dispatched run chains the dispatcher again when it ends; let that
+    # finish on this loop before the client (and its loop) closes.
+    _settle_queue_work(live_client.portal)
+
+
+_OAUTH_REDIRECT = "http://localhost:4173/callback"
+_OAUTH_VERIFIER = "q" * 64
+
+
+def _mcp_oauth_access_token(client, login_token, org_id, create_oauth_client):
+    """An OAuth access token with the mcp scope, through consent and the
+    authorization-code exchange. Returns (access_token, oauth_client_id)."""
+    import base64
+    import hashlib
+    from urllib.parse import parse_qs, urlparse
+
+    oauth_client = create_oauth_client(login_token, org_id, scopes="mcp", redirect_uris=[_OAUTH_REDIRECT])
+    challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(_OAUTH_VERIFIER.encode()).digest()).rstrip(b"=").decode()
+    approved = client.post("/api/oauth/authorize", headers={"Authorization": f"Bearer {login_token}"}, json={
+        "client_id": oauth_client["client_id"], "redirect_uri": _OAUTH_REDIRECT,
+        "scope": "mcp", "code_challenge": challenge,
+    })
+    assert approved.status_code == 200, approved.text
+    code = parse_qs(urlparse(approved.json()["redirect_url"]).query)["code"][0]
+    tokens = client.post("/api/oauth/token", data={
+        "grant_type": "authorization_code", "code": code, "client_id": oauth_client["client_id"],
+        "code_verifier": _OAUTH_VERIFIER, "redirect_uri": _OAUTH_REDIRECT,
+    })
+    assert tokens.status_code == 200, tokens.text
+    return tokens.json()["access_token"], oauth_client
+
+
+def _stub_success_tracking_the_run(monkeypatch):
+    """As _stub_success, and the run is tracked as an AgentExecution, as the
+    real main_execution starts one before it does anything else."""
+    async def fake_main_execution(self):
+        await self.project_manager.start_agent_execution(
+            self.db, completion_id=str(self.system_completion.id),
+            organization_id=str(self.organization.id), user_id=str(self.head_completion.user_id),
+            report_id=str(self.report.id),
+        )
+        self.system_completion.status = "success"
+        self.db.add(self.system_completion)
+        await self.db.commit()
+    monkeypatch.setattr(AgentV2, "main_execution", fake_main_execution)
+
+
+@pytest.mark.e2e
+def test_queued_prompt_dispatched_after_an_oauth_mcp_turn_is_not_stamped_with_the_mcp_client(
+    monkeypatch, live_client, create_report, create_user, login_user, whoami,
+    create_llm_provider_and_models, enable_mcp, create_oauth_client,
+):
+    """The MCP turn came through an OAuth app and is stamped with it. The
+    queued prompt it dispatches was sent in BOW, so its run is not."""
+    from app.models.agent_execution import AgentExecution
+    from app.settings.database import create_async_session_factory
+
+    token, org_id = _setup_org_with_model(
+        monkeypatch, create_user, login_user, whoami, create_llm_provider_and_models
+    )
+    enable_mcp(user_token=token, org_id=org_id)
+    access_token, oauth_client = _mcp_oauth_access_token(live_client, token, org_id, create_oauth_client)
+    report_id, queued_id = _queue_prompt_behind_a_stopped_run(
+        monkeypatch, live_client, create_report, token, org_id)
+    _settle_queue_work(live_client.portal)
+
+    _stub_success_tracking_the_run(monkeypatch)
+    r = live_client.post(
+        "/api/mcp",
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+              "params": {"name": "get_context", "arguments": {"report_id": report_id}}},
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["result"]["isError"] is False, r.json()
+
+    def _dispatched():
+        comps = _get_completions(live_client, report_id, token, org_id)
+        runs = [c for c in comps if c["role"] == "system" and c["parent_id"] == queued_id]
+        return runs if runs and runs[0]["status"] == "success" else None
+
+    runs = _wait_until(_dispatched)
+    assert runs, "the queued prompt was not dispatched after the MCP turn succeeded"
+    _settle_queue_work(live_client.portal)
+
+    async def _origins():
+        async with create_async_session_factory()() as db:
+            rows = (await db.execute(
+                select(AgentExecution.completion_id, AgentExecution.origin_app_type, AgentExecution.origin_app_id)
+                .where(AgentExecution.report_id == report_id)
+            )).all()
+        return {str(c): (t, i) for c, t, i in rows}
+
+    origins = live_client.portal.call(_origins)
+    dispatched_run = origins.get(runs[0]["id"])
+    assert dispatched_run is not None, f"the dispatched run was not tracked: {origins}"
+    # Control: the MCP turn itself is stamped with the OAuth app, so the
+    # origin was set on this request.
+    assert ("oauth_app", str(oauth_client["id"])) in origins.values(), origins
+    assert dispatched_run == (None, None), \
+        f"the in-app prompt's run is stamped with the MCP client: {dispatched_run}"
+
+
+@pytest.mark.e2e
+def test_failed_mcp_turn_leaves_the_reports_queue_paused(
+    monkeypatch, live_client, create_report, create_user, login_user, whoami,
+    create_llm_provider_and_models, create_api_key, enable_mcp,
+):
+    """Control: after a failed turn the queue stays paused, as it does in-app."""
+    token, org_id = _setup_org_with_model(
+        monkeypatch, create_user, login_user, whoami, create_llm_provider_and_models
+    )
+    enable_mcp(user_token=token, org_id=org_id)
+    api_key = create_api_key(user_token=token, org_id=org_id)["key"]
+    report_id, queued_id = _queue_prompt_behind_a_stopped_run(
+        monkeypatch, live_client, create_report, token, org_id)
+
+    _stub_success(monkeypatch)
+    # The report has no data sources, so create_data ends as a failed turn.
+    _, payload = _mcp_tool_call(live_client, api_key, "create_data",
+                                {"report_id": report_id, "prompt": "count the rows"})
+    assert payload.get("success") is False, payload
+    _settle_queue_work(live_client.portal)
+
+    comps = _get_completions(live_client, report_id, token, org_id)
+    failed_mcp_runs = [c for c in comps if c["role"] == "system" and c["status"] == "error"]
+    assert failed_mcp_runs, f"precondition: the MCP turn is recorded as failed: {comps}"
+    assert any(c["id"] == queued_id and c["status"] == "queued" for c in comps), \
+        "the queue must stay paused after a failed MCP turn"
+    assert not [c for c in comps if c["role"] == "system" and c["parent_id"] == queued_id]

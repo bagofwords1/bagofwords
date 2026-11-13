@@ -377,6 +377,17 @@ class ServiceFormatter:
                         table_strs.append(f"note: {note}")
             except Exception:
                 pass
+            try:
+                # SAP Datasphere: `kind` tells the agent whether $select
+                # aggregates (analytical model) or returns raw rows (relational
+                # view); space/asset address the consumption endpoint.
+                dsp = table.metadata_json.get("sap_datasphere", {})
+                if isinstance(dsp, dict) and dsp:
+                    kv = [f"{k}={dsp[k]}" for k in ("kind", "space", "asset") if dsp.get(k)]
+                    if kv:
+                        table_strs.append(f"meta: {'; '.join(kv)}")
+            except Exception:
+                pass
         for col in table.columns or []:
             line = f"column: {col.name} type: {col.dtype or 'any'}"
             # A column description can be load-bearing (a Splunk dashboard

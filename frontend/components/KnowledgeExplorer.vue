@@ -264,7 +264,7 @@
                   </div>
                   <div v-if="fc.globs.length === 0" class="flex items-center gap-2 h-8 text-sm text-ink-muted italic min-w-0" style="padding-inline-start:48px">
                     <DataSourceIcon :type="fc.type" :connector-key="fc.connector_key" class="w-3.5 h-3.5 shrink-0" />
-                    <span class="truncate">{{ fc.name }} · whole path</span>
+                    <span class="truncate">{{ fc.name }} · {{ LIVE_FILE_TYPES.has(fc.type) ? $t('agentsPage.liveBadge') : 'whole path' }}</span>
                   </div>
                 </template>
                 <div
@@ -1379,7 +1379,9 @@ const agentTools = ref<Record<string, any[]>>({})
 const agentFiles = ref<Record<string, any[]>>({})
 // File-source connections per agent, with their include-glob rules — shown in
 // the Files tree next to uploads.
-const FILE_CONN_TYPES = new Set(['network_dir', 's3', 'sharepoint', 'sharepoint_onprem', 'documentum', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail'])
+// Live per-user sources: no path scope to show — they read with the user's own access.
+const LIVE_FILE_TYPES = new Set(['outlook_mail', 'gmail_mail', 'teams_messages'])
+const FILE_CONN_TYPES = new Set(['network_dir', 's3', 'gcs', 'azure_blob', 'sharepoint', 'sharepoint_onprem', 'documentum', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail', 'kms_lighthouse', 'teams_messages'])
 const agentFileConns = ref<Record<string, any[]>>({})
 const agentLoaded = ref<Set<string>>(new Set())
 
@@ -3586,6 +3588,10 @@ const fetchAgents = async () => {
     if (showAllAgents.value) query.show_all = true
     const { data } = await useMyFetch<any[]>('/data_sources/active', { method: 'GET', query })
     agents.value = (data.value || [])
+      // Connectors (each person's own accounts/tools — mail, Teams, MCP apps)
+      // are not agents: they live in the prompt box's connectors menu and the
+      // Browse connectors modal, not in the knowledge tree.
+      .filter((d: any) => d?.kind !== 'connector')
       .map((d: any) => ({ id: d.id, name: d.name, type: d.type, icon: d.icon, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, connector_key: d.connector_key, status: d.status, publish_status: d.publish_status, reliability_status: d.reliability_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
       // Alphabetical by name. The server returns no explicit order, so sort
       // here; pass the app's i18n locale (not the browser default) so the
@@ -3593,7 +3599,17 @@ const fetchAgents = async () => {
       .sort((a: any, b: any) => (a.name || '').localeCompare(b.name || '', locale.value, { sensitivity: 'base' }))
   } catch (e) { console.error(e) } finally { agentsLoaded.value = true }
 }
-const agentStatusDot = (a: any) => a?.publish_status === 'disabled' ? 'bg-gray-300' : (a?.status === 'active' ? 'bg-green-400' : 'bg-gray-300')
+// Agent dot in the tree: the same connection health the agent page's chip shows
+// (getEffectiveStatus), worst connection first, so the two never disagree. An
+// agent whose shared connection was taken down is red, not a neutral gray.
+const AGENT_DOT_PRECEDENCE = ['error', 'indexing_failed', 'sign_in_required', 'indexing'] as const
+const agentStatusDot = (a: any) => {
+  if (a?.publish_status === 'disabled') return 'bg-gray-300'
+  if (a?.status !== 'active') return 'bg-red-500'
+  const statuses = (a?.connections || []).map((c: any) => c?.is_active === false ? 'error' : getEffectiveStatus(c))
+  const worst = AGENT_DOT_PRECEDENCE.find(s => statuses.includes(s))
+  return worst ? statusDotClass(worst) : 'bg-green-500'
+}
 // Panel -> tree half of the files sync. Deliberately narrower than
 // loadAgentMeta: an upload or delete in the panel changes only the uploaded
 // files, so re-pulling the agent's tables, tools and file connections would
@@ -4163,8 +4179,8 @@ const downloadMarkdown = () => {
 }
 
 // Export one agent as a zip bundle (instructions markdown + agent.yaml +
-// evals/*.yaml). Gated on per-agent `manage` (canManageAgent) — full admins
-// pass via the wildcard. Backend enforces the same permission.
+// evals/*.yaml + queries/*.yaml). Gated on per-agent `manage` (canManageAgent)
+// — full admins pass via the wildcard. Backend enforces the same permission.
 const exportingInstructions = ref(false)
 const exportAgentInstructions = async (agentId?: string) => {
   if (!agentId || exportingInstructions.value) return

@@ -44,6 +44,7 @@ async def build_rich_context(
     top_k_schema: int = DEFAULT_TOP_K_SCHEMA,
     top_k_resources: int = DEFAULT_TOP_K_RESOURCES,
     use_llm_selection: bool = True,
+    instruction_ids: Optional[List[str]] = None,
 ) -> MCPRichContext:
     """Build rich context for MCP tool execution.
     
@@ -73,7 +74,10 @@ async def build_rich_context(
         Number of top resources to include per repository
     use_llm_selection : bool
         Whether to use LLM for intelligent table selection (default True)
-        
+    instruction_ids : List[str] | None
+        Instructions the client read and chose for this request; the coder
+        gets them in full. Ids outside the report's scope are dropped.
+
     Returns
     -------
     MCPRichContext
@@ -124,6 +128,10 @@ async def build_rich_context(
             logger.warning(f"Failed to connect to data source {ds.name}: {e}")
             failed_sources.append(ds.name)
     
+    # Install the same authenticated, scope-enforcing history client as training.
+    from app.data_sources.clients.bow_client import install_bow_client
+    await install_bow_client(db, organization, user, report, ds_clients, include_bow_history=True)
+
     # Create ContextHub for context building
     context_hub = ContextHub(
         db=db,
@@ -132,6 +140,8 @@ async def build_rich_context(
         data_sources=data_sources,
         user=user,
     )
+    # Discover history without changing the report mode used to resolve instructions.
+    context_hub.schema_builder.include_bow_history = True
     
     # Prime static context with the user's prompt for intelligent instruction search
     # This loads: schemas, instructions, resources, files in parallel
@@ -145,6 +155,24 @@ async def build_rich_context(
         data_source_ids=[str(ds.id) for ds in data_sources] or None,
     )
     
+    # Instructions the client read (from get_context / read_instruction) go to
+    # the coder in full, on top of what the hub loaded itself. Scoped to this
+    # report's agents and the user's table access, like everything else here.
+    if instruction_ids:
+        from app.ai.tools.mcp.instruction_scope import instruction_builder
+
+        try:
+            picked = await instruction_builder(
+                db, organization, user, report, data_sources, org_settings,
+            ).load_instructions_by_ids(list(dict.fromkeys(instruction_ids)), load_mode_filter=None)
+            context_hub.add_instructions_for_coder(picked)
+            logger.info(
+                "build_rich_context: %d of %d client-read instruction(s) in scope",
+                len(picked), len(set(instruction_ids)),
+            )
+        except Exception:
+            logger.warning("build_rich_context: loading client-read instructions failed", exc_info=True)
+
     # Get the context view
     view = context_hub.get_view()
     
@@ -320,14 +348,17 @@ async def _select_tables_with_llm(
     
     # Format tables for the prompt
     tables_text = _format_tables_for_selection(all_tables)
-    
+
+    # Instructions go in whole: a rule naming the table to use ("revenue
+    # lives in fct_orders") counts wherever it sits, and the coder step sends
+    # the same text to the same model anyway.
     selection_prompt = f"""You are a data analyst assistant. Given a user's query and available database tables, select ONLY the tables needed to answer the query.
 
 USER QUERY:
 {prompt}
 
 ORGANIZATION INSTRUCTIONS:
-{instructions_text[:2000] if instructions_text else "No specific instructions."}
+{instructions_text or "No specific instructions."}
 
 AVAILABLE TABLES:
 {tables_text}

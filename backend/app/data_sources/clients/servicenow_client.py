@@ -18,6 +18,7 @@ from typing import Generator, List, Optional, Tuple
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_session
 
 from app.data_sources.clients._document_text import (
     DOC_EXTS,
@@ -262,7 +263,7 @@ class ServiceNowClient(DataSourceClient):
             raise RuntimeError(
                 "ServiceNow client has no credentials: provide username/password or sign in with OAuth."
             )
-        session = requests.Session()
+        session = pinned_session()
         session.verify = self.verify_ssl
         session.headers.update({"Accept": "application/json"})
         if self.access_token:
@@ -510,9 +511,11 @@ class ServiceNowClient(DataSourceClient):
             try:
                 rows = self._sample_rows(session, target)
             except RuntimeError as e:
+                self.mark_discovery_incomplete("servicenow catalog")
                 failures.append(f"{target}: {e}")
                 continue
             if not rows:
+                self.mark_discovery_incomplete("servicenow table columns")
                 failures.append(
                     f"{target}: no rows returned, so no columns could be inferred "
                     "(the table may be empty or fully filtered by ACLs)"

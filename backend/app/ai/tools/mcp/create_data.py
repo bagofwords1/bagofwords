@@ -13,7 +13,7 @@ from app.ee.audit.tool_audit import _truncate_queries
 _logger = logging.getLogger(__name__)
 from app.ai.tools.mcp.context import build_rich_context
 from app.ai.agents.coder.coder import Coder
-from app.ai.code_execution.code_execution import StreamingCodeExecutor
+from app.ai.code_execution.code_execution import StreamingCodeExecutor, collect_query_notices
 from app.ai.schemas.codegen import CodeGenRequest
 from app.ai.prompt_formatters import build_codegen_context
 from app.models.user import User
@@ -89,6 +89,9 @@ class CreateDataMCPTool(MCPTool):
         "Results are persisted in the report and can be viewed, shared, and added to dashboards. "
         "Use this for final results you want to save. "
         "Tables are auto-discovered from prompt if not provided. "
+        "Authorized agent managers can query builtin:bow tables bow.runs and bow.tool_calls "
+        "for historical questions, usage metrics, and tool execution evidence. Discover them "
+        "with get_context; access is scoped to the caller. "
         "Call create_report first if no report_id is available."
     )
     
@@ -141,6 +144,7 @@ class CreateDataMCPTool(MCPTool):
             report=report,
             prompt=input_data.prompt,
             explicit_tables=input_data.tables,
+            instruction_ids=input_data.instruction_ids,
         )
         
         # Check if we have a model
@@ -226,6 +230,7 @@ class CreateDataMCPTool(MCPTool):
         exec_df = None
         code_errors = []
         executed_queries = []
+        query_timings = []
 
         sigkill_event = asyncio.Event()
 
@@ -268,6 +273,7 @@ class CreateDataMCPTool(MCPTool):
                 code_errors = e["payload"].get("errors") or []
                 exec_df = e["payload"].get("df")
                 executed_queries = e["payload"].get("executed_queries") or []
+                query_timings = e["payload"].get("query_timings") or []
                 full_log = e["payload"].get("execution_log")
                 if full_log and len(full_log) > len(output_log):
                     output_log = full_log
@@ -441,6 +447,7 @@ class CreateDataMCPTool(MCPTool):
             visualization_id=str(visualization.id),
             success=True,
             data_preview=data_preview,
+            data_notices=collect_query_notices(query_timings) or None,
             url=f"{base_url}/reports/{report.id}",
         )
         

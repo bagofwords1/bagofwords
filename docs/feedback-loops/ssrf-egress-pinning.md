@@ -297,6 +297,7 @@ PASS | PDF export, normal page artifact                       | rendered   (own 
 
 ## Residual risk (package B)
 
+- **HTTP connectors built on `requests`** connect through `pinned_session()`.
 - **Database / SDK drivers are checked at use, not pinned.** libpq, ODBC,
   pymysql, oracledb, vendor SDKs and botocore resolve the name themselves, so
   a DNS answer that flips between our check and the driver's own lookup

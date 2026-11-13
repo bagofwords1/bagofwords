@@ -85,27 +85,31 @@
                 <div class="flex items-center justify-between mb-2">
                     <div class="text-2xs font-semibold uppercase tracking-wider text-ink-muted">Members</div>
                     <button
-                        v-if="canManageDsMembers && !form.isPublic"
+                        v-if="canManageDsMembers"
                         @click="openAdd"
                         class="h-7 px-2.5 rounded-lg border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50"
                     >
-                        Add member
+                        {{ t('agentAccess.addMember') }}
                     </button>
                 </div>
-                <p class="text-2xs text-ink-muted mb-3">Everyone listed here can query this agent. The role only grants extra management rights — use Remove to revoke access.</p>
+                <p class="text-2xs text-ink-muted mb-3">{{ t('agentAccess.membersHint') }}</p>
 
                 <div class="space-y-1">
-                    <template v-if="!form.isPublic">
+                    <div v-if="form.isPublic" class="flex items-center justify-between gap-3 rounded-md bg-surface-subtle border border-line px-3 py-2" data-testid="agent-public-access">
+                        <span class="text-xs text-ink-2">{{ t('agentAccess.everyone') }}</span>
+                        <span class="text-xs text-ink-muted">{{ t('agentAccess.query') }}</span>
+                    </div>
                     <div
                         v-for="m in memberRows"
                         :key="m.grant_id"
+                        data-testid="agent-member-row"
                         class="rounded-md border border-gray-100 dark:border-gray-800 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800/50"
                     >
-                        <div class="flex items-start justify-between gap-2">
+                        <div class="flex flex-wrap items-start justify-between gap-2">
                             <div class="min-w-0 flex items-start gap-1.5">
                                 <UIcon :name="principalIcon(m)" class="w-3.5 h-3.5 text-ink-muted flex-shrink-0 mt-0.5" />
                                 <div class="min-w-0">
-                                    <div class="flex items-center gap-1.5">
+                                    <div class="flex flex-wrap items-center gap-1.5">
                                         <span class="text-xs font-medium text-gray-900 dark:text-white">{{ principalDisplayName(m) }}</span>
                                         <UBadge v-if="isSelf(m)" size="xs" color="blue" variant="subtle">You</UBadge>
                                         <UBadge v-if="isOwnerPrincipal(m)" size="xs" color="amber" variant="subtle" title="Created this agent">Owner</UBadge>
@@ -119,7 +123,7 @@
                                             </button>
                                         </template>
                                     </div>
-                                    <div class="text-2xs text-ink-muted" v-if="principalEmail(m)">{{ principalEmail(m) }}</div>
+                                    <div class="text-2xs text-ink-muted break-all" v-if="principalEmail(m)">{{ principalEmail(m) }}</div>
                                     <!-- Expanded group members -->
                                     <div v-if="m.principal_type === 'group' && expandedGroups.has(m.principal_id)" class="mt-1.5 ps-1 space-y-1">
                                         <div
@@ -133,52 +137,30 @@
                                         </div>
                                         <div v-if="!groupMembers[m.principal_id]?.length" class="text-2xs text-gray-300 dark:text-gray-600 italic">No members</div>
                                     </div>
-                                    <!-- Permissions -->
-                                    <div class="mt-1.5">
-                                        <UDropdown
-                                            v-if="canManageDsMembers"
-                                            :items="[dsPermOptions.map(p => ({
-                                                label: formatPermission(p),
-                                                icon: m.permissions.includes(p) ? 'i-heroicons-check' : undefined,
-                                                click: () => {
-                                                    const newPerms = m.permissions.includes(p)
-                                                        ? m.permissions.filter(x => x !== p)
-                                                        : [...m.permissions, p]
-                                                    updateMemberPermissions(m, newPerms)
-                                                }
-                                            }))]"
-                                            :popper="{ placement: 'bottom-start' }"
-                                        >
-                                            <UButton size="2xs" color="white" trailing-icon="i-heroicons-chevron-down-20-solid">
-                                                <span v-if="m.permissions?.length" class="flex items-center gap-1 flex-wrap">
-                                                    <UBadge v-for="p in m.permissions" :key="p" size="xs" color="gray" variant="subtle">{{ formatPermission(p) }}</UBadge>
-                                                </span>
-                                                <span v-else class="text-ink-muted" title="This member can query the agent but has no extra management rights">Query only</span>
-                                            </UButton>
-                                        </UDropdown>
-                                        <div v-else class="flex gap-1 flex-wrap">
-                                            <UBadge v-for="p in m.permissions" :key="p" size="xs" color="gray" variant="subtle">{{ formatPermission(p) }}</UBadge>
-                                            <span v-if="!m.permissions?.length" class="text-2xs text-ink-muted" title="This member can query the agent but has no extra management rights">Query only</span>
-                                        </div>
-                                    </div>
+                                    <p v-if="isOwnerPrincipal(m)" class="mt-1 text-2xs text-ink-muted">{{ t('agentAccess.ownerHint') }}</p>
                                 </div>
                             </div>
-                            <button
-                                v-if="canManageDsMembers && !isSelf(m)"
-                                @click="removeMember(m)"
-                                class="shrink-0 h-7 px-2.5 rounded-lg border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50"
-                            >
-                                Remove
-                            </button>
+                            <div class="flex shrink-0 items-center gap-2">
+                                <UButton
+                                    v-if="canManageDsMembers && !isOwnerPrincipal(m)"
+                                    size="xs" color="white" trailing-icon="i-heroicons-chevron-down-20-solid"
+                                    :aria-label="t('agentAccess.editFor', { name: principalDisplayName(m) })"
+                                    @click="openEdit(m)"
+                                >{{ memberAccessLabel(m) }}</UButton>
+                                <span v-else class="text-xs text-ink-muted">{{ memberAccessLabel(m) }}</span>
+                                <UButton
+                                    v-if="canManageDsMembers && !isSelf(m) && !isOwnerPrincipal(m)"
+                                    size="xs" color="white"
+                                    :title="t('agentAccess.removeHint')"
+                                    @click="removeMember(m)"
+                                >{{ t('agentAccess.remove') }}</UButton>
+                            </div>
                         </div>
                     </div>
                     <div v-if="memberRows.length === 0" class="rounded-md border border-gray-100 dark:border-gray-800 px-3 py-3 text-2xs text-ink-muted text-center">
-                        No members yet.
+                        {{ t('agentAccess.noMembers') }}
                     </div>
-                    </template>
-                    <div v-else class="rounded-md border border-gray-100 dark:border-gray-800 px-3 py-3 text-2xs text-ink-muted text-center">
-                        This agent is public — every organization member can query it.
-                    </div>
+
                 </div>
             </div>
 
@@ -217,38 +199,40 @@
         </div>
         </div>
 
-        <!-- Add member modal -->
+        <!-- Shared add/edit access dialog -->
         <UModal v-model="showAddModal" :ui="{ width: 'sm:max-w-md' }">
             <div class="p-4">
                 <div class="text-sm font-medium text-gray-900 dark:text-white mb-4">
-                    Add people to {{ integration?.name || 'this agent' }}
+                    {{ editingMember ? t('agentAccess.editFor', { name: principalDisplayName(editingMember) }) : t('agentAccess.addTo', { name: integration?.name || t('agentAccess.thisAgent') }) }}
                 </div>
 
                 <!--
                   One search over users and groups. The principal type is a
                   property of the row, not a mode the user has to pick first.
                 -->
-                <label class="block text-2xs text-ink-muted mb-1">Who</label>
-                <USelectMenu
-                    v-model="selectedPrincipals"
-                    :options="principalOptions"
-                    multiple
-                    searchable
-                    :searchable-placeholder="isEnterprise ? 'Search people or groups…' : 'Search people…'"
-                    option-attribute="label"
-                    value-attribute="key"
-                    class="w-full"
-                    :search-attributes="['label','sub']"
-                >
-                    <template #option="{ option }">
-                        <UIcon
-                            :name="option.type === 'group' ? 'i-heroicons-user-group' : 'i-heroicons-user'"
-                            class="w-3.5 h-3.5 text-ink-muted shrink-0"
-                        />
-                        <span class="truncate">{{ option.label }}</span>
-                        <span v-if="option.sub" class="text-ink-muted truncate">{{ option.sub }}</span>
+                <template v-if="!editingMember">
+                    <label class="block text-2xs text-ink-muted mb-1">{{ t('agentAccess.who') }}</label>
+                    <USelectMenu
+                        v-model="selectedPrincipals"
+                        :options="principalOptions"
+                        multiple
+                        searchable
+                        :searchable-placeholder="isEnterprise ? 'Search people or groups…' : 'Search people…'"
+                        option-attribute="label"
+                        value-attribute="key"
+                        class="w-full"
+                        :search-attributes="['label','sub']"
+                    >
+                        <template #option="{ option }">
+                            <UIcon
+                                :name="option.type === 'group' ? 'i-heroicons-user-group' : 'i-heroicons-user'"
+                                class="w-3.5 h-3.5 text-ink-muted shrink-0"
+                            />
+                            <span class="truncate">{{ option.label }}</span>
+                            <span v-if="option.sub" class="text-ink-muted truncate">{{ option.sub }}</span>
                     </template>
                 </USelectMenu>
+                </template>
 
                 <!--
                   Access tiers, not a flat checkbox grid. Each tier is a strict
@@ -258,13 +242,15 @@
                   invited meaningless combinations.
                 -->
                 <div class="mt-4">
-                    <label class="block text-2xs text-ink-muted mb-1.5">Access</label>
-                    <div class="space-y-0.5">
+                    <label class="block text-2xs text-ink-muted mb-1.5">{{ t('agentAccess.access') }}</label>
+                    <div class="space-y-0.5" role="radiogroup" :aria-label="t('agentAccess.access')">
                         <button
                             v-for="tier in ACCESS_TIERS"
                             :key="tier.key"
                             type="button"
                             @click="selectTier(tier.key)"
+                            role="radio"
+                            :aria-checked="activeTier === tier.key"
                             class="w-full flex items-start gap-2 px-2 py-1.5 rounded-md text-start hover:bg-gray-50 dark:hover:bg-gray-800/50"
                         >
                             <span
@@ -286,9 +272,10 @@
                     <button
                         type="button"
                         @click="showAdvancedPerms = !showAdvancedPerms"
+                        :aria-expanded="showAdvancedPerms"
                         class="mt-2 inline-flex items-center gap-1 text-2xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                     >
-                        Advanced permissions
+                        {{ t('agentAccess.advanced') }}
                         <UIcon
                             name="i-heroicons-chevron-down"
                             class="w-3 h-3 transition-transform"
@@ -311,9 +298,9 @@
                 </div>
 
                 <div class="flex justify-end gap-2 mt-5">
-                    <button @click="showAddModal = false" class="h-8 px-3 rounded-lg border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50">Cancel</button>
-                    <button @click="addSelected" :disabled="addDisabled || adding" class="h-8 px-3 rounded-lg bg-gray-900 text-white text-xs font-medium hover:bg-black disabled:opacity-50">
-                        {{ adding ? 'Adding…' : addButtonLabel }}
+                    <UButton @click="showAddModal = false" color="white" :disabled="adding">{{ t('agentAccess.cancel') }}</UButton>
+                    <button @click="saveAccess" :disabled="addDisabled || adding" class="h-8 px-3 rounded-lg bg-gray-900 text-white text-xs font-medium hover:bg-black disabled:opacity-50">
+                        {{ adding ? t('agentAccess.saving') : editingMember ? t('agentAccess.save') : addButtonLabel }}
                     </button>
                 </div>
             </div>
@@ -347,8 +334,9 @@ const props = defineProps<{ agentId: string }>()
 const emit = defineEmits(['updated', 'deleted'])
 
 const toast = useToast?.()
+const { t } = useI18n()
 const { organization } = useOrganization()
-const { data: currentUser } = useAuth()
+const { data: currentUser, getSession } = useAuth()
 
 // Agent detail fetched directly (no parent `integration` provide())
 const integration = ref<any>(null)
@@ -679,20 +667,14 @@ function groupMemberCount(m: MemberGrant): number {
 
 // ── Display helpers ─────────────────────────────────────────────────────
 
-// Mirrors PERMISSION_LABELS in RolesManager so per-DS rows render the same
-// human-readable names as the role editor.
-const PERMISSION_LABELS: Record<string, string> = {
-    manage_instructions: 'Manage instructions',
-    create_entities: 'Manage entities',
-    manage_evals: 'Manage evals',
-    manage: 'Manage settings',
-    manage_members: 'Manage members',
-    view: 'View',
-    view_schema: 'View schema',
-}
+// Reuse the role editor's localized granular permission names.
+const NAMED_PERMISSIONS = new Set([
+    'manage_instructions', 'create_entities', 'manage_evals', 'manage_members', 'view', 'view_schema',
+])
 
 function formatPermission(perm: string): string {
-    if (PERMISSION_LABELS[perm]) return PERMISSION_LABELS[perm]
+    if (perm === 'manage') return t('agentAccess.manage')
+    if (NAMED_PERMISSIONS.has(perm)) return t(`rolesManager.permissions.${perm}`)
     return perm.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
 
@@ -721,10 +703,10 @@ function principalEmail(m: MemberGrant): string {
     return user?.email || ''
 }
 
-// ── Update permissions inline (enterprise) ──────────────────────────────
+// ── Update member permissions ──────────────────────────────
 
 async function updateMemberPermissions(m: MemberGrant, newPerms: string[]) {
-    if (!organization.value?.id) return
+    if (!organization.value?.id) return false
     try {
         const { error } = await useMyFetch(
             `/organizations/${organization.value.id}/resource-grants/${m.grant_id}`,
@@ -732,31 +714,44 @@ async function updateMemberPermissions(m: MemberGrant, newPerms: string[]) {
         )
         if (!error?.value) {
             m.permissions = newPerms
-            toast?.add?.({ title: 'Permissions updated' })
+            toast?.add?.({ title: t('agentAccess.updated') })
+            return true
         } else {
-            toast?.add?.({ title: 'Failed to update permissions', color: 'red' })
+            toast?.add?.({ title: t('agentAccess.updateFailed'), color: 'red' })
         }
     } catch {
-        toast?.add?.({ title: 'Failed to update permissions', color: 'red' })
+        toast?.add?.({ title: t('agentAccess.updateFailed'), color: 'red' })
     }
+    return false
 }
 
 // ── Remove member ───────────────────────────────────────────────────────
 
 async function removeMember(m: MemberGrant) {
     const dsId = props.agentId
-    try {
-        await useMyFetch(`/data_sources/${dsId}/members/${m.principal_id}`, { method: 'DELETE' })
-        members.value = members.value.filter(x => x.grant_id !== m.grant_id)
-        toast?.add?.({ title: 'Member removed' })
-    } catch {
+    // useMyFetch reports HTTP failures via `error`, it does not throw — so the
+    // row is only dropped once the server confirms the delete.
+    const { error } = await useMyFetch(`/data_sources/${dsId}/members/${m.principal_id}`, {
+        method: 'DELETE',
+        query: { principal_type: m.principal_type || 'user' },
+    })
+    if (error?.value) {
         toast?.add?.({ title: 'Failed to remove member', color: 'red' })
+        await loadMembers()
+        return
     }
+    members.value = members.value.filter(x => x.grant_id !== m.grant_id)
+    toast?.add?.({ title: 'Member removed' })
 }
 
 // ── Add member modal ────────────────────────────────────────────────────
 
 const showAddModal = ref(false)
+const editingMember = ref<MemberGrant | null>(null)
+watch(() => props.agentId, () => {
+    showAddModal.value = false
+    editingMember.value = null
+})
 // Composite "<type>:<id>" keys so users and groups share one selector.
 const selectedPrincipals = ref<string[]>([])
 const addPermissions = ref<string[]>([])
@@ -771,27 +766,52 @@ const showAdvancedPerms = ref(false)
 // Per-agent grants are NOT an enterprise feature — the resource-grant routes
 // carry no require_enterprise, unlike roles and groups — so both tiers work on
 // a community license.
-const ACCESS_TIERS: { key: string; label: string; hint: string; perms: string[] }[] = [
-    { key: 'query', label: 'Can query', hint: 'Ask this agent questions', perms: [] },
-    {
-        key: 'manage',
-        label: 'Can manage',
-        hint: 'Edit instructions, entities, evals, settings and members',
-        perms: ['manage'],
-    },
-]
+const ACCESS_TIERS = computed(() => [
+    { key: 'query', label: t('agentAccess.query'), hint: t('agentAccess.queryHint'), perms: [] as string[] },
+    { key: 'manage', label: t('agentAccess.manage'), hint: t('agentAccess.manageHint'), perms: ['manage'] },
+])
 
-const sameSet = (a: string[], b: string[]) =>
-    a.length === b.length && a.every(x => b.includes(x))
+function accessTier(permissions: string[]) {
+    // `manage` implies all the granular management rights. Redundant narrower
+    // permissions on an existing grant don't make it a custom role.
+    if (permissions.includes('manage')) return 'manage'
+    if (permissions.every(p => p === 'view' || p === 'view_schema')) return 'query'
+    return null
+}
 
-// null when Advanced has produced a combination no tier describes.
-const activeTier = computed<string | null>(
-    () => ACCESS_TIERS.find(t => sameSet(t.perms, addPermissions.value))?.key ?? null
-)
+function memberAccessLabel(m: MemberGrant) {
+    const tier = isOwnerPrincipal(m) ? 'manage' : accessTier(m.permissions)
+    return t(tier ? `agentAccess.${tier}` : 'agentAccess.custom')
+}
+
+const activeTier = computed(() => accessTier(addPermissions.value))
 
 function selectTier(key: string) {
-    const tier = ACCESS_TIERS.find(t => t.key === key)
+    const tier = ACCESS_TIERS.value.find(t => t.key === key)
     if (tier) addPermissions.value = [...tier.perms]
+}
+
+function openEdit(member: MemberGrant) {
+    editingMember.value = member
+    addPermissions.value = [...member.permissions]
+    showAdvancedPerms.value = false
+    showAddModal.value = true
+}
+
+async function saveAccess() {
+    if (!editingMember.value) return addSelected()
+    if (adding.value || !canManageDsMembers.value) return
+    adding.value = true
+    try {
+        const ok = await updateMemberPermissions(editingMember.value, [...addPermissions.value])
+        if (ok) {
+            showAddModal.value = false
+            // Refresh effective permissions too (a manager may change their own grant).
+            await getSession({ force: true })
+        }
+    } finally {
+        adding.value = false
+    }
 }
 
 const availableUsers = computed(() => {
@@ -830,11 +850,11 @@ const principalOptions = computed(() => {
     return [...users, ...groups]
 })
 
-const addDisabled = computed(() => selectedPrincipals.value.length === 0)
+const addDisabled = computed(() => !editingMember.value && selectedPrincipals.value.length === 0)
 
 const addButtonLabel = computed(() => {
     const n = selectedPrincipals.value.length
-    return n ? `Add ${n}` : 'Add'
+    return n ? t('agentAccess.addCount', { count: n }) : t('agentAccess.add')
 })
 
 function toggleAddPermission(perm: string, checked: boolean) {
@@ -846,6 +866,7 @@ function toggleAddPermission(perm: string, checked: boolean) {
 }
 
 async function openAdd() {
+    editingMember.value = null
     await Promise.all([loadUsers(), loadGroups()])
     selectedPrincipals.value = []
     // Query access is the common case and the safe one, so it is preselected —
@@ -866,32 +887,32 @@ async function addSelected() {
     })
 
     try {
-        await Promise.all(
-            principals.map(p =>
-                useMyFetch(`/data_sources/${dsId}/members`, {
-                    method: 'POST',
-                    body: { ...p },
-                })
-            )
-        )
-        // Membership POST mints a grant with default (query-only) permissions;
-        // apply any picked granular permissions via the resource-grant PUT.
+        const results = await Promise.all(principals.map(p =>
+            useMyFetch(`/data_sources/${dsId}/members`, { method: 'POST', body: { ...p } })
+        ))
         await loadMembers()
-        if (addPermissions.value.length) {
-            const targetIds = new Set(principals.map(p => p.principal_id))
-            await Promise.all(
-                members.value
-                    .filter(m => targetIds.has(m.principal_id))
-                    .map(m => updateMemberPermissions(m, [...addPermissions.value]))
-            )
+        const created = principals.filter((_, i) => !results[i].error?.value)
+        const targets = members.value.filter(m => created.some(p =>
+            p.principal_id === m.principal_id && p.principal_type === m.principal_type
+        ))
+        const permissionsSaved = addPermissions.value.length
+            ? await Promise.all(targets.map(m => updateMemberPermissions(m, [...addPermissions.value])))
+            : targets.map(() => true)
+        if (created.length !== principals.length || targets.length !== created.length || permissionsSaved.some(ok => !ok)) {
+            toast?.add?.({ title: t('agentAccess.addIncomplete'), color: 'red' })
+            // Retry only principals whose membership was not created. Permission
+            // failures can be corrected from the member's access editor.
+            selectedPrincipals.value = principals.filter(p => !created.includes(p))
+                .map(p => `${p.principal_type}:${p.principal_id}`)
+            return
         }
-        toast?.add?.({ title: 'Members added' })
+        toast?.add?.({ title: t('agentAccess.added') })
         selectedPrincipals.value = []
         selectTier('query')
         showAddModal.value = false
         await loadMembers()
     } catch {
-        toast?.add?.({ title: 'Failed to add members', color: 'red' })
+        toast?.add?.({ title: t('agentAccess.addFailed'), color: 'red' })
     } finally {
         adding.value = false
     }

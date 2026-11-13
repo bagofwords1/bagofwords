@@ -8,6 +8,7 @@ from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission
 from app.services.organization_settings_service import OrganizationSettingsService
 from app.schemas.organization_settings_schema import (
+    ConnectionAlertsUpdate,
     EntraProfileSyncConfig,
     GoogleProfileSyncConfig,
     OrgSmtpSchema,
@@ -17,6 +18,7 @@ from app.schemas.organization_settings_schema import (
     OrganizationSettingsSchema,
     OrganizationSettingsUpdate,
     SignupPolicySchema,
+    DefaultMemberRoleSchema,
 )
 
 router = APIRouter(tags=["organization_settings"])
@@ -99,6 +101,30 @@ async def update_organization_locale(
     return await settings_service.update_locale(db, organization, current_user, locale)
 
 
+@router.get("/organization/connection-alerts")
+@requires_permission('manage_settings')
+async def get_organization_connection_alerts(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Whether the org sends connection down/restored alert emails (default on)."""
+    return await settings_service.get_connection_alerts(db, organization, current_user)
+
+
+@router.put("/organization/connection-alerts")
+@requires_permission('manage_settings')
+async def update_organization_connection_alerts(
+    payload: ConnectionAlertsUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Turn connection-alert emails on/off. Pass {"email_enabled": true|false}."""
+    return await settings_service.update_connection_alerts(
+        db, organization, current_user, payload.email_enabled)
+
+
 @router.get("/organization/timezone")
 async def get_organization_timezone(
     current_user: User = Depends(current_user),
@@ -173,6 +199,29 @@ async def update_signup_policy(
     organization: Organization = Depends(get_current_organization),
 ):
     return await settings_service.update_signup_policy(db, organization, current_user, policy)
+
+
+@router.get("/organization/default-member-role", response_model=DefaultMemberRoleSchema)
+@requires_permission('full_admin_access')
+async def get_default_member_role(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    return await settings_service.get_default_member_role(db, organization, current_user)
+
+
+@router.put("/organization/default-member-role", response_model=DefaultMemberRoleSchema)
+@requires_permission('full_admin_access')
+async def update_default_member_role(
+    payload: DefaultMemberRoleSchema,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    return await settings_service.update_default_member_role(
+        db, organization, current_user, payload.role
+    )
 
 
 # --- Entra ID profile / job-info sync (identity providers page) -----------

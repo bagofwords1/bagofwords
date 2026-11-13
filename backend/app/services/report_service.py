@@ -853,6 +853,7 @@ class ReportService:
             conversation_visibility=getattr(report, "conversation_visibility", "none") or "none",
             shared_run_identity=getattr(report, "shared_run_identity", "viewer") or "viewer",
             include_data_tab=bool(getattr(report, "include_data_tab", True)),
+            show_widget_info=bool(getattr(report, "show_widget_info", False)),
             artifact_chat_enabled=bool(getattr(report, "artifact_chat_enabled", False)),
             artifact_chat_data_source_ids=getattr(report, "artifact_chat_data_source_ids", None),
             artifact_chat_model_id=getattr(report, "artifact_chat_model_id", None),
@@ -1553,10 +1554,19 @@ class ReportService:
                     triggered_by_user_id=triggered_by_user_id, report_id=str(report_id),
                 )
         try:
-            result = await self._rerun_report_steps(
-                db, report_id, current_user, organization, artifact_id=artifact_id,
-                notify_subscribers=notify_subscribers, regenerate_thumbnail=regenerate_thumbnail,
-            )
+            # Query tag: "report_refresh.schedule" / ".view" / ".manual", so a
+            # warehouse admin can tell a scheduled refresh from a person.
+            from app.data_sources.query_tag import query_tag_defaults
+            with query_tag_defaults(
+                source=f"report_refresh.{refresh_trigger}" if refresh_trigger else "report_refresh",
+                report_id=report_id,
+                org_id=getattr(organization, "id", None),
+                user_id=getattr(current_user, "id", None),
+            ):
+                result = await self._rerun_report_steps(
+                    db, report_id, current_user, organization, artifact_id=artifact_id,
+                    notify_subscribers=notify_subscribers, regenerate_thumbnail=regenerate_thumbnail,
+                )
         except BaseException as e:
             # Cancelled too (a BaseException): the row ends, never "running".
             await history.finish(run_id, status="failed",
@@ -1637,7 +1647,7 @@ class ReportService:
                     logger.info(f"Rerunning step {step_id} (report {report_id})")
                     # Run as the report run's user (interactive caller, or the
                     # schedule creator for scheduled runs) so user_required
-                    # connections resolve their creds / owner-admin fallback.
+                    # connections resolve their creds / admin fallback.
                     await self.widget_service.step_service.rerun_step(
                         db, step_id, current_user=current_user,
                         report=report, db_clients=db_clients,
@@ -1773,7 +1783,16 @@ class ReportService:
                 logger.warning(f"Refresh history: no title for step {step_id}", exc_info=True)
         return label or None, reason
 
-    async def viewer_rerun_report_steps(
+    async def viewer_rerun_report_steps(self, db: AsyncSession, report_id: str, current_user: User,
+                                        *args, **kwargs) -> dict:
+        """See `_viewer_rerun_report_steps`; this only tags the run's warehouse
+        queries as a viewer's refresh (app/data_sources/query_tag.py)."""
+        from app.data_sources.query_tag import query_tag_defaults
+        with query_tag_defaults(source="viewer_refresh", report_id=report_id,
+                                user_id=getattr(current_user, "id", None)):
+            return await self._viewer_rerun_report_steps(db, report_id, current_user, *args, **kwargs)
+
+    async def _viewer_rerun_report_steps(
         self,
         db: AsyncSession,
         report_id: str,

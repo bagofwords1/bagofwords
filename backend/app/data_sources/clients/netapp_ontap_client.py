@@ -20,6 +20,7 @@ from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_session
 
 from app.ai.prompt_formatters import ForeignKey, Table, TableColumn
 from app.data_sources.clients.base import DataSourceClient
@@ -111,7 +112,7 @@ class NetAppOntapClient(DataSourceClient):
         self.url = url
         self.timeout = self._integer(timeout, "timeout", 1, 120)
         self.max_rows = self._integer(max_rows, "max_rows", 1, 100000)
-        self._session = requests.Session()
+        self._session = pinned_session()
         self._session.trust_env = False
         self._session.auth = (username, password)
         self._session.headers.update({"Accept": "application/json", "User-Agent": "bagofwords-netapp/1"})

@@ -308,6 +308,18 @@
       'html.dark { color-scheme: dark; }',
       'body { background: var(--bow-bg, #fff); color: var(--bow-ink, #111); font-family: var(--bow-font-body, system-ui, sans-serif); -webkit-font-smoothing: antialiased; }',
       '#root table, #root .tabular { font-variant-numeric: tabular-nums; }',
+      // Hebrew and Arabic have no capitals, and letter-spacing pulls their
+      // letters apart (the eyebrow/KPI labels read "ה כ נ ס ו ת"). Reset the
+      // widening utilities where the text itself runs right-to-left; :dir()
+      // follows the nearest dir, so an LTR island (a SKU, a code) keeps its
+      // tracking, and tight tracking on numerals is left alone.
+      ':is(.tracking-wide, .tracking-wider, .tracking-widest, .tracking-eyebrow):dir(rtl) { letter-spacing: normal; }',
+      // Provenance ⓘ: quiet until its card is hovered or focused, or the button
+      // itself is in use, so a page of cards is not a page of icons. Touch
+      // screens have no hover, so it stays clearly visible there.
+      '#root [data-bow-info] > button, [data-bow-ibtn] { opacity: 0.45; transition: opacity 150ms ease-out, color 150ms ease-out, background-color 150ms ease-out; }',
+      '#root :is(:hover, :focus-within) > div > [data-bow-info] > button, #root [data-bow-info] > button:is(:hover, :focus-visible, [aria-expanded="true"]), [data-bow-ibtn]:is(:hover, :focus-visible, [aria-expanded="true"], [data-bow-owner-hot]) { opacity: 1; }',
+      '@media (hover: none) { #root [data-bow-info] > button, [data-bow-ibtn] { opacity: 0.8; } }',
       // Fallback ring only: :where() has zero specificity so any outline-*/ring-*
       // class wins, and text fields are left out (they always match
       // :focus-visible, so a plain `#root :focus-visible` boxed every focused
@@ -1019,6 +1031,14 @@
   }
 
   window.InfoPopover = function(props) {
+    // Per-dashboard off switch (show_widget_info). The host writes
+    // window.__BOW_INFO into the iframe only when the dashboard carries the
+    // setting; left undefined (standalone/precompile/test renders) the popover
+    // shows as before. === false is the single value that hides it, and the
+    // InfoOverlay fallback below reads the same flag. The flag is constant for
+    // the document's life, so this early return never changes the hook count
+    // across renders of a given mounted instance.
+    if (window.__BOW_INFO === false) return null;
     var viz = props.viz;
     var _o = React.useState(false), open = _o[0], setOpen = _o[1];
     var _p = React.useState(null), pos = _p[0], setPos = _p[1];
@@ -1070,7 +1090,7 @@
     // card that hosts it (card > positioning div > this span).
     return h('span', { className: 'inline-flex align-middle', 'data-bow-info': '1' }, [
       h('button', {
-        key: 'btn', ref: btnRef, type: 'button', 'aria-label': 'Details',
+        key: 'btn', ref: btnRef, type: 'button', 'aria-label': 'Details', 'aria-expanded': open ? 'true' : 'false',
         style: Object.assign({ border: 0 }, INFO_BTN_BOX),
         onClick: function(e) { e.stopPropagation(); setOpen(function(o) { return !o; }); },
         className: 'inline-flex items-center justify-center w-5 h-5 rounded-full transition-colors ' + (open ? POP.btnOn : POP.btnOff)
@@ -4202,7 +4222,23 @@
     var _tick = React.useState(0), setTick = _tick[1];
     var _open = React.useState(null), openT = _open[0], setOpenT = _open[1];
     var _tab = React.useState('data'), tab = _tab[0], setTab = _tab[1];
+    // Owner under the pointer or holding focus: its detached marker comes up to
+    // full strength like an inline ⓘ does when its card is hovered.
+    var _hot = React.useState(-1), hot = _hot[0], setHot = _hot[1];
     var panelRef = React.useRef(null);
+    React.useEffect(function() {
+      function track(e) {
+        var tgt = e.target;
+        if (!tgt || !tgt.closest) return;
+        if (tgt.closest('[data-bow-ibtn], [data-bow-panel]')) return; // on its own marker: keep it lit
+        var owner = tgt.closest('[data-bow-viz]');
+        var idx = owner ? Array.prototype.indexOf.call(document.querySelectorAll('[data-bow-viz]'), owner) : -1;
+        setHot(function(prev) { return prev === idx ? prev : idx; });
+      }
+      document.addEventListener('pointerover', track);
+      document.addEventListener('focusin', track);
+      return function() { document.removeEventListener('pointerover', track); document.removeEventListener('focusin', track); };
+    }, []);
     React.useEffect(function() {
       var raf = null;
       function ping() { if (raf) return; raf = requestAnimationFrame(function() { raf = null; setTick(function(c) { return c + 1; }); }); }
@@ -4273,6 +4309,8 @@
       // data-bow-info-for: index of the marked element in document order, so
       // the polish picker can resolve this detached marker to its owner.
       return h('button', { key: 'm' + i, type: 'button', 'data-bow-ibtn': '1', 'data-bow-info-for': String(t.ownerIndex), 'aria-label': 'Details',
+        'aria-expanded': openT && openT.ownerIndex === t.ownerIndex ? 'true' : 'false',
+        'data-bow-owner-hot': hot === t.ownerIndex ? '1' : undefined,
         onClick: function(e) { e.stopPropagation(); setTab('data'); setOpenT(t); },
         style: Object.assign({ position: 'fixed', top: top, left: left, zIndex: 99998 }, INFO_BTN_BOX),
         className: 'inline-flex items-center justify-center w-5 h-5 rounded-full bg-surface/80 backdrop-blur text-ink-3 hover:text-ink border border-line shadow-card transition-colors' }, _infoGlyph(14));

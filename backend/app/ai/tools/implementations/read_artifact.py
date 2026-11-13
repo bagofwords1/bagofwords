@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import lazyload, selectinload
 
+from app.services.artifact_payload import row_count_fields
 from app.ai.tools.artifact_read_budget import budget_artifact_read
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
@@ -37,6 +38,7 @@ from app.ai.tools.implementations._text_window import (
     grep_lines as grep_code,
     outline_from_patterns,
 )
+from app.ai.tools.implementations._artifact_refs import migrate_positional_viz_refs
 from app.ai.tools.implementations._sandbox_context import (
     SANDBOX_RUNTIME_OBSERVATION,
     ANON_PREVIEW_NOTE,
@@ -248,6 +250,13 @@ class ReadArtifactTool(Tool):
                 for i, s in enumerate(slides)
             )
 
+        # Show page code exactly as edit_artifact matches it: legacy
+        # positional viz[N] refs read as vizById("<id>"), so a `find` quoted
+        # from here is the text the edit is applied to. Line-preserving — the
+        # outline, slice and grep line numbers stay valid.
+        if artifact.mode == "page":
+            code, _ = migrate_positional_viz_refs(code, [str(v) for v in content.get("visualization_ids") or []])
+
         total_chars = len(code)
         total_lines = code.count("\n") + 1 if code else 0
 
@@ -451,7 +460,7 @@ class ReadArtifactTool(Tool):
                         "data_model_type": (view_dict.get("view") or {}).get("type") or view_dict.get("type"),
                         "columns": raw_columns,
                         "column_info": column_info,
-                        "row_count": len(rows),
+                        **row_count_fields(step_data),
                         "rows": rows,
                         "dataModel": data_model or {},
                     }

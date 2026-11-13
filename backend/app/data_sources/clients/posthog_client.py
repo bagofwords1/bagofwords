@@ -3,6 +3,7 @@ from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 import logging
 import requests
+from app.core.egress import pinned_session
 import pandas as pd
 import time
 from contextlib import contextmanager
@@ -160,12 +161,15 @@ class PostHogClient(DataSourceClient):
 
     # Resolved lazily by fast/sources.source_for.
     EXTRACTION_SOURCE = staticmethod(_posthog_extraction_source)
+    # The dialect a custom table's refresh window is written in
+    # (app/data_sources/fast/incremental.py).
+    INCREMENTAL_DIALECT = "hogql"
 
     @contextmanager
     def connect(self):
         """Create a requests session for API calls."""
         try:
-            session = requests.Session()
+            session = pinned_session()
             session.headers.update({
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",

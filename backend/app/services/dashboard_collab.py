@@ -594,6 +594,14 @@ async def join(db, artifact: Artifact, user, organization, *, draft: ArtifactDra
     release = await published_release(db, artifact) if source_version is None else None
     if source_version is None and release is None:
         raise AppError.conflict(ErrorCode.DASHBOARD_EDIT_FIRST, "There is nothing to edit yet")
+    # A copy of the draft's newest version changes nothing (an editor
+    # joining, a new named draft); other content put on top of the draft --
+    # an older version or the live release brought over newer work -- is a
+    # revert, and moves the dashboard's Edited time.
+    head = await head_version(db, artifact, draft_id)
+    copied_id = str(source_version.id) if source_version is not None else (
+        str(release.source_version_id) if release.source_version_id else None)
+    copies_older = head is not None and copied_id != str(head.id)
 
     if source_version is not None:
         src_report = await db.get(Report, str(source_version.report_id))
@@ -642,6 +650,7 @@ async def join(db, artifact: Artifact, user, organization, *, draft: ArtifactDra
             await db.get(ArtifactVersion, str(release.source_version_id)) if release.source_version_id else None)
         version = await new_version(db, latest, content=content, user_id=str(user.id), report_id=str(report.id),
                                     status="completed", base_version_id=base_version_id, draft_id=draft_id,
+                                    content_changed=copies_older,
                                     generation_prompt=getattr(spec_source, "generation_prompt", None),
                                     **({"pptx_path": deck} if deck else {}))
         # The charts are the source's, unchanged: their fingerprints carry
@@ -985,7 +994,8 @@ async def rollback(db, artifact: Artifact, user, organization, release_id: str) 
     ran_at = max((t for t in (refreshed, release.published_at) if t is not None), default=None)
     await db.execute(update(Artifact).where(Artifact.id == str(artifact.id))
                      .values(published_release_id=str(release.id), last_run_at=ran_at,
-                             last_run_status="success", last_run_error=None))
+                             last_run_status="success", last_run_error=None,
+                             content_updated_at=datetime.utcnow()))
     await db.commit()
     await _audit(db, artifact, user, "dashboard.rolled_back", {"release_id": str(release.id), "from": previous})
 
@@ -1003,6 +1013,7 @@ async def transfer(db, artifact: Artifact, actor, organization, new_owner_id: st
     previous = str(artifact.owner_id) if artifact.owner_id else None
     if previous == str(target.id):
         return
+    created_at = artifact.created_at
     await db.execute(update(Artifact).where(Artifact.id == str(artifact.id)).values(owner_id=str(target.id)))
     from sqlalchemy import delete
     await db.execute(delete(ArtifactShare).where(ArtifactShare.artifact_id == str(artifact.id),
@@ -1010,7 +1021,10 @@ async def transfer(db, artifact: Artifact, actor, organization, new_owner_id: st
     if previous:
         await db.execute(delete(ArtifactShare).where(ArtifactShare.artifact_id == str(artifact.id),
                                                      ArtifactShare.user_id == previous))
-        db.add(ArtifactShare(artifact_id=str(artifact.id), user_id=previous, role="edit"))
+        # They had the dashboard all along: dated at its creation, the share
+        # is not a new reach (the Shared tab's "new", ADR-4).
+        db.add(ArtifactShare(artifact_id=str(artifact.id), user_id=previous, role="edit",
+                             created_at=created_at))
     # Readers' runs on the owner's credentials ran as the previous owner:
     # whose credentials they run with changes here (#1455 review).
     from app.services.dashboard_settings_service import _drop_viewer_results

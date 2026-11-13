@@ -499,13 +499,17 @@ async function updateMemberPermissions(m: MemberGrant, newPerms: string[]) {
 
 async function removeMember(m: MemberGrant) {
     const dsId = route.params.id as string
-    try {
-        await useMyFetch(`/data_sources/${dsId}/members/${m.principal_id}`, { method: 'DELETE' })
-        members.value = members.value.filter(x => x.grant_id !== m.grant_id)
-        toast?.add?.({ title: 'Member removed' })
-    } catch {
+    // useMyFetch reports HTTP failures via `error`, it does not throw.
+    const { error } = await useMyFetch(`/data_sources/${dsId}/members/${m.principal_id}`, {
+        method: 'DELETE',
+        query: { principal_type: m.principal_type || 'user' },
+    })
+    if (error?.value) {
         toast?.add?.({ title: 'Failed to remove member', color: 'red' })
+        return
     }
+    members.value = members.value.filter(x => x.grant_id !== m.grant_id)
+    toast?.add?.({ title: 'Member removed' })
 }
 
 // ── Add member modal ────────────────────────────────────────────────────

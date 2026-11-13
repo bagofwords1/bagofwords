@@ -44,6 +44,9 @@ class _FakeResponse:
 
 
 class _FakeSession:
+    def mount(self, prefix, adapter):
+        pass
+
     """Routing table keyed by path. Records every call so tests can assert the
     HTTP method a given endpoint was reached with (a real contract: Prometheus
     rejects POST on the label/metadata endpoints with 405)."""

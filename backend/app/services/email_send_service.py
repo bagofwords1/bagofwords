@@ -392,8 +392,8 @@ class EmailSendService:
             base = ""
         url = f"{base}/reports/{rid}"
         hint = (
-            "Reply to this email to continue the conversation, or open it in Bag of words:"
-            if can_reply else "Open this in Bag of words:"
+            "Reply to this email to continue the conversation, or open it in BOW:"
+            if can_reply else "Open this in BOW:"
         )
         if subtype == "html":
             return (
@@ -670,7 +670,8 @@ class EmailSendService:
         if not f:
             res.error = "File not found"
             return res, None, None
-        if not f.path or not os.path.isfile(f.path):
+        from app.services import storage
+        if not f.path or not await storage.aensure_local(f.path):
             res.error = "File is no longer available on disk"
             return res, None, None
 

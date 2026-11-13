@@ -373,6 +373,7 @@ class AwsCloudWatchClient(DataSourceClient):
             except IndexingCancelled:
                 raise
             except Exception as e:
+                self.mark_discovery_incomplete("aws_cloudwatch catalog")
                 logger.info("CloudWatch: metric discovery failed for %s: %s", ns, e)
 
         tables: List[Table] = []

@@ -2,6 +2,8 @@
 Connection Routes - Admin-only CRUD for database connections.
 Connections are the underlying database connections that Domains (DataSources) link to.
 """
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +33,8 @@ from app.schemas.connection_schema import (
     ConnectionSchema,
     ConnectionDetailSchema,
     ConnectionTableSchema,
+    ConnectionTablePreviewSchema,
+    ConnectionTablePreviewSqlSchema,
     ConnectionTestOverride,
     ConnectionTestResult,
     ConnectionToolTestRequest,
@@ -56,8 +60,12 @@ from app.schemas.custom_query_schema import (
     CustomQuerySchema,
     RlsPrincipal,
     CustomQueryTarget,
+    CustomTableRunDetail,
+    CustomTableRunList,
 )
+from app.services import custom_table_runs
 from app.services.custom_query_service import custom_query_service, is_accelerable_type
+from app.services.table_preview_service import table_preview_service, is_previewable_table
 from app.errors import AppError, ErrorCode
 from app.services.member_attributes import require_attribute_admin
 from app.services.member_identity import (
@@ -537,6 +545,7 @@ async def get_connection(
     from app.services.connection_identity import management_requires_user_auth
     personal_management = management_requires_user_auth(connection)
     query_limits = await _query_limit_fields(db, organization, config if can_manage else {})
+    from app.services.connection_alerts import org_email_enabled
     return ConnectionDetailSchema(
         id=str(connection.id),
         name=connection.name,
@@ -573,6 +582,8 @@ async def get_connection(
         rate_limit_per_minute=connection.rate_limit_per_minute,
         rate_limit_per_hour=connection.rate_limit_per_hour,
         rate_limit_per_day=connection.rate_limit_per_day,
+        alert_emails_enabled=connection.alert_emails_enabled is not False,
+        org_alert_emails_enabled=await org_email_enabled(db, str(organization.id)),
         **query_limits,
         data_shape=data_shape_for(connection.type),
         catalog_nouns=catalog_nouns_override(connection.type),
@@ -818,6 +829,38 @@ async def test_connection(
         timings=result.get("timings"),
         details=result.get("details"),
     )
+
+
+@router.post("/{connection_id}/kms-diagnostics")
+@requires_resource_permission('connection', 'manage_connection')
+async def run_kms_diagnostics(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """On-site diagnostics of a KMS Lighthouse connection: a report, also when the run fails."""
+    from app.data_sources.clients.kms_lighthouse_diagnostics import (
+        build_failure_report, route_seconds, start_run, timed_out_report,
+    )
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    if connection.type != "kms_lighthouse":
+        raise AppError.bad_request(ErrorCode.CONNECTION_KMS_ONLY, "Diagnostics apply to KMS Lighthouse connections only.")
+    config, run_key = connection.config, str(connection.id)
+    try:
+        client = await connection_service.construct_client(db, connection, current_user)
+    except Exception as exc:
+        return build_failure_report(config, exc)
+    # The run may take 90 s against a remote host: it must not hold a pooled DB connection.
+    await release_request_db(db)
+    run = start_run(run_key, client)
+    if run is None:
+        raise AppError.conflict(ErrorCode.CONNECTION_KMS_DIAGNOSTICS_RUNNING,
+                                "Diagnostics are already running for this connection.")
+    try:
+        return await asyncio.wait_for(asyncio.shield(run), route_seconds())
+    except asyncio.TimeoutError:
+        return timed_out_report(config)
 
 
 class MemberIdentityPreviewRequest(BaseModel):
@@ -1200,15 +1243,8 @@ async def refresh_my_connection_schema(
     from app.services.data_source_service import DataSourceService
     from app.models.user_data_source_overlay import UserDataSourceTable
     ds_service = DataSourceService()
-    unreadable = []
-    for ds in (connection.data_sources or []):
-        try:
-            # Live fetch with the user's creds + upsert their overlay (same path
-            # the OAuth callback runs after sign-in).
-            await ds_service.get_user_data_source_schema(db=db, data_source=ds, user=current_user, force_refresh=True)
-            unreadable.extend(getattr(ds_service, "last_discovery_diagnostics", []) or [])
-        except Exception as e:
-            logger.warning(f"Per-user schema refresh failed for data source {ds.id}: {e}")
+    await ds_service.refresh_user_connection_catalog(db, connection, current_user)
+    unreadable = ds_service.last_discovery_diagnostics
 
     # Recompute the user's accessible table count for this connection.
     ds_ids = [str(ds.id) for ds in (connection.data_sources or [])]
@@ -1404,7 +1440,8 @@ async def get_connection_tables(
     # Non-managers see only the tables their visible agents have selected:
     # a table deselected on every agent they can use is not theirs to browse.
     selected_ids = None
-    if not await _can_manage_connection(db, organization, current_user, connection):
+    can_manage = await _can_manage_connection(db, organization, current_user, connection)
+    if not can_manage:
         resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
         linked_ids = {str(ds.id) for ds in (connection.data_sources or [])}
         manages_linked_agent = any(
@@ -1440,7 +1477,82 @@ async def get_connection_tables(
             id=str(table.id),
             name=table.name,
             column_count=len(table.columns) if table.columns else 0,
+            preview_supported=can_manage and is_previewable_table(connection.type, table),
         ))
+    return result
+
+
+@router.get("/{connection_id}/completions")
+@requires_resource_permission('connection', 'manage_connection')
+async def get_connection_completions(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Table and column names for the query editor's suggestions.
+
+    Gated like the editors that use it (table preview, custom tables): only a
+    connection manager writes queries against the source here. Each name comes
+    with the text to insert, quoted only where the dialect needs it.
+    """
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    return await table_preview_service.completions(db, connection)
+
+
+@router.get(
+    "/{connection_id}/tables/{table_id}/preview/sql",
+    response_model=ConnectionTablePreviewSqlSchema,
+)
+@requires_resource_permission('connection', 'manage_connection')
+async def preview_connection_table_sql(
+    connection_id: str,
+    table_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """The preview query for one table, built from the catalog but *not run*.
+
+    The modal fetches this on open so it can show what would run; the source is
+    only queried once the manager presses Run (GET .../preview). No row data is
+    read here, so there is nothing to audit.
+    """
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    table = await table_preview_service.get_table(db, connection, table_id)
+    return table_preview_service.sql_only(connection, table)
+
+
+@router.get(
+    "/{connection_id}/tables/{table_id}/preview",
+    response_model=ConnectionTablePreviewSchema,
+)
+@requires_resource_permission('connection', 'manage_connection')
+async def preview_connection_table(
+    connection_id: str,
+    table_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Sample rows from one introspected table, for connection managers.
+
+    The query is built server-side from the catalog row (quoted for the
+    source's dialect) — the caller only names which table.
+    """
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    table = await table_preview_service.get_table(db, connection, table_id)
+    result = await table_preview_service.preview(db, connection, table, current_user)
+    try:
+        # Reading source rows is data access, not configuration: record it.
+        await audit_service.log(
+            db, organization_id=str(organization.id), user_id=str(current_user.id),
+            action="connection.table.previewed",
+            resource_type="connection", resource_id=str(connection.id),
+            details={"connection": connection.name, "table": table.name},
+        )
+    except Exception:
+        pass
     return result
 
 
@@ -1496,7 +1608,8 @@ async def preview_custom_query(
     await custom_query_service.ensure_enabled(db, organization)
     connection = await connection_service.get_connection(db, connection_id, organization)
     return await custom_query_service.preview(
-        db, connection, payload.definition_sql, current_user, target=payload.target
+        db, connection, payload.definition_sql, current_user, target=payload.target,
+        refresh_config=payload.refresh_config.model_dump() if payload.refresh_config else None,
     )
 
 
@@ -1538,13 +1651,16 @@ async def create_custom_query(
         organization=organization,
         activate_for_datasource_id=payload.activate_for_datasource_id,
         target=payload.target,
+        refresh_mode=payload.refresh_mode,
+        refresh_config=payload.refresh_config.model_dump(exclude_unset=True) if payload.refresh_config else None,
     )
     try:
         await audit_service.log(
             db, organization_id=str(organization.id), user_id=str(current_user.id),
             action="connection.custom_query.created",
             resource_type="connection", resource_id=str(connection.id),
-            details={"connection": connection.name, "name": cq.name, "rows": cq.no_rows},
+            details={"connection": connection.name, "name": cq.name, "rows": cq.no_rows,
+                     "refresh_mode": cq.refresh_mode},
         )
     except Exception:
         pass
@@ -1577,6 +1693,8 @@ async def update_custom_query(
         refresh_at_time=payload.refresh_at_time,
         current_user=current_user,
         organization_timezone=await custom_query_service._org_timezone(db, organization),
+        refresh_mode=payload.refresh_mode,
+        refresh_config=payload.refresh_config.model_dump(exclude_unset=True) if payload.refresh_config else None,
         **({"target": payload.target} if "target" in payload.model_fields_set else {}),
     )
     try:
@@ -1599,18 +1717,59 @@ async def update_custom_query(
 async def refresh_custom_query(
     connection_id: str,
     cq_id: str,
+    full: bool = False,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
+    """Refresh now. `full=true` rebuilds an incremental table from scratch
+    instead of reading only what is new."""
     await custom_query_service.ensure_enabled(db, organization)
     connection = await connection_service.get_connection(db, connection_id, organization)
     cq = await custom_query_service.get_custom_query(db, str(connection.id), cq_id)
-    cq = await custom_query_service.refresh(db, connection, cq, current_user=current_user)
+    cq = await custom_query_service.refresh(db, connection, cq, current_user=current_user, full=full)
     return CustomQuerySchema.from_model(
         cq, await _active_agent_count(db, cq.id),
         next_run_at=custom_query_service.next_run_at(str(cq.id)),
     )
+
+
+@router.get("/{connection_id}/custom-queries/{cq_id}/runs", response_model=CustomTableRunList)
+@requires_resource_permission('connection', 'manage_connection')
+async def list_custom_query_runs(
+    connection_id: str,
+    cq_id: str,
+    limit: int = 20,
+    before: Optional[str] = None,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """The table's refresh history, newest first."""
+    await custom_query_service.ensure_enabled(db, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    cq = await custom_query_service.get_custom_query(db, str(connection.id), cq_id)
+    return await custom_table_runs.list_runs(db, str(cq.id), limit=max(1, min(limit, 100)), before=before)
+
+
+@router.get("/{connection_id}/custom-queries/{cq_id}/runs/{run_id}", response_model=CustomTableRunDetail)
+@requires_resource_permission('connection', 'manage_connection')
+async def get_custom_query_run(
+    connection_id: str,
+    cq_id: str,
+    run_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """One refresh in full: the query as sent, each window, and its log."""
+    await custom_query_service.ensure_enabled(db, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    cq = await custom_query_service.get_custom_query(db, str(connection.id), cq_id)
+    run = await custom_table_runs.get_run(db, str(cq.id), run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return run
 
 
 @router.delete("/{connection_id}/custom-queries/{cq_id}")

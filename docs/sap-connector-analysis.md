@@ -110,7 +110,7 @@ Flow: `ConnectionIndexingService`
   per-(user, connection) credentials/tokens with `auth_mode`, `expires_at`.
 - **`ConnectionService.resolve_credentials`** is the single source of truth for
   delegated/OBO tokens, OAuth refresh, the admin query-identity toggle, and the
-  owner/admin system fallback. `DataSourceService.resolve_credentials`
+  admin system fallback. `DataSourceService.resolve_credentials`
   (`data_source_service.py:1876`) selects per-user creds for `user_required` sources.
 - **Delegated OAuth engine** `backend/app/services/connection_oauth_service.py`:
   per-provider authorize/token URL builders (Microsoft, Google, ServiceNow,

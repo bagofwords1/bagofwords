@@ -1,11 +1,26 @@
 ---
 name: sandbox-feedback-loop
-description: Boot a full local Bag of Words sandbox (backend + frontend + real LLM), drive it end-to-end through the UI with Playwright, and verify behavior at the DB / backend-log / HTTP layers. Use when a change needs real e2e validation (agent context, chat flows, file uploads, LLM behavior) rather than just unit tests.
+description: Boot a full local BOW sandbox (backend + frontend + real LLM), drive it end-to-end through the UI with Playwright, and verify behavior at the DB / backend-log / HTTP layers. Use when a change needs real e2e validation (agent context, chat flows, file uploads, LLM behavior) rather than just unit tests.
 ---
 
 # Sandbox feedback loop
 
 Boot the app, drive it through the real UI, verify at every layer. Iterate.
+
+Check `echo $BOW_SANDBOX_DEVBOX` first. If it is `1`, follow section 0 and
+skip sections 1 and 2 entirely; if it is unset or `0`, skip section 0.
+
+## 0. DevBox (`BOW_SANDBOX_DEVBOX=1`)
+
+- Skip section 1 (boot + all its caveats) — none of it applies in a DevBox.
+- Skip section 2 — the user, org and LLM are already seeded.
+- The backend and frontend are managed by `bow-stack`; run `bow-stack --help`
+  for the available commands (start, stop, restart, etc.). Never start or kill
+  backend/frontend processes yourself.
+- Playwright browsers are pre-installed in the default location: don't set
+  `executablePath` or `PLAYWRIGHT_BROWSERS_PATH`, and never run
+  `playwright install` (this overrides the `executablePath` note in section 3).
+- Sections 3–6 (driving the UI, agents, verification, iterating) still apply.
 
 ## 1. Boot the sandbox
 

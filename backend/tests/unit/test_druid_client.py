@@ -20,6 +20,7 @@ import types
 import pandas as pd
 import pytest
 
+from tests.utils.egress_fakes import one_shot
 from app.data_sources.clients.druid_client import DruidClient
 
 
@@ -149,7 +150,7 @@ class TestBasicTokenAuth:
     def test_execute_query_sends_verbatim_basic_header(self, monkeypatch):
         post = _CapturingPost(_FakeResponse(200, [{"day": "2026-06-16", "cnt": 5}]))
         monkeypatch.setattr(
-            "app.data_sources.clients.druid_client.requests.post", post
+            "app.data_sources.clients.druid_client.pinned_request", one_shot(post)
         )
         c = DruidClient(
             host="broker.example",
@@ -173,7 +174,7 @@ class TestBasicTokenAuth:
     def test_non_200_raises(self, monkeypatch):
         post = _CapturingPost(_FakeResponse(401, [], text="Unauthorized"))
         monkeypatch.setattr(
-            "app.data_sources.clients.druid_client.requests.post", post
+            "app.data_sources.clients.druid_client.pinned_request", one_shot(post)
         )
         c = DruidClient(host="h", basic_token="pok_bad")
         with pytest.raises(RuntimeError, match="401"):
@@ -186,7 +187,7 @@ class TestBasicTokenAuth:
         ]
         post = _CapturingPost(_FakeResponse(200, rows))
         monkeypatch.setattr(
-            "app.data_sources.clients.druid_client.requests.post", post
+            "app.data_sources.clients.druid_client.pinned_request", one_shot(post)
         )
         c = DruidClient(host="h", basic_token="pok_x")
         tables = c.get_tables()
@@ -196,7 +197,7 @@ class TestBasicTokenAuth:
     def test_test_connection_success(self, monkeypatch):
         post = _CapturingPost(_FakeResponse(200, [{"EXPR$0": 1}]))
         monkeypatch.setattr(
-            "app.data_sources.clients.druid_client.requests.post", post
+            "app.data_sources.clients.druid_client.pinned_request", one_shot(post)
         )
         res = DruidClient(host="h", basic_token="pok_x").test_connection()
         assert res["success"] is True

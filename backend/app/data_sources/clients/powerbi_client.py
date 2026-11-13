@@ -3,6 +3,7 @@ from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ForeignKey, ServiceFormatter
 from typing import List, Dict, Optional, Tuple
 import requests
+from app.core.egress import pinned_request, pinned_session
 import pandas as pd
 import re
 from urllib.parse import unquote
@@ -89,6 +90,13 @@ class PowerBIClient(DataSourceClient):
         from app.data_sources.fast.powerbi_source import PowerBISource
 
         return PowerBISource(client)
+
+    @staticmethod
+    def render_window(query, column, kind, window):
+        """A custom table's refresh window, written into its DAX."""
+        from app.data_sources.fast.powerbi_source import window_dax
+
+        return window_dax(query, column, kind, window)
 
     def __init__(
         self,
@@ -311,7 +319,7 @@ class PowerBIClient(DataSourceClient):
 
         # If a delegated access_token was provided, just set up the session
         if self._access_token:
-            self._http = requests.Session()
+            self._http = pinned_session()
             return
 
         auth_url = self.AUTH_URL.format(tenant_id=self.tenant_id)
@@ -322,7 +330,7 @@ class PowerBIClient(DataSourceClient):
             "scope": self.SCOPE,
         }
 
-        resp = requests.post(auth_url, data=payload, timeout=30)
+        resp = pinned_request("POST", auth_url, data=payload, timeout=30)
         if resp.status_code >= 300:
             raise RuntimeError(f"Failed to authenticate with Azure AD: HTTP {resp.status_code} {resp.text}")
 
@@ -332,7 +340,7 @@ class PowerBIClient(DataSourceClient):
             raise RuntimeError("Authentication did not return access token")
 
         self._access_token = token
-        self._http = requests.Session()
+        self._http = pinned_session()
 
     def refresh_user_permissions(self) -> bool:
         """Force Power BI to re-evaluate THIS user's cached permissions.
@@ -1511,6 +1519,7 @@ UNION(
                     except IndexingCancelled:
                         raise
                     except Exception:
+                        self.mark_discovery_incomplete("powerbi catalog")
                         ws_datasets[ws["id"]] = []
 
                 for fut in discovery_items(as_completed(rpt_futures), 'workspace_reports', label=lambda fut: rpt_futures[fut].get('name'), total=len(rpt_futures)):
@@ -1857,6 +1866,7 @@ UNION(
 
         probed = unlisted[: self.MAX_UNLISTED_PROBES]
         if len(unlisted) > len(probed):
+            self.mark_discovery_incomplete("item-shared model probe limit")
             logging.warning(
                 "PowerBI discovery: %d unlisted dataset(s) known to the catalog, probing "
                 "only the first %d (executeQueries rate limit); the rest are omitted "
@@ -1884,6 +1894,7 @@ UNION(
                     except IndexingCancelled:
                         raise
                     except Exception:
+                        self.mark_discovery_incomplete("powerbi catalog")
                         continue
                     if not ok:
                         # Report only a refusal Power BI named. The model is in
@@ -1940,10 +1951,13 @@ UNION(
             )
             if resp.status_code < 300:
                 return True, ""
+            if resp.status_code == 429 or resp.status_code >= 500:
+                self.mark_discovery_incomplete("item-shared model probe failed")
             return False, self._named_denial(resp)
         except IndexingCancelled:
             raise
         except Exception:
+            self.mark_discovery_incomplete("powerbi catalog")
             return False, ""
 
     def _tables_from_prior(

@@ -8,7 +8,9 @@ from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.services.artifact_payload import row_count_fields
 from app.ai.tools.mcp.base import MCPTool
+from app.errors.redact import describe_for_log
 from app.ai.tools.mcp.context import build_rich_context
 from app.ai.llm import LLM
 from app.models.user import User
@@ -93,6 +95,7 @@ class CreateArtifactMCPTool(MCPTool):
             organization=organization,
             report=report,
             prompt=input_data.prompt,
+            instruction_ids=input_data.instruction_ids,
         )
 
         # Check if we have a model
@@ -188,7 +191,8 @@ class CreateArtifactMCPTool(MCPTool):
                 usage_scope_ref_id=str(report.id),
             )
         except Exception as e:
-            logger.exception("LLM inference failed for create_artifact")
+            # A provider error can quote the prompt, which carries the client's request.
+            logger.error("LLM inference failed for create_artifact: %s", describe_for_log(e))
             await self._finish_tracking(
                 db, tracking, success=False,
                 summary=f"Code generation failed: {str(e)}"
@@ -313,6 +317,8 @@ class CreateArtifactMCPTool(MCPTool):
             view_dict = viz.view or {}
             query_id = str(viz.query_id) if viz.query_id else None
             query_data = query_data_lookup.get(query_id, {}) if query_id else {}
+            step = viz.query.default_step or (viz.query.steps[-1] if viz.query.steps else None)
+            counts = row_count_fields(step.data if step else None)
 
             ventry = {
                 "id": str(viz.id),
@@ -321,7 +327,9 @@ class CreateArtifactMCPTool(MCPTool):
                 "view": view_dict,
                 "data_model_type": (view_dict.get("view") or {}).get("type") or view_dict.get("type"),
                 "columns": query_data.get("columns", []),
-                "row_count": query_data.get("row_count", 0),
+                "row_count": counts["row_count"] or query_data.get("row_count", 0),
+                "loaded_row_count": counts["loaded_row_count"],
+                "truncated": counts["truncated"],
                 "rows": query_data.get("rows", []),
                 "dataModel": query_data.get("dataModel", {}),
             }

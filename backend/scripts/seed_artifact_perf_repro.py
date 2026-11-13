@@ -131,8 +131,8 @@ async def seed_report(db, org, user, label: str, rows_per_step: int) -> dict:
         await db.flush()
         viz_ids.append(str(viz.id))
 
-        option_code = generate_echart_option_code(data_model, qi)
-        sections.append(generate_section_jsx(title, option_code, viz_index=qi))
+        option_code = generate_echart_option_code(data_model, str(viz.id))
+        sections.append(generate_section_jsx(title, option_code, str(viz.id)))
 
     artifact = await new_artifact(
         db,

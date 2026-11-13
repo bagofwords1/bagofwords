@@ -151,7 +151,7 @@
           :rename="canRename ? renameTo : undefined"
           :resources-available="resourcesAvailable && !verificationPreview"
           :show-analytics="(isReportOwner || dashboardCaps.includes('analytics')) && !verificationPreview"
-          @history-changed="onHistoryChanged" />
+          @history-changed="onHistoryChanged" @saved="onSettingsSaved" />
 
         <!-- Everything used less than daily lives behind one ⋯ with labelled
              rows: rename, every export (download), full screen, new tab.
@@ -666,6 +666,7 @@ import { artifactLibSources, ensureArtifactLibs, whenArtifactLibsSettled } from 
 
 import { polishPromptPosition as computePolishPromptPosition, buildPolishPrompt } from '~/utils/polishPrompt';
 import { newestVersionOf } from '~/utils/artifactVersionLatest';
+import { artifactRowCounts } from '~/utils/artifactRowCounts';
 import { viewingPath } from '~/utils/dashboardViewing';
 
 // A dashboard keeps its own dense chart and grid sizes even when it sits
@@ -1494,6 +1495,7 @@ async function runParamQueries(
       for (const viz of visualizationsData.value) {
         if (viz.queryId === qid) {
           viz.rows = res.data?.rows || [];
+          Object.assign(viz, artifactRowCounts(res.data));
           viz.columns = res.data?.columns || [];
           viz.stepStatus = 'success';
         }
@@ -1915,6 +1917,15 @@ const publishKey = ref(0);
 function onHistoryChanged() {
   publishKey.value += 1;
   loadDashboardMeta(true);
+}
+
+// Viewer settings saved: re-render the canvas for the display-only ones that
+// show on it. The per-widget ⓘ (show_widget_info) flips window.__BOW_INFO in
+// the iframe, so updating reportData rebuilds the srcdoc live — no reload.
+function onSettingsSaved(settings: any) {
+  if (settings && typeof settings.show_widget_info === 'boolean' && reportData.value) {
+    reportData.value = { ...reportData.value, show_widget_info: settings.show_widget_info };
+  }
 }
 
 // --- Rename the dashboard ------------------------------------------------
@@ -2822,7 +2833,10 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
       reportData.value = {
         id: reportSnapshot.id,
         title: reportSnapshot.title,
-        theme: reportSnapshot.theme_name || reportSnapshot.report_theme_name
+        theme: reportSnapshot.theme_name || reportSnapshot.report_theme_name,
+        // The per-widget ⓘ provenance popover (per dashboard). The report read
+        // overlays the dashboard's value (conversation_dashboard.report_fields).
+        show_widget_info: !!reportSnapshot.show_widget_info,
       };
       reportDataSources = reportSnapshot.data_sources || [];
     }
@@ -2925,6 +2939,7 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
           title: viz.title || query.title || 'Untitled',
           view: viz.view || {},
           rows: step?.data?.rows || [],
+          ...artifactRowCounts(step?.data),
           columns: step?.data?.columns || [],
           dataModel: step?.data_model || {},
           stepStatus: step?.status,
@@ -3420,6 +3435,8 @@ function frameIframeOptions(seed: any, artifactCode: string) {
     loadingLabel: t('artifactFrame.loadingArtifact'),
     reactBuild: 'development' as const,
     colorMode: artifactColorMode,
+    // The per-widget ⓘ provenance popover, off by default (per dashboard).
+    showWidgetInfo: !!reportData.value?.show_widget_info,
     // Used only when its key matches artifactCode (artifactIframe.ts), so an
     // artifactCode prop override or a stale selection always compiles in-frame.
     precompiled: { js: selectedArtifact.value?.compiled_js, key: selectedArtifact.value?.compiled_js_key },

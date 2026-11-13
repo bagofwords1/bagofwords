@@ -68,6 +68,11 @@ class Artifact(BaseSchema):
     slug = Column(String(255), nullable=True)
     shared_run_identity = Column(String(20), nullable=False, default='viewer', server_default='viewer')
     include_data_tab = Column(Boolean, nullable=False, default=True, server_default='1')
+    # The per-object provenance popover (the ⓘ on each widget, showing its
+    # Data / Code / Calculation) on this dashboard's pages. Off by default: the
+    # owner turns it on per dashboard in settings. Display-only, like the Data
+    # tab — it reveals nothing the artifact iframe isn't already served.
+    show_widget_info = Column(Boolean, nullable=False, default=False, server_default='0')
     # "Made with BOW" on this dashboard's pages; the organization's setting
     # (general.bow_credit) still turns it off everywhere.
     bow_credit = Column(Boolean, nullable=False, default=True, server_default='1')
@@ -97,6 +102,10 @@ class Artifact(BaseSchema):
     # Collaboration (collab01): the dashboard's notes -- its README, carried
     # into every editing conversation.
     notes = Column(Text, nullable=True)
+    # When the dashboard's content last changed (dashlist01): a completed
+    # version, a rename, a publish, a restore. Never a data refresh, which
+    # moves updated_at. NULL reads as created_at.
+    content_updated_at = Column(DateTime, nullable=True, index=True)
 
     # Never loaded implicitly: a version's content JSON can be ~100kB.
     versions = relationship(
@@ -242,3 +251,5 @@ class ArtifactVersion(BaseSchema):
 # e.g. the agent-delete foreign-key guard, must see them).
 from app.models import artifact_release  # noqa: E402,F401
 from app.models import dashboard_refresh_run  # noqa: E402,F401
+from app.models import artifact_star  # noqa: E402,F401
+from app.models import artifact_list_seen  # noqa: E402,F401

@@ -781,7 +781,8 @@ async def _go_live(db, release_id: str, *, step_failures: list | None = None) ->
             return False
         await db.execute(update(Artifact).where(Artifact.id == artifact_id)
                          .values(published_release_id=release_id, last_run_at=datetime.utcnow(),
-                                 last_run_status="success", last_run_error=None))
+                                 last_run_status="success", last_run_error=None,
+                                 content_updated_at=datetime.utcnow()))
         return True
 
     if not await switch():

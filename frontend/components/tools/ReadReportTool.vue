@@ -16,6 +16,9 @@
       <span v-if="reportMode && reportMode !== 'chat' && status === 'success' && found" class="ms-2 px-1.5 py-0.5 rounded text-chat-3 font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
         {{ reportMode }}
       </span>
+      <!-- Paging position, like read_file's window badge. -->
+      <span v-if="anyTruncated" class="ms-2 text-chat-3 text-yellow-600">{{ t('tools.readFile.truncated') }}</span>
+      <span v-if="windowLabel" class="ms-2 text-chat-3 px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">{{ windowLabel }}</span>
     </div>
 
     <!-- Collapsible content -->
@@ -45,12 +48,15 @@
         <div v-if="conversation.length">
           <div class="text-chat-3 font-medium text-gray-500 dark:text-gray-400 mb-0.5">Conversation</div>
           <ul class="space-y-1">
-            <li v-for="(m, i) in conversation" :key="i" class="leading-snug">
+            <li v-for="(m, i) in conversation" :key="m.index ?? i" class="leading-snug">
+              <span v-if="m.index != null" class="text-chat-3 text-ink-muted me-1 tabular-nums" dir="ltr">#{{ m.index }}</span>
               <span class="text-chat-3 uppercase tracking-wide me-1" :class="m.role === 'user' ? 'text-blue-500' : 'text-ink-muted'">{{ m.role }}</span>
               <span class="text-gray-700 dark:text-gray-300">{{ truncate(m.content) }}</span>
+              <span v-if="m.truncated" class="ms-1 text-chat-3 text-yellow-600">{{ t('tools.readReport.messageTruncated', { shown: (contentStart + String(m.content || '').length), total: m.content_chars }) }}</span>
             </li>
           </ul>
         </div>
+        <ToolCallParams :params="toolExecution.arguments_json" />
       </div>
     </Transition>
 
@@ -64,13 +70,16 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import Spinner from '~/components/Spinner.vue'
+import ToolCallParams from '~/components/tools/ToolCallParams.vue'
+
+const { t } = useResponseI18n()
 
 interface Props {
   toolExecution: {
     id: string
     tool_name: string
     tool_action?: string
-    arguments_json?: { report_id?: string }
+    arguments_json?: { report_id?: string, offset?: number, limit?: number, content_offset?: number, max_content_chars?: number }
     result_json?: any
     status: string
     result_summary?: string
@@ -92,6 +101,24 @@ const dataSources = computed<string[]>(() => Array.isArray(rj.value?.data_source
 const artifacts = computed<any[]>(() => Array.isArray(rj.value?.artifacts) ? rj.value.artifacts : [])
 const conversation = computed<any[]>(() => Array.isArray(rj.value?.conversation) ? rj.value.conversation : [])
 const message = computed<string>(() => rj.value?.message || rj.value?.error || '')
+
+// Paging state. `page` is absent on executions from before pagination existed;
+// those keep the old card with no badge.
+const page = computed<any>(() => rj.value?.page || null)
+const contentStart = computed<number>(() => Number(props.toolExecution.arguments_json?.content_offset || 0))
+const anyTruncated = computed<boolean>(() => conversation.value.some((m: any) => m?.truncated))
+const windowLabel = computed<string>(() => {
+  const p = page.value
+  if (!p || !p.total_messages) return ''
+  // A read into one message's text: show which characters of it.
+  if (p.returned === 1 && contentStart.value > 0) {
+    const m = conversation.value[0] || {}
+    const end = contentStart.value + String(m.content || '').length
+    return t('tools.readReport.charWindow', { index: m.index ?? p.offset, start: contentStart.value, end, total: m.content_chars ?? end })
+  }
+  if (!p.returned) return t('tools.readReport.emptyWindow', { offset: p.offset, total: p.total_messages })
+  return t('tools.readReport.window', { start: p.offset, end: p.offset + p.returned - 1, total: p.total_messages })
+})
 
 const successLabel = computed(() => `Read "${reportTitle.value}"`)
 

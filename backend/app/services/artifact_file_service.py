@@ -1,4 +1,10 @@
-"""Bounded encrypted file storage; set BOW_ARTIFACT_STORAGE to a shared volume."""
+"""Bounded encrypted file storage for data-app file resources.
+
+Blobs live under BOW_ARTIFACT_STORAGE (a shared volume when the app runs on
+local disk) and, with object storage (storage.backend s3/azure), in the bucket
+under artifact_files/: then BOW_ARTIFACT_STORAGE is optional and defaults to
+uploads/artifact_files, a per-pod cache.
+"""
 
 import asyncio
 import io
@@ -16,7 +22,11 @@ MAX_FILE = 10 * 1024 * 1024
 
 
 def storage_root():
+    from app.services import storage
+
     value = os.environ.get("BOW_ARTIFACT_STORAGE")
+    if not value and storage.enabled():
+        value = str(storage.UPLOADS_ROOT / "artifact_files")
     if not value:
         fail("UNAVAILABLE", "Artifact storage is not configured", 503)
     root = Path(value).resolve()
@@ -98,6 +108,13 @@ class ArtifactFiles:
         # No partially-written file becomes ready. Remove bytes on failed commit.
         encrypted = await asyncio.to_thread(Fernet(key()).encrypt, data)
         await asyncio.to_thread(path.write_bytes, encrypted)
+        from app.services import storage
+
+        try:
+            await storage.apersist(path, "application/octet-stream")
+        except storage.StorageError:
+            await asyncio.to_thread(path.unlink, missing_ok=True)
+            fail("UNAVAILABLE", "File storage is unavailable", 503)
         file = File(
             id=identity,
             filename=Path(upload.filename or "file").name[:200],
@@ -126,6 +143,7 @@ class ArtifactFiles:
             await self.db.commit()
         except BaseException:
             await asyncio.to_thread(path.unlink, missing_ok=True)
+            await storage.adiscard(path)
             raise
         return {
             "id": identity,
@@ -222,7 +240,10 @@ class ArtifactFiles:
     async def content(self, file_id):
         _, file = await self.binding(file_id)
         path = storage_root() / (str(file.id) + ".blob")
-        if not path.is_file():
+        from app.services import storage
+
+        # Blob names are per-upload uuids, never rewritten: skip the ETag check.
+        if not await storage.aensure_local(path, fresh=False):
             fail("UNAVAILABLE", "File bytes unavailable", 503)
         encrypted = await asyncio.to_thread(path.read_bytes)
         return await asyncio.to_thread(Fernet(key()).decrypt, encrypted), file.content_type
@@ -276,5 +297,9 @@ class ArtifactFiles:
         await self.resources.audit("artifact.file.delete", resource.id, file_id=file_id)
         await self.db.commit()
         # A crash here leaves inaccessible encrypted bytes, never an exposed file.
-        await asyncio.to_thread((storage_root() / (str(file.id) + ".blob")).unlink, missing_ok=True)
+        blob = storage_root() / (str(file.id) + ".blob")
+        await asyncio.to_thread(blob.unlink, missing_ok=True)
+        from app.services import storage
+
+        await storage.adiscard(blob)
         return {"id": file_id, "deleted": True}

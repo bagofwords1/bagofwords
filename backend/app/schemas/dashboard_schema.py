@@ -43,6 +43,7 @@ class PublishedDashboardSchema(BaseModel):
     theme_name: str | None = None
     theme_overrides: dict | None = None
     include_data_tab: bool
+    show_widget_info: bool = False
     chat_enabled: bool
     general: PublicGeneralSettings | None = None
     # What /r's page reads besides the dashboard (phase 8): the reader's
@@ -75,6 +76,7 @@ class DraftDashboardSchema(BaseModel):
     published: bool
     theme_name: str | None = None
     theme_overrides: dict | None = None
+    show_widget_info: bool = False  # the per-widget ⓘ provenance popover (phase 8)
     general: PublicGeneralSettings | None = None  # the page's credit and analyst name (phase 8)
     # An editor (owner, project) -- not the organization's admin, who reads it.
     can_edit: bool = False
@@ -122,6 +124,7 @@ class DashboardSharingUpdate(BaseModel):
 class DashboardSettingsSchema(BaseModel):
     shared_run_identity: Literal["viewer", "creator"]
     include_data_tab: bool
+    show_widget_info: bool = False  # the per-widget ⓘ provenance popover
     bow_credit: bool = True  # "Made with BOW" on this dashboard (the organization's setting still wins)
     chat_enabled: bool
     chat_data_source_ids: list[str] | None = None
@@ -138,6 +141,7 @@ class DashboardSettingsUpdate(BaseModel):
     chat_model_id "" go back to inheriting from the conversation."""
     shared_run_identity: Literal["viewer", "creator"] | None = None
     include_data_tab: bool | None = None
+    show_widget_info: bool | None = None
     bow_credit: bool | None = None
     chat_enabled: bool | None = None
     chat_data_source_ids: list[str] | None = None
@@ -231,6 +235,24 @@ class DashboardListOwner(BaseModel):
     name: str | None = None
 
 
+class DashboardListAccess(BaseModel):
+    """Why a reader has a dashboard of their Shared tab: `reasons` in the
+    order direct, group, project, org; `primary` is the first; `via_name`
+    names the group (for `group`) or the project (for `project`)."""
+    reasons: list[str] = []
+    primary: str | None = None
+    via_name: str | None = None
+
+
+class DashboardListAgent(BaseModel):
+    """An agent of a card: one the reader can view, with the icon the agents
+    page shows for it (agent_icon.resolve_agent_icon_token)."""
+    id: str
+    name: str | None = None
+    type: str | None = None
+    icon_token: str | None = None
+
+
 class DashboardListItem(BaseModel):
     """One card of the dashboards page (phase 8). report_id only for its
     editors (the card's pencil)."""
@@ -246,6 +268,29 @@ class DashboardListItem(BaseModel):
     owner: DashboardListOwner | None = None
     thumbnail_url: str | None = None
     updated_at: datetime | None = None
+    created_at: datetime | None = None
+    # Editors: when its content last changed (dashlist01), never a data
+    # refresh. A view-only reader: the live release's publish time (review #1).
+    edited_at: datetime | None = None
+    # The reader's own star (dashlist01).
+    is_starred: bool = False
+    # The live release's publish time.
+    published_at: datetime | None = None
+    # As readers meet it: 'public' reads 'internal' while public links are off.
+    visibility: str | None = None
+    # Why the reader has it (Shared only; None on My).
+    access: DashboardListAccess | None = None
+    # It reached the reader after their last visit to Shared (Shared only).
+    is_new: bool = False
+    # For its editors only (owner or edit); None for a view-only reader.
+    unpublished_changes: bool | None = None
+    cron_schedule: str | None = None
+    last_run_status: str | None = None
+    # When its data last ran, for everyone ("Data as of").
+    last_run_at: datetime | None = None
+    # Its agents the reader can view: the live release's if published, else
+    # its conversation's.
+    agents: list[DashboardListAgent] = []
 
 
 class DashboardListMeta(BaseModel):
@@ -260,6 +305,70 @@ class DashboardListMeta(BaseModel):
 class DashboardListResponse(BaseModel):
     dashboards: list[DashboardListItem]
     meta: DashboardListMeta
+
+
+class DashboardTabCounts(BaseModel):
+    my: int
+    shared: int
+
+
+class DashboardAccessCounts(BaseModel):
+    """Shared only: each reason chip's count (`all` is every reason)."""
+    all: int
+    direct: int
+    group: int
+    project: int
+    org: int
+    edit: int
+
+
+class DashboardAgentCount(DashboardListAgent):
+    count: int
+
+
+class DashboardOwnerCount(BaseModel):
+    """Shared only: an owner by name, else email; never a dashboard's title or id."""
+    id: str
+    name: str | None = None
+    count: int
+
+
+class DashboardStatusCounts(BaseModel):
+    """My only."""
+    published: int
+    changes: int
+    draft: int
+
+
+class DashboardAttentionCounts(BaseModel):
+    """The org admin's "needs attention" (Shared, access=org): the last refresh
+    failed; not edited in 90 days; `total`: either (each dashboard once)."""
+    failing: int
+    stale: int
+    total: int
+
+
+class DashboardListFacets(BaseModel):
+    """How many dashboards each filter value would list, each with its own
+    filter left out: upper bounds, as the list's meta.total is."""
+    tabs: DashboardTabCounts
+    access: DashboardAccessCounts | None = None
+    agents: list[DashboardAgentCount] = []
+    owners: list[DashboardOwnerCount] = []
+    status: DashboardStatusCounts | None = None
+    new_count: int = 0
+    attention: DashboardAttentionCounts | None = None
+
+
+class DashboardStarResponse(BaseModel):
+    id: str
+    is_starred: bool
+
+
+class DashboardSeenResponse(BaseModel):
+    """The Shared tab's watermark: `previous_seen_at` is None on the first visit."""
+    previous_seen_at: datetime | None = None
+    seen_at: datetime
 
 
 # ── collaboration (collab01) ─────────────────────────────────────────────

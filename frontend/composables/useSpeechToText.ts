@@ -2,7 +2,7 @@
 //
 // Voice input for the chat composer, built on the browser's Web Speech API
 // (`SpeechRecognition` / `webkitSpeechRecognition`). Nothing is uploaded to
-// the Bag of Words server: the browser hands audio to its vendor's speech
+// the BOW server: the browser hands audio to its vendor's speech
 // service and streams text back. Chrome, Edge and Safari support it; Firefox
 // does not, so callers must hide the control when `isSupported` is false.
 //

@@ -43,6 +43,7 @@ SUMMARIZED_TOOL_NAMES = frozenset(
         "read_file",
         "read_email",
         "read_note",
+        "read_chat_thread",
     }
 )
 
@@ -528,7 +529,7 @@ def build_tool_context_summary(
                 projection[field] = result_json.get(field)
         return projection
 
-    if name in {"read_file", "read_email", "read_note"}:
+    if name in {"read_file", "read_email", "read_note", "read_chat_thread"}:
         # ReadFileTool already renders at most 4,000 characters. Persist that
         # exact visible excerpt plus the scalar badges/identifiers, never the
         # complete historical file body or binary material.

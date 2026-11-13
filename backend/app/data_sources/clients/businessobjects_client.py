@@ -3,6 +3,7 @@ from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 from typing import List, Dict, Optional, Any
 import requests
+from app.core.egress import pinned_session
 import pandas as pd
 import logging
 import xml.etree.ElementTree as ET
@@ -99,7 +100,7 @@ class BusinessObjectsClient(DataSourceClient):
 
     def _session(self) -> requests.Session:
         if self._http is None:
-            self._http = requests.Session()
+            self._http = pinned_session()
             self._http.verify = self.verify_ssl
         return self._http
 

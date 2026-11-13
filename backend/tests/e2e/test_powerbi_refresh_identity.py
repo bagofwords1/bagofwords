@@ -151,7 +151,7 @@ def test_refresh_preserves_model_identity_and_updates_columns(
     monkeypatch.setattr("app.data_sources.clients.powerbi_client.requests.Session", lambda: tenant)
     token = Mock(status_code=200)
     token.json.return_value = {"access_token": "app-test-token"}
-    monkeypatch.setattr("app.data_sources.clients.powerbi_client.requests.post", lambda *a, **k: token)
+    monkeypatch.setattr("app.data_sources.clients.powerbi_client.pinned_request", lambda *a, **k: token)
     rows, selected, canonical = asyncio.run(refresh_and_read(ids, profile["id"], shared))
     assert {t.metadata_json["powerbi"]["datasetId"] for t in rows} == {"ds-a", "ds-b"}
     assert len({t.name for t in rows}) == 2
@@ -219,7 +219,11 @@ def test_personal_refresh_endpoint_reads_current_columns(
             f"/api/connections/{ids[0]}/my-schema/refresh?background={str(background).lower()}",
             headers=headers,
         )
-        assert response.status_code == 200, response.text
+        if unreadable and not background:
+            assert response.status_code == 503, response.text
+            assert response.json()["error_code"] == "catalog_discovery_incomplete"
+        else:
+            assert response.status_code == 200, response.text
         diagnostics = response.json()
         if background:
             # Wait for actual DB commits, not arbitrary sleeps, and observe the
@@ -231,7 +235,7 @@ def test_personal_refresh_endpoint_reads_current_columns(
                 assert job_response.status_code == 200
                 job = job_response.json()
                 if job["status"] in {"completed", "failed", "cancelled"}:
-                    assert job["status"] == "completed", job
+                    assert job["status"] == ("failed" if unreadable else "completed"), job
                     diagnostics = job["stats"]
                     break
                 remaining = deadline - time.monotonic()
@@ -240,8 +244,11 @@ def test_personal_refresh_endpoint_reads_current_columns(
         event.remove(Session, "after_commit", on_commit)
     rows, selected, identities = asyncio.run(refresh_and_read(ids, profile["id"], refresh=False))
     if unreadable:
-        assert rows == []
-        assert diagnostics["unreadable_datasets"]
+        # Failed discovery retains the previously accessible snapshot. Upstream
+        # query authorization still uses the caller's credentials.
+        assert rows
+        assert selected[0].id == ids[2]
+        assert {c.name for t in rows for c in t.columns} == {"old"}
     else:
         assert {c.name for t in rows for c in t.columns} == {"renamed", "added"}
         assert selected[0].id == ids[2]
@@ -388,5 +395,5 @@ def test_duplicate_identity_refresh_preserves_links_and_selection(
     monkeypatch.setattr("app.data_sources.clients.powerbi_client.requests.Session", lambda: tenant)
     token = Mock(status_code=200)
     token.json.return_value = {"access_token": "app-test-token"}
-    monkeypatch.setattr("app.data_sources.clients.powerbi_client.requests.post", lambda *a, **k: token)
+    monkeypatch.setattr("app.data_sources.clients.powerbi_client.pinned_request", lambda *a, **k: token)
     asyncio.run(check())

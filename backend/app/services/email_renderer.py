@@ -21,6 +21,8 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from app.schemas.notification_schema import NotificationType
 from app.services.email_strings import (
     AUTOMATION_FAILED,
+    CONNECTION_DOWN,
+    CONNECTION_RESTORED,
     SCHEDULED_PROMPT,
     direction_for,
     strings_for,
@@ -174,6 +176,38 @@ def render_scheduled_prompt_email(
         intro_sentence=intro_sentence,
         report_url=report_url,
         summary_html=summary_html,
+    )
+    return subject, html
+
+
+def render_connection_status_email(
+    locale: str,
+    *,
+    status: str,
+    connection_name: str,
+    link: str,
+) -> tuple[str, str]:
+    """Render (subject, html) for a shared-connection down/restored email.
+
+    ``status`` selects the string block: ``"down"`` or ``"up"``. ``connection_name``
+    is passed raw and auto-escaped by the template (connection names are
+    free-text), so an injected ``<script>`` or quote can't land in the HTML.
+    """
+    block = CONNECTION_DOWN if status == "down" else CONNECTION_RESTORED
+    t = strings_for(locale, block)
+    dir_ = direction_for(locale)
+    subject = _format(t.get("subject", ""), name=connection_name)
+    intro_sentence = _format(t.get("intro", ""), name=connection_name)
+
+    env = _get_env()
+    template = env.get_template("connection_status.html.jinja2")
+    html = template.render(
+        locale=locale,
+        dir=dir_,
+        t=t,
+        subject=subject,
+        intro_sentence=intro_sentence,
+        link=link,
     )
     return subject, html
 

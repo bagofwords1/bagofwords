@@ -960,14 +960,15 @@ class ReportPdfService:
 
     def _baked_deck(self, artifact) -> Optional[tuple[bytes, str]]:
         """(bytes, filename) of the .pptx slide generation wrote to disk."""
+        from app.services import storage
         src = None
         if artifact.pptx_path:
             candidate = Path(artifact.pptx_path)
-            if candidate.is_file():
+            if storage.ensure_local(candidate):
                 src = candidate
         if src is None:
             candidate = self.PPTX_DIR / f"{artifact.id}.pptx"
-            if candidate.is_file():
+            if storage.ensure_local(candidate):
                 src = candidate
         if src is None:
             logger.warning("No .pptx on disk for slides artifact %s", artifact.id)

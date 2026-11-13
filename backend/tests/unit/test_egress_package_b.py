@@ -20,6 +20,7 @@ import os
 import shutil
 import ssl
 import subprocess
+import time
 from email.message import EmailMessage
 
 import pytest
@@ -52,6 +53,14 @@ def trap(monkeypatch):
     yield make
     for t in traps:
         t.close()
+
+
+def _wait_for(ready, timeout=3.0):
+    """Until `ready()` or the timeout; the assert that follows says which. For
+    a fake server that records on its own thread, when the sender gets no ack."""
+    deadline = time.monotonic() + timeout
+    while not ready() and time.monotonic() < deadline:
+        time.sleep(0.01)
 
 
 def _block_private(monkeypatch):
@@ -115,6 +124,22 @@ async def test_neo4j_uri_never_contacts_metadata(trap, host, scheme):
     t = trap()
     res = await ConnectionService().test_connection_params(
         "neo4j", {"uri": f"{scheme}://{host}:7687", "database": "neo4j"}, {"username": "u", "password": "p"})
+    assert res["success"] is False
+    assert t.hits == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scheme", ["https", "http"])
+@pytest.mark.parametrize("host", METADATA_FORMS)
+async def test_kms_lighthouse_base_url_never_contacts_metadata(trap, host, scheme):
+    """KMS Lighthouse names its destination in `base_url`: the pre-save test
+    refuses the host before the client logs in anywhere."""
+    from app.services.connection_service import ConnectionService
+
+    t = trap()
+    res = await ConnectionService().test_connection_params(
+        "kms_lighthouse", {"base_url": f"{scheme}://{host}/kms/lh/api", "allow_http": True},
+        {"username": "u", "password": "p"})
     assert res["success"] is False
     assert t.hits == []
 
@@ -306,6 +331,7 @@ def test_syslog_stream_internal_collector_works_rebinding_refused(trap, monkeypa
         first = asyncio.run(_syslog("siem.corp.invalid", port).send(_EVENTS))
         second = asyncio.run(_syslog("siem.corp.invalid", port).send(_EVENTS))
         assert first.ok and not second.ok
+        _wait_for(lambda: seen and b"user.login" in seen[0])  # syslog over TCP has no ack
         assert len(seen) == 1 and b"user.login" in seen[0]
         assert t.hits == []
 

@@ -401,6 +401,15 @@ const props = defineProps({
         type: String,
         default: () => '',
     },
+    // Whether an agent toggle writes the selection back to the report
+    // (PUT /reports/{id}). True on a real report's composer; false when the
+    // selector lives in a context that borrows the report's id for files and
+    // mentions but must NOT rewrite the report's agents — e.g. the scheduled
+    // task form, where the pick belongs to the task, not the report.
+    persistSelection: {
+        type: Boolean,
+        default: true,
+    },
     // When set, only show data sources the user has this permission on
     // (either org-wide or via a per-DS resource grant).
     permission: {
@@ -513,7 +522,9 @@ watch(isAutoMode, (val) => {
 async function getDataSources(opts: { force?: boolean } = {}) {
     try {
         // Shared with the mention menu — see composables/useActiveAgents.ts.
-        const allSources = await fetchActiveAgents(opts)
+        // Connectors (the user's own accounts/tools) live in the connectors
+        // menu, never in the agent picker.
+        const allSources = (await fetchActiveAgents(opts)).filter((ds: any) => ds?.kind !== 'connector')
         // A source is usable (selectable) when it doesn't require per-user
         // credentials, or the user already has them / falls back to system auth.
         const isUsable = (ds: any) => {
@@ -521,7 +532,7 @@ async function getDataSources(opts: { force?: boolean } = {}) {
             const status = ds.user_status
             if (status?.has_user_credentials) return true
             // effective_auth === 'system' means the user can run via system/service-
-            // principal creds — including the owner/admin fallback (uses_fallback).
+            // principal creds — including the admin fallback (uses_fallback).
             // Treat that as usable so admins aren't forced through "Connect" for a
             // source they can already query.
             return status?.effective_auth === 'system'
@@ -657,7 +668,7 @@ watch(() => props.selectedDataSources, (newVal: any[]) => {
 
 async function persistSelectionIfReport() {
     try {
-        if (!props.reportId) return
+        if (!props.reportId || !props.persistSelection) return
         const ids = internalSelectedDataSources.value.map((x: any) => x.id)
         await useMyFetch(`/reports/${props.reportId}`, {
             method: 'PUT',

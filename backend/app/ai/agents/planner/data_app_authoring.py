@@ -33,6 +33,10 @@ Design a coherent interface rather than stacking default components. Establish
 a restrained type scale, aligned controls, readable numeric typography, and
 intentional density. Use whitespace to group related content without leaving
 the working surface empty. Give charts adequate plotting area and legible labels.
+Show the fewest points that answer the question: over about 24 points per series,
+aggregate to a coarser period or show the latest window. Over 4 series, use small
+multiples on one shared scale, or top N plus Other. Format value axes and tooltips
+with the unit ($, %, count). Draw line and area series straight.
 Keep an entity's color consistent across views, and semantic status colors honest.
 Use subtle borders/surfaces where they clarify grouping; not everything needs a
 card. Themes and kit components are optional starting points, not the design.
@@ -80,6 +84,8 @@ DATA CORRECTNESS
 Read useArtifactData() reactively and bind datasets by UUID, not array position.
 Honor view_config aggregation and series_aggregations when rows are granular.
 Do not sum a preaggregated total again or infer a global total from a limited page.
+Never add up a distinct count across groups (an invoice in two genres counts twice):
+read it from a query at the grain you show.
 Guard null data/current_user and distinguish missing values from zero.
 Keep provenance on custom metrics/charts/tables via data-bow-viz and data-bow-calc
 (on the item's container, never a label or short inline text) or the kit's

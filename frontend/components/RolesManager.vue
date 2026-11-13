@@ -54,7 +54,8 @@
                 <div>
                     <div class="flex items-center gap-2">
                         <span class="font-medium">{{ role.name }}</span>
-                        <UBadge v-if="role.is_system" size="xs" color="gray">{{ $t('rolesManager.system') }}</UBadge>
+                        <UBadge v-if="isOrgDefaultRole(role)" size="xs" color="gray">{{ $t('rolesManager.default') }}</UBadge>
+                        <UBadge v-else-if="role.is_system" size="xs" color="gray">{{ $t('rolesManager.system') }}</UBadge>
                         <UBadge
                             v-if="role.permissions?.includes('full_admin_access')"
                             size="xs"
@@ -99,15 +100,16 @@
                         </template>
                     </USelectMenu>
                     <div class="flex gap-2">
+                        <UTooltip v-if="role.is_editable && useCan('manage_roles')" :text="$t('rolesManager.edit')">
+                            <UButton
+                                variant="ghost"
+                                size="xs"
+                                icon="i-heroicons-pencil"
+                                @click="openEditModal(role)"
+                            />
+                        </UTooltip>
                         <UButton
-                            v-if="!role.is_system && useCan('manage_roles')"
-                            variant="ghost"
-                            size="xs"
-                            icon="i-heroicons-pencil"
-                            @click="openEditModal(role)"
-                        />
-                        <UButton
-                            v-if="!role.is_system && useCan('manage_roles')"
+                            v-if="role.is_deletable && useCan('manage_roles')"
                             variant="ghost"
                             size="xs"
                             color="red"
@@ -122,15 +124,19 @@
         <!-- Create/Edit Modal -->
         <UModal v-model="showModal" :ui="{ width: 'sm:max-w-xl' }">
             <div class="p-6">
-                <h3 class="text-lg font-medium mb-4">
+                <h3 class="text-lg font-medium mb-1">
                     {{ editingRole ? $t('rolesManager.editRole') : $t('rolesManager.createRole') }}
                 </h3>
+                <p v-if="editingDefaultRole" class="text-xs text-ink-muted mb-4">
+                    {{ $t('rolesManager.defaultRoleHint') }}
+                </p>
+                <div v-else class="mb-4"></div>
 
                 <!-- Name + Description -->
                 <div class="grid grid-cols-2 gap-3 mb-4">
                     <div>
                         <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ $t('rolesManager.nameLabel') }}</label>
-                        <UInput v-model="form.name" :placeholder="$t('rolesManager.namePlaceholder')" size="sm" />
+                        <UInput v-model="form.name" :placeholder="$t('rolesManager.namePlaceholder')" size="sm" :disabled="editingDefaultRole" />
                     </div>
                     <div>
                         <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ $t('rolesManager.descriptionLabel') }}</label>
@@ -329,6 +335,28 @@ interface RoleData {
     resource_grants?: { resource_type: string; resource_id: string; permissions: string[] }[]
     is_system: boolean
     organization_id?: string
+    overrides_system_role?: string | null
+    is_editable?: boolean
+    is_deletable?: boolean
+}
+
+// The org-wide default role for new members (settings.default_member_role).
+// Drives which role wears the "Default" badge; kept in sync with the control
+// in the Members tab. Falls back to "member" when the setting is unset or the
+// endpoint is unavailable (e.g. before that feature ships).
+const defaultMemberRole = ref('member')
+
+// The role new members get by default carries the "Default" badge, and it
+// moves when an admin changes the default_member_role setting.
+function isOrgDefaultRole(role: RoleData): boolean {
+    return role.name === defaultMemberRole.value
+}
+
+// A built-in `member` role (or an org's editable override of it): editable but
+// not deletable, and its name is fixed. This is independent of which role is
+// the org default — a custom role set as default stays fully editable.
+function isBuiltinRole(role: RoleData): boolean {
+    return !!role.overrides_system_role || (role.is_system && role.is_editable === true)
 }
 
 interface ResourceGrantForm {
@@ -364,6 +392,10 @@ const isLoading = ref(true)
 const searchQuery = ref('')
 const showModal = ref(false)
 const editingRole = ref<RoleData | null>(null)
+// Editing the built-in `member` role (or its override): its name is fixed,
+// only permissions and description are customizable. Not tied to which role is
+// the org default.
+const editingDefaultRole = computed(() => !!editingRole.value && isBuiltinRole(editingRole.value))
 const saving = ref(false)
 const selectedResource = ref(null)
 const showOrgDetails = ref(false)
@@ -923,11 +955,25 @@ async function deleteRole(role: RoleData) {
     }
 }
 
+// The org-wide default role for new members. Missing endpoint / value simply
+// leaves the fallback ("member") in place, so this is safe before that setting
+// ships.
+async function loadDefaultMemberRole() {
+    try {
+        const { data } = await useMyFetch('/organization/default-member-role')
+        const role = (data.value as any)?.role
+        if (role) defaultMemberRole.value = role
+    } catch (e) {
+        // keep the "member" fallback
+    }
+}
+
 // Load on mount
 onMounted(() => {
     loadPermissionsRegistry()
     loadRoles()
     loadUsagePolicies()
+    loadDefaultMemberRole()
 })
 
 watch(showQuotaColumn, (enabled) => {

@@ -43,6 +43,32 @@ data:
   BOW_ALLOW_MULTIPLE_ORGANIZATIONS: {{ .Values.config.allowMultipleOrganizations | quote }}
   BOW_VERIFY_EMAILS: {{ .Values.config.verifyEmails | quote }}
 
+  # File storage (secrets such as S3 keys / Azure client secret come from config.secretRef)
+  {{- with .Values.storage }}
+  BOW_STORAGE_BACKEND: {{ .backend | default "local" | quote }}
+  {{- if .prefix }}
+  BOW_STORAGE_PREFIX: {{ .prefix | quote }}
+  {{- end }}
+  {{- if eq .backend "s3" }}
+  BOW_STORAGE_S3_BUCKET: {{ required "storage.s3.bucket is required when storage.backend=s3" .s3.bucket | quote }}
+  BOW_STORAGE_S3_AUTH: {{ .s3.auth | default "default" | quote }}
+  {{- range $k, $v := dict "REGION" .s3.region "ENDPOINT_URL" .s3.endpointUrl "ADDRESSING_STYLE" .s3.addressingStyle "ROLE_ARN" .s3.roleArn "EXTERNAL_ID" .s3.externalId "SSE" .s3.sse "KMS_KEY_ID" .s3.kmsKeyId }}
+  {{- if $v }}
+  BOW_STORAGE_S3_{{ $k }}: {{ $v | quote }}
+  {{- end }}
+  {{- end }}
+  {{- end }}
+  {{- if eq .backend "azure" }}
+  BOW_STORAGE_AZURE_CONTAINER: {{ required "storage.azure.container is required when storage.backend=azure" .azure.container | quote }}
+  BOW_STORAGE_AZURE_AUTH: {{ .azure.auth | default "default" | quote }}
+  {{- range $k, $v := dict "ACCOUNT_URL" .azure.accountUrl "TENANT_ID" .azure.tenantId "CLIENT_ID" .azure.clientId }}
+  {{- if $v }}
+  BOW_STORAGE_AZURE_{{ $k }}: {{ $v | quote }}
+  {{- end }}
+  {{- end }}
+  {{- end }}
+  {{- end }}
+
   # Sensitive values: emit to ConfigMap only when set as a literal (not a ${VAR} placeholder).
   # Recommended pattern is to provide these via config.secretRef; see README.md.
   {{- if and .Values.config.encryptionKey (not (hasPrefix "${" .Values.config.encryptionKey)) }}

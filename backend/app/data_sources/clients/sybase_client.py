@@ -42,6 +42,9 @@ class SybaseClient(DataSourceClient):
     # SQLAlchemy 2.0 has no SQL Anywhere dialect, so extraction drives the raw
     # pyodbc connection natively. Resolved lazily by fast/sources.source_for.
     EXTRACTION_SOURCE = staticmethod(_sybase_extraction_source)
+    # The dialect a custom table's refresh window is written in
+    # (app/data_sources/fast/incremental.py).
+    INCREMENTAL_DIALECT = "sybase"
 
     def _ensure_freetds_entry(self):
         """Register a freetds.conf entry so FreeTDS can select the correct SQL Anywhere database."""
@@ -125,6 +128,7 @@ class SybaseClient(DataSourceClient):
         except IndexingCancelled:
             raise
         except Exception as e:
+            self.mark_discovery_incomplete("sybase catalog")
             print(f"Error retrieving tables: {e}")
             return []
 

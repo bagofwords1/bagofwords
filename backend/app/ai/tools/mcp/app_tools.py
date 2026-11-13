@@ -17,6 +17,7 @@ from app.models.user import User
 from app.models.organization import Organization
 from app.models.visualization import Visualization
 from app.models.query import Query
+from app.models.report import Report
 from app.models.step import Step
 from app.models.artifact import ArtifactVersion
 from app.models.membership import Membership
@@ -70,6 +71,14 @@ async def _open_release(db: AsyncSession, ref: str, user: User, organization: Or
     return artifact, release
 
 
+async def _reader_sees_code(db: AsyncSession, user: User, organization_id) -> bool:
+    """Whether this reader's role in the organization holds view_code."""
+    from app.core.code_visibility import can_view_code
+    from app.core.permission_resolver import resolve_permissions
+
+    return can_view_code(await resolve_permissions(db, str(user.id), str(organization_id)))
+
+
 async def _release_chart(db: AsyncSession, viz: Visualization, artifact, release, user: User) -> Dict[str, Any]:
     """One chart of a release, with the rows this reader may see."""
     from app.services.dashboard_data import default_step, resolve_release_step
@@ -80,12 +89,30 @@ async def _release_chart(db: AsyncSession, viz: Visualization, artifact, release
     data = resolution.data if resolution is not None else {}
     withheld = resolution is not None and resolution.withheld
     # Code follows the reader's role, as on /d.
-    from app.core.code_visibility import can_view_code
-    from app.core.permission_resolver import resolve_permissions
-
-    code_visible = can_view_code(await resolve_permissions(db, str(user.id), str(artifact.organization_id)))
+    code_visible = await _reader_sees_code(db, user, artifact.organization_id)
     return {"step": step, "query": query, "rows": (data or {}).get("rows", []),
             "columns": (data or {}).get("columns", []), "hide_code": withheld or not code_visible}
+
+
+async def _report_step_rows(db: AsyncSession, step: Optional[Step], report, user: User) -> Dict[str, Any]:
+    """An in-report step's rows as this reader may see them.
+
+    Step.data is the owner's snapshot; on an identity-scoped or user-scoped
+    report it is one identity's rows. What a reader gets is decided by
+    viewer_data_policy.resolve_step_data, as on /r and in read_query: the
+    snapshot for the owner, the reader's own run, or nothing. The code follows
+    the reader's role, as on /r (set_code_visibility); a withheld reader gets
+    none either (the SQL shows the schema, tables and filters).
+    """
+    if step is None:
+        return {"rows": [], "columns": [], "withheld": False, "code": ""}
+    from app.services.viewer_data_policy import resolve_step_data
+
+    resolution = await resolve_step_data(db, step, report, requesting_user=user)
+    data = resolution.data or {}
+    code_visible = not resolution.withheld and await _reader_sees_code(db, user, report.organization_id)
+    return {"rows": data.get("rows", []), "columns": data.get("columns", []),
+            "withheld": resolution.withheld, "code": step.code if code_visible else ""}
 
 
 class GetVisualizationMCPTool(MCPTool):
@@ -161,8 +188,8 @@ class GetVisualizationMCPTool(MCPTool):
                 "step_status": step.status if step else None,
             }
 
-        # Same not-found answer for a foreign id as for a missing one.
-        if not viz or not await self._assert_can_view_report(
+        # Same not-found answer for a foreign id as for a missing or deleted one.
+        if not viz or viz.deleted_at is not None or not await self._assert_can_view_report(
             db, viz.report_id, user, organization
         ):
             return {"error": f"Visualization {visualization_id} not found"}
@@ -174,19 +201,27 @@ class GetVisualizationMCPTool(MCPTool):
             if not step and viz.query.steps:
                 step = viz.query.steps[-1]
 
+        report = await db.get(Report, str(viz.report_id))
+        resolved = await _report_step_rows(db, step, report, user)
+
         # Build response matching ToolWidgetPreview data shape
         return {
             "id": str(viz.id),
             "title": viz.title or "",
             "view": viz.view or {},
-            "code": step.code if step else "",
-            "data": {
-                "rows": (step.data or {}).get("rows", []) if step else [],
-                "columns": (step.data or {}).get("columns", []) if step else [],
-            },
+            "code": resolved["code"],
+            "data": {"rows": resolved["rows"], "columns": resolved["columns"]},
+            "withheld": resolved["withheld"],
             "data_model": step.data_model if step else {},
             "step_status": step.status if step else None,
         }
+
+
+# What the ui://artifact app's ARTIFACT_DATA carries per chart.
+_ARTIFACT_VIZ_KEYS = (
+    "id", "title", "view", "rows", "columns", "withheld", "dataModel", "stepStatus",
+    "row_count", "loaded_row_count", "truncated",
+)
 
 
 class GetArtifactDataMCPTool(MCPTool):
@@ -250,42 +285,16 @@ class GetArtifactDataMCPTool(MCPTool):
         report = artifact.report
         content = artifact.content or {}
         code = content.get("code", "")
-        viz_ids = content.get("visualization_ids", [])
 
-        # Fetch queries for this report, filtered by artifact's visualization_ids
-        queries_result = await db.execute(
-            select(Query)
-            .options(
-                selectinload(Query.default_step),
-                selectinload(Query.steps),
-                selectinload(Query.visualizations),
-            )
-            .where(Query.report_id == str(artifact.report_id))
-            .execution_options(populate_existing=True)
-        )
-        queries = queries_result.scalars().all()
+        # The charts as the exports and the chat context collect them for this
+        # reader: live ones only, in the artifact's visualization_ids order
+        # (its code indexes them by it), rows through resolve_step_data.
+        from app.services.artifact_payload import collect_visualizations
 
-        # Build visualization data array (same shape as ArtifactFrame.vue)
-        visualizations: List[Dict[str, Any]] = []
-        for query in queries:
-            step = query.default_step
-            if not step and query.steps:
-                step = query.steps[-1]
-
-            for viz in (query.visualizations or []):
-                # If artifact has viz_ids, only include those
-                if viz_ids and str(viz.id) not in viz_ids:
-                    continue
-
-                visualizations.append({
-                    "id": str(viz.id),
-                    "title": viz.title or query.title or "Untitled",
-                    "view": viz.view or {},
-                    "rows": (step.data or {}).get("rows", []) if step else [],
-                    "columns": (step.data or {}).get("columns", []) if step else [],
-                    "dataModel": step.data_model or {} if step else {},
-                    "stepStatus": step.status if step else None,
-                })
+        visualizations = [
+            {k: v[k] for k in _ARTIFACT_VIZ_KEYS}
+            for v in await collect_visualizations(db, artifact, viewer=user)
+        ]
 
         return {
             "report": {

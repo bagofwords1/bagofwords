@@ -11,15 +11,20 @@ Instructions are organizational knowledge that guide AI behavior when generating
 and analyzing data.
 """
 
-from typing import Dict, Any
+import json
+import re
+from typing import Dict, Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.tools.mcp.base import MCPTool
+from app.ai.tools.implementations._instruction_window import read_window
+from app.ai.tools.mcp.instruction_scope import in_scope, report_data_sources
 from app.models.user import User
 from app.models.organization import Organization
 from app.core.permission_resolver import resolve_permissions
 from app.services.instruction_service import InstructionService
+from app.errors.redact import describe_for_log
 from fastapi import HTTPException
 
 from app.services.instruction_authority import (
@@ -97,15 +102,23 @@ async def _can(check) -> bool:
         return False
 
 
+# list_instructions shows each instruction's opening chars only (it can return
+# up to 100 of them); every item says when its text is shortened, and
+# read_instruction returns the rest.
+LIST_TEXT_PREVIEW_CHARS = 500
+
+
 def _pending(schema) -> bool:
     return getattr(schema, "current_build_status", None) == "pending_approval"
 
 
-def _detail(schema, *, can_edit: bool) -> MCPInstructionDetail:
+def _detail(schema, *, can_edit: bool, window: Optional[Dict[str, Any]] = None) -> MCPInstructionDetail:
+    """The instruction as MCP returns it. ``window`` (from read_window) replaces
+    the text with the part that was read and adds where it sits in the whole."""
     return MCPInstructionDetail(
         id=str(schema.id),
         title=getattr(schema, "title", None),
-        text=getattr(schema, "text", "") or "",
+        text=window["text"] if window is not None else (getattr(schema, "text", "") or ""),
         category=getattr(schema, "category", None),
         status=getattr(schema, "status", None),
         load_mode=getattr(schema, "load_mode", None),
@@ -117,6 +130,7 @@ def _detail(schema, *, can_edit: bool) -> MCPInstructionDetail:
         ],
         pending_review=_pending(schema),
         can_edit=can_edit,
+        **(window["fields"] if window is not None else {}),
     )
 
 
@@ -133,7 +147,10 @@ class ListInstructionsMCPTool(MCPTool):
         "List instructions from the current live build. "
         "Instructions are organizational knowledge that guide AI behavior. "
         "Returns instructions visible to the user based on their permissions. "
-        "Supports filtering by status, category, and text search."
+        "Supports filtering by status, category, and text search. "
+        f"Each item's text is cut to its first {LIST_TEXT_PREVIEW_CHARS} chars when longer "
+        "(text_truncated: true, text_length = full length) — call read_instruction for the "
+        "full text before quoting, following or editing an instruction."
     )
     
     @property
@@ -171,18 +188,20 @@ class ListInstructionsMCPTool(MCPTool):
         )
         
         # Map to output schema
-        instructions = [
-            MCPInstructionItem(
+        instructions = []
+        for item in result.get("items", []):
+            text = item.text or ""
+            instructions.append(MCPInstructionItem(
                 id=str(item.id),
                 title=item.title,
-                text=item.text[:500] if item.text else "",  # Truncate for response size
+                text=text[:LIST_TEXT_PREVIEW_CHARS],
+                text_truncated=len(text) > LIST_TEXT_PREVIEW_CHARS,
+                text_length=len(text),
                 category=item.category or "general",
                 status=item.status or "published",
                 load_mode=item.load_mode or "always",
                 source_type=item.source_type or "user",
-            )
-            for item in result.get("items", [])
-        ]
+            ))
         
         logger.info(f"list_instructions: returned {len(instructions)} instructions for user {user.id}")
         
@@ -192,31 +211,162 @@ class ListInstructionsMCPTool(MCPTool):
         ).model_dump()
 
 
+# One instruction_ids read returns at most this many chars (JSON-encoded) of
+# instruction details; the ids past it come back in not_read_ids.
+BATCH_READ_BUDGET = 100_000
+
+
 class ReadInstructionMCPTool(MCPTool):
-    """Read one instruction in full, with its agent scope and review state."""
+    """Read instructions in full, with their agent scope and review state."""
 
     name = "read_instruction"
     read_only_hint = True
     description = (
-        "Read one instruction in full: text, category, load mode, the agents it applies to "
+        "Read an instruction in full: text, category, load mode, the agents it applies to "
         "(empty = global), whether a change is pending admin review, and whether you can edit it. "
-        "list_instructions truncates text — read the full text here before editing."
+        "Use it for the entries get_context lists without text (pass report_id; instruction_ids "
+        "reads several at once). list_instructions truncates text — read the full text here "
+        "before editing. "
+        "A very long instruction comes back as its opening lines plus an outline, with "
+        "truncated: true and next_offset — read on with offset (and limit; plus col_offset when "
+        "next_col_offset is set), or pull the lines you need with grep_pattern. Range and grep "
+        "text is verbatim."
     )
 
     @property
     def input_schema(self) -> Dict[str, Any]:
         return MCPReadInstructionInput.model_json_schema()
 
+    @staticmethod
+    def _fail(message: str) -> Dict[str, Any]:
+        return MCPReadInstructionOutput(success=False, error_message=message).model_dump()
+
     async def execute(self, args, db, user, organization):
         data = MCPReadInstructionInput(**args)
+        if bool(data.instruction_id) == bool(data.instruction_ids):
+            return self._fail("Give instruction_id or instruction_ids (one of them).")
+        windowed = any(v is not None for v in (data.offset, data.col_offset, data.limit, data.grep_pattern))
+        if data.instruction_ids and windowed:
+            return self._fail(
+                "offset / col_offset / limit / grep_pattern work on one instruction: "
+                "use instruction_id with them."
+            )
+
+        report, scope_ids = None, None
+        if data.report_id:
+            try:
+                report = await self._load_report(db, data.report_id, user, organization)
+            except HTTPException:
+                return self._fail("Report not found")
+            scope_ids = [str(ds.id) for ds in await report_data_sources(db, report, user, organization)]
+
         svc = InstructionService()
-        schema = await svc.get_instruction(db, data.instruction_id, organization, user)
-        # Same visibility as GET /instructions/{id}: rows on agents the caller
-        # can't see stay hidden, even for admins who aren't members.
-        if schema is None or not await svc.user_can_view_instruction(db, schema, user, organization):
-            return MCPReadInstructionOutput(success=False, error_message="Instruction not found").model_dump()
-        can_edit = await _can(require_instruction_authority(db, user, organization, schema, allow_owner=True))
-        return MCPReadInstructionOutput(success=True, instruction=_detail(schema, can_edit=can_edit)).model_dump()
+
+        async def _open(inst_id: str):
+            schema = await svc.get_instruction(db, inst_id, organization, user)
+            # Same visibility as GET /instructions/{id}: rows on agents the caller
+            # can't see stay hidden, even for admins who aren't members.
+            if schema is None or not await svc.user_can_view_instruction(db, schema, user, organization):
+                return None
+            agents = [ds.id for ds in (getattr(schema, "data_sources", None) or [])]
+            if scope_ids is not None and not in_scope(agents, scope_ids):
+                return None
+            return schema
+
+        if data.instruction_id:
+            schema = await _open(data.instruction_id)
+            if schema is None:
+                return self._fail("Instruction not found" + (" in this report" if report else ""))
+            try:
+                window = read_window(
+                    getattr(schema, "text", "") or "",
+                    getattr(schema, "title", None) or str(schema.id)[:8],
+                    offset=data.offset,
+                    col_offset=data.col_offset,
+                    limit=data.limit,
+                    grep_pattern=data.grep_pattern,
+                    ignore_case=data.ignore_case,
+                    before=data.before,
+                    after=data.after,
+                    max_matches=data.max_matches,
+                )
+            except re.error as e:
+                return self._fail(f"Invalid grep_pattern: {e}")
+            await self._record_read(db, organization, user, report, schema)
+            can_edit = await _can(require_instruction_authority(db, user, organization, schema, allow_owner=True))
+            return MCPReadInstructionOutput(
+                success=True,
+                instruction=_detail(schema, can_edit=can_edit, window=window),
+                message=window["summary"],
+            ).model_dump()
+
+        details, not_read, not_found, used = [], [], [], 2
+        for inst_id in dict.fromkeys(data.instruction_ids):
+            if details and used >= BATCH_READ_BUDGET:
+                not_read.append(inst_id)
+                continue
+            schema = await _open(inst_id)
+            if schema is None:
+                not_found.append(inst_id)
+                continue
+            window = read_window(
+                getattr(schema, "text", "") or "", getattr(schema, "title", None) or str(schema.id)[:8],
+            )
+            can_edit = await _can(require_instruction_authority(db, user, organization, schema, allow_owner=True))
+            detail = _detail(schema, can_edit=can_edit, window=window)
+            cost = len(json.dumps(detail.model_dump(), default=str)) + 2
+            if details and used + cost > BATCH_READ_BUDGET:
+                not_read.append(inst_id)
+                continue
+            used += cost
+            details.append(detail)
+            await self._record_read(db, organization, user, report, schema)
+
+        parts = [f"Read {len(details)} instruction(s)."]
+        if any(d.truncated for d in details):
+            parts.append("Some are too long to return whole (truncated: true) — read on with instruction_id + offset.")
+        if not_read:
+            parts.append(f"{len(not_read)} not read to stay within the size budget — read not_read_ids in another call.")
+        if not_found:
+            parts.append(
+                f"{len(not_found)} not found" + (" in this report" if report else "") + " (not_found_ids)."
+            )
+        return MCPReadInstructionOutput(
+            success=bool(details),
+            instructions=details,
+            not_read_ids=not_read or None,
+            not_found_ids=not_found or None,
+            message=" ".join(parts),
+            error_message=None if details else "No instruction could be read.",
+        ).model_dump()
+
+    @staticmethod
+    async def _record_read(db, organization, user, report, schema) -> None:
+        """Record an on-demand read for the report (best-effort), like the in-app
+        tool: read instructions climb the usage ranking, and with smart
+        instructions on, the report's data tools hand them to their coder."""
+        if report is None:
+            return
+        try:
+            from app.services.instruction_usage_service import InstructionUsageService
+            from app.schemas.instruction_usage_schema import InstructionUsageEventCreate
+
+            await InstructionUsageService().record_usage_event(
+                db,
+                InstructionUsageEventCreate(
+                    org_id=str(organization.id),
+                    report_id=str(report.id),
+                    instruction_id=str(schema.id),
+                    user_id=str(user.id),
+                    load_mode=getattr(schema, "load_mode", None) or "intelligent",
+                    load_reason="on_demand",
+                    source_type=getattr(schema, "source_type", None),
+                    category=getattr(schema, "category", None),
+                    title=getattr(schema, "title", None),
+                ),
+            )
+        except Exception:
+            logger.debug("read_instruction: usage event failed", exc_info=True)
 
 
 class CreateInstructionMCPTool(MCPTool):
@@ -261,13 +411,16 @@ class CreateInstructionMCPTool(MCPTool):
             data_source_ids=ds_ids,
             status="published",
         )
+        # A failed commit expires the session's objects; read the id now.
+        user_id = str(user.id)
         try:
             result = await svc.create_instruction(
                 db=db, instruction_data=instruction_data, current_user=user,
                 organization=organization, force_global=True,
             )
         except Exception as e:
-            logger.exception(f"create_instruction failed for user {user.id}: {e}")
+            # A DB error's text carries the title and text as bound parameters.
+            logger.error("create_instruction failed for user %s: %s", user_id, describe_for_log(e))
             return MCPCreateInstructionOutput(
                 success=False, requires_approval=False, error_message=_refusal(e),
             ).model_dump()
@@ -409,13 +562,15 @@ class EditInstructionMCPTool(MCPTool):
             "data_source_ids": data.data_source_ids,
         }
         update = InstructionUpdate(**{k: v for k, v in changes.items() if v is not None})
+        # A failed commit expires the session's objects; read the id now.
+        user_id = str(user.id)
         try:
             updated = await svc.update_instruction(db, data.instruction_id, update, organization, user)
         except HTTPException as e:
-            logger.info("edit_instruction %s by %s refused: %s", data.instruction_id, user.id, e.detail)
+            logger.info("edit_instruction %s by %s refused: %s", data.instruction_id, user_id, e.detail)
             return fail(_refusal(e), "permission_denied" if e.status_code == 403 else "invalid_input")
         except Exception as e:
-            logger.exception("edit_instruction %s by %s failed: %s", data.instruction_id, user.id, e)
+            logger.error("edit_instruction %s by %s failed: %s", data.instruction_id, user_id, describe_for_log(e))
             return fail(_refusal(e), "edit_failed")
         if updated is None:
             return fail(NOT_FOUND, "not_found")
@@ -423,7 +578,7 @@ class EditInstructionMCPTool(MCPTool):
         fresh = await svc.get_instruction(db, data.instruction_id, organization, user) or updated
         pending = _pending(fresh)
         status_changed = new_db_status is not None and new_db_status != base_status
-        logger.info("edit_instruction: %s by user %s pending=%s", data.instruction_id, user.id, pending)
+        logger.info("edit_instruction: %s by user %s pending=%s", data.instruction_id, user_id, pending)
         return MCPEditInstructionOutput(
             success=True,
             instruction_id=data.instruction_id,
@@ -476,7 +631,7 @@ class DeleteInstructionMCPTool(MCPTool):
                 organization=organization, current_user=user,
             )
         except Exception as e:
-            logger.exception(f"delete_instruction failed for {input_data.instruction_id}: {e}")
+            logger.error("delete_instruction failed for %s: %s", input_data.instruction_id, describe_for_log(e))
             return MCPDeleteInstructionOutput(success=False, error_message=_refusal(e)).model_dump()
         logger.info("delete_instruction: %s by user %s", input_data.instruction_id, user.id)
         return MCPDeleteInstructionOutput(success=bool(success)).model_dump()

@@ -698,14 +698,15 @@ def test_mcp_confirmation_expired_row_returns_410(
 
 
 # ────────────────────────────────────────────────────────────────────────
-# refresh-tools guard: an empty provider response must not wipe tools
+# refresh-tools: complete empty catalogs differ from failed discovery
 # ────────────────────────────────────────────────────────────────────────
 
 @pytest.mark.e2e
-def test_refresh_tools_empty_result_keeps_existing_tools_and_preferences(
+@pytest.mark.parametrize("complete", [False, True])
+def test_refresh_tools_distinguishes_empty_catalog_from_incomplete_discovery(
     create_user, login_user, whoami, enable_mcp,
     create_mcp_connection, create_domain_from_connection,
-    get_connection_tools, test_client,
+    get_connection_tools, test_client, complete,
 ):
     ctx = _setup_agent_with_tools(
         create_user=create_user, login_user=login_user, whoami=whoami,
@@ -726,17 +727,21 @@ def test_refresh_tools_empty_result_keeps_existing_tools_and_preferences(
     )
     assert r.status_code == 200
 
-    # The provider comes back empty (flake/misconfiguration) — nothing is deleted.
+    # Only a complete, successful empty catalog authorizes removal.
     empty_provider = MockToolProviderClient()
-    empty_provider.set_tools([])
+    from app.data_sources.clients.discovery import DiscoveryResult
+    empty_provider.set_tools(DiscoveryResult([], complete=complete, failures=[] if complete else ["tools/list failed"]))
     with _patch_provider(empty_provider):
         r = test_client.post(
             f"/api/connections/{conn_id}/refresh-tools",
             headers=_headers(admin, org_id),
         )
-        assert r.status_code == 200, r.text
+        assert r.status_code == (200 if complete else 503), r.text
 
     tools_after = get_connection_tools(connection_id=conn_id, user_token=admin, org_id=org_id)
+    if complete:
+        assert tools_after == []
+        return
     assert {t["name"] for t in tools_after} == {t["name"] for t in tools_before}
     # The preference (and its FK target) survived.
     view = _get_tools(test_client, ds_id, admin, org_id)

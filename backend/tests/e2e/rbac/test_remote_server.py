@@ -37,12 +37,7 @@ def test_ssh_connection_discovers_tools_and_blocks_unapproved_shell(
     invite_user_to_org,
     create_organization,
     test_client,
-    monkeypatch,
 ):
-    from app.settings.config import settings
-
-    monkeypatch.setattr(settings.bow_config.features, "allow_uninvited_signups", True)
-    monkeypatch.setattr(settings.bow_config.features, "allow_multiple_organizations", True)
     user = create_user()
     token = login_user(user["email"], user["password"])
     org = whoami(token)["organizations"][0]["id"]

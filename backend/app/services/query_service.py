@@ -617,7 +617,7 @@ class QueryService:
 
         # Build ds_clients using construct_clients for multi-connection support.
         # Run as the user who triggered the run so user_required connections use
-        # their credentials (or owner/admin → system-cred fallback).
+        # their credentials (or admin → system-cred fallback).
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
         run_user = await db.get(User, user_id) if user_id else None
@@ -785,16 +785,11 @@ class QueryService:
             # the caller.
             fingerprint = params_fingerprint({**resolved, "__view_as__": str(run_as.id)})
 
-        from app.models.step_user_result import StepUserResult
         from datetime import datetime as _dt
 
-        existing = (await db.execute(
-            select(StepUserResult).where(
-                StepUserResult.step_id == str(step.id),
-                StepUserResult.user_id == str(caller.id),
-                StepUserResult.params_fingerprint == fingerprint,
-            )
-        )).scalars().first()
+        from app.services.viewer_result_store import find_viewer_result
+        existing = await find_viewer_result(
+            db, step_id=step.id, user_id=caller.id, params_fingerprint=fingerprint)
 
         # Freshness: a cached slice is stale once the step OR any loadable
         # upstream (load_step/load_entity dependency) has refreshed past it.
@@ -1220,7 +1215,7 @@ class QueryService:
 
         # Build ds_clients using construct_clients for multi-connection support.
         # Run as the user who triggered the preview so user_required connections
-        # use their credentials (or owner/admin → system-cred fallback).
+        # use their credentials (or admin → system-cred fallback).
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
         run_user = await db.get(User, user_id) if user_id else None

@@ -509,7 +509,8 @@ async def export_artifact_pptx(
     if artifact.pptx_path and ".." not in artifact.pptx_path:
         upload_base = _os.path.realpath(_os.path.join(_os.getcwd(), "uploads"))
         resolved_pptx = _os.path.realpath(artifact.pptx_path)
-        if resolved_pptx.startswith(upload_base + _os.sep) and _os.path.isfile(resolved_pptx):
+        from app.services import storage
+        if resolved_pptx.startswith(upload_base + _os.sep) and await storage.aensure_local(resolved_pptx):
             return FileResponse(
                 path=resolved_pptx,
                 media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -802,7 +803,8 @@ async def get_slide_preview(
     except UnsafePathError:
         raise HTTPException(status_code=404, detail="Preview image not found")
 
-    if not image_path.is_file():
+    from app.services import storage
+    if not await storage.aensure_local(image_path):
         raise HTTPException(status_code=404, detail="Preview image not found")
 
     return FileResponse(
@@ -895,15 +897,13 @@ async def add_visualization_to_dashboard(
         if body.visualization_id in existing_viz_ids:
             raise HTTPException(status_code=409, detail="Visualization already added to dashboard")
 
-        viz_index = len(existing_viz_ids)
-
         existing_code = (latest.content or {}).get("code", "")
         # A previous remove may have left this viz's original section in
         # place, stubbed and tagged. Restoring the binding relights that
         # card where it was — instead of appending a duplicate at the bottom.
         new_code = restore_removed_viz_references(existing_code, body.visualization_id)
         if new_code is None:
-            new_code = inject_section_into_code(existing_code, viz_title, data_model, viz_index)
+            new_code = inject_section_into_code(existing_code, viz_title, data_model, body.visualization_id)
         if new_code is None:
             raise HTTPException(
                 status_code=400,
@@ -926,12 +926,11 @@ async def add_visualization_to_dashboard(
         await db.commit()
     else:
         # No artifact yet — generate scaffold from scratch
-        viz_index = 0
         if is_table_type(data_model):
-            section_jsx = generate_table_jsx(viz_title, data_model, viz_index)
+            section_jsx = generate_table_jsx(viz_title, data_model, body.visualization_id)
         else:
-            option_code = generate_echart_option_code(data_model, viz_index)
-            section_jsx = generate_section_jsx(viz_title, option_code)
+            option_code = generate_echart_option_code(data_model, body.visualization_id)
+            section_jsx = generate_section_jsx(viz_title, option_code, body.visualization_id)
         code = generate_scaffold([section_jsx])
 
         new_artifact = await new_artifact_row(

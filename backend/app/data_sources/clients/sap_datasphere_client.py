@@ -5,6 +5,7 @@ from typing import List, Dict, Optional, Tuple
 from urllib.parse import urljoin, urlencode, quote
 import time
 import requests
+from app.core.egress import pinned_session
 import pandas as pd
 from defusedxml import ElementTree as ET
 
@@ -25,6 +26,15 @@ _NUMERIC_EDM_TYPES = {
 # `Analytics.Measure` and `com.sap.vocabularies.Analytics.v1.Measure` match.
 _MEASURE_ANNOTATION_TERMS = {"Measure", "AggregatedProperty", "AggregatedProperties"}
 _AGGREGATION_ANNOTATION_TERMS = {"CustomAggregate", "ContextDefiningProperties"}
+# Terms that mark a property as a dimension (groupable attribute). SAP's
+# Analytics vocabulary has `Dimension` (deprecated in favour of
+# `AnalyticalContext/Dimension`); both local names are accepted.
+_DIMENSION_ANNOTATION_TERMS = {"Dimension", "AnalyticalContext"}
+
+# Rows returned when the caller neither bounds the query with `$top` nor passes
+# `max_rows`: an analytical query without `$top` would otherwise page the whole
+# model into memory (the code-execution wrapper never passes max_rows).
+DEFAULT_MAX_ROWS = 10_000
 
 # EDMX / CSDL namespaces vary by OData version; we match element local-names
 # instead of pinning a namespace so v4 CSDL from any SAP release parses.
@@ -89,6 +99,14 @@ class SapDatasphereClient(DataSourceClient):
         # Discovery cache — get_schemas() is a catalog crawl + per-asset
         # $metadata fetch; run it once per client instance.
         self._schemas_cache: Optional[List[Table]] = None
+        # Persisted catalog metadata ({"Space/Model": {...sap_datasphere...}})
+        # handed over by the connection layer (attach_table_metadata) so a
+        # query can locate its model without a live catalog crawl.
+        self._table_metadata_map: Dict[str, Dict] = {}
+        # "Space/Model" names whose $metadata could not be read on the last
+        # get_schemas() run; reported through unindexed_table_prefixes() so the
+        # refresh keeps their previous entries instead of failing outright.
+        self._unread_assets: List[str] = []
 
     @staticmethod
     def _normalize_host(host: str) -> str:
@@ -105,7 +123,7 @@ class SapDatasphereClient(DataSourceClient):
 
     def _session(self) -> requests.Session:
         if self._http is None:
-            self._http = requests.Session()
+            self._http = pinned_session()
             self._http.verify = self.verify_ssl
         return self._http
 
@@ -169,7 +187,7 @@ class SapDatasphereClient(DataSourceClient):
     def _get(self, url: str, *, accept_xml: bool = False, timeout: Optional[int] = None):
         """GET an absolute URL (or a path relative to the tenant host) with auth."""
         if not (url.startswith("http://") or url.startswith("https://")):
-            url = self.host + ("/" + url.lstrip("/"))
+            url = urljoin(self.host + "/", url.lstrip("/"))
         headers = self._headers()
         if accept_xml:
             headers["Accept"] = "application/xml"
@@ -217,6 +235,7 @@ class SapDatasphereClient(DataSourceClient):
         if self._schemas_cache is not None:
             return self._schemas_cache
 
+        self._unread_assets = []
         tables: List[Table] = []
         for asset in discovery_items(self._list_assets(), 'assets', label=lambda asset: asset.get('name')):
             name = asset.get("name") or ""
@@ -246,10 +265,18 @@ class SapDatasphereClient(DataSourceClient):
             if not data_url:
                 data_url = f"{self.consumption_path}/{kind}/{quote(space)}/{quote(name)}/{quote(name)}"
 
+            full_name = f"{space}/{name}"
             columns = self._parse_metadata_columns(meta_url)
+            if columns is None:
+                # Unreadable on this run (a 403 on a DAC-protected model the
+                # technical user can list but not read, a timeout, ...). Absent
+                # is not gone: leave it out and report it as unread so the
+                # refresh keeps its previous entry and selection.
+                self._unread_assets.append(full_name)
+                continue
 
             tables.append(Table(
-                name=f"{space}/{name}",
+                name=full_name,
                 description=label,
                 columns=columns,
                 pks=[],
@@ -264,26 +291,56 @@ class SapDatasphereClient(DataSourceClient):
                 }},
             ))
 
-        self._schemas_cache = tables
+        if not getattr(self, "_discovery_failures", None):
+            self._schemas_cache = tables
         return tables
 
-    def _parse_metadata_columns(self, meta_url: str) -> List[TableColumn]:
+    def unindexed_table_prefixes(self) -> List[str]:
+        """Models whose `$metadata` the last crawl could not read (see
+        `DataSourceClient.unindexed_table_prefixes`): their previous catalog
+        entries are kept instead of the whole refresh being rejected."""
+        return list(self._unread_assets)
+
+    def attach_table_metadata(self, tables: List[Dict]) -> None:
+        """Receive the connection's persisted table metadata so queries resolve
+        their model from it instead of re-crawling the catalog (the connection
+        layer calls this right after constructing the client)."""
+        mapping: Dict[str, Dict] = {}
+        for row in tables or []:
+            if not isinstance(row, dict):
+                continue
+            name = row.get("name")
+            meta = row.get("metadata_json")
+            if isinstance(meta, dict):
+                meta = meta.get("sap_datasphere")
+            if name and isinstance(meta, dict) and meta.get("data_url"):
+                mapping[str(name)] = meta
+        self._table_metadata_map = mapping
+
+    def _parse_metadata_columns(self, meta_url: str) -> Optional[List[TableColumn]]:
         """Fetch and parse an OData `$metadata` document into TableColumns,
         tagging each as role=measure or role=dimension.
 
-        Robust to annotation-poor models: a property is a measure if it carries
-        a measure annotation OR (fallback) has a numeric EDM type. Everything
-        else is a dimension.
+        Returns ``None`` when the document could not be fetched or holds no
+        entity type, so the caller can treat the asset as unread this run.
+
+        Classification: explicit SAP analytics annotations win per property
+        (``Analytics.Measure`` / ``Aggregation.*`` → measure,
+        ``Analytics.Dimension`` / ``AnalyticalContext`` or
+        ``sap:aggregation-role`` → as stated). The numeric-EDM-type fallback
+        applies only to unannotated properties of a model that annotates NO
+        measure at all (relational views, sparse models) — in an annotated model
+        an unannotated ``Edm.Int32`` is a year or an ID, not a measure.
         """
         try:
             resp = self._get(meta_url, accept_xml=True)
             if resp.status_code >= 300:
-                return []
+                return None
             root = ET.fromstring(resp.content)
         except IndexingCancelled:
             raise
         except Exception:
-            return []
+            return None
 
         # Find the first EntityType (the consumption entity).
         entity_type = None
@@ -292,48 +349,77 @@ class SapDatasphereClient(DataSourceClient):
                 entity_type = el
                 break
         if entity_type is None:
-            return []
+            return None
+
+        props = [p for p in entity_type if _local(p.tag) == "Property" and p.get("Name")]
+        roles = {p.get("Name"): self._annotated_role(p) for p in props}
+        model_annotates_measures = any(r == "measure" for r in roles.values())
 
         columns: List[TableColumn] = []
-        for prop in entity_type:
-            if _local(prop.tag) != "Property":
-                continue
+        for prop in props:
             pname = prop.get("Name")
-            if not pname:
-                continue
             ptype = prop.get("Type") or "Edm.String"
-
-            is_measure = self._prop_is_measure(prop, ptype)
+            role = roles[pname]
+            if role is None:
+                role = (
+                    "measure"
+                    if not model_annotates_measures and ptype in _NUMERIC_EDM_TYPES
+                    else "dimension"
+                )
+            is_measure = role == "measure"
             columns.append(TableColumn(
                 name=pname,
                 dtype="measure" if is_measure else _edm_to_dtype(ptype),
                 description=None,
-                metadata={"role": "measure" if is_measure else "dimension",
-                          "edm_type": ptype},
+                metadata={"role": role, "edm_type": ptype},
             ))
         return columns
 
     @staticmethod
-    def _prop_is_measure(prop, ptype: str) -> bool:
-        # Inline (child) annotations on the property.
+    def _annotated_role(prop) -> Optional[str]:
+        """'measure' / 'dimension' from the property's explicit annotations, or
+        None when it carries none."""
+        # OData V2-style SAP attribute (sap:aggregation-role="measure|dimension").
+        for attr, value in prop.attrib.items():
+            if _local(attr) == "aggregation-role" and value:
+                v = value.strip().lower()
+                if v in ("measure", "dimension"):
+                    return v
+        role = None
         for child in prop:
             if _local(child.tag) != "Annotation":
                 continue
-            term_local = _local_term(child.get("Term") or "")
+            term = child.get("Term") or ""
+            term_local = _local_term(term)
+            enabled = (child.get("Bool") or "true").strip().lower() != "false"
             if term_local in _MEASURE_ANNOTATION_TERMS or term_local in _AGGREGATION_ANNOTATION_TERMS:
-                return True
-        # Fallback: numeric-typed properties are measures.
-        return ptype in _NUMERIC_EDM_TYPES
+                if enabled:
+                    return "measure"
+                role = role or "dimension"
+            elif term_local in _DIMENSION_ANNOTATION_TERMS or "AnalyticalContext" in term:
+                if enabled:
+                    role = "dimension"
+        return role
 
     def get_schema(self, table_name: str) -> Table:
-        for t in self.get_schemas():
+        tables = self.get_schemas()
+        for t in tables:
             if t.name == table_name:
                 return t
-        # Match by asset name only.
-        for t in self.get_schemas():
-            meta = (t.metadata_json or {}).get("sap_datasphere") or {}
-            if meta.get("asset") == table_name:
-                return t
+        # Match by asset name only — refuse an ambiguous one rather than
+        # silently picking the first space that happens to have it.
+        matches = [
+            t for t in tables
+            if ((t.metadata_json or {}).get("sap_datasphere") or {}).get("asset") == table_name
+        ]
+        if len(matches) > 1:
+            raise ValueError(
+                f"Ambiguous SAP Datasphere model '{table_name}' (in spaces "
+                + ", ".join(sorted(m.metadata_json["sap_datasphere"]["space"] for m in matches))
+                + "); use the exact 'Space/Model' name."
+            )
+        if matches:
+            return matches[0]
         raise RuntimeError(f"Table not found for '{table_name}'")
 
     # ------------------------------------------------------------------
@@ -391,6 +477,11 @@ class SapDatasphereClient(DataSourceClient):
         qs = self._build_query_string(query, select, filter, orderby, top)
         url = data_url + (("?" + qs) if qs else "")
 
+        # Bound unbounded queries: without `$top` or `max_rows` Datasphere would
+        # otherwise page the whole model back to us.
+        if max_rows is None and "$top" not in qs:
+            max_rows = DEFAULT_MAX_ROWS
+
         rows: List[Dict] = []
         pages = 0
         while url and pages < 1000:
@@ -419,11 +510,41 @@ class SapDatasphereClient(DataSourceClient):
     def _resolve_asset(self, table_name: Optional[str]) -> Optional[Dict]:
         if not table_name:
             return None
+        meta = self._resolve_from_attached(table_name)
+        if meta:
+            return meta
+        if self._table_metadata_map and self._schemas_cache is None:
+            # The persisted catalog is authoritative for query-time resolution;
+            # do not fall through to a live crawl for a name it does not hold.
+            return None
         try:
             t = self.get_schema(table_name)
+        except ValueError:
+            raise
         except Exception:
             return None
         return (t.metadata_json or {}).get("sap_datasphere")
+
+    def _resolve_from_attached(self, table_name: str) -> Optional[Dict]:
+        """Resolve against the persisted catalog metadata: exact name, then
+        case-insensitive name, then bare asset name (unambiguous only)."""
+        if not self._table_metadata_map:
+            return None
+        meta = self._table_metadata_map.get(table_name)
+        if meta:
+            return meta
+        lowered = table_name.strip().lower()
+        matches = [m for n, m in self._table_metadata_map.items() if n.strip().lower() == lowered]
+        if not matches:
+            matches = [
+                m for m in self._table_metadata_map.values()
+                if str(m.get("asset") or "").strip().lower() == lowered
+            ]
+        if len({(m.get("space"), m.get("asset")) for m in matches}) > 1:
+            raise ValueError(
+                f"Ambiguous SAP Datasphere model '{table_name}'; use the exact 'Space/Model' name."
+            )
+        return matches[0] if matches else None
 
     @staticmethod
     def _apply_parameter_set(data_url: str, pairs: str) -> str:
@@ -452,8 +573,9 @@ class SapDatasphereClient(DataSourceClient):
             params.append(("$orderby", orderby))
         if top is not None:
             params.append(("$top", str(int(top))))
-        # Safe encoding that leaves OData-significant chars readable.
-        return urlencode(params, quote_via=quote, safe="$, ()='/")
+        # Safe encoding that leaves OData-significant chars readable; spaces and
+        # reserved chars (&, +, #) inside values are percent-encoded.
+        return urlencode(params, quote_via=quote, safe="$,()='/")
 
     # ------------------------------------------------------------------
     # Connection test & prompt
@@ -523,6 +645,10 @@ df = db_clients['sap_datasphere'].execute_query(
 ### Rules
 - FIRST arg = OData options string; SECOND arg = the model name `Space/Model`
   exactly as shown in the schema. Never call with only keyword arguments.
+- Tables marked `kind=relational` in their `meta:` line are exposed views, not
+  analytic models: they return raw rows and `$select` does NOT aggregate. Use
+  `$filter`/`$top` to bound them and aggregate in pandas.
+- Every query is bounded: add `$top` yourself, or at most 10,000 rows are returned.
 - In `$select`, list the dimensions to group by plus the measures to return.
   Omitting a dimension aggregates across it. Selecting only measures gives a grand total.
 - `$filter` uses OData syntax: `eq, ne, gt, ge, lt, le, and, or`; string literals

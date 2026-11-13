@@ -6,6 +6,8 @@ from enum import Enum
 from typing import Any, List, Optional
 
 from app.data_sources.clients.progress import CancelCheck, ProgressCallback
+from app.data_sources.clients.discovery import DiscoveryClient, require_complete_discovery
+from app.data_sources.query_tag import query_tag_defaults
 
 
 class Capability(str, Enum):
@@ -60,6 +62,16 @@ class Capability(str, Enum):
     SEARCH_NOTES = "search_notes"
     GREP_NOTES = "grep_notes"
 
+    # Chat capabilities — the Microsoft Teams client declares these INSTEAD OF
+    # the file capabilities, for the same reason mail and notes do. A chat
+    # message is one line of a conversation, so the read verb returns the
+    # whole THREAD around a message (a lone "yes, ship it" means nothing), and
+    # the browse verb is scoped by conversation (a channel or a chat), not by
+    # folder.
+    LIST_CHAT_MESSAGES = "list_chat_messages"
+    READ_CHAT_THREAD = "read_chat_thread"
+    SEARCH_CHAT_MESSAGES = "search_chat_messages"
+
     # Browser capability — declared by the `browser` connection client. Gates
     # the agent-callable browser tools (browser_navigate / browser_snapshot /
     # browser_extract / browser_act / browser_vision) so they only appear in
@@ -101,7 +113,7 @@ class SearchStopped(Exception):
         self.files = list(files or [])
 
 
-class DataSourceClient(ABC):
+class DataSourceClient(DiscoveryClient, ABC):
 
     # Capabilities this client supports. Subclasses override.
     # Defaults to {QUERY} since the historic base contract is execute_query +
@@ -183,7 +195,9 @@ class DataSourceClient(ABC):
             with ephemeral():
                 return self.test_connection()
 
-        return await asyncio.to_thread(_probe)
+        # Warehouse query tag (app/data_sources/query_tag.py): a health probe.
+        with query_tag_defaults(source="connection_test"):
+            return await asyncio.to_thread(_probe)
 
     async def aget_schemas(
         self,
@@ -191,6 +205,7 @@ class DataSourceClient(ABC):
         prior_catalog: "dict | None" = None,
         prior_tables: "dict | None" = None,
         force_refresh: bool = False,
+        section_sink=None,
     ):
         """Forwards `progress_callback` / `prior_catalog` / `prior_tables` to
         the sync `get_schemas` only if it accepts each kwarg, determined by
@@ -206,6 +221,7 @@ class DataSourceClient(ABC):
         from inside `get_schemas` (e.g. a bug in a client) should surface,
         not be silently retried without progress.
         """
+        self.reset_discovery()
         kwargs = {}
         if force_refresh and _accepts_kwarg(self.get_schemas, "force_refresh"):
             kwargs["force_refresh"] = True
@@ -215,9 +231,14 @@ class DataSourceClient(ABC):
             kwargs["prior_catalog"] = prior_catalog
         if prior_tables and _accepts_kwarg(self.get_schemas, "prior_tables"):
             kwargs["prior_tables"] = prior_tables
-        if not kwargs:
-            return await asyncio.to_thread(self.get_schemas)
-        return await asyncio.to_thread(self.get_schemas, **kwargs)
+        # File sources on the full-text index tier stream each file's sections
+        # to this sink while they walk (see services/file_index_store.py).
+        if section_sink is not None and _accepts_kwarg(self.get_schemas, "section_sink"):
+            kwargs["section_sink"] = section_sink
+        # Warehouse query tag (app/data_sources/query_tag.py): catalog reads.
+        with query_tag_defaults(source="indexing"):
+            result = await asyncio.to_thread(self.get_schemas, **kwargs)
+        return require_complete_discovery(self, result)
 
     async def aget_schema(self, table_name):
         return await asyncio.to_thread(self.get_schema, table_name)

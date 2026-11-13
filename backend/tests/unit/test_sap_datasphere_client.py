@@ -54,8 +54,8 @@ CATALOG_ASSETS = {
     ]
 }
 
-# EntityType with: two string dimensions, one annotated measure (Revenue),
-# one numeric-fallback measure (Quantity, no annotation).
+# EntityType with: two string dimensions, two annotated measures (Revenue,
+# Quantity), and a numeric property that is explicitly a dimension (Year).
 METADATA_XML = """<?xml version="1.0" encoding="utf-8"?>
 <edmx:Edmx xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx" Version="4.0">
   <edmx:DataServices>
@@ -63,15 +63,22 @@ METADATA_XML = """<?xml version="1.0" encoding="utf-8"?>
       <EntityType Name="SalesAnalyticModelType">
         <Property Name="Country" Type="Edm.String"/>
         <Property Name="Product" Type="Edm.String"/>
+        <Property Name="Year" Type="Edm.Int32">
+          <Annotation Term="com.sap.vocabularies.Analytics.v1.Dimension" Bool="true"/>
+        </Property>
         <Property Name="Revenue" Type="Edm.Decimal">
           <Annotation Term="com.sap.vocabularies.Analytics.v1.Measure"/>
         </Property>
-        <Property Name="Quantity" Type="Edm.Int64"/>
+        <Property Name="Quantity" Type="Edm.Int64">
+          <Annotation Term="Analytics.Measure" Bool="true"/>
+        </Property>
+        <Property Name="Customer_ID" Type="Edm.Int32"/>
       </EntityType>
     </Schema>
   </edmx:DataServices>
 </edmx:Edmx>"""
 
+# Relational view: no analytics annotations at all → numeric fallback applies.
 CUSTOMERS_METADATA_XML = """<?xml version="1.0" encoding="utf-8"?>
 <edmx:Edmx xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx" Version="4.0">
   <edmx:DataServices>
@@ -79,6 +86,7 @@ CUSTOMERS_METADATA_XML = """<?xml version="1.0" encoding="utf-8"?>
       <EntityType Name="CustomersViewType">
         <Property Name="CustomerName" Type="Edm.String"/>
         <Property Name="Region" Type="Edm.String"/>
+        <Property Name="LifetimeValue" Type="Edm.Decimal"/>
       </EntityType>
     </Schema>
   </edmx:DataServices>
@@ -183,12 +191,72 @@ class TestDiscovery:
         assert roles == {
             "Country": "dimension",
             "Product": "dimension",
-            "Revenue": "measure",    # explicit SAP measure annotation
-            "Quantity": "measure",   # numeric-type fallback
+            "Year": "dimension",        # numeric but explicitly Analytics.Dimension
+            "Revenue": "measure",       # explicit SAP measure annotation
+            "Quantity": "measure",      # short-namespace Analytics.Measure Bool="true"
+            "Customer_ID": "dimension", # unannotated numeric in an annotated model
         }
         # Measure columns carry dtype "measure" for the schema display.
         rev = next(col for col in t.columns if col.name == "Revenue")
         assert rev.dtype == "measure"
+
+    def test_numeric_fallback_only_for_unannotated_models(self):
+        c = _client()
+        t = c.get_schema("MARKETING/CustomersView")
+        roles = {col.name: col.metadata.get("role") for col in t.columns}
+        assert roles == {"CustomerName": "dimension", "Region": "dimension",
+                         "LifetimeValue": "measure"}
+
+    def test_aggregation_role_attribute_and_bool_false(self):
+        xml = b"""<edmx:Edmx xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx" Version="4.0">
+          <edmx:DataServices><Schema xmlns="http://docs.oasis-open.org/odata/ns/edm"
+            xmlns:sap="http://www.sap.com/Protocols/SAPData" Namespace="X">
+            <EntityType Name="T">
+              <Property Name="Amount" Type="Edm.Decimal" sap:aggregation-role="measure"/>
+              <Property Name="Plant" Type="Edm.Int32" sap:aggregation-role="dimension"/>
+              <Property Name="NotAMeasure" Type="Edm.Decimal">
+                <Annotation Term="Analytics.Measure" Bool="false"/>
+              </Property>
+            </EntityType></Schema></edmx:DataServices></edmx:Edmx>"""
+        session = FakeSession()
+        session.get = lambda url, **kw: _resp(200, content=xml)
+        c = _client(session=session)
+        cols = c._parse_metadata_columns("/x/$metadata")
+        roles = {col.name: col.metadata["role"] for col in cols}
+        assert roles == {"Amount": "measure", "Plant": "dimension", "NotAMeasure": "dimension"}
+
+    def test_unreadable_metadata_is_reported_not_fatal(self):
+        # A 403 on one asset's $metadata (DAC-protected model the technical user
+        # can list but not read) must not fail the whole refresh: the asset is
+        # left out and reported through unindexed_table_prefixes().
+        session = FakeSession()
+        orig_get = session.get
+
+        def get(url, **kw):
+            if url.endswith("/$metadata") and "SalesAnalyticModel" in url:
+                return _resp(403, text="forbidden")
+            return orig_get(url, **kw)
+
+        session.get = get
+        c = _client(session=session)
+        c.reset_discovery()
+        tables = c.get_schemas()
+        assert [t.name for t in tables] == ["MARKETING/CustomersView"]
+        assert c.unindexed_table_prefixes() == ["SALES/SalesAnalyticModel"]
+        assert not getattr(c, "_discovery_failures", None)
+
+    def test_asset_name_fallback_refuses_ambiguity(self):
+        payload = {"value": [
+            {"name": "Model", "spaceName": "A", "supportsAnalyticalQueries": True},
+            {"name": "Model", "spaceName": "B", "supportsAnalyticalQueries": True},
+        ]}
+        session = FakeSession()
+        session.get = lambda url, **kw: (_resp(200, payload) if "/catalog/assets" in url
+                                         else _resp(200, content=CUSTOMERS_METADATA_XML.encode()))
+        c = _client(session=session)
+        with pytest.raises(ValueError, match="Ambiguous"):
+            c.get_schema("Model")
+        assert c.get_schema("A/Model").name == "A/Model"
 
     def test_metadata_stores_data_url_for_queries(self):
         c = _client()
@@ -233,7 +301,7 @@ class TestQuery:
         assert list(df["Country"]) == ["US", "DE"]
         data_call = [u for u in session.get_calls if "/analytical/" in u and "$select" in u][0]
         assert "$select=Country,Revenue" in data_call
-        assert "$orderby=Revenue+desc" in data_call or "$orderby=Revenue desc" in data_call
+        assert "$orderby=Revenue%20desc" in data_call
         assert "$top=100" in data_call
 
     def test_execute_query_accepts_raw_query_string(self):
@@ -301,6 +369,58 @@ class TestQuery:
         df = c.execute_query("SALES/SalesAnalyticModel")
         assert not df.empty
         assert any("/analytical/SALES/SalesAnalyticModel" in u for u in session.get_calls)
+
+    def test_attached_metadata_resolves_without_catalog_crawl(self):
+        # The connection layer hands the client its persisted catalog rows; a
+        # query must resolve the model from them and never hit /catalog/assets.
+        session = FakeSession(query_pages=[{"value": [{"Country": "US", "Revenue": 1}]}])
+        c = _client(session=session)
+        c.attach_table_metadata([{
+            "name": "SALES/SalesAnalyticModel",
+            "metadata_json": {"sap_datasphere": {
+                "space": "SALES", "asset": "SalesAnalyticModel", "kind": "analytical",
+                "data_url": "/api/v1/dwc/consumption/analytical/SALES/SalesAnalyticModel/SalesAnalyticModel",
+            }},
+        }])
+        df = c.execute_query("$select=Country,Revenue", "SALES/SalesAnalyticModel")
+        assert list(df["Country"]) == ["US"]
+        assert not any("/catalog/assets" in u or u.endswith("/$metadata") for u in session.get_calls)
+        # Bare asset name and case-insensitive name resolve from the map too.
+        assert c._resolve_asset("salesanalyticmodel")["space"] == "SALES"
+        # An unknown name does not fall back to a live crawl.
+        assert c._resolve_asset("SALES/Nope") is None
+        assert not any("/catalog/assets" in u for u in session.get_calls)
+
+    def test_unbounded_query_gets_default_row_cap(self, monkeypatch):
+        import app.data_sources.clients.sap_datasphere_client as mod
+        monkeypatch.setattr(mod, "DEFAULT_MAX_ROWS", 3)
+        session = FakeSession(query_pages=[
+            {"value": [{"n": 1}, {"n": 2}], "@odata.nextLink": f"https://{HOST}/api/v1/dwc/consumption/analytical/SALES/SalesAnalyticModel/SalesAnalyticModel?$skiptoken=1"},
+            {"value": [{"n": 3}, {"n": 4}], "@odata.nextLink": f"https://{HOST}/api/v1/dwc/consumption/analytical/SALES/SalesAnalyticModel/SalesAnalyticModel?$skiptoken=2"},
+            {"value": [{"n": 5}]},
+        ])
+        c = _client(session=session)
+        df = c.execute_query("$select=n", "SALES/SalesAnalyticModel")
+        assert len(df) == 3
+        # With an explicit $top the caller's bound is respected instead.
+        session2 = FakeSession(query_pages=[{"value": [{"n": i} for i in range(5)]}])
+        c2 = _client(session=session2)
+        assert len(c2.execute_query("$select=n&$top=5", "SALES/SalesAnalyticModel")) == 5
+
+    def test_relative_nextlink_resolved_against_host(self):
+        session = FakeSession(query_pages=[
+            {"value": [{"n": 1}], "@odata.nextLink": "api/v1/dwc/consumption/analytical/SALES/SalesAnalyticModel/SalesAnalyticModel?$skiptoken=2"},
+            {"value": [{"n": 2}]},
+        ])
+        c = _client(session=session)
+        df = c.execute_query("$select=n", "SALES/SalesAnalyticModel")
+        assert list(df["n"]) == [1, 2]
+        assert session.get_calls[-1].startswith(f"https://{HOST}/api/v1/dwc/")
+
+    def test_prompt_schema_shows_kind(self):
+        c = _client()
+        text = c.prompt_schema()
+        assert "kind=analytical" in text and "kind=relational" in text
 
     def test_odata_control_columns_dropped(self):
         session = FakeSession(query_pages=[{"value": [

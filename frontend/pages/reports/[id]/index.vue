@@ -106,9 +106,13 @@
 			:report-id="report.id"
 		/>
 
+		<!-- Quick jump between prompts: a rail of ticks pinned over the
+		     inline-start edge of the scroller (outside it, so it never scrolls) -->
+		<TurnNavigator :turns="navTurns" :container="scrollContainer" :content="transcriptContent" @jump="jumpToTurn" />
+
 		<!-- Messages -->
 		<div class="flex-1 overflow-y-auto mt-4 pb-4 chat-messages" :class="{ 'compact-messages': isExcel }" ref="scrollContainer" @scroll.passive="onScroll" @wheel.passive="onFollowWheel" @touchstart.passive="endPinHold">
-			<div ref="transcriptContent" data-testid="transcript" class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-chat w-full mx-auto" :style="pinMinHeightPx ? { minHeight: pinMinHeightPx + 'px' } : undefined">
+			<div ref="transcriptContent" data-testid="transcript" class="ps-3 pe-3 sm:px-4 pb-[3px] max-w-chat w-full mx-auto" :style="pinMinHeightPx ? { minHeight: pinMinHeightPx + 'px' } : undefined">
 
 				<!-- Forked queries panel (shown for forked reports) — fetched
 				     once, so it too waits until hydration has filled the steps -->
@@ -450,6 +454,7 @@
 													:is="getToolComponent(block.tool_execution.tool_name)"
 													:key="block.id"
 													:tool-execution="block.tool_execution"
+                                                    :run-status="m.status"
 													:edit-group-count="editRunInfo(m, block)?.count"
 													:edit-group-last-new-text="editRunInfo(m, block)?.lastNewText"
 													:edit-group-last-version="editRunInfo(m, block)?.lastVersion"
@@ -660,13 +665,42 @@
 							data-testid="compaction-divider"
 						>
 							<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
-							<span class="flex items-center gap-1.5 text-chat-3 text-ink-muted uppercase tracking-wider" :title="responseT('prompt.compactTooltip')">
-								<Icon name="heroicons:archive-box-arrow-down" class="w-3 h-3" />
-								{{ responseT('prompt.compactedHistoryAbove') }}
-							</span>
+							<UPopover :popper="{ placement: 'bottom' }" @update:open="(o: boolean) => { if (o) loadCompactionSummary() }">
+								<button
+									type="button"
+									data-testid="compaction-divider-button"
+									class="flex items-center gap-1.5 text-chat-3 text-ink-muted uppercase tracking-wider hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+									:title="responseT('reportView.compactionShowSummary')"
+									@click="loadCompactionSummary"
+								>
+									<Icon :name="compactionInfo?.degraded ? 'heroicons:exclamation-triangle' : 'heroicons:archive-box-arrow-down'" class="w-3 h-3" :class="compactionInfo?.degraded ? 'text-amber-500' : ''" />
+									{{ responseT('prompt.compactedHistoryAbove') }}
+									<span
+										v-if="compactionInfo && compactionInfo.turns"
+										class="normal-case tracking-normal font-mono"
+										data-testid="compaction-divider-stats"
+									>· {{ responseT('reportView.compactionTurns', { turns: compactionInfo.turns }) }}</span>
+								</button>
+								<template #panel>
+									<div class="w-[min(28rem,90vw)] max-h-80 overflow-y-auto p-3 text-xs" data-testid="compaction-summary-panel">
+										<div class="font-medium text-gray-900 dark:text-white mb-1">{{ responseT('reportView.compactionSummaryTitle') }}</div>
+										<p class="text-ink-muted mb-2">{{ responseT('reportView.compactionSummaryHint') }}</p>
+										<p v-if="compactionInfo?.before != null && compactionInfo?.after != null" class="text-ink-muted mb-2 font-mono text-2xs" data-testid="compaction-last-stats">
+											{{ responseT('reportView.compactionLast', { before: fmtTokensShort(compactionInfo.before), after: fmtTokensShort(compactionInfo.after) }) }}
+										</p>
+										<p v-if="compactionInfo?.degraded" class="text-amber-600 dark:text-amber-400 mb-2">{{ responseT('prompt.slash.compact.degraded') }}</p>
+										<div v-if="compactionSummaryLoading" class="flex items-center gap-2 text-ink-muted"><Spinner class="w-3 h-3" /></div>
+										<pre v-else class="whitespace-pre-wrap font-sans text-gray-700 dark:text-gray-300 leading-relaxed" dir="auto">{{ compactionSummary || '—' }}</pre>
+									</div>
+								</template>
+							</UPopover>
 							<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
 						</div>
 					</ResponseLanguageScope>
+					<li v-if="compactingNow" data-testid="compacting-indicator" class="flex items-center gap-2 my-3 text-xs text-ink-muted" role="status">
+						<Spinner class="w-3 h-3" />
+						{{ $t('reportView.compactingContext') }}
+					</li>
 			</ul>
 			<div v-else-if="!completionsLoaded" class="mt-32 flex items-center justify-center text-ink-muted">
 				<Spinner class="w-4 h-4 me-2" />
@@ -814,7 +848,7 @@
 						@approveTrainingBuild="onApproveTrainingBuild"
 						@discardTrainingBuild="onDiscardTrainingBuild"
 						@discardTrainingInstruction="onDiscardTrainingInstruction"
-					@contextCompacted="(result: any) => { if (result?.covers_until_completion_id) compactionWatermarkId = result.covers_until_completion_id }"
+					@contextCompacted="applyCompactionResult"
 					:hasArtifacts="hasArtifacts"
 					:compact="isExcel"
 					:queuedPrompts="queuedPrompts"
@@ -1193,6 +1227,7 @@ import ReportHeader from '~/components/report/ReportHeader.vue'
 import ReportAgentPanel from '~/components/report/ReportAgentPanel.vue'
 import ReportEmptyState from '~/components/report/ReportEmptyState.vue'
 import ChatSummary from '~/components/report/ChatSummary.vue'
+import TurnNavigator, { type NavTurn } from '~/components/report/TurnNavigator.vue'
 import ForkBanner from '~/components/ForkBanner.vue'
 import ContinuedFromCard from '~/components/dashboard/conversation/ContinuedFromCard.vue'
 import ForkedQueriesPanel from '~/components/ForkedQueriesPanel.vue'
@@ -1708,6 +1743,34 @@ const visibleMessages = computed(() => {
 	}
 	return out
 })
+// One entry per user prompt for the turn navigator: the prompt text and the
+// answer of the completion that follows it (until the next prompt).
+const navTurns = computed<NavTurn[]>(() => {
+	const out: NavTurn[] = []
+	let current: NavTurn | null = null
+	for (const m of visibleMessages.value) {
+		if (m.role === 'user' && m.message_type !== 'steering' && (m.prompt?.content || '').trim()) {
+			current = { id: String(m.id), prompt: m.prompt!.content!, answer: '' }
+			out.push(current)
+		} else if (m.role === 'system' && current && !current.answer) {
+			current.answer = responseText(m)
+		}
+	}
+	return out
+})
+
+// Jump from the turn navigator: bring the prompt to the top of the view.
+function jumpToTurn(messageId: string) {
+	const container = scrollContainer.value
+	if (!container) return
+	const el = container.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`) as HTMLElement | null
+	if (!el) return
+	endPinHold()
+	isFollowing.value = false
+	const top = el.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop - 16
+	container.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+}
+
 const copiedMessageId = ref<string | null>(null)
 let currentController: AbortController | null = null
 const scrollContainer = ref<HTMLElement | null>(null)
@@ -1925,6 +1988,46 @@ const summarySubAgents = ref<any[]>([])
 // right after this completion. State-derived (from the completions payload,
 // the context.compacted SSE, and manual compaction responses).
 const compactionWatermarkId = ref<string | null>(null)
+// Last compaction outcome for the divider label (turns, history tokens
+// before → after, fallback flag) and the live "Compacting context…" row the
+// agent's synchronous fold shows while it runs.
+const compactionInfo = ref<{ turns?: number, before?: number | null, after?: number | null, degraded?: boolean } | null>(null)
+const compactingNow = ref(false)
+const compactionSummary = ref<string | null>(null)
+const compactionSummaryLoading = ref(false)
+
+function applyCompactionResult(result: any) {
+	if (!result) return
+	if (result.covers_until_completion_id) compactionWatermarkId.value = result.covers_until_completion_id
+	compactionInfo.value = {
+		// Everything above the line (cumulative) vs. what the last fold did.
+		turns: result.covered_turns ?? ((compactionInfo.value?.turns || 0) + (result.compacted_turns || 0)),
+		before: result.history_tokens_before ?? result.last_tokens_before ?? null,
+		after: result.history_tokens_after ?? result.last_tokens_after ?? null,
+		degraded: !!result.degraded,
+	}
+	compactionSummary.value = null
+}
+
+function fmtTokensShort(n: number | null | undefined): string {
+	if (n == null || !Number.isFinite(Number(n))) return '—'
+	const v = Number(n)
+	if (v >= 1000) return `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k`
+	return String(Math.round(v))
+}
+
+async function loadCompactionSummary() {
+	if (compactionSummary.value !== null || compactionSummaryLoading.value) return
+	compactionSummaryLoading.value = true
+	try {
+		const { data } = await useMyFetch(`/reports/${report_id}/context/summary`, { method: 'GET' })
+		compactionSummary.value = ((data.value as any)?.summary_text || '').trim()
+	} catch {
+		compactionSummary.value = ''
+	} finally {
+		compactionSummaryLoading.value = false
+	}
+}
 
 const pendingTrainingBuild = ref<{ id: string; status: string; total_instructions: number } | null>(null)
 const pendingTrainingBuildDiff = ref<{ added_lines: number; removed_lines: number } | null>(null)
@@ -2358,6 +2461,10 @@ const EVENT_UI_VISIBLE = new Set<string>([
 	'instruction_rejected',
 ])
 function isEventUiVisible(m: any): boolean {
+    // The stopped completion already has its own indicator. Retain the event
+    // for history, but don't create another transcript row (and two gaps).
+    if (m?.message_type === 'run_stopped' && messages.value.some((c: any) =>
+        c.id === m.prompt?.meta?.completion_id && c.status === 'stopped')) return false
 	return EVENT_UI_VISIBLE.has((m?.message_type as string) || '')
 }
 
@@ -3112,6 +3219,7 @@ function getToolComponent(toolName: string) {
 			return ReadExcelAsCsvTool
 		case 'search_files':
 		case 'search_email':
+		case 'search_chat_messages':
 		case 'search_notes':
 			return SearchFilesTool
 		case 'grep_files':
@@ -3119,10 +3227,12 @@ function getToolComponent(toolName: string) {
 			return GrepFilesTool
 		case 'list_files':
 		case 'list_emails':
+		case 'list_chat_messages':
 		case 'list_notes':
 			return ListFilesTool
 		case 'read_file':
 		case 'read_email':
+		case 'read_chat_thread':
 		case 'read_note':
 			return ReadFileTool
 		case 'generate_image':
@@ -4036,7 +4146,11 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						// Capture connection_name for execute_mcp when resolved
 						if (payload.tool_name === 'execute_mcp' && payload.payload.stage === 'connection_resolved' && payload.payload.connection_name) {
 							lastBlock.tool_execution.result_json = lastBlock.tool_execution.result_json || {}
-							;(lastBlock.tool_execution.result_json as any).connection_name = payload.payload.connection_name
+                            Object.assign(lastBlock.tool_execution.result_json, {
+                                connection_name: payload.payload.connection_name,
+                                connection_type: payload.payload.connection_type,
+                                execution_target: payload.payload.execution_target,
+                            })
 						}
 						// Capture the 'auto' policy verdict for execute_mcp so MCPTool can show it.
 						// Stored on the tool_execution (not result_json) so the final
@@ -4435,17 +4549,25 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			}
 			break
 
+		case 'context.compacting':
+			// The agent is folding history synchronously before its next
+			// request — show it, so a pause in the stream has an explanation.
+			compactingNow.value = true
+			break
+
 		case 'context.compacted':
-			// Rolling context compaction ran (background, mid-run): move the
-			// watermark-anchored divider and refresh the usage popover
-			// (compacted counter + context bar) without waiting for a reload.
-			if (payload?.covers_until_completion_id) {
-				compactionWatermarkId.value = payload.covers_until_completion_id
-			}
+			compactingNow.value = false
+			// A synchronous attempt that moved nothing just clears the row.
+			if (payload?.status && payload.status !== 'compacted') break
+			// Rolling context compaction ran: move the watermark-anchored
+			// divider and refresh the usage popover (compacted counter +
+			// context bar) without waiting for a reload.
+			applyCompactionResult(payload)
 			promptBoxRef.value?.refreshContextEstimate?.(true)
 			break
 
 		case 'completion.finished':
+			compactingNow.value = false
 			const completionStatus = (payload && typeof payload.status === 'string') ? payload.status : null
 			// A turn that launched sub-agents ends while they run: pick the wave up now.
 			loadSubAgents().catch(() => {})
@@ -4766,6 +4888,7 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 		}
 		// Place the compaction boundary from server state
 		compactionWatermarkId.value = response?.compaction?.covers_until_completion_id || null
+		if (response?.compaction?.covers_until_completion_id) applyCompactionResult(response.compaction)
         await nextTick()
         followScrollToBottom()
 		if (!skipEstimate) {
@@ -6376,10 +6499,6 @@ onMounted(async () => {
     display: flex;
     flex-direction: column;
     gap: 8px;
-}
-.response-block-body > .block-content:not(:first-child),
-.response-block-body > .block-content + * {
-    margin-block-start: 8px;
 }
 .response-block:has(> [data-testid="block-group-header"], > .block-content, > .response-block-body:not([style*="display: none"]) > :is(.thinking-box, .block-content, .tool-execution-container, .tool-preview))
 ~ .response-block:has(> [data-testid="block-group-header"], > .block-content, > .response-block-body:not([style*="display: none"]) > :is(.thinking-box, .block-content, .tool-execution-container, .tool-preview)) {

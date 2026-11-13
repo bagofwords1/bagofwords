@@ -40,6 +40,40 @@ from app.services.connection_identity import catalog_requires_user_sign_in
 logger = logging.getLogger(__name__)
 
 
+def _connection_secrets(connection) -> list:
+    """The connection's secret values (passwords, tokens, keys), masked out of
+    any error text written to the run's log. Read once, right after the
+    connection loads: a failed refresh rolls the session back and expires it."""
+    from app.services.connection_service import ConnectionService
+
+    return ConnectionService._error_secrets(connection)
+
+
+_PHASE_LABELS = {
+    "connecting": "connecting to the source",
+    "warming": "warming the cache",
+    "saving": "saving the catalog",
+    "syncing_agents": "syncing agents",
+    "catalog_ready": "reading the catalog",
+}
+
+
+def _failure_message(prefix: str, phase, exc: BaseException, secrets) -> str:
+    """``<prefix> while <phase>: <Type>: <message> (caused by …)`` — redacted.
+
+    The phase says where the run stopped; the exception type makes terse
+    messages (``KeyError: '…'``, an empty ``TimeoutError()``) intelligible.
+    """
+    from app.errors.redact import user_facing_error
+
+    where = ""
+    if phase in _PHASE_LABELS:
+        where = f" while {_PHASE_LABELS[phase]}"
+    elif phase:
+        where = f" during the {str(phase).replace('_', ' ')} phase"
+    return f"{prefix}{where}: {user_facing_error(exc, secrets)}"
+
+
 # Cooperative cancellation. Keyed by indexing_id. The request thread sets the
 # event via `request_cancel`; the runner thread (and the clients it drives via
 # progress/cancel checks) poll it and abort at the next checkpoint — between
@@ -644,6 +678,9 @@ class ConnectionIndexingService:
             except Exception:
                 logger.debug("indexing.event_append_failed", exc_info=True)
 
+        # Set once the connection loads; empty until then, so the last-ditch
+        # handler below can always build a message.
+        run_secrets: list = []
         try:
             async with _new_session() as db:
                 row = await db.get(ConnectionIndexing, indexing_id)
@@ -667,8 +704,10 @@ class ConnectionIndexingService:
                     f"Indexing started (worker pid {os.getpid()}, {_rss_note()})",
                 )
 
+                # Rollback expires ORM objects; error reporting must use a plain ID.
+                run_connection_id = str(row.connection_id)
                 conn_result = await db.execute(
-                    select(Connection).where(Connection.id == row.connection_id)
+                    select(Connection).where(Connection.id == run_connection_id)
                 )
                 connection = conn_result.scalar_one_or_none()
                 if connection is None:
@@ -677,6 +716,7 @@ class ConnectionIndexingService:
                     row.finished_at = datetime.utcnow()
                     await db.commit()
                     return
+                run_secrets = _connection_secrets(connection)
 
                 # Progress state shared across the runner loop and worker
                 # thread (where the client's `get_schemas` runs). Reads/writes
@@ -865,7 +905,7 @@ class ConnectionIndexingService:
                                 db=db,
                                 new_session=_new_session,
                                 indexing_id=indexing_id,
-                                connection_id=str(row.connection_id),
+                                connection_id=run_connection_id,
                                 user_id=str(row.user_id),
                                 progress_cb=progress_cb,
                                 flush=_flush,
@@ -875,6 +915,7 @@ class ConnectionIndexingService:
                                 data_shape=data_shape,
                                 nouns=(noun_sing, noun_plural),
                                 force_refresh=bool((row.stats_json or {}).get("force_schema_refresh")),
+                                secrets=run_secrets,
                             ),
                             _DISCOVERY_TIMEOUT_SECONDS,
                             "Catalog sync",
@@ -891,14 +932,20 @@ class ConnectionIndexingService:
                             extra={"indexing_id": indexing_id, "timeout_s": exc.seconds, "idle": exc.idle},
                         )
                         await _flush(force=True)
+                        failure = _failure_message(
+                            "Catalog sync failed", _state_snapshot()["phase"], exc,
+                            run_secrets,
+                        )
+                        # Log the reason before the row turns terminal: a poller that
+                        # sees "failed" stops polling and would miss a later event.
+                        await _append_event("error", _state_snapshot()["phase"], failure)
                         async with _new_session() as err_db:
                             fresh = await err_db.get(ConnectionIndexing, indexing_id)
                             if fresh is not None and not fresh.is_terminal():
                                 fresh.status = ConnectionIndexingStatus.FAILED.value
-                                fresh.error = str(exc)
+                                fresh.error = failure
                                 fresh.finished_at = datetime.utcnow()
                                 await err_db.commit()
-                        await _append_event("error", _state_snapshot()["phase"], f"Catalog sync failed: {exc}")
                     return
 
                 # Per-user-owned catalogs (OneDrive, personal Drive, mail) have
@@ -1014,24 +1061,29 @@ class ConnectionIndexingService:
                     else:
                         logger.exception("indexing.run.failed", extra={"indexing_id": indexing_id})
                     await _flush(force=True)
+                    failure = _failure_message(
+                        "Indexing failed", _state_snapshot()["phase"], exc,
+                        run_secrets,
+                    )
+                    # Log the reason before the row turns terminal: a poller that
+                    # sees "failed" stops polling and would miss a later event.
+                    await _append_event("error", _state_snapshot()["phase"], failure)
                     # Use a fresh session — the service may have rolled back.
                     async with _new_session() as err_db:
                         fresh = await err_db.get(ConnectionIndexing, indexing_id)
                         if fresh is not None:
                             fresh.status = ConnectionIndexingStatus.FAILED.value
-                            fresh.error = str(exc)[:4000]
+                            fresh.error = failure
                             fresh.finished_at = datetime.utcnow()
-                            await err_db.commit()
                         # Record the failure on the connection for the scheduled
                         # auto-reindex sweeper's diagnostics. next_retry_at was
                         # already stamped by the sweeper before kicking, so the
                         # connection won't be re-kicked until its interval elapses
                         # (user_required catalogs heal on user login meanwhile).
-                        conn_row = await err_db.get(Connection, row.connection_id)
+                        conn_row = await err_db.get(Connection, run_connection_id)
                         if conn_row is not None:
-                            conn_row.last_reindex_error = str(exc)[:4000]
-                            await err_db.commit()
-                    await _append_event("error", _state_snapshot()["phase"], f"Indexing failed: {exc}")
+                            conn_row.last_reindex_error = failure
+                        await err_db.commit()
                     return
 
                 # Force one final flush so schema-phase progress ends at its total.
@@ -1087,7 +1139,10 @@ class ConnectionIndexingService:
                         logger.warning("indexing.warm.failed", exc_info=True)
                         await _append_event(
                             "warn", _state_snapshot()["phase"],
-                            f"Cache warm failed (catalog still indexed): {warm_exc}",
+                            _failure_message(
+                                "Cache warm failed (catalog still indexed)", None,
+                                warm_exc, run_secrets,
+                            ),
                         )
 
                 # A cancel that arrived during sync/finalize still wins.
@@ -1097,16 +1152,9 @@ class ConnectionIndexingService:
                     )
                     return
 
-                synced_domains = 0
-                if not is_tool_provider:
-                    _stage("syncing_agents")
-                    await _flush(force=True)
-                    # Fan schema out to every DataSource linked to this connection so
-                    # the domain-level view (DataSourceTable) reflects the new schema.
-                    synced_domains = await self._sync_linked_data_sources(
-                        db, connection_id=row.connection_id,
-                        session_factory=session_factory,
-                    )
+                # Catalog and all agent selections were published together by
+                # refresh_schema. Never fan out again in separate transactions.
+                synced_domains = getattr(svc, "last_synced_domains", 0)
 
                 # Re-read: the identity map still holds the row as this runner
                 # last wrote it. Another process may have reaped it (`failed`)
@@ -1149,6 +1197,11 @@ class ConnectionIndexingService:
                 if unreadable:
                     stats_json["unreadable_datasets"] = unreadable
                     stats_json["unreadable_dataset_count"] = len(unreadable)
+                # Full-text index tier: what the index now holds (files by
+                # status, sections) and what this run wrote / reused / pruned.
+                fulltext_stats = getattr(svc, "last_fulltext_stats", None)
+                if fulltext_stats:
+                    stats_json["fulltext"] = fulltext_stats
                 fresh.stats_json = stats_json
                 # Ensure progress_done == progress_total so the UI settles at 100%.
                 if fresh.progress_total and fresh.progress_done < fresh.progress_total:
@@ -1164,6 +1217,24 @@ class ConnectionIndexingService:
                     f"Completed: {item_count} {item_label} in {elapsed_s}s{size_note}",
                     done=item_count, total=item_count,
                 )
+                if fulltext_stats:
+                    _by = fulltext_stats.get("by_status") or {}
+                    _notes = [f"{fulltext_stats.get('files', 0)} files, "
+                              f"{fulltext_stats.get('sections', 0)} sections"]
+                    if fulltext_stats.get("written") or fulltext_stats.get("reused"):
+                        _notes.append(f"{fulltext_stats.get('written', 0)} read, "
+                                      f"{fulltext_stats.get('reused', 0)} unchanged")
+                    if fulltext_stats.get("pruned"):
+                        _notes.append(f"{fulltext_stats['pruned']} removed")
+                    for _k, _label in (("partial", "indexed up to a size limit"),
+                                       ("no_text", "with no extractable text"),
+                                       ("error", "could not be read")):
+                        if _by.get(_k):
+                            _notes.append(f"{_by[_k]} {_label}")
+                    await _append_event(
+                        "info", _state_snapshot()["phase"],
+                        "Full-text index: " + "; ".join(_notes),
+                    )
                 if unreadable:
                     not_found, skipped, not_readable = split_unreadable(unreadable)
                     for entries, text in (
@@ -1189,12 +1260,16 @@ class ConnectionIndexingService:
                 pass
         except Exception as exc:  # pragma: no cover — last-ditch guard
             logger.exception("indexing.run.crash", extra={"indexing_id": indexing_id})
+            failure = _failure_message("Indexing failed", None, exc, run_secrets)
+            # Without this the log just stops: the admin saw progress lines
+            # and then nothing, with no reason anywhere on the screen.
+            await _append_event("error", None, failure)
             try:
                 async with _new_session() as err_db:
                     fresh = await err_db.get(ConnectionIndexing, indexing_id)
                     if fresh is not None and not fresh.is_terminal():
                         fresh.status = ConnectionIndexingStatus.FAILED.value
-                        fresh.error = str(exc)[:4000]
+                        fresh.error = failure
                         fresh.finished_at = datetime.utcnow()
                         await err_db.commit()
             except Exception:
@@ -1247,14 +1322,13 @@ class ConnectionIndexingService:
         data_shape: str,
         nouns: tuple,
         force_refresh: bool = False,
+        secrets: list | None = None,
     ) -> None:
         """Build ONE user's catalog for this connection, in the background.
 
-        Runs the per-user overlay sync (`get_user_data_source_schema`) for every
-        data source linked to the connection, using that user's credentials. Each
-        data source gets its own session so one failure can't poison the others,
-        and progress flows through the same callback the shared run uses — so a
-        signing-in user sees "listing folders 34/120" instead of a blank wait.
+        Discovers once with the user's credentials and publishes overlays for
+        every linked agent in one transaction. Progress is written independently
+        from the catalog so failures retain both the prior catalog and diagnostics.
 
         Never raises: the outcome lands on the indexing row.
         """
@@ -1289,30 +1363,17 @@ class ConnectionIndexingService:
         unreadable = []
         synced = 0
         try:
-            for ds_id in ds_ids:
-                async with new_session() as per_db:
-                    ds = (await per_db.execute(
-                        select(DataSource).where(
-                            DataSource.id == ds_id,
-                            DataSource.deleted_at.is_(None),
-                        )
-                    )).scalar_one_or_none()
-                    if ds is None:
-                        continue
-                    user = await per_db.get(User, user_id)
-                    if user is None:
-                        break
-                    tables = await ds_service.get_user_data_source_schema(
-                        db=per_db,
-                        data_source=ds,
-                        user=user,
-                        progress_callback=progress_cb,
-                        force_refresh=force_refresh,
-                    )
-                    unreadable.extend(getattr(ds_service, "last_discovery_diagnostics", []) or [])
-                    await per_db.commit()
-                    item_count += len(tables or [])
-                    synced += 1
+            async with new_session() as per_db:
+                conn = await per_db.get(Connection, connection_id)
+                user = await per_db.get(User, user_id)
+                if conn is None or user is None:
+                    raise ValueError("Connection or user no longer exists")
+                tables, synced = await ds_service.refresh_user_connection_catalog(
+                    per_db, conn, user, progress_callback=progress_cb,
+                    force_refresh=force_refresh,
+                )
+                unreadable = ds_service.last_discovery_diagnostics
+                item_count = len(tables)
         except IndexingCancelled:
             await self._finalize_cancelled(new_session, indexing_id, append_event, state_snapshot)
             return
@@ -1321,16 +1382,17 @@ class ConnectionIndexingService:
                 "indexing.user_catalog.failed",
                 extra={"indexing_id": indexing_id, "user_id": user_id},
             )
+            failure = _failure_message("Catalog sync failed", state_snapshot()["phase"], exc, secrets or [])
+            # Log the reason before the row turns terminal: a poller that
+            # sees "failed" stops polling and would miss a later event.
+            await append_event("error", state_snapshot()["phase"], failure)
             async with new_session() as err_db:
                 fresh = await err_db.get(ConnectionIndexing, indexing_id)
                 if fresh is not None:
                     fresh.status = ConnectionIndexingStatus.FAILED.value
-                    fresh.error = str(exc)[:4000]
+                    fresh.error = failure
                     fresh.finished_at = datetime.utcnow()
                     await err_db.commit()
-            await append_event(
-                "error", state_snapshot()["phase"], f"Catalog sync failed: {exc}"
-            )
             return
 
         await flush(force=True)
@@ -1411,99 +1473,3 @@ class ConnectionIndexingService:
         except Exception:
             pass
         logger.info("indexing.cancelled", extra={"indexing_id": indexing_id})
-
-    async def _sync_linked_data_sources(
-        self,
-        db: AsyncSession,
-        *,
-        connection_id: str,
-        session_factory,
-    ) -> int:
-        """After a successful refresh_schema, mirror the new ConnectionTable set
-        onto every DataSource that links this connection.
-
-        Each per-DS sync runs in its own session/transaction so that:
-          - a data source deleted mid-flight (concurrent test or user delete)
-            doesn't FK-violate the whole runner — we re-check existence per DS
-            and skip if gone, and catch any leftover IntegrityError on commit;
-          - one corrupt DS doesn't abort the sync for its peers.
-
-        Returns the number of data sources synced successfully.
-        """
-        from sqlalchemy.exc import IntegrityError
-        from sqlalchemy.orm import selectinload
-
-        from app.models.data_source import DataSource
-        from app.services.data_source_service import DataSourceService
-
-        # Snapshot the connection's linked DS IDs from the runner's session,
-        # then close that scope — per-DS work happens in its own session.
-        # `populate_existing`: the runner's session has held this connection
-        # since the run started and never expires it, so without a re-read a
-        # data source linked during the run is missing from the list and
-        # never receives the catalog.
-        result = await db.execute(
-            select(Connection)
-            .options(selectinload(Connection.data_sources))
-            .where(Connection.id == str(connection_id))
-            .execution_options(populate_existing=True)
-        )
-        connection_snapshot = result.scalar_one_or_none()
-        if connection_snapshot is None or not connection_snapshot.data_sources:
-            return 0
-        ds_ids = [str(ds.id) for ds in connection_snapshot.data_sources]
-
-        ds_service = DataSourceService()
-        synced = 0
-        for ds_id in ds_ids:
-            try:
-                async with session_factory() as per_db:
-                    # Re-fetch the DS in the per-DS session. If it was deleted
-                    # (hard or soft) between snapshot and now, skip cleanly.
-                    ds_row = await per_db.execute(
-                        select(DataSource).where(
-                            DataSource.id == ds_id,
-                            DataSource.deleted_at.is_(None),
-                        )
-                    )
-                    ds = ds_row.scalar_one_or_none()
-                    if ds is None:
-                        continue
-                    # Same for the connection — guard against a delete here too.
-                    conn_row = await per_db.execute(
-                        select(Connection).where(
-                            Connection.id == str(connection_id),
-                            Connection.deleted_at.is_(None),
-                        )
-                    )
-                    connection = conn_row.scalar_one_or_none()
-                    if connection is None:
-                        continue
-                    try:
-                        await ds_service.sync_domain_tables_from_connection(
-                            per_db,
-                            ds,
-                            connection,
-                            max_auto_select=ds_service.ONBOARDING_MAX_TABLES,
-                        )
-                        await per_db.commit()
-                        synced += 1
-                    except IntegrityError:
-                        # Most likely cause: the DS was deleted between our
-                        # existence check and the INSERT (FK violation on
-                        # datasource_tables.datasource_id). Roll back this
-                        # DS and move on.
-                        await per_db.rollback()
-                        logger.info(
-                            "indexing.sync_domain_skipped_fk",
-                            extra={
-                                "connection_id": str(connection_id),
-                                "data_source_id": ds_id,
-                            },
-                        )
-            except Exception:
-                logger.exception(
-                    "indexing.sync_domain_failed",
-                    extra={"connection_id": str(connection_id), "data_source_id": ds_id},
-                )
-        return synced

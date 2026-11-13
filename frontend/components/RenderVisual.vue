@@ -20,6 +20,7 @@
 </template>
 
 <script setup lang="ts">
+import { resolveAxisLabels } from '~/utils/chartAxisLabels';
 import { ref, watch } from 'vue'
 import type { EChartsOption, SeriesOption } from 'echarts'
 import { graphic as EGraphic } from 'echarts'
@@ -213,30 +214,8 @@ function getSafeValue(row: DataRow, key: string | undefined, type: 'string' | 'n
 }
 
 // --- Helper: Get axis label config ---
-function getAxisLabelConfig(numCategories: number): { interval: number; rotate: number; hideOverlap: boolean } {
-    // Check view settings first
-    const viewRotate = props.view?.view?.axisX?.rotate
-    const viewInterval = props.view?.view?.axisX?.interval
-    
-    if (viewRotate !== undefined || viewInterval !== undefined) {
-        return {
-            rotate: viewRotate ?? 45,
-            interval: viewInterval ?? 0,
-            hideOverlap: true
-        }
-    }
-    
-    // Default heuristics
-    if (numCategories > 50) {
-        return { interval: Math.max(1, Math.floor(numCategories / 20)), rotate: 45, hideOverlap: true }
-    } else if (numCategories > 25) {
-        return { interval: 1, rotate: 45, hideOverlap: true }
-    } else if (numCategories > 10) {
-        return { interval: 1, rotate: 45, hideOverlap: true }
-    } else if (numCategories > 5) {
-        return { interval: 0, rotate: 45, hideOverlap: true }
-    }
-    return { interval: 0, rotate: 0, hideOverlap: false }
+function getAxisLabelConfig(numCategories: number) {
+    return resolveAxisLabels(props.view?.view?.axisX, numCategories)
 }
 
 function hexToRGBA(hex: string, alpha: number): string {
@@ -296,7 +275,9 @@ function buildCartesianOptions(normalizedRows: DataRow[], dataModel: DataModel):
             break;
         case 'area_chart':
             chartType = 'line';
-            specificSeriesOptions = { smooth: true };
+            // Honour the saved setting like line charts do; views saved before
+            // the straight default have no value and keep their curve.
+            specificSeriesOptions = { smooth: props.view?.view?.smooth ?? true };
             break;
         case 'bar_chart':
         default:

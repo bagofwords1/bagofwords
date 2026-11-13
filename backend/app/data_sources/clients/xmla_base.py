@@ -6,6 +6,7 @@ from xml.sax.saxutils import escape as xml_escape
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_session
 from defusedxml import ElementTree as ET
 
 from app.ai.prompt_formatters import ServiceFormatter, Table, TableColumn
@@ -109,7 +110,7 @@ class XmlaClient(DataSourceClient):
         if not (self.username and self.password):
             raise RuntimeError("username and password are required")
 
-        session = requests.Session()
+        session = pinned_session()
         session.auth = (self.username, self.password)
         self._http = session
 

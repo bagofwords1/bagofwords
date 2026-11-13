@@ -69,7 +69,7 @@ google_oauth:
 # smtp_settings:
 #   host: smtp.example.com
 #   port: 587
-#   from_name: "Bag of words"
+#   from_name: "BOW"
 #   from_email: noreply@example.com
 #   use_tls: true
 #   use_ssl: false
@@ -110,3 +110,23 @@ otel:
 #   # to use the pre-3.13 checks while the proxy CA is fixed; chains are still
 #   # verified against the trust store and hostnames are still checked.
 #   tls_strict_x509: true
+
+# storage:
+#   # Where uploads, thumbnails, decks, logos, avatars and extract caches live.
+#   # local (default): backend/uploads on this machine. s3 / azure: the bucket is
+#   # the source of truth and uploads/ becomes a per-replica cache. Every field
+#   # can also be set with an env var (BOW_STORAGE_BACKEND, BOW_STORAGE_S3_BUCKET,
+#   # BOW_STORAGE_AZURE_SAS_TOKEN, ...); values here win over env vars.
+#   backend: s3              # local | s3 | azure
+#   prefix: bow/
+#   s3:
+#     bucket: my-bow-files
+#     region: us-east-1
+#     endpoint_url: ""       # MinIO / R2 / Wasabi; empty = AWS
+#     auth: default          # default (IRSA / instance role) | static | assume_role
+#     access_key_id: ${BOW_STORAGE_S3_ACCESS_KEY_ID}
+#     secret_access_key: ${BOW_STORAGE_S3_SECRET_ACCESS_KEY}
+#   azure:
+#     account_url: https://myaccount.blob.core.windows.net
+#     container: bow-files
+#     auth: default          # default (Workload/Managed Identity) | service_principal | connection_string | sas

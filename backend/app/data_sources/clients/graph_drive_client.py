@@ -28,6 +28,7 @@ import httpx
 import pandas as pd
 
 from app.ai.prompt_formatters import Table, TableColumn
+from app.data_sources.clients.progress import IndexingCancelled
 from app.data_sources.clients.base import Capability, DataSourceClient
 from app.data_sources.clients._sharepoint_listing import SharepointBoundedListing
 from app.data_sources.clients._document_text import (
@@ -106,6 +107,29 @@ PROBE_PAGE_SIZE = 5
 # bytes/text. Order matters only for human-readable docs.
 TABULAR_EXTS = {"csv", "tsv", "xlsx", "xls"}
 TEXT_EXTS = {"txt", "md", "json", "html", "htm", "log", "yaml", "yml"}
+
+
+class GraphHTTPError(ValueError):
+    """Graph answered with an HTTP error status.
+
+    A ``ValueError`` (with the same message as before) so every existing
+    ``except ValueError`` around Graph calls keeps working. ``status_code``
+    lets callers branch on the status instead of the message text, which also
+    holds the request URL and so the user's folder names.
+    """
+
+    def __init__(self, url, status_code: int, body: str = ""):
+        self.url = str(url)
+        self.status_code = status_code
+        super().__init__(f"Graph {url} → {status_code} {body}")
+
+
+def _is_not_found(exc: Exception) -> bool:
+    """Graph confirmed the item is absent (HTTP 404), as opposed to a
+    permission, server or transport failure. Decided by the status code only:
+    the message contains the request URL, so a folder path such as
+    ``Errors/404`` must not turn a 403 or a timeout into a confirmed miss."""
+    return isinstance(exc, GraphHTTPError) and exc.status_code == 404
 
 
 def _ext(name: str) -> str:
@@ -434,6 +458,7 @@ class GraphDriveClient(DataSourceClient):
         timeout: float = 30.0,
         follow_redirects: bool = False,
         max_attempts: Optional[int] = None,
+        json_body: Optional[Any] = None,
     ) -> httpx.Response:
         """One Graph request with the throttling discipline Microsoft expects.
 
@@ -483,6 +508,7 @@ class GraphDriveClient(DataSourceClient):
                     resp = client.request(
                         method, url, headers=hdrs, params=params,
                         timeout=timeout, follow_redirects=follow_redirects,
+                        json=json_body,
                     )
             except httpx.TransportError as exc:
                 if attempt >= attempts_allowed:
@@ -545,7 +571,7 @@ class GraphDriveClient(DataSourceClient):
     def _get(self, path: str, **kwargs) -> dict:
         resp = self._request("GET", path, **kwargs)
         if resp.status_code >= 400:
-            raise ValueError(f"Graph {resp.url} → {resp.status_code} {resp.text[:300]}")
+            raise GraphHTTPError(resp.url, resp.status_code, resp.text[:300])
         return resp.json()
 
     def _get_bytes(self, path: str) -> bytes:
@@ -553,7 +579,7 @@ class GraphDriveClient(DataSourceClient):
         # stripping the Authorization header on the cross-origin hop to the CDN.
         resp = self._request("GET", path, timeout=60.0, follow_redirects=True)
         if resp.status_code >= 400:
-            raise ValueError(f"Graph {resp.url} → {resp.status_code} {resp.text[:300]}")
+            raise GraphHTTPError(resp.url, resp.status_code, resp.text[:300])
         return resp.content
 
     # ------------------------------------------------ site / drive resolution
@@ -1008,10 +1034,17 @@ class GraphDriveClient(DataSourceClient):
                         break
                     try:
                         root = self._resolve_root_item_id(did)
+                    except IndexingCancelled:
+                        raise
                     except Exception as e:
                         # folder_path need not exist in every library, and a
                         # library can be inaccessible to this identity. Skip it
-                        # rather than failing the whole listing.
+                        # rather than failing the whole listing. A confirmed
+                        # missing folder is a complete answer for that library;
+                        # anything else (403, 5xx, network) may hide content,
+                        # so it marks discovery incomplete.
+                        if not (self.folder_path and _is_not_found(e)):
+                            self.mark_discovery_incomplete("graph_drive catalog")
                         logger.info(
                             "graph_drive: skipping library %r — %s", lib, str(e)[:200]
                         )

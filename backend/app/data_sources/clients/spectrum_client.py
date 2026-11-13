@@ -41,6 +41,7 @@ from xml.etree import ElementTree as ET
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_session
 from defusedxml import ElementTree as SafeET
 
 from app.ai.prompt_formatters import ForeignKey, ServiceFormatter, Table, TableColumn
@@ -350,7 +351,7 @@ class SpectrumClient(DataSourceClient):
 
     def _http(self) -> requests.Session:
         if self._session is None:
-            self._session = requests.Session()
+            self._session = pinned_session()
         return self._session
 
     @property

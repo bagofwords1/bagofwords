@@ -132,6 +132,22 @@
         </div>
       </div>
     </form>
+
+    <!-- Org-wide "connection down" alert emails. Its own card — matching the
+         "Use a custom SMTP server" switch above — and saves on its own, since it
+         governs which system emails go out, not the transport. The in-app inbox
+         notification is always delivered. -->
+    <div class="md:w-2/3 mt-8 pt-6 border-t border-gray-200 dark:border-gray-800">
+      <h3 class="text-sm font-medium text-gray-900 dark:text-white mb-3">{{ $t('settings.connectionAlerts.heading') }}</h3>
+      <div class="flex items-start gap-3 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2.5">
+        <UToggle v-model="connAlertsEmail" :disabled="connAlertsSaving" class="mt-0.5"
+          data-testid="connection-alerts-toggle" @update:model-value="saveConnAlerts" />
+        <div class="text-sm">
+          <div class="font-medium text-gray-900 dark:text-white">{{ $t('settings.connectionAlerts.label') }}</div>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('settings.connectionAlerts.description') }}</p>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -141,8 +157,16 @@ import { reactive, ref, computed, nextTick, onMounted } from 'vue'
 definePageMeta({ auth: true, permissions: ['manage_settings'], layout: 'settings' })
 
 const toast = useToast()
+const { t } = useI18n()
 const { data: authData } = useAuth()
 const currentUserEmail = computed(() => (authData.value as any)?.email || '')
+
+// Org-wide "connection down/restored" alert emails. Independent of the SMTP
+// form: own fetch, saves immediately on toggle. Inbox notifications are
+// always on; this only governs the email nudge.
+const connAlertsEmail = ref(false)
+const connAlertsInitial = ref(false)
+const connAlertsSaving = ref(false)
 
 const form = reactive({
   enabled: false,
@@ -233,7 +257,31 @@ async function load() {
   const res = await useMyFetch('/api/organization/smtp')
   const s = res.data.value as any
   if (s) applyServerState(s)
+  try {
+    const ca = await useMyFetch('/api/organization/connection-alerts')
+    const cav = ca.data.value as any
+    connAlertsEmail.value = cav?.email_enabled ?? false
+    connAlertsInitial.value = connAlertsEmail.value
+  } catch { /* leave default (off) */ }
   loaded.value = true
+}
+
+async function saveConnAlerts(value: boolean) {
+  connAlertsSaving.value = true
+  try {
+    const res = await useMyFetch('/api/organization/connection-alerts',
+      { method: 'PUT', body: { email_enabled: value } })
+    if (res.status.value !== 'success') {
+      connAlertsEmail.value = connAlertsInitial.value  // revert the switch
+      const detail = (res.error.value as any)?.data?.detail || t('settings.connectionAlerts.saveError')
+      toast.add({ title: t('settings.connectionAlerts.saveError'), description: detail, color: 'red' })
+      return
+    }
+    connAlertsInitial.value = value
+    toast.add({ title: t('settings.saved'), color: 'green' })
+  } finally {
+    connAlertsSaving.value = false
+  }
 }
 
 onMounted(async () => {

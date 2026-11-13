@@ -44,6 +44,9 @@ class _FakeResponse:
 
 
 class _FakeSession:
+    def mount(self, prefix, adapter):
+        pass
+
     """Routing table keyed by path prefix. Records each call so tests can assert
     which endpoint was reached and with what params."""
 

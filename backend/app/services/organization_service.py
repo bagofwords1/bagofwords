@@ -106,19 +106,13 @@ class OrganizationService:
 
     async def _assign_system_role(self, db: AsyncSession, org_id: str, user_id: str, role_name: str) -> None:
         """Assign a system role to a user via role_assignments (RBAC path)."""
-        from app.models.role import Role
         from app.models.role_assignment import RoleAssignment
+        from app.core.permission_resolver import resolve_assignable_system_role
 
         try:
-            result = await db.execute(
-                select(Role).where(
-                    Role.name == role_name,
-                    Role.is_system == True,
-                    Role.organization_id.is_(None),
-                    Role.deleted_at.is_(None),
-                )
-            )
-            system_role = result.scalar_one_or_none()
+            # Honor a per-org override of the role, so a member in an org that
+            # has customized `member` gets the customized set, not the default.
+            system_role = await resolve_assignable_system_role(db, org_id, role_name)
             if not system_role:
                 return
             # Check if assignment already exists
@@ -154,31 +148,37 @@ class OrganizationService:
         """
         from app.models.role import Role
         from app.models.role_assignment import RoleAssignment
+        from app.core.permission_resolver import resolve_assignable_system_role
 
-        sys_role_ids = (await db.execute(
+        # Clear the user's existing built-in-role assignments: both the global
+        # system rows AND this org's editable overrides of them (e.g. a member
+        # override), so switching member↔admin never leaves a stale override
+        # assignment behind.
+        sys_role_ids = list((await db.execute(
             select(Role.id).where(
                 Role.is_system == True,
                 Role.organization_id.is_(None),
                 Role.deleted_at.is_(None),
             )
-        )).scalars().all()
-        if sys_role_ids:
+        )).scalars().all())
+        override_ids = list((await db.execute(
+            select(Role.id).where(
+                Role.organization_id == org_id,
+                Role.overrides_system_role.isnot(None),
+                Role.deleted_at.is_(None),
+            )
+        )).scalars().all())
+        clear_ids = sys_role_ids + override_ids
+        if clear_ids:
             await db.execute(
                 delete(RoleAssignment).where(
                     RoleAssignment.organization_id == org_id,
                     RoleAssignment.principal_type == "user",
                     RoleAssignment.principal_id == user_id,
-                    RoleAssignment.role_id.in_(sys_role_ids),
+                    RoleAssignment.role_id.in_(clear_ids),
                 )
             )
-        target = (await db.execute(
-            select(Role).where(
-                Role.name == role_name,
-                Role.is_system == True,
-                Role.organization_id.is_(None),
-                Role.deleted_at.is_(None),
-            )
-        )).scalar_one_or_none()
+        target = await resolve_assignable_system_role(db, org_id, role_name)
         if target:
             db.add(RoleAssignment(
                 organization_id=org_id,
@@ -359,6 +359,15 @@ class OrganizationService:
         Only org bootstrap (the creator becoming the first admin, before any
         membership exists to resolve) passes ``False``.
         """
+        # Resolve the org-wide default when the caller didn't pick a role
+        # explicitly (the "Add member" modal pre-fills from here; an API caller
+        # that omits role gets the org default). Falls back to "member".
+        if not (membership_data.role or "").strip():
+            from app.services.organization_settings_service import resolve_default_member_role
+            membership_data.role = await resolve_default_member_role(
+                db, str(membership_data.organization_id)
+            )
+
         if enforce_role_guard:
             await self._assert_can_invite_with_role(
                 db, str(membership_data.organization_id), current_user, membership_data.role or "member"

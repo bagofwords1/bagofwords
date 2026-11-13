@@ -86,12 +86,18 @@ class SlackAdapter(PlatformAdapter):
         is_thread_reply = thread_ts is not None and thread_ts != message_ts
         effective_thread_ts = thread_ts if is_thread_reply else message_ts
 
+        # Per-channel agent routing key: the Slack channel id, but only for real
+        # channels — DMs (im) stay unaffected and fall back to the connection
+        # default. Distinct from channel_id, which is the reply target.
+        routing_channel_id = channel_id if channel_type == "channel" else None
+
         return {
             "platform_type": "slack",
             "external_user_id": event.get("user"),
             "external_message_id": message_ts,
             "channel_id": channel_id,
             "channel_type": channel_type,
+            "routing_channel_id": routing_channel_id,
             "message_text": event.get("text", ""),
             "message_type": event_type,
             "timestamp": message_ts,
@@ -197,6 +203,51 @@ class SlackAdapter(PlatformAdapter):
             print(f"Error getting Slack user info: {e}")
             return {}
     
+    async def get_channel_info(self, channel_id: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Fetch a Slack channel's human name for the routing UI.
+
+        ``context`` (the processed message dict) is accepted for a uniform
+        resolver signature across adapters — Slack needs nothing from it (the
+        bot token alone resolves the name), Teams uses it for team id/serviceUrl.
+
+        Inbound ``app_mention``/``message`` events carry only the channel id,
+        so channel discovery has nothing to label a channel with. This asks
+        Slack once (``conversations.info``) so the panel can show ``#sales``
+        instead of ``C0CGJSY1HHS``. Requires the ``channels:read`` scope (and
+        ``groups:read`` for private channels). Best-effort: any failure
+        (missing scope, bot not in channel) returns ``{}`` and the id stays the
+        label — discovery must never break on this.
+        """
+        try:
+            bot_token = self.credentials.get("bot_token")
+            if not bot_token:
+                return {}
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"https://slack.com/api/conversations.info?channel={channel_id}",
+                    headers={"Authorization": f"Bearer {bot_token}"}
+                )
+
+                if response.status_code == 200:
+                    result = response.json()
+                    if result.get("ok"):
+                        ch = result.get("channel", {})
+                        name = ch.get("name")
+                        return {
+                            "id": ch.get("id"),
+                            # Store with the leading '#' so the UI reads naturally.
+                            "name": f"#{name}" if name else None,
+                            "is_private": ch.get("is_private", False),
+                        }
+                    print(f"get_channel_info not ok for {channel_id}: {result.get('error')}")
+
+                return {}
+
+        except Exception as e:
+            print(f"Error getting Slack channel info: {e}")
+            return {}
+
     async def verify_webhook_signature(self, request_body: bytes, signature: str, timestamp: str) -> bool:
         """Verify Slack webhook signature"""
         

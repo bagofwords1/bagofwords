@@ -98,7 +98,7 @@ FIELDS: List[FieldSpec] = [
     FieldSpec("turn", "number", RUN, "Position of the run in its report (1 = first prompt)", sortable=True),
     FieldSpec("report_id", "id", RUN, "Report id", builder=False),
     FieldSpec("run_id", "id", RUN, "Run id", builder=False),
-    FieldSpec("version", "text", RUN, "Bag of words version that ran it", facetable=True, builder=False),
+    FieldSpec("version", "text", RUN, "BOW version that ran it", facetable=True, builder=False),
     FieldSpec("created", "date", RUN, "When the run started", sortable=True),
     FieldSpec("eval", "boolean", RUN, "Runs spawned by evals (hidden unless mentioned)", builder=False),
     FieldSpec("error", "text", RUN, "Run error message"),

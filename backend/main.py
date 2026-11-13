@@ -33,7 +33,7 @@ from app.settings.config import settings
 from app.core.tls import configure_process_tls
 configure_process_tls(strict_x509=settings.bow_config.security.tls_strict_x509)
 
-from fastapi import FastAPI, Request, Depends
+from fastapi import FastAPI, Request, Depends, Response
 from fastapi.responses import RedirectResponse
 from httpx_oauth.clients.google import GoogleOAuth2
 from httpx_oauth.clients.openid import OpenID
@@ -47,6 +47,7 @@ from app.settings.config import settings
 from app.settings.logging_config import setup_logging, get_logger
 from app.core.cors import init_cors
 from app.core.scheduler import scheduler, try_acquire_scheduler_leader
+from app.core import health as health_report
 from app.core.spa import mount_spa
 from app.core.swagger import mount_swagger_ui
 from app.core.request_hardening import (
@@ -270,8 +271,41 @@ app.include_router(
 
 @app.get("/health", include_in_schema=False)
 async def health():
-    """Liveness probe — used by k8s, docker healthcheck, and CI wait loops."""
-    return {"status": "ok"}
+    """Liveness probe — used by k8s, docker healthcheck, and CI wait loops.
+
+    Dependency-free and always ``200`` while this process answers: the k8s
+    livenessProbe restarts the pod when this fails, so it must never depend on
+    the database or any other external component (see app/core/health.py).
+    It only adds cheap, non-failing facts; dependency checks that *can* fail
+    live at ``/health/ready``.
+    """
+    return {
+        "status": "ok",
+        "version": settings.PROJECT_VERSION,
+        "uptime_seconds": health_report.uptime_seconds(),
+        "timestamp": health_report.utcnow_iso(),
+        "worker": health_report.worker_identity(),
+    }
+
+
+@app.get("/health/ready", include_in_schema=False)
+async def health_ready(response: Response):
+    """Readiness / observability probe — reports dependency health.
+
+    Returns ``200`` when every critical check (currently the database) passes
+    and ``503`` otherwise, with a per-check breakdown so an operator or a
+    monitoring system sees which component is down. Unlike ``/health`` it is
+    free to fail: nothing restarts a pod over it.
+    """
+    report, healthy = await health_report.build_readiness_report(
+        session_maker=async_session_maker,
+        scheduler=scheduler,
+        is_leader=getattr(app.state, "is_scheduler_leader", False),
+        version=settings.PROJECT_VERSION,
+    )
+    if not healthy:
+        response.status_code = 503
+    return report
 
 
 app.include_router(demo_data_source.router, prefix="/api")  # Must be before data_source for /data_sources/demos to match
@@ -371,7 +405,7 @@ def custom_openapi():
     openapi_schema = get_openapi(
         title=settings.PROJECT_NAME,
         version=settings.PROJECT_VERSION,
-        description="Bag of Words API",
+        description="BOW API",
         routes=app.routes,
     )
 
@@ -452,6 +486,21 @@ async def startup_event():
         logger.error(f"Failed to connect to database after 3 retries: {str(e)}")
         exit(1)
 
+    # Object storage (storage.backend = s3 | azure): prove read/write/delete
+    # before serving, so bad credentials fail the pod instead of every upload.
+    try:
+        import asyncio as _asyncio
+        from app.services import storage as _storage
+        try:
+            _storage.ensure_layout()
+        except OSError as e:
+            logger.warning(f"Could not create the uploads/ folders: {e}")
+        where = await _asyncio.to_thread(_storage.check)
+        logger.info(f"File storage: {where}")
+    except Exception as e:
+        logger.error(f"❌ File storage is not usable: {e}")
+        exit(1)
+
     # Pay process-local tool discovery/schema and active connector import costs
     # during worker startup, rather than on the first user's first prompt.
     try:
@@ -508,6 +557,8 @@ async def startup_event():
     # N-workers × every scheduled tick becomes an N-way resource storm
     # (customer log showed warm_all_qvd_caches firing 5–6× simultaneously).
     is_scheduler_leader = try_acquire_scheduler_leader()
+    # Exposed on /health/ready so an operator can see which worker runs jobs.
+    app.state.is_scheduler_leader = is_scheduler_leader
     if not is_scheduler_leader:
         logger.info("Scheduler leader lock not acquired — skipping job registration in this worker")
 
@@ -586,6 +637,22 @@ async def startup_event():
             logger.info("Scheduled job: purge_old_runs (dashboard refresh history) @ 03:30 daily")
         except Exception as e:
             logger.error(f"Failed to schedule refresh history purge job: {e}")
+        # A custom table's run history keeps 30 days (cqruns01).
+        try:
+            from app.services.custom_table_runs import purge_old_runs as purge_custom_table_runs
+            scheduler.add_job(
+                purge_custom_table_runs,
+                trigger="cron",
+                hour=3,
+                minute=40,
+                id="purge_custom_table_runs_daily",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=3600,
+            )
+        except Exception as e:
+            logger.error(f"Failed to schedule custom table run history purge job: {e}")
 
     # Agent check-ins: fail rows left in 'running' by a restart/crash mid-run.
     if is_scheduler_leader:

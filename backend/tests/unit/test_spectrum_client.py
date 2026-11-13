@@ -97,6 +97,7 @@ def patch_requests(monkeypatch):
     def _install(routes):
         fake = _FakeRequests(routes)
         monkeypatch.setattr("app.data_sources.clients.spectrum_client.requests", fake)
+        monkeypatch.setattr("app.data_sources.clients.spectrum_client.pinned_session", fake.Session)
         return fake
     return _install
 

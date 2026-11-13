@@ -70,7 +70,10 @@ def setup_logging():
     logging.getLogger("sqlalchemy.orm").setLevel(logging.WARNING)
     logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
     logging.getLogger("aiosqlite").setLevel(logging.INFO)
-    
+    # Cloud SDKs log every request (file storage makes many) at DEBUG/INFO.
+    for name in ("botocore", "boto3", "s3transfer", "azure.core.pipeline.policies.http_logging_policy"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
     # Create and configure app-specific loggers
     app_logger = logging.getLogger("app")
     request_logger = logging.getLogger("app.request")

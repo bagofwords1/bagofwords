@@ -467,6 +467,7 @@ class AwsAthenaClient(DataSourceClient):
         except IndexingCancelled:
             raise
         except Exception as e:
+            self.mark_discovery_incomplete("aws_athena catalog")
             logger.error(f"Error retrieving tables: {e}")
             return []
 

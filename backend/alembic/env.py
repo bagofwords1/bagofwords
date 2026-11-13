@@ -47,6 +47,8 @@ from app.models.organization_settings import OrganizationSettings
 from app.models.instance_settings import InstanceSettings
 from app.models.external_platform import ExternalPlatform
 from app.models.external_user_mapping import ExternalUserMapping
+from app.models.external_platform_agent import ExternalPlatformAgent
+from app.models.external_platform_channel import ExternalPlatformChannel
 from app.models.instruction import Instruction
 from app.models.instruction import instruction_data_source_association
 from app.models.completion_feedback import CompletionFeedback
@@ -71,6 +73,7 @@ from app.models.connection import Connection
 from app.models.connection_indexing import ConnectionIndexing
 from app.models.connection_rate_limit_counter import ConnectionRateLimitCounter
 from app.models.connection_table import ConnectionTable
+from app.models.file_index import FileIndexFile, FileIndexSection
 from app.models.sub_agent import SubAgentRun, SubAgentWave
 from app.models.sub_agent_message import SubAgentMessage
 from app.models.note import Note
@@ -207,7 +210,7 @@ def _attach_migration_iam_hook(engine):
 # and stays on one backend even behind a transaction pooler. The wait is
 # bounded so a pod stuck behind a dead session fails into start.sh's retry
 # instead of hanging. SQLite is a single local file with a single writer.
-MIGRATION_LOCK_KEY = 7262874361  # arbitrary, fixed for every Bag of Words install
+MIGRATION_LOCK_KEY = 7262874361  # arbitrary, fixed for every BOW install
 MIGRATION_LOCK_WAIT = "5min"
 
 

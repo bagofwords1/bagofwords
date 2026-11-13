@@ -159,7 +159,7 @@
                 <div v-else class="absolute inset-0 flex items-center justify-center text-ink-muted">
                     <div class="text-center">
                         <Icon name="heroicons:document-chart-bar" class="w-12 h-12 mx-auto mb-3 opacity-50" />
-                        <p>No dashboard available</p>
+                        <p>{{ $t('sharedReport.noDashboard') }}</p>
                     </div>
                 </div>
             </template>
@@ -248,6 +248,7 @@ import SlideViewer from '~/components/dashboard/SlideViewer.vue';
 import DocViewer from '~/components/dashboard/DocViewer.vue';
 import ViewerRunGate from '~/components/dashboard/ViewerRunGate.vue';
 import ArtifactChatBubble from '~/components/report/ArtifactChatBubble.vue';
+import { artifactRowCounts } from '~/utils/artifactRowCounts';
 import { buildArtifactIframeHtml, isHtmlSlidesCode, inlineableArtifactLibs, artifactPageLibs } from '~/utils/artifactIframe';
 import { artifactLibSources, ensureArtifactLibs, whenArtifactLibsSettled } from '~/utils/artifactLibs';
 import { exportsHidden } from '~/utils/dashboardExportsHidden';
@@ -1002,6 +1003,7 @@ function asReport(meta: any) {
         title: meta.title,
         general: meta.general || {},
         include_data_tab: meta.include_data_tab,
+        show_widget_info: !!meta.show_widget_info,
         artifact_chat_enabled: !!meta.chat_enabled,
         refresh_on_view: !!meta.refresh_on_view,
         data_sources: meta.data_sources || [],
@@ -1228,6 +1230,7 @@ async function loadVisualizationData(artifactId?: string) {
                     title: viz.title || query.title || 'Untitled',
                     view: viz.view || {},  // Use visualization's view config
                     rows: (step.value as any)?.data?.rows || [],
+                    ...artifactRowCounts((step.value as any)?.data),
                     columns: (step.value as any)?.data?.columns || [],
                     dataModel: (step.value as any)?.data_model || {},
                     code: (step.value as any)?.code || '',
@@ -1242,6 +1245,7 @@ async function loadVisualizationData(artifactId?: string) {
                     title: query.title || 'Untitled',
                     view: (step.value as any).view || {},
                     rows: (step.value as any).data?.rows || [],
+                    ...artifactRowCounts((step.value as any).data),
                     columns: (step.value as any).data?.columns || [],
                     dataModel: (step.value as any).data_model || {},
                     code: (step.value as any).code || ''
@@ -1611,6 +1615,7 @@ async function runParamQueries(
             for (const viz of visualizationsData.value as any[]) {
                 if (viz.queryId === qid) {
                     viz.rows = res.data?.rows || [];
+                    Object.assign(viz, artifactRowCounts(res.data));
                     viz.columns = res.data?.columns || [];
                 }
             }
@@ -1680,6 +1685,8 @@ function iframeOptions(art: any, seed: any) {
         mode: art?.mode || 'page',
         resourceApp: art?.content?.sdk_version === 1,
         colorMode: artifactColorMode,
+        // The per-widget ⓘ provenance popover, off by default (per dashboard).
+        showWidgetInfo: !!report.value?.show_widget_info,
         // Used only when its key matches the code above (else in-iframe Babel).
         precompiled: { js: art?.compiled_js, key: art?.compiled_js_key },
     };

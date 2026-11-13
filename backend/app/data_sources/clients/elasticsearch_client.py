@@ -53,7 +53,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
-import requests
+from app.core.egress import pinned_request
 
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.elasticsearch_guardrails import (
@@ -310,7 +310,7 @@ class ElasticsearchClient(DataSourceClient):
         auth, extra_headers = self._auth()
         headers = {"Content-Type": "application/json"}
         headers.update(extra_headers)
-        resp = requests.request(
+        resp = pinned_request(
             method,
             f"{self.base_url}{path}",
             json=json_body,
@@ -477,6 +477,7 @@ class ElasticsearchClient(DataSourceClient):
             except IndexingCancelled:
                 raise
             except Exception:
+                self.mark_discovery_incomplete("elasticsearch catalog")
                 continue
         return list(streams.values())
 
@@ -530,6 +531,7 @@ class ElasticsearchClient(DataSourceClient):
                 except IndexingCancelled:
                     raise
                 except Exception as e:
+                    self.mark_discovery_incomplete("elasticsearch catalog")
                     errors.append(f"{target}: {e}")
                 continue
             path = f"/{target}/_mapping" if target else "/_mapping"
@@ -539,6 +541,7 @@ class ElasticsearchClient(DataSourceClient):
             except IndexingCancelled:
                 raise
             except Exception as e:
+                self.mark_discovery_incomplete("elasticsearch catalog")
                 errors.append(f"{target or '_all'}: {e}")
         return mappings, errors
 
@@ -559,6 +562,7 @@ class ElasticsearchClient(DataSourceClient):
             except IndexingCancelled:
                 raise
             except Exception:
+                self.mark_discovery_incomplete("elasticsearch catalog")
                 continue
         return aliases
 
@@ -680,6 +684,7 @@ class ElasticsearchClient(DataSourceClient):
             except IndexingCancelled:
                 raise
             except Exception:
+                self.mark_discovery_incomplete("elasticsearch catalog")
                 continue
 
         tables: List[Table] = []
@@ -716,7 +721,7 @@ class ElasticsearchClient(DataSourceClient):
         auth, extra_headers = self._auth()
         headers = {"Content-Type": "application/json", "kbn-xsrf": "true"}
         headers.update(extra_headers)
-        resp = requests.request(
+        resp = pinned_request(
             method, f"{self.kibana_url}{path}", params=params, json=json_body,
             auth=auth, verify=self.verify_certs, timeout=self.TIMEOUTS,
             headers=headers,
@@ -741,6 +746,7 @@ class ElasticsearchClient(DataSourceClient):
         except IndexingCancelled:
             raise
         except Exception as e:
+            self.mark_discovery_incomplete("elasticsearch catalog")
             logger.warning(f"Kibana spaces enumeration failed ({e}); using default space")
             return ["default"]
 
@@ -776,6 +782,7 @@ class ElasticsearchClient(DataSourceClient):
         except IndexingCancelled:
             raise
         except Exception as e:
+            self.mark_discovery_incomplete("elasticsearch catalog")
             logger.warning(f"Kibana _bulk_get failed: {e}")
             return {}
 
@@ -1000,6 +1007,7 @@ class ElasticsearchClient(DataSourceClient):
                 except IndexingCancelled:
                     raise
                 except Exception as e:
+                    self.mark_discovery_incomplete("elasticsearch catalog")
                     logger.warning(
                         f"Kibana dashboard catalog skipped "
                         f"{space}/{(dash.get('attributes') or {}).get('title')}: {e}")
@@ -1051,12 +1059,14 @@ class ElasticsearchClient(DataSourceClient):
         except IndexingCancelled:
             raise
         except Exception as e:
+            self.mark_discovery_incomplete("elasticsearch catalog")
             logger.warning(f"Kibana dashboard catalog failed: {e}")
         try:
             tables.extend(self._kibana_saved_search_tables())
         except IndexingCancelled:
             raise
         except Exception as e:
+            self.mark_discovery_incomplete("elasticsearch catalog")
             logger.warning(f"Kibana saved-search catalog failed: {e}")
         return tables
 

@@ -120,7 +120,18 @@
     "fileBrowserRetry": "Försök igen",
     "fileBrowserEmpty": "Inga filer matchar anslutningens omfång.",
     "fileBrowserNoResults": "Inga filer matchar ”{q}”.",
+    "fileBrowserSummaryKms": "{n} filer listade för bläddring · KMS-behörigheterna avgör vad agenten kan söka i och läsa",
     "fileBrowserSummary": "{n} filer i omfånget · agenten läser bara dessa · nekade åtkomster loggas",
+    "fileBrowserRootMessages": "Alla konversationer",
+    "fileBrowserSearchMessages": "Sök meddelanden…",
+    "fileBrowserEmptyMessages": "Inga nya meddelanden i de konversationer du kan se.",
+    "fileBrowserSummaryLive": "{n} senaste meddelanden · läses live med din egen behörighet · inget sparas",
+    "countMessages": "{n} meddelande | {n} meddelanden",
+    "fileBrowserNoResultsMessages": "Inga meddelanden matchar ”{q}”.",
+    "loadingMessages": "Läser in meddelanden från källan…",
+    "fileBrowserConnectRequiredMessages": "Anslut ditt konto för att bläddra — den här anslutningen läser meddelanden med varje användares egen behörighet.",
+    "liveSourceHint": "Söks live med varje användares egen behörighet — bara de kanaler, chattar eller e-post de kan se. Inget kopieras eller indexeras.",
+    "liveBadge": "Live",
     "fileBrowserTruncated": "Visar de första {shown} av {total} filer – begränsa anslutningens omfång för att se resten.",
     "fileBrowserOpenInSource": "Öppna i källan",
     "fileBrowserClosePreview": "Stäng förhandsvisning",
@@ -387,6 +398,7 @@
     "newReport": "Ny rapport",
     "expandSidebar": "Expandera sidopanel",
     "collapseSidebar": "Fäll ihop sidopanel",
+    "resizeSidebar": "Ändra storlek på sidopanel",
     "switchOrganization": "Byt organisation",
     "version": "Version",
     "loggedInAs": "Inloggad som {name}",
@@ -453,6 +465,14 @@
       },
       "automation_failed": {
         "title": "\"{name}\" misslyckades"
+      },
+      "connection_down": {
+        "title": "Anslutningen ”{name}” är nere",
+        "body": "”{name}” klarade inte sina hälsokontroller och markerades som offline. Agenter som förlitar sig på den kan inte köra frågor mot den förrän den återställs."
+      },
+      "connection_restored": {
+        "title": "Anslutningen ”{name}” är online igen",
+        "body": "”{name}” återanslöts och är aktiv igen."
       },
       "trigger_run": {
         "title": "⚡ \"{name}\" utlöstes — {summary}",
@@ -663,6 +683,22 @@
         "network": "Taligenkänning kräver en nätverksanslutning.",
         "failed": "Röstinmatningen misslyckades. Försök igen."
       }
+    },
+    "slash": {
+      "menuTitle": "Kommandon",
+      "compact": {
+        "description": "Sammanfatta äldre turer för att frigöra kontext",
+        "usage": "/compact · /compact <fokus> · /compact keep 4",
+        "pending": "Komprimeras när agenten har kört klart",
+        "running": "Komprimerar kontext…",
+        "doneContext": "{turns} turer komprimerade · kontext ~{before} → ~{after} tokens",
+        "doneHistory": "{turns} turer komprimerade · historik ~{before} → ~{after} tokens",
+        "alreadyRunning": "Komprimering pågår redan",
+        "failed": "Kunde inte komprimera kontexten",
+        "degraded": "reservsammanfattning (ingen modellsammanfattning)",
+        "cancel": "Avbryt",
+        "dismiss": "Stäng"
+      }
     }
   },
   "reports": {
@@ -822,7 +858,39 @@
     ],
     "artifactLoadFailed": "Det gick inte att läsa in översikten. Uppdatera sidan och försök igen.",
     "deleteUnpublishedDashboards": "Opublicerade instrumentpaneler i den raderas också: {names}",
-    "deleteLosesUnpublishedChanges": "Opublicerade ändringar i dessa instrumentpaneler går förlorade (den publicerade versionen finns kvar): {names}"
+    "deleteLosesUnpublishedChanges": "Opublicerade ändringar i dessa instrumentpaneler går förlorade (den publicerade versionen finns kvar): {names}",
+    "view": {
+      "groupAndSort": "Gruppera och sortera",
+      "groupBy": "Gruppera efter",
+      "sortBy": "Sortera efter",
+      "direction": "Riktning",
+      "group": {
+        "date": "Datum",
+        "status": "Status",
+        "none": "Ingen"
+      },
+      "sort": {
+        "updated": "Senaste aktivitet",
+        "created": "Skapad",
+        "name": "Namn"
+      },
+      "dir": {
+        "desc": "Fallande",
+        "asc": "Stigande"
+      },
+      "groups": {
+        "starred": "Stjärnmärkta",
+        "today": "Idag",
+        "yesterday": "Igår",
+        "previous7": "Senaste 7 dagarna",
+        "previous30": "Senaste 30 dagarna",
+        "older": "Äldre",
+        "needsInput": "Kräver indata",
+        "running": "Körs",
+        "queued": "I kö",
+        "idle": "Inaktiv"
+      }
+    }
   },
   "projects": {
     "title": "Projekt",
@@ -1129,7 +1197,13 @@
       "scopeHint": "Gäller dina konversationer i den här webbläsaren."
     },
     "readMore": "Läs mer",
-    "showLess": "Visa mindre"
+    "showLess": "Visa mindre",
+    "compactionShowSummary": "Visa vad agenten minns av komprimerade turer",
+    "compactionSummaryTitle": "Komprimerad historik",
+    "compactionSummaryHint": "Agenten ser den här sammanfattningen i stället för turerna ovanför linjen.",
+    "compactingContext": "Komprimerar kontext…",
+    "compactionTurns": "{turns} turer",
+    "compactionLast": "Senaste komprimering: historik ~{before} → ~{after} tokens"
   },
   "tools": {
     "common": {
@@ -1501,6 +1575,7 @@
       "toggleQueries": "Frågor",
       "toggleFullCode": "Fullständig kod",
       "sentRequest": "Skickat till datakällan",
+      "sourceQueryId": "Fråge-ID i datakällan",
       "attempts": "Försök ({count})",
       "addToSpreadsheet": "Lägg till i kalkylblad",
       "addToSpreadsheetTitle": "Lägg till data i Excel-kalkylblad",
@@ -1724,6 +1799,22 @@
       "filesSkippedSingular": "{count} fil hoppades över ({reasons})",
       "filesSkippedPlural": "{count} filer hoppades över ({reasons})"
     },
+    "searchFiles": {
+      "foundIn": "Hittades i:",
+      "fileName": "filnamn",
+      "page": "sida {n}",
+      "sheet": "blad {name}",
+      "offset": "position {n}",
+      "partlyIndexed": "Endast delvis indexerad (storleksgräns)",
+      "noText": "Ingen sökbar text (skannad eller binär)",
+      "notIndexed": "Kunde inte indexeras",
+      "indexFulltext": "Fulltextindex",
+      "indexKeywords": "Nyckelordsindex",
+      "indexNames": "Träff på filnamn",
+      "liveScan": "Livesökning",
+      "plusLiveScan": "{index} + livesökning",
+      "indexedAt": "indexerad {when}"
+    },
     "listAgentExecutions": {
       "empty": "Inga körningar hittades",
       "failed": "Det gick inte att läsa in agentens körningar",
@@ -1871,6 +1962,22 @@
       "override": "Dessa regler gäller bara dig. Anslutningens Tillåt alltid eller Neka alltid har företräde.",
       "save": "Spara regler",
       "failed": "Kunde inte läsa eller spara regler. Kontrollera JSON och försök igen."
+    },
+    "shell": {
+      "command": "Skalkommando",
+      "server": "Server",
+      "directory": "Katalog",
+      "cancelled": "Avbrutet",
+      "denied": "Nekat",
+      "approval_expired": "Godkännandet har gått ut",
+      "execution_timed_out": "Tidsgränsen överskreds",
+      "failed": "Misslyckades",
+      "success": "Slutfört",
+      "running": "Körs",
+      "awaitingApproval": "Väntar på godkännande",
+      "unknownState": "Fjärrprocessen kan fortfarande köras. Kontrollera dess status innan du försöker igen.",
+      "exitCode": "Avslutningskod: {code}",
+      "cancelledBeforeExecution": "Avbrutet före körning."
     }
   },
   "entityCreate": {
@@ -1908,6 +2015,7 @@
     "openPage": "Öppna sida",
     "categories": {
       "dataSources": "Agenter",
+      "connectors": "Kopplingar",
       "queries": "Frågor",
       "files": "Filer",
       "tables": "Tabeller",
@@ -1932,6 +2040,9 @@
     "noRolesFound": "Inga roller hittades",
     "noRolesHint": "Skapa en roll för att hantera behörigheter.",
     "system": "system",
+    "default": "Standard",
+    "defaultRoleHint": "Detta är en inbyggd roll. Dess namn är fast – anpassa dess behörigheter nedan.",
+    "edit": "Redigera",
     "fullAdmin": "Fullständig administratör",
     "permissionsCount": "{n} behörigheter",
     "editRole": "Redigera roll",
@@ -2193,7 +2304,7 @@
       "integrate": "Integrera",
       "setup": "Konfigurera",
       "excelAddinName": "Excel-tillägg",
-      "excelAddinDescription": "Sidladda Bag of Words-tillägget direkt från den här instansen",
+      "excelAddinDescription": "Sidladda BOW-tillägget direkt från den här instansen",
       "mcpName": "BOW MCP-server",
       "mcpDescription": "Aktivera MCP-slutpunkten för integration med AI-assistenter som Cursor, Claude eller andra",
       "channels": {
@@ -2224,7 +2335,8 @@
           "announceNewReportLabel": "Avisera nya konversationsrapporter",
           "announceNewReportDesc": "När ett meddelande startar en ny konversationsrapport svarar boten med meddelandet \"Jag har startat en ny konversationsrapport\" med en länk. Stäng av för att hoppa över meddelandet.",
           "announceNewReportEnabled": "Avisering om nya rapporter aktiverad",
-          "announceNewReportDisabled": "Avisering om nya rapporter inaktiverad"
+          "announceNewReportDisabled": "Avisering om nya rapporter inaktiverad",
+          "loading": "Laddar…"
         },
         "slack": {
           "title": "Slack-integration",
@@ -2318,7 +2430,30 @@
           "disconnectedToast": "WhatsApp frånkopplad",
           "disconnectedToastDesc": "WhatsApp-integrationen frånkopplad",
           "failedDisconnect": "Det gick inte att koppla från WhatsApp",
-          "sessionStalenessDesc": "Hur länge en chatt fortsätter i samma konversationsrapport. Meddelanden efter detta fönster startar en ny rapport (skicka \"new\" för att starta en direkt). Standard: 24 timmar."
+          "sessionStalenessDesc": "Hur länge en chatt fortsätter i samma konversationsrapport. Meddelanden efter detta fönster startar en ny rapport (skicka \"new\" för att starta en direkt). Standard: 24 timmar.",
+          "numbersTitle": "Anslutna nummer",
+          "addNumber": "Anslut ett nummer",
+          "addNumberTitle": "Anslut ett till nummer",
+          "nameLabel": "Etikett",
+          "namePlaceholder": "t.ex. Försäljning, Ekonomi",
+          "agentScopeTitle": "Agenter på detta nummer",
+          "agentScopeDesc": "Välj vilka agenter detta nummer svarar med. Lämna tomt för att exponera alla agenter som användaren har åtkomst till.",
+          "agentScopeAll": "Exponerar alla agenter som användaren har åtkomst till",
+          "agentScopeCount": "{count} agenter valda",
+          "agentScopeNoAgents": "Inga agenter tillgängliga",
+          "agentScopeSave": "Spara agenter",
+          "agentScopeSaved": "Agenter uppdaterade",
+          "connectedUsersTitle": "Anslutna användare",
+          "connectedUsersEmpty": "Ingen har länkat detta nummer ännu",
+          "verified": "Verifierad",
+          "unverified": "Väntar",
+          "unknownUser": "Okänd",
+          "unnamedNumber": "WhatsApp-nummer",
+          "cancel": "Avbryt",
+          "connectedUsersCount": "{count} personer",
+          "usersSearchPlaceholder": "Sök efter namn eller nummer",
+          "usersSearchEmpty": "Inga användare matchar din sökning",
+          "webhookSharedNote": "Samma webhook-URL gäller för alla dina nummer."
         },
         "email": {
           "title": "AI-brevlåda",
@@ -2464,9 +2599,9 @@
           "trustedConnecting": "Connecting to your trusted app…",
           "authorizationLoading": "Checking the authorization request…",
           "authorizationError": "Unable to authorize",
-          "goBack": "Go back to Bag of Words",
+          "goBack": "Go back to BOW",
           "authorizationTitle": "Authorize access",
-          "wantsAccess": "{name} wants to access your Bag of Words account.",
+          "wantsAccess": "{name} wants to access your BOW account.",
           "permissionsRequested": "Permissions requested",
           "appPermission": "Create and read reports, run completions, and use artifacts under your existing BOW permissions.",
           "mcpPermission": "Use the MCP tool surface under your existing BOW permissions.",
@@ -2491,7 +2626,7 @@
         },
         "excel": {
           "title": "Excel-tillägg",
-          "subtitle": "Sidladda Bag of Words-tillägget direkt från denna instans.",
+          "subtitle": "Sidladda BOW-tillägget direkt från denna instans.",
           "loading": "Laddar...",
           "setup": "Konfiguration",
           "step1": "Ladda ner manifestfilen nedan",
@@ -2539,9 +2674,18 @@
           "subscriptionPlaceholder": "projects/<project>/subscriptions/<name>",
           "subtitle": "Konfigurera och hantera integrationen med Google Chat för din organisation",
           "title": "Integration med Google Chat"
+        },
+        "routing": {
+          "title": "Kanal → agent-routing",
+          "desc": "Rikta en kanal till specifika agenter. En kanal utan mappning använder anslutningens standard; utan standard exponerar den allt som användaren har åtkomst till. Routing begränsar bara åtkomsten – den ger aldrig mer än vad användaren redan har.",
+          "connectionDefaultLabel": "Anslutningens standard",
+          "connectionDefaultDesc": "Används för kanaler utan egen mappning.",
+          "pickerPlaceholder": "Välj agenter…",
+          "channelsHeading": "Kanaler",
+          "noChannelsYet": "Inga kanaler ännu. Nämn boten i en kanal så visas den här, eller lägg till en via id nedan."
         }
       },
-      "emptyTitle": "Få Bag of Words att fungera med dina verktyg",
+      "emptyTitle": "Få BOW att fungera med dina verktyg",
       "emptySubtitle": "Anslut Slack, Teams, e-post med mera så att ditt team kan nå AI-analytikern där de redan arbetar. Välj en integration för att komma igång.",
       "selectHint": "Välj en integration",
       "slackDescription": "Låt ditt team chatta med AI-analytikern från Slack-kanaler och DM.",
@@ -2631,14 +2775,18 @@
       "attributesInviteHint": "Valfritt. Identifierar medlemmen i andra system, t.ex. Qlik-användare eller databasroll.",
       "attributesSaved": "Attributen sparades",
       "attributesSaveFailed": "Det gick inte att spara attributen",
-      "importAttributesHint": "Lägg till {column}-kolumner för att ange attribut, t.ex. {example}. En tom cell lämnar attributet oförändrat."
+      "importAttributesHint": "Lägg till {column}-kolumner för att ange attribut, t.ex. {example}. En tom cell lämnar attributet oförändrat.",
+      "defaultRoleHint": "Förifyller rollen när du lägger till eller bjuder in en medlem.",
+      "defaultRoleSaved": "Standardroll sparad",
+      "defaultRoleFailed": "Det gick inte att spara standardrollen",
+      "defaultRoleShort": "Standardroll"
     },
     "organizationName": "Organisationens namn",
     "organizationIcon": "Organisationens ikon",
     "uploadIcon": "Ladda upp ikon",
     "iconConstraints": "PNG/JPEG, ≤ 512 KB.",
     "aiAnalystName": "AI-analytikerns namn",
-    "showCredit": "Visa ”Made with Bag of words”-credit",
+    "showCredit": "Visa ”Made with BOW”-credit",
     "language": {
       "title": "Språk",
       "description": "Anger standardspråket för hela organisationen. Användare kommer att se gränssnittet på det här språket och AI:n svarar på det.",
@@ -2882,6 +3030,9 @@
       "locked": "Den här inställningen är låst och kan inte ändras.",
       "notEditable": "(Inte direkt redigerbar)",
       "noSettings": "Inga AI-inställningar tillgängliga.",
+      "noSearchResults": "Inga inställningar matchar din sökning.",
+      "searchPlaceholder": "Sök inställningar…",
+      "clearSearch": "Rensa sökning",
       "sectionSummary": "{n} inställningar",
       "sectionSummaryOn": "{n} inställningar · {on} på",
       "sections": {
@@ -3381,6 +3532,12 @@
         "saturday": "Lördag"
       }
     },
+    "connectionAlerts": {
+      "heading": "Varnings-e-post",
+      "label": "E-postvarningar för nedkopplad anslutning",
+      "description": "Mejla anslutningens administratörer när en delad anslutning går ner eller återställs. Aviseringar i appen är alltid på.",
+      "saveError": "Det gick inte att spara inställningen för anslutningsvarningar."
+    },
     "smtpTab": "SMTP",
     "timezone": {
       "description": "Används för att tolka schemalagda jobb (t.ex. tider för omindexering) och för att visa tidsstämplar. Data lagras alltid i UTC.",
@@ -3715,7 +3872,7 @@
     "saveIntegration": "Spara integration",
     "loadFieldsFailed": "Kunde inte läsa in fälten",
     "integrationReady": "Integrationen är klar",
-    "integrationReadyDesc": "{name} är ansluten och en publik agent har skapats. Användare kan logga in och börja använda den.",
+    "integrationReadyDesc": "{name} är nu tillgänglig för alla som koppling. Var och en loggar in med sitt eget konto.",
     "integrationAgentFailed": "Integrationen sparades, men agenten kunde inte skapas",
     "updateIntegrationFailed": "Kunde inte uppdatera integrationen",
     "createIntegrationFailed": "Kunde inte skapa integrationen",
@@ -3856,7 +4013,7 @@
         },
         {
           "title": "Skriv ut åtkomstfilen",
-          "body": "Spara som print_access_file.sh och kör. Skriptet väntar på token och skriver sedan ut en fristående fil (API-serverns URL, klustrets CA, token). Verifiera med: kubectl --kubeconfig access.yaml get nodes. Om server-URL:en är privat för ditt nätverk, ändra den till adressen som denna Bag of Words-instans kan nå."
+          "body": "Spara som print_access_file.sh och kör. Skriptet väntar på token och skriver sedan ut en fristående fil (API-serverns URL, klustrets CA, token). Verifiera med: kubectl --kubeconfig access.yaml get nodes. Om server-URL:en är privat för ditt nätverk, ändra den till adressen som denna BOW-instans kan nå."
         },
         {
           "title": "Klistra in nedan och testa anslutningen",
@@ -3866,7 +4023,7 @@
       "mecm": [
         {
           "title": "Ge kontot läsbehörighet i Configuration Manager",
-          "body": "Gå till Administration > Security > Administrative Users i konsolen, lägg till kontot (eller dess AD-grupp) och tilldela rollen Read-only Analyst. Kontots säkerhetsomfång och samlingar avgör vad Bag of Words kan se."
+          "body": "Gå till Administration > Security > Administrative Users i konsolen, lägg till kontot (eller dess AD-grupp) och tilldela rollen Read-only Analyst. Kontots säkerhetsomfång och samlingar avgör vad BOW kan se."
         },
         {
           "title": "Kontrollera att administrationstjänsten svarar",
@@ -3956,6 +4113,13 @@
       "uploadInvalid": "Välj en privat SSH-nyckelfil mindre än 64 KB. Publika nycklar och andra filer godtas inte.",
       "keyRequired": "Verifiera serverns SSH-nyckel för att fortsätta eller ange en betrodd nyckel under Avancerat.",
       "required": "Fyll i de obligatoriska fälten: {fields}."
+    },
+    "connAlerts": {
+      "title": "E-postvarningar vid avbrott",
+      "label": "Mejla administratörerna när den här anslutningen går ner",
+      "hint": "Mejlar administratörerna när den här anslutningen går ner. Aviseringar i appen är alltid på.",
+      "orgOffNote": "Organisationens varnings-e-post är av (Inställningar → SMTP). Slå på den för att styra detta per anslutning.",
+      "saveFailed": "Det gick inte att spara inställningen."
     }
   },
   "share": {
@@ -4042,11 +4206,23 @@
     "close": "Stäng",
     "copyClipboardFailed": "Det gick inte att kopiera till urklipp"
   },
+  "dataGrid": {
+    "page": "Sida",
+    "to": "till",
+    "of": "av",
+    "more": "mer",
+    "pageSizeSelectorLabel": "Sidstorlek:",
+    "firstPage": "Första sidan",
+    "previousPage": "Föregående sida",
+    "nextPage": "Nästa sida",
+    "lastPage": "Sista sidan"
+  },
   "sharedReport": {
     "backToApp": "Tillbaka till appen",
     "tabReport": "Rapport",
     "tabData": "Data ({count})",
     "refreshedAt": "Uppdaterad {time}",
+    "noDashboard": "Ingen instrumentpanel tillgänglig",
     "madeWith": "Skapad med {brand}",
     "fork": "Skapa kopia"
   },
@@ -4058,6 +4234,7 @@
     "shell_confirmation.rule_mismatch": "Ogiltig kommandoregel, eller mönstret matchar inte det här kommandot.",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
     "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
+    "catalog_discovery_incomplete": "Kataloguppdateringen misslyckades eftersom identifieringen var ofullständig. Den tidigare katalogen och tabellvalen behölls.",
     "saml_unavailable": "SSO-konfigurationen är inte tillgänglig. Kontakta administratören.",
     "saml_login_failed": "SSO-inloggningen misslyckades. Försök igen eller kontakta administratören.",
     "invitation_required": "Registrering är inaktiverad. Be din administratör om en inbjudan.",
@@ -4088,6 +4265,9 @@
     "access.denied": "Åtkomst nekad",
     "account.disabled": "Ditt konto har inaktiverats. Kontakta din administratör.",
     "connection.not_found": "Anslutningen hittades inte",
+    "connection.table_not_found": "Tabellen hittades inte",
+    "connection.table_preview_unsupported": "Förhandsgranskning av data är inte tillgänglig för {type}-anslutningar.",
+    "connection.table_preview_failed": "Förhandsgranskningen misslyckades: {reason}",
     "data_source.not_found": "Datakällan hittades inte",
     "file.not_found": "Filen hittades inte",
     "verification.invalid": "Ogiltig eller utgången verifieringstoken",
@@ -4113,6 +4293,7 @@
     "instruction.version_mismatch": "Versionen tillhör inte den här instruktionen",
     "integration.not_found": "Integrationen hittades inte",
     "resource.conflict": "Resursen finns redan eller står i konflikt med befintligt tillstånd",
+    "review.stale_main": "Detta har ändrats sedan du senast såg det. Uppdatera och försök igen.",
     "resource.duplicate": "Duplicerad resurs",
     "setting.update_failed": "Det gick inte att uppdatera inställningen",
     "query": {
@@ -4170,7 +4351,14 @@
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
-    "ssh.key_discovery_failed": "Kunde inte hämta nyckeln. Kontrollera värd, port och nätverk eller ange en betrodd nyckel under Avancerat."
+    "ssh.key_discovery_failed": "Kunde inte hämta nyckeln. Kontrollera värd, port och nätverk eller ange en betrodd nyckel under Avancerat.",
+    "connection.kms_token_format": "KMS-API-token får bara innehålla vanliga bokstäver, siffror och skiljetecken, utan mellanslag. Kopiera den igen från KMS Lighthouse och klistra in den som oformaterad text.",
+    "connection.kms_use_connection_credentials": "Inloggningar för KMS Lighthouse sparas på anslutningen. Öppna anslutningen och anslut därifrån.",
+    "connection.kms_only": "Diagnostiken gäller endast KMS Lighthouse-anslutningar.",
+    "connection.kms_diagnostics_running": "Diagnostiken körs redan för den här anslutningen. Vänta tills den är klar och försök sedan igen.",
+    "connection.kms_login_rejected": "KMS Lighthouse godkände inte den här inloggningen, så den sparades inte. Kontrollera användarnamnet och lösenordet, eller API-token, och försök igen.",
+    "connection.kms_login_paused": "KMS Lighthouse nekade nyligen den här inloggningen, så nya försök med den är pausade i några minuter och den sparades inte. Kontrollera inloggningen eller försök igen senare.",
+    "connection.kms_session_refused": "KMS Lighthouse godkände inloggningen men nekade dess session, så den kan inte användas och sparades inte. Fråga KMS-administratören om det här kontot får använda KMS-API:t."
   },
   "email": {
     "dashboardShare": {
@@ -4315,16 +4503,146 @@
   "dashboards": {
     "title": "Instrumentpaneler",
     "subtitle": "Bläddra och hantera dina instrumentpaneler och bilder",
-    "searchPlaceholder": "Sök instrumentpaneler…",
+    "searchPlaceholder": "Sök instrumentpaneler eller ägare…",
     "myDashboards": "Mina instrumentpaneler",
     "sharedWithMe": "Delade med mig",
     "empty": "Inga instrumentpaneler hittades",
-    "emptyDescription": "Försök att justera söktermen, eller skapa en rapport med en instrumentpanel.",
+    "emptyMy": "Skapa en rapport med en instrumentpanel så visas den här.",
+    "emptyShared": "Inget har delats med dig än.",
     "showingRange": "Visar {start} till {end} av {total} instrumentpaneler",
     "fetchFailed": "Det gick inte att hämta instrumentpanelerna",
     "typeAll": "Alla",
     "typeDashboards": "Instrumentpaneler",
-    "typeDocs": "Dokument"
+    "typeDocs": "Dokument",
+    "reason": {
+      "direct": "Delad med dig",
+      "group": "Grupp {name}",
+      "project": "Projekt {name}",
+      "org": "Organisation",
+      "public": "Offentlig länk",
+      "other": "Delad",
+      "groupAny": "Din grupp",
+      "projectAny": "Ditt projekt"
+    },
+    "reasonTitle": {
+      "direct": "{owner} delade den med dig",
+      "group": "Delad med din grupp {name}",
+      "groupOther": "Delad med en av dina grupper",
+      "project": "I projektet {name}, som du tillhör",
+      "projectOther": "I ett projekt som du tillhör",
+      "org": "Delad med alla i organisationen",
+      "public": "Alla med länken",
+      "also": "även: {reason}",
+      "canEdit": "(du kan redigera)",
+      "viewOnly": "(endast visning)"
+    },
+    "card": {
+      "edited": "Redigerad {time}",
+      "created": "Skapad {date}",
+      "by": "av {name}",
+      "published": "Publicerad {date}",
+      "dataAsOf": "Data uppdaterad {time}",
+      "refreshFailing": "Uppdateringen misslyckas",
+      "lastEdit": "Senast redigerad: {time}",
+      "scheduledRefresh": "Schemalagd uppdatering"
+    },
+    "pill": {
+      "new": "Ny",
+      "published": "Publicerad",
+      "changes": "Opublicerade ändringar",
+      "org": "Organisation",
+      "public": "Offentlig"
+    },
+    "mode": {
+      "page": "Instrumentpanel",
+      "slides": "Bilder",
+      "doc": "Dokument"
+    },
+    "list": {
+      "createdShort": "skapad {date}",
+      "directFirst": "direkta delningar först",
+      "dateColumns": "Redigerad · Skapad"
+    },
+    "star": "Stjärnmärk",
+    "unstar": "Ta bort stjärnmärkning",
+    "starFailed": "Det gick inte att uppdatera stjärnmärkningen",
+    "emptyFiltered": "Prova en annan sökning eller {clear}.",
+    "clearTheFilters": "rensa filtren",
+    "count": "{n} instrumentpanel | {n} instrumentpaneler",
+    "tabNew": "{n} ny | {n} nya",
+    "pagePrevious": "Föregående sida",
+    "pageNext": "Nästa sida",
+    "sort": {
+      "label": "Sortera",
+      "edited": "Senast redigerade",
+      "newest": "Senast skapade",
+      "oldest": "Först skapade",
+      "title": "Titel A–Ö",
+      "published": "Senast publicerade"
+    },
+    "view": {
+      "grid": "Rutnät",
+      "list": "Lista"
+    },
+    "access": {
+      "all": "Alla",
+      "direct": "Direkt",
+      "group": "Mina grupper",
+      "project": "Projekt",
+      "org": "Organisation",
+      "edit": "Kan redigera"
+    },
+    "presets": {
+      "any": "När som helst",
+      "last7": "Senaste 7 dagarna",
+      "last30": "Senaste 30 dagarna",
+      "last90": "Senaste 90 dagarna",
+      "year": "I år",
+      "older90": "Äldre än 90 dagar",
+      "custom": "Eget intervall"
+    },
+    "status": {
+      "any": "Alla statusar",
+      "published": "Publicerad",
+      "changes": "Opublicerade ändringar",
+      "draft": "Utkast"
+    },
+    "filters": {
+      "button": "Filter",
+      "agent": "Agent",
+      "created": "Skapad",
+      "edited": "Redigerad",
+      "owner": "Ägare",
+      "status": "Status",
+      "starredOnly": "Endast stjärnmärkta",
+      "clearAll": "Rensa allt",
+      "allAgents": "Alla agenter",
+      "agentsCount": "{n} agent | {n} agenter",
+      "anyone": "Vem som helst",
+      "ownersCount": "{n} person | {n} personer",
+      "from": "Från",
+      "to": "till",
+      "toLabel": "Till",
+      "customRange": "{from} – {to}",
+      "rangeInvalid": "Startdatumet får inte vara efter slutdatumet",
+      "unknownAgent": "Otillgänglig agent",
+      "unknownOwner": "Okänd person",
+      "resultCount": "{n} av {total}",
+      "remove": "Ta bort {name}"
+    },
+    "chips": {
+      "search": "”{q}”",
+      "owner": "Ägare: {name}",
+      "created": "Skapad: {range}",
+      "edited": "Redigerad: {range}",
+      "starred": "Stjärnmärkta"
+    },
+    "attention": {
+      "title": "Behöver åtgärdas",
+      "failing": "{n} misslyckas med uppdatering | {n} misslyckas med uppdatering",
+      "stale": "{n} inte redigerad på 90 dagar | {n} inte redigerade på 90 dagar",
+      "show": "Visa dem"
+    }
   },
   "excel": {
     "greeting": "Hej, {name} 👋",
@@ -4555,7 +4873,7 @@
   "onboarding": {
     "loading": "Laddar...",
     "skip": "Hoppa över introduktion",
-    "welcome": "Välkommen till Bag of words! 🎉",
+    "welcome": "Välkommen till BOW! 🎉",
     "welcomeSubtitle": "Chatta med dina data, kör djupanalyser och skapa instrumentpaneler på några sekunder",
     "next": "Nästa",
     "fallbackTitle": "Kom igång",
@@ -4565,7 +4883,7 @@
     "intro1": "Att komma igång går snabbt: anslut bara din modell och din datakälla, så är du redo att ställa din första fråga.",
     "intro2": "👉 Nu sätter vi igång!",
     "steps": {
-      "onboardingTitle": "Välkommen till Bag of words! 🎉",
+      "onboardingTitle": "Välkommen till BOW! 🎉",
       "onboardingDescription": "Chatta med dina data, kör djupanalyser och skapa instrumentpaneler på några sekunder",
       "onboardingButton": "Välkommen",
       "llmTitle": "Konfigurera LLM",
@@ -5175,8 +5493,8 @@
     }
   },
   "mcpServerModal": {
-    "title": "Bag of words MCP-server",
-    "subtitle": "Anslut Claude, Cursor eller valfri MCP-klient för att fråga dina data via Bag of words MCP-server.",
+    "title": "BOW MCP-server",
+    "subtitle": "Anslut Claude, Cursor eller valfri MCP-klient för att fråga dina data via BOW MCP-server.",
     "loading": "Laddar...",
     "tabMcpClients": "MCP-klienter",
     "tabOauth": "OAuth",
@@ -5315,7 +5633,8 @@
     "modeChat": "Chatt",
     "modelAuto": "Auto",
     "noAgents": "Inga",
-    "project": "Projekt"
+    "project": "Projekt",
+    "agentsFromReport": "Använder rapportens agenter"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -6136,7 +6455,9 @@
     "noConnection": "Den här agenten har ingen anslutning än.",
     "notFound": "Anslutningen kunde inte hittas.",
     "forbidden": "Du har inte åtkomst till den här anslutningen.",
-    "loadFailed": "Det gick inte att läsa in anslutningen. Försök igen senare."
+    "loadFailed": "Det gick inte att läsa in anslutningen. Försök igen senare.",
+    "connected": "Ansluten",
+    "connectedAs": "Ansluten som {identity}"
   },
   "trackedChanges": {
     "noChanges": "Inga ändringar"
@@ -6473,6 +6794,8 @@
     "tabViewers": "Tittare",
     "tabData": "Data",
     "viewersDesc": "Vad personerna du delar med får.",
+    "widgetInfoTitle": "Visa detaljer på widgetar",
+    "widgetInfoDesc": "Lägger till en ⓘ-ikon på varje widget som öppnar dess data, kod och beräkning.",
     "dataDesc": "Frågorna bakom instrumentpanelen.",
     "unsaved": "Osparade ändringar",
     "tabGeneral": "Allmänt",
@@ -6538,7 +6861,7 @@
       "notPublished": "Det här har inte publicerats ännu. Det visas här när det har publicerats.",
       "notFound": "Det här är inte tillgängligt. Det kanske inte har publicerats ännu, eller så har det tagits bort.",
       "denied": "Du har inte åtkomst till det här. Be ägaren att dela det med dig.",
-      "notAllowed": "Det här är inte aktiverat för det här programmet. En redigerare kan tillåta det i dess inställningar för inbäddning i Bag of Words.",
+      "notAllowed": "Det här är inte aktiverat för det här programmet. En redigerare kan tillåta det i dess inställningar för inbäddning i BOW.",
       "failed": "Det gick inte att läsa in. Försök igen om en stund."
     }
   },
@@ -6569,5 +6892,125 @@
     "enabled": "Aktiverad",
     "embeddingEmpty": "Embedding is not configured",
     "oauthEmpty": "OAuth is not configured"
+  },
+  "connectors": {
+    "title": "Kopplingar",
+    "subtitle": "Dina egna konton och verktyg som AI:n kan använda. Varje koppling läser med din egen behörighet — ingen annan ser dina data.",
+    "browse": "Bläddra bland kopplingar",
+    "empty": "Inga kopplingar ännu.",
+    "search": "Sök kopplingar…",
+    "noResults": "Inga kopplingar matchar ”{q}”.",
+    "signIn": "Logga in",
+    "signOut": "Logga ut",
+    "remove": "Ta bort",
+    "statusConnected": "Ansluten",
+    "statusShared": "Delad",
+    "statusServiceAccount": "Tjänstekonto",
+    "statusOffline": "Anslut igen",
+    "statusNotConnected": "Inte ansluten",
+    "needsSignIn": "{n} koppling kräver inloggning | {n} kopplingar kräver inloggning",
+    "accessPersonal": "Använder ditt eget konto",
+    "accessShared": "Använder ett delat konto som en administratör har konfigurerat",
+    "addHint": "Lägg till fler kopplingar under Agenter → Lägg till anslutning.",
+    "askAdmin": "Be en administratör att lägga till fler kopplingar.",
+    "removeConfirm": "Ta bort {name} för alla i organisationen? Användarnas inloggningar tas också bort.",
+    "signedOut": "Utloggad från {name}",
+    "removed": "{name} borttagen",
+    "actionFailed": "Något gick fel",
+    "shareToggleLabel": "Gör tillgänglig för alla i organisationen",
+    "shareToggleHint": "Lägger till ”{name}” bland allas kopplingar. Var och en loggar in med sitt eget konto — ingen ser någon annans data.",
+    "useAsAgent": "Använd som agent",
+    "movedToAgents": "{name} är nu en agent"
+  },
+  "tablePreview": {
+    "idle": "Tryck på Kör för att läsa in rader från källan.",
+    "loading": "Läser in rader…",
+    "failed": "Det gick inte att läsa in en förhandsgranskning av tabellen.",
+    "showing": "Visar {shown} rader",
+    "columns": "{count} kolumner",
+    "empty": "Tabellen har inga rader.",
+    "reload": "Läs in igen",
+    "createCustomTable": "Skapa anpassad tabell från denna",
+    "run": "Kör",
+    "resetQuery": "Återställ",
+    "runHint": "Ctrl/⌘ + Enter för att köra. Endast läsfrågor.",
+    "ofTotal": "~{total} rader i tabellen",
+    "retry": "Försök igen",
+    "readOnlyHint": "För att redigera frågan behöver anslutningen stöd för anpassade tabeller.",
+    "storageNote": "Läst direkt från tabellens lagring, så den här förhandsvisningen kostar ingen fråga.",
+    "signInRequired": "Den här anslutningen använder dina egna inloggningsuppgifter. Logga in för att se raderna.",
+    "signIn": "Logga in",
+    "open": "Förhandsgranska data i {name}",
+    "subtitle": "Exempelrader från {connection}, lästa direkt från källan.",
+    "close": "Stäng",
+    "button": "Förhandsgranska"
+  },
+  "kmsFileScope": {
+    "headerSubtitle": "Rotmappen anger var bläddringen börjar. KMS-behörigheterna avgör vad agenten kan söka i och läsa.",
+    "browsingOnly": "Endast bläddring",
+    "accessNote": "En rotmapp begränsar endast bläddring. KMS-behörigheterna för den anslutna identiteten avgör vad agenten kan söka i och läsa, även objekt utanför den mappen. Redigera rotmappen eller indexeringen i själva anslutningen."
+  },
+  "kmsDiagnostics": {
+    "run": "Kör diagnostik",
+    "running": "Diagnostiken körs. Det kan ta upp till 90 sekunder.",
+    "description": "Skrivskyddade kontroller av nätverk, certifikat, inloggning och KMS beteende. Skickar högst en inloggning.",
+    "overallPass": "Automatiska kontroller godkändes",
+    "overallWarn": "Klar med varningar",
+    "overallFail": "Klar med ett fel",
+    "manualCheck": "En manuell kontroll återstår: kör igen som en begränsad KMS-användare och jämför elementnamnen.",
+    "failedStage": "Misslyckades vid: {stage}",
+    "calls": "{calls} anrop på {seconds} s",
+    "callsUnknown": "Avbröts efter {seconds} s. Antalet anrop är okänt.",
+    "copy": "Kopiera rapporten",
+    "copied": "Rapporten har kopierats",
+    "copyFailed": "Det gick inte att kopiera rapporten. Använd Ladda ned JSON.",
+    "download": "Ladda ned JSON",
+    "reportNote": "Rapporten förblir på engelska så att den kan skickas till BOW-teknikerna. Den innehåller inget innehåll, inga namn och inga lösenord.",
+    "failed": "Diagnostiken kunde inte köras.",
+    "status": {
+      "pass": "Godkänd",
+      "warn": "Varning",
+      "fail": "Fel",
+      "info": "Info",
+      "skipped": "Hoppades över"
+    },
+    "stage": {
+      "network": "nätverk",
+      "tls": "TLS",
+      "login": "inloggning",
+      "browse": "bläddring",
+      "search": "sökning",
+      "read": "läsning"
+    }
+  },
+  "agentAccess": {
+    "addMember": "Lägg till medlem",
+    "membersHint": "Medlemmar kan fråga agenten. Tilldela ytterligare behörigheter nedan.",
+    "everyone": "Alla i organisationen",
+    "query": "Kan fråga",
+    "manage": "Kan hantera",
+    "custom": "Anpassad åtkomst",
+    "ownerHint": "Ägaren kan alltid hantera agenten.",
+    "editFor": "Redigera åtkomst för {name}",
+    "removeHint": "Tar bort uttryckligt medlemskap och behörigheter. Offentlig åtkomst eller åtkomst via grupp eller organisation kan kvarstå.",
+    "remove": "Ta bort",
+    "noMembers": "Inga uttryckliga medlemmar ännu.",
+    "addTo": "Lägg till personer i {name}",
+    "thisAgent": "den här agenten",
+    "who": "Vem",
+    "access": "Åtkomst",
+    "advanced": "Avancerade behörigheter",
+    "cancel": "Avbryt",
+    "saving": "Sparar…",
+    "save": "Spara",
+    "queryHint": "Ställ frågor till agenten",
+    "manageHint": "Konfigurera agenten och hantera dess medlemmar",
+    "addCount": "Lägg till {count}",
+    "add": "Lägg till",
+    "updated": "Behörigheter uppdaterade",
+    "updateFailed": "Kunde inte uppdatera behörigheter",
+    "addIncomplete": "Vissa medlemskap eller behörigheter kunde inte sparas. Granska listan och försök igen.",
+    "added": "Medlemmar tillagda",
+    "addFailed": "Kunde inte lägga till medlemmar"
   }
 }

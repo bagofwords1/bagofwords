@@ -44,6 +44,7 @@ from urllib.parse import quote, unquote, urlsplit
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_session
 
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.priority_odata_query import (
@@ -222,7 +223,7 @@ class PriorityErpClient(DataSourceClient):
     def connect(self) -> Generator[requests.Session, None, None]:
         if not self.service_root:
             raise RuntimeError("Priority ERP client requires a service_root URL.")
-        session = requests.Session()
+        session = pinned_session()
         session.verify = self.verify_ssl
         session.headers.update({"Accept": "application/json"})
         session.headers.update(self._auth_headers())

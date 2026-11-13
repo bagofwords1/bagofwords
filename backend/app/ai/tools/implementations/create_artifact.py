@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.ai.tools.artifact_verification import with_automatic_artifact_check
+from app.services.artifact_payload import partial_data_used, partial_data_warning, row_count_fields
 from app.ai.tools.base import Tool
 from app.models.file import File
 from app.models.report_file_association import report_file_association
@@ -30,7 +31,7 @@ from app.ai.tools.schemas.create_artifact import CreateArtifactInput, CreateArti
 from app.ai.llm import LLM
 from app.ai.llm.types import ImageInput, Message, TextDeltaEvent
 from app.models.artifact import Artifact, ArtifactVersion
-from app.services.artifact_service import new_artifact, new_version
+from app.services.artifact_service import finish_version, new_artifact, new_version
 from app.models.visualization import Visualization
 from app.dependencies import async_session_maker
 from app.services.thumbnail_service import ThumbnailService
@@ -248,6 +249,8 @@ class CreateArtifactTool(Tool):
                 if not f.path:
                     continue
                 try:
+                    from app.services import storage
+                    await storage.aensure_local(f.path)
                     async with aiofiles.open(f.path, 'rb') as file:
                         content = await file.read()
                     images.append(ImageInput(
@@ -593,6 +596,8 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         import base64
 
         path = Path(__file__).parent.parent.parent.parent.parent / "uploads" / preview_images[0]
+        from app.services import storage
+        storage.ensure_local(path)
         try:
             return base64.b64encode(path.read_bytes()).decode("ascii")
         except OSError:
@@ -692,6 +697,8 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     output_path.unlink()
             except OSError:
                 pass
+            from app.services import storage
+            storage.discard(output_path)
             yield {
                 "code": original_code,
                 "ok": False,
@@ -838,7 +845,9 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
 
     def _build_viz_profile(self, viz: Dict[str, Any], allow_llm_see_data: bool) -> Dict[str, Any]:
         """Build a privacy-aware profile of a visualization's data."""
-        # Enrich columns with dtype/unique_count/min/max from column_info (always — not sensitive)
+        # Enrich columns with dtype/unique_count from column_info. min/max are
+        # verbatim cells: only when the model may see data, or for a date
+        # column (a time range), as create_data's profile does.
         column_info = viz.get("column_info") or {}
         raw_columns = viz.get("columns", [])
         enriched_columns = []
@@ -849,10 +858,12 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 meta = column_info[field]
                 col["dtype"] = meta.get("dtype")
                 col["unique_count"] = meta.get("unique_count")
-                if meta.get("min") is not None:
-                    col["min"] = meta["min"]
-                if meta.get("max") is not None:
-                    col["max"] = meta["max"]
+                dtype = str(meta.get("dtype") or "").lower()
+                if allow_llm_see_data or "date" in dtype or "time" in dtype:
+                    if meta.get("min") is not None:
+                        col["min"] = meta["min"]
+                    if meta.get("max") is not None:
+                        col["max"] = meta["max"]
             enriched_columns.append(col)
 
         profile: Dict[str, Any] = {
@@ -860,10 +871,12 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             "title": viz.get("title"),
             "query_id": viz.get("query_id"),
             "chart_type": viz.get("data_model_type") or "table",
-            # True dataset size; sample_row_count is how many rows are shown
-            # to generation/preview (capped). At runtime the dashboard
-            # receives ALL row_count rows.
+            # row_count is the query's real size. loaded_row_count is how many
+            # rows the page receives at runtime (the org row limit can cut it),
+            # sample_row_count how many are shown to generation/preview.
             "row_count": viz.get("row_count", 0),
+            "loaded_row_count": viz.get("loaded_row_count", viz.get("row_count", 0)),
+            "truncated": bool(viz.get("truncated")),
             "sample_row_count": viz.get("sample_row_count", len(viz.get("rows") or [])),
             "columns": enriched_columns,
         }
@@ -1082,12 +1095,12 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
 
             # Get data directly from step (like frontend does). Generation and
             # headless preview see a bounded sample; the live render receives
-            # the full dataset from the frontend. Keep both counts so the
+            # every stored row from the frontend. Keep the counts so the
             # sample is never mislabeled as the whole dataset.
             step_data = step.data if step else {}
             _all_rows = (step_data.get("rows") or []) if step_data else []
             rows = _all_rows[:100]
-            total_row_count = len(_all_rows)
+            row_counts = row_count_fields(step_data)
             raw_columns = step_data.get("columns") or [] if step_data else []
             data_model = step.data_model if step else {}
             step_info = step_data.get("info") or {} if step_data else {}
@@ -1118,11 +1131,12 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 "data_model_type": (view_dict.get("view") or {}).get("type") or view_dict.get("type"),
                 "columns": columns,
                 "column_info": column_info,
-                # row_count is the TRUE dataset size; rows is a sample capped
+                # row_count is the query's real size (loaded_row_count is what
+                # the org row limit left for the page); rows is a sample capped
                 # at 100 for generation/preview. The old code reported the
                 # truncated length as row_count, so the LLM couldn't know the
                 # data was sampled and generated truncation workarounds.
-                "row_count": total_row_count,
+                **row_counts,
                 "sample_row_count": len(rows),
                 "rows": rows,
                 # The profile the planner reads calls this same list
@@ -1611,14 +1625,17 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             # skip in-browser Babel (app.services.artifact_precompile).
             from app.services.artifact_precompile import schedule_compile
             schedule_compile(content.get("code"))
+        # The outcome is applied after the resources savepoint below
+        # (finish_version): a failure there commits the version as failed,
+        # and must not carry an "edited" write with it.
         if data.mode == "slides":
-            artifact.status = "completed" if pptx_success else "failed"
+            final_status = "completed" if pptx_success else "failed"
             # Persist the executor error like page mode persists render errors,
             # so read_artifact and later repairs can see WHY the deck failed.
             if pptx_error:
                 artifact.render_errors = [pptx_error]
         else:
-            artifact.status = "completed" if render_clean else "failed"
+            final_status = "completed" if render_clean else "failed"
 
         # Set pptx_path for slides mode
         if pptx_path:
@@ -1675,6 +1692,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             message = exc.message if isinstance(exc, AppError) else 'Resource definitions could not be applied. Check definitions and retry.'
             yield ToolEndEvent(type='tool.end', payload={'output': {'success': False}, 'observation': {'error': message}})
             return
+        await finish_version(db, artifact, final_status)
         await db.commit()
         await db.refresh(artifact)
 
@@ -1922,6 +1940,13 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 "selecting a value will not re-run the data. Fix with edit_artifact: "
                 + params_wiring_errors[0]
             )
+
+        # The planner is the one that can write a new query, so tell it when the
+        # finished page reads a dataset the org row limit cut.
+        partial_data = partial_data_used(visualizations, code) if data.mode == "page" else []
+        if partial_data:
+            observation["partial_data"] = partial_data
+            observation["summary"] += partial_data_warning(partial_data)
 
         # Add preview screenshot for planner reflection (page mode)
         if _attach_screenshot:
@@ -2593,7 +2618,7 @@ YOUR VISUALIZATIONS:
 
 {viz_json}
 
-{"(Sample data included above — rows are a sample capped at 100; row_count is the true dataset size)" if allow_llm_see_data else "(Data samples hidden for privacy - use column names and row_count to understand the data structure)"}
+{"(Sample data included above — rows are a sample capped at 100. row_count is the query's real size; at runtime the page receives loaded_row_count rows; truncated: true means that is only part of the result)" if allow_llm_see_data else "(Data samples hidden for privacy - use column names and row_count to understand the data structure)"}
 
 Now create the dashboard:"""
 

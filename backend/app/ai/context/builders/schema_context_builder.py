@@ -242,7 +242,7 @@ class SchemaContextBuilder:
     Builds database schema context for agent execution as a structured object.
     """
     
-    def __init__(self, db: AsyncSession, data_sources: List[DataSource], organization: Organization, report: Report, user=None, organization_settings=None, mode=None):
+    def __init__(self, db: AsyncSession, data_sources: List[DataSource], organization: Organization, report: Report, user=None, organization_settings=None, mode=None, include_bow_history=False):
         self.db = db
         # The conversation switched off "mcp" (report.tools): advertising its
         # MCP tools would only send the planner into refused calls. Derived
@@ -252,6 +252,7 @@ class SchemaContextBuilder:
         self.organization = organization
         self.report = report
         self.mode = mode if mode is not None else getattr(report, "mode", None)
+        self.include_bow_history = include_bow_history
         self.data_sources = data_sources
         self.user = user
         # Needed to resolve native MCP registration the same way the planner
@@ -951,8 +952,8 @@ class SchemaContextBuilder:
                 )
             )
 
-        # Built-in source is a capability of training, not a persisted agent.
-        if self.mode == "training" and self.user is not None and not connection_ids:
+        # Built-in history is available in training and authenticated MCP contexts.
+        if (self.mode == "training" or self.include_bow_history) and self.user is not None and not connection_ids:
             from app.core.console_access import resolve_console_scope
             from app.services.bow_source_service import catalog, column_type
             from app.schemas.bow_source_schema import SOURCE_ID
@@ -1036,9 +1037,10 @@ class SchemaContextBuilder:
     _FILE_SOURCE_TYPES = {
         "sharepoint_onprem",
         "documentum",
-        "network_dir", "s3", "sharepoint", "onedrive", "google_drive",
-        "outlook_mail", "gmail_mail", "onenote",
+        "network_dir", "s3", "gcs", "azure_blob", "sharepoint", "onedrive", "google_drive",
+        "outlook_mail", "gmail_mail", "onenote", "teams_messages",
         "github_repo", "gitlab_repo", "bitbucket_repo",
+        "kms_lighthouse",
     }
     _NATIVE_SEARCH_TYPES = {
         "sharepoint_onprem",
@@ -1048,10 +1050,13 @@ class SchemaContextBuilder:
         # call, but it is still a first-class search the agent should prefer
         # over paging the whole catalog.
         "onenote",
+        "kms_lighthouse",
+        # Teams: Microsoft Search over chatMessage, as the signed-in user.
+        "teams_messages",
     }
     # Token-scoped sources: no admin-side path/glob boundary — the user's OAuth
     # account IS the scope. Everything else enforces a path/glob scope.
-    _TOKEN_SCOPED_TYPES = {"onedrive", "google_drive", "outlook_mail", "gmail_mail"}
+    _TOKEN_SCOPED_TYPES = {"onedrive", "google_drive", "outlook_mail", "gmail_mail", "teams_messages"}
 
     async def _stamp_index_times(self, file_scopes) -> None:
         """Attach each file scope's last completed shared index time, so the
@@ -1117,13 +1122,16 @@ class SchemaContextBuilder:
                 base = " / ".join(str(cfg[k]) for k in ("site_url", "drive_name", "folder_path") if cfg.get(k))
             elif c.type == "documentum":
                 base = " / ".join(str(cfg[k]) for k in ("rest_url", "repository", "root_path") if cfg.get(k))
+            elif c.type == "kms_lighthouse":
+                # Folder id 0 is a real id; only a missing or blank value is left out.
+                base = " / ".join(str(cfg[k]) for k in ("base_url", "root_folder_id") if cfg.get(k) not in (None, ""))
             cid = str(c.id)
             ftabs = by_conn.get(cid, [])
             sample = [t.name for t in ftabs[:5] if getattr(t, 'name', None)]
             topics, seen = [], set()
             for t in ftabs:
                 mj = getattr(t, 'metadata_json', None) or {}
-                sub = (mj.get("network_dir") or mj.get("s3") or mj.get("graph") or mj.get("sharepoint_onprem") or mj.get("documentum")
+                sub = (mj.get("network_dir") or mj.get("s3") or mj.get("gcs") or mj.get("azure_blob") or mj.get("graph") or mj.get("sharepoint_onprem") or mj.get("documentum")
                        or mj.get("google_drive") or {}) if isinstance(mj, dict) else {}
                 for kw in (sub.get("keywords") or []):
                     k = str(kw).lower()
@@ -1133,13 +1141,20 @@ class SchemaContextBuilder:
                         break
                 if len(topics) >= 12:
                     break
-            supports_search = (c.type in self._NATIVE_SEARCH_TYPES) or (index_mode == "content")
+            supports_search = (c.type in self._NATIVE_SEARCH_TYPES) or (index_mode in ("content", "fulltext"))
             # Per-user OAuth connection: each user reads with their own token, so
             # the cached sample/count (if any) is not a global truth. Flag it so
             # the descriptor tells the model discovery is per-user + live.
             per_user = (getattr(c, "auth_policy", None) == "user_required"
                         and "oauth" in (getattr(c, "allowed_user_auth_modes", None) or []))
             enforces_scope = c.type not in self._TOKEN_SCOPED_TYPES
+            note = None
+            if c.type == "kms_lighthouse":
+                # The root folder limits browsing only (search covers the whole
+                # identity), so no "else denied" scope; the note says how to browse.
+                from app.data_sources.clients.kms_lighthouse_client import planner_scope_note
+                enforces_scope = False
+                note = planner_scope_note(cfg)
             try:
                 cap = int(cfg.get("max_catalog_objects") or 0)
             except (TypeError, ValueError):
@@ -1149,7 +1164,7 @@ class SchemaContextBuilder:
                 globs=globs, index_mode=index_mode, file_count=len(ftabs),
                 capped=bool(cap and len(ftabs) >= cap), sample=sample, topics=topics,
                 supports_search=supports_search, writable=bool(cfg.get("writable")),
-                per_user=bool(per_user), enforces_scope=enforces_scope,
+                per_user=bool(per_user), enforces_scope=enforces_scope, note=note,
             ))
         return scopes, remaining
 

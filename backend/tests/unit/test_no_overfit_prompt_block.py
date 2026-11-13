@@ -72,3 +72,13 @@ def test_v3_chat_prompt_does_not_carry_training_block():
     modes that write instructions."""
     v3 = PromptBuilderV3.build(_input("chat"))
     assert SENTINEL not in v3.system
+
+
+def test_training_prompt_points_labelled_learning_at_the_skills():
+    """With labels to learn from, a small model jumped straight to reading the
+    items and never opened the matching skill; the training prompt names the
+    situation (not a specific skill) and where to look."""
+    system = PromptBuilderV3.build(_input("training")).system
+    assert "correct answers to learn from" in system
+    assert "<available_skills>" in system
+    assert "correct answers to learn from" not in PromptBuilderV3.build(_input("chat")).system

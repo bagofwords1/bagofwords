@@ -45,7 +45,8 @@
           @click="enterCategory(category.name)"
         >
           <div class="flex items-center space-x-2 min-w-0">
-            <Icon :name="categoryIcon(category.name)" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
+            <PlugIcon v-if="category.name === 'connectors'" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
+            <Icon v-else :name="categoryIcon(category.name)" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
             <span class="text-xs text-gray-900 dark:text-white truncate">{{ category.label }}</span>
           </div>
           <Icon name="heroicons-chevron-right" class="w-3.5 h-3.5 text-ink-muted flex-shrink-0" />
@@ -88,11 +89,13 @@
                    cube for every agent made this the one agent list that didn't
                    show which agent you were picking. Cube stays as the fallback
                    for an agent with no resolvable icon. -->
+              <DataSourceIcon v-else-if="category.name === 'connectors'" :type="item.icon_type" :connector-key="item.connector_key" :icon-token="item.icon_token" class="h-3.5 w-3.5 flex-shrink-0" />
               <DataSourceIcon v-else-if="category.name === 'data_sources' && item.icon_token" :icon-token="item.icon_token" class="h-3.5 w-3.5 flex-shrink-0" />
               <Icon v-else-if="category.name === 'data_sources'" name="heroicons-cube" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
               <Icon v-else-if="category.name === 'files'" name="heroicons-document" class="w-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
               <Icon v-else-if="category.name === 'entities'" :name="item.entity_type === 'metric' ? 'heroicons-chart-bar' : 'heroicons-cube'" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
-              <Icon v-else-if="category.name === 'instructions'" :name="item.kind === 'skill' ? 'heroicons-sparkles' : 'heroicons-document-text'" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
+              <Icon v-else-if="category.name === 'instructions'" name="heroicons-document-text" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
+              <Icon v-else-if="category.name === 'skills'" name="heroicons-sparkles" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
               <Icon v-else-if="category.name === 'prompts'" name="heroicons-book-open" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
 
               <div class="flex flex-col min-w-0 flex-1">
@@ -238,6 +241,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import Spinner from '~/components/Spinner.vue'
+import PlugIcon from '~/components/icons/PlugIcon.vue'
 import PromptParametersModal from '~/components/prompt/PromptParametersModal.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import { usePermissions, useResourcePermissions } from '~/composables/usePermissions'
@@ -256,6 +260,7 @@ interface MentionItem {
   icon?: string | null
   // Backend-resolved agent icon; preferred over icon_type/icon.
   icon_token?: string | null
+  connector_key?: string | null
   entity_type?: string
   description?: string
   columns?: string[]
@@ -303,7 +308,7 @@ const props = defineProps({
   },
   categories: {
     type: Array as () => string[],
-    default: () => ['data_sources', 'instructions', 'prompts', 'files', 'entities']
+    default: () => ['data_sources', 'connectors', 'instructions', 'skills', 'prompts', 'files', 'entities']
   },
   selectedDataSourceIds: {
     type: Array as () => string[],
@@ -527,6 +532,7 @@ function categoryIcon(name: string): string {
   switch (name) {
     case 'data_sources': return 'heroicons-cube'
     case 'instructions': return 'heroicons-document-text'
+    case 'skills': return 'heroicons-sparkles'
     case 'prompts': return 'heroicons-book-open'
     case 'files': return 'heroicons-document'
     case 'entities': return 'heroicons-chart-bar'
@@ -556,7 +562,7 @@ function ensureCategoryLoaded(name: string) {
     fetchAvailableMentions()
   } else if (name === 'prompts') {
     fetchPromptMentions()
-  } else if (name === 'instructions') {
+  } else if (name === 'instructions' || name === 'skills') {
     fetchInstructionMentions()
   }
 }
@@ -1456,23 +1462,27 @@ function formatTimeAgo(dateStr: string | null): string {
 // endpoint so a single failing endpoint never blanks the whole menu. The menu
 // is assembled (in display order) by rebuildCategories().
 const agentCategoryItems = ref<MentionItem[]>([])
-// Instructions AND skills are listed together in one 'instructions' category
-// (kind carried per item); they are sourced from GET /instructions (no kind
-// filter).
+// Instructions and skills share one source (GET /instructions, no kind filter)
+// but are shown as separate categories, split on each item's kind.
 const instructionCategoryItems = ref<MentionItem[]>([])
+const skillCategoryItems = ref<MentionItem[]>([])
 const fileCategoryItems = ref<MentionItem[]>([])
 const entityCategoryItems = ref<MentionItem[]>([])
 // Saved prompts are a separate API (GET /prompts) mapped into the 'prompts'
 // category. Selecting one substitutes its text into the box.
+// Connectors (kind === 'connector'): the user's own accounts/tools.
+const connectorCategoryItems = ref<MentionItem[]>([])
 const promptCategoryItems = ref<MentionItem[]>([])
 
 // Assemble the top-level mention categories in display order:
-// Agents, Instructions, Prompts, Files, Queries. The (hidden) 'tables'
+// Agents, Instructions, Skills, Prompts, Files, Queries. The (hidden) 'tables'
 // category is only reachable by drilling into an agent.
 function rebuildCategories() {
   allCategories.value = [
     { name: 'data_sources', label: t('mentionInput.categories.dataSources'), items: agentCategoryItems.value },
+    { name: 'connectors', label: t('mentionInput.categories.connectors'), items: connectorCategoryItems.value },
     { name: 'instructions', label: t('mentionInput.categories.instructions'), items: instructionCategoryItems.value },
+    { name: 'skills', label: t('mentionInput.categories.skills'), items: skillCategoryItems.value },
     { name: 'prompts', label: t('mentionInput.categories.prompts'), items: promptCategoryItems.value },
     { name: 'files', label: t('mentionInput.categories.files'), items: fileCategoryItems.value },
     { name: 'entities', label: t('mentionInput.categories.queries'), items: entityCategoryItems.value },
@@ -1501,7 +1511,7 @@ async function fetchAvailableMentions() {
         // the same list was requested two or three times per page load.
         const activeAgents = await fetchActiveAgents()
         if (Array.isArray(activeAgents)) {
-          agentCategoryItems.value = (activeAgents as any[]).map((ds: any) => ({
+          const toItem = (ds: any) => ({
             id: String(ds.id),
             type: 'data_source' as const,
             name: ds.name,
@@ -1510,10 +1520,14 @@ async function fetchAvailableMentions() {
             icon_type: ds.type,
             icon: ds.icon,
             icon_token: ds.icon_token,
+            connector_key: ds.connector_key,
             // Per-agent connect state — mirrors DataSourceSelector's needs-connect logic.
             needs_connect: needsUserConnection(ds),
             raw: ds,
-          }))
+          })
+          // Connectors (the user's own accounts/tools) get their own section.
+          connectorCategoryItems.value = (activeAgents as any[]).filter((ds: any) => ds?.kind === 'connector').map(toItem)
+          agentCategoryItems.value = (activeAgents as any[]).filter((ds: any) => ds?.kind !== 'connector').map(toItem)
         }
       } catch { /* keep prior items */ }
     })(),
@@ -1555,23 +1569,27 @@ async function fetchAvailableMentions() {
   }
 }
 
-// Instructions and skills are listed together (one category). Sourced from
-// GET /instructions (no kind filter — both kinds returned); kind is kept per
-// item. Selecting one inserts a mention chip that force-includes the
+// Instructions and skills come from one call to GET /instructions (no kind
+// filter — both kinds returned) and are split by kind into the 'instructions'
+// and 'skills' categories. Both stay type 'instruction' (kind kept per item),
+// so the mention payload is unchanged. Selecting one inserts a mention chip that force-includes the
 // instruction's content into context server-side (mirrors the FILE path).
 async function fetchInstructionMentions() {
   try {
     // Every instruction, not the newest 50 — the picker filters client-side on
     // what you type, so a capped list silently made the rest unmentionable.
     const { items } = await fetchAllInstructions({})
-    instructionCategoryItems.value = items.map((ins: any) => ({
+    const mapped = items.map((ins: any) => ({
       id: String(ins.id),
       type: 'instruction' as const,
       name: instructionRowLabel(ins),
       kind: ins.kind || 'instruction',
     } as MentionItem))
+    instructionCategoryItems.value = mapped.filter(i => i.kind !== 'skill')
+    skillCategoryItems.value = mapped.filter(i => i.kind === 'skill')
   } catch {
     instructionCategoryItems.value = []
+    skillCategoryItems.value = []
   }
   rebuildCategories()
 }

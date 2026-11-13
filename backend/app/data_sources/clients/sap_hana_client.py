@@ -69,7 +69,7 @@ class SapHanaClient(DataSourceClient):
         except ImportError:
             raise RuntimeError(
                 "SAP HANA driver (hdbcli) is not installed. It is not bundled with "
-                "Bag of Words because of its SAP license; install it on the server "
+                "BOW because of its SAP license; install it on the server "
                 "with `pip install hdbcli` to use this connector."
             )
 
@@ -239,6 +239,7 @@ class SapHanaClient(DataSourceClient):
         except IndexingCancelled:
             raise
         except Exception as e:
+            self.mark_discovery_incomplete("sap_hana catalog")
             print(f"Error retrieving tables: {e}")
             return []
 

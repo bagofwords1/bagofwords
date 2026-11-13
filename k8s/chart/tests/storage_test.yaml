@@ -1,0 +1,180 @@
+suite: test file storage
+templates:
+  - config.yaml
+  - deployment.yaml
+  - uploads-pvc.yaml
+release:
+  name: test-release
+chart:
+  appVersion: 0.0.1-test
+set:
+  postgresql.auth.username: test
+  postgresql.auth.password: test
+  postgresql.auth.database: testdb
+tests:
+  - it: defaults to local storage with no uploads volume and no PVC
+    asserts:
+      - equal:
+          path: data.BOW_STORAGE_BACKEND
+          value: local
+        template: config.yaml
+      - notExists:
+          path: data.BOW_STORAGE_S3_BUCKET
+        template: config.yaml
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: uploads
+          any: true
+        template: deployment.yaml
+      - hasDocuments:
+          count: 0
+        template: uploads-pvc.yaml
+
+  - it: s3 renders its settings and an emptyDir cache over uploads/
+    set:
+      storage.backend: s3
+      storage.prefix: bow/prod/
+      storage.s3.bucket: my-bucket
+      storage.s3.region: eu-west-1
+      storage.s3.sse: aws:kms
+      storage.cache.sizeLimit: 5Gi
+    asserts:
+      - equal:
+          path: data.BOW_STORAGE_BACKEND
+          value: s3
+        template: config.yaml
+      - equal:
+          path: data.BOW_STORAGE_PREFIX
+          value: bow/prod/
+        template: config.yaml
+      - equal:
+          path: data.BOW_STORAGE_S3_BUCKET
+          value: my-bucket
+        template: config.yaml
+      - equal:
+          path: data.BOW_STORAGE_S3_REGION
+          value: eu-west-1
+        template: config.yaml
+      - equal:
+          path: data.BOW_STORAGE_S3_AUTH
+          value: default
+        template: config.yaml
+      - equal:
+          path: data.BOW_STORAGE_S3_SSE
+          value: aws:kms
+        template: config.yaml
+      - notExists:
+          path: data.BOW_STORAGE_S3_ENDPOINT_URL
+        template: config.yaml
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: uploads
+            emptyDir:
+              sizeLimit: 5Gi
+        template: deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: uploads
+            mountPath: /app/backend/uploads
+        template: deployment.yaml
+      - hasDocuments:
+          count: 0
+        template: uploads-pvc.yaml
+
+  - it: s3 without a bucket fails to render
+    set:
+      storage.backend: s3
+    asserts:
+      - failedTemplate:
+          errorPattern: storage.s3.bucket is required when storage.backend=s3
+        template: config.yaml
+
+  - it: azure renders its settings and pod labels for workload identity
+    set:
+      storage.backend: azure
+      storage.azure.accountUrl: https://acct.blob.core.windows.net
+      storage.azure.container: bow
+      storage.azure.clientId: 00000000-0000-0000-0000-000000000000
+      podLabels:
+        azure.workload.identity/use: "true"
+    asserts:
+      - equal:
+          path: data.BOW_STORAGE_BACKEND
+          value: azure
+        template: config.yaml
+      - equal:
+          path: data.BOW_STORAGE_AZURE_CONTAINER
+          value: bow
+        template: config.yaml
+      - equal:
+          path: data.BOW_STORAGE_AZURE_ACCOUNT_URL
+          value: https://acct.blob.core.windows.net
+        template: config.yaml
+      - equal:
+          path: data.BOW_STORAGE_AZURE_CLIENT_ID
+          value: 00000000-0000-0000-0000-000000000000
+        template: config.yaml
+      - equal:
+          path: spec.template.metadata.labels["azure.workload.identity/use"]
+          value: "true"
+        template: deployment.yaml
+
+  - it: azure without a container fails to render
+    set:
+      storage.backend: azure
+    asserts:
+      - failedTemplate:
+          errorPattern: storage.azure.container is required when storage.backend=azure
+        template: config.yaml
+
+  - it: local persistence creates a kept PVC and mounts it
+    set:
+      storage.local.persistence.enabled: true
+      storage.local.persistence.size: 50Gi
+      storage.local.persistence.accessModes: ["ReadWriteMany"]
+    asserts:
+      - isKind:
+          of: PersistentVolumeClaim
+        template: uploads-pvc.yaml
+      - equal:
+          path: metadata.name
+          value: test-release-uploads
+        template: uploads-pvc.yaml
+      - equal:
+          path: metadata.annotations["helm.sh/resource-policy"]
+          value: keep
+        template: uploads-pvc.yaml
+      - equal:
+          path: spec.resources.requests.storage
+          value: 50Gi
+        template: uploads-pvc.yaml
+      - equal:
+          path: spec.accessModes
+          value: ["ReadWriteMany"]
+        template: uploads-pvc.yaml
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: uploads
+            persistentVolumeClaim:
+              claimName: test-release-uploads
+        template: deployment.yaml
+
+  - it: local persistence with an existing claim mounts it and creates nothing
+    set:
+      storage.local.persistence.enabled: true
+      storage.local.persistence.existingClaim: legacy-uploads
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: uploads-pvc.yaml
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: uploads
+            persistentVolumeClaim:
+              claimName: legacy-uploads
+        template: deployment.yaml

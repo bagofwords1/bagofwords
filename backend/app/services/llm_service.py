@@ -1446,13 +1446,23 @@ class LLMService:
         model_id: str,
         input_cost: float | None,
         output_cost: float | None,
+        input_set: bool = True,
+        output_set: bool = True,
     ):
-        """Set a model's per-million-token USD pricing (input/output).
+        """Set (or clear) a model's per-million-token USD pricing (input/output).
 
-        Powers the cost console and the Auto-router savings math. None leaves a
-        field unchanged; a negative value is rejected. Applies to any model the
-        org owns (preset or custom) — an admin often needs to correct a preset
-        rate or price a self-hosted model the catalog can't.
+        Powers the cost console and the Auto-router savings math. A negative
+        value is rejected. Applies to any model the org owns (preset or custom)
+        — an admin often needs to correct a preset rate or price a self-hosted
+        model the catalog can't.
+
+        ``input_set`` / ``output_set`` mirror whether the request actually
+        carried that field, so the two sentinels stay distinct: an *omitted*
+        field is left unchanged, while a field sent *explicitly as null* clears
+        the admin override and reverts the resolved value to the catalog price
+        (``None`` for a custom model with no catalog entry). Without this
+        distinction there was no way to undo a price once set — the clear and
+        the "don't touch" both arrived as ``None``.
         """
         for label, val in (("input", input_cost), ("output", output_cost)):
             if val is not None and val < 0:
@@ -1468,14 +1478,39 @@ class LLMService:
         if not model:
             raise HTTPException(status_code=404, detail="Model not found")
 
-        # Store the admin's rate as an override (so catalog re-syncs never
-        # revert it) and as the resolved value everything else reads.
-        if input_cost is not None:
-            model.input_cost_per_million_tokens_usd_override = float(input_cost)
-            model.input_cost_per_million_tokens_usd = float(input_cost)
-        if output_cost is not None:
-            model.output_cost_per_million_tokens_usd_override = float(output_cost)
-            model.output_cost_per_million_tokens_usd = float(output_cost)
+        # Catalog row for this model (if any) — the price a cleared override
+        # falls back to, exactly as set_context_window resets the window.
+        catalog = next(
+            (
+                m for m in LLM_MODEL_DETAILS
+                if m["model_id"] == model.model_id
+                and m["provider_type"] == model.provider.provider_type
+            ),
+            None,
+        )
+
+        # For each field present in the request: a value is stored as an
+        # override (so catalog re-syncs never revert it) and as the resolved
+        # value everything else reads; an explicit null clears the override and
+        # reverts to the catalog price.
+        if input_set:
+            if input_cost is not None:
+                model.input_cost_per_million_tokens_usd_override = float(input_cost)
+                model.input_cost_per_million_tokens_usd = float(input_cost)
+            else:
+                model.input_cost_per_million_tokens_usd_override = None
+                model.input_cost_per_million_tokens_usd = (
+                    catalog.get("input_cost_per_million_tokens_usd") if catalog else None
+                )
+        if output_set:
+            if output_cost is not None:
+                model.output_cost_per_million_tokens_usd_override = float(output_cost)
+                model.output_cost_per_million_tokens_usd = float(output_cost)
+            else:
+                model.output_cost_per_million_tokens_usd_override = None
+                model.output_cost_per_million_tokens_usd = (
+                    catalog.get("output_cost_per_million_tokens_usd") if catalog else None
+                )
         await db.commit()
 
         logger.info(

@@ -34,7 +34,7 @@ tests:
           value: /health
       - equal:
           path: spec.template.spec.containers[0].readinessProbe.httpGet.path
-          value: /health
+          value: /health/ready
       - equal:
           path: spec.template.spec.containers[0].livenessProbe.httpGet.path
           value: /health

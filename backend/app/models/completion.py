@@ -232,6 +232,20 @@ def after_update_completion(mapper, connection, target):
             from app.models.completion_block import send_completion_blocks_to_slack
             spawn(send_completion_blocks_to_slack(str(target.id)))
 
+        # Error finish: the run failed with no answer, so the chat user gets a
+        # localized "something went wrong" line instead of silence + a stuck 👀.
+        # Gated on the status actually flipping to 'error' so a later same-status
+        # update can't re-send. Teams reports its own failure via the progress
+        # bubble (completion_service), so it's not routed here.
+        if (target.status == "error" and
+            target.role == "system" and
+            target.external_platform in ("slack", "whatsapp", "google_chat") and
+            target.external_user_id is not None and
+            inspect(target).attrs.status.history.has_changes()):
+
+            from app.models.completion_block import send_completion_error_to_slack
+            spawn(send_completion_error_to_slack(str(target.id)))
+
         # Teams 1:1 progress bubble: the run just finished, failed or was
         # stopped — let it close the bubble. (The run's own finally in
         # completion_service reports it too; end_run counts each run once.)

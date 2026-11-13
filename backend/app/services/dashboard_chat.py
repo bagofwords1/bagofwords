@@ -140,7 +140,8 @@ async def build_context(db, artifact: Artifact, release: ArtifactRelease, agent_
         charts = await collect_visualizations(db, ReleaseRender.build(artifact, release, user))
         context["visualizations"] = [{
             "title": v.get("title"), "columns": v.get("columns") or [],
-            "rows": (v.get("rows") or [])[:MAX_CONTEXT_ROWS_PER_VIZ], "total_rows": len(v.get("rows") or []),
+            "rows": (v.get("rows") or [])[:MAX_CONTEXT_ROWS_PER_VIZ],
+            "total_rows": v.get("row_count", len(v.get("rows") or [])),  # real size, not the rows the org limit kept
         } for v in charts]
     return context
 

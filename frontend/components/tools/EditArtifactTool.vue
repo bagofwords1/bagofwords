@@ -10,10 +10,10 @@
 
       <span v-if="status === 'running'" class="tool-shimmer">{{ t('tools.editArtifact.editing') }}</span>
       <span v-else-if="status === 'success'" class="text-gray-700 dark:text-gray-300">{{ t('tools.editArtifact.edited') }}</span>
-      <span v-if="status === 'stopped'" class="ms-1.5 text-chat-3 text-ink-muted">· {{ t('reportView.stopped') }}</span>
       <span v-else-if="status === 'stopped'" class="text-ink-muted">{{ t('tools.editArtifact.editing') }}</span>
       <span v-else-if="status === 'error'" class="text-gray-700 dark:text-gray-300">{{ t('tools.editArtifact.failed') }}</span>
       <span v-else class="text-gray-700 dark:text-gray-300">{{ t('tools.editArtifact.edit') }}</span>
+      <span v-if="status === 'stopped'" class="ms-1.5 text-chat-3 text-ink-muted">· {{ t('reportView.stopped') }}</span>
 
       <!-- Diff badge -->
       <span

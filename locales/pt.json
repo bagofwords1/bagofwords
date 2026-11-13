@@ -120,7 +120,18 @@
     "fileBrowserRetry": "Tentar novamente",
     "fileBrowserEmpty": "Nenhum arquivo corresponde ao escopo desta conexão.",
     "fileBrowserNoResults": "Nenhum arquivo corresponde a “{q}”.",
+    "fileBrowserSummaryKms": "{n} arquivos listados para navegação · as permissões do KMS decidem o que o agente pode pesquisar e ler",
     "fileBrowserSummary": "{n} arquivos no escopo · o agente lê apenas estes · acessos negados são auditados",
+    "fileBrowserRootMessages": "Todas as conversas",
+    "fileBrowserSearchMessages": "Pesquisar mensagens…",
+    "fileBrowserEmptyMessages": "Não há mensagens recentes nas conversas que você pode ver.",
+    "fileBrowserSummaryLive": "{n} mensagens recentes · lidas ao vivo com seu próprio acesso · nada é armazenado",
+    "countMessages": "{n} mensagem | {n} mensagens",
+    "fileBrowserNoResultsMessages": "Nenhuma mensagem corresponde a “{q}”.",
+    "loadingMessages": "Carregando mensagens da origem…",
+    "fileBrowserConnectRequiredMessages": "Conecte sua conta para navegar — esta conexão lê as mensagens com o acesso de cada usuário.",
+    "liveSourceHint": "Pesquisado ao vivo com o acesso de cada usuário — apenas os canais, chats ou e-mails que ele pode ver. Nada é copiado ou indexado.",
+    "liveBadge": "Ao vivo",
     "fileBrowserTruncated": "Mostrando os primeiros {shown} de {total} arquivos — restrinja o escopo da conexão para ver o restante.",
     "fileBrowserOpenInSource": "Abrir na origem",
     "fileBrowserClosePreview": "Fechar pré-visualização",
@@ -387,6 +398,7 @@
     "newReport": "Novo relatório",
     "expandSidebar": "Expandir barra lateral",
     "collapseSidebar": "Recolher barra lateral",
+    "resizeSidebar": "Redimensionar barra lateral",
     "switchOrganization": "Alternar organização",
     "version": "Versão",
     "loggedInAs": "Conectado como {name}",
@@ -453,6 +465,14 @@
       },
       "automation_failed": {
         "title": "\"{name}\" falhou"
+      },
+      "connection_down": {
+        "title": "A conexão «{name}» está fora do ar",
+        "body": "«{name}» falhou nas verificações de integridade e foi marcada como offline. Os agentes que dependem dela não podem consultá-la até que se recupere."
+      },
+      "connection_restored": {
+        "title": "A conexão «{name}» está online novamente",
+        "body": "«{name}» reconectou-se e está ativa novamente."
       },
       "trigger_run": {
         "title": "⚡ \"{name}\" foi acionado — {summary}",
@@ -663,6 +683,22 @@
         "network": "O reconhecimento de voz precisa de conexão com a rede.",
         "failed": "A entrada por voz falhou. Tente novamente."
       }
+    },
+    "slash": {
+      "menuTitle": "Comandos",
+      "compact": {
+        "description": "Resumir turnos anteriores para liberar contexto",
+        "usage": "/compact · /compact <foco> · /compact keep 4",
+        "pending": "Será compactado quando o agente terminar esta execução",
+        "running": "Compactando contexto…",
+        "doneContext": "{turns} turnos compactados · contexto ~{before} → ~{after} tokens",
+        "doneHistory": "{turns} turnos compactados · histórico ~{before} → ~{after} tokens",
+        "alreadyRunning": "A compactação já está em andamento",
+        "failed": "Não foi possível compactar o contexto",
+        "degraded": "resumo alternativo (sem resumo do modelo)",
+        "cancel": "Cancelar",
+        "dismiss": "Dispensar"
+      }
     }
   },
   "reports": {
@@ -822,7 +858,39 @@
     ],
     "artifactLoadFailed": "Não foi possível carregar o painel. Atualize a página para tentar novamente.",
     "deleteUnpublishedDashboards": "Os painéis não publicados também serão excluídos: {names}",
-    "deleteLosesUnpublishedChanges": "As alterações não publicadas destes painéis serão perdidas (a versão publicada permanece): {names}"
+    "deleteLosesUnpublishedChanges": "As alterações não publicadas destes painéis serão perdidas (a versão publicada permanece): {names}",
+    "view": {
+      "groupAndSort": "Agrupar e ordenar",
+      "groupBy": "Agrupar por",
+      "sortBy": "Ordenar por",
+      "direction": "Direção",
+      "group": {
+        "date": "Data",
+        "status": "Estado",
+        "none": "Nenhum"
+      },
+      "sort": {
+        "updated": "Última atividade",
+        "created": "Criação",
+        "name": "Nome"
+      },
+      "dir": {
+        "desc": "Decrescente",
+        "asc": "Crescente"
+      },
+      "groups": {
+        "starred": "Favoritos",
+        "today": "Hoje",
+        "yesterday": "Ontem",
+        "previous7": "Últimos 7 dias",
+        "previous30": "Últimos 30 dias",
+        "older": "Mais antigos",
+        "needsInput": "Requer atenção",
+        "running": "Em execução",
+        "queued": "Na fila",
+        "idle": "Inativo"
+      }
+    }
   },
   "projects": {
     "title": "Projetos",
@@ -1129,7 +1197,13 @@
       "scopeHint": "Aplica-se às suas conversas neste navegador."
     },
     "readMore": "Ler mais",
-    "showLess": "Mostrar menos"
+    "showLess": "Mostrar menos",
+    "compactionShowSummary": "Ver o que o agente lembra dos turnos compactados",
+    "compactionSummaryTitle": "Histórico compactado",
+    "compactionSummaryHint": "O agente vê este resumo em vez dos turnos acima da linha.",
+    "compactingContext": "Compactando contexto…",
+    "compactionTurns": "{turns} turnos",
+    "compactionLast": "Última compactação: histórico ~{before} → ~{after} tokens"
   },
   "tools": {
     "common": {
@@ -1501,6 +1575,7 @@
       "toggleQueries": "Consultas",
       "toggleFullCode": "Código completo",
       "sentRequest": "Enviado à fonte de dados",
+      "sourceQueryId": "ID da consulta na fonte de dados",
       "attempts": "Tentativas ({count})",
       "addToSpreadsheet": "Adicionar à planilha",
       "addToSpreadsheetTitle": "Adicionar dados à planilha do Excel",
@@ -1724,6 +1799,22 @@
       "filesSkippedSingular": "{count} arquivo ignorado ({reasons})",
       "filesSkippedPlural": "{count} arquivos ignorados ({reasons})"
     },
+    "searchFiles": {
+      "foundIn": "Encontrado em:",
+      "fileName": "nome do arquivo",
+      "page": "página {n}",
+      "sheet": "planilha {name}",
+      "offset": "posição {n}",
+      "partlyIndexed": "Indexado apenas em parte (limite de tamanho)",
+      "noText": "Sem texto pesquisável (digitalizado ou binário)",
+      "notIndexed": "Não foi possível indexar",
+      "indexFulltext": "Índice de texto completo",
+      "indexKeywords": "Índice de palavras-chave",
+      "indexNames": "Correspondência pelo nome do arquivo",
+      "liveScan": "Busca ao vivo",
+      "plusLiveScan": "{index} + busca ao vivo",
+      "indexedAt": "indexado {when}"
+    },
     "listAgentExecutions": {
       "empty": "Nenhuma execução encontrada",
       "failed": "Falha ao carregar as execuções do agente",
@@ -1871,6 +1962,22 @@
       "override": "Estas regras aplicam-se apenas a você. Sempre permitir ou Sempre negar da conexão tem prioridade.",
       "save": "Salvar regras",
       "failed": "Não foi possível carregar ou salvar as regras. Verifique o JSON e tente novamente."
+    },
+    "shell": {
+      "command": "Comando shell",
+      "server": "Servidor",
+      "directory": "Diretório",
+      "cancelled": "Cancelado",
+      "denied": "Negado",
+      "approval_expired": "A aprovação expirou",
+      "execution_timed_out": "Tempo esgotado",
+      "failed": "Falhou",
+      "success": "Concluído",
+      "running": "Em execução",
+      "awaitingApproval": "Aguardando aprovação",
+      "unknownState": "O processo remoto pode ainda estar em execução. Verifique seu estado antes de tentar novamente.",
+      "exitCode": "Código de saída: {code}",
+      "cancelledBeforeExecution": "Cancelado antes da execução."
     }
   },
   "entityCreate": {
@@ -1908,6 +2015,7 @@
     "openPage": "Abrir página",
     "categories": {
       "dataSources": "Agentes",
+      "connectors": "Conectores",
       "queries": "Consultas",
       "files": "Arquivos",
       "tables": "Tabelas",
@@ -1932,6 +2040,9 @@
     "noRolesFound": "Nenhuma função encontrada",
     "noRolesHint": "Crie uma função para gerenciar permissões.",
     "system": "sistema",
+    "default": "Padrão",
+    "defaultRoleHint": "Esta é uma função interna. O nome é fixo — personalize as permissões abaixo.",
+    "edit": "Editar",
     "fullAdmin": "Administrador total",
     "permissionsCount": "{n} permissões",
     "editRole": "Editar função",
@@ -2193,7 +2304,7 @@
       "integrate": "Integrar",
       "setup": "Configurar",
       "excelAddinName": "Suplemento do Excel",
-      "excelAddinDescription": "Carregue o suplemento Bag of Words diretamente desta instância",
+      "excelAddinDescription": "Carregue o suplemento BOW diretamente desta instância",
       "mcpName": "Servidor BOW MCP",
       "mcpDescription": "Ative o endpoint MCP para integração com assistentes de IA como Cursor, Claude e outros",
       "channels": {
@@ -2224,7 +2335,8 @@
           "announceNewReportLabel": "Anunciar novos relatórios de conversa",
           "announceNewReportDesc": "Quando uma mensagem inicia um novo relatório de conversa, o bot responde com uma mensagem \"Iniciei um novo relatório de conversa\" com um link. Desative para pular essa mensagem.",
           "announceNewReportEnabled": "Anúncio de novos relatórios ativado",
-          "announceNewReportDisabled": "Anúncio de novos relatórios desativado"
+          "announceNewReportDisabled": "Anúncio de novos relatórios desativado",
+          "loading": "Carregando…"
         },
         "slack": {
           "title": "Integração com Slack",
@@ -2318,7 +2430,30 @@
           "disconnectedToast": "WhatsApp desconectado",
           "disconnectedToastDesc": "Integração com o WhatsApp desconectada",
           "failedDisconnect": "Falha ao desconectar o WhatsApp",
-          "sessionStalenessDesc": "Por quanto tempo um chat continua no mesmo relatório de conversa. Mensagens após essa janela iniciam um novo relatório (enviar \"new\" inicia um imediatamente). Padrão: 24 horas."
+          "sessionStalenessDesc": "Por quanto tempo um chat continua no mesmo relatório de conversa. Mensagens após essa janela iniciam um novo relatório (enviar \"new\" inicia um imediatamente). Padrão: 24 horas.",
+          "numbersTitle": "Números conectados",
+          "addNumber": "Conectar um número",
+          "addNumberTitle": "Conectar outro número",
+          "nameLabel": "Rótulo",
+          "namePlaceholder": "ex.: Vendas, Finanças",
+          "agentScopeTitle": "Agentes neste número",
+          "agentScopeDesc": "Escolha com quais agentes este número responde. Deixe vazio para expor todos os agentes a que o usuário tem acesso.",
+          "agentScopeAll": "Expõe todos os agentes a que o usuário tem acesso",
+          "agentScopeCount": "{count} agentes selecionados",
+          "agentScopeNoAgents": "Nenhum agente disponível",
+          "agentScopeSave": "Salvar agentes",
+          "agentScopeSaved": "Agentes atualizados",
+          "connectedUsersTitle": "Usuários conectados",
+          "connectedUsersEmpty": "Ninguém vinculou este número ainda",
+          "verified": "Verificado",
+          "unverified": "Pendente",
+          "unknownUser": "Desconhecido",
+          "unnamedNumber": "Número do WhatsApp",
+          "cancel": "Cancelar",
+          "connectedUsersCount": "{count} pessoas",
+          "usersSearchPlaceholder": "Pesquisar por nome ou número",
+          "usersSearchEmpty": "Nenhum usuário corresponde à sua pesquisa",
+          "webhookSharedNote": "A mesma URL de webhook se aplica a todos os seus números."
         },
         "email": {
           "title": "Caixa de Correio de IA",
@@ -2464,9 +2599,9 @@
           "trustedConnecting": "Connecting to your trusted app…",
           "authorizationLoading": "Checking the authorization request…",
           "authorizationError": "Unable to authorize",
-          "goBack": "Go back to Bag of Words",
+          "goBack": "Go back to BOW",
           "authorizationTitle": "Authorize access",
-          "wantsAccess": "{name} wants to access your Bag of Words account.",
+          "wantsAccess": "{name} wants to access your BOW account.",
           "permissionsRequested": "Permissions requested",
           "appPermission": "Create and read reports, run completions, and use artifacts under your existing BOW permissions.",
           "mcpPermission": "Use the MCP tool surface under your existing BOW permissions.",
@@ -2491,7 +2626,7 @@
         },
         "excel": {
           "title": "Suplemento do Excel",
-          "subtitle": "Faça o sideload do suplemento Bag of Words diretamente desta instância.",
+          "subtitle": "Faça o sideload do suplemento BOW diretamente desta instância.",
           "loading": "Carregando...",
           "setup": "Configuração",
           "step1": "Baixe o arquivo de manifesto abaixo",
@@ -2539,9 +2674,18 @@
           "subscriptionPlaceholder": "projects/<project>/subscriptions/<name>",
           "subtitle": "Configure e gerencie a integração com o Google Chat para sua organização",
           "title": "Integração com o Google Chat"
+        },
+        "routing": {
+          "title": "Roteamento de canal → agente",
+          "desc": "Direcione um canal para agentes específicos. Um canal sem mapeamento usa o padrão da conexão; sem padrão, ele expõe tudo o que o usuário pode acessar. O roteamento apenas restringe o acesso, nunca concede mais do que o usuário já tem.",
+          "connectionDefaultLabel": "Padrão da conexão",
+          "connectionDefaultDesc": "Usado para canais sem mapeamento próprio.",
+          "pickerPlaceholder": "Escolher agentes…",
+          "channelsHeading": "Canais",
+          "noChannelsYet": "Ainda não há canais. Mencione o bot em um canal e ele aparecerá aqui, ou adicione um por id abaixo."
         }
       },
-      "emptyTitle": "Faça o Bag of Words funcionar com suas ferramentas",
+      "emptyTitle": "Faça o BOW funcionar com suas ferramentas",
       "emptySubtitle": "Conecte Slack, Teams, e-mail e mais para que sua equipe possa alcançar o analista de IA onde já trabalha. Escolha uma integração para começar.",
       "selectHint": "Selecione uma integração",
       "slackDescription": "Permita que sua equipe converse com o analista de IA a partir de canais e DMs do Slack.",
@@ -2631,14 +2775,18 @@
       "attributesInviteHint": "Opcional. Identifica este membro em outros sistemas, ex.: seu usuário do Qlik ou papel no banco de dados.",
       "attributesSaved": "Atributos salvos",
       "attributesSaveFailed": "Falha ao salvar os atributos",
-      "importAttributesHint": "Adicione colunas {column} para definir atributos, ex.: {example}. Uma célula vazia mantém o atributo inalterado."
+      "importAttributesHint": "Adicione colunas {column} para definir atributos, ex.: {example}. Uma célula vazia mantém o atributo inalterado.",
+      "defaultRoleHint": "Preenche a função ao adicionar ou convidar um membro.",
+      "defaultRoleSaved": "Função padrão salva",
+      "defaultRoleFailed": "Falha ao salvar a função padrão",
+      "defaultRoleShort": "Função padrão"
     },
     "organizationName": "Nome da organização",
     "organizationIcon": "Ícone da organização",
     "uploadIcon": "Enviar ícone",
     "iconConstraints": "PNG/JPEG, ≤ 512 KB.",
     "aiAnalystName": "Nome do analista de IA",
-    "showCredit": "Mostrar crédito \"Made with Bag of words\"",
+    "showCredit": "Mostrar crédito \"Made with BOW\"",
     "language": {
       "title": "Idioma",
       "description": "Define o idioma padrão para toda a organização. Os usuários verão a interface neste idioma e a IA responderá nele.",
@@ -2882,6 +3030,9 @@
       "locked": "Esta configuração está bloqueada e não pode ser alterada.",
       "notEditable": "(Não editável diretamente)",
       "noSettings": "Nenhuma configuração de IA disponível.",
+      "noSearchResults": "Nenhuma configuração corresponde à sua pesquisa.",
+      "searchPlaceholder": "Pesquisar configurações…",
+      "clearSearch": "Limpar pesquisa",
       "sectionSummary": "{n} configurações",
       "sectionSummaryOn": "{n} configurações · {on} ativas",
       "sections": {
@@ -3381,6 +3532,12 @@
         "saturday": "Sábado"
       }
     },
+    "connectionAlerts": {
+      "heading": "E-mails de alerta",
+      "label": "E-mails de alerta de conexão fora do ar",
+      "description": "Enviar e-mail aos administradores da conexão quando uma conexão compartilhada cai ou volta. As notificações no app estão sempre ativas.",
+      "saveError": "Não foi possível salvar a configuração de alertas de conexão."
+    },
     "smtpTab": "SMTP",
     "timezone": {
       "description": "Usado para interpretar tarefas agendadas (ex.: horários de reindexação) e exibir os carimbos de data/hora. Os dados são sempre armazenados em UTC.",
@@ -3715,7 +3872,7 @@
     "saveIntegration": "Salvar integração",
     "loadFieldsFailed": "Falha ao carregar os campos",
     "integrationReady": "Integração pronta",
-    "integrationReadyDesc": "{name} está conectado e um agente público foi criado. Os usuários podem fazer login para começar a usá-lo.",
+    "integrationReadyDesc": "{name} agora está disponível para todos como conector. Cada pessoa entra com a própria conta.",
     "integrationAgentFailed": "Integração salva, mas a criação do agente falhou",
     "updateIntegrationFailed": "Falha ao atualizar a integração",
     "createIntegrationFailed": "Falha ao criar a integração",
@@ -3856,7 +4013,7 @@
         },
         {
           "title": "Imprima o arquivo de acesso",
-          "body": "Salve como print_access_file.sh e execute. O script aguarda o token e imprime um único arquivo autocontido (URL do servidor API, CA do cluster, token). Verifique com: kubectl --kubeconfig access.yaml get nodes. Se a URL do servidor for privada da sua rede, altere-a para o endereço que esta instância do Bag of Words consegue alcançar."
+          "body": "Salve como print_access_file.sh e execute. O script aguarda o token e imprime um único arquivo autocontido (URL do servidor API, CA do cluster, token). Verifique com: kubectl --kubeconfig access.yaml get nodes. Se a URL do servidor for privada da sua rede, altere-a para o endereço que esta instância do BOW consegue alcançar."
         },
         {
           "title": "Cole abaixo e teste a conexão",
@@ -3866,7 +4023,7 @@
       "mecm": [
         {
           "title": "Conceda à conta acesso de leitura no Configuration Manager",
-          "body": "No console, vá em Administration > Security > Administrative Users, adicione a conta (ou o grupo do AD dela) e atribua a função Read-only Analyst. Os escopos de segurança e as coleções dela definem o que o Bag of Words pode ver."
+          "body": "No console, vá em Administration > Security > Administrative Users, adicione a conta (ou o grupo do AD dela) e atribua a função Read-only Analyst. Os escopos de segurança e as coleções dela definem o que o BOW pode ver."
         },
         {
           "title": "Verifique se o serviço de administração responde",
@@ -3956,6 +4113,13 @@
       "uploadInvalid": "Escolha uma chave SSH privada menor que 64 KB. Chaves públicas e outros arquivos não são aceitos.",
       "keyRequired": "Verifique a chave SSH do servidor para continuar ou insira uma chave confiável nas configurações avançadas.",
       "required": "Preencha os campos obrigatórios: {fields}."
+    },
+    "connAlerts": {
+      "title": "E-mails de alerta de queda",
+      "label": "Enviar e-mail aos administradores quando esta conexão cai",
+      "hint": "Envia e-mail aos administradores quando esta conexão cai. As notificações no app estão sempre ativas.",
+      "orgOffNote": "Os e-mails de alerta da organização estão desativados (Configurações → SMTP). Ative-os para controlar isso por conexão.",
+      "saveFailed": "Não foi possível salvar a configuração."
     }
   },
   "share": {
@@ -4042,11 +4206,23 @@
     "close": "Fechar",
     "copyClipboardFailed": "Falha ao copiar para a área de transferência"
   },
+  "dataGrid": {
+    "page": "Página",
+    "to": "a",
+    "of": "de",
+    "more": "mais",
+    "pageSizeSelectorLabel": "Tamanho da página:",
+    "firstPage": "Primeira página",
+    "previousPage": "Página anterior",
+    "nextPage": "Próxima página",
+    "lastPage": "Última página"
+  },
   "sharedReport": {
     "backToApp": "Voltar ao app",
     "tabReport": "Relatório",
     "tabData": "Dados ({count})",
     "refreshedAt": "Atualizado {time}",
+    "noDashboard": "Nenhum painel disponível",
     "madeWith": "Feito com {brand}",
     "fork": "Criar cópia"
   },
@@ -4058,6 +4234,7 @@
     "shell_confirmation.rule_mismatch": "Regra de comando inválida, ou o padrão não corresponde a este comando.",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
     "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
+    "catalog_discovery_incomplete": "A atualização do catálogo falhou porque a descoberta ficou incompleta. O catálogo anterior e as seleções de tabelas foram mantidos.",
     "saml_unavailable": "Configuração de SSO indisponível. Contate seu administrador.",
     "saml_login_failed": "Falha no login SSO. Tente novamente ou contate seu administrador.",
     "invitation_required": "O cadastro está desativado. Peça um convite ao seu administrador.",
@@ -4088,6 +4265,9 @@
     "access.denied": "Acesso negado",
     "account.disabled": "Sua conta foi desativada. Entre em contato com seu administrador.",
     "connection.not_found": "Conexão não encontrada",
+    "connection.table_not_found": "Tabela não encontrada",
+    "connection.table_preview_unsupported": "A pré-visualização de dados não está disponível para conexões {type}.",
+    "connection.table_preview_failed": "Falha na pré-visualização: {reason}",
     "data_source.not_found": "Fonte de dados não encontrada",
     "file.not_found": "Arquivo não encontrado",
     "verification.invalid": "Token de verificação inválido ou expirado",
@@ -4113,6 +4293,7 @@
     "instruction.version_mismatch": "A versão não pertence a esta instrução",
     "integration.not_found": "Integração não encontrada",
     "resource.conflict": "O recurso já existe ou conflita com o estado atual",
+    "review.stale_main": "Isto mudou desde a última vez que você viu. Atualize e tente novamente.",
     "resource.duplicate": "Recurso duplicado",
     "setting.update_failed": "Falha ao atualizar configuração",
     "query": {
@@ -4170,7 +4351,14 @@
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
-    "ssh.key_discovery_failed": "Não foi possível buscar a chave. Verifique host, porta e rede ou insira uma chave confiável nas configurações avançadas."
+    "ssh.key_discovery_failed": "Não foi possível buscar a chave. Verifique host, porta e rede ou insira uma chave confiável nas configurações avançadas.",
+    "connection.kms_token_format": "O token de API do KMS só pode conter letras, dígitos e sinais de pontuação simples, sem espaços. Copie-o novamente do KMS Lighthouse e cole-o como texto simples.",
+    "connection.kms_use_connection_credentials": "Os logins do KMS Lighthouse são salvos na conexão. Abra a conexão e conecte-se a partir dela.",
+    "connection.kms_only": "O diagnóstico aplica-se apenas a ligações KMS Lighthouse.",
+    "connection.kms_diagnostics_running": "O diagnóstico já está em curso para esta ligação. Aguarde que termine e tente novamente.",
+    "connection.kms_login_rejected": "O KMS Lighthouse não aceitou este início de sessão, por isso não foi guardado. Verifique o nome de utilizador e a palavra-passe, ou o token de API, e tente novamente.",
+    "connection.kms_login_paused": "O KMS Lighthouse recusou recentemente este início de sessão, por isso as novas tentativas com ele estão em pausa durante alguns minutos e não foi guardado. Verifique o início de sessão ou tente novamente mais tarde.",
+    "connection.kms_session_refused": "O KMS Lighthouse aceitou o início de sessão, mas recusou a sessão correspondente, por isso não pode ser usado e não foi guardado. Pergunte ao administrador do KMS se esta conta pode usar a API do KMS."
   },
   "email": {
     "dashboardShare": {
@@ -4315,16 +4503,146 @@
   "dashboards": {
     "title": "Painéis",
     "subtitle": "Navegue e gerencie seus painéis e slides",
-    "searchPlaceholder": "Buscar painéis…",
+    "searchPlaceholder": "Buscar painéis ou proprietários…",
     "myDashboards": "Meus painéis",
     "sharedWithMe": "Compartilhados comigo",
     "empty": "Nenhum painel encontrado",
-    "emptyDescription": "Tente ajustar seu termo de busca ou criar um relatório com um painel.",
+    "emptyMy": "Crie um relatório com um painel e ele aparecerá aqui.",
+    "emptyShared": "Nada foi compartilhado com você ainda.",
     "showingRange": "Mostrando de {start} a {end} de {total} painéis",
     "fetchFailed": "Falha ao carregar painéis",
     "typeAll": "Todos",
     "typeDashboards": "Painéis",
-    "typeDocs": "Documentos"
+    "typeDocs": "Documentos",
+    "reason": {
+      "direct": "Compartilhado com você",
+      "group": "Grupo {name}",
+      "project": "Projeto {name}",
+      "org": "Organização",
+      "public": "Link público",
+      "other": "Compartilhado",
+      "groupAny": "Seu grupo",
+      "projectAny": "Seu projeto"
+    },
+    "reasonTitle": {
+      "direct": "{owner} compartilhou com você",
+      "group": "Compartilhado com seu grupo {name}",
+      "groupOther": "Compartilhado com um dos seus grupos",
+      "project": "No projeto {name}, do qual você faz parte",
+      "projectOther": "Em um projeto do qual você faz parte",
+      "org": "Compartilhado com toda a organização",
+      "public": "Qualquer pessoa com o link",
+      "also": "também: {reason}",
+      "canEdit": "(você pode editar)",
+      "viewOnly": "(somente leitura)"
+    },
+    "card": {
+      "edited": "Editado {time}",
+      "created": "Criado em {date}",
+      "by": "por {name}",
+      "published": "Publicado em {date}",
+      "dataAsOf": "Dados atualizados {time}",
+      "refreshFailing": "Falha na atualização",
+      "lastEdit": "Última edição: {time}",
+      "scheduledRefresh": "Atualização agendada"
+    },
+    "pill": {
+      "new": "Novo",
+      "published": "Publicado",
+      "changes": "Alterações não publicadas",
+      "org": "Organização",
+      "public": "Público"
+    },
+    "mode": {
+      "page": "Painel",
+      "slides": "Slides",
+      "doc": "Documento"
+    },
+    "list": {
+      "createdShort": "criado em {date}",
+      "directFirst": "compartilhamentos diretos primeiro",
+      "dateColumns": "Editado · Criado"
+    },
+    "star": "Marcar com estrela",
+    "unstar": "Remover estrela",
+    "starFailed": "Não foi possível atualizar a estrela",
+    "emptyFiltered": "Tente outra busca ou {clear}.",
+    "clearTheFilters": "limpe os filtros",
+    "count": "{n} painel | {n} painéis",
+    "tabNew": "{n} novo | {n} novos",
+    "pagePrevious": "Página anterior",
+    "pageNext": "Próxima página",
+    "sort": {
+      "label": "Ordenar",
+      "edited": "Editados recentemente",
+      "newest": "Criados mais recentemente",
+      "oldest": "Criados há mais tempo",
+      "title": "Título A–Z",
+      "published": "Publicados recentemente"
+    },
+    "view": {
+      "grid": "Grade",
+      "list": "Lista"
+    },
+    "access": {
+      "all": "Todos",
+      "direct": "Diretamente",
+      "group": "Meus grupos",
+      "project": "Projetos",
+      "org": "Organização",
+      "edit": "Posso editar"
+    },
+    "presets": {
+      "any": "Qualquer data",
+      "last7": "Últimos 7 dias",
+      "last30": "Últimos 30 dias",
+      "last90": "Últimos 90 dias",
+      "year": "Este ano",
+      "older90": "Há mais de 90 dias",
+      "custom": "Período personalizado"
+    },
+    "status": {
+      "any": "Qualquer status",
+      "published": "Publicado",
+      "changes": "Alterações não publicadas",
+      "draft": "Rascunho"
+    },
+    "filters": {
+      "button": "Filtros",
+      "agent": "Agente",
+      "created": "Criado",
+      "edited": "Editado",
+      "owner": "Proprietário",
+      "status": "Status",
+      "starredOnly": "Somente com estrela",
+      "clearAll": "Limpar tudo",
+      "allAgents": "Todos os agentes",
+      "agentsCount": "{n} agente | {n} agentes",
+      "anyone": "Qualquer pessoa",
+      "ownersCount": "{n} pessoa | {n} pessoas",
+      "from": "De",
+      "to": "até",
+      "toLabel": "Até",
+      "customRange": "{from} – {to}",
+      "rangeInvalid": "O início deve ser igual ou anterior ao fim",
+      "unknownAgent": "Agente indisponível",
+      "unknownOwner": "Pessoa desconhecida",
+      "resultCount": "{n} de {total}",
+      "remove": "Remover {name}"
+    },
+    "chips": {
+      "search": "“{q}”",
+      "owner": "Proprietário: {name}",
+      "created": "Criado: {range}",
+      "edited": "Editado: {range}",
+      "starred": "Com estrela"
+    },
+    "attention": {
+      "title": "Precisam de atenção",
+      "failing": "{n} com falha na atualização | {n} com falha na atualização",
+      "stale": "{n} sem edição há 90 dias | {n} sem edição há 90 dias",
+      "show": "Mostrar"
+    }
   },
   "excel": {
     "greeting": "Olá, {name} 👋",
@@ -4555,7 +4873,7 @@
   "onboarding": {
     "loading": "Carregando...",
     "skip": "Pular onboarding",
-    "welcome": "Bem-vindo ao Bag of words! 🎉",
+    "welcome": "Bem-vindo ao BOW! 🎉",
     "welcomeSubtitle": "Converse com seus dados, faça análises aprofundadas e crie painéis em segundos",
     "next": "Próximo",
     "fallbackTitle": "Começar",
@@ -4565,7 +4883,7 @@
     "intro1": "Começar é rápido: basta conectar seu modelo e sua fonte de dados, e você estará pronto para fazer sua primeira pergunta.",
     "intro2": "👉 Vamos configurar tudo!",
     "steps": {
-      "onboardingTitle": "Bem-vindo ao Bag of words! 🎉",
+      "onboardingTitle": "Bem-vindo ao BOW! 🎉",
       "onboardingDescription": "Converse com seus dados, faça análises aprofundadas e crie painéis em segundos",
       "onboardingButton": "Boas-vindas",
       "llmTitle": "Configurar LLM",
@@ -5175,8 +5493,8 @@
     }
   },
   "mcpServerModal": {
-    "title": "Servidor MCP do Bag of words",
-    "subtitle": "Conecte Claude, Cursor ou qualquer cliente MCP para consultar seus dados via Servidor MCP do Bag of words.",
+    "title": "Servidor MCP do BOW",
+    "subtitle": "Conecte Claude, Cursor ou qualquer cliente MCP para consultar seus dados via Servidor MCP do BOW.",
     "loading": "Carregando...",
     "tabMcpClients": "Clientes MCP",
     "tabOauth": "OAuth",
@@ -5315,7 +5633,8 @@
     "modeChat": "Chat",
     "modelAuto": "Auto",
     "noAgents": "Nenhum",
-    "project": "Projeto"
+    "project": "Projeto",
+    "agentsFromReport": "Usa os agentes do relatório"
   },
   "errorPage": {
     "notFoundTitle": "404",
@@ -6136,7 +6455,9 @@
     "noConnection": "Este agente ainda não tem conexão.",
     "notFound": "Esta conexão não foi encontrada.",
     "forbidden": "Você não tem acesso a esta conexão.",
-    "loadFailed": "Não foi possível carregar a conexão. Tente novamente mais tarde."
+    "loadFailed": "Não foi possível carregar a conexão. Tente novamente mais tarde.",
+    "connected": "Conectado",
+    "connectedAs": "Conectado como {identity}"
   },
   "trackedChanges": {
     "noChanges": "Sem alterações"
@@ -6473,6 +6794,8 @@
     "tabViewers": "Leitores",
     "tabData": "Dados",
     "viewersDesc": "O que recebem as pessoas com quem você compartilha.",
+    "widgetInfoTitle": "Mostrar detalhes nos widgets",
+    "widgetInfoDesc": "Adiciona um ícone ⓘ a cada widget que abre os seus dados, código e cálculo.",
     "dataDesc": "As consultas por trás deste painel.",
     "unsaved": "Alterações não salvas",
     "tabGeneral": "Geral",
@@ -6538,7 +6861,7 @@
       "notPublished": "Isto ainda não foi publicado. Aparecerá aqui quando for publicado.",
       "notFound": "Isto não está disponível. Talvez ainda não tenha sido publicado ou tenha sido removido.",
       "denied": "Você não tem acesso a isto. Peça ao proprietário que compartilhe com você.",
-      "notAllowed": "Isto não está habilitado para este aplicativo. Um editor pode permitir isso nas configurações de incorporação no Bag of Words.",
+      "notAllowed": "Isto não está habilitado para este aplicativo. Um editor pode permitir isso nas configurações de incorporação no BOW.",
       "failed": "Não foi possível carregar. Tente novamente em instantes."
     }
   },
@@ -6569,5 +6892,125 @@
     "enabled": "Ativada",
     "embeddingEmpty": "Embedding is not configured",
     "oauthEmpty": "OAuth is not configured"
+  },
+  "connectors": {
+    "title": "Conectores",
+    "subtitle": "Suas próprias contas e ferramentas que a IA pode usar. Cada conector lê com o seu próprio acesso — ninguém mais vê seus dados.",
+    "browse": "Ver conectores",
+    "empty": "Ainda não há conectores.",
+    "search": "Pesquisar conectores…",
+    "noResults": "Nenhum conector corresponde a “{q}”.",
+    "signIn": "Entrar",
+    "signOut": "Sair",
+    "remove": "Remover",
+    "statusConnected": "Conectado",
+    "statusShared": "Compartilhado",
+    "statusServiceAccount": "Conta de serviço",
+    "statusOffline": "Reconectar",
+    "statusNotConnected": "Não conectado",
+    "needsSignIn": "{n} conector requer que você entre | {n} conectores requerem que você entre",
+    "accessPersonal": "Usa sua própria conta",
+    "accessShared": "Usa uma conta compartilhada configurada por um administrador",
+    "addHint": "Adicione mais conectores em Agentes → Adicionar conexão.",
+    "askAdmin": "Peça a um administrador para adicionar mais conectores.",
+    "removeConfirm": "Remover {name} para todos na organização? Os logins das pessoas também serão removidos.",
+    "signedOut": "Você saiu de {name}",
+    "removed": "{name} removido",
+    "actionFailed": "Algo deu errado",
+    "shareToggleLabel": "Disponibilizar para todos na sua organização",
+    "shareToggleHint": "Adiciona “{name}” aos conectores de todos. Cada pessoa entra com a própria conta — ninguém vê os dados dos outros.",
+    "useAsAgent": "Usar como agente",
+    "movedToAgents": "{name} agora é um agente"
+  },
+  "tablePreview": {
+    "idle": "Pressione Executar para carregar linhas da origem.",
+    "loading": "Carregando linhas…",
+    "failed": "Não foi possível carregar uma pré-visualização desta tabela.",
+    "showing": "Mostrando {shown} linhas",
+    "columns": "{count} colunas",
+    "empty": "Esta tabela não tem linhas.",
+    "reload": "Recarregar",
+    "createCustomTable": "Criar tabela personalizada a partir desta",
+    "run": "Executar",
+    "resetQuery": "Redefinir",
+    "runHint": "Ctrl/⌘ + Enter para executar. Somente consultas de leitura.",
+    "ofTotal": "~{total} linhas na tabela",
+    "retry": "Tentar novamente",
+    "readOnlyHint": "Para editar a consulta, esta conexão precisa de tabelas personalizadas.",
+    "storageNote": "Lido diretamente do armazenamento da tabela, por isso esta pré-visualização não tem custo de consulta.",
+    "signInRequired": "Esta conexão usa as suas próprias credenciais. Inicie sessão para ver as linhas.",
+    "signIn": "Iniciar sessão",
+    "open": "Pré-visualizar dados de {name}",
+    "subtitle": "Linhas de exemplo de {connection}, lidas ao vivo da origem.",
+    "close": "Fechar",
+    "button": "Pré-visualizar"
+  },
+  "kmsFileScope": {
+    "headerSubtitle": "A pasta raiz define onde a navegação começa. As permissões do KMS decidem o que o agente pode pesquisar e ler.",
+    "browsingOnly": "Apenas navegação",
+    "accessNote": "Uma pasta raiz limita apenas a navegação. As permissões do KMS da identidade conectada decidem o que o agente pode pesquisar e ler, incluindo itens fora dessa pasta. Edite a pasta raiz ou a indexação na própria conexão."
+  },
+  "kmsDiagnostics": {
+    "run": "Executar diagnóstico",
+    "running": "A executar o diagnóstico. Isto pode demorar até 90 segundos.",
+    "description": "Verificações só de leitura da rede, do certificado, do início de sessão e do comportamento do KMS. Envia no máximo um início de sessão.",
+    "overallPass": "As verificações automáticas passaram",
+    "overallWarn": "Concluído com avisos",
+    "overallFail": "Concluído com uma falha",
+    "manualCheck": "Resta uma verificação manual: execute novamente como utilizador KMS restrito e compare os nomes dos elementos.",
+    "failedStage": "Falhou em: {stage}",
+    "calls": "{calls} chamadas em {seconds} s",
+    "callsUnknown": "Interrompido após {seconds} s. O número de chamadas é desconhecido.",
+    "copy": "Copiar relatório",
+    "copied": "Relatório copiado",
+    "copyFailed": "Não foi possível copiar o relatório. Use Transferir JSON.",
+    "download": "Transferir JSON",
+    "reportNote": "O relatório mantém-se em inglês para poder ser enviado aos engenheiros da BOW. Não contém conteúdo, nomes nem palavras-passe.",
+    "failed": "Não foi possível executar o diagnóstico.",
+    "status": {
+      "pass": "Aprovado",
+      "warn": "Aviso",
+      "fail": "Falha",
+      "info": "Info",
+      "skipped": "Ignorado"
+    },
+    "stage": {
+      "network": "rede",
+      "tls": "TLS",
+      "login": "início de sessão",
+      "browse": "navegação",
+      "search": "pesquisa",
+      "read": "leitura"
+    }
+  },
+  "agentAccess": {
+    "addMember": "Adicionar membro",
+    "membersHint": "Os membros podem consultar este agente. Atribua permissões adicionais abaixo.",
+    "everyone": "Todos na organização",
+    "query": "Pode consultar",
+    "manage": "Pode gerir",
+    "custom": "Acesso personalizado",
+    "ownerHint": "O proprietário pode sempre gerir este agente.",
+    "editFor": "Editar acesso de {name}",
+    "removeHint": "Remove a associação e as permissões explícitas. O acesso público, de grupo ou da organização pode continuar ativo.",
+    "remove": "Remover",
+    "noMembers": "Ainda não há membros explícitos.",
+    "addTo": "Adicionar pessoas a {name}",
+    "thisAgent": "este agente",
+    "who": "Quem",
+    "access": "Acesso",
+    "advanced": "Permissões avançadas",
+    "cancel": "Cancelar",
+    "saving": "A guardar…",
+    "save": "Guardar",
+    "queryHint": "Fazer perguntas a este agente",
+    "manageHint": "Configurar o agente e gerir os seus membros",
+    "addCount": "Adicionar {count}",
+    "add": "Adicionar",
+    "updated": "Permissões atualizadas",
+    "updateFailed": "Não foi possível atualizar as permissões",
+    "addIncomplete": "Algumas associações ou permissões não foram guardadas. Reveja a lista e tente novamente.",
+    "added": "Membros adicionados",
+    "addFailed": "Não foi possível adicionar membros"
   }
 }

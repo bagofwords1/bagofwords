@@ -148,6 +148,73 @@ database:
   # -- Database name.
   name: ""
 
+# -- Where durable files live: uploads, tool outputs, thumbnails, slide decks,
+# logos, avatars, demo datasets, Parquet/extract caches.
+storage:
+  # -- `local` (default) keeps them on the pod's disk under /app/backend/uploads:
+  # they are lost when the pod is replaced unless `storage.local.persistence` is
+  # enabled, and one ReadWriteOnce volume limits you to one replica.
+  # `s3` (AWS or any S3-compatible store) or `azure` (Blob Storage) make the
+  # bucket the source of truth; every replica fills its own cache on demand.
+  backend: local   # local | s3 | azure
+  # -- Key prefix inside the bucket/container (e.g. `bow/prod/`).
+  prefix: ""
+  s3:
+    # -- Bucket name (required for `s3`).
+    bucket: ""
+    # -- Bucket region, e.g. `us-east-1`.
+    region: ""
+    # -- Custom endpoint for S3-compatible stores (MinIO, R2, Wasabi, Ceph...). Empty = AWS.
+    endpointUrl: ""
+    # -- `auto`, `path` (MinIO usually needs this) or `virtual`.
+    addressingStyle: auto
+    # -- `default`: boto3 chain — use IRSA / EKS Pod Identity via `serviceAccount.annotations`
+    # (no stored secret). `static`: keys from `config.secretRef` (`BOW_STORAGE_S3_ACCESS_KEY_ID`,
+    # `BOW_STORAGE_S3_SECRET_ACCESS_KEY`, optional `BOW_STORAGE_S3_SESSION_TOKEN`).
+    # `assume_role`: STS assume-role of `roleArn` on top of either.
+    auth: default   # default | static | assume_role
+    # -- Role to assume (`assume_role` only).
+    roleArn: ""
+    # -- External ID for the assume-role call, if the role's trust policy requires one.
+    externalId: ""
+    # -- Server-side encryption: "" (bucket default), `AES256` or `aws:kms`.
+    sse: ""
+    # -- KMS key id/ARN when `sse: aws:kms`.
+    kmsKeyId: ""
+  azure:
+    # -- `https://<account>.blob.core.windows.net` (required unless `auth: connection_string`).
+    accountUrl: ""
+    # -- Container name (required for `azure`).
+    container: ""
+    # -- `default`: DefaultAzureCredential — use AKS Workload Identity (`serviceAccount.annotations`
+    # `azure.workload.identity/client-id` + `podLabels` `azure.workload.identity/use: "true"`).
+    # `service_principal`: `BOW_STORAGE_AZURE_CLIENT_SECRET` from `config.secretRef`.
+    # `connection_string` / `sas`: `BOW_STORAGE_AZURE_CONNECTION_STRING` / `BOW_STORAGE_AZURE_SAS_TOKEN`
+    # from `config.secretRef`.
+    auth: default   # default | service_principal | connection_string | sas
+    # -- Entra tenant id (`service_principal`).
+    tenantId: ""
+    # -- Client id: the service principal's, or a user-assigned managed identity's.
+    clientId: ""
+  # -- Per-pod cache for /app/backend/uploads when `backend` is `s3` or `azure`
+  # (an emptyDir). Also holds git clones and render scratch.
+  cache:
+    # -- emptyDir size limit; size it for your largest working set of files and git clones.
+    sizeLimit: 10Gi
+  local:
+    # -- Persist /app/backend/uploads in a PersistentVolumeClaim (`backend: local` only).
+    persistence:
+      # -- Create (or use `existingClaim`) and mount the claim.
+      enabled: false
+      # -- Use an existing claim instead of creating one.
+      existingClaim: ""
+      # -- Requested size of the claim.
+      size: 20Gi
+      # -- StorageClass; empty uses the cluster default.
+      storageClass: ""
+      # -- Use `ReadWriteMany` (EFS, Azure Files, NFS) to run more than one replica on local storage.
+      accessModes: ["ReadWriteOnce"]
+
 # -- Ingress resource configuration. Exposes the app over HTTP/HTTPS.
 ingress:
   # -- Enable the Ingress resource.
@@ -435,6 +502,9 @@ topologySpreadConstraints: []
 # -- Annotations added to every pod (not the Deployment metadata).
 podAnnotations: {}
 
+# -- Labels added to every pod (e.g. `azure.workload.identity/use: "true"`).
+podLabels: {}
+
 # -- Security context for the pod (fsGroup, runAsUser, etc.).
 podSecurityContext: {}
 
@@ -489,17 +559,23 @@ startupProbe:
   failureThreshold: 30
 
 # -- Readiness probe. Pod is removed from Service endpoints while this fails.
+# Points at /health/ready, which verifies dependencies (database): a pod whose
+# DB is unreachable is pulled from the Service instead of serving broken
+# requests. failureThreshold x periodSeconds (30s) tolerates a brief DB blip
+# before removal; timeoutSeconds is kept above the endpoint's own DB-probe
+# ceiling so a hung DB surfaces as a 503, not a probe timeout.
 readinessProbe:
   httpGet:
-    path: /health
+    path: /health/ready
     port: 3000
   initialDelaySeconds: 5
   periodSeconds: 10
   failureThreshold: 3
   successThreshold: 1
-  timeoutSeconds: 1
+  timeoutSeconds: 3
 
-# -- Liveness probe. Pod is restarted when this fails.
+# -- Liveness probe. Pod is restarted when this fails. Stays on /health
+# (dependency-free): a DB outage must never restart an otherwise-healthy pod.
 livenessProbe:
   httpGet:
     path: /health

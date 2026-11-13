@@ -42,6 +42,41 @@ _ALLOWED_FUNCTION_NAMESPACES = frozenset({
     "date", "datetime", "localdatetime", "localtime", "time", "duration", "point", "vector",
 })
 
+# Graph Data Science, when the connection allows it. GDS works on in-memory
+# projections, so a projection and its cleanup are allowed alongside the
+# algorithms' stream / stats modes (and their memory estimates). write and
+# mutate modes, exports and Cypher-string projections (whose inner queries
+# this check cannot see) stay refused.
+_GDS_PROCEDURES = frozenset({
+    "gds.version", "gds.list", "gds.graph.list", "gds.graph.exists", "gds.graph.drop",
+    "gds.graph.project", "gds.graph.project.estimate",
+})
+_GDS_MODES = ("stream", "stats", "estimate")
+_GDS_REFUSED_PARTS = frozenset({"write", "mutate", "export", "cypher", "csv", "subgraph", "filter", "generate"})
+# Functions: the aggregation-form projection and node lookups.
+_GDS_FUNCTIONS = frozenset({"gds.graph.project", "gds.util.asnode", "gds.util.asnodes", "gds.version"})
+
+
+def _gds_procedure_allowed(name: str) -> bool:
+    if name in _GDS_PROCEDURES:
+        return True
+    parts = name.split(".")
+    if len(parts) < 3 or parts[0] != "gds" or _GDS_REFUSED_PARTS.intersection(parts):
+        return False
+    return parts[-1] in _GDS_MODES
+
+
+def _function_allowed(name: str, allow_gds: bool) -> bool:
+    """Whether the namespaced function ``name`` (lowercased) may be called."""
+    if name.split(".", 1)[0] in _ALLOWED_FUNCTION_NAMESPACES:
+        return True
+    return allow_gds and name in _GDS_FUNCTIONS
+
+
+def _procedure_allowed(name: str, allow_gds: bool) -> bool:
+    return name in _ALLOWED_PROCEDURES or (allow_gds and _gds_procedure_allowed(name))
+
+
 # Unicode letters too: a namespace like ``myé.fn`` must not split into symbols.
 # Line breaks other than \n / \r: refused, so the guard never has to agree
 # with the server on where a // comment ends.
@@ -130,9 +165,10 @@ def _is_name_position(tokens: list[Token], i: int) -> bool:
     return nxt == ("sym", ":") and prev in (("sym", "{"), ("sym", ","))
 
 
-def check_cypher(query: str | None) -> None:
+def check_cypher(query: str | None, *, allow_gds: bool = False) -> None:
     """Raise ``CypherNotAllowed`` unless ``query`` is read-only Cypher that
-    stays in its database and calls only allowed procedures and functions."""
+    stays in its database and calls only allowed procedures and functions.
+    ``allow_gds`` adds the read-only Graph Data Science calls."""
     if not isinstance(query, str) or not query.strip():
         return
     if any(c in query for c in _OTHER_LINE_BREAKS):
@@ -147,7 +183,7 @@ def check_cypher(query: str | None) -> None:
         nxt = tokens[i + 1] if i + 1 < len(tokens) else None
         # `apoc.text.join`(...): one backticked name holding a namespace.
         if kind == "ident" and "." in value and nxt == ("sym", "(") \
-                and value.split(".", 1)[0].lower() not in _ALLOWED_FUNCTION_NAMESPACES:
+                and not _function_allowed(value.lower(), allow_gds):
             raise CypherNotAllowed(f"The function {value}() is not allowed on this connection.")
         # An alias (`AS start`) or a variable (`stop.x`) is a name, not a clause.
         prev_word = tokens[i - 1] if i > 0 else None
@@ -163,7 +199,7 @@ def check_cypher(query: str | None) -> None:
             # `set.name`: still check a namespaced call, but never as a clause.
             name, end = _dotted_name(tokens, i)
             if end < len(tokens) and tokens[end] == ("sym", "(") \
-                    and name.split(".", 1)[0] not in _ALLOWED_FUNCTION_NAMESPACES:
+                    and not _function_allowed(name, allow_gds):
                 raise CypherNotAllowed(f"The function {name}() is not allowed on this connection.")
             i = end
             continue
@@ -174,7 +210,7 @@ def check_cypher(query: str | None) -> None:
         if prev != ("sym", ".") and i + 1 < len(tokens) and tokens[i + 1] == ("sym", "."):
             name, end = _dotted_name(tokens, i)
             called = end < len(tokens) and tokens[end] == ("sym", "(") and "." in name
-            if called and name.split(".", 1)[0] not in _ALLOWED_FUNCTION_NAMESPACES:
+            if called and not _function_allowed(name, allow_gds):
                 raise CypherNotAllowed(
                     f"The function {name}() is not allowed on this connection. "
                     "Use Cypher's built-in functions."
@@ -198,10 +234,12 @@ def check_cypher(query: str | None) -> None:
                 i += 1  # a subquery: its body is checked like the rest
                 continue
             name, end = _dotted_name(tokens, i + 1)
-            if name not in _ALLOWED_PROCEDURES:
+            if not _procedure_allowed(name, allow_gds):
+                gds = (" and GDS algorithms in stream / stats mode (gds.<algorithm>.stream)"
+                       if allow_gds else "")
                 raise CypherNotAllowed(
                     f"CALL {name or '…'} is not allowed. Only schema procedures can be called "
-                    f"({', '.join(sorted(_ALLOWED_PROCEDURES))}); write the query in plain Cypher."
+                    f"({', '.join(sorted(_ALLOWED_PROCEDURES))}){gds}; write the query in plain Cypher."
                 )
             i = end
             continue

@@ -1,8 +1,9 @@
 """MCP Tool: get_context - Returns available schemas and metadata resources."""
 
+import json
 import logging
 import re
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +14,10 @@ from app.ai.context.builders.resource_context_builder import ResourceContextBuil
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.report import Report
+from app.ai.tools.mcp.instruction_scope import instruction_builder
+from app.ai.utils.token_counter import count_tokens
 from app.schemas.mcp import (
+    ContextInstructionInfo,
     GetContextInput,
     GetContextOutput,
     DataSourceInfo,
@@ -24,6 +28,72 @@ from app.schemas.mcp import (
 
 
 logger = logging.getLogger(__name__)
+
+# 'always' instructions come with their full text up to this many chars
+# (JSON-encoded, as they travel); the rest are listed as required entries for
+# read_instruction. Everything else in scope is listed without text, capped at
+# INSTRUCTION_CATALOG_LIMIT entries (the response says when it is capped).
+INLINE_INSTRUCTIONS_BUDGET = 100_000
+INSTRUCTION_CATALOG_LIMIT = 100
+
+INSTRUCTIONS_HINT = (
+    "These are the organization's rules for this report. Entries with required: true apply "
+    "to every request: follow the ones whose text is shown, and read the others with "
+    "read_instruction before answering. For the rest, read the ones relevant to the request "
+    "with read_instruction (instruction_ids reads several at once; pass report_id). Pass the "
+    "ids you read as instruction_ids to create_data / inspect_data / create_artifact / "
+    "edit_artifact so the code they write follows them too."
+)
+
+
+async def list_report_instructions(
+    db, organization, user, report, data_sources,
+) -> Tuple[List[ContextInstructionInfo], int, bool]:
+    """Every instruction in the report's scope: (entries, total in scope, capped)."""
+    builder = instruction_builder(db, organization, user, report, data_sources)
+    # on_demand=True: smart instructions are listed, never inlined — the
+    # client decides what applies. A high catalog limit so the total is real.
+    section = await builder.build(query=None, on_demand=True, catalog_limit=10_000)
+
+    always = sorted(section.items, key=lambda it: (-(it.usage_count or 0), (it.title or "").lower()))
+    entries: List[ContextInstructionInfo] = []
+    used = 0
+    for it in always:
+        cost = len(json.dumps(it.text or ""))
+        if used + cost <= INLINE_INSTRUCTIONS_BUDGET:
+            used += cost
+            entries.append(ContextInstructionInfo(
+                id=it.id, title=it.title, load_mode=it.load_mode or "always", required=True,
+                text=it.text or "", tables=it.table_refs or [],
+            ))
+            continue
+        ref = builder._catalog_entry(
+            inst_id=it.id, title=it.title, description=None, structured_data=None,
+            text=it.text or "", table_refs=it.table_refs or [], usage_count=it.usage_count,
+        )
+        entries.append(ContextInstructionInfo(
+            id=it.id, title=ref.title, load_mode=it.load_mode or "always", required=True,
+            description=ref.description, tables=it.table_refs or [], tokens=count_tokens(it.text or ""),
+        ))
+
+    optional = [
+        ContextInstructionInfo(
+            id=ref.id, title=ref.title, load_mode="intelligent", required=False,
+            description=ref.description, tables=ref.table_refs or [], references=ref.other_refs or [],
+            tokens=ref.tokens,
+        )
+        for ref in section.available_instructions
+    ] + [
+        ContextInstructionInfo(
+            id=sk.id, title=sk.title, kind="skill", load_mode="intelligent", required=False,
+            description=sk.description, tables=sk.table_refs or [], references=sk.other_refs or [],
+            tokens=sk.tokens,
+        )
+        for sk in (section.skills or [])
+    ]
+    total = len(entries) + len(optional)
+    capped = len(optional) > INSTRUCTION_CATALOG_LIMIT
+    return entries + optional[:INSTRUCTION_CATALOG_LIMIT], total, capped
 
 
 def _pattern_matches(pattern: str, text: str) -> bool:
@@ -45,9 +115,13 @@ class GetContextTool(MCPTool):
     name = "get_context"
     read_only_hint = True
     description = (
-        "Get available data sources, tables, metadata resources and the organization's saved "
-        "queries (agreed metric/model definitions). Useful for searching or explaining metadata. "
-        "Optionally filter by regex patterns. "
+        "Get available data sources, tables, metadata resources, the organization's saved "
+        "queries (agreed metric/model definitions) and the instructions that apply in this "
+        "report ('always' rules with their text; the rest listed for read_instruction). "
+        "Useful for searching or explaining metadata. "
+        "Optionally filter by regex patterns. Authorized agent managers also see builtin:bow "
+        "tables bow.runs and bow.tool_calls for usage, historical prompts, and execution analysis "
+        "through create_data, scoped to their management permissions. "
         "Agents may also expose external tools (MCP servers / custom APIs), listed here by name only — "
         "call list_agent_tools to get their full input schemas before invoking them with execute_mcp."
     )
@@ -99,7 +173,7 @@ class GetContextTool(MCPTool):
         )
         
         # Build schema context
-        schema_builder = SchemaContextBuilder(db, data_sources, organization, report, user)
+        schema_builder = SchemaContextBuilder(db, data_sources, organization, report, user, include_bow_history=True)
         schemas = await schema_builder.build(
             with_stats=True,
             top_k=20,
@@ -253,11 +327,26 @@ class GetContextTool(MCPTool):
             if has_tools else None
         )
 
+        # Instructions in scope. Not narrowed by `patterns`: those filter
+        # tables and resources, and a rule can apply without naming either.
+        instructions_output: List[ContextInstructionInfo] = []
+        instructions_total, instructions_truncated = 0, False
+        try:
+            instructions_output, instructions_total, instructions_truncated = await list_report_instructions(
+                db, organization, user, report, data_sources,
+            )
+        except Exception:
+            logger.exception("get_context: listing instructions failed")
+
         output = GetContextOutput(
             report_id=str(report.id),
             data_sources=data_sources_output,
             resources=resources_output,
             entities=entities_output,
+            instructions=instructions_output,
+            instructions_total=instructions_total,
+            instructions_truncated=instructions_truncated,
+            instructions_hint=INSTRUCTIONS_HINT if instructions_output else None,
             tools_hint=tools_hint,
             entities_hint=entities_hint,
         )

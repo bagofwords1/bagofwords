@@ -1,0 +1,12 @@
+[
+ "Show monthly revenue for every region in 2025 as a table with one row per region-month (60 rows).",
+ "Now give me revenue by product and month as a table — all 13 products × 12 months.",
+ "Which category grew fastest from Q1 to Q4? Show quarterly revenue per category and the growth percentage.",
+ "List the top 40 customers by revenue with their order count, units, revenue and return rate.",
+ "What's the return rate by product and region? Full table please, every product-region pair.",
+ "Compute average order value by region and month, as a table (60 rows).",
+ "Show units sold by product per quarter with quarter-over-quarter change, all products.",
+ "Break down returned orders: count and revenue lost by category, region and month — full detail table.",
+ "Which day of week has the highest revenue in each region? Show the full region × weekday table.",
+ "Give me revenue by customer for customers C-0001 to C-0060, one row each with orders and units."
+]

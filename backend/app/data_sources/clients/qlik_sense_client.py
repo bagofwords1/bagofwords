@@ -37,6 +37,7 @@ from urllib.parse import urlparse, urlunparse
 
 import pandas as pd
 import requests
+from app.core.egress import pinned_request, pinned_session
 
 from app.ai.prompt_formatters import ForeignKey, ServiceFormatter, Table, TableColumn
 from app.data_sources.clients._qix_common import (
@@ -120,7 +121,7 @@ class QlikSenseClient(DataSourceClient):
             raise RuntimeError("base_url is required")
         # Validate we have *some* credential path (raises on misconfiguration).
         _ = self._auth_mode
-        self._http = requests.Session()
+        self._http = pinned_session()
 
     def _fetch_oauth_token(self) -> None:
         """Exchange client_id/client_secret for a bearer token via /oauth/token."""
@@ -131,9 +132,10 @@ class QlikSenseClient(DataSourceClient):
             "client_secret": self.client_secret,
             "scope": self.scope,
         }
-        # Use a bare requests.post here (not self._http) so token exchange doesn't
+        # Use a one-shot request here (not self._http) so token exchange doesn't
         # try to call _bearer_token() recursively.
-        resp = requests.post(
+        resp = pinned_request(
+            "POST",
             url,
             data=body,
             headers={"Accept": "application/json"},
