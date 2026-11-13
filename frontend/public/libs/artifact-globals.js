@@ -1595,9 +1595,15 @@
     }
     var infoBtn = (props.info && props.viz) ? h('div', { key: 'i', className: 'absolute top-0 z-10 ' + (isRtl ? 'left-0' : 'right-0') }, h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc })) : null;
     var empty = !cols.length || !baseRows.length;
+    // The body sits in a one-column grid whose track is minmax(0, 1fr): the table adds
+    // nothing to its parent's minimum width, so in a grid or flex cell without
+    // min-width: 0 a wide table scrolls inside its box instead of widening the cell and
+    // the page, while a parent that sizes to its content still gets the table's natural
+    // width. It is an inner wrapper so the root's own classes (hidden, md:block,
+    // print:hidden) still decide whether the table shows.
     return h('div', { dir: dir, 'data-testid': 'bow-datatable', className: 'relative' + (props.className ? ' ' + props.className : ''), style: props.style },
       empty ? [infoBtn, h('div', { key: 'e', className: DT.empty }, props.emptyText || L.empty)]
-        : [infoBtn, toolbar, h('div', { key: 'scroll', className: 'bow-dt-scroll overflow-auto', style: { maxHeight: maxHeight } }, h('table', { className: DT.table }, [thead, tbody])), footer]);
+        : [infoBtn, h('div', { key: 'body', style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)' } }, [toolbar, h('div', { key: 'scroll', className: 'bow-dt-scroll overflow-auto', style: { maxHeight: maxHeight } }, h('table', { className: DT.table }, [thead, tbody])), footer])]);
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1646,7 +1652,14 @@
         var rect = btnRef.current.getBoundingClientRect();
         var spaceBelow = window.innerHeight - rect.bottom;
         var top = spaceBelow > 200 ? rect.bottom + 4 : rect.top - 4;
-        setPos({ top: top, left: rect.left, width: Math.max(rect.width, 200), anchor: spaceBelow > 200 ? 'below' : 'above' });
+        // Keep the list on screen: a control near the right edge (often the first one
+        // in RTL) would otherwise push a 200px list past it. Never wider than the
+        // viewport, and the 8px gutter only when there is room for it.
+        var vw = window.innerWidth;
+        var width = Math.min(Math.max(rect.width, 200), vw);
+        var gutter = vw - width >= 16 ? 8 : 0;
+        var left = Math.max(gutter, Math.min(rect.left, vw - width - gutter));
+        setPos({ top: top, left: left, width: width, anchor: spaceBelow > 200 ? 'below' : 'above' });
       }
       reposition();
       window.addEventListener('scroll', reposition, true);
@@ -1670,8 +1683,9 @@
           className: 'w-full ' + CONTROL_RADIUS + ' border px-2 py-1 text-sm outline-none ' + FOCUS + ' ' + theme, style: props.style, onClick: function(e) { e.stopPropagation(); } })
       ]));
     }
-    if (selected.length > 0 && !single) {
-      ddChildren.push(h('button', { key: 'clr', type: 'button', className: 'w-full text-start px-3 py-1.5 text-xs font-medium opacity-60 hover:opacity-100', onClick: function() { onChange([]); } }, 'Clear all'));
+    if (selected.length > 0) {
+      // Single mode needs a way back to "All" too: it sends [], like Clear all.
+      ddChildren.push(h('button', { key: 'clr', type: 'button', className: 'w-full text-start px-3 py-1.5 text-xs font-medium opacity-60 hover:opacity-100', onClick: function() { onChange([]); if (single) setOpen(false); } }, single ? (props.placeholder || 'All') : 'Clear all'));
     }
     filtered.forEach(function(o) {
       var isSelected = selected.indexOf(o.val) >= 0;
@@ -1688,7 +1702,7 @@
 
     return h('div', { className: 'relative inline-block min-w-[140px]' + (props.wrapperClassName ? ' ' + props.wrapperClassName : '') }, [
       label ? h('label', { key: 'l', className: FILTER_LABEL }, label) : null,
-      h('button', { ref: btnRef, key: 'btn', type: 'button', 'aria-haspopup': 'listbox', 'aria-expanded': open,
+      h('button', { ref: btnRef, key: 'btn', type: 'button', 'aria-haspopup': 'listbox', 'aria-expanded': open, 'aria-label': label ? label + ': ' + display : undefined,
         className: 'w-full flex items-center justify-between gap-2 ' + CONTROL_RADIUS + ' border px-3 py-1.5 text-sm cursor-pointer ' + FOCUS + ' ' + theme, style: props.style, onClick: function() { setOpen(!open); } }, [
         h('span', { key: 't', className: 'truncate' + (selected.length ? ' font-medium' : '') }, display),
         h('svg', { key: 'i', width: 12, height: 12, viewBox: '0 0 12 12', className: 'opacity-50 shrink-0' }, h('path', { d: 'M3 5l3 3 3-3', stroke: 'currentColor', strokeWidth: 1.5, fill: 'none' }))
@@ -1716,7 +1730,7 @@
       label ? h('label', { key: 'l', className: FILTER_LABEL }, label) : null,
       h('div', { key: 'w', className: 'relative' }, [
         LEGACY ? null : h('span', { key: 'i', className: 'absolute inset-y-0 start-2.5 flex items-center text-ink-3 pointer-events-none' }, h(window.Icon, { name: 'search', size: 13 })),
-        h('input', { key: 'inp', type: 'text', value: props.value == null ? '' : String(props.value), placeholder: props.placeholder || 'Search...', onChange: onChange,
+        h('input', { key: 'inp', type: 'text', value: props.value == null ? '' : String(props.value), placeholder: props.placeholder || 'Search...', onChange: onChange, 'aria-label': label || props.placeholder || 'Search',
           className: 'w-full ' + CONTROL_RADIUS + ' border py-1.5 text-sm outline-none ' + FOCUS + ' ' + (LEGACY ? 'px-3 ' : 'ps-8 pe-3 ') + theme, style: props.style })
       ])
     ]);
