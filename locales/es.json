@@ -3035,6 +3035,7 @@
       "emailLabel": "Correo electrónico",
       "emailPlaceholder": "miembro{'@'}ejemplo.com",
       "roleLabel": "Rol",
+      "rolesLabel": "Roles",
       "cancel": "Cancelar",
       "sendInvitation": "Enviar invitación",
       "allStatus": "Todos los estados",

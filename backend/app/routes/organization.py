@@ -47,6 +47,8 @@ async def add_member(
         details={
             "email": membership.email,
             "role": membership.role,
+            **({"role_ids": membership.role_ids} if membership.role_ids else {}),
+            **({"group_ids": membership.group_ids} if membership.group_ids else {}),
             **({"custom_attributes": result.custom_attributes} if result.custom_attributes else {}),
         },
         request=request,
