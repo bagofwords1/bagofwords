@@ -2150,6 +2150,20 @@
       "modelsOne": "Моделей: 1",
       "modelsMany": "Моделей: {n}",
       "everything": "Все разрешения"
+    },
+    "resourcePermissions": {
+      "data_source": {
+        "manage": "Управление (включает всё)",
+        "manage_instructions": "Редактировать инструкции",
+        "create_entities": "Редактировать сущности",
+        "manage_evals": "Управлять оценками",
+        "manage_members": "Управлять доступом к агенту"
+      },
+      "connection": {
+        "manage_connection": "Редактировать, проверять и переиндексировать",
+        "create_data_sources": "Создавать на нём агентов",
+        "manage_data_sources": "Управлять всеми его агентами"
+      }
     }
   },
   "groupsManager": {

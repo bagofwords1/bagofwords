@@ -2150,6 +2150,20 @@
       "modelsOne": "1 modell",
       "modelsMany": "{n} modeller",
       "everything": "Alla behörigheter"
+    },
+    "resourcePermissions": {
+      "data_source": {
+        "manage": "Hantera (omfattar allt)",
+        "manage_instructions": "Redigera instruktioner",
+        "create_entities": "Redigera entiteter",
+        "manage_evals": "Hantera utvärderingar",
+        "manage_members": "Hantera vem som får använda den"
+      },
+      "connection": {
+        "manage_connection": "Redigera, testa och indexera om",
+        "create_data_sources": "Skapa agenter på den",
+        "manage_data_sources": "Hantera alla dess agenter"
+      }
     }
   },
   "groupsManager": {

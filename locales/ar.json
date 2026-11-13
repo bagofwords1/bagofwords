@@ -2150,6 +2150,20 @@
       "modelsOne": "نموذج واحد",
       "modelsMany": "{n} نماذج",
       "everything": "كل الأذونات"
+    },
+    "resourcePermissions": {
+      "data_source": {
+        "manage": "إدارة (تشمل كل شيء)",
+        "manage_instructions": "تحرير التعليمات",
+        "create_entities": "تحرير الكيانات",
+        "manage_evals": "إدارة التقييمات",
+        "manage_members": "إدارة من يمكنه استخدامه"
+      },
+      "connection": {
+        "manage_connection": "تحرير واختبار وإعادة فهرسة",
+        "create_data_sources": "إنشاء وكلاء عليه",
+        "manage_data_sources": "إدارة جميع وكلائه"
+      }
     }
   },
   "groupsManager": {
