@@ -18,7 +18,7 @@
     </header>
 
     <div class="relative flex min-h-0 flex-1 flex-col lg:flex-row">
-      <div class="world-stage relative min-h-0 flex-1 overflow-hidden">
+      <div class="world-stage relative min-h-0 min-w-0 flex-1 overflow-hidden">
         <WorldCanvas ref="map" :nodes="nodes" :edges="edges" :visible-ids="visibleIds" :selected="selectedId" :show-links="showLinks" @select="select" />
         <div class="pointer-events-none absolute start-6 top-6 max-w-sm">
           <div class="mt-5 flex items-center gap-5">
@@ -122,7 +122,7 @@
         </div>
         <footer class="space-y-3 border-t border-line p-4">
           <div v-if="failures.length" class="text-xs text-ink-muted" role="alert">{{ t('world.partialError') }} <UButton color="gray" variant="link" size="xs" @click="retry">{{ t('world.retry') }}</UButton></div>
-          <div v-if="next.length || loadingAll" class="flex gap-2">
+          <div v-if="next.length || loadingAll" class="grid grid-cols-2 gap-2">
             <UButton v-if="!loadingAll" color="gray" variant="soft" block size="xs" :loading="!!pending" @click="loadMore">{{ t('world.loadMore') }}</UButton>
             <UButton color="gray" variant="outline" block size="xs" :disabled="!!pending && !loadingAll" @click="loadingAll ? stopLoading() : loadAll()">{{ t(loadingAll ? 'world.stopLoading' : 'world.loadAll') }}</UButton>
           </div>
