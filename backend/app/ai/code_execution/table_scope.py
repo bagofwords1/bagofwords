@@ -21,15 +21,16 @@ quoted ones as written) against the names as the catalog stores them;
 other dialects' names case-insensitively. A table reference is set aside
 as a CTE only when a WITH entry holding a query has exactly the name as
 written (for Postgres, as Postgres folds it); any other spelling is
-checked as a table. No WITH entry (nor, on ClickHouse, an alias) may take
-the name of a disabled table: wherever an engine reads such a name as the
-table rather than the entry, the table would be read under it. Where an
-engine resolves an entry's body where the entry is used (ClickHouse, MySQL)
-or the dialect is not known, WITH entries that refer to each other in a
-loop are refused too, and on ClickHouse so is a WITH entry that is a
-lambda. On ClickHouse, the set of an IN is read only in the
-shapes `_set_item_tables` lists, and a SETTINGS clause only with the
-settings `_CLICKHOUSE_QUERY_SETTINGS` lists; anything else is refused.
+checked as a table. No WITH entry may take the name of a disabled table:
+wherever an engine reads such a name as the table rather than the entry,
+the table would be read under it. Where an engine resolves an entry's body
+where the entry is used (ClickHouse, MySQL) or the dialect is not known,
+WITH entries that refer to each other in a loop are refused too, and on
+ClickHouse so is a lambda that is a WITH entry or has an alias. On
+ClickHouse, the set of an IN is read only in the shapes `_set_item_tables`
+lists (never under a name an alias of the query also has), and a SETTINGS
+clause only with the settings `_CLICKHOUSE_QUERY_SETTINGS` lists; anything
+else is refused.
 
 The check fails closed. If sqlglot cannot parse the query, reads it
 differently from the engine (`sql_guard.check_engine_reading`), or the query reads
@@ -431,41 +432,35 @@ def _check_with_loops(statement, dialect: str | None = None) -> None:
         )
 
 
-def _disabled_name(ident, disabled: frozenset[str]) -> str | None:
-    """The name `ident` (an Identifier) as written, when it is the last part
-    of a disabled table's name, compared case-insensitively."""
-    from sqlglot import exp
-
-    if isinstance(ident, exp.Identifier) and str(ident.name).casefold() in disabled:
-        return str(ident.name)
-    return None
-
-
-def _check_names_of_disabled_tables(statement, dialect: str | None, scope: TableScope) -> None:
-    """Refuse a WITH entry (a query, a value or a lambda, at any level) or,
-    on ClickHouse, an alias (`expr AS name`, at any level) whose name is,
-    compared case-insensitively, the last part of the name of a table the
-    scope disables. An engine that reads such a name as the table rather
-    than the entry or alias (in the entry's own body, which ClickHouse and
-    MySQL resolve where the entry is used; through a lambda called by
-    name) would read the disabled table under it, whatever path led there.
-    With the rule, a name an engine falls back from is a table that is
-    enabled, or not a disabled table of the catalog."""
+def _check_names_of_disabled_tables(statement, scope: TableScope) -> None:
+    """Refuse a WITH entry (a query, a value or a lambda, at any level)
+    whose name is the name of a table the scope disables, or a trailing part
+    of it: both read by `_split_name` (so a dot, brackets, quotes and spaces
+    around a part count alike on both sides) and compared case-insensitively.
+    An engine that reads such a name as the table rather than the entry (in
+    the entry's own body, which ClickHouse and MySQL resolve where the entry
+    is used; through a lambda called by name) would read the disabled table
+    under it, whatever path led there. With the rule, a name an engine falls
+    back from is a table that is enabled, or not a disabled table of the
+    catalog. An alias needs no such rule: table scope never sets its name
+    aside, so a table read under it is checked as that table."""
     from sqlglot import exp
 
     disabled = frozenset(
-        ref[-1].casefold() for s in (scope, scope.exact) if s is not None for ref in s.inactive if ref)
+        tuple(p.casefold() for p in ref[k:])
+        for s in (scope, scope.exact) if s is not None for ref in s.inactive for k in range(len(ref)))
     if not disabled:
         return
-    kinds = (exp.CTE, exp.Alias) if dialect == "clickhouse" else (exp.CTE,)
-    for node in statement.find_all(*kinds):
-        ident = _cte_ident(node) if isinstance(node, exp.CTE) else node.args.get("alias")
-        name = _disabled_name(ident, disabled)
-        if name is not None:
+    for cte in statement.find_all(exp.CTE):
+        ident = _cte_ident(cte)
+        if ident is None:
+            continue
+        name = str(ident.name)
+        if tuple(p.casefold() for p in _split_name(name, lower=False)) in disabled:
             raise TableScopeViolation(
-                f"{_display((name,))} is not enabled for this agent, and a WITH entry or an alias may not "
-                "take its name, because the source may read the table under it. Rename the WITH entry or "
-                "alias; the agent's enabled tables can be read under their own names."
+                f"{_display((name,))} is not enabled for this agent, and a WITH entry may not take its name, "
+                "because the source may read the table under it. Rename the WITH entry; the agent's enabled "
+                "tables can be read under their own names."
             )
 
 
@@ -474,7 +469,9 @@ def _check_clickhouse_with_lambdas(statement) -> None:
     of a function: a WITH entry that is a lambda is called by its name,
     which can be a built-in's, and its body is read where it is called.
     sqlglot reads `->` outside a function's arguments as a JSON operator,
-    which ClickHouse does not have."""
+    which ClickHouse does not have. The function form, `lambda(tuple(x),
+    expr)`, is refused as a WITH value and under an alias anywhere (called
+    by that name); passed to a function as it is, it still reads."""
     from sqlglot import exp
 
     lambda_entry = False
@@ -483,11 +480,18 @@ def _check_clickhouse_with_lambdas(statement) -> None:
         while isinstance(value, exp.Paren):
             value = value.this
         lambda_entry = lambda_entry or isinstance(value, exp.Lambda)
+    for fn in statement.find_all(exp.Anonymous):
+        if str(fn.name).lower() != "lambda":
+            continue
+        holder = fn.parent
+        while isinstance(holder, exp.Paren):
+            holder = holder.parent
+        lambda_entry = lambda_entry or isinstance(holder, (exp.CTE, exp.Alias))
     if lambda_entry or any(True for _ in statement.find_all(exp.JSONExtract)):
         raise TableScopeViolation(
             "A lambda (x -> expression) is allowed in agent queries only as the argument of a function such "
-            "as arrayMap: a WITH entry that is a lambda is read where it is called, which table scope cannot "
-            "check. Write the expression where it is used."
+            "as arrayMap, without a name: a lambda that is a WITH entry or has an alias is read where it is "
+            "called, which table scope cannot check. Write the expression where it is used."
         )
 
 
@@ -573,6 +577,9 @@ def _in_set_tables(statement) -> list[Name]:
 
     out: list[Name] = []
     followed: dict = {}  # shared by every set of the statement (`_set_item_tables`)
+    # Every alias name of the whole statement (a WITH entry's name is not an
+    # alias here), compared case-insensitively.
+    aliases = frozenset(str(a.alias).casefold() for a in statement.root().find_all(exp.Alias))
     for node in statement.find_all(exp.In):
         query, field, items = node.args.get("query"), node.args.get("field"), list(node.expressions)
         if node.args.get("unnest") is not None or [query is not None, field is not None, bool(items)].count(True) != 1:
@@ -582,12 +589,12 @@ def _in_set_tables(statement) -> list[Name]:
                 raise _unread_in_set()
             continue  # its tables are read where it stands
         for item in [field] if field is not None else items:
-            out += _set_item_tables(item, followed)
+            out += _set_item_tables(item, followed, aliases)
     for node in statement.find_all(exp.Func):
         if _IN_FUNCTION.fullmatch(_func_name(node)):
             if not isinstance(node, exp.Anonymous) or len(node.expressions) != 2:
                 raise _unread_in_set()
-            out += _set_item_tables(node.expressions[1], followed)
+            out += _set_item_tables(node.expressions[1], followed, aliases)
     return out
 
 
@@ -597,7 +604,7 @@ _MAX_SET_FOLLOWS = 64
 _FOLLOWING = object()
 
 
-def _set_item_tables(node, followed: dict) -> list[Name]:
+def _set_item_tables(node, followed: dict, aliases: frozenset[str]) -> list[Name]:
     """The tables ClickHouse reads for one item of an IN set, with any
     parentheses and alias around it unwrapped:
 
@@ -611,7 +618,10 @@ def _set_item_tables(node, followed: dict) -> list[Name]:
     Each entry is followed once per statement: `followed` holds what each
     entry (by id) reads, or `_FOLLOWING` while it is being followed.
     Anything else, WITH entries that name each other in a loop, and more
-    than `_MAX_SET_FOLLOWS` entries followed are refused."""
+    than `_MAX_SET_FOLLOWS` entries followed are refused. So is a name any
+    part of which is, compared case-insensitively, one of `aliases` (the
+    statement's alias names): ClickHouse may read the alias's value there
+    instead of the table of that name."""
     from sqlglot import exp
 
     while isinstance(node, (exp.Paren, exp.Alias)):
@@ -619,13 +629,18 @@ def _set_item_tables(node, followed: dict) -> list[Name]:
     if _is_value(node) or isinstance(node, exp.Query):
         return []
     if isinstance(node, (exp.Tuple, exp.Array)):
-        return _distinct(ref for item in node.expressions for ref in _set_item_tables(item, followed))
+        return _distinct(ref for item in node.expressions for ref in _set_item_tables(item, followed, aliases))
     if isinstance(node, exp.Identifier):
         parts = [node]
     elif isinstance(node, exp.Column) and all(isinstance(p, exp.Identifier) for p in node.parts):
         parts = node.parts
     else:
         raise _unread_in_set()
+    if any(str(p.name).casefold() in aliases for p in parts):
+        raise TableScopeViolation(
+            "Could not verify which table this IN reads, because its set is named like an alias in the "
+            "query, which the source may read instead of the table. Rename the alias."
+        )
     entries = _with_entries(node, parts[0].name) if len(parts) == 1 else []
     if not entries:
         return [tuple(str(p.name).lower() for p in parts)]
@@ -636,7 +651,7 @@ def _set_item_tables(node, followed: dict) -> list[Name]:
             if len(followed) >= _MAX_SET_FOLLOWS:
                 raise _unread_in_set()
             followed[key] = _FOLLOWING
-            followed[key] = _set_item_tables(entry.this, followed)
+            followed[key] = _set_item_tables(entry.this, followed, aliases)
         if followed[key] is _FOLLOWING:
             raise _unread_in_set()
         out += followed[key]
@@ -721,7 +736,7 @@ def check_table_scope(sql: str, dialect: str, scope: TableScope) -> None:
                 "read its enabled tables, which are already described in its schema."
             )
 
-        _check_names_of_disabled_tables(stmt, dialect, scope)
+        _check_names_of_disabled_tables(stmt, scope)
         if dialect == "clickhouse":
             _check_clickhouse_with_lambdas(stmt)
         for fn in stmt.find_all(exp.Func):

@@ -18,7 +18,7 @@ HE_TABLE = chr(0x5DC) + chr(0x5E7) + chr(0x5D5) + chr(0x5D7) + chr(0x5D5) + chr(
 # The tables the corpus reads; a scope with all of them active.
 CORPUS_TABLES: list[str] = [
     "public.orders", "public.customers", "public.order_items", "public.products", "public.events",
-    "public.users", "public.t", "public.u", "public.items", "public.Order Details",
+    "public.users", "public.t", "public.u", "public.items", "public.Order Details", "public.revenue",
     "sales.invoices", "sales.regions",
     "information_schema.tables", "information_schema.columns", "pg_catalog.pg_stat_activity",
     "analytics.daily_sales", "proj.dataset.orders", "dbo.orders", "dbo.customers", "dbo.users", "main.orders",
@@ -272,6 +272,9 @@ _OTHER_DIALECTS = {
         "WITH orders AS (SELECT * FROM orders WHERE x > 0) SELECT * FROM orders",
         "WITH RECURSIVE tree AS (SELECT id, parent_id FROM customers WHERE parent_id = 0 "
         "UNION ALL SELECT c.id, c.parent_id FROM customers c JOIN tree t ON c.parent_id = t.id) SELECT count() FROM tree",
+        # Metrics whose alias shares a table's name.
+        "SELECT toStartOfDay(created_at) AS d, count() AS events FROM orders GROUP BY d",
+        "SELECT customer_id, sum(amount) AS revenue FROM orders GROUP BY customer_id ORDER BY revenue DESC",
     ],
     "databricks": [
         "SELECT date_format(created_at, 'yyyy-MM') AS ym, COUNT(*) FROM orders GROUP BY 1",

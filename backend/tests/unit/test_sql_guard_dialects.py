@@ -746,8 +746,8 @@ def test_the_tables_read_refuse_with_entries_that_name_each_other_where_entries_
 @pytest.mark.parametrize("sql", LOOPS)
 def test_the_tables_read_do_not_look_for_loops_where_an_entry_is_resolved_where_it_is_defined(dialect, sql):
     # Postgres 15 was measured reading each name where the entry is
-    # defined; the name rule (an entry or alias named after a disabled
-    # table) still applies there.
+    # defined; the name rule (an entry named after a disabled table) still
+    # applies there.
     tables_read(parse_guard_sql(sql, dialect)[0], dialect)
 
 
@@ -760,16 +760,17 @@ def test_the_loop_check_runs_over_the_whole_statement_when_given_one_branch():
         tables_read(branch, "clickhouse")
 
 
-# A WITH entry, or on ClickHouse an alias, named after a disabled table.
-# ClickHouse and MySQL 8.4 resolve an entry's body where the entry is used,
-# and read the name of an entry being resolved as the table of that name;
-# ClickHouse calls a WITH lambda by its name. So a name sqlglot reads as the
-# entry reaches the disabled table: across levels, in a scalar subquery, a
-# UNION, a LATERAL, and through a lambda (also one named after a built-in,
-# called inside another lambda, or written without parentheses). Each reads
-# the disabled table on the engine (live dialect tests). The rule that
-# refuses them: no WITH entry or alias may take a disabled table's name.
-NAMED_AFTER_SECRET = "SECRET is not enabled for this agent, and a WITH entry or an alias may not take its name"
+# A WITH entry named after a disabled table. ClickHouse and MySQL 8.4
+# resolve an entry's body where the entry is used, and read the name of an
+# entry being resolved as the table of that name; ClickHouse calls a WITH
+# lambda by its name. So a name sqlglot reads as the entry reaches the
+# disabled table: across levels, in a scalar subquery, a UNION, a LATERAL,
+# and through a lambda (also one named after a built-in, called inside
+# another lambda, or written without parentheses). Each reads the disabled
+# table on the engine (live dialect tests). The rule that refuses them: no
+# WITH entry may take a disabled table's name.
+NAMED_AFTER = "is not enabled for this agent, and a WITH entry may not take its name"
+NAMED_AFTER_SECRET = "SECRET " + NAMED_AFTER
 CROSS_LEVEL = [
     "WITH secret AS (SELECT x FROM orders) SELECT x FROM (WITH orders AS (SELECT x FROM secret) SELECT x FROM secret) d",
     "WITH secret AS (SELECT x FROM orders) SELECT (WITH orders AS (SELECT x FROM secret) SELECT x FROM secret) AS v",
@@ -789,18 +790,75 @@ NAMED_AFTER_A_DISABLED_TABLE = [
     ("ClickhouseClient", "WITH secret AS (SELECT arrayMap(v -> F(v), [1]) AS x), (y -> (SELECT x FROM secret)) AS F "
                          "SELECT x FROM secret"),
     ("ClickhouseClient", "WITH secret AS (SELECT F(1) AS x), y -> (SELECT x FROM secret) AS F SELECT x FROM secret"),
-    # Aliases (ClickHouse): in the SELECT list, in WHERE, in a subquery.
-    ("ClickhouseClient", "SELECT id AS secret FROM orders"),
-    ("ClickhouseClient", "SELECT count() FROM orders WHERE (id + 1 AS Secret) > 0"),
-    ("ClickhouseClient", "SELECT * FROM (SELECT (SELECT 42) AS secret FROM orders)"),
+    # The function form of a ClickHouse lambda.
+    ("ClickhouseClient", "WITH secret AS (SELECT F(1) AS x), lambda(tuple(y), (SELECT x FROM secret)) AS F "
+                         "SELECT x FROM secret"),
 ]
 
 
 @pytest.mark.parametrize("family, sql", NAMED_AFTER_A_DISABLED_TABLE)
-def test_a_with_entry_or_alias_named_after_a_disabled_table_is_refused(family, sql):
+def test_a_with_entry_named_after_a_disabled_table_is_refused(family, sql):
     client = _client(family)
     with pytest.raises(TableScopeViolation, match=NAMED_AFTER_SECRET):
         check_table_scope(ensure_read_only(client, sql), dialect_for_client(client), SCOPE)
+
+
+# An alias is not set aside as a WITH entry is: a name an alias shares with a
+# disabled table is still read as that table wherever it is read as one. So
+# an alias may take a disabled table's name (ClickHouse runs these and reads
+# no other table: live dialect tests).
+@pytest.mark.parametrize("sql", [
+    "SELECT id AS secret FROM orders",
+    "SELECT count() FROM orders WHERE (id + 1 AS Secret) > 0",
+    "SELECT * FROM (SELECT (SELECT 42) AS secret FROM orders)",
+    "SELECT count() AS events FROM orders",
+    "SELECT customer_id, sum(amount) AS revenue FROM orders GROUP BY customer_id",
+])
+def test_an_alias_named_after_a_disabled_table_still_reads_on_clickhouse(sql):
+    scope = TableScope.from_names(active=["default.orders"],
+                                  inactive=["default.secret", "default.events", "default.revenue"])
+    check_table_scope(ensure_read_only(_client("ClickhouseClient"), sql), "clickhouse", scope)
+
+
+# Disabled names the catalog splits differently from a plain name: a dot
+# inside the name, brackets, a quote or a backtick inside, a leading or a
+# trailing space. ClickHouse stores `database.table`. The entry, written
+# quoted, takes the table's name; with the lambda rule and the loop check
+# off, the name rule alone refuses it (ClickHouse reads the table: live
+# dialect tests).
+BT = chr(96)
+ODD_TABLE_NAMES = ["my.table", "[hidden]", "it's", "tick" + BT + "name", " padded", "padded "]
+
+
+def _odd_entry_sql(name: str) -> str:
+    quoted = BT + name.replace(BT, BT + BT) + BT
+    return (f"WITH {quoted} AS (SELECT F(1) AS x), lambda(tuple(y), (SELECT x FROM {quoted})) AS F "
+            f"SELECT x FROM {quoted}")
+
+
+@pytest.mark.parametrize("stored", ["default.{}", "{}"])
+@pytest.mark.parametrize("name", ODD_TABLE_NAMES)
+def test_the_name_rule_reads_a_disabled_name_and_an_entry_name_the_same_way(monkeypatch, name, stored):
+    from app.ai.code_execution import table_scope
+
+    monkeypatch.setattr(table_scope, "_check_with_loops", lambda statement, dialect=None: None)
+    monkeypatch.setattr(table_scope, "_check_clickhouse_with_lambdas", lambda statement: None)
+    scope = TableScope.from_names(active=["default.orders"], inactive=[stored.format(name)])
+    with pytest.raises(TableScopeViolation, match=NAMED_AFTER):
+        check_table_scope(_odd_entry_sql(name), "clickhouse", scope)
+
+
+@pytest.mark.parametrize("entry", ["`default.my.table`", "`my.table`", "`table`", "`[table]`", "` table`"])
+def test_the_name_rule_refuses_an_entry_named_after_any_trailing_part_of_a_disabled_name(entry):
+    scope = TableScope.from_names(active=["default.orders"], inactive=["default.my.table"])
+    with pytest.raises(TableScopeViolation, match=NAMED_AFTER):
+        check_table_scope(f"WITH {entry} AS (SELECT 1 AS x) SELECT x FROM orders", "clickhouse", scope)
+
+
+def test_the_name_rule_lets_an_entry_through_whose_name_only_ends_like_a_disabled_one():
+    scope = TableScope.from_names(active=["default.orders"], inactive=["default.secret"])
+    check_table_scope("WITH `x.secret` AS (SELECT id FROM orders) SELECT id FROM `x.secret`", "clickhouse", scope)
+    check_table_scope("WITH secrets AS (SELECT id FROM orders) SELECT id FROM secrets", "clickhouse", scope)
 
 
 @pytest.mark.parametrize("family, sql", NAMED_AFTER_A_DISABLED_TABLE + [
@@ -855,6 +913,94 @@ def test_a_with_lambda_is_refused_on_clickhouse(sql):
 ])
 def test_a_lambda_passed_to_a_function_still_reads_on_clickhouse(sql):
     _passes("ClickhouseClient", sql)
+
+
+# ClickHouse's function form of a lambda, `lambda(tuple(args), body)`, as a
+# WITH value (called by the entry's name, which can be a built-in's) or under
+# an alias anywhere (called by the alias): refused like `x -> body`.
+CLICKHOUSE_FUNCTION_LAMBDAS = [
+    "WITH lambda(tuple(y), (SELECT x FROM secret)) AS F SELECT F(1)",
+    "WITH (lambda(tuple(y), (SELECT x FROM secret))) AS F SELECT F(1)",
+    "WITH lambda(tuple(y), (SELECT x FROM secret)) AS length SELECT length(1)",
+    "WITH LAMBDA(tuple(y), y + 1) AS F SELECT F(1)",
+    "SELECT arrayMap(lambda(tuple(y), (SELECT x FROM secret)) AS f, [1]), f(5)",
+    "SELECT arrayMap((lambda(tuple(y), y + 1)) AS f, [1]), f(5)",
+    "WITH tuple(lambda(tuple(y), (SELECT x FROM secret)) AS F) AS u SELECT F(1)",
+    "SELECT lambda(tuple(y), y + 1) AS f FROM orders",
+]
+
+
+@pytest.mark.parametrize("sql", CLICKHOUSE_FUNCTION_LAMBDAS)
+def test_a_function_form_lambda_as_a_with_value_or_under_an_alias_is_refused_on_clickhouse(sql):
+    with pytest.raises(TableScopeViolation, match="lambda"):
+        check_table_scope(ensure_read_only(_client("ClickhouseClient"), sql), "clickhouse", SCOPE)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT arrayMap(lambda(tuple(v), v + 1), [1])",
+    "SELECT arrayMap(lambda(tuple(v), v + 1), [id]) AS r FROM orders",
+    "WITH arrayMap(lambda(tuple(v), v * 2), [1]) AS a SELECT a FROM orders",
+])
+def test_a_function_form_lambda_passed_to_a_function_still_reads_on_clickhouse(sql):
+    _passes("ClickhouseClient", sql)
+
+
+# The set of an IN named like an alias defined anywhere in the statement
+# (other than a WITH entry): ClickHouse may read the alias's value, here the
+# disabled table, while table scope reads the enabled table of that name.
+# Some of these read the disabled table on the engine and some do not
+# (live dialect tests); each is refused.
+CLICKHOUSE_IN_SET_NAMED_LIKE_AN_ALIAS = [
+    "WITH tuple(secret AS orders) AS unused SELECT 42 IN orders",
+    "WITH [secret AS orders] AS unused SELECT arrayFilter(v -> v IN orders, range(100))",
+    "WITH tuple(secret AS orders) AS unused SELECT globalIn(42, orders)",
+    "SELECT 42 IN orders, (secret AS orders) AS z",
+    "SELECT 1 FROM orders WHERE (secret AS orders) IS NOT NULL OR 42 IN orders",
+    "WITH [secret AS orders] AS unused SELECT 42 IN orders",
+    "WITH (secret AS orders) AS unused SELECT 42 IN orders",
+    "WITH tuple(secret AS ORDERS) AS unused SELECT 42 IN orders",
+    "SELECT * FROM (WITH tuple(secret AS orders) AS unused SELECT 42 IN orders)",
+    "WITH orders AS s, tuple(secret AS orders) AS u SELECT 42 IN s",
+    "WITH tuple(secret AS orders) AS unused SELECT 42 IN default.orders",
+]
+
+
+@pytest.mark.parametrize("sql", CLICKHOUSE_IN_SET_NAMED_LIKE_AN_ALIAS)
+def test_an_in_set_named_like_an_alias_is_refused_on_clickhouse(sql):
+    with pytest.raises(TableScopeViolation, match="named like an alias"):
+        check_table_scope(ensure_read_only(_client("ClickhouseClient"), sql), "clickhouse", SCOPE)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT id AS orders FROM orders WHERE id IN (SELECT id FROM orders)",
+    "SELECT id AS n FROM orders WHERE id IN orders",
+    "WITH secret AS orders SELECT * FROM orders",
+])
+def test_an_in_set_or_from_next_to_an_alias_of_another_name_still_reads_on_clickhouse(sql):
+    _passes("ClickhouseClient", sql)
+
+
+# The leak shapes above, with the disabled table renamed to a name the
+# catalog splits differently from a plain one (written quoted), stay refused.
+RENAMED_LEAK_SHAPES = [
+    *NAMED_AFTER_A_DISABLED_TABLE,
+    *[("ClickhouseClient", sql) for sql in CLICKHOUSE_WITH_CYCLES],
+    *[("ClickhouseClient", sql) for sql in CLICKHOUSE_FUNCTION_LAMBDAS if "secret" in sql],
+    *[("ClickhouseClient", sql) for sql in CLICKHOUSE_IN_SET_NAMED_LIKE_AN_ALIAS],
+]
+
+
+@pytest.mark.parametrize("name", ["my.table", "[hidden]"])
+@pytest.mark.parametrize("family, sql", RENAMED_LEAK_SHAPES)
+def test_the_leak_shapes_stay_refused_with_the_disabled_table_renamed(family, sql, name):
+    import re
+
+    renamed = re.sub(r"\bsecret\b", BT + name + BT, sql)
+    assert renamed != sql
+    scope = TableScope.from_names(active=["default.orders", "default.events"], inactive=["default." + name])
+    client = _client(family)
+    with pytest.raises((ReadOnlyViolation, TableScopeViolation)):
+        check_table_scope(ensure_read_only(client, renamed), dialect_for_client(client), scope)
 
 
 # ClickHouse decodes escapes in a quoted name (`\x74` is `t`); sqlglot keeps

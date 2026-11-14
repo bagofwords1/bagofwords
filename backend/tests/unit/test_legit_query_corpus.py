@@ -110,6 +110,52 @@ def test_a_legitimate_query_passes_the_guard_and_table_scope(family, dialect, sq
     check_table_scope(checked, dialect, SCOPE)
 
 
+def _denied_names(message: str) -> list[str]:
+    """The names a "Table access denied" refusal lists."""
+    listed = message.split("Table access denied: ", 1)[1]
+    listed = listed.split(" is not enabled", 1)[0].split(" are not enabled", 1)[0]
+    return listed.split(", ")
+
+
+@pytest.mark.parametrize("dialect", sorted(set(DIALECTS.values())))
+def test_with_each_table_disabled_in_turn_the_corpus_is_refused_only_where_it_reads_that_table(dialect):
+    """With one corpus table disabled (and every other one enabled), a
+    legitimate query is refused only because it reads a table whose name
+    ends like the disabled one, or because one of its WITH entries takes
+    the disabled table's name. Nothing else changes with the scope: an
+    alias (`count() AS events`) may share a disabled table's name."""
+    from sqlglot import exp
+
+    from app.ai.code_execution.sql_parser import parse_guard_sql
+
+    client = CLIENTS[next(f for f, d in DIALECTS.items() if d == dialect)]
+    refused = {"table": 0, "entry": 0}
+    for sql in [s for d, s in LEGIT_QUERIES if d == dialect]:
+        checked = ensure_read_only(client, sql)
+        entries = {cte.alias_or_name.casefold() for s in parse_guard_sql(checked, dialect) if s is not None
+                   for cte in s.find_all(exp.CTE)}
+        for table in CORPUS_TABLES:
+            scope = TableScope.from_names(active=[t for t in CORPUS_TABLES if t != table], inactive=[table])
+            parts = table.upper().split(".")
+            try:
+                check_table_scope(checked, dialect, scope)
+            except TableScopeViolation as e:
+                message = str(e)
+                if message.startswith("Table access denied: "):
+                    shown = _denied_names(message)
+                    assert all(parts[-len(n.split(".")):] == n.split(".") for n in shown), (sql, table, message)
+                    refused["table"] += 1
+                else:
+                    assert "a WITH entry may not take its name" in message, (sql, table, message)
+                    assert table.split(".")[-1].casefold() in entries, (sql, table, message)
+                    refused["entry"] += 1
+    # Every dialect's corpus reads `orders`; ClickHouse's also has an entry
+    # named after it.
+    assert refused["table"] > 0
+    if dialect == "clickhouse":
+        assert refused["entry"] > 0
+
+
 @pytest.mark.parametrize("family,dialect,sql,reason", _over_refusals())
 def test_a_known_over_refusal_is_still_refused_until_its_rule_is_fixed(family, dialect, sql, reason):
     """Strict: once the checks let one of these through, this fails, and

@@ -334,7 +334,7 @@ def test_ctes_in_scope_still_run(dialect, sql):
     "SELECT * FROM sales.orders WHERE id IN (WITH SALARIES AS (SELECT 1 AS id) SELECT id FROM SALARIES)",
 ])
 def test_a_cte_named_after_a_disabled_table_is_refused(dialect, sql):
-    with pytest.raises(TableScopeViolation, match="a WITH entry or an alias may not take its name"):
+    with pytest.raises(TableScopeViolation, match="a WITH entry may not take its name"):
         check_table_scope(sql, dialect, SCOPE)
 
 
