@@ -276,14 +276,15 @@ EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
             "before the MDX process, infor_epm_client.py:475"),
     _exempt("oracle_bi_client", "OracleBIClient",
             f"{_DISPATCH}: one Logical SQL SELECT as an exact str (a WITH reaching a SELECT); refused in code: "
-            "EXECUTE, SELECT_PHYSICAL, AGGREGATES, any word starting with EVALUATE, '#' right after a name; "
-            "'@{' refused anywhere, oracle_bi_client.py:408"),
+            "EXECUTE, SELECT_PHYSICAL, PHYSICAL, CALL, AGGREGATES, any word starting with EVALUATE, "
+            "'#' anywhere but at the start or after a space, a tab or a line end; "
+            "'@{' refused anywhere, oracle_bi_client.py:415"),
     _exempt("opensearch_client", "OpenSearchClient",
             f"{_DISPATCH}: known envelope keys only (opensearch_client.py:394), an index to _search, "
             "or one parsed SQL SELECT before the SQL plugin, opensearch_client.py:443"),
     _exempt("sisense_client", "SisenseClient",
             f"{_DISPATCH}: one parsed SQL SELECT before any request, the table lookup included, "
-            "sisense_client.py:445"),
+            "sisense_client.py:449"),
     # A remote agent trusted by decision, on the condition its code enforces.
     _exempt("timbr_a2a_client", "TimbrA2aClient",
             "remote agent with SQL validation enforced: should-validate-sql is always sent true "

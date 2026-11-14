@@ -36,6 +36,10 @@ def _col_type_name(type_code) -> str:
     return str(type_code) if type_code else "unknown"
 
 
+class SisenseTableNotFound(RuntimeError):
+    """get_schema found no table of the given name."""
+
+
 class SisenseClient(DataSourceClient):
     """
     Sisense client for discovering data models and executing queries.
@@ -417,7 +421,7 @@ class SisenseClient(DataSourceClient):
             if sis.get("datamodelId") == table_name:
                 return tbl
 
-        raise RuntimeError(f"Table not found for '{table_name}'")
+        raise SisenseTableNotFound(f"Table not found for '{table_name}'")
 
     # ------------------------------------------------------------------
     # Query execution
@@ -444,11 +448,13 @@ class SisenseClient(DataSourceClient):
         # Checked before any request, the schema lookup for table_name too.
         check_one_select(query, "sqlite")
 
-        # Resolve datasource title from table_name if needed
+        # Resolve datasource title from table_name if needed. Only a table
+        # that is not found is answered by naming the data model; any other
+        # failure (auth, transport) keeps its own type and text.
         if table_name and not datasource_title:
             try:
                 table = self.get_schema(table_name)
-            except Exception as e:
+            except SisenseTableNotFound as e:
                 raise ValueError(
                     f"Could not find the data model of table_name {table_name!r} ({e}); "
                     "pass datasource_title instead"

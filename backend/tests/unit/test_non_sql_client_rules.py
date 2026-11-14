@@ -729,7 +729,46 @@ _ORACLE_BI_REFUSED = {
     "presentation variable in a string": """SELECT "P"."P" FROM "A" WHERE "P"."P" = '@{v}'""",
     "presentation variable in a comment": 'SELECT "P"."P" FROM "A" /* @{v} */',
     "hash right after a name": 'SELECT "P"."P" FROM "A" WHERE x#\n= 1',
+    # The reference prints SELECT_PHYSICAL also as two words.
+    "physical select written as two words": "SELECT PHYSICAL a FROM db.schema.t",
+    "physical in lower case inside a select": 'SELECT "P"."P" FROM "A" WHERE "P"."P" IN (select physical a FROM db.t)',
+    "procedure call in a subquery": 'SELECT "P"."P" FROM "A" WHERE 1 = (CALL SAPurgeAllCache())',
+    "procedure call in a with item": 'WITH x AS (CALL SAPurgeAllCache()) SELECT * FROM x',
 }
+
+# '#' starts a comment only at the start of the text or after a space, a
+# tab or a line end; anywhere else in code it is refused.
+_ORACLE_BI_HASH_REFUSED = {
+    "after a dollar sign": 'SELECT "P"."P" FROM "A" WHERE b$# c\n= 1',
+    "after a combining mark": 'SELECT "P"."P" FROM "A" WHERE b' + chr(0x301) + '# c\n= 1',
+    "after a digit": 'SELECT "P"."P" FROM "A" WHERE b1# c\n= 1',
+    "after an underscore": 'SELECT "P"."P" FROM "A" WHERE b_# c\n= 1',
+    "after a letter": 'SELECT "P"."P" FROM "A" WHERE b# c\n= 1',
+    "after a quoted name": 'SELECT "P"."P" FROM "A"# c\n',
+    "after a parenthesis": 'SELECT "P"."P" FROM ("A")# c\n',
+    "after a no-break space": 'SELECT "P"."P" FROM "A"' + chr(0xA0) + '# c\n',
+}
+
+
+@pytest.mark.parametrize("statement", list(_ORACLE_BI_HASH_REFUSED.values()), ids=list(_ORACLE_BI_HASH_REFUSED))
+def test_oracle_bi_refuses_a_hash_that_does_not_follow_whitespace(oracle_bi, statement):
+    client, sent = oracle_bi
+    _assert_refused(lambda: client.execute_query(statement), sent)
+    with pytest.raises(ReadOnlyViolation, match="put a space before a '#' comment"):
+        client.execute_query(statement)
+
+
+@pytest.mark.parametrize("statement", [
+    'SELECT "P"."P" FROM "A" # c\n',
+    'SELECT "P"."P" FROM "A"\t# c\n',
+    'SELECT "P"."P" FROM "A"\n# c\n',
+    'SELECT "P"."P" FROM "A"\r\n# c',
+    '# c\nSELECT "P"."P" FROM "A"',
+], ids=["space", "tab", "line feed", "carriage return line feed", "start of text"])
+def test_oracle_bi_reads_a_hash_after_whitespace_as_a_comment(oracle_bi, statement):
+    client, sent = oracle_bi
+    client.execute_query(statement)
+    assert sent == [statement]
 
 
 @pytest.mark.parametrize("statement", list(_ORACLE_BI_REFUSED.values()), ids=list(_ORACLE_BI_REFUSED))
@@ -751,6 +790,7 @@ def test_oracle_bi_refuses_statements_outside_one_select(oracle_bi, statement):
     'WITH s AS (SELECT "P"."P" FROM "A") (SELECT * FROM s)',
     """SELECT INSERT("P"."P", 1, 2, 'x'), "Aggregates"."Evaluate_Script" FROM "A" # note""",
     'SELECT "P"."P" FROM "A" WHERE "P"."P" = \'#1 and @ {}\'',
+    'SELECT "Physical"."Call", "A"."B#C" FROM "A" WHERE "P"."P" = \'call physical\'',
 ])
 def test_oracle_bi_sends_a_select_unchanged(oracle_bi, statement):
     client, sent = oracle_bi
@@ -955,10 +995,20 @@ def test_sisense_refuses_before_the_table_lookup(sisense, sql):
 
 def test_sisense_reports_a_failed_table_lookup(sisense):
     client, _ = sisense
-    client.get_schema = MagicMock(side_effect=RuntimeError("Table not found for 'Nowhere/Customers'"))
+    client.get_schemas = MagicMock(return_value=[])
     with pytest.raises(ValueError, match="Nowhere/Customers") as failed:
         client.execute_query("SELECT * FROM Customers", table_name="Nowhere/Customers")
     assert "datasource_title is required" not in str(failed.value)
+    assert "pass datasource_title" in str(failed.value)
+
+
+def test_sisense_lets_a_lookup_failure_other_than_not_found_through(sisense):
+    # An auth or transport failure is not fixed by naming the data model.
+    client, _ = sisense
+    client.get_schemas = MagicMock(side_effect=RuntimeError("Sisense API error [401]: unauthorized"))
+    with pytest.raises(RuntimeError, match=r"\[401\]: unauthorized") as failed:
+        client.execute_query("SELECT * FROM Customers", table_name="Sales Model/Customers")
+    assert "datasource_title" not in str(failed.value)
 
 
 @pytest.mark.parametrize("sql", [

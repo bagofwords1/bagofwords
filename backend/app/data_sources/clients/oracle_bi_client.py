@@ -35,18 +35,24 @@ _NS = {
 # a statement. Rules the reference does not settle are refused rather than
 # guessed at: a backslash in a literal or a quoted name, '--', and a line
 # end other than LF or CR (CR LF and a lone CR reach the server as LF: the
-# text travels inside XML), '#' right after a name character (a reader that
-# allows '#' in names would not start a comment there), and '@{' anywhere
+# text travels inside XML), '#' in code anywhere but at the start of the text
+# or right after a space, a tab or a line end (a reader that allows '#' in
+# names would not start a comment there), and '@{' anywhere
 # (presentation variables are substituted before the BI Server reads the
 # text, inside literals and comments too).
 _LOGICAL_READ_VERBS = frozenset({"SELECT", "WITH"})
 # EXECUTE PHYSICAL sends its text to a physical connection pool as it is and
-# SELECT_PHYSICAL reads physical tables; the EVALUATE functions (every word
-# starting with EVALUATE, EVALUATE_SCRIPT and later ones included) insert
-# physical SQL expressions or run scripts (the reference's Database Functions
-# section); AGGREGATES is the word of CREATE / DELETE AGGREGATES. INSERT is
-# not refused: in Logical SQL it is a string function.
-_LOGICAL_REFUSED_WORDS = frozenset({"EXECUTE", "SELECT_PHYSICAL", "AGGREGATES"})
+# SELECT_PHYSICAL (also printed SELECT PHYSICAL) reads physical tables, so
+# PHYSICAL is refused as a word of its own (a column of that name must be
+# quoted); CALL runs a procedure, in a subquery or a WITH item too; the
+# EVALUATE functions (every word starting with EVALUATE, EVALUATE_SCRIPT and
+# later ones included) insert physical SQL expressions or run scripts (the
+# reference's Database Functions section); AGGREGATES is the word of
+# CREATE / DELETE AGGREGATES. INSERT is not refused: in Logical SQL it is a
+# string function.
+_LOGICAL_REFUSED_WORDS = frozenset({"EXECUTE", "SELECT_PHYSICAL", "PHYSICAL", "CALL", "AGGREGATES"})
+# '#' starts a comment only at the start of the text or right after one of these.
+_LOGICAL_HASH_COMMENT_AFTER = " \t\r\n"
 _LOGICAL_REFUSED_PREFIX = "EVALUATE"
 _LOGICAL_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*", re.ASCII)
 _LOGICAL_LINE_ENDS = "\n\r"
@@ -81,7 +87,8 @@ def check_logical_sql(statement) -> None:
     opening parentheses) must be SELECT or WITH; a WITH statement must reach
     a SELECT after its list of named subqueries; no word of
     `_LOGICAL_REFUSED_WORDS` and no word starting with EVALUATE may appear in
-    code; nothing but comments may follow a ';' or a ':'.
+    code; '#' in code must start the text or follow a space, a tab or a line
+    end; nothing but comments may follow a ';' or a ':'.
     """
     if type(statement) is not str:
         raise _logical_refuse("the statement must be text (a plain str)")
@@ -102,8 +109,8 @@ def check_logical_sql(statement) -> None:
     i, n = 0, len(statement)
     while i < n:
         ch = statement[i]
-        if ch == "#" and i > 0 and (statement[i - 1].isalnum() or statement[i - 1] == "_"):
-            raise _logical_refuse("'#' right after a name; put a space before a '#' comment")
+        if ch == "#" and i > 0 and statement[i - 1] not in _LOGICAL_HASH_COMMENT_AFTER:
+            raise _logical_refuse("'#' not after a space or a line end; put a space before a '#' comment")
         if statement.startswith(("//", "#"), i):
             while i < n and statement[i] not in _LOGICAL_LINE_ENDS:
                 i += 1
