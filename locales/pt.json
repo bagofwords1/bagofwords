@@ -7147,5 +7147,12 @@
     "addIncomplete": "Algumas associações ou permissões não foram guardadas. Reveja a lista e tente novamente.",
     "added": "Membros adicionados",
     "addFailed": "Não foi possível adicionar membros"
+  },
+  "productUpdates": {
+    "checkbox": "Enviar novidades do produto para mim",
+    "checkboxWithEmail": "Enviar novidades do produto para {email}",
+    "settingsTitle": "Novidades do produto",
+    "toggleLabel": "Receber novidades do produto por e-mail",
+    "sentTo": "Enviado para {email}"
   }
 }

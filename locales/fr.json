@@ -7147,5 +7147,12 @@
     "addIncomplete": "Certaines adhésions ou permissions n’ont pas été enregistrées. Vérifiez la liste et réessayez.",
     "added": "Membres ajoutés",
     "addFailed": "Échec de l’ajout des membres"
+  },
+  "productUpdates": {
+    "checkbox": "M'envoyer les nouveautés du produit",
+    "checkboxWithEmail": "Envoyer les nouveautés du produit à {email}",
+    "settingsTitle": "Nouveautés du produit",
+    "toggleLabel": "Recevoir les nouveautés du produit par e-mail",
+    "sentTo": "Envoyé à {email}"
   }
 }

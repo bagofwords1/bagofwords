@@ -7147,5 +7147,12 @@
     "addIncomplete": "Vissa medlemskap eller behörigheter kunde inte sparas. Granska listan och försök igen.",
     "added": "Medlemmar tillagda",
     "addFailed": "Kunde inte lägga till medlemmar"
+  },
+  "productUpdates": {
+    "checkbox": "Skicka produktnyheter till mig",
+    "checkboxWithEmail": "Skicka produktnyheter till {email}",
+    "settingsTitle": "Produktnyheter",
+    "toggleLabel": "Mejla mig produktnyheter",
+    "sentTo": "Skickas till {email}"
   }
 }

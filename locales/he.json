@@ -7891,5 +7891,12 @@
     "addIncomplete": "חלק מהחברויות או ההרשאות לא נשמרו. בדקו את רשימת החברים ונסו שוב.",
     "added": "החברים נוספו",
     "addFailed": "הוספת החברים נכשלה"
+  },
+  "productUpdates": {
+    "checkbox": "שלחו לי עדכוני מוצר",
+    "checkboxWithEmail": "שלחו עדכוני מוצר אל {email}",
+    "settingsTitle": "עדכוני מוצר",
+    "toggleLabel": "שלחו לי עדכוני מוצר באימייל",
+    "sentTo": "נשלח אל {email}"
   }
 }

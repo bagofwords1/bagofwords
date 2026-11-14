@@ -9,6 +9,11 @@ from app.models.organization import Organization
 
 router = APIRouter()
 
+
+def _product_updates_available() -> bool:
+    from app.services.product_updates_service import prompt_available
+    return prompt_available()
+
 @router.get("/settings", tags=["settings"])
 async def get_frontend_settings(db: AsyncSession = Depends(get_async_db)):
     """Get frontend configuration settings"""
@@ -72,6 +77,9 @@ async def get_frontend_settings(db: AsyncSession = Depends(get_async_db)):
         },
         "smtp_enabled": smtp_enabled,
         "setup_required": setup_required,
+        # The first sign-up offers "Send me product updates" only while the
+        # instance is unclaimed and allowed to report to BOW.
+        "product_updates_prompt": setup_required and _product_updates_available(),
         "version": settings.PROJECT_VERSION,
         "environment": settings.ENVIRONMENT,
         "i18n": {

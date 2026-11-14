@@ -45,6 +45,17 @@
                 </SettingsRow>
             </SettingsSection>
 
+            <SettingsSection v-if="productUpdates.available" :title="$t('productUpdates.settingsTitle')">
+                <SettingsRow
+                    :label="$t('productUpdates.toggleLabel')"
+                    :description="form.product_updates
+                        ? $t('productUpdates.sentTo', { email: productUpdates.email || productUpdates.current_user_email })
+                        : undefined"
+                >
+                    <UToggle v-model="form.product_updates" data-testid="product-updates-toggle" />
+                </SettingsRow>
+            </SettingsSection>
+
             <SettingsFooter>
                 <UButton color="blue" :loading="saving" @click="saveAll">{{ $t('common.saveChanges') }}</UButton>
             </SettingsFooter>
@@ -100,13 +111,24 @@ definePageMeta({ auth: true, permissions: ['manage_settings'] })
 const loading = ref(true)
 const error = ref('')
 const general = ref<GeneralConfig>({ ai_analyst_name: 'AI Analyst', bow_credit: true })
-const form = ref<{ organization_name?: string; locale: string; timezone: string; week_start: string } & GeneralConfig>({
+const form = ref<{ organization_name?: string; locale: string; timezone: string; week_start: string; product_updates: boolean } & GeneralConfig>({
     ai_analyst_name: 'AI Analyst',
     bow_credit: true,
     locale: '',
     timezone: '',
     week_start: '',
+    product_updates: false,
 })
+// Instance-wide opt-in to release notes and product updates. Hidden when the
+// instance can't send it (telemetry off, cloud) or the caller can't change it.
+interface ProductUpdatesStatus {
+    available: boolean
+    decided: boolean
+    opted_in: boolean
+    email: string | null
+    current_user_email: string | null
+}
+const productUpdates = ref<ProductUpdatesStatus>({ available: false, decided: false, opted_in: false, email: null, current_user_email: null })
 // Empty string represents "no org override" (system default). Tracking the
 // initial value lets saveAll skip the PUT when the user hasn't touched it.
 const initialLocale = ref<string>('')
@@ -161,13 +183,17 @@ const fetchSettings = async () => {
     loading.value = true
     error.value = ''
     try {
-        const [settingsResp, localeResp, tzResp, tzListResp, weekResp] = await Promise.all([
+        const [settingsResp, localeResp, tzResp, tzListResp, weekResp, updatesResp] = await Promise.all([
             useMyFetch('/api/organization/settings'),
             useMyFetch('/api/organization/locale'),
             useMyFetch('/api/organization/timezone'),
             useMyFetch('/api/organization/timezones'),
             useMyFetch('/api/organization/week_start'),
+            useMyFetch('/api/product-updates'),
         ])
+        if (updatesResp.status.value === 'success' && updatesResp.data.value) {
+            productUpdates.value = updatesResp.data.value as ProductUpdatesStatus
+        }
         if (settingsResp.status.value !== 'success') throw new Error(settingsResp.error?.value?.data?.message || t('settings.failedToFetch'))
         const cfg = (settingsResp.data.value as SettingsResponse)?.config
         general.value = cfg?.general || { ai_analyst_name: 'AI Analyst', bow_credit: true }
@@ -190,7 +216,7 @@ const fetchSettings = async () => {
 
         // Fetch current organization name from session if available
         const { organization } = useOrganization()
-        form.value = { organization_name: organization.value?.name, locale: orgLocale, timezone: orgTimezone, week_start: orgWeekStart, ...general.value }
+        form.value = { organization_name: organization.value?.name, locale: orgLocale, timezone: orgTimezone, week_start: orgWeekStart, product_updates: productUpdates.value.opted_in, ...general.value }
     } catch (e: any) {
         error.value = e.message || t('settings.failedToLoad')
         toast.add({ title: t('common.error'), description: error.value, color: 'red' })
@@ -263,6 +289,13 @@ const saveAll = async () => {
             if (weekResp.status.value !== 'success') throw new Error(weekResp.error?.value?.data?.detail || t('settings.weekStart.saveError'))
             effectiveWeekStart.value = (weekResp.data?.value as any)?.effective_week_start ?? effectiveWeekStart.value
             initialWeekStart.value = form.value.week_start
+        }
+
+        // 7) Save the product-updates opt-in (instance-wide) only when changed.
+        if (productUpdates.value.available && form.value.product_updates !== productUpdates.value.opted_in) {
+            const updResp = await useMyFetch('/api/product-updates', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ opted_in: form.value.product_updates, source: 'settings' }) })
+            if (updResp.status.value !== 'success') throw new Error(updResp.error?.value?.data?.detail || t('settings.failedToUpdate'))
+            productUpdates.value = updResp.data.value as ProductUpdatesStatus
         }
 
         toast.add({ title: t('settings.saved'), color: 'green' })

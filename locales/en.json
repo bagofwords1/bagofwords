@@ -7900,5 +7900,12 @@
     "addIncomplete": "Some memberships or permissions could not be saved. Review the member list and retry.",
     "added": "Members added",
     "addFailed": "Failed to add members"
+  },
+  "productUpdates": {
+    "checkbox": "Send me product updates",
+    "checkboxWithEmail": "Send product updates to {email}",
+    "settingsTitle": "Product updates",
+    "toggleLabel": "Email me product updates",
+    "sentTo": "Sent to {email}"
   }
 }

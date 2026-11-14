@@ -7871,5 +7871,12 @@
     "addIncomplete": "No se pudieron guardar algunas membresías o permisos. Revisa la lista y vuelve a intentarlo.",
     "added": "Miembros añadidos",
     "addFailed": "No se pudieron añadir los miembros"
+  },
+  "productUpdates": {
+    "checkbox": "Envíame novedades del producto",
+    "checkboxWithEmail": "Enviar novedades del producto a {email}",
+    "settingsTitle": "Novedades del producto",
+    "toggleLabel": "Enviarme novedades del producto por correo",
+    "sentTo": "Se envían a {email}"
   }
 }

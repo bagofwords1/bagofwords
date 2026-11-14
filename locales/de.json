@@ -7147,5 +7147,12 @@
     "addIncomplete": "Einige Mitgliedschaften oder Berechtigungen konnten nicht gespeichert werden. Liste prüfen und erneut versuchen.",
     "added": "Mitglieder hinzugefügt",
     "addFailed": "Mitglieder konnten nicht hinzugefügt werden"
+  },
+  "productUpdates": {
+    "checkbox": "Produkt-Updates an mich senden",
+    "checkboxWithEmail": "Produkt-Updates an {email} senden",
+    "settingsTitle": "Produkt-Updates",
+    "toggleLabel": "Produkt-Updates per E-Mail erhalten",
+    "sentTo": "Gesendet an {email}"
   }
 }

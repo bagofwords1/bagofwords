@@ -7147,5 +7147,12 @@
     "addIncomplete": "Impossibile salvare alcune iscrizioni o permessi. Controlla l’elenco e riprova.",
     "added": "Membri aggiunti",
     "addFailed": "Impossibile aggiungere i membri"
+  },
+  "productUpdates": {
+    "checkbox": "Inviami gli aggiornamenti del prodotto",
+    "checkboxWithEmail": "Invia gli aggiornamenti del prodotto a {email}",
+    "settingsTitle": "Aggiornamenti del prodotto",
+    "toggleLabel": "Ricevi gli aggiornamenti del prodotto via email",
+    "sentTo": "Inviati a {email}"
   }
 }
