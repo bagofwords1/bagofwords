@@ -674,7 +674,8 @@ const setFallbackPriority = async (model: Model, raw: string) => {
 };
 
 const formatCostPart = (n?: number | null): string =>
-    (n == null ? '—' : `$${parseFloat(Number(n).toFixed(2))}`);
+    // Up to 3 decimals: decision models are priced like $0.042/M.
+    (n == null ? '—' : `$${parseFloat(Number(n).toFixed(3))}`);
 
 const editingHintId = ref<string | null>(null);
 const hintDraft = ref<string>('');

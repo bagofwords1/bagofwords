@@ -470,3 +470,129 @@ def test_decision_cost_nets_out_of_routing_savings(test_client, world):
     assert after.decision_calls == 1
     assert after.decision_cost_usd == pytest.approx(2.0)
     assert after.savings_usd == pytest.approx(before.savings_usd - 2.0)
+
+
+# ── TypeSafe as a first-class (decision-only) provider ─────────────────────
+
+def _create_typesafe(client, t, org, models=None):
+    return client.post("/api/llm/providers", json={
+        "name": f"typesafe-{uuid.uuid4().hex[:6]}", "provider_type": "typesafe",
+        "credentials": {"api_key": "dummy-typesafe-key"}, "models": models or [],
+    }, headers=_h(t, org))
+
+
+@pytest.mark.e2e
+def test_typesafe_provider_gets_pinned_jev_with_official_price(test_client, bootstrap_admin):
+    admin = bootstrap_admin("typesafe")
+    t, org = admin["token"], admin["org_id"]
+    r = _create_typesafe(test_client, t, org)
+    assert r.status_code == 200, r.text
+
+    decision = {m["model_id"]: m for m in _models(test_client, t, org, kind="decision")}
+    jev = decision.get("jev-1.14.0")
+    assert jev is not None, "TypeSafe providers get the pinned Jev release automatically"
+    assert jev["is_enabled"] and jev["model_kind"] == "decision"
+    assert jev["decision"]["decision_format"] == "systemone"
+    assert jev["input_cost_per_million_tokens_usd"] == pytest.approx(0.042)
+    assert jev["output_cost_per_million_tokens_usd"] == 0
+    # Pinned, not the moving alias.
+    assert "jev-latest" not in decision
+    # A decision-only provider contributes nothing to the chat list.
+    assert not [m for m in _models(test_client, t, org) if m["provider"]["provider_type"] == "typesafe"]
+
+
+@pytest.mark.e2e
+def test_typesafe_provider_rejects_chat_models(test_client, bootstrap_admin):
+    admin = bootstrap_admin("typesafe-chat")
+    t, org = admin["token"], admin["org_id"]
+    r = _create_typesafe(test_client, t, org, models=[{"model_id": "some-chat-model", "is_custom": True}])
+    assert r.status_code == 400, r.text
+
+
+@pytest.mark.e2e
+def test_typesafe_decisions_go_to_the_typesafe_api(test_client, bootstrap_admin, fake_decisions):
+    admin = bootstrap_admin("typesafe-call")
+    t, org = admin["token"], admin["org_id"]
+    assert _create_typesafe(test_client, t, org).status_code == 200
+    jev = next(m for m in _models(test_client, t, org, kind="decision") if m["model_id"] == "jev-1.14.0")
+
+    r = test_client.post(f"/api/llm/models/{jev['id']}/test_decision", headers=_h(t, org))
+    assert r.status_code == 200, r.text
+    sent = fake_decisions.requests[-1]
+    assert sent["url"] == "https://api.typesafe.ai/v1/systemone"
+    assert sent["headers"]["authorization"] == "Bearer dummy-typesafe-key"
+    assert sent["json"]["model"] == "jev-1.14.0"
+
+
+@pytest.mark.e2e
+def test_typesafe_provider_connection_test_asks_a_decision(test_client, bootstrap_admin, fake_decisions):
+    admin = bootstrap_admin("typesafe-conn")
+    t, org = admin["token"], admin["org_id"]
+    r = test_client.post("/api/llm/test_connection", json={
+        "name": "ts", "provider_type": "typesafe", "credentials": {"api_key": "dummy-typesafe-key"}, "models": [],
+    }, headers=_h(t, org))
+    assert r.status_code == 200, r.text
+    assert r.json().get("success") is True, r.json()
+    assert fake_decisions.requests and fake_decisions.requests[-1]["path"].endswith("/systemone")
+
+
+# ── Azure: Foundry Decision-1 route + Entra ID sign-in ─────────────────────
+
+def _create_azure_decision(client, t, org, model_id, credentials, config=None):
+    cfg = {"decision_format": None} if config is None else config
+    return client.post("/api/llm/providers", json={
+        "name": f"az-{uuid.uuid4().hex[:6]}", "provider_type": "azure",
+        "credentials": credentials,
+        "models": [{"model_id": model_id, "name": model_id, "is_custom": True,
+                    "model_kind": "decision", "config": {k: v for k, v in cfg.items() if v}}],
+    }, headers=_h(t, org))
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("pasted", [
+    "https://res1.services.ai.azure.com",
+    "https://res1.services.ai.azure.com/openai/v1/",
+    "https://res1.cognitiveservices.azure.com/openai/deployments/x/chat/completions?api-version=2024-10-21",
+])
+def test_azure_decision_1_uses_the_foundry_systemone_route(test_client, bootstrap_admin, fake_decisions, pasted):
+    """Microsoft-Decision-1 speaks System One at /providers/microsoft/v1/systemone
+    on the resource root, whatever endpoint form the admin pasted."""
+    admin = bootstrap_admin(f"az-d1-{uuid.uuid4().hex[:4]}")
+    t, org = admin["token"], admin["org_id"]
+    r = _create_azure_decision(test_client, t, org, "Microsoft-Decision-1",
+                               {"endpoint_url": pasted, "api_key": "dummy-azure-key"})
+    assert r.status_code == 200, r.text
+    m = next(x for x in _models(test_client, t, org, kind="decision") if x["model_id"] == "Microsoft-Decision-1")
+    assert m["decision"]["decision_format"] == "systemone"
+    assert m["decision"]["decision_path"] == "/providers/microsoft/v1/systemone"
+
+    r = test_client.post(f"/api/llm/models/{m['id']}/test_decision", headers=_h(t, org))
+    assert r.status_code == 200, r.text
+    sent = fake_decisions.requests[-1]
+    host = pasted.split("://", 1)[1].split("/", 1)[0]
+    assert sent["url"] == f"https://{host}/providers/microsoft/v1/systemone"
+    assert sent["headers"]["api-key"] == "dummy-azure-key"
+    assert "authorization" not in sent["headers"]
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("auth", ["entra_client_secret", "entra_default"])
+def test_azure_entra_decision_signs_in_with_a_bearer_token(test_client, bootstrap_admin, fake_decisions, monkeypatch, auth):
+    """Azure providers that sign in with Entra ID have no API key: the decision
+    call must use the same Entra token chat uses (identity is the boundary)."""
+    from app.ai.llm.llm import LLM
+    monkeypatch.setattr(LLM, "_build_entra_token_provider", lambda self, mode, cfg: (lambda: "entra-token-123"))
+    admin = bootstrap_admin(f"az-entra-{uuid.uuid4().hex[:4]}")
+    t, org = admin["token"], admin["org_id"]
+    creds = {"endpoint_url": "https://res2.services.ai.azure.com", "auth_mode": auth}
+    if auth == "entra_client_secret":
+        creds.update({"tenant_id": "tenant", "client_id": "client", "client_secret": "secret"})
+    r = _create_azure_decision(test_client, t, org, "Microsoft-Decision-1", creds)
+    assert r.status_code == 200, r.text
+    m = next(x for x in _models(test_client, t, org, kind="decision") if x["model_id"] == "Microsoft-Decision-1")
+
+    r = test_client.post(f"/api/llm/models/{m['id']}/test_decision", headers=_h(t, org))
+    assert r.status_code == 200, r.text
+    sent = fake_decisions.requests[-1]
+    assert sent["headers"]["authorization"] == "Bearer entra-token-123"
+    assert "api-key" not in sent["headers"]

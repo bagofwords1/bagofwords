@@ -8,7 +8,7 @@
 // So we match the model id/name first and only fall back to the provider type
 // when the name is unrecognizable. Unknown -> "custom" (renders a generic chip).
 
-export type LlmBrand = 'openai' | 'anthropic' | 'google' | 'azure' | 'bedrock' | 'vertex' | 'nvidia' | 'custom'
+export type LlmBrand = 'openai' | 'anthropic' | 'google' | 'azure' | 'bedrock' | 'vertex' | 'nvidia' | 'typesafe' | 'custom'
 
 // Substring/loose patterns matched against the lowercased model id or name.
 // Ordered by specificity; first hit wins. `o1/o3/o4` are OpenAI reasoning models.
@@ -18,6 +18,8 @@ const NAME_RULES: Array<[LlmBrand, RegExp]> = [
     ['google', /gemini|palm|bison|gemma/],
     ['openai', /gpt|chatgpt|davinci|babbage|(?:^|[^a-z])o[134](?:[^a-z]|$)/],
     ['nvidia', /nvidia|nemotron/],
+    // TypeSafe's Jev decision models (jev-1.14.0, jev-latest).
+    ['typesafe', /(?:^|[^a-z])jev(?:[^a-z]|$)/],
 ]
 
 // Known provider types map straight through to an icon we ship.
@@ -28,6 +30,7 @@ const PROVIDER_BRANDS: Record<string, LlmBrand> = {
     azure: 'azure',
     bedrock: 'bedrock',
     vertex: 'vertex',
+    typesafe: 'typesafe',
     custom: 'custom',
 }
 

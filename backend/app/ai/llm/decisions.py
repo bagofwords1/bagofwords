@@ -21,6 +21,7 @@ temperature/top_p: nothing sampling-related is ever sent.
 """
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -72,8 +73,32 @@ def _catalog_entry(model_id: Optional[str]) -> dict:
     return {}
 
 
-def _default_format(provider_type: Optional[str]) -> str:
+# Microsoft Foundry's Decision-1 (System One, on the Foundry resource root).
+# Source: Microsoft's Decision-1 announcement sample —
+# POST {resource}/providers/microsoft/v1/systemone, model = deployment name.
+FOUNDRY_DECISION_PATH = "/providers/microsoft/v1/systemone"
+_FOUNDRY_DECISION_RE = re.compile(r"decision[-_ ]?1", re.IGNORECASE)
+
+
+def is_foundry_decision_1(provider_type: Optional[str], model_id: Optional[str]) -> bool:
+    """An Azure deployment of Microsoft-Decision-1, recognized by name. Admins
+    whose deployment name hides it set the format/path on the model card (or
+    pick the Decision-1 preset when adding the model)."""
+    return provider_type == "azure" and bool(_FOUNDRY_DECISION_RE.search(model_id or ""))
+
+
+def _default_format(provider_type: Optional[str], model_id: Optional[str] = None) -> str:
+    if is_foundry_decision_1(provider_type, model_id):
+        return "systemone"
     return "openai" if provider_type in ("openai", "azure") else "systemone"
+
+
+def _default_path(provider_type: Optional[str], model_id: Optional[str], fmt: str) -> str:
+    if fmt == "systemone":
+        return FOUNDRY_DECISION_PATH if provider_type == "azure" else "/systemone"
+    # Azure OpenAI's v1 surface (unverified for Decisions: no Azure deployment
+    # of a Decisions model was available to test against).
+    return "/openai/v1/decisions" if provider_type == "azure" else "/decisions"
 
 
 def decision_settings(model: Any) -> dict:
@@ -90,10 +115,11 @@ def decision_settings(model: Any) -> dict:
             return cat[key]
         return default
 
-    fmt = pick("decision_format", _default_format(provider_type))
+    model_id = getattr(model, "model_id", None)
+    fmt = pick("decision_format", _default_format(provider_type, model_id))
     return {
         "decision_format": fmt,
-        "decision_path": pick("decision_path", "/decisions" if fmt == "openai" else "/systemone"),
+        "decision_path": pick("decision_path", _default_path(provider_type, model_id, fmt)),
         "api_model_id": pick("api_model_id", getattr(model, "model_id", None)),
         "max_questions": int(pick("max_questions", DEFAULT_MAX_QUESTIONS)),
         "question_types": list(pick("question_types", ["predicate", "choice", "score"])),
@@ -320,13 +346,27 @@ def base_url_for(provider: Any) -> Optional[str]:
         return cfg.get("base_url") or "https://api.openai.com/v1"
     if ptype == "custom":
         return cfg.get("base_url")
+    if ptype == "typesafe":
+        return TYPESAFE_BASE_URL
     if ptype == "azure":
-        endpoint = (cfg.get("endpoint_url") or "").rstrip("/")
-        return endpoint or None
+        # Admins paste whatever the portal showed (…/openai/v1, a deployment's
+        # target URI with ?api-version=…). Every decision route hangs off the
+        # resource root, so normalize to it and let the path pick the route.
+        endpoint = cfg.get("endpoint_url") or ""
+        if not endpoint.strip():
+            return None
+        from app.ai.llm.llm import _azure_resource_root
+        return _azure_resource_root(endpoint) or None
     return None
+
+
+TYPESAFE_BASE_URL = "https://api.typesafe.ai/v1"
 
 
 # Provider types a decision model may be configured on. Bedrock has no
 # decision API (AWS ships Strands Decider as weights / a SageMaker endpoint);
 # Anthropic, Google and Vertex have none either.
-DECISION_PROVIDER_TYPES = ("openai", "azure", "custom")
+DECISION_PROVIDER_TYPES = ("openai", "azure", "custom", "typesafe")
+
+# Providers that serve decision models only (no chat API).
+DECISION_ONLY_PROVIDER_TYPES = ("typesafe",)
