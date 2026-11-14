@@ -459,8 +459,19 @@ async def update_case(case_id: str, payload: TestCaseUpdate, db: AsyncSession = 
     return await case_service.update_case(db, str(organization.id), current_user, case_id, payload.name, payload.prompt_json, payload.expectations_json, payload.data_source_ids_json, suite_id=payload.suite_id)
 
 
+async def _require_case_edit_authority(db, user, organization, case_id):
+    case = await case_service.get_case(db, str(organization.id), user, case_id)
+    suite = await suite_service.get_suite(db, str(organization.id), user, case.suite_id)
+    if suite.owner_folder_id:
+        from app.services.folder_knowledge import require_capability
+        await require_capability(db, organization, user, suite.owner_folder_id, "manage_evals")
+        if not case.data_source_ids_json:
+            return
+    await _require_case_authority(db, user, organization, case)
+
+
 @router.patch("/cases/{case_id}/status", response_model=TestCaseSchema)
-@requires_permission('manage_evals', resource_scoped=True)
+@requires_permission('manage_evals', resource_scoped=True, folder_scoped=True)
 async def update_case_status(
     case_id: str,
     payload: TestCaseStatusUpdate,
@@ -470,22 +481,16 @@ async def update_case_status(
 ):
     """Promote a draft to ``active`` or archive any case. Used by the
     auto-suggest-evals review flow."""
-    await _require_case_authority(
-        db, current_user, organization,
-        await case_service.get_case(db, str(organization.id), current_user, case_id),
-    )
+    await _require_case_edit_authority(db, current_user, organization, case_id)
     return await case_service.update_case_status(
         db, str(organization.id), current_user, case_id, payload.status,
     )
 
 
 @router.delete("/cases/{case_id}")
-@requires_permission('manage_evals', resource_scoped=True)
+@requires_permission('manage_evals', resource_scoped=True, folder_scoped=True)
 async def delete_case(case_id: str, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
-    await _require_case_authority(
-        db, current_user, organization,
-        await case_service.get_case(db, str(organization.id), current_user, case_id),
-    )
+    await _require_case_edit_authority(db, current_user, organization, case_id)
     await case_service.delete_case(db, str(organization.id), current_user, case_id)
     return {"status": "deleted"}
 
@@ -501,8 +506,12 @@ async def run_suite(suite_id: str, background: bool = Query(True), db: AsyncSess
 
 
 @router.post("/runs", response_model=TestRunSchema)
-@requires_permission('manage_evals', resource_scoped=True)
+@requires_permission('manage_evals', resource_scoped=True, folder_scoped=True)
 async def create_run(payload: TestRunCreate, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
+    if payload.folder_id:
+        return await run_service.create_run(db, organization, current_user, case_ids=payload.case_ids,
+                                            folder_id=payload.folder_id, build_id=payload.build_id,
+                                            trigger_reason=payload.trigger_reason or "manual")
     for _cid in (payload.case_ids or []):
         await _require_case_authority(
             db, current_user, organization,
@@ -515,6 +524,7 @@ async def create_run(payload: TestRunCreate, db: AsyncSession = Depends(get_asyn
 @router.get("/runs", response_model=List[TestRunSchema])
 @requires_permission('manage_evals', resource_scoped=True, folder_scoped=True)
 async def list_runs(
+    folder_id: Optional[str] = None,
     suite_id: Optional[str] = None,
     status: Optional[str] = None,
     page: int = Query(1, ge=1),
@@ -535,7 +545,7 @@ async def list_runs(
     """
     runs = await run_service.list_runs(
         db, str(organization.id), current_user, suite_id=suite_id, status=status,
-        page=page, limit=limit, data_source_id=data_source_id, scope=scope,
+        page=page, limit=limit, data_source_id=data_source_id, scope=scope, folder_id=folder_id,
     )
     unscoped, agent_ids = await _eval_agent_scope(db, current_user, organization)
     visible = []

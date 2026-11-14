@@ -596,6 +596,7 @@ async def knowledge_items(
     folder_id: str,
     kind: KnowledgeKind,
     candidates: bool = False,
+    details: bool = False,
     db: AsyncSession = Depends(get_async_db),
     user: User = Depends(current_user),
     org: Organization = Depends(get_current_organization),
@@ -646,7 +647,10 @@ async def knowledge_items(
             if not manages and item.status != "published":
                 continue
             title = title or item.text[:80]
-        result.append({"id": item.id, "name": title, "owned": getattr(item, "owner_folder_id", None) == folder_id})
+        row = {"id": item.id, "name": title, "owned": getattr(item, "owner_folder_id", None) == folder_id}
+        if kind == "instructions" and details and not candidates:
+            row.update(title=title, text=item.text, status=item.status, category=item.category, load_mode=item.load_mode)
+        result.append(row)
     return sorted(result, key=lambda r: (r["name"] or "").casefold())
 
 

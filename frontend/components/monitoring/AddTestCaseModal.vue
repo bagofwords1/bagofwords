@@ -11,6 +11,8 @@
           :suite-id="suiteId"
           :case-id="caseId"
           :agent-id="agentId"
+          :folder-id="folderId"
+          :folder-suites="folderSuites"
           @close="close"
           @created="(v: any) => emit('created', v)"
           @updated="(v: any) => emit('updated', v)"
@@ -26,6 +28,7 @@
               @click="() => editorRef?.save()"
             >Save</UButton>
             <UButton
+              v-if="!folderId || folderCanQuery"
               :loading="editorRef?.isRunning"
               :disabled="editorRef?.initialLoading"
               color="blue"
@@ -43,7 +46,7 @@
 import { ref, computed } from 'vue'
 import TestCaseEditor from '~/components/monitoring/TestCaseEditor.vue'
 
-const props = defineProps<{ modelValue: boolean, suiteId: string, caseId?: string, agentId?: string }>()
+const props = defineProps<{ modelValue: boolean, suiteId: string, caseId?: string, agentId?: string, folderId?: string, folderCanQuery?: boolean, folderSuites?: {id:string, name:string}[] }>()
 const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void
   (e: 'created', value: any): void

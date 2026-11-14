@@ -487,7 +487,7 @@ class TestRunService:
             _ = await self._get_suite(db, organization_id, str(sid))
         return run
 
-    async def list_runs(self, db: AsyncSession, organization_id: str, current_user, suite_id: Optional[str] = None, status: Optional[str] = None, page: int = 1, limit: int = 20, data_source_id: Optional[str] = None, scope: Optional[str] = None) -> List[TestRun]:
+    async def list_runs(self, db: AsyncSession, organization_id: str, current_user, suite_id: Optional[str] = None, status: Optional[str] = None, page: int = 1, limit: int = 20, data_source_id: Optional[str] = None, scope: Optional[str] = None, folder_id: Optional[str] = None) -> List[TestRun]:
         # TestRun has no organization_id column — scope through the
         # results → cases → suites chain on EVERY branch. The unfiltered
         # branch used to be a bare select(TestRun), leaking other orgs' run
@@ -499,6 +499,8 @@ class TestRunService:
             .join(TestSuite, TestSuite.id == TestCase.suite_id)
             .where(TestSuite.organization_id == str(organization_id))
         )
+        if folder_id:
+            stmt = stmt.where(TestResult.folder_id == folder_id)
         if status:
             stmt = stmt.where(TestRun.status == status)
         if suite_id:

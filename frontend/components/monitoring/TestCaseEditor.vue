@@ -10,6 +10,9 @@
                 <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ isEditing ? 'Edit Test Case' : 'Add Test Case' }}</h3>
                 <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" @click="close" />
             </div>
+            <USelectMenu v-if="folderId && folderSuites?.length && !isEditing" v-model="selectedSuiteIdLocal"
+              :options="folderSuites" option-attribute="name" value-attribute="id" size="xs" class="mt-2 md:w-64"
+              :aria-label="$t('evals.tests.colSuite')" />
             <div v-if="!folderId" class="mt-2 space-y-2">
                 <div class="flex flex-col md:flex-row md:items-center gap-2">
                     <div class="text-xs text-gray-600 dark:text-gray-400 md:w-20">Suite</div>
@@ -337,7 +340,7 @@ const toast = useToast()
 const { t } = useI18n()
 
 const props = withDefaults(defineProps<{
-  modelValue?: boolean, suiteId: string, caseId?: string, agentId?: string, folderId?: string,
+  modelValue?: boolean, suiteId: string, caseId?: string, agentId?: string, folderId?: string, folderSuites?: {id:string, name:string}[],
   /** Show the title row's dismiss button. The right-hand pane has its own. */
   closable?: boolean,
 }>(), { modelValue: true, closable: true })
@@ -972,7 +975,7 @@ const save = async () => {
 }
 
 // Helper used by both save() and runNow()
-const folderCasesPath = computed(() => `/folders/${props.folderId}/knowledge/evals/${props.suiteId}/cases`)
+const folderCasesPath = computed(() => `/folders/${props.folderId}/knowledge/evals/${selectedSuiteIdLocal.value || props.suiteId}/cases`)
 const createCase = async (): Promise<{ case: any | null, raw: any } | null> => {
   const flatRules: any[] = serializeRules()
   const expectations = { spec_version: 1, rules: flatRules }
@@ -1055,7 +1058,7 @@ const runNow = async () => {
     const buildId = selectedBuildId.value === 'latest' ? null : selectedBuildId.value
     const runRes: any = await useMyFetch('/api/tests/runs', {
       method: 'POST',
-      body: { case_ids: [caseId], trigger_reason: 'manual', build_id: buildId }
+      body: { case_ids: [caseId], folder_id: props.folderId, trigger_reason: 'manual', build_id: buildId }
     })
     if (runRes?.error?.value) throw runRes.error.value
     const run = runRes?.data?.value

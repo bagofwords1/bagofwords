@@ -4,7 +4,7 @@
             <!-- Inline stat row (hidden while a run detail is open — the
                  run header carries its own context) -->
             <div v-if="!openRunId" class="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-gray-500 dark:text-gray-400 mb-4">
-                <span v-if="!isGlobal" class="inline-flex items-center gap-1.5">
+                <span v-if="agentId" class="inline-flex items-center gap-1.5">
                     Status:
                     <span :class="['inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-2xs font-medium', reliabilityBadgeClass]">
                         <UIcon :name="reliabilityIcon" class="w-3 h-3" />{{ reliabilityLabel }}
@@ -28,7 +28,8 @@
                     <button type="button" :class="tabClass('tests')" @click="activeTab = 'tests'">{{ $t('evals.tabs.tests') }}</button>
                 </div>
                 <div class="ms-auto flex items-center gap-2">
-                    <button v-if="canManage && !isGlobal" type="button" class="h-7 px-2.5 rounded-md border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 inline-flex items-center gap-1" title="Configure Self Learning" @click="showSelfLearning = true"><UIcon name="i-heroicons-sparkles" class="w-3.5 h-3.5 text-blue-500" />Self Learning</button>
+                    <slot name="actions" />
+                    <button v-if="canManage && agentId" type="button" class="h-7 px-2.5 rounded-md border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 inline-flex items-center gap-1" title="Configure Self Learning" @click="showSelfLearning = true"><UIcon name="i-heroicons-sparkles" class="w-3.5 h-3.5 text-blue-500" />Self Learning</button>
                     <input
                         v-if="activeTab === 'tests'"
                         v-model="searchTerm"
@@ -37,7 +38,7 @@
                         class="h-7 px-2 text-xs bg-gray-50 border border-gray-200 rounded-md outline-none focus:border-gray-400 focus:bg-white placeholder:text-ink-subtle w-40 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
                     />
                     <template v-if="activeTab === 'tests'">
-                        <UButton :disabled="selectedIds.size === 0" color="blue" size="xs" icon="i-heroicons-play" @click="runSelected">
+                        <UButton :disabled="selectedIds.size === 0 || (!!folderId && !folderCanQuery)" color="blue" size="xs" icon="i-heroicons-play" @click="runSelected">
                             {{ $t('evals.tests.runSelected') }}
                         </UButton>
                         <UButton color="blue" size="xs" variant="soft" icon="i-heroicons-plus" @click="addNewTest">
@@ -91,7 +92,7 @@
                                 <div class="flex items-center gap-1">
                                     <UButton v-if="c.status === 'draft' && canEditCase(c)" color="green" size="2xs" variant="ghost" icon="i-heroicons-check-badge" @click="promoteCase(c)">Promote</UButton>
                                     <UButton v-if="canEditCase(c)" color="gray" size="2xs" variant="ghost" icon="i-heroicons-pencil-square" @click="editCase(c)">{{ $t('evals.tests.actionEdit') }}</UButton>
-                                    <UButton v-if="canEditCase(c)" color="blue" size="2xs" variant="ghost" icon="i-heroicons-play" @click="runCase(c)">{{ $t('evals.tests.actionRunTest') }}</UButton>
+                                    <UButton v-if="folderId ? folderCanQuery && c.status === 'active' : canEditCase(c)" color="blue" size="2xs" variant="ghost" icon="i-heroicons-play" @click="runCase(c)">{{ $t('evals.tests.actionRunTest') }}</UButton>
                                     <UButton v-if="canEditCase(c)" color="red" size="2xs" variant="ghost" icon="i-heroicons-trash" @click="deleteCase(c)">{{ $t('evals.tests.actionDelete') }}</UButton>
                                 </div>
                             </td>
@@ -119,12 +120,12 @@
             <div v-else-if="activeTab === 'runs'">
                 <div class="flex items-center justify-between mb-3">
                     <div class="text-xs text-gray-500 dark:text-gray-400">Every eval run — manual checks and automation.</div>
-                    <UButton v-if="canManage && !isGlobal && suiteGroups.size > 0" color="blue" size="xs" variant="soft" icon="i-heroicons-bolt"
+                    <UButton v-if="canManage && agentId && suiteGroups.size > 0" color="blue" size="xs" variant="soft" icon="i-heroicons-bolt"
                         @click="openRunEvalsModal">
                         Run evals
                     </UButton>
                 </div>
-                <div v-if="canManage && !isGlobal && autoEnabled === false" class="mb-4 flex items-center justify-between gap-3 rounded-md border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/40 px-3 py-2">
+                <div v-if="canManage && agentId && autoEnabled === false" class="mb-4 flex items-center justify-between gap-3 rounded-md border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/40 px-3 py-2">
                     <div class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
                         <UIcon name="i-heroicons-sparkles" class="w-4 h-4 text-blue-500 shrink-0" />
                         Self Learning is off — auto-run evals &amp; self-heal instructions when things change.
@@ -183,6 +184,9 @@
             :suite-id="selectedSuiteId"
             :case-id="selectedCaseId"
             :agent-id="agentId"
+            :folder-id="folderId"
+            :folder-can-query="folderCanQuery"
+            :folder-suites="folderSuites?.filter(s => s.owned)"
             @created="onCaseCreated"
             @updated="onCaseUpdated"
         />
@@ -250,7 +254,8 @@ import EvalRunDetail from '~/components/EvalRunDetail.vue'
 const { t } = useI18n()
 const toast = useToast()
 
-const props = defineProps<{ agentId?: string; global?: boolean; initialRunId?: string }>()
+const props = defineProps<{ agentId?: string; folderId?: string; folderCanQuery?: boolean; folderSuites?: {id:string,name:string,owned?:boolean}[]; initialSuiteId?: string; global?: boolean; initialRunId?: string }>()
+const emit = defineEmits<{createSuite:[]}>()
 const agentId = computed(() => props.agentId || '')
 // Global mode shows org-wide evals (cases not scoped to any data source/agent),
 // which apply to ALL agents. Admin-gated via the `manage_evals` org permission.
@@ -275,7 +280,7 @@ interface RunItem {
     status?: string
 }
 
-const activeTab = ref<'tests' | 'runs' | 'automation'>('runs')
+const activeTab = ref<'tests' | 'runs' | 'automation'>(props.initialSuiteId ? 'tests' : 'runs')
 const loadingCases = ref(false)
 const loadingRuns = ref(false)
 const allCases = ref<TestCaseRow[]>([])
@@ -304,14 +309,15 @@ const selectedCaseId = ref('')
 // runs were found only *via* the case list; and typing in the Tests search box
 // emptied the Runs tab, since the search fed the same case set.
 const agentCases = computed(() => {
-    if (!isGlobal.value && !agentId.value) return []
+    if (!props.folderId && !isGlobal.value && !agentId.value) return []
     const term = searchTerm.value.trim().toLowerCase()
-    if (!term) return allCases.value
-    return allCases.value.filter(c => (c.prompt_json?.content || '').toLowerCase().includes(term))
+    const cases = props.initialSuiteId ? allCases.value.filter(c => c.suite_id === props.initialSuiteId) : allCases.value
+    if (!term) return cases
+    return cases.filter(c => (c.prompt_json?.content || '').toLowerCase().includes(term))
 })
 
 const agentRuns = computed(() => {
-    if (!isGlobal.value && !agentId.value) return []
+    if (!props.folderId && !isGlobal.value && !agentId.value) return []
     return allRuns.value
 })
 
@@ -471,7 +477,8 @@ function addNewTest() {
     // silently preselected whichever suite happened to sort first in the org —
     // usually another agent's. Empty is the honest answer when it has none; the
     // editor's picker then requires a choice (or "Create New Suite…").
-    selectedSuiteId.value = [...ownSuiteIds.value][0] || ''
+    if (props.folderId && !ownSuiteIds.value.size) { emit('createSuite'); return }
+    selectedSuiteId.value = (props.initialSuiteId && ownSuiteIds.value.has(props.initialSuiteId) ? props.initialSuiteId : [...ownSuiteIds.value][0]) || ''
     selectedCaseId.value = ''
     showAddCase.value = true
 }
@@ -492,7 +499,7 @@ function closeRunDetail() {
 
 async function runCase(c: TestCaseRow) {
     try {
-        const res: any = await useMyFetch('/api/tests/runs', { method: 'POST', body: { case_ids: [c.id], trigger_reason: 'manual' } })
+        const res: any = await useMyFetch('/api/tests/runs', { method: 'POST', body: { case_ids: [c.id], folder_id:props.folderId, trigger_reason: 'manual' } })
         if (res?.error?.value) throw res.error.value
         const run = res?.data?.value
         if (run?.id) { activeTab.value = 'runs'; openRunId.value = String(run.id) }
@@ -505,7 +512,8 @@ async function runSelected() {
     if (!selectedIds.value.size) return
     try {
         const case_ids = [...selectedIds.value]
-        const res: any = await useMyFetch('/api/tests/runs', { method: 'POST', body: { case_ids, trigger_reason: 'manual' } })
+        const res: any = await useMyFetch('/api/tests/runs', { method: 'POST', body: { case_ids, folder_id:props.folderId, trigger_reason: 'manual' } })
+        if (res.error.value) throw res.error.value
         const run = res?.data?.value
         activeTab.value = 'runs'
         if (run?.id) openRunId.value = String(run.id)
@@ -543,6 +551,7 @@ async function deleteCase(c: TestCaseRow) {
 }
 
 function onCaseCreated(c: any) {
+    if (props.folderId) { loadCases(); return }
     const row: TestCaseRow = {
         id: c.id,
         suite_id: c.suite_id,
@@ -559,6 +568,7 @@ function onCaseCreated(c: any) {
 }
 
 function onCaseUpdated(c: any) {
+    if (props.folderId) { loadCases(); return }
     const row: TestCaseRow = {
         id: c.id,
         suite_id: c.suite_id,
@@ -579,6 +589,12 @@ function onCaseUpdated(c: any) {
 // case shown here can legitimately live on an org-wide shelf. It is NOT a list
 // of places to file into — see addNewTest.
 async function loadSuites() {
+    if (props.folderId) {
+        const suites = props.folderSuites || []
+        suitesById.value = Object.fromEntries(suites.map(s => [s.id,s.name]))
+        ownSuiteIds.value = new Set(suites.filter(s => s.owned).map(s => s.id))
+        return
+    }
     try {
         const res = await useMyFetch<any[]>('/api/tests/suites?limit=100')
         const list = (res.data.value || []) as any[]
@@ -592,13 +608,17 @@ async function loadSuites() {
 // Both listings take the agent narrowing as a query param, so `limit` bounds
 // this agent's history instead of the organization's.
 const scopeQuery = computed(() =>
-    isGlobal.value ? 'scope=global' : `data_source_id=${encodeURIComponent(agentId.value)}`)
+    props.folderId ? `folder_id=${encodeURIComponent(props.folderId)}` : isGlobal.value ? 'scope=global' : `data_source_id=${encodeURIComponent(agentId.value)}`)
 
 async function loadCases() {
     loadingCases.value = true
     try {
-        const res = await useMyFetch<any[]>(`/api/tests/cases?limit=500&${scopeQuery.value}`)
-        const items = (res.data.value || []) as any[]
+        const items = props.folderId
+            ? (await Promise.all((props.folderSuites || []).map(async suite => {
+                const res = await useMyFetch<any[]>(`/folders/${props.folderId}/knowledge/evals/${suite.id}/cases`)
+                return (res.data.value || []).map(c => ({...c, suite_id:suite.id}))
+            }))).flat()
+            : (await useMyFetch<any[]>(`/api/tests/cases?limit=500&${scopeQuery.value}`)).data.value || []
         allCases.value = items.map((c: any) => ({
             id: c.id,
             suite_id: c.suite_id,
@@ -643,8 +663,8 @@ async function loadRuns() {
     }
 }
 
-watch(agentId, () => {
-    if (isGlobal.value || agentId.value) { loadSuites().then(loadCases); loadRuns() }
+watch([agentId, () => props.folderSuites], () => {
+    if (props.folderId || isGlobal.value || agentId.value) { loadSuites().then(loadCases); loadRuns() }
 }, { immediate: true })
 
 // ===== Reliability automation =====
@@ -665,6 +685,7 @@ const canManage = computed(() =>
 // listing ever returns more than it should, the row's actions stay off rather
 // than 403ing on click.
 function canEditCase(c: TestCaseRow) {
+    if (props.folderId) return ownSuiteIds.value.has(c.suite_id)
     return useCanAll('manage_evals', 'data_source', c.data_source_ids_json || [])
 }
 
@@ -715,7 +736,7 @@ async function runEvalsFromModal() {
     if (!case_ids.length) return
     triggering.value = true
     try {
-        const res: any = await useMyFetch('/api/tests/runs', { method: 'POST', body: { case_ids, trigger_reason: 'manual' } })
+        const res: any = await useMyFetch('/api/tests/runs', { method: 'POST', body: { case_ids, folder_id:props.folderId, trigger_reason: 'manual' } })
         if (res?.error?.value) throw res.error.value
         const run = res?.data?.value
         showRunEvals.value = false

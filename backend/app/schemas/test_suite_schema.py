@@ -127,6 +127,7 @@ class TestRunSchema(BaseModel):
 
 
 class TestRunCreate(BaseModel):
+    folder_id: Optional[str] = None
     case_ids: Optional[List[str]] = None
     trigger_reason: Optional[str] = "manual"
     # Build system: optionally specify which instruction build to use

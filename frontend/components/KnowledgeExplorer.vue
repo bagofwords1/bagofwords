@@ -614,26 +614,13 @@
                  over titles AND bodies (the tree only has titles). Rows are the
                  same InstrLeaf as the tree, so status/pending/load-mode read
                  the same, and a click opens the instruction in this pane. -->
-            <div v-if="panelView.kind === 'instructions'" :key="'instructions-' + panelView.agentId" class="flex flex-col h-full min-h-0" data-testid="agent-instructions-panel">
-              <div class="shrink-0 px-3 pt-3 pb-2 flex items-center gap-2">
-                <div class="relative flex-1">
-                  <UIcon name="i-heroicons-magnifying-glass" class="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-muted" />
-                  <input ref="panelSearchInput" :value="agentSearch[panelView.agentId] || ''" type="text" :placeholder="$t('agentsPage.searchAgentInstructions')" data-testid="agent-instructions-search" class="w-full h-8 ps-8 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 focus:bg-white dark:focus:bg-gray-800 placeholder:text-ink-subtle dark:placeholder:text-gray-500" :class="agentSearch[panelView.agentId] ? 'pe-8' : 'pe-2'" @input="onAgentSearch(panelView.agentId, ($event.target as HTMLInputElement).value)" @keydown.escape="onAgentSearch(panelView.agentId, '')" />
-                  <button v-if="agentSearch[panelView.agentId]" type="button" class="absolute end-1.5 top-1/2 -translate-y-1/2 h-6 w-6 flex items-center justify-center rounded text-ink-muted hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" :title="$t('agentsPage.clearSearch')" :aria-label="$t('agentsPage.clearSearch')" @click="onAgentSearch(panelView.agentId, '')">
-                    <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
-                  </button>
-                </div>
-                <span v-if="!panelInstructionsLoading" class="text-xs tabular-nums text-ink-muted shrink-0" data-testid="agent-instructions-count">{{ panelInstructions.length }}</span>
-                <button v-if="canAddInstrFor(panelView.agentId)" type="button" class="h-8 px-2.5 rounded-md border border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 inline-flex items-center gap-1 shrink-0" @click="openCreate({ agentId: panelView.agentId })"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ $t('agentsPage.addShort') }}</button>
-              </div>
-              <div class="flex-1 min-h-0 overflow-y-auto px-2 pb-3 space-y-0.5">
-                <div v-if="panelInstructionsLoading" class="flex items-center gap-2 h-8 text-sm text-ink-muted" style="padding-inline-start:20px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
-                <template v-else>
-                  <InstrLeaf v-for="ins in panelInstructions" :key="ins.id" :ins="ins" :indent="0" snippet />
-                  <EmptyHint v-if="!panelInstructions.length" :text="agentSearch[panelView.agentId] ? $t('agentsPage.noResults') : $t('agentsPage.noInstructions')" :add="!agentSearch[panelView.agentId] && canAddInstrFor(panelView.agentId)" @add="openCreate({ agentId: panelView.agentId })" :pad="20" />
-                </template>
-              </div>
-            </div>
+            <ScopedInstructionsPanel v-if="panelView.kind === 'instructions'" ref="panelSearchInput"
+              :key="'instructions-' + panelView.agentId" :search="agentSearch[panelView.agentId] || ''"
+              :count="panelInstructions.length" :loading="panelInstructionsLoading" :can-add="canAddInstrFor(panelView.agentId)"
+              @search="onAgentSearch(panelView.agentId, $event)" @add="openCreate({agentId:panelView.agentId})">
+              <InstrLeaf v-for="ins in panelInstructions" :key="ins.id" :ins="ins" :indent="0" snippet />
+              <EmptyHint v-if="!panelInstructions.length" :text="agentSearch[panelView.agentId] ? $t('agentsPage.noResults') : $t('agentsPage.noInstructions')" :add="!agentSearch[panelView.agentId] && canAddInstrFor(panelView.agentId)" @add="openCreate({ agentId: panelView.agentId })" :pad="20" />
+            </ScopedInstructionsPanel>
             <AgentQueriesPanel
               v-else-if="panelView.kind === 'queries'"
               :key="'queries-' + panelView.agentId"
@@ -1037,7 +1024,10 @@
           </div>
         </template>
 
-        <FolderKnowledge v-else-if="selectedFolder && folderExplorer?.current" :key="selectedFolder + (folderSection || '')" :section="folderSection" :agents="folderAgents" @agent="openAgent" @section="folderSection = $event" :folder="folderExplorer.current" :suite-id="folderSuiteId" @changed="folderKnowledgeRevision++" @create-instruction="openCreate({ folderId: $event })" @file="openFile" @instruction="openInstructionById" />
+        <FolderKnowledge v-else-if="selectedFolder && folderExplorer?.current" :key="selectedFolder + (folderSection || '')" :section="folderSection" :agents="folderAgents" @agent="openAgent" @section="folderSection = $event" :folder="folderExplorer.current" :suite-id="folderSuiteId" @changed="folderKnowledgeRevision++" @create-instruction="openCreate({ folderId: $event })" @file="openFile" @instruction="openInstructionById">
+          <template #instruction="{ item }"><InstrLeaf :ins="item" :indent="0" snippet /></template>
+          <template #empty="{search, canAdd}"><EmptyHint :text="search ? $t('agentsPage.noResults') : $t('agentsPage.noInstructions')" :add="!search && canAdd" :pad="20" @add="openCreate({folderId:selectedFolder!})" /></template>
+        </FolderKnowledge>
         <div v-else class="flex-1 flex items-center justify-center px-6">
           <div class="relative w-full max-w-lg h-72 overflow-hidden">
             <img src="/assets/empty-states/empty-integrations.png" alt="" class="absolute inset-x-0 bottom-8 w-full opacity-80 select-none pointer-events-none dark:hidden" />
