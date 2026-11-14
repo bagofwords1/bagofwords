@@ -7902,13 +7902,10 @@
     "addFailed": "Failed to add members"
   },
   "productUpdates": {
-    "checkbox": "Send me product updates and release notes",
-    "checkboxWithEmail": "Send product updates and release notes to {email}",
-    "disclosure": "Your email is linked to this instance's anonymous usage data. Unsubscribe anytime.",
+    "checkbox": "Send me product updates",
+    "checkboxWithEmail": "Send product updates to {email}",
     "settingsTitle": "Product updates",
-    "settingsHint": "Release notes, security updates and product news from Bag of Words.",
     "toggleLabel": "Email me product updates",
-    "sentTo": "Sent to {email}.",
-    "notSubscribed": "Off. Turning this on sends {email} to Bag of Words."
+    "sentTo": "Sent to {email}"
   }
 }

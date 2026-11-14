@@ -7149,13 +7149,10 @@
     "addFailed": "Échec de l’ajout des membres"
   },
   "productUpdates": {
-    "checkbox": "M'envoyer les nouveautés produit et les notes de version",
-    "checkboxWithEmail": "Envoyer les nouveautés produit et les notes de version à {email}",
-    "disclosure": "Votre e-mail est associé aux données d'utilisation anonymes de cette instance. Désabonnement possible à tout moment.",
-    "settingsTitle": "Nouveautés produit",
-    "settingsHint": "Notes de version, mises à jour de sécurité et actualités de Bag of Words.",
-    "toggleLabel": "Recevoir les nouveautés produit par e-mail",
-    "sentTo": "Envoyé à {email}.",
-    "notSubscribed": "Désactivé. L'activer envoie {email} à Bag of Words."
+    "checkbox": "M'envoyer les nouveautés du produit",
+    "checkboxWithEmail": "Envoyer les nouveautés du produit à {email}",
+    "settingsTitle": "Nouveautés du produit",
+    "toggleLabel": "Recevoir les nouveautés du produit par e-mail",
+    "sentTo": "Envoyé à {email}"
   }
 }

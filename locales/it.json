@@ -7149,13 +7149,10 @@
     "addFailed": "Impossibile aggiungere i membri"
   },
   "productUpdates": {
-    "checkbox": "Inviami novità sul prodotto e note di rilascio",
-    "checkboxWithEmail": "Invia novità sul prodotto e note di rilascio a {email}",
-    "disclosure": "La tua email viene collegata ai dati di utilizzo anonimi di questa istanza. Puoi annullare l'iscrizione in qualsiasi momento.",
-    "settingsTitle": "Novità sul prodotto",
-    "settingsHint": "Note di rilascio, aggiornamenti di sicurezza e novità da Bag of Words.",
-    "toggleLabel": "Ricevi novità sul prodotto via email",
-    "sentTo": "Inviate a {email}.",
-    "notSubscribed": "Disattivato. Attivandolo, {email} viene inviato a Bag of Words."
+    "checkbox": "Inviami gli aggiornamenti del prodotto",
+    "checkboxWithEmail": "Invia gli aggiornamenti del prodotto a {email}",
+    "settingsTitle": "Aggiornamenti del prodotto",
+    "toggleLabel": "Ricevi gli aggiornamenti del prodotto via email",
+    "sentTo": "Inviati a {email}"
   }
 }

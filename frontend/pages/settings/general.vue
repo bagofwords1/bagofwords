@@ -45,12 +45,12 @@
                 </SettingsRow>
             </SettingsSection>
 
-            <SettingsSection v-if="productUpdates.available" :title="$t('productUpdates.settingsTitle')" :description="$t('productUpdates.settingsHint')">
+            <SettingsSection v-if="productUpdates.available" :title="$t('productUpdates.settingsTitle')">
                 <SettingsRow
                     :label="$t('productUpdates.toggleLabel')"
                     :description="form.product_updates
                         ? $t('productUpdates.sentTo', { email: productUpdates.email || productUpdates.current_user_email })
-                        : $t('productUpdates.notSubscribed', { email: productUpdates.current_user_email })"
+                        : undefined"
                 >
                     <UToggle v-model="form.product_updates" data-testid="product-updates-toggle" />
                 </SettingsRow>

@@ -4,7 +4,7 @@ Self-hosted instances never send a user's email address by default. The one
 exception is this explicit opt-in: the admin ticks "Send me product updates"
 (on the first sign-up, on the onboarding welcome screen when they signed up
 through SSO, or later in Settings → General), and only then is their email
-sent to Bag of Words, once, through the instance's telemetry channel.
+sent to BOW, once, through the instance's telemetry channel.
 
 The decision is instance-wide — one admin per deployment is enough to reach
 it — so it lives in ``instance_settings`` (one row, key ``product_updates``).

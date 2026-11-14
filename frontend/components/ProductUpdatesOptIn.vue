@@ -6,11 +6,8 @@
       class="mt-0.5"
       @update:model-value="emit('update:modelValue', !!$event)"
     />
-    <label :for="inputId" class="text-sm leading-snug cursor-pointer select-none">
-      <span class="text-gray-900 dark:text-gray-100">
-        {{ email ? $t('productUpdates.checkboxWithEmail', { email }) : $t('productUpdates.checkbox') }}
-      </span>
-      <span class="block mt-0.5 text-xs text-ink-muted">{{ $t('productUpdates.disclosure') }}</span>
+    <label :for="inputId" class="text-sm leading-snug cursor-pointer select-none text-gray-900 dark:text-gray-100">
+      {{ email ? $t('productUpdates.checkboxWithEmail', { email }) : $t('productUpdates.checkbox') }}
     </label>
   </div>
 </template>

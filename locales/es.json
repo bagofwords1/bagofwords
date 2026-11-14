@@ -7873,13 +7873,10 @@
     "addFailed": "No se pudieron añadir los miembros"
   },
   "productUpdates": {
-    "checkbox": "Envíame novedades del producto y notas de la versión",
-    "checkboxWithEmail": "Enviar novedades del producto y notas de la versión a {email}",
-    "disclosure": "Tu correo se vincula a los datos de uso anónimos de esta instancia. Puedes darte de baja cuando quieras.",
+    "checkbox": "Envíame novedades del producto",
+    "checkboxWithEmail": "Enviar novedades del producto a {email}",
     "settingsTitle": "Novedades del producto",
-    "settingsHint": "Notas de la versión, actualizaciones de seguridad y novedades de Bag of Words.",
     "toggleLabel": "Enviarme novedades del producto por correo",
-    "sentTo": "Se envían a {email}.",
-    "notSubscribed": "Desactivado. Al activarlo se envía {email} a Bag of Words."
+    "sentTo": "Se envían a {email}"
   }
 }
