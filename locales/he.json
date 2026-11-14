@@ -3914,7 +3914,9 @@
         "keepAliveLabel": "השארה בזיכרון",
         "keepAliveTooltip": "Ollama בלבד: כמה זמן המודל נשאר טעון בין בקשות (למשל 5m).",
         "cachingLabel": "מטמון פרומפטים",
-        "cachingTooltip": "שימוש חוזר בקלט מהמטמון כשהספק תומך בכך, מה שמוזיל שאלות חוזרות."
+        "cachingTooltip": "שימוש חוזר בקלט מהמטמון כשהספק תומך בכך, מה שמוזיל שאלות חוזרות.",
+        "formatFoundryDecision1": "Microsoft Decision-1 (Foundry)",
+        "providerTileHint": "מודלי החלטה"
       }
     },
     "licensePage": {

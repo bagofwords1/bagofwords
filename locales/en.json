@@ -4000,7 +4000,9 @@
         "keepAliveLabel": "Keep alive",
         "keepAliveTooltip": "Ollama only: how long the model stays loaded between requests (for example 5m).",
         "cachingLabel": "Prompt caching",
-        "cachingTooltip": "Reuse cached input where the provider supports it, which lowers cost for repeated questions."
+        "cachingTooltip": "Reuse cached input where the provider supports it, which lowers cost for repeated questions.",
+        "formatFoundryDecision1": "Microsoft Decision-1 (Foundry)",
+        "providerTileHint": "Decision models"
       }
     },
     "licensePage": {

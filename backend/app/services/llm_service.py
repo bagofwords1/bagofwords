@@ -51,9 +51,17 @@ def _reject_decision_model(model, what: str) -> None:
 def _prepare_decision_model(provider_type: str, model) -> None:
     """Validate a decision model about to be created on ``provider_type`` and
     normalize its config. ``model`` is a dict or a schema object."""
-    from app.ai.llm.decisions import DECISION_PROVIDER_TYPES, validate_settings
+    from app.ai.llm.decisions import (
+        DECISION_ONLY_PROVIDER_TYPES, DECISION_PROVIDER_TYPES, FOUNDRY_DECISION_PATH,
+        is_foundry_decision_1, validate_settings,
+    )
     get = (lambda k, d=None: model.get(k, d)) if isinstance(model, dict) else (lambda k, d=None: getattr(model, k, d))
     if (get("model_kind") or "chat") != "decision":
+        if provider_type in DECISION_ONLY_PROVIDER_TYPES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{provider_type}' serves decision models only; add a chat model to another provider.",
+            )
         return
     if provider_type not in DECISION_PROVIDER_TYPES:
         raise HTTPException(
@@ -71,7 +79,12 @@ def _prepare_decision_model(provider_type: str, model) -> None:
         validate_settings(decision_cfg)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    if not cfg.get("decision_format") and provider_type in ("openai", "azure"):
+    if is_foundry_decision_1(provider_type, get("model_id")):
+        # Microsoft-Decision-1 on Foundry: System One on the resource root.
+        cfg.setdefault("decision_format", "systemone")
+        if cfg["decision_format"] == "systemone":
+            cfg.setdefault("decision_path", FOUNDRY_DECISION_PATH)
+    elif not cfg.get("decision_format") and provider_type in ("openai", "azure"):
         cfg["decision_format"] = "openai"
     if isinstance(model, dict):
         model["config"] = cfg or None
@@ -3457,7 +3470,8 @@ class LLMService:
                 is_enabled=True,
                 is_custom=False,
                 is_preset=bool(default_model_data.get("is_preset", False)),
-                is_default=False
+                is_default=False,
+                model_kind=default_model_data.get("model_kind", "chat"),
             )
 
         # Run a lightweight connection test against the LLM client
@@ -3466,6 +3480,26 @@ class LLMService:
             llm = LLM(selected_model, usage_session_maker=async_session_maker)
         except UnsafeURLError as e:
             return {"success": False, "message": str(e)}
+        if getattr(selected_model, "model_kind", "chat") == "decision":
+            # Decision-only provider (TypeSafe): one yes/no question, no chat.
+            from app.ai.llm.decisions import DecisionError
+            try:
+                res = await llm.decide(
+                    "The customer wrote: 'My card was charged twice and I want a refund.'",
+                    [{"type": "predicate", "name": "refund_request",
+                      "instructions": "Is the customer asking for a refund?"}],
+                    usage_scope="decision.test", should_record=False,
+                )
+            except DecisionError as exc:
+                return {"success": False, "message": str(exc)}
+            answer = res.by_name().get("refund_request") or {}
+            ok = answer.get("type") == "predicate"
+            return {
+                "success": ok,
+                "message": (f"Decision model answered in {res.latency_ms} ms" if ok
+                            else "The decision model declined the test question."),
+                "checks": [{"name": "decision", "success": ok}],
+            }
         result = await llm.test_connection()
         # A plain text reply is not enough: every agent turn sends function
         # tools, and some endpoints accept text but reject tools (e.g. GPT-6

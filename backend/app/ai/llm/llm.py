@@ -496,6 +496,9 @@ class LLM:
             self.client = BedrockClient(**bedrock_kwargs)
         elif self.provider == "vertex":
             self.client = self._build_vertex_client(additional_config, configured_temperature, custom_headers, identity_headers)
+        elif self.provider == "typesafe":
+            # Decision-only provider: no chat client (LLM.decide talks to it).
+            self.client = None
         else:
             raise ValueError(f"Provider {self.provider} not supported")
 
@@ -504,6 +507,8 @@ class LLM:
         # Reasoning settings the admin set on the model card travel on the
         # client so every adapter applies the same mode / raw request fields.
         model_config = getattr(self.model, "config", None) or {}
+        if self.client is None:
+            return  # decision-only provider: no chat client to configure
         _mode = reasoning_mode(model_config)
         if _mode == "like" and isinstance(model_config.get("reasoning_model_id"), str):
             self.client.reasoning_model_id = model_config["reasoning_model_id"]
@@ -1311,8 +1316,20 @@ class LLM:
         additional_config = provider.additional_config or {}
         headers = dict(static_provider_headers(additional_config) or {})
         api_key = self.api_key
-        if self.provider == "azure" and api_key:
-            headers.setdefault("api-key", api_key)
+        if self.provider == "azure":
+            auth_mode = additional_config.get("auth_mode", "api_key")
+            if auth_mode in ("entra_client_secret", "entra_default"):
+                # Same Entra ID token chat uses (Cognitive Services scope, the
+                # one Microsoft's Decision-1 sample requests). No API key exists
+                # in these modes.
+                try:
+                    token_provider = self._build_entra_token_provider(auth_mode, additional_config)
+                    token = await asyncio.to_thread(token_provider)
+                except Exception as exc:
+                    raise DecisionError(f"Could not get an Entra ID token: {exc.__class__.__name__}") from exc
+                headers["Authorization"] = f"Bearer {token}"
+            elif api_key:
+                headers.setdefault("api-key", api_key)
             api_key = None
         settings = decision_settings(self.model)
         if isinstance(input_value, str):

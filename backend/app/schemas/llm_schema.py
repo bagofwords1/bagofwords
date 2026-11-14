@@ -48,6 +48,7 @@ class LLMProviderCreate(LLMProviderBase):
             'custom': CustomCredentials,
             'bedrock': BedrockCredentials,
             'vertex': VertexCredentials,
+            'typesafe': TypeSafeCredentials,
         }
         
         schema = credential_schemas.get(values['provider_type'])
@@ -76,6 +77,7 @@ class LLMProviderTestConnection(LLMProviderBase):
             'custom': CustomCredentials,
             'bedrock': BedrockCredentials,
             'vertex': VertexCredentials,
+            'typesafe': TypeSafeCredentials,
         }
 
         schema = credential_schemas.get(values['provider_type'])
@@ -215,6 +217,11 @@ class CustomCredentials(ProviderHeadersMixin):
     # only parse tool calls on /v1/responses (e.g. gpt-oss on vLLM/NIM without
     # a tool-call parser). Persisted to additional_config, not encrypted.
     use_responses_api: Optional[bool] = None
+
+class TypeSafeCredentials(ProviderHeadersMixin):
+    """TypeSafe (Jev): a decision-only provider. The endpoint is fixed
+    (https://api.typesafe.ai/v1, System One) — only the API key is needed."""
+    api_key: str
 
 class CustomConfig(BaseModel):
     max_tokens: Optional[int] = 4096

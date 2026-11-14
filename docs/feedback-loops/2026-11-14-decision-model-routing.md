@@ -179,3 +179,45 @@ server-side `kind` filter is the pattern to fix it.
 Not covered by an automated test: the agent-side wiring
 (`_apply_upfront_routing_decision` writing the step) — verified in Loop B and
 the trace modal; the routing decision itself is covered by Loop A.
+
+---
+
+## Follow-up in this PR — TypeSafe provider + Azure fixes
+
+### TypeSafe as a first-class, decision-only provider
+
+- New provider type `typesafe` (`TypeSafeCredentials`: API key only; endpoint
+  fixed to `https://api.typesafe.ai/v1`, System One). `LLM` builds no chat
+  client for it; adding a chat model to it returns 400; its connection test
+  asks one yes/no decision instead of a chat ping.
+- Catalog: **`jev-1.14.0` pinned** (not the moving `jev-latest` alias), kind
+  decision, System One, **$0.042 per million input tokens, output free**,
+  64k context, no question limit — all from TypeSafe's own
+  [models page](https://docs.typesafe.ai/models.md) (`$42 / $0.042` per
+  Btok/Mtok; "Output tokens are free"; `jev-latest` → `jev-1.14.0`).
+
+### Azure
+
+1. **Entra ID sign-in.** Decisions previously sent only the stored API key, so
+   providers on `entra_client_secret` / `entra_default` went out unauthenticated.
+   `LLM.decide` now reuses `_build_entra_token_provider` (Cognitive Services
+   scope — the same scope Microsoft's Decision-1 sample requests) and sends
+   `Authorization: Bearer <token>`; API-key providers keep the `api-key` header.
+2. **Microsoft-Decision-1 defaults.** Per Microsoft's
+   [Decision-1 announcement](https://techcommunity.microsoft.com/blog/azure-ai-foundry-blog/introducing-microsoft-decision-1-in-microsoft-foundry-for-decision-and-classific/4562742):
+   `POST {resource}/providers/microsoft/v1/systemone`, System One body, model =
+   deployment name. A deployment whose name contains "decision-1" now defaults
+   to that format and path; any other name can pick the "Microsoft Decision-1
+   (Foundry)" option when adding the model. The base URL is normalized to the
+   resource root (`_azure_resource_root`), so a pasted `…/openai/v1` or
+   deployment target URI still hits the right route.
+
+Loop A additions (`tests/e2e/rbac/test_decision_models.py`): 9 tests — red
+first (`9 failed`: unknown provider type, missing catalog row, Azure default
+format `openai`, request sent with no credentials under Entra), then green.
+Full decision file: `47 passed`.
+
+Still not verified live: Azure (no Foundry deployment available). The
+Entra scope is a documented conflict — Microsoft's Decision-1 sample uses
+`https://cognitiveservices.azure.com/.default`, the Foundry auth page names
+`https://ai.azure.com/.default`; we use the former, matching chat.

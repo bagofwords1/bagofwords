@@ -510,6 +510,28 @@ LLM_MODEL_DETAILS = [
     # enablement before it resolves at all, and they carry no list price we can
     # report. The OpenAI-compatible transport that serves them is still wired
     # (see LLM._build_vertex_client) — add one as a custom model to use it.
+    # TypeSafe Jev — decision-only provider (System One). Pinned release, not
+    # the moving `jev-latest` alias, so behavior changes only with a catalog
+    # update. Source: https://docs.typesafe.ai/models.md — $0.042 per million
+    # input tokens ($42/Btok), output free; 64k context per request (262k with
+    # the long-context header); no separate limit on the number of questions.
+    {
+        "name": "Jev 1.14",
+        "model_id": "jev-1.14.0",
+        "provider_type": "typesafe",
+        "model_kind": "decision",
+        "decision_format": "systemone",
+        "max_questions": 1000,
+        "question_types": ["predicate", "choice", "score"],
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "is_small_default": False,
+        "supports_vision": False,
+        "context_window_tokens": 64000,
+        "input_cost_per_million_tokens_usd": 0.042,
+        "output_cost_per_million_tokens_usd": 0.0
+    },
     # Image-generation models (produce images), not chat models. Gated by
     # supports_image_generation; consumed by LLM.generate_image / the
     # generate_image tool, which prefers them in this order. They replace

@@ -114,6 +114,10 @@
                     <select v-model="decisionFormat" class="bow-native-control w-56" data-testid="add-model-decision-format">
                         <option value="openai">{{ $t('settings.llms.decision.formatOpenai') }}</option>
                         <option value="systemone">{{ $t('settings.llms.decision.formatSystemone') }}</option>
+                        <!-- Azure: Microsoft-Decision-1 on Foundry (System One on
+                             /providers/microsoft/v1/systemone), for deployments
+                             whose name doesn't say "decision-1". -->
+                        <option v-if="selectedProvider?.provider_type === 'azure'" value="foundry_decision_1">{{ $t('settings.llms.decision.formatFoundryDecision1') }}</option>
                     </select>
                 </div>
                 <!-- Vision -->
@@ -238,20 +242,32 @@ const costIn = ref<number | null>(null);
 const costOut = ref<number | null>(null);
 const isSubmitting = ref(false);
 const kind = ref<'chat' | 'decision'>('chat');
-const decisionFormat = ref<'openai' | 'systemone'>('systemone');
+const decisionFormat = ref<'openai' | 'systemone' | 'foundry_decision_1'>('systemone');
+const FOUNDRY_DECISION_PATH = '/providers/microsoft/v1/systemone';
 // Providers with a decision API (Bedrock, Anthropic, Google and Vertex have none).
-const DECISION_PROVIDER_TYPES = ['openai', 'azure', 'custom'];
+const DECISION_PROVIDER_TYPES = ['openai', 'azure', 'custom', 'typesafe'];
+// Providers that serve decision models only — never offered for a chat model.
+const DECISION_ONLY_PROVIDER_TYPES = ['typesafe'];
 const visibleProviders = computed(() =>
-    kind.value === 'decision' ? props.providers.filter(p => DECISION_PROVIDER_TYPES.includes(p.provider_type)) : props.providers);
+    kind.value === 'decision'
+        ? props.providers.filter(p => DECISION_PROVIDER_TYPES.includes(p.provider_type))
+        : props.providers.filter(p => !DECISION_ONLY_PROVIDER_TYPES.includes(p.provider_type)));
 
 watch(kind, (k) => {
-    if (k === 'decision' && selectedProvider.value && !DECISION_PROVIDER_TYPES.includes(selectedProvider.value.provider_type)) {
+    if (selectedProvider.value && !visibleProviders.value.some(p => p.id === selectedProvider.value?.id)) {
         selectedProviderId.value = visibleProviders.value[0]?.id ?? null;
     }
     if (k === 'decision') {
         const t = selectedProvider.value?.provider_type;
         decisionFormat.value = t === 'openai' || t === 'azure' ? 'openai' : 'systemone';
     }
+});
+
+// The format a new decision model starts with follows its provider.
+watch(selectedProviderId, () => {
+    if (kind.value !== 'decision') return;
+    const t = selectedProvider.value?.provider_type;
+    decisionFormat.value = t === 'openai' || t === 'azure' ? 'openai' : 'systemone';
 });
 
 watch(open, (isOpen) => {
@@ -266,8 +282,8 @@ watch(open, (isOpen) => {
         costIn.value = null;
         costOut.value = null;
         providerListOpen.value = false;
-        if (!selectedProviderId.value || !props.providers.some(p => p.id === selectedProviderId.value)) {
-            selectedProviderId.value = props.providers[0]?.id ?? null;
+        if (!selectedProviderId.value || !visibleProviders.value.some(p => p.id === selectedProviderId.value)) {
+            selectedProviderId.value = visibleProviders.value[0]?.id ?? null;
         }
     }
 });
@@ -319,7 +335,9 @@ const submit = async () => {
                 model_kind: kind.value,
                 // Empty field → no config key → no temperature is ever sent.
                 config: kind.value === 'decision'
-                    ? { decision_format: decisionFormat.value }
+                    ? (decisionFormat.value === 'foundry_decision_1'
+                        ? { decision_format: 'systemone', decision_path: FOUNDRY_DECISION_PATH }
+                        : { decision_format: decisionFormat.value })
                     : (temp != null ? { temperature: temp } : null),
             },
         });

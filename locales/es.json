@@ -3914,7 +3914,9 @@
         "keepAliveLabel": "Mantener cargado",
         "keepAliveTooltip": "Solo Ollama: cuánto tiempo sigue cargado el modelo entre solicitudes (por ejemplo, 5m).",
         "cachingLabel": "Caché de prompts",
-        "cachingTooltip": "Reutiliza la entrada en caché cuando el proveedor lo permite, lo que reduce el coste de preguntas repetidas."
+        "cachingTooltip": "Reutiliza la entrada en caché cuando el proveedor lo permite, lo que reduce el coste de preguntas repetidas.",
+        "formatFoundryDecision1": "Microsoft Decision-1 (Foundry)",
+        "providerTileHint": "Modelos de decisión"
       }
     },
     "licensePage": {
