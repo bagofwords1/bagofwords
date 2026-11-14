@@ -743,7 +743,7 @@ function persistSelectionIfReport(folders = props.folderIds) {
             }
             return
         }
-        window.dispatchEvent(new CustomEvent('report:mutated', {detail:{reportId, kind:'data_sources', ids}}))
+        window.dispatchEvent(new CustomEvent('report:mutated', {detail:{reportId, kind:'data_sources', ids, folderIds: [...folders]}}))
     }).catch(error => { scopeSaved = false; toast.add({title: String(error), color:'red'}) })
 }
 const dataTooltip = computed<string>(() => {

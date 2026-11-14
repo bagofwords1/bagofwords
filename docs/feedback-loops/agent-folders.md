@@ -509,3 +509,11 @@ Before this change, the layout test could only find a folder-only rule under `bo
 The Git hierarchy mirrors existing workspace folders containing instructions in the build. A marketing rule can live at `bow/folders/marketing/brand/route.md`. An agent there uses `agents/<agent-name>/` beneath the folder. A shared rule has one file under `bow/shared/` with its targets in frontmatter. Import resolves the targets against the organization and checks the repository owner's instruction-management access. An unresolved target fails the sync. Empty directories have no Git representation. Git sync continues to operate on instruction builds.
 
 On Home, select a folder and reload. Open the picker again and check its selection, then open a new report with no explicit project or agent. Chrome showed the folder selected in both places. Existing reports retain their own scope.
+
+### Folder scope across reports, Git sync, evals and traces
+
+In the seeded workspace, set the personal scope to Auto. Open an existing report, select Marketing, and open a new report. Marketing should be checked. Choose Auto on the existing report and verify the membership has no folder pins. On Home, delay the personal-default GET until after clicking Marketing and verify the choice survives the response. The browser reproduced the lost selection with the previous report event payload and verified both flows with the current payload.
+
+For Git sync, run `tests/unit/test_git_write_layout.py` and `tests/e2e/test_git_sync_builds.py` from the backend. The tests cover a same-workspace export returning through the importer, a shared rule missing its targets, loss of permission on a former target, and an agent nested beneath a hidden ancestor. The rollback test rejects the second file after the first file's normal import path commits, then checks both the instruction list and the main build.
+
+Run `tests/e2e/rbac/test_agent_folders.py` for the 300-agent roster and folder eval cases. A pinned eval retains its folder context and limits planner discovery to the case targets. Run `tests/e2e/rbac/test_rbac_console_scope.py::test_folder_activity_only_discloses_observed_managed_agent` for multi-folder trace attribution. Migration `folder12` records starting folders on new executions. Older executions retain their recorded primary folder.

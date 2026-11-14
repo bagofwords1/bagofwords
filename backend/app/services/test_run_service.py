@@ -234,7 +234,7 @@ class TestRunService:
                 force_global=True,
             )
 
-    async def _create_stub_report(self, db: AsyncSession, organization_id: str, user_id: str, title: str, ds_ids: Optional[List[str]] = None, folder_id=None) -> Report:
+    async def _create_stub_report(self, db: AsyncSession, organization_id: str, user_id: str, title: str, ds_ids: Optional[List[str]] = None, folder_id=None, pin_targets=False) -> Report:
         slug = f"testrun-{uuid.uuid4().hex[:12]}"
         report = Report(
             title=title,
@@ -250,7 +250,7 @@ class TestRunService:
         from sqlalchemy.orm import lazyload
         requested = set(ds_ids or [])
         agents = []
-        if requested and not folder_id:
+        if requested and (pin_targets or not folder_id):
             agents = list(await db.scalars(select(DataSource).options(lazyload("*")).where(
                 DataSource.organization_id == organization_id, DataSource.id.in_(requested),
                 DataSource.deleted_at.is_(None), DataSource.is_active.is_(True),
@@ -405,7 +405,7 @@ class TestRunService:
             targets = roster if use_folder_roster else list(case.data_source_ids_json or [])
             report = await self._create_stub_report(
                 db, str(organization.id), str(current_user.id), report_title,
-                ds_ids=targets, folder_id=folder_id if use_folder_roster else None,
+                ds_ids=targets, folder_id=folder_id, pin_targets=bool(case.data_source_ids_json),
             )
             head = await self._create_head_completion(db, str(report.id), organization, current_user, prompt=case.prompt_json or {})
 

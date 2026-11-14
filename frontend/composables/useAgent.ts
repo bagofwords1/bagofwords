@@ -118,6 +118,7 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null
 // overwriting anything another tab or device changed in between.
 let serverIds: string[] | null = null
 let serverFolders: string[] = []
+let preferenceEdited = false
 let saveChain: Promise<void> = Promise.resolve()
 // Selections come in bursts (a click on one row can clear a pin and set
 // another), and each one is a PUT. Coalesce them.
@@ -210,13 +211,14 @@ export function useAgent() {
       // New workspace: drop the old org's scope before anything can save it
       // back, and stop treating it as loaded.
       preferenceLoaded = false
+      if (preferenceOrgId !== null) preferenceEdited = false
       preferenceOrgId = orgId
       serverIds = null
       serverFolders = []
       folderCacheKey = cacheKey
-      selectedFolders.value = cacheKey ? readJsonArray(cacheKey) || [] : []
+      if (!preferenceEdited) selectedFolders.value = cacheKey ? readJsonArray(cacheKey) || [] : []
       if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
-      selectedAgents.value = loadFromStorage(orgId)
+      if (!preferenceEdited) selectedAgents.value = loadFromStorage(orgId)
     }
 
     inflightPreference = (async () => {
@@ -226,15 +228,22 @@ export function useAgent() {
         // No usable answer (useMyFetch reports HTTP failures through `error`,
         // not by throwing) — leave `preferenceLoaded` false so we keep the
         // cached scope and never write a guess back over the stored one.
-        if (!Array.isArray(ids) || preferenceOrgId !== orgId) return
+        if (!Array.isArray(ids) || preferenceOrgId !== orgId || folderCacheKey !== cacheKey) return
         serverFolders = data.value?.agent_folder_ids || []
-        if (!sameIds(selectedFolders.value, serverFolders)) selectedFolders.value = [...serverFolders]
+
         const loaded = ids.map((x: any) => String(x))
         serverIds = [...loaded]
+        preferenceLoaded = true
+        if (preferenceEdited) {
+          preferenceEdited = false
+          const pins = [...selectedAgents.value], folders = [...selectedFolders.value]
+          saveChain = saveChain.then(() => persistPreference(pins, folders, orgId))
+          return
+        }
+        if (!sameIds(selectedFolders.value, serverFolders)) selectedFolders.value = [...serverFolders]
         if (!sameIds(loaded, [...selectedAgents.value])) {
           selectedAgents.value = loaded
         }
-        preferenceLoaded = true
       } catch (error) {
         // Offline or a 5xx: keep the cached scope for this session rather than
         // silently resetting the user to Auto. Leaving `preferenceLoaded` false
@@ -485,6 +494,7 @@ export function useAgent() {
 
   // Select specific agents
   function selectAgents(agentIds: string[]) {
+    if (!preferenceLoaded && !sameIds(agentIds, selectedAgents.value)) preferenceEdited = true
     selectedAgents.value = agentIds
   }
 
@@ -493,7 +503,10 @@ export function useAgent() {
     selectedAgents: readonly(selectedAgents),
     selectedFolders: readonly(selectedFolders),
     selectFolders(ids: string[]) {
-      if (!sameIds(ids, selectedFolders.value)) selectedFolders.value = [...ids]
+      if (!sameIds(ids, selectedFolders.value)) {
+        if (!preferenceLoaded) preferenceEdited = true
+        selectedFolders.value = [...ids]
+      }
     },
     agents: readonly(agents),
     loading: readonly(loading),

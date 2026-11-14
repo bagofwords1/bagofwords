@@ -29,6 +29,7 @@ class TimingBreakdownSchema(BaseModel):
 
 class AgentExecutionTraceResponse(BaseModel):
     folder_name: Optional[str] = None
+    folder_names: List[str] = []
     used_agents: List[str] = []
     agent_execution: AgentExecutionSchema
     completion_blocks: List[CompletionBlockV2Schema]

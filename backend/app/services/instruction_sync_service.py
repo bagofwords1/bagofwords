@@ -1075,6 +1075,18 @@ class InstructionSyncService:
         targets = frontmatter.get('bow_targets')
         if directory.startswith('folders/'):
             targets = [directory]
+        elif directory == 'shared' and targets is None:
+            # Older exports named their shared agents in frontmatter.
+            names = frontmatter.get('agents')
+            if not isinstance(names, list) or not names or not all(isinstance(n, str) for n in names):
+                raise ValueError("Shared Git instruction requires explicit targets")
+            layout = await GitFolderLayout.load(db, org.id)
+            by_name = {}
+            for aid, name in layout.names.items():
+                by_name.setdefault(name, []).append(layout.agents[aid])
+            if any(len(by_name.get(name, [])) != 1 for name in names):
+                raise ValueError("Git instruction target is unavailable")
+            targets = [by_name[name][0] for name in names]
         elif targets is None:
             return None
         if not isinstance(targets, list) or not targets or not all(isinstance(t, str) for t in targets):
@@ -1095,6 +1107,21 @@ class InstructionSyncService:
         if data_source and (folders or agents != [data_source.id]):
             raise ValueError("Git instruction targets exceed repository agent scope")
         return folders, agents
+
+    async def _require_existing_git_scope(self, db, instruction, org_id, actor_id):
+        from app.services.folder_knowledge import instruction_folder_ids
+        from app.core.permission_resolver import resolve_permissions
+
+        folders = set(await instruction_folder_ids(db, instruction.id))
+        if instruction.owner_folder_id:
+            folders.add(instruction.owner_folder_id)
+        await db.refresh(instruction, ['data_sources'])
+        if folders or instruction.data_sources:
+            rights = await resolve_permissions(db, actor_id, org_id)
+            if (any(not rights.has_resource_permission('folder', fid, 'manage_instructions') for fid in folders)
+                    or any(not rights.has_resource_permission('data_source', ds.id, 'manage_instructions')
+                           for ds in instruction.data_sources)):
+                raise ValueError("Existing Git instruction target is unavailable")
 
     async def _apply_git_targets(self, db, instruction, targets):
         from app.models.folder import folder_instructions
@@ -1132,6 +1159,17 @@ class InstructionSyncService:
         """
         from pathlib import Path as PurePath
 
+        frontmatter = self._parse_frontmatter_from_content(file_content)
+        exported_id = frontmatter.get("bow_instruction_id")
+        if isinstance(exported_id, str):
+            original = await db.scalar(select(Instruction.id).where(
+                Instruction.id == exported_id, Instruction.organization_id == organization.id,
+                Instruction.deleted_at.is_(None),
+                (Instruction.source_type != "git") | Instruction.source_sync_enabled.is_(False)))
+            if original:
+                # This is a write-back of a BOW-owned rule. Only linked Git rules
+                # accept edits from the repository.
+                return None
         existing = await self._find_instruction_by_file_path(db, file_path, organization.id)
 
         # Rule 1: New file -> Create
@@ -1154,11 +1192,11 @@ class InstructionSyncService:
 
         # Rule 4: Linked -> Update text field directly
         # Check if content actually changed (using hash)
-        frontmatter = self._parse_frontmatter_from_content(file_content)
         targets = await self._git_targets(db, file_path, frontmatter, organization, git_repo, data_source)
         scoped_before = self._parse_frontmatter_from_content(existing.text or '').get('bow_targets')
         if scoped_before and targets is None:
             raise ValueError("Missing targets for scoped Git instruction")
+        await self._require_existing_git_scope(db, existing, organization.id, git_repo.user_id)
         if existing.content_hash == content_hash and targets is None:
             existing.source_git_commit_sha = git_repo.last_indexed_commit_sha
             await db.commit()
@@ -1247,6 +1285,7 @@ class InstructionSyncService:
                 logger.debug(f"Created version {version.id} for updated file instruction {existing.id}")
             except Exception as e:
                 logger.warning(f"Failed to create version for file instruction {existing.id}: {e}")
+                raise
 
         logger.info(f"Updated instruction {existing.id} from file {file_path}")
         return existing
@@ -1395,6 +1434,7 @@ class InstructionSyncService:
                 logger.debug(f"Created version {version.id} for new file instruction {instruction.id}")
             except Exception as e:
                 logger.warning(f"Failed to create version for file instruction {instruction.id}: {e}")
+                raise
 
         logger.info(f"Created file instruction {instruction.id} for {file_path}")
         return instruction
@@ -1524,6 +1564,7 @@ class InstructionSyncService:
         current_file_paths: set,
         path_prefix: Optional[str] = None,
         build: Optional[InstructionBuild] = None,
+        actor_id: Optional[str] = None,
     ) -> int:
         """
         Archive instructions for files that no longer exist in git.
@@ -1557,6 +1598,8 @@ class InstructionSyncService:
         archived_count = 0
         for instruction in instructions:
             if instruction.source_file_path not in current_file_paths:
+                if actor_id:
+                    await self._require_existing_git_scope(db, instruction, org_id, actor_id)
                 instruction.status = 'archived'
                 archived_count += 1
                 logger.info(f"Archived instruction {instruction.id} - file {instruction.source_file_path} was deleted")
@@ -1572,6 +1615,7 @@ class InstructionSyncService:
                         )
                     except Exception as e:
                         logger.warning(f"Failed to add archived instruction {instruction.id} to build: {e}")
+                        raise
 
         if archived_count > 0:
             await db.commit()

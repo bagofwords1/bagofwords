@@ -294,6 +294,12 @@ async def prepare_run_agents(db, organization: Any, user: Any, report: Any,
     if getattr(report, "report_type", None) == "test" and eval_targets is not None:
         from app.core.permissions_decorator import require_org_permission, check_resource_permissions
         from app.models.eval import TestResult, TestCase, TestSuite
+        from app.models.report_data_source_association import report_data_source_association
+        persisted_pins = set(await db.scalars(
+            select(report_data_source_association.c.data_source_id)
+            .where(report_data_source_association.c.report_id == report.id)
+        ))
+        pinned_eval = bool(persisted_pins)
         origin = await db.scalar(select(TestResult.folder_id).where(TestResult.report_id == report.id))
         if getattr(report, "agent_folder_id", None) or origin:
             from app.services.folder_knowledge import require_capability
@@ -308,25 +314,28 @@ async def prepare_run_agents(db, organization: Any, user: Any, report: Any,
                                            TestCase.deleted_at.is_(None), TestCase.status == "active"))
             if not suite or not eval_targets:
                 raise HTTPException(409, "Folder eval scope changed")
-            if report.agent_folder_id and set(eval_targets) != {a.id for a in agents}:
+            if report.agent_folder_id and not pinned_eval and set(eval_targets) != {a.id for a in agents}:
                 raise HTTPException(409, "Folder eval scope changed")
             if suite.owner_folder_id:
                 await require_capability(db, organization, user, suite.owner_folder_id, "manage_evals")
-            elif report.agent_folder_id:
+            elif report.agent_folder_id and not pinned_eval:
                 await require_org_permission(db, user.id, organization.id, "manage_evals")
-            if not report.agent_folder_id:
+            if pinned_eval or not report.agent_folder_id:
                 from types import SimpleNamespace
                 branch = await resolve_run_agents(db, organization, user, SimpleNamespace(agent_folder_id=fid, data_sources=[]))
                 if not set(eval_targets) <= {a.id for a in branch}:
                     raise HTTPException(409, "An eval target is unavailable in this folder")
-        if eval_targets and not getattr(report, "agent_folder_id", None):
+        if eval_targets and (pinned_eval or not getattr(report, "agent_folder_id", None)):
             await check_resource_permissions(db, user.id, organization.id, "data_source", eval_targets, "manage_evals")
             allowed = set(eval_targets)
             usable, _ = await svc.filter_user_usable_data_sources(db, agents, user)
             agents = [a for a in usable if a.id in allowed]
-            attached = {a.id for a in report.data_sources}
-            if attached != allowed or {a.id for a in agents} != allowed:
+            if persisted_pins != allowed or {a.id for a in agents} != allowed:
                 raise HTTPException(409, "An eval target is unavailable")
+            if origin and not report.agent_folder_id:
+                from sqlalchemy.orm.attributes import set_committed_value
+                set_committed_value(report, "agent_folder_id", origin)
+                set_committed_value(report, "additional_folders", [])
         elif not eval_targets:
             await require_org_permission(db, user.id, organization.id, "manage_evals")
     if report is not None and (agent_ids is not None or getattr(report, "agent_folder_id", None)):
@@ -373,6 +382,9 @@ async def resolve_candidate_agents(
     """
     if getattr(report, "agent_folder_id", None):
         agents = await resolve_run_agents(db, organization, user, report)
+        if getattr(report, "report_type", None) == "test" and report.eval_target_ids is not None:
+            allowed = set(report.eval_target_ids)
+            agents = [agent for agent in agents if agent.id in allowed]
         if mode == "training":
             from app.core.permission_resolver import resolve_permissions
             rights = await resolve_permissions(db, str(user.id), str(organization.id))

@@ -5372,6 +5372,7 @@ class AgentV2:
                 is_eval_run=self.is_eval_run,
             )
             if getattr(self.report, "agent_folder_id", None):
+                self.current_execution.starting_folder_ids = report_folder_ids(self.report)
                 self.current_execution.starting_folder_id = self.report.agent_folder_id
                 await self.db.commit()
             # Sub-agent child: bind the execution to its row, narrow the catalog to

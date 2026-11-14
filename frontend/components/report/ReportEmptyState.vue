@@ -261,10 +261,19 @@ function isAgentSelected(agent: any) {
 // starter Prompts (not the legacy data_source.conversation_starters JSON).
 // Each prompt's `text` is "Title\nDetailed prompt" — split into { title, prompt }.
 const conversationStarters = ref<{ title: string; prompt: string }[]>([])
-async function loadAgentStarters() {
-	const ids = [...new Set((props.currentAgents || []).map((a: any) => a?.id).filter(Boolean))]
-	if (!ids.length) { conversationStarters.value = []; return }
-	const texts: string[] = []
+const starterAgentIds = computed(() => {
+    const pins = props.currentAgents.map(agent => agent.id).filter(Boolean)
+    const ids = props.folderIds.length
+        ? agentsInSelection(props.availableAgents, pins, props.folderIds, props.availableFolders).map(agent => agent.id)
+        : pins
+    return [...new Set<string>(ids)].sort()
+})
+async function loadAgentStarters(ids: string[], _previous: unknown, onCleanup: (fn: () => void) => void) {
+    let current = true
+    onCleanup(() => { current = false })
+    conversationStarters.value = []
+    if (!ids.length) return
+    const texts: string[] = []
 	try {
 		// Fetch starters for all selected agents in ONE batched request (union)
 		// instead of one /prompts call per agent — a report with many attached
@@ -272,6 +281,7 @@ async function loadAgentStarters() {
 		const { data } = await useMyFetch(`/prompts?data_source_ids=${ids.join(',')}`)
 		for (const p of ((data.value as any)?.prompts || [])) if (p?.text) texts.push(p.text)
 	} catch { /* ignore */ }
+    if (!current) return
 	conversationStarters.value = [...new Set<string>(texts)].slice(0, 3).map((s: string) => {
 		const nl = s.indexOf('\n')
 		return nl === -1
@@ -282,7 +292,7 @@ async function loadAgentStarters() {
 // Key the watch on the actual set of agent ids (not a deep watch) so starters
 // are refetched only when agents are added/removed, not on every nested change.
 watch(
-	() => [...new Set((props.currentAgents || []).map((a: any) => a?.id).filter(Boolean))].sort().join(','),
+	starterAgentIds,
 	loadAgentStarters,
 	{ immediate: true },
 )

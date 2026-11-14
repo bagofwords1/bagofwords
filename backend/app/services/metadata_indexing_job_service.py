@@ -760,14 +760,6 @@ class MetadataIndexingJobService:
                     await db.commit()
                     return
 
-                # Re-fetch data source if provided
-                data_source = None
-                if data_source_id:
-                    ds_result = await db.execute(
-                        select(DataSource).where(DataSource.id == data_source_id)
-                    )
-                    data_source = ds_result.scalar_one_or_none()
-
                 # Phase 1: Walk files
                 await db.execute(
                     update(MetadataIndexingJob)
@@ -787,122 +779,105 @@ class MetadataIndexingJobService:
                 )
                 await db.commit()
 
-                # Phase 2: Create/get build
-                sync_build = None
-                try:
-                    if build_id:
-                        sync_build = await self.build_service.get_build(db, build_id)
-                        if sync_build:
-                            logger.info(f"Job {job_id}: Using pre-created build {build_id}")
-
-                    if not sync_build:
-                        sync_build = await self.build_service.get_or_create_draft_build(
-                            db,
-                            current_org.id,
-                            source='git',
-                            metadata_indexing_job_id=job_id,
-                            commit_sha=git_repo.last_indexed_commit_sha,
-                            branch=git_repo.branch,
-                        )
-                        logger.info(f"Job {job_id}: Created build {sync_build.id} for file indexing")
-
-                    await db.execute(
-                        update(MetadataIndexingJob)
-                        .where(MetadataIndexingJob.id == job_id)
-                        .values(build_id=sync_build.id)
-                    )
-                    await db.commit()
-                except Exception as build_error:
-                    logger.warning(f"Job {job_id}: Failed to create/get build: {build_error}")
-
-                # Phase 3: Sync each file to instruction
-                synced_count = 0
-                sync_errors = 0
-                for i, file_info in enumerate(files):
+                # Existing services commit their session between steps. Join them to
+                # one connection-owned transaction so a later failure rolls back
+                # the whole import, including live placements and build promotion.
+                async with db.bind.begin() as connection, AsyncSession(
+                    bind=connection, expire_on_commit=False, join_transaction_mode="rollback_only"
+                ) as batch:
+                    git_repo = await batch.get(GitRepository, repository_id)
+                    current_org = await batch.get(Organization, organization_id)
+                    data_source = await batch.get(DataSource, data_source_id) if data_source_id else None
+                    if not current_org or not git_repo or (data_source_id and not data_source):
+                        raise ValueError("Git sync destination unavailable")
+                    # Phase 2: Create/get build
+                    sync_build = None
                     try:
-                        result = await self.instruction_sync_service.sync_file_to_instruction(
-                            db=db,
-                            file_path=file_info.relative_path,
-                            file_content=file_info.content,
-                            content_hash=file_info.content_hash,
-                            organization=current_org,
-                            git_repo=git_repo,
-                            resource_type=file_info.resource_type,
-                            build=sync_build,
-                            data_source=data_source,
-                        )
-                        if result:
-                            synced_count += 1
-                    except Exception as sync_error:
-                        sync_errors += 1
-                        logger.error(
-                            f"Job {job_id}: Failed to sync file {file_info.relative_path}: {sync_error}",
-                            exc_info=True,
-                        )
+                        if build_id:
+                            sync_build = await self.build_service.get_build(batch, build_id)
+                            if sync_build:
+                                logger.info(f"Job {job_id}: Using pre-created build {build_id}")
 
-                    # Update progress every 10 files or on last item
-                    if (i + 1) % 10 == 0 or i == total_files - 1:
-                        await db.execute(
+                        if not sync_build:
+                            sync_build = await self.build_service.get_or_create_draft_build(
+                                batch,
+                                organization_id,
+                                source='git',
+                                metadata_indexing_job_id=job_id,
+                                commit_sha=git_repo.last_indexed_commit_sha,
+                                branch=git_repo.branch,
+                            )
+                            logger.info(f"Job {job_id}: Created build {sync_build.id} for file indexing")
+
+                        await batch.execute(
                             update(MetadataIndexingJob)
                             .where(MetadataIndexingJob.id == job_id)
-                            .values(processed_files=i + 1)
+                            .values(build_id=sync_build.id)
                         )
-                        await db.commit()
+                        await batch.commit()
+                    except Exception as build_error:
+                        raise RuntimeError("Failed to initialize Git build") from build_error
 
-                logger.info(f"Job {job_id}: Synced {synced_count}/{total_files} files ({sync_errors} errors)")
+                    # Phase 3: Sync each file to instruction
+                    synced_count = 0
+                    for file_info in files:
+                        result = await self.instruction_sync_service.sync_file_to_instruction(
+                            batch, file_info.relative_path, file_info.content, file_info.content_hash,
+                            current_org, git_repo, resource_type=file_info.resource_type,
+                            build=sync_build, data_source=data_source)
+                        if result:
+                            synced_count += 1
 
-                if sync_errors:
-                    raise ValueError(f"Git sync failed for {sync_errors} file(s). Check the indexing log before retrying.")
+                    # Phase 4: Archive deleted files (scoped to this repo)
+                    current_paths = {f.relative_path for f in files}
+                    path_prefix = f"{repo_name}/"
+                    archived_count = await self.instruction_sync_service.archive_deleted_files(
+                        db=batch,
+                        org_id=organization_id,
+                        current_file_paths=current_paths,
+                        path_prefix=path_prefix,
+                        actor_id=git_repo.user_id,
+                        build=sync_build,
+                    )
+                    if archived_count > 0:
+                        logger.info(f"Job {job_id}: Archived {archived_count} instructions for deleted files")
 
-                # Phase 4: Archive deleted files (scoped to this repo)
-                current_paths = {f.relative_path for f in files}
-                path_prefix = f"{repo_name}/"
-                archived_count = await self.instruction_sync_service.archive_deleted_files(
-                    db=db,
-                    org_id=current_org.id,
-                    current_file_paths=current_paths,
-                    path_prefix=path_prefix,
-                    build=sync_build,
-                )
-                if archived_count > 0:
-                    logger.info(f"Job {job_id}: Archived {archived_count} instructions for deleted files")
+                    # Phase 5: Finalize build
+                    if sync_build and not build_id:
+                        try:
+                            await self.build_service.submit_build(batch, sync_build.id)
+                            await self.build_service.approve_build(batch, sync_build.id, approved_by_user_id=None)
+                            await self.build_service.promote_build(batch, sync_build.id, user_id=git_repo.user_id)
+                            logger.info(f"Job {job_id}: Finalized build {sync_build.id}")
+                        except Exception as finalize_error:
+                            raise RuntimeError("Failed to finalize Git build") from finalize_error
+                    elif sync_build and build_id:
+                        logger.info(f"Job {job_id}: Build {sync_build.id} left in draft for manual review")
 
-                # Phase 5: Finalize build
-                if sync_build and not build_id:
-                    try:
-                        await self.build_service.submit_build(db, sync_build.id)
-                        await self.build_service.approve_build(db, sync_build.id, approved_by_user_id=None)
-                        await self.build_service.promote_build(db, sync_build.id)
-                        logger.info(f"Job {job_id}: Finalized build {sync_build.id}")
-                    except Exception as finalize_error:
-                        logger.warning(f"Job {job_id}: Failed to finalize build: {finalize_error}")
-                elif sync_build and build_id:
-                    logger.info(f"Job {job_id}: Build {sync_build.id} left in draft for manual review")
-
-                # Update job status
-                await db.execute(
-                    update(MetadataIndexingJob)
-                    .where(MetadataIndexingJob.id == job_id)
-                    .values({
-                        "status": "completed",
-                        "completed_at": datetime.utcnow(),
-                        "total_resources": total_files,
-                        "processed_resources": synced_count,
-                        "total_files": total_files,
-                        "processed_files": total_files,
-                        "current_phase": "completed",
-                    })
-                )
-                await db.execute(
-                    update(GitRepository)
-                    .where(GitRepository.id == repository_id)
-                    .values({
-                        "status": "completed",
-                        "updated_at": datetime.utcnow(),
-                        "last_indexed_at": datetime.utcnow(),
-                    })
-                )
-                await db.commit()
+                    # Update job status
+                    await batch.execute(
+                        update(MetadataIndexingJob)
+                        .where(MetadataIndexingJob.id == job_id)
+                        .values({
+                            "status": "completed",
+                            "completed_at": datetime.utcnow(),
+                            "total_resources": total_files,
+                            "processed_resources": synced_count,
+                            "total_files": total_files,
+                            "processed_files": total_files,
+                            "current_phase": "completed",
+                        })
+                    )
+                    await batch.execute(
+                        update(GitRepository)
+                        .where(GitRepository.id == repository_id)
+                        .values({
+                            "status": "completed",
+                            "updated_at": datetime.utcnow(),
+                            "last_indexed_at": datetime.utcnow(),
+                        })
+                    )
+                    await batch.commit()
 
             except Exception as e:
                 logger.error(f"Job {job_id}: Error during file indexing: {e}", exc_info=True)

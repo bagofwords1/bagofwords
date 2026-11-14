@@ -14,6 +14,7 @@ class AgentExecution(BaseSchema):
     report_id = Column(String(36), ForeignKey('reports.id'), nullable=True)
 
     starting_folder_id = Column(String(36), nullable=True)
+    starting_folder_ids = Column(JSON, nullable=True)
 
     # Status and timing
     status = Column(String, nullable=False, default='in_progress')

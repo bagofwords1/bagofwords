@@ -1231,6 +1231,13 @@ class GitService:
                 raise ValueError("Cannot export an unavailable folder")
             if any(fid not in layout.folders for fid in folder_ids):
                 raise ValueError("Cannot export an instruction with an unavailable folder")
+            if rights:
+                # A directory path discloses every ancestor, including for agent-only rules.
+                paths = [layout.folders[fid] for fid in folder_ids] + [layout.agents[aid] for aid in ds_ids]
+                for fid, parent_path in layout.folders.items():
+                    if any(path == parent_path or path.startswith(parent_path + '/') for path in paths):
+                        if not rights.has_resource_permission("folder", fid, "view"):
+                            raise ValueError("Cannot export an unavailable folder path")
             targets = sorted([layout.folders[f] for f in folder_ids] + [layout.agents[d] for d in ds_ids])
             if not targets and version.scope_mode == "targeted":
                 raise ValueError("Cannot export a targeted instruction with no available targets")
@@ -1276,7 +1283,7 @@ class GitService:
             # Emit frontmatter via yaml.safe_dump so names/refs with YAML-special
             # characters (":", leading "-"/"#", "777", "yes", ...) stay valid and
             # re-parse cleanly on sync-back.
-            frontmatter: Dict[str, Any] = {}
+            frontmatter: Dict[str, Any] = {"bow_instruction_id": str(instruction.id)}
             if targets:
                 frontmatter['bow_targets'] = targets
             if agent_names:

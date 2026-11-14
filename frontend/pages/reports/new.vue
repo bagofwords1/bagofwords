@@ -89,7 +89,7 @@ definePageMeta({
 
 const route = useRoute()
 const { isExcel } = useExcel()
-const { agents, selectedAgentObjects, effectiveAgentObjects, selectedFolders } = useAgent()
+const { agents, selectedAgentObjects, selectedFolders } = useAgent()
 const { projects, fetchProjects } = useProjects()
 
 // ── Draft context, all carried in the query string ──────────────────────
@@ -175,7 +175,7 @@ const showInstructionsModal = ref(false)
 // the create fails (the box toasts and keeps the text for a retry).
 const pendingPrompt = ref<{ text: string } | null>(null)
 const instructionPanelAgents = computed(() => [
-	...(currentAgents.value.length ? currentAgents.value : (effectiveAgentObjects.value || [])),
+	...agentsInSelection(availableAgents.value, currentAgents.value.map(a => a.id), folderIds.value, availableFolders.value),
 	{ id: '__global__', name: 'Global', isGlobal: true },
 ])
 

@@ -5259,7 +5259,7 @@ onMounted(() => {
 // to — so changing agents inside a report also seeds the next new report.
 // selectedAgents is read-only here; selectAgents writes it, tripping the
 // debounced PUT /users/me/default_agents watcher in useAgent.
-const { selectAgents, selectedAgents } = useAgent()
+const { selectAgents, selectedAgents, selectFolders } = useAgent()
 
 // A child (the dashboard pane's rename) changed this report's title. The
 // page owns `report` and passes it down as a prop, so it is the one that
@@ -5278,6 +5278,7 @@ function onReportMutated(ev: CustomEvent) {
     // report hydration never does, so opening a report can't silently overwrite the
     // default. Guard against a no-op re-save when the scope already matches.
     if (ev?.detail?.kind === 'data_sources' && Array.isArray(ev.detail.ids)) {
+        if (Array.isArray(ev.detail.folderIds)) selectFolders(ev.detail.folderIds)
         const ids = ev.detail.ids.map((id: any) => String(id))
         const current = [...selectedAgents.value]
         if (!(ids.length === current.length && ids.every((id: string, i: number) => id === current[i]))) {

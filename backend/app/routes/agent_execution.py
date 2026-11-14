@@ -47,12 +47,15 @@ async def _trace(db, organization, user, execution_id):
     from app.models.agent_execution import folder_execution_agents
 
     trace = await console_service.get_agent_execution_trace(db, organization, execution_id)
-    folder_id = await db.scalar(select(AgentExecution.starting_folder_id).where(AgentExecution.id == execution_id))
-    if folder_id:
+    primary, folders = (await db.execute(select(AgentExecution.starting_folder_id, AgentExecution.starting_folder_ids)
+        .where(AgentExecution.id == execution_id))).one()
+    if primary:
         rights = await resolve_permissions(db, user.id, organization.id)
-        if rights.has_resource_permission("folder", folder_id, "view"):
-            trace.folder_name = await db.scalar(select(Folder.name).where(Folder.id == folder_id,
-                Folder.organization_id == organization.id, Folder.deleted_at.is_(None)))
+        visible = [fid for fid in folders or [primary] if rights.has_resource_permission("folder", fid, "view")]
+        names = dict((await db.execute(select(Folder.id, Folder.name).where(Folder.id.in_(visible),
+            Folder.organization_id == organization.id, Folder.deleted_at.is_(None)))).all())
+        trace.folder_names = [names[fid] for fid in visible if fid in names]
+        trace.folder_name = names.get(primary)
         trace.used_agents = list(await db.scalars(select(DataSource.name).join(folder_execution_agents,
             folder_execution_agents.c.agent_id == DataSource.id).where(
                 folder_execution_agents.c.execution_id == execution_id,

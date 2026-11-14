@@ -296,8 +296,8 @@
 
                                 <!-- Overview: prompt + assessment (judge) + context -->
                                 <template v-if="selectedItem.id === 'overview'">
-                                    <p v-if="traceData?.folder_name || traceData?.used_agents?.length" class="mb-2 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
-                                        <UIcon name="i-heroicons-folder" /><span>{{ traceData.folder_name }}</span>
+                                    <p v-if="traceData?.folder_names?.length || traceData?.folder_name || traceData?.used_agents?.length" class="mb-2 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+                                        <UIcon name="i-heroicons-folder" /><span>{{ traceData.folder_names?.join(' · ') || traceData.folder_name }}</span>
                                         <span v-for="name in traceData.used_agents" :key="name" class="rounded bg-gray-100 px-2 dark:bg-gray-800">{{ name }}</span>
                                     </p>
                                     <!-- User prompt -->
@@ -745,6 +745,7 @@ interface TimingBreakdown {
 }
 
 interface AgentExecutionTraceResponse {
+    folder_names?: string[]
     folder_name?: string
     used_agents?: string[]
     agent_execution: any

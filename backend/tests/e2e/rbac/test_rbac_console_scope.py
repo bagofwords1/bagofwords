@@ -349,10 +349,18 @@ def test_folder_activity_only_discloses_observed_managed_agent(test_client, cons
     def get(actor, path):
         return test_client.get("/api/console/" + path, headers=_headers(w[actor]["token"], w["org_id"]))
 
+    folder_ids = []
+    for name in ("Research", "Operations"):
+        folder = test_client.post("/api/folders", json={"name": name},
+                                  headers=_headers(w["admin"]["token"], w["org_id"]))
+        assert folder.is_success, folder.text
+        folder_ids.append(folder.json()["id"])
+
     async def record():
         async with async_session_maker() as db:
             run = await db.scalar(select(AgentExecution).where(AgentExecution.report_id == w["report_joint"]["id"]))
-            run.starting_folder_id = str(uuid.uuid4())
+            run.starting_folder_id = folder_ids[0]
+            run.starting_folder_ids = folder_ids
             a = await db.get(DataSource, w["agent_a"]["id"])
             b = await db.get(DataSource, w["agent_b"]["id"])
             outcome = {"tool_name": "create_data", "tool_input": {"tables_by_source": [{"data_source_id": a.id}]}}
@@ -371,3 +379,4 @@ def test_folder_activity_only_discloses_observed_managed_agent(test_client, cons
     trace = get("admin", "agent_executions/" + eid)
     assert trace.is_success, trace.text
     assert trace.json()["used_agents"] == [w["agent_a"]["name"]]
+    assert trace.json()["folder_names"] == ["Research", "Operations"]

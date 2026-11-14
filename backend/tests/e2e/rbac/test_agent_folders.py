@@ -495,12 +495,21 @@ def test_folder_role_levels_and_agent_exceptions(
     pinned_base = f"folders/{folder}/knowledge/evals/{pinned_suite}"
     assert request(admin, "PUT", pinned_base).is_success
     assert request(member, "POST", pinned_base + "/runs").status_code == 403
+    peer = sqlite_data_source(name="Second eligible campaign agent", user_token=admin["token"], org_id=org)["id"]
+    assert request(admin, "PUT", f"folders/items/agent/{peer}/placement", parent_id=folder).is_success
+    assert request(admin, "POST", f"folders/{folder}/knowledge/instructions",
+                   title="Pinned eval routing", text="PINNED_EVAL_FOLDER_CONTEXT").is_success
+    llm["planner"].clear()
     pinned_run = request(admin, "POST", pinned_base + "/runs")
     assert pinned_run.is_success, pinned_run.text
     pinned_id = pinned_run.json()["id"]
     assert request(admin, "POST", f"tests/runs/{pinned_id}/stream").is_success
     pinned_result = request(admin, "GET", f"tests/runs/{pinned_id}/results").json()[0]
     assert pinned_result["status"] == "pass", pinned_result
+    prompt = llm["planner"][0]
+    assert "PINNED_EVAL_FOLDER_CONTEXT" in prompt
+    roster = prompt.partition("<available_agents")[2].partition("</available_agents>")[0]
+    assert "Campaigns" in roster and "Second eligible campaign agent" not in roster
 
     assert request(admin, "PUT", roles + "/" + role, resource_grants=[grant]).is_success
     assert request(member, "GET", f"tests/runs/{run_id}/results").status_code in (403, 404)

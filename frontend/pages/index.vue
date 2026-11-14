@@ -25,7 +25,7 @@
         </p>
       </div>
       <div class="mt-4">
-        <PromptBoxV2 allow-folder-scope :initial-folder-ids="[...selectedFolders]" @update:folder-ids="selectFolders"
+        <PromptBoxV2 @update:available-folders="scopeFolders = $event" @update:available-data-sources="scopeAgents = $event" allow-folder-scope :initial-folder-ids="[...selectedFolders]" @update:folder-ids="selectFolders"
           :textareaContent="textareaContent"
           :initialSelectedDataSources="selectedDataSources"
           :compact="true"
@@ -77,7 +77,7 @@
            then snapped to the report column the moment the report existed.
            The box you type into should not resize when you press enter. -->
       <div class="w-full max-w-chat mx-auto mt-5 rounded-lg relative z-20">
-          <PromptBoxV2 allow-folder-scope :initial-folder-ids="[...selectedFolders]" @update:folder-ids="selectFolders"
+          <PromptBoxV2 @update:available-folders="scopeFolders = $event" @update:available-data-sources="scopeAgents = $event" allow-folder-scope :initial-folder-ids="[...selectedFolders]" @update:folder-ids="selectFolders"
               :textareaContent="textareaContent"
               :initialSelectedDataSources="selectedDataSources"
               @update:modelValue="handlePromptUpdate"
@@ -184,7 +184,7 @@ import McpIcon from '~/components/icons/McpIcon.vue';
 import { useCan } from '~/composables/usePermissions'
 const router = useRouter()
 const { onboarding, fetchOnboarding } = useOnboarding()
-const { selectedAgentObjects, effectiveAgentObjects, selectedAgents, selectAgents, selectedFolders, selectFolders } = useAgent()
+const { selectedAgentObjects, selectedAgents, selectAgents, selectedFolders, selectFolders } = useAgent()
 const previous_reports = ref<any[]>([])
 const models = ref<any[]>([])
 const isLoading = ref(true)
@@ -196,7 +196,9 @@ const hasLoadedModels = ref(false)
 const selectedDataSources = computed(() => selectedAgentObjects.value)
 // What the selection resolves to today — for panels that need concrete agents
 // to fetch/render against rather than a scope to send to the backend.
-const resolvedDataSources = computed(() => effectiveAgentObjects.value)
+const scopeFolders = ref<import('~/composables/useAgentFolderOptions').AgentFolderOption[]>([])
+const scopeAgents = ref<any[]>([])
+const resolvedDataSources = computed(() => agentsInSelection(scopeAgents.value, selectedAgents.value, selectedFolders.value, scopeFolders.value))
 
 // Picking agents in the prompt box IS the user's scope choice, so it feeds the
 // shared selection and persists to their membership. Guarded against the round

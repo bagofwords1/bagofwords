@@ -74,13 +74,9 @@ async def can_open(db, report, user, org, managed):
     from app.models.report_data_source_association import report_data_source_association as pins
 
     rights = await resolve_permissions(db, user.id, org.id)
-    origins = set(
-        await db.scalars(
-            select(AE.starting_folder_id)
-            .where(AE.report_id == report.id, AE.starting_folder_id.is_not(None))
-            .distinct()
-        )
-    )
+    starts = await db.execute(select(AE.starting_folder_id, AE.starting_folder_ids)
+        .where(AE.report_id == report.id, AE.starting_folder_id.is_not(None)))
+    origins = {fid for primary, folders in starts for fid in folders or [primary]}
     from app.services.folder_service import load_report_folders
     origins.update(await load_report_folders(db, report))
     if any(not rights.has_resource_permission("folder", fid, "view") for fid in origins):

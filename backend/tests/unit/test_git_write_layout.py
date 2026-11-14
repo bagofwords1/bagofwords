@@ -362,6 +362,13 @@ async def test_nested_folder_rule_round_trip(maker, tmp_path, monkeypatch):
         rights.resource_permissions[("folder", child.id)] = {"manage_instructions"}
         path = "bow/folders/marketing/brand/route.md"
         body = (repo / path).read_text()
+        sync = InstructionSyncService()
+        settings = GitRepository(user_id=user_id, auto_publish=False, default_load_mode="auto")
+        assert await sync.sync_file_to_instruction(db, "demo/" + path, body, "1"*64, org, settings) is None
+        # A different workspace has no local instruction with that exported id.
+        body = body.replace(rule.id, str(uuid.uuid4()))
+        with pytest.raises(ValueError, match="target"):
+            await sync.sync_file_to_instruction(db, "demo/bow/shared/missing.md", "# missing scope", "3"*64, org, settings)
         imported = await InstructionSyncService().sync_file_to_instruction(
             db, "demo/" + path, body, "1"*64, org,
             GitRepository(user_id=user_id, auto_publish=False, default_load_mode="auto"))
@@ -377,7 +384,7 @@ async def test_nested_folder_rule_round_trip(maker, tmp_path, monkeypatch):
         await GitService()._write_build_to_repo(db, build, str(repo))
         assert not (repo / path).exists()
         shared = "demo/bow/shared/route.md"
-        body = (repo / "bow/shared/route.md").read_text()
+        body = (repo / "bow/shared/route.md").read_text().replace(rule.id, str(uuid.uuid4()))
         sync = InstructionSyncService()
         settings = GitRepository(user_id=user_id, auto_publish=False, default_load_mode="auto")
         imported = await sync.sync_file_to_instruction(db, shared, body, "2"*64, org, settings)
@@ -387,3 +394,14 @@ async def test_nested_folder_rule_round_trip(maker, tmp_path, monkeypatch):
         with pytest.raises(ValueError, match="unavailable"):
             await sync.sync_file_to_instruction(db, shared, body, "2"*64, org, settings)
         assert set(await instruction_folder_ids(db, imported.id)) == {parent.id, child.id}
+        rights.resource_permissions[("folder", parent.id)] = {"manage_instructions"}
+        with pytest.raises(ValueError, match="Existing Git instruction target"):
+            await sync.sync_file_to_instruction(
+                db, shared, "---\nbow_targets: [folders/marketing]\n---\nEdited", "4"*64, org, settings)
+        assert set(await instruction_folder_ids(db, imported.id)) == {parent.id, child.id}
+        rights.resource_permissions.clear()
+        rights.resource_permissions[("folder", child.id)] = {"view"}
+        version.data_source_ids, version.folder_ids = [agent.id], []
+        await db.commit()
+        with pytest.raises(ValueError, match="unavailable folder path"):
+            await GitService()._write_build_to_repo(db, build, str(repo), user_id=user_id)

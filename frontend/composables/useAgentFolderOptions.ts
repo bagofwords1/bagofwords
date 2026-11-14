@@ -47,3 +47,19 @@ export function channelScopePayload(values: string[]) {
     agent_folder_ids: values.filter(id => id.startsWith('folder:')).map(id => id.slice(7)),
   }
 }
+
+export function agentsInSelection<T extends {id: string, folder_id?: string | null}>(
+  agents: readonly T[], pins: readonly string[], folderIds: readonly string[], folders: readonly AgentFolderOption[],
+): T[] {
+  if (!folderIds.length && !pins.length) return [...agents]
+  const selected = new Set(folderIds)
+  const visible = new Set(folders.map(folder => folder.id))
+  const branch = new Set(folders.filter(folder => {
+    for (const id of folder.ancestors) {
+      if (!visible.has(id)) break
+      if (selected.has(id)) return true
+    }
+    return false
+  }).map(folder => folder.id))
+  return agents.filter(agent => pins.includes(agent.id) || (agent.folder_id && branch.has(agent.folder_id)))
+}
