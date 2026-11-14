@@ -713,7 +713,8 @@ async function loadModels() {
   try {
     const res = await useMyFetch('/api/llm/models?is_enabled=true')
     const list = res.data?.value
-    models.value = Array.isArray(list) ? list : []
+    // Image-generation models can't chat; the server also rejects them.
+    models.value = Array.isArray(list) ? list.filter((m: any) => !m?.supports_image_generation) : []
     userDefaultModelId.value = models.value.find((m: any) => m.is_user_default)?.id || null
     modelsLoaded.value = true
   } catch {

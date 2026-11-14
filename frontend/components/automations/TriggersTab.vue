@@ -599,7 +599,8 @@ async function fetchTriggers() {
 async function fetchModels() {
   try {
     const { data } = await useMyFetch('/llm/models?is_enabled=true')
-    models.value = ((data.value as any[]) || []).filter((m: any) => m.is_enabled !== false)
+    // Image-generation models can't chat; the server also rejects them.
+    models.value = ((data.value as any[]) || []).filter((m: any) => m.is_enabled !== false && !m?.supports_image_generation)
   } catch { models.value = [] }
 }
 
