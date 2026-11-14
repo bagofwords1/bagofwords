@@ -84,6 +84,7 @@ class ToolInfo(BaseModel):
 
 class DataSourceInfo(BaseModel):
     """Summary of a data source with its tables."""
+    folder_path: Optional[str] = None
     id: str
     name: str
     type: Optional[str] = None
@@ -325,6 +326,7 @@ class MCPListInstructionsOutput(BaseModel):
 
 class MCPCreateInstructionInput(BaseModel):
     """Input for create_instruction MCP tool."""
+    folder_id: Optional[str] = Field(None, description="Attach to this exact folder. Supply either folder_id or agent IDs.")
     text: str = Field(..., description="The instruction content that guides AI behavior")
     title: Optional[str] = Field(default=None, description="Optional title for the instruction")
     category: str = Field(default="general", description="Category: code_gen, data_modeling, general, dashboard, visualization")
@@ -334,6 +336,7 @@ class MCPCreateInstructionInput(BaseModel):
 
 class MCPCreateInstructionOutput(BaseModel):
     """Output for create_instruction MCP tool."""
+    folder_id: Optional[str] = None
     success: bool
     instruction_id: Optional[str] = None
     build_status: Optional[str] = Field(default=None, description="Build status: approved (live) or pending_approval (needs admin review)")

@@ -236,7 +236,7 @@ def _drive_dispatcher(report_id, prev_system_id, portal=None):
             pending = [
                 task for task in asyncio.all_tasks()
                 if task is not asyncio.current_task()
-                and task.get_coro().__qualname__.endswith("CompletionService._run_dispatched_agent")
+                and getattr(task.get_coro(), "__qualname__", "").endswith("CompletionService._run_dispatched_agent")
             ]
             if not pending:
                 return
@@ -278,7 +278,7 @@ def _wait_for_automatic_queue_drain(portal, first_head_id, timeout=30.0):
             workers = [
                 task for task in asyncio.all_tasks()
                 if task is not asyncio.current_task()
-                and task.get_coro().__qualname__.endswith("CompletionService._run_dispatched_agent")
+                and getattr(task.get_coro(), "__qualname__", "").endswith("CompletionService._run_dispatched_agent")
             ]
             if first_system is not None and first_system.status != "in_progress" and not workers:
                 return
@@ -956,7 +956,7 @@ def _settle_queue_work(portal, timeout=30.0):
         while asyncio.get_running_loop().time() < deadline:
             pending = [t for t in asyncio.all_tasks()
                        if t is not asyncio.current_task() and not t.done()
-                       and t.get_coro().__qualname__.endswith(names)]
+                       and getattr(t.get_coro(), "__qualname__", "").endswith(names)]
             if not pending:
                 return
             await asyncio.wait(pending, timeout=deadline - asyncio.get_running_loop().time())

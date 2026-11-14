@@ -375,7 +375,7 @@ class CreateInstructionMCPTool(MCPTool):
     name = "create_instruction"
     description = (
         "Create a new instruction that guides AI behavior when generating code and analyzing data. "
-        "It is published immediately. Pass data_source_ids to scope it to agents you manage "
+        "Pass folder_id for a rule owned by one folder. Pass data_source_ids to scope it to agents you manage "
         "instructions on; without them it is global (every agent), which needs org-level "
         "instruction admin."
     )
@@ -396,7 +396,15 @@ class CreateInstructionMCPTool(MCPTool):
         # every listed agent; POST /instructions/global (no agents) needs it
         # org-wide. An agent manager can't author an org-wide rule.
         try:
-            await require_scope_authority(db, user, organization, ds_ids)
+            if input_data.folder_id:
+                if ds_ids:
+                    raise HTTPException(422, "Choose a folder or specific agents")
+                from app.services.folder_service import lock_tree
+                from app.services.folder_knowledge import require_capability
+                await lock_tree(db, organization, user)
+                await require_capability(db, organization, user, input_data.folder_id, "manage_instructions")
+            else:
+                await require_scope_authority(db, user, organization, ds_ids)
         except HTTPException as e:
             return MCPCreateInstructionOutput(
                 success=False, requires_approval=False, error_message=_refusal(e),
@@ -416,7 +424,7 @@ class CreateInstructionMCPTool(MCPTool):
         try:
             result = await svc.create_instruction(
                 db=db, instruction_data=instruction_data, current_user=user,
-                organization=organization, force_global=True,
+                organization=organization, folder_id=input_data.folder_id,
             )
         except Exception as e:
             # A DB error's text carries the title and text as bound parameters.
@@ -431,7 +439,7 @@ class CreateInstructionMCPTool(MCPTool):
         logger.info("create_instruction: %s by user %s pending=%s", result.id, user.id, pending)
         return MCPCreateInstructionOutput(
             success=True,
-            instruction_id=str(result.id),
+            instruction_id=str(result.id), folder_id=input_data.folder_id,
             build_status="pending_approval" if pending else "approved",
             requires_approval=pending,
         ).model_dump()

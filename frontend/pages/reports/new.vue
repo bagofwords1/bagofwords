@@ -25,7 +25,8 @@
 				<ReportEmptyState
 					v-else
 					:mode="currentMode"
-					:available-agents="availableAgents"
+					 :available-folders="availableFolders" :folder-ids="folderIds" @toggle-folder="promptBoxRef?.chooseFolder($event)" @auto="promptBoxRef?.chooseAuto()"
+                    :available-agents="availableAgents"
 					:current-agents="currentAgents"
 					:agents-are-auto="agentsAreAuto"
 					@toggle-agent="toggleAgentSelection"
@@ -37,12 +38,14 @@
 		<!-- Composer: same container as the report view. -->
 		<div class="shrink-0 bg-white dark:bg-gray-900">
 			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-chat']">
-				<PromptBoxV2
+				<PromptBoxV2 allow-folder-scope
+                    @update:available-folders="availableFolders = $event" @update:folder-ids="folderIds = $event"
 					ref="promptBoxRef"
 					:project="draftProject"
 					:projectSelectable="true"
 					:initialSelectedDataSources="initialAgents"
 					:initialMode="initialMode"
+                    :initial-folder-ids="initialFolders"
 					:textareaContent="prefill"
 					:compact="isExcel"
 					@update:modelValue="(v: string) => prefill = v"
@@ -86,7 +89,7 @@ definePageMeta({
 
 const route = useRoute()
 const { isExcel } = useExcel()
-const { agents, selectedAgentObjects, effectiveAgentObjects } = useAgent()
+const { agents, selectedAgentObjects, selectedFolders } = useAgent()
 const { projects, fetchProjects } = useProjects()
 
 // ── Draft context, all carried in the query string ──────────────────────
@@ -129,7 +132,12 @@ const draftProject = computed(() => {
 // and misses agents created since. Dropping the id would leave the selection
 // empty — which is Auto — and a prompt sent then would create an Auto report.
 // The selector fills in the full object from its own fetch (alignSelection).
+const initialFolders = computed(() => {
+    if (typeof route.query.folder === 'string' && route.query.folder) return [route.query.folder]
+    return projectId.value || agentIds.value.length ? [] : [...selectedFolders.value]
+})
 const initialAgents = computed(() => {
+	if (route.query.folder) return []
 	if (agentIds.value.length) {
 		const byId = new Map((agents.value || []).map((a: any) => [String(a.id), a]))
 		return agentIds.value.map(id => byId.get(String(id)) || { id })
@@ -142,6 +150,8 @@ const initialAgents = computed(() => {
 // it — the empty state renders the selection, the box owns it.
 const promptBoxRef = ref<any>(null)
 const currentAgents = ref<any[]>([])
+const availableFolders = ref<import('~/composables/useAgentFolderOptions').AgentFolderOption[]>([])
+const folderIds = ref<string[]>([])
 const availableAgents = ref<any[]>([])
 const agentsAreAuto = ref(false)
 const currentMode = ref<'chat' | 'training'>(initialMode.value)
@@ -165,7 +175,7 @@ const showInstructionsModal = ref(false)
 // the create fails (the box toasts and keeps the text for a retry).
 const pendingPrompt = ref<{ text: string } | null>(null)
 const instructionPanelAgents = computed(() => [
-	...(currentAgents.value.length ? currentAgents.value : (effectiveAgentObjects.value || [])),
+	...agentsInSelection(availableAgents.value, currentAgents.value.map(a => a.id), folderIds.value, availableFolders.value),
 	{ id: '__global__', name: 'Global', isGlobal: true },
 ])
 

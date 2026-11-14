@@ -463,9 +463,13 @@ class ExternalPlatformManager:
         scope = await self.platform_service.resolve_scope_agent_ids(
             db, platform_id, routing_channel_id
         )
-        if not scope:
+        if scope is None:
             return data_source_ids
-        return [dsid for dsid in data_source_ids if str(dsid) in scope]
+        permitted = [dsid for dsid in data_source_ids if str(dsid) in scope]
+        if not permitted:
+            from fastapi import HTTPException
+            raise HTTPException(403, "No available agents in this channel")
+        return permitted
 
     async def _get_or_create_conversation_report(
         self,
@@ -831,7 +835,7 @@ class ExternalPlatformManager:
         # WhatsApp, both of which reuse a report across messages (Slack DMs/
         # channels mint a fresh report per top-level message) and only when
         # reusing an existing report (a freshly created one is already current).
-        if platform_type in ("teams", "whatsapp", "google_chat") and report is not None and not created:
+        if report is not None and not created:
             from app.services.report_service import ReportService
             if channel_type == "channel":
                 fresh = await self.data_source_service.get_public_data_sources(db, organization, channel=platform_type)

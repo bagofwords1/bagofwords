@@ -190,3 +190,18 @@ def test_deleted_agent_drops_out_and_empty_scope_reads_as_auto(test_client, cast
     )
     assert del_resp.status_code in (200, 204), del_resp.text
     assert _get_agents(test_client, admin_t, org) == []
+
+
+def test_folder_preference_round_trip_and_isolation(test_client, cast):
+    admin = _headers(cast["admin"]["token"], cast["org_id"])
+    member = _headers(cast["member"]["token"], cast["org_id"])
+    endpoint = "/api/users/me/default_agents"
+    created = test_client.post("/api/folders", headers=admin, json={"name": "Marketing"})
+    assert created.is_success, created.text
+    folder = created.json()["id"]
+    selection = {"data_source_ids": [cast["shared_id"]], "agent_folder_ids": [folder]}
+    assert test_client.put(endpoint, headers=admin, json=selection).json() == selection
+    assert test_client.get(endpoint, headers=admin).json() == selection
+    assert test_client.get(endpoint, headers=member).json()["agent_folder_ids"] == []
+    assert test_client.put(endpoint, headers=member, json=selection).json()["agent_folder_ids"] == []
+    assert test_client.put(endpoint, headers=admin, json={"data_source_ids": [], "agent_folder_ids": []}).json()["agent_folder_ids"] == []

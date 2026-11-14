@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class ApplicationCreate(BaseModel):
+    agent_folder_ids: Optional[list[str]] = Field(default=None, max_length=500)
     name: str = Field(min_length=1, max_length=255)
     agent_ids: Optional[list[str]] = Field(default_factory=list, max_length=500)
 
@@ -17,6 +18,7 @@ class ApplicationCreate(BaseModel):
 
 
 class ApplicationUpdate(BaseModel):
+    agent_folder_ids: Optional[list[str]] = Field(default=None, max_length=500)
     name: Optional[str] = Field(default=None, min_length=1, max_length=255)
     enabled: Optional[bool] = None
     agent_ids: Optional[list[str]] = Field(default=None, max_length=500)

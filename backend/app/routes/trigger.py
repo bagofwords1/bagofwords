@@ -58,6 +58,7 @@ async def create_trigger(
             db=db, organization_id=organization.id, action="trigger.created",
             user_id=current_user.id, resource_type="webhook", resource_id=wh.id,
             details={"source": wh.source, "mode": wh.mode,
+                     "agent_folder_ids": wh.agent_folder_ids or [],
                      "data_source_ids": [d.id for d in wh.data_sources]},
             request=request,
         )

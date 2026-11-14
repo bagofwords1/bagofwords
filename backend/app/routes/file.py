@@ -327,7 +327,7 @@ async def get_file_embed_token(
     await file_access.get_viewable_file_or_404(db, current_user, organization, file_id)
 
     from app.core.file_tokens import mint_file_token, file_embed_url
-    token = mint_file_token(file_id, organization_id=str(organization.id))
+    token = mint_file_token(file_id, organization_id=str(organization.id), viewer_id=current_user.id)
     return {"file_id": file_id, "token": token, "url": file_embed_url(file_id, token)}
 
 
@@ -361,6 +361,11 @@ async def get_file_embed(
     )).scalar_one_or_none()
     if not file or str(file.organization_id) != str(claims["org"]):
         raise HTTPException(status_code=404, detail="File not found")
+    if claims.get("uid"):
+        viewer = await db.get(User, claims["uid"])
+        org = await db.get(Organization, file.organization_id)
+        if not viewer or not viewer.is_active or not await file_access.user_can_view_file(db, viewer, org, file):
+            raise HTTPException(404, "File not found")
     if claims.get("rid"):
         from app.models.report import Report as _Report
         bound_report = (await db.execute(

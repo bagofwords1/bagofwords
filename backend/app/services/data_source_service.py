@@ -647,6 +647,9 @@ class DataSourceService:
         await db.commit()
 
     async def create_data_source(self, db: AsyncSession, organization: Organization, current_user: User, data_source: DataSourceCreate):
+        if data_source.folder_id is not None:
+            from app.services.folder_service import require_folder_manager
+            await require_folder_manager(db, organization.id, current_user.id, data_source.folder_id)
         # Convert Pydantic model to dict
         data_source_dict = data_source.dict()
 
@@ -848,7 +851,7 @@ class DataSourceService:
         }
         
         # Create the data source instance
-        new_data_source = DataSource(**ds_create_dict)
+        new_data_source = DataSource(**ds_create_dict, folder_id=data_source.folder_id)
 
         # Associate with connection(s)
         if connections_to_link:
@@ -1321,6 +1324,12 @@ class DataSourceService:
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
 
+        if current_user and (data_source.publish_status == "draft" or data_source.reliability_status == "development"):
+            from app.core.permission_resolver import resolve_permissions
+            rights = await resolve_permissions(db, str(current_user.id), str(organization.id))
+            if not self.lifecycle_visible(data_source, rights):
+                raise HTTPException(404, "Data source not found")
+
         # Build connections list from CACHED status only (live_test=False).
         # This endpoint used to live-test every connection whose cached status
         # was older than 5 minutes — sequentially, inside the request, with no
@@ -1384,7 +1393,22 @@ class DataSourceService:
             except Exception as e:
                 logger.warning("Failed to serialize primary_instruction: %s", e)
 
+        folder_id = folder_name = folder_role = None
+        if current_user and data_source.folder_id:
+            from app.core.permission_resolver import resolve_permissions
+            from app.models.folder import Folder
+            rights = await resolve_permissions(db, current_user.id, organization.id)
+            if rights.has_resource_permission("folder", data_source.folder_id, "view"):
+                folder_id = data_source.folder_id
+                inherited = rights.resource_permissions.get(("folder", folder_id), set())
+                if data_source.inherits_folder_access and inherited:
+                    folder_name = await db.scalar(select(Folder.name).where(Folder.id == folder_id))
+                    folder_role = "manager" if "manage" in inherited else "viewer"
+
+        from app.services.folder_service import visible_agent_paths
+        paths = await visible_agent_paths(db, organization, current_user, [data_source]) if folder_id else {}
         schema = DataSourceSchema(
+            folder_path=paths.get(str(data_source.id)), folder_id=folder_id, inherited_folder_name=folder_name, inherited_folder_role=folder_role,
             id=str(data_source.id),
             organization_id=str(data_source.organization_id),
             name=data_source.name,
@@ -1469,6 +1493,16 @@ class DataSourceService:
             return is_gov, manage_ids, resolved
         except Exception:
             return False, set(), None
+
+    @staticmethod
+    def lifecycle_visible(agent, rights):
+        governance = rights and rights.has_org_permission("manage_connections")
+        if getattr(agent, "publish_status", None) == "draft" and not governance:
+            if not rights or not rights.has_resource_permission("data_source", str(agent.id), "manage"):
+                return False
+        return not DataSourceService._development_hidden(
+            getattr(agent, "reliability_status", None), agent.id, governance, rights
+        )
 
     @staticmethod
     def _development_hidden(reliability_status, ds_id, is_gov, resolved) -> bool:
@@ -1588,6 +1622,10 @@ class DataSourceService:
 
             s = DataSourceListItemSchema(
                 id=str(d.id),
+                can_move_from_folder=bool(resolved and resolved.has_resource_permission("data_source", d.id, "manage")
+                                          and (not d.folder_id or resolved.has_resource_permission("folder", d.folder_id, "manage"))),
+                limited_access=not d.inherits_folder_access,
+                folder_id=d.folder_id if d.folder_id and resolved and resolved.has_resource_permission("folder", d.folder_id, "view") else None,
                 name=d.name,
                 conversation_starters=getattr(d, "conversation_starters", None),
                 description=getattr(d, "description", None),
@@ -1840,6 +1878,10 @@ class DataSourceService:
 
             s = DataSourceListItemSchema(
                 id=str(d.id),
+                can_move_from_folder=bool(resolved and resolved.has_resource_permission("data_source", d.id, "manage")
+                                          and (not d.folder_id or resolved.has_resource_permission("folder", d.folder_id, "manage"))),
+                limited_access=not d.inherits_folder_access,
+                folder_id=d.folder_id if d.folder_id and resolved and resolved.has_resource_permission("folder", d.folder_id, "view") else None,
                 name=d.name,
                 conversation_starters=getattr(d, "conversation_starters", None),
                 description=getattr(d, "description", None),
@@ -2285,6 +2327,7 @@ class DataSourceService:
 
         data_source_id = str(data_source.id)
 
+        from app.models.folder import folder_instructions
         attached_elsewhere = (
             select(assoc.c.instruction_id)
             .where(assoc.c.data_source_id != data_source_id)
@@ -2297,6 +2340,8 @@ class DataSourceService:
                 Instruction.organization_id == str(organization.id),
                 Instruction.deleted_at.is_(None),
                 ~Instruction.id.in_(attached_elsewhere),
+                Instruction.owner_folder_id.is_(None),
+                ~Instruction.id.in_(select(folder_instructions.c.instruction_id)),
             )
         )
         titles = {str(row[0]): row[1] for row in only_here_q.fetchall()}
@@ -2464,6 +2509,13 @@ class DataSourceService:
             )
         )).scalars().all()
 
+        from app.models.folder import folder_eval_suites
+        suite_ids = {case.suite_id for case in rows}
+        folder_suites = set(await db.scalars(select(TestSuite.id).where(
+            TestSuite.id.in_(suite_ids),
+            TestSuite.owner_folder_id.is_not(None) | TestSuite.id.in_(select(folder_eval_suites.c.suite_id)),
+        )))
+
         deleted: List[str] = []
         now = datetime.utcnow()
         for case in rows:
@@ -2474,6 +2526,10 @@ class DataSourceService:
             remaining = [x for x in targets if x != data_source_id]
             if remaining:
                 case.data_source_ids_json = remaining
+            elif case.suite_id in folder_suites:
+                # Preserve this shared suite's case and its original pinned target.
+                # It cannot run until a manager gives it an available target.
+                case.status = "archived"
             else:
                 case.deleted_at = now
                 deleted.append(str(case.id))

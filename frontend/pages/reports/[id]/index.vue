@@ -135,7 +135,7 @@
 					<li v-if="hasMore && isLoadingMore" class="text-gray-500 mb-2 text-xs text-center">
 						<Spinner class="w-4 h-4 inline me-2" /> {{ $t('reportView.loadingOlderMessages') }}
 					</li>
-					<ResponseLanguageScope :locale="m.prompt?.response_locale" :fallback-dir="replyDirHints.get(String(m.id))" v-slot="{ t: responseT, dir: responseDir }" v-for="m in visibleMessages" :key="m._render_key || m.id" :data-message-id="m.id" :data-scroll-key="m._render_key || m.id" :data-message-role="m.role" class="transcript-message text-gray-700 dark:text-gray-300 text-chat" :class="{ 'turn-enter': (m._render_key || m.id) === pinnedId }">
+					<ResponseLanguageScope :locale="m.prompt?.response_locale" :question-dir="replyDirHints.get(String(m.id))" :blocks="m.completion_blocks" v-slot="{ t: responseT, dir: responseDir }" v-for="m in visibleMessages" :key="m._render_key || m.id" :data-message-id="m.id" :data-scroll-key="m._render_key || m.id" :data-message-role="m.role" class="transcript-message text-gray-700 dark:text-gray-300 text-chat" :class="{ 'turn-enter': (m._render_key || m.id) === pinnedId }">
 						<!-- Legacy compaction marker rows: hidden (the divider is
 						     state-derived from the watermark, rendered below) -->
 						<template v-if="(m as any).message_type === 'context_compaction'"></template>
@@ -400,7 +400,7 @@
 												</Transition>
 											</div>
 <!-- Keep prose visible when only this verification step is collapsed. -->
-                                            <div v-if="isBlockFolded(m, block) && (block.tool_execution?.arguments_json?._verification_group_id || block.tool_execution?.result_json?.verification_group_id || block.tool_execution?.arguments_json?.artifact_id) && (block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant)" class="block-content markdown-wrapper text-ink dark:text-gray-100" dir="auto" :data-dir-hint="replyDirHints.get(String(m.id))" :data-response-dir="m.prompt?.response_locale ? responseDir : undefined">
+                                            <div v-if="isBlockFolded(m, block) && (block.tool_execution?.arguments_json?._verification_group_id || block.tool_execution?.result_json?.verification_group_id || block.tool_execution?.arguments_json?.artifact_id) && (block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant)" class="block-content markdown-wrapper text-ink dark:text-gray-100" :dir="responseDir" :data-response-dir="responseDir">
                                                 <MarkdownRender :content="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''" :final="isBlockFinalized(block)" :typewriter="!isBlockFinalized(block)" :render-code-blocks-as-pre="true" class="markdown-content" />
                                             </div>
                                             <div v-show="!isBlockFolded(m, block) && !isEditRunFolded(m, block)" class="response-block-body">
@@ -437,7 +437,7 @@
 							<!-- 2. Block content - assistant message (hybrid streaming) -->
 							<!-- Prioritize final_answer over assistant - final_answer is the actual response -->
 							<!-- Show content section when: content exists OR final_answer exists OR assistant exists -->
-							<div v-if="(block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant) && block.status !== 'error' && block.tool_execution?.tool_name !== 'clarify'" class="block-content markdown-wrapper text-ink dark:text-gray-100" dir="auto" :data-dir-hint="replyDirHints.get(String(m.id))" :data-response-dir="m.prompt?.response_locale ? responseDir : undefined">
+							<div v-if="(block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant) && block.status !== 'error' && block.tool_execution?.tool_name !== 'clarify'" class="block-content markdown-wrapper text-ink dark:text-gray-100" :dir="responseDir" :data-response-dir="responseDir">
 								<MarkdownRender
 									:content="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''"
 									:final="isBlockFinalized(block)"
@@ -709,7 +709,8 @@
 			<ReportEmptyState
 				v-else
 				:mode="currentPromptMode"
-				:available-agents="availableAgents"
+				 :available-folders="availableFolders" :folder-ids="folderIds" @toggle-folder="promptBoxRef?.chooseFolder($event)" @auto="promptBoxRef?.chooseAuto()"
+                    :available-agents="availableAgents"
 				:current-agents="currentAgents"
 				:agents-are-auto="agentsAreAuto"
 				@toggle-agent="toggleAgentSelection"
@@ -827,7 +828,8 @@
 						{{ $t('dashboardCollab.versions.openNewest', { n: openVersion.newest_version }) }}
 					</button>
 				</div>
-				<PromptBoxV2
+				<PromptBoxV2 allow-folder-scope
+                    @update:available-folders="availableFolders = $event" @update:folder-ids="folderIds = $event"
 					ref="promptBoxRef"
 					:report_id="report_id"
 					:project="report?.project || null"
@@ -1393,7 +1395,8 @@ const { isExcel, excelSelection } = useExcel()
 // catalog on direct report loads without delaying the first prompt.
 const { rememberModels, modelLabel: responseModelName } = useModelLabels()
 onMounted(async () => {
-    const { data } = await useMyFetch('/llm/models', { query: { is_enabled: true } })
+    // kind=all so a decision model (Auto router upfront pick) has a label too.
+    const { data } = await useMyFetch('/llm/models', { query: { is_enabled: true, kind: 'all' } })
     if (Array.isArray(data.value)) rememberModels(data.value)
 })
 
@@ -1694,9 +1697,9 @@ function promptDir(text?: string | null): TextDir | 'auto' {
 }
 
 // The direction of the question each reply answers, keyed by the reply's
-// message id. The answer mirrors the user's language, so useMarkdownAutoDir
-// uses it until the streamed answer has enough words to vote on its own —
-// a Hebrew reply that opens with "**Revenue**" no longer paints LTR first.
+// message id. ResponseLanguageScope uses it as the message's prior (after the
+// saved response language) when it decides the one direction the whole reply
+// takes — a Hebrew reply that opens with "**Revenue**" no longer paints LTR.
 const replyDirHints = computed(() => {
 	const hints = new Map<string, TextDir>()
 	let last: TextDir | null = null
@@ -2207,6 +2210,8 @@ async function handleAgentConnected() {
 
 // Every agent the user can pick, published by the prompt box's DataSourceSelector.
 // Drives the blank-report agent picker (shown only when there's more than one).
+const availableFolders = ref<import('~/composables/useAgentFolderOptions').AgentFolderOption[]>([])
+const folderIds = ref<string[]>([])
 const availableAgents = ref<any[]>([])
 
 // The prompt box is in "Auto" — the report is scoped to every agent because
@@ -5255,7 +5260,7 @@ onMounted(() => {
 // to — so changing agents inside a report also seeds the next new report.
 // selectedAgents is read-only here; selectAgents writes it, tripping the
 // debounced PUT /users/me/default_agents watcher in useAgent.
-const { selectAgents, selectedAgents } = useAgent()
+const { selectAgents, selectedAgents, selectFolders } = useAgent()
 
 // A child (the dashboard pane's rename) changed this report's title. The
 // page owns `report` and passes it down as a prop, so it is the one that
@@ -5274,6 +5279,7 @@ function onReportMutated(ev: CustomEvent) {
     // report hydration never does, so opening a report can't silently overwrite the
     // default. Guard against a no-op re-save when the scope already matches.
     if (ev?.detail?.kind === 'data_sources' && Array.isArray(ev.detail.ids)) {
+        if (Array.isArray(ev.detail.folderIds)) selectFolders(ev.detail.folderIds)
         const ids = ev.detail.ids.map((id: any) => String(id))
         const current = [...selectedAgents.value]
         if (!(ids.length === current.length && ids.every((id: string, i: number) => id === current[i]))) {

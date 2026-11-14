@@ -15,13 +15,14 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.routes.host_applications import audit
 from app.schemas.connected_application_schema import ApplicationCreate, ApplicationUpdate
+from app.services.folder_service import validate_scope_folders
 from app.services.connected_application_service import get_application, validate_agents, revoke_credentials
 
 router = APIRouter(prefix='/connected_applications', tags=['connected applications'])
 
 
 async def payload(db, app):
-    return dict(id=app.id, name=app.name, enabled=app.enabled, agent_ids=app.agent_ids,
+    return dict(id=app.id, name=app.name, enabled=app.enabled, agent_folder_ids=app.agent_folder_ids or [], agent_ids=app.agent_ids,
                 oauth=await db.get(OAuthClient, app.id) is not None,
                 embedding=await db.get(HostApplication, app.id) is not None,
                 created_at=app.created_at)
@@ -47,7 +48,10 @@ async def create_application(body: ApplicationCreate, request: Request,
                              db: AsyncSession = Depends(get_async_db)):
     ids = await validate_agents(db, organization.id, body.agent_ids)
     app = ConnectedApplication(name=body.name, organization_id=str(organization.id),
+                               agent_folder_ids=await validate_scope_folders(db, organization.id, current_user.id, body.agent_folder_ids),
                                agent_ids=ids, created_by_user_id=str(current_user.id))
+    if app.agent_folder_ids and app.agent_ids is None:
+        app.agent_ids = []
     db.add(app)
     await db.commit()
     await db.refresh(app)
@@ -64,8 +68,12 @@ async def update_application(application_id: str, body: ApplicationUpdate, reque
                              db: AsyncSession = Depends(get_async_db)):
     app = await get_application(db, organization.id, application_id, for_update=True)
     changes = body.model_dump(exclude_unset=True)
+    if 'agent_folder_ids' in changes:
+        changes['agent_folder_ids'] = await validate_scope_folders(db, organization.id, current_user.id, changes['agent_folder_ids'])
     if 'agent_ids' in changes:
         changes['agent_ids'] = await validate_agents(db, organization.id, changes['agent_ids'])
+    if changes.get('agent_ids', app.agent_ids) is None and changes.get('agent_folder_ids', app.agent_folder_ids):
+        changes['agent_ids'] = []
     if changes.get('enabled') is False:
         await revoke_credentials(db, app)
     for key, value in changes.items():

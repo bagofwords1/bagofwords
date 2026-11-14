@@ -379,6 +379,8 @@ class BuildService:
         created_by_user_id: Optional[str] = None,
         accessible_data_source_ids: Optional[List[str]] = None,
         data_source_id: Optional[str] = None,
+        folder_branch=None,
+        folder_read_filter=None,
     ) -> Dict[str, Any]:
         """List builds for an organization with optional status filter.
 
@@ -411,6 +413,22 @@ class BuildService:
             )
             conditions.append(InstructionBuild.id.notin_(forbidden_subq))
 
+        if folder_read_filter is not None:
+            hidden_changes = select(BuildContent.build_id).join(Instruction).where(
+                BuildContent.is_change.is_(True), Instruction.scope_mode == "targeted",
+                ~folder_read_filter,
+            )
+            conditions.append(InstructionBuild.id.notin_(hidden_changes))
+
+        if folder_branch is not None:
+            from app.models.folder import folder_instructions
+            from app.models.data_source import DataSource
+            from app.models.instruction import instruction_data_source_association as idsa
+            direct = select(folder_instructions.c.instruction_id).where(folder_instructions.c.folder_id.in_(folder_branch))
+            agents = select(idsa.c.instruction_id).join(DataSource, DataSource.id == idsa.c.data_source_id).where(
+                DataSource.folder_id.in_(folder_branch), DataSource.organization_id == org_id)
+            conditions.append(InstructionBuild.id.in_(select(BuildContent.build_id).where(
+                BuildContent.instruction_id.in_(direct.union(agents)))))
         if data_source_id:
             from app.models.instruction import instruction_data_source_association as idsa
             # Restrict to builds that contain at least one instruction scoped to this DS.
@@ -952,13 +970,23 @@ class BuildService:
             )).scalars().all()
         }
         allowed = {str(d) for d in accessible_data_source_ids} | public_ids
-        visible = {iid for iid, ds in scopes.items() if not ds or ds & allowed}
+        from app.services.folder_knowledge import instruction_scope
+        from app.models.folder import folder_instructions
+        from app.core.permission_resolver import resolve_permissions
+        rights = await resolve_permissions(db, user_id, org_id)
+        folders = [fid for (kind, fid), perms in rights.resource_permissions.items()
+                   if kind == "folder" and perms & {"view", "manage_instructions"}]
+        visible = set(await db.scalars(select(Instruction.id).where(
+            Instruction.id.in_(scopes), Instruction.organization_id == org_id,
+            or_(instruction_scope(allowed), Instruction.id.in_(select(folder_instructions.c.instruction_id)
+                .where(folder_instructions.c.folder_id.in_(folders)))))))
         hidden = set(scopes) - visible
         if hidden:
             authored = (await db.execute(
                 select(Instruction.id).where(
                     Instruction.id.in_(list(hidden)),
                     Instruction.user_id == str(user_id),
+                    Instruction.data_sources.any(),
                 )
             )).scalars().all()
             visible |= {str(i) for i in authored}
@@ -1326,6 +1354,7 @@ class BuildService:
                 InstructionVersion.applicable_channels,
                 InstructionVersion.category_ids,
                 InstructionVersion.status,
+                InstructionVersion.folder_ids, InstructionVersion.scope_mode, InstructionVersion.data_source_ids, Instruction.owner_folder_id,
             )
             .join(
                 InstructionVersion,
@@ -1348,11 +1377,54 @@ class BuildService:
                 )
             )
         )
-        for instruction_id, version_id, v_text, v_title, v_description, v_load_mode, v_applicable_modes, v_applicable_channels, v_category_ids, v_status in rows.all():
+        for instruction_id, version_id, v_text, v_title, v_description, v_load_mode, v_applicable_modes, v_applicable_channels, v_category_ids, v_status, v_folders, v_scope, v_agents, owner_folder in rows.all():
             category = None
             if v_category_ids:
                 category = v_category_ids[0] if isinstance(v_category_ids, list) else v_category_ids
             values = {"current_version_id": version_id}
+            if v_folders is not None and v_scope:
+                from app.models.folder import folder_instructions, Folder
+                from app.services.folder_knowledge import instruction_folder_ids
+                from app.core.permission_resolver import resolve_permissions
+                from sqlalchemy import delete
+                existing = set(await instruction_folder_ids(db, instruction_id))
+                target = set(v_folders)
+                if existing or target or owner_folder:
+                    from app.models.instruction import instruction_data_source_association as agent_links
+                    from app.models.data_source import DataSource
+
+                    rights = await resolve_permissions(db, user_id, build.organization_id) if user_id else None
+                    folder_targets = existing | target | ({owner_folder} if owner_folder else set())
+                    if not rights or any(not rights.has_resource_permission("folder", fid, "manage_instructions")
+                                         for fid in folder_targets):
+                        raise HTTPException(403, "Folder scope unavailable")
+                    live_agents = set(await db.scalars(select(agent_links.c.data_source_id).where(
+                        agent_links.c.instruction_id == instruction_id)))
+                    target_agents = set(v_agents or [])
+                    if any(not rights.has_resource_permission("data_source", aid, "manage_instructions")
+                           for aid in live_agents | target_agents):
+                        raise HTTPException(403, "Agent scope unavailable")
+                    if live_agents != target_agents:
+                        valid_agents = set(await db.scalars(select(DataSource.id).where(
+                            DataSource.organization_id == build.organization_id, DataSource.deleted_at.is_(None),
+                            DataSource.id.in_(target_agents))))
+                        if valid_agents != target_agents:
+                            raise HTTPException(403, "Agent scope unavailable")
+                        await db.execute(delete(agent_links).where(agent_links.c.instruction_id == instruction_id))
+                        if target_agents:
+                            await db.execute(agent_links.insert(), [
+                                {"instruction_id": instruction_id, "data_source_id": aid} for aid in sorted(target_agents)
+                            ])
+                if existing != target:
+                    valid = set(await db.scalars(select(Folder.id).where(Folder.organization_id == build.organization_id,
+                                    Folder.deleted_at.is_(None), Folder.id.in_(target))))
+                    if valid != target:
+                        raise HTTPException(403, "Folder scope unavailable")
+                    await db.execute(delete(folder_instructions).where(folder_instructions.c.instruction_id == instruction_id))
+                    if target:
+                        await db.execute(folder_instructions.insert(), [{"instruction_id":instruction_id, "folder_id":fid}
+                                                                        for fid in sorted(target)])
+                values["scope_mode"] = v_scope
             if v_text is not None:
                 values["text"] = v_text
             if v_title is not None:

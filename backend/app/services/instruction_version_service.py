@@ -23,6 +23,7 @@ class InstructionVersionService:
         user_id: Optional[str] = None,
         status_override: Optional[str] = None,
         evidence: Optional[str] = None,
+        commit: bool = True,
     ) -> InstructionVersion:
         """
         Create a new version by snapshotting the current instruction state.
@@ -45,6 +46,9 @@ class InstructionVersionService:
         version_number = await self.get_next_version_number(db, instruction.id)
         
         # Extract relationship IDs
+        from app.services.folder_knowledge import instruction_folder_ids
+        folder_ids = await instruction_folder_ids(db, instruction.id)
+        scope_mode = instruction.scope_mode
         data_source_ids = [ds.id for ds in instruction.data_sources] if instruction.data_sources else None
         label_ids = [label.id for label in instruction.labels] if instruction.labels else None
         
@@ -85,6 +89,8 @@ class InstructionVersionService:
             "applicable_channels": instruction.applicable_channels,
             "references_json": references_json,
             "data_source_ids": data_source_ids,
+            "folder_ids": folder_ids,
+            "scope_mode": scope_mode,
             "label_ids": label_ids,
             "category_ids": category_ids,
         }
@@ -104,7 +110,7 @@ class InstructionVersionService:
             applicable_modes=instruction.applicable_modes,
             applicable_channels=instruction.applicable_channels,
             references_json=references_json,
-            data_source_ids=data_source_ids,
+            data_source_ids=data_source_ids, folder_ids=folder_ids, scope_mode=scope_mode,
             label_ids=label_ids,
             category_ids=category_ids,
             evidence=evidence,
@@ -113,7 +119,10 @@ class InstructionVersionService:
         )
 
         db.add(version)
-        await db.commit()
+        if commit:
+            await db.commit()
+        else:
+            await db.flush()
         await db.refresh(version, ['id'])
 
         return version
@@ -133,6 +142,8 @@ class InstructionVersionService:
         applicable_channels: Optional[list] = None,
         references_json: Optional[list] = None,
         data_source_ids: Optional[list] = None,
+        folder_ids: Optional[list] = None,
+        scope_mode: Optional[str] = None,
         label_ids: Optional[list] = None,
         category_ids: Optional[list] = None,
         user_id: Optional[str] = None,
@@ -144,6 +155,11 @@ class InstructionVersionService:
         """
         # Get next version number
         version_number = await self.get_next_version_number(db, instruction_id)
+        if folder_ids is None:
+            from app.services.folder_knowledge import instruction_folder_ids
+            folder_ids = await instruction_folder_ids(db, instruction_id)
+        if scope_mode is None:
+            scope_mode = await db.scalar(select(Instruction.scope_mode).where(Instruction.id == instruction_id))
 
         # Compute content hash
         version_data = {
@@ -158,6 +174,8 @@ class InstructionVersionService:
             "applicable_channels": applicable_channels,
             "references_json": references_json,
             "data_source_ids": data_source_ids,
+            "folder_ids": folder_ids,
+            "scope_mode": scope_mode,
             "label_ids": label_ids,
             "category_ids": category_ids,
         }
@@ -177,7 +195,7 @@ class InstructionVersionService:
             applicable_modes=applicable_modes,
             applicable_channels=applicable_channels,
             references_json=references_json,
-            data_source_ids=data_source_ids,
+            data_source_ids=data_source_ids, folder_ids=folder_ids, scope_mode=scope_mode,
             label_ids=label_ids,
             category_ids=category_ids,
             evidence=evidence,
@@ -322,6 +340,9 @@ class InstructionVersionService:
             return True
         
         # Compute current hash
+        from app.services.folder_knowledge import instruction_folder_ids
+        folder_ids = await instruction_folder_ids(db, instruction.id)
+        scope_mode = instruction.scope_mode
         data_source_ids = [ds.id for ds in instruction.data_sources] if instruction.data_sources else None
         label_ids = [label.id for label in instruction.labels] if instruction.labels else None
         
@@ -356,6 +377,8 @@ class InstructionVersionService:
             "applicable_channels": instruction.applicable_channels,
             "references_json": references_json,
             "data_source_ids": data_source_ids,
+            "folder_ids": folder_ids,
+            "scope_mode": scope_mode,
             "label_ids": label_ids,
             "category_ids": category_ids,
         }
@@ -381,7 +404,7 @@ class InstructionVersionService:
         changes = []
         fields = ['text', 'title', 'description', 'structured_data', 'formatted_content',
                   'status', 'load_mode', 'applicable_modes', 'applicable_channels',
-                  'references_json', 'data_source_ids',
+                  'references_json', 'data_source_ids', 'folder_ids', 'scope_mode',
                   'label_ids', 'category_ids']
         
         for field in fields:

@@ -692,11 +692,16 @@ async def get_public_file_embed_token(
     artifacts = (await db.execute(
         select(ArtifactVersion).where(ArtifactVersion.report_id == report_id)
     )).scalars().all()
-    embedded = any(
-        isinstance(a.content, dict)
+    from app.services.file_access_service import revoked_embeds
+    holders = {
+        str(a.artifact_id) for a in artifacts
+        if isinstance(a.content, dict)
         and any(str(f.get("id")) == file_id for f in (a.content.get("files") or []) if isinstance(f, dict))
-        for a in artifacts
-    )
+    }
+    revoked = await revoked_embeds(db, holders) if holders else {}
+    # A file detached from the artifact (remove_file_ids) isn't shared through
+    # its older versions either.
+    embedded = any(file_id not in revoked.get(aid, set()) for aid in holders)
     if not embedded:
         raise HTTPException(status_code=404, detail="File not found")
 

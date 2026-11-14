@@ -368,7 +368,9 @@ def test_the_policy_names_the_model_a_viewer_runs_on(corpus, corpus_rows, test_c
     unpinned = _policy(test_client, corpus, aid)["model"]
     assert unpinned and unpinned["source"] == "default"
     models = test_client.get("/api/llm/models", headers=as_(corpus, "admin")).json()
-    other = next(m for m in models if m["id"] != unpinned["id"])
+    # Only a chat model can be pinned; image-generation and decision models fall back.
+    other = next(m for m in models if m["id"] != unpinned["id"]
+                 and not m.get("supports_image_generation") and m.get("model_kind", "chat") == "chat")
     corpus_rows.update("artifacts", aid, chat_model_id=other["id"])
     pinned = _policy(test_client, corpus, aid)["model"]
     assert pinned == {"id": other["id"], "name": pinned["name"], "source": "pinned"}

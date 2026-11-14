@@ -588,6 +588,9 @@
     "whatCanIHelpWith": "Чем я могу помочь?"
   },
   "prompt": {
+    "searchAgentFolders": "Поиск агентов и папок…",
+    "expandDirectory": "Развернуть {name}",
+    "collapseDirectory": "Свернуть {name}",
     "placeholderDefault": "Запросите данные, дашборд или глубокий анализ",
     "thinking": "Думаю",
     "working": "Работаю",
@@ -2134,13 +2137,14 @@
     "fullAdminAccessTab": "Полный доступ администратора включает всех агентов, подключения и модели.",
     "includedWith": "Входит в «{name}»",
     "searchResources": "Поиск…",
-    "addAccess": "Добавить агента, подключение или модель",
-    "accessEmpty": "Пока нет агентов, подключений или моделей. Публичные агенты доступны всегда.",
+    "addAccess": "Выбрать ресурс",
+    "accessEmpty": "Выбрать ресурс",
     "publicAgents": "Публичные агенты ({n}) доступны всем.",
     "types": {
       "data_source": "Агент",
       "connection": "Подключение",
-      "llm_model": "Модель"
+      "llm_model": "Модель",
+      "folder": "Папка"
     },
     "levels": {
       "use": "Использование",
@@ -2158,7 +2162,9 @@
       "connectionsMany": "Подключений: {n}",
       "modelsOne": "Моделей: 1",
       "modelsMany": "Моделей: {n}",
-      "everything": "Все разрешения"
+      "everything": "Все разрешения",
+      "foldersOne": "1 Папка",
+      "foldersMany": "{n} папок"
     },
     "resourcePermissions": {
       "data_source": {
@@ -7155,5 +7161,34 @@
     "settingsTitle": "Новости продукта",
     "toggleLabel": "Получать новости продукта по почте",
     "sentTo": "Отправляются на {email}"
+  },
+  "sharedFolders": {
+    "viewFolder": "Открыть папку",
+    "activity": "Активность папки",
+    "viewTrace": "Открыть трассировку",
+    "attach": "Связать с существующим",
+    "addCase": "Добавить сценарий",
+    "sameAccess": "Access stays the same.",
+    "edit": "Folder settings",
+    "move": "Move",
+    "preview": "Preview move",
+    "rename": "Rename",
+    "delete": "Delete folder",
+    "via": "Via {name}",
+    "title": "Folders",
+    "back": "Back",
+    "create": "New folder",
+    "share": "Share",
+    "name": "Folder name",
+    "noDirect": "No direct role",
+    "viewer": "Может спрашивать",
+    "manager": "Может управлять",
+    "hints": "Право запроса распространяется на агентов папки. Управление позволяет также редактировать и предоставлять доступ.",
+    "limit": "Limited access",
+    "stops": "Parent roles stop here.",
+    "root": "Корень организации",
+    "inherit": "Наследовать доступ от родительской папки",
+    "direct": "Прямой доступ для {name}",
+    "stopConfirm": "Отключить наследование? Права, полученные от {names}, перестанут действовать."
   }
 }

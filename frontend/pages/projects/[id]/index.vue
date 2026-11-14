@@ -232,21 +232,24 @@
                                             <input
                                                 v-model="agentSearch"
                                                 type="text"
-                                                :placeholder="$t('projects.overview.searchAgents')"
+                                                :placeholder="$t('prompt.searchAgentFolders')"
                                                 class="w-full h-7 px-2 mb-1 text-xs bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded outline-none focus:border-gray-300"
                                             />
                                             <div class="max-h-56 overflow-y-auto">
+                                                <AgentFolderChoices :agents="agentCandidates" :search="agentSearch" :disabled="savingAgents"
+                                                    :selected="(project?.data_sources || []).map(a => a.id)" @select="addFolderAgents">
+                                                  <template #agent="{agent, parentPath}">
                                                 <button
-                                                    v-for="agent in agentCandidates"
-                                                    :key="agent.id"
                                                     type="button"
                                                     class="flex items-center gap-2 w-full px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 text-gray-700 dark:text-gray-200 disabled:opacity-60"
                                                     :disabled="savingAgents"
                                                     @click="addAgent(agent.id)"
                                                 >
                                                     <DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon-token="agent.icon_token" :icon="agent.icon" class="h-3.5 shrink-0" />
-                                                    <span class="flex-1 truncate text-start">{{ agent.name }}</span>
+                                                    <span class="flex-1 truncate text-start">{{ agent.name }}<small v-if="parentPath" class="block truncate text-2xs text-ink-muted">{{ parentPath }}</small></span>
                                                 </button>
+                                                  </template>
+                                                </AgentFolderChoices>
                                                 <div v-if="!agentCandidates.length" class="px-2 py-1.5 text-ink-muted">{{ $t('projects.settings.noAgents') }}</div>
                                             </div>
                                         </div>
@@ -596,9 +599,7 @@ const savingAgents = ref(false)
 
 const agentCandidates = computed(() => {
     const taken = new Set((project.value?.data_sources || []).map((d: any) => d.id))
-    const q = agentSearch.value.trim().toLowerCase()
-    return orgAgents.value.filter((a: any) =>
-        !taken.has(a.id) && (!q || String(a.name || '').toLowerCase().includes(q)))
+    return orgAgents.value.filter((a: any) => !taken.has(a.id))
 })
 const loadOrgAgents = async () => {
     try {
@@ -625,6 +626,10 @@ const saveAgentIds = async (ids: string[]) => {
     } finally {
         savingAgents.value = false
     }
+}
+const addFolderAgents = async (ids: string[]) => {
+    agentPickerOpen.value = false
+    await saveAgentIds([...new Set([...(project.value?.data_sources || []).map((a: any) => String(a.id)), ...ids])])
 }
 const addAgent = async (id: string) => {
     agentPickerOpen.value = false

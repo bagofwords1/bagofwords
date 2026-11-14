@@ -122,7 +122,18 @@ class SetReportAgentsTool(Tool):
 
             is_auto = report_selection_is_auto(report)
             attached_by_id = {str(ds.id): ds for ds in (report.data_sources or [])}
-            from app.ai.tools.implementations.agent_focus_common import signin_required_ids
+            from app.ai.tools.implementations.agent_focus_common import signin_required_ids, resolve_candidate_agents
+            folder_scoped = bool(getattr(report, "agent_folder_id", None))
+            if folder_scoped:
+                candidates, _, _ = await resolve_candidate_agents(db, organization, user, report, mode)
+                attached_by_id = {str(ds.id): ds for ds in candidates}
+                # Folder rules commonly name an agent. Resolve exact, unique names
+                # only inside the already-authorized roster. Persist stable IDs.
+                by_name = {}
+                for ds in candidates:
+                    by_name.setdefault(ds.name, []).append(str(ds.id))
+                requested = [by_name[key][0] if key not in attached_by_id and len(by_name.get(key, [])) == 1 else key
+                             for key in requested]
 
             valid: List[Any] = []          # (ds, needs_attach)
             rejected: List[str] = []
@@ -130,11 +141,14 @@ class SetReportAgentsTool(Tool):
             for did in requested:
                 ds = attached_by_id.get(did)
                 if ds is not None:
+                    if mode == "training" and not folder_scoped and not await user_can_focus_agent(db, organization, user, did, mode):
+                        rejected.append(did)
+                        continue
                     valid.append((ds, False))
                     continue
                 # Not in the report's selection. A MANUAL selection is a hard
                 # scope in chat/deep — never attach beyond it.
-                if not is_auto and mode != "training":
+                if folder_scoped or not is_auto:
                     rejected.append(did)
                     out_of_scope.append(did)
                     continue

@@ -1,4 +1,51 @@
 {
+  "folderRemoval": {
+    "danger": "Danger zone",
+    "title": "Delete {name}?",
+    "keep": "Delete folder only",
+    "keepHint": "Move its contents to the destination below. Folder knowledge needs a destination folder.",
+    "contents": "Delete folder and contents",
+    "contentsHint": "Delete descendant agents and exclusive knowledge. Keep shared items."
+  },
+  "sharedFolders": {
+    "chooseScope": "Choose agents or folders",
+    "moveAgent": "Move agent",
+    "moveFolder": "Move folder",
+    "moveNamed": "Move {name}?",
+    "from": "From",
+    "to": "To",
+    "chooseDestination": "Choose a destination",
+    "parentAccess": "Access inherited from folders",
+    "sameParentAccess": "Inherited access stays the same.",
+    "directUnchanged": "Direct grants and access from other sources still apply.",
+    "viewFolder": "View folder",
+    "activity": "Folder activity",
+    "viewTrace": "View trace",
+    "attach": "Attach existing",
+    "addCase": "Add case",
+    "sameAccess": "Access stays the same.",
+    "edit": "Folder settings",
+    "move": "Move",
+    "preview": "Preview move",
+    "rename": "Rename",
+    "delete": "Delete folder",
+    "via": "Via {name}",
+    "title": "Folders",
+    "back": "Back",
+    "create": "New folder",
+    "share": "Share",
+    "name": "Folder name",
+    "noDirect": "No direct role",
+    "viewer": "Can query",
+    "manager": "Can manage",
+    "hints": "Query access includes agents in this folder. Manage access also allows editing and sharing.",
+    "limit": "Limited access",
+    "stops": "Parent roles stop here.",
+    "root": "Organization root",
+    "inherit": "Inherit access from parent",
+    "direct": "Direct access for {name}",
+    "stopConfirm": "Turn off inheritance? Parent grants from {names} will stop applying."
+  },
   "agentLanding": {
     "actions": "Agent actions",
     "countTasks": "{n} task | {n} tasks",
@@ -625,6 +672,9 @@
     "whatCanIHelpWith": "What can I help with?"
   },
   "prompt": {
+    "searchAgentFolders": "Search agents and folders…",
+    "expandDirectory": "Expand {name}",
+    "collapseDirectory": "Collapse {name}",
     "placeholderDefault": "Ask for data, dashboard or a deep analysis",
     "thinking": "Thinking",
     "working": "Working",
@@ -1931,7 +1981,9 @@
       "choosing": "Choosing model…",
       "routing": "Model routing",
       "fellBackTo": "Fell back to",
-      "fallbackReason": "{from} was unavailable"
+      "fallbackReason": "{from} was unavailable",
+      "decisionMatch": "{pct}% match",
+      "decisionBy": "picked by {model}"
     },
     "grepFiles": {
       "grepping": "Grepping files for {pattern}…",
@@ -2347,13 +2399,14 @@
     "fullAdminAccessTab": "Full admin access includes every agent, connection and model.",
     "includedWith": "Included with {name}",
     "searchResources": "Search…",
-    "addAccess": "Add agent, connection or model",
-    "accessEmpty": "No agents, connections or models yet. Public agents are always available.",
+    "addAccess": "Choose a resource",
+    "accessEmpty": "Choose a resource",
     "publicAgents": "{n} public agents are available to everyone.",
     "types": {
       "data_source": "Agent",
       "connection": "Connection",
-      "llm_model": "Model"
+      "llm_model": "Model",
+      "folder": "Folder"
     },
     "levels": {
       "use": "Can use",
@@ -2371,7 +2424,9 @@
       "connectionsMany": "{n} connections",
       "modelsOne": "1 model",
       "modelsMany": "{n} models",
-      "everything": "All permissions"
+      "everything": "All permissions",
+      "foldersOne": "1 Folder",
+      "foldersMany": "{n} Folders"
     },
     "resourcePermissions": {
       "data_source": {
@@ -3099,6 +3154,7 @@
       "emailLabel": "Email",
       "emailPlaceholder": "member{'@'}example.com",
       "roleLabel": "Role",
+      "rolesLabel": "Roles",
       "cancel": "Cancel",
       "sendInvitation": "Send Invitation",
       "allStatus": "All Status",
@@ -3946,7 +4002,62 @@
         "defaultForGroups": "Default for groups",
         "defaultForGroupsHint": "Members of these groups can always use this model."
       },
-      "colAccess": "Access"
+      "colAccess": "Access",
+      "autoRouterModal": {
+        "title": "Auto model routing",
+        "question": "How should the router pick the model a request starts on?",
+        "smallTitle": "Small model (current)",
+        "smallBody": "Each request starts on the small model and moves up to a stronger model only if the task needs it.",
+        "decisionTitle": "Decision model",
+        "decisionBody": "A decision model picks the starting model before the run begins, from your models' routing guidance. The agent can still move up to a stronger model mid-run.",
+        "addDecisionModel": "Add a decision model",
+        "modelLabel": "Model",
+        "minConfidenceLabel": "Min confidence",
+        "minConfidenceTooltip": "Below this confidence the request starts on the small model, as it does today.",
+        "hintsNote": "Starter routing guidance is added to your default and small models. You can edit it in the table.",
+        "turnOn": "Turn on",
+        "configure": "Configure",
+        "summaryDecision": "{model} picks the starting model (min confidence {pct}%)",
+        "decisionUnavailable": "The decision model chosen for routing is disabled or removed, so requests start on the small model. Choose another one in Configure.",
+        "saved": "Auto router updated"
+      },
+      "decision": {
+        "badge": "Decision",
+        "badgeTooltip": "A decision model answers typed questions with probabilities. It is used by the Auto router and never for chat.",
+        "routerInUse": "Used by the Auto router",
+        "notRoutingTarget": "Not a routing target",
+        "kindLabel": "Type",
+        "kindTooltip": "Chat models answer messages. Decision models answer typed questions with probabilities (used by the Auto router) and never appear in the model picker.",
+        "kindChat": "Chat",
+        "kindDecision": "Decision",
+        "formatLabel": "API format",
+        "formatTooltip": "OpenAI Decisions (POST /decisions) or System One (POST /systemone, used by TypeSafe Jev, Microsoft Foundry, Perplexity, Ollama, vLLM and LiteLLM).",
+        "formatOpenai": "OpenAI Decisions",
+        "formatSystemone": "System One",
+        "imageInput": "Image input",
+        "imageInputTooltip": "Whether this decision model accepts images in a request.",
+        "sectionTitle": "Decision settings",
+        "sectionTooltip": "How requests are sent to this decision model. Decision APIs have no temperature.",
+        "test": "Test",
+        "saveToTest": "Save to test",
+        "testOk": "Answered a yes/no test question: {pct}% yes in {ms} ms.",
+        "testFailed": "The decision model did not answer.",
+        "saveError": "Could not update decision settings",
+        "pathLabel": "Path",
+        "pathTooltip": "Path added to the provider's base URL, for example /v1/systemone or /providers/microsoft/v1/systemone. Leave empty for the format's default.",
+        "apiModelLabel": "Model sent",
+        "apiModelTooltip": "The model id sent to the provider, if different from this model's id (for example an Azure deployment name).",
+        "maxQuestionsLabel": "Max questions",
+        "maxQuestionsTooltip": "Most questions this model accepts in one request.",
+        "timeoutLabel": "Timeout (ms)",
+        "timeoutTooltip": "How long to wait for an answer. On timeout the router keeps the small model.",
+        "keepAliveLabel": "Keep alive",
+        "keepAliveTooltip": "Ollama only: how long the model stays loaded between requests (for example 5m).",
+        "cachingLabel": "Prompt caching",
+        "cachingTooltip": "Reuse cached input where the provider supports it, which lowers cost for repeated questions.",
+        "formatFoundryDecision1": "Microsoft Decision-1 (Foundry)",
+        "providerTileHint": "Decision models"
+      }
     },
     "licensePage": {
       "title": "License",
@@ -5985,7 +6096,8 @@
       "lockedBody": "Upgrade to an enterprise license to track LLM token and cost spend by user, agent and group over time.",
       "fanoutNote": "Spend for multi-source reports is counted for each of their data sources, so per-row totals can exceed the headline total.",
       "kpiSaved": "Saved by auto-routing",
-      "kpiSavedSub": "calls routed"
+      "kpiSavedSub": "calls routed",
+      "kpiDecisions": "{n} upfront decisions · {cost}"
     },
     "cards": {
       "messages": "Messages",

@@ -258,6 +258,8 @@ class WebhookService:
             is_active=data.is_active,
         )
         wh.set_secret(secret)
+        from app.services.folder_service import validate_scope_folders
+        wh.agent_folder_ids = await validate_scope_folders(db, organization.id, current_user.id, data.agent_folder_ids)
         wh.data_sources = ds_rows
         db.add(wh)
         await db.commit()
@@ -351,6 +353,9 @@ class WebhookService:
     async def update_trigger(self, db, trigger_id, data: TriggerUpdate, current_user: User, organization: Organization) -> WebhookSchema:
         wh = await self._get_owned_trigger_or_404(db, trigger_id, current_user)
         payload = data.model_dump(exclude_unset=True)
+        if "agent_folder_ids" in payload:
+            from app.services.folder_service import validate_scope_folders
+            payload["agent_folder_ids"] = await validate_scope_folders(db, organization.id, current_user.id, payload["agent_folder_ids"])
         ds_ids = payload.pop("data_source_ids", None)
         ds_rows = await self._validate_trigger_spec(
             db, current_user, organization,
@@ -806,7 +811,7 @@ class WebhookService:
             try:
                 report_schema = await ReportService().create_report(
                     db=db,
-                    report_data=ReportCreate(title=title, files=[], data_sources=trigger_ds_ids,
+                    report_data=ReportCreate(title=title, files=[], data_sources=trigger_ds_ids, agent_folder_ids=wh.agent_folder_ids or [],
                                              project_id=str(wh.project_id)),
                     current_user=user,
                     organization=organization,
@@ -819,7 +824,7 @@ class WebhookService:
         if report_schema is None:
             report_schema = await ReportService().create_report(
                 db=db,
-                report_data=ReportCreate(title=title, files=[], data_sources=trigger_ds_ids),
+                report_data=ReportCreate(title=title, files=[], data_sources=trigger_ds_ids, agent_folder_ids=wh.agent_folder_ids or []),
                 current_user=user,
                 organization=organization,
             )

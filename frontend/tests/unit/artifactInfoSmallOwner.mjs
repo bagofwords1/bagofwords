@@ -17,7 +17,7 @@ const app=dir=>`<script type="text/babel">
 document.documentElement.setAttribute('dir','${dir}');
 function App() {
   return (
-    <div className="p-6 space-y-8 text-sm">
+    <div dir="${dir}" className="p-6 space-y-8 text-sm">
       <p>Caption above the first row</p>
       <div className="flex items-center gap-10"><label id="roomy" data-bow-viz="${VIZ}">Project</label>${sel}</div>
       <div className="flex items-center gap-2"><label id="tight" data-bow-viz="${VIZ}">Project</label>${sel}<button className="px-4 py-2 border rounded-lg">Reset</button></div>

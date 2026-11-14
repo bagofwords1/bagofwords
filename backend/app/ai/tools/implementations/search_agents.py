@@ -125,6 +125,21 @@ def match_quality(patterns, strong_haystack: str, weak_haystack: str):
     return None, 0
 
 
+def matches_directory_path(path: str, pattern: str) -> bool:
+    """Match slash-delimited segments. A ** segment consumes zero or more."""
+    from fnmatch import fnmatchcase
+    segments = path.casefold().split("/")
+    positions = {0}
+    for part in pattern.strip("/").casefold().split("/"):
+        if not positions:
+            return False
+        if part == "**":
+            positions = set(range(min(positions), len(segments) + 1))
+        else:
+            positions = {i + 1 for i in positions if i < len(segments) and fnmatchcase(segments[i], part)}
+    return len(segments) in positions
+
+
 class SearchAgentsTool(Tool):
     @property
     def metadata(self) -> ToolMetadata:
@@ -134,6 +149,8 @@ class SearchAgentsTool(Tool):
                 "RESEARCH: Find agents (data sources) and load their schema on demand. "
                 "The report may show only a thin <available_agents> roster when many "
                 "agents are attached — call this to pull the right one(s) in. Matches "
+                "For agent folders/directories use directory=true, folder_id, or path_glob (Marketing/**); "
+                "these browse organization folders, including empty folders, within report scope. Matches "
                 "your `query` terms (keyword or regex, unioned) against each agent's "
                 "name, description, primary instruction, and table/tool names, ranks by "
                 "your recent usage, and returns the matched agents' FULL tables/tools "
@@ -190,10 +207,21 @@ class SearchAgentsTool(Tool):
             from app.ai.tools.implementations.agent_focus_common import resolve_candidate_agents
             from app.ai.context.agent_roster import load_agent_one_liners, rank_agents_for_user
 
+            browsing = data.directory or data.folder_id is not None or data.path_glob is not None
+            if browsing:
+                result = await self._browse_directory(data, db, organization, user, report, mode)
+                yield ToolEndEvent(type="tool.end", payload={
+                    "output": result.model_dump(),
+                    "observation": {"summary": result.model_dump_json(exclude_none=True), "artifacts": []},
+                })
+                return
+
             # Same-query dedupe: an identical search this run already returned
             # (and its schemas stay loaded in context) — don't re-fetch.
             _seen: dict = runtime_ctx.setdefault("_search_agents_seen", {})
             _qkey = "|".join(sorted(q.strip().lower() for q in (data.query or []) if isinstance(q, str)))
+            if data.same_folder_as:
+                _qkey = f"folder:{data.same_folder_as}:{_qkey}"
             if _qkey and _qkey in _seen:
                 prev = _seen[_qkey]
                 msg = (
@@ -211,6 +239,12 @@ class SearchAgentsTool(Tool):
             # the <connectors> block with their tools.
             from app.services.data_source_kind import is_connector
             candidates = [c for c in candidates if not is_connector(c)]
+            from app.services.folder_service import visible_agent_paths
+            paths = await visible_agent_paths(db, organization, user, candidates)
+            if data.same_folder_as:
+                home = next((a.folder_id for a in candidates if str(a.id) == data.same_folder_as
+                             and str(a.id) in paths), None)
+                candidates = [a for a in candidates if home and a.folder_id == home]
             if not candidates:
                 out = SearchAgentsOutput(success=True, agents=[], total=0,
                                          message=f"No {scope} agents available to search in {mode} mode.")
@@ -233,7 +267,7 @@ class SearchAgentsTool(Tool):
             except Exception:
                 logger.debug("search_agents: table-name lookup failed", exc_info=True)
 
-            one_liners = await load_agent_one_liners(db, candidates)
+            one_liners = await load_agent_one_liners(db, candidates, organization, user)
 
             queries = [q for q in (data.query or []) if isinstance(q, str) and q.strip()]
             patterns = compile_query_patterns(queries)
@@ -251,7 +285,7 @@ class SearchAgentsTool(Tool):
                 if patterns:
                     strong_hay = "\n".join([
                         getattr(ds, "name", "") or "",
-                        one_liners.get(sid, ""),
+                        one_liners.get(sid, ""), paths.get(sid, ""),
                         getattr(ds, "description", "") or "",
                         getattr(ds, "context", "") or "",
                         sid,
@@ -270,7 +304,8 @@ class SearchAgentsTool(Tool):
             # usage-ranked candidates so the model can pick and proceed
             # instead of reporting "no agents matched" and then guessing.
             no_match_fallback = bool(patterns) and not matched
-            if no_match_fallback:
+            folder_no_match = no_match_fallback and bool(getattr(report, "agent_folder_id", None))
+            if no_match_fallback and not folder_no_match:
                 matched = list(candidates)
 
             # Rank: match strength first (descriptive-field hits beat
@@ -289,6 +324,7 @@ class SearchAgentsTool(Tool):
             items = [
                 SearchAgentsItem(
                     id=str(ds.id), name=getattr(ds, "name", "") or "",
+                    folder_path=paths.get(str(ds.id)),
                     description=one_liners.get(str(ds.id), "") or None,
                     status=getattr(ds, "publish_status", None),
                     reliability_status=getattr(ds, "reliability_status", None),
@@ -322,7 +358,10 @@ class SearchAgentsTool(Tool):
             if isinstance(_loaded, set):
                 _loaded.update(str(ds.id) for ds in full_ds)
 
-            if no_match_fallback:
+            if folder_no_match:
+                head = ("No matching agent in this folder. If a published instruction names an agent, "
+                        "search for its exact name. If that search also fails, ask for clarification.")
+            elif no_match_fallback:
                 head = (
                     f"No direct match for {queries}; showing the {total} available {scope} "
                     "agent(s) ranked by your recent usage — pick from these."
@@ -340,6 +379,7 @@ class SearchAgentsTool(Tool):
                 + (", EMAIL agent — use search_email/read_email/list_emails, not file tools" if surface_by_id.get(it.id) == "email" else "")
                 + (", CHAT agent — use search_chat_messages/read_chat_thread/list_chat_messages, not file tools" if surface_by_id.get(it.id) == "chat" else "")
                 + (", matched on table names only" if strength.get(it.id) == "weak" else "")
+                + (f", folder: {it.folder_path}" if it.folder_path else "")
                 + (", focused" if it.focused else "")
                 + ("" if it.attached else ", not attached to this report yet")
                 + (", SIGN-IN REQUIRED — the user must Connect this agent from the agent selector before it can be used; do not set_report_agents it, tell the user instead" if it.needs_signin else "")
@@ -372,6 +412,76 @@ class SearchAgentsTool(Tool):
         except Exception as e:
             logger.exception(f"search_agents failed: {e}")
             yield ToolErrorEvent(type="tool.error", payload={"error": f"Search failed: {e}", "code": "SEARCH_FAILED"})
+
+    async def _browse_directory(self, data, db, organization, user, report, mode):
+        from fastapi import HTTPException
+        from app.ai.tools.implementations.agent_focus_common import resolve_candidate_agents
+        from app.services.data_source_kind import is_connector
+        from app.services.folder_service import folder_path, load_report_folders, queryable_folder_tree
+
+        if report is None or user is None:
+            return SearchAgentsOutput(success=True, total=0, message="No directory in this report scope.")
+        tree = await queryable_folder_tree(db, organization, user)
+        try:
+            candidates, scope, _ = await resolve_candidate_agents(db, organization, user, report, mode)
+        except HTTPException as exc:
+            if exc.status_code != 409 or exc.detail != "No available agents in this folder":
+                raise
+            candidates, scope = [], "folder"
+        # A saved manual selection may outlive a grant or publishing change.
+        # Re-check current eligibility before disclosing names or descriptions.
+        if scope in {"attached", "managed"}:
+            from app.ai.tools.implementations.agent_focus_common import accessible_agents
+            eligible = {str(agent.id) for agent in await accessible_agents(db, organization, user)}
+            candidates = [agent for agent in candidates if str(agent.id) in eligible]
+        candidates = [agent for agent in candidates if not is_connector(agent)]
+        selected = set(await load_report_folders(db, report)) if report else set()
+        allowed = set()
+        if scope == "accessible" and report is not None:
+            allowed.update(tree)
+        else:
+            # Pinned agents reveal only their visible home paths. Explicitly
+            # selected folders additionally expose their queryable descendants.
+            for agent in candidates:
+                node = getattr(agent, "folder_id", None)
+                while node in tree and node not in allowed:
+                    allowed.add(node)
+                    node = tree[node][0]
+            children = {}
+            for fid, (parent, _) in tree.items():
+                children.setdefault(parent, []).append(fid)
+            pending = list(selected.intersection(tree))
+            while pending:
+                node = pending.pop()
+                allowed.add(node)
+                pending.extend(children.get(node, []))
+
+        paths = {fid: folder_path(tree, fid, "/") for fid in allowed}
+        if data.path_glob is not None:
+            matched = {fid for fid, path in paths.items() if matches_directory_path(path, data.path_glob)}
+            if data.folder_id is not None:
+                matched &= {data.folder_id}
+            folders = homes = matched
+        elif data.folder_id is not None:
+            homes = {data.folder_id} & allowed
+            folders = {fid for fid in allowed if tree[fid][0] in homes}
+        else:
+            folders = {fid for fid in allowed if tree[fid][0] not in allowed}
+            homes = {None}
+
+        entries = [("folder", fid, paths[fid]) for fid in sorted(folders, key=lambda fid: (paths[fid].casefold(), fid))]
+        agents = {str(a.id): a for a in candidates if getattr(a, "folder_id", None) in homes}
+        entries.extend(("agent", aid, a.name) for aid, a in sorted(agents.items(), key=lambda pair: (pair[1].name.casefold(), pair[0])))
+        result = SearchAgentsOutput(success=True, total=len(entries),
+            message="Agent directory entries. Use offset to continue if more entries remain.")
+        for kind, ident, name in entries[data.offset:data.offset + data.limit]:
+            if kind == "folder":
+                result.folders.append({"id": ident, "path": name})
+            else:
+                agent = agents[ident]
+                result.agents.append(SearchAgentsItem(id=ident, name=name, folder_path=paths.get(agent.folder_id),
+                    description=getattr(agent, "description", None)))
+        return result
 
     @staticmethod
     def _icon_hints(ds: Any) -> Dict[str, Any]:

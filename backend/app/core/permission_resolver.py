@@ -609,6 +609,7 @@ async def _resolve_permissions_inner(
         .join(Group, Group.id == GroupMembership.group_id)
         .where(
             GroupMembership.user_id == user_id,
+            GroupMembership.deleted_at.is_(None), Group.deleted_at.is_(None),
             Group.organization_id == org_id,
         )
     )
@@ -774,6 +775,9 @@ async def _resolve_permissions_inner(
     for ds_id in await _agents_fully_backed_by_connections(db, managed_conn_ids):
         resource_permissions.setdefault(("data_source", ds_id), set()).add("manage")
 
+    from app.services.folder_service import expand_folder_permissions
+    await expand_folder_permissions(db, org_id, resource_permissions)
+
     # Agent ownership is authoritative: data_sources.owner_user_id holds the
     # `manage` tier on their own agent even when the owner grant row is
     # missing (legacy creation paths, pre-backfill rows, failed writes).
@@ -877,8 +881,8 @@ async def resolve_permissions_bulk(
             select(Group.organization_id, GroupMembership.group_id,
                    Group.default_llm_model_id, Group.small_default_llm_model_id)
             .join(Group, Group.id == GroupMembership.group_id)
-            .where(GroupMembership.user_id == user_id,
-                   Group.organization_id.in_(org_ids))
+            .where(GroupMembership.user_id == user_id, GroupMembership.deleted_at.is_(None),
+                   Group.deleted_at.is_(None), Group.organization_id.in_(org_ids))
         )).all()
         groups_by_org: dict[str, list] = {}
         group_defaults_by_org: dict[str, list] = {}
@@ -996,6 +1000,8 @@ async def resolve_permissions_bulk(
                 res_perms.setdefault(("data_source", ds_id), set()).add("manage")
             for model_id in _group_default_model_ids(group_defaults_by_org.get(org_id, [])):
                 res_perms.setdefault(("llm_model", model_id), set()).add("use")
+            from app.services.folder_service import expand_folder_permissions
+            await expand_folder_permissions(db, org_id, res_perms)
             result[org_id] = ResolvedPermissions(
                 org_permissions=expand_org_permissions(org_perms[org_id]),
                 resource_permissions=res_perms,

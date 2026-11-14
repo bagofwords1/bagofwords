@@ -1,5 +1,6 @@
 <template>
     <div>
+        <ConsoleFolderRunActivity />
         <ConsoleOverview />
     </div>
 </template>

@@ -1,10 +1,13 @@
-"""edit_artifact attaches files, and only ones the run may share.
+"""create_artifact and edit_artifact attach files, and only ones the run may share.
 
 Attaching a file makes it readable by everyone who can view the artifact, so
-edit_artifact holds the same line as create_artifact. A <BowFile> whose file
-isn't attached shows "File not found" while the edit still reports success, so
-that case is refused before it is saved.
+both tools apply one rule (_artifact_files). A <BowFile> whose file isn't
+attached shows "File not found" while the render still passes, so both refuse
+it before anything is saved (file_reference_errors). edit_artifact can also
+detach a file (remove_file_ids): viewers can then no longer open it through
+any version of the artifact, until a later edit attaches it again.
 """
+import json
 import asyncio
 import struct
 import uuid
@@ -96,6 +99,20 @@ def _edit(cast, chatbot, tool_input):
     return asyncio.run(go())
 
 
+def _create(cast, chatbot, tool_input):
+    async def go():
+        async with async_session_maker() as db:
+            ctx = {
+                "db": db,
+                "report": await db.get(Report, chatbot["report_id"]),
+                "user": await db.get(User, cast["owner"]["user_id"]),
+                "organization": await db.get(Organization, cast["org_id"]),
+            }
+            ends = [e async for e in CreateArtifactTool().run_stream(tool_input, ctx) if e.type == "tool.end"]
+            return ends[-1].payload
+    return asyncio.run(go())
+
+
 def _add_logo(file_id):
     return [{"find": "<h1>Assistant</h1>", "replace": f'<BowFile id="{file_id}" /><h1>Assistant</h1>'}]
 
@@ -178,7 +195,9 @@ def test_edit_attaches_only_images_and_pdfs(test_client, cast, chatbot, no_rende
 
 @pytest.mark.e2e
 @pytest.mark.parametrize("tag", ['<BowFile id="{}" />', "<BowFile className='h-8' id='{}'/>", '<BowFile id={{"{}"}} />',
-                                 "<BowFile fit=\"cover\" id={{`{}`}} />"])
+                                 "<BowFile fit=\"cover\" id={{`{}`}} />",
+                                 # A ">" inside an earlier attribute doesn't end the tag.
+                                 '<BowFile onLoad={{() => x}} id="{}" />', '<BowFile alt="a > b" id="{}" />'])
 def test_edit_refuses_a_bowfile_for_a_file_it_does_not_attach(test_client, cast, chatbot, no_render, tag):
     logo = _upload(test_client, cast["owner"]["token"], cast["org_id"], report_id=chatbot["report_id"])
     artifact = chatbot["seed"]({"code": CODE, "visualization_ids": []})
@@ -190,7 +209,7 @@ def test_edit_refuses_a_bowfile_for_a_file_it_does_not_attach(test_client, cast,
 
 @pytest.mark.e2e
 @pytest.mark.parametrize("tag", ["<BowFile id={logoId} />", "<BowFile id={`${logoId}`} />",
-                                 '<BowFile data-id="not-a-file" id={logoId} />'])
+                                 '<BowFile data-id="not-a-file" id={logoId} />', '<BowFile id={"img-" + logoId} />'])
 def test_edit_does_not_refuse_a_bowfile_whose_id_is_computed(test_client, cast, chatbot, no_render, tag):
     code = CODE.replace("function App() {", "function App() { const logoId = window.ARTIFACT_DATA.files[0].id;")
     artifact = chatbot["seed"]({"code": code, "visualization_ids": []})
@@ -209,3 +228,170 @@ def test_an_unrelated_edit_is_not_blocked_by_an_older_broken_bowfile(test_client
     payload = _edit(cast, chatbot, {"artifact_id": artifact, "edits": [{"find": "Assistant", "replace": "Helper"}]})
 
     assert payload["output"]["success"] is True, payload
+
+
+@pytest.mark.e2e
+def test_edit_attaches_a_file_named_in_another_case(test_client, cast, chatbot, no_render):
+    logo = _upload(test_client, cast["owner"]["token"], cast["org_id"], report_id=chatbot["report_id"])
+    artifact = chatbot["seed"]({"code": CODE, "visualization_ids": []})
+
+    payload = _edit(cast, chatbot, {"artifact_id": artifact, "edits": _add_logo(logo), "file_ids": [f" {logo.upper()} "]})
+
+    assert payload["output"]["success"] is True, payload
+    assert _file_ids(test_client, cast, payload["output"]["artifact_id"]) == {logo}
+
+
+@pytest.mark.e2e
+def test_edit_refuses_a_bowfile_spelled_differently_from_the_attached_id(test_client, cast, chatbot, no_render):
+    # The runtime matches <BowFile id> against files[].id exactly; another spelling shows "File not found".
+    logo = _upload(test_client, cast["owner"]["token"], cast["org_id"], report_id=chatbot["report_id"])
+    artifact = chatbot["seed"]({"code": CODE, "visualization_ids": []})
+
+    payload = _edit(cast, chatbot, {"artifact_id": artifact, "edits": _add_logo(logo.upper()), "file_ids": [logo]})
+
+    _assert_refused(payload, "file_not_attached", test_client, cast, chatbot)
+
+
+@pytest.mark.e2e
+def test_edit_detaches_a_file_whose_tag_it_removes(test_client, cast, chatbot, no_render):
+    old = _upload(test_client, cast["owner"]["token"], cast["org_id"], report_id=chatbot["report_id"], name="old.png")
+    new = _upload(test_client, cast["owner"]["token"], cast["org_id"], report_id=chatbot["report_id"], name="new.png")
+    code = CODE.replace("<h1>Assistant</h1>", f'<BowFile id="{old}" /><h1>Assistant</h1>')
+    artifact = chatbot["seed"]({"code": code, "visualization_ids": [],
+                                "files": [{"id": old, "content_type": "image/png", "filename": "old.png"}]})
+
+    payload = _edit(cast, chatbot, {"artifact_id": artifact, "file_ids": [new], "remove_file_ids": [old],
+                                    "edits": [{"find": f'<BowFile id="{old}" />', "replace": f'<BowFile id="{new}" />'}]})
+
+    assert payload["output"]["success"] is True, payload
+    assert _file_ids(test_client, cast, payload["output"]["artifact_id"]) == {new}
+
+
+@pytest.mark.e2e
+def test_edit_refuses_to_detach_a_file_the_code_still_shows(test_client, cast, chatbot, no_render):
+    old = _upload(test_client, cast["owner"]["token"], cast["org_id"], report_id=chatbot["report_id"])
+    code = CODE.replace("<h1>Assistant</h1>", f'<BowFile id="{old}" /><h1>Assistant</h1>')
+    artifact = chatbot["seed"]({"code": code, "visualization_ids": [],
+                                "files": [{"id": old, "content_type": "image/png", "filename": "logo.png"}]})
+
+    payload = _edit(cast, chatbot, {"artifact_id": artifact, "remove_file_ids": [old],
+                                    "edits": [{"find": "Assistant", "replace": "Helper"}]})
+
+    _assert_refused(payload, "file_not_attached", test_client, cast, chatbot)
+
+
+@pytest.mark.e2e
+def test_create_refuses_a_bowfile_for_a_file_it_does_not_attach(test_client, cast, chatbot, no_render):
+    logo = _upload(test_client, cast["owner"]["token"], cast["org_id"], report_id=chatbot["report_id"])
+    code = CODE.replace("<h1>Assistant</h1>", f'<BowFile onLoad={{() => x}} id="{logo}" /><h1>Assistant</h1>')
+
+    payload = _create(cast, chatbot, {"prompt": "build", "mode": "page", "code": code, "visualization_ids": []})
+
+    assert not payload["output"].get("success"), payload
+    assert "not attached" in json.dumps(payload)
+    # A failed create keeps a status="failed" row for debugging; nothing is completed.
+    assert [v for v in _versions(test_client, cast, chatbot) if v.get("status") == "completed"] == []
+
+
+@pytest.mark.e2e
+def test_create_refuses_an_unattached_bowfile_without_vendored_libs(test_client, cast, chatbot, monkeypatch):
+    """No vendored JS libs means no render check; the file check needs no render."""
+    import app.services.artifact_libs as artifact_libs
+    monkeypatch.setattr(artifact_libs, "_find_libs_dir", lambda *a, **k: None)
+    logo = _upload(test_client, cast["owner"]["token"], cast["org_id"], report_id=chatbot["report_id"])
+    code = CODE.replace("<h1>Assistant</h1>", f'<BowFile id="{logo}" /><h1>Assistant</h1>')
+
+    payload = _create(cast, chatbot, {"prompt": "build", "mode": "page", "code": code, "visualization_ids": []})
+
+    assert not payload["output"].get("success"), payload
+    assert "not attached" in json.dumps(payload)
+    assert [v for v in _versions(test_client, cast, chatbot) if v.get("status") == "completed"] == []
+
+
+@pytest.mark.e2e
+def test_create_attaches_a_bowfile_passed_in_file_ids(test_client, cast, chatbot, no_render):
+    logo = _upload(test_client, cast["owner"]["token"], cast["org_id"], report_id=chatbot["report_id"])
+    code = CODE.replace("<h1>Assistant</h1>", f'<BowFile id="{logo}" /><h1>Assistant</h1>')
+
+    payload = _create(cast, chatbot, {"prompt": "build", "mode": "page", "code": code, "visualization_ids": [], "file_ids": [logo]})
+
+    assert payload["output"].get("artifact_id"), payload.get("observation")
+    assert [v["status"] for v in _versions(test_client, cast, chatbot)] == ["completed"]
+    assert _file_ids(test_client, cast, payload["output"]["artifact_id"]) == {logo}
+
+
+@pytest.mark.e2e
+def test_create_attaches_only_images_and_pdfs_like_edit(test_client, cast, chatbot, no_render):
+    csv = _upload(test_client, cast["owner"]["token"], cast["org_id"], report_id=chatbot["report_id"],
+                  name="data.csv", body=b"k,v\n1,2\n", content_type="text/csv")
+
+    payload = _create(cast, chatbot, {"prompt": "build", "mode": "page", "code": CODE, "visualization_ids": [], "file_ids": [csv]})
+
+    assert not payload["output"].get("success"), payload
+    assert payload["observation"]["error"]["type"] == "file_not_attachable"
+    # A failed create keeps a status="failed" row for debugging; nothing is completed.
+    assert [v for v in _versions(test_client, cast, chatbot) if v.get("status") == "completed"] == []
+
+
+@pytest.mark.e2e
+def test_a_failed_file_lookup_leaves_the_runs_session_usable(test_client, cast, chatbot):
+    """A failed lookup must not poison the run's shared session: on Postgres a
+    failed statement aborts the whole transaction until it is rolled back."""
+    from sqlalchemy import event, select
+    from app.ai.tools.implementations._artifact_files import FileLookupFailed, attachable_files
+
+    logo = _upload(test_client, cast["owner"]["token"], cast["org_id"], report_id=chatbot["report_id"])
+    title = f"kept-{uuid.uuid4().hex[:6]}"
+
+    # Fault injection at the driver boundary: the database really rejects the
+    # file lookup's statement.
+    def broken_lookup(conn, cursor, statement, params, context, executemany):
+        if "FROM files" in statement:
+            return "SELECT no_such_column FROM files", params
+        return statement, params
+
+    async def go():
+        async with async_session_maker() as db:
+            report = await db.get(Report, chatbot["report_id"])
+            report.title = title  # earlier, uncommitted work of the same run
+            await db.flush()
+            engine = db.bind.sync_engine
+            event.listen(engine, "before_cursor_execute", broken_lookup, retval=True)
+            try:
+                with pytest.raises(FileLookupFailed):
+                    await attachable_files(db, user=await db.get(User, cast["owner"]["user_id"]), report=report,
+                                           organization=await db.get(Organization, cast["org_id"]), file_ids=[logo])
+            finally:
+                event.remove(engine, "before_cursor_execute", broken_lookup)
+            return (await db.execute(select(Report.title).where(Report.id == chatbot["report_id"]))).scalar_one()
+
+    assert asyncio.run(go()) == title
+
+
+@pytest.mark.e2e
+def test_a_detached_file_is_no_longer_shared_through_any_version(test_client, cast, chatbot, no_render, set_visibility):
+    """remove_file_ids revokes the share: older versions still list the file,
+    but viewers can't open it through them, until a later edit attaches it again."""
+    token, org_id = cast["owner"]["token"], cast["org_id"]
+    logo = _upload(test_client, token, org_id, report_id=chatbot["report_id"])
+    artifact = chatbot["seed"]({"code": CODE, "visualization_ids": []})
+    set_visibility(chatbot["report_id"], "artifact", "internal", user_token=token, org_id=org_id)
+    other = _h(cast["other"]["token"], org_id)
+
+    def viewer_can_open():
+        return test_client.get(f"/api/files/{logo}/embed_token", headers=other).status_code == 200
+
+    shown = _edit(cast, chatbot, {"artifact_id": artifact, "edits": _add_logo(logo), "file_ids": [logo]})
+    assert shown["output"]["success"] is True, shown
+    assert viewer_can_open()
+
+    removed = _edit(cast, chatbot, {"artifact_id": shown["output"]["artifact_id"], "remove_file_ids": [logo],
+                                    "edits": [{"find": f'<BowFile id="{logo}" />', "replace": ""}]})
+    assert removed["output"]["success"] is True, removed
+    assert _file_ids(test_client, cast, removed["output"]["artifact_id"]) == set()
+    assert _file_ids(test_client, cast, shown["output"]["artifact_id"]) == {logo}, "the older version still lists it"
+    assert not viewer_can_open(), "but no version shares it any more"
+
+    again = _edit(cast, chatbot, {"artifact_id": removed["output"]["artifact_id"], "edits": _add_logo(logo), "file_ids": [logo]})
+    assert again["output"]["success"] is True, again
+    assert viewer_can_open(), "attaching it again shares it again"

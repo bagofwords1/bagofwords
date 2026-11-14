@@ -10,6 +10,7 @@ from app.models.report_file_association import report_file_association
 class File(BaseSchema):
     __tablename__ = "files"
 
+    owner_folder_id = Column(String(36), ForeignKey("folders.id"), nullable=True, index=True)
     filename = Column(String, index=True)
     path = Column(String, index=True)
     content_type = Column(String, index=True)

@@ -177,6 +177,7 @@
         </div>
 
         <!-- Review actions -->
+        <div v-if="interactive && confirmation?.folder_name" class="px-3 py-1 text-chat-2 text-ink-muted"><UIcon name="i-heroicons-folder" /> {{ confirmation.folder_name }}</div>
         <div v-if="interactive" class="border-t border-gray-100 dark:border-gray-800 px-3 py-2" data-testid="demo-dataset-review">
           <div v-if="showFeedback" class="mb-2">
             <textarea

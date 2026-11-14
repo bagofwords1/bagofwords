@@ -53,6 +53,7 @@ from app.models.llm_usage_record import LLMUsageRecord
 from app.models.llm_model import LLMModel
 from app.models.usage_policy import UsageEvent
 from app.models.instruction_build import InstructionBuild
+from app.services.folder_monitoring import agent_links, detail_condition
 from app.models.report_data_source_association import report_data_source_association
 from app.models.data_source import DataSource
 from app.models.group import Group
@@ -165,7 +166,7 @@ class ConsoleService:
 
         ``scope_ids`` None means org-wide, where only the filter applies.
         """
-        assoc = report_data_source_association
+        assoc = agent_links()
         if not data_source_ids and scope_ids is None:
             return None
         q = select(assoc.c.report_id)
@@ -185,11 +186,17 @@ class ConsoleService:
 
     def _reports_in_scope(self, params: MetricsQueryParams):
         """``_reports_of_data_sources`` for a request's params."""
-        return self._reports_of_data_sources(
+        selected = self._reports_of_data_sources(
             self._parse_data_source_ids(params.data_source_ids),
             self._parse_data_source_ids(params.scope_data_source_ids)
             if params.scope_data_source_ids is not None else None,
         )
+        readable = getattr(params, "_folder_report_ids", [])
+        if readable is None:
+            return selected
+        reports = select(Report.id).where(detail_condition(Report.id, readable))
+        return reports.where(Report.id.in_(selected)) if selected is not None else reports
+
 
     def _to_utc_naive(self, dt: Optional[datetime]) -> Optional[datetime]:
         """Convert aware datetimes to UTC and strip tzinfo; leave naive as-is.
@@ -414,12 +421,8 @@ class ConsoleService:
         prev_start_date = start_date - period_length
         
         # Get current and previous period metrics (preserve data_source_ids filter)
-        current_params = MetricsQueryParams(start_date=start_date, end_date=end_date,
-                                            data_source_ids=params.data_source_ids,
-                                            scope_data_source_ids=params.scope_data_source_ids)
-        prev_params = MetricsQueryParams(start_date=prev_start_date, end_date=prev_end_date,
-                                         data_source_ids=params.data_source_ids,
-                                         scope_data_source_ids=params.scope_data_source_ids)
+        current_params = params.model_copy(update={"start_date": start_date, "end_date": end_date})
+        prev_params = params.model_copy(update={"start_date": prev_start_date, "end_date": prev_end_date})
 
         current_metrics = await self.get_organization_metrics(db, organization, current_params)
         previous_metrics = await self.get_organization_metrics(db, organization, prev_params)
@@ -1045,12 +1048,32 @@ class ConsoleService:
 
         savings = compute_routing_savings_usd(routed_rows, rates)
         routed_calls = len(routed_rows)
+
+        # Upfront decisions are routing overhead: count them and net their cost
+        # out of the savings so the KPI stays honest.
+        from app.ai.model_router import DECISION_USAGE_SCOPE
+        decision_query = (
+            select(func.count(LLMUsageRecord.id), func.coalesce(func.sum(LLMUsageRecord.total_cost_usd), 0))
+            .join(LLMModel, LLMModel.id == LLMUsageRecord.llm_model_id)
+            .where(
+                LLMModel.organization_id == organization.id,
+                LLMUsageRecord.created_at >= start_date,
+                LLMUsageRecord.created_at <= end_date,
+                LLMUsageRecord.scope == DECISION_USAGE_SCOPE,
+            )
+        )
+        if ds_report_ids is not None:
+            decision_query = decision_query.where(LLMUsageRecord.report_id.in_(ds_report_ids))
+        decision_calls, decision_cost = (await db.execute(decision_query)).one()
+        decision_cost = float(decision_cost or 0)
         return RoutingSavings(
             enabled=enabled,
-            savings_usd=round(savings, 6),
+            savings_usd=round(savings - decision_cost, 6),
             routed_calls=routed_calls,
             total_calls=int(total_calls or 0),
             routed_share=(routed_calls / total_calls) if total_calls else 0.0,
+            decision_calls=int(decision_calls or 0),
+            decision_cost_usd=round(decision_cost, 6),
         )
 
     # Providers whose pricing we can only estimate (no first-party price feed):
@@ -1265,7 +1288,7 @@ class ConsoleService:
 
         elif group_by == "data_source":
             # Expand each record across the data sources of its report.
-            assoc = report_data_source_association
+            assoc = agent_links()
             key_col = func.coalesce(assoc.c.data_source_id, UNATTRIBUTED)
             query = (
                 base.add_columns(key_col.label("key"), DataSource.name.label("ds_name"))
@@ -2578,14 +2601,12 @@ class ConsoleService:
             .order_by(AgentExecution.created_at.desc())
         )
 
-        # Apply data source filter if specified
-        if parsed_data_source_ids:
-            # Filter to agent executions whose reports are associated with the specified data sources
-            ds_subquery = (
-                select(report_data_source_association.c.report_id)
-                .where(report_data_source_association.c.data_source_id.in_(parsed_data_source_ids))
-            )
-            base_query = base_query.where(AgentExecution.report_id.in_(ds_subquery))
+        if security_data_source_ids is not None and params.scope_data_source_ids is None:
+            params = params.model_copy()
+            params._folder_report_ids = []
+        reports_in_scope = self._reports_in_scope(params)
+        if reports_in_scope is not None:
+            base_query = base_query.where(AgentExecution.report_id.in_(reports_in_scope))
 
         # Apply user filter if specified
         if parsed_user_ids:

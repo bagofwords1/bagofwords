@@ -28,13 +28,17 @@
           <button type="button" class="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-gray-200 dark:border-gray-800 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50">
             <DataSourceIcon v-if="agentFilter" :icon-token="agentIconTokenOf(agentFilter)" class="w-3 h-3" />
             <UIcon v-else name="i-heroicons-cube" class="w-3 h-3 text-ink-muted" />
-            {{ agentFilter ? agentNameOf(agentFilter) : 'All agents' }}
+            {{ agentFilter?.startsWith('folder:') ? folderLabel : agentFilter ? agentNameOf(agentFilter) : 'All agents' }}
             <UIcon name="i-heroicons-chevron-down" class="w-2.5 h-2.5 opacity-60" />
           </button>
           <template #panel="{ close }">
             <div class="p-1 w-56 max-h-72 overflow-auto">
               <button class="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 text-left text-sm" @click="agentFilter = null; close()"><UIcon name="i-heroicons-cube" class="w-4 h-4 text-ink-muted" />All agents<UIcon v-if="!agentFilter" name="i-heroicons-check" class="w-3.5 h-3.5 ml-auto text-gray-900 dark:text-white" /></button>
-              <button v-for="a in agents" :key="a.id" class="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 text-left text-sm" @click="agentFilter = a.id; close()"><DataSourceIcon :type="a.type" :icon-token="a.icon_token" :icon="a.icon" class="w-4 h-4" /><span class="truncate">{{ a.name }}</span><UIcon v-if="agentFilter === a.id" name="i-heroicons-check" class="w-3.5 h-3.5 ml-auto text-gray-900 dark:text-white shrink-0" /></button>
+              <AgentFolderChoices :agents="agents" @select="(_, f) => { agentFilter = 'folder:' + f.id; folderLabel = f.path; close() }" :selected-folders="agentFilter?.startsWith('folder:') ? [agentFilter.slice(7)] : []">
+                <template #agent="{agent: a, parentPath}">
+                  <button   class="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 text-left text-sm" @click="agentFilter = a.id; close()"><DataSourceIcon :type="a.type" :icon-token="a.icon_token" :icon="a.icon" class="w-4 h-4" /><span class="truncate">{{ a.name }}<small v-if="parentPath" class="block truncate text-2xs text-ink-muted">{{ parentPath }}</small></span><UIcon v-if="agentFilter === a.id" name="i-heroicons-check" class="w-3.5 h-3.5 ml-auto text-gray-900 dark:text-white shrink-0" /></button>
+                </template>
+              </AgentFolderChoices>
             </div>
           </template>
         </UPopover>
@@ -133,11 +137,12 @@
           <div class="relative mt-1">
             <DataSourceIcon v-if="settingsAgentId" :icon-token="agentIconTokenOf(settingsAgentId)" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4" />
             <select v-model="settingsAgentId" class="w-full h-9 pl-9 pr-2 text-sm bg-gray-50 border border-gray-200 rounded-md outline-none focus:border-gray-400 focus:bg-white appearance-none dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500">
-              <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
+              <option v-for="a in settingsChoices" :key="a.id" :value="a.id">{{ a.name }}</option>
             </select>
             <UIcon name="i-heroicons-chevron-down" class="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-muted pointer-events-none" />
           </div>
         </div>
+        <AgentFolderFilter :agents="agents" @select="narrowSettings" />
         <AgentAutomationSettings v-if="settingsAgentId" :key="settingsAgentId" :agent-id="settingsAgentId" />
         <p v-else class="text-xs text-ink-muted">No agents available.</p>
       </div>
@@ -158,13 +163,21 @@ const loading = ref(false)
 const busy = ref<string | null>(null)
 const unread = ref(0)
 const search = ref('')
+const folderLabel = ref('')
 const agentFilter = ref<string | null>(props.initialAgentId || null)
 const typeFilter = ref<string | null>(null)
 const showResolved = ref(false)
 const showSettings = ref(false)
 const settingsAgentId = ref<string | null>(props.initialAgentId || null)
+const settingsGroup = ref<string[]>([])
+const settingsChoices = computed(() => settingsGroup.value.length ? props.agents.filter(a => settingsGroup.value.includes(a.id)) : props.agents)
+function narrowSettings(ids: string[]) {
+  settingsGroup.value = ids
+  if (!ids.includes(settingsAgentId.value || '')) settingsAgentId.value = ids[0] || null
+}
 const openSettings = () => {
-  if (!settingsAgentId.value) settingsAgentId.value = agentFilter.value || (props.agents[0]?.id ?? null)
+  settingsGroup.value = []
+  if (!settingsAgentId.value) settingsAgentId.value = (!agentFilter.value?.startsWith('folder:') && agentFilter.value) || (props.agents[0]?.id ?? null)
   showSettings.value = true
 }
 
@@ -262,7 +275,8 @@ const fetchItems = async () => {
   loading.value = true
   try {
     const q: any = {}
-    if (agentFilter.value) q.agent_id = agentFilter.value
+    if (agentFilter.value?.startsWith('folder:')) q.folder_id = agentFilter.value.slice(7)
+    else if (agentFilter.value) q.agent_id = agentFilter.value
     if (showResolved.value) q.status = 'open,in_progress,snoozed,resolved'
     const { data } = await useMyFetch<any>('/api/review', { method: 'GET', query: q })
     items.value = data.value?.items || []
@@ -338,7 +352,7 @@ const toggleRead = async (row: any) => {
   }
 }
 const markAllRead = async () => {
-  try { await useMyFetch('/api/review/read-all', { method: 'POST', body: { agent_id: agentFilter.value } }); await fetchItems() } catch {}
+  try { await useMyFetch('/api/review/read-all', { method: 'POST', body: agentFilter.value?.startsWith('folder:') ? {folder_id: agentFilter.value.slice(7)} : {agent_id: agentFilter.value} }); await fetchItems() } catch {}
 }
 
 onMounted(fetchItems)

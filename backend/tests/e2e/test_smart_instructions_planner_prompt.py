@@ -64,8 +64,11 @@ def llm(monkeypatch):
             if state["base"] is None:
                 state["base"] = seen
             step = seen - state["base"]
-            if step < len(state["script"]):
-                name, args = state["script"][step]
+            choice = state["choose"](step, text) if state.get("choose") else (state["script"][step] if step < len(state["script"]) else None)
+            if state.get("provider_choice"):
+                choice = state["provider_choice"](step, system, messages, tools)
+            if choice:
+                name, args = choice
                 tid = f"tu_{uuid.uuid4().hex[:8]}"
                 events = [ToolUseStartEvent(id=tid, name=name),
                           ToolUseCompleteEvent(id=tid, name=name, input=args),

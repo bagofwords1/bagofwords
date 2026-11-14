@@ -236,8 +236,8 @@ const blankCallerCard = await card([KMS_ROOTED], { headerSubtitle: '' })
 const agentFiles = read('../../components/datasources/AgentFilesPanel.vue')
 const agentFilesFns = declarations(scriptOf(agentFiles))
 const agentFilesRender = templateOf(agentFiles, 'agent-files-panel')
-const agentFilesHelpers = new Function(`${js(['cfg', 'baseOf', 'globsOf', 'indexModeOf', 'badgeLabel', 'badgeClass']
-  .map((name) => agentFilesFns.get(name)))}\nreturn { cfg, baseOf, globsOf, indexModeOf, badgeLabel, badgeClass }`)()
+const agentFilesHelpers = new Function(`${js(['cfg', 'baseOf', 'globsOf', 'LIVE_TYPES', 'indexModeOf', 'badgeLabel', 'badgeClass']
+  .map((name) => agentFilesFns.get(name)))}\nreturn { cfg, baseOf, globsOf, LIVE_TYPES, indexModeOf, badgeLabel, badgeClass }`)()
 const filesTab = (conn) => rendered(agentFilesRender,
   { ...agentFilesHelpers, files: [], fileConnections: [conn], canUpdate: false, uploading: false },
   { DataSourceIcon: NO_RENDER, UIcon: NO_RENDER,

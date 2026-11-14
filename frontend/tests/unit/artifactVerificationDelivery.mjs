@@ -30,7 +30,7 @@ const state = {
   window:{location:{origin:'https://preview.test'}},console:{log(){},error(){}},
   iframeRef:{value:{contentWindow:{postMessage(m){messages.push(m)}}}},
   toRaw:v=>v, paramsPayload:()=>({}),artifactRuntime:()=>({}),syncParamsToUrl(){},postParamsStatus(){},
-  verificationEvent:(kind,fields)=>events.push({kind,...fields}),useMyFetch:(...args)=>respond(...args),
+  logActivity:null,previewConversationPolicy:null,verificationEvent:(kind,fields)=>events.push({kind,...fields}),useMyFetch:(...args)=>respond(...args),
 }
 vm.createContext(state)
 vm.runInContext(code, state)
