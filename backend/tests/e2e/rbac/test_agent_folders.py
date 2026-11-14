@@ -605,3 +605,17 @@ async def test_folder_authoring_tool_destinations(test_client, bootstrap_admin, 
                 else:
                     assert await db.scalar(select(folder_instructions.c.folder_id).where(
                         folder_instructions.c.instruction_id == result["instruction_id"])) == folder
+        from app.ai.tools.mcp.instructions import CreateInstructionMCPTool
+        from app.ai.tools.mcp.evals import CreateEvalMCPTool
+        from app.routes.mcp import _holds_permission_anywhere
+        for adapter, capability, fields in [
+            (CreateInstructionMCPTool(), "manage_instructions", {"text": "Use attribution for acquisition costs."}),
+            (CreateEvalMCPTool(), "manage_evals", {"name": "MCP routing", "prompt": {"content": "Acquisition cost?"},
+                "expectations": {"rules": [{"type": "tool.calls", "tool": "create_data", "min_calls": 1}]}}),
+        ]:
+            assert await _holds_permission_anywhere(db, ctx["user"], ctx["organization"], capability)
+            for fid in (other, folder):
+                result = await adapter.execute({**fields, "folder_id": fid}, db, ctx["user"], ctx["organization"])
+                assert result["success"] == (fid == folder), result
+                if result["success"]:
+                    assert result["folder_id"] == folder
