@@ -920,7 +920,7 @@ async def get_instruction(
     return instruction
 
 @router.put("/instructions/{instruction_id}", response_model=InstructionSchema)
-@requires_permission('manage_instructions', model=Instruction, resource_scoped=True)
+@requires_permission('manage_instructions', model=Instruction, resource_scoped=True, folder_scoped=True)
 async def update_instruction(
     instruction_id: str,
     instruction: InstructionUpdate,

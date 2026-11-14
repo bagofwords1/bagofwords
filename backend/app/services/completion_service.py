@@ -348,6 +348,8 @@ class CompletionService:
             waiter.cancel()
         if not answer_ready.is_set() and run_outcome.get("error") is not None:
             e = run_outcome["error"]
+            if isinstance(e, HTTPException):
+                raise e
             raise HTTPException(status_code=500, detail=f"Agent execution failed: {str(e)}")
         async with create_async_session_factory()() as s:
             return await self._build_v2_response(s, head_completion_id=head_completion_id, report_id=report_id)
@@ -1152,6 +1154,8 @@ class CompletionService:
                     # keep the traceback, it's the only record of what killed the run.
                     logging.exception("Agent execution failed for report %s", report.id)
                     await self._create_error_completion(db, head_completion, str(e))
+                    if isinstance(e, HTTPException):
+                        raise
                     raise HTTPException(status_code=500, detail=f"Agent execution failed: {str(e)}")
 
         except HTTPException as he:

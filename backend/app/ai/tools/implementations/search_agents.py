@@ -233,7 +233,7 @@ class SearchAgentsTool(Tool):
             except Exception:
                 logger.debug("search_agents: table-name lookup failed", exc_info=True)
 
-            one_liners = await load_agent_one_liners(db, candidates)
+            one_liners = await load_agent_one_liners(db, candidates, organization, user)
 
             queries = [q for q in (data.query or []) if isinstance(q, str) and q.strip()]
             patterns = compile_query_patterns(queries)
@@ -270,7 +270,8 @@ class SearchAgentsTool(Tool):
             # usage-ranked candidates so the model can pick and proceed
             # instead of reporting "no agents matched" and then guessing.
             no_match_fallback = bool(patterns) and not matched
-            if no_match_fallback:
+            folder_no_match = no_match_fallback and bool(getattr(report, "agent_folder_id", None))
+            if no_match_fallback and not folder_no_match:
                 matched = list(candidates)
 
             # Rank: match strength first (descriptive-field hits beat
@@ -322,7 +323,10 @@ class SearchAgentsTool(Tool):
             if isinstance(_loaded, set):
                 _loaded.update(str(ds.id) for ds in full_ds)
 
-            if no_match_fallback:
+            if folder_no_match:
+                head = ("No matching agent in this folder. If a published instruction names an agent, "
+                        "search for its exact name. If that search also fails, ask for clarification.")
+            elif no_match_fallback:
                 head = (
                     f"No direct match for {queries}; showing the {total} available {scope} "
                     "agent(s) ranked by your recent usage — pick from these."

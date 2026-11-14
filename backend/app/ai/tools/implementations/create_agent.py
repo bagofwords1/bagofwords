@@ -264,6 +264,7 @@ class CreateAgentTool(Tool):
             service = DataSourceService()
             payload = DataSourceCreate(
                 name=data.name.strip(),
+                folder_id=data.folder_id,
                 connection_ids=[str(c) for c in data.connection_ids],
                 is_public=bool(data.is_public),
                 use_llm_sync=False,
@@ -389,7 +390,7 @@ class CreateAgentTool(Tool):
 
             # ---- Attach to the current training session's report ----
             attached = False
-            if report is not None:
+            if report is not None and not getattr(report, "agent_folder_id", None):
                 try:
                     existing_ids = {str(d.id) for d in (report.data_sources or [])}
                     if str(ds.id) not in existing_ids:

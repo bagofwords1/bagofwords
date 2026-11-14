@@ -361,6 +361,9 @@ class ForkService:
             if not project_fork_ok:
                 raise HTTPException(status_code=403, detail="Report is not available for forking")
 
+        from app.services.folder_service import can_read_folder_output, record_output_scope
+        if not await can_read_folder_output(db, original, user):
+            raise HTTPException(403, detail="Report unavailable")
         # Check eligibility
         eligibility = await self.check_eligibility(db, original, user)
         if not eligibility.can_fork:
@@ -379,9 +382,20 @@ class ForkService:
             user_id=str(user.id),
             organization_id=str(original.organization_id),
             forked_from_id=str(original.id),
+            agent_folder_id=original.agent_folder_id,
         )
         db.add(new_report)
         await db.flush()
+
+        from app.models.report import folder_report_sources as sources
+        original_ids = list(await db.scalars(select(sources.c.agent_id).where(sources.c.report_id == original.id)))
+        await record_output_scope(db, new_report.id, original_ids)
+        from sqlalchemy import literal
+        from app.models.report import folder_report_knowledge as knowledge
+        await db.execute(knowledge.insert().from_select(
+            ["report_id", "folder_id", "kind", "item_id"],
+            select(literal(new_report.id), knowledge.c.folder_id, knowledge.c.kind, knowledge.c.item_id)
+            .where(knowledge.c.report_id == original.id)))
 
         # 3. Link data sources
         from app.models.report_data_source_association import report_data_source_association

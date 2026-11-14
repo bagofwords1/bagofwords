@@ -2134,13 +2134,14 @@
     "fullAdminAccessTab": "Full administratörsåtkomst omfattar alla agenter, anslutningar och modeller.",
     "includedWith": "Ingår i {name}",
     "searchResources": "Sök…",
-    "addAccess": "Lägg till agent, anslutning eller modell",
-    "accessEmpty": "Inga agenter, anslutningar eller modeller ännu. Offentliga agenter är alltid tillgängliga.",
+    "addAccess": "Välj resurs",
+    "accessEmpty": "Välj resurs",
     "publicAgents": "{n} offentliga agenter är tillgängliga för alla.",
     "types": {
       "data_source": "Agent",
       "connection": "Anslutning",
-      "llm_model": "Modell"
+      "llm_model": "Modell",
+      "folder": "Mapp"
     },
     "levels": {
       "use": "Kan använda",
@@ -2158,7 +2159,9 @@
       "connectionsMany": "{n} anslutningar",
       "modelsOne": "1 modell",
       "modelsMany": "{n} modeller",
-      "everything": "Alla behörigheter"
+      "everything": "Alla behörigheter",
+      "foldersOne": "1 Mapp",
+      "foldersMany": "{n} mappar"
     },
     "resourcePermissions": {
       "data_source": {
@@ -7155,5 +7158,31 @@
     "settingsTitle": "Produktnyheter",
     "toggleLabel": "Mejla mig produktnyheter",
     "sentTo": "Skickas till {email}"
+  },
+  "sharedFolders": {
+    "attach": "Länka befintligt",
+    "addCase": "Lägg till testfall",
+    "sameAccess": "Access stays the same.",
+    "edit": "Folder settings",
+    "move": "Move",
+    "preview": "Preview move",
+    "rename": "Rename",
+    "delete": "Delete folder",
+    "via": "Via {name}",
+    "title": "Folders",
+    "back": "Back",
+    "create": "New folder",
+    "share": "Share",
+    "name": "Folder name",
+    "noDirect": "No direct role",
+    "viewer": "Kan fråga",
+    "manager": "Kan hantera",
+    "hints": "Frågeåtkomst omfattar mappens agenter. Hantering tillåter även redigering och delning.",
+    "limit": "Limited access",
+    "stops": "Parent roles stop here.",
+    "root": "Organisationens rot",
+    "inherit": "Ärv åtkomst från överordnad mapp",
+    "direct": "Direkt åtkomst för {name}",
+    "stopConfirm": "Stäng av arv? Ärvda behörigheter från {names} slutar gälla."
   }
 }

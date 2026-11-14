@@ -281,6 +281,9 @@ class DataSourceBase(BaseModel):
 
 class DataSourceSchema(DataSourceBase, AgentIconTokenMixin):
     """Full DataSource (Domain) schema with nested connection info."""
+    folder_id: str | None = None
+    inherited_folder_name: str | None = None
+    inherited_folder_role: str | None = None
     class Config:
         from_attributes = True
     id: str
@@ -341,7 +344,10 @@ class DataSourceSchema(DataSourceBase, AgentIconTokenMixin):
 
 
 class DataSourceListItemSchema(AgentIconTokenMixin):
+    limited_access: bool = False
     """List item schema for DataSource with nested connection info."""
+
+    folder_id: str | None = None
     id: str
     name: str
     description: Optional[str]
@@ -406,6 +412,8 @@ class DataSourceCreate(DataSourceBase):
     2. Link to existing connection: Provide connection_id (single connection)
     3. Link to multiple connections: Provide connection_ids (array)
     """
+
+    folder_id: str | None = None
     # "agent" (New agent flow) or "connector" (the connector forms' "make
     # available to everyone" checkbox). Omitted → derived from the connections.
     kind: Optional[Literal["agent", "connector"]] = None

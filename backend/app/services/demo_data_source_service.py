@@ -33,12 +33,17 @@ logger = logging.getLogger(__name__)
 DEMO_ID_KEY = "demo_id"
 
 
+from app.core.permission_resolver import user_can_access_data_source
+from app.services.folder_service import require_folder_manager
+
+
 class DemoDataSourceService:
 
     async def list_demo_data_sources(
         self,
         db: AsyncSession,
         organization: Organization,
+        current_user: User,
     ) -> List[DemoDataSourceListItem]:
         """
         List all available demo data sources with their installation status.
@@ -52,6 +57,8 @@ class DemoDataSourceService:
         result = []
         for demo in demos:
             installed_ds = installed_demos.get(demo.id)
+            if installed_ds and not await user_can_access_data_source(db, current_user.id, organization.id, installed_ds):
+                installed_ds = None
             result.append(
                 DemoDataSourceListItem(
                     id=demo.id,
@@ -71,6 +78,7 @@ class DemoDataSourceService:
         organization: Organization,
         current_user: User,
         demo_id: str,
+        folder_id: str | None = None,
     ) -> DemoDataSourceInstallResponse:
         """
         Install a demo data source for the organization.
@@ -85,9 +93,13 @@ class DemoDataSourceService:
                 message=f"Demo data source '{demo_id}' not found",
             )
 
+        if folder_id is not None:
+            await require_folder_manager(db, organization.id, current_user.id, folder_id)
         # Check if already installed
         existing = await self._get_installed_demo(db, organization.id, demo_id)
         if existing:
+            if not await user_can_access_data_source(db, current_user.id, organization.id, existing):
+                return DemoDataSourceInstallResponse(success=False, message="Demo unavailable")
             return DemoDataSourceInstallResponse(
                 success=True,
                 message=f"Demo data source '{demo.name}' is already installed",
@@ -102,6 +114,7 @@ class DemoDataSourceService:
                 organization=organization,
                 current_user=current_user,
                 demo=demo,
+                folder_id=folder_id,
             )
 
             # Telemetry: track demo data source creation (consistent with regular data sources)
@@ -111,7 +124,7 @@ class DemoDataSourceService:
                     {
                         "data_source_id": str(data_source.id),
                         "type": f"{demo.type}-demo",
-                        "is_public": True,
+                        "is_public": data_source.is_public,
                         "auth_policy": "system_only",
                         "use_llm_sync": False,
                         "from_existing_connection": False,
@@ -142,6 +155,7 @@ class DemoDataSourceService:
         organization: Organization,
         current_user: User,
         demo: DemoDataSourceDefinition,
+        folder_id: str | None = None,
     ) -> DataSource:
         """
         Create a data source from a demo definition.
@@ -175,7 +189,8 @@ class DemoDataSourceService:
         data_source = DataSource(
             name=demo.name,
             organization_id=organization.id,
-            is_public=True,
+            is_public=folder_id is None,
+            folder_id=folder_id,
             is_active=True,  # Explicitly set active
             use_llm_sync=False,
             owner_user_id=current_user.id,

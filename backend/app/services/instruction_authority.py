@@ -45,6 +45,13 @@ async def require_instruction_authority(
     fields — governance on a scope-less rule stays org-level). Review actions
     don't pass it: authoring a rule is not authority to approve changes to it.
     """
+    from app.services.folder_knowledge import instruction_folder_ids, require_capability
+    folders = await instruction_folder_ids(db, existing.id)
+    from sqlalchemy import select
+    from app.models.instruction import Instruction
+    owner = await db.scalar(select(Instruction.owner_folder_id).where(Instruction.id == existing.id))
+    for folder in set(folders) | ({owner} if owner else set()):
+        await require_capability(db, organization, user, folder, "manage_instructions")
     ds_ids = _attached_ids(existing)
     if ds_ids:
         await check_resource_permissions(
@@ -52,7 +59,9 @@ async def require_instruction_authority(
             "data_source", ds_ids, "manage_instructions",
         )
         return
-    if allow_owner and _is_author(existing, user):
+    if (folders or owner) and await db.scalar(select(Instruction.scope_mode).where(Instruction.id == existing.id)) == "targeted":
+        return
+    if not folders and not owner and allow_owner and _is_author(existing, user):
         return
     await require_org_permission(db, str(user.id), str(organization.id), "manage_instructions")
 
@@ -91,6 +100,12 @@ async def require_delete_authority(
     the same authority as an edit.
     """
     own = _is_author(existing, user)
-    if own and (getattr(existing, "status", None) != "published" or not _attached_ids(existing)):
+    from app.services.folder_knowledge import instruction_folder_ids
+    from sqlalchemy import select
+    from app.models.instruction import Instruction
+    owner = await db.scalar(select(Instruction.owner_folder_id).where(Instruction.id == existing.id))
+    if own and not owner and not await instruction_folder_ids(db, existing.id) and (
+        getattr(existing, "status", None) != "published" or not _attached_ids(existing)
+    ):
         return
     await require_instruction_authority(db, user, organization, existing)

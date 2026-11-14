@@ -344,7 +344,7 @@ interface RestrictedModel {
 interface ResourceOption {
     label: string
     value: string
-    type: 'data_source' | 'connection' | 'llm_model'
+    type: 'data_source' | 'connection' | 'llm_model' | 'folder'
     id: string
 }
 
@@ -428,21 +428,35 @@ const ensureRegistry = cached(async () => {
     resourcePermissions.value = (data.value as any).resource_permissions || {}
 })
 
-const ensureResources = cached(async () => {
+const ensureResources = async () => {
     // show_all: org admins see every agent, not only those they're a member of.
-    const [ds, conns] = await Promise.all([
+    const [ds, conns, directory] = await Promise.all([
         useMyFetch('/data_sources/active?show_all=true'),
         useMyFetch('/connections'),
+        useMyFetch<{folders: {id:string, name:string, parent_id:string | null, can_manage:boolean}[]}>('/folders'),
     ])
     if (ds.error.value) throw ds.error.value
     if (conns.error.value) throw conns.error.value
+    if (directory.error.value) throw directory.error.value
+    const folders = directory.data.value?.folders || []
+    const byId = new Map(folders.map(f => [f.id, f]))
+    const folderOptions = folders.filter(f => f.can_manage).map(f => {
+        const path = [f.name]
+        let parent = f.parent_id && byId.get(f.parent_id)
+        while (parent) {
+            path.unshift(parent.name)
+            parent = parent.parent_id && byId.get(parent.parent_id)
+        }
+        return {label: path.join(' / '), value: `folder:${f.id}`, type: 'folder' as const, id: f.id}
+    })
     const agents = (ds.data.value || []) as any[]
     publicAgentCount.value = agents.filter((a) => a.is_public).length
     availableResources.value = [
+        ...folderOptions,
         ...agents.map((a) => ({ label: a.name, value: `data_source:${a.id}`, type: 'data_source' as const, id: a.id })),
         ...((conns.data.value || []) as any[]).map((c) => ({ label: c.name, value: `connection:${c.id}`, type: 'connection' as const, id: c.id })),
     ]
-})
+}
 
 const ensureModels = cached(async () => {
     if (!canManageModels.value) return
@@ -513,6 +527,7 @@ const permissionHint = (perm: string) => (HINTED.has(perm) ? t(`rolesManager.per
 // ── Access tab ───────────────────────────────────────────────────────────
 
 const TYPE_ICON: Record<string, string> = {
+    folder: 'i-heroicons-folder',
     data_source: 'i-heroicons-cube',
     connection: 'i-heroicons-circle-stack',
     llm_model: 'i-heroicons-cpu-chip',
@@ -522,6 +537,7 @@ const TYPE_ICON: Record<string, string> = {
 // A grant matching no level (set elsewhere or by the old editor) shows as
 // "Custom" and is saved unchanged unless the admin picks a level.
 const LEVELS: Record<string, { key: string; perms: string[] }[]> = {
+    folder: [{ key: 'viewer', perms: ['view'] }, { key: 'manager', perms: ['manage'] }],
     data_source: [
         { key: 'use', perms: [] },
         { key: 'manage', perms: ['manage'] },
@@ -541,6 +557,7 @@ function grantLevel(grant: GrantForm): string {
 }
 
 function levelOptions(grant: GrantForm) {
+    if (grant.resource_type === 'folder') return [...LEVELS.folder.map(l => ({value:l.key, label:t('sharedFolders.' + l.key)})), {value:'custom', label:t('rolesManager.levels.custom')}]
     return [
         ...(LEVELS[grant.resource_type] || []).map((l) => ({ value: l.key, label: t(`rolesManager.levels.${l.key}`) })),
         { value: 'custom', label: t('rolesManager.levels.custom') },
@@ -562,6 +579,7 @@ function setGrantLevel(grant: GrantForm, key: string) {
 // Mirrors permission_resolver.RESOURCE_PERM_IMPLIES: a permission held via a
 // broader one shows checked and locked.
 const RESOURCE_IMPLIED_BY: Record<string, Record<string, string>> = {
+    folder: {view:"manage", manage_files:"manage", manage_instructions:"manage", manage_evals:"manage"},
     data_source: {
         manage_instructions: 'manage',
         create_entities: 'manage',
@@ -597,6 +615,8 @@ function customPermissions(type: string): string[] {
 }
 
 function resourcePermissionLabel(type: string, perm: string): string {
+    if (type === 'folder' && (perm === 'view' || perm === 'manage')) return t('sharedFolders.' + (perm === 'view' ? 'viewer' : 'manager'))
+    if (type === "folder") return t("rolesManager.permissions." + perm)
     if (RESOURCE_PERMISSION_KEYS[type]?.has(perm)) return t(`rolesManager.resourcePermissions.${type}.${perm}`)
     return formatPermission(perm)
 }
@@ -759,6 +779,7 @@ function roleMeta(role: RoleData): string {
     const parts = [countLabel((role.permissions || []).filter((p) => known.has(p)).length, 'permissions')]
     const byType = (type: string) => grants.filter((g) => g.resource_type === type).length
     if (byType('data_source')) parts.push(countLabel(byType('data_source'), 'agents'))
+    if (byType('folder')) parts.push(countLabel(byType('folder'), 'folders'))
     if (byType('connection')) parts.push(countLabel(byType('connection'), 'connections'))
     if (byType('llm_model')) parts.push(countLabel(byType('llm_model'), 'models'))
     return parts.join(' · ')

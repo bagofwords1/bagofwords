@@ -1,4 +1,30 @@
 {
+  "sharedFolders": {
+    "attach": "שיוך פריט קיים",
+    "addCase": "הוספת בדיקה",
+    "sameAccess": "הגישה נשארת כפי שהיא.",
+    "edit": "הגדרות תיקייה",
+    "move": "העברה",
+    "preview": "תצוגה מקדימה",
+    "rename": "שינוי שם",
+    "delete": "מחיקת תיקייה",
+    "via": "דרך {name}",
+    "title": "תיקיות",
+    "back": "חזרה",
+    "create": "תיקייה חדשה",
+    "share": "שיתוף",
+    "name": "שם התיקייה",
+    "noDirect": "ללא תפקיד ישיר",
+    "viewer": "יכול לשאול",
+    "manager": "יכול לנהל",
+    "hints": "הרשאת תשאול חלה על הסוכנים בתיקייה. הרשאת ניהול מאפשרת גם עריכה ושיתוף.",
+    "limit": "גישה מוגבלת",
+    "stops": "הרשאות מתיקיית האב נעצרות כאן.",
+    "root": "שורש הארגון",
+    "inherit": "קבלת הרשאות מתיקיית האב",
+    "direct": "גישה ישירה עבור {name}",
+    "stopConfirm": "להפסיק לרשת גישה? ההרשאות שהתקבלו דרך {names} יפסיקו לחול."
+  },
   "agentLanding": {
     "actions": "פעולות סוכן",
     "countTasks": "משימה אחת | {n} משימות",
@@ -2321,13 +2347,14 @@
     "fullAdminAccessTab": "גישת אדמין מלאה כוללת את כל הסוכנים, החיבורים והמודלים.",
     "includedWith": "כלול ב{name}",
     "searchResources": "חיפוש…",
-    "addAccess": "הוספת סוכן, חיבור או מודל",
-    "accessEmpty": "עדיין אין סוכנים, חיבורים או מודלים. סוכנים ציבוריים זמינים תמיד.",
+    "addAccess": "בחירת משאב",
+    "accessEmpty": "בחירת משאב",
     "publicAgents": "{n} סוכנים ציבוריים זמינים לכולם.",
     "types": {
       "data_source": "סוכן",
       "connection": "חיבור",
-      "llm_model": "מודל"
+      "llm_model": "מודל",
+      "folder": "תיקייה"
     },
     "levels": {
       "use": "שימוש",
@@ -2345,7 +2372,9 @@
       "connectionsMany": "{n} חיבורים",
       "modelsOne": "מודל אחד",
       "modelsMany": "{n} מודלים",
-      "everything": "כל ההרשאות"
+      "everything": "כל ההרשאות",
+      "foldersOne": "1 תיקייה",
+      "foldersMany": "{n} תיקיות"
     },
     "resourcePermissions": {
       "data_source": {

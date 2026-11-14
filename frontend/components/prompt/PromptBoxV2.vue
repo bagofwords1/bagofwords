@@ -367,6 +367,8 @@
                         v-model:selectedDataSources="selectedDataSources"
                         @update:availableDataSources="onAvailableDataSources"
                         @update:autoMode="(val: boolean) => emit('update:autoMode', val)"
+                        :allow-folder-scope="allowFolderScope"
+                        v-model:folder-id="folderScope"
                         :reportId="report_id"
                         :persistSelection="persistSelection"
                         :project-name="currentProject?.name || ''"
@@ -713,6 +715,7 @@ import { useExcel } from '@/composables/useExcel'
 
 const props = defineProps({
     report_id: String,
+    allowFolderScope: Boolean,
     // Project (folder) this conversation lives in — renders a lightweight
     // chip in the bottom toolbar that doubles as the move-to-project picker.
     project: {
@@ -1310,6 +1313,8 @@ async function loadModels() {
     }
 }
 
+const folderScope = ref<string | null>(null)
+
 async function hydrateReportDataSources(reportId?: string, { showSpinner = true } = {}) {
     // A box that does not persist its selection (the scheduled-task form)
     // edits its caller's agents, not the report's: a task with its own agents
@@ -1333,6 +1338,7 @@ async function hydrateReportDataSources(reportId?: string, { showSpinner = true 
     try {
         const res = await useMyFetch(`/reports/${reportId}`, { method: 'GET' })
         const report = (res as any)?.data?.value as any
+        folderScope.value = report?.agent_folder_id || null
         if (report && Array.isArray(report.data_sources)) {
             selectedDataSources.value = report.data_sources
         } else {
@@ -2148,7 +2154,7 @@ async function createReport() {
             // param below only shapes the FIRST completion; without this
             // the report loads as chat and the picker snaps back.
             mode: payload.mode,
-            ...newReportPayload(selectedDataSources.value?.map((ds: any) => String(ds.id)) || [])
+            ...(folderScope.value ? { agent_folder_id: folderScope.value } : newReportPayload(selectedDataSources.value?.map((ds: any) => String(ds.id)) || []))
         }
         // And the model, for exactly the same reason the mode is here: the query
         // param steers the first completion only, so without this the report row

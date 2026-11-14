@@ -194,6 +194,11 @@ class CreateDemoDatasetTool(Tool):
             return
         can_create_agents = resolved.has_org_permission("create_data_source")
 
+        destination = None
+        if spec.folder_id is not None:
+            from app.services.folder_service import require_folder_manager
+            destination = await require_folder_manager(db, organization.id, user.id, spec.folder_id)
+
         # ---- Spec checks ----
         from app.schemas.demo_dataset_schema import validate_spec
         errors = validate_spec(spec)
@@ -237,6 +242,8 @@ class CreateDemoDatasetTool(Tool):
             tool_name=TOOL_NAME,
             payload={
                 "dataset_name": spec.name,
+                "folder_id": spec.folder_id,
+                "folder_name": destination.name if destination is not None else None,
                 "can_create_agents": can_create_agents,
                 "model": model_label,
                 "agents": [a.name for a in spec.agents],
@@ -384,7 +391,7 @@ class CreateDemoDatasetTool(Tool):
                         s_report = (await s.execute(
                             _select(_Report).options(_selectinload(_Report.data_sources)).where(_Report.id == report_id)
                         )).scalar_one_or_none()
-                    install = await installer.create_agents(s, s_org, s_user, connection, chosen, report=s_report)
+                    install = await installer.create_agents(s, s_org, s_user, connection, chosen, report=s_report, folder_id=spec.folder_id)
                 elif chosen:
                     install.skipped_agents = [{"name": a.name, "reason": "permission_denied",
                                                "detail": "Creating agents requires the create_data_source permission."}

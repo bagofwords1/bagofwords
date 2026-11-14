@@ -65,6 +65,7 @@ class TestSuiteService:
         which is what the authoring dropdown wants.
         """
         stmt = select(TestSuite).where(TestSuite.organization_id == str(organization_id), TestSuite.deleted_at.is_(None))
+        stmt = stmt.where(TestSuite.owner_folder_id.is_(None))
         if data_source_id:
             stmt = stmt.where(TestSuite.data_source_id == str(data_source_id))
         elif scope == "global":

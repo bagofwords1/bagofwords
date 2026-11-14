@@ -115,10 +115,11 @@ def decide_file_tiers(
 
 
 class FilesContextBuilder:
-    def __init__(self, db: AsyncSession, organization: Organization, report: Report, head_completion=None, data_sources=None):
+    def __init__(self, db: AsyncSession, organization: Organization, report: Report, head_completion=None, data_sources=None, user=None):
         self.db = db
         self.organization = organization
         self.report = report
+        self.user = user
         self.head_completion = head_completion
         # The run's agents: their library files are listed live (see
         # app/ai/context/agent_files.py), not only the ones snapshotted onto
@@ -201,6 +202,9 @@ class FilesContextBuilder:
         from app.ai.context.agent_files import agent_library_files, merge_files
 
         library = agent_library_files(self.data_sources, getattr(self.organization, "id", None))
+        from app.services.folder_knowledge import folder_file_library
+        folder_files = await folder_file_library(self.db, self.organization, self.user, getattr(self.report, "agent_folder_id", None))
+        library = merge_files(library, folder_files)
         files = merge_files(files, library)
 
         if not files:

@@ -13,6 +13,7 @@
                     </span>
                     <!-- Auto with nothing to resolve to isn't Auto, it's an
                          empty workspace — fall through to the bare icon. -->
+                    <span v-else-if="folderId" class="flex gap-1 items-center"><UIcon name="i-heroicons-folder" />{{ folderNames.get(folderId) || $t('sharedFolders.title') }}</span>
                     <span v-else-if="isAutoMode && visibleDataSources.length > 0" class="flex items-center">
                         <Icon name="heroicons-bolt" class="h-4 w-4" />
                         <span v-if="!isCompactFinal" class="ms-1 text-xs">{{ $t('prompt.modelAuto') }}</span>
@@ -73,6 +74,8 @@
                         </div>
                     </div>
                     <div class="p-2 max-h-64 overflow-y-auto">
+                    <button v-for="folder in scopeFolders" :key="folder.id" class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-surface-muted"
+                        @click="chooseFolder(folder.id)"><UIcon name="i-heroicons-folder" />{{ folder.path }}</button>
                     <div v-if="isLoading" class="flex items-center justify-center py-6 text-gray-500 dark:text-gray-400 space-x-2">
                         <Spinner class="w-4 h-4 text-ink-muted animate-spin" />
                         <span>{{ $t('prompt.loadingDataSources') }}</span>
@@ -239,7 +242,7 @@ const isCompactFinal = computed(() => isCompact.value)
 const autoState = computed(() => resolveAgentAuto({
     selectedIds: internalSelectedDataSources.value.map((ds: any) => String(ds.id)),
 }))
-const isAutoMode = computed(() => autoState.value.isAuto)
+const isAutoMode = computed(() => !props.folderId && autoState.value.isAuto)
 
 // Hover flyout state
 const hoveredDataSourceId = ref<string | null>(null)
@@ -394,6 +397,8 @@ const onFlyoutLeave = () => {
 }
 
 const props = defineProps({
+    allowFolderScope: Boolean,
+    folderId: String,
     selectedDataSources: {
         type: Array,
         default: () => [],
@@ -431,7 +436,7 @@ const props = defineProps({
 });
 
 
-const emit = defineEmits(['update:selectedDataSources', 'update:availableDataSources', 'update:autoMode']);
+const emit = defineEmits(['update:folderId', 'update:selectedDataSources', 'update:availableDataSources', 'update:autoMode']);
 
 // Optionally restrict visible data sources to those the user has `permission`
 // for. Uses the resource-grant tier directly (NOT the org-perm implication
@@ -582,17 +587,49 @@ function isServiceAccount(ds: any) {
         && !ds?.user_status?.has_user_credentials
 }
 
+type ScopeFolder = { can_query?: boolean, id: string, name: string, parent_id: string | null }
+const folders = ref<ScopeFolder[]>([])
+const folderNames = computed(() => new Map(folders.value.map(f => [f.id, f.name])))
+const scopeFolders = computed(() => {
+    const byId = new Map(folders.value.map(f => [f.id, f]))
+    return folders.value.filter(f => f.can_query !== false).map(f => {
+        const path = [f.name]
+        let parent = f.parent_id && byId.get(f.parent_id)
+        while (parent) {
+            path.unshift(parent.name)
+            parent = parent.parent_id && byId.get(parent.parent_id)
+        }
+        return {id: f.id, path: path.join(' / ')}
+    }).filter(f => f.path.toLowerCase().includes(agentQuery.value.toLowerCase()))
+})
+onMounted(async () => {
+    if (!props.allowFolderScope) return
+    const {data} = await useMyFetch<{folders: ScopeFolder[]}>('/folders')
+    folders.value = data.value?.folders || []
+})
+async function chooseFolder(id: string) {
+    if (!props.allowFolderScope) return
+    if (props.reportId) {
+        const {error} = await useMyFetch(`/reports/${props.reportId}`, {method:'PUT', body:{agent_folder_id:id}})
+        if (error.value) return
+        window.dispatchEvent(new CustomEvent('report:mutated', {detail:{reportId: props.reportId, kind:'agent_folder'}}))
+    }
+    internalSelectedDataSources.value = []
+    emit('update:folderId', id)
+}
 function toggleAutoMode() {
     // Auto is stored as "no agents pinned" and resolved per run by the backend.
     // Materializing it into today's roster would freeze it into a manual scope
     // that never picks up an agent added later.
     if (isAutoMode.value) return
+    emit("update:folderId", null)
     internalSelectedDataSources.value = []
     handleSelectionChange()
     persistSelectionIfReport()
 }
 
 function toggleDataSource(ds: DataSource) {
+    emit("update:folderId", null)
     if (isAutoMode.value) {
         // Exit auto: start fresh with only this source selected
         internalSelectedDataSources.value = [ds]

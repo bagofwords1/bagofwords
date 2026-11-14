@@ -182,6 +182,19 @@ async def resolve_run_agents(db, organization: Any, user: Any, report: Any,
         reachable = await accessible_agents(db, organization, user)
         agents = [a for a in reachable if str(a.id) in wanted]
         agents += [ds for ds in reachable if str(ds.id) not in wanted and _is_personal_connector(ds)]
+    elif getattr(report, "agent_folder_id", None):
+        from app.services.folder_service import visible_branch
+        branch = await visible_branch(db, organization.id, getattr(user, "id", None), report.agent_folder_id)
+        agents = [a for a in await accessible_agents(db, organization, user) if a.folder_id in branch]
+        agents, _ = await DataSourceService().filter_user_usable_data_sources(db, agents, user)
+        from app.core.permission_resolver import resolve_permissions
+        rights = await resolve_permissions(db, str(user.id), str(organization.id))
+        agents = [ds for ds in agents
+                  if (ds.publish_status != "draft" or rights.has_resource_permission("data_source", ds.id, "manage"))
+                  and (ds.reliability_status != "development" or rights.has_resource_permission("data_source", ds.id, "manage_evals"))]
+        if not agents:
+            from fastapi import HTTPException
+            raise HTTPException(409, "No available agents in this folder")
     elif attached:
         # A pinned selection is used as pinned, MCP tools included, so pinning
         # still narrows what a run offers. The person's OWN connectors (mail,
@@ -237,17 +250,66 @@ async def prepare_run_agents(db, organization: Any, user: Any, report: Any,
     svc = data_source_service or DataSourceService()
     agents = await resolve_run_agents(db, organization, user, report, agent_ids=agent_ids,
                                       exclude_personal_connectors=exclude_personal_connectors)
-    if agent_ids is not None and report is not None:
+    eval_targets = getattr(report, "eval_target_ids", None)
+    if getattr(report, "report_type", None) == "test" and eval_targets is not None:
+        from app.core.permissions_decorator import require_org_permission, check_resource_permissions
+        from app.models.eval import TestResult, TestCase, TestSuite
+        origin = await db.scalar(select(TestResult.folder_id).where(TestResult.report_id == report.id))
+        if getattr(report, "agent_folder_id", None) or origin:
+            from app.services.folder_knowledge import require_capability
+            from app.models.folder import folder_eval_suites
+            fid = report.agent_folder_id or origin
+            await require_capability(db, organization, user, fid, "view")
+            await require_capability(db, organization, user, fid, "manage_evals")
+            suite = await db.scalar(select(TestSuite).join(TestCase).join(TestResult, TestResult.case_id == TestCase.id)
+                                    .join(folder_eval_suites, folder_eval_suites.c.suite_id == TestSuite.id)
+                                    .where(TestResult.report_id == report.id, folder_eval_suites.c.folder_id == fid,
+                                           TestSuite.organization_id == organization.id, TestSuite.deleted_at.is_(None),
+                                           TestCase.deleted_at.is_(None), TestCase.status == "active"))
+            if not suite or not eval_targets:
+                raise HTTPException(409, "Folder eval scope changed")
+            if report.agent_folder_id and set(eval_targets) != {a.id for a in agents}:
+                raise HTTPException(409, "Folder eval scope changed")
+            if suite.owner_folder_id:
+                await require_capability(db, organization, user, suite.owner_folder_id, "manage_evals")
+            elif report.agent_folder_id:
+                await require_org_permission(db, user.id, organization.id, "manage_evals")
+            if not report.agent_folder_id:
+                from types import SimpleNamespace
+                branch = await resolve_run_agents(db, organization, user, SimpleNamespace(agent_folder_id=fid, data_sources=[]))
+                if not set(eval_targets) <= {a.id for a in branch}:
+                    raise HTTPException(409, "An eval target is unavailable in this folder")
+        if eval_targets and not getattr(report, "agent_folder_id", None):
+            await check_resource_permissions(db, user.id, organization.id, "data_source", eval_targets, "manage_evals")
+            allowed = set(eval_targets)
+            usable, _ = await svc.filter_user_usable_data_sources(db, agents, user)
+            agents = [a for a in usable if a.id in allowed]
+            attached = {a.id for a in report.data_sources}
+            if attached != allowed or {a.id for a in agents} != allowed:
+                raise HTTPException(409, "An eval target is unavailable")
+        elif not eval_targets:
+            await require_org_permission(db, user.id, organization.id, "manage_evals")
+    if report is not None and (agent_ids is not None or getattr(report, "agent_folder_id", None)):
         scope_report_to_run_agents(report, agents)
+    if getattr(report, "agent_folder_id", None):
+        from app.services.folder_service import record_output_scope
+        await record_output_scope(db, report.id, [a.id for a in agents])
+        from app.services.folder_knowledge import record_knowledge_scope
+        await record_knowledge_scope(db, report, organization, user)
     clients: Dict[str, Any] = {}
     for ds in agents:
         try:
-            clients.update(await svc.construct_clients(db, ds, user) or {})
+            agent_clients = await svc.construct_clients(db, ds, user) or {}
+            if eval_targets and ds.connections and not agent_clients:
+                raise HTTPException(409, "An eval target is unavailable")
+            clients.update(agent_clients)
         except HTTPException as e:
-            if e.status_code != 403:
+            if eval_targets or e.status_code != 403:
                 raise
             logger.warning("run agents: skipping %s — %s", getattr(ds, "name", "?"), e.detail)
         except Exception:
+            if eval_targets:
+                raise
             logger.exception("run agents: client construction failed for %s", getattr(ds, "name", "?"))
     return agents, clients
 
@@ -261,6 +323,13 @@ async def resolve_candidate_agents(
     mode the selection is the whole candidate pool — agents outside it are out
     of scope entirely.
     """
+    if getattr(report, "agent_folder_id", None):
+        agents = await resolve_run_agents(db, organization, user, report)
+        if mode == "training":
+            from app.core.permission_resolver import resolve_permissions
+            rights = await resolve_permissions(db, str(user.id), str(organization.id))
+            agents = [a for a in agents if rights.has_resource_permission("data_source", str(a.id), "manage")]
+        return agents, "folder", set()
     if mode == "training":
         from app.core.permission_resolver import get_ds_ids_with_permission
         from app.models.data_source import DataSource

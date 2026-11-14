@@ -2134,13 +2134,14 @@
     "fullAdminAccessTab": "L'accès administrateur complet inclut tous les agents, connexions et modèles.",
     "includedWith": "Inclus avec {name}",
     "searchResources": "Rechercher…",
-    "addAccess": "Ajouter un agent, une connexion ou un modèle",
-    "accessEmpty": "Aucun agent, connexion ou modèle pour l'instant. Les agents publics sont toujours disponibles.",
+    "addAccess": "Choisir une ressource",
+    "accessEmpty": "Choisir une ressource",
     "publicAgents": "{n} agents publics sont accessibles à tous.",
     "types": {
       "data_source": "Agent",
       "connection": "Connexion",
-      "llm_model": "Modèle"
+      "llm_model": "Modèle",
+      "folder": "Dossier"
     },
     "levels": {
       "use": "Peut utiliser",
@@ -2158,7 +2159,9 @@
       "connectionsMany": "{n} connexions",
       "modelsOne": "1 modèle",
       "modelsMany": "{n} modèles",
-      "everything": "Toutes les permissions"
+      "everything": "Toutes les permissions",
+      "foldersOne": "1 Dossier",
+      "foldersMany": "{n} dossiers"
     },
     "resourcePermissions": {
       "data_source": {
@@ -7155,5 +7158,31 @@
     "settingsTitle": "Nouveautés du produit",
     "toggleLabel": "Recevoir les nouveautés du produit par e-mail",
     "sentTo": "Envoyé à {email}"
+  },
+  "sharedFolders": {
+    "attach": "Associer un élément",
+    "addCase": "Ajouter un cas",
+    "sameAccess": "Access stays the same.",
+    "edit": "Folder settings",
+    "move": "Move",
+    "preview": "Preview move",
+    "rename": "Rename",
+    "delete": "Delete folder",
+    "via": "Via {name}",
+    "title": "Folders",
+    "back": "Back",
+    "create": "New folder",
+    "share": "Share",
+    "name": "Folder name",
+    "noDirect": "No direct role",
+    "viewer": "Peut interroger",
+    "manager": "Peut gérer",
+    "hints": "Le droit de requête couvre les agents du dossier. La gestion permet aussi de modifier et de partager.",
+    "limit": "Limited access",
+    "stops": "Parent roles stop here.",
+    "root": "Racine de l’organisation",
+    "inherit": "Hériter des accès du dossier parent",
+    "direct": "Accès direct de {name}",
+    "stopConfirm": "Désactiver l’héritage ? Les droits hérités de {names} ne s’appliqueront plus."
   }
 }

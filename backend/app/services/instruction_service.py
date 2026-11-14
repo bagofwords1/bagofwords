@@ -131,6 +131,7 @@ class InstructionService:
         agent_execution_id: str = None,  # Optional: link instruction to agent execution (for training mode)
         version_status_override: Optional[str] = None,  # AI flows pass 'published' to flip the live row on build promotion
         evidence: Optional[str] = None,  # AI flows: brief provenance note stored on the staged version
+        folder_id: Optional[str] = None,
     ) -> InstructionSchema:
         """Create a new instruction. Approval workflow is handled by builds, not instruction status."""
         
@@ -148,6 +149,8 @@ class InstructionService:
         # Convert enum strings coming from the API and extract their values
         raw = instruction_data.model_dump(exclude={'data_source_ids', 'references', 'label_ids'})
         instruction = Instruction(**raw)
+        instruction.owner_folder_id = folder_id
+        instruction.scope_mode = "targeted" if folder_id or instruction_data.data_source_ids else "global"
         instruction.user_id = current_user.id
         instruction.organization_id = organization.id
         if agent_execution_id:
@@ -165,6 +168,10 @@ class InstructionService:
         self._enforce_skill_load_mode(instruction)
 
         db.add(instruction)
+        if folder_id:
+            from app.models.folder import folder_instructions
+            await db.flush()
+            await db.execute(folder_instructions.insert().values(folder_id=folder_id, instruction_id=instruction.id))
         await db.commit()
         # Refresh ID + any relationships that will be set below
         refresh_attrs = ['id']
@@ -566,6 +573,8 @@ class InstructionService:
         pending_only: bool = False,
         light: bool = False,
         live: Optional[bool] = True,
+        session_scope: bool = False,
+        folder_id: Optional[str] = None,
     ) -> dict:
         """Get instructions with clean permission-based filtering. Returns paginated response.
         
@@ -603,7 +612,7 @@ class InstructionService:
             data_source_ids, source_types, load_modes, label_ids, search,
             build_id=build_id, include_global=include_global,
             current_user=current_user, kind=kind, global_only=global_only,
-            pending_only=pending_only, light=light, live=live,
+            pending_only=pending_only, light=light, live=live, session_scope=session_scope, folder_id=folder_id,
         )
 
     async def _visible_main_build_conditions(self, db, organization, current_user):
@@ -632,10 +641,12 @@ class InstructionService:
                 DataSource.organization_id == organization.id,
                 DataSource.is_public == True,  # noqa: E712
             ))
-            visible_clauses = [Instruction.data_sources.any(DataSource.id.in_(public_ds_subq))]
+            from app.services.folder_knowledge import visible_instruction_folders
+            visible_clauses = [Instruction.data_sources.any(DataSource.id.in_(public_ds_subq)),
+                               await visible_instruction_folders(db, organization, current_user)]
             if member_ds_ids:
                 visible_clauses.append(Instruction.data_sources.any(DataSource.id.in_(member_ds_ids)))
-            conditions.append(or_(~Instruction.data_sources.any(), *visible_clauses))
+            conditions.append(or_((~Instruction.data_sources.any() & (Instruction.scope_mode == "global")), *visible_clauses))
         return conditions
 
     async def _visible_pending_instruction_ids(self, db, organization, current_user, pending_ids: set) -> set:
@@ -665,10 +676,12 @@ class InstructionService:
                 DataSource.organization_id == organization.id,
                 DataSource.is_public == True,  # noqa: E712
             ))
-            visible_clauses = [Instruction.data_sources.any(DataSource.id.in_(public_ds_subq))]
+            from app.services.folder_knowledge import visible_instruction_folders
+            visible_clauses = [Instruction.data_sources.any(DataSource.id.in_(public_ds_subq)),
+                               await visible_instruction_folders(db, organization, current_user)]
             if member_ds_ids:
                 visible_clauses.append(Instruction.data_sources.any(DataSource.id.in_(member_ds_ids)))
-            conditions.append(or_(~Instruction.data_sources.any(), *visible_clauses))
+            conditions.append(or_((~Instruction.data_sources.any() & (Instruction.scope_mode == "global")), *visible_clauses))
             user_permissions = await self._get_user_permissions(db, current_user, organization)
             conditions.append(or_(
                 self._get_own_instructions_condition(current_user.id),
@@ -694,7 +707,7 @@ class InstructionService:
         global_ids = set((await db.execute(
             select(Instruction.id).where(and_(
                 *base,
-                ~Instruction.data_sources.any(),
+                (~Instruction.data_sources.any() & (Instruction.scope_mode == "global")),
                 # Skills are counted by the Skills badge below, not here.
                 or_(Instruction.kind.is_(None), Instruction.kind != "skill"),
             ))
@@ -1089,8 +1102,21 @@ class InstructionService:
         """
         ds_list = getattr(instruction, "data_sources", None) or []
         ds_ids = {str(getattr(d, "id", None)) for d in ds_list if getattr(d, "id", None)}
+        from app.services.folder_knowledge import instruction_folder_ids
+        from app.core.permission_resolver import resolve_permissions
+        folders = await instruction_folder_ids(db, instruction.id)
+        if folders:
+            rights = await resolve_permissions(db, current_user.id, organization.id)
+            for fid in folders:
+                if rights.has_resource_permission("folder", fid, "manage_instructions"):
+                    return True
+                if rights.has_resource_permission("folder", fid, "view"):
+                    from app.services.folder_knowledge import readable_folder_rules
+                    if await readable_folder_rules(db, organization, current_user, fid, [instruction.id]):
+                        return True
         if not ds_ids:
-            return True  # global instruction — visible to everyone
+            mode = await db.scalar(select(Instruction.scope_mode).where(Instruction.id == instruction.id))
+            return mode == "global"
 
         from app.core.permission_resolver import (
             get_member_data_source_ids, resolve_permissions,
@@ -1324,6 +1350,14 @@ class InstructionService:
         if not target_version or target_version.instruction_id != instruction.id:
             raise HTTPException(status_code=404, detail="Version not found for this instruction")
 
+        from app.services.folder_knowledge import require_capability
+        from app.services.instruction_authority import require_scope_authority, require_instruction_authority
+        await require_instruction_authority(db, current_user, organization, instruction)
+        for fid in target_version.folder_ids or []:
+            await require_capability(db, organization, current_user, fid, "manage_instructions")
+        target_mode = target_version.scope_mode or ("targeted" if target_version.data_source_ids else "global")
+        if target_version.data_source_ids or target_mode == "global":
+            await require_scope_authority(db, current_user, organization, target_version.data_source_ids or [])
         # Create a new version copying everything from the target version.
         # Audit trail is preserved: the new version has its own version_number,
         # created_by_user_id, and created_at — readers can see "v7 created by X
@@ -1340,6 +1374,8 @@ class InstructionService:
             load_mode=target_version.load_mode or 'always',
             references_json=target_version.references_json,
             data_source_ids=target_version.data_source_ids,
+            scope_mode=target_mode, folder_ids=target_version.folder_ids or [],
+            applicable_modes=target_version.applicable_modes, applicable_channels=target_version.applicable_channels,
             label_ids=target_version.label_ids,
             category_ids=target_version.category_ids,
             user_id=current_user.id,
@@ -1349,9 +1385,6 @@ class InstructionService:
         # immediately on promotion. (current_version_id is updated by the build
         # promote step; field sync also happens there. Setting here is safe
         # because the build will overwrite with the same values.)
-        instruction.current_version_id = new_version.id
-        await db.commit()
-
         # Stage in a draft build and auto-finalize. Admins auto-promote to main;
         # if anything is unusual the build sits in pending_approval and the
         # banner in ReportAgentPanel will surface it.
@@ -3612,7 +3645,7 @@ class InstructionService:
                     Instruction.deleted_at == None,
                     # Either applies to this data source or is global (no data sources)
                     (Instruction.data_sources.any(DataSource.id == data_source_id)) |
-                    (~Instruction.data_sources.any())
+                    ((~Instruction.data_sources.any() & (Instruction.scope_mode == "global")))
                 )
             )
         ).order_by(Instruction.created_at.desc())
@@ -3782,6 +3815,8 @@ class InstructionService:
     ):
         """Update data source associations for an instruction"""
         
+        from app.services.folder_knowledge import instruction_folder_ids
+        instruction.scope_mode = "targeted" if data_source_ids or await instruction_folder_ids(db, instruction.id) else "global"
         # Clear existing associations
         instruction.data_sources.clear()
         
@@ -3931,6 +3966,15 @@ class InstructionService:
             return "admin_edit"
 
         ds_ids = [str(ds.id) for ds in (instruction.data_sources or [])]
+        from app.services.folder_knowledge import instruction_folder_ids
+        folder_ids = await instruction_folder_ids(db, instruction.id)
+        if folder_ids:
+            from app.core.permission_resolver import resolve_permissions
+            rights = await resolve_permissions(db, current_user.id, organization.id)
+            if not all(rights.has_resource_permission("folder", fid, "manage_instructions") for fid in folder_ids):
+                return "no_permission"
+            if not ds_ids and instruction.scope_mode == "targeted":
+                return "agent_edit"
         if ds_ids:
             from app.core.permission_resolver import resolve_permissions
             resolved = await resolve_permissions(
@@ -4103,12 +4147,19 @@ class InstructionService:
             ds_by_instr.setdefault(str(iid), set()).add(str(ds_id))
 
         # Any global instruction (no data source) in the build → org-admin only.
-        if any(not ds_by_instr.get(iid) for iid in instr_ids):
+        from app.models.folder import folder_instructions
+        folder_rows = (await db.execute(select(folder_instructions.c.instruction_id, folder_instructions.c.folder_id,
+            Instruction.scope_mode).join(Instruction, Instruction.id == folder_instructions.c.instruction_id)
+            .where(folder_instructions.c.instruction_id.in_(instr_ids)))).all()
+        folder_scoped = {iid for iid, _, mode in folder_rows if mode == "targeted"}
+        if any(not ds_by_instr.get(iid) and iid not in folder_scoped for iid in instr_ids):
             return False
 
         resolved = await resolve_permissions(
             db, str(current_user.id), str(build.organization_id)
         )
+        if any(not resolved.has_resource_permission("folder", fid, "manage_instructions") for _, fid, _ in folder_rows):
+            return False
         all_ds = {ds for dss in ds_by_instr.values() for ds in dss}
         return all(
             resolved.has_resource_permission("data_source", ds_id, "manage_instructions")
@@ -4204,6 +4255,8 @@ class InstructionService:
         pending_only: bool = False,
         light: bool = False,
         live: Optional[bool] = True,
+        session_scope: bool = False,
+        folder_id: Optional[str] = None,
     ) -> dict:
         """Execute the instructions query with given conditions. Returns paginated response.
 
@@ -4283,7 +4336,7 @@ class InstructionService:
                         str(r[0]) for r in (await db.execute(
                             select(Instruction.id).where(and_(
                                 Instruction.organization_id == organization.id,
-                                ~Instruction.data_sources.any(),
+                                (~Instruction.data_sources.any() & (Instruction.scope_mode == "global")),
                             ))
                         )).all()
                     ]
@@ -4325,7 +4378,9 @@ class InstructionService:
                     )
                 )
             )
+            from app.services.folder_knowledge import visible_instruction_folders
             visible_ds_clauses = [
+                await visible_instruction_folders(db, organization, current_user),
                 Instruction.data_sources.any(DataSource.id.in_(public_ds_subquery))
             ]
             if member_ds_ids:
@@ -4334,7 +4389,7 @@ class InstructionService:
                 )
             base_conditions.append(
                 or_(
-                    ~Instruction.data_sources.any(),  # global instruction
+                    (~Instruction.data_sources.any() & (Instruction.scope_mode == "global")),  # global instruction
                     *visible_ds_clauses,
                 )
             )
@@ -4350,7 +4405,7 @@ class InstructionService:
             # Lazy "Global instructions" group: instructions attached to no agent.
             # Skills are global too, but the tree lists them under their own
             # "Skills" group — including them here would show every skill twice.
-            filter_conditions.append(~Instruction.data_sources.any())
+            filter_conditions.append((~Instruction.data_sources.any() & (Instruction.scope_mode == "global")))
             filter_conditions.append(
                 or_(Instruction.kind.is_(None), Instruction.kind != "skill")
             )
@@ -4373,7 +4428,7 @@ class InstructionService:
                     str(r[0]) for r in (await db.execute(
                         select(Instruction.id).where(and_(
                             Instruction.organization_id == organization.id,
-                            ~Instruction.data_sources.any(),
+                            (~Instruction.data_sources.any() & (Instruction.scope_mode == "global")),
                         ))
                     )).all()
                 ]
@@ -4403,14 +4458,17 @@ class InstructionService:
             )
         if categories:
             filter_conditions.append(Instruction.category.in_(categories))
-        if data_source_ids:
+        if session_scope:
+            from app.services.folder_knowledge import instruction_scope
+            filter_conditions.append(instruction_scope(data_source_ids or [], folder_id))
+        elif data_source_ids:
             # Filter by any of the specified domain IDs (OR logic)
             if include_global:
                 # Include instructions that match the data sources OR have no data sources (global)
                 filter_conditions.append(
                     or_(
                         Instruction.data_sources.any(DataSource.id.in_(data_source_ids)),
-                        ~Instruction.data_sources.any()  # No data sources = global
+                        (~Instruction.data_sources.any() & (Instruction.scope_mode == "global"))  # No data sources = global
                     )
                 )
             else:
@@ -5488,6 +5546,25 @@ class InstructionService:
         # Convert to basic schema
         instruction_dict = InstructionSchema.from_orm(instruction).model_dump()
 
+        if organization and current_user:
+            from app.models.folder import Folder, folder_instructions
+            from app.core.permission_resolver import resolve_permissions
+            rights = await resolve_permissions(db, current_user.id, organization.id)
+            folders = (await db.execute(select(Folder.id, Folder.name).join(folder_instructions)
+                       .where(folder_instructions.c.instruction_id == instruction.id,
+                              Folder.organization_id == organization.id))).all()
+            instruction_dict["folders"] = [{"id": f.id, "name": f.name} for f in folders
+                                           if rights.has_resource_permission("folder", f.id, "browse")]
+            if folders or instruction.owner_folder_id:
+                all_folders = {f.id for f in folders}
+                if instruction.owner_folder_id:
+                    all_folders.add(instruction.owner_folder_id)
+                instruction_dict["can_manage_scope"] = (
+                    all(rights.has_resource_permission("folder", fid, "manage_instructions") for fid in all_folders)
+                    and all(rights.has_resource_permission("data_source", ds.id, "manage_instructions")
+                            for ds in instruction.data_sources)
+                    and (instruction.scope_mode == "targeted" or bool(instruction.data_sources)
+                         or rights.has_org_permission("manage_instructions")))
         # Evidence of the current version (stamped by AI create/edit tools) —
         # lets the detail view show why the AI suggested this instruction.
         try:

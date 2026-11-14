@@ -653,10 +653,7 @@ const saved = ref<Record<string, any>>({})
 function chatIdsPayload(): string[] | null {
     if (bubbleDataOnly.value) return []
     if (agentsMode.value === 'auto') return ['*']
-    const all = agentChoices.value.map(a => a.id)
-    const picked = chatAgentIds.value.filter(id => all.includes(id))
-    // Nothing picked is not a limit: back to Auto (["*"] resets it server-side).
-    return picked.length ? picked : ['*']
+    return [...chatAgentIds.value]
 }
 
 function current(): Record<string, any> {

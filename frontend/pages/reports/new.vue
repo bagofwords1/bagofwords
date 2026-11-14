@@ -37,7 +37,7 @@
 		<!-- Composer: same container as the report view. -->
 		<div class="shrink-0 bg-white dark:bg-gray-900">
 			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-chat']">
-				<PromptBoxV2
+				<PromptBoxV2 allow-folder-scope
 					ref="promptBoxRef"
 					:project="draftProject"
 					:projectSelectable="true"

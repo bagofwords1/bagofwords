@@ -103,24 +103,10 @@ async def _require_case_authority(
 
 
 async def _run_cases(db: AsyncSession, run_id: str):
-    """The TestCases a run actually executed, via its results.
+    # Results keep their submission-time targets. Legacy unknown scope requires
+    # org-level authority, like a deliberately global case.
+    return list(await db.scalars(select(TestResult).where(TestResult.run_id == str(run_id))))
 
-    Distinct is taken over case_id in a subquery, NOT over the entity. Postgres
-    SELECT DISTINCT compares every selected column, and TestCase carries eight
-    ``json`` columns — a type with no equality operator — so an entity-level
-    DISTINCT dies with "could not identify an equality operator for type json".
-    SQLite compares json as text and never complains, which is why this only
-    surfaced on the Postgres CI leg.
-    """
-    case_ids = (
-        select(TestResult.case_id)
-        .where(TestResult.run_id == str(run_id))
-        .distinct()
-    )
-    rows = (await db.execute(
-        select(TestCase).where(TestCase.id.in_(case_ids))
-    )).scalars().all()
-    return list(rows)
 
 
 async def _require_run_read(
@@ -141,15 +127,30 @@ async def _require_run_read(
     not manage.
     """
     unscoped, agent_ids = await _eval_agent_scope(db, user, organization)
-    if unscoped:
-        return unscoped, agent_ids
-    cases = await _run_cases(db, run_id)
-    # EVERY case, not any: starting a run takes authority over all of it, so
-    # reading one does too. Anything weaker would let a partial manager read
-    # results — and transcripts — for cases they could never have launched.
-    if not cases or not all(_can_view_case(c, unscoped, agent_ids) for c in cases):
-        raise HTTPException(status_code=404, detail="Test run not found")
+    results = await _run_cases(db, run_id)
+    if not results and not unscoped:
+        raise HTTPException(404, "Test run not found")
+    for result in results:
+        if not await _can_read_result(db, user, organization, result, unscoped, agent_ids):
+            raise HTTPException(404, "Test run not found")
     return unscoped, agent_ids
+
+
+async def _can_read_result(db, user, org, result, unscoped, agent_ids):
+    if not result.folder_id:
+        return _can_view_case(result, unscoped, agent_ids)
+    from app.services.folder_service import can_read_folder_output
+    from app.models.report import Report
+    from app.core.permission_resolver import resolve_permissions
+    from app.core.derived_access import visible_data_source_ids
+    rights = await resolve_permissions(db, user.id, org.id)
+    report = await db.get(Report, result.report_id)
+    return bool(report and report.organization_id == org.id
+                and (report.agent_folder_id or _can_view_case(result, unscoped, agent_ids))
+                and rights.has_resource_permission("folder", result.folder_id, "manage_evals")
+                and rights.has_resource_permission("folder", result.folder_id, "view")
+                and set(result.data_source_ids_json or []) <= await visible_data_source_ids(db, user, org)
+                and await can_read_folder_output(db, report, user))
 
 
 async def _require_run_authority(
@@ -161,8 +162,7 @@ async def _require_run_authority(
     intersection ``run_suite`` requires to start one. The user who launched it
     necessarily passed that gate already.
     """
-    for case in await _run_cases(db, run_id):
-        await _require_case_authority(db, user, organization, case)
+    await _require_run_read(db, user, organization, run_id)
 
 
 async def _suite_cases(db: AsyncSession, suite_id: str):
@@ -195,6 +195,13 @@ async def _require_suite_authority(
     an EMPTY org-wide shelf, since an empty suite has no cases to fail on.
     """
     suite = await suite_service.get_suite(db, str(organization.id), user, suite_id)
+    if suite.owner_folder_id:
+        from app.services.folder_knowledge import require_capability
+        await require_capability(db, organization, user, suite.owner_folder_id, "manage_evals")
+        for case in await _suite_cases(db, suite_id):
+            if case.data_source_ids_json:
+                await _require_case_authority(db, user, organization, case)
+        return
     if getattr(suite, "data_source_id", None) is None:
         await require_org_permission(
             db, str(user.id), str(organization.id), "manage_evals",
@@ -274,12 +281,17 @@ async def get_suite_summaries(db: AsyncSession = Depends(get_async_db), organiza
 @router.get("/suites/{suite_id}", response_model=TestSuiteSchema)
 @requires_permission('manage_evals', resource_scoped=True)
 async def get_suite(suite_id: str, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
-    return await suite_service.get_suite(db, str(organization.id), current_user, suite_id)
+    suite = await suite_service.get_suite(db, str(organization.id), current_user, suite_id)
+    if suite.owner_folder_id:
+        await _require_suite_authority(db, current_user, organization, suite_id)
+    return suite
 
 
 @router.patch("/suites/{suite_id}", response_model=TestSuiteSchema)
 @requires_permission('manage_evals', resource_scoped=True)
 async def update_suite(suite_id: str, payload: TestSuiteUpdate, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
+    from app.services.folder_knowledge import require_suite_placement_edit
+    await require_suite_placement_edit(db, organization.id, current_user, suite_id)
     # Renaming is not destructive, but it renames a folder other people file
     # into, so it takes the same authority as emptying it.
     await _require_suite_authority(db, current_user, organization, suite_id)
@@ -293,6 +305,8 @@ async def delete_suite(suite_id: str, db: AsyncSession = Depends(get_async_db), 
     # rest. Without this, dropping one case into someone else's suite would make
     # it permanently undeletable by its owner — a lock-out anyone holding a
     # single agent grant could inflict on any suite.
+    from app.services.folder_knowledge import require_suite_placement_edit
+    await require_suite_placement_edit(db, organization.id, current_user, suite_id)
     reparented = await suite_service.reparent_unauthorized_cases(
         db, str(organization.id), current_user, organization, suite_id,
         _require_case_authority,
@@ -499,7 +513,7 @@ async def create_run(payload: TestRunCreate, db: AsyncSession = Depends(get_asyn
 
 
 @router.get("/runs", response_model=List[TestRunSchema])
-@requires_permission('manage_evals', resource_scoped=True)
+@requires_permission('manage_evals', resource_scoped=True, folder_scoped=True)
 async def list_runs(
     suite_id: Optional[str] = None,
     status: Optional[str] = None,
@@ -524,32 +538,30 @@ async def list_runs(
         page=page, limit=limit, data_source_id=data_source_id, scope=scope,
     )
     unscoped, agent_ids = await _eval_agent_scope(db, current_user, organization)
-    if unscoped:
-        return runs
-    # A run is visible only when the caller may read EVERY case it executed.
     visible = []
-    for r in runs:
-        cases = await _run_cases(db, str(r.id))
-        if cases and all(_can_view_case(c, unscoped, agent_ids) for c in cases):
-            visible.append(r)
+    for run in runs:
+        cases = await _run_cases(db, str(run.id))
+        if cases and all([await _can_read_result(db, current_user, organization, case, unscoped, agent_ids)
+                          for case in cases]):
+            visible.append(run)
     return visible
 
 
 @router.get("/runs/{run_id}", response_model=TestRunSchema)
-@requires_permission('manage_evals', resource_scoped=True)
+@requires_permission('manage_evals', resource_scoped=True, folder_scoped=True)
 async def get_run(run_id: str, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
     await _require_run_read(db, current_user, organization, run_id)
     return await run_service.get_run(db, str(organization.id), current_user, run_id)
 
 @router.post("/runs/{run_id}/stop", response_model=TestRunSchema)
-@requires_permission('manage_evals', resource_scoped=True)
+@requires_permission('manage_evals', resource_scoped=True, folder_scoped=True)
 async def stop_run(run_id: str, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
     await _require_run_authority(db, current_user, organization, run_id)
     return await run_service.stop_run(db, str(organization.id), current_user, run_id)
 
 
 @router.get("/runs/{run_id}/results", response_model=List[TestResultSchema])
-@requires_permission('manage_evals', resource_scoped=True)
+@requires_permission('manage_evals', resource_scoped=True, folder_scoped=True)
 async def list_results(run_id: str, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
     # The run gate already required authority over every case in this run, so
     # there is nothing left to filter out row by row.
@@ -568,26 +580,20 @@ async def _require_result_read(
     result unobservable.
     """
     unscoped, agent_ids = await _eval_agent_scope(db, user, organization)
-    if unscoped:
-        return
-    case = (await db.execute(
-        select(TestCase)
-        .join(TestResult, TestResult.case_id == TestCase.id)
-        .where(TestResult.id == str(result_id))
-    )).scalar_one_or_none()
-    if case is None or not _can_view_case(case, unscoped, agent_ids):
+    case = await db.get(TestResult, str(result_id))
+    if case is None or not await _can_read_result(db, user, organization, case, unscoped, agent_ids):
         raise HTTPException(status_code=404, detail="Test result not found")
 
 
 @router.get("/results/{result_id}", response_model=TestResultSchema)
-@requires_permission('manage_evals', resource_scoped=True)
+@requires_permission('manage_evals', resource_scoped=True, folder_scoped=True)
 async def get_result(result_id: str, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
     await _require_result_read(db, current_user, organization, result_id)
     return await run_service.get_result(db, str(organization.id), current_user, result_id)
 
 
 @router.get("/results/{result_id}/transcript", response_class=PlainTextResponse)
-@requires_permission('manage_evals', resource_scoped=True)
+@requires_permission('manage_evals', resource_scoped=True, folder_scoped=True)
 async def get_result_transcript(
     result_id: str,
     max_messages: int = Query(40, ge=1, le=200),
@@ -715,7 +721,7 @@ async def get_rules_catalog(db: AsyncSession = Depends(get_async_db), organizati
 # resource-scoped) and then got a 403 the moment they tried to add an expectation
 # to it, which is the whole point of authoring one.
 @router.get("/catalog", response_model=TestCatalog)
-@requires_permission('manage_evals', resource_scoped=True)
+@requires_permission('manage_evals', resource_scoped=True, folder_scoped=True)
 async def get_test_catalog(db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
     return await suite_service.get_test_catalog(db, str(organization.id), current_user)
 
@@ -795,7 +801,7 @@ async def compare_runs(run_id: str, against_run_id: Optional[str] = Query(None),
 
 
 @router.get("/runs/{run_id}/status", response_model=TestRunStatusResponse)
-@requires_permission('manage_evals', resource_scoped=True)
+@requires_permission('manage_evals', resource_scoped=True, folder_scoped=True)
 async def get_run_status(run_id: str, limit: int = Query(50, ge=1, le=200), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
     # A per-agent evaluator can start a run; without this they could not watch
     # the one they started.
@@ -814,7 +820,7 @@ async def get_run_status(run_id: str, limit: int = Query(50, ge=1, le=200), db: 
 
 
 @router.post("/runs/{run_id}/stream")
-@requires_permission('manage_evals', resource_scoped=True)
+@requires_permission('manage_evals', resource_scoped=True, folder_scoped=True)
 async def stream_run(run_id: str, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
     await _require_run_read(db, current_user, organization, run_id)
     return await run_service.stream_run(db, organization, current_user, run_id)

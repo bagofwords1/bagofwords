@@ -819,6 +819,7 @@ class ReportService:
         app_version = await self._detect_app_version(db, report.id)
 
         report_schema = ReportSchema(
+            agent_folder_id=report.agent_folder_id,
             id=report.id,
             title=report.title,
             status=report.status,
@@ -1028,6 +1029,11 @@ class ReportService:
             )
 
     async def create_report(self, db: AsyncSession, report_data: ReportCreate, current_user: User, organization: Organization) -> ReportSchema:
+        if report_data.agent_folder_id is not None:
+            from app.services.folder_service import visible_branch
+            if report_data.data_sources:
+                raise HTTPException(422, "Choose a folder or specific agents")
+            await visible_branch(db, organization.id, current_user.id, report_data.agent_folder_id)
         file_uuids = report_data.files or []
         del report_data.files
         data_source_ids = report_data.data_sources or []
@@ -1063,7 +1069,7 @@ class ReportService:
             # Project default agents apply only when the creator didn't pick
             # agents explicitly — an explicit selection overrides the defaults
             # instead of being union-ed with them.
-            if not data_source_ids:
+            if not data_source_ids and report.agent_folder_id is None:
                 data_source_ids = await project_service.get_default_data_source_ids(db, project.id)
             # Project FILES are not copied: they are inherited live at
             # context-build time (FilesContextBuilder / file tools), so
@@ -1304,6 +1310,17 @@ class ReportService:
             from app.services.artifact_service import follow_conversation_project
             await follow_conversation_project(db, [str(report.id)], report.project_id)
 
+        if "agent_folder_id" in report_data.model_fields_set:
+            if report_data.agent_folder_id is not None:
+                from app.services.folder_service import visible_branch
+                if report_data.data_sources:
+                    raise HTTPException(422, "Choose a folder or specific agents")
+                await visible_branch(db, organization.id, current_user.id, report_data.agent_folder_id)
+            report.agent_folder_id = report_data.agent_folder_id
+            report.focused_data_source_ids = None
+            report_data.data_sources = []
+        elif report_data.data_sources is not None:
+            report.agent_folder_id = None
         # Replace data_sources associations if provided
         if hasattr(report_data, 'data_sources') and report_data.data_sources is not None:
             # Snapshot the user-VISIBLE scope before the change — never name a

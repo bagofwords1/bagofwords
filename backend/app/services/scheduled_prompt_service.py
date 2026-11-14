@@ -700,7 +700,7 @@ class ScheduledPromptService:
             try:
                 report_schema = await ReportService().create_report(
                     db=db,
-                    report_data=ReportCreate(title=title, files=[], data_sources=ds_ids,
+                    report_data=ReportCreate(title=title, files=[], agent_folder_id=None if sp.data_source_ids else getattr(host_report, "agent_folder_id", None), data_sources=ds_ids,
                                              project_id=str(host_report.project_id)),
                     current_user=user,
                     organization=organization,
@@ -713,7 +713,7 @@ class ScheduledPromptService:
         if report_schema is None:
             report_schema = await ReportService().create_report(
                 db=db,
-                report_data=ReportCreate(title=title, files=[], data_sources=ds_ids),
+                report_data=ReportCreate(title=title, files=[], agent_folder_id=None if sp.data_source_ids else getattr(host_report, "agent_folder_id", None), data_sources=ds_ids),
                 current_user=user,
                 organization=organization,
             )

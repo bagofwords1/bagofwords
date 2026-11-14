@@ -183,6 +183,8 @@ class ReadInstructionTool(Tool):
                         Instruction.user_id == str(user.id),
                     ),
                 )
+            from app.services.folder_knowledge import instruction_scope
+            folder_id = getattr(runtime_ctx.get("report"), "agent_folder_id", None)
             stmt = (
                 select(
                     Instruction.id,
@@ -195,6 +197,7 @@ class ReadInstructionTool(Tool):
                     and_(
                         Instruction.organization_id == organization.id,
                         status_clause,
+                        instruction_scope(data_source_ids, folder_id),
                         Instruction.deleted_at.is_(None),
                         func.lower(Instruction.id).like(prefix + "%"),
                     )
@@ -230,8 +233,9 @@ class ReadInstructionTool(Tool):
             builder = InstructionContextBuilder(
                 db,
                 organization,
-                current_user=user,
-                data_source_ids=data_source_ids,
+                current_user=user, folder_id=folder_id,
+                data_source_ids=data_source_ids, mode=runtime_ctx.get("mode") or "chat",
+                channel=getattr(getattr(runtime_ctx.get("context_hub"), "instruction_builder", None), "channel", None) or "app",
             )
             items = await builder.load_instructions_by_ids([full_id], load_mode_filter=None)
 

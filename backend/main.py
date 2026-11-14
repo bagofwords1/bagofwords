@@ -331,6 +331,8 @@ app.include_router(completion_feedback.router, prefix="/api")
 app.include_router(file.router, prefix="/api")
 app.include_router(file_reference.router, prefix="/api")
 app.include_router(organization.router, prefix="/api")
+from app.routes import folders
+app.include_router(folders.router, prefix="/api")
 app.include_router(rbac.router, prefix="/api")
 app.include_router(usage_limits.router, prefix="/api")
 app.include_router(llm.router, prefix="/api")

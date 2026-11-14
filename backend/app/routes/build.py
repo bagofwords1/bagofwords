@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 import logging
@@ -50,7 +51,17 @@ async def _require_authority_over_instructions(
             db, user_id, org_id, "data_source", ds_ids, "manage_instructions",
             name_resource=False,
         )
-    if any(not ds for ds in scopes.values()):
+    from sqlalchemy import select
+    from app.models.folder import folder_instructions
+    from app.models.instruction import Instruction
+    rows = (await db.execute(select(folder_instructions.c.instruction_id, folder_instructions.c.folder_id,
+        Instruction.scope_mode).join(Instruction, Instruction.id == folder_instructions.c.instruction_id)
+        .where(folder_instructions.c.instruction_id.in_(scopes)))).all()
+    if rows:
+        await check_resource_permissions(db, user_id, org_id, "folder", list({r.folder_id for r in rows}),
+                                         "manage_instructions", name_resource=False)
+    targeted = {r.instruction_id for r in rows if r.scope_mode == "targeted"}
+    if any(not ds and iid not in targeted for iid, ds in scopes.items()):
         await require_org_permission(db, user_id, org_id, "manage_instructions")
 
 
@@ -109,7 +120,8 @@ async def _instruction_read_filter(
         return None
     resolved = await resolve_permissions(db, str(user.id), str(organization.id))
     if "manage_instructions" in resolved.org_permissions:
-        return None
+        from app.models.data_source import DataSource
+        accessible = list(await db.scalars(select(DataSource.id).where(DataSource.organization_id == organization.id)))
 
     async def _visible(instruction_ids) -> set[str]:
         return await build_service.visible_instruction_ids(
@@ -154,6 +166,13 @@ async def list_builds(
     )
     accessible_filter = None if is_admin else accessible_ds_ids
 
+    from app.core.permission_resolver import resolve_permissions
+    from app.services.folder_knowledge import visible_instruction_folders, instruction_scope
+    rights = await resolve_permissions(db, current_user.id, organization.id)
+    folder_filter = None
+    if not rights.has_org_permission("full_admin_access"):
+        folder_filter = (await visible_instruction_folders(db, organization, current_user)) | instruction_scope(accessible_ds_ids)
+
     result = await build_service.list_builds(
         db=db,
         org_id=organization.id,
@@ -162,6 +181,7 @@ async def list_builds(
         limit=limit,
         created_by_user_id=created_by_user_id,
         accessible_data_source_ids=accessible_filter,
+        folder_read_filter=folder_filter,
         data_source_id=data_source_id,
     )
     

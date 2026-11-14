@@ -123,6 +123,7 @@ BASELINE_PERMISSIONS = sorted(
 #                            create_data_sources; cascades to per-agent `manage`)
 
 RESOURCE_PERMISSIONS = {
+    "folder": ["view", "manage", "manage_instructions", "manage_files", "manage_evals"],
     "data_source": [
         "manage_instructions",
         "create_entities",

@@ -1275,6 +1275,11 @@ class AgentV2:
             except Exception:
                 logger.warning("Failed to load project files", exc_info=True)
                 self._project_files_cache = []
+        if getattr(self.report, "agent_folder_id", None):
+            from app.ai.context.agent_files import merge_files
+            from app.services.folder_knowledge import folder_file_library
+            folder_files = await folder_file_library(self.db, self.organization, getattr(self.head_completion, "user", None), self.report.agent_folder_id)
+            return merge_files(self._project_files_cache, folder_files)
         return self._project_files_cache
 
     async def _resolve_user_profile(self) -> tuple[Optional[str], Optional[str], Optional[str], Optional[dict]]:
@@ -1657,7 +1662,12 @@ class AgentV2:
                 [str(x) for x in (getattr(self.report, "focused_data_source_ids", None) or [])]
                 if self.report else []
             )
-            focus_ids, mode = decide_focus_mode(roster_ids, explicit, len(roster_ids))
+            if getattr(self.report, "agent_folder_id", None):
+                if len(roster_ids) == 1:
+                    explicit = list(roster_ids)
+                focus_ids, mode = decide_focus_mode(roster_ids, explicit, len(roster_ids), threshold=1)
+            else:
+                focus_ids, mode = decide_focus_mode(roster_ids, explicit, len(roster_ids))
             if mode == "all":
                 return full_scope
             loaded = {str(x) for x in (getattr(self, "loaded_agent_ids", ()) or ())}
@@ -1755,6 +1765,9 @@ class AgentV2:
                 _rtk = 10
             _rtk = max(1, min(100, _rtk))
             _loaded = {str(x) for x in (getattr(self, "loaded_agent_ids", ()) or ())}
+            folder_scope = getattr(self.report, "agent_folder_id", None)
+            if folder_scope and len(_roster_sources) == 1:
+                report_focus = [str(_roster_sources[0].id)]
             focus_ids, roster_xml, _mode = await build_focus_and_roster(
                 self.db,
                 self.organization,
@@ -1764,7 +1777,11 @@ class AgentV2:
                 report_focus,
                 top_k=_rtk,
                 loaded_ids=list(_loaded),
+                **({"threshold": 1} if folder_scope else {}),
             )
+            if folder_scope and roster_xml:
+                from app.ai.context.agent_roster import FOLDER_ROUTING_GUIDANCE
+                roster_xml += "\n<folder_routing>" + FOLDER_ROUTING_GUIDANCE + "</folder_routing>"
             if _mode == "all":
                 # Few agents attached (manual selection or small Auto scope):
                 # full schema as always. A manual selection is a hard scope —
@@ -5905,6 +5922,7 @@ class AgentV2:
                                     current_user=getattr(self.head_completion, "user", None) if self.head_completion else None,
                                     organization_settings=self.organization_settings,
                                     data_source_ids=_instr_scope,
+                                    folder_id=getattr(self.report, "agent_folder_id", None),
                                     mode=self._instruction_mode,
                                     channel=getattr(self.context_hub, "instruction_channel", None),
                                     application_id=getattr(self.context_hub, "application_id", None),

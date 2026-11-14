@@ -152,7 +152,11 @@ async def guard_route(db, user, kwargs, organization=None):
         if not await can_read(db, access, user):
             from fastapi import HTTPException
             raise HTTPException(status_code=404, detail="Entity not found")
+    from app.services.folder_service import can_read_folder_output
     for rid in report_ids:
+        report = await db.get(Report, rid)
+        if report and not await can_read_folder_output(db, report, user):
+            raise AppError.not_found(ErrorCode.REPORT_NOT_FOUND)
         await assert_read(db, await report_access(db, rid), user)
 
 
@@ -161,7 +165,21 @@ async def visible_reports_clause(db, organization_id, user):
     rows = (await db.execute(select(Report.id, Report.bow_source_access)
         .where(Report.organization_id == str(organization_id), Report.bow_source_access.isnot(None)))).all()
     denied = [rid for rid, access in rows if access and not await can_read(db, access, user)]
-    return Report.id.notin_(denied)
+    from app.core.derived_access import visible_data_source_ids
+    from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
+    from app.models.report import folder_report_sources as sources
+    from sqlalchemy import and_, or_
+    rights = await resolve_permissions(db, user.id, organization_id)
+    if FULL_ADMIN in rights.org_permissions:
+        return Report.id.notin_(denied)
+    visible = await visible_data_source_ids(db, user, await db.get(Organization, organization_id))
+    folder_ids = [fid for (kind, fid), roles in rights.resource_permissions.items()
+                  if kind == "folder" and "view" in roles]
+    used = select(sources.c.report_id).where(sources.c.report_id == Report.id).exists()
+    hidden_source = select(sources.c.report_id).where(sources.c.report_id == Report.id,
+                                                       sources.c.agent_id.notin_(visible)).exists()
+    return and_(Report.id.notin_(denied), ~hidden_source,
+                or_(used, Report.agent_folder_id.is_(None), Report.agent_folder_id.in_(folder_ids)))
 
 
 async def install_entity_client(db, organization, user, entity, clients):

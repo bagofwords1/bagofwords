@@ -145,6 +145,10 @@ class PromptBuilderV3:
         hint = PromptBuilderV3._reuse_hint(planner_input)
         if hint:
             ask = f"{ask}\n{hint}"
+        if "<folder_routing>" in (getattr(planner_input, "agents_roster", None) or ""):
+            ask = (planner_input.instructions or "") + "\n" + ask
+            ask += ("\nFor agent selection, first consult the <instruction> text above. If a rule names "
+                    "an agent for this task, search for the exact agent name and use its matching ID.")
         if getattr(planner_input, "memory_hint", None):
             ask = f"{ask}\n{planner_input.memory_hint}"
         head = PromptBuilderV3._build_turn_head(planner_input)
@@ -862,6 +866,8 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             "project_context", "instructions", "agents_roster", "schemas_combined",
             "files_context", "resources_combined", "tools_context",
         ):
+            if attr == "instructions" and "<folder_routing>" in (getattr(planner_input, "agents_roster", None) or ""):
+                continue  # Folder instructions accompany the user request in the transcript.
             val = getattr(planner_input, attr, None)
             if val:
                 parts.append(f"  {val}")

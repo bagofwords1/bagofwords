@@ -28,6 +28,16 @@ from xml.sax.saxutils import escape as _xml_escape
 from sqlalchemy import func, select
 
 
+FOLDER_ROUTING_GUIDANCE = (
+    "Determine the user's intent before choosing an agent. Apply the selected folder's "
+    "published routing rule to matching requests, including paraphrases. Identify the primary metric or task first. "
+    "Treat a requested breakdown, channel, time range or grouping as a modifier of that task. A matching rule "
+    "takes precedence over a similar agent description. Search for the named agent and "
+    "use its returned ID. If the request lacks a subject, the rule does not cover the "
+    "question and no agent matches, or the named agent is unavailable, ask for clarification."
+)
+
+
 # Default gate: at or below this many attached agents, behave exactly as before
 # (render all, no roster). Above it, switch to roster + focused schema.
 DEFAULT_INDEX_THRESHOLD = int(os.environ.get("BOW_AGENT_INDEX_THRESHOLD", "4"))
@@ -111,41 +121,31 @@ def _snippet(text: Optional[str], max_len: int = 160) -> str:
     return collapsed[: max_len - 1] + "…"
 
 
-async def load_agent_one_liners(db, data_sources: List[Any]) -> Dict[str, str]:
-    """Per-agent one-liner: ``description`` -> primary-instruction snippet ->
-    ``context`` -> "". The primary-instruction fallback is batch-loaded in a
-    single query so this stays O(1) round-trips regardless of agent count.
-    """
-    out: Dict[str, str] = {}
-    need_primary: Dict[str, str] = {}  # instruction_id -> data_source_id
-    for ds in data_sources:
-        sid = str(ds.id)
-        desc = (getattr(ds, "description", None) or "").strip()
-        if desc:
-            out[sid] = _snippet(desc)
-            continue
-        pinst = getattr(ds, "primary_instruction_id", None)
-        if pinst:
-            need_primary[str(pinst)] = sid
-            continue
-        out[sid] = _snippet(getattr(ds, "context", None))
-
-    if need_primary:
-        from app.models.instruction import Instruction
-        rows = (
-            await db.execute(
-                select(Instruction.id, Instruction.text, Instruction.title).where(
-                    Instruction.id.in_(list(need_primary.keys()))
-                )
-            )
-        ).all()
-        for iid, text, title in rows:
-            sid = need_primary.get(str(iid))
-            if sid:
-                out[sid] = _snippet((text or title or "").strip())
-        # Any agent whose primary instruction row was missing -> empty one-liner.
-        for sid in need_primary.values():
-            out.setdefault(sid, "")
+async def load_agent_one_liners(db, data_sources: List[Any], organization=None, user=None) -> Dict[str, str]:
+    """Prefer the description and only quote a published instruction visible on that agent."""
+    out = {str(ds.id): _snippet(getattr(ds, "description", None) or getattr(ds, "context", None))
+           for ds in data_sources}
+    candidates = [ds for ds in data_sources if not getattr(ds, "description", None)
+                  and getattr(ds, "primary_instruction_id", None)]
+    if not candidates or not organization or not user:
+        return out
+    from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
+    from app.models.instruction import Instruction, instruction_data_source_association as edges
+    ids = {str(ds.primary_instruction_id) for ds in candidates}
+    rows = (await db.execute(select(Instruction.id, Instruction.scope_mode, edges.c.data_source_id)
+                             .outerjoin(edges, edges.c.instruction_id == Instruction.id)
+                             .where(Instruction.organization_id == organization.id, Instruction.id.in_(ids)))).all()
+    allowed = {(str(i), str(a) if a else None) for i, scope, a in rows if a or scope == "global"}
+    builder = InstructionContextBuilder(db, organization, user, data_source_ids=[str(ds.id) for ds in candidates])
+    # Descriptions are reused across channels. Only unrestricted published rules qualify.
+    builder.mode = "__roster__"
+    builder.channel = "__roster__"
+    items = await builder.load_instructions_by_ids(list(ids), load_mode_filter=None)
+    snippets = {item.id: _snippet(item.text or item.title) for item in items}
+    for ds in candidates:
+        iid, sid = str(ds.primary_instruction_id), str(ds.id)
+        if iid in snippets and ((iid, sid) in allowed or (iid, None) in allowed):
+            out[sid] = snippets[iid]
     return out
 
 
@@ -348,7 +348,7 @@ async def build_focus_and_roster(
     )
 
     count_map, kind_map = _counts_from_sections(schema_sections)
-    one_liners = await load_agent_one_liners(db, data_sources)
+    one_liners = await load_agent_one_liners(db, data_sources, organization, user)
     agents: List[RosterAgent] = []
     for ds in data_sources:
         sid = str(ds.id)

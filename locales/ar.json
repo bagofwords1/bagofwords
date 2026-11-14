@@ -2134,13 +2134,14 @@
     "fullAdminAccessTab": "يشمل الوصول الإداري الكامل جميع الوكلاء والاتصالات والنماذج.",
     "includedWith": "مضمَّن في {name}",
     "searchResources": "بحث…",
-    "addAccess": "إضافة وكيل أو اتصال أو نموذج",
-    "accessEmpty": "لا يوجد وكلاء أو اتصالات أو نماذج بعد. الوكلاء العامّون متاحون دائمًا.",
+    "addAccess": "اختيار مورد",
+    "accessEmpty": "اختيار مورد",
     "publicAgents": "{n} من الوكلاء العامّين متاحون للجميع.",
     "types": {
       "data_source": "وكيل",
       "connection": "اتصال",
-      "llm_model": "نموذج"
+      "llm_model": "نموذج",
+      "folder": "مجلد"
     },
     "levels": {
       "use": "يمكنه الاستخدام",
@@ -2158,7 +2159,9 @@
       "connectionsMany": "{n} اتصالات",
       "modelsOne": "نموذج واحد",
       "modelsMany": "{n} نماذج",
-      "everything": "كل الأذونات"
+      "everything": "كل الأذونات",
+      "foldersOne": "1 مجلد",
+      "foldersMany": "{n} مجلدات"
     },
     "resourcePermissions": {
       "data_source": {
@@ -7155,5 +7158,31 @@
     "settingsTitle": "تحديثات المنتج",
     "toggleLabel": "أرسل لي تحديثات المنتج عبر البريد الإلكتروني",
     "sentTo": "تُرسل إلى {email}"
+  },
+  "sharedFolders": {
+    "attach": "ربط عنصر موجود",
+    "addCase": "إضافة حالة",
+    "sameAccess": "Access stays the same.",
+    "edit": "Folder settings",
+    "move": "Move",
+    "preview": "Preview move",
+    "rename": "Rename",
+    "delete": "Delete folder",
+    "via": "Via {name}",
+    "title": "Folders",
+    "back": "Back",
+    "create": "New folder",
+    "share": "Share",
+    "name": "Folder name",
+    "noDirect": "No direct role",
+    "viewer": "يمكنه الاستعلام",
+    "manager": "يمكنه الإدارة",
+    "hints": "يشمل الاستعلام وكلاء المجلد. وتسمح الإدارة بالتعديل والمشاركة.",
+    "limit": "Limited access",
+    "stops": "Parent roles stop here.",
+    "root": "جذر المؤسسة",
+    "inherit": "وراثة الوصول من المجلد الأصل",
+    "direct": "الوصول المباشر لـ {name}",
+    "stopConfirm": "إيقاف الوراثة؟ سيتوقف تطبيق أذونات {names}."
   }
 }

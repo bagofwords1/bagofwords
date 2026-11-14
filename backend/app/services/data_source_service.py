@@ -647,6 +647,9 @@ class DataSourceService:
         await db.commit()
 
     async def create_data_source(self, db: AsyncSession, organization: Organization, current_user: User, data_source: DataSourceCreate):
+        if data_source.folder_id is not None:
+            from app.services.folder_service import require_folder_manager
+            await require_folder_manager(db, organization.id, current_user.id, data_source.folder_id)
         # Convert Pydantic model to dict
         data_source_dict = data_source.dict()
 
@@ -848,7 +851,7 @@ class DataSourceService:
         }
         
         # Create the data source instance
-        new_data_source = DataSource(**ds_create_dict)
+        new_data_source = DataSource(**ds_create_dict, folder_id=data_source.folder_id)
 
         # Associate with connection(s)
         if connections_to_link:
@@ -1384,7 +1387,20 @@ class DataSourceService:
             except Exception as e:
                 logger.warning("Failed to serialize primary_instruction: %s", e)
 
+        folder_id = folder_name = folder_role = None
+        if current_user and data_source.folder_id:
+            from app.core.permission_resolver import resolve_permissions
+            from app.models.folder import Folder
+            rights = await resolve_permissions(db, current_user.id, organization.id)
+            if rights.has_resource_permission("folder", data_source.folder_id, "view"):
+                folder_id = data_source.folder_id
+                inherited = rights.resource_permissions.get(("folder", folder_id), set())
+                if data_source.inherits_folder_access and inherited:
+                    folder_name = await db.scalar(select(Folder.name).where(Folder.id == folder_id))
+                    folder_role = "manager" if "manage" in inherited else "viewer"
+
         schema = DataSourceSchema(
+            folder_id=folder_id, inherited_folder_name=folder_name, inherited_folder_role=folder_role,
             id=str(data_source.id),
             organization_id=str(data_source.organization_id),
             name=data_source.name,
@@ -1588,6 +1604,8 @@ class DataSourceService:
 
             s = DataSourceListItemSchema(
                 id=str(d.id),
+                limited_access=not d.inherits_folder_access,
+                folder_id=d.folder_id if d.folder_id and resolved and resolved.has_resource_permission("folder", d.folder_id, "view") else None,
                 name=d.name,
                 conversation_starters=getattr(d, "conversation_starters", None),
                 description=getattr(d, "description", None),
@@ -1840,6 +1858,8 @@ class DataSourceService:
 
             s = DataSourceListItemSchema(
                 id=str(d.id),
+                limited_access=not d.inherits_folder_access,
+                folder_id=d.folder_id if d.folder_id and resolved and resolved.has_resource_permission("folder", d.folder_id, "view") else None,
                 name=d.name,
                 conversation_starters=getattr(d, "conversation_starters", None),
                 description=getattr(d, "description", None),

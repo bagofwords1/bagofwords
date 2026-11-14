@@ -15,6 +15,9 @@ instruction_data_source_association = Table(
 class Instruction(BaseSchema):
     __tablename__ = "instructions"
     
+    owner_folder_id = Column(String(36), ForeignKey("folders.id"), nullable=True)
+    scope_mode = Column(String(16), default="global", server_default="global", nullable=False)
+
     # Core instruction content
     text = Column(Text, nullable=False)
     
@@ -164,7 +167,7 @@ class Instruction(BaseSchema):
     @property
     def is_global_data_sources(self) -> bool:
         """Returns True if this instruction applies to all data sources (no specific data sources assigned)"""
-        return len(self.data_sources) == 0
+        return self.scope_mode != "targeted" and len(self.data_sources) == 0
     
     @property
     def applies_to_specific_data_sources(self) -> bool:

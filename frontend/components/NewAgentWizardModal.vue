@@ -211,7 +211,7 @@ import GitBranchIcon from '~/components/icons/GitBranchIcon.vue'
 import InstructionEditor from '~/components/instructions/InstructionEditor.vue'
 import { connectionCatalogLabel } from '~/composables/useCatalogCount'
 
-const props = defineProps<{ modelValue: boolean }>()
+const props = defineProps<{ modelValue: boolean, folderId?: string | null }>()
 const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void
   (e: 'finished', dsId: string): void
@@ -334,6 +334,7 @@ async function createAgentFromExistingConnection() {
   try {
     const payload: Record<string, any> = {
       name: agentName.value.trim(),
+      folder_id: props.folderId || null,
       connection_ids: selectedConnections.value.map(c => c.id),
       use_llm_sync: useLlmSync.value,
       is_public: false,

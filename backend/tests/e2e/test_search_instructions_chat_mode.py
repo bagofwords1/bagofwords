@@ -35,7 +35,7 @@ def _create(test_client, token, org_id, **fields):
     return resp.json()
 
 
-async def _run(tool_input, *, user_id, org_id, mode="chat", scope_ds_ids=None, with_report=True):
+async def _run(tool_input, *, user_id, org_id, mode="chat", scope_ds_ids=None, with_report=True, folder_id=None):
     from app.dependencies import async_session_maker
     from app.ai.tools.implementations.search_instructions import SearchInstructionsTool
 
@@ -50,7 +50,7 @@ async def _run(tool_input, *, user_id, org_id, mode="chat", scope_ds_ids=None, w
         ctx = {"db": db, "user": user, "organization": org, "mode": mode}
         if with_report:
             ctx["report"] = SimpleNamespace(
-                id=str(uuid.uuid4()),
+                id=str(uuid.uuid4()), agent_folder_id=folder_id,
                 data_sources=[SimpleNamespace(id=d) for d in (scope_ds_ids or [])],
             )
         end = None
@@ -220,3 +220,22 @@ async def test_training_mode_keeps_full_text(create_user, login_user, whoami, te
     hits = [i for i in out["instructions"] if i["id"] == inst["id"]]
     assert hits, out
     assert hits[0]["text"] == long_body
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_chat_search_exact_folder(create_user, login_user, whoami, test_client):
+    token, uid, org_id = _new_admin(create_user, login_user, whoami)
+    headers = _auth(token, org_id)
+    def create(path, **body):
+        response = test_client.post("/api/" + path, json=body, headers=headers)
+        assert response.is_success, response.text
+        return response.json()["id"]
+    parent = create("folders", name="Marketing")
+    child = create("folders", name="Acquisition", parent_id=parent)
+    ids = [create(f"folders/{fid}/knowledge/instructions", title="Campaign glossary",
+                  text="Campaign glossary for " + name) for fid, name in [(parent, "parent"), (child, "child")]]
+    for folder, expected in [(parent, [ids[0]]), (child, [ids[1]]), (None, [])]:
+        result = await _run({"query": ["Campaign glossary"]}, user_id=uid, org_id=org_id, folder_id=folder)
+        assert result["success"], result
+        assert {item["id"] for item in result["instructions"]} == set(expected)

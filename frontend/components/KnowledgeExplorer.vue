@@ -222,8 +222,11 @@
 
           <div v-if="!agentsLoaded" class="flex items-center gap-2 h-8 text-sm text-ink-muted px-2"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
 
-          <template v-for="agent in agents" :key="agent.id">
-            <TreeGroup :label="agent.name" :count="agentCount(agent.id) || undefined" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? $t('agentsPage.signInBadge') : (agent.publish_status === 'disabled' ? $t('agentsPage.disabledBadge') : (agent.is_connector ? $t('agentsPage.connectorBadge') : ''))" :badge-interactive="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
+          <AgentFolders ref="folderExplorer" @changed="fetchAgents" @select="clearRightPane(); selectedFolder = $event" />
+          <template v-for="agent in agents.filter(a => (a.folder_id || null) === selectedFolder)" :key="agent.id">
+            <TreeGroup :drag-agent="canManageAgent(agent.id) && folderExplorer?.canDrag(agent.folder_id)"
+              @agent-drag="folderExplorer?.startDrag($event, agent)" @agent-drag-end="folderExplorer?.endDrag()"
+              :label="agent.name" :count="agentCount(agent.id) || undefined" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? $t('agentsPage.signInBadge') : (agent.publish_status === 'disabled' ? $t('agentsPage.disabledBadge') : (agent.is_connector ? $t('agentsPage.connectorBadge') : ''))" :badge-interactive="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
               <template #icon><DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon-token="agent.icon_token" :icon="agent.icon" class="w-4 h-4 shrink-0" /></template>
 
               <!-- Content sections need a queryable agent, so they stay hidden while
@@ -935,10 +938,11 @@
                 <!-- Category -->
                 <KSelect v-if="metaEditable" v-model="draft.category" :options="categoryOpts" :placeholder="$t('agentsPage.general')" @update:modelValue="onMetaChange" />
                 <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-2xs font-medium">{{ h.formatCategory(detail.category) }}</span>
+                <InstructionFolderPicker v-if="detail" :key="detail.id" :id="detail.id" :folders="detail.folders || []" :directory="folderExplorer?.folders || []" :can-edit="canEditDetail" @changed="refreshFolderTargets" />
                 <!-- Agents -->
-                <KSelect v-if="metaEditable" v-model="draft.data_source_ids" :options="agentOptsForDraft" multiple :placeholder="$t('agentsPage.allAgentsPlaceholder')" icon="i-heroicons-cube" @update:modelValue="onMetaChange" />
+                <KSelect v-if="metaEditable" v-model="draft.data_source_ids" :options="agentOptsForDraft" multiple :placeholder="$t(detail?.scope_mode === 'targeted' ? 'agentsPage.title' : 'agentsPage.allAgentsPlaceholder')" icon="i-heroicons-cube" @update:modelValue="onMetaChange" />
                 <template v-else>
-                  <span v-if="(detail.data_sources || []).length === 0" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-2xs"><UIcon name="i-heroicons-globe-alt" class="w-3 h-3 text-ink-muted" />{{ $t('agentsPage.allAgentsPlaceholder') }}</span>
+                  <span v-if="detail.scope_mode !== 'targeted' && (detail.data_sources || []).length === 0" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-2xs"><UIcon name="i-heroicons-globe-alt" class="w-3 h-3 text-ink-muted" />{{ $t('agentsPage.allAgentsPlaceholder') }}</span>
                   <span v-for="ds in detail.data_sources" :key="ds.id" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-2xs"><DataSourceIcon :type="ds.type" :connector-key="ds.connector_key" :icon-token="ds.icon_token" :icon="ds.icon" class="w-3 h-3" />{{ ds.name }}</span>
                 </template>
                 <!-- Folder (cosmetic placement), one per scope. Picking a
@@ -1028,6 +1032,7 @@
           </div>
         </template>
 
+        <FolderKnowledge v-else-if="selectedFolder && folderExplorer?.current" :key="selectedFolder" :folder="folderExplorer.current" @file="openFile" @instruction="openInstructionById" />
         <div v-else class="flex-1 flex items-center justify-center px-6">
           <div class="relative w-full max-w-lg h-72 overflow-hidden">
             <img src="/assets/empty-states/empty-integrations.png" alt="" class="absolute inset-x-0 bottom-8 w-full opacity-80 select-none pointer-events-none dark:hidden" />
@@ -1130,7 +1135,7 @@
       @changed="onConnModalChanged"
     />
     <AddConnectionModal v-model="showAddConnection" @created="onConnCreated" />
-    <NewAgentWizardModal v-model="showNewAgent" @finished="onNewAgentFinished" />
+    <NewAgentWizardModal :folder-id="selectedFolder" v-model="showNewAgent" @finished="onNewAgentFinished" />
     <AddMCPModal v-model="showAddMCP" :existing-connections="mcpExistingConnections" @created="onConnCreated" />
     <AddCustomAPIModal v-model="showAddCustomAPI" :existing-connections="customApiExistingConnections" @created="onConnCreated" />
     <input ref="fileInputRef" type="file" multiple class="hidden" @change="onUploadInput" />
@@ -1286,6 +1291,8 @@ const loadingGroups = ref<Set<string>>(new Set())
 // while a search is active, which swaps the tree for a flat results view.
 const searchResults = ref<{ agents: any[]; instructions: Instruction[] } | null>(null)
 const searching = ref(false)
+const folderExplorer = ref<any>(null)
+const selectedFolder = ref<string | null>(null)
 const agents = ref<any[]>([])
 // Show a spinner in the agents tree until the first load completes. Stays true
 // through later refreshes, which update the list silently.
@@ -2255,6 +2262,12 @@ const openSkillCatalog = () => {
 // linger in the tree until a reload — drop it here, as deleteInstruction does.
 // Open an enabled skill in the normal instruction editor. The panel only holds
 // list rows, so fetch the full instruction the same way a deep link does.
+async function refreshFolderTargets() {
+  const id = detail.value?.id
+  if (!id) return
+  const result = await useMyFetch<Instruction>('/instructions/' + id)
+  if (detail.value?.id === id && result.data.value) detail.value = result.data.value
+}
 const openInstructionById = async (id: string) => {
   const existing = allInstructions.value.find(i => i.id === id)
   if (existing) { openInstruction(existing); return }
@@ -2312,6 +2325,7 @@ const agentLandingActions = computed(() => {
   if (!id) return []
   const groups: any[][] = [[{ label: t('agentsPage.connections'), icon: 'i-heroicons-link', click: () => openAgentCard(id) }]]
   if (agentCanUpdate.value) groups.push([
+    { label: t('sharedFolders.edit'), icon: 'i-heroicons-folder', click: () => folderExplorer.value?.editItem('agent', id, agentViewName.value, agents.value.find(a => a.id === id)?.limited_access) },
     { label: t('agentsPage.settings'), icon: 'i-heroicons-cog-6-tooth', click: () => openAgentSection('settings', id) },
     { label: t('agentsPage.manageConnections'), icon: 'i-heroicons-circle-stack', click: () => openConnModal(id) },
     { label: t('agentLanding.editStarters'), icon: 'i-heroicons-chat-bubble-left-ellipsis', click: openEditStarters },
@@ -3592,7 +3606,7 @@ const fetchAgents = async () => {
       // are not agents: they live in the prompt box's connectors menu and the
       // Browse connectors modal, not in the knowledge tree.
       .filter((d: any) => d?.kind !== 'connector')
-      .map((d: any) => ({ id: d.id, name: d.name, type: d.type, icon: d.icon, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, connector_key: d.connector_key, status: d.status, publish_status: d.publish_status, reliability_status: d.reliability_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
+      .map((d: any) => ({ id: d.id, folder_id: d.folder_id, limited_access: d.limited_access, name: d.name, type: d.type, icon: d.icon, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, connector_key: d.connector_key, status: d.status, publish_status: d.publish_status, reliability_status: d.reliability_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
       // Alphabetical by name. The server returns no explicit order, so sort
       // here; pass the app's i18n locale (not the browser default) so the
       // order matches the UI language, and fold case/accents via sensitivity.
@@ -3912,6 +3926,7 @@ const save = async () => {
   saving.value = true
   try {
     const body: any = { title: draft.title || null, description: draft.description || null, text: draft.text, kind: draft.kind, load_mode: draft.load_mode, status: draft.status, category: draft.category, data_source_ids: draft.data_source_ids, label_ids: draft.label_ids, references: draft.references, applicable_modes: draft.applicable_modes, applicable_channels: draft.applicable_channels }
+    if (!creating.value && JSON.stringify(draft.data_source_ids) === JSON.stringify(detail.value?.data_sources?.map(d => d.id) || [])) delete body.data_source_ids
     if (creating.value) {
       const endpoint = draft.data_source_ids.length ? '/api/instructions' : '/api/instructions/global'
       const { data, error } = await useMyFetch<Instruction>(endpoint, { method: 'POST', body })
@@ -4218,8 +4233,8 @@ const fmtDate = (s?: string) => { if (!s) return ''; try { return _df.format(s, 
 
 // ── Inline tree sub-components ──────────────────────────
 const TreeGroup = defineComponent({
-  props: { label: String, icon: String, count: { type: Number, default: undefined }, countAccent: Boolean, pending: Boolean, open: Boolean, mono: Boolean, indent: { type: Number, default: 0 }, addable: Boolean, folderable: Boolean, gearable: Boolean, reloadable: Boolean, renamable: Boolean, deletable: Boolean, runnable: Boolean, running: Boolean, badge: String, badgeLoading: Boolean, badgeInteractive: { type: Boolean, default: true }, disabled: Boolean, labelClickable: Boolean, active: Boolean, statusDot: String, lock: Boolean, dropActive: Boolean, onDropzone: Function, onDragover: Function, onDragleave: Function },
-  emits: ['toggle', 'add', 'folder', 'gear', 'reload', 'rename', 'delete', 'run', 'badge', 'label'],
+  props: { dragAgent: Boolean, label: String, icon: String, count: { type: Number, default: undefined }, countAccent: Boolean, pending: Boolean, open: Boolean, mono: Boolean, indent: { type: Number, default: 0 }, addable: Boolean, folderable: Boolean, gearable: Boolean, reloadable: Boolean, renamable: Boolean, deletable: Boolean, runnable: Boolean, running: Boolean, badge: String, badgeLoading: Boolean, badgeInteractive: { type: Boolean, default: true }, disabled: Boolean, labelClickable: Boolean, active: Boolean, statusDot: String, lock: Boolean, dropActive: Boolean, onDropzone: Function, onDragover: Function, onDragleave: Function },
+  emits: ['agentDrag', 'agentDragEnd', 'toggle', 'add', 'folder', 'gear', 'reload', 'rename', 'delete', 'run', 'badge', 'label'],
   setup(props, { slots, emit }) {
     // When `labelClickable` is set, the chevron/icon area toggles the tree and the
     // label text opens the panel (`@label`); otherwise the whole row toggles.
@@ -4227,6 +4242,9 @@ const TreeGroup = defineComponent({
       createElement('div', {
         class: ['group w-full flex items-center gap-1.5 h-8 rounded-md text-sm transition-colors min-w-0', props.dropActive ? 'bg-blue-50 dark:bg-blue-500/10 ring-1 ring-blue-300 dark:ring-blue-500/40' : (props.active ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300'), props.disabled ? 'opacity-90' : 'hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer'],
         style: { paddingInlineStart: (6 + props.indent * 14) + 'px', paddingInlineEnd: '8px' },
+        draggable: props.dragAgent || undefined,
+        onDragstart: props.dragAgent ? (event: DragEvent) => emit('agentDrag', event) : undefined,
+        onDragend: props.dragAgent ? () => emit('agentDragEnd') : undefined,
         onClick: () => { if (!props.disabled && !props.labelClickable) emit('toggle') },
         onDragover: props.onDropzone ? (e: DragEvent) => (props.onDragover as any)?.(e) : undefined,
         onDragleave: props.onDropzone ? (e: DragEvent) => (props.onDragleave as any)?.(e) : undefined,

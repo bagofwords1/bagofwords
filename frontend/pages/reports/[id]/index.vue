@@ -827,7 +827,7 @@
 						{{ $t('dashboardCollab.versions.openNewest', { n: openVersion.newest_version }) }}
 					</button>
 				</div>
-				<PromptBoxV2
+				<PromptBoxV2 allow-folder-scope
 					ref="promptBoxRef"
 					:report_id="report_id"
 					:project="report?.project || null"

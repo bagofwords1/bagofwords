@@ -13,6 +13,7 @@ from app.models.eval import (
 from app.models.llm_model import LLMModel
 from app.models.llm_provider import LLMProvider
 from app.core.eval_scope import agent_scope_clause
+from app.services.folder_knowledge import require_suite_placement_edit
 
 
 class TestCaseService:
@@ -25,10 +26,16 @@ class TestCaseService:
         suite = res.scalar_one_or_none()
         if not suite:
             raise HTTPException(status_code=404, detail="Test suite not found")
+        if suite.owner_folder_id:
+            from app.core.permission_resolver import resolve_permissions
+            rights = await resolve_permissions(db, current_user.id, organization_id)
+            if not rights.has_resource_permission("folder", suite.owner_folder_id, "manage_evals"):
+                raise HTTPException(404, "Test suite not found")
         return suite
 
     async def create_case(self, db: AsyncSession, organization_id: str, current_user, suite_id: str, name: str, prompt_json: dict, expectations_json, data_source_ids_json: Optional[list] = None) -> TestCase:
         await self._get_suite(db, organization_id, current_user, suite_id)
+        await require_suite_placement_edit(db, organization_id, current_user, suite_id)
         if not isinstance(prompt_json, dict) or not (prompt_json.get("content") or prompt_json.get("text")):
             raise HTTPException(status_code=400, detail="prompt_json.content is required")
         # Coerce Pydantic models to plain dicts for JSON column storage
@@ -100,6 +107,7 @@ class TestCaseService:
 
     async def update_case(self, db: AsyncSession, organization_id: str, current_user, case_id: str, name: Optional[str], prompt_json: Optional[dict], expectations_json, data_source_ids_json: Optional[list], suite_id: Optional[str] = None) -> TestCase:
         case = await self.get_case(db, organization_id, current_user, case_id)
+        await require_suite_placement_edit(db, organization_id, current_user, case.suite_id)
         if suite_id is not None and str(suite_id) != str(case.suite_id):
             # Resolve through the org-scoped lookup so a case cannot be filed
             # into another organization's suite.
@@ -112,6 +120,10 @@ class TestCaseService:
             )).scalar_one_or_none()
             if target is None:
                 raise HTTPException(status_code=404, detail="Test suite not found")
+            source = await self._get_suite(db, organization_id, current_user, str(case.suite_id))
+            if source.owner_folder_id or target.owner_folder_id:
+                raise HTTPException(409, "Folder routing cases retain their owning suite")
+            await require_suite_placement_edit(db, organization_id, current_user, target.id)
             case.suite_id = str(target.id)
         if name is not None:
             case.name = name
@@ -150,6 +162,7 @@ class TestCaseService:
                 detail=f"Invalid status. Allowed: {sorted(TEST_CASE_STATUSES)}",
             )
         case = await self.get_case(db, organization_id, current_user, case_id)
+        await require_suite_placement_edit(db, organization_id, current_user, case.suite_id)
         case.status = status
         db.add(case)
         await db.commit()
@@ -182,7 +195,7 @@ class TestCaseService:
         stmt = (
             select(TestSuite)
             .where(TestSuite.organization_id == str(organization_id))
-            .where(TestSuite.name == suite_name)
+            .where(TestSuite.name == suite_name, TestSuite.owner_folder_id.is_(None))
             .where(TestSuite.deleted_at.is_(None))
             .where(
                 TestSuite.data_source_id == str(data_source_id)
@@ -216,6 +229,7 @@ class TestCaseService:
         # hard DELETE fails with a foreign-key violation once the case has
         # been part of any run.
         case = await self.get_case(db, organization_id, current_user, case_id)
+        await require_suite_placement_edit(db, organization_id, current_user, case.suite_id)
         case.deleted_at = datetime.utcnow()
         db.add(case)
         await db.commit()
@@ -254,6 +268,9 @@ class TestCaseService:
         )
         if suite_ids:
             stmt = stmt.where(TestCase.suite_id.in_([str(s) for s in suite_ids]))
+        else:
+            # Folder routing cases are listed through their permission-checked folder.
+            stmt = stmt.where(TestSuite.owner_folder_id.is_(None))
         if search:
             like = f"%{search}%"
             # Coarse match on prompt_json string representation; portable enough for SQLite/postgres

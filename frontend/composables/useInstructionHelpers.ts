@@ -22,6 +22,8 @@ export interface User {
 }
 
 export interface Instruction {
+  scope_mode?: string
+  folders?: {id:string, name:string}[]
   id: string
   text: string
   title?: string | null
