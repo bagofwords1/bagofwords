@@ -182,7 +182,9 @@ class TestSuiteService:
                     provider_name.lower(),
                     str(model_name).lower(),
                 )
-            for m in sorted(models or [], key=_sort_key):
+            # The judge reads and grades text; image-generation models can't.
+            models = [m for m in (models or []) if not getattr(m, 'supports_image_generation', False)]
+            for m in sorted(models, key=_sort_key):
                 try:
                     provider_name = getattr(getattr(m, 'provider', None), 'name', None) or getattr(m, 'provider', None) or ''
                 except Exception:

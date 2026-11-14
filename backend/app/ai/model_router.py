@@ -63,6 +63,7 @@ async def resolve_routing_candidates(
         .filter(LLMModel.organization_id == organization.id)
         .filter(LLMModel.deleted_at == None)  # noqa: E711
         .filter(LLMModel.is_enabled == True)  # noqa: E712
+        .filter(LLMModel.supports_image_generation == False)  # noqa: E712 — cannot chat
         .filter(LLMProvider.deleted_at == None)  # noqa: E711
         .filter(LLMProvider.is_enabled == True)  # noqa: E712
     )

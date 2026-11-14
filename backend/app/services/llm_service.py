@@ -41,6 +41,17 @@ def _check_provider_url(url: str) -> None:
 MAX_CONTEXT_WINDOW_TOKENS = 2_147_483_647
 
 
+def _reject_image_model(model) -> None:
+    """Image-generation models produce images; they cannot run a chat. Raised
+    wherever a model is picked for chat (explicit pick, personal default,
+    report/dashboard model, fallback target)."""
+    if getattr(model, "supports_image_generation", False):
+        raise HTTPException(
+            status_code=400,
+            detail="Image-generation models cannot be used for chat. Choose a chat model.",
+        )
+
+
 class LLMService:
     def __init__(self):
         pass
@@ -453,6 +464,9 @@ class LLMService:
             from app.core.permission_resolver import user_can_use_model
             if not await user_can_use_model(db, current_user.id, organization.id, model):
                 raise HTTPException(status_code=403, detail="You do not have access to this model")
+        # Every caller selects the model a chat/run executes on.
+        if model is not None:
+            _reject_image_model(model)
         return model
 
     async def _validated_new_model_id(
@@ -1816,6 +1830,11 @@ class LLMService:
             missing = [i for i in ids if i not in known]
             if missing:
                 raise HTTPException(status_code=400, detail=f"Unknown model id(s) in fallback order: {', '.join(missing)}")
+            image_ids = (await db.execute(
+                select(LLMModel.id).filter(LLMModel.id.in_(ids), LLMModel.supports_image_generation == True)  # noqa: E712
+            )).scalars().all()
+            if image_ids:
+                raise HTTPException(status_code=400, detail="Image-generation models cannot be in the fallback order.")
 
         settings = await organization.get_settings(db)
         cfg = dict(settings.config or {})
@@ -2742,6 +2761,7 @@ class LLMService:
                     .filter(LLMModel.organization_id == organization.id)
                     .filter(LLMModel.deleted_at == None)
                     .filter(LLMModel.is_enabled == True)
+                    .filter(LLMModel.supports_image_generation == False)
                     .filter(LLMProvider.deleted_at == None)
                     .filter(LLMProvider.is_enabled == True)
                 )
@@ -2782,6 +2802,7 @@ class LLMService:
                 raise HTTPException(status_code=404, detail="Model not found")
             if not model.is_enabled:
                 raise HTTPException(status_code=400, detail="Model is not enabled")
+            _reject_image_model(model)
             from app.core.permission_resolver import user_can_use_model
             if not await user_can_use_model(db, user.id, organization.id, model):
                 raise HTTPException(status_code=403, detail="You do not have access to this model")
@@ -2827,6 +2848,7 @@ class LLMService:
                 .filter(LLMModel.organization_id == organization.id)
                 .filter(LLMModel.deleted_at == None)
                 .filter(LLMModel.is_enabled == True)
+                .filter(LLMModel.supports_image_generation == False)
                 .filter(LLMProvider.deleted_at == None)
                 .filter(LLMProvider.is_enabled == True)
             )
@@ -2868,6 +2890,7 @@ class LLMService:
             raise HTTPException(status_code=404, detail="Model not found")
         if not model.is_enabled:
             raise HTTPException(status_code=400, detail="Model is not enabled")
+        _reject_image_model(model)
         if user is not None:
             from app.core.permission_resolver import user_can_use_model
             if not await user_can_use_model(db, user.id, organization.id, model):

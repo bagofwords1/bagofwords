@@ -724,7 +724,8 @@ async function load() {
             orgAgents.value = (((data.value as any[]) || [])).map((a: any) => ({ id: String(a.id), name: a.name }))
         }).catch(() => {})
         chatModelId.value = st.chat_model_id || INHERIT_MODEL
-        chatModels.value = ((modelsRes.data.value as any[]) || []).map((m: any) => ({
+        // Image-generation models can't chat; the server also rejects them.
+        chatModels.value = ((modelsRes.data.value as any[]) || []).filter((m: any) => !m?.supports_image_generation).map((m: any) => ({
             id: m.id, name: m.name || m.model_id, provider: m.provider?.name, isDefault: !!m.is_default,
         }))
         runAsCreator.value = st.shared_run_identity === 'creator'

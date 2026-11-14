@@ -782,7 +782,8 @@ const getJudgeRule = (cat: CategoryRuleUI, fieldKey: 'prompt' | 'model_id'): Fie
 async function loadJudgeModels() {
   try {
     const { data } = await useMyFetch('/api/llm/models?is_enabled=true')
-    judgeModels.value = (data as any)?.value || []
+    // The judge grades text; image-generation models can't (server options exclude them too).
+    judgeModels.value = ((data as any)?.value || []).filter((m: any) => !m?.supports_image_generation)
     // Auto-select default model for any existing judge categories without a selection
     for (const cat of categoryRules.value) {
       if (cat.categoryId === 'judge') ensureDefaultJudgeModel(cat)
