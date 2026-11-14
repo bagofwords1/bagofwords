@@ -1248,6 +1248,8 @@ class QueryCapturingClientWrapper:
         first reduced to one statement, whatever shape the call took
         (`resolve_guarded_call`); that statement is rendered, checked, captured
         and sent positionally. Shapes that cannot be reduced are refused.
+        A connector the guard neither checks nor exempts
+        (`client_profiles.classify`) is refused a text statement.
         """
         refusal: Optional[Exception] = None
         unrendered_note = None
@@ -1256,6 +1258,8 @@ class QueryCapturingClientWrapper:
             query, args, kwargs, capture, refusal = self._prepare_guarded(query, args, kwargs)
         else:
             query, capture, unrendered_note = self._prepare_unguarded(query, kwargs)
+            if isinstance(query, str) and self._takes_no_free_text():
+                refusal = UnsafeSQLError("This connection does not accept free-text queries")
         # The OData clients build their request from several arguments; what
         # the identity check reads of their calls is each request as sent
         # (identity_reads: none until one is sent).
@@ -1582,6 +1586,16 @@ class QueryCapturingClientWrapper:
         ):
             capture = json.dumps(capture, sort_keys=True, default=str)
         return query, capture, unrendered_note
+
+    def _takes_no_free_text(self) -> bool:
+        """A connector the guard neither checks nor exempts (`classify`):
+        a text statement to it is refused, so a connector added without a
+        decision cannot receive free text unchecked. Keyword-only calls and
+        objects that are not connectors keep today's behaviour."""
+        from app.ai.code_execution.client_profiles import classify
+        from app.data_sources.clients.discovery import DiscoveryClient
+
+        return isinstance(self._original, DiscoveryClient) and classify(self._original) == "unknown"
 
     def _note_unrendered_params(self, kwargs: dict, params: dict) -> Optional[str]:
         """Log (names only) that a keyword call's params were not rendered.

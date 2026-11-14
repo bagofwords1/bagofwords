@@ -230,6 +230,115 @@ PARAMS_REFUSED: dict[tuple[str, str], str] = dict([
 ])
 
 
+# Clients the wrapper does not check whose query surface cannot write or run
+# a free-form statement, or that check every statement where they send it.
+# Each reason names the file:line of the client's own code it rests on. A
+# declaration covers the classes below it in the MRO only down to the class
+# that defines the `execute_query` in effect: a subclass with its own
+# `execute_query` is not covered and must be declared itself (`classify`).
+def _exempt(module: str, name: str, reason: str, package: str = _CLIENTS):
+    return (f"{package}.{module}", name), reason
+
+
+_DISPATCH = "checked at the client's dispatch point"
+_LANGUAGE = "read-only query language API"
+_SPEC = "structured spec mapped to read endpoints"
+_DUCKDB_FILES = "one DuckDB SELECT over the connection's own views, on a locked connection"
+
+EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
+    # DuckDB file connections (P2) and accelerated custom tables.
+    _exempt("csv_client", "CSVClient", f"{_DISPATCH}: {_DUCKDB_FILES}, csv_client.py:173"),
+    _exempt("qvd_client", "QVDClient", f"{_DISPATCH}: {_DUCKDB_FILES}, qvd_client.py:679"),
+    _exempt("pbix_client", "PBIXClient", f"{_DISPATCH}: {_DUCKDB_FILES}, pbix_client.py:375"),
+    _exempt("powerbi_report_server_client", "PowerBIReportServerClient",
+            f"{_DISPATCH}: {_DUCKDB_FILES} (report ids and export format checked before any URL), "
+            "powerbi_report_server_client.py:704"),
+    _exempt("fast_client", "FastQueryClient",
+            f"{_DISPATCH}: artifacts attached READ_ONLY, external access off and configuration locked "
+            "before any agent SQL (fast_client.py:156), introspection refused, fast_client.py:288",
+            package="app.data_sources.fast"),
+    # Read-only rules at the dispatch point (P5c).
+    _exempt("mongodb_client", "MongodbClient", f"{_DISPATCH}: read stages and no server JavaScript, mongodb_client.py:181"),
+    _exempt("azure_data_explorer_client", "AzureDataExplorerClient",
+            f"{_DISPATCH}: management commands refused, azure_data_explorer_client.py:115"),
+    _exempt("aws_cost_client", "AwsCostClient", f"{_DISPATCH}: get_, list_ and describe_ operations only, aws_cost_client.py:159"),
+    _exempt("zabbix_client", "ZabbixClient", f"{_DISPATCH}: <object>.get methods only, zabbix_client.py:362"),
+    _exempt("xmla_base", "XmlaClient", f"{_DISPATCH}: read verbs only, configured catalog only, xmla_base.py:475"),
+    _exempt("analysis_services_client", "AnalysisServicesClient",
+            f"{_DISPATCH}: read verbs only, configured catalog only, analysis_services_client.py:693"),
+    _exempt("powerbi_client", "PowerBIClient",
+            f"{_DISPATCH}: DAX only to the executeQueries read API, its ids GUIDs before any URL, powerbi_client.py:2199"),
+    # Query languages with no statement that writes, each sent to its read endpoint.
+    _exempt("salesforce_client", "SalesforceClient", f"{_LANGUAGE}: SOQL through the query resource, salesforce_client.py:707"),
+    _exempt("posthog_client", "PostHogClient", f"{_LANGUAGE}: HogQL sent as a HogQLQuery, posthog_client.py:250"),
+    _exempt("netsuite_client", "NetsuiteClient", f"{_LANGUAGE}: SuiteQL to the suiteql query endpoint, netsuite_client.py:32"),
+    _exempt("prometheus_client", "PrometheusClient",
+            f"{_LANGUAGE}: PromQL to /api/v1/query and /api/v1/query_range only, prometheus_client.py:447"),
+    _exempt("aws_cloudwatch_client", "AwsCloudWatchClient",
+            f"{_LANGUAGE}: Logs Insights start_query and metric reads only, aws_cloudwatch_client.py:456"),
+    _exempt("elasticsearch_client", "ElasticsearchClient",
+            f"{_SPEC}: index (no / ? #) to _search, or the SQL / ES|QL query APIs, elasticsearch_client.py:1198"),
+    # A JSON spec or ids the client maps onto read requests it builds.
+    _exempt("appdynamics_client", "AppDynamicsClient", f"{_SPEC}: catalog tables to GETs, appdynamics_client.py:306"),
+    _exempt("aria_operations_client", "AriaOperationsClient", f"{_SPEC}: table to a _q_ read handler, aria_operations_client.py:660"),
+    _exempt("azure_cost_client", "AzureCostClient", f"{_SPEC}: Cost Management query / forecast APIs, azure_cost_client.py:728"),
+    _exempt("brocade_client", "BrocadeClient", f"{_SPEC}: GET allow-list plus login / logout, brocade_client.py:161"),
+    _exempt("businessobjects_client", "BusinessObjectsClient",
+            f"{_SPEC}: result-object names to a universe query the client builds, businessobjects_client.py:372"),
+    _exempt("checkpoint_client", "CheckPointClient", f"{_SPEC}: allow-listed show-* commands only, checkpoint_client.py:296"),
+    _exempt("cisco_apic_client", "CiscoApicClient", f"{_SPEC}: read-only request allow-list, cisco_apic_client.py:399"),
+    _exempt("crowdstrike_client", "CrowdStrikeClient", f"{_SPEC}: catalog tables or one GET, crowdstrike_client.py:554"),
+    _exempt("dell_ome_client", "DellOmeClient", f"{_SPEC}: GET allow-list, dell_ome_client.py:302"),
+    _exempt("f5_bigip_client", "F5BigIpClient", f"{_SPEC}: catalogued GETs only, f5_bigip_client.py:717"),
+    _exempt("hpe_oneview_client", "HpeOneViewClient", f"{_SPEC}: read-only request allow-list, hpe_oneview_client.py:378"),
+    _exempt("intune_client", "IntuneClient", f"{_SPEC}: GETs only, intune_client.py:269"),
+    _exempt("jaeger_client", "JaegerClient", f"{_SPEC}: GETs only, jaeger_client.py:134"),
+    _exempt("kubernetes_client", "KubernetesClient", f"{_SPEC}: every request a GET, kubernetes_client.py:1121"),
+    _exempt("monday_client", "MondayClient",
+            f"{_SPEC}: one fixed GraphQL query, spec values as variables, monday_client.py:840"),
+    _exempt("netapp_ontap_client", "NetAppOntapClient", f"{_SPEC}: GETs only, netapp_ontap_client.py:665"),
+    _exempt("servicenow_client", "ServiceNowClient", f"{_SPEC}: GETs only, servicenow_client.py:279"),
+    _exempt("graph_list_client", "SharepointListsClient", f"{_SPEC}: GETs only, graph_list_client.py:463"),
+    _exempt("spectrum_client", "SpectrumClient", f"{_SPEC}: table to a _q_ read handler, spectrum_client.py:666"),
+    _exempt("vcenter_client", "VCenterClient", f"{_SPEC}: table to a _q_ read handler, vcenter_client.py:813"),
+    _exempt("qlik_sense_client", "QlikSenseClient",
+            f"{_SPEC}: app, dimensions and measures to a session hypercube, qlik_sense_client.py:533"),
+    _exempt("qlik_sense_onprem_client", "QlikSenseOnPremClient",
+            f"{_SPEC}: app, dimensions and measures to a session hypercube, qlik_sense_onprem_client.py:1354"),
+    _exempt("tableau_client", "TableauClient",
+            f"{_SPEC}: datasource and field specs to VizQL query-datasource, tableau_client.py:388"),
+    _exempt("mecm_client", "MecmClient", f"{_SPEC}: OData options on a GET, mecm_client.py:292"),
+    _exempt("priority_erp_client", "PriorityErpClient", f"{_SPEC}: OData options on a GET, priority_erp_client.py:243"),
+    _exempt("sap_datasphere_client", "SapDatasphereClient", f"{_SPEC}: OData options on a GET, sap_datasphere_client.py:488"),
+    # A file, message or item id (or a JSON file spec) read from the source.
+    _exempt("network_dir_client", "NetworkDirClient", f"{_SPEC}: file name or JSON file spec read, network_dir_client.py:485"),
+    _exempt("graph_drive_client", "GraphDriveClient", f"{_SPEC}: file id or JSON file spec read by GET, graph_drive_client.py:572"),
+    _exempt("google_drive_client", "GoogleDriveClient", f"{_SPEC}: file id read by GET, google_drive_client.py:166"),
+    _exempt("gmail_mail_client", "GmailMailClient", f"{_SPEC}: message id or Gmail search by GET, gmail_mail_client.py:212"),
+    _exempt("s3_client", "S3Client", f"{_SPEC}: object key read with get_object, s3_client.py:492"),
+    _exempt("documentum_client", "DocumentumClient", f"{_SPEC}: document id read by GET, documentum_client.py:296"),
+    _exempt("sharepoint_onprem_client", "SharepointOnpremClient",
+            f"{_SPEC}: file id read over bounded read-only HTTP, sharepoint_onprem_client.py:187"),
+    _exempt("kms_lighthouse_client", "KmsLighthouseClient", f"{_SPEC}: item id read by GET, kms_lighthouse_client.py:2174"),
+    # No text statement at all.
+    _exempt("browser_client", "BrowserClient", "keyword-only API: execute_query(self, **kwargs), browser_client.py:79"),
+    _exempt("tool_provider_base", "ToolProviderClient", "no execute_query text: defines none, tool_provider_base.py:9"),
+    _exempt("bow_client", "BowClient", "structured spec mapped to read endpoints: a BowQuery request, bow_client.py:68"),
+])
+
+
+def classify(client) -> str:
+    """"guarded" (the wrapper checks its statements), "exempt" (declared in
+    EXEMPT_CLIENTS for the `execute_query` in effect) or "unknown"."""
+    if guard_profile(client) is not None:
+        return "guarded"
+    mro = type(client).__mro__
+    owner = next((i for i, cls in enumerate(mro) if "execute_query" in cls.__dict__), len(mro) - 1)
+    if any((cls.__module__, cls.__qualname__) in EXEMPT_CLIENTS for cls in mro[: owner + 1]):
+        return "exempt"
+    return "unknown"
+
+
 def client_entry(client) -> ClientEntry | None:
     """The entry of the most specific registered class in `client`'s MRO."""
     for cls in type(client).__mro__:

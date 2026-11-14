@@ -1600,11 +1600,12 @@ def test_an_odata_request_outside_the_configured_root_gets_its_own_refusal(mode,
 def _priority_answering_without_a_request():
     from app.data_sources.clients.priority_erp_client import PriorityErpClient
 
-    class Answering(PriorityErpClient):
-        def execute_query(self, query=None, table_name=None, max_rows=None):
-            return pd.DataFrame([{"OWNER": "bob"}])
-
-    return Answering(service_root="https://erp.example.com/odata/Priority/t.ini/c", pat="token")
+    # The declared client answering without a request. Set on the instance: a
+    # subclass with its own execute_query is not covered by the client's
+    # exemption (test_client_classification.py) and would be refused text.
+    client = PriorityErpClient(service_root="https://erp.example.com/odata/Priority/t.ini/c", pat="token")
+    client.execute_query = lambda query=None, table_name=None, max_rows=None: pd.DataFrame([{"OWNER": "bob"}])
+    return client
 
 
 def test_an_odata_call_that_raised_before_sending_leaves_nothing_for_the_identity_check(mode, odata_http):
@@ -2072,19 +2073,26 @@ def test_a_keyword_call_that_times_out_also_notes_its_params_were_not_rendered(m
     assert "value-not-for-logs" not in timings[-1]["error"]
 
 
-@pytest.mark.parametrize("call, structure", [
-    ("execute_query({'q': 'SELECT 1'}, params={'owner': 'value-not-for-logs'})", ["statement=dict", "owner"]),
-    ("execute_query('SELECT * FROM t WHERE a = :owner', params=['value-not-for-logs'])", ["statement=str", "params=list"]),
+@pytest.mark.parametrize("call, structure, sent", [
+    ("execute_query({'q': 'SELECT 1'}, params={'owner': 'value-not-for-logs'})", ["statement=dict", "owner"], 1),
+    # Text to a connector nobody declared is refused (test_client_classification.py), after the
+    # params it did not render are logged.
+    ("execute_query('SELECT * FROM t WHERE a = :owner', params=['value-not-for-logs'])",
+     ["statement=str", "params=list"], 0),
 ])
-def test_params_an_unguarded_connector_does_not_render_are_logged_by_structure(mode, caplog, call, structure):
+def test_params_an_unguarded_connector_does_not_render_are_logged_by_structure(mode, caplog, call, structure, sent):
+    import contextlib
     import logging
+
+    from app.ai.code_execution.code_execution import UnsafeSQLError
 
     logger = logging.getLogger("app.ai.code_execution.code_execution")
     logger.disabled = False  # alembic's fileConfig disables existing loggers
     client = _ConnectorWithoutRenderer()
-    with caplog.at_level(logging.WARNING, logger="app.ai.code_execution.code_execution"):
+    refused = contextlib.nullcontext() if sent else pytest.raises(UnsafeSQLError)
+    with caplog.at_level(logging.WARNING, logger="app.ai.code_execution.code_execution"), refused:
         _run({"c": client}, "return ds_clients['c']." + call)
-    assert len(client.received) == 1 and client.received[0][1] == {}
+    assert len(client.received) == sent and all(kwargs == {} for _, kwargs in client.received)
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING and "params_not_rendered" in r.getMessage()]
     assert len(warnings) == 1, [r.getMessage() for r in caplog.records]
     assert "_ConnectorWithoutRenderer" in warnings[0]

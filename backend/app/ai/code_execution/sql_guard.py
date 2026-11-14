@@ -41,9 +41,12 @@ Policy, per client:
     Sybase, SAP HANA, Pinot): one statement, a read verb (SELECT / WITH /
     VALUES) and no write word, generic or the engine's, with literals and
     comments read by the engine's rules.
-  * **Everything else** (Salesforce SOQL, PostHog HogQL, Mongo, Qlik, ...): not
-    checked here. Their query APIs are read-only, and connections are expected
-    to use read-only credentials regardless.
+  * **Everything else** is not checked here. A connector is either declared
+    exempt (`client_profiles.EXEMPT_CLIENTS`, each with the reason its query
+    surface cannot write or run a free-form statement, or the check it makes
+    where it sends a statement, and the file:line that shows it), or the
+    wrapper refuses it any text statement (`client_profiles.classify`).
+    Connections are expected to use read-only credentials regardless.
 
 A NUL character is refused in every checked statement: some drivers and
 engines stop reading there while the checks read on.
