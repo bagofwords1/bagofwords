@@ -30,7 +30,7 @@ const groups = [
 const sections = computed(() => groups.filter(({kind}) => props.folder.capabilities.includes('manage_' + kind) || (kind !== 'evals' && props.folder.can_query)))
 const items = reactive<Partial<Record<Kind, Item[]>>>({})
 const errors = reactive(new Set<Kind>())
-const collapsed = reactive(new Set<Kind>())
+const collapsed = reactive(new Set<Kind>(groups.map(({kind}) => kind)))
 const requests = {instructions:0, files:0, evals:0}
 function toggle(kind: Kind) {
   if (collapsed.has(kind)) collapsed.delete(kind)
