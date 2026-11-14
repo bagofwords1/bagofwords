@@ -30,8 +30,12 @@
       <!-- Data source selector -->
       <div class="flex items-center gap-2">
         <div class="text-2xs text-gray-500 dark:text-gray-400 flex-none w-28 whitespace-nowrap">Agents</div>
-        <div class="flex-1 min-w-[460px] flex items-center min-h-[32px]">
-          <DataSourceSelector v-model:selectedDataSources="selectedDataSources" :reportId="report_id" :permission="permission" />
+        <div class="flex-1 min-w-0 flex items-center min-h-[32px]">
+          <span v-if="folderId" class="inline-flex max-w-full items-center gap-1.5 px-2 text-xs text-ink-muted">
+            <Icon name="heroicons-folder" class="size-4 shrink-0" />
+            <span class="truncate">{{ folderName || $t('rolesManager.types.folder') }}</span>
+          </span>
+          <DataSourceSelector v-else v-model:selectedDataSources="selectedDataSources" :reportId="report_id" :permission="permission" />
         </div>
       </div>
 
@@ -84,6 +88,8 @@ import FileUploadComponent from '@/components/FileUploadComponent.vue'
 import ModelPickerPanel from '@/components/prompt/ModelPickerPanel.vue'
 
 const props = defineProps({
+  folderId: String,
+  folderName: String,
   report_id: { type: String, default: '' },
   textareaContent: { type: String, default: '' },
   // Allow parent to control initial/ongoing selection for edit flows
@@ -109,7 +115,7 @@ const emit = defineEmits([
 ])
 
 const placeholder = 'Ask for data, dashboard or a deep analysis'
-const text = ref<string>('')
+const text = ref(props.textareaContent)
 const selectedDataSources = ref<any[]>([])
 const uploadedFiles = ref<any[]>([])
 const models = ref<any[]>([])
@@ -170,12 +176,7 @@ async function loadModels() {
   }
 }
 
-onMounted(async () => {
-  await loadModels()
-  if (typeof props.textareaContent === 'string') {
-    text.value = props.textareaContent
-  }
-})
+onMounted(loadModels)
 
 watch(() => props.textareaContent, (v) => {
   if (typeof v === 'string' && v !== text.value) text.value = v

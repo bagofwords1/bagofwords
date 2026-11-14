@@ -50,7 +50,7 @@
       <slot v-if="!filteredInstructions.length" name="empty" :search="search" :can-add="canEdit('instructions')" />
     </ScopedInstructionsPanel>
     <AgentEvalsPanel v-else-if="section === 'evals' && canEdit('evals') && loaded.has('evals')" :key="suiteId"
-      :folder-id="folder.id" :folder-can-query="folder.can_query" :folder-suites="items.evals" :initial-suite-id="suiteId"
+      :folder-id="folder.id" :folder-name="folder.name" :folder-can-query="folder.can_query" :folder-suites="items.evals" :initial-suite-id="suiteId"
       @create-suite="start('evals', 'create')">
       <template #actions>
         <UDropdown :items="suiteActions" :popper="{placement:'bottom-end'}">

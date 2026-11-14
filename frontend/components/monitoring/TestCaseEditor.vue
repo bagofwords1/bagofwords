@@ -69,8 +69,9 @@
         <div class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
             <div class="px-3 py-2 border-b border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-400">Prompt</div>
             <div class="p-2">
-                <UTextarea v-if="folderId" v-model="promptText" :aria-label="$t('evals.tests.colPrompt')" :rows="6" />
-                <TestPromptBox v-else
+                <TestPromptBox
+                    :folder-id="folderId"
+                    :folder-name="folderName"
                     :textareaContent="promptText"
                     :selectedDataSources="testSelectedDataSources"
                     :selectedModelId="testSelectedModelId"
@@ -340,7 +341,7 @@ const toast = useToast()
 const { t } = useI18n()
 
 const props = withDefaults(defineProps<{
-  modelValue?: boolean, suiteId: string, caseId?: string, agentId?: string, folderId?: string, folderSuites?: {id:string, name:string}[],
+  modelValue?: boolean, suiteId: string, caseId?: string, agentId?: string, folderId?: string, folderName?: string, folderSuites?: {id:string, name:string}[],
   /** Show the title row's dismiss button. The right-hand pane has its own. */
   closable?: boolean,
 }>(), { modelValue: true, closable: true })

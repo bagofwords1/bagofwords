@@ -12,6 +12,7 @@
           :case-id="caseId"
           :agent-id="agentId"
           :folder-id="folderId"
+          :folder-name="folderName"
           :folder-suites="folderSuites"
           @close="close"
           @created="(v: any) => emit('created', v)"
@@ -46,7 +47,7 @@
 import { ref, computed } from 'vue'
 import TestCaseEditor from '~/components/monitoring/TestCaseEditor.vue'
 
-const props = defineProps<{ modelValue: boolean, suiteId: string, caseId?: string, agentId?: string, folderId?: string, folderCanQuery?: boolean, folderSuites?: {id:string, name:string}[] }>()
+const props = defineProps<{ modelValue: boolean, suiteId: string, caseId?: string, agentId?: string, folderId?: string, folderName?: string, folderCanQuery?: boolean, folderSuites?: {id:string, name:string}[] }>()
 const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void
   (e: 'created', value: any): void

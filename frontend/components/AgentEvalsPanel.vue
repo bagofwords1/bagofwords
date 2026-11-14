@@ -185,6 +185,7 @@
             :case-id="selectedCaseId"
             :agent-id="agentId"
             :folder-id="folderId"
+            :folder-name="folderName"
             :folder-can-query="folderCanQuery"
             :folder-suites="folderSuites?.filter(s => s.owned)"
             @created="onCaseCreated"
@@ -254,7 +255,7 @@ import EvalRunDetail from '~/components/EvalRunDetail.vue'
 const { t } = useI18n()
 const toast = useToast()
 
-const props = defineProps<{ agentId?: string; folderId?: string; folderCanQuery?: boolean; folderSuites?: {id:string,name:string,owned?:boolean}[]; initialSuiteId?: string; global?: boolean; initialRunId?: string }>()
+const props = defineProps<{ agentId?: string; folderId?: string; folderName?: string; folderCanQuery?: boolean; folderSuites?: {id:string,name:string,owned?:boolean}[]; initialSuiteId?: string; global?: boolean; initialRunId?: string }>()
 const emit = defineEmits<{createSuite:[]}>()
 const agentId = computed(() => props.agentId || '')
 // Global mode shows org-wide evals (cases not scoped to any data source/agent),
