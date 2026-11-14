@@ -6,9 +6,12 @@ import assert from 'node:assert/strict'
 import {
   countDirWords,
   decideDir,
+  decideMessageDir,
   dominantTextDir,
   firstStrongDir,
   isSignedNumber,
+  markdownDirCounts,
+  messageVoteCounts,
   resolveDirTree,
   wordDir,
 } from '../../utils/textDirection.ts'
@@ -186,5 +189,92 @@ const sum = (nodes) => nodes.reduce((a, n) => ({ rtl: a.rtl + n.counts.rtl, ltr:
   resolveDirTree(roots, sum(roots))
   assert.equal(heTable.dir, 'ltr')
 }
+
+// --- one direction per chat message ------------------------------------------
+// A reply split by tool calls renders as several markdown blocks. The message
+// decides once, from its prose, and every block takes that direction.
+
+{
+  // Lines are bucketed by kind; code, URLs and link targets never vote.
+  const md = [
+    '## סיכום ההכנסות',
+    'הנה הנתונים לפי `customer_segment` מתוך https://example.com/report',
+    '',
+    '- Acme Corp – North America',
+    '1. Globex Inc',
+    '',
+    '| customer_name | region |',
+    '|---|---|',
+    '| Initech | EMEA |',
+    '```sql',
+    'SELECT customer_name, region FROM orders',
+    '```',
+    'ראו [the full dashboard](https://example.com/d/1)',
+  ].join('\n')
+  const c = markdownDirCounts(md)
+  assert.deepEqual(c.prose, { rtl: 7, ltr: 3 }, 'prose: headings and sentences, no code or URLs')
+  assert.equal(c.lists.ltr, 6)
+  assert.equal(c.lists.rtl, 0)
+  assert.equal(c.tables.rtl, 0)
+  assert.ok(c.tables.ltr >= 4)
+  // An unclosed fence (still streaming) hides the rest.
+  assert.deepEqual(markdownDirCounts('```python\nprint("hello world")\nmore code here'), markdownDirCounts(''))
+  // A table without leading pipes is still a table.
+  assert.equal(markdownDirCounts('Name | Region | Revenue').tables.ltr, 3)
+}
+
+{
+  // The vote uses prose when there is enough; lists and tables only fill in.
+  const prose = 'הנה ההכנסות לפי לקוח ברבעון האחרון'
+  const table = '| Customer | Region |\n|---|---|\n| Acme Corp | North America |\n| Globex Inc | EMEA West |'
+  assert.deepEqual(messageVoteCounts([prose, table]), countDirWords(prose))
+  // A message that is only a table votes with the table.
+  assert.ok(messageVoteCounts([table]).ltr > 0)
+}
+
+const TABLE_EN = '| customer_name | region | revenue |\n|---|---|---|\n| Acme Corp | North America | 1200000 |\n| Globex Inc | EMEA West | 980000 |\n| Initech LLC | APAC South | 760000 |'
+const LIST_EN = '- **Acme Corp** – Enterprise plan, North America\n- **Globex Inc** – Pro plan, EMEA\n- **Initech** – Starter plan, APAC'
+const HE_INTRO = 'הרצתי את השאילתה על טבלת `orders` וקיבלתי את התוצאות הבאות, מסודרות לפי הכנסות'
+
+for (const [label, rest] of [['table of English data', TABLE_EN], ['list of English names', LIST_EN]]) {
+  // A Hebrew reply whose data block (split off by a tool call) is all Latin
+  // stays RTL — with the question's direction, with a saved locale, or with
+  // neither once the Hebrew prose has arrived.
+  assert.equal(decideMessageDir({ texts: [HE_INTRO, rest], question: 'rtl' }), 'rtl', label)
+  assert.equal(decideMessageDir({ texts: [HE_INTRO, rest], saved: 'rtl' }), 'rtl', label)
+  assert.equal(decideMessageDir({ texts: [HE_INTRO, rest], fallback: 'ltr' }), 'rtl', label)
+  // Even before the prose: the data alone does not override the prior.
+  assert.equal(decideMessageDir({ texts: ['', rest], question: 'rtl' }), 'rtl', label)
+}
+
+// A saved language that disagrees with plainly Hebrew prose loses.
+assert.equal(decideMessageDir({ texts: [HE_INTRO, TABLE_EN], saved: 'ltr', question: 'rtl' }), 'rtl')
+assert.equal(decideMessageDir({ texts: [HE_INTRO], saved: 'ltr' }), 'rtl')
+// ...but mixed prose under an explicit English answer stays English.
+assert.equal(decideMessageDir({
+  texts: ['Here is the breakdown of הכנסות by region for the last quarter, as you asked in English'],
+  saved: 'ltr', question: 'rtl',
+}), 'ltr')
+// A Hebrew question answered entirely in English prose renders LTR.
+assert.equal(decideMessageDir({
+  texts: ['Here is the full translation of the paragraph into English as requested by you'],
+  question: 'rtl',
+}), 'ltr')
+// Hebrew prose that embeds English identifiers keeps the RTL prior.
+assert.equal(decideMessageDir({
+  texts: ['ה-revenue של Acme Corp ב-Q3 עלה, בעיקר בזכות ה-enterprise plan ו-upsell'],
+  question: 'rtl',
+}), 'rtl')
+// Mid-stream: the first few English words never flip a Hebrew prior.
+assert.equal(decideMessageDir({ texts: ['**Revenue Summary** for Q3'], question: 'rtl' }), 'rtl')
+// An English reply with a Hebrew customer name stays LTR.
+assert.equal(decideMessageDir({
+  texts: ['The top customer this quarter was חברת אלפא with the largest enterprise renewal of the year'],
+  question: 'ltr',
+}), 'ltr')
+// No prior and too little text: the UI direction; no text at all: the prior.
+assert.equal(decideMessageDir({ texts: ['Done'], fallback: 'rtl' }), 'rtl')
+assert.equal(decideMessageDir({ texts: [], question: 'rtl', fallback: 'ltr' }), 'rtl')
+assert.equal(decideMessageDir({ texts: [] }), 'ltr')
 
 console.log('textDirection: ok')
