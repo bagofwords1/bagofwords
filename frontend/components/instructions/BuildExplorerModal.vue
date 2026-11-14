@@ -249,7 +249,7 @@
                                     
                                     <!-- Publish button - only for unpublished builds (draft or pending_approval) -->
                                     <UButton
-                                        v-if="!selectedBuild.is_main && (selectedBuild.status === 'draft' || selectedBuild.status === 'pending_approval') && canCreateBuilds"
+                                        v-if="!selectedBuild.is_main && (selectedBuild.status === 'draft' || selectedBuild.status === 'pending_approval') && canPublishBuilds"
                                         color="blue"
                                         variant="solid"
                                         size="xs"
@@ -944,6 +944,7 @@ const toast = useToast()
 // on at least one data source. The backend additionally enforces per-DS access
 // on every build operation via _enforce_build_ds_access.
 const canCreateBuilds = computed(() => useCanAny('manage_instructions', 'data_source'))
+const canPublishBuilds = computed(() => canCreateBuilds.value || useCanAny('manage', 'folder'))
 const canManageTests = computed(() => useCanAny('manage_evals', 'data_source'))
 // Pushing to git needs ORG-level manage_instructions (the /git/{id}/push gate);
 // per-agent manage_instructions is enough for builds but would 403 here.

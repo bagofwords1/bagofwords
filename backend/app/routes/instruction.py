@@ -1196,7 +1196,7 @@ class ResolveSuggestionRequest(BaseModel):
 
 
 @router.post("/instructions/{instruction_id}/resolve", response_model=InstructionSchema)
-@requires_permission('manage_instructions', model=Instruction, resource_scoped=True)
+@requires_permission('manage_instructions', model=Instruction, resource_scoped=True, folder_scoped=True)
 async def resolve_instruction_suggestion(
     instruction_id: str,
     body: ResolveSuggestionRequest,
@@ -1214,7 +1214,7 @@ async def resolve_instruction_suggestion(
     existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
     if existing is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
-    await _require_instruction_authority(db, current_user, organization, existing)
+    await _require_instruction_authority(db, current_user, organization, existing, reviewing=True)
 
     resolved = await instruction_service.resolve_suggestion(
         db, instruction_id,
@@ -1283,7 +1283,7 @@ class RejectHunkRequest(BaseModel):
 
 
 @router.post("/instructions/{instruction_id}/hunks/accept", response_model=InstructionSchema)
-@requires_permission('manage_instructions', model=Instruction, resource_scoped=True)
+@requires_permission('manage_instructions', model=Instruction, resource_scoped=True, folder_scoped=True)
 async def accept_instruction_hunk(
     instruction_id: str,
     body: AcceptHunkRequest,
@@ -1296,7 +1296,7 @@ async def accept_instruction_hunk(
     existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
     if existing is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
-    await _require_instruction_authority(db, current_user, organization, existing)
+    await _require_instruction_authority(db, current_user, organization, existing, reviewing=True)
     resolved, status = await instruction_service.accept_hunk(
         db, instruction_id, build_id=body.build_id, hunk_key=body.hunk_key,
         against_main_build_id=body.against_main_build_id,
@@ -1333,7 +1333,7 @@ class AcceptStagedRequest(BaseModel):
 
 
 @router.post("/instructions/{instruction_id}/accept-staged", response_model=InstructionSchema)
-@requires_permission('manage_instructions', model=Instruction, resource_scoped=True)
+@requires_permission('manage_instructions', model=Instruction, resource_scoped=True, folder_scoped=True)
 async def accept_staged_instruction(
     instruction_id: str,
     body: AcceptStagedRequest,
@@ -1353,7 +1353,7 @@ async def accept_staged_instruction(
     existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
     if existing is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
-    await _require_instruction_authority(db, current_user, organization, existing)
+    await _require_instruction_authority(db, current_user, organization, existing, reviewing=True)
     resolved = await instruction_service.accept_staged_instruction(
         db, instruction_id, build_id=body.build_id,
         organization=organization, current_user=current_user,
@@ -1372,7 +1372,7 @@ async def accept_staged_instruction(
 
 
 @router.post("/instructions/{instruction_id}/hunks/reject", response_model=InstructionSchema)
-@requires_permission('manage_instructions', model=Instruction, resource_scoped=True)
+@requires_permission('manage_instructions', model=Instruction, resource_scoped=True, folder_scoped=True)
 async def reject_instruction_hunk(
     instruction_id: str,
     body: RejectHunkRequest,
@@ -1385,7 +1385,7 @@ async def reject_instruction_hunk(
     existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
     if existing is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
-    await _require_instruction_authority(db, current_user, organization, existing)
+    await _require_instruction_authority(db, current_user, organization, existing, reviewing=True)
     resolved, status = await instruction_service.reject_hunk(
         db, instruction_id, build_id=body.build_id, hunk_key=body.hunk_key,
         against_main_build_id=body.against_main_build_id,
@@ -1433,7 +1433,7 @@ class RejectAllRequest(BaseModel):
 
 
 @router.post("/instructions/{instruction_id}/hunks/accept-all", response_model=InstructionSchema)
-@requires_permission('manage_instructions', model=Instruction, resource_scoped=True)
+@requires_permission('manage_instructions', model=Instruction, resource_scoped=True, folder_scoped=True)
 async def accept_all_instruction_hunks(
     instruction_id: str,
     request: Request,
@@ -1446,7 +1446,7 @@ async def accept_all_instruction_hunks(
     existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
     if existing is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
-    await _require_instruction_authority(db, current_user, organization, existing)
+    await _require_instruction_authority(db, current_user, organization, existing, reviewing=True)
     resolved, status = await instruction_service.accept_all_hunks(
         db, instruction_id, against_main_version_id=body.against_main_version_id,
         against_main_build_id=body.against_main_build_id,
@@ -1476,7 +1476,7 @@ async def accept_all_instruction_hunks(
 
 
 @router.post("/instructions/{instruction_id}/hunks/reject-all", response_model=InstructionSchema)
-@requires_permission('manage_instructions', model=Instruction, resource_scoped=True)
+@requires_permission('manage_instructions', model=Instruction, resource_scoped=True, folder_scoped=True)
 async def reject_all_instruction_hunks(
     instruction_id: str,
     request: Request,
@@ -1489,7 +1489,7 @@ async def reject_all_instruction_hunks(
     existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
     if existing is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
-    await _require_instruction_authority(db, current_user, organization, existing)
+    await _require_instruction_authority(db, current_user, organization, existing, reviewing=True)
     resolved, status = await instruction_service.reject_all_hunks(
         db, instruction_id, organization=organization, current_user=current_user,
         against_main_build_id=body.against_main_build_id,

@@ -130,7 +130,7 @@ async def record_knowledge_scope(db, report, org, user):
         )
 
 
-async def can_read_knowledge_scope(db, report, org, user, rights):
+async def can_read_knowledge_scope(db, report, org, user, rights, *, archived=frozenset()):
     from app.models.report import folder_report_knowledge as history
 
     rows = (
@@ -143,16 +143,17 @@ async def can_read_knowledge_scope(db, report, org, user, rights):
     for fid in {row.folder_id for row in rows}:
         curating = (report.mode == "training" and report.user_id == user.id and fid in selected
                     and rights.has_resource_permission("folder", fid, "manage_instructions"))
-        if not curating and not rights.has_resource_permission("folder", fid, "view"):
+        if fid not in archived and not curating and not rights.has_resource_permission("folder", fid, "view"):
             return False
         required_files = {r.item_id for r in rows if r.folder_id == fid and r.kind == "files"}
-        if required_files and not required_files <= {f.id for f in await folder_file_library(db, org, user, fid)}:
+        if fid not in archived and required_files and not required_files <= {f.id for f in await folder_file_library(db, org, user, fid)}:
             return False
         required_rules = {r.item_id for r in rows if r.folder_id == fid and r.kind == "instructions"}
         if required_rules:
-            rules = await readable_folder_rules(db, org, user, fid, required_rules)
-            if {r.id for r in rules} != required_rules:
-                return False
+            if fid not in archived:
+                rules = await readable_folder_rules(db, org, user, fid, required_rules)
+                if {r.id for r in rules} != required_rules:
+                    return False
             required_versions = {r.item_id for r in rows if r.folder_id == fid and r.kind == "revision"}
             from app.models.instruction_version import InstructionVersion
 

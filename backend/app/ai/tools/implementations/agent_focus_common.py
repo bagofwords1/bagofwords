@@ -39,6 +39,7 @@ async def accessible_agents(db, organization: Any, user: Any) -> List[Any]:
         .options(selectinload(DataSource.connections))
         .where(
             DataSource.organization_id == str(organization.id),
+            DataSource.deleted_at.is_(None),
             DataSource.is_active == True,  # noqa: E712
             DataSource.publish_status != "disabled",
         )
@@ -221,11 +222,16 @@ async def resolve_run_agents(db, organization: Any, user: Any, report: Any,
         # signed into gets no client and AgentV2 drops it. Shared-key
         # connectors (an org-wide MCP) follow the selection like any agent.
         chosen = {str(ds.id) for ds in attached}
+        reachable = await accessible_agents(db, organization, user)
+        visible_pins = [ds for ds in reachable if str(ds.id) in chosen]
+        if not visible_pins:
+            from fastapi import HTTPException
+            raise HTTPException(409, "A selected agent is unavailable")
         personal = [
-            ds for ds in await accessible_agents(db, organization, user)
+            ds for ds in reachable
             if str(ds.id) not in chosen and _is_personal_connector(ds)
         ]
-        agents = attached + personal
+        agents = visible_pins + personal
     else:
         agents = await accessible_agents(db, organization, user)
     if exclude_personal_connectors:
@@ -309,6 +315,14 @@ async def prepare_run_agents(db, organization: Any, user: Any, report: Any,
             await require_org_permission(db, user.id, organization.id, "manage_evals")
     if report is not None and (agent_ids is not None or getattr(report, "agent_folder_id", None)):
         scope_report_to_run_agents(report, agents)
+    elif report is not None and report.data_sources:
+        # AgentV2 also reads the report roster directly. Keep its manual pins
+        # aligned with this run without pinning personal connectors or writing
+        # the filtered selection back to the shared report.
+        visible_ids = {agent.id for agent in agents}
+        pins = [agent for agent in report.data_sources if agent.id in visible_ids]
+        if len(pins) != len(report.data_sources):
+            scope_report_to_run_agents(report, pins)
     if getattr(report, "agent_folder_id", None):
         from app.services.folder_service import record_output_scope
         await record_output_scope(db, report.id, [a.id for a in agents])
@@ -383,7 +397,8 @@ async def resolve_candidate_agents(
 
     # Manual: the user's selection is a hard scope — no other agents are
     # searched or proposed. The user widens it from the agent selector.
-    return attached, "attached", attached_ids
+    visible = [a for a in await accessible_agents(db, organization, user) if str(a.id) in attached_ids]
+    return visible, "attached", {str(a.id) for a in visible}
 
 
 async def render_agents_full(db, organization: Any, report: Any, user: Any, data_sources: List[Any]) -> str:

@@ -188,17 +188,24 @@ async def can_read_folder_output(db, report, user):
     org = await db.get(Organization, report.organization_id)
     from app.core.permission_resolver import resolve_permissions
     rights = await resolve_permissions(db, user.id, org.id)
-    for fid in await load_report_folders(db, report):
+    from app.models.report import folder_report_knowledge as history
+
+    selected = set(await load_report_folders(db, report))
+    recorded = set(await db.scalars(select(history.c.folder_id).where(history.c.report_id == report.id)))
+    folders = selected | recorded
+    live = set(await db.scalars(select(Folder.id).where(
+        Folder.id.in_(folders), Folder.organization_id == org.id, Folder.deleted_at.is_(None),
+    ))) if folders else set()
+    archived = folders - live
+    if archived and report.user_id != user.id and not rights.has_org_permission("full_admin_access"):
+        return False
+    for fid in selected & live:
         curator = (not required and report.user_id == user.id and
                    await training_curator_only(db, org.id, user.id, fid, report.mode))
-        # A deleted folder remains a scope marker on historical reports.
-        if not await db.scalar(select(Folder.id).where(Folder.id == fid,
-                Folder.organization_id == org.id, Folder.deleted_at.is_(None))):
-            return False
         if not curator and not rights.has_resource_permission("folder", fid, "view"):
             return False
     from app.services.folder_knowledge import can_read_knowledge_scope
-    if not await can_read_knowledge_scope(db, report, org, user, rights):
+    if not await can_read_knowledge_scope(db, report, org, user, rights, archived=archived):
         return False
     if required:
         visible = await visible_data_source_ids(db, user, org)

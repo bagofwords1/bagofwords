@@ -36,7 +36,7 @@ def _attached_ids(existing) -> list[str]:
 
 async def require_instruction_authority(
     db: AsyncSession, user: User, organization: Organization, existing,
-    *, allow_owner: bool = False,
+    *, allow_owner: bool = False, reviewing: bool = False,
 ) -> None:
     """Authority to mutate or review ``existing``.
 
@@ -50,8 +50,16 @@ async def require_instruction_authority(
     from sqlalchemy import select
     from app.models.instruction import Instruction
     owner = await db.scalar(select(Instruction.owner_folder_id).where(Instruction.id == existing.id))
-    for folder in set(folders) | ({owner} if owner else set()):
-        await require_capability(db, organization, user, folder, "manage_instructions")
+    folder_scope = set(folders) | ({owner} if owner else set())
+    if reviewing and folder_scope:
+        from app.core.permission_resolver import resolve_permissions
+        rights = await resolve_permissions(db, user.id, organization.id)
+        if not rights.has_org_permission("manage_instructions"):
+            await check_resource_permissions(db, user.id, organization.id, "folder",
+                                             list(folder_scope), "manage", name_resource=False)
+    else:
+        for folder in folder_scope:
+            await require_capability(db, organization, user, folder, "manage_instructions")
     ds_ids = _attached_ids(existing)
     if ds_ids:
         await check_resource_permissions(

@@ -163,6 +163,7 @@ class InstructionSchema(InstructionBase):
     scope_mode: str = "global"
     folders: list[dict[str, str]] = Field(default_factory=list)
     can_manage_scope: bool | None = None
+    can_review_scope: bool | None = None
     id: str
     user_id: Optional[str] = None
     organization_id: str

@@ -36,6 +36,7 @@ async def _require_authority_over_instructions(
     instruction_ids,
     user_id: str,
     org_id: str,
+    *, folder_permission="manage_instructions",
 ) -> None:
     """``manage_instructions`` over every listed instruction.
 
@@ -59,7 +60,7 @@ async def _require_authority_over_instructions(
         .where(folder_instructions.c.instruction_id.in_(scopes)))).all()
     if rows:
         await check_resource_permissions(db, user_id, org_id, "folder", list({r.folder_id for r in rows}),
-                                         "manage_instructions", name_resource=False)
+                                         folder_permission, name_resource=False)
     targeted = {r.instruction_id for r in rows if r.scope_mode == "targeted"}
     if any(not ds and iid not in targeted for iid, ds in scopes.items()):
         await require_org_permission(db, user_id, org_id, "manage_instructions")
@@ -98,6 +99,46 @@ async def _enforce_build_ds_access(
         await _require_authority_over_instructions(db, changed_instruction_ids, user_id, org_id)
     elif not ds_ids:
         await require_org_permission(db, user_id, org_id, "manage_instructions")
+
+
+async def _require_publish_authority(db, build, user, org):
+    from app.core.permission_resolver import resolve_permissions
+    from app.models.build_content import BuildContent
+    from app.models.instruction import Instruction
+    from app.models.instruction_version import InstructionVersion
+
+    rights = await resolve_permissions(db, user.id, org.id)
+    changed = await build_service.get_build_changed_instruction_ids(db, build.id)
+    if not changed:
+        await require_org_permission(db, user.id, org.id, "manage_instructions")
+        return
+    # Check both ends of a scope change. A build can move an instruction or
+    # remove it, and unrelated instructions are carried over from main.
+    await _require_authority_over_instructions(
+        db, changed, user.id, org.id,
+        folder_permission="manage_instructions" if rights.has_org_permission("manage_instructions") else "manage",
+    )
+    snapshots = [build.id]
+    if build.base_build_id:
+        snapshots.append(build.base_build_id)
+    versions = (await db.execute(select(
+        InstructionVersion.scope_mode, InstructionVersion.folder_ids, InstructionVersion.data_source_ids,
+    ).join(BuildContent, BuildContent.instruction_version_id == InstructionVersion.id).where(
+        BuildContent.build_id.in_(snapshots), BuildContent.instruction_id.in_(changed),
+    ))).all()
+    folders = set(await db.scalars(select(Instruction.owner_folder_id).where(
+        Instruction.id.in_(changed), Instruction.owner_folder_id.is_not(None),
+    )))
+    agents = set()
+    for mode, folder_ids, agent_ids in versions:
+        folders.update(folder_ids or ())
+        agents.update(agent_ids or ())
+        if not agent_ids and not (mode == "targeted" and folder_ids):
+            await require_org_permission(db, user.id, org.id, "manage_instructions")
+    await check_resource_permissions(db, user.id, org.id, "data_source", list(agents),
+                                     "manage_instructions", name_resource=False)
+    if not rights.has_org_permission("manage_instructions"):
+        await check_resource_permissions(db, user.id, org.id, "folder", list(folders), "manage", name_resource=False)
 
 
 async def _instruction_read_filter(
@@ -544,7 +585,7 @@ async def rollback_to_build(
 
 
 @router.post("/{build_id}/publish", response_model=InstructionBuildSchema)
-@requires_permission('manage_instructions', resource_scoped=True)
+@requires_permission('manage_instructions', resource_scoped=True, folder_scoped=True)
 async def publish_build(
     build_id: str,
     publish_data: Optional[BuildPublishSchema] = Body(None),
@@ -588,7 +629,7 @@ async def publish_build(
     if build.is_main:
         raise HTTPException(status_code=400, detail="Build is already published. Use rollback to revert to a previous build.")
 
-    await _enforce_build_ds_access(db, build_id, str(current_user.id), str(organization.id))
+    await _require_publish_authority(db, build, current_user, organization)
 
     # Extract instruction_ids if provided
     instruction_ids = publish_data.instruction_ids if publish_data else None

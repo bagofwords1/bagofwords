@@ -5608,6 +5608,10 @@ class InstructionService:
                             for ds in instruction.data_sources)
                     and (instruction.scope_mode == "targeted" or bool(instruction.data_sources)
                          or rights.has_org_permission("manage_instructions")))
+                instruction_dict["can_review_scope"] = rights.has_org_permission("manage_instructions") or (
+                    instruction_dict["can_manage_scope"]
+                    and all(rights.has_resource_permission("folder", fid, "manage") for fid in all_folders)
+                )
         # Evidence of the current version (stamped by AI create/edit tools) —
         # lets the detail view show why the AI suggested this instruction.
         try:

@@ -702,12 +702,37 @@ async def change_knowledge_link(
         await _canonical_authority(db, user, org, kind, item)
     linked = await db.scalar(select(key).where(condition))
     if bool(linked) != attach:
+        if kind == "instructions":
+            from app.models.instruction_version import InstructionVersion
+            from app.services.instruction_version_service import InstructionVersionService
+
+            # Keep the live placement immediately preceding this sequence of
+            # folder attachments, including for legacy unversioned rules.
+            if attach and item.is_global_data_sources and not item.owner_folder_id:
+                await InstructionVersionService().create_version(db, item, user.id, commit=False)
         if attach:
             await db.execute(insert(links).values(folder_id=folder_id, **{key.name: item_id}))
             if kind == "instructions":
                 item.scope_mode = "targeted"
         else:
             await db.execute(delete(links).where(condition))
+            if kind == "instructions" and not item.data_sources and not item.owner_folder_id:
+                remaining = await db.scalar(select(key).where(key == item_id).limit(1))
+                if not remaining:
+                    versions = (await db.execute(select(
+                        InstructionVersion.scope_mode, InstructionVersion.folder_ids,
+                        InstructionVersion.data_source_ids,
+                    ).where(InstructionVersion.instruction_id == item_id)
+                     .order_by(InstructionVersion.version_number.desc()))).all()
+                    for version in versions:
+                        if version.data_source_ids:
+                            break
+                        if not version.folder_ids:
+                            if version.scope_mode == "global":
+                                from app.core.permissions_decorator import require_org_permission
+                                await require_org_permission(db, user.id, org.id, "manage_instructions")
+                                item.scope_mode = "global"
+                            break
         await audit_service.log(
             db,
             org.id,

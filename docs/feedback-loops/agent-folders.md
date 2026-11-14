@@ -461,3 +461,10 @@ Use a disposable organization with a parent and child folder, separate parent an
 * Compare Auto discovery, direct agent detail and report focus for a query-only user and an agent manager with draft and development agents. Check both periods of the console comparison against each period’s plain metrics.
 * Create a rule through the folder panel as a curator and inspect the pending build before and after manager approval. Refuse an ambiguous chat-tool destination and read the returned hint. Check custom role grants in the role editor and the read-only role entries in the share dialog.
 * For legacy evals, compare the null-scope results before folder09 with the recovered explicit targets afterward. A changed case or inconsistent report attachments must leave the result restricted. Attempt a folder04 downgrade on a disposable backup with folder-only rule history and verify it stops before dropping its scope columns.
+
+### Follow-up manual checks
+
+- With a published agent and an agent subsequently moved to development pinned to one report, run a turn as a query-only member. The runnable agent should remain in scope. A report with only an unavailable pin should stop before planning. The schema and paginated full-schema views should use the same lifecycle visibility as agent detail.
+- As an organization instruction manager, attach a global rule to two folders. Remove the first link and inspect its targeted placement. Remove the second and check the global list and live version. Repeat with a folder-owned rule and confirm it stays targeted.
+- Open a historical folder report after deleting its empty folder. Check the owner, full admin and a former folder viewer. Retained live agent and table permissions still apply. Starting a new run requires an available scope.
+- Publish a curator’s pending rule as the manager of its folder with unrelated instructions on main. Check the build publish button and the individual instruction review. A curator or a manager of a different folder should not be able to approve it.

@@ -215,6 +215,21 @@ async def update_data_source(
 ):
     return await data_source_service.update_data_source(db, data_source_id, organization, data_source, current_user)
 
+async def _schema_reader_permissions(db, organization, user, data_source_id):
+    from sqlalchemy import select
+
+    rights = await resolve_permissions(db, str(user.id), str(organization.id))
+    agent = (await db.execute(select(
+        DataSource.id, DataSource.publish_status, DataSource.reliability_status,
+    ).where(
+        DataSource.id == data_source_id, DataSource.organization_id == organization.id,
+        DataSource.deleted_at.is_(None),
+    ))).one_or_none()
+    if agent is None or not data_source_service.lifecycle_visible(agent, rights):
+        raise HTTPException(404, "Data source not found")
+    return rights
+
+
 @router.get("/data_sources/{data_source_id}/schema", response_model=list)
 @requires_resource_permission('data_source', 'view')
 async def get_data_source_schema(
@@ -224,6 +239,7 @@ async def get_data_source_schema(
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
+    await _schema_reader_permissions(db, organization, current_user, data_source_id)
     result = await data_source_service.get_data_source_schema(db, data_source_id, include_inactive=False, organization=organization, current_user=current_user, with_stats=with_stats)
     await audit_service.log(
         db=db, organization_id=str(organization.id), action="data_source.schema_viewed", user_id=str(current_user.id),
@@ -256,7 +272,7 @@ async def get_data_source_full_schema(
     # deselected: to a reader the agent is its active tables, and the rest is the
     # manager's private working set. Readers therefore get the selected tables
     # only, and cannot widen that with `selected_state=unselected`.
-    resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+    resolved = await _schema_reader_permissions(db, organization, current_user, data_source_id)
     restrict_to_active = not resolved.has_resource_permission(
         "data_source", str(data_source_id), "manage"
     )
@@ -439,6 +455,7 @@ async def refresh_data_source_schema(
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
+    await _schema_reader_permissions(db, organization, current_user, data_source_id)
     return await data_source_service.refresh_data_source_schema(db, data_source_id, organization, current_user)
 
 @router.get("/data_sources/{data_source_id}/metadata_resources", response_model=MetadataIndexingJobSchema)

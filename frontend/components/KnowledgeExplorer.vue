@@ -743,7 +743,7 @@
             </div>
             <div class="flex items-center gap-1.5">
               <span v-if="savingMeta" class="text-2xs text-ink-muted">{{ $t('agentsPage.saving') }}</span>
-              <template v-if="reviewMode && canEditDetail && reviewHunks.total">
+              <template v-if="reviewMode && canReviewDetail && reviewHunks.total">
                 <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-2xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="reviewHunks.busy" @click="resolveAllHunks('reject')"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-ink-muted" />{{ $t('agentsPage.rejectAll') }}</button>
                 <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-2xs font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="reviewHunks.busy" @click="resolveAllHunks('accept')"><UIcon :name="reviewHunks.busy ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': reviewHunks.busy }]" />{{ $t('agentsPage.acceptAll') }}</button>
                 <span class="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-0.5"></span>
@@ -782,7 +782,7 @@
               :key="detail.id"
               ref="trackedChangesRef"
               :instruction-id="detail.id"
-              :can-approve="canEditDetail"
+              :can-approve="canReviewDetail"
               hide-header
               @state="onReviewState"
               @changed="reloadAfterResolve"
@@ -806,7 +806,7 @@
                 <span v-if="diff.buildId && hunkCount" class="text-2xs text-ink-muted shrink-0 tabular-nums">· {{ hunkCount === 1 ? $t('agentsPage.changeCountOne', { n: hunkCount }) : $t('agentsPage.changeCountMany', { n: hunkCount }) }}</span>
               </div>
               <div class="flex items-center gap-1.5">
-                <template v-if="diff.buildId && canEditDetail">
+                <template v-if="diff.buildId && canReviewDetail">
                   <button class="inline-flex items-center px-2 py-1 rounded-md text-2xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70 disabled:opacity-40 transition-colors" :disabled="resolving !== null || !hunkCount" @click="rejectAll">{{ resolving === 'reject-all' ? $t('agentsPage.rejecting') : $t('agentsPage.rejectAll') }}</button>
                   <button class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-800/70 border border-gray-150 dark:border-gray-700 text-2xs font-medium text-gray-700 dark:text-gray-300 disabled:opacity-40 transition-colors" :disabled="resolving !== null || !hunkCount" @click="acceptAll"><UIcon :name="resolving === 'all' ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5 text-green-600', { 'animate-spin': resolving === 'all' }]" />{{ resolving === 'all' ? $t('agentsPage.accepting') : $t('agentsPage.acceptAll') }}</button>
                 </template>
@@ -890,7 +890,7 @@
           <div v-else class="flex-1 flex flex-col min-h-0">
             <!-- Pending-change banner: only when there are EFFECTIVE changes to
                  review (a rebased-no-op pending build must not raise it). -->
-            <button v-if="canEditDetail && !editing && !creating && pendingViews.length" type="button" class="shrink-0 flex items-center gap-2 px-4 sm:px-8 py-2 border-b border-amber-100 dark:border-amber-500/30 bg-amber-50/60 dark:bg-amber-500/10 text-start hover:bg-amber-50 dark:hover:bg-amber-500/20 transition-colors" @click="viewSuggestion(pendingViews[0].build)">
+            <button v-if="canReviewDetail && !editing && !creating && pendingViews.length" type="button" class="shrink-0 flex items-center gap-2 px-4 sm:px-8 py-2 border-b border-amber-100 dark:border-amber-500/30 bg-amber-50/60 dark:bg-amber-500/10 text-start hover:bg-amber-50 dark:hover:bg-amber-500/20 transition-colors" @click="viewSuggestion(pendingViews[0].build)">
               <span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
               <span class="text-xs text-amber-800 dark:text-amber-300">{{ pendingViews.length === 1 ? $t('agentsPage.pendingOne') : $t('agentsPage.pendingMany', { n: pendingViews.length }) }}</span>
               <span class="ms-auto text-2xs font-medium text-amber-700 dark:text-amber-400 inline-flex items-center gap-0.5 shrink-0">{{ $t('agentsPage.review') }}<UIcon name="i-heroicons-arrow-right" class="w-3 h-3 rtl:rotate-180" /></span>
@@ -2949,13 +2949,14 @@ const openAgentSection = (kind: 'tables' | 'tools' | 'files' | 'instructions', a
   onPanelRowClick(kind, agentId)
 }
 // perms
-const canApprove = computed(() => useCanAny('manage_instructions', 'data_source'))
+const canApprove = computed(() => useCanAny('manage_instructions', 'data_source') || useCanAny('manage', 'folder'))
 // Editing/deleting a specific instruction requires manage_instructions on EVERY
 // agent it is attached to (global => org-level), mirroring the backend's
 // all-attached-agents rule. A per-agent manager viewing an instruction shared
 // with agents they don't control sees it read-only. Ported from PR #732.
 const canEditInstruction = (instr: any) => useCanManageInstruction(instr)
 const canEditDetail = computed(() => canEditInstruction(detail.value))
+const canReviewDetail = computed(() => detail.value?.can_review_scope ?? canEditDetail.value)
 // Populate the pending-review index only for users who can review something.
 // Permissions arrive asynchronously after mount, so a watcher is more reliable
 // than a one-shot mounted hook. Losing the permission clears draft-derived UI.
@@ -3250,7 +3251,7 @@ const onReviewEmpty = () => { reviewEmpty.value = true }
 const reviewHunks = ref<{ total: number; busy: boolean }>({ total: 0, busy: false })
 const onReviewState = (s: { total: number; busy: boolean }) => { reviewHunks.value = s }
 const resolveAllHunks = (mode: 'accept' | 'reject') => trackedChangesRef.value?.resolveAll?.(mode)
-const reviewMode = computed(() => canEditDetail.value && !!detail.value && !creating.value && !editing.value && !(diff.value && diff.value.versionId) && pendingBuilds.value.length > 0 && !reviewEmpty.value)
+const reviewMode = computed(() => canReviewDetail.value && !!detail.value && !creating.value && !editing.value && !(diff.value && diff.value.versionId) && pendingBuilds.value.length > 0 && !reviewEmpty.value)
 const mergedReviewCount = computed(() => pendingViews.value.reduce((n: number, v: any) => n + v.hunks.length, 0))
 // Interleave every build's hunks onto the current text, ordered by position.
 const mergedSegments = computed(() => {
