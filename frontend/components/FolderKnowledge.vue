@@ -63,8 +63,8 @@
 import TestCaseEditor from "~/components/monitoring/TestCaseEditor.vue"
 type Kind = 'instructions' | 'files' | 'evals'
 type Item = { id: string, name: string, owned?: boolean }
-const props = defineProps<{folder: {id: string, name: string, capabilities: string[], can_query: boolean}}>()
-const emit = defineEmits<{createInstruction: [folderId: string], instruction: [id: string], file:[item:{id:string, filename:string}]}>()
+const props = defineProps<{suiteId?: string, folder: {id: string, name: string, capabilities: string[], can_query: boolean}}>()
+const emit = defineEmits<{changed: [], createInstruction: [folderId: string], instruction: [id: string], file:[item:{id:string, filename:string}]}>()
 const { t } = useI18n()
 const { isTrainingModeEnabled } = useOrgSettings()
 const kinds: Kind[] = ['instructions', 'files', 'evals']
@@ -82,6 +82,7 @@ async function inspect(id: string) {
   const result = await useMyFetch<Item[]>(url('evals') + '/' + id + '/cases')
   if (expanded.value === id) cases.value = result.data.value || []
 }
+watch(() => props.suiteId, id => { if (id && canEdit('evals')) inspect(id) }, {immediate:true})
 function editCase(id: string) {
   if (!items.evals.some(item => item.id === expanded.value && item.owned)) return
   suite.value = expanded.value; caseId.value = id; action.value = 'case'; show.value = true
@@ -114,7 +115,7 @@ async function change(kind: Kind, id: string, attach: boolean) {
   try {
     const {error} = await useMyFetch(url(kind) + '/' + id, {method:attach ? 'PUT' : 'DELETE'})
     if (error.value) throw error.value
-    show.value = false; await load(kind)
+    show.value = false; await load(kind); emit('changed')
   } catch { feedback.value = t('common.error') } finally { busy.value = false }
 }
 async function save() {
@@ -131,7 +132,7 @@ async function save() {
   try {
     const {error} = await useMyFetch(path, {method:'POST', body:payload})
     if (error.value) throw error.value
-    show.value = false; await load(kind)
+    show.value = false; await load(kind); emit('changed')
   } catch { feedback.value = t('common.error') } finally { busy.value = false }
 }
 async function run(id: string) {

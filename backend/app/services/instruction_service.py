@@ -264,7 +264,7 @@ class InstructionService:
         # that will never reach main (it would be invisible in the list, which
         # is the reported "instruction was not created" symptom). Soft-delete it
         # and signal a fast, retryable error instead of hanging or 500-ing.
-        if auto_finalize and not finalized:
+        if not finalized:
             try:
                 orphan = await db.get(Instruction, instr_id)
                 if orphan is not None and orphan.deleted_at is None:
@@ -741,22 +741,20 @@ class InstructionService:
         pending_by_agent: dict = {}
         if pending_ids:
             pid_list = list(pending_ids)
-            for iid, kind in (await db.execute(
-                select(Instruction.id, Instruction.kind).where(Instruction.id.in_(pid_list))
+            for iid, kind, scope in (await db.execute(
+                select(Instruction.id, Instruction.kind, Instruction.scope_mode).where(Instruction.id.in_(pid_list))
             )).all():
                 if kind == 'skill':
                     skills_ids.add(str(iid))
-            assigned = set()
+                elif scope == 'global':
+                    global_ids.add(str(iid))
             for ds_id, iid in (await db.execute(
                 select(assoc.c.data_source_id, assoc.c.instruction_id)
                 .where(assoc.c.instruction_id.in_(pid_list))
             )).all():
                 agent_sets.setdefault(str(ds_id), set()).add(str(iid))
                 pending_by_agent[str(ds_id)] = True
-                assigned.add(str(iid))
-            # Pending instructions attached to no agent are global.
-            for iid in pending_ids - assigned:
-                global_ids.add(iid)
+                global_ids.discard(str(iid))
 
         # Apply the SAME per-user table-accessibility cut the list applies
         # (_filter_list_items_by_table_accessibility), so a table-pinned

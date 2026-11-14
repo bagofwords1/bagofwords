@@ -210,9 +210,9 @@
           </TreeGroup>
           <div class="h-px bg-gray-100 dark:bg-gray-800 my-2 mx-1"></div>
 
-          <AgentFolders ref="folderExplorer" :agents="agents" :loading="!agentsLoaded"
+          <AgentFolders ref="folderExplorer" :knowledge-revision="folderKnowledgeRevision" @knowledge="pickFolderKnowledge" :agents="agents" :loading="!agentsLoaded"
             :active-folder="folderPaneVisible ? selectedFolder : null" :active-agent="agentView?.agentId || panelView?.agentId"
-            @changed="fetchAgents" @select="clearRightPane(); selectedFolder = $event"
+            @changed="fetchAgents" @select="clearRightPane(); selectedFolder = $event; folderSuiteId = undefined"
             @create="(parentId) => openDirModal(parentId ? 'subfolder' : 'create', GLOBAL_SCOPE, { kind: 'agent-folder', parentId })">
             <template #header>
             <UTooltip v-if="canViewAllAgents" :text="$t('data.showAllAgentsHint')">
@@ -1037,7 +1037,7 @@
           </div>
         </template>
 
-        <FolderKnowledge v-else-if="selectedFolder && folderExplorer?.current" :key="selectedFolder" :folder="folderExplorer.current" @create-instruction="openCreate({ folderId: $event })" @file="openFile" @instruction="openInstructionById" />
+        <FolderKnowledge v-else-if="selectedFolder && folderExplorer?.current" :key="selectedFolder" :folder="folderExplorer.current" :suite-id="folderSuiteId" @changed="folderKnowledgeRevision++" @create-instruction="openCreate({ folderId: $event })" @file="openFile" @instruction="openInstructionById" />
         <div v-else class="flex-1 flex items-center justify-center px-6">
           <div class="relative w-full max-w-lg h-72 overflow-hidden">
             <img src="/assets/empty-states/empty-integrations.png" alt="" class="absolute inset-x-0 bottom-8 w-full opacity-80 select-none pointer-events-none dark:hidden" />
@@ -1300,6 +1300,14 @@ const loadingGroups = ref<Set<string>>(new Set())
 // while a search is active, which swaps the tree for a flat results view.
 const searchResults = ref<{ agents: any[]; instructions: Instruction[] } | null>(null)
 const searching = ref(false)
+const folderKnowledgeRevision = ref(0)
+const folderSuiteId = ref<string>()
+function pickFolderKnowledge(folderId: string, kind: 'instructions' | 'files' | 'evals', item: {id:string, name:string}) {
+  folderExplorer.value?.open(folderId)
+  if (kind === 'evals') folderSuiteId.value = item.id
+  else if (kind === 'instructions') openInstructionById(item.id)
+  else openFile({id:item.id, filename:item.name})
+}
 const folderExplorer = ref<any>(null)
 const selectedFolder = ref<string | null>(null)
 const agents = ref<any[]>([])
@@ -3639,18 +3647,13 @@ const fetchAll = async () => {
 // open its flat list is refreshed too, so a just-resolved instruction drops out
 // instead of lingering until the next enter.
 const refreshLists = async () => {
+  folderKnowledgeRevision.value++
   await fetchAll()
   if (canApprove.value) await loadPendingChanges()
 }
 const fetchAgents = async () => {
   try {
-    // include_unconnected=true so members also see user_required (OBO) agents
-    // they haven't connected yet — otherwise they can never reach the Connect
-    // flow (parity with the legacy /agents page). show_all is an admin-only
-    // toggle that surfaces every agent in the org (admin_only entries flagged).
-    const query: Record<string, any> = { include_unconnected: true }
-    if (showAllAgents.value) query.show_all = true
-    const { data } = await useMyFetch<any[]>('/data_sources/active', { method: 'GET', query })
+    const { data } = await useMyFetch<any[]>('/data_sources', { method: 'GET', query: {show_all: showAllAgents.value} })
     agents.value = (data.value || [])
       // Connectors (each person's own accounts/tools — mail, Teams, MCP apps)
       // are not agents: they live in the prompt box's connectors menu and the
@@ -3969,6 +3972,7 @@ const deleteInstruction = async () => {
   try {
     const { error } = await useMyFetch(`/api/instructions/${id}`, { method: 'DELETE' })
     if (error.value) throw new Error((error.value as any)?.data?.detail || (error.value as any)?.message || 'Delete failed')
+    folderKnowledgeRevision.value++
     toast.add({ title: t('agentsPage.toastDeleted'), color: 'green' })
     allInstructions.value = allInstructions.value.filter(i => i.id !== id)
     editing.value = false; detail.value = null; selectedId.value = null; versions.value = []; mainText.value = null; mainVersionId.value = null
@@ -3990,6 +3994,7 @@ const save = async () => {
       const endpoint = draft.folder_ids.length || draft.data_source_ids.length ? '/api/instructions' : '/api/instructions/global'
       const { data, error } = await useMyFetch<Instruction>(endpoint, { method: 'POST', body })
       if (error.value) throw new Error(error.value.data?.detail || error.value.message || 'Create failed')
+      folderKnowledgeRevision.value++
       toast.add({ title: t('agentsPage.toastCreated'), color: 'green' })
       creating.value = false; editing.value = false; draft.references = []
       // Insert the new instruction in place (no full list re-fetch / flicker);
@@ -4018,6 +4023,7 @@ const save = async () => {
       await settleMeta()
       const { data, error } = await useMyFetch<Instruction>(`/api/instructions/${detail.value.id}`, { method: 'PUT', body })
       if (error.value) throw new Error((error.value as any)?.message || 'Save failed')
+      folderKnowledgeRevision.value++
       toast.add({ title: t('agentsPage.toastSaved'), color: 'green' }); editing.value = false
       // Update just this instruction in place — no full list re-fetch, so the
       // tree keeps its scroll/expanded state (no page-refresh feel).

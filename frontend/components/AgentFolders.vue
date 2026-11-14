@@ -12,7 +12,8 @@
     </div>
     <div v-for="row in rows" :key="row.key" :style="{ paddingInlineStart: Math.min(row.depth, 8) * 14 + 'px' }">
       <slot v-if="row.kind === 'agent'" name="agent" :agent="row.agent" />
-      <div v-else-if="row.kind === 'folder'" class="group flex h-8 min-w-0 items-center gap-1.5 rounded-md pe-2 ps-1.5 text-sm"
+      <template v-else-if="row.kind === 'folder'">
+      <div class="group flex h-8 min-w-0 items-center gap-1.5 rounded-md pe-2 ps-1.5 text-sm"
         :class="dropTarget === row.folder.id ? treeDropTarget : activeFolder === row.folder.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'"
         @dragover="hoverDestination($event, row.folder.id)" @dragleave="leaveDestination" @drop="dropAgent($event, row.folder.id)">
         <button type="button" class="flex h-full shrink-0 items-center" :aria-label="row.folder.name"
@@ -31,6 +32,8 @@
           <UButton size="2xs" variant="ghost" color="gray" icon="i-heroicons-user-plus" :aria-label="$t('sharedFolders.share')" :title="$t('sharedFolders.share')" @click="openShare(row.folder.id)" />
         </div>
       </div>
+      <FolderKnowledgeTree v-if="expanded.has(row.folder.id)" :folder="row.folder" :revision="knowledgeRevision" @pick="(kind, item) => emit('knowledge', row.folder.id, kind, item)" />
+      </template>
       <div v-else class="ps-5 py-1 text-2xs italic text-ink-muted">{{ $t('agentsPage.dirEmpty') }}</div>
     </div>
     <UModal v-model="editing" :ui="{ width: 'sm:max-w-md' }">
@@ -142,8 +145,8 @@ import { treeDropTarget } from '~/utils/treeDragStyles'
 
 type Folder = { id: string, parent_id: string | null, name: string, limited_access: boolean, can_manage: boolean, can_move_from_folder: boolean, can_query: boolean, capabilities: string[] }
 type Recipient = { id: string, type: string, name: string, role: string | null, inherited?: {role: string, source: string, source_id: string}[] }
-const props = defineProps<{ agents: DragAgent[], loading: boolean, activeFolder?: string | null, activeAgent?: string | null }>()
-const emit = defineEmits<{ select: [id: string | null], create: [parentId: string | null], changed: [] }>()
+const props = defineProps<{ agents: DragAgent[], knowledgeRevision: number, loading: boolean, activeFolder?: string | null, activeAgent?: string | null }>()
+const emit = defineEmits<{ knowledge: [folderId:string, kind:'instructions'|'evals'|'files', item:{id:string,name:string}], select: [id: string | null], create: [parentId: string | null], changed: [] }>()
 const foldersLoaded = ref(false)
 const expanded = ref(new Set<string>())
 const sharingId = ref<string | null>(null)
@@ -371,7 +374,7 @@ const rows = computed(() => {
   const visible: TreeRow[] = []
   function visit(parent: string | null, depth: number) {
     const entries = children.get(parent) || []
-    if (parent && !entries.length && !props.loading) visible.push({kind: 'empty', key: 'empty:' + parent, depth})
+    if (parent && !entries.length && !props.loading && !foldersById.value.get(parent)?.can_query && !foldersById.value.get(parent)?.capabilities.length) visible.push({kind: 'empty', key: 'empty:' + parent, depth})
     for (const row of entries) {
       visible.push({...row, depth})
       if (row.kind === 'folder' && expanded.value.has(row.folder.id)) visit(row.folder.id, depth + 1)

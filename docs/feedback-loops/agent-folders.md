@@ -433,3 +433,19 @@ Run the focused checks from the backend directory:
 ```
 
 [Seeded browser screenshots](../../media/pr/agent-folders/index.html)
+
+### Knowledge Explorer inventory and instruction scope
+
+On a disposable database copy, compare the management inventory from GET /data_sources
+with GET /data_sources/active for the same organization and user. An authorized
+inactive agent should remain in the first list. Expand its folder in Knowledge
+Explorer and compare the Instructions, Files, and Evals branches with the exact
+folder's permission-filtered knowledge endpoints.
+
+For the tool path, run create_instruction with a selected folder and
+destination=folder, then edit_instruction on its returned ID with a changed title
+and table_names=[]. Inspect the instruction, folder_instructions link and both
+instruction_versions. The live scope and both snapshots must be targeted, the
+folder ID must match, and clearing table references must preserve the audience.
+Repeat create_instruction without any agents, folder or destination and confirm
+that it reports an error. Use a database copy so the training build is isolated.
