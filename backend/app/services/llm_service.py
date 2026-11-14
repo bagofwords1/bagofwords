@@ -41,6 +41,48 @@ def _check_provider_url(url: str) -> None:
 MAX_CONTEXT_WINDOW_TOKENS = 2_147_483_647
 
 
+def _reject_decision_model(model, what: str) -> None:
+    """Decision models have no chat settings (temperature, reasoning, routing
+    guidance) and can never stand in for a chat model."""
+    if getattr(model, "model_kind", "chat") == "decision":
+        raise HTTPException(status_code=400, detail=f"Decision models do not take {what}.")
+
+
+def _prepare_decision_model(provider_type: str, model) -> None:
+    """Validate a decision model about to be created on ``provider_type`` and
+    normalize its config. ``model`` is a dict or a schema object."""
+    from app.ai.llm.decisions import DECISION_PROVIDER_TYPES, validate_settings
+    get = (lambda k, d=None: model.get(k, d)) if isinstance(model, dict) else (lambda k, d=None: getattr(model, k, d))
+    if (get("model_kind") or "chat") != "decision":
+        return
+    if provider_type not in DECISION_PROVIDER_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Provider type '{provider_type}' has no decision API; use OpenAI, Azure or an OpenAI-compatible/System One endpoint.",
+        )
+    cfg = dict(get("config") or {})
+    # No sampling settings exist on decision APIs; drop chat-only keys.
+    for chat_key in ("temperature", "routing_hint", "reasoning_mode", "reasoning_effort", "reasoning_params", "reasoning_model_id"):
+        cfg.pop(chat_key, None)
+    decision_cfg = {k: v for k, v in cfg.items() if k in ("decision_format", "decision_path", "api_model_id",
+                                                          "max_questions", "question_types", "timeout_ms",
+                                                          "keep_alive", "prompt_caching")}
+    try:
+        validate_settings(decision_cfg)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not cfg.get("decision_format") and provider_type in ("openai", "azure"):
+        cfg["decision_format"] = "openai"
+    if isinstance(model, dict):
+        model["config"] = cfg or None
+        model["is_default"] = False
+        model["is_small_default"] = False
+    else:
+        model.config = cfg or None
+        model.is_default = False
+        model.is_small_default = False
+
+
 class LLMService:
     def __init__(self):
         pass
@@ -96,6 +138,11 @@ class LLMService:
         del provider_data.config
         credentials = provider_data.credentials
         del provider_data.credentials
+
+        # Reject decision models on providers with no decision API before
+        # anything is persisted.
+        for m in models or []:
+            _prepare_decision_model(provider_data.provider_type, m)
 
         provider = LLMProvider(**provider_data.dict())
         self._set_provider_credentials(provider, credentials)
@@ -245,6 +292,7 @@ class LLMService:
         )).unique().scalar_one_or_none()
         if provider is None:
             raise HTTPException(status_code=404, detail="Provider not found")
+        _prepare_decision_model(provider.provider_type, model)
 
         dup = (await db.execute(
             select(LLMModel)
@@ -299,6 +347,7 @@ class LLMService:
             # Model-specific config (e.g. an explicit sampling temperature) —
             # update_model already accepts and merges this; creation should too.
             config=dict(getattr(model, "config", None) or {}) or None,
+            model_kind=getattr(model, "model_kind", None) or "chat",
         )
         # Same NULL-window guard as _create_models: a custom model with no
         # explicit size gets the conservative default, never NULL.
@@ -999,9 +1048,14 @@ class LLMService:
         db: AsyncSession,
         organization: Organization,
         current_user: User,
-        is_enabled: bool = None
+        is_enabled: bool = None,
+        kind: str = "chat",
     ):
-        """Get all LLM models for an organization, optionally filtered by status"""
+        """Get all LLM models for an organization, optionally filtered by status.
+
+        ``kind`` is "chat" (default — every picker), "decision" (decision models
+        only) or "all" (the admin table and name lookups). Decision models are
+        excluded server-side so no client picker can offer one for chat."""
         # First, get all active providers
         providers = await db.execute(
             select(LLMProvider)
@@ -1039,7 +1093,11 @@ class LLMService:
         
         if is_enabled is not None:
             query = query.filter(LLMModel.is_enabled == is_enabled)
-        
+        if kind == "chat":
+            query = query.filter(LLMModel.model_kind != "decision")
+        elif kind == "decision":
+            query = query.filter(LLMModel.model_kind == "decision")
+
         result = await db.execute(query)
         models = result.unique().scalars().all()
 
@@ -1381,6 +1439,7 @@ class LLMService:
         model = model.scalar_one_or_none()
         if not model:
             raise HTTPException(status_code=404, detail="Model not found")
+        _reject_decision_model(model, "a temperature")
 
         cfg = dict(model.config or {})
         if temperature is not None:
@@ -1607,6 +1666,7 @@ class LLMService:
         model = model.scalar_one_or_none()
         if not model:
             raise HTTPException(status_code=404, detail="Model not found")
+        _reject_decision_model(model, "reasoning settings")
 
         cfg = dict(model.config or {})
         fields = update.model_fields_set
@@ -1686,8 +1746,97 @@ class LLMService:
         model = model.scalar_one_or_none()
         if not model:
             raise HTTPException(status_code=404, detail="Model not found")
+        _reject_decision_model(model, "reasoning settings")
         llm = LLM(model, usage_session_maker=async_session_maker)
         return await llm.test_agent_call(effort)
+
+    async def _get_decision_model(self, db: AsyncSession, organization: Organization, model_id: str) -> LLMModel:
+        model = (await db.execute(
+            select(LLMModel).join(LLMProvider).filter(
+                LLMModel.id == model_id,
+                LLMProvider.organization_id == organization.id,
+                LLMModel.deleted_at == None,  # noqa: E711
+            )
+        )).unique().scalar_one_or_none()
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+        if getattr(model, "model_kind", "chat") != "decision":
+            raise HTTPException(status_code=400, detail="Decision settings apply only to decision models.")
+        return model
+
+    async def update_decision_settings(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        update: dict,
+    ) -> LLMModel:
+        """Set a decision model's wire settings (``LLMModel.config``): format,
+        path, wire model id, question limits, timeout, keep_alive, caching.
+        Only keys present change; a null value resets to the catalog default."""
+        from app.ai.llm.decisions import validate_settings
+        model = await self._get_decision_model(db, organization, model_id)
+        try:
+            cleaned = validate_settings(update)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        cfg = dict(model.config or {})
+        for key, val in cleaned.items():
+            if val is None:
+                cfg.pop(key, None)
+            else:
+                cfg[key] = val
+        model.config = cfg or None
+        db.add(model)
+        await db.commit()
+        await db.refresh(model)
+        logger.info("LLM decision settings set: id=%s, keys=%s, org_id=%s", model.id, sorted(cleaned), organization.id)
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="llm_model.decision_settings_set",
+                user_id=str(current_user.id),
+                resource_type="llm_model",
+                resource_id=str(model.id),
+                details={"name": model.name, "model_id": model.model_id, "settings": cleaned},
+            )
+        except Exception:
+            pass
+        return model
+
+    async def test_decision(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+    ) -> dict:
+        """Ask the decision model one yes/no question; report the probability
+        and latency. Not recorded as usage (an admin connectivity check)."""
+        from app.ai.llm.decisions import DecisionError
+        model = await self._get_decision_model(db, organization, model_id)
+        llm = LLM(model, usage_session_maker=async_session_maker)
+        try:
+            result = await llm.decide(
+                "The customer wrote: 'My card was charged twice and I want a refund.'",
+                [{"type": "predicate", "name": "refund_request",
+                  "instructions": "Is the customer asking for a refund?"}],
+                usage_scope="decision.test", should_record=False,
+            )
+        except DecisionError as exc:
+            raise HTTPException(status_code=502, detail=str(exc))
+        answer = result.by_name().get("refund_request") or {}
+        if answer.get("type") == "refusal":
+            raise HTTPException(status_code=502, detail="The decision model declined the test question.")
+        return {
+            "ok": True,
+            "probability": answer.get("probability"),
+            "latency_ms": result.latency_ms,
+            "input_tokens": result.input_tokens,
+            "model": result.model,
+        }
 
     async def set_routing_hint(
         self,
@@ -1713,6 +1862,7 @@ class LLMService:
         model = model.scalar_one_or_none()
         if not model:
             raise HTTPException(status_code=404, detail="Model not found")
+        _reject_decision_model(model, "routing guidance")
 
         cfg = dict(model.config or {})
         clean = (hint or "").strip()
@@ -1816,6 +1966,11 @@ class LLMService:
             missing = [i for i in ids if i not in known]
             if missing:
                 raise HTTPException(status_code=400, detail=f"Unknown model id(s) in fallback order: {', '.join(missing)}")
+            decision_ids = (await db.execute(
+                select(LLMModel.id).filter(LLMModel.id.in_(ids), LLMModel.model_kind == "decision")
+            )).scalars().all()
+            if decision_ids:
+                raise HTTPException(status_code=400, detail="Decision models cannot be in the fallback order.")
 
         settings = await organization.get_settings(db)
         cfg = dict(settings.config or {})
@@ -1879,6 +2034,9 @@ class LLMService:
                 return model_details.get("is_enabled", True)
             return model.get("is_enabled", True)
 
+        for model in models:
+            _prepare_decision_model(provider.provider_type, model)
+
         desired_default_model_id = None
         desired_small_default_model_id = None
         for model in models:
@@ -1936,9 +2094,16 @@ class LLMService:
                 (model_details or {}).get("supports_image_generation")
                 or model.get("supports_image_generation")
             )
+            # Decision models are not chat models either.
+            is_decision = (
+                (model_details or {}).get("model_kind") == "decision"
+                or model.get("model_kind") == "decision"
+            )
+            if (model_details or {}).get("model_kind") == "decision":
+                db_model.model_kind = "decision"
 
             # Only set as default if there's no existing default and this model should be default
-            if is_image_gen:
+            if is_image_gen or is_decision:
                 db_model.is_default = False
             elif desired_default_model_id and model["model_id"] == desired_default_model_id and not has_default_model:
                 db_model.is_default = True
@@ -1953,7 +2118,7 @@ class LLMService:
                 db_model.is_default = False
 
             # Only set as small default if there's no existing small default and this model should be small default
-            if is_image_gen:
+            if is_image_gen or is_decision:
                 setattr(db_model, "is_small_default", False)
             elif desired_small_default_model_id and model["model_id"] == desired_small_default_model_id and not has_small_default_model:
                 setattr(db_model, "is_small_default", True)
@@ -2457,9 +2622,14 @@ class LLMService:
                 context_window_tokens_override = getattr(model, "context_window_tokens_override", None)
                 context_window_tokens = self._resolve_context_window(context_window_tokens_override, context_window_tokens)
 
+                kind = (catalog or {}).get("model_kind") or getattr(model, "model_kind", None) or "chat"
+                if kind == "decision":
+                    model.model_kind = "decision"
+                    _prepare_decision_model(provider.provider_type, model)
                 # Set as default if org has no default and this model is enabled
-                should_be_default = not has_default_model and model.is_enabled
-                should_be_small_default = not has_small_default_model and model.is_enabled
+                # (never a decision model — it cannot chat).
+                should_be_default = not has_default_model and model.is_enabled and kind != "decision"
+                should_be_small_default = not has_small_default_model and model.is_enabled and kind != "decision"
 
                 db_model = LLMModel(
                     name=model.name or (catalog["name"] if catalog else None) or model.model_id,
@@ -2478,6 +2648,8 @@ class LLMService:
                     max_output_tokens=max_output_tokens,
                     input_cost_per_million_tokens_usd=input_cost,
                     output_cost_per_million_tokens_usd=output_cost,
+                    model_kind=kind,
+                    config=(getattr(model, "config", None) or None) if kind == "decision" else None,
                 )
                 db.add(db_model)
                 
@@ -2513,6 +2685,11 @@ class LLMService:
 
         # Image-generation models are not chat models — they can never be the
         # org's default or small default.
+        if getattr(default_model, "model_kind", "chat") == "decision":
+            raise HTTPException(
+                status_code=400,
+                detail="Decision models cannot be set as the default or small default model.",
+            )
         if getattr(default_model, "supports_image_generation", False):
             raise HTTPException(
                 status_code=400,
@@ -2611,6 +2788,7 @@ class LLMService:
             .filter(LLMModel.deleted_at == None)
             .filter(LLMModel.is_enabled == True)
             .filter(LLMModel.supports_image_generation == False)
+            .filter(LLMModel.model_kind != "decision")
             .filter(LLMProvider.deleted_at == None)
             .filter(LLMProvider.is_enabled == True)
         )
@@ -2658,6 +2836,7 @@ class LLMService:
                 .filter(LLMModel.organization_id == organization.id)
                 .filter(getattr(LLMModel, "is_small_default") == True)
                 .filter(LLMModel.is_enabled == True)
+                .filter(LLMModel.model_kind != "decision")
             )).scalars().first()
             # .first() so a duplicated small-default flag resolves to one model
             # instead of raising MultipleResultsFound on the hot completion path.
@@ -2674,6 +2853,7 @@ class LLMService:
             .filter(LLMModel.organization_id == organization.id)
             .filter(LLMModel.is_default == True)
             .filter(LLMModel.is_enabled == True)
+            .filter(LLMModel.model_kind != "decision")
         )).scalars().first()
         if await _usable(default_model):
             return _out(default_model, "org")
@@ -2690,6 +2870,7 @@ class LLMService:
             .filter(LLMModel.is_enabled == True)
             .filter(LLMModel.deleted_at == None)
             .filter(LLMModel.supports_image_generation == False)
+            .filter(LLMModel.model_kind != "decision")
             .filter(LLMProvider.is_enabled == True)
             .filter(LLMProvider.deleted_at == None)
             .order_by(LLMModel.is_restricted.asc(), LLMModel.created_at.asc(), LLMModel.id.asc())
@@ -2742,6 +2923,7 @@ class LLMService:
                     .filter(LLMModel.organization_id == organization.id)
                     .filter(LLMModel.deleted_at == None)
                     .filter(LLMModel.is_enabled == True)
+                    .filter(LLMModel.model_kind != "decision")
                     .filter(LLMProvider.deleted_at == None)
                     .filter(LLMProvider.is_enabled == True)
                 )
@@ -2782,6 +2964,7 @@ class LLMService:
                 raise HTTPException(status_code=404, detail="Model not found")
             if not model.is_enabled:
                 raise HTTPException(status_code=400, detail="Model is not enabled")
+            _reject_decision_model(model, "chat")
             from app.core.permission_resolver import user_can_use_model
             if not await user_can_use_model(db, user.id, organization.id, model):
                 raise HTTPException(status_code=403, detail="You do not have access to this model")
@@ -2827,6 +3010,7 @@ class LLMService:
                 .filter(LLMModel.organization_id == organization.id)
                 .filter(LLMModel.deleted_at == None)
                 .filter(LLMModel.is_enabled == True)
+                .filter(LLMModel.model_kind != "decision")
                 .filter(LLMProvider.deleted_at == None)
                 .filter(LLMProvider.is_enabled == True)
             )
@@ -2868,6 +3052,7 @@ class LLMService:
             raise HTTPException(status_code=404, detail="Model not found")
         if not model.is_enabled:
             raise HTTPException(status_code=400, detail="Model is not enabled")
+        _reject_decision_model(model, "chat")
         if user is not None:
             from app.core.permission_resolver import user_can_use_model
             if not await user_can_use_model(db, user.id, organization.id, model):
@@ -2961,6 +3146,7 @@ class LLMService:
     @staticmethod
     def _apply_catalog_model_details(model: LLMModel, model_data: dict, *, sync_enabled: bool = False) -> None:
         model.name = model_data["name"]
+        model.model_kind = model_data.get("model_kind", "chat")
         model.is_preset = model_data.get("is_preset", True)
         if sync_enabled:
             model.is_enabled = model_data.get("is_enabled", True)
@@ -3095,6 +3281,7 @@ class LLMService:
                     is_small_default=False,
                     supports_vision=model_data.get("supports_vision", False),
                     supports_image_generation=model_data.get("supports_image_generation", False),
+                    model_kind=model_data.get("model_kind", "chat"),
                     context_window_tokens=model_data.get("context_window_tokens"),
                     max_output_tokens=model_data.get("max_output_tokens"),
                     input_cost_per_million_tokens_usd=model_data.get("input_cost_per_million_tokens_usd"),

@@ -15,6 +15,7 @@
                         <span class="truncate">{{ model.name }}</span>
                         <span v-if="model.is_default" class="text-xs bg-blue-600 text-white px-1.5 py-0.5 rounded-md">{{ $t('settings.llms.badgeDefault') }}</span>
                         <span v-if="model.is_small_default" class="text-xs bg-green-500 text-white px-1.5 py-0.5 rounded-md">{{ $t('settings.llms.badgeSmallDefault') }}</span>
+                        <span v-if="isDecision" class="text-xs bg-purple-600 text-white px-1.5 py-0.5 rounded-md" data-testid="card-decision-badge">{{ $t('settings.llms.decision.badge') }}</span>
                     </div>
                     <div class="text-xs text-gray-500 dark:text-gray-400 truncate">
                         {{ $t('settings.llms.modelIdLabel') }}: {{ model.model_id }} · {{ model.provider.name }}
@@ -70,17 +71,17 @@
                         />
                     </UTooltip>
                 </div>
-                <!-- Vision -->
+                <!-- Vision (decision models: "Image input") -->
                 <div class="flex items-center justify-between py-2.5">
-                    <UTooltip :text="$t('settings.llms.visionTooltip')">
-                        <span class="text-sm text-gray-700 dark:text-gray-300 underline decoration-dotted decoration-gray-300 underline-offset-2">{{ $t('settings.llms.colVision') }}</span>
+                    <UTooltip :text="isDecision ? $t('settings.llms.decision.imageInputTooltip') : $t('settings.llms.visionTooltip')">
+                        <span class="text-sm text-gray-700 dark:text-gray-300 underline decoration-dotted decoration-gray-300 underline-offset-2">{{ isDecision ? $t('settings.llms.decision.imageInput') : $t('settings.llms.colVision') }}</span>
                     </UTooltip>
                     <UToggle v-model="visionDraft" data-testid="card-vision-toggle" />
                 </div>
                 <!-- Image generation. Disabled for default models: the backend would
                      silently strip the default flags (image models can't be defaults),
-                     leaving the org without a default model. -->
-                <div class="flex items-center justify-between py-2.5">
+                     leaving the org without a default model. Not for decision models. -->
+                <div v-if="!isDecision" class="flex items-center justify-between py-2.5">
                     <UTooltip :text="$t('settings.llms.imageGenTooltip')">
                         <span class="text-sm text-gray-700 dark:text-gray-300 underline decoration-dotted decoration-gray-300 underline-offset-2">{{ $t('settings.llms.colImageGen') }}</span>
                     </UTooltip>
@@ -94,8 +95,9 @@
                 </div>
                 <!-- Defaults — promotion actions, applied immediately (same as the
                      Actions menu). set_default has no "unset", only promotion of
-                     another model, so these are buttons rather than draft toggles. -->
-                <div class="flex items-center justify-between py-2.5">
+                     another model, so these are buttons rather than draft toggles.
+                     Decision models can never be a default (they cannot chat). -->
+                <div v-if="!isDecision" class="flex items-center justify-between py-2.5">
                     <span class="text-sm text-gray-700 dark:text-gray-300">{{ $t('settings.llms.badgeDefault') }}</span>
                     <span v-if="model.is_default" class="text-xs bg-blue-600 text-white px-1.5 py-0.5 rounded-md">{{ $t('settings.llms.badgeDefault') }}</span>
                     <UButton
@@ -108,7 +110,7 @@
                         {{ $t('settings.llms.makeDefault') }}
                     </UButton>
                 </div>
-                <div class="flex items-center justify-between py-2.5">
+                <div v-if="!isDecision" class="flex items-center justify-between py-2.5">
                     <UTooltip :text="$t('settings.llms.smallDefaultTooltip')">
                         <span class="text-sm text-gray-700 dark:text-gray-300 underline decoration-dotted decoration-gray-300 underline-offset-2">{{ $t('settings.llms.badgeSmallDefault') }}</span>
                     </UTooltip>
@@ -146,8 +148,9 @@
                 <!-- Temperature. Deliberately tri-state: empty = no temperature
                      parameter is sent and the provider's default applies. The
                      input must never be pre-filled with a number — saving an
-                     untouched dialog must not silently set one. -->
-                <div class="flex items-center justify-between py-2.5">
+                     untouched dialog must not silently set one. Decision APIs
+                     have no temperature, so it is hidden for them. -->
+                <div v-if="!isDecision" class="flex items-center justify-between py-2.5">
                     <UTooltip :text="$t('settings.llms.temperatureTooltip')">
                         <span class="text-sm text-gray-700 dark:text-gray-300 underline decoration-dotted decoration-gray-300 underline-offset-2">{{ $t('settings.llms.colTemperature') }}</span>
                     </UTooltip>
@@ -167,7 +170,9 @@
                     </div>
                 </div>
                 <!-- Reasoning: mode, default level, raw request fields per level -->
-                <LLMModelReasoningSection ref="reasoningRef" :model="model" />
+                <LLMModelReasoningSection v-if="!isDecision" ref="reasoningRef" :model="model" />
+                <!-- Decision models: wire format, path, limits, timeout, test -->
+                <LLMModelDecisionSection v-else ref="decisionRef" :model="model" />
                 <!-- Cost -->
                 <div class="flex items-center justify-between py-2.5">
                     <UTooltip :text="$t('settings.llms.costEditTooltip')">
@@ -180,7 +185,7 @@
                                 data-testid="card-cost-input"
                                 class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-1.5 py-1 w-16 text-xs text-gray-700 dark:text-gray-200 text-end normal-case focus:outline-none focus:border-blue-500" />
                         </label>
-                        <label class="flex items-center gap-1 text-2xs text-ink-muted uppercase tracking-wide">
+                        <label v-if="!isDecision" class="flex items-center gap-1 text-2xs text-ink-muted uppercase tracking-wide">
                             {{ $t('settings.llms.costOutput') }}
                             <input v-model.number="costOutDraft" type="number" min="0" step="0.01"
                                 data-testid="card-cost-output"
@@ -262,6 +267,8 @@ const confirmingDelete = ref(false);
 const deleting = ref(false);
 const saving = ref(false);
 const reasoningRef = ref<any>(null);
+const decisionRef = ref<any>(null);
+const isDecision = computed(() => props.model?.model_kind === 'decision');
 
 const deleteBlocked = computed(() => !!props.model && (props.model.is_default || props.model.is_small_default));
 
@@ -320,7 +327,8 @@ const isDirty = computed(() => {
         || norm(temperatureDraft.value) !== norm(props.model.config?.temperature)
         || norm(costInDraft.value) !== norm(props.model.input_cost_per_million_tokens_usd)
         || norm(costOutDraft.value) !== norm(props.model.output_cost_per_million_tokens_usd)
-        || !!reasoningRef.value?.isDirty;
+        || !!reasoningRef.value?.isDirty
+        || !!decisionRef.value?.isDirty;
 });
 
 const fail = (description: string) => toast.add({ title: 'Error', description, color: 'red' });
@@ -448,6 +456,8 @@ const save = async () => {
         }
         const reasoningError = await reasoningRef.value?.save?.();
         if (reasoningError) { fail(reasoningError); return; }
+        const decisionError = await decisionRef.value?.save?.();
+        if (decisionError) { fail(decisionError); return; }
 
         emit('updated');
         toast.add({ title: 'Model updated', color: 'green' });

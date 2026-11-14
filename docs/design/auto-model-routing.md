@@ -182,6 +182,25 @@ a new subsystem.
 4. **Settings UI** — toggle, Routing column, Cost column, hint editing;
    PromptBoxV2 "· Auto" signal + answer badge; console savings KPI block.
 
+## Upfront routing with a decision model (opt-in)
+
+An admin can switch the router's method from **Small model** (default, the
+behavior above) to **Decision model** in the Auto-router modal (org setting
+`model_routing_decision`). Before the planner's first turn, a decision model —
+a separate model kind that answers typed questions with probabilities and is
+never offered for chat — gets one `choice` question whose options are the
+routing candidates, each described by its routing hint. A pick at or above
+`min_confidence` that isn't the small model becomes the starting model through
+the same escalation path (so `route_model` can still escalate further); it is
+disclosed as a `route_model` step with `cause: "decision"`. Anything else
+(unconfident, small pick, error, timeout, disabled model) keeps the small model.
+The decision call is recorded on scope `model_routing.decision`, never as a
+routed call, and its cost is netted out of the savings KPI.
+
+Implementation and evidence: `backend/app/ai/llm/decisions.py`,
+`backend/app/ai/model_router.py` (`decide_starting_model`),
+`docs/feedback-loops/2026-11-14-decision-model-routing.md`.
+
 ## Explicitly deferred (menu, not plan)
 
 Add only if judge/savings data justifies: a per-task **Coding** model pin

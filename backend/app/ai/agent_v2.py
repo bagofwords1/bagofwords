@@ -4296,10 +4296,105 @@ class AgentV2:
                 "[routing] active: %d candidate(s), starting model=%s",
                 len(candidates), getattr(self.model, "name", None),
             )
+            # Upfront pick with a decision model (org setting
+            # model_routing_decision.method == "decision"). Only when the run
+            # actually started small under the router; never raises.
+            if (getattr(self, "_routing_meta", None) or {}).get("routed"):
+                try:
+                    await self._apply_upfront_routing_decision(candidates)
+                except Exception:
+                    logger.warning("[routing] upfront decision failed; keeping small model", exc_info=True)
+                # The "(currently active)" marker in the tool schema follows the
+                # model the run now starts on.
+                schema = build_route_model_schema(candidates, current_model_id=str(getattr(self.model, "id", "")))
+                for t in catalog:
+                    if t.name == "route_model":
+                        t.schema = schema
         else:
             # Routing inactive — never advertise the tool.
             if has_tool:
                 self.planner.tool_catalog = [t for t in catalog if t.name != "route_model"]
+
+    async def _apply_upfront_routing_decision(self, candidates) -> None:
+        """Ask the org's decision model which candidate this run should start
+        on; switch to it when the pick is confident and not the small model.
+
+        The switch reuses the escalation path (same propagation to tools, same
+        completion-model stamping), so the planner can still escalate further
+        with route_model. A non-small pick is disclosed in the chat as a
+        ``route_model`` step with ``cause="decision"`` and its probabilities.
+        """
+        from app.ai.model_router import decide_starting_model, routing_decision_settings
+        if routing_decision_settings(self.organization_settings)["method"] != "decision":
+            return
+        prompt_text = ""
+        if self.head_completion is not None and getattr(self.head_completion, "prompt", None):
+            prompt_text = (self.head_completion.prompt or {}).get("content", "") or ""
+        outcome = await decide_starting_model(
+            self.db, self.organization, self.organization_settings,
+            candidates=candidates, small_model=self.model, prompt_text=prompt_text,
+            usage_context=self.usage_limit_context,
+        )
+        if outcome.model is None:
+            logger.info("[routing] upfront decision kept small model (%s)", outcome.reason)
+            return
+        prev_name = getattr(self.model, "name", None)
+        target = outcome.model
+        self._apply_routed_model(target)
+        logger.info(
+            "[routing] decision model picked %s over %s (confidence=%.2f)",
+            target.name, prev_name, outcome.confidence,
+        )
+        decision_name = getattr(outcome.decision_model, "name", None)
+        try:
+            te = await self.project_manager.start_tool_execution(
+                self.db,
+                agent_execution=self.current_execution,
+                plan_decision_id=None,
+                tool_name="route_model",
+                tool_action="decision",
+                arguments_json={"cause": "decision"},
+                persist_before_dispatch=False,
+            )
+            te = await self.project_manager.finish_tool_execution(
+                self.db,
+                tool_execution=te,
+                status="success",
+                success=True,
+                result_summary=f"Routed to {target.name} ({round(outcome.confidence * 100)}% match)",
+                result_json={
+                    "routed": True,
+                    "cause": "decision",
+                    "model": target.model_id,
+                    "model_name": target.name,
+                    "provider_type": getattr(getattr(target, "provider", None), "provider_type", None),
+                    "from_model": prev_name,
+                    "confidence": outcome.confidence,
+                    "probabilities": outcome.probabilities[:5],
+                    "decision_model": decision_name,
+                    "latency_ms": outcome.latency_ms,
+                },
+            )
+            block = await self.project_manager.insert_standalone_tool_block(
+                self.db,
+                completion=self.system_completion,
+                agent_execution=self.current_execution,
+                tool_execution=te,
+                loop_index=0,
+                title="Model routing",
+                icon="🔀",
+            )
+            block_schema = await serialize_block_v2(self.db, block)
+            seq = await self.project_manager.next_seq(self.db, self.current_execution)
+            await self._emit_sse_event(SSEEvent(
+                event="block.upsert",
+                completion_id=str(self.system_completion_id),
+                agent_execution_id=str(self.current_execution.id),
+                seq=seq,
+                data={"block": block_schema.model_dump()},
+            ))
+        except Exception as exc:
+            logger.warning(f"[routing] decision block persist failed: {exc!r}")
 
     async def _setup_delegate_models(self) -> None:
         """Give the delegate tool this user's models as its `model` choices.
