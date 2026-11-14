@@ -3099,6 +3099,7 @@
       "emailLabel": "Email",
       "emailPlaceholder": "member{'@'}example.com",
       "roleLabel": "Role",
+      "rolesLabel": "Roles",
       "cancel": "Cancel",
       "sendInvitation": "Send Invitation",
       "allStatus": "All Status",

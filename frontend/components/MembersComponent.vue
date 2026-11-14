@@ -456,7 +456,31 @@
                     />
                 </div>
 
-                <div class="flex flex-col">
+                <!-- Roles: any mix of built-in and custom roles, sent as role_ids
+                     and applied in the same request as the invite. -->
+                <div v-if="availableRoles.length" class="flex flex-col">
+                    <label class="text-sm font-medium text-ink-2 mb-2">{{ $t('settings.members.rolesLabel') }}</label>
+                    <USelectMenu
+                        v-model="inviteForm.role_ids"
+                        :options="availableRoles"
+                        multiple
+                        option-attribute="label"
+                        value-attribute="id"
+                        size="sm"
+                        :placeholder="$t('settings.members.emptyNone')"
+                    >
+                        <template #label>
+                            <span v-if="inviteForm.role_ids.length" class="flex gap-1 flex-wrap">
+                                <UBadge v-for="rid in inviteForm.role_ids" :key="rid" size="xs" color="gray" variant="outline">
+                                    {{ availableRoles.find(r => r.id === rid)?.label }}
+                                </UBadge>
+                            </span>
+                            <span v-else class="text-ink-muted">{{ $t('settings.members.emptyNone') }}</span>
+                        </template>
+                    </USelectMenu>
+                </div>
+                <!-- Fallback when the roles list can't be read: legacy single role. -->
+                <div v-else class="flex flex-col">
                     <label class="text-sm font-medium text-ink-2 mb-2">{{ $t('settings.members.roleLabel') }}</label>
                     <USelectMenu
                         v-model="inviteForm.role"
@@ -523,7 +547,7 @@
                     <UButton
                         type="submit"
                         color="blue"
-                        :disabled="inviteLoading || !inviteAttributesValid"
+                        :disabled="inviteLoading || !inviteAttributesValid || (availableRoles.length > 0 && !inviteForm.role_ids.length)"
                     >
                         <Spinner v-if="inviteLoading" class="w-4 h-4" />
                         {{ $t('settings.members.sendInvitation') }}
@@ -805,13 +829,9 @@ const selectedGroupLabel = computed(() => {
     return group?.name || t('settings.members.allGroups')
 })
 
+// Legacy single-role options, only used when the roles list can't be loaded
+// (the invite modal otherwise multi-selects from availableRoles by id).
 const inviteRoleOptions = computed(() => {
-    if (availableRoles.value.length) {
-        return availableRoles.value.map(r => ({
-            value: r.name,
-            label: r.name.charAt(0).toUpperCase() + r.name.slice(1),
-        }))
-    }
     return [
         { value: 'member', label: t('settings.members.roleLabel') },
         { value: 'admin', label: 'Admin' },
@@ -1263,10 +1283,18 @@ const inviteLoading = ref(false)
 const inviteForm = ref({
     email: '',
     role: 'member',
+    role_ids: [] as string[],
     group_ids: [] as string[],
     quota_policy_id: null as string | null,
     custom_attributes: {} as Record<string, string>,
     organization_id: organizationId
+})
+// The modal opens with the org default role picked; the admin can add more
+// roles (built-in or custom) or swap it out.
+watch([inviteModalOpen, availableRoles], ([open]) => {
+    if (!open || inviteForm.value.role_ids.length) return
+    const def = availableRoles.value.find(r => r.name === (defaultMemberRole.value || 'member'))
+    if (def) inviteForm.value.role_ids = [def.id]
 })
 const inviteAttributesValid = ref(true)
 // Bumped on reset so the attribute editor drops its rows.
@@ -1573,14 +1601,20 @@ const inviteMember = async () => {
     if (inviteLoading.value) return
     inviteLoading.value = true
     try {
+        // Roles and groups go in the invite request itself: the backend applies
+        // them in the same transaction (to the user if the email already has an
+        // account, else to the pending invite), so nothing is half-applied.
+        const body: Record<string, any> = {
+            organization_id: organizationId,
+            email: inviteForm.value.email,
+            custom_attributes: inviteForm.value.custom_attributes,
+        }
+        if (availableRoles.value.length) body.role_ids = inviteForm.value.role_ids
+        else body.role = inviteForm.value.role
+        if (canManageGroups.value && inviteForm.value.group_ids.length) body.group_ids = inviteForm.value.group_ids
         const response = await useMyFetch(`/organizations/${organizationId}/members`, {
             method: 'POST',
-            body: {
-                organization_id: organizationId,
-                email: inviteForm.value.email,
-                role: inviteForm.value.role,
-                custom_attributes: inviteForm.value.custom_attributes,
-            }
+            body,
         })
 
         if (response.error.value) {
@@ -1593,29 +1627,17 @@ const inviteMember = async () => {
             throw new Error(errorDetail || t('settings.members.failedToInvite'))
         }
 
-        // Pre-assign the pending invite to any selected groups. The new
-        // membership has no user yet, so it's added by its membership id.
-        const newMembershipId = (response.data.value as any)?.id
-        if (newMembershipId && inviteForm.value.group_ids.length) {
-            for (const groupId of inviteForm.value.group_ids) {
-                const gr = await useMyFetch(`/organizations/${organizationId}/groups/${groupId}/members`, {
-                    method: 'POST',
-                    body: { membership_id: newMembershipId },
-                })
-                if (gr.error?.value) {
-                    const detail = (gr.error.value as any).data?.detail || t('settings.members.failedToInvite')
-                    toast.add({ title: detail, color: 'red' })
-                }
-            }
-        }
+        const created = response.data.value as any
 
-        // Pre-assign a quota policy to the pending invite (enterprise only).
-        if (newMembershipId && showQuotaColumn.value && inviteForm.value.quota_policy_id) {
+        // Pre-assign a quota policy (enterprise only). An email that already
+        // has an account becomes a registered member, addressed by user id.
+        if (created?.id && showQuotaColumn.value && inviteForm.value.quota_policy_id) {
+            const principal = memberQuotaPrincipal(created as Member)
             const qr = await useMyFetch(`/organizations/${organizationId}/usage-policy-assignments/principal`, {
                 method: 'PUT',
                 body: {
-                    principal_type: 'membership',
-                    principal_id: newMembershipId,
+                    principal_type: principal.type,
+                    principal_id: principal.id,
                     policy_id: inviteForm.value.quota_policy_id,
                 },
             })
@@ -1637,7 +1659,7 @@ const inviteMember = async () => {
             color: 'green'
         })
 
-        inviteForm.value = { email: '', role: defaultMemberRole.value || 'member', group_ids: [], quota_policy_id: null, custom_attributes: {}, organization_id: organizationId }
+        inviteForm.value = { email: '', role: defaultMemberRole.value || 'member', role_ids: [], group_ids: [], quota_policy_id: null, custom_attributes: {}, organization_id: organizationId }
         inviteEditorKey.value++
         inviteModalOpen.value = false
     } catch (error) {

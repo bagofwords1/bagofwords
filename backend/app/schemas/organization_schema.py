@@ -33,6 +33,13 @@ class MembershipCreate(BaseModel):
     # {"qlik_user_id": "dana"}); consumed by connection identity mappings.
     # Validated by services/member_attributes.normalize_custom_attributes.
     custom_attributes: Optional[Dict[str, str]] = None
+    # Roles (system or custom) and groups to give the new member, applied in
+    # the same transaction as the invite. When role_ids is non-empty it wins
+    # over `role` (which is then derived from it for the legacy column).
+    # Groups need the enterprise `custom_roles` feature. Request-only: these
+    # are not columns on Membership.
+    role_ids: Optional[List[str]] = None
+    group_ids: Optional[List[str]] = None
 
 class MembershipUpdate(BaseModel):
     role: Optional[str] = None
