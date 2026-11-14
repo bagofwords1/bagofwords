@@ -16,8 +16,32 @@ import urllib.parse
 _GLOB_CHAR = re.compile(r"[*?\[]")
 _HTTP_GLOB_CHAR = re.compile(r"\*")
 _SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://")
-_ROOT_GLOB = ("A URI of this connection is a glob at the root of a file system, bucket or host. "
+_ROOT_GLOB = ("A URI of this connection is a glob or a directory at the root of the local file system, "
+              "directly after its scheme, or with a .. segment after its scheme. "
               "Name the directory its files are in.")
+_RELATIVE_GLOB = ("A URI of this connection is a glob or a directory relative to the working directory that "
+                  "names no directory under it. Name the directory its files are in.")
+
+
+def _local_path(uri: str) -> str:
+    """A local path or file:// URI as DuckDB resolves it: file:// stripped,
+    `~` expanded, made absolute with `..` resolved, one leading '/'."""
+    path = uri[len("file://"):] if uri.lower().startswith("file://") else uri
+    return "/" + os.path.abspath(os.path.expanduser(path)).lstrip("/")
+
+
+def _local_directory(directory: str) -> str:
+    """`directory` (a local path or file:// URI ending in '/') resolved as
+    DuckDB resolves it (`_local_path`), ending in '/'. Raises ValueError
+    for a relative directory that names none under the working directory
+    (only '.' and '..' segments, or none) and for the root."""
+    path = directory[len("file://"):] if directory.lower().startswith("file://") else directory
+    if not path.startswith(("/", "~")) and not set(path.split("/")) - {"", ".", ".."}:
+        raise ValueError(_RELATIVE_GLOB)
+    resolved = _local_path(path)
+    if resolved == "/":
+        raise ValueError(_ROOT_GLOB)
+    return os.path.join(resolved, "")
 
 
 class DuckDBClient(DataSourceClient):
@@ -153,29 +177,42 @@ class DuckDBClient(DataSourceClient):
         return created
 
     def _lockdown_targets(self) -> tuple[List[str], List[str]]:
-        """(the URIs the views read, as exact paths; the directories of
-        glob URIs, up to the last '/' before the first glob character).
-        A local glob's directory is made absolute. Raises ValueError when
-        a glob's directory is the root of a file system, bucket or host."""
+        """(the exact paths the views read; the directories they may read
+        under). A URI without a glob character is an exact path, and a
+        non-http(s) one ending in '/' (a directory DuckDB reads every file
+        under) is both an exact path and a directory. A glob URI's directory
+        is the part up to the last '/' before its first glob character.
+
+        A local directory (a path or file:// URI) is resolved as DuckDB
+        resolves it: file:// stripped, `~` expanded, `..` and repeated
+        slashes resolved, made absolute. Raises ValueError when it resolves
+        to the root or, relative, names no directory under the working
+        directory; and when another scheme's directory is empty after the
+        scheme or holds a '..' segment. A bucket or a host on its own is
+        a directory like any other."""
         paths: List[str] = []
         directories: List[str] = []
         for pattern in self.uri_patterns:
             uri = self._normalize_uri(pattern)
             scheme = _SCHEME.match(uri)
+            local = scheme is None or uri.lower().startswith("file://")
             http = uri.lower().startswith(("http://", "https://"))
             glob = (_HTTP_GLOB_CHAR if http else _GLOB_CHAR).search(uri)
-            if glob is None:
+            if glob is None and (http or not uri.endswith("/")):
                 paths.append(uri)
-                if uri.lower().startswith("file://"):
-                    paths.append(uri[len("file://"):])
+                resolved = _local_path(uri) if local else uri
+                if resolved != uri:
+                    paths.append(resolved)
                 continue
-            directory = uri[:uri.rfind("/", 0, glob.start()) + 1]
-            if scheme is None:
-                # A local directory, absolute and ending in '/'.
-                directory = os.path.join(os.path.abspath(directory), "")
-            # What the directory names after its scheme: '' or '/' is a root.
-            if directory[scheme.end() if scheme else 0:] in ("", "/"):
-                raise ValueError(_ROOT_GLOB)
+            directory = uri if glob is None else uri[:uri.rfind("/", 0, glob.start()) + 1]
+            if local:
+                directory = _local_directory(directory)
+            else:
+                after = directory[scheme.end():]
+                if not after.strip("/") or ".." in after.split("/"):
+                    raise ValueError(_ROOT_GLOB)
+            if glob is None:
+                paths.append(directory)
             directories.append(directory)
         return paths, directories
 

@@ -854,8 +854,9 @@ def _check_duckdb_select(client, sql: str, *, after: Optional[str] = None) -> No
             inspect_duckdb_sql(sql), lambda table: _check_duckdb_table(client, table),
             violation=ReadOnlyViolation,
             describe_error=ReadOnlyViolation(
-                "DESCRIBE, SHOW and SUMMARIZE are allowed only as the whole statement, on a table name. "
-                "Only SELECT queries are allowed otherwise."),
+                "DESCRIBE and SHOW are allowed only as the whole statement, on a table name. SUMMARIZE is "
+                "not available on this connection; a SELECT with aggregates such as count, min, max and avg "
+                "gives the same figures. Only SELECT queries are allowed otherwise."),
         )
     except DuckdbQueryError as e:
         if after is None:

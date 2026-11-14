@@ -18,7 +18,8 @@ How it works:
 Names are compared the way the engine reads them: Postgres names folded
 as Postgres folds them (unquoted ones with their ASCII letters lowered,
 quoted ones as written) against the names as the catalog stores them;
-other dialects' names case-insensitively. A table reference is set aside
+DuckDB names, quoted or not, with their ASCII letters lowered on both
+sides, as DuckDB compares them; other dialects' names case-insensitively. A table reference is set aside
 as a CTE only when a WITH entry holding a query has exactly the name as
 written (for Postgres, as Postgres folds it); any other spelling is
 checked as a table. No WITH entry may take the name of a disabled table:
@@ -124,6 +125,10 @@ class TableScope:
     # stripped, case kept), for dialects whose names are compared the way
     # their engine folds them (`_ENGINE_FOLDED`).
     exact: TableScope | None = None
+    # The same selection with each name as the catalog stores it, its ASCII
+    # letters lowered and nothing else (`duckdb_guard.ascii_lower`), the way
+    # DuckDB compares names; for DuckDB, whose names are read that way.
+    ascii_folded: TableScope | None = None
 
     @classmethod
     def from_names(
@@ -144,11 +149,18 @@ class TableScope:
         legacy = None
         if db and not enforce_databases:
             legacy = cls.from_names(active, inactive, lower=lower)
-        exact = None
+        exact = ascii_folded = None
         if lower:
+            from app.ai.code_execution.duckdb_guard import ascii_lower
+
             exact = cls.from_names(active, inactive, default_database=default_database,
                                    enforce_databases=enforce_databases, lower=False)
-        return cls(active=act, inactive=ina, default_database=db, legacy=legacy, exact=exact)
+            ascii_folded = cls.from_names(
+                [ascii_lower(str(x)) for x in active], [ascii_lower(str(x)) for x in inactive],
+                default_database=ascii_lower(default_database) if isinstance(default_database, str) else None,
+                enforce_databases=enforce_databases, lower=False)
+        return cls(active=act, inactive=ina, default_database=db, legacy=legacy, exact=exact,
+                   ascii_folded=ascii_folded)
 
 
 def _suffix_match(ref: Name, known: Name) -> bool:
@@ -244,6 +256,9 @@ def _name_part(ident, dialect: str | None) -> str:
 def _table_ref(table, dialect: str | None) -> Name:
     from sqlglot import exp
 
+    if dialect == "duckdb":
+        # DuckDB folds every name, quoted or not, ASCII letters only.
+        return tuple(p.translate(_ASCII_LOWER) for p in (table.catalog, table.db, table.name) if p)
     if dialect not in _ENGINE_FOLDED:
         return tuple(p.lower() for p in (table.catalog, table.db, table.name) if p)
     parts = []
@@ -362,8 +377,8 @@ def tables_read(statement, dialect: str | None = None) -> list[Name]:
     table reference that is an identifier (not a table function), except a
     one-part name that refers to a CTE visible where it stands, and on
     ClickHouse every table read as the set of an IN (`_in_set_tables`).
-    Name parts lowered, or for Postgres (`dialect`) folded as Postgres
-    folds them. Raises TableScopeViolation for WITH entries that refer to
+    Name parts lowered, or for Postgres and DuckDB (`dialect`) folded as
+    their engine folds them. Raises TableScopeViolation for WITH entries that refer to
     each other (`_check_with_loops`, over the whole statement `statement`
     belongs to) and for a ClickHouse IN set outside the shapes it reads."""
     from sqlglot import exp
@@ -768,7 +783,11 @@ def _refuse_denied(denied: list[str]) -> None:
 
 def _collect_denied(refs, scope: TableScope, dialect: str, denied: list[str]) -> None:
     """Add to `denied` each of `refs` the scope does not allow."""
-    compared = scope.exact if dialect in _ENGINE_FOLDED and scope.exact is not None else scope
+    compared = scope
+    if dialect in _ENGINE_FOLDED and scope.exact is not None:
+        compared = scope.exact
+    elif dialect == "duckdb" and scope.ascii_folded is not None:
+        compared = scope.ascii_folded
     for ref in refs:
         if not is_allowed(_qualify(ref, compared.default_database), compared):
             if compared.legacy is not None and is_allowed(ref, compared.legacy):

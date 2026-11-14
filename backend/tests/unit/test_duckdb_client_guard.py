@@ -16,7 +16,13 @@ Contract:
   PRAGMAs) and EXPLAIN are refused, and DESCRIBE / DESC / PRAGMA table_info
   and the tables of a SELECT are checked against it (`TableScopeViolation`);
 - the query connection is locked to the connection's own files: a
-  statement that skipped every check still cannot read another file;
+  statement that skipped every check still cannot read another file.
+  Local URIs are resolved as DuckDB resolves them (file:// stripped, `~`
+  expanded, `..` and repeated slashes resolved); a glob or directory URI
+  that resolves to the root, or a relative one naming no directory under
+  the working directory, is refused before the connection opens;
+- table selection compares names the way DuckDB folds them (ASCII
+  letters only), on both sides;
 - DuckDB's own catalog views are refused on both kinds of connection, and
   a CTE never stands in for one: CTE names are plain ASCII names, compared
   the way DuckDB folds names (ASCII letters only).
@@ -534,56 +540,183 @@ def test_an_http_uri_with_a_query_string_is_allowed_exactly(remote, http_base):
 
 
 def test_the_lockdown_targets_of_each_uri_shape(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    cwd = Path.cwd()
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
     client = DuckDBClient(uris="\n".join([
         "https://host.example/x.csv?sig=abc",
         "https://host.example/y[1].csv",
         "s3://bucket/part?.csv",
         "s3://bucket/daily/*.parquet",
+        "s3://bucket/exports/",
         "data/*.csv",
-        "data*/x.csv",
-        "*.csv",
-        "sub*/../x.csv",
         "../shared/*.csv",
+        "~/in-home/*.csv",
+        f"file://{tmp_path}/a/../b/*.csv",
+        f"/{tmp_path}/c/*.csv",
+        f"{tmp_path}/reports/",
         str(tmp_path / "abs.csv"),
+        f"file://{tmp_path}/f.csv",
     ]))
     paths, directories = client._lockdown_targets()
-    assert paths == ["https://host.example/x.csv?sig=abc", "https://host.example/y[1].csv", str(tmp_path / "abs.csv")]
-    assert directories == ["s3://bucket/", "s3://bucket/daily/", f"{cwd}/data/", f"{cwd}/", f"{cwd}/", f"{cwd}/",
-                           f"{cwd.parent}/shared/"]
+    assert paths == ["https://host.example/x.csv?sig=abc", "https://host.example/y[1].csv", "s3://bucket/exports/",
+                     f"{tmp_path}/reports/", str(tmp_path / "abs.csv"), f"file://{tmp_path}/f.csv", f"{tmp_path}/f.csv"]
+    assert directories == ["s3://bucket/", "s3://bucket/daily/", "s3://bucket/exports/", f"{work}/data/",
+                           f"{tmp_path}/shared/", f"{home}/in-home/", f"{tmp_path}/b/", f"{tmp_path}/c/",
+                           f"{tmp_path}/reports/"]
 
 
-@pytest.mark.parametrize("uri", ["*.csv", "data*/x.csv"])
-def test_a_relative_glob_uri_reads_its_files_and_nothing_outside_even_without_the_checks(uri, tmp_path, monkeypatch):
+def test_a_relative_glob_under_a_named_directory_reads_its_files_and_nothing_outside_even_without_the_checks(
+        tmp_path, monkeypatch):
     work = tmp_path / "work"
-    (work / "data1").mkdir(parents=True)
-    (work / "data1" / "x.csv").write_text("id\n1\n")
-    (work / "part.csv").write_text("id\n2\n")
+    (work / "data").mkdir(parents=True)
+    (work / "data" / "x.csv").write_text("id\n1\n")
+    (work / "private.csv").write_text("token\nhidden-value\n")
     secret = tmp_path / "other.csv"
     secret.write_text("token\nhidden-value\n")
     monkeypatch.chdir(work)
-    client = DuckDBClient(uris=uri)
+    client = DuckDBClient(uris="data/*.csv")
     with client.connect() as con:
         assert con.execute(f"SELECT count(*) FROM {client.view_names()[0]}").fetchone() == (1,)
-        for outside in ("../other.csv", str(secret)):
+        for outside in ("private.csv", "../other.csv", str(secret)):
             with pytest.raises(duckdb.Error):
                 con.execute(f"SELECT * FROM read_csv_auto('{_sq(outside)}')").fetchall()
 
 
-ROOT_REFUSAL = ("Error while connecting to DuckDB: A URI of this connection is a glob at the root of a file "
-                "system, bucket or host. Name the directory its files are in.")
+def test_a_glob_under_the_home_directory_reads_its_files_and_nothing_outside(tmp_path, monkeypatch, files):
+    home = tmp_path / "home"
+    (home / "daily").mkdir(parents=True)
+    (home / "daily" / "part1.csv").write_text("id\n1\n")
+    (home / "daily" / "part2.csv").write_text("id\n2\n")
+    monkeypatch.setenv("HOME", str(home))
+    client = DuckDBClient(uris="~/daily/*.csv")
+    assert _run(client, "SELECT count(*) AS n FROM daily")["n"].tolist() == [2]
+    with client.connect() as con:
+        with pytest.raises(duckdb.Error):
+            con.execute(f"SELECT * FROM read_csv_auto('{_sq(files.secret)}')").fetchall()
+
+
+def test_a_directory_uri_reads_the_files_under_it_and_nothing_outside(tmp_path, files):
+    reports = tmp_path / "reports"
+    (reports / "2026").mkdir(parents=True)
+    (reports / "a.csv").write_text("id\n1\n")
+    (reports / "2026" / "b.csv").write_text("id\n2\n")
+    client = DuckDBClient(uris=f"{reports}/")
+    assert _run(client, "SELECT count(*) AS n FROM reports")["n"].tolist() == [2]
+    with client.connect() as con:
+        with pytest.raises(duckdb.Error):
+            con.execute(f"SELECT * FROM read_csv_auto('{_sq(files.secret)}')").fetchall()
+
+
+ROOT_REFUSAL = ("Error while connecting to DuckDB: A URI of this connection is a glob or a directory at the root "
+                "of the local file system, directly after its scheme, or with a .. segment after its scheme. "
+                "Name the directory its files are in.")
+RELATIVE_REFUSAL = ("Error while connecting to DuckDB: A URI of this connection is a glob or a directory relative "
+                    "to the working directory that names no directory under it. "
+                    "Name the directory its files are in.")
+
+
+def _opened_or_refused(client: DuckDBClient, outside: str) -> str:
+    """The refusal `connect()` raises, or a test failure when the
+    connection opens and reads `outside`, a file none of its URIs name."""
+    try:
+        with client.connect() as con:
+            leaked = con.execute(f"SELECT * FROM read_csv_auto('{_sq(outside)}')").fetchall()
+    except RuntimeError as refused:
+        return str(refused)
+    pytest.fail(f"the locked connection read a file outside its URIs ({len(leaked)} rows)")
 
 
 @pytest.mark.parametrize("uri", [
-    "/*.csv", "/*/x.csv", "file:///*.csv", "file://*.csv", "s3://*/x.csv", "s3://bucket*/x.csv", "gs://*",
-    "https://*.example.com/x.csv",
+    "/*.csv", "/*/x.csv", "file:///*.csv", "s3://*/x.csv", "s3://bucket*/x.csv", "gs://*",
+    "https://*.example.com/x.csv", "s3://bucket/../*.csv", "s3://bucket/a/../../*.csv", "/", "file:///", "s3://",
 ])
 def test_a_glob_at_a_root_is_refused_before_the_connection_opens_anything(uri):
     with pytest.raises(RuntimeError) as refused:
         with DuckDBClient(uris=uri).connect():
             pass
     assert str(refused.value) == ROOT_REFUSAL
+
+
+def _climbing_to_the_root(prefix: str, target: Path) -> str:
+    """A glob URI for `target`, written as `prefix`, its top directory and
+    `..`: the directory before the glob is the root once resolved."""
+    top, rest = target.parts[1], "/".join(target.parts[2:])
+    return f"{prefix}{top}/../{top[0]}*/{rest}"
+
+
+@pytest.mark.parametrize("prefix", ["//", "file:///", "file:////"])
+def test_a_glob_whose_directory_resolves_to_the_root_is_refused(prefix, files):
+    client = DuckDBClient(uris=_climbing_to_the_root(prefix, files.data / "sales.csv"))
+    assert _opened_or_refused(client, str(files.secret)) == ROOT_REFUSAL
+
+
+@pytest.mark.parametrize("uri", ["*.csv", "./*.csv", "data*.csv", "sub*/x.csv", ".//*.csv", "../*.csv",
+                                 "file://*.csv", "./"])
+def test_a_relative_glob_that_names_no_directory_is_refused(uri, tmp_path, monkeypatch):
+    work = tmp_path / "work"
+    (work / "sub1").mkdir(parents=True)
+    (work / "data1.csv").write_text("id\n1\n")
+    (work / "sub1" / "x.csv").write_text("id\n1\n")
+    (tmp_path / "top.csv").write_text("id\n1\n")
+    (work / "private").mkdir()
+    (work / "private" / "other.csv").write_text("token\nhidden-value\n")
+    monkeypatch.chdir(work)
+    assert _opened_or_refused(DuckDBClient(uris=uri), str(work / "private" / "other.csv")) == RELATIVE_REFUSAL
+
+
+# ------------------------------------------------------------ table selection, names as DuckDB folds them
+
+U_UMLAUT, u_umlaut = chr(0xDC), chr(0xFC)
+OVERVIEW, overview = U_UMLAUT + "bersicht", u_umlaut + "bersicht"
+CYRILLIC = chr(0x414) + chr(0x430) + chr(0x43D)
+
+
+@pytest.fixture
+def named_db(tmp_path) -> Path:
+    """Tables whose names differ only in a non-ASCII letter's case, which
+    DuckDB keeps apart, or in a Kelvin sign against a 'k'."""
+    path = tmp_path / "names.duckdb"
+    con = duckdb.connect(str(path))
+    for name, v in [(OVERVIEW, 1), (overview, 2), (CYRILLIC, 3), (KELVIN + "x", 4), ("kx", 5)]:
+        con.execute(f'CREATE TABLE "{name}" AS SELECT {v} AS v')
+    con.close()
+    return path
+
+
+def test_with_a_table_selection_an_enabled_non_ascii_name_reads_in_every_spelling_duckdb_accepts(named_db):
+    client = DuckDBClient(database=str(named_db))
+    setattr(client, TABLE_SCOPE_ATTR, TableScope.from_names(
+        active=[OVERVIEW, CYRILLIC, KELVIN + "x"], inactive=[overview, "kx"]))
+    for name, v in [(OVERVIEW, 1), (OVERVIEW.upper(), 1), (U_UMLAUT + "BERSICHT", 1), (f'"{OVERVIEW}"', 1),
+                    (f'"{OVERVIEW.upper()}"', 1), (f"main.{OVERVIEW}", 1), (CYRILLIC, 3), (f'"{CYRILLIC}"', 3),
+                    (f'"{KELVIN}x"', 4), (f'"{KELVIN}X"', 4)]:
+        assert _run(client, f"SELECT v FROM {name}")["v"].tolist() == [v], name
+    for name in (overview, u_umlaut + "BERSICHT", f'"{overview}"', "kx", "KX", '"Kx"'):
+        with pytest.raises(TableScopeViolation):
+            _run(client, f"SELECT v FROM {name}")
+
+
+def test_with_a_table_selection_a_kelvin_sign_never_stands_for_an_enabled_k(named_db):
+    client = DuckDBClient(database=str(named_db))
+    setattr(client, TABLE_SCOPE_ATTR, TableScope.from_names(active=["kx"], inactive=[KELVIN + "x"]))
+    for name in ("kx", "KX", '"Kx"'):
+        assert _run(client, f"SELECT v FROM {name}")["v"].tolist() == [5], name
+    for name in (f'"{KELVIN}x"', f'"{KELVIN}X"'):
+        with pytest.raises(TableScopeViolation):
+            _run(client, f"SELECT v FROM {name}")
+
+
+# ------------------------------------------------------------ SUMMARIZE
+
+@pytest.mark.parametrize("sql", ["SUMMARIZE sales", "SELECT * FROM (SUMMARIZE sales)"])
+def test_summarize_is_refused_as_not_available_with_a_select_to_use_instead(client, sql):
+    with pytest.raises(ReadOnlyViolation) as refused:
+        ensure_read_only(client, sql)
+    assert "SUMMARIZE is not available" in str(refused.value)
+    assert "SELECT with aggregates" in str(refused.value)
 
 
 # ------------------------------------------------------------ the wrapper
