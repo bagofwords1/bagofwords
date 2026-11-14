@@ -1784,6 +1784,15 @@ class AgentV2:
             if folder_scope and roster_xml:
                 from app.ai.context.agent_roster import FOLDER_ROUTING_GUIDANCE
                 roster_xml += "\n<folder_routing>" + FOLDER_ROUTING_GUIDANCE + "</folder_routing>"
+            # Cached schemas can be shared across users. Add visible paths on
+            # private copies only, after resolving this reader's permissions.
+            from app.services.folder_service import visible_agent_paths
+            paths = await visible_agent_paths(self.db, self.organization, user, _roster_sources)
+            if paths:
+                schemas_ctx = schemas_ctx.model_copy(update={"data_sources": [
+                    section.model_copy(update={"info": section.info.model_copy(update={"folder_path": paths[str(section.info.id)]})})
+                    if str(section.info.id) in paths else section for section in schemas_ctx.data_sources
+                ]})
             if _mode == "all":
                 # Few agents attached (manual selection or small Auto scope):
                 # full schema as always. A manual selection is a hard scope —

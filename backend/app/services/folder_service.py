@@ -206,10 +206,9 @@ async def can_read_folder_output(db, report, user):
     return True
 
 
-async def visible_agent_paths(db, organization, user, agents):
-    """Visible suffix of each home path. Stop at the first invisible ancestor."""
-    homes = {str(a.id): a.folder_id for a in agents if getattr(a, "folder_id", None)}
-    if not homes or not user or not organization:
+async def queryable_folder_tree(db, organization, user):
+    """Return only queryable nodes, with hidden parents clipped."""
+    if not user or not organization:
         return {}
     from app.core.permission_resolver import resolve_permissions
     rights = await resolve_permissions(db, user.id, organization.id)
@@ -217,17 +216,27 @@ async def visible_agent_paths(db, organization, user, agents):
         Folder.organization_id == organization.id, Folder.deleted_at.is_(None)))
     visible = {fid: (parent, name) for fid, parent, name in rows
                if rights.has_resource_permission("folder", fid, "view")}
-    paths = {}
-    for home in set(homes.values()):
-        names, seen = [], set()
-        node = home
-        while node in visible and node not in seen:
-            seen.add(node)
-            node, name = visible[node]
-            names.append(name)
-        if names:
-            paths[home] = " / ".join(reversed(names))
+    return {fid: (parent if parent in visible else None, name) for fid, (parent, name) in visible.items()}
+
+
+def folder_path(tree, folder_id, separator=" / "):
+    names = []
+    seen = set()
+    while folder_id in tree and folder_id not in seen:
+        seen.add(folder_id)
+        folder_id, name = tree[folder_id]
+        names.append(name)
+    return separator.join(reversed(names))
+
+
+async def visible_agent_paths(db, organization, user, agents):
+    homes = {str(a.id): a.folder_id for a in agents if getattr(a, "folder_id", None)}
+    if not homes:
+        return {}
+    tree = await queryable_folder_tree(db, organization, user)
+    paths = {fid: folder_path(tree, fid) for fid in set(homes.values()) if fid in tree}
     return {aid: paths[home] for aid, home in homes.items() if home in paths}
+
 
 
 async def lock_tree(db, org, user):

@@ -271,6 +271,7 @@
                 <MentionInput
                     v-else
                     v-model="text"
+                    :folder-options="mentionFolders"
                     @update:mentions="handleMentionsUpdate"
                     @submit="submit"
                     :placeholder="placeholder"
@@ -369,7 +370,7 @@
                         @update:autoMode="(val: boolean) => emit('update:autoMode', val)"
                         :allow-folder-scope="allowFolderScope"
                         v-model:folder-ids="folderScope"
-                        @update:available-folders="emit('update:availableFolders', $event)"
+                        @update:available-folders="mentionFolders = $event; emit('update:availableFolders', $event)"
                         :reportId="report_id"
                         :persistSelection="persistSelection"
                         :project-name="currentProject?.name || ''"
@@ -1724,6 +1725,8 @@ const submitTooltip = computed(() => {
     return ''
 })
 
+const mentionFolders = ref<{id:string, path:string}[]>([])
+
 function buildSubmitPayload() {
     // Excel selection is delivered via prompt.platform_context on the parent
     // submit path (see onSubmitCompletion). It is intentionally NOT prepended
@@ -1737,6 +1740,8 @@ function buildSubmitPayload() {
         entities: inlineMentions.value.filter(m => m.type === 'entity'),
         instructions: inlineMentions.value.filter(m => m.type === 'instruction')
     }
+    const folderMentions = inlineMentions.value.filter(m => m.type === 'folder')
+    const foldersGroup = folderMentions.length ? [{name: 'FOLDERS', items: folderMentions}] : []
     // Get image files that have been successfully uploaded (for immediate display in chat)
     const imageFiles = successfullyUploadedFiles.value
         .filter(f => isImageFile(f))
@@ -1745,6 +1750,7 @@ function buildSubmitPayload() {
     return {
         text: text.value,
         mentions: [
+            ...foldersGroup,
             { name: 'DATA SOURCES', items: mentionsByType.data_sources },
             { name: 'TABLES', items: mentionsByType.tables },
             { name: 'FILES', items: mentionsByType.files },

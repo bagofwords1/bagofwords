@@ -933,6 +933,8 @@ class TablesSchemaContext(ContextSection):
 
             # Build data_source attributes
             ds_attrs = {"name": self.info.name, "id": self.info.id}
+            if self.info.folder_path:
+                ds_attrs["folder_path"] = self.info.folder_path
             # Only include type if single connection (for backward compatibility)
             if not has_multi_connection and not self.file_scopes and self.info.type:
                 ds_attrs["type"] = self.info.type
@@ -1405,6 +1407,8 @@ class TablesSchemaContext(ContextSection):
                 "name": ds.info.name,
                 "id": ds.info.id,
             }
+            if item_tag != "connector" and ds.info.folder_path:
+                attrs["folder_path"] = ds.info.folder_path
             if item_tag != "connector":
                 attrs["total_tables"] = str(len(getattr(ds, 'tables', []) or []))
             # Only include type for single-connection (backward compatibility)

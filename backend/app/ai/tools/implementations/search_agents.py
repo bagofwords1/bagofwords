@@ -125,6 +125,21 @@ def match_quality(patterns, strong_haystack: str, weak_haystack: str):
     return None, 0
 
 
+def matches_directory_path(path: str, pattern: str) -> bool:
+    """Match slash-delimited segments. A ** segment consumes zero or more."""
+    from fnmatch import fnmatchcase
+    segments = path.casefold().split("/")
+    positions = {0}
+    for part in pattern.strip("/").casefold().split("/"):
+        if not positions:
+            return False
+        if part == "**":
+            positions = set(range(min(positions), len(segments) + 1))
+        else:
+            positions = {i + 1 for i in positions if i < len(segments) and fnmatchcase(segments[i], part)}
+    return len(segments) in positions
+
+
 class SearchAgentsTool(Tool):
     @property
     def metadata(self) -> ToolMetadata:
@@ -134,6 +149,8 @@ class SearchAgentsTool(Tool):
                 "RESEARCH: Find agents (data sources) and load their schema on demand. "
                 "The report may show only a thin <available_agents> roster when many "
                 "agents are attached — call this to pull the right one(s) in. Matches "
+                "For agent folders/directories use directory=true, folder_id, or path_glob (Marketing/**); "
+                "these browse organization folders, including empty folders, within report scope. Matches "
                 "your `query` terms (keyword or regex, unioned) against each agent's "
                 "name, description, primary instruction, and table/tool names, ranks by "
                 "your recent usage, and returns the matched agents' FULL tables/tools "
@@ -189,6 +206,15 @@ class SearchAgentsTool(Tool):
         try:
             from app.ai.tools.implementations.agent_focus_common import resolve_candidate_agents
             from app.ai.context.agent_roster import load_agent_one_liners, rank_agents_for_user
+
+            browsing = data.directory or data.folder_id is not None or data.path_glob is not None
+            if browsing:
+                result = await self._browse_directory(data, db, organization, user, report, mode)
+                yield ToolEndEvent(type="tool.end", payload={
+                    "output": result.model_dump(),
+                    "observation": {"summary": result.model_dump_json(exclude_none=True), "artifacts": []},
+                })
+                return
 
             # Same-query dedupe: an identical search this run already returned
             # (and its schemas stay loaded in context) — don't re-fetch.
@@ -386,6 +412,76 @@ class SearchAgentsTool(Tool):
         except Exception as e:
             logger.exception(f"search_agents failed: {e}")
             yield ToolErrorEvent(type="tool.error", payload={"error": f"Search failed: {e}", "code": "SEARCH_FAILED"})
+
+    async def _browse_directory(self, data, db, organization, user, report, mode):
+        from fastapi import HTTPException
+        from app.ai.tools.implementations.agent_focus_common import resolve_candidate_agents
+        from app.services.data_source_kind import is_connector
+        from app.services.folder_service import folder_path, load_report_folders, queryable_folder_tree
+
+        if report is None or user is None:
+            return SearchAgentsOutput(success=True, total=0, message="No directory in this report scope.")
+        tree = await queryable_folder_tree(db, organization, user)
+        try:
+            candidates, scope, _ = await resolve_candidate_agents(db, organization, user, report, mode)
+        except HTTPException as exc:
+            if exc.status_code != 409 or exc.detail != "No available agents in this folder":
+                raise
+            candidates, scope = [], "folder"
+        # A saved manual selection may outlive a grant or publishing change.
+        # Re-check current eligibility before disclosing names or descriptions.
+        if scope in {"attached", "managed"}:
+            from app.ai.tools.implementations.agent_focus_common import accessible_agents
+            eligible = {str(agent.id) for agent in await accessible_agents(db, organization, user)}
+            candidates = [agent for agent in candidates if str(agent.id) in eligible]
+        candidates = [agent for agent in candidates if not is_connector(agent)]
+        selected = set(await load_report_folders(db, report)) if report else set()
+        allowed = set()
+        if scope == "accessible" and report is not None:
+            allowed.update(tree)
+        else:
+            # Pinned agents reveal only their visible home paths. Explicitly
+            # selected folders additionally expose their queryable descendants.
+            for agent in candidates:
+                node = getattr(agent, "folder_id", None)
+                while node in tree and node not in allowed:
+                    allowed.add(node)
+                    node = tree[node][0]
+            children = {}
+            for fid, (parent, _) in tree.items():
+                children.setdefault(parent, []).append(fid)
+            pending = list(selected.intersection(tree))
+            while pending:
+                node = pending.pop()
+                allowed.add(node)
+                pending.extend(children.get(node, []))
+
+        paths = {fid: folder_path(tree, fid, "/") for fid in allowed}
+        if data.path_glob is not None:
+            matched = {fid for fid, path in paths.items() if matches_directory_path(path, data.path_glob)}
+            if data.folder_id is not None:
+                matched &= {data.folder_id}
+            folders = homes = matched
+        elif data.folder_id is not None:
+            homes = {data.folder_id} & allowed
+            folders = {fid for fid in allowed if tree[fid][0] in homes}
+        else:
+            folders = {fid for fid in allowed if tree[fid][0] not in allowed}
+            homes = {None}
+
+        entries = [("folder", fid, paths[fid]) for fid in sorted(folders, key=lambda fid: (paths[fid].casefold(), fid))]
+        agents = {str(a.id): a for a in candidates if getattr(a, "folder_id", None) in homes}
+        entries.extend(("agent", aid, a.name) for aid, a in sorted(agents.items(), key=lambda pair: (pair[1].name.casefold(), pair[0])))
+        result = SearchAgentsOutput(success=True, total=len(entries),
+            message="Agent directory entries. Use offset to continue if more entries remain.")
+        for kind, ident, name in entries[data.offset:data.offset + data.limit]:
+            if kind == "folder":
+                result.folders.append({"id": ident, "path": name})
+            else:
+                agent = agents[ident]
+                result.agents.append(SearchAgentsItem(id=ident, name=name, folder_path=paths.get(agent.folder_id),
+                    description=getattr(agent, "description", None)))
+        return result
 
     @staticmethod
     def _icon_hints(ds: Any) -> Dict[str, Any]:

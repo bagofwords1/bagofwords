@@ -35,6 +35,7 @@ class AgentIconTokenMixin(BaseModel):
 
 class DataSourceSummarySchema(BaseModel):
     """Minimal DataSource schema for summaries."""
+    folder_path: Optional[str] = None
     id: str
     name: str
     type: Optional[str] = None  # Computed from connection

@@ -5,6 +5,10 @@ from pydantic import BaseModel, Field
 
 
 class SearchAgentsInput(BaseModel):
+    directory: bool = Field(False, description="Browse agent folders. Without a filter, list visible root folders and root agents.")
+    folder_id: Optional[str] = Field(None, description="List direct child folders and eligible agents of this folder ID.")
+    path_glob: Optional[str] = Field(None, max_length=512, description="Match visible folder paths, e.g. Marketing/**. * matches one segment, ** any depth.")
+    offset: int = Field(0, ge=0, description="Skip this many directory entries for pagination.")
     same_folder_as: Optional[str] = Field(None, description="Limit results to the visible home folder of this accessible agent ID.")
     query: Optional[List[str]] = Field(
         None,
@@ -54,6 +58,7 @@ class SearchAgentsItem(BaseModel):
 
 
 class SearchAgentsOutput(BaseModel):
+    folders: List[dict[str, str]] = Field(default_factory=list)
     success: bool = Field(..., description="Whether the search succeeded")
     agents: List[SearchAgentsItem] = Field(default_factory=list)
     total: int = Field(0, description="Total agents matched (before limit)")

@@ -130,7 +130,18 @@ class MentionContextBuilder:
         if len(instructions) > max_items_per_group:
             instructions = instructions[:max_items_per_group]
 
-        return MentionsSection(files=files, data_sources=data_sources, tables=tables, entities=entities, instructions=instructions)
+        # Prompt groups are persisted with the turn. Resolve folder IDs against
+        # current permissions and names; they never change report selection.
+        folders = []
+        prompt = getattr(self.head_completion, "prompt", None) or {}
+        ids = [str(item["id"]) for group in (prompt.get("mentions") or [])
+               if group.get("name") == "FOLDERS" for item in group.get("items", [])
+               if isinstance(item, dict) and item.get("id")]
+        if ids:
+            from app.services.folder_service import queryable_folder_tree, folder_path
+            tree = await queryable_folder_tree(self.db, self.organization, self.user)
+            folders = [{"id": fid, "name": folder_path(tree, fid)} for fid in dict.fromkeys(ids) if fid in tree]
+        return MentionsSection(folders=folders[:max_items_per_group], files=files, data_sources=data_sources, tables=tables, entities=entities, instructions=instructions)
 
     async def _resolve_table_mention(self, m: Mention, max_columns_preview: int) -> Optional[dict]:
         """Render a mentioned table only if this run's schema context shows it.

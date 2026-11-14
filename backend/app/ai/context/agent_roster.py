@@ -279,7 +279,7 @@ def render_agent_roster_xml(
         )
     if tail:
         named = tail[:MORE_AGENTS_NAME_CAP]
-        names = ", ".join(_xml_escape(a.name) for a in named)
+        names = ", ".join(_xml_escape(f"{a.folder_path} / {a.name}" if a.folder_path else a.name) for a in named)
         overflow = len(tail) - len(named)
         suffix = f" (+{overflow} more)" if overflow > 0 else ""
         lines.append(

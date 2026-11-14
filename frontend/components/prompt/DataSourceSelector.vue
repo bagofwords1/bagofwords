@@ -74,6 +74,25 @@
                         </div>
                     </div>
                     <div class="p-2 max-h-64 overflow-y-auto">
+                    <button type="button"
+                        v-if="!hasQuery"
+                        class="w-full px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer flex items-center justify-between"
+                        @click="toggleAutoMode"
+                        data-testid="agent-scope-auto"
+                        :data-selected="isAutoMode ? 'true' : 'false'"
+                    >
+                        <div class="flex items-center">
+                            <Icon name="heroicons-bolt" class="h-4 w-4 text-gray-500 dark:text-gray-400 me-2" />
+                            <div class="flex flex-col text-start">
+                                <span class="text-sm">{{ $t('prompt.modelAuto') }}</span>
+                                <span class="text-2xs text-ink-muted">
+                                    {{ $t('prompt.autoAgentsHint') }}
+                                </span>
+                            </div>
+                        </div>
+                        <Icon v-if="isAutoMode" name="heroicons-check" class="w-4 h-4 text-blue-500" />
+                    </button>
+                    <div v-if="!hasQuery" class="my-1 border-t border-gray-100 dark:border-gray-800" />
                     <button v-for="folder in scopeFolders" :key="folder.id" class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-surface-muted"
                         :aria-pressed="folderIds.includes(folder.id)" @click="chooseFolder(folder.id)"><UIcon name="i-heroicons-folder" /><span class="flex-1 text-start">{{ folder.path }}</span><UIcon v-if="folderIds.includes(folder.id)" name="i-heroicons-check" class="size-4 text-blue-500" /></button>
                     <div v-if="isLoading" class="flex items-center justify-center py-6 text-gray-500 dark:text-gray-400 space-x-2">
@@ -85,7 +104,7 @@
                             {{ $t('prompt.noDataSources') }}
                         </div>
                         <div
-                            v-else-if="hasQuery && filteredGroups.length === 0 && filteredConnectable.length === 0"
+                            v-else-if="hasQuery && !scopeFolders.length && filteredGroups.length === 0 && filteredConnectable.length === 0"
                             class="text-center text-gray-500 dark:text-gray-400 py-4"
                             data-testid="agent-scope-no-match"
                         >
@@ -93,25 +112,6 @@
                         </div>
                         <template v-else>
                             <template v-if="visibleDataSources.length > 0">
-                                <div
-                                    v-if="!hasQuery"
-                                    class="px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer flex items-center justify-between"
-                                    @click="toggleAutoMode"
-                                    data-testid="agent-scope-auto"
-                                    :data-selected="isAutoMode ? 'true' : 'false'"
-                                >
-                                    <div class="flex items-center">
-                                        <Icon name="heroicons-bolt" class="h-4 w-4 text-gray-500 dark:text-gray-400 me-2" />
-                                        <div class="flex flex-col text-start">
-                                            <span class="text-sm">{{ $t('prompt.modelAuto') }}</span>
-                                            <span class="text-2xs text-ink-muted">
-                                                {{ $t('prompt.autoAgentsHint') }}
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <Icon v-if="isAutoMode" name="heroicons-check" class="w-4 h-4 text-blue-500" />
-                                </div>
-                                <div v-if="!hasQuery" class="my-1 border-t border-gray-100 dark:border-gray-800" />
                                 <template v-for="group in filteredGroups" :key="group.key">
                                 <div v-if="group.divider" class="my-1 border-t border-gray-100 dark:border-gray-800" />
                                 <div v-if="group.label" class="px-2 pt-1 pb-0.5 text-start text-2xs font-medium uppercase tracking-wide text-ink-muted">
