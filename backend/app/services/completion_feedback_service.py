@@ -985,7 +985,10 @@ class CompletionFeedbackService:
         from app.models.report import Report
         report = await db.get(Report, completion.report_id)
         folder_id = agent_execution.starting_folder_id
-        if not report or report.agent_folder_id != folder_id:
+        from app.models.report import report_folder_ids
+        # An automatically drafted eval has a single owner. A mixed-folder
+        # execution needs an explicit choice of destination.
+        if not report or report_folder_ids(report) != ([folder_id] if folder_id else []):
             return None
         await db.refresh(report, ["data_sources"])
         if folder_id:

@@ -81,8 +81,8 @@ async def can_open(db, report, user, org, managed):
             .distinct()
         )
     )
-    if report.agent_folder_id:
-        origins.add(report.agent_folder_id)
+    from app.models.report import report_folder_ids
+    origins.update(report_folder_ids(report))
     if any(not rights.has_resource_permission("folder", fid, "view") for fid in origins):
         return False
     if not await can_read_knowledge_scope(db, report, org, user, rights):

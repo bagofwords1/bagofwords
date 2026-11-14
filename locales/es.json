@@ -1,5 +1,15 @@
 {
   "sharedFolders": {
+    "chooseScope": "Elegir agentes o carpetas",
+    "moveAgent": "Mover agente",
+    "moveFolder": "Mover carpeta",
+    "moveNamed": "¿Mover {name}?",
+    "from": "Desde",
+    "to": "Hasta",
+    "chooseDestination": "Elige un destino",
+    "parentAccess": "Acceso heredado de carpetas",
+    "sameParentAccess": "El acceso heredado se mantiene.",
+    "directUnchanged": "Los permisos directos y el acceso por otras vías siguen vigentes.",
     "viewFolder": "Ver carpeta",
     "activity": "Actividad de la carpeta",
     "viewTrace": "Ver traza",

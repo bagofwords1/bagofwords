@@ -48,7 +48,7 @@
 				     Multi-select — it drives the prompt box's selector, which
 				     owns auto-mode and persistence. Most-recently-used first, so
 				     the agents you actually work with lead the row. -->
-				<div v-if="availableAgents.length > 1" class="mt-7">
+				<div v-if="availableAgents.length > 1 || availableFolders.length" class="mt-7">
 					<!-- The search field is the section header: no separate title,
 					     it names the row and filters it as you type. -->
 					<div class="flex items-center gap-2 px-1 pb-1.5 border-b border-gray-100 dark:border-gray-800">
@@ -64,9 +64,17 @@
 					<div
 						:class="[
 							'mt-2 flex flex-wrap gap-1',
-							showAllAgentChips ? 'max-h-36 overflow-y-auto' : ''
+							showAllAgentChips || filteredFolders.length > 6 ? 'max-h-36 overflow-y-auto' : ''
 						]"
 					>
+                        <button v-for="folder in filteredFolders" :key="'folder:' + folder.id" type="button"
+                            :aria-pressed="folderIds.includes(folder.id)" :title="folder.path"
+                            class="inline-flex max-w-48 items-center gap-1.5 rounded-md px-1.5 py-1 text-sm hover:bg-surface-muted"
+                            :class="folderIds.includes(folder.id) && 'bg-surface-muted'"
+                            @click="$emit('toggle-folder', folder.id)">
+                            <UIcon name="i-heroicons-folder" class="size-3.5 shrink-0" /><span class="truncate">{{ folder.path }}</span>
+                            <UIcon v-if="folderIds.includes(folder.id)" name="i-heroicons-check" class="size-3 shrink-0 text-blue-500" />
+                        </button>
 						<button
 							v-for="a in visibleAgentChips"
 							:key="a.id"
@@ -105,7 +113,7 @@
 						>
 							+{{ hiddenAgentChipCount }}
 						</button>
-						<span v-if="visibleAgentChips.length === 0" class="px-1.5 py-1 text-sm text-ink-muted">
+						<span v-if="!visibleAgentChips.length && !filteredFolders.length" class="px-1.5 py-1 text-sm text-ink-muted">
 							{{ $t('mentionInput.noResults') }}
 						</span>
 					</div>
@@ -159,6 +167,8 @@ const props = withDefaults(defineProps<{
 	mode?: 'chat' | 'training'
 	// Every agent the user could pick, published by the prompt box's selector.
 	availableAgents?: any[]
+    availableFolders?: {id:string, path:string}[]
+    folderIds?: string[]
 	// The agents currently scoping the conversation.
 	currentAgents?: any[]
 	// The selection is "Auto" — scoped to everything because the user hasn't
@@ -168,12 +178,14 @@ const props = withDefaults(defineProps<{
 }>(), {
 	mode: 'chat',
 	availableAgents: () => [],
+    availableFolders: () => [], folderIds: () => [],
 	currentAgents: () => [],
 	agentsAreAuto: false,
 })
 
 defineEmits<{
-	(e: 'toggle-agent', agent: any): void
+	(e: 'toggle-folder', id: string): void
+    (e: 'toggle-agent', agent: any): void
 	(e: 'starter', text: string): void
 }>()
 
@@ -250,6 +262,7 @@ watch(
 	loadAgentStarters,
 	{ immediate: true },
 )
+const filteredFolders = computed(() => props.availableFolders.filter(f => f.path.toLowerCase().includes(agentChipQuery.value.toLowerCase())))
 </script>
 
 <style scoped>

@@ -43,10 +43,18 @@ def instruction_scope(agent_ids, folder_id=None):
     if folder_id:
         clauses.append(
             select(folder_instructions.c.folder_id)
-            .where(folder_instructions.c.instruction_id == Instruction.id, folder_instructions.c.folder_id == folder_id)
+            .where(folder_instructions.c.instruction_id == Instruction.id, folder_instructions.c.folder_id.in_([folder_id] if isinstance(folder_id, str) else folder_id))
             .exists()
         )
     return or_(*clauses)
+
+
+async def report_folder_files(db, org, user, report):
+    from app.models.report import report_folder_ids
+    files = {}
+    for fid in report_folder_ids(report):
+        files.update({f.id: f for f in await folder_file_library(db, org, user, fid)})
+    return list(files.values())
 
 
 async def folder_file_library(db, org, user, folder_id):
@@ -108,17 +116,18 @@ async def record_knowledge_scope(db, report, org, user):
     from sqlalchemy.dialects.sqlite import insert as sqlite_insert
     from app.models.report import folder_report_knowledge
 
-    fid = report.agent_folder_id
-    files = await folder_file_library(db, org, user, fid)
-    rules = await readable_folder_rules(db, org, user, fid)
-    sources = [("folder", fid)] + [("files", f.id) for f in files] + [("instructions", r.id) for r in rules]
-    sources += [("revision", r.version_id) for r in rules if r.version_id]
-    insert = pg_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
-    await db.execute(
-        insert(folder_report_knowledge)
-        .values([dict(report_id=report.id, folder_id=fid, kind=k, item_id=i) for k, i in sources])
-        .on_conflict_do_nothing()
-    )
+    from app.models.report import report_folder_ids
+    for fid in report_folder_ids(report):
+        files = await folder_file_library(db, org, user, fid)
+        rules = await readable_folder_rules(db, org, user, fid)
+        sources = [("folder", fid)] + [("files", f.id) for f in files] + [("instructions", r.id) for r in rules]
+        sources += [("revision", r.version_id) for r in rules if r.version_id]
+        insert = pg_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
+        await db.execute(
+            insert(folder_report_knowledge)
+            .values([dict(report_id=report.id, folder_id=fid, kind=k, item_id=i) for k, i in sources])
+            .on_conflict_do_nothing()
+        )
 
 
 async def can_read_knowledge_scope(db, report, org, user, rights):
@@ -129,8 +138,10 @@ async def can_read_knowledge_scope(db, report, org, user, rights):
             select(history.c.folder_id, history.c.kind, history.c.item_id).where(history.c.report_id == report.id)
         )
     ).all()
+    from app.models.report import report_folder_ids
+    selected = set(report_folder_ids(report))
     for fid in {row.folder_id for row in rows}:
-        curating = (report.mode == "training" and report.user_id == user.id and report.agent_folder_id == fid
+        curating = (report.mode == "training" and report.user_id == user.id and fid in selected
                     and rights.has_resource_permission("folder", fid, "manage_instructions"))
         if not curating and not rights.has_resource_permission("folder", fid, "view"):
             return False
@@ -190,11 +201,13 @@ async def visible_instruction_folders(db, org, user):
 
 async def authoring_targets(db, org, user, report, capability, destination, folder_id, agent_ids):
     """Resolve an explicit write destination independently of the discovery roster."""
-    active = getattr(report, "agent_folder_id", None)
-    if not active and not destination and not folder_id and not agent_ids:
+    from app.models.report import report_folder_ids
+    selected = report_folder_ids(report)
+    active = selected[0] if len(selected) == 1 else None
+    if not selected and not destination and not folder_id and not agent_ids:
         return None  # Existing non-folder authoring contract.
     destination = destination or ("folder" if folder_id else "agents" if agent_ids else None)
-    target_folder = active or (folder_id if report is None else None)
+    target_folder = folder_id if report is None or folder_id in selected else active
     if destination == "folder" and target_folder and not agent_ids and folder_id in (None, target_folder):
         await require_capability(db, org, user, target_folder, capability)
         return target_folder, []

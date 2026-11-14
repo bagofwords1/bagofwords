@@ -1,5 +1,15 @@
 {
   "sharedFolders": {
+    "chooseScope": "בחירת סוכנים או תיקיות",
+    "moveAgent": "העברת סוכן",
+    "moveFolder": "העברת תיקייה",
+    "moveNamed": "להעביר את {name}?",
+    "from": "מיקום נוכחי",
+    "to": "יעד",
+    "chooseDestination": "בחירת יעד",
+    "parentAccess": "הרשאות שעוברות בירושה מתיקיות",
+    "sameParentAccess": "ההרשאות שעוברות בירושה נשארות כפי שהן.",
+    "directUnchanged": "הרשאות ישירות וגישה ממקורות אחרים ממשיכות לחול.",
     "viewFolder": "הצגת תיקייה",
     "activity": "פעילות בתיקייה",
     "viewTrace": "הצגת מעקב",

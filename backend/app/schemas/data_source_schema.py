@@ -348,6 +348,7 @@ class DataSourceListItemSchema(AgentIconTokenMixin):
     limited_access: bool = False
     """List item schema for DataSource with nested connection info."""
 
+    can_move_from_folder: bool = False
     folder_id: str | None = None
     id: str
     name: str

@@ -27,6 +27,7 @@ import re
 
 from sqlalchemy import select, and_, func
 
+from app.models.report import report_folder_ids
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas.read_instruction import (
@@ -184,7 +185,7 @@ class ReadInstructionTool(Tool):
                     ),
                 )
             from app.services.folder_knowledge import instruction_scope
-            folder_id = getattr(runtime_ctx.get("report"), "agent_folder_id", None)
+            folder_id = report_folder_ids(runtime_ctx.get("report"))
             stmt = (
                 select(
                     Instruction.id,

@@ -50,41 +50,59 @@
               <UButton type="submit" color="blue" :disabled="!editName.trim() || editName.trim() === item.name">{{ $t('sharedFolders.rename') }}</UButton>
             </div>
           </form>
-          <div>
-            <h3 class="mb-2 text-sm font-medium">{{ $t('sharedFolders.move') }}</h3>
-            <div class="overflow-hidden rounded-lg border border-line">
-              <div class="flex items-center gap-2 bg-surface-subtle px-3 py-2 text-sm">
-                <UButton v-if="destination" icon="i-heroicons-chevron-left" class="rtl:rotate-180" variant="ghost" color="gray" size="xs"
-                  :aria-label="$t('sharedFolders.back')" @click="browseDestination(destinationFolder?.parent_id || '')" />
-                <UIcon v-else name="i-heroicons-folder" class="shrink-0 text-ink-muted" />
-                <span class="min-w-0 truncate font-medium" :title="destinationPath">{{ destinationFolder?.name || $t('sharedFolders.root') }}</span>
-              </div>
-              <div v-if="destinations.length" class="max-h-44 overflow-y-auto border-t border-line py-1">
-                <button v-for="f in destinations" :key="f.id" class="flex w-full items-center gap-2 px-3 py-1.5 text-start text-sm hover:bg-surface-muted"
-                  :title="f.name" @click="browseDestination(f.id)">
-                  <UIcon name="i-heroicons-folder" class="shrink-0 text-ink-muted" />
-                  <span class="min-w-0 flex-1 truncate">{{ f.name }}</span>
-                  <UIcon name="i-heroicons-chevron-right" class="shrink-0 text-ink-muted rtl:rotate-180" />
-                </button>
-              </div>
-            </div>
-            <button v-if="destination" type="button" class="mt-1 block w-full text-start text-xs text-ink-muted"
-              :class="showPath ? 'max-h-20 overflow-y-auto break-words' : 'truncate'" :aria-expanded="showPath"
-              :title="destinationPath" @click="showPath = !showPath">{{ showPath ? destinationPath : compactPath }}</button>
-            <div v-if="preview" class="mt-2 space-y-1 text-xs text-ink-muted" aria-live="polite">
-              <p v-if="!preview.changes.length">{{ $t('sharedFolders.sameAccess') }}</p>
-              <p v-for="c in preview.changes" :key="c.principal" class="break-words">{{ c.principal }} · {{ c.from ? $t('sharedFolders.' + c.from.toLowerCase()) : '—' }} → {{ c.to ? $t('sharedFolders.' + c.to.toLowerCase()) : '—' }}</p>
-            </div>
-          </div>
-          <label v-if="item.kind === 'agent' && originalDestination" class="flex items-center justify-between text-sm">
-            {{ $t('sharedFolders.inherit') }}<input type="checkbox" :disabled="busy" :checked="!item.limited" @change="agentLimit" />
-          </label>
+          <UButton v-if="canMoveFolder" variant="ghost" color="gray" icon="i-heroicons-folder-arrow-down"
+            @click="beginMove()">{{ $t('sharedFolders.moveFolder') }}</UButton>
         </div>
-        <footer class="flex shrink-0 items-center justify-between gap-2 border-t border-line px-5 py-3">
-          <UButton v-if="item.kind === 'folder'" color="red" variant="ghost" size="xs" icon="i-heroicons-trash" @click="remove">{{ $t('sharedFolders.delete') }}</UButton>
-          <UButton class="ms-auto" color="blue" :loading="busy" :disabled="destination === originalDestination || (destination ? !destinationFolder?.can_manage : item.kind === 'folder' && !canCreate)" @click="move">{{ $t(preview ? 'sharedFolders.move' : 'sharedFolders.preview') }}</UButton>
+        <footer class="flex items-center justify-between border-t border-line px-5 py-3">
+          <UButton color="red" variant="ghost" size="xs" icon="i-heroicons-trash" @click="remove">{{ $t('sharedFolders.delete') }}</UButton>
+          <UButton color="blue" @click="editing = false">{{ $t('dashboardCollab.share.done') }}</UButton>
         </footer>
       </div>
+    </UModal>
+    <UModal v-model="moving" :prevent-close="busy" :ui="{ width: 'sm:max-w-md' }">
+      <div v-if="item" class="space-y-4 p-5">
+        <h2 class="break-words text-sm font-semibold">{{ $t('sharedFolders.moveNamed', {name: item.name}) }}</h2>
+        <dl class="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-4 gap-y-2 text-sm">
+          <dt class="text-ink-muted">{{ $t('sharedFolders.from') }}</dt>
+          <dd class="break-words">{{ folderPath(originalDestination) }}</dd>
+          <dt><label for="move-target" class="text-ink-muted">{{ $t('sharedFolders.to') }}</label></dt>
+          <dd>
+            <select id="move-target" v-model="destination" :disabled="busy" class="w-full rounded-md border border-line bg-surface px-2 py-1.5 text-sm">
+              <option disabled :value="null">{{ $t('sharedFolders.chooseDestination') }}</option>
+              <option v-for="target in destinations" :key="target.id" :value="target.id">{{ target.label }}</option>
+            </select>
+            <p v-if="destination !== null" class="mt-1 break-words text-xs text-ink-muted sm:hidden">{{ folderPath(destination) }}</p>
+          </dd>
+        </dl>
+        <div v-if="destination !== null" aria-live="polite" class="rounded-md bg-surface-muted p-3 text-xs">
+          <p class="font-medium">{{ $t('sharedFolders.parentAccess') }}</p>
+          <p v-if="previewError" role="alert" class="mt-1 text-red-600">{{ previewError }}
+            <button class="underline" @click="loadPreview">{{ $t('changelog.retry') }}</button>
+          </p>
+          <p v-else-if="!preview" class="mt-1 text-ink-muted">{{ $t('agentsPage.loading') }}</p>
+          <template v-else>
+            <p v-if="!preview.changes.length" class="mt-1">{{ $t('sharedFolders.sameParentAccess') }}</p>
+            <ul v-else class="mt-1 max-h-40 space-y-1 overflow-y-auto">
+              <li v-for="(change, i) in preview.changes" :key="i" class="break-words">{{ change.principal }} · {{ accessLabel(change.from) }} → {{ accessLabel(change.to) }}</li>
+            </ul>
+            <p class="mt-1 text-ink-muted">{{ $t('sharedFolders.directUnchanged') }}</p>
+          </template>
+        </div>
+        <footer class="flex justify-end gap-2">
+          <UButton color="gray" variant="ghost" :disabled="busy" @click="moving = false">{{ $t('common.cancel') }}</UButton>
+          <UButton color="blue" :disabled="!preview || !destinationEligible" :loading="busy" @click="confirmMove">{{ $t(item.kind === 'agent' ? 'sharedFolders.moveAgent' : 'sharedFolders.moveFolder') }}</UButton>
+        </footer>
+      </div>
+    </UModal>
+    <UModal v-model="accessOpen" :ui="{ width: 'sm:max-w-md' }">
+      <form v-if="accessAgent" class="space-y-4 p-5" @submit.prevent="saveAgentAccess">
+        <h2 class="text-sm font-semibold">{{ accessAgent.name }}</h2>
+        <label class="flex items-center justify-between text-sm">{{ $t('sharedFolders.inherit') }}<input v-model="inherit" type="checkbox" /></label>
+        <footer class="flex justify-end gap-2">
+          <UButton variant="ghost" color="gray" @click="accessOpen = false">{{ $t('common.cancel') }}</UButton>
+          <UButton type="submit" color="blue" :loading="busy">{{ $t('common.save') }}</UButton>
+        </footer>
+      </form>
     </UModal>
     <UModal v-model="sharing" :ui="{ width: 'sm:max-w-md' }">
       <div class="flex max-h-[85dvh] flex-col">
@@ -122,7 +140,7 @@
 <script setup lang="ts">
 import { treeDropTarget } from '~/utils/treeDragStyles'
 
-type Folder = { id: string, parent_id: string | null, name: string, limited_access: boolean, can_manage: boolean, can_query: boolean, capabilities: string[] }
+type Folder = { id: string, parent_id: string | null, name: string, limited_access: boolean, can_manage: boolean, can_move_from_folder: boolean, can_query: boolean, capabilities: string[] }
 type Recipient = { id: string, type: string, name: string, role: string | null, inherited?: {role: string, source: string, source_id: string}[] }
 const props = defineProps<{ agents: DragAgent[], loading: boolean, activeFolder?: string | null, activeAgent?: string | null }>()
 const emit = defineEmits<{ select: [id: string | null], create: [parentId: string | null], changed: [] }>()
@@ -209,41 +227,61 @@ async function limit(event: Event) {
   if (sharingFolder.value?.can_manage) await openShare(sharingFolder.value.id, true)
   else sharing.value = false
 }
-const editing = ref(false), editName = ref(''), destination = ref('')
-const item = ref<{kind: 'agent' | 'folder', id: string, name: string, limited: boolean} | null>(null)
-const preview = ref<{audience_version: string, changes: {principal: string, from?:string, to?:string}[]} | null>(null)
+const editing = ref(false), editName = ref('')
+const moving = ref(false)
+const destination = ref<string | null>(null)
+const previewError = ref('')
+const item = ref<{kind: 'agent' | 'folder', id: string, name: string} | null>(null)
+type MovePreview = {audience_version: string, changes: {principal: string, from?:string, to?:string}[]}
+const preview = ref<MovePreview | null>(null)
 const originalDestination = ref('')
-const showPath = ref(false)
 const foldersById = computed(() => new Map(folders.value.map(f => [f.id, f])))
-const destinationFolder = computed(() => foldersById.value.get(destination.value))
-const destinationSegments = computed(() => {
+const managedFolders = computed(() => folders.value.filter(f => f.can_manage))
+function folderPath(id: string) {
   const names: string[] = []
-  let folder = destinationFolder.value
+  let folder = foldersById.value.get(id)
   while (folder) {
-    names.push(folder.name)
+    names.unshift(folder.name)
     folder = foldersById.value.get(folder.parent_id || '')
   }
-  return names.reverse()
-})
-const destinationPath = computed(() => destinationSegments.value.join(' / '))
-const compactPath = computed(() => destinationSegments.value.length > 2
-  ? '… / ' + destinationSegments.value.slice(-2).join(' / ')
-  : destinationPath.value)
-const destinations = computed(() => folders.value.filter(f =>
-  (f.parent_id || '') === destination.value && !(item.value?.kind === 'folder' && f.id === item.value.id)))
-function browseDestination(id: string) {
-  destination.value = id
-  showPath.value = false
-  preview.value = null
+  return names.join(' / ') || t('sharedFolders.root')
 }
-function editItem(kind: 'agent' | 'folder', id: string, name: string, limited = false, source?: string | null) {
-  item.value = {kind, id, name, limited}
+function isDescendantOrSelf(id: string, ancestor: string) {
+  let folder = foldersById.value.get(id)
+  while (folder) {
+    if (folder.id === ancestor) return true
+    folder = foldersById.value.get(folder.parent_id || '')
+  }
+  return false
+}
+const destinations = computed(() => {
+  const current = item.value
+  if (!current) return []
+  const options = managedFolders.value.filter(f => f.id !== originalDestination.value
+    && (current.kind !== 'folder' || !isDescendantOrSelf(f.id, current.id)))
+    .map(f => ({id: f.id, label: folderPath(f.id)}))
+  if (originalDestination.value && (current.kind === 'agent' || canCreate.value)) options.unshift({id: '', label: t('sharedFolders.root')})
+  return options
+})
+const destinationEligible = computed(() => destinations.value.some(target => target.id === destination.value))
+const canMoveFolder = computed(() => item.value?.kind === 'folder' && foldersById.value.get(item.value.id)?.can_move_from_folder && destinations.value.length > 0)
+function editItem(kind: 'folder', id: string, name: string) {
+  item.value = {kind, id, name}
   editName.value = name
-  destination.value = kind === 'folder' ? foldersById.value.get(id)?.parent_id || '' : source || ''
-  showPath.value = false
-  originalDestination.value = destination.value
-  preview.value = null
+  originalDestination.value = foldersById.value.get(id)?.parent_id || ''
   editing.value = true
+}
+function beginMove(target: string | null = null) {
+  editing.value = false
+  destination.value = target
+  moving.value = true
+}
+function moveAgent(id: string, target: string | null = null) {
+  const agent = props.agents.find(a => a.id === id)
+  if (!agent || !canDrag(agent)) return
+  item.value = {kind: 'agent', id, name: agent.name}
+  originalDestination.value = agent.folder_id || ''
+  beginMove(target)
 }
 async function rename() {
   if (item.value && await save(`/folders/${item.value.id}`, 'PATCH', {name:editName.value})) editing.value = false
@@ -252,30 +290,44 @@ async function remove() {
   if (!item.value || !window.confirm(t('sharedFolders.delete') + ' · ' + item.value.name + '?')) return
   if (await save(`/folders/${item.value.id}`, 'DELETE')) editing.value = false
 }
-async function move() {
-  if (!item.value) return
+const { t } = useI18n()
+const accessLabel = (role?: string) => role ? t('sharedFolders.' + role.toLowerCase()) : '—'
+let previewRequest = 0
+async function loadPreview() {
+  const request = ++previewRequest
+  preview.value = null
+  previewError.value = ''
+  if (!moving.value || !item.value || !destinationEligible.value) return
+  const path = `/folders/items/${item.value.kind}/${item.value.id}/placement`
+  const {data, error} = await useMyFetch<MovePreview>(path, {method:'PUT', body:{parent_id: destination.value || null, preview:true}})
+  if (request !== previewRequest) return
+  if (error.value) previewError.value = error.value.data?.detail || error.value.message
+  else preview.value = data.value
+}
+watch([moving, destination, destinationEligible], loadPreview, {flush: 'sync'})
+async function confirmMove() {
+  if (!preview.value || !destinationEligible.value || !item.value || busy.value) return
   const path = `/folders/items/${item.value.kind}/${item.value.id}/placement`
   const parent_id = destination.value || null
-  if (!preview.value) {
-    const {data, error} = await useMyFetch<any>(path, {method:'PUT', body:{parent_id,preview:true}})
-    if (!editing.value || (destination.value || null) !== parent_id || path !== `/folders/items/${item.value?.kind}/${item.value?.id}/placement`) return
-    if (error.value) return toast.add({title:error.value.data?.detail || error.value.message,color:'red'})
-    preview.value = data.value
-  } else if (await save(path,'PUT',{parent_id,audience_version:preview.value.audience_version})) {
+  if (await save(path, 'PUT', {parent_id, audience_version: preview.value.audience_version})) {
+    moving.value = false
     expandPath(parent_id)
-    editing.value = false
     emit('changed')
-  } else preview.value = null
+  } else await loadPreview()
 }
-const { t } = useI18n()
-async function agentLimit(event: Event) {
-  const input = event.target as HTMLInputElement
-  if (!item.value) return
-  if (await save(`/folders/agents/${item.value.id}/inheritance`, 'PUT', {limited_access:!input.checked})) {
-    item.value.limited = !input.checked
-    preview.value = null
+const accessOpen = ref(false), inherit = ref(false)
+const accessAgent = ref<DragAgent | null>(null)
+function openAgentAccess(id: string) {
+  accessAgent.value = props.agents.find(agent => agent.id === id) || null
+  inherit.value = !accessAgent.value?.limited_access
+  accessOpen.value = !!accessAgent.value
+}
+async function saveAgentAccess() {
+  if (!accessAgent.value) return
+  if (await save(`/folders/agents/${accessAgent.value.id}/inheritance`, 'PUT', {limited_access: !inherit.value})) {
+    accessOpen.value = false
     emit('changed')
-  } else input.checked = !input.checked
+  }
 }
 type DragAgent = {[key: string]: any, id: string, name: string, folder_id?: string | null, limited_access?: boolean}
 const dragged = ref<DragAgent | null>(null)
@@ -328,11 +380,11 @@ const rows = computed(() => {
   visit(null, 0)
   return visible
 })
-function canDrag(source?: string | null) {
-  return !source || !!foldersById.value.get(source)?.can_manage
+function canDrag(agent?: DragAgent) {
+  return !!agent?.can_move_from_folder && (!!agent.folder_id || managedFolders.value.length > 0)
 }
 function startDrag(event: DragEvent, agent: DragAgent) {
-  if (!event.dataTransfer || !canDrag(agent.folder_id)) { event.preventDefault(); return }
+  if (!event.dataTransfer || !canDrag(agent)) { event.preventDefault(); return }
   event.dataTransfer.effectAllowed = 'move'
   event.dataTransfer.setData('application/x-bow-agent', agent.id)
   event.dataTransfer.setData('text/plain', agent.id)
@@ -343,7 +395,7 @@ function endDrag() {
   dragged.value = null
 }
 function validDrop(id: string | null) {
-  return dragged.value && (dragged.value.folder_id || null) !== id && canDrag(id)
+  return dragged.value && (dragged.value.folder_id || null) !== id && canDrag(dragged.value) && (!id || foldersById.value.get(id)?.can_manage)
 }
 function hoverDestination(event: DragEvent, id: string | null) {
   if (!validDrop(id)) return
@@ -359,11 +411,9 @@ async function dropAgent(event: DragEvent, id: string | null) {
   if (!agent || !validDrop(id)) return
   event.preventDefault()
   endDrag()
-  editItem('agent', agent.id, agent.name, agent.limited_access, agent.folder_id)
-  browseDestination(id || '')
-  await move()
+  moveAgent(agent.id, id || '')
 }
 onBeforeUnmount(endDrag)
-defineExpose({open, folders, current, editItem, canDrag, startDrag, endDrag, dragged, folderCreated})
+defineExpose({open, folders, current, moveAgent, openAgentAccess, canDrag, startDrag, endDrag, dragged, folderCreated})
 onMounted(load)
 </script>

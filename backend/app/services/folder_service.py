@@ -167,10 +167,12 @@ async def can_read_folder_output(db, report, user):
     org = await db.get(Organization, report.organization_id)
     from app.core.permission_resolver import resolve_permissions
     rights = await resolve_permissions(db, user.id, org.id)
-    curator = (not required and report.user_id == user.id and
-               await training_curator_only(db, org.id, user.id, report.agent_folder_id, report.mode))
-    if report.agent_folder_id and not curator and not rights.has_resource_permission("folder", report.agent_folder_id, "view"):
-        return False
+    from app.models.report import report_folder_ids
+    for fid in report_folder_ids(report):
+        curator = (not required and report.user_id == user.id and
+                   await training_curator_only(db, org.id, user.id, fid, report.mode))
+        if not curator and not rights.has_resource_permission("folder", fid, "view"):
+            return False
     from app.services.folder_knowledge import can_read_knowledge_scope
     if not await can_read_knowledge_scope(db, report, org, user, rights):
         return False

@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from opentelemetry.trace import StatusCode
 from sqlalchemy.orm import lazyload, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
+from app.models.report import report_folder_ids
 from app.services.conversation_surface import is_app_conversation, is_dashboard_chat
 
 from app.data_sources.clients.base import Capability
@@ -1277,8 +1278,8 @@ class AgentV2:
                 self._project_files_cache = []
         if getattr(self.report, "agent_folder_id", None):
             from app.ai.context.agent_files import merge_files
-            from app.services.folder_knowledge import folder_file_library
-            folder_files = await folder_file_library(self.db, self.organization, getattr(self.head_completion, "user", None), self.report.agent_folder_id)
+            from app.services.folder_knowledge import report_folder_files
+            folder_files = await report_folder_files(self.db, self.organization, getattr(self.head_completion, "user", None), self.report)
             return merge_files(self._project_files_cache, folder_files)
         return self._project_files_cache
 
@@ -5925,7 +5926,7 @@ class AgentV2:
                                     current_user=getattr(self.head_completion, "user", None) if self.head_completion else None,
                                     organization_settings=self.organization_settings,
                                     data_source_ids=_instr_scope,
-                                    folder_id=getattr(self.report, "agent_folder_id", None),
+                                    folder_id=report_folder_ids(self.report),
                                     mode=self._instruction_mode,
                                     channel=getattr(self.context_hub, "instruction_channel", None),
                                     application_id=getattr(self.context_hub, "application_id", None),

@@ -503,7 +503,8 @@ class EditInstructionTool(Tool):
             result = await db.execute(stmt)
             instruction = result.scalar_one_or_none()
 
-            active_folder = getattr(report, "agent_folder_id", None)
+            from app.models.report import report_folder_ids
+            active_folder = report_folder_ids(report)
             if instruction and active_folder:
                 from app.services.folder_knowledge import instruction_scope
                 from app.services.instruction_authority import require_instruction_authority

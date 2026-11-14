@@ -64,7 +64,7 @@ import TestCaseEditor from "~/components/monitoring/TestCaseEditor.vue"
 type Kind = 'instructions' | 'files' | 'evals'
 type Item = { id: string, name: string, owned?: boolean }
 const props = defineProps<{folder: {id: string, name: string, capabilities: string[], can_query: boolean}}>()
-defineEmits<{instruction: [id: string], file:[item:{id:string, filename:string}]}>()
+const emit = defineEmits<{createInstruction: [folderId: string], instruction: [id: string], file:[item:{id:string, filename:string}]}>()
 const { t } = useI18n()
 const { isTrainingModeEnabled } = useOrgSettings()
 const kinds: Kind[] = ['instructions', 'files', 'evals']
@@ -99,6 +99,7 @@ async function load(kind: Kind) {
 }
 watch(sections, list => Promise.all(list.map(load)), {immediate:true})
 async function start(kind: Kind, operation: typeof action.value, id = '') {
+  if (kind === 'instructions' && operation === 'create') { emit('createInstruction', props.folder.id); return }
   active.value = kind; action.value = operation; suite.value = id; caseId.value = ''
   name.value = ''; body.value = ''; file.value = undefined; pick.value = ''; feedback.value = ''; mode.value = 'always'
   candidates.value = []; show.value = true

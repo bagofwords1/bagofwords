@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, selectinload, lazyload, noload
+from app.models.report import report_folder_ids
 from app.models.report import Report
 from app.schemas.report_schema import ReportCreate, ReportSchema, ReportUpdate
 from app.schemas.project_schema import ProjectMiniSchema
@@ -820,6 +821,7 @@ class ReportService:
 
         report_schema = ReportSchema(
             agent_folder_id=report.agent_folder_id,
+            agent_folder_ids=report_folder_ids(report),
             id=report.id,
             title=report.title,
             status=report.status,
@@ -967,7 +969,7 @@ class ReportService:
         db: AsyncSession,
         current_user: User,
         organization: Organization,
-        training_ds_ids: list[str], folder_id: str | None = None,
+        training_ds_ids: list[str], folder_id: str | list[str] | None = None,
     ) -> None:
         """Gate for putting a report into training mode.
 
@@ -1013,8 +1015,11 @@ class ReportService:
                 for ds in training_ds_ids
             )
         )
-        if folder_id and resolved.has_resource_permission("folder", folder_id, "manage_instructions"):
-            can_train = True
+        if folder_id:
+            folders = [folder_id] if isinstance(folder_id, str) else folder_id
+            can_train = all(resolved.has_resource_permission("folder", fid, "manage_instructions") for fid in folders) and (
+                not training_ds_ids or can_train
+            )
         if not can_train and not training_ds_ids and not folder_id:
             # Agent managers can train against BOW history without attaching
             # a business source. The source applies their manage scope.
@@ -1031,11 +1036,11 @@ class ReportService:
             )
 
     async def create_report(self, db: AsyncSession, report_data: ReportCreate, current_user: User, organization: Organization) -> ReportSchema:
-        if report_data.agent_folder_id is not None:
-            from app.services.folder_service import require_report_folder
-            if report_data.data_sources:
-                raise HTTPException(422, "Choose a folder or specific agents")
-            await require_report_folder(db, organization, current_user, report_data.agent_folder_id, report_data.mode)
+        folders = list(dict.fromkeys(report_data.agent_folder_ids if report_data.agent_folder_ids is not None
+                                    else ([report_data.agent_folder_id] if report_data.agent_folder_id else [])))
+        from app.services.folder_service import require_report_folder
+        for fid in folders:
+            await require_report_folder(db, organization, current_user, fid, report_data.mode)
         file_uuids = report_data.files or []
         del report_data.files
         data_source_ids = report_data.data_sources or []
@@ -1056,7 +1061,8 @@ class ReportService:
         del report_data.reasoning_effort
 
         # Create the report object
-        report = Report(**report_data.dict())
+        report = Report(**report_data.model_dump(exclude={"agent_folder_ids", "agent_folder_id"}))
+        report.set_scope_folders(folders)
         # Creating inside a project requires view access on it (member-level).
         # Project defaults (agents/files) are copied onto the new report here —
         # they then flow through the exact same access filters as explicitly
@@ -1083,7 +1089,7 @@ class ReportService:
         # request leaves no half-created chat report behind.
         if requested_mode == 'training':
             await self._assert_can_enter_training_mode(
-                db, current_user, organization, [str(x) for x in data_source_ids], report.agent_folder_id
+                db, current_user, organization, [str(x) for x in data_source_ids], folders
             )
         report.mode = requested_mode
         # Same gate as ReportUpdate.model_id: the creator must actually be able
@@ -1238,16 +1244,23 @@ class ReportService:
             report.theme_name = report_data.theme_name
         if hasattr(report_data, 'theme_overrides') and report_data.theme_overrides is not None:
             report.theme_overrides = report_data.theme_overrides
-        # Persist mode update if present in payload
-        if hasattr(report_data, 'mode') and report_data.mode is not None:
-            if report_data.mode == 'training':
-                if report_data.data_sources is not None:
-                    training_ds_ids = [str(x) for x in report_data.data_sources]
-                else:
-                    training_ds_ids = [str(ds.id) for ds in (report.data_sources or [])]
-                await self._assert_can_enter_training_mode(
-                    db, current_user, organization, training_ds_ids, (report_data.agent_folder_id if "agent_folder_id" in report_data.model_fields_set else report.agent_folder_id)
-                )
+        scope_changed = bool({"agent_folder_ids", "agent_folder_id", "data_sources"} & report_data.model_fields_set)
+        if report_data.agent_folder_ids is not None:
+            folders = list(dict.fromkeys(report_data.agent_folder_ids))
+        elif "agent_folder_id" in report_data.model_fields_set:
+            folders = [report_data.agent_folder_id] if report_data.agent_folder_id else []
+        elif report_data.data_sources is not None:
+            folders = []
+        else:
+            folders = report_folder_ids(report)
+        if scope_changed:
+            from app.services.folder_service import require_report_folder
+            for fid in folders:
+                await require_report_folder(db, organization, current_user, fid, report_data.mode or report.mode)
+        if (scope_changed or report_data.mode is not None) and (report_data.mode or report.mode) == "training":
+            ids = report_data.data_sources if scope_changed else [ds.id for ds in report.data_sources]
+            await self._assert_can_enter_training_mode(db, current_user, organization, ids or [], folders)
+        if report_data.mode is not None:
             report.mode = report_data.mode
         # Persist report-level LLM override if present in payload.
         #   None          -> field omitted, leave the current value untouched
@@ -1312,17 +1325,11 @@ class ReportService:
             from app.services.artifact_service import follow_conversation_project
             await follow_conversation_project(db, [str(report.id)], report.project_id)
 
-        if "agent_folder_id" in report_data.model_fields_set:
-            if report_data.agent_folder_id is not None:
-                from app.services.folder_service import require_report_folder
-                if report_data.data_sources:
-                    raise HTTPException(422, "Choose a folder or specific agents")
-                await require_report_folder(db, organization, current_user, report_data.agent_folder_id, report_data.mode or report.mode)
-            report.agent_folder_id = report_data.agent_folder_id
+        if scope_changed:
+            report.set_scope_folders(folders)
             report.focused_data_source_ids = None
-            report_data.data_sources = []
-        elif report_data.data_sources is not None:
-            report.agent_folder_id = None
+            if report_data.data_sources is None:
+                report_data.data_sources = []
         # Replace data_sources associations if provided
         if hasattr(report_data, 'data_sources') and report_data.data_sources is not None:
             # Snapshot the user-VISIBLE scope before the change — never name a

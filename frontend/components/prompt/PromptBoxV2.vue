@@ -368,7 +368,8 @@
                         @update:availableDataSources="onAvailableDataSources"
                         @update:autoMode="(val: boolean) => emit('update:autoMode', val)"
                         :allow-folder-scope="allowFolderScope"
-                        v-model:folder-id="folderScope"
+                        v-model:folder-ids="folderScope"
+                        @update:available-folders="emit('update:availableFolders', $event)"
                         :reportId="report_id"
                         :persistSelection="persistSelection"
                         :project-name="currentProject?.name || ''"
@@ -801,7 +802,7 @@ const props = defineProps({
     persistSelection: { type: Boolean, default: true }
 })
 
-const emit = defineEmits(['submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:availableDataSources','update:autoMode','update:mode','contextCompacted','filesChanged','projectChanged','reportCreating','reportCreateFailed','stopSubAgent','stopWave'])
+const emit = defineEmits(['update:availableFolders','update:folderIds','submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:availableDataSources','update:autoMode','update:mode','contextCompacted','filesChanged','projectChanged','reportCreating','reportCreateFailed','stopSubAgent','stopWave'])
 
 // ── Project chip / picker ────────────────────────────────────────────────
 // The chip mirrors the report's project and doubles as the move control:
@@ -1220,9 +1221,10 @@ const modeIcon = computed(() => {
 // the backend gate in report_service.update_report. A plain member (view only)
 // on the agent is denied even if they manage a different agent.
 const { isTrainingModeEnabled, isDemoDataEnabled, isVoiceInputEnabled } = useOrgSettings()
-const folderScope = ref<string | null>(props.initialFolderId || null)
+const folderScope = ref<string[]>(props.initialFolderId ? [props.initialFolderId] : [])
+watch(folderScope, ids => emit('update:folderIds', ids), {immediate:true})
 const canManageInstructionsForSelectedAgents = computed(() => {
-    if (folderScope.value) return useCan('manage_instructions', {type: 'folder', id: folderScope.value})
+    if (folderScope.value.length) return folderScope.value.every(id => useCan('manage_instructions', {type: 'folder', id})) && selectedDataSources.value.every(ds => useCan('manage_instructions', {type:'data_source', id:ds.id}))
     const dss = selectedDataSources.value || []
     if (dss.length === 0) {
         // No agent picked yet — offer training to anyone who manages some agent.
@@ -1341,7 +1343,7 @@ async function hydrateReportDataSources(reportId?: string, { showSpinner = true 
     try {
         const res = await useMyFetch(`/reports/${reportId}`, { method: 'GET' })
         const report = (res as any)?.data?.value as any
-        folderScope.value = report?.agent_folder_id || null
+        folderScope.value = report?.agent_folder_ids || (report?.agent_folder_id ? [report.agent_folder_id] : [])
         if (report && Array.isArray(report.data_sources)) {
             selectedDataSources.value = report.data_sources
         } else {
@@ -1684,6 +1686,7 @@ const hasDataSourceOrFile = computed(() => {
     // the excel read/write tools need no connected agent, so don't block a
     // fresh workspace from asking about its own spreadsheet.
     return isExcel.value
+        || folderScope.value.length > 0
         || selectedDataSources.value.length > 0
         || availableDataSources.value.length > 0
         || successfullyUploadedFiles.value.length > 0
@@ -1794,7 +1797,7 @@ function toggleVoiceInput() {
     startVoiceInput()
 }
 
-function submit() {
+async function submit() {
     // Composer commands run here and never reach the agent.
     const slash = props.report_id ? parseSlashCommand(text.value) : null
     if (slash) {
@@ -1802,6 +1805,8 @@ function submit() {
         return
     }
     if (!canSubmit.value || isSubmitting.value) return
+    if (props.report_id && dataSourceSelectorRef.value && !await dataSourceSelectorRef.value.settleScope()) return
+    if (isSubmitting.value || !canSubmit.value) return
     if (isListening.value) abortVoiceInput()
 
     // A completion is running: Enter/arrow adds the prompt to the queue
@@ -2085,6 +2090,7 @@ defineExpose({
     getDataSources: () => selectedDataSources.value,
     // Toggle one agent through the selector itself, so an external picker gets
     // the same auto-mode handling and report persistence as the dropdown rows.
+    chooseFolder: (id: string) => dataSourceSelectorRef.value?.chooseFolder(id),
     toggleDataSource: (ds: any) => dataSourceSelectorRef.value?.toggleDataSource?.(ds),
     getProject: () => currentProject.value?.id || null,
     // Send a prompt on behalf of a control outside the box (the empty state's
@@ -2157,7 +2163,8 @@ async function createReport() {
             // param below only shapes the FIRST completion; without this
             // the report loads as chat and the picker snaps back.
             mode: payload.mode,
-            ...(folderScope.value ? { agent_folder_id: folderScope.value } : newReportPayload(selectedDataSources.value?.map((ds: any) => String(ds.id)) || []))
+            ...newReportPayload(selectedDataSources.value?.map((ds: any) => String(ds.id)) || []),
+            ...(folderScope.value.length ? {agent_folder_ids: folderScope.value, data_sources: selectedDataSources.value.map(ds => ds.id)} : {})
         }
         // And the model, for exactly the same reason the mode is here: the query
         // param steers the first completion only, so without this the report row

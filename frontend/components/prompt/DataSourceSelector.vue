@@ -13,7 +13,7 @@
                     </span>
                     <!-- Auto with nothing to resolve to isn't Auto, it's an
                          empty workspace — fall through to the bare icon. -->
-                    <span v-else-if="folderId" class="flex gap-1 items-center"><UIcon name="i-heroicons-folder" />{{ folderNames.get(folderId) || $t('sharedFolders.title') }}</span>
+                    <span v-else-if="folderIds.length" class="flex gap-1 items-center"><UIcon name="i-heroicons-folder" />{{ folderNames.get(folderIds[0]) || $t('sharedFolders.title') }}<span v-if="folderIds.length + internalSelectedDataSources.length > 1">+{{ folderIds.length + internalSelectedDataSources.length - 1 }}</span></span>
                     <span v-else-if="isAutoMode && visibleDataSources.length > 0" class="flex items-center">
                         <Icon name="heroicons-bolt" class="h-4 w-4" />
                         <span v-if="!isCompactFinal" class="ms-1 text-xs">{{ $t('prompt.modelAuto') }}</span>
@@ -57,7 +57,7 @@
                          the panel, so focus on mount == focus on open; the query
                          is reset when the panel closes so it never carries over. -->
                     <div
-                        v-if="!isLoading && (visibleDataSources.length > 0 || connectableDataSources.length > 0)"
+                        v-if="!isLoading && (visibleDataSources.length > 0 || connectableDataSources.length > 0 || availableFolders.length > 0)"
                         class="p-2 border-b border-gray-100 dark:border-gray-800"
                     >
                         <div class="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-gray-50 dark:bg-gray-800/60">
@@ -75,13 +75,13 @@
                     </div>
                     <div class="p-2 max-h-64 overflow-y-auto">
                     <button v-for="folder in scopeFolders" :key="folder.id" class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-surface-muted"
-                        @click="chooseFolder(folder.id)"><UIcon name="i-heroicons-folder" />{{ folder.path }}</button>
+                        :aria-pressed="folderIds.includes(folder.id)" @click="chooseFolder(folder.id)"><UIcon name="i-heroicons-folder" /><span class="flex-1 text-start">{{ folder.path }}</span><UIcon v-if="folderIds.includes(folder.id)" name="i-heroicons-check" class="size-4 text-blue-500" /></button>
                     <div v-if="isLoading" class="flex items-center justify-center py-6 text-gray-500 dark:text-gray-400 space-x-2">
                         <Spinner class="w-4 h-4 text-ink-muted animate-spin" />
                         <span>{{ $t('prompt.loadingDataSources') }}</span>
                     </div>
                     <template v-else>
-                        <div v-if="visibleDataSources.length === 0 && connectableDataSources.length === 0" class="text-center text-gray-500 dark:text-gray-400 py-4">
+                        <div v-if="visibleDataSources.length === 0 && connectableDataSources.length === 0 && !availableFolders.length" class="text-center text-gray-500 dark:text-gray-400 py-4">
                             {{ $t('prompt.noDataSources') }}
                         </div>
                         <div
@@ -242,7 +242,7 @@ const isCompactFinal = computed(() => isCompact.value)
 const autoState = computed(() => resolveAgentAuto({
     selectedIds: internalSelectedDataSources.value.map((ds: any) => String(ds.id)),
 }))
-const isAutoMode = computed(() => !props.folderId && autoState.value.isAuto)
+const isAutoMode = computed(() => !props.folderIds.length && autoState.value.isAuto)
 
 // Hover flyout state
 const hoveredDataSourceId = ref<string | null>(null)
@@ -398,7 +398,7 @@ const onFlyoutLeave = () => {
 
 const props = defineProps({
     allowFolderScope: Boolean,
-    folderId: String,
+    folderIds: { type: Array as () => string[], default: () => [] },
     selectedDataSources: {
         type: Array,
         default: () => [],
@@ -436,7 +436,7 @@ const props = defineProps({
 });
 
 
-const emit = defineEmits(['update:folderId', 'update:selectedDataSources', 'update:availableDataSources', 'update:autoMode']);
+const emit = defineEmits(['update:folderIds', 'update:availableFolders', 'update:selectedDataSources', 'update:availableDataSources', 'update:autoMode']);
 
 // Optionally restrict visible data sources to those the user has `permission`
 // for. Uses the resource-grant tier directly (NOT the org-perm implication
@@ -590,7 +590,7 @@ function isServiceAccount(ds: any) {
 type ScopeFolder = { can_query?: boolean, id: string, name: string, parent_id: string | null }
 const folders = ref<ScopeFolder[]>([])
 const folderNames = computed(() => new Map(folders.value.map(f => [f.id, f.name])))
-const scopeFolders = computed(() => {
+const availableFolders = computed(() => {
     const byId = new Map(folders.value.map(f => [f.id, f]))
     return folders.value.filter(f => f.can_query !== false).map(f => {
         const path = [f.name]
@@ -600,36 +600,33 @@ const scopeFolders = computed(() => {
             parent = parent.parent_id && byId.get(parent.parent_id)
         }
         return {id: f.id, path: path.join(' / ')}
-    }).filter(f => f.path.toLowerCase().includes(agentQuery.value.toLowerCase()))
+    })
 })
+const scopeFolders = computed(() => availableFolders.value.filter(f => f.path.toLowerCase().includes(agentQuery.value.toLowerCase())))
+watch(availableFolders, items => emit('update:availableFolders', items), {immediate:true})
 onMounted(async () => {
     if (!props.allowFolderScope) return
     const {data} = await useMyFetch<{folders: ScopeFolder[]}>('/folders')
     folders.value = data.value?.folders || []
 })
-async function chooseFolder(id: string) {
-    if (!props.allowFolderScope) return
-    if (props.reportId) {
-        const {error} = await useMyFetch(`/reports/${props.reportId}`, {method:'PUT', body:{agent_folder_id:id}})
-        if (error.value) return
-        window.dispatchEvent(new CustomEvent('report:mutated', {detail:{reportId: props.reportId, kind:'agent_folder'}}))
-    }
-    internalSelectedDataSources.value = []
-    emit('update:folderId', id)
+function chooseFolder(id: string) {
+    if (!props.allowFolderScope || !availableFolders.value.some(f => f.id === id)) return
+    const ids = props.folderIds.includes(id) ? props.folderIds.filter(f => f !== id) : [...props.folderIds, id]
+    emit('update:folderIds', ids)
+    persistSelectionIfReport(ids)
 }
 function toggleAutoMode() {
     // Auto is stored as "no agents pinned" and resolved per run by the backend.
     // Materializing it into today's roster would freeze it into a manual scope
     // that never picks up an agent added later.
     if (isAutoMode.value) return
-    emit("update:folderId", null)
+    emit('update:folderIds', [])
     internalSelectedDataSources.value = []
     handleSelectionChange()
-    persistSelectionIfReport()
+    persistSelectionIfReport([])
 }
 
 function toggleDataSource(ds: DataSource) {
-    emit("update:folderId", null)
     if (isAutoMode.value) {
         // Exit auto: start fresh with only this source selected
         internalSelectedDataSources.value = [ds]
@@ -649,7 +646,7 @@ function toggleDataSource(ds: DataSource) {
 // Let a parent drive the same toggle the panel rows use, so an external picker
 // (the blank-report agent list) shares the auto-mode semantics and the
 // report-level persistence instead of reimplementing them.
-defineExpose({ toggleDataSource })
+defineExpose({ toggleDataSource, chooseFolder, settleScope })
 
 onMounted(() => {
     nextTick(async () => {
@@ -715,23 +712,36 @@ watch(() => props.selectedDataSources, (newVal: any[]) => {
     internalSelectedDataSources.value = alignSelection(newVal) as any
 }, { immediate: true, deep: true })
 
-async function persistSelectionIfReport() {
-    try {
-        if (!props.reportId || !props.persistSelection) return
-        const ids = internalSelectedDataSources.value.map((x: any) => x.id)
-        await useMyFetch(`/reports/${props.reportId}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ data_sources: ids })
-        })
-        // Surface the resulting agent_scope_changed session-event strip. Carry
-        // the new ids so listeners can react without re-reading state that a
-        // downstream async watch may not have flushed yet (e.g. the report page
-        // mirroring this scope into the user's default).
-        window.dispatchEvent(new CustomEvent('report:mutated', { detail: { reportId: props.reportId, kind: 'data_sources', ids } }))
-    } catch (e) {
-        console.error('Failed to update report data sources:', e)
-    }
+let saveQueue = Promise.resolve()
+let lastSave = 0
+let scopeSaved = true
+async function settleScope() {
+    let pending
+    do { pending = saveQueue; await pending } while (pending !== saveQueue)
+    return scopeSaved
+}
+function persistSelectionIfReport(folders = props.folderIds) {
+    const reportId = props.reportId
+    if (!reportId || !props.persistSelection) return
+    const ids = internalSelectedDataSources.value.map(ds => ds.id)
+    const body = {data_sources: ids, ...(props.allowFolderScope ? {agent_folder_ids: [...folders]} : {})}
+    const revision = ++lastSave
+    saveQueue = saveQueue.then(async () => {
+        const {error} = await useMyFetch(`/reports/${reportId}`, {method:'PUT', body})
+        if (revision !== lastSave || props.reportId !== reportId) return
+        scopeSaved = !error.value
+        if (error.value) {
+            toast.add({title: error.value.data?.detail || error.value.message, color:'red'})
+            const {data} = await useMyFetch<any>(`/reports/${reportId}`)
+            if (revision === lastSave && data.value && props.reportId === reportId) {
+                internalSelectedDataSources.value = alignSelection(data.value.data_sources || [])
+                emit('update:folderIds', data.value.agent_folder_ids || (data.value.agent_folder_id ? [data.value.agent_folder_id] : []))
+                handleSelectionChange()
+            }
+            return
+        }
+        window.dispatchEvent(new CustomEvent('report:mutated', {detail:{reportId, kind:'data_sources', ids}}))
+    }).catch(error => { scopeSaved = false; toast.add({title: String(error), color:'red'}) })
 }
 const dataTooltip = computed<string>(() => {
     if (internalSelectedDataSources.value.length <= 1) return ''

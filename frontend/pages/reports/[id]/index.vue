@@ -709,7 +709,8 @@
 			<ReportEmptyState
 				v-else
 				:mode="currentPromptMode"
-				:available-agents="availableAgents"
+				 :available-folders="availableFolders" :folder-ids="folderIds" @toggle-folder="promptBoxRef?.chooseFolder($event)"
+                    :available-agents="availableAgents"
 				:current-agents="currentAgents"
 				:agents-are-auto="agentsAreAuto"
 				@toggle-agent="toggleAgentSelection"
@@ -828,6 +829,7 @@
 					</button>
 				</div>
 				<PromptBoxV2 allow-folder-scope
+                    @update:available-folders="availableFolders = $event" @update:folder-ids="folderIds = $event"
 					ref="promptBoxRef"
 					:report_id="report_id"
 					:project="report?.project || null"
@@ -2207,6 +2209,8 @@ async function handleAgentConnected() {
 
 // Every agent the user can pick, published by the prompt box's DataSourceSelector.
 // Drives the blank-report agent picker (shown only when there's more than one).
+const availableFolders = ref<{id:string, path:string}[]>([])
+const folderIds = ref<string[]>([])
 const availableAgents = ref<any[]>([])
 
 // The prompt box is in "Auto" — the report is scoped to every agent because

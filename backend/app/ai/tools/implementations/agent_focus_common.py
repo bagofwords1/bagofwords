@@ -174,9 +174,11 @@ async def resolve_run_agents(db, organization: Any, user: Any, report: Any,
     # would hand a shared-dashboard chat far more than the owner shared.
     if agent_ids is None and not attached and getattr(report, "report_type", "regular") == "artifact_chat":
         return []
+    from app.models.report import report_folder_ids
     from app.services.folder_service import training_curator_only
-    if await training_curator_only(db, organization.id, getattr(user, "id", None),
-                                   getattr(report, "agent_folder_id", None), getattr(report, "mode", None)):
+    if agent_ids is not None and await training_curator_only(
+        db, organization.id, getattr(user, "id", None), getattr(report, "agent_folder_id", None), getattr(report, "mode", None)
+    ):
         return []
     if agent_ids is not None:
         # A run with its own agents (a scheduled task's selection): exactly
@@ -188,8 +190,17 @@ async def resolve_run_agents(db, organization: Any, user: Any, report: Any,
         agents += [ds for ds in reachable if str(ds.id) not in wanted and _is_personal_connector(ds)]
     elif getattr(report, "agent_folder_id", None):
         from app.services.folder_service import visible_branch
-        branch = await visible_branch(db, organization.id, getattr(user, "id", None), report.agent_folder_id)
-        agents = [a for a in await accessible_agents(db, organization, user) if a.folder_id in branch]
+        branch = set()
+        queryable = False
+        for fid in report_folder_ids(report):
+            if await training_curator_only(db, organization.id, getattr(user, "id", None), fid, getattr(report, "mode", None)):
+                continue
+            queryable = True
+            branch.update(await visible_branch(db, organization.id, getattr(user, "id", None), fid))
+        if not queryable and not attached:
+            return []
+        chosen = {a.id for a in attached}
+        agents = [a for a in await accessible_agents(db, organization, user) if a.folder_id in branch or a.id in chosen]
         agents, _ = await DataSourceService().filter_user_usable_data_sources(db, agents, user)
         from app.core.permission_resolver import resolve_permissions
         rights = await resolve_permissions(db, str(user.id), str(organization.id))

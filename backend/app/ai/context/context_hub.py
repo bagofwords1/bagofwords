@@ -78,6 +78,7 @@ from .sections.resources_section import ResourcesSection
 from .sections.code_section import CodeSection
 from .builders.mention_context_builder import MentionContextBuilder
 from .builders.entity_context_builder import EntityContextBuilder
+from app.models.report import report_folder_ids
 from app.ai.utils.token_counter import count_tokens
 
 
@@ -431,7 +432,7 @@ class ContextHub:
             # filter is dead code in the agent path: instructions that only
             # reference tables the caller cannot see would still be injected.
             current_user=self.user,
-            folder_id=getattr(self.report, "agent_folder_id", None),
+            folder_id=report_folder_ids(self.report),
             organization_settings=self.organization_settings,
             data_source_ids=[str(ds.id) for ds in self.data_sources] if self.data_sources else None,
             mode=_mode,

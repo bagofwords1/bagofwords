@@ -382,8 +382,9 @@ class ForkService:
             user_id=str(user.id),
             organization_id=str(original.organization_id),
             forked_from_id=str(original.id),
-            agent_folder_id=original.agent_folder_id,
         )
+        from app.models.report import report_folder_ids
+        new_report.set_scope_folders(report_folder_ids(original))
         db.add(new_report)
         await db.flush()
 

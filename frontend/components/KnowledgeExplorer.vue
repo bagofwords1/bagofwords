@@ -223,7 +223,7 @@
             </UTooltip>
             </template>
             <template #agent="{ agent }">
-            <TreeGroup :dragging-agent="folderExplorer?.dragged?.id === agent.id" :drag-agent="canManageAgent(agent.id) && folderExplorer?.canDrag(agent.folder_id)"
+            <TreeGroup :dragging-agent="folderExplorer?.dragged?.id === agent.id" :drag-agent="canManageAgent(agent.id) && folderExplorer?.canDrag(agent)"
               @agent-drag="folderExplorer?.startDrag($event, agent)" @agent-drag-end="folderExplorer?.endDrag()"
               :label="agent.name" :count="agentCount(agent.id) || undefined" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? $t('agentsPage.signInBadge') : (agent.publish_status === 'disabled' ? $t('agentsPage.disabledBadge') : (agent.is_connector ? $t('agentsPage.connectorBadge') : ''))" :badge-interactive="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
               <template #icon><DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon-token="agent.icon_token" :icon="agent.icon" class="w-4 h-4 shrink-0" /></template>
@@ -762,7 +762,7 @@
                 <button v-if="!creating && canEditDetail" class="h-7 px-3 rounded-md text-red-600 dark:text-red-400 text-xs font-medium hover:bg-red-50 dark:hover:bg-red-500/10 disabled:opacity-50" :disabled="deleting || saving" :title="$t('agentsPage.tipDeleteInstruction')" @click="deleteInstruction"><span class="inline-flex items-center gap-1"><UIcon :name="deleting ? 'i-heroicons-arrow-path' : 'i-heroicons-trash'" :class="['w-3.5 h-3.5', { 'animate-spin': deleting }]" />{{ deleting ? $t('agentsPage.deleting') : $t('agentsPage.delete') }}</span></button>
                 <span v-if="!creating && canEditDetail" class="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-0.5"></span>
                 <button class="h-7 px-3 rounded-md text-gray-500 dark:text-gray-400 text-xs hover:bg-gray-100 dark:hover:bg-gray-800/70" @click="cancelEdit">{{ $t('agentsPage.cancel') }}</button>
-                <button class="h-7 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50" :disabled="saving" @click="save">{{ saving ? $t('agentsPage.saving') : (creating ? $t('agentsPage.create') : $t('agentsPage.save')) }}</button>
+                <button class="h-7 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50" :disabled="saving || !scopeSelection.length" @click="save">{{ saving ? $t('agentsPage.saving') : (creating ? $t('agentsPage.create') : $t('agentsPage.save')) }}</button>
               </template>
             </div>
           </div>
@@ -911,7 +911,7 @@
                      anything that schema lacked (a table, a link, a rule) was
                      dropped before it could ever be painted. -->
                 <div class="prose-instruction">
-                  <InstructionEditor v-if="editing" :key="(detail?.id || 'new') + '-edit'" v-model="draft.text" mode="wysiwyg" :editable="true" :data-source-ids="draft.data_source_ids" :is-all-data-sources="draft.data_source_ids.length === 0" :placeholder="$t('agentsPage.instructionPlaceholder')" @mention-selected="onEditorMention" />
+                  <InstructionEditor v-if="editing" :key="(detail?.id || 'new') + '-edit'" v-model="draft.text" mode="wysiwyg" :editable="true" :data-source-ids="draft.data_source_ids" :is-all-data-sources="globalDraft && !draft.folder_ids.length && !draft.data_source_ids.length" :placeholder="$t('agentsPage.instructionPlaceholder')" @mention-selected="onEditorMention" />
                   <InstructionText v-else :key="(detail?.id || 'new') + '-view'" :text="draft.text" :references="detailTextRefs" :prose="true" :markdown="true" />
                 </div>
                 <p v-if="editing" class="mt-2 text-end text-[11px] text-gray-400 dark:text-gray-500 tabular-nums select-none" data-testid="instruction-token-count">{{ $t('agentsPage.tokenCount', { count: formatTokens(estimateTokens(draft.text)) }) }}</p>
@@ -943,10 +943,10 @@
                 <!-- Category -->
                 <KSelect v-if="metaEditable" v-model="draft.category" :options="categoryOpts" :placeholder="$t('agentsPage.general')" @update:modelValue="onMetaChange" />
                 <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-2xs font-medium">{{ h.formatCategory(detail.category) }}</span>
-                <InstructionFolderPicker v-if="detail" :key="detail.id" :id="detail.id" :folders="detail.folders || []" :directory="folderExplorer?.folders || []" :can-edit="canEditDetail" @changed="refreshFolderTargets" />
-                <!-- Agents -->
-                <KSelect v-if="metaEditable" v-model="draft.data_source_ids" :options="agentOptsForDraft" multiple :placeholder="$t(detail?.scope_mode === 'targeted' ? 'agentsPage.title' : 'agentsPage.allAgentsPlaceholder')" icon="i-heroicons-cube" @update:modelValue="onMetaChange" />
+                <KSelect v-if="metaEditable" :model-value="scopeSelection" :options="scopeOptions" multiple summarize
+                  :placeholder="$t('sharedFolders.chooseScope')" icon="i-heroicons-folder" @update:modelValue="selectScope" />
                 <template v-else>
+                  <span v-for="folder in detail.folders" :key="folder.id" class="inline-flex items-center gap-1 rounded-md bg-surface-muted px-2 text-2xs"><UIcon name="i-heroicons-folder" />{{ folder.name }}</span>
                   <span v-if="detail.scope_mode !== 'targeted' && (detail.data_sources || []).length === 0" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-2xs"><UIcon name="i-heroicons-globe-alt" class="w-3 h-3 text-ink-muted" />{{ $t('agentsPage.allAgentsPlaceholder') }}</span>
                   <span v-for="ds in detail.data_sources" :key="ds.id" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-2xs"><DataSourceIcon :type="ds.type" :connector-key="ds.connector_key" :icon-token="ds.icon_token" :icon="ds.icon" class="w-3 h-3" />{{ ds.name }}</span>
                 </template>
@@ -1037,7 +1037,7 @@
           </div>
         </template>
 
-        <FolderKnowledge v-else-if="selectedFolder && folderExplorer?.current" :key="selectedFolder" :folder="folderExplorer.current" @file="openFile" @instruction="openInstructionById" />
+        <FolderKnowledge v-else-if="selectedFolder && folderExplorer?.current" :key="selectedFolder" :folder="folderExplorer.current" @create-instruction="openCreate({ folderId: $event })" @file="openFile" @instruction="openInstructionById" />
         <div v-else class="flex-1 flex items-center justify-center px-6">
           <div class="relative w-full max-w-lg h-72 overflow-hidden">
             <img src="/assets/empty-states/empty-integrations.png" alt="" class="absolute inset-x-0 bottom-8 w-full opacity-80 select-none pointer-events-none dark:hidden" />
@@ -1453,7 +1453,7 @@ const detailScopes = computed(() => {
   const agents = (ins.data_sources || [])
   const scopes = agents.length
     ? agents.map((d: any) => ({ scope: String(d.id), scopeLabel: d.name }))
-    : [{ scope: GLOBAL_SCOPE, scopeLabel: t('agentsPage.globalInstructions') }]
+    : ins.scope_mode === 'targeted' ? [] : [{ scope: GLOBAL_SCOPE, scopeLabel: t('agentsPage.globalInstructions') }]
   return scopes.flatMap(s => {
     const dirs = dirsForScope(s.scope)
     // No folders in this scope => nothing to choose between; stay out of the way.
@@ -1472,7 +1472,7 @@ const detailScopes = computed(() => {
 const ensureDirScopes = async (ins: Instruction | null) => {
   if (!ins) return
   const agents = (ins.data_sources || [])
-  const scopes = agents.length ? agents.map((d: any) => String(d.id)) : [GLOBAL_SCOPE]
+  const scopes = agents.length ? agents.map((d: any) => String(d.id)) : ins.scope_mode === 'targeted' ? [] : [GLOBAL_SCOPE]
   await Promise.all(scopes.filter(s => !dirState.value[s]).map(s => loadDirectories(s)))
 }
 // Fetch (or refresh) the folder tree + placements for one scope.
@@ -1964,8 +1964,8 @@ const editing = ref(false)
 const creating = ref(false)
 const saving = ref(false)
 const deleting = ref(false)
-const draft = reactive<{ title: string; description: string; text: string; kind: string; load_mode: string; status: string; category: string; data_source_ids: string[]; label_ids: string[]; references: any[]; applicable_modes: string[]; applicable_channels: string[] }>(
-  { title: '', description: '', text: '', kind: 'instruction', load_mode: 'always', status: 'published', category: 'general', data_source_ids: [], label_ids: [], references: [], applicable_modes: [], applicable_channels: [] }
+const draft = reactive<{ title: string; description: string; text: string; kind: string; load_mode: string; status: string; category: string; data_source_ids: string[]; folder_ids: string[]; label_ids: string[]; references: any[]; applicable_modes: string[]; applicable_channels: string[] }>(
+  { title: '', description: '', text: '', kind: 'instruction', load_mode: 'always', status: 'published', category: 'general', data_source_ids: [], folder_ids: [], label_ids: [], references: [], applicable_modes: [], applicable_channels: [] }
 )
 const kindOpts = computed(() => [{ value: 'instruction', label: t('agentsPage.optInstruction') }, { value: 'skill', label: t('agentsPage.optSkill') }])
 // Mode/channel scoping options (empty selection = applies everywhere)
@@ -2191,6 +2191,37 @@ const agentOptsForDraft = computed(() => {
   return opts
 })
 
+const globalDraft = ref(false)
+const draftOwnerFolder = ref<string | null>(null)
+type ScopeFolder = { id: string, name: string, parent_id?: string, capabilities: string[] }
+const curatableFolders = computed(() => ((folderExplorer.value?.folders || []) as ScopeFolder[])
+  .filter(folder => folder.capabilities.includes('manage_instructions')))
+const scopeOptions = computed(() => {
+  const directory = new Map<string, ScopeFolder>((folderExplorer.value?.folders || []).map((f: ScopeFolder) => [f.id, f]))
+  const folders = curatableFolders.value.map(folder => {
+    const names = [folder.name]
+    let parent = directory.get(folder.parent_id || '')
+    while (parent) { names.unshift(parent.name); parent = directory.get(parent.parent_id || '') }
+    return { value: 'folder:' + folder.id, label: names.join(' / '), heroicon: 'i-heroicons-folder' }
+  })
+  const global = useCan('manage_instructions') ? [{value: 'global', label: t('agentsPage.allAgentsPlaceholder'), heroicon: 'i-heroicons-globe-alt'}] : []
+  return [...global, ...folders, ...agentOptsForDraft.value]
+})
+const scopeSelection = computed(() => {
+  const targets = [...draft.folder_ids.map(id => 'folder:' + id), ...draft.data_source_ids]
+  return targets.length || !globalDraft.value ? targets : ['global']
+})
+function selectScope(values: string[]) {
+  const chooseGlobal = values.includes('global') && !scopeSelection.value.includes('global')
+  const targets = chooseGlobal ? [] : values.filter(v => v !== 'global')
+  // An empty selection is an unfinished draft. Global always requires an explicit choice.
+  if (!targets.length && !chooseGlobal && !editing.value && !creating.value) return
+  globalDraft.value = chooseGlobal
+  draft.folder_ids = targets.filter(v => v.startsWith('folder:')).map(v => v.slice(7))
+  draft.data_source_ids = targets.filter(v => !v.startsWith('folder:'))
+  onMetaChange()
+}
+
 // Primary instruction toggle — only meaningful when the instruction is scoped to
 // exactly one agent. `primary_for` (from the API) lists data sources whose
 // primary_instruction_id points at this instruction.
@@ -2278,12 +2309,6 @@ const openSkillCatalog = () => {
 // linger in the tree until a reload — drop it here, as deleteInstruction does.
 // Open an enabled skill in the normal instruction editor. The panel only holds
 // list rows, so fetch the full instruction the same way a deep link does.
-async function refreshFolderTargets() {
-  const id = detail.value?.id
-  if (!id) return
-  const result = await useMyFetch<Instruction>('/instructions/' + id)
-  if (detail.value?.id === id && result.data.value) detail.value = result.data.value
-}
 const openInstructionById = async (id: string) => {
   const existing = allInstructions.value.find(i => i.id === id)
   if (existing) { openInstruction(existing); return }
@@ -2341,7 +2366,12 @@ const agentLandingActions = computed(() => {
   if (!id) return []
   const groups: any[][] = [[{ label: t('agentsPage.connections'), icon: 'i-heroicons-link', click: () => openAgentCard(id) }]]
   if (agentCanUpdate.value) groups.push([
-    { label: t('sharedFolders.edit'), icon: 'i-heroicons-folder', click: () => folderExplorer.value?.editItem('agent', id, agentViewName.value, agents.value.find(a => a.id === id)?.limited_access, agents.value.find(a => a.id === id)?.folder_id) },
+    ...(folderExplorer.value?.canDrag(agents.value.find(a => a.id === id)) ? [{
+      label: t('sharedFolders.moveAgent'), icon: 'i-heroicons-folder', click: () => folderExplorer.value?.moveAgent(id),
+    }] : []),
+    ...(agents.value.find(a => a.id === id)?.folder_id && canManageAgent(id) ? [{
+      label: t('sharedFolders.inherit'), icon: 'i-heroicons-lock-closed', click: () => folderExplorer.value?.openAgentAccess(id),
+    }] : []),
     { label: t('agentsPage.settings'), icon: 'i-heroicons-cog-6-tooth', click: () => openAgentSection('settings', id) },
     { label: t('agentsPage.manageConnections'), icon: 'i-heroicons-circle-stack', click: () => openConnModal(id) },
     { label: t('agentLanding.editStarters'), icon: 'i-heroicons-chat-bubble-left-ellipsis', click: openEditStarters },
@@ -2925,7 +2955,7 @@ watch(canApprove, (allowed) => {
 }, { immediate: true })
 // POST /instructions is manage_instructions (org-wide or per-agent) — the same
 // tier that reviews suggestions, so the header "New" affordance follows it.
-const canCreateInstruction = canApprove
+const canCreateInstruction = computed(() => canApprove.value || curatableFolders.value.length > 0)
 // Tree "+" affordances mirror the backend create gates: global instructions
 // need the org-level perm; per-agent rows also accept a per-agent grant.
 const canAddInstrFor = (id?: string) => id ? useCan('manage_instructions', { type: 'data_source', id }) : useCan('manage_instructions')
@@ -3626,7 +3656,7 @@ const fetchAgents = async () => {
       // are not agents: they live in the prompt box's connectors menu and the
       // Browse connectors modal, not in the knowledge tree.
       .filter((d: any) => d?.kind !== 'connector')
-      .map((d: any) => ({ id: d.id, folder_id: d.folder_id, limited_access: d.limited_access, name: d.name, type: d.type, icon: d.icon, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, connector_key: d.connector_key, status: d.status, publish_status: d.publish_status, reliability_status: d.reliability_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
+      .map((d: any) => ({ id: d.id, folder_id: d.folder_id, can_move_from_folder: d.can_move_from_folder, limited_access: d.limited_access, name: d.name, type: d.type, icon: d.icon, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, connector_key: d.connector_key, status: d.status, publish_status: d.publish_status, reliability_status: d.reliability_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
       // Alphabetical by name. The server returns no explicit order, so sort
       // here; pass the app's i18n locale (not the browser default) so the
       // order matches the UI language, and fold case/accents via sensitivity.
@@ -3802,7 +3832,7 @@ const listFor = (kind: string) => {
   let base = allInstructions.value
   if (kind === 'skills') base = base.filter(i => (i as any).kind === 'skill')
   else if (kind === 'pending') base = base.filter(isPending)
-  else if (kind === 'global') base = base.filter(i => (i.data_sources || []).length === 0 && (i as any).kind !== 'skill')
+  else if (kind === 'global') base = base.filter(i => i.scope_mode !== 'targeted' && (i.data_sources || []).length === 0 && (i as any).kind !== 'skill')
   return applyFilters(base)
 }
 // An agent's Instructions node lists EVERY instruction attached to it, table-
@@ -3873,7 +3903,7 @@ const openInstruction = async (ins: Instruction) => {
   if (canEditDetail.value) await Promise.all([loadPending(ins.id), loadVersions(ins.id)])
 }
 // The metadata half of the draft — what the bottom chips edit and autosave.
-const META_FIELDS = ['kind', 'load_mode', 'status', 'category', 'data_source_ids', 'label_ids', 'references', 'applicable_modes', 'applicable_channels'] as const
+const META_FIELDS = ['kind', 'load_mode', 'status', 'category', 'data_source_ids', 'folder_ids', 'label_ids', 'references', 'applicable_modes', 'applicable_channels'] as const
 type MetaField = typeof META_FIELDS[number]
 const draftMetaFrom = (ins: Instruction): Pick<typeof draft, MetaField> => ({
   kind: (ins as any).kind || 'instruction',
@@ -3881,6 +3911,7 @@ const draftMetaFrom = (ins: Instruction): Pick<typeof draft, MetaField> => ({
   status: ins.status || 'published',
   category: ins.category || 'general',
   data_source_ids: (ins.data_sources || []).map(d => d.id),
+  folder_ids: (ins.folders || []).map(f => f.id),
   label_ids: (ins.labels || []).map((l: any) => l.id),
   references: (ins.references || []).map((r: any) => ({ object_type: r.object_type, object_id: String(r.object_id), relation_type: r.relation_type || 'scope', display_text: r.display_text || r.object?.name || String(r.object_id), column_name: r.column_name || null })),
   applicable_modes: sanitizeModes((ins as any).applicable_modes),
@@ -3888,6 +3919,7 @@ const draftMetaFrom = (ins: Instruction): Pick<typeof draft, MetaField> => ({
 })
 const syncDraft = (ins: Instruction) => {
   draft.title = ins.title || ''; draft.description = (ins as any).description || ''; draft.text = ins.text || ''
+  globalDraft.value = ins.scope_mode !== 'targeted' && !ins.data_sources?.length
   Object.assign(draft, draftMetaFrom(ins))
   // Surface the Advanced section when this instruction is already scoped.
   showAdvanced.value = draft.applicable_modes.length > 0 || draft.applicable_channels.length > 0
@@ -3897,16 +3929,20 @@ const syncDraft = (ins: Instruction) => {
 // the agent whose pane is open, else the one whose sub-panel is. Read BEFORE
 // closeAgentView() below clears it.
 const currentAgentId = () => agentView.value?.agentId || panelView.value?.agentId || null
-const openCreate = (scope?: { agentId?: string; tableId?: string; tableName?: string; global?: boolean }) => {
+const openCreate = (scope?: { agentId?: string; folderId?: string; tableId?: string; tableName?: string; global?: boolean }) => {
   // An explicit agent wins; `global: true` (the Global instructions group's own
   // + button) forces no agent; otherwise inherit the agent in view, so New from
   // inside an agent doesn't quietly create an org-wide instruction.
-  const agentId = scope?.global ? null : (scope?.agentId || currentAgentId())
+  const folderId = scope?.folderId || (!scope?.agentId && !scope?.global && folderPaneVisible.value ? selectedFolder.value : null)
+  const agentId = scope?.global || folderId ? null : (scope?.agentId || currentAgentId())
   closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); closeEvalCase(); closeQuery(); pendingBuilds.value = []; detail.value = null; selectedId.value = null; versions.value = []; mainText.value = null; mainVersionId.value = null
   creating.value = true; editing.value = true
   draft.title = ''; draft.description = ''; draft.text = ''; draft.kind = 'instruction'; draft.load_mode = 'always'; draft.status = 'published'; draft.category = 'general'
   draft.applicable_modes = []; draft.applicable_channels = []
   showAdvanced.value = false
+  draftOwnerFolder.value = folderId
+  draft.folder_ids = folderId && curatableFolders.value.some(f => f.id === folderId) ? [folderId] : []
+  globalDraft.value = !folderId && !agentId && useCan('manage_instructions')
   draft.data_source_ids = agentId ? [agentId] : []
   draft.label_ids = []
   draft.references = scope?.tableId ? [{ object_type: 'datasource_table', object_id: scope.tableId, relation_type: 'scope', display_text: scope.tableName }] : []
@@ -3946,11 +3982,14 @@ const save = async () => {
   saving.value = true
   try {
     const body: any = { title: draft.title || null, description: draft.description || null, text: draft.text, kind: draft.kind, load_mode: draft.load_mode, status: draft.status, category: draft.category, data_source_ids: draft.data_source_ids, label_ids: draft.label_ids, references: draft.references, applicable_modes: draft.applicable_modes, applicable_channels: draft.applicable_channels }
+    if (!scopeSelection.value.length) return
+    if (creating.value || !sameValue(draft.folder_ids, detail.value?.folders?.map(f => f.id) || [])) body.folder_ids = draft.folder_ids
     if (!creating.value && JSON.stringify(draft.data_source_ids) === JSON.stringify(detail.value?.data_sources?.map(d => d.id) || [])) delete body.data_source_ids
     if (creating.value) {
-      const endpoint = draft.data_source_ids.length ? '/api/instructions' : '/api/instructions/global'
+      if (draftOwnerFolder.value && draft.folder_ids.includes(draftOwnerFolder.value)) body.owner_folder_id = draftOwnerFolder.value
+      const endpoint = draft.folder_ids.length || draft.data_source_ids.length ? '/api/instructions' : '/api/instructions/global'
       const { data, error } = await useMyFetch<Instruction>(endpoint, { method: 'POST', body })
-      if (error.value) throw new Error((error.value as any)?.message || 'Create failed')
+      if (error.value) throw new Error(error.value.data?.detail || error.value.message || 'Create failed')
       toast.add({ title: t('agentsPage.toastCreated'), color: 'green' })
       creating.value = false; editing.value = false; draft.references = []
       // Insert the new instruction in place (no full list re-fetch / flicker);
@@ -3970,7 +4009,7 @@ const save = async () => {
         // collapsed (or never-loaded) group would otherwise swallow it.
         const dsIds = (createdRow.data_sources || []).map((d: any) => String(d.id))
         if (dsIds.length) dsIds.forEach(id => { expand('agent:' + id, true); expand('instr:' + id, true) })
-        else expand('global', true)
+        else if (createdRow.scope_mode !== 'targeted') expand('global', true)
         openInstruction(createdRow)
       } else {
         await refreshLists()

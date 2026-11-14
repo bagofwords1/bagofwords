@@ -1,5 +1,15 @@
 {
   "sharedFolders": {
+    "chooseScope": "Choose agents or folders",
+    "moveAgent": "Move agent",
+    "moveFolder": "Move folder",
+    "moveNamed": "Move {name}?",
+    "from": "From",
+    "to": "To",
+    "chooseDestination": "Choose a destination",
+    "parentAccess": "Access inherited from folders",
+    "sameParentAccess": "Inherited access stays the same.",
+    "directUnchanged": "Direct grants and access from other sources still apply.",
     "viewFolder": "View folder",
     "activity": "Folder activity",
     "viewTrace": "View trace",

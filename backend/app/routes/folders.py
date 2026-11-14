@@ -60,6 +60,8 @@ def folder_item(folder, rights):
             if rights.has_resource_permission("folder", folder.id, p)
         ],
         "can_manage": rights.has_resource_permission("folder", folder.id, "manage"),
+        "can_move_from_folder": rights.has_resource_permission("folder", folder.id, "manage")
+        and (not parent or rights.has_resource_permission("folder", parent, "manage")),
     }
 
 
@@ -436,7 +438,7 @@ async def move_item(
         roles = {None: None, 1: "Viewer", 2: "Manager"}
         changes.append({"principal": label, "from": roles[old.get(principal)], "to": roles[new.get(principal)]})
     version = hashlib.sha256(
-        json.dumps([item_id, source, body.parent_id, changes], sort_keys=True).encode()
+        json.dumps([kind, item_id, source, body.parent_id, sorted(old.items()), sorted(new.items())], sort_keys=True).encode()
     ).hexdigest()
     if body.preview:
         return {"changes": changes, "audience_version": version}
@@ -685,6 +687,8 @@ async def change_knowledge_link(
     if bool(linked) != attach:
         if attach:
             await db.execute(insert(links).values(folder_id=folder_id, **{key.name: item_id}))
+            if kind == "instructions":
+                item.scope_mode = "targeted"
         else:
             await db.execute(delete(links).where(condition))
         await audit_service.log(

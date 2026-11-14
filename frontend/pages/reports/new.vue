@@ -25,7 +25,8 @@
 				<ReportEmptyState
 					v-else
 					:mode="currentMode"
-					:available-agents="availableAgents"
+					 :available-folders="availableFolders" :folder-ids="folderIds" @toggle-folder="promptBoxRef?.chooseFolder($event)"
+                    :available-agents="availableAgents"
 					:current-agents="currentAgents"
 					:agents-are-auto="agentsAreAuto"
 					@toggle-agent="toggleAgentSelection"
@@ -38,6 +39,7 @@
 		<div class="shrink-0 bg-white dark:bg-gray-900">
 			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-chat']">
 				<PromptBoxV2 allow-folder-scope
+                    @update:available-folders="availableFolders = $event" @update:folder-ids="folderIds = $event"
 					ref="promptBoxRef"
 					:project="draftProject"
 					:projectSelectable="true"
@@ -144,6 +146,8 @@ const initialAgents = computed(() => {
 // it — the empty state renders the selection, the box owns it.
 const promptBoxRef = ref<any>(null)
 const currentAgents = ref<any[]>([])
+const availableFolders = ref<{id:string, path:string}[]>([])
+const folderIds = ref<string[]>([])
 const availableAgents = ref<any[]>([])
 const agentsAreAuto = ref(false)
 const currentMode = ref<'chat' | 'training'>(initialMode.value)

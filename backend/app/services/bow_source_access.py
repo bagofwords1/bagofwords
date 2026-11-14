@@ -186,7 +186,10 @@ async def visible_reports_clause(db, organization_id, user):
     used = select(sources.c.report_id).where(sources.c.report_id == Report.id).exists()
     hidden_source = select(sources.c.report_id).where(sources.c.report_id == Report.id,
                                                        sources.c.agent_id.notin_(visible)).exists()
-    return and_(Report.id.notin_(denied), ~hidden_source,
+    from app.models.report import ReportAdditionalFolder
+    hidden_folder = select(ReportAdditionalFolder.report_id).where(ReportAdditionalFolder.report_id == Report.id,
+        ReportAdditionalFolder.folder_id.notin_(folder_ids)).exists()
+    return and_(Report.id.notin_(denied), ~hidden_source, ~hidden_folder,
                 or_(used, Report.agent_folder_id.is_(None), Report.agent_folder_id.in_(folder_ids)))
 
 

@@ -239,6 +239,7 @@ class InstructionListItemSchema(BaseModel):
     truncating at the page limit. Bodies come from `GET /instructions/{id}` when
     a row is opened; hunks already came from `/review-hunks` that way.
     """
+    scope_mode: str = "global"
     id: str
     title: Optional[str] = None
     #: Body prefix — the tree label falls back to it when `title` is unset.
@@ -293,6 +294,7 @@ class InstructionListItemSchema(BaseModel):
 
 class InstructionListSchema(BaseModel):
     """Schema for listing instructions without full relationships"""
+    scope_mode: str = "global"
     id: str
     text: str
     status: str

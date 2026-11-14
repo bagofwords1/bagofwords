@@ -91,11 +91,20 @@ async def list_instruction_application_targets(
     return await instruction_targets(db, organization.id)
 
 
+class ScopedInstructionCreate(InstructionCreate):
+    owner_folder_id: str | None = None
+    folder_ids: list[str] = Field(default_factory=list)
+
+
+class ScopedInstructionUpdate(InstructionUpdate):
+    folder_ids: list[str] | None = None
+
+
 # CREATE INSTRUCTIONS
 @router.post("/instructions", response_model=InstructionSchema)
-@requires_permission('manage_instructions', resource_scoped=True)
+@requires_permission('manage_instructions', resource_scoped=True, folder_scoped=True)
 async def create_private_instruction(
-    instruction: InstructionCreate,
+    instruction: ScopedInstructionCreate,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
@@ -104,22 +113,21 @@ async def create_private_instruction(
     if instruction.applicable_channels:
         instruction.applicable_channels = await validate_instruction_channels(
             db, organization.id, instruction.applicable_channels)
-    # Scope authority — the same gate POST /instructions/global, the PUT re-scope
-    # path and the MCP create tool all apply. An empty OR unset scope means "no
-    # agent" = global (applies to every agent in the org), which stays an
-    # org-level capability: a per-agent `manage_instructions` grant confers no
-    # authority over it. The bare `if instruction.data_source_ids:` this replaces
-    # skipped the check entirely on an empty list, so an agent manager (who holds
-    # the grant on one agent and thus clears the resource_scoped door) could
-    # create a global here by omitting the scope — the one create/modify surface
-    # that didn't enforce what its three siblings do. On create both `None` and
-    # `[]` mean global, so normalise `None` to `[]` rather than letting
-    # require_scope_authority's "scope unchanged" pass-through (meant for PUT)
-    # reopen the gap.
-    await require_scope_authority(
-        db, current_user, organization, instruction.data_source_ids or [],
+    from app.services.folder_knowledge import require_capability
+    from app.services.folder_service import lock_tree
+    folder_ids = list(dict.fromkeys(instruction.folder_ids))
+    if instruction.owner_folder_id and instruction.owner_folder_id not in folder_ids:
+        raise HTTPException(422, "The owning folder must be selected")
+    if folder_ids:
+        await lock_tree(db, organization, current_user)
+        for fid in folder_ids:
+            await require_capability(db, organization, current_user, fid, "manage_instructions")
+    if instruction.data_source_ids or not folder_ids:
+        await require_scope_authority(db, current_user, organization, instruction.data_source_ids or [])
+    payload = InstructionCreate(**instruction.model_dump(exclude={"folder_ids", "owner_folder_id"}))
+    return await instruction_service.create_instruction(
+        db, payload, current_user, organization, folder_id=instruction.owner_folder_id, target_folder_ids=folder_ids,
     )
-    return await instruction_service.create_instruction(db, instruction, current_user, organization, force_global=False)
 
 @router.post("/instructions/global", response_model=InstructionSchema)
 @requires_permission('manage_instructions', resource_scoped=True)
@@ -923,7 +931,7 @@ async def get_instruction(
 @requires_permission('manage_instructions', model=Instruction, resource_scoped=True, folder_scoped=True)
 async def update_instruction(
     instruction_id: str,
-    instruction: InstructionUpdate,
+    instruction: ScopedInstructionUpdate,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
@@ -931,24 +939,35 @@ async def update_instruction(
     """Update an instruction (only if private and user owns it)"""
     # Per-DS gate on existing attached DSes (admin bypass via manage_instructions
     # is handled in the resolver).
+    from app.services.folder_knowledge import instruction_folder_ids, require_capability
+    from app.services.folder_service import lock_tree
+    if instruction.folder_ids is not None or instruction.data_source_ids is not None:
+        await lock_tree(db, organization, current_user)
     existing = await instruction_service.get_instruction(db, instruction_id, organization, current_user)
     if existing is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
     await _require_instruction_authority(
-        db, current_user, organization, existing, allow_owner=True,
+        db, current_user, organization, existing,
+        allow_owner=instruction.folder_ids is None and instruction.data_source_ids is None,
     )
-    # `is not None` distinguishes "scope not being changed" from "scope cleared".
-    # An empty list is FALSY, so a bare truthiness check skipped this branch
-    # entirely when the picker was emptied — letting a per-agent manager promote
-    # their own rule to global (applies to every agent in the org) by removing
-    # the one agent from it, which is precisely what the /instructions/global
-    # gate exists to prevent.
-    await require_scope_authority(db, current_user, organization, instruction.data_source_ids)
+    folder_ids = instruction.folder_ids
+    if folder_ids is not None:
+        folder_ids = list(dict.fromkeys(folder_ids))
+        for fid in folder_ids:
+            await require_capability(db, organization, current_user, fid, "manage_instructions")
+    if folder_ids is not None or instruction.data_source_ids is not None:
+        remaining_folders = folder_ids if folder_ids is not None else await instruction_folder_ids(db, instruction_id)
+        agents = instruction.data_source_ids
+        if agents is None:
+            agents = [agent.id for agent in existing.data_sources]
+        if agents or not remaining_folders:
+            await require_scope_authority(db, current_user, organization, agents)
     if instruction.applicable_channels:
         instruction.applicable_channels = await validate_instruction_channels(
             db, organization.id, instruction.applicable_channels)
     updated_instruction = await instruction_service.update_instruction(
-        db, instruction_id, instruction, organization, current_user
+        db, instruction_id, InstructionUpdate(**instruction.model_dump(exclude_unset=True, exclude={"folder_ids"})),
+        organization, current_user, target_folder_ids=folder_ids
     )
     if updated_instruction is None:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")

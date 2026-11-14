@@ -12,6 +12,7 @@ from app.schemas.report_api_settings import validate_tools
 
 class ReportBase(BaseModel):
     agent_folder_id: Optional[str] = None
+    agent_folder_ids: Optional[List[str]] = None
     title: Optional[str] = None
 
 class ReportCreate(ReportBase):
@@ -51,6 +52,7 @@ class ReportCreate(ReportBase):
 
 class ReportUpdate(BaseModel):
     agent_folder_id: Optional[str] = None
+    agent_folder_ids: Optional[List[str]] = None
     title: Optional[str] = None
     status: Optional[Literal["draft", "published", "archived"]] = None
     theme_name: Optional[str] = None

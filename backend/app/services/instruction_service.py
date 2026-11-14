@@ -132,6 +132,7 @@ class InstructionService:
         version_status_override: Optional[str] = None,  # AI flows pass 'published' to flip the live row on build promotion
         evidence: Optional[str] = None,  # AI flows: brief provenance note stored on the staged version
         folder_id: Optional[str] = None,
+        target_folder_ids: Optional[List[str]] = None,
     ) -> InstructionSchema:
         """Create a new instruction. Approval workflow is handled by builds, not instruction status."""
         
@@ -149,8 +150,9 @@ class InstructionService:
         # Convert enum strings coming from the API and extract their values
         raw = instruction_data.model_dump(exclude={'data_source_ids', 'references', 'label_ids'})
         instruction = Instruction(**raw)
+        placements = list(dict.fromkeys(([folder_id] if folder_id else []) + (target_folder_ids or [])))
         instruction.owner_folder_id = folder_id
-        instruction.scope_mode = "targeted" if folder_id or instruction_data.data_source_ids else "global"
+        instruction.scope_mode = "targeted" if placements or instruction_data.data_source_ids else "global"
         instruction.user_id = current_user.id
         instruction.organization_id = organization.id
         if agent_execution_id:
@@ -168,10 +170,12 @@ class InstructionService:
         self._enforce_skill_load_mode(instruction)
 
         db.add(instruction)
-        if folder_id:
+        if placements:
             from app.models.folder import folder_instructions
             await db.flush()
-            await db.execute(folder_instructions.insert().values(folder_id=folder_id, instruction_id=instruction.id))
+            await db.execute(folder_instructions.insert(), [
+                {"folder_id": fid, "instruction_id": instruction.id} for fid in placements
+            ])
         await db.commit()
         # Refresh ID + any relationships that will be set below
         refresh_attrs = ['id']
@@ -335,7 +339,9 @@ class InstructionService:
         except Exception:
             pass
 
-        return await self._instruction_to_schema_with_references(db, instruction)
+        return await self._instruction_to_schema_with_references(
+            db, instruction, organization=organization, current_user=current_user,
+        )
     
     async def analyze_instruction(
         self,
@@ -1168,7 +1174,8 @@ class InstructionService:
         instruction_id: str,
         instruction_data: InstructionUpdate,
         organization: Organization,
-        current_user: User
+        current_user: User,
+        target_folder_ids: Optional[List[str]] = None,
     ) -> Optional[InstructionSchema]:
         """Update an instruction with proper permission and workflow handling"""
         
@@ -1203,6 +1210,23 @@ class InstructionService:
         # edit handlers run so a kind→skill change (or a skill whose load_mode
         # was passed as 'always'/'disabled') is normalized before versioning.
         self._enforce_skill_load_mode(instruction)
+
+        if target_folder_ids is not None:
+            from app.models.folder import folder_instructions
+            from app.services.folder_knowledge import instruction_folder_ids
+            existing = set(await instruction_folder_ids(db, instruction_id))
+            requested = set(target_folder_ids)
+            removed = existing - requested
+            if removed:
+                await db.execute(folder_instructions.delete().where(
+                    folder_instructions.c.instruction_id == instruction_id,
+                    folder_instructions.c.folder_id.in_(removed),
+                ))
+            if requested - existing:
+                await db.execute(folder_instructions.insert(), [
+                    {"instruction_id": instruction_id, "folder_id": fid} for fid in requested - existing
+                ])
+            instruction.scope_mode = "targeted" if requested or instruction.data_sources else "global"
 
         # Handle data source associations
         if instruction_data.data_source_ids is not None:
@@ -1321,7 +1345,9 @@ class InstructionService:
         except Exception:
             pass
 
-        return await self._instruction_to_schema_with_references(db, instruction)
+        return await self._instruction_to_schema_with_references(
+            db, instruction, organization=organization, current_user=current_user,
+        )
 
     async def revert_instruction_to_version(
         self,
@@ -4613,6 +4639,7 @@ class InstructionService:
                 # instruction body repeated three ways).
                 list_items.append(
                     InstructionListItemSchema(
+                        scope_mode=inst.scope_mode,
                         id=str(inst.id),
                         title=getattr(inst, "title", None),
                         preview=build_preview(inst.text),
@@ -4646,6 +4673,7 @@ class InstructionService:
                 continue
             list_items.append(
                 InstructionListSchema(
+                    scope_mode=inst.scope_mode,
                     id=str(inst.id),
                     text=inst.text,
                     status=inst.status,

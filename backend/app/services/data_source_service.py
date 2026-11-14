@@ -1606,6 +1606,8 @@ class DataSourceService:
 
             s = DataSourceListItemSchema(
                 id=str(d.id),
+                can_move_from_folder=bool(resolved and resolved.has_resource_permission("data_source", d.id, "manage")
+                                          and (not d.folder_id or resolved.has_resource_permission("folder", d.folder_id, "manage"))),
                 limited_access=not d.inherits_folder_access,
                 folder_id=d.folder_id if d.folder_id and resolved and resolved.has_resource_permission("folder", d.folder_id, "view") else None,
                 name=d.name,
@@ -1860,6 +1862,8 @@ class DataSourceService:
 
             s = DataSourceListItemSchema(
                 id=str(d.id),
+                can_move_from_folder=bool(resolved and resolved.has_resource_permission("data_source", d.id, "manage")
+                                          and (not d.folder_id or resolved.has_resource_permission("folder", d.folder_id, "manage"))),
                 limited_access=not d.inherits_folder_access,
                 folder_id=d.folder_id if d.folder_id and resolved and resolved.has_resource_permission("folder", d.folder_id, "view") else None,
                 name=d.name,

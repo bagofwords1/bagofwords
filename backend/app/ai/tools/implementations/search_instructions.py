@@ -8,6 +8,7 @@ from typing import AsyncIterator, Dict, Any, Type
 from pydantic import BaseModel
 import logging
 
+from app.models.report import report_folder_ids
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas.search_instructions import (
@@ -327,7 +328,7 @@ class SearchInstructionsTool(Tool):
                     return
                 effective_ds_ids = scope_ds_ids
 
-            folder_id = getattr(runtime_ctx.get("report"), "agent_folder_id", None) if session_scoped else None
+            folder_id = report_folder_ids(runtime_ctx.get("report")) if session_scoped else None
             session_filter = {"session_scope": True, "folder_id": folder_id} if session_scoped else {}
 
             # --- Resolve each query into a compiled pattern ---

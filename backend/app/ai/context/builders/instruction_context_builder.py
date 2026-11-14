@@ -98,7 +98,7 @@ class InstructionContextBuilder:
     # Untitled catalog entries show this many chars of the body as their title.
     CATALOG_SNIPPET_LEN = 140
 
-    def __init__(self, db: AsyncSession, organization: Organization, current_user: Optional[User] = None, organization_settings=None, data_source_ids: Optional[List[str]] = None, mode: Optional[str] = None, channel: Optional[str] = None, application_id: Optional[str] = None, folder_id: Optional[str] = None):
+    def __init__(self, db: AsyncSession, organization: Organization, current_user: Optional[User] = None, organization_settings=None, data_source_ids: Optional[List[str]] = None, mode: Optional[str] = None, channel: Optional[str] = None, application_id: Optional[str] = None, folder_id: str | list[str] | None = None):
         self.db = db
         self.organization = organization
         self.current_user = current_user
