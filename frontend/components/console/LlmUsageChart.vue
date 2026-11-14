@@ -37,6 +37,9 @@
                         · {{ llmUsageData.routing.routed_calls.toLocaleString() }} routed call{{ llmUsageData.routing.routed_calls === 1 ? '' : 's' }}
                         ({{ Math.round((llmUsageData.routing.routed_share || 0) * 100) }}%)
                     </span>
+                    <span v-if="llmUsageData.routing.decision_calls" class="text-emerald-600/70 dark:text-emerald-400/70" data-testid="routing-decisions-kpi">
+                        · {{ $t('monitoring.cost.kpiDecisions', { n: llmUsageData.routing.decision_calls.toLocaleString(), cost: '$' + (llmUsageData.routing.decision_cost_usd || 0).toFixed((llmUsageData.routing.decision_cost_usd || 0) < 0.01 ? 4 : 2) }) }}
+                    </span>
                 </span>
             </div>
         </div>
@@ -109,6 +112,8 @@ interface RoutingSavings {
     routed_calls: number
     total_calls: number
     routed_share: number
+    decision_calls?: number
+    decision_cost_usd?: number
 }
 
 interface LlmUsageMetrics {

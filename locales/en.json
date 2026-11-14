@@ -1931,7 +1931,9 @@
       "choosing": "Choosing model…",
       "routing": "Model routing",
       "fellBackTo": "Fell back to",
-      "fallbackReason": "{from} was unavailable"
+      "fallbackReason": "{from} was unavailable",
+      "decisionMatch": "{pct}% match",
+      "decisionBy": "picked by {model}"
     },
     "grepFiles": {
       "grepping": "Grepping files for {pattern}…",
@@ -3946,7 +3948,60 @@
         "defaultForGroups": "Default for groups",
         "defaultForGroupsHint": "Members of these groups can always use this model."
       },
-      "colAccess": "Access"
+      "colAccess": "Access",
+      "autoRouterModal": {
+        "title": "Auto model routing",
+        "question": "How should the router pick the model a request starts on?",
+        "smallTitle": "Small model (current)",
+        "smallBody": "Each request starts on the small model and moves up to a stronger model only if the task needs it.",
+        "decisionTitle": "Decision model",
+        "decisionBody": "A decision model picks the starting model before the run begins, from your models' routing guidance. The agent can still move up to a stronger model mid-run.",
+        "addDecisionModel": "Add a decision model",
+        "modelLabel": "Model",
+        "minConfidenceLabel": "Min confidence",
+        "minConfidenceTooltip": "Below this confidence the request starts on the small model, as it does today.",
+        "hintsNote": "Starter routing guidance is added to your default and small models. You can edit it in the table.",
+        "turnOn": "Turn on",
+        "configure": "Configure",
+        "summaryDecision": "{model} picks the starting model (min confidence {pct}%)",
+        "decisionUnavailable": "The decision model chosen for routing is disabled or removed, so requests start on the small model. Choose another one in Configure.",
+        "saved": "Auto router updated"
+      },
+      "decision": {
+        "badge": "Decision",
+        "badgeTooltip": "A decision model answers typed questions with probabilities. It is used by the Auto router and never for chat.",
+        "routerInUse": "Used by the Auto router",
+        "notRoutingTarget": "Not a routing target",
+        "kindLabel": "Type",
+        "kindTooltip": "Chat models answer messages. Decision models answer typed questions with probabilities (used by the Auto router) and never appear in the model picker.",
+        "kindChat": "Chat",
+        "kindDecision": "Decision",
+        "formatLabel": "API format",
+        "formatTooltip": "OpenAI Decisions (POST /decisions) or System One (POST /systemone, used by TypeSafe Jev, Microsoft Foundry, Perplexity, Ollama, vLLM and LiteLLM).",
+        "formatOpenai": "OpenAI Decisions",
+        "formatSystemone": "System One",
+        "imageInput": "Image input",
+        "imageInputTooltip": "Whether this decision model accepts images in a request.",
+        "sectionTitle": "Decision settings",
+        "sectionTooltip": "How requests are sent to this decision model. Decision APIs have no temperature.",
+        "test": "Test",
+        "saveToTest": "Save to test",
+        "testOk": "Answered a yes/no test question: {pct}% yes in {ms} ms.",
+        "testFailed": "The decision model did not answer.",
+        "saveError": "Could not update decision settings",
+        "pathLabel": "Path",
+        "pathTooltip": "Path added to the provider's base URL, for example /v1/systemone or /providers/microsoft/v1/systemone. Leave empty for the format's default.",
+        "apiModelLabel": "Model sent",
+        "apiModelTooltip": "The model id sent to the provider, if different from this model's id (for example an Azure deployment name).",
+        "maxQuestionsLabel": "Max questions",
+        "maxQuestionsTooltip": "Most questions this model accepts in one request.",
+        "timeoutLabel": "Timeout (ms)",
+        "timeoutTooltip": "How long to wait for an answer. On timeout the router keeps the small model.",
+        "keepAliveLabel": "Keep alive",
+        "keepAliveTooltip": "Ollama only: how long the model stays loaded between requests (for example 5m).",
+        "cachingLabel": "Prompt caching",
+        "cachingTooltip": "Reuse cached input where the provider supports it, which lowers cost for repeated questions."
+      }
     },
     "licensePage": {
       "title": "License",
@@ -5985,7 +6040,8 @@
       "lockedBody": "Upgrade to an enterprise license to track LLM token and cost spend by user, agent and group over time.",
       "fanoutNote": "Spend for multi-source reports is counted for each of their data sources, so per-row totals can exceed the headline total.",
       "kpiSaved": "Saved by auto-routing",
-      "kpiSavedSub": "calls routed"
+      "kpiSavedSub": "calls routed",
+      "kpiDecisions": "{n} upfront decisions · {cost}"
     },
     "cards": {
       "messages": "Messages",

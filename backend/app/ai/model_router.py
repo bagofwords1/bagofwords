@@ -13,6 +13,7 @@ Design doc: docs/design/auto-model-routing.md
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select
@@ -63,6 +64,7 @@ async def resolve_routing_candidates(
         .filter(LLMModel.organization_id == organization.id)
         .filter(LLMModel.deleted_at == None)  # noqa: E711
         .filter(LLMModel.is_enabled == True)  # noqa: E712
+        .filter(LLMModel.model_kind != "decision")
         .filter(LLMProvider.deleted_at == None)  # noqa: E711
         .filter(LLMProvider.is_enabled == True)  # noqa: E712
     )
@@ -257,3 +259,195 @@ def compute_routing_savings_usd(
         actual = float(getattr(r, "total_cost_usd", 0) or 0)
         total += baseline_cost - actual
     return total
+
+
+# ── Upfront routing with a decision model ───────────────────────────────────
+#
+# Org setting ``model_routing_decision`` picks HOW the Auto router chooses the
+# starting model:
+#   small_model (default) — start on the small model; the planner may escalate
+#                           via route_model (today's behavior, unchanged).
+#   decision              — before the first planner turn, ask a decision model
+#                           one ``choice`` question over the routing candidates
+#                           (each described by its routing hint). A confident,
+#                           non-small pick becomes the starting model; anything
+#                           else (low confidence, error, timeout, disabled model)
+#                           falls back to small_model. route_model stays
+#                           available either way, so escalation still works.
+
+ROUTING_METHODS = ("small_model", "decision")
+DEFAULT_MIN_CONFIDENCE = 0.7
+DECISION_USAGE_SCOPE = "model_routing.decision"
+_MAX_STATE_CHARS = 6000
+
+
+def routing_decision_settings(settings: Any) -> Dict[str, Any]:
+    """Normalized ``model_routing_decision`` value for an org's settings."""
+    raw = None
+    try:
+        cfg = settings.get_config("model_routing_decision") if settings is not None else None
+        raw = getattr(cfg, "value", cfg)
+    except Exception:
+        raw = None
+    raw = raw if isinstance(raw, dict) else {}
+    method = raw.get("method") if raw.get("method") in ROUTING_METHODS else "small_model"
+    try:
+        min_conf = float(raw.get("min_confidence", DEFAULT_MIN_CONFIDENCE))
+    except (TypeError, ValueError):
+        min_conf = DEFAULT_MIN_CONFIDENCE
+    return {
+        "method": method,
+        "decision_model_id": raw.get("decision_model_id") or None,
+        "min_confidence": min(max(min_conf, 0.0), 1.0),
+    }
+
+
+async def _load_decision_model(db: AsyncSession, organization: Any, model_id: Optional[str]) -> Optional[LLMModel]:
+    if not model_id:
+        return None
+    return (await db.execute(
+        select(LLMModel)
+        .join(LLMModel.provider)
+        .filter(LLMModel.id == str(model_id))
+        .filter(LLMModel.organization_id == organization.id)
+        .filter(LLMModel.deleted_at == None)  # noqa: E711
+        .filter(LLMModel.is_enabled == True)  # noqa: E712
+        .filter(LLMModel.model_kind == "decision")
+        .filter(LLMProvider.deleted_at == None)  # noqa: E711
+        .filter(LLMProvider.is_enabled == True)  # noqa: E712
+    )).unique().scalar_one_or_none()
+
+
+async def validate_routing_decision_update(
+    db: AsyncSession, organization: Any, stored: Optional[dict], incoming: Any,
+) -> Dict[str, Any]:
+    """Validate a ``model_routing_decision`` update (merged over ``stored``).
+    Raises HTTPException(400/402) with a user-facing message."""
+    from fastapi import HTTPException
+    if not isinstance(incoming, dict):
+        raise HTTPException(status_code=400, detail="Auto router method must be an object.")
+    merged = {**(stored or {}), **incoming}
+    method = merged.get("method") or "small_model"
+    if method not in ROUTING_METHODS:
+        raise HTTPException(status_code=400, detail=f"method must be one of {', '.join(ROUTING_METHODS)}.")
+    try:
+        min_conf = float(merged.get("min_confidence", DEFAULT_MIN_CONFIDENCE))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="min_confidence must be a number between 0 and 1.")
+    if not (0.0 <= min_conf <= 1.0):
+        raise HTTPException(status_code=400, detail="min_confidence must be between 0 and 1.")
+    decision_model_id = merged.get("decision_model_id") or None
+    if method == "decision":
+        from app.ee.license import has_feature
+        if not has_feature("model_routing"):
+            raise HTTPException(status_code=402, detail="The Auto model router requires an enterprise license.")
+        if await _load_decision_model(db, organization, decision_model_id) is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Choose an enabled decision model to route with a decision model.",
+            )
+    return {"method": method, "decision_model_id": decision_model_id, "min_confidence": min_conf}
+
+
+@dataclass
+class DecisionOutcome:
+    """Result of the upfront routing decision. ``model`` is the starting model
+    to switch to, or None to keep today's path (start small); ``reason`` says
+    why when None."""
+    model: Optional[LLMModel] = None
+    reason: Optional[str] = None
+    confidence: float = 0.0
+    probabilities: List[Dict[str, Any]] = field(default_factory=list)
+    decision_model: Optional[LLMModel] = None
+    latency_ms: int = 0
+
+
+def build_routing_question(candidates: List[LLMModel]) -> Dict[str, Any]:
+    """One ``choice`` question whose options are the candidates' model ids,
+    each described by the admin's routing hint (and small/default tags)."""
+    choices = []
+    for m in candidates:
+        tags = []
+        if getattr(m, "is_small_default", False):
+            tags.append("small, cheapest")
+        if getattr(m, "is_default", False):
+            tags.append("default")
+        hint = get_routing_hint(m) or ""
+        desc = (f"[{', '.join(tags)}] " if tags else "") + hint
+        choices.append({"value": m.model_id, "description": desc.strip() or None})
+    return {
+        "type": "choice",
+        "name": "starting_model",
+        "instructions": (
+            "Which model should handle this request? Pick the cheapest model whose "
+            "guidance fits the request's difficulty."
+        ),
+        "choices": choices,
+    }
+
+
+def _routing_state(prompt_text: str, context_text: Optional[str]) -> str:
+    parts = [f"User request:\n{(prompt_text or '').strip()}"]
+    if context_text and context_text.strip():
+        parts.append(f"Recent conversation:\n{context_text.strip()}")
+    state = "\n\n".join(parts)
+    return state[:_MAX_STATE_CHARS]
+
+
+async def decide_starting_model(
+    db: AsyncSession,
+    organization: Any,
+    settings: Any,
+    *,
+    candidates: List[LLMModel],
+    small_model: Optional[LLMModel],
+    prompt_text: str,
+    context_text: Optional[str] = None,
+    usage_context: Any = None,
+) -> DecisionOutcome:
+    """Ask the configured decision model which candidate a run should start
+    on. Never raises: any problem returns ``DecisionOutcome(model=None,
+    reason=...)`` and the caller keeps today's routing."""
+    cfg = routing_decision_settings(settings)
+    if cfg["method"] != "decision":
+        return DecisionOutcome(reason="method_small_model")
+    if not candidates:
+        return DecisionOutcome(reason="no_candidates")
+    decision_model = await _load_decision_model(db, organization, cfg["decision_model_id"])
+    if decision_model is None:
+        return DecisionOutcome(reason="decision_model_unavailable")
+
+    from app.ai.llm import LLM
+    from app.ai.llm.decisions import top_choice
+    from app.dependencies import async_session_maker
+
+    question = build_routing_question(candidates)
+    try:
+        llm = LLM(decision_model, usage_session_maker=async_session_maker, usage_context=usage_context)
+        result = await llm.decide(
+            _routing_state(prompt_text, context_text), [question],
+            usage_scope=DECISION_USAGE_SCOPE,
+        )
+    except Exception as exc:  # DecisionError, quota, network — never break the run
+        logger.warning("[routing] decision model call failed: %s", exc)
+        return DecisionOutcome(reason=f"decision_failed: {exc}"[:300], decision_model=decision_model)
+
+    answer = result.by_name().get("starting_model") or {}
+    if answer.get("type") != "choice":
+        return DecisionOutcome(reason="no_answer", decision_model=decision_model, latency_ms=result.latency_ms)
+    picked, confidence = top_choice(answer)
+    probabilities = sorted(
+        ({"value": str(p.get("value")), "probability": float(p.get("probability") or 0.0)}
+         for p in answer.get("probabilities") or []),
+        key=lambda p: -p["probability"],
+    )
+    base = dict(confidence=confidence, probabilities=probabilities,
+                decision_model=decision_model, latency_ms=result.latency_ms)
+    target = next((m for m in candidates if m.model_id == picked), None)
+    if target is None:
+        return DecisionOutcome(reason="picked_unknown_model", **base)
+    if confidence < cfg["min_confidence"]:
+        return DecisionOutcome(reason="low_confidence", **base)
+    if small_model is not None and str(target.id) == str(small_model.id):
+        return DecisionOutcome(reason="picked_small_model", **base)
+    return DecisionOutcome(model=target, **base)

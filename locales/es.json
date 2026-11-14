@@ -1844,7 +1844,9 @@
       "choosing": "Eligiendo modelo…",
       "routing": "Enrutamiento de modelo",
       "fallbackReason": "{from} no estaba disponible",
-      "fellBackTo": "Cambió a"
+      "fellBackTo": "Cambió a",
+      "decisionMatch": "{pct}% de coincidencia",
+      "decisionBy": "elegido por {model}"
     },
     "grepFiles": {
       "grepping": "Buscando en archivos {pattern}…",
@@ -3860,7 +3862,60 @@
         "defaultForGroups": "Predeterminado para grupos",
         "defaultForGroupsHint": "Los miembros de estos grupos siempre pueden usar este modelo."
       },
-      "colAccess": "Acceso"
+      "colAccess": "Acceso",
+      "autoRouterModal": {
+        "title": "Enrutamiento automático de modelos",
+        "question": "¿Cómo debe elegir el enrutador el modelo con el que empieza una solicitud?",
+        "smallTitle": "Modelo pequeño (actual)",
+        "smallBody": "Cada solicitud empieza en el modelo pequeño y pasa a un modelo más potente solo si la tarea lo necesita.",
+        "decisionTitle": "Modelo de decisión",
+        "decisionBody": "Un modelo de decisión elige el modelo inicial antes de que empiece la ejecución, según la guía de enrutamiento de tus modelos. El agente aún puede pasar a un modelo más potente durante la ejecución.",
+        "addDecisionModel": "Añadir un modelo de decisión",
+        "modelLabel": "Modelo",
+        "minConfidenceLabel": "Confianza mínima",
+        "minConfidenceTooltip": "Por debajo de esta confianza la solicitud empieza en el modelo pequeño, como hoy.",
+        "hintsNote": "Se añade una guía de enrutamiento inicial a tus modelos predeterminado y pequeño. Puedes editarla en la tabla.",
+        "turnOn": "Activar",
+        "configure": "Configurar",
+        "summaryDecision": "{model} elige el modelo inicial (confianza mínima {pct}%)",
+        "decisionUnavailable": "El modelo de decisión elegido para el enrutamiento está desactivado o eliminado, así que las solicitudes empiezan en el modelo pequeño. Elige otro en Configurar.",
+        "saved": "Enrutador automático actualizado"
+      },
+      "decision": {
+        "badge": "Decisión",
+        "badgeTooltip": "Un modelo de decisión responde preguntas tipadas con probabilidades. Lo usa el enrutador automático y nunca se usa para chatear.",
+        "routerInUse": "Usado por el enrutador automático",
+        "notRoutingTarget": "No es destino de enrutamiento",
+        "kindLabel": "Tipo",
+        "kindTooltip": "Los modelos de chat responden mensajes. Los modelos de decisión responden preguntas tipadas con probabilidades (los usa el enrutador automático) y nunca aparecen en el selector de modelos.",
+        "kindChat": "Chat",
+        "kindDecision": "Decisión",
+        "formatLabel": "Formato de API",
+        "formatTooltip": "OpenAI Decisions (POST /decisions) o System One (POST /systemone, usado por TypeSafe Jev, Microsoft Foundry, Perplexity, Ollama, vLLM y LiteLLM).",
+        "formatOpenai": "OpenAI Decisions",
+        "formatSystemone": "System One",
+        "imageInput": "Entrada de imágenes",
+        "imageInputTooltip": "Si este modelo de decisión acepta imágenes en una solicitud.",
+        "sectionTitle": "Ajustes de decisión",
+        "sectionTooltip": "Cómo se envían las solicitudes a este modelo de decisión. Las API de decisión no tienen temperatura.",
+        "test": "Probar",
+        "saveToTest": "Guarda para probar",
+        "testOk": "Respondió una pregunta de prueba de sí/no: {pct}% sí en {ms} ms.",
+        "testFailed": "El modelo de decisión no respondió.",
+        "saveError": "No se pudieron actualizar los ajustes de decisión",
+        "pathLabel": "Ruta",
+        "pathTooltip": "Ruta que se añade a la URL base del proveedor, por ejemplo /v1/systemone o /providers/microsoft/v1/systemone. Déjala vacía para usar la del formato.",
+        "apiModelLabel": "Modelo enviado",
+        "apiModelTooltip": "El id de modelo que se envía al proveedor, si es distinto del id de este modelo (por ejemplo, el nombre de una implementación de Azure).",
+        "maxQuestionsLabel": "Máximo de preguntas",
+        "maxQuestionsTooltip": "Número máximo de preguntas que este modelo acepta en una solicitud.",
+        "timeoutLabel": "Tiempo de espera (ms)",
+        "timeoutTooltip": "Cuánto esperar una respuesta. Si se agota, el enrutador mantiene el modelo pequeño.",
+        "keepAliveLabel": "Mantener cargado",
+        "keepAliveTooltip": "Solo Ollama: cuánto tiempo sigue cargado el modelo entre solicitudes (por ejemplo, 5m).",
+        "cachingLabel": "Caché de prompts",
+        "cachingTooltip": "Reutiliza la entrada en caché cuando el proveedor lo permite, lo que reduce el coste de preguntas repetidas."
+      }
     },
     "licensePage": {
       "title": "Licencia",
@@ -5894,7 +5949,8 @@
       "lockedBody": "Actualiza a una licencia empresarial para hacer seguimiento del gasto de tokens y costo de LLM por usuario, agente y grupo a lo largo del tiempo.",
       "fanoutNote": "El gasto de los informes con múltiples fuentes se cuenta para cada una de sus fuentes de datos, por lo que los totales por fila pueden superar el total general.",
       "kpiSaved": "Ahorrado por enrutamiento automático",
-      "kpiSavedSub": "llamadas enrutadas"
+      "kpiSavedSub": "llamadas enrutadas",
+      "kpiDecisions": "{n} decisiones iniciales · {cost}"
     },
     "cards": {
       "messages": "Mensajes",

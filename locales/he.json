@@ -1844,7 +1844,9 @@
       "choosing": "בוחר מודל…",
       "routing": "ניתוב מודל",
       "fallbackReason": "{from} לא היה זמין",
-      "fellBackTo": "עבר לגיבוי"
+      "fellBackTo": "עבר לגיבוי",
+      "decisionMatch": "התאמה של {pct}%",
+      "decisionBy": "נבחר על ידי {model}"
     },
     "grepFiles": {
       "grepping": "מחפש בקבצים אחר {pattern}…",
@@ -3860,7 +3862,60 @@
         "defaultForGroups": "ברירת מחדל עבור קבוצות",
         "defaultForGroupsHint": "חברי הקבוצות האלה תמיד יכולים להשתמש במודל הזה."
       },
-      "colAccess": "גישה"
+      "colAccess": "גישה",
+      "autoRouterModal": {
+        "title": "ניתוב מודלים אוטומטי",
+        "question": "איך הנתב צריך לבחור את המודל שבו בקשה מתחילה?",
+        "smallTitle": "מודל קטן (נוכחי)",
+        "smallBody": "כל בקשה מתחילה במודל הקטן ועוברת למודל חזק יותר רק אם המשימה דורשת זאת.",
+        "decisionTitle": "מודל החלטה",
+        "decisionBody": "מודל החלטה בוחר את המודל ההתחלתי לפני שהריצה מתחילה, לפי הנחיות הניתוב של המודלים שלך. הסוכן עדיין יכול לעבור למודל חזק יותר במהלך הריצה.",
+        "addDecisionModel": "הוספת מודל החלטה",
+        "modelLabel": "מודל",
+        "minConfidenceLabel": "ביטחון מינימלי",
+        "minConfidenceTooltip": "מתחת לרמת ביטחון זו הבקשה מתחילה במודל הקטן, כמו היום.",
+        "hintsNote": "הנחיות ניתוב ראשוניות נוספות למודל ברירת המחדל ולמודל הקטן. אפשר לערוך אותן בטבלה.",
+        "turnOn": "הפעלה",
+        "configure": "הגדרה",
+        "summaryDecision": "{model} בוחר את המודל ההתחלתי (ביטחון מינימלי {pct}%)",
+        "decisionUnavailable": "מודל ההחלטה שנבחר לניתוב מושבת או הוסר, ולכן בקשות מתחילות במודל הקטן. בחר מודל אחר בהגדרה.",
+        "saved": "הנתב האוטומטי עודכן"
+      },
+      "decision": {
+        "badge": "החלטה",
+        "badgeTooltip": "מודל החלטה עונה על שאלות מוגדרות עם הסתברויות. הנתב האוטומטי משתמש בו, והוא אף פעם לא משמש לצ'אט.",
+        "routerInUse": "בשימוש הנתב האוטומטי",
+        "notRoutingTarget": "לא יעד ניתוב",
+        "kindLabel": "סוג",
+        "kindTooltip": "מודלי צ'אט עונים להודעות. מודלי החלטה עונים על שאלות מוגדרות עם הסתברויות (בשימוש הנתב האוטומטי) ואף פעם לא מופיעים בבורר המודלים.",
+        "kindChat": "צ'אט",
+        "kindDecision": "החלטה",
+        "formatLabel": "פורמט API",
+        "formatTooltip": "OpenAI Decisions (POST /decisions) או System One (POST /systemone, בשימוש TypeSafe Jev, Microsoft Foundry, Perplexity, Ollama, vLLM ו-LiteLLM).",
+        "formatOpenai": "OpenAI Decisions",
+        "formatSystemone": "System One",
+        "imageInput": "קלט תמונות",
+        "imageInputTooltip": "האם מודל ההחלטה הזה מקבל תמונות בבקשה.",
+        "sectionTitle": "הגדרות החלטה",
+        "sectionTooltip": "איך בקשות נשלחות למודל ההחלטה הזה. לממשקי החלטה אין טמפרטורה.",
+        "test": "בדיקה",
+        "saveToTest": "שמור כדי לבדוק",
+        "testOk": "ענה על שאלת בדיקה של כן/לא: {pct}% כן תוך {ms} ms.",
+        "testFailed": "מודל ההחלטה לא ענה.",
+        "saveError": "לא ניתן לעדכן את הגדרות ההחלטה",
+        "pathLabel": "נתיב",
+        "pathTooltip": "נתיב שמתווסף לכתובת הבסיס של הספק, למשל /v1/systemone או /providers/microsoft/v1/systemone. השאר ריק לברירת המחדל של הפורמט.",
+        "apiModelLabel": "המודל שנשלח",
+        "apiModelTooltip": "מזהה המודל שנשלח לספק, אם הוא שונה ממזהה המודל הזה (למשל שם פריסה ב-Azure).",
+        "maxQuestionsLabel": "מספר שאלות מרבי",
+        "maxQuestionsTooltip": "המספר המרבי של שאלות שהמודל מקבל בבקשה אחת.",
+        "timeoutLabel": "זמן קצוב (ms)",
+        "timeoutTooltip": "כמה זמן לחכות לתשובה. אם הזמן עובר, הנתב נשאר עם המודל הקטן.",
+        "keepAliveLabel": "השארה בזיכרון",
+        "keepAliveTooltip": "Ollama בלבד: כמה זמן המודל נשאר טעון בין בקשות (למשל 5m).",
+        "cachingLabel": "מטמון פרומפטים",
+        "cachingTooltip": "שימוש חוזר בקלט מהמטמון כשהספק תומך בכך, מה שמוזיל שאלות חוזרות."
+      }
     },
     "licensePage": {
       "title": "רישיון",
@@ -5914,7 +5969,8 @@
       "lockedBody": "שדרג לרישיון ארגוני כדי לעקוב אחר צריכת טוקנים ועלות של מודלי שפה לפי משתמש, סוכן וקבוצה לאורך זמן.",
       "fanoutNote": "הוצאה עבור דוחות מרובי-מקורות נספרת עבור כל אחד ממקורות הנתונים שלהם, כך שסכומי השורות עשויים לחרוג מהסכום הכולל.",
       "kpiSaved": "נחסך על ידי ניתוב אוטומטי",
-      "kpiSavedSub": "בקשות נותבו"
+      "kpiSavedSub": "בקשות נותבו",
+      "kpiDecisions": "{n} החלטות מוקדמות · {cost}"
     },
     "cards": {
       "messages": "הודעות",

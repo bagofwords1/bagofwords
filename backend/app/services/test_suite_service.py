@@ -266,6 +266,7 @@ class TestSuiteService:
             select(LLMModel, LLMProvider)
             .join(LLMModel.provider)
             .where(LLMModel.organization_id == str(organization_id))
+            .where(LLMModel.model_kind != "decision")
         )
         rows = [
             (model, provider)

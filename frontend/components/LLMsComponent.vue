@@ -89,10 +89,20 @@
                         </template>
                     </UPopover>
                     <UToggle
-                        v-model="autoRouterOn"
+                        :model-value="autoRouterOn"
                         :disabled="!useCan('manage_llm_settings') || !modelRoutingLicensed"
-                        @update:model-value="saveAutoRouter"
+                        data-testid="auto-router-switch"
+                        @update:model-value="onAutoRouterToggle"
                     />
+                    <button
+                        v-if="autoRouterOn && useCan('manage_llm_settings') && modelRoutingLicensed"
+                        type="button"
+                        class="text-xs text-blue-600 hover:underline"
+                        data-testid="auto-router-configure"
+                        @click="autoRouterModalOpen = true"
+                    >
+                        {{ $t('settings.llms.autoRouterModal.configure') }}
+                    </button>
                 </div>
                 <div class="flex items-center gap-1.5" data-testid="llm-fallback-toggle-group">
                     <span class="text-sm text-ink-2">{{ $t('settings.llms.fallback') }}</span>
@@ -124,6 +134,23 @@
                     />
                 </div>
             </div>
+        </div>
+        <div
+            v-if="models.length > 0 && autoRouterOn && routingDecision.method === 'decision' && routingDecisionModel"
+            class="mb-3 flex items-center flex-wrap gap-1.5 text-xs text-ink-2"
+            data-testid="auto-router-decision-summary"
+        >
+            <UIcon name="i-heroicons-arrows-right-left" class="w-3.5 h-3.5 text-ink-muted" />
+            <span class="font-medium">{{ $t('settings.llms.autoRouter') }}:</span>
+            <span>{{ $t('settings.llms.autoRouterModal.summaryDecision', { model: routingDecisionModel.name, pct: Math.round(routingDecision.min_confidence * 100) }) }}</span>
+        </div>
+        <div
+            v-if="models.length > 0 && autoRouterOn && routingDecision.method === 'decision' && !routingDecisionModel"
+            class="mb-3 flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400"
+            data-testid="auto-router-decision-unavailable"
+        >
+            <UIcon name="i-heroicons-exclamation-triangle" class="w-3.5 h-3.5" />
+            <span>{{ $t('settings.llms.autoRouterModal.decisionUnavailable') }}</span>
         </div>
         <!-- LLM fallback chain summary (Enterprise): the order is edited per-row
              in the Fallback column below; this line shows the whole policy at a
@@ -190,6 +217,9 @@
                                         <UTooltip v-if="model.is_small_default" :text="$t('settings.llms.smallDefaultTooltip')">
                                             <UBadge size="xs" color="green" variant="subtle">{{ $t('settings.llms.badgeSmallDefault') }}</UBadge>
                                         </UTooltip>
+                                        <UTooltip v-if="model.model_kind === 'decision'" :text="$t('settings.llms.decision.badgeTooltip')">
+                                            <UBadge size="xs" color="purple" variant="subtle" data-testid="llm-decision-badge">{{ $t('settings.llms.decision.badge') }}</UBadge>
+                                        </UTooltip>
                                         <span
                                             v-for="g in groupDefaultsByModel[model.id] || []"
                                             :key="g"
@@ -211,7 +241,10 @@
                         </td>
                         <td v-if="autoRouterOn" class="align-middle w-full" data-testid="llm-routing-cell" @click.stop>
                             <div class="min-w-[20rem] max-w-[32rem]">
-                                <span v-if="!model.is_enabled" class="text-xs text-ink-muted">{{ $t('settings.llms.routingNotAvailable') }}</span>
+                                <span v-if="model.model_kind === 'decision'" class="text-xs text-ink-muted" data-testid="llm-routing-decision-cell">
+                                    {{ routingDecision.method === 'decision' && routingDecision.decision_model_id === model.id ? $t('settings.llms.decision.routerInUse') : $t('settings.llms.decision.notRoutingTarget') }}
+                                </span>
+                                <span v-else-if="!model.is_enabled" class="text-xs text-ink-muted">{{ $t('settings.llms.routingNotAvailable') }}</span>
                                 <!-- Routing guidance (only editable target when enabled) -->
                                 <div v-else>
                                     <div v-if="editingHintId === model.id" class="flex items-start gap-1">
@@ -248,7 +281,7 @@
                         <td v-if="fallbackOn" class="whitespace-nowrap align-middle" data-testid="llm-fallback-cell" @click.stop>
                             <!-- The default model is what fails INTO the chain — fixed primary marker. -->
                             <span v-if="model.is_default" class="text-2xs uppercase tracking-wide text-ink-muted">{{ $t('settings.llms.fallbackPrimary') }}</span>
-                            <span v-else-if="!model.is_enabled" class="text-xs text-gray-300 dark:text-gray-600">—</span>
+                            <span v-else-if="!model.is_enabled || model.model_kind === 'decision'" class="text-xs text-gray-300 dark:text-gray-600">—</span>
                             <select
                                 v-else-if="useCan('manage_llm_settings')"
                                 class="bow-native-control"
@@ -314,7 +347,7 @@
         <LLMGroupDefaults
             v-if="canManageAccess && models.length > 0"
             ref="groupDefaultsRef"
-            :models="models"
+            :models="chatModels"
             @updated="getModels"
             @rows="onGroupDefaultRows"
         />
@@ -342,11 +375,23 @@
             @update:modelValue="handleProviderModalClose"
         />
 
+        <!-- Auto router: how to pick the starting model (opens on enable / Configure) -->
+        <AutoRouterModal
+            v-model="autoRouterModalOpen"
+            :decision-models="decisionModels"
+            :current="routingDecision"
+            :already-on="autoRouterOn"
+            :saving="savingRouter"
+            @confirm="confirmAutoRouter"
+            @add-decision-model="openAddDecisionModel"
+        />
+
         <!-- Add Model Modal -->
         <LLMAddModelModal
             v-model="addModelModalOpen"
             :providers="providers"
             :models="models"
+            :initial-kind="addModelKind"
             @added="getModels"
         />
 
@@ -426,6 +471,8 @@ type Model = {
   input_cost_per_million_tokens_usd?: number | null;
   output_cost_per_million_tokens_usd?: number | null;
   config?: Record<string, any> | null;
+  model_kind?: 'chat' | 'decision';
+  decision?: Record<string, any> | null;
   provider: Provider;
 };
 
@@ -435,13 +482,72 @@ const providers = ref<Provider[]>([]);
 // ── Auto model router (org setting model_routing) ──────────────────────────
 const autoRouterOn = ref(false);
 
+type RoutingDecision = { method: 'small_model' | 'decision'; decision_model_id: string | null; min_confidence: number };
+const routingDecision = ref<RoutingDecision>({ method: 'small_model', decision_model_id: null, min_confidence: 0.7 });
+const autoRouterModalOpen = ref(false);
+const savingRouter = ref(false);
+
+const chatModels = computed<Model[]>(() => models.value.filter((m) => m.model_kind !== 'decision'));
+const decisionModels = computed<Model[]>(() => models.value.filter((m) => m.model_kind === 'decision'));
+const routingDecisionModel = computed<Model | undefined>(() =>
+    decisionModels.value.find((m) => m.id === routingDecision.value.decision_model_id && m.is_enabled));
+
 const loadAutoRouter = async () => {
     const response = await useMyFetch<any>('/organization/settings', { method: 'GET' });
     const cfg = (response.data.value as any)?.config;
     autoRouterOn.value = !!cfg?.model_routing?.value;
+    const rd = cfg?.model_routing_decision?.value;
+    if (rd && typeof rd === 'object') {
+        routingDecision.value = {
+            method: rd.method === 'decision' ? 'decision' : 'small_model',
+            decision_model_id: rd.decision_model_id || null,
+            min_confidence: typeof rd.min_confidence === 'number' ? rd.min_confidence : 0.7,
+        };
+    }
+};
+
+// Turning the router ON asks how it should decide (modal); OFF saves directly.
+const onAutoRouterToggle = (val: boolean) => {
+    if (val) {
+        autoRouterModalOpen.value = true;
+    } else {
+        saveAutoRouter(false);
+    }
+};
+
+const confirmAutoRouter = async (value: RoutingDecision) => {
+    savingRouter.value = true;
+    try {
+        const wasOn = autoRouterOn.value;
+        const response = await useMyFetch('/organization/settings', {
+            method: 'PUT',
+            body: { config: { model_routing: { value: true }, model_routing_decision: { value } } },
+        });
+        if (response.status.value !== 'success') {
+            toast.add({ title: 'Error', description: updateErrorDetail(response), color: 'red' });
+            return;
+        }
+        routingDecision.value = { ...value };
+        autoRouterModalOpen.value = false;
+        if (!wasOn) {
+            autoRouterOn.value = true;
+            await seedDefaultRoutingHints();
+        }
+        toast.add({ title: wasOn ? t('settings.llms.autoRouterModal.saved') : t('settings.llms.autoRouterOn'), color: 'green' });
+    } finally {
+        savingRouter.value = false;
+    }
+};
+
+const addModelKind = ref<'chat' | 'decision'>('chat');
+const openAddDecisionModel = () => {
+    autoRouterModalOpen.value = false;
+    addModelKind.value = 'decision';
+    addModelModalOpen.value = true;
 };
 
 const saveAutoRouter = async (val: boolean) => {
+    autoRouterOn.value = val;
     const response = await useMyFetch('/organization/settings', {
         method: 'PUT',
         body: { config: { model_routing: { value: val } } },
@@ -596,6 +702,9 @@ const providerModalOpen = ref(false);
 const editProviderId = ref<string | null>(null);
 const startWithNewProvider = ref(false);
 const addModelModalOpen = ref(false);
+// Back to a chat model after the add-model dialog closes (it may have been
+// opened for a decision model from the Auto-router modal).
+watch(() => addModelModalOpen.value, (isOpen) => { if (!isOpen) addModelKind.value = 'chat'; });
 
 const { hasFeature } = useEnterprise();
 const canManageAccess = computed(() => hasFeature('llm_access_control') && useCan('manage_llm_settings'));
@@ -668,8 +777,10 @@ const filteredModels = computed<Model[]>(() => {
 });
 
 const getModels = async () => {
+  // kind=all: the admin table lists decision models too (pickers never do).
   const response = await useMyFetch<Model[]>('/llm/models', {
       method: 'GET',
+      query: { kind: 'all' },
   });
 
   models.value = (response.data.value as unknown as Model[]) || [];
@@ -802,6 +913,7 @@ const buildDropdownItems = (model: Model) => {
                 openModelCard(model);
             }
         },
+        ...(model.model_kind === 'decision' ? [] : [
         {
             label: t('settings.llms.makeDefault'),
             click: () => {
@@ -813,7 +925,7 @@ const buildDropdownItems = (model: Model) => {
             click: () => {
                 setDefaultModel(model.id, true);
             }
-        },
+        }]),
         {
             label: t('settings.llms.manageProvider'),
             click: () => {

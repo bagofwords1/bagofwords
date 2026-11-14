@@ -1082,6 +1082,7 @@ async def delegate_model_options(db, organization, user) -> List[Tuple[str, Any]
             LLMModel.is_enabled == True,  # noqa: E712
             LLMModel.deleted_at == None,  # noqa: E711
             LLMModel.supports_image_generation == False,  # noqa: E712
+            LLMModel.model_kind != "decision",
             LLMProvider.is_enabled == True,  # noqa: E712
             LLMProvider.deleted_at == None,  # noqa: E711
         )

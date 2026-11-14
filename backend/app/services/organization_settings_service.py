@@ -308,6 +308,16 @@ class OrganizationSettingsService:
                                 status_code=402,
                                 detail="The Auto model router requires an enterprise license."
                             )
+                    # Auto router method: small_model | decision (+ the decision
+                    # model and its confidence threshold). Merged over the stored
+                    # value so a partial update keeps the other fields.
+                    if key == 'model_routing_decision':
+                        from app.ai.model_router import validate_routing_decision_update
+                        incoming = value_update.get('value') if isinstance(value_update, dict) else value_update
+                        stored = current_config.get(key)
+                        stored_value = stored.get('value') if isinstance(stored, dict) else None
+                        normalized = await validate_routing_decision_update(db, organization, stored_value, incoming)
+                        value_update = {'value': normalized}
                     # Enterprise check for LLM fallback. Same shape as the Auto
                     # router: enabling needs the license, disabling is always
                     # allowed so a lapsed license can't strand it on.
