@@ -10,8 +10,12 @@ const source=fs.readFileSync(new URL('../../utils/artifactIframe.ts',import.meta
 const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
 const sandbox={exports:{},crypto:webcrypto,window:{location:{origin:'https://assets.example.test'}}};
 vm.runInNewContext(compiled,sandbox);
-const policies=[...new Set(['../../components/dashboard/ArtifactFrame.vue','../../pages/r/[id]/index.vue'].flatMap(p=>[...fs.readFileSync(new URL(p,import.meta.url),'utf8').matchAll(/\bsandbox="([^"]+)"/g)].map(m=>m[1])))];
-assert.ok(policies.length);
+// The editor and the reader both bind :sandbox to artifactSandbox(); test every policy it can return.
+for(const p of ['../../components/dashboard/ArtifactFrame.vue','../../components/dashboard/SharedDashboardView.vue'])
+ assert.match(fs.readFileSync(new URL(p,import.meta.url),'utf8'),/:sandbox="sandboxAttr"[\s\S]*artifactSandbox\(/,p);
+const sandboxModule={exports:{}};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync(new URL('../../utils/artifactSandbox.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,sandboxModule);
+const policies=[false,true].map(popups=>sandboxModule.exports.artifactSandbox(popups));
 const browser=await chromium.launch({headless:true, executablePath:CHROME_PATH});
 try{
  for(const policy of policies){
