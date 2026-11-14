@@ -333,7 +333,7 @@ async def resolve_candidate_agents(
             from app.core.permission_resolver import resolve_permissions
             rights = await resolve_permissions(db, str(user.id), str(organization.id))
             agents = [a for a in agents if rights.has_resource_permission("data_source", str(a.id), MANAGE_PERMISSION)]
-        return agents, "folder", set()
+        return agents, "folder", {str(ds.id) for ds in agents}
     if mode == "training":
         from app.core.permission_resolver import get_ds_ids_with_permission
         from app.models.data_source import DataSource

@@ -241,6 +241,25 @@ def test_folder_role_roster_at_scale(test_client, env, llm, invite_user_to_org, 
     large = asyncio.run(measure_discovery(300))
     assert all(b <= a + 5 for a, b in zip(small, large)), (small, large)
 
+    async def search_neighbors():
+        from app.ai.tools.implementations.search_agents import SearchAgentsTool
+        from app.models.organization import Organization
+        from app.models.report import Report
+        from app.models.user import User
+        async with async_session_maker() as db:
+            report = await db.get(Report, rid)
+            ctx = {"db": db, "report": report, "mode": "chat",
+                   "organization": await db.get(Organization, org),
+                   "user": await db.get(User, member["user_id"])}
+            for subject, expected in [(names[1], set(names[1::60])), (names[0], set())]:
+                aid = await db.scalar(select(DataSource.id).where(DataSource.name == subject,
+                                                                  DataSource.organization_id == org))
+                events = [e async for e in SearchAgentsTool().run_stream({"same_folder_as": aid}, ctx)]
+                found = events[-1].payload["output"]
+                assert found["success"] and {a["name"] for a in found["agents"]} == expected
+                assert all(a["folder_path"] == "Roster QA / West / District 1" for a in found["agents"])
+    asyncio.run(search_neighbors())
+
     turn(set(names[1:]))
 
     # Read the routing revision from the planner input and choose the stable ID

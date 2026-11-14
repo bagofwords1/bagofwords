@@ -141,11 +141,14 @@ class SetReportAgentsTool(Tool):
             for did in requested:
                 ds = attached_by_id.get(did)
                 if ds is not None:
+                    if mode == "training" and not folder_scoped and not await user_can_focus_agent(db, organization, user, did, mode):
+                        rejected.append(did)
+                        continue
                     valid.append((ds, False))
                     continue
                 # Not in the report's selection. A MANUAL selection is a hard
                 # scope in chat/deep — never attach beyond it.
-                if folder_scoped or (not is_auto and mode != "training"):
+                if folder_scoped or not is_auto:
                     rejected.append(did)
                     out_of_scope.append(did)
                     continue
