@@ -147,7 +147,7 @@ import { treeDropTarget } from '~/utils/treeDragStyles'
 type Folder = { id: string, parent_id: string | null, name: string, limited_access: boolean, can_manage: boolean, can_move_from_folder: boolean, can_query: boolean, capabilities: string[] }
 type Recipient = { id: string, type: string, name: string, role: string | null, inherited?: {role: string, source: string, source_id: string}[] }
 const props = defineProps<{ agents: DragAgent[], knowledgeRevision: number, loading: boolean, activeFolder?: string | null, activeAgent?: string | null }>()
-const emit = defineEmits<{ knowledge: [folderId:string, kind:'instructions'|'evals'|'files', item:{id:string,name:string}], select: [id: string | null], create: [parentId: string | null], changed: [] }>()
+const emit = defineEmits<{ knowledge: [folderId:string, kind:'instructions'|'evals'|'files', item?:{id:string,name:string}], select: [id: string | null], create: [parentId: string | null], changed: [] }>()
 const foldersLoaded = ref(false)
 const expanded = ref(new Set<string>())
 const sharingId = ref<string | null>(null)

@@ -13,7 +13,7 @@
         <h3 class="me-auto text-sm font-medium">{{ $t('agentsPage.' + kind) }}</h3>
         <template v-if="canEdit(kind)">
           <UButton size="xs" variant="ghost" color="gray" icon="i-heroicons-link" @click="start(kind, 'attach')">{{ $t('sharedFolders.attach') }}</UButton>
-          <UButton size="xs" color="gray" :icon="kind === 'files' ? 'i-heroicons-arrow-up-tray' : 'i-heroicons-plus'" @click="start(kind, 'create')">{{ $t(kind === 'files' ? 'files.sourceUpload' : 'common.create') }}</UButton>
+          <UButton size="xs" color="blue" :icon="kind === 'files' ? 'i-heroicons-arrow-up-tray' : 'i-heroicons-plus'" @click="start(kind, 'create')">{{ $t(kind === 'files' ? 'files.sourceUpload' : 'common.create') }}</UButton>
         </template>
       </div>
       <p v-if="errors[kind]" class="py-2 text-sm text-red-600">{{ errors[kind] }}</p>
@@ -26,7 +26,7 @@
             <UButton v-if="item.owned" size="xs" color="gray" variant="ghost" @click="start(kind, 'case', item.id)">{{ $t('sharedFolders.addCase') }}</UButton>
             <UButton v-if="folder.can_query" size="xs" color="gray" variant="ghost" icon="i-heroicons-play" :loading="busy" @click="run(item.id)">{{ $t('agentsPage.tipRunSuite') }}</UButton>
           </template>
-          <UButton v-if="canEdit(kind)" color="gray" variant="ghost" size="xs" icon="i-heroicons-minus" :aria-label="$t('common.remove')" :disabled="busy" @click="change(kind, item.id, false)" />
+          <UButton v-if="canEdit(kind)" color="gray" variant="ghost" size="xs" icon="i-heroicons-minus" :disabled="busy" @click="change(kind, item.id, false)">{{ $t('common.remove') }}</UButton>
         </li>
       </ul>
     </section>
@@ -63,13 +63,13 @@
 import TestCaseEditor from "~/components/monitoring/TestCaseEditor.vue"
 type Kind = 'instructions' | 'files' | 'evals'
 type Item = { id: string, name: string, owned?: boolean }
-const props = defineProps<{suiteId?: string, folder: {id: string, name: string, capabilities: string[], can_query: boolean}}>()
+const props = defineProps<{suiteId?: string, section?: Kind, folder: {id: string, name: string, capabilities: string[], can_query: boolean}}>()
 const emit = defineEmits<{changed: [], createInstruction: [folderId: string], instruction: [id: string], file:[item:{id:string, filename:string}]}>()
 const { t } = useI18n()
 const { isTrainingModeEnabled } = useOrgSettings()
 const kinds: Kind[] = ['instructions', 'files', 'evals']
 const canEdit = (kind: Kind) => props.folder.capabilities.includes('manage_' + kind)
-const sections = computed(() => kinds.filter(k => canEdit(k) || (props.folder.can_query && k !== 'evals')))
+const sections = computed(() => kinds.filter(k => (!props.section || props.section === k) && (canEdit(k) || (props.folder.can_query && k !== 'evals'))))
 const items = reactive<Record<Kind, Item[]>>({instructions: [], files: [], evals: []})
 const errors = reactive<Record<Kind, string>>({instructions: '', files: '', evals: ''})
 const url = (k: Kind) => '/folders/' + props.folder.id + '/knowledge/' + k
@@ -115,6 +115,7 @@ async function change(kind: Kind, id: string, attach: boolean) {
   try {
     const {error} = await useMyFetch(url(kind) + '/' + id, {method:attach ? 'PUT' : 'DELETE'})
     if (error.value) throw error.value
+    if (!attach && kind === 'evals' && expanded.value === id) expanded.value = ''
     show.value = false; await load(kind); emit('changed')
   } catch { feedback.value = t('common.error') } finally { busy.value = false }
 }

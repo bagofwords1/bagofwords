@@ -1,12 +1,16 @@
 <template>
   <div v-for="section in sections" :key="section.kind" class="ps-3.5">
-    <button type="button" class="flex h-8 w-full items-center gap-1.5 rounded-md px-1.5 text-start text-sm text-ink-muted hover:bg-surface-muted"
-      :aria-expanded="!collapsed.has(section.kind)" @click="toggle(section.kind)">
-      <UIcon name="i-heroicons-chevron-right" class="size-3" :class="collapsed.has(section.kind) ? 'rtl:rotate-180' : 'rtl-own-transform rotate-90'" />
-      <UIcon :name="section.icon" class="size-4" />
-      <span class="grow">{{ $t('agentsPage.' + section.kind) }}</span>
-      <span v-if="items[section.kind]" class="text-xs">{{ items[section.kind]?.length }}</span>
-    </button>
+    <div class="flex h-8 items-center rounded-md px-1.5 text-sm text-ink-muted hover:bg-surface-muted">
+      <button type="button" class="flex h-full shrink-0 items-center pe-1.5"
+        :aria-label="$t('agentsPage.' + section.kind)" :aria-expanded="!collapsed.has(section.kind)" @click="toggle(section.kind)">
+        <UIcon name="i-heroicons-chevron-right" class="size-3" :class="collapsed.has(section.kind) ? 'rtl:rotate-180' : 'rtl-own-transform rotate-90'" />
+      </button>
+      <button type="button" class="flex h-full min-w-0 grow items-center gap-1.5 text-start" @click="$emit('pick', section.kind)">
+        <UIcon :name="section.icon" class="size-4" />
+        <span class="grow">{{ $t('agentsPage.' + section.kind) }}</span>
+        <span v-if="items[section.kind]" class="text-xs">{{ items[section.kind]?.length }}</span>
+      </button>
+    </div>
     <div v-if="!collapsed.has(section.kind)" class="ps-6">
       <button v-if="errors.has(section.kind)" class="text-xs text-ink-muted" @click="load(section.kind)">{{ $t('changelog.retry') }}</button>
       <Spinner v-else-if="!items[section.kind]" class="size-3 text-ink-muted" />
@@ -21,7 +25,7 @@
 type Kind = 'instructions' | 'files' | 'evals'
 type Item = {id: string, name: string}
 const props = defineProps<{folder: {id: string, capabilities: string[], can_query: boolean}, revision: number}>()
-defineEmits<{pick: [kind: Kind, item: Item]}>()
+defineEmits<{pick: [kind: Kind, item?: Item]}>()
 const groups = [
   {kind:'instructions', icon:'i-heroicons-document-text', empty:'agentsPage.noInstructions'},
   {kind:'files', icon:'i-heroicons-paper-clip', empty:'agentsPage.noFiles'},

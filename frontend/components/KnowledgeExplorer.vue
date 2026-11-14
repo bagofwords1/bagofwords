@@ -212,7 +212,7 @@
 
           <AgentFolders ref="folderExplorer" :knowledge-revision="folderKnowledgeRevision" @knowledge="pickFolderKnowledge" :agents="agents" :loading="!agentsLoaded"
             :active-folder="folderPaneVisible ? selectedFolder : null" :active-agent="agentView?.agentId || panelView?.agentId"
-            @changed="fetchAgents" @select="clearRightPane(); selectedFolder = $event; folderSuiteId = undefined"
+            @changed="fetchAgents" @select="clearRightPane(); selectedFolder = $event; folderSuiteId = undefined; folderSection = undefined"
             @create="(parentId) => openDirModal(parentId ? 'subfolder' : 'create', GLOBAL_SCOPE, { kind: 'agent-folder', parentId })">
             <template #header>
             <UTooltip v-if="canViewAllAgents" :text="$t('data.showAllAgentsHint')">
@@ -1037,7 +1037,7 @@
           </div>
         </template>
 
-        <FolderKnowledge v-else-if="selectedFolder && folderExplorer?.current" :key="selectedFolder" :folder="folderExplorer.current" :suite-id="folderSuiteId" @changed="folderKnowledgeRevision++" @create-instruction="openCreate({ folderId: $event })" @file="openFile" @instruction="openInstructionById" />
+        <FolderKnowledge v-else-if="selectedFolder && folderExplorer?.current" :key="selectedFolder + (folderSection || '')" :section="folderSection" :folder="folderExplorer.current" :suite-id="folderSuiteId" @changed="folderKnowledgeRevision++" @create-instruction="openCreate({ folderId: $event })" @file="openFile" @instruction="openInstructionById" />
         <div v-else class="flex-1 flex items-center justify-center px-6">
           <div class="relative w-full max-w-lg h-72 overflow-hidden">
             <img src="/assets/empty-states/empty-integrations.png" alt="" class="absolute inset-x-0 bottom-8 w-full opacity-80 select-none pointer-events-none dark:hidden" />
@@ -1302,8 +1302,12 @@ const searchResults = ref<{ agents: any[]; instructions: Instruction[] } | null>
 const searching = ref(false)
 const folderKnowledgeRevision = ref(0)
 const folderSuiteId = ref<string>()
-function pickFolderKnowledge(folderId: string, kind: 'instructions' | 'files' | 'evals', item: {id:string, name:string}) {
+type FolderSection = 'instructions' | 'files' | 'evals'
+const folderSection = ref<FolderSection>()
+function pickFolderKnowledge(folderId: string, kind: FolderSection, item?: {id:string, name:string}) {
   folderExplorer.value?.open(folderId)
+  folderSection.value = kind
+  if (!item) return
   if (kind === 'evals') folderSuiteId.value = item.id
   else if (kind === 'instructions') openInstructionById(item.id)
   else openFile({id:item.id, filename:item.name})
