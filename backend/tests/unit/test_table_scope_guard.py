@@ -372,13 +372,13 @@ def test_tables_read_lists_the_tables_a_statement_reads_by_name_without_its_cte_
     where it stands is not a table."""
     from app.ai.code_execution import sql_parser, table_scope
 
-    sql = ("WITH x AS (SELECT * FROM x), y AS (SELECT * FROM sales.orders) "
+    sql = ("WITH x AS (SELECT * FROM w), y AS (SELECT * FROM sales.orders) "
            "SELECT * FROM x JOIN y ON true JOIN Warehouse.Sales.Payroll p ON true, generate_series(1, 2) g "
            "WHERE EXISTS (SELECT 1 FROM sales.orders)")
     [statement] = sql_parser.parse_guard_sql(sql, "postgres")
     found = table_scope.tables_read(statement)
     assert len(found) == 3
-    assert set(found) == {("x",), ("sales", "orders"), ("warehouse", "sales", "payroll")}
+    assert set(found) == {("w",), ("sales", "orders"), ("warehouse", "sales", "payroll")}
 
 
 def test_recursive_cte_can_reference_itself():

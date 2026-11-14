@@ -588,7 +588,8 @@ CLICKHOUSE_OWN_NAME_IN_BODY = [
 @pytest.mark.parametrize("sql", CLICKHOUSE_OWN_NAME_IN_BODY)
 def test_a_with_entry_s_own_name_inside_its_body_is_the_table_on_clickhouse(sql):
     assert "secret" in _sqlglot_cte_names(sql, "clickhouse")
-    with pytest.raises(TableScopeViolation, match="SECRET"):
+    # An entry naming itself outside a recursive part is a loop.
+    with pytest.raises(TableScopeViolation, match="refer to each other"):
         check_table_scope(ensure_read_only(_client("ClickhouseClient"), sql), "clickhouse", SCOPE)
 
 
@@ -599,7 +600,7 @@ def test_a_with_entry_s_own_name_inside_its_body_is_the_table_on_clickhouse(sql)
     "WITH RECURSIVE secret AS (SELECT x FROM secret EXCEPT SELECT x FROM secret) SELECT x FROM secret",
 ])
 def test_a_recursive_entry_s_own_name_outside_the_recursive_part_of_its_union_is_the_table(family, sql):
-    with pytest.raises(TableScopeViolation, match="SECRET"):
+    with pytest.raises(TableScopeViolation, match="refer to each other"):
         check_table_scope(ensure_read_only(_client(family), sql),
                           dialect_for_client(_client(family)), SCOPE)
 
@@ -640,15 +641,28 @@ def _nested_repeats(levels: int, bottom: str) -> str:
 
 
 @pytest.mark.timeout(60)
-@pytest.mark.parametrize("build", [_alias_chain, _nested_repeats])
-def test_an_in_set_reached_through_30_levels_of_with_entries_is_read_once_per_entry(build):
+def test_an_in_set_reached_through_30_levels_of_with_entries_is_read_once_per_entry():
     import time
 
-    started = time.monotonic()
-    check_table_scope(build(30, "orders"), "clickhouse", SCOPE)
+    # CPU time of this process, so other workers (-n 8) do not count.
+    started = time.process_time()
+    check_table_scope(_alias_chain(30, "orders"), "clickhouse", SCOPE)
     with pytest.raises(TableScopeViolation, match="SECRET"):
-        check_table_scope(build(30, "secret"), "clickhouse", SCOPE)
-    assert time.monotonic() - started < 1.0
+        check_table_scope(_alias_chain(30, "secret"), "clickhouse", SCOPE)
+    assert time.process_time() - started < 1.0
+
+
+@pytest.mark.timeout(60)
+@pytest.mark.parametrize("bottom", ["orders", "secret"])
+def test_30_nested_with_entries_that_each_name_themselves_are_refused_quickly(bottom):
+    # Each nested entry `a` names `a` in its own body: a WITH entry that
+    # names itself outside a recursive part is refused.
+    import time
+
+    started = time.process_time()
+    with pytest.raises(TableScopeViolation, match="refer to each other"):
+        check_table_scope(_nested_repeats(30, bottom), "clickhouse", SCOPE)
+    assert time.process_time() - started < 1.0
 
 
 def test_an_in_set_reached_through_more_with_entries_than_table_scope_follows_is_refused():
@@ -656,6 +670,102 @@ def test_an_in_set_reached_through_more_with_entries_than_table_scope_follows_is
     sql = f"WITH {', '.join(entries)} SELECT id FROM orders WHERE id IN a1199"
     with pytest.raises(TableScopeViolation, match="Could not verify which table this IN reads"):
         check_table_scope(sql, "clickhouse", SCOPE)
+
+
+# WITH entries that name each other in a loop: while ClickHouse reads an
+# entry it reads that entry's name as the table of that name, so the name
+# that closes the loop reads the disabled table (live dialect tests). On a
+# table reference, as the set of an IN, and as a scalar alias; wrapped in a
+# UNION, a subquery, an inner WITH, nested subqueries, a WITH RECURSIVE;
+# next to a recursive entry; over three entries.
+CLICKHOUSE_WITH_CYCLES = [
+    "WITH secret AS (SELECT x FROM orders), orders AS (SELECT x FROM secret) SELECT x FROM secret",
+    "WITH secret AS (SELECT x FROM orders), orders AS (SELECT x FROM secret) "
+    "SELECT x FROM secret UNION ALL SELECT x FROM secret",
+    "WITH secret AS (SELECT x FROM orders), orders AS (SELECT 0 AS x WHERE 0 UNION ALL SELECT x FROM secret) "
+    "SELECT x FROM secret",
+    "SELECT * FROM (WITH secret AS (SELECT x FROM orders), orders AS (SELECT x FROM secret) SELECT x FROM secret)",
+    "WITH secret AS (SELECT x FROM orders), orders AS (WITH q AS (SELECT x FROM secret) SELECT x FROM q) "
+    "SELECT x FROM secret",
+    "WITH secret AS (SELECT x FROM (SELECT x FROM orders)), orders AS (SELECT x FROM (SELECT x FROM secret)) "
+    "SELECT x FROM secret",
+    "WITH RECURSIVE secret AS (SELECT x FROM orders), orders AS (SELECT x FROM secret) SELECT x FROM secret",
+    "WITH a AS (SELECT arrayFilter(v -> v IN secret, range(100)) AS r), secret AS (SELECT r FROM a) "
+    "SELECT r FROM secret",
+    "WITH a AS (SELECT 42 IN secret AS r), secret AS (SELECT r FROM a) SELECT r FROM secret",
+    "WITH (SELECT arrayFilter(v -> v IN secret, range(100))) AS r, secret AS (SELECT r AS x) SELECT x FROM secret",
+    "WITH (SELECT 42 IN secret) AS r, secret AS (SELECT r + 100 AS v) SELECT 101 IN secret",
+    "WITH RECURSIVE r AS (SELECT 1 AS x UNION ALL SELECT x+1 FROM r WHERE x<3), "
+    "b AS (SELECT arrayFilter(v -> v IN secret, range(100)) AS a), secret AS (SELECT a FROM b) SELECT a FROM secret",
+    "WITH secret AS (SELECT x FROM orders), c AS (SELECT x FROM secret), orders AS (SELECT x FROM c) "
+    "SELECT x FROM secret",
+    "WITH a AS (SELECT x FROM b), b AS (SELECT x FROM secret), secret AS (SELECT x FROM a) SELECT x FROM secret",
+]
+
+
+@pytest.mark.parametrize("sql", CLICKHOUSE_WITH_CYCLES)
+def test_with_entries_that_name_each_other_in_a_loop_are_refused_on_clickhouse(sql):
+    with pytest.raises(TableScopeViolation, match="refer to each other"):
+        check_table_scope(ensure_read_only(_client("ClickhouseClient"), sql), "clickhouse", SCOPE)
+
+
+@pytest.mark.parametrize("dialect", [None, "postgres", "mysql", "tsql", "snowflake", "bigquery", "duckdb",
+                                     "sqlite", "oracle", "clickhouse"])
+@pytest.mark.parametrize("sql", [
+    "WITH secret AS (SELECT x FROM orders), orders AS (SELECT x FROM secret) SELECT x FROM secret",
+    "WITH secret AS (SELECT x FROM orders), c AS (SELECT x FROM secret), orders AS (SELECT x FROM c) "
+    "SELECT x FROM secret",
+    "SELECT * FROM (WITH a AS (SELECT x FROM (SELECT x FROM B)), b AS (SELECT x FROM a) SELECT x FROM a) s",
+    # An entry that names itself outside a recursive part.
+    "WITH orders AS (SELECT id FROM orders WHERE id > 1) SELECT id FROM orders",
+    "WITH RECURSIVE orders AS (SELECT id FROM orders UNION ALL SELECT id FROM orders WHERE 1 = 0) "
+    "SELECT id FROM orders",
+])
+def test_the_tables_read_refuse_with_entries_that_name_each_other_in_every_dialect(dialect, sql):
+    statement = parse_guard_sql(sql, dialect)[0]
+    with pytest.raises(TableScopeViolation, match="refer to each other"):
+        tables_read(statement, dialect)
+
+
+@pytest.mark.parametrize("dialect", ["postgres", "clickhouse"])
+@pytest.mark.parametrize("sql", [
+    RECURSIVE_SUM,
+    "WITH RECURSIVE tree AS (SELECT id FROM orders WHERE id = 1 "
+    "UNION ALL SELECT o.id FROM orders o JOIN tree t ON o.id = t.id + 1 WHERE tree.id < 3) SELECT id FROM tree",
+    "WITH a AS (SELECT id FROM orders), b AS (SELECT id FROM a) SELECT id FROM b",
+])
+def test_a_recursive_entry_named_in_its_recursive_part_and_entries_read_in_order_are_not_a_loop(dialect, sql):
+    tables_read(parse_guard_sql(sql, dialect)[0], dialect)
+
+
+def test_an_entry_is_found_by_identity_where_another_entry_is_written_alike():
+    from app.ai.code_execution.table_scope import _resolves_to_cte
+
+    sql = "WITH b AS (SELECT x FROM m), m AS (SELECT 1 AS x), b AS (SELECT x FROM m) SELECT x FROM b"
+    statement = parse_guard_sql(sql, "postgres")[0]
+    first, _m, last = statement.args["with"].expressions
+    assert first == last and first is not last
+    # Inside the last entry, `m` (defined before it) is the entry; inside
+    # the first one it is the table.
+    assert _resolves_to_cte(next(last.find_all(exp.Table)), "postgres") is True
+    assert _resolves_to_cte(next(first.find_all(exp.Table)), "postgres") is False
+
+
+@pytest.mark.timeout(60)
+@pytest.mark.parametrize("dialect, sql", [
+    ("postgres", "SELECT 1 FROM " + ", ".join(f"t{k}" for k in range(20000))),
+    ("clickhouse", "SELECT 1 FROM orders WHERE 42 IN (" + ", ".join(f"t{k}" for k in range(20000)) + ")"),
+])
+def test_the_tables_read_of_20000_names_take_linear_time(dialect, sql):
+    import time
+
+    statement = parse_guard_sql(sql, dialect)[0]
+    # CPU time of this process, so other workers (-n 8) do not count.
+    started = time.process_time()
+    refs = tables_read(statement, dialect)
+    assert time.process_time() - started < 1.0
+    names = [ref for ref in refs if ref != ("orders",)]
+    assert len(names) == 20000 and names[:2] == [("t0",), ("t1",)] and names[-1] == ("t19999",)
 
 
 # Query settings that hold SQL (or anything outside the common ones) are

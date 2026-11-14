@@ -86,6 +86,16 @@ _POSTGRES = [
     "SELECT * FROM orders o WHERE EXISTS (SELECT 1 FROM order_items i WHERE i.order_id = o.id)",
     "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 10) SELECT i FROM n",
     "WITH RECURSIVE r AS (SELECT 1 AS x UNION ALL SELECT x+1 FROM r WHERE x<3) SELECT sum(x) FROM r",
+    # A hierarchy walk, and the SEARCH and CYCLE clauses.
+    "WITH RECURSIVE tree AS (SELECT id, parent_id, name FROM customers WHERE parent_id IS NULL "
+    "UNION ALL SELECT c.id, c.parent_id, c.name FROM customers c JOIN tree t ON c.parent_id = t.id) "
+    "SELECT * FROM tree",
+    "WITH RECURSIVE search_tree(id, link, data) AS (SELECT g.id, g.link, g.data FROM items g "
+    "UNION ALL SELECT g.id, g.link, g.data FROM items g, search_tree st WHERE g.id = st.link) "
+    "SEARCH DEPTH FIRST BY id SET ordercol SELECT * FROM search_tree ORDER BY ordercol",
+    "WITH RECURSIVE search_graph(id, link, data, depth) AS (SELECT g.id, g.link, g.data, 0 FROM items g "
+    "UNION ALL SELECT g.id, g.link, g.data, sg.depth + 1 FROM items g, search_graph sg WHERE g.id = sg.link) "
+    "CYCLE id SET is_cycle USING path SELECT * FROM search_graph",
     "SELECT amount, SUM(amount) OVER (ORDER BY created_at ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) FROM orders",
     "SELECT * FROM orders WHERE id = ANY (ARRAY[1, 2, 3])",
     "SELECT round(avg(amount)::numeric, 2) AS avg_amount FROM orders",
@@ -252,6 +262,8 @@ _OTHER_DIALECTS = {
         "SELECT * FROM orders LIMIT 100 SETTINGS max_result_rows = 1000, result_overflow_mode = 'break'",
         "WITH RECURSIVE r AS (SELECT 1 AS x UNION ALL SELECT x+1 FROM r WHERE x<3) SELECT sum(x) FROM r",
         "WITH a AS (SELECT 42 IN c AS r), c AS (SELECT id FROM orders) SELECT r FROM a",
+        "WITH RECURSIVE tree AS (SELECT id, parent_id FROM customers WHERE parent_id = 0 "
+        "UNION ALL SELECT c.id, c.parent_id FROM customers c JOIN tree t ON c.parent_id = t.id) SELECT count() FROM tree",
     ],
     "databricks": [
         "SELECT date_format(created_at, 'yyyy-MM') AS ym, COUNT(*) FROM orders GROUP BY 1",

@@ -37,7 +37,7 @@ import pytest
 from app.ai.code_execution.pg_lexer import PgLexResult, lex_postgres
 from app.ai.code_execution.sql_guard import ReadOnlyViolation
 from app.ai.code_execution.sql_parser import parse_guard_sql
-from app.ai.code_execution.table_scope import tables_read
+from app.ai.code_execution.table_scope import TableScopeViolation, tables_read
 
 try:
     import pglast  # noqa: F401
@@ -175,14 +175,18 @@ def _tables_read(tree) -> frozenset[tuple[str, ...]]:
 @functools.cache
 def _guard_tables(text: str) -> frozenset[tuple[str, ...]] | None:
     """The tables the guard finds in `text`: sqlglot's Postgres parse,
-    walked by table scope's own `tables_read`. None when sqlglot cannot
-    read the text (table scope then refuses it)."""
+    walked by table scope's own `tables_read`. None when table scope
+    refuses the text: sqlglot cannot read it, or `tables_read` refuses it
+    (a WITH entry that names itself)."""
     try:
         statements = parse_guard_sql(text, "postgres")
     except Exception:
         return None
-    return frozenset(ref for statement in statements if statement is not None
-                     for ref in tables_read(statement, "postgres"))
+    try:
+        return frozenset(ref for statement in statements if statement is not None
+                         for ref in tables_read(statement, "postgres"))
+    except TableScopeViolation:
+        return None
 
 
 def _disagreements(sql: str, lex: PgLexResult) -> list[str]:
@@ -545,13 +549,20 @@ def test_the_oracle_reads_the_guard_tables_with_table_scope_s_own_walk():
 
 
 def test_the_oracle_sets_aside_only_the_cte_references_visible_where_they_stand():
-    # The CTE `x` is a CTE reference in the outer query and a table inside
-    # its own (non-recursive) body; `orders` in the second statement is a
-    # table, since the WITH covers only the first.
-    sql = "WITH x AS (SELECT * FROM x) SELECT * FROM x; WITH orders AS (SELECT 1) SELECT 2; SELECT * FROM orders"
-    assert _tables_read(_parse(sql)) == {("x",), ("orders",)}
-    assert _guard_tables(sql) == {("x",), ("orders",)}
+    # The CTE `x` is a CTE reference in the outer query; `orders` in the
+    # second statement is a table, since the WITH covers only the first.
+    sql = "WITH x AS (SELECT * FROM y) SELECT * FROM x; WITH orders AS (SELECT 1) SELECT 2; SELECT * FROM orders"
+    assert _tables_read(_parse(sql)) == {("y",), ("orders",)}
+    assert _guard_tables(sql) == {("y",), ("orders",)}
     assert _disagreements(sql, lex_postgres(sql)) == []
+
+
+def test_the_oracle_counts_a_with_entry_that_names_itself_as_refused():
+    # Postgres reads `x` inside its own (non-recursive) body as the table;
+    # table scope refuses an entry that names itself.
+    sql = "WITH x AS (SELECT * FROM x) SELECT * FROM x"
+    assert _tables_read(_parse(sql)) == {("x",)}
+    assert _guard_tables(sql) is None
 
 
 def test_the_oracle_accepts_the_lexer_on_a_known_good_query():

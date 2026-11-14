@@ -132,6 +132,17 @@ def test_a_scalar_with_entry_whose_body_reads_the_table_of_its_own_name_is_not_s
     assert _sql_binds(sql, "clickhouse", ("u1",)) is not True
 
 
+def test_with_entries_that_name_each_other_in_a_loop_are_not_scoped():
+    # The name that closes the loop is read as the table (live dialect tests).
+    from app.ai.code_execution.identity_bind import _sql_binds
+    from app.ai.code_execution.table_scope import reads_rows
+    from sqlglot import parse_one
+
+    sql = "WITH (SELECT 42 IN secret) AS r, secret AS (SELECT r + 100 AS v) SELECT 101 IN secret"
+    assert reads_rows(parse_one(sql, read="clickhouse"), "clickhouse") is True
+    assert _sql_binds(sql, "clickhouse", ("u1",)) is not True
+
+
 @pytest.mark.parametrize("query", [
     "SELECT 1",
     "SELECT '{v}' IN ('{v}', 'x') AS mine",

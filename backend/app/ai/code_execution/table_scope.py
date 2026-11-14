@@ -21,7 +21,8 @@ quoted ones as written) against the names as the catalog stores them;
 other dialects' names case-insensitively. A table reference is set aside
 as a CTE only when a WITH entry holding a query has exactly the name as
 written (for Postgres, as Postgres folds it); any other spelling is
-checked as a table. On ClickHouse, the set of an IN is read only in the
+checked as a table. WITH entries that refer to each other in a loop are
+refused in every dialect. On ClickHouse, the set of an IN is read only in the
 shapes `_set_item_tables` lists, and a SETTINGS clause only with the
 settings `_CLICKHOUSE_QUERY_SETTINGS` lists; anything else is refused.
 
@@ -283,8 +284,8 @@ def _visible_with_entries(node, named, *, later: bool) -> list:
         w = parent.args.get("with")
         if isinstance(w, exp.With):
             entries = list(w.expressions)
-            if child is w and inside in entries:
-                i = entries.index(inside)
+            i = next((k for k, e in enumerate(entries) if e is inside), None) if child is w else None
+            if i is not None:
                 visible = entries[:i] + (entries[i + 1:] if later else [])
                 if w.args.get("recursive") and _in_recursive_part(inside, path):
                     visible.append(inside)
@@ -344,23 +345,117 @@ def tables_read(statement, dialect: str | None = None) -> list[Name]:
     one-part name that refers to a CTE visible where it stands, and on
     ClickHouse every table read as the set of an IN (`_in_set_tables`).
     Name parts lowered, or for Postgres (`dialect`) folded as Postgres
-    folds them. Raises TableScopeViolation for a ClickHouse IN set outside
+    folds them. Raises TableScopeViolation for WITH entries that refer to
+    each other (`_check_with_loops`) and for a ClickHouse IN set outside
     the shapes it reads."""
     from sqlglot import exp
 
-    out: list[Name] = []
+    _check_with_loops(statement)
+    out: dict[Name, None] = {}  # insertion-ordered, each name once
     for t in statement.find_all(exp.Table):
         if not isinstance(t.this, exp.Identifier):
             continue
         ref = _table_ref(t, dialect)
-        if (len(ref) == 1 and _resolves_to_cte(t, dialect)) or ref in out:
+        if ref in out or (len(ref) == 1 and _resolves_to_cte(t, dialect)):
             continue
-        out.append(ref)
+        out[ref] = None
     if dialect == "clickhouse":
-        for ref in _in_set_tables(statement):
-            if ref not in out:
-                out.append(ref)
+        out.update(dict.fromkeys(_in_set_tables(statement)))
+    return list(out)
+
+
+def _check_with_loops(statement) -> None:
+    """Refuse, in every dialect, a WITH whose entries refer to each other
+    in a loop: an entry whose body (nested queries and WITHs included)
+    names, compared case-insensitively, an entry that leads back to it. An
+    entry naming itself is such a loop, except inside the recursive part
+    of a WITH RECURSIVE entry (`_in_recursive_part`).
+
+    While ClickHouse reads an entry, it reads that entry's name as the
+    table of that name, so which entry or table a name stands for depends
+    on the way it was reached; within a loop the visibility rules of
+    `_visible_with_entries` cannot say which. Every name that may refer to
+    an entry counts (a one-part table name, a column, a bare name), so a
+    column that only shares an entry's name also makes a loop."""
+    from sqlglot import exp
+
+    for w in statement.find_all(exp.With):
+        entries = list(w.expressions)
+        by_name: dict[str, list[int]] = {}
+        for k, entry in enumerate(entries):
+            ident = _cte_ident(entry)
+            if ident is not None:
+                by_name.setdefault(str(ident.name).lower(), []).append(k)
+        recursive = bool(w.args.get("recursive"))
+        edges: list[set[int]] = []
+        for k, entry in enumerate(entries):
+            named: set[int] = set()
+            body = entry.this
+            for ident in (body.find_all(exp.Identifier) if body is not None else ()):
+                targets = by_name.get(str(ident.name).lower())
+                if not targets or _defines_name(ident):
+                    continue
+                for j in targets:
+                    if j == k and recursive and _in_recursive_part(entry, _ancestor_ids(ident, entry)):
+                        continue
+                    named.add(j)
+            edges.append(named)
+        if _has_loop(edges):
+            raise TableScopeViolation(
+                "WITH entries that refer to each other (or an entry that refers to itself outside the "
+                "recursive part of a WITH RECURSIVE) are not allowed in agent queries, because the table "
+                "each name reads cannot be checked. Give each WITH entry a name the entries it uses do not "
+                "use, or write the query without the loop."
+            )
+
+
+def _defines_name(ident) -> bool:
+    """Whether an Identifier defines a name rather than refers to one: an
+    alias (of a column, a table or a WITH entry, with its column names), a
+    lambda's parameter, or a part of a table name written with its schema
+    or database (that table, never a WITH entry)."""
+    from sqlglot import exp
+
+    parent = ident.parent
+    if isinstance(parent, exp.TableAlias):
+        return True
+    if isinstance(parent, exp.Alias) and parent.args.get("alias") is ident:
+        return True
+    if isinstance(parent, exp.Lambda) and ident.arg_key == "expressions":
+        return True
+    return isinstance(parent, exp.Table) and bool(parent.args.get("db") or parent.args.get("catalog"))
+
+
+def _ancestor_ids(node, top) -> set[int]:
+    """The ids of `node` and its ancestors below `top`."""
+    out: set[int] = set()
+    while node is not None and node is not top:
+        out.add(id(node))
+        node = node.parent
     return out
+
+
+def _has_loop(edges: list[set[int]]) -> bool:
+    """Whether the graph `edges` (node k -> the nodes in edges[k]) has a
+    cycle, a node pointing at itself included. Iterative, linear."""
+    state = [0] * len(edges)  # 0 unseen, 1 on the current path, 2 done
+    for start in range(len(edges)):
+        if state[start]:
+            continue
+        state[start] = 1
+        stack = [(start, iter(edges[start]))]
+        while stack:
+            node, rest = stack[-1]
+            nxt = next(rest, None)
+            if nxt is None:
+                state[node] = 2
+                stack.pop()
+            elif state[nxt] == 1:
+                return True
+            elif state[nxt] == 0:
+                state[nxt] = 1
+                stack.append((nxt, iter(edges[nxt])))
+    return False
 
 
 def reads_rows(statement, dialect: str | None = None) -> bool:
@@ -470,11 +565,8 @@ def _set_item_tables(node, followed: dict) -> list[Name]:
 
 
 def _distinct(refs) -> list[Name]:
-    out: list[Name] = []
-    for ref in refs:
-        if ref not in out:
-            out.append(ref)
-    return out
+    """`refs` in order, each once."""
+    return list(dict.fromkeys(refs))
 
 
 def _with_entries(node, name: str) -> list:

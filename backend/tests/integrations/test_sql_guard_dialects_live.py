@@ -580,7 +580,8 @@ def test_clickhouse_reads_the_table_a_with_entry_names_inside_its_own_body(click
     assert "secret" in _sqlglot_cte_names(sql, "clickhouse")
     code, out = clickhouse_local(sql)
     assert code == 0 and out == shown
-    with pytest.raises(TableScopeViolation, match="SECRET"):
+    # An entry naming itself outside a recursive part is a loop.
+    with pytest.raises(TableScopeViolation, match="refer to each other"):
         check_table_scope(ensure_read_only(object.__new__(ClickhouseClient), sql), "clickhouse", CLICKHOUSE_SCOPE)
 
 
@@ -602,6 +603,51 @@ def test_clickhouse_reads_the_entry_in_a_recursive_part_and_a_later_entry_in_an_
     code, out = clickhouse_local(sql)
     assert code == 0 and out == shown
     check_table_scope(ensure_read_only(object.__new__(ClickhouseClient), sql), "clickhouse", CLICKHOUSE_SCOPE)
+
+
+# WITH entries that name each other in a loop: while ClickHouse reads an
+# entry it reads that entry's name as the table of that name, so the name
+# that closes the loop reads the disabled table. On a table reference, as
+# the set of an IN and as a scalar alias; wrapped in a UNION, a subquery, an
+# inner WITH, nested subqueries, a WITH RECURSIVE; next to a recursive
+# entry; over three entries. sqlglot reads a CTE named `secret`.
+CLICKHOUSE_WITH_CYCLES = [
+    ("WITH secret AS (SELECT x FROM orders), orders AS (SELECT x FROM secret) SELECT x FROM secret", "42"),
+    ("WITH secret AS (SELECT x FROM orders), orders AS (SELECT x FROM secret) "
+     "SELECT x FROM secret UNION ALL SELECT x FROM secret", "42" + NL + "42"),
+    ("WITH secret AS (SELECT x FROM orders), orders AS (SELECT 0 AS x WHERE 0 UNION ALL SELECT x FROM secret) "
+     "SELECT x FROM secret", "42"),
+    ("SELECT * FROM (WITH secret AS (SELECT x FROM orders), orders AS (SELECT x FROM secret) SELECT x FROM secret)",
+     "42"),
+    ("WITH secret AS (SELECT x FROM orders), orders AS (WITH q AS (SELECT x FROM secret) SELECT x FROM q) "
+     "SELECT x FROM secret", "42"),
+    ("WITH secret AS (SELECT x FROM (SELECT x FROM orders)), orders AS (SELECT x FROM (SELECT x FROM secret)) "
+     "SELECT x FROM secret", "42"),
+    ("WITH RECURSIVE secret AS (SELECT x FROM orders), orders AS (SELECT x FROM secret) SELECT x FROM secret", "42"),
+    ("WITH a AS (SELECT arrayFilter(v -> v IN secret, range(100)) AS r), secret AS (SELECT r FROM a) "
+     "SELECT r FROM secret", "[42]"),
+    ("WITH a AS (SELECT 42 IN secret AS r), secret AS (SELECT r FROM a) SELECT r FROM secret", "1"),
+    ("WITH (SELECT arrayFilter(v -> v IN secret, range(100))) AS r, secret AS (SELECT r AS x) SELECT x FROM secret",
+     "[42]"),
+    ("WITH (SELECT 42 IN secret) AS r, secret AS (SELECT r + 100 AS v) SELECT 101 IN secret", "1"),
+    ("WITH RECURSIVE r AS (SELECT 1 AS x UNION ALL SELECT x+1 FROM r WHERE x<3), "
+     "b AS (SELECT arrayFilter(v -> v IN secret, range(100)) AS a), secret AS (SELECT a FROM b) SELECT a FROM secret",
+     "[42]"),
+    ("WITH secret AS (SELECT x FROM orders), c AS (SELECT x FROM secret), orders AS (SELECT x FROM c) "
+     "SELECT x FROM secret", "42"),
+    ("WITH a AS (SELECT x FROM b), b AS (SELECT x FROM secret), secret AS (SELECT x FROM a) SELECT x FROM secret",
+     "42"),
+]
+
+
+@pytest.mark.parametrize("sql, shown", CLICKHOUSE_WITH_CYCLES)
+def test_clickhouse_reads_the_table_named_by_with_entries_that_name_each_other_in_a_loop(clickhouse_local, sql,
+                                                                                          shown):
+    assert "secret" in _sqlglot_cte_names(sql, "clickhouse")
+    code, out = clickhouse_local(sql)
+    assert code == 0 and out == shown
+    with pytest.raises(TableScopeViolation, match="refer to each other"):
+        check_table_scope(ensure_read_only(object.__new__(ClickhouseClient), sql), "clickhouse", CLICKHOUSE_SCOPE)
 
 
 def test_mysql_reads_the_table_a_differently_cased_cte_is_named_after(mysql):
