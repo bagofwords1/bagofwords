@@ -411,6 +411,29 @@
     "agents": "Agenten",
     "viewAllAgents": "Alle Agenten ansehen →"
   },
+  "pageTitles": {
+    "loading": "Lädt …",
+    "report": "Bericht",
+    "dashboard": "Dashboard",
+    "document": "Dokument",
+    "conversation": "Geteilte Unterhaltung",
+    "project": "Projekt",
+    "connection": "Verbindung",
+    "newAgent": "Neuer Agent",
+    "evalRun": "Auswertungslauf",
+    "overview": "Übersicht",
+    "connectChannel": "Kanal verbinden",
+    "signIn": "Anmelden",
+    "signUp": "Registrieren",
+    "forgotPassword": "Passwort vergessen",
+    "resetPassword": "Passwort zurücksetzen",
+    "verifyEmail": "E-Mail bestätigen",
+    "authorize": "Zugriff autorisieren",
+    "getStarted": "Erste Schritte",
+    "newOrganization": "Neue Organisation",
+    "notFound": "Seite nicht gefunden",
+    "error": "Etwas ist schiefgelaufen"
+  },
   "notifications": {
     "title": "Benachrichtigungen",
     "markAllRead": "Alle als gelesen markieren",
@@ -2252,7 +2275,7 @@
     "subtitle": "Identität und Einstellungen des Arbeitsbereichs verwalten",
     "general": "Allgemein",
     "license": "Lizenz",
-    "membersTab": "Mitglieder",
+    "membersTab": "Zugriff",
     "identityProviderTab": "Identitätsanbieter",
     "identityProvider": {
       "scimTitle": "SCIM-Bereitstellung",

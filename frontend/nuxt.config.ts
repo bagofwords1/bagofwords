@@ -121,6 +121,14 @@ export default defineNuxtConfig({
     fallbackToApi: false,
   },
 
+  // The title in index.html, shown until the app boots. After that
+  // plugins/page-title.ts owns the tab title (`<page> · Bag of Words`).
+  app: {
+    head: {
+      title: 'Bag of Words',
+    },
+  },
+
   // NOTE: no `app.pageTransition` / `app.layoutTransition` here, deliberately.
   //
   // They were added in 710c22b and reverted in the same PR after they blanked

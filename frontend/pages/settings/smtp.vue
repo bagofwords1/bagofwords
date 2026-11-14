@@ -106,7 +106,7 @@ import SettingsSection from '~/components/settings/SettingsSection.vue'
 import SettingsRow from '~/components/settings/SettingsRow.vue'
 import SettingsFooter from '~/components/settings/SettingsFooter.vue'
 
-definePageMeta({ auth: true, permissions: ['manage_settings'] })
+definePageMeta({ titleKey: 'settings.smtpTab', auth: true, permissions: ['manage_settings'] })
 
 const toast = useToast()
 const { t } = useI18n()

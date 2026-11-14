@@ -297,6 +297,10 @@ const { data: authData } = useAuth()
 const id = computed(() => String(props.entityId || ''))
 const detail = ref<EntityDetail | null>(null)
 const loading = ref(true)
+// Tab title: the query's name while it is open (this panel only mounts for
+// one query). `detail` is only set by a successful fetch, so a query the
+// viewer can't open never names the tab.
+usePageTitle(() => detail.value?.title || detail.value?.slug, { loading })
 // Per-agent `create_entities` on EVERY attached agent gates manage actions
 // (agent owners hold it via `manage`; org `manage_entities` / full admin via
 // implication). The old org-level checks used permission names that don't

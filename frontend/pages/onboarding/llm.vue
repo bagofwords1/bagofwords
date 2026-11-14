@@ -312,7 +312,7 @@
 </template>
 
 <script setup lang="ts">
-definePageMeta({ auth: true, layout: 'onboarding' })
+definePageMeta({ titleKey: 'pageTitles.getStarted', auth: true, layout: 'onboarding' })
 import OnboardingView from '@/components/onboarding/OnboardingView.vue'
 import Spinner from '@/components/Spinner.vue'
 import LLMProviderIcon from '@/components/LLMProviderIcon.vue'

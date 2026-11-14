@@ -44,7 +44,7 @@
 </template>
 
 <script setup lang="ts">
-definePageMeta({ auth: true, layout: 'users' })
+definePageMeta({ titleKey: 'pageTitles.getStarted', auth: true, layout: 'users' })
 import OnboardingView from '@/components/onboarding/OnboardingView.vue'
 import Spinner from '@/components/Spinner.vue'
 import ProductUpdatesOptIn from '@/components/ProductUpdatesOptIn.vue'

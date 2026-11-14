@@ -195,7 +195,7 @@ const toast = useToast()
 const { relativeTime } = useRelativeTime()
 const _df = useFormatDate()
 
-definePageMeta({ auth: true })
+definePageMeta({ titleKey: 'nav.files', auth: true })
 
 type Source = 'all' | 'uploads' | 'agent'
 

@@ -411,6 +411,29 @@
     "agents": "الوكلاء",
     "viewAllAgents": "عرض كل الوكلاء ←"
   },
+  "pageTitles": {
+    "loading": "جارٍ التحميل…",
+    "report": "تقرير",
+    "dashboard": "لوحة تحكم",
+    "document": "مستند",
+    "conversation": "محادثة مشتركة",
+    "project": "مشروع",
+    "connection": "اتصال",
+    "newAgent": "وكيل جديد",
+    "evalRun": "تشغيل التقييم",
+    "overview": "نظرة عامة",
+    "connectChannel": "ربط قناة",
+    "signIn": "تسجيل الدخول",
+    "signUp": "إنشاء حساب",
+    "forgotPassword": "نسيت كلمة المرور",
+    "resetPassword": "إعادة تعيين كلمة المرور",
+    "verifyEmail": "تأكيد البريد الإلكتروني",
+    "authorize": "السماح بالوصول",
+    "getStarted": "البدء",
+    "newOrganization": "مؤسسة جديدة",
+    "notFound": "الصفحة غير موجودة",
+    "error": "حدث خطأ"
+  },
   "notifications": {
     "title": "الإشعارات",
     "markAllRead": "وضع علامة مقروء على الكل",
@@ -2252,7 +2275,7 @@
     "subtitle": "إدارة هوية مساحة العمل والتفضيلات",
     "general": "عام",
     "license": "الترخيص",
-    "membersTab": "الأعضاء",
+    "membersTab": "الوصول",
     "identityProviderTab": "موفّر الهوية",
     "identityProvider": {
       "scimTitle": "توفير حسابات SCIM",

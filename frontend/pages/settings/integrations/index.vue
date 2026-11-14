@@ -110,7 +110,7 @@ import ExcelAddinModal from '~/components/ExcelAddinModal.vue'
 import ConnectedApplicationsPanel from '~/components/embed/ConnectedApplicationsPanel.vue'
 import McpIcon from '~/components/icons/McpIcon.vue'
 
-definePageMeta({ auth: true, permissions: ['manage_settings'] })
+definePageMeta({ titleKey: 'settings.integrations.title', auth: true, permissions: ['manage_settings'] })
 
 const { t } = useI18n()
 

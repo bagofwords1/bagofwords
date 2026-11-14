@@ -137,7 +137,7 @@
 </template>
 
 <script setup lang="ts">
-definePageMeta({ auth: true, layout: 'data' })
+definePageMeta({ titleKey: 'nav.agents', auth: true, layout: 'data' })
 import GitRepoModalComponent from '@/components/GitRepoModalComponent.vue'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import InstructionsTable from '~/components/instructions/InstructionsTable.vue'

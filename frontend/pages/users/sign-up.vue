@@ -92,6 +92,7 @@ const toast = useToast()
 const route = useRoute()
 
 definePageMeta({
+  titleKey: 'pageTitles.signUp',
 auth: {
   unauthenticatedOnly: true,
   navigateAuthenticatedTo: '/'

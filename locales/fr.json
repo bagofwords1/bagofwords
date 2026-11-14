@@ -411,6 +411,29 @@
     "agents": "Agents",
     "viewAllAgents": "Voir tous les agents →"
   },
+  "pageTitles": {
+    "loading": "Chargement…",
+    "report": "Rapport",
+    "dashboard": "Tableau de bord",
+    "document": "Document",
+    "conversation": "Conversation partagée",
+    "project": "Projet",
+    "connection": "Connexion",
+    "newAgent": "Nouvel agent",
+    "evalRun": "Exécution d'évaluation",
+    "overview": "Vue d'ensemble",
+    "connectChannel": "Connecter un canal",
+    "signIn": "Se connecter",
+    "signUp": "S'inscrire",
+    "forgotPassword": "Mot de passe oublié",
+    "resetPassword": "Réinitialiser le mot de passe",
+    "verifyEmail": "Vérifier l'e-mail",
+    "authorize": "Autoriser l'accès",
+    "getStarted": "Commencer",
+    "newOrganization": "Nouvelle organisation",
+    "notFound": "Page introuvable",
+    "error": "Une erreur s'est produite"
+  },
   "notifications": {
     "title": "Notifications",
     "markAllRead": "Tout marquer comme lu",
@@ -2252,7 +2275,7 @@
     "subtitle": "Gérer l'identité et les préférences de l'espace de travail",
     "general": "Général",
     "license": "Licence",
-    "membersTab": "Membres",
+    "membersTab": "Accès",
     "identityProviderTab": "Fournisseur d'identité",
     "identityProvider": {
       "scimTitle": "Provisionnement SCIM",

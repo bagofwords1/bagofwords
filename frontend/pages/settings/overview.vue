@@ -1,5 +1,6 @@
 <script setup lang="ts">
 definePageMeta({
+    titleKey: 'pageTitles.overview',
     permissions: ['manage_settings'],
 })
 </script>

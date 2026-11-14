@@ -147,7 +147,7 @@ import { usePromptFill } from '~/composables/usePromptFill'
 import type { Prompt } from '~/composables/usePrompts'
 import type { PromptParamValue } from '~/composables/usePromptFill'
 
-definePageMeta({ auth: true })
+definePageMeta({ titleKey: 'nav.prompts', auth: true })
 
 const { t } = useI18n()
 const toast = useToast()

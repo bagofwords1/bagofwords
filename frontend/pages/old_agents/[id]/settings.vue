@@ -269,7 +269,7 @@
 </template>
 
 <script setup lang="ts">
-definePageMeta({ auth: true, layout: 'data' })
+definePageMeta({ titleKey: 'nav.agents', auth: true, layout: 'data' })
 import { useCan } from '~/composables/usePermissions'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
 import Spinner from '@/components/Spinner.vue'

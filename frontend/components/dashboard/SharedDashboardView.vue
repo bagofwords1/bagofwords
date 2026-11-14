@@ -943,19 +943,24 @@ const slidesPreviewsMissing = computed(() => {
 // Shared document (mode='doc') — rendered read-only in DocViewer, never an iframe
 const isDocMode = computed(() => artifact.value?.mode === 'doc');
 
+// Access error state
+const accessError = ref<'login' | 'denied' | null>(null);
+
 // Browser tab / "Add to Home screen" shortcut name. Without this, the browser
 // falls back to the URL's last path segment (the report UUID). Prefer the
-// artifact's own title, then the report title, then a sensible default — and
-// treat the "Untitled Artifact" placeholder as no title.
+// artifact's own title, then the report title — and treat the "Untitled
+// Artifact" placeholder as no title. Both only exist after a successful load,
+// so a viewer who is refused (accessError) never sees the name in the tab.
 const pageTitle = computed(() => {
     const artTitle = artifact.value?.title;
     if (artTitle && artTitle !== 'Untitled Artifact') return artTitle;
-    return report.value?.title || 'Report';
+    return report.value?.title || null;
 });
-useHead(() => ({ title: pageTitle.value }));
-
-// Access error state
-const accessError = ref<'login' | 'denied' | null>(null);
+usePageTitle(pageTitle, {
+    // `report` starts as a blank placeholder; it has an id once loaded.
+    loading: () => !report.value?.id && !accessError.value && !unavailable.value && !requiresAppSignIn.value,
+    fallbackKey: props.source === 'report' ? 'pageTitles.report' : 'pageTitles.dashboard',
+});
 
 // ── Request-to-view (access requests) ────────────────────────────────────
 // The blocked page's thin state: the owner's name, whether requests are

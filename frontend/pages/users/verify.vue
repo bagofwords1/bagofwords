@@ -36,6 +36,7 @@ import { useOrganization } from '~/composables/useOrganization'
 import Spinner from '~/components/Spinner.vue'
 
 definePageMeta({
+    titleKey: 'pageTitles.verifyEmail',
     layout: 'users'
 })
 

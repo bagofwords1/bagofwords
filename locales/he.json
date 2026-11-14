@@ -431,6 +431,29 @@
     "notifications": "התראות",
     "automations": "אוטומציות"
   },
+  "pageTitles": {
+    "loading": "טוען…",
+    "report": "דוח",
+    "dashboard": "דשבורד",
+    "document": "מסמך",
+    "conversation": "שיחה משותפת",
+    "project": "פרויקט",
+    "connection": "חיבור",
+    "newAgent": "סוכן חדש",
+    "evalRun": "הרצת בדיקות איכות",
+    "overview": "סקירה כללית",
+    "connectChannel": "חיבור ערוץ",
+    "signIn": "התחברות",
+    "signUp": "הרשמה",
+    "forgotPassword": "שכחתי סיסמה",
+    "resetPassword": "איפוס סיסמה",
+    "verifyEmail": "אימות אימייל",
+    "authorize": "אישור גישה",
+    "getStarted": "תחילת עבודה",
+    "newOrganization": "ארגון חדש",
+    "notFound": "הדף לא נמצא",
+    "error": "משהו השתבש"
+  },
   "notifications": {
     "title": "התראות",
     "markAllRead": "סימון הכול כנקרא",
@@ -2507,7 +2530,7 @@
     "subtitle": "ניהול זהות והעדפות של סביבת העבודה",
     "general": "כללי",
     "license": "רישיון",
-    "membersTab": "משתמשים",
+    "membersTab": "גישה",
     "identityProviderTab": "ספק זהות",
     "identityProvider": {
       "scimTitle": "הקצאה אוטומטית (SCIM)",

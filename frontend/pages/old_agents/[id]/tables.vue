@@ -55,7 +55,7 @@
 </template>
 
 <script setup lang="ts">
-definePageMeta({ auth: true, layout: 'data' })
+definePageMeta({ titleKey: 'nav.agents', auth: true, layout: 'data' })
 import TablesSelector from '@/components/datasources/TablesSelector.vue'
 const { t } = useI18n()
 import AgentConnectionsModal from '~/components/AgentConnectionsModal.vue'

@@ -411,6 +411,29 @@
     "agents": "Agenter",
     "viewAllAgents": "Visa alla agenter →"
   },
+  "pageTitles": {
+    "loading": "Laddar…",
+    "report": "Rapport",
+    "dashboard": "Instrumentpanel",
+    "document": "Dokument",
+    "conversation": "Delad konversation",
+    "project": "Projekt",
+    "connection": "Anslutning",
+    "newAgent": "Ny agent",
+    "evalRun": "Utvärderingskörning",
+    "overview": "Översikt",
+    "connectChannel": "Anslut kanal",
+    "signIn": "Logga in",
+    "signUp": "Registrera dig",
+    "forgotPassword": "Glömt lösenord",
+    "resetPassword": "Återställ lösenord",
+    "verifyEmail": "Verifiera e-post",
+    "authorize": "Godkänn åtkomst",
+    "getStarted": "Kom igång",
+    "newOrganization": "Ny organisation",
+    "notFound": "Sidan hittades inte",
+    "error": "Något gick fel"
+  },
   "notifications": {
     "title": "Aviseringar",
     "markAllRead": "Markera alla som lästa",
@@ -2252,7 +2275,7 @@
     "subtitle": "Hantera arbetsytans identitet och inställningar",
     "general": "Allmänt",
     "license": "Licens",
-    "membersTab": "Medlemmar",
+    "membersTab": "Åtkomst",
     "identityProviderTab": "Identitetsleverantör",
     "identityProvider": {
       "scimTitle": "SCIM-provisionering",

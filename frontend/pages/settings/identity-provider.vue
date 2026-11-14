@@ -268,6 +268,7 @@ import SettingsEmpty from '~/components/settings/SettingsEmpty.vue'
 import Spinner from '~/components/Spinner.vue'
 
 definePageMeta({
+  titleKey: 'settings.identityProviderTab',
   auth: true,
   permissions: ['manage_identity_providers']
 })

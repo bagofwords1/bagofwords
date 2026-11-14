@@ -202,7 +202,7 @@ interface SettingsResponse {
     }
 }
 
-definePageMeta({ auth: true, permissions: ['manage_settings'] })
+definePageMeta({ titleKey: 'settings.aiSettings', auth: true, permissions: ['manage_settings'] })
 
 const { t, te } = useI18n()
 

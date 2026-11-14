@@ -1984,8 +1984,9 @@ const forkThisReport = async () => {
 	}
 }
 // Browser tab / shortcut name — otherwise it falls back to the report UUID in
-// the URL. Falls back to a friendly default while the report loads.
-useHead(() => ({ title: report.value?.title || 'Report' }))
+// the URL. "Loading…" until the report arrives; a report that failed to load
+// (not found, no access) never puts a name in the tab.
+usePageTitle(() => report.value?.title, { loading: () => !reportLoaded.value, fallbackKey: 'pageTitles.report' })
 
 // Report summary (queries + instructions independent of message pagination)
 const summaryQueries = ref<any[]>([])

@@ -106,7 +106,7 @@ const LOCALE_NATIVE_LABELS: Record<string, string> = {
     it: 'Italiano',
 }
 
-definePageMeta({ auth: true, permissions: ['manage_settings'] })
+definePageMeta({ titleKey: 'settings.general', auth: true, permissions: ['manage_settings'] })
 
 const loading = ref(true)
 const error = ref('')

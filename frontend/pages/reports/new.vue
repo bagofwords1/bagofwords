@@ -79,6 +79,7 @@ import ReportEmptyState from '~/components/report/ReportEmptyState.vue'
 import { useExcel } from '~/composables/useExcel'
 
 definePageMeta({
+	titleKey: 'nav.newReport',
 	layout: 'default',
 	auth: true,
 	permissions: ['create_reports']

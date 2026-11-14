@@ -61,8 +61,10 @@ data through the real API), `tools/agent/capture.mjs` (screenshots/videos).
 
 ### Locale / i18n (system overview)
 
-Three locales ship today: `en` (default), `es`, `he`. Hebrew is the RTL
-reference — anything RTL must work for `he`.
+Ten locales ship today: `en` (default), `es`, `he`, `fr`, `sv`, `ar`, `ru`,
+`de`, `pt`, `it` (`bow_config.i18n.enabled_locales`). Two are RTL, `he` and
+`ar`; Hebrew is the RTL reference — anything RTL must work for `he`, and
+check `ar` too.
 
 **Resolution order** (highest priority wins):
 
@@ -74,11 +76,27 @@ reference — anything RTL must work for `he`.
    set via the picker in `/settings/general`.
 4. System default — `bow_config.i18n.default_locale` (`en`).
 
-**Catalogs** live at the repo root: `locales/en.json`, `locales/es.json`,
-`locales/he.json`. All three must have identical shape — key drift fails
-the sync check in `docs/design/i18n.md`. Hebrew vocabulary convention:
-"הנחיות" (never "הוראות"), "גלריה" (never "לוח מחוונים"),
-"בדיקות איכות" (never "הערכות").
+**Catalogs** live at the repo root: `locales/<code>.json`, one per locale.
+All ten must have identical shape: a new key goes into every catalog in the
+same change, or users of the missing locales see English. Key drift fails
+the sync check in `docs/design/i18n.md`.
+
+**Translate the English meaning, not an older label.** `en.json` is the
+source of truth; when an English label changes meaning, update every
+locale to match. Reuse the word a catalog already uses for the same concept
+(e.g. "Access" is `share.access` / `dashboardSettings.tabAccess` in every
+locale). Example: the `/settings/members` section is **Access**
+(`settings.membersTab`): it covers members, roles, groups, service accounts,
+quotas and sign-up, so it is never translated as "Members" or "Users".
+
+Hebrew vocabulary convention: "הנחיות" (never "הוראות"), "גלריה" (never
+"לוח מחוונים"), "בדיקות איכות" (never "הערכות"), "גישה" for the Access
+settings section (never "משתמשים").
+
+**Browser tab titles** are translated too: every page reads
+`<page> · Bag of Words`. A new page declares
+`definePageMeta({ titleKey: '<i18n key>' })`; a page that shows a record
+calls `usePageTitle()`. See `frontend/AGENTS.md`.
 
 **End-to-end flow on login:**
 

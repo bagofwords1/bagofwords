@@ -191,6 +191,7 @@ import SettingsRow from '~/components/settings/SettingsRow.vue'
 import SettingsLoading from '~/components/settings/SettingsLoading.vue'
 
 definePageMeta({
+  titleKey: 'settings.license',
   auth: true,
   permissions: ['manage_settings']
 })
