@@ -155,6 +155,34 @@ def test_mongo_refuses_javascript_in_a_find_projection(mongo):
     _assert_refused(lambda: client.execute_query(query), sent)
 
 
+@pytest.mark.parametrize("stage", ["$lookup", "$graphLookup"])
+@pytest.mark.parametrize("source", [
+    {"db": "local", "coll": "oplog.rs"},
+    {"db": "config", "coll": "system.sessions"},
+    ["users"],
+    None,
+], ids=["namespace object", "other database", "list", "missing"])
+def test_mongo_refuses_a_lookup_source_that_is_not_a_collection_name(mongo, stage, source):
+    client, sent = mongo
+    spec = {"as": "o", "localField": "a", "foreignField": "b"}
+    if stage == "$graphLookup":
+        spec = {"as": "o", "startWith": "$a", "connectFromField": "a", "connectToField": "b"}
+    if source is not None:
+        spec["from"] = source
+    _assert_refused(lambda: client.execute_query(_mongo_query(aggregate=[{stage: spec}])), sent)
+
+
+def test_mongo_sends_a_lookup_from_a_collection_name(mongo):
+    client, sent = mongo
+    pipeline = [
+        {"$lookup": {"from": "users", "localField": "a", "foreignField": "b", "as": "u"}},
+        {"$graphLookup": {"from": "staff", "startWith": "$m", "connectFromField": "m",
+                          "connectToField": "_id", "as": "chain"}},
+    ]
+    client.execute_query(_mongo_query(aggregate=pipeline))
+    assert sent == [("aggregate", "orders", pipeline)]
+
+
 def test_mongo_sends_a_read_pipeline_unchanged(mongo):
     client, sent = mongo
     pipeline = [
@@ -361,7 +389,12 @@ def _xmla_session(client):
     sent: list = []
 
     def _post(url, data=None, headers=None, timeout=None, verify=None):
-        root = ET.fromstring(data)
+        try:
+            root = ET.fromstring(data)
+        except ET.ParseError:
+            # Still a request on the wire: record the raw body.
+            sent.append(("unparsed body", data))
+            raise
         texts = {el.tag.split("}", 1)[-1]: el.text for el in root.iter()}
         sent.append((texts.get("Statement"), texts.get("Catalog")))
         resp = MagicMock()
@@ -430,7 +463,65 @@ def test_xmla_refuses_statements_outside_the_read_verbs(factory, statement):
     _assert_refused(lambda: client.execute_query(statement), sent)
 
 
+# Characters some readers take as a line end and others do not. A comment
+# ended by one of them reads differently to the check and to a server that
+# ends comments only at a line feed, so a statement holding one is refused.
+_XMLA_SEPARATORS = {
+    "vertical tab": chr(0x0B),
+    "form feed": chr(0x0C),
+    "next line": chr(0x85),
+    "line separator": "\N{LINE SEPARATOR}",
+    "paragraph separator": "\N{PARAGRAPH SEPARATOR}",
+}
+
+
+def _separator_shapes():
+    for name, sep in _XMLA_SEPARATORS.items():
+        # The check would read SELECT first; such a server reads DROP first.
+        yield f"{name}: hidden first verb", (
+            "-- x" + sep + "SELECT {} ON 0 FROM [S]\nDROP MINING STRUCTURE [S]")
+        # The check would read a literal from the quote to the last quote.
+        yield f"{name}: quote hides a second statement", (
+            "SELECT {} ON 0 FROM [S] --" + sep + "'\n; DROP MINING STRUCTURE [S] --'")
+        yield f"{name}: quote hides into", (
+            "SELECT --" + sep + "'\nINTO [New] USING [Microsoft_Decision_Trees] FROM [Old] --'")
+        yield f"{name}: in a literal", "EVALUATE ROW(\"a\", \"x" + sep + "y\")"
+
+
+_XMLA_SEPARATOR_SHAPES = dict(_separator_shapes())
+
+
+@pytest.mark.parametrize("factory", list(_XMLA_FACTORIES.values()), ids=list(_XMLA_FACTORIES))
+@pytest.mark.parametrize("statement", list(_XMLA_SEPARATOR_SHAPES.values()), ids=list(_XMLA_SEPARATOR_SHAPES))
+def test_xmla_refuses_a_statement_holding_an_ambiguous_line_end(factory, statement):
+    client = factory(catalog="AW")
+    sent = _xmla_session(client)
+    _assert_refused(lambda: client.execute_query(statement), sent)
+
+
+# Statements with CR line ends: XML reads each CR LF and lone CR as LF, so
+# the statement the server parses is the one on the right.
+_XMLA_ALLOWED_CR = {
+    "-- note\r\nSELECT {[Measures].[Sales]} ON COLUMNS\r\nFROM [Sales]\r\n":
+        "-- note\nSELECT {[Measures].[Sales]} ON COLUMNS\nFROM [Sales]\n",
+    "// note\r\nEVALUATE\r\n  TOPN(5, 'Sales') // tail\r\n":
+        "// note\nEVALUATE\n  TOPN(5, 'Sales') // tail\n",
+    "SELECT {} ON 0\tFROM [Sales] -- note\r":
+        "SELECT {} ON 0\tFROM [Sales] -- note\n",
+}
+
+
+@pytest.mark.parametrize("factory", list(_XMLA_FACTORIES.values()), ids=list(_XMLA_FACTORIES))
+@pytest.mark.parametrize("statement", list(_XMLA_ALLOWED_CR))
+def test_xmla_sends_statements_with_carriage_returns(factory, statement):
+    client = factory(catalog="AW")
+    sent = _xmla_session(client)
+    client.execute_query(statement)
+    assert sent == [(_XMLA_ALLOWED_CR[statement], "AW")]
+
+
 _XMLA_ALLOWED = [
+    "-- a\n// b\nDEFINE MEASURE Sales[N] = 1\nEVALUATE ROW(\"n\", [N])\n",
     "SELECT {[Measures].[Sales]} ON COLUMNS FROM [Sales]",
     "select {} on 0 from [Sales];",
     "  -- note\n/* c */ // d\nWITH MEMBER [Measures].[X] AS 1 SELECT {[Measures].[X]} ON 0 FROM [Sales]",

@@ -50,8 +50,12 @@ def _check_pipeline(pipeline) -> None:
         (name, spec), = stage.items()
         if name not in _READ_STAGES:
             _refuse(f"the {name!r} stage is not a read stage")
-        if name == "$lookup" and isinstance(spec, dict) and "pipeline" in spec:
-            _check_pipeline(spec["pipeline"])
+        if name in ("$lookup", "$graphLookup"):
+            # An object in `from` names a collection of another database.
+            if not (isinstance(spec, dict) and isinstance(spec.get("from"), str)):
+                _refuse(f"{name} must name a collection of this database in 'from'")
+            if name == "$lookup" and "pipeline" in spec:
+                _check_pipeline(spec["pipeline"])
         elif name == "$facet":
             if not isinstance(spec, dict):
                 _refuse("$facet takes an object of pipelines")

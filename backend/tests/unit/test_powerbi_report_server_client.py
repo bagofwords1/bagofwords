@@ -686,6 +686,70 @@ class TestExportIdsAndFormat:
         assert self._sent(session) == [
             ("POST", f"http://pbi/Reports/api/v2.0/Datasets({_DATASET_GUID})/Model.GetData")]
 
+    @staticmethod
+    def _export_client(v2_status):
+        """A session whose v2 export answers `v2_status`; the legacy URL
+        access answers CSV. Records each GET with its query parameters."""
+        c = PowerBIReportServerClient("http://pbi", "u", "p")
+        sent = []
+
+        def _get(url, params=None, **_kwargs):
+            sent.append((url, dict(params) if params is not None else None))
+            if "/Export/" in url:
+                r = _mock_response(content=b"a,b\n1,2\n", status=v2_status)
+            elif url.endswith(f"/Reports({_REPORT_GUID})"):
+                r = _mock_response({"Path": "/Sales/Monthly"})
+            else:
+                r = _mock_response(content=b"a,b\n1,2\n")
+            r.headers = {"Content-Type": "text/csv"}
+            return r
+
+        session = MagicMock()
+        session.get.side_effect = _get
+        c._session = session
+        return c, sent
+
+    @pytest.mark.parametrize("v2_status", [200, 400])
+    @pytest.mark.parametrize("key", [
+        "rs:Format", "rs:Command", "RS:FORMAT", " rs:Format", "rc:Toolbar",
+        "dsu:Source", "dsp:Source", "Rc:Parameters",
+    ])
+    def test_report_server_url_access_parameter_refused(self, key, v2_status):
+        from app.ai.code_execution.sql_guard import ReadOnlyViolation
+
+        c, sent = self._export_client(v2_status)
+        error = None
+        try:
+            c.execute_query(report_id=_REPORT_GUID, parameters={"Region": "West", key: "x"})
+        except Exception as exc:  # noqa: BLE001 - the type is asserted below
+            error = exc
+        assert sent == [], f"request sent: {sent!r}"
+        assert isinstance(error, ReadOnlyViolation), f"not refused: {error!r}"
+
+    def test_parameter_key_that_is_not_text_refused(self):
+        from app.ai.code_execution.sql_guard import ReadOnlyViolation
+
+        c, sent = self._export_client(400)
+        with pytest.raises(ReadOnlyViolation):
+            c.execute_query(report_id=_REPORT_GUID, parameters={b"rs:Format": "PDF"})
+        assert sent == []
+
+    def test_report_parameters_reach_the_v2_export(self):
+        c, sent = self._export_client(200)
+        df = c.execute_query(report_id=_REPORT_GUID, parameters={"Region": "West", "Year": 2024})
+        assert list(df.columns) == ["a", "b"]
+        assert sent == [(f"http://pbi/Reports/api/v2.0/Reports({_REPORT_GUID})/Export/CSV",
+                         {"Region": "West", "Year": 2024})]
+
+    def test_report_parameters_reach_the_legacy_export_before_the_fixed_keys(self):
+        c, sent = self._export_client(400)
+        df = c.execute_query(report_id=_REPORT_GUID, parameters={"Region": "West", "format": "x"})
+        assert list(df.columns) == ["a", "b"]
+        legacy_url, legacy_params = sent[-1]
+        assert legacy_url == "http://pbi/ReportServer?/Sales/Monthly"
+        assert list(legacy_params.items()) == [
+            ("Region", "West"), ("format", "x"), ("rs:Format", "CSV"), ("rs:Command", "Render")]
+
     def test_report_id_from_metadata_checked_too(self):
         from app.ai.prompt_formatters import Table as PFTable
 

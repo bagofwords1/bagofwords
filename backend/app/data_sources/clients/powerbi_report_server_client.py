@@ -45,6 +45,20 @@ def _require_guid(name: str, value) -> None:
             f"Power BI Report Server {name} must be a GUID; take it from the table's metadata."
         )
 
+
+# Report Server URL access reads these prefixes as commands to the server
+# (render, viewer, data source credentials), not as report parameters.
+_URL_ACCESS_PREFIXES = ("rs:", "rc:", "dsu:", "dsp:")
+
+
+def _require_report_parameters(parameters) -> None:
+    for key in parameters or {}:
+        if not (isinstance(key, str) and not key.strip().casefold().startswith(_URL_ACCESS_PREFIXES)):
+            raise ReadOnlyViolation(
+                f"Power BI Report Server report parameter {key!r} refused: "
+                "pass report parameters by name only."
+            )
+
 # Cache for PBIX-extracted schemas, keyed by (report_id, modified_date).
 _PBIX_SCHEMA_CACHE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "uploads" / "pbirs_schema_cache"
 
@@ -1496,6 +1510,7 @@ class PowerBIReportServerClient(DataSourceClient):
                     f"Power BI Report Server export format {format!r} refused: "
                     f"use one of {', '.join(sorted(_EXPORT_FORMATS))}."
                 )
+            _require_report_parameters(parameters)
             return self._execute_paginated_report(
                 report_id, fmt=format.upper(), parameters=parameters, max_rows=max_rows)
         if dataset_id:
@@ -1529,9 +1544,8 @@ class PowerBIReportServerClient(DataSourceClient):
             path = self._lookup_report_path(report_id)
             if not path:
                 raise RuntimeError(f"Export failed: HTTP {r.status_code}. And no report path resolved for fallback.")
-            qs = {"rs:Format": fmt, "rs:Command": "Render"}
-            if parameters:
-                qs.update(parameters)
+            qs = dict(parameters or {})
+            qs.update({"rs:Format": fmt, "rs:Command": "Render"})
             r = self._session.get(
                 f"{self._report_server_root()}/ReportServer?{quote(path, safe='/')}",
                 params=qs,

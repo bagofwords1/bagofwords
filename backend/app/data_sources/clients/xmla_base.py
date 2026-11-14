@@ -40,9 +40,11 @@ _READ_VERBS = frozenset({"SELECT", "EVALUATE", "DEFINE", "WITH"})
 # a new mining model; OPENQUERY / OPENROWSET pass a query to another source.
 _REFUSED_WORDS = frozenset({"INTO", "OPENQUERY", "OPENROWSET"})
 _WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*", re.ASCII)
-# Any character that may end a line comment. Ending a comment early only
-# makes the check read more of the text.
-_LINE_ENDS = "\n\r\x0b\x0c\x85\N{LINE SEPARATOR}\N{PARAGRAPH SEPARATOR}"
+# A line comment ends at LF or CR. Characters that only some readers take as
+# a line end are refused anywhere in a statement: where a comment ends would
+# be a guess at the server's reading.
+_LINE_ENDS = "\n\r"
+_AMBIGUOUS_LINE_ENDS = re.compile("[\x0b\x0c\x85\N{LINE SEPARATOR}\N{PARAGRAPH SEPARATOR}]")
 
 
 def _xmla_refuse(reason: str) -> ReadOnlyViolation:
@@ -69,11 +71,14 @@ def check_xmla_statement(statement: str) -> None:
     Comments (`--`, `//`, `/* */`), string literals ('...', "...") and
     bracketed names ([...]) are skipped; the first word must be a read verb
     (`_READ_VERBS`); no word of `_REFUSED_WORDS` may appear; nothing but
-    comments may follow a ';'. A nested or unterminated comment and an
-    unterminated literal are refused rather than guessed at.
+    comments may follow a ';'. A nested or unterminated comment, an
+    unterminated literal and a line end other than LF or CR
+    (`_AMBIGUOUS_LINE_ENDS`) are refused rather than guessed at.
     """
     if not isinstance(statement, str):
         raise _xmla_refuse("the statement must be text")
+    if _AMBIGUOUS_LINE_ENDS.search(statement):
+        raise _xmla_refuse("use only LF or CR LF line ends")
     first = None
     after_semicolon = False
     i, n = 0, len(statement)
