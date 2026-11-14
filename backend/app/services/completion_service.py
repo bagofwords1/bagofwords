@@ -2630,6 +2630,7 @@ class CompletionService:
                                 select(Report)
                                 .options(
                                     lazyload("*"),
+                                    selectinload(Report.additional_folders),
                                     # These are the only Report relationships
                                     # consumed synchronously by AgentV2/tools.
                                     selectinload(Report.files).options(

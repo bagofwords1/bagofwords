@@ -151,6 +151,16 @@ async def record_output_scope(db, report_id, agent_ids):
         await db.flush()
 
 
+async def load_report_folders(db, report):
+    """Load scope when a lightweight report query suppressed relationship loading."""
+    from sqlalchemy import inspect
+    from app.models.report import report_folder_ids
+    state = inspect(report, raiseerr=False)
+    if getattr(report, "agent_folder_id", None) and state is not None and "additional_folders" in state.unloaded:
+        await db.refresh(report, ["additional_folders"])
+    return report_folder_ids(report)
+
+
 async def can_read_folder_output(db, report, user):
     from app.core.derived_access import visible_data_source_ids
     from app.models.organization import Organization
@@ -167,8 +177,7 @@ async def can_read_folder_output(db, report, user):
     org = await db.get(Organization, report.organization_id)
     from app.core.permission_resolver import resolve_permissions
     rights = await resolve_permissions(db, user.id, org.id)
-    from app.models.report import report_folder_ids
-    for fid in report_folder_ids(report):
+    for fid in await load_report_folders(db, report):
         curator = (not required and report.user_id == user.id and
                    await training_curator_only(db, org.id, user.id, fid, report.mode))
         if not curator and not rights.has_resource_permission("folder", fid, "view"):

@@ -174,8 +174,7 @@ async def resolve_run_agents(db, organization: Any, user: Any, report: Any,
     # would hand a shared-dashboard chat far more than the owner shared.
     if agent_ids is None and not attached and getattr(report, "report_type", "regular") == "artifact_chat":
         return []
-    from app.models.report import report_folder_ids
-    from app.services.folder_service import training_curator_only
+    from app.services.folder_service import load_report_folders, training_curator_only
     if agent_ids is not None and await training_curator_only(
         db, organization.id, getattr(user, "id", None), getattr(report, "agent_folder_id", None), getattr(report, "mode", None)
     ):
@@ -192,7 +191,7 @@ async def resolve_run_agents(db, organization: Any, user: Any, report: Any,
         from app.services.folder_service import visible_branch
         branch = set()
         queryable = False
-        for fid in report_folder_ids(report):
+        for fid in await load_report_folders(db, report):
             if await training_curator_only(db, organization.id, getattr(user, "id", None), fid, getattr(report, "mode", None)):
                 continue
             queryable = True

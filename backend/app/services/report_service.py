@@ -773,6 +773,7 @@ class ReportService:
             select(Report)
             .options(
                 lazyload("*"),
+                selectinload(Report.additional_folders),
                 # UserSchema serializes external_user_mappings — load it, the
                 # top-level wildcard turned User's own eager defaults off too.
                 selectinload(Report.user).selectinload(User.external_user_mappings),
@@ -2498,6 +2499,7 @@ class ReportService:
             select(Report)
             .options(
                 lazyload("*"),
+                selectinload(Report.additional_folders),
                 # UserSchema serializes external_user_mappings — load it, the
                 # top-level wildcard turned User's own eager defaults off too.
                 selectinload(Report.user).selectinload(User.external_user_mappings),
