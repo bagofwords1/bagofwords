@@ -117,7 +117,7 @@ def _settle_queue_work(portal, timeout=30.0):
         while asyncio.get_running_loop().time() < deadline:
             pending = [t for t in asyncio.all_tasks()
                        if t is not asyncio.current_task() and not t.done()
-                       and t.get_coro().__qualname__.endswith(names)]
+                       and getattr(t.get_coro(), "__qualname__", "").endswith(names)]
             if not pending:
                 return
             await asyncio.wait(pending, timeout=deadline - asyncio.get_running_loop().time())
