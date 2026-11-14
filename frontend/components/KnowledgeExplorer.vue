@@ -28,6 +28,8 @@
           <UIcon name="i-heroicons-cloud-arrow-up" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
           {{ $t('agentsPage.pushToGit') }}
         </button>
+        <UButton v-if="isWorldEnabled" data-testid="open-world" to="/agents/world" size="sm" color="gray"
+          variant="ghost" icon="i-heroicons-globe-alt" :aria-label="$t('world.title')" :title="$t('world.title')" />
         <button
           class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-xs font-medium whitespace-nowrap text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
           @click="openAllInstructions()"
@@ -1268,7 +1270,7 @@ const { t, locale } = useI18n()
 // Training mode is the per-agent admin capability: gated on the org setting plus
 // manage_instructions on the currently-open agent (a per-DS `manage` grant
 // implies it; full_admin bypasses). Mirrors the backend gate.
-const { isTrainingModeEnabled } = useOrgSettings()
+const { isTrainingModeEnabled, isWorldEnabled } = useOrgSettings()
 const agentCanStartTraining = computed(() => {
   const id = agentView.value?.agentId
   return isTrainingModeEnabled.value && !!id && useCan('manage_instructions', { type: 'data_source', id })
@@ -4609,6 +4611,7 @@ const explorerUrl = (): string => {
   // /agents/global-evals rather than /agents//global-evals.
   // A query open inside the queries panel gets the deeper URL, so the link a
   // reader shares opens that query and not the agent's whole list.
+  if (folderPaneVisible.value && selectedFolder.value) return `/agents/folders/${selectedFolder.value}`
   if (queryView.value) return `/agents/queries/${queryView.value.entityId}`
   if (panelView.value) return `/agents/${[panelView.value.agentId, panelView.value.kind, panelView.value.kind === 'lists' ? listView.value : '', panelView.value.kind === 'lists' && listView.value ? listRowView.value : ''].filter(Boolean).join('/')}`
   if (agentView.value) return `/agents/${agentView.value.agentId}`
@@ -4623,13 +4626,19 @@ const syncUrl = () => {
 }
 // Reflect every right-pane state change (agent / panel / instruction / close)
 // in the URL from one place, so all open and close paths stay in sync.
-watch([panelView, agentView, selectedId, queryView, listView, listRowView, () => creating.value], () => syncUrl())
+watch([panelView, agentView, selectedId, selectedFolder, queryView, listView, listRowView, () => creating.value], () => syncUrl())
 
 // Restore the view from the URL on load and on back/forward navigation.
 const restoreFromRoute = () => {
   const raw = route.params.slug
   const seg = (Array.isArray(raw) ? raw : (raw ? [raw] : [])).filter(Boolean) as string[]
   if (seg.length === 0) return
+  if (seg[0] === 'folders' && seg[1]) {
+    if (selectedFolder.value !== seg[1] && folderExplorer.value?.folders.some((f: ScopeFolder) => f.id === seg[1])) {
+      folderExplorer.value.open(seg[1])
+    }
+    return
+  }
   // /agents/instructions/<id>
   if (seg[0] === 'instructions' && seg[1]) {
     const insId = seg[1]
@@ -4695,6 +4704,9 @@ const restoreFromRoute = () => {
   openAgent(agentId)
 }
 watch(() => route.params.slug, () => restoreFromRoute())
+watch(() => folderExplorer.value?.folders, () => {
+  if (location.pathname.startsWith('/agents/folders/')) restoreFromRoute()
+})
 
 // ── Activity sparkline + total tasks (org-wide, last 14 days) ───────────
 const activitySeries = ref<number[]>([])
