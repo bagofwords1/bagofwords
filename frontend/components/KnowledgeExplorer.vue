@@ -1037,7 +1037,7 @@
           </div>
         </template>
 
-        <FolderKnowledge v-else-if="selectedFolder && folderExplorer?.current" :key="selectedFolder + (folderSection || '')" :section="folderSection" :folder="folderExplorer.current" :suite-id="folderSuiteId" @changed="folderKnowledgeRevision++" @create-instruction="openCreate({ folderId: $event })" @file="openFile" @instruction="openInstructionById" />
+        <FolderKnowledge v-else-if="selectedFolder && folderExplorer?.current" :key="selectedFolder + (folderSection || '')" :section="folderSection" :agents="folderAgents" @agent="openAgent" @section="folderSection = $event" :folder="folderExplorer.current" :suite-id="folderSuiteId" @changed="folderKnowledgeRevision++" @create-instruction="openCreate({ folderId: $event })" @file="openFile" @instruction="openInstructionById" />
         <div v-else class="flex-1 flex items-center justify-center px-6">
           <div class="relative w-full max-w-lg h-72 overflow-hidden">
             <img src="/assets/empty-states/empty-integrations.png" alt="" class="absolute inset-x-0 bottom-8 w-full opacity-80 select-none pointer-events-none dark:hidden" />
@@ -1318,6 +1318,7 @@ const agents = ref<any[]>([])
 // Show a spinner in the agents tree until the first load completes. Stays true
 // through later refreshes, which update the list silently.
 const agentsLoaded = ref(false)
+const folderAgents = computed(() => agents.value.filter(agent => agent.folder_id === selectedFolder.value))
 // "Self Learning" per-agent automation modal (opened from the agent header).
 const showSelfLearning = ref(false)
 function onSelfLearningSaved() { toast.add({ title: t('agentsPage.toastSelfLearningSaved'), color: 'green' }) }
@@ -3663,7 +3664,7 @@ const fetchAgents = async () => {
       // are not agents: they live in the prompt box's connectors menu and the
       // Browse connectors modal, not in the knowledge tree.
       .filter((d: any) => d?.kind !== 'connector')
-      .map((d: any) => ({ id: d.id, folder_id: d.folder_id, can_move_from_folder: d.can_move_from_folder, limited_access: d.limited_access, name: d.name, type: d.type, icon: d.icon, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, connector_key: d.connector_key, status: d.status, publish_status: d.publish_status, reliability_status: d.reliability_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
+      .map((d: any) => ({ id: d.id, folder_id: d.folder_id, can_move_from_folder: d.can_move_from_folder, limited_access: d.limited_access, name: d.name, type: d.type, icon: d.icon, icon_token: d.icon_token, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, connector_key: d.connector_key, status: d.status, publish_status: d.publish_status, reliability_status: d.reliability_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
       // Alphabetical by name. The server returns no explicit order, so sort
       // here; pass the app's i18n locale (not the browser default) so the
       // order matches the UI language, and fold case/accents via sensitivity.

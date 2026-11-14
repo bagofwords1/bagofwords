@@ -8,7 +8,29 @@
         {{ $t('prompt.training') }}
       </UButton>
     </header>
-    <section v-for="kind in sections" :key="kind" class="mb-6 border-t border-gray-200 pt-4 dark:border-gray-800">
+    <template v-if="!section">
+      <section class="mb-6">
+        <h3 class="mb-2 text-sm font-medium">{{ $t('nav.agents') }}</h3>
+        <p v-if="!agents.length" class="py-2 text-sm text-ink-muted">{{ $t('nav.noAgents') }}</p>
+        <button v-for="agent in agents" :key="agent.id" type="button"
+          class="flex w-full items-start gap-3 rounded-md px-2 py-2.5 text-start hover:bg-surface-muted" @click="emit('agent', agent.id)">
+          <DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon="agent.icon" :icon-token="agent.icon_token" class="mt-0.5 size-4 shrink-0" />
+          <span class="min-w-0">
+            <span class="block break-words text-sm font-medium">{{ agent.name }}</span>
+            <span v-if="agent.description" class="mt-0.5 block break-words text-sm text-ink-muted">{{ agent.description }}</span>
+          </span>
+        </button>
+      </section>
+      <div class="border-t border-line pt-2">
+        <button v-for="kind in sections" :key="kind" type="button" class="flex w-full items-center gap-2 rounded-md px-2 py-2 text-start text-sm hover:bg-surface-muted"
+          @click="emit('section', kind)">
+          <span class="grow">{{ $t('agentsPage.' + kind) }}</span>
+          <span v-if="loaded.has(kind) && !errors[kind]" class="nums text-xs text-ink-muted">{{ items[kind].length }}</span>
+          <UIcon name="i-heroicons-chevron-right" class="size-3 text-ink-muted rtl:rotate-180" />
+        </button>
+      </div>
+    </template>
+    <section v-for="kind in (section ? sections : [])" :key="kind" class="mb-6 border-t border-gray-200 pt-4 dark:border-gray-800">
       <div class="flex flex-wrap items-center gap-2">
         <h3 class="me-auto text-sm font-medium">{{ $t('agentsPage.' + kind) }}</h3>
         <template v-if="canEdit(kind)">
@@ -63,14 +85,17 @@
 import TestCaseEditor from "~/components/monitoring/TestCaseEditor.vue"
 type Kind = 'instructions' | 'files' | 'evals'
 type Item = { id: string, name: string, owned?: boolean }
-const props = defineProps<{suiteId?: string, section?: Kind, folder: {id: string, name: string, capabilities: string[], can_query: boolean}}>()
-const emit = defineEmits<{changed: [], createInstruction: [folderId: string], instruction: [id: string], file:[item:{id:string, filename:string}]}>()
+const props = defineProps<{suiteId?: string, section?: Kind,
+  agents: { id: string, name: string, description?: string, type?: string, connector_key?: string, icon?: string, icon_token?: string }[],
+  folder: {id: string, name: string, capabilities: string[], can_query: boolean}}>()
+const emit = defineEmits<{agent: [id: string], section: [kind: Kind], changed: [], createInstruction: [folderId: string], instruction: [id: string], file:[item:{id:string, filename:string}]}>()
 const { t } = useI18n()
 const { isTrainingModeEnabled } = useOrgSettings()
-const kinds: Kind[] = ['instructions', 'files', 'evals']
+const kinds: Kind[] = ['instructions', 'evals', 'files']
 const canEdit = (kind: Kind) => props.folder.capabilities.includes('manage_' + kind)
 const sections = computed(() => kinds.filter(k => (!props.section || props.section === k) && (canEdit(k) || (props.folder.can_query && k !== 'evals'))))
 const items = reactive<Record<Kind, Item[]>>({instructions: [], files: [], evals: []})
+const loaded = reactive(new Set<Kind>())
 const errors = reactive<Record<Kind, string>>({instructions: '', files: '', evals: ''})
 const url = (k: Kind) => '/folders/' + props.folder.id + '/knowledge/' + k
 const active = ref<Kind>('instructions'), action = ref<'attach' | 'create' | 'case'>('create')
@@ -95,6 +120,7 @@ const modes = computed(() => ['always', 'intelligent'].map(value => ({value, lab
 const dialogTitle = computed(() => t(action.value === 'attach' ? 'sharedFolders.attach' : action.value === 'case' ? 'sharedFolders.addCase' : {instructions:'agentsPage.newInstructionHeader',files:'agentPage.tables.addFiles',evals:'agentsPage.suiteNewTitle'}[active.value]))
 async function load(kind: Kind) {
   const {data, error} = await useMyFetch<Item[]>(url(kind))
+  loaded.add(kind)
   items[kind] = data.value || []
   errors[kind] = error.value ? t('common.error') : ''
 }
