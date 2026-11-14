@@ -214,6 +214,7 @@ class InstructionService:
         # a dead transaction and blow up with MissingGreenlet. Plain strings are
         # safe to use after a rollback.
         instr_id = str(instruction.id)
+        finalize_error = None
         try:
             # Re-fetch instruction with relationships for version creation
             await db.refresh(instruction, ['data_sources', 'labels', 'references'])
@@ -254,6 +255,8 @@ class InstructionService:
 
             logger.info(f"Created version {version_id} for instruction {instr_id}, added to build {target_build_id}")
         except Exception as e:
+            if isinstance(e, HTTPException):
+                finalize_error = e
             logger.warning("Failed to create version for instruction %s: %s", instr_id, describe_for_log(e))
             # Roll back so the session is clean for the cleanup/return below.
             try:
@@ -280,6 +283,8 @@ class InstructionService:
                     await db.rollback()
                 except Exception:
                     pass
+            if finalize_error is not None:
+                raise finalize_error
             raise HTTPException(
                 status_code=503,
                 detail=(
@@ -1313,6 +1318,8 @@ class InstructionService:
                     await self._auto_finalize_build(db, build, current_user, user_permissions)
                     
                     logger.debug(f"Created version {version.id} for instruction {instruction.id}, added to build {build.id}")
+        except HTTPException:
+            raise
         except Exception as e:
             logger.warning("Failed to create version for updated instruction %s: %s", instruction.id, describe_for_log(e))
             # Don't fail the update if versioning fails
@@ -3256,7 +3263,7 @@ class InstructionService:
             # Auto-promote delete builds since the delete already took effect via deleted_at
             await db.refresh(build)
             if build.status == 'approved' and not build.is_main:
-                await self.build_service.promote_build(db, build.id)
+                await self.build_service.promote_build(db, build.id, user_id=current_user.id)
                 logger.debug(f"Auto-promoted delete build {build.id} to main")
             
             logger.debug(f"Removed instruction {instruction_id} from build {build.id}")
@@ -3643,7 +3650,7 @@ class InstructionService:
                 # Auto-promote delete builds since the delete already took effect via deleted_at
                 await db.refresh(bulk_build)
                 if bulk_build.status == 'approved' and not bulk_build.is_main:
-                    await self.build_service.promote_build(db, bulk_build.id)
+                    await self.build_service.promote_build(db, bulk_build.id, user_id=current_user.id)
                     logger.debug(f"Auto-promoted bulk delete build {bulk_build.id} to main")
             except Exception as finalize_error:
                 logger.warning(f"Failed to finalize/promote bulk delete build: {finalize_error}")
@@ -5839,6 +5846,7 @@ class InstructionService:
                     await self.build_service.promote_build(
                         db,
                         build.id,
+                        user_id=current_user.id,
                         trigger_reliability=trigger_reliability,
                         expected_main_build_id=expected_main_build_id,
                         enforce_expected_main=enforce_expected_main,
@@ -5890,6 +5898,8 @@ class InstructionService:
                 await db.rollback()
             except Exception:
                 pass
+            if isinstance(e, HTTPException):
+                raise
             # Don't fail the instruction operation here; the caller decides
             # whether a failed finalize is fatal (see create_instruction).
             return False

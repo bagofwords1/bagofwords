@@ -468,3 +468,9 @@ Use a disposable organization with a parent and child folder, separate parent an
 - As an organization instruction manager, attach a global rule to two folders. Remove the first link and inspect its targeted placement. Remove the second and check the global list and live version. Repeat with a folder-owned rule and confirm it stays targeted.
 - Open a historical folder report after deleting its empty folder. Check the owner, full admin and a former folder viewer. Retained live agent and table permissions still apply. Starting a new run requires an available scope.
 - Publish a curator’s pending rule as the manager of its folder with unrelated instructions on main. Check the build publish button and the individual instruction review. A curator or a manager of a different folder should not be able to approve it.
+
+### Saving one instruction to two folders
+
+In a disposable organization with two folders, use an account that manages both. From Agents, create a published instruction, select both folders, and save. Reopen each folder and check that the same instruction ID appears. Inspect its active build version and confirm both folder IDs and targeted scope.
+
+Before the fix, the create request returned 503. The backend logged a 403 from the folder check in `BuildService.promote_build`: `InstructionService._auto_finalize_build` passed the build but omitted the acting user. After passing the actor, the same create route on a disposable SQLite copy succeeded. A fresh database session confirmed both folder links, published status, targeted scope, and both folder IDs on the main build version.
