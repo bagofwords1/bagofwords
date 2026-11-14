@@ -194,15 +194,21 @@ async def authoring_targets(db, org, user, report, capability, destination, fold
     if not active and not destination and not folder_id and not agent_ids:
         return None  # Existing non-folder authoring contract.
     destination = destination or ("folder" if folder_id else "agents" if agent_ids else None)
-    if destination == "folder" and active and not agent_ids and folder_id in (None, active):
-        await require_capability(db, org, user, active, capability)
-        return active, []
+    target_folder = active or (folder_id if report is None else None)
+    if destination == "folder" and target_folder and not agent_ids and folder_id in (None, target_folder):
+        await require_capability(db, org, user, target_folder, capability)
+        return target_folder, []
     rights = await resolve_permissions(db, user.id, org.id)
     if destination == "global" and not folder_id and not agent_ids and rights.has_org_permission(capability):
         return None, []
     if destination == "agents" and agent_ids and not folder_id:
         from app.ai.tools.implementations.agent_focus_common import resolve_run_agents
-        allowed = {a.id for a in await resolve_run_agents(db, org, user, report)}
+        if report is None:
+            from app.models.data_source import DataSource
+            allowed = set(await db.scalars(select(DataSource.id).where(DataSource.id.in_(agent_ids),
+                DataSource.organization_id == org.id, DataSource.deleted_at.is_(None))))
+        else:
+            allowed = {a.id for a in await resolve_run_agents(db, org, user, report)}
         if all(a in allowed and rights.has_resource_permission("data_source", a, capability) for a in agent_ids):
             return None, list(dict.fromkeys(agent_ids))
     raise HTTPException(403, "Choose an authorized destination: selected folder, specific agents, or organization. Ask the user if unclear.")
