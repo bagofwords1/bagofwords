@@ -43,23 +43,24 @@
           leave-to-class="opacity-0 scale-95"
         >
           <div v-if="dropdownOpen" class="absolute z-10 mt-1 w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg overflow-hidden">
-            <AgentFolderChoices :agents="visibleAgents" @select="(ids, folder) => { selectedFolder = {...folder, ids}; dropdownOpen = false }" />
-            <button
-              v-for="agent in visibleAgents"
-              :key="agent.id"
+            <AgentFolderChoices :agents="visibleAgents" @select="(ids, folder) => { selectedFolder = {...folder, ids}; dropdownOpen = false }" :selected-folders="selectedFolder ? [selectedFolder.id] : []">
+              <template #agent="{agent: agent, parentPath}">
+                <button
               @click="selectAgent(agent.id)"
               class="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
               :class="selectedAgentId === agent.id ? 'bg-indigo-50 text-indigo-700' : 'text-gray-700 dark:text-gray-300'"
             >
               <Icon v-if="(agent as any).isGlobal" name="heroicons:globe-alt" class="w-4 h-4 text-gray-500 dark:text-gray-400 flex-shrink-0" />
               <DataSourceIcon v-else :type="agent.type" :connector-key="(agent as any).connector_key" :icon-token="agent.icon_token" :icon="agent.icon" class="h-4 flex-shrink-0" />
-              <span class="truncate flex-1 text-start font-medium">{{ agent.name }}</span>
+              <span class="truncate flex-1 text-start font-medium">{{ agent.name }}<small v-if="parentPath" class="block truncate text-2xs text-ink-muted">{{ parentPath }}</small></span>
               <span
                 v-if="stageBadge(agent)"
                 :class="['flex-shrink-0 text-2xs rounded border px-1 py-0.5', stageBadge(agent)?.badge]"
               >{{ stageBadge(agent)?.label }}</span>
               <Icon v-if="selectedAgentId === agent.id" name="heroicons:check" class="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
             </button>
+              </template>
+            </AgentFolderChoices>
           </div>
         </Transition>
         </div>

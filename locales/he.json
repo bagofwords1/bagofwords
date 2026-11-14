@@ -647,6 +647,9 @@
     "whatCanIHelpWith": "במה אוכל לעזור?"
   },
   "prompt": {
+    "searchAgentFolders": "חיפוש סוכנים ותיקיות…",
+    "expandDirectory": "הרחבת {name}",
+    "collapseDirectory": "כיווץ {name}",
     "placeholderDefault": "בקשו נתונים, דשבורדים או ניתוח מעמיק",
     "thinking": "חושב",
     "working": "עובד",

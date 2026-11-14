@@ -57,24 +57,34 @@
 							v-model="agentChipQuery"
 							type="text"
 							data-testid="empty-agent-search"
-							:placeholder="$t('projects.overview.searchAgents')"
+							:placeholder="$t('prompt.searchAgentFolders')"
 							class="w-full bg-transparent text-sm text-gray-700 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none"
 						/>
 					</div>
 					<div
 						:class="[
 							'mt-2 flex flex-wrap gap-1',
-							showAllAgentChips || filteredFolders.length > 6 ? 'max-h-36 overflow-y-auto' : ''
+							showAllAgentChips || availableFolders.length > 6 ? 'max-h-36 overflow-y-auto' : ''
 						]"
 					>
-                        <button v-for="folder in filteredFolders" :key="'folder:' + folder.id" type="button"
-                            :aria-pressed="folderIds.includes(folder.id)" :title="folder.path"
-                            class="inline-flex max-w-48 items-center gap-1.5 rounded-md px-1.5 py-1 text-sm hover:bg-surface-muted"
-                            :class="folderIds.includes(folder.id) && 'bg-surface-muted'"
-                            @click="$emit('toggle-folder', folder.id)">
-                            <UIcon name="i-heroicons-folder" class="size-3.5 shrink-0" /><span class="truncate">{{ folder.path }}</span>
-                            <UIcon v-if="folderIds.includes(folder.id)" name="i-heroicons-check" class="size-3 shrink-0 text-blue-500" />
+                        <button type="button" class="flex w-full items-center gap-2 rounded px-2 py-1 text-sm hover:bg-surface-muted"
+                            :aria-pressed="agentsAreAuto && !folderIds.length" @click="$emit('auto')">
+                            <UIcon name="i-heroicons-bolt" />{{ $t('prompt.modelAuto') }}
+                            <UIcon v-if="agentsAreAuto && !folderIds.length" name="i-heroicons-check" class="size-4 text-blue-500" />
                         </button>
+                        <div v-if="availableFolders.length" class="w-full">
+                            <AgentFolderTree :folders="availableFolders" :selected="folderIds" :search="agentChipQuery"
+                                :member-folders="[...folderMembers.keys()]" @select="id => $emit('toggle-folder', id)">
+                                <template #members="{folderId}">
+                                    <button v-for="agent in folderMembers.get(folderId)" :key="agent.id" type="button"
+                                        class="flex w-full items-center gap-2 rounded px-2 py-1 text-sm hover:bg-surface-muted"
+                                        :aria-pressed="isAgentSelected(agent)" @click="$emit('toggle-agent', agent)">
+                                        <DataSourceIcon :type="agent.type" :icon-token="agent.icon_token" class="size-4" />
+                                        {{ agent.name }}<UIcon v-if="isAgentSelected(agent)" name="i-heroicons-check" class="size-4 text-blue-500" />
+                                    </button>
+                                </template>
+                            </AgentFolderTree>
+                        </div>
 						<button
 							v-for="a in visibleAgentChips"
 							:key="a.id"
@@ -95,7 +105,7 @@
 								:icon-token="a.icon_token" :icon="a.icon"
 								class="h-3.5 flex-shrink-0"
 							/>
-							<span class="max-w-[11rem] truncate">{{ a.name }}</span>
+							<span class="max-w-[11rem] truncate">{{ a.name }}<span v-if="agentChipQuery && folderPaths.has(a.folder_id)" class="block truncate text-2xs text-ink-muted">{{ folderPaths.get(a.folder_id) }}</span></span>
 							<Icon
 								v-if="isAgentSelected(a)"
 								name="heroicons:check"
@@ -113,7 +123,7 @@
 						>
 							+{{ hiddenAgentChipCount }}
 						</button>
-						<span v-if="!visibleAgentChips.length && !filteredFolders.length" class="px-1.5 py-1 text-sm text-ink-muted">
+						<span v-if="agentChipQuery && !visibleAgentChips.length && !hasMatchingFolder" class="px-1.5 py-1 text-sm text-ink-muted">
 							{{ $t('mentionInput.noResults') }}
 						</span>
 					</div>
@@ -160,6 +170,7 @@
 </template>
 
 <script setup lang="ts">
+import type { AgentFolderOption } from '~/composables/useAgentFolderOptions'
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
 
 const props = withDefaults(defineProps<{
@@ -167,7 +178,7 @@ const props = withDefaults(defineProps<{
 	mode?: 'chat' | 'training'
 	// Every agent the user could pick, published by the prompt box's selector.
 	availableAgents?: any[]
-    availableFolders?: {id:string, path:string}[]
+    availableFolders?: AgentFolderOption[]
     folderIds?: string[]
 	// The agents currently scoping the conversation.
 	currentAgents?: any[]
@@ -184,6 +195,7 @@ const props = withDefaults(defineProps<{
 })
 
 defineEmits<{
+    (e: 'auto'): void
 	(e: 'toggle-folder', id: string): void
     (e: 'toggle-agent', agent: any): void
 	(e: 'starter', text: string): void
@@ -209,10 +221,22 @@ const sortedAgents = computed(() => {
 	})
 })
 
+const folderPaths = computed(() => new Map(props.availableFolders.map(f => [f.id, f.path])))
+const hasMatchingFolder = computed(() => props.availableFolders.some(folder =>
+  folder.path.toLowerCase().includes(agentChipQuery.value.trim().toLowerCase())))
+const folderMembers = computed(() => {
+  const groups = new Map<string, any[]>()
+  for (const agent of sortedAgents.value) {
+    if (!folderPaths.value.has(agent.folder_id)) continue
+    if (!groups.has(agent.folder_id)) groups.set(agent.folder_id, [])
+    groups.get(agent.folder_id)!.push(agent)
+  }
+  return groups
+})
 const matchingAgents = computed(() => {
 	const q = agentChipQuery.value.trim().toLowerCase()
-	if (!q) return sortedAgents.value
-	return sortedAgents.value.filter((a: any) => String(a?.name || '').toLowerCase().includes(q))
+	if (!q) return sortedAgents.value.filter(a => !folderPaths.value.has(a.folder_id))
+	return sortedAgents.value.filter((a: any) => [a.name, folderPaths.value.get(a.folder_id)].some(v => v?.toLowerCase().includes(q)))
 })
 
 const visibleAgentChips = computed(() => {
@@ -262,7 +286,6 @@ watch(
 	loadAgentStarters,
 	{ immediate: true },
 )
-const filteredFolders = computed(() => props.availableFolders.filter(f => f.path.toLowerCase().includes(agentChipQuery.value.toLowerCase())))
 </script>
 
 <style scoped>

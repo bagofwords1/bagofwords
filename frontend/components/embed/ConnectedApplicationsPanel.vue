@@ -25,17 +25,19 @@
         <fieldset class="space-y-3">
           <legend class="mb-2 text-sm font-medium text-ink">{{ $t('connectedApps.agents') }}</legend>
           <p class="text-xs text-ink-muted">{{ $t('connectedApps.agentHelp') }}</p>
+          <URadio v-model="allAgents" name="agent-access" :value="true" :label="$t('connectedApps.allAgents')" />
           <URadio v-model="allAgents" name="agent-access" :value="false" :label="$t('connectedApps.selectedAgents')" />
           <div v-if="!allAgents" class="max-h-60 overflow-y-auto rounded-lg border border-line p-3 space-y-2">
-            <UInput v-model="scopeSearch" size="xs" icon="i-heroicons-magnifying-glass" :placeholder="$t('common.search')" />
-            <label v-for="folder in visibleFolders" :key="folder.id" class="flex items-center gap-2 text-sm">
-              <input v-model="folderIds" type="checkbox" :value="folder.id" />
-              <UIcon name="i-heroicons-folder" class="shrink-0" /><span class="truncate" :title="folder.path">{{ folder.path }}</span>
-            </label>
-            <UCheckbox v-for="agent in visibleAgents" :key="agent.id" v-model="agentIds" :value="agent.id" :label="agent.name" />
+            <UInput v-model="scopeSearch" size="xs" icon="i-heroicons-magnifying-glass" :placeholder="$t('prompt.searchAgentFolders')" />
+            <AgentFolderTree :folders="folders" :selected="folderIds" :search="scopeSearch" :member-folders="[...folderMembers.keys()]"
+              @select="id => folderIds = folderIds.includes(id) ? folderIds.filter(v => v !== id) : [...folderIds, id]">
+              <template #members="{folderId}">
+                <UCheckbox v-for="agent in folderMembers.get(folderId)" :key="agent.id" v-model="agentIds" :value="agent.id" :label="agent.name" class="px-2 py-1" />
+              </template>
+            </AgentFolderTree>
+            <UCheckbox v-for="agent in visibleAgents" :key="agent.id" v-model="agentIds" :value="agent.id" :label="scopeSearch.trim() && paths.has(agent.folder_id) ? agent.name + ' · ' + paths.get(agent.folder_id) : agent.name" />
             <p v-if="!agents.length && !folders.length" class="text-xs text-ink-muted">{{ $t('connectedApps.noAgents') }}</p>
           </div>
-          <URadio v-model="allAgents" name="agent-access" :value="true" :label="$t('connectedApps.allAgents')" />
         </fieldset>
         <div class="flex justify-between gap-3">
           <UButton color="red" variant="ghost" :disabled="saving" @click="remove">{{ $t('common.delete') }}</UButton>
@@ -83,8 +85,21 @@ const folders = ref<Awaited<ReturnType<typeof loadAgentFolderOptions>>>([])
 const folderIds = ref<string[]>([])
 const agents = ref<any[]>([])
 const scopeSearch = ref('')
-const visibleFolders = computed(() => folders.value.filter(f => f.path.toLowerCase().includes(scopeSearch.value.toLowerCase())))
-const visibleAgents = computed(() => agents.value.filter(a => a.name.toLowerCase().includes(scopeSearch.value.toLowerCase())))
+const paths = computed(() => new Map(folders.value.map(f => [f.id, f.path])))
+const folderMembers = computed(() => {
+  const members = new Map<string, typeof agents.value>()
+  for (const agent of agents.value) {
+    if (!paths.value.has(agent.folder_id)) continue
+    if (!members.has(agent.folder_id)) members.set(agent.folder_id, [])
+    members.get(agent.folder_id)!.push(agent)
+  }
+  return members
+})
+const visibleAgents = computed(() => {
+  const term = scopeSearch.value.trim().toLowerCase()
+  if (!term) return agents.value.filter(a => !folderMembers.value.has(a.folder_id))
+  return agents.value.filter(a => [a.name, paths.value.get(a.folder_id)].some(text => text?.toLowerCase().includes(term)))
+})
 const selected = ref<any>(null)
 const tab = ref('general')
 const loading = ref(true)

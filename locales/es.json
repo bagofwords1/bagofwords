@@ -647,6 +647,9 @@
     "whatCanIHelpWith": "¿En qué puedo ayudarte?"
   },
   "prompt": {
+    "searchAgentFolders": "Buscar agentes y carpetas…",
+    "expandDirectory": "Expandir {name}",
+    "collapseDirectory": "Contraer {name}",
     "placeholderDefault": "Pida datos, un panel o un análisis detallado",
     "thinking": "Pensando",
     "working": "Trabajando",

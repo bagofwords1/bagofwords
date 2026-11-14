@@ -930,8 +930,10 @@
                 <!-- Category -->
                 <KSelect v-if="metaEditable" v-model="draft.category" :options="categoryOpts" :placeholder="$t('agentsPage.general')" @update:modelValue="onMetaChange" />
                 <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-2xs font-medium">{{ h.formatCategory(detail.category) }}</span>
-                <KSelect v-if="metaEditable" :model-value="scopeSelection" :options="scopeOptions" multiple summarize
-                  :placeholder="$t('sharedFolders.chooseScope')" icon="i-heroicons-folder" @update:modelValue="selectScope" />
+                <AgentScopeMenu v-if="metaEditable" :selected="scopeSelection" :folders="instructionFolderOptions" :options="agentOptsForDraft"
+                  :placeholder="$t('sharedFolders.chooseScope')" :first-label="useCan('manage_instructions') ? $t('agentsPage.allAgentsPlaceholder') : undefined"
+                  first-icon="i-heroicons-globe-alt" :first-selected="scopeSelection.includes('global')" @first="!globalDraft && selectScope(['global'])"
+                  @select="id => selectScope(scopeSelection.includes(id) ? scopeSelection.filter(v => v !== id) : [...scopeSelection, id])" />
                 <template v-else>
                   <span v-for="folder in detail.folders" :key="folder.id" class="inline-flex items-center gap-1 rounded-md bg-surface-muted px-2 text-2xs"><UIcon name="i-heroicons-folder" />{{ folder.name }}</span>
                   <span v-if="detail.scope_mode !== 'targeted' && (detail.data_sources || []).length === 0" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-2xs"><UIcon name="i-heroicons-globe-alt" class="w-3 h-3 text-ink-muted" />{{ $t('agentsPage.allAgentsPlaceholder') }}</span>
@@ -1229,6 +1231,7 @@ import PublishStatusControl from '~/components/datasources/PublishStatusControl.
 import InstructionAnalysisPanel from '~/components/InstructionAnalysisPanel.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import AgentIconPicker from '~/components/AgentIconPicker.vue'
+import { buildAgentFolderOptions } from '~/composables/useAgentFolderOptions'
 import KSelect from '~/components/KSelect.vue'
 import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
 import AllInstructionsModal from '~/components/instructions/AllInstructionsModal.vue'
@@ -2174,7 +2177,7 @@ const loadEditOpts = computed(() => {
 })
 const sourceOpts = computed(() => [{ value: 'user', label: t('agentsPage.optSourceUser') }, { value: 'ai', label: t('agentsPage.optSourceAi') }, { value: 'git', label: t('agentsPage.optSourceGit') }])
 const categoryOpts = computed(() => categories.value.filter(c => c !== 'dashboard').map(c => ({ value: c, label: h.formatCategory(c) })))
-const agentOpts = computed(() => agents.value.map(a => ({ value: a.id, label: a.name, type: a.type })))
+const agentOpts = computed(() => agents.value.map(a => ({ value: a.id, label: a.name, type: a.type, folderId: a.folder_id })))
 // The instruction may be scoped to agents missing from /data_sources/active
 // (deactivated by a failed connection test, or not visible to this user).
 // Merge those in from the instruction payload — which carries their names —
@@ -2189,7 +2192,7 @@ const agentOptsForDraft = computed(() => {
   // Agents already on the instruction stay in the list so their chip renders by
   // name rather than a raw id, and stays individually removable.
   for (const ds of ((detail.value?.data_sources || []) as any[])) {
-    if (!opts.some(o => o.value === ds.id)) opts.push({ value: ds.id, label: ds.name, type: ds.type })
+    if (!opts.some(o => o.value === ds.id)) opts.push({ value: ds.id, label: ds.name, type: ds.type, folderId: ds.folder_id })
   }
   return opts
 })
@@ -2199,17 +2202,8 @@ const draftOwnerFolder = ref<string | null>(null)
 type ScopeFolder = { id: string, name: string, parent_id?: string, capabilities: string[] }
 const curatableFolders = computed(() => ((folderExplorer.value?.folders || []) as ScopeFolder[])
   .filter(folder => folder.capabilities.includes('manage_instructions')))
-const scopeOptions = computed(() => {
-  const directory = new Map<string, ScopeFolder>((folderExplorer.value?.folders || []).map((f: ScopeFolder) => [f.id, f]))
-  const folders = curatableFolders.value.map(folder => {
-    const names = [folder.name]
-    let parent = directory.get(folder.parent_id || '')
-    while (parent) { names.unshift(parent.name); parent = directory.get(parent.parent_id || '') }
-    return { value: 'folder:' + folder.id, label: names.join(' / '), heroicon: 'i-heroicons-folder' }
-  })
-  const global = useCan('manage_instructions') ? [{value: 'global', label: t('agentsPage.allAgentsPlaceholder'), heroicon: 'i-heroicons-globe-alt'}] : []
-  return [...global, ...folders, ...agentOptsForDraft.value]
-})
+const instructionFolderOptions = computed(() => buildAgentFolderOptions((folderExplorer.value?.folders || []) as ScopeFolder[],
+  f => f.capabilities.includes('manage_instructions')))
 const scopeSelection = computed(() => {
   const targets = [...draft.folder_ids.map(id => 'folder:' + id), ...draft.data_source_ids]
   return targets.length || !globalDraft.value ? targets : ['global']

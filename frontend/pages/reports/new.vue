@@ -25,7 +25,7 @@
 				<ReportEmptyState
 					v-else
 					:mode="currentMode"
-					 :available-folders="availableFolders" :folder-ids="folderIds" @toggle-folder="promptBoxRef?.chooseFolder($event)"
+					 :available-folders="availableFolders" :folder-ids="folderIds" @toggle-folder="promptBoxRef?.chooseFolder($event)" @auto="promptBoxRef?.chooseAuto()"
                     :available-agents="availableAgents"
 					:current-agents="currentAgents"
 					:agents-are-auto="agentsAreAuto"
@@ -146,7 +146,7 @@ const initialAgents = computed(() => {
 // it — the empty state renders the selection, the box owns it.
 const promptBoxRef = ref<any>(null)
 const currentAgents = ref<any[]>([])
-const availableFolders = ref<{id:string, path:string}[]>([])
+const availableFolders = ref<import('~/composables/useAgentFolderOptions').AgentFolderOption[]>([])
 const folderIds = ref<string[]>([])
 const availableAgents = ref<any[]>([])
 const agentsAreAuto = ref(false)

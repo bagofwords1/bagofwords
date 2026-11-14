@@ -113,7 +113,7 @@ test('manage folder access in Roles and drag an agent between a nested folder an
   await page.getByTestId('role-tab-access').click()
   await page.getByTestId('role-add-access').click()
   await page.getByPlaceholder('Search…', {exact:true}).fill(path)
-  await page.getByRole('option').filter({hasText:path}).click()
+  await page.getByRole('button', {name: 'Acquisition ' + home, exact:true}).click()
   const level = page.getByRole('combobox', {name:path})
   await expect(level.locator('option:checked')).toHaveText('Can query')
   await level.selectOption({label:'Can manage'})

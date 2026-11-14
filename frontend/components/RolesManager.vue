@@ -192,25 +192,10 @@
                     <div v-else class="py-4" data-testid="role-access">
                         <p v-if="isFullAdmin" class="text-sm text-ink-muted py-2">{{ $t('rolesManager.fullAdminAccessTab') }}</p>
                         <template v-else>
-                            <USelectMenu
-                                v-model="selectedResource"
-                                :options="addableResources"
-                                option-attribute="label"
-                                value-attribute="value"
-                                searchable
-                                :searchable-placeholder="$t('rolesManager.searchResources')"
-                                :placeholder="$t('rolesManager.addAccess')"
-                                data-testid="role-add-access"
-                                @update:model-value="addResource"
-                            >
-                                <template #option="{ option }">
-                                    <span class="flex items-center gap-2 min-w-0">
-                                        <UIcon :name="TYPE_ICON[option.type]" class="w-4 h-4 text-ink-muted shrink-0" />
-                                        <span class="truncate">{{ option.label }}</span>
-                                        <span class="text-xs text-ink-muted ms-auto">{{ $t(`rolesManager.types.${option.type}`) }}</span>
-                                    </span>
-                                </template>
-                            </USelectMenu>
+                            <AgentScopeMenu single :selected="[]" :folders="addableFolders" :options="otherResources"
+                                :search-placeholder="$t('rolesManager.searchResources')" :placeholder="$t('rolesManager.addAccess')"
+                                data-testid="role-add-access" @select="addResource" />
+
 
                             <ul v-if="visibleGrants.length" class="mt-3 divide-y divide-line border-y border-line">
                                 <li v-for="grant in visibleGrants" :key="`${grant.resource_type}:${grant.resource_id}`" class="py-2">
@@ -284,6 +269,7 @@
 </template>
 
 <script setup lang="ts">
+import { buildAgentFolderOptions, type AgentFolderOption } from '~/composables/useAgentFolderOptions'
 import SettingsEmpty from '~/components/settings/SettingsEmpty.vue'
 import SettingsLoading from '~/components/settings/SettingsLoading.vue'
 import Spinner from '@/components/Spinner.vue'
@@ -342,6 +328,7 @@ interface RestrictedModel {
 }
 
 interface ResourceOption {
+    folderId?: string
     label: string
     value: string
     type: 'data_source' | 'connection' | 'llm_model' | 'folder'
@@ -375,7 +362,6 @@ const showModal = ref(false)
 const editingRole = ref<RoleData | null>(null)
 const editingBuiltinRole = computed(() => !!editingRole.value && isBuiltinRole(editingRole.value))
 const saving = ref(false)
-const selectedResource = ref<string | null>(null)
 const activeTab = ref<'permissions' | 'access'>('permissions')
 const showQuotaColumn = computed(() => hasFeature('usage_limits') && useCan('manage_settings'))
 
@@ -404,6 +390,14 @@ const isFullAdmin = computed({
 
 const allCategories = ref<Record<string, string[]>>({})
 const resourcePermissions = ref<Record<string, string[]>>({})
+const resourceFolders = ref<AgentFolderOption[]>([])
+const addableFolders = computed(() => {
+    const ids = new Set(addableResources.value.filter(r => r.type === 'folder').map(r => r.id))
+    return resourceFolders.value.filter(f => ids.has(f.id))
+})
+const otherResources = computed(() => addableResources.value.filter(r => r.type !== 'folder').map(r => ({
+    value: r.value, label: r.label, heroicon: TYPE_ICON[r.type], folderId: r.folderId
+})))
 const availableResources = ref<ResourceOption[]>([])
 const publicAgentCount = ref(0)
 // Restricted-model access is a role grant like any other (`llm_model`,
@@ -439,21 +433,13 @@ const ensureResources = async () => {
     if (conns.error.value) throw conns.error.value
     if (directory.error.value) throw directory.error.value
     const folders = directory.data.value?.folders || []
-    const byId = new Map(folders.map(f => [f.id, f]))
-    const folderOptions = folders.filter(f => f.can_manage).map(f => {
-        const path = [f.name]
-        let parent = f.parent_id && byId.get(f.parent_id)
-        while (parent) {
-            path.unshift(parent.name)
-            parent = parent.parent_id && byId.get(parent.parent_id)
-        }
-        return {label: path.join(' / '), value: `folder:${f.id}`, type: 'folder' as const, id: f.id}
-    })
+    resourceFolders.value = buildAgentFolderOptions(folders, f => f.can_manage)
+    const folderOptions = resourceFolders.value.map(f => ({label: f.path, value: 'folder:' + f.id, type: 'folder' as const, id: f.id}))
     const agents = (ds.data.value || []) as any[]
     publicAgentCount.value = agents.filter((a) => a.is_public).length
     availableResources.value = [
         ...folderOptions,
-        ...agents.map((a) => ({ label: a.name, value: `data_source:${a.id}`, type: 'data_source' as const, id: a.id })),
+        ...agents.map((a) => ({ label: a.name, folderId: a.folder_id, value: `data_source:${a.id}`, type: 'data_source' as const, id: a.id })),
         ...((conns.data.value || []) as any[]).map((c) => ({ label: c.name, value: `connection:${c.id}`, type: 'connection' as const, id: c.id })),
     ]
 }
@@ -640,7 +626,6 @@ const addableResources = computed<ResourceOption[]>(() => {
 })
 
 function addResource(value: string | null) {
-    selectedResource.value = null
     if (!value) return
     const i = value.indexOf(':')
     const type = value.slice(0, i)
@@ -707,7 +692,6 @@ const DEFAULT_ON_PERMISSIONS = ['view_code', 'run_custom_code']
 function openModal(role: RoleData | null, source: RoleData | null) {
     editingRole.value = role
     activeTab.value = 'permissions'
-    selectedResource.value = null
     form.name = role ? role.name : source ? t('rolesManager.copyOf', { name: source.name }) : ''
     form.description = role?.description || source?.description || ''
     const from = role || source

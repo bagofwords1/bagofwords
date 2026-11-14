@@ -588,6 +588,9 @@
     "whatCanIHelpWith": "Come posso aiutarti?"
   },
   "prompt": {
+    "searchAgentFolders": "Cerca agenti e cartelle…",
+    "expandDirectory": "Espandi {name}",
+    "collapseDirectory": "Comprimi {name}",
     "placeholderDefault": "Chiedi dati, una dashboard o un'analisi approfondita",
     "thinking": "Sto pensando",
     "working": "Sto lavorando",

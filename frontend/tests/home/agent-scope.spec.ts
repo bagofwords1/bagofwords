@@ -94,8 +94,8 @@ test('the agent picker filters by name, like the model picker', async ({ page })
   for (const option of await options.all()) {
     expect(((await option.getAttribute('data-agent-name')) || '').toLowerCase()).toContain(name.toLowerCase());
   }
-  // Auto isn't an agent: it leaves the list while a query is active.
-  await expect(page.getByTestId('agent-scope-auto')).toHaveCount(0);
+  // Auto remains the first action while searching.
+  await expect(page.getByTestId('agent-scope-panel').getByRole('button').first()).toHaveAttribute('data-testid', 'agent-scope-auto');
 
   await search.fill('zzz-no-such-agent-zzz');
   await expect(page.getByTestId('agent-scope-no-match')).toBeVisible();

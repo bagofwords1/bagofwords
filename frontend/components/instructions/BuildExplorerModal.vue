@@ -58,17 +58,18 @@
                                     <span class="truncate flex-1 font-medium">All data sources</span>
                                     <Icon v-if="dsFilterId === null" name="heroicons:check" class="w-3 h-3 text-blue-500" />
                                 </button>
-                                <AgentFolderChoices :agents="agentList" @select="(_, f) => { dsFilterId = 'folder:' + f.id; folderLabel = f.path; dsFilterDropdownOpen = false }" />
-                                <button
-                                    v-for="d in agentList"
-                                    :key="d.id"
+                                <AgentFolderChoices :agents="agentList" @select="(_, f) => { dsFilterId = 'folder:' + f.id; folderLabel = f.path; dsFilterDropdownOpen = false }" :selected-folders="dsFilterId?.startsWith('folder:') ? [dsFilterId.slice(7)] : []">
+                                  <template #agent="{agent: d, parentPath}">
+                                    <button
                                     @click="dsFilterId = d.id; dsFilterDropdownOpen = false"
                                     class="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors text-start border-t border-gray-100 dark:border-gray-800"
                                 >
                                     <DataSourceIcon :type="(d as any).type || (d as any).connections?.[0]?.type" :icon-token="(d as any).icon_token" :icon="(d as any).icon" class="h-4 flex-shrink-0" />
-                                    <span class="truncate flex-1 font-medium">{{ (d as any).name }}</span>
+                                    <span class="truncate flex-1 font-medium">{{ (d as any).name }}<small v-if="parentPath" class="block truncate text-2xs text-ink-muted">{{ parentPath }}</small></span>
                                     <Icon v-if="dsFilterId === d.id" name="heroicons:check" class="w-3 h-3 text-blue-500" />
                                 </button>
+                                  </template>
+                                </AgentFolderChoices>
                             </div>
                         </Transition>
                     </div>

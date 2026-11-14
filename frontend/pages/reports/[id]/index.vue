@@ -709,7 +709,7 @@
 			<ReportEmptyState
 				v-else
 				:mode="currentPromptMode"
-				 :available-folders="availableFolders" :folder-ids="folderIds" @toggle-folder="promptBoxRef?.chooseFolder($event)"
+				 :available-folders="availableFolders" :folder-ids="folderIds" @toggle-folder="promptBoxRef?.chooseFolder($event)" @auto="promptBoxRef?.chooseAuto()"
                     :available-agents="availableAgents"
 				:current-agents="currentAgents"
 				:agents-are-auto="agentsAreAuto"
@@ -2209,7 +2209,7 @@ async function handleAgentConnected() {
 
 // Every agent the user can pick, published by the prompt box's DataSourceSelector.
 // Drives the blank-report agent picker (shown only when there's more than one).
-const availableFolders = ref<{id:string, path:string}[]>([])
+const availableFolders = ref<import('~/composables/useAgentFolderOptions').AgentFolderOption[]>([])
 const folderIds = ref<string[]>([])
 const availableAgents = ref<any[]>([])
 

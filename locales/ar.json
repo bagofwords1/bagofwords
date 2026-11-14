@@ -588,6 +588,9 @@
     "whatCanIHelpWith": "بماذا يمكنني المساعدة؟"
   },
   "prompt": {
+    "searchAgentFolders": "البحث عن الوكلاء والمجلدات…",
+    "expandDirectory": "توسيع {name}",
+    "collapseDirectory": "طي {name}",
     "placeholderDefault": "اطلب بيانات أو لوحة تحكم أو تحليلًا متعمقًا",
     "thinking": "جارٍ التفكير",
     "working": "جارٍ العمل",

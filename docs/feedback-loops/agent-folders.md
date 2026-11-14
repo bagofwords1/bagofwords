@@ -488,3 +488,11 @@ To repeat the browser check, use a seeded organization with a queryable Marketin
 5. Move a permitted agent into or out of a selected folder and resolve the next run. Scheduled tasks and triggers use current membership. A task running in its host report must retain the host’s stored placement. Application and channel allowlists intersect with existing access and stop at limited-access descendants.
 
 Project defaults, ordinary eval targets, prompt audiences, and dashboard settings store explicit agents. Their folder controls select eligible members at selection time. Folder-owned routing evals continue to execute against the folder.
+
+### Browsing nested folders in agent selectors
+
+In a seeded organization with Marketing → Acquisition, open the scheduled-task agent selector. Auto appears first. Marketing starts collapsed. Its chevron reveals Acquisition and leaves both selections untouched. Click each folder name, collapse Marketing, then search for Acquisition. The result shows Marketing as its parent and retains its check. Clear the search to restore the collapsed tree. Select Auto to clear the explicit scope.
+
+Repeat the search in a new report. In Connected applications, save Marketing and Acquisition together and inspect the response for both folder IDs. In the role editor, search for Marketing / Acquisition and add the matching folder. Its access row should identify the full path. These four flows were exercised in Chrome against a seeded sandbox.
+
+Use `AgentFolderTree.vue` for folder rows. Callers supply eligible folders and selected IDs and handle selection separately from expansion. `AgentFolderChoices.vue` adapts selectors that operate on the folder’s eligible member agents.

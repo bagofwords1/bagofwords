@@ -34,8 +34,11 @@
           <template #panel="{ close }">
             <div class="p-1 w-56 max-h-72 overflow-auto">
               <button class="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 text-left text-sm" @click="agentFilter = null; close()"><UIcon name="i-heroicons-cube" class="w-4 h-4 text-ink-muted" />All agents<UIcon v-if="!agentFilter" name="i-heroicons-check" class="w-3.5 h-3.5 ml-auto text-gray-900 dark:text-white" /></button>
-              <AgentFolderChoices :agents="agents" @select="(_, f) => { agentFilter = 'folder:' + f.id; folderLabel = f.path; close() }" />
-              <button v-for="a in agents" :key="a.id" class="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 text-left text-sm" @click="agentFilter = a.id; close()"><DataSourceIcon :type="a.type" :icon-token="a.icon_token" :icon="a.icon" class="w-4 h-4" /><span class="truncate">{{ a.name }}</span><UIcon v-if="agentFilter === a.id" name="i-heroicons-check" class="w-3.5 h-3.5 ml-auto text-gray-900 dark:text-white shrink-0" /></button>
+              <AgentFolderChoices :agents="agents" @select="(_, f) => { agentFilter = 'folder:' + f.id; folderLabel = f.path; close() }" :selected-folders="agentFilter?.startsWith('folder:') ? [agentFilter.slice(7)] : []">
+                <template #agent="{agent: a, parentPath}">
+                  <button   class="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 text-left text-sm" @click="agentFilter = a.id; close()"><DataSourceIcon :type="a.type" :icon-token="a.icon_token" :icon="a.icon" class="w-4 h-4" /><span class="truncate">{{ a.name }}<small v-if="parentPath" class="block truncate text-2xs text-ink-muted">{{ parentPath }}</small></span><UIcon v-if="agentFilter === a.id" name="i-heroicons-check" class="w-3.5 h-3.5 ml-auto text-gray-900 dark:text-white shrink-0" /></button>
+                </template>
+              </AgentFolderChoices>
             </div>
           </template>
         </UPopover>

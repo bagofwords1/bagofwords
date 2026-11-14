@@ -2100,6 +2100,7 @@ defineExpose({
     getDataSources: () => selectedDataSources.value,
     // Toggle one agent through the selector itself, so an external picker gets
     // the same auto-mode handling and report persistence as the dropdown rows.
+    chooseAuto: () => dataSourceSelectorRef.value?.toggleAutoMode(),
     chooseFolder: (id: string) => dataSourceSelectorRef.value?.chooseFolder(id),
     toggleDataSource: (ds: any) => dataSourceSelectorRef.value?.toggleDataSource?.(ds),
     getProject: () => currentProject.value?.id || null,

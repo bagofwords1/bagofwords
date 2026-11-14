@@ -588,6 +588,9 @@
     "whatCanIHelpWith": "Vad kan jag hjälpa till med?"
   },
   "prompt": {
+    "searchAgentFolders": "Sök agenter och mappar…",
+    "expandDirectory": "Expandera {name}",
+    "collapseDirectory": "Fäll ihop {name}",
     "placeholderDefault": "Be om data, en instrumentpanel eller en djupanalys",
     "thinking": "Tänker",
     "working": "Arbetar",

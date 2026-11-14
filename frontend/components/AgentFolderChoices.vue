@@ -1,19 +1,21 @@
 <template>
-  <button v-for="folder in choices" :key="folder.id" type="button"
-    class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-xs hover:bg-surface-muted"
-    :disabled="disabled" @click="$emit('select', folder.ids, folder)">
-    <UIcon name="i-heroicons-folder" class="size-4 shrink-0 text-ink-muted" />
-    <span class="flex-1 truncate">{{ folder.path }}</span>
-    <UIcon v-if="folder.ids.every(id => selected.includes(id))" name="i-heroicons-check" class="size-4 text-blue-500" />
-  </button>
+  <UInput v-if="$slots.agent && search === undefined" v-model="localSearch" size="xs" icon="i-heroicons-magnifying-glass" :placeholder="$t('prompt.searchAgentFolders')" />
+  <AgentFolderTree :folders="choices" :selected="selectedFolders ?? checked" :search="query" :disabled="disabled" :member-folders="$slots.agent ? [...direct.keys()] : []" @select="choose">
+    <template #members="{folderId}">
+      <slot v-for="agent in direct.get(folderId)" :key="agent.id" name="agent" :agent="agent" parent-path="" />
+    </template>
+  </AgentFolderTree>
+  <template v-if="$slots.agent">
+    <slot v-for="agent in visible" :key="agent.id" name="agent" :agent="agent" :parent-path="query ? pathFor(agent.id) : ''" />
+  </template>
 </template>
 
-<script setup lang="ts">
+<script setup lang="ts" generic="T extends {id: string, name?: string}">
 import { loadAgentFolderOptions } from '~/composables/useAgentFolderOptions'
 const props = withDefaults(defineProps<{
-  agents: {id: string}[], selected?: string[], search?: string, disabled?: boolean
-}>(), { selected: () => [], search: '' })
-defineEmits<{select: [ids: string[], folder: { id: string, path: string }]}>()
+  agents: T[], selectedFolders?: string[], selected?: string[], search?: string, disabled?: boolean
+}>(), { selected: () => [] })
+const emit = defineEmits<{select: [ids: string[], folder: { id: string, path: string }]}>()
 const folders = ref<Awaited<ReturnType<typeof loadAgentFolderOptions>>>([])
 const placements = ref(new Map<string, string>())
 onMounted(async () => {
@@ -33,7 +35,32 @@ const choices = computed(() => {
       members.get(fid)!.push(agent.id)
     }
   }
-  return folders.value.filter(f => members.has(f.id) && f.path.toLowerCase().includes(props.search.toLowerCase()))
+  return folders.value.filter(f => members.has(f.id))
     .map(f => ({ ...f, ids: members.get(f.id)! }))
 })
+const localSearch = ref('')
+const query = computed(() => (props.search ?? localSearch.value).trim())
+const paths = computed(() => new Map(choices.value.map(f => [f.id, f.path])))
+function pathFor(id: string) {
+  return paths.value.get(placements.value.get(id) || '') || ''
+}
+const direct = computed(() => {
+  const groups = new Map<string, T[]>()
+  for (const agent of props.agents) {
+    const folder = placements.value.get(agent.id)
+    if (!folder || !paths.value.has(folder)) continue
+    if (!groups.has(folder)) groups.set(folder, [])
+    groups.get(folder)!.push(agent)
+  }
+  return groups
+})
+const visible = computed(() => {
+  const term = query.value.toLowerCase()
+  return props.agents.filter(a => term ? [a.name, pathFor(a.id)].some(s => s?.toLowerCase().includes(term)) : !pathFor(a.id))
+})
+const checked = computed(() => choices.value.filter(f => f.ids.every(id => props.selected.includes(id))).map(f => f.id))
+function choose(id: string) {
+  const folder = choices.value.find(f => f.id === id)
+  if (folder) emit('select', folder.ids, folder)
+}
 </script>
