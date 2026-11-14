@@ -21,8 +21,13 @@ quoted ones as written) against the names as the catalog stores them;
 other dialects' names case-insensitively. A table reference is set aside
 as a CTE only when a WITH entry holding a query has exactly the name as
 written (for Postgres, as Postgres folds it); any other spelling is
-checked as a table. WITH entries that refer to each other in a loop are
-refused in every dialect. On ClickHouse, the set of an IN is read only in the
+checked as a table. No WITH entry (nor, on ClickHouse, an alias) may take
+the name of a disabled table: wherever an engine reads such a name as the
+table rather than the entry, the table would be read under it. Where an
+engine resolves an entry's body where the entry is used (ClickHouse, MySQL)
+or the dialect is not known, WITH entries that refer to each other in a
+loop are refused too, and on ClickHouse so is a WITH entry that is a
+lambda. On ClickHouse, the set of an IN is read only in the
 shapes `_set_item_tables` lists, and a SETTINGS clause only with the
 settings `_CLICKHOUSE_QUERY_SETTINGS` lists; anything else is refused.
 
@@ -77,6 +82,15 @@ _ASCII_LOWER = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)
 # Dialects whose names are compared exactly, once folded as their engine
 # folds them, against the names as the catalog stores them.
 _ENGINE_FOLDED = frozenset({"postgres"})
+# Dialects whose engine reads the names in a WITH entry's body where the
+# entry is defined (Postgres 15 was measured). Every other dialect, an
+# unknown one and none included, is treated as resolving them where the
+# entry is used, as ClickHouse and MySQL 8.4 do (sqlglot's "mysql" also
+# serves MariaDB).
+_WITH_RESOLVED_WHERE_DEFINED = frozenset({
+    "postgres", "redshift", "tsql", "fabric", "snowflake", "bigquery", "duckdb", "sqlite", "oracle",
+    "trino", "presto", "athena", "spark", "databricks", "teradata", "druid",
+})
 
 
 def _qualify(name: Name, default_database: str | None) -> Name:
@@ -346,11 +360,11 @@ def tables_read(statement, dialect: str | None = None) -> list[Name]:
     ClickHouse every table read as the set of an IN (`_in_set_tables`).
     Name parts lowered, or for Postgres (`dialect`) folded as Postgres
     folds them. Raises TableScopeViolation for WITH entries that refer to
-    each other (`_check_with_loops`) and for a ClickHouse IN set outside
-    the shapes it reads."""
+    each other (`_check_with_loops`, over the whole statement `statement`
+    belongs to) and for a ClickHouse IN set outside the shapes it reads."""
     from sqlglot import exp
 
-    _check_with_loops(statement)
+    _check_with_loops(statement.root(), dialect)
     out: dict[Name, None] = {}  # insertion-ordered, each name once
     for t in statement.find_all(exp.Table):
         if not isinstance(t.this, exp.Identifier):
@@ -364,45 +378,117 @@ def tables_read(statement, dialect: str | None = None) -> list[Name]:
     return list(out)
 
 
-def _check_with_loops(statement) -> None:
-    """Refuse, in every dialect, a WITH whose entries refer to each other
-    in a loop: an entry whose body (nested queries and WITHs included)
-    names, compared case-insensitively, another entry that leads back to
-    it. An entry naming itself is not a loop: inside its own body its name
-    is the table of that name, or the entry in the recursive part of a
-    WITH RECURSIVE (`_visible_with_entries`), and is checked as such.
+def _with_resolved_where_used(dialect: str | None) -> bool:
+    """Whether `dialect`'s engine may read the names in a WITH entry's body
+    where the entry is used (`_WITH_RESOLVED_WHERE_DEFINED`)."""
+    return dialect not in _WITH_RESOLVED_WHERE_DEFINED
 
-    While ClickHouse reads an entry, it reads that entry's name as the
+
+def _check_with_loops(statement, dialect: str | None = None) -> None:
+    """Refuse, where an engine resolves an entry's body where the entry is
+    used (`_with_resolved_where_used`), WITH entries of `statement`, at any
+    level, that refer to each other in a loop: an entry whose body (nested
+    queries and WITHs included) names, compared case-insensitively, another
+    entry that leads back to it. An entry naming itself is not a loop:
+    inside its own body its name is the table of that name, or the entry in
+    the recursive part of a WITH RECURSIVE (`_visible_with_entries`), and
+    is checked as such.
+
+    While such an engine reads an entry, it reads that entry's name as the
     table of that name, so which entry or table a name stands for depends
     on the way it was reached; within a loop the visibility rules of
     `_visible_with_entries` cannot say which. Every name that may refer to
     an entry counts (a one-part table name, a column, a bare name), so a
-    column that only shares another entry's name also makes a loop."""
+    column that only shares another entry's name also makes a loop. The
+    name rule (`_check_names_of_disabled_tables`) already refuses every
+    loop that reaches a disabled table by name; this check is a second
+    line."""
     from sqlglot import exp
 
-    for w in statement.find_all(exp.With):
-        entries = list(w.expressions)
-        by_name: dict[str, list[int]] = {}
-        for k, entry in enumerate(entries):
-            ident = _cte_ident(entry)
-            if ident is not None:
-                by_name.setdefault(str(ident.name).lower(), []).append(k)
-        edges: list[set[int]] = []
-        for k, entry in enumerate(entries):
-            named: set[int] = set()
-            body = entry.this
-            for ident in (body.find_all(exp.Identifier) if body is not None else ()):
-                targets = by_name.get(str(ident.name).lower())
-                if not targets or _defines_name(ident):
-                    continue
-                named.update(j for j in targets if j != k)
-            edges.append(named)
-        if _has_loop(edges):
+    if not _with_resolved_where_used(dialect):
+        return
+    entries = list(statement.find_all(exp.CTE))
+    by_name: dict[str, list[int]] = {}
+    for k, entry in enumerate(entries):
+        ident = _cte_ident(entry)
+        if ident is not None:
+            by_name.setdefault(str(ident.name).lower(), []).append(k)
+    edges: list[set[int]] = []
+    for k, entry in enumerate(entries):
+        named: set[int] = set()
+        body = entry.this
+        for ident in (body.find_all(exp.Identifier) if body is not None else ()):
+            targets = by_name.get(str(ident.name).lower())
+            if not targets or _defines_name(ident):
+                continue
+            named.update(j for j in targets if j != k)
+        edges.append(named)
+    if _has_loop(edges):
+        raise TableScopeViolation(
+            "WITH entries that refer to each other are not allowed in agent queries, because the "
+            "table each name reads cannot be checked. Give each WITH entry a name the entries it "
+            "uses do not use, or write the query without the loop."
+        )
+
+
+def _disabled_name(ident, disabled: frozenset[str]) -> str | None:
+    """The name `ident` (an Identifier) as written, when it is the last part
+    of a disabled table's name, compared case-insensitively."""
+    from sqlglot import exp
+
+    if isinstance(ident, exp.Identifier) and str(ident.name).casefold() in disabled:
+        return str(ident.name)
+    return None
+
+
+def _check_names_of_disabled_tables(statement, dialect: str | None, scope: TableScope) -> None:
+    """Refuse a WITH entry (a query, a value or a lambda, at any level) or,
+    on ClickHouse, an alias (`expr AS name`, at any level) whose name is,
+    compared case-insensitively, the last part of the name of a table the
+    scope disables. An engine that reads such a name as the table rather
+    than the entry or alias (in the entry's own body, which ClickHouse and
+    MySQL resolve where the entry is used; through a lambda called by
+    name) would read the disabled table under it, whatever path led there.
+    With the rule, a name an engine falls back from is a table that is
+    enabled, or not a disabled table of the catalog."""
+    from sqlglot import exp
+
+    disabled = frozenset(
+        ref[-1].casefold() for s in (scope, scope.exact) if s is not None for ref in s.inactive if ref)
+    if not disabled:
+        return
+    kinds = (exp.CTE, exp.Alias) if dialect == "clickhouse" else (exp.CTE,)
+    for node in statement.find_all(*kinds):
+        ident = _cte_ident(node) if isinstance(node, exp.CTE) else node.args.get("alias")
+        name = _disabled_name(ident, disabled)
+        if name is not None:
             raise TableScopeViolation(
-                "WITH entries that refer to each other are not allowed in agent queries, because the "
-                "table each name reads cannot be checked. Give each WITH entry a name the entries it "
-                "uses do not use, or write the query without the loop."
+                f"{_display((name,))} is not enabled for this agent, and a WITH entry or an alias may not "
+                "take its name, because the source may read the table under it. Rename the WITH entry or "
+                "alias; the agent's enabled tables can be read under their own names."
             )
+
+
+def _check_clickhouse_with_lambdas(statement) -> None:
+    """Refuse a ClickHouse lambda (`x -> expr`) anywhere but as the argument
+    of a function: a WITH entry that is a lambda is called by its name,
+    which can be a built-in's, and its body is read where it is called.
+    sqlglot reads `->` outside a function's arguments as a JSON operator,
+    which ClickHouse does not have."""
+    from sqlglot import exp
+
+    lambda_entry = False
+    for cte in statement.find_all(exp.CTE):
+        value = cte.this
+        while isinstance(value, exp.Paren):
+            value = value.this
+        lambda_entry = lambda_entry or isinstance(value, exp.Lambda)
+    if lambda_entry or any(True for _ in statement.find_all(exp.JSONExtract)):
+        raise TableScopeViolation(
+            "A lambda (x -> expression) is allowed in agent queries only as the argument of a function such "
+            "as arrayMap: a WITH entry that is a lambda is read where it is called, which table scope cannot "
+            "check. Write the expression where it is used."
+        )
 
 
 def _defines_name(ident) -> bool:
@@ -449,9 +535,15 @@ def reads_rows(statement, dialect: str | None = None) -> bool:
     """Whether `statement` may read rows of a table: it names a table or a
     table function, calls a function that reads a table, a dictionary or a
     file by name (`_DENIED_FUNCTION`), or (ClickHouse) uses a table, or a
-    set table scope cannot read, as the set of an IN."""
+    set table scope cannot read, as the set of an IN. Where an engine
+    resolves a WITH entry's body where it is used
+    (`_with_resolved_where_used`), any WITH entry in the whole statement
+    `statement` belongs to counts as reading rows: this check runs without
+    a scope, so the name rule cannot tell a disabled table's name there."""
     from sqlglot import exp
 
+    if _with_resolved_where_used(dialect) and statement.root().find(exp.CTE) is not None:
+        return True
     if any(True for _ in statement.find_all(exp.Table)):
         return True
     for fn in statement.find_all(exp.Func):
@@ -629,6 +721,9 @@ def check_table_scope(sql: str, dialect: str, scope: TableScope) -> None:
                 "read its enabled tables, which are already described in its schema."
             )
 
+        _check_names_of_disabled_tables(stmt, dialect, scope)
+        if dialect == "clickhouse":
+            _check_clickhouse_with_lambdas(stmt)
         for fn in stmt.find_all(exp.Func):
             name = _func_name(fn)
             if name and _DENIED_FUNCTION.match(name):

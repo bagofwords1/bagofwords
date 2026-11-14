@@ -1229,6 +1229,13 @@ def check_engine_reading(sql: str, dialect: str, *, unknown_lexer: bool = False)
             raise ReadOnlyViolation(
                 "A backtick-quoted name holds a backslash, which BigQuery reads as an escape. Remove it."
             )
+    if dialect == "clickhouse":
+        if any(t.token_type.name == "IDENTIFIER" and sql[t.start] in ("`", "\"") and "\\" in sql[t.start:t.end + 1]
+               for t in tokens):
+            raise ReadOnlyViolation(
+                "A quoted name holds a backslash, which ClickHouse reads as an escape (so the name it reads is "
+                "not the one written). Remove it."
+            )
     if dialect in ("spark", "databricks"):
         if any(mark == "--" and end < len(sql) and sql[end - 1] == "\\" for mark, start, end in comments):
             raise ReadOnlyViolation(

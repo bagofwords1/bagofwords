@@ -312,10 +312,30 @@ def test_cte_names_do_not_shadow_tables_outside_their_scope(dialect, sql):
         check_table_scope(sql, dialect, SCOPE)
 
 
+# The same selection without PAYROLL disabled: a CTE may not take a
+# disabled table's name, so the CTE readings below are checked with the
+# name unlisted (neither enabled nor disabled), which table scope still
+# refuses when it is read as a table.
+PAYROLL_UNLISTED = TableScope.from_names(active=["sales.orders", "sales.customers"], inactive=["hr.salaries"])
+
+
 @pytest.mark.parametrize("dialect", ["postgres", "snowflake", "sqlite", "tsql", "bigquery"])
 @pytest.mark.parametrize("sql", CTE_LEGITIMATE)
 def test_ctes_in_scope_still_run(dialect, sql):
-    check_table_scope(sql, dialect, SCOPE)
+    check_table_scope(sql, dialect, PAYROLL_UNLISTED)
+    if "payroll" not in sql:
+        check_table_scope(sql, dialect, SCOPE)
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+@pytest.mark.parametrize("sql", [
+    "WITH payroll AS (SELECT * FROM sales.orders) SELECT * FROM payroll",
+    "WITH Payroll AS (SELECT * FROM sales.orders) SELECT * FROM Payroll",
+    "SELECT * FROM sales.orders WHERE id IN (WITH SALARIES AS (SELECT 1 AS id) SELECT id FROM SALARIES)",
+])
+def test_a_cte_named_after_a_disabled_table_is_refused(dialect, sql):
+    with pytest.raises(TableScopeViolation, match="a WITH entry or an alias may not take its name"):
+        check_table_scope(sql, dialect, SCOPE)
 
 
 # A table reference is a CTE only when it is written exactly as the CTE's
@@ -356,14 +376,15 @@ def test_postgres_compares_a_cte_name_as_postgres_folds_it(sql):
     # Postgres folds unquoted names (ASCII letters) to lower case and keeps
     # quoted ones: these name the CTE, as table scope compares Postgres
     # names; a quoted name in another case does not.
-    check_table_scope(sql, "postgres", SCOPE)
+    check_table_scope(sql, "postgres", PAYROLL_UNLISTED)
     with pytest.raises(TableScopeViolation, match="PAYROLL"):
-        check_table_scope('WITH "PAYROLL" AS (SELECT 1) SELECT * FROM payroll', "postgres", SCOPE)
+        check_table_scope('WITH "PAYROLL" AS (SELECT 1) SELECT * FROM payroll', "postgres", PAYROLL_UNLISTED)
 
 
 @pytest.mark.parametrize("dialect", ["mysql", "clickhouse", "snowflake", "oracle", "tsql", "postgres"])
 def test_a_cte_written_as_its_name_still_runs(dialect):
-    check_table_scope("WITH Payroll AS (SELECT * FROM sales.orders) SELECT * FROM Payroll", dialect, SCOPE)
+    check_table_scope("WITH Payroll AS (SELECT * FROM sales.orders) SELECT * FROM Payroll", dialect,
+                      PAYROLL_UNLISTED)
 
 
 def test_tables_read_lists_the_tables_a_statement_reads_by_name_without_its_cte_references():

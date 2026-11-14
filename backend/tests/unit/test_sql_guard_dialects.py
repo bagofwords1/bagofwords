@@ -607,19 +607,31 @@ def test_a_recursive_entry_s_own_name_outside_the_recursive_part_of_its_union_is
 RECURSIVE_SUM = "WITH RECURSIVE r AS (SELECT 1 AS x UNION ALL SELECT x+1 FROM r WHERE x<3) SELECT sum(x) FROM r"
 
 
+RECURSIVE_AND_LATER_ENTRIES = [
+    "WITH RECURSIVE walk AS (SELECT 1 AS x UNION ALL SELECT x+1 FROM walk WHERE x<3) SELECT sum(x) FROM walk",
+    "WITH RECURSIVE walk AS (SELECT 1 AS x UNION ALL SELECT x+1 FROM walk WHERE x < 3 AND 1 IN walk) "
+    "SELECT sum(x) FROM walk",
+    "WITH RECURSIVE walk AS (SELECT 1 AS x UNION ALL SELECT x FROM (SELECT x+1 AS x FROM walk WHERE x<3)) "
+    "SELECT sum(x) FROM walk",
+    "WITH a AS (SELECT 42 IN walk AS r), walk AS (SELECT 1 AS x) SELECT r FROM a",
+]
+
+
 @pytest.mark.parametrize("family, sql", [
     ("ClickhouseClient", RECURSIVE_SUM),
     ("PostgresqlClient", RECURSIVE_SUM),
-    ("ClickhouseClient", "WITH RECURSIVE secret AS (SELECT 1 AS x UNION ALL SELECT x+1 FROM secret WHERE x<3) "
-                         "SELECT sum(x) FROM secret"),
-    ("ClickhouseClient", "WITH RECURSIVE secret AS (SELECT 1 AS x UNION ALL SELECT x+1 FROM secret "
-                         "WHERE x < 3 AND 1 IN secret) SELECT sum(x) FROM secret"),
-    ("ClickhouseClient", "WITH RECURSIVE secret AS (SELECT 1 AS x UNION ALL SELECT x FROM "
-                         "(SELECT x+1 AS x FROM secret WHERE x<3)) SELECT sum(x) FROM secret"),
-    ("ClickhouseClient", "WITH a AS (SELECT 42 IN secret AS r), secret AS (SELECT 1 AS x) SELECT r FROM a"),
+    *[("ClickhouseClient", sql) for sql in RECURSIVE_AND_LATER_ENTRIES],
 ])
 def test_a_recursive_entry_read_in_its_recursive_part_and_a_later_entry_in_an_in_set_still_read(family, sql):
     _passes(family, sql)
+
+
+@pytest.mark.parametrize("sql", RECURSIVE_AND_LATER_ENTRIES)
+def test_the_same_entries_named_after_a_disabled_table_are_refused(sql):
+    # They read the entry, not the table, but an entry may not take a
+    # disabled table's name: the over-refusal the name rule accepts.
+    with pytest.raises(TableScopeViolation, match=NAMED_AFTER_SECRET):
+        check_table_scope(sql.replace("walk", "secret"), "clickhouse", SCOPE)
 
 
 def _alias_chain(levels: int, bottom: str) -> str:
@@ -631,12 +643,15 @@ def _alias_chain(levels: int, bottom: str) -> str:
 
 
 def _nested_repeats(levels: int, bottom: str) -> str:
-    """`levels` nested subqueries, each with a WITH entry `a` holding the
-    pair (a, a), under an outer entry `a` holding `bottom`."""
-    sql = "SELECT id FROM orders WHERE id IN a"
-    for _ in range(levels):
-        sql = f"SELECT * FROM (WITH (a, a) AS a {sql})"
-    return f"WITH {bottom} AS a {sql}"
+    """`levels` nested subqueries, each with a WITH entry `a{k}` holding
+    the pair (a{k-1}, a{k-1}) of the entry around it, under an outer entry
+    `a0` holding `bottom` (the IN set, innermost, names the deepest
+    entry). Distinct names: entries of one name at several levels would
+    name each other, which the loop check refuses."""
+    sql = f"SELECT id FROM orders WHERE id IN a{levels}"
+    for k in range(levels, 0, -1):
+        sql = f"SELECT * FROM (WITH (a{k - 1}, a{k - 1}) AS a{k} {sql})"
+    return f"WITH {bottom} AS a0 {sql}"
 
 
 @pytest.mark.timeout(60)
@@ -692,24 +707,176 @@ CLICKHOUSE_WITH_CYCLES = [
 
 @pytest.mark.parametrize("sql", CLICKHOUSE_WITH_CYCLES)
 def test_with_entries_that_name_each_other_in_a_loop_are_refused_on_clickhouse(sql):
-    with pytest.raises(TableScopeViolation, match="refer to each other"):
+    # Refused first because an entry takes a disabled table's name; the
+    # loop check refuses them too.
+    with pytest.raises(TableScopeViolation, match=NAMED_AFTER_SECRET):
         check_table_scope(ensure_read_only(_client("ClickhouseClient"), sql), "clickhouse", SCOPE)
+    with pytest.raises(TableScopeViolation, match="refer to each other"):
+        tables_read(parse_guard_sql(sql, "clickhouse")[0], "clickhouse")
 
 
-@pytest.mark.parametrize("dialect", [None, "postgres", "mysql", "tsql", "snowflake", "bigquery", "duckdb",
-                                     "sqlite", "oracle", "clickhouse"])
-@pytest.mark.parametrize("sql", [
+# Where an engine resolves an entry's body where the entry is used
+# (ClickHouse; MySQL, whose sqlglot dialect also serves MariaDB) or the
+# dialect is not known, WITH entries that name each other are refused,
+# across levels too.
+LOOPS = [
     "WITH secret AS (SELECT x FROM orders), orders AS (SELECT x FROM secret) SELECT x FROM secret",
     "WITH secret AS (SELECT x FROM orders), c AS (SELECT x FROM secret), orders AS (SELECT x FROM c) "
     "SELECT x FROM secret",
     "SELECT * FROM (WITH a AS (SELECT x FROM (SELECT x FROM B)), b AS (SELECT x FROM a) SELECT x FROM a) s",
     # An entry that names itself next to two that name each other.
     "WITH orders AS (SELECT x FROM orders), a AS (SELECT x FROM b), b AS (SELECT x FROM a) SELECT x FROM a",
-])
-def test_the_tables_read_refuse_with_entries_that_name_each_other_in_every_dialect(dialect, sql):
+    # Across levels.
+    "WITH secret AS (SELECT x FROM orders) SELECT x FROM (WITH orders AS (SELECT x FROM secret) SELECT x FROM secret) d",
+    "WITH a AS (SELECT x FROM b) SELECT (WITH b AS (SELECT x FROM a) SELECT x FROM a) AS v",
+]
+
+
+@pytest.mark.parametrize("dialect", [None, "mysql", "clickhouse", "starrocks"])
+@pytest.mark.parametrize("sql", LOOPS)
+def test_the_tables_read_refuse_with_entries_that_name_each_other_where_entries_are_resolved_where_used(dialect,
+                                                                                                         sql):
     statement = parse_guard_sql(sql, dialect)[0]
     with pytest.raises(TableScopeViolation, match="refer to each other"):
         tables_read(statement, dialect)
+
+
+@pytest.mark.parametrize("dialect", ["postgres", "redshift", "tsql", "snowflake", "bigquery", "duckdb", "sqlite",
+                                     "oracle", "trino", "databricks"])
+@pytest.mark.parametrize("sql", LOOPS)
+def test_the_tables_read_do_not_look_for_loops_where_an_entry_is_resolved_where_it_is_defined(dialect, sql):
+    # Postgres 15 was measured reading each name where the entry is
+    # defined; the name rule (an entry or alias named after a disabled
+    # table) still applies there.
+    tables_read(parse_guard_sql(sql, dialect)[0], dialect)
+
+
+def test_the_loop_check_runs_over_the_whole_statement_when_given_one_branch():
+    # identity_bind asks about a UNION branch whose WITH stands on the UNION.
+    sql = "WITH secret AS (SELECT x FROM orders), orders AS (SELECT x FROM secret) SELECT 1 UNION ALL SELECT 2"
+    statement = parse_guard_sql(sql, "clickhouse")[0]
+    branch = next(s for s in statement.find_all(exp.Select) if s.args.get("with") is None)
+    with pytest.raises(TableScopeViolation, match="refer to each other"):
+        tables_read(branch, "clickhouse")
+
+
+# A WITH entry, or on ClickHouse an alias, named after a disabled table.
+# ClickHouse and MySQL 8.4 resolve an entry's body where the entry is used,
+# and read the name of an entry being resolved as the table of that name;
+# ClickHouse calls a WITH lambda by its name. So a name sqlglot reads as the
+# entry reaches the disabled table: across levels, in a scalar subquery, a
+# UNION, a LATERAL, and through a lambda (also one named after a built-in,
+# called inside another lambda, or written without parentheses). Each reads
+# the disabled table on the engine (live dialect tests). The rule that
+# refuses them: no WITH entry or alias may take a disabled table's name.
+NAMED_AFTER_SECRET = "SECRET is not enabled for this agent, and a WITH entry or an alias may not take its name"
+CROSS_LEVEL = [
+    "WITH secret AS (SELECT x FROM orders) SELECT x FROM (WITH orders AS (SELECT x FROM secret) SELECT x FROM secret) d",
+    "WITH secret AS (SELECT x FROM orders) SELECT (WITH orders AS (SELECT x FROM secret) SELECT x FROM secret) AS v",
+    "WITH secret AS (SELECT x FROM orders) SELECT x FROM (WITH orders AS (SELECT x FROM secret) SELECT x FROM secret "
+    "UNION ALL SELECT x FROM secret) d",
+    "WITH secret AS (SELECT x FROM orders) SELECT 1 AS x FROM orders WHERE 0 UNION ALL "
+    "SELECT x FROM (WITH orders AS (SELECT x FROM secret) SELECT x FROM secret) d",
+]
+NAMED_AFTER_A_DISABLED_TABLE = [
+    *[("ClickhouseClient", sql) for sql in CROSS_LEVEL],
+    *[("MysqlClient", sql) for sql in CROSS_LEVEL],
+    ("MysqlClient", "WITH secret AS (SELECT x FROM orders) SELECT * FROM (SELECT 1 AS k) z, "
+                    "LATERAL (WITH orders AS (SELECT x FROM secret) SELECT x FROM secret) d"),
+    ("ClickhouseClient", "WITH secret AS (SELECT F(1) AS x), (y -> (SELECT x FROM secret)) AS F SELECT x FROM secret"),
+    ("ClickhouseClient", "WITH secret AS (SELECT length(1) AS x), (y -> (SELECT x FROM secret)) AS length "
+                         "SELECT x FROM secret"),
+    ("ClickhouseClient", "WITH secret AS (SELECT arrayMap(v -> F(v), [1]) AS x), (y -> (SELECT x FROM secret)) AS F "
+                         "SELECT x FROM secret"),
+    ("ClickhouseClient", "WITH secret AS (SELECT F(1) AS x), y -> (SELECT x FROM secret) AS F SELECT x FROM secret"),
+    # Aliases (ClickHouse): in the SELECT list, in WHERE, in a subquery.
+    ("ClickhouseClient", "SELECT id AS secret FROM orders"),
+    ("ClickhouseClient", "SELECT count() FROM orders WHERE (id + 1 AS Secret) > 0"),
+    ("ClickhouseClient", "SELECT * FROM (SELECT (SELECT 42) AS secret FROM orders)"),
+]
+
+
+@pytest.mark.parametrize("family, sql", NAMED_AFTER_A_DISABLED_TABLE)
+def test_a_with_entry_or_alias_named_after_a_disabled_table_is_refused(family, sql):
+    client = _client(family)
+    with pytest.raises(TableScopeViolation, match=NAMED_AFTER_SECRET):
+        check_table_scope(ensure_read_only(client, sql), dialect_for_client(client), SCOPE)
+
+
+@pytest.mark.parametrize("family, sql", NAMED_AFTER_A_DISABLED_TABLE + [
+    ("ClickhouseClient", sql) for sql in CLICKHOUSE_WITH_CYCLES])
+def test_the_name_rule_alone_refuses_every_shape(monkeypatch, family, sql):
+    # With the loop check and the lambda rule off, the name rule still
+    # refuses each shape.
+    from app.ai.code_execution import table_scope
+
+    monkeypatch.setattr(table_scope, "_check_with_loops", lambda statement, dialect=None: None)
+    monkeypatch.setattr(table_scope, "_check_clickhouse_with_lambdas", lambda statement: None)
+    client = _client(family)
+    with pytest.raises(TableScopeViolation, match=NAMED_AFTER_SECRET):
+        check_table_scope(ensure_read_only(client, sql), dialect_for_client(client), SCOPE)
+
+
+@pytest.mark.parametrize("dialect", ["postgres", "mysql", "tsql", "snowflake", "clickhouse"])
+def test_the_name_rule_compares_the_last_part_of_every_disabled_name_in_any_case(dialect):
+    scope = TableScope.from_names(active=["public.orders"], inactive=["gold.Secret"])
+    sql = "WITH SECRET AS (SELECT id FROM orders) SELECT id FROM SECRET"
+    with pytest.raises(TableScopeViolation, match=NAMED_AFTER_SECRET):
+        check_table_scope(sql, dialect, scope)
+
+
+def test_an_entry_named_after_an_enabled_table_or_no_table_still_reads():
+    scope = TableScope.from_names(active=["orders", "events"], inactive=["secret"])
+    for sql in ("WITH orders AS (SELECT * FROM orders WHERE x > 0) SELECT * FROM orders",
+                "WITH secrets AS (SELECT id FROM orders) SELECT id AS secret_id FROM secrets"):
+        for dialect in ("postgres", "mysql", "clickhouse"):
+            check_table_scope(sql, dialect, scope)
+
+
+# A WITH entry that is a lambda (ClickHouse), called by its name, which
+# can be a built-in's: refused wherever it stands.
+@pytest.mark.parametrize("sql", [
+    "WITH x -> x + 1 AS f SELECT f(id) FROM orders",
+    "WITH (x -> x + 1) AS f SELECT f(id) FROM orders",
+    "WITH ((x) -> x + 1) AS f SELECT f(id) FROM orders",
+    "WITH (x, y) -> x + y AS f SELECT f(id, 1) FROM orders",
+    "WITH x -> length(x) AS length SELECT length('a')",
+    "SELECT * FROM (WITH x -> x * 2 AS twice SELECT twice(id) FROM orders)",
+])
+def test_a_with_lambda_is_refused_on_clickhouse(sql):
+    with pytest.raises(TableScopeViolation, match="lambda"):
+        check_table_scope(ensure_read_only(_client("ClickhouseClient"), sql), "clickhouse", SCOPE)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT arrayMap(v -> v * 2, [1, 2]) FROM orders",
+    "WITH arrayMap(v -> v * 2, [1]) AS a SELECT a FROM orders",
+    "SELECT arrayFilter((v, w) -> v > w, [1, 2], [2, 1]) AS r FROM orders",
+])
+def test_a_lambda_passed_to_a_function_still_reads_on_clickhouse(sql):
+    _passes("ClickhouseClient", sql)
+
+
+# ClickHouse decodes escapes in a quoted name (`\x74` is `t`); sqlglot keeps
+# them as written, so the name it compares is not the one the engine reads.
+CLICKHOUSE_ESCAPED_NAMES = [
+    "WITH `secre" + BS + "x74` AS (SELECT x FROM orders) SELECT x FROM "
+    "(WITH orders AS (SELECT x FROM `secre" + BS + "x74`) SELECT x FROM `secre" + BS + "x74`)",
+    'WITH "secre' + BS + 'x74" AS (SELECT x FROM orders) SELECT x FROM '
+    '(WITH orders AS (SELECT x FROM "secre' + BS + 'x74") SELECT x FROM "secre' + BS + 'x74")',
+    "SELECT `i" + BS + "x64` FROM orders",
+]
+
+
+@pytest.mark.parametrize("sql", CLICKHOUSE_ESCAPED_NAMES)
+def test_a_backslash_in_a_quoted_name_is_refused_on_clickhouse(sql):
+    _refused("ClickhouseClient", sql, match="backslash")
+    with pytest.raises(TableScopeViolation, match="backslash"):
+        check_table_scope(sql, "clickhouse", SCOPE)
+
+
+def test_a_backslash_in_a_clickhouse_string_still_reads():
+    _passes("ClickhouseClient", "SELECT id FROM orders WHERE note = 'a" + BS + BS + "b' OR note = '" + BS + "''")
 
 
 # An entry that names itself is not a loop: inside its own body the name
@@ -1508,7 +1675,12 @@ def test_a_postgres_cte_covers_only_the_names_that_fold_to_its_own():
     'WITH X AS (SELECT 1) SELECT * FROM "x"',
 ])
 def test_a_postgres_cte_still_covers_the_names_that_fold_to_its_own(sql):
-    check_table_scope(ensure_read_only(_client("PostgresqlClient"), sql), "postgres", CTE_SCOPE)
+    # The names unlisted (a CTE may not take a disabled table's name); read
+    # as tables they would still be refused, as none is enabled.
+    unlisted = TableScope.from_names(active=["public.orders"], inactive=[])
+    check_table_scope(ensure_read_only(_client("PostgresqlClient"), sql), "postgres", unlisted)
+    with pytest.raises(TableScopeViolation, match="may not take its name"):
+        check_table_scope(ensure_read_only(_client("PostgresqlClient"), sql), "postgres", CTE_SCOPE)
 
 
 def test_other_dialects_keep_comparing_names_case_insensitively():

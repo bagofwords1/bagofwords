@@ -143,14 +143,66 @@ def test_with_entries_that_name_each_other_in_a_loop_are_not_scoped():
     assert _sql_binds(sql, "clickhouse", ("u1",)) is not True
 
 
+LOOP = "WITH (SELECT 42 IN secret) AS r, secret AS (SELECT r + 100 AS v) "
+
+
+@pytest.mark.parametrize("dialect, sql", [
+    # The WITH stands on the UNION, or on the query around a subquery, while
+    # the check asks about one branch or the subquery.
+    ("clickhouse", LOOP + "SELECT 101 IN secret UNION ALL SELECT 101 IN secret"),
+    ("clickhouse", LOOP + "SELECT * FROM (SELECT 101 IN secret)"),
+    ("clickhouse", LOOP + "SELECT * FROM (SELECT 101 IN secret) UNION ALL SELECT * FROM (SELECT 101 IN secret)"),
+    # Entries resolved where they are used, across levels (live dialect tests).
+    ("clickhouse", "WITH secret AS (SELECT x FROM orders) "
+                   "SELECT (WITH orders AS (SELECT x FROM secret) SELECT x FROM secret) AS v"),
+    ("mysql", "WITH secret AS (SELECT x FROM orders) "
+              "SELECT (WITH orders AS (SELECT x FROM secret) SELECT x FROM secret) AS v"),
+    (None, "WITH secret AS (SELECT x FROM orders) "
+           "SELECT (WITH orders AS (SELECT x FROM secret) SELECT x FROM secret) AS v"),
+])
+def test_a_with_on_an_ancestor_of_the_part_checked_is_not_scoped(dialect, sql):
+    from app.ai.code_execution.identity_bind import _sql_binds
+
+    assert _sql_binds(sql, dialect, ("u1",)) is not True
+
+
+@pytest.mark.parametrize("dialect", ["clickhouse", "mysql", None])
+@pytest.mark.parametrize("sql", [
+    "WITH a AS (SELECT 1 AS x) SELECT x FROM a",
+    "WITH a AS (SELECT 1 AS x) SELECT 2",
+    "WITH a AS (SELECT 1 AS x) SELECT 1 UNION ALL SELECT x FROM a",
+])
+def test_any_with_counts_as_reading_rows_where_entries_are_resolved_where_used(dialect, sql):
+    # Fails closed: such a query needs the identity filter.
+    from app.ai.code_execution.table_scope import reads_rows
+    from sqlglot import exp, parse_one
+
+    statement = parse_one(sql, read=dialect)
+    assert reads_rows(statement, dialect) is True
+    for select in statement.find_all(exp.Select):
+        assert reads_rows(select, dialect) is True
+
+
+def test_a_with_over_no_table_still_reads_no_rows_on_postgres():
+    from app.ai.code_execution.table_scope import reads_rows
+    from sqlglot import parse_one
+
+    assert reads_rows(parse_one("WITH a AS (SELECT 1 AS x) SELECT 2", read="postgres"), "postgres") is False
+
+
 @pytest.mark.parametrize("query", [
     "SELECT 1",
     "SELECT '{v}' IN ('{v}', 'x') AS mine",
-    "WITH (1, 2) AS ids SELECT 3 IN ids",
     "SELECT * FROM users WHERE email = '{v}'",
+    "WITH (1, 2) AS ids SELECT * FROM users WHERE email = '{v}' AND 3 IN ids",
 ])
 def test_a_clickhouse_query_that_reads_no_rows_or_is_scoped_still_passes(query):
     assert _check([query], "sarah@example.com", "ClickhouseClient") is None
+
+
+def test_a_clickhouse_with_over_values_alone_now_needs_the_identity_filter():
+    # Any WITH counts as reading rows on ClickHouse (fails closed).
+    assert _check(["WITH (1, 2) AS ids SELECT 3 IN ids"], "sarah@example.com", "ClickhouseClient") is not None
 
 
 def test_multiple_identity_params_each_must_bind():

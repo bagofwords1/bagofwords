@@ -87,6 +87,11 @@ _POSTGRES = [
     "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 10) SELECT i FROM n",
     "WITH RECURSIVE r AS (SELECT 1 AS x UNION ALL SELECT x+1 FROM r WHERE x<3) SELECT sum(x) FROM r",
     "WITH orders AS (SELECT * FROM orders WHERE x > 0) SELECT * FROM orders",
+    # Pipelines whose entries share names with each other's columns.
+    "WITH revenue AS (SELECT region, SUM(amount) AS revenue FROM orders GROUP BY region), "
+    "region AS (SELECT region, revenue FROM revenue) SELECT * FROM region ORDER BY revenue DESC",
+    "WITH monthly AS (SELECT date_trunc('month', created_at) AS month, SUM(amount) AS total FROM orders GROUP BY month), "
+    "month AS (SELECT month, total FROM monthly) SELECT month, total FROM month ORDER BY month",
     # A hierarchy walk, and the SEARCH and CYCLE clauses.
     "WITH RECURSIVE tree AS (SELECT id, parent_id, name FROM customers WHERE parent_id IS NULL "
     "UNION ALL SELECT c.id, c.parent_id, c.name FROM customers c JOIN tree t ON c.parent_id = t.id) "
