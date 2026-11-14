@@ -609,6 +609,97 @@ class TestExecuteQueryRouting:
             c.execute_query()
 
 
+_REPORT_GUID = "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b"
+_DATASET_GUID = "0A1B2C3D-4E5F-4A6B-8C7D-8E9F0A1B2C3D"
+
+
+class TestExportIdsAndFormat:
+    """Report and dataset ids are GUIDs before any URL is built, and the
+    export format is one the client turns into a DataFrame (CSV)."""
+
+    @staticmethod
+    def _client():
+        c = PowerBIReportServerClient("http://pbi", "u", "p")
+        session = MagicMock()
+        session.get.return_value = _mock_response(content=b"a,b\n1,2\n")
+        session.get.return_value.headers = {"Content-Type": "text/csv"}
+        session.post.return_value = _mock_response({"value": "a,b\n1,2\n"})
+        c._session = session
+        return c, session
+
+    @staticmethod
+    def _sent(session):
+        return [("GET", call.args[0]) for call in session.get.call_args_list] + \
+            [("POST", call.args[0]) for call in session.post.call_args_list]
+
+    def _refused(self, **kwargs):
+        from app.ai.code_execution.sql_guard import ReadOnlyViolation
+
+        c, session = self._client()
+        error = None
+        try:
+            c.execute_query(**kwargs)
+        except Exception as exc:  # noqa: BLE001 - the type is asserted below
+            error = exc
+        assert self._sent(session) == [], f"request sent: {self._sent(session)!r}"
+        assert isinstance(error, ReadOnlyViolation), f"not refused: {error!r}"
+
+    @pytest.mark.parametrize("report_id", [
+        "r1",
+        _REPORT_GUID + ")/Export/CSV?x=(",
+        _REPORT_GUID + "\n",
+        " " + _REPORT_GUID,
+        "{" + _REPORT_GUID + "}",
+        _REPORT_GUID.replace("-", ""),
+    ])
+    def test_report_id_must_be_a_guid(self, report_id):
+        self._refused(report_id=report_id)
+
+    @pytest.mark.parametrize("dataset_id", ["d1", _DATASET_GUID + ")/Model.GetData?(", ""])
+    def test_dataset_id_must_be_a_guid(self, dataset_id):
+        if dataset_id == "":
+            # An empty id is "no dataset": the routing error, not a request.
+            c, session = self._client()
+            with pytest.raises(ValueError, match="requires one of"):
+                c.execute_query(dataset_id=dataset_id)
+            assert self._sent(session) == []
+            return
+        self._refused(dataset_id=dataset_id)
+
+    @pytest.mark.parametrize("fmt", [
+        "PDF", "EXCELOPENXML", "XML", "JSON", "CSV/../../System", "CSV ", "C" + chr(0x17F) + "V", "", None,
+    ])
+    def test_export_format_outside_the_list_refused(self, fmt):
+        self._refused(report_id=_REPORT_GUID, format=fmt)
+
+    @pytest.mark.parametrize("fmt", ["CSV", "csv"])
+    def test_csv_export_sent(self, fmt):
+        c, session = self._client()
+        df = c.execute_query(report_id=_REPORT_GUID, format=fmt)
+        assert list(df.columns) == ["a", "b"]
+        assert self._sent(session) == [("GET", f"http://pbi/Reports/api/v2.0/Reports({_REPORT_GUID})/Export/CSV")]
+
+    def test_shared_dataset_sent(self):
+        c, session = self._client()
+        df = c.execute_query(dataset_id=_DATASET_GUID)
+        assert list(df.columns) == ["a", "b"]
+        assert self._sent(session) == [
+            ("POST", f"http://pbi/Reports/api/v2.0/Datasets({_DATASET_GUID})/Model.GetData")]
+
+    def test_report_id_from_metadata_checked_too(self):
+        from app.ai.prompt_formatters import Table as PFTable
+
+        c, session = self._client()
+        c.get_schemas = MagicMock(return_value=[PFTable(
+            name="rdl:Sales", description="", columns=[], pks=[], fks=[], is_active=True,
+            metadata_json={"powerbi_report_server": {"report_type": "Report", "report_id": "r1"}},
+        )])
+        from app.ai.code_execution.sql_guard import ReadOnlyViolation
+        with pytest.raises(ReadOnlyViolation):
+            c.execute_query(table_name="rdl:Sales")
+        assert self._sent(session) == []
+
+
 class TestEnsurePbixParquets:
     """Direct tests for the Parquet materialization + caching path."""
 

@@ -1,5 +1,6 @@
 from app.data_sources.clients.progress import discovery_progress, discovery_items
 import re
+import unicodedata
 from typing import Dict, List, Optional
 from xml.etree.ElementTree import Element
 from xml.sax.saxutils import escape as xml_escape
@@ -9,6 +10,7 @@ import requests
 from app.core.egress import pinned_session
 from defusedxml import ElementTree as ET
 
+from app.ai.code_execution.sql_guard import ReadOnlyViolation
 from app.ai.prompt_formatters import ServiceFormatter, Table, TableColumn
 from app.data_sources.clients.base import DataSourceClient
 
@@ -28,6 +30,104 @@ _NS = {
 # MDSCHEMA_DIMENSIONS exposes the synthetic "Measures" dimension as type 2;
 # we surface measures separately (via MDSCHEMA_MEASURES) so we skip it here.
 _MEASURE_DIMENSION_TYPE = "2"
+
+
+# Statements an XMLA Execute may carry: MDX (WITH ... SELECT, SELECT) and
+# DAX queries (DEFINE ... EVALUATE, EVALUATE), and DMV SELECTs. Anything else
+# (MDX/DMX writes, CREATE/DROP, TMSL JSON commands) is refused.
+_READ_VERBS = frozenset({"SELECT", "EVALUATE", "DEFINE", "WITH"})
+# Words refused anywhere outside literals and comments: DMX SELECT INTO builds
+# a new mining model; OPENQUERY / OPENROWSET pass a query to another source.
+_REFUSED_WORDS = frozenset({"INTO", "OPENQUERY", "OPENROWSET"})
+_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*", re.ASCII)
+# Any character that may end a line comment. Ending a comment early only
+# makes the check read more of the text.
+_LINE_ENDS = "\n\r\x0b\x0c\x85\N{LINE SEPARATOR}\N{PARAGRAPH SEPARATOR}"
+
+
+def _xmla_refuse(reason: str) -> ReadOnlyViolation:
+    return ReadOnlyViolation(f"XMLA statement refused: {reason}.")
+
+
+def _skip_quoted(statement: str, i: int, close: str) -> int:
+    """Index after the literal that opens at i and ends at `close` (a doubled
+    `close` stands for itself)."""
+    j = i + 1
+    while True:
+        k = statement.find(close, j)
+        if k < 0:
+            raise _xmla_refuse("unterminated literal or bracketed name")
+        if statement.startswith(close * 2, k):
+            j = k + 2
+            continue
+        return k + 1
+
+
+def check_xmla_statement(statement: str) -> None:
+    """Refuse an Execute statement that is not one read query.
+
+    Comments (`--`, `//`, `/* */`), string literals ('...', "...") and
+    bracketed names ([...]) are skipped; the first word must be a read verb
+    (`_READ_VERBS`); no word of `_REFUSED_WORDS` may appear; nothing but
+    comments may follow a ';'. A nested or unterminated comment and an
+    unterminated literal are refused rather than guessed at.
+    """
+    if not isinstance(statement, str):
+        raise _xmla_refuse("the statement must be text")
+    first = None
+    after_semicolon = False
+    i, n = 0, len(statement)
+    while i < n:
+        ch = statement[i]
+        if statement.startswith(("--", "//"), i):
+            while i < n and statement[i] not in _LINE_ENDS:
+                i += 1
+            continue
+        if statement.startswith("/*", i):
+            end = statement.find("*/", i + 2)
+            if end < 0 or "/*" in statement[i + 2:end]:
+                raise _xmla_refuse("unterminated or nested block comment")
+            i = end + 2
+            continue
+        if ch.isspace() or unicodedata.category(ch) in ("Cc", "Cf", "Zs", "Zl", "Zp"):
+            i += 1
+            continue
+        if after_semicolon:
+            raise _xmla_refuse("only one statement may be sent")
+        word = _WORD.match(statement, i)
+        if first is None:
+            first = word.group().upper() if word else ch
+            if first not in _READ_VERBS:
+                raise _xmla_refuse("only SELECT, WITH, EVALUATE and DEFINE statements are allowed")
+        if word:
+            if word.group().upper() in _REFUSED_WORDS:
+                raise _xmla_refuse(f"{word.group().upper()} is not allowed")
+            i = word.end()
+        elif ch in "'\"":
+            i = _skip_quoted(statement, i, ch)
+        elif ch == "[":
+            i = _skip_quoted(statement, i, "]")
+        elif ch == ";":
+            after_semicolon = True
+            i += 1
+        else:
+            i += 1
+    if first is None:
+        raise _xmla_refuse("no statement")
+
+
+def check_catalog_override(catalog: Optional[str], target: Optional[str]) -> Optional[str]:
+    """The catalog to send. A caller `catalog` is accepted only when it names
+    (case-insensitively) the catalog the query would use anyway: the
+    configured one, or else the one its table name resolves to."""
+    if catalog is None or catalog == "":
+        return target
+    if not (isinstance(catalog, str) and target and catalog.casefold() == target.casefold()):
+        raise _xmla_refuse(
+            f"catalog {catalog!r} is not this connection's catalog for the query"
+            + (f" ({target!r})" if target else "")
+        )
+    return target
 
 
 class XmlaHttpError(RuntimeError):
@@ -367,13 +467,14 @@ class XmlaClient(DataSourceClient):
         """Execute a statement via XMLA Execute and return a DataFrame."""
         if not query or not query.strip():
             raise ValueError(self.QUERY_REQUIRED_MSG)
-        self.connect()
+        check_xmla_statement(query)
         target_catalog = self._resolve_catalog(table_name, catalog)
+        self.connect()
         rows = self._execute_statement(query, target_catalog)
         return self._rows_to_df(rows, max_rows)
 
     def _resolve_catalog(self, table_name: Optional[str], catalog: Optional[str]) -> Optional[str]:
-        target = catalog or self.catalog
+        target = self.catalog
         # Schema tables are named "Catalog/Cube" (get_schemas), so the catalog
         # is the first path segment — resolving it locally avoids re-running
         # full discovery (several XMLA round trips) on every query.
@@ -385,7 +486,7 @@ class XmlaClient(DataSourceClient):
                 target = meta.get("catalog")
             except Exception:
                 pass
-        return target
+        return check_catalog_override(catalog, target)
 
     @staticmethod
     def _rows_to_df(rows: List[Dict], max_rows: Optional[int]) -> pd.DataFrame:

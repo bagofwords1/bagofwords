@@ -1,5 +1,6 @@
 from app.data_sources.clients.progress import discovery_progress
 from app.data_sources.clients.base import DataSourceClient
+from app.ai.code_execution.sql_guard import ReadOnlyViolation
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 import boto3
 import pandas as pd
@@ -20,6 +21,8 @@ class AwsCostClient(DataSourceClient):
             # Test by creating an AWS Cost Explorer client
             client = self.session.client("ce")
             yield client
+        except ReadOnlyViolation:
+            raise
         except Exception as e:
             raise RuntimeError(f"Error connecting to AWS Cost Explorer: {e}")
         finally:
@@ -144,10 +147,24 @@ class AwsCostClient(DataSourceClient):
         """
 
     def execute_query(self, operation_name, parameters):
-        """Dynamically execute AWS Cost Explorer commands and return a DataFrame."""
+        """Dynamically execute AWS Cost Explorer commands and return a DataFrame.
+
+        Only read operations are run: the name starts with get_, list_ or
+        describe_ and is one of the client's API operations
+        (`meta.method_to_api_mapping`, which leaves out helpers such as
+        get_paginator)."""
         with self.connect() as client:
             if client is None:
                 raise RuntimeError("Failed to connect to AWS Cost Explorer")
+            if not (
+                isinstance(operation_name, str)
+                and operation_name.startswith(("get_", "list_", "describe_"))
+                and operation_name in client.meta.method_to_api_mapping
+            ):
+                raise ReadOnlyViolation(
+                    f"AWS Cost Explorer operation {operation_name!r} refused: only "
+                    "get_, list_ and describe_ API operations are allowed."
+                )
             try:
                 operation = getattr(client, operation_name)
                 response = operation(**parameters)

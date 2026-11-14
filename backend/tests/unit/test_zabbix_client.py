@@ -220,6 +220,67 @@ class TestExecuteQuery:
             c.execute_query('{"table": "nope"}')
 
 
+# ---------- read-only methods ---------- #
+
+def _assert_nothing_sent_and_refused(c, query, session):
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation
+
+    error = None
+    try:
+        c.execute_query(query)
+    except Exception as exc:  # noqa: BLE001 - the type is asserted below
+        error = exc
+    assert session.calls == [], f"request sent: {session.calls!r}"
+    assert isinstance(error, ReadOnlyViolation), f"not refused: {error!r}"
+
+
+class TestReadOnlyMethods:
+    """Zabbix lower-cases the method and splits it at its dots, keeping the
+    first two parts (CJsonRpc.php / CLocalApiClient.php). Only a two-part
+    `<object>.get` in lower case is sent."""
+
+    @pytest.mark.parametrize("method", [
+        "host.update",
+        "host.delete",
+        "user.login",
+        "script.execute",
+        "configuration.import",
+        "apiinfo.version",
+        "host.GET",
+        "Host.Get",
+        "host.update.get",
+        "host.get.extra",
+        "host.get ",
+        " host.get",
+        "host.get\n",
+        ".get",
+        "host..get",
+        "host" + chr(0x2024) + "get",
+    ])
+    def test_non_read_method_refused(self, patch_session, method):
+        session = patch_session({method: []})
+        c = ZabbixClient(url="http://z", api_token="t")
+        _assert_nothing_sent_and_refused(c, json.dumps({"method": method, "params": {}}), session)
+
+    @pytest.mark.parametrize("method", [5, ["host.get"], {"m": "host.get"}])
+    def test_non_string_method_refused(self, patch_session, method):
+        session = patch_session({"host.get": []})
+        c = ZabbixClient(url="http://z", api_token="t")
+        _assert_nothing_sent_and_refused(c, {"method": method}, session)
+
+    def test_refused_method_does_not_log_in(self, patch_session):
+        session = patch_session({"user.login": "sess", "host.update": []})
+        c = ZabbixClient(url="http://z", username="u", password="p")
+        _assert_nothing_sent_and_refused(c, '{"method": "host.update", "params": {}}', session)
+
+    @pytest.mark.parametrize("method", ["host.get", "history.get", "hostgroup.get", "problem.get"])
+    def test_read_method_sent(self, patch_session, method):
+        session = patch_session({method: []})
+        c = ZabbixClient(url="http://z", api_token="t")
+        c.execute_query(json.dumps({"method": method, "params": {}}))
+        assert [call[0] for call in session.calls] == [method]
+
+
 # ---------- connection test ---------- #
 
 class TestConnection:

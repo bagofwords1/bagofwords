@@ -6,6 +6,7 @@ from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.progress import ProgressCallback, make_reporter
 from app.data_sources.clients._duckdb_lockdown import lock_down
 from app.ai.code_execution.duckdb_guard import check_duckdb_file_query
+from app.ai.code_execution.sql_guard import ReadOnlyViolation
 from app.ai.prompt_formatters import Table, TableColumn, ForeignKey, ServiceFormatter
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -31,6 +32,18 @@ logger = logging.getLogger(__name__)
 
 
 _RDL_NS_RE = re.compile(r"^\{[^}]+\}")
+
+# Report Server catalog item ids are GUIDs.
+_GUID_RE = re.compile(r"[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}", re.ASCII)
+# Export formats `_execute_paginated_report` turns into a DataFrame.
+_EXPORT_FORMATS = frozenset({"CSV"})
+
+
+def _require_guid(name: str, value) -> None:
+    if not (isinstance(value, str) and _GUID_RE.fullmatch(value)):
+        raise ReadOnlyViolation(
+            f"Power BI Report Server {name} must be a GUID; take it from the table's metadata."
+        )
 
 # Cache for PBIX-extracted schemas, keyed by (report_id, modified_date).
 _PBIX_SCHEMA_CACHE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "uploads" / "pbirs_schema_cache"
@@ -1474,9 +1487,19 @@ class PowerBIReportServerClient(DataSourceClient):
             else:
                 raise ValueError(f"Could not route execute_query for table '{table_name}' (report_type={rt}).")
 
+        # The ids go into the URL path and the format names the export
+        # endpoint: both are checked before any URL is built.
         if report_id:
-            return self._execute_paginated_report(report_id, fmt=format, parameters=parameters, max_rows=max_rows)
+            _require_guid("report_id", report_id)
+            if not (isinstance(format, str) and format.isascii() and format.upper() in _EXPORT_FORMATS):
+                raise ReadOnlyViolation(
+                    f"Power BI Report Server export format {format!r} refused: "
+                    f"use one of {', '.join(sorted(_EXPORT_FORMATS))}."
+                )
+            return self._execute_paginated_report(
+                report_id, fmt=format.upper(), parameters=parameters, max_rows=max_rows)
         if dataset_id:
+            _require_guid("dataset_id", dataset_id)
             return self._execute_shared_dataset(dataset_id, parameters=parameters, max_rows=max_rows)
 
         raise ValueError(

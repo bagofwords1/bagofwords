@@ -1,5 +1,6 @@
 from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
+from app.ai.code_execution.sql_guard import ReadOnlyViolation
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 from pymongo import MongoClient
 from bson import ObjectId
@@ -8,6 +9,63 @@ import json
 from typing import List, Optional, Generator
 from contextlib import contextmanager
 from datetime import datetime
+
+
+# Aggregation stages that only read. Any other stage (`$out`, `$merge`,
+# `$unionWith`, ...) is refused, in the top pipeline and in the pipelines a
+# `$lookup` or `$facet` stage carries.
+_READ_STAGES = frozenset({
+    "$match", "$project", "$group", "$sort", "$limit", "$skip", "$unwind",
+    "$count", "$addFields", "$set", "$unset", "$lookup", "$graphLookup",
+    "$facet", "$bucket", "$bucketAuto", "$sortByCount", "$replaceRoot",
+    "$replaceWith", "$sample", "$setWindowFields", "$densify", "$fill", "$redact",
+})
+# Operators that run server-side JavaScript; refused at any depth of the spec.
+_JS_OPERATORS = frozenset({"$where", "$function", "$accumulator"})
+
+
+def _refuse(reason: str) -> None:
+    raise ReadOnlyViolation(f"MongoDB query refused: {reason}.")
+
+
+def _check_no_javascript(value) -> None:
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            for key, child in item.items():
+                if key in _JS_OPERATORS:
+                    _refuse(f"{key} runs JavaScript on the server")
+                stack.append(child)
+        elif isinstance(item, list):
+            stack.extend(item)
+
+
+def _check_pipeline(pipeline) -> None:
+    if not isinstance(pipeline, list):
+        _refuse("a pipeline must be a list of stages")
+    for stage in pipeline:
+        if not isinstance(stage, dict) or len(stage) != 1:
+            _refuse("each pipeline stage must be an object with one stage name")
+        (name, spec), = stage.items()
+        if name not in _READ_STAGES:
+            _refuse(f"the {name!r} stage is not a read stage")
+        if name == "$lookup" and isinstance(spec, dict) and "pipeline" in spec:
+            _check_pipeline(spec["pipeline"])
+        elif name == "$facet":
+            if not isinstance(spec, dict):
+                _refuse("$facet takes an object of pipelines")
+            for branch in spec.values():
+                _check_pipeline(branch)
+
+
+def check_read_only_spec(query_dict: dict) -> None:
+    """Refuse a query spec that could write or run server code: an aggregate
+    stage outside `_READ_STAGES` (also inside `$lookup` / `$facet`
+    pipelines), or a JavaScript operator anywhere in the spec."""
+    _check_no_javascript(query_dict)
+    if "aggregate" in query_dict:
+        _check_pipeline(query_dict["aggregate"])
 
 
 class MongodbClient(DataSourceClient):
@@ -116,7 +174,8 @@ class MongodbClient(DataSourceClient):
         collection_name = query_dict.get("collection")
         if not collection_name:
             raise ValueError("Query must specify 'collection'")
-        
+        check_read_only_spec(query_dict)
+
         # Query execution time limit (in milliseconds) - prevents runaway queries
         max_time_ms = query_dict.get("maxTimeMS", 60000)  # Default 60 seconds per query
         
