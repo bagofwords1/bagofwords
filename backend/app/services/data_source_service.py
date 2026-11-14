@@ -1324,6 +1324,12 @@ class DataSourceService:
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
 
+        if current_user and (data_source.publish_status == "draft" or data_source.reliability_status == "development"):
+            from app.core.permission_resolver import resolve_permissions
+            rights = await resolve_permissions(db, str(current_user.id), str(organization.id))
+            if not self.lifecycle_visible(data_source, rights):
+                raise HTTPException(404, "Data source not found")
+
         # Build connections list from CACHED status only (live_test=False).
         # This endpoint used to live-test every connection whose cached status
         # was older than 5 minutes — sequentially, inside the request, with no
@@ -1487,6 +1493,16 @@ class DataSourceService:
             return is_gov, manage_ids, resolved
         except Exception:
             return False, set(), None
+
+    @staticmethod
+    def lifecycle_visible(agent, rights):
+        governance = rights and rights.has_org_permission("manage_connections")
+        if getattr(agent, "publish_status", None) == "draft" and not governance:
+            if not rights or not rights.has_resource_permission("data_source", str(agent.id), "manage"):
+                return False
+        return not DataSourceService._development_hidden(
+            getattr(agent, "reliability_status", None), agent.id, governance, rights
+        )
 
     @staticmethod
     def _development_hidden(reliability_status, ds_id, is_gov, resolved) -> bool:

@@ -163,6 +163,11 @@ class InstructionService:
         # - Non-admin: build stays in pending_approval for admin review
         # - Admin: build auto-approved and promoted to main
         instruction.status = instruction_data.status or "published"
+        if placements and instruction.status == "published":
+            # Until promotion, a pending folder rule must be invisible even to
+            # readers that consult live rows instead of build snapshots.
+            instruction.status = "draft"
+            version_status_override = "published"
         # Leave private_status and global_status as NULL (deprecated)
 
         # Skills always use 'intelligent' (smart) retrieval — enforce server-side
@@ -3394,6 +3399,8 @@ class InstructionService:
                     )
                 )
                 data_sources_to_set = ds_result.scalars().all()
+                if len(data_sources_to_set) != len(set(bulk_update.set_data_source_ids)):
+                    raise HTTPException(422, "Unknown agent target")
             else:
                 data_sources_to_set = []  # Clear all = make global
         
@@ -3484,15 +3491,25 @@ class InstructionService:
                         content_modified = True
                 
                 # Remove data sources - CONTENT CHANGE
+                removed_agent_target = False
                 if data_sources_to_remove_ids:
                     original_count = len(instruction.data_sources)
                     instruction.data_sources = [
                         ds for ds in instruction.data_sources 
                         if str(ds.id) not in data_sources_to_remove_ids
                     ]
-                    if len(instruction.data_sources) != original_count:
+                    removed_agent_target = len(instruction.data_sources) != original_count
+                    if removed_agent_target:
                         content_modified = True
                 
+                if (data_sources_to_set is not None or data_sources_to_add or data_sources_to_remove_ids):
+                    from app.services.folder_knowledge import instruction_folder_ids
+                    if instruction.data_sources:
+                        instruction.scope_mode = "targeted"
+                    elif bulk_update.set_data_source_ids == [] or removed_agent_target:
+                        folder_ids = await instruction_folder_ids(db, instruction.id)
+                        instruction.scope_mode = "targeted" if folder_ids or instruction.owner_folder_id else "global"
+
                 # Only track for build if content was modified
                 if content_modified:
                     modified_instructions.append(instruction)
@@ -4182,7 +4199,7 @@ class InstructionService:
         resolved = await resolve_permissions(
             db, str(current_user.id), str(build.organization_id)
         )
-        if any(not resolved.has_resource_permission("folder", fid, "manage_instructions") for _, fid, _ in folder_rows):
+        if any(not resolved.has_resource_permission("folder", fid, "manage") for _, fid, _ in folder_rows):
             return False
         all_ds = {ds for dss in ds_by_instr.values() for ds in dss}
         return all(

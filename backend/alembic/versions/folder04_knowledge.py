@@ -38,6 +38,17 @@ def upgrade():
 
 
 def downgrade():
+    # Older readers interpret empty agent targets as global, including build
+    # history. Refuse lossy downgrades before changing any schema.
+    bind = op.get_bind()
+    if bind.scalar(sa.text("SELECT 1 FROM instructions WHERE scope_mode='targeted' AND NOT EXISTS "
+                           "(SELECT 1 FROM instruction_data_source_association a "
+                           "WHERE a.instruction_id=instructions.id) LIMIT 1")):
+        raise RuntimeError("Cannot downgrade folder-only instruction scope. Restore a pre-upgrade backup.")
+    versions = sa.table("instruction_versions", sa.column("scope_mode"), sa.column("data_source_ids", sa.JSON))
+    for (targets,) in bind.execute(sa.select(versions.c.data_source_ids).where(versions.c.scope_mode == "targeted")):
+        if not targets:
+            raise RuntimeError("Cannot downgrade folder-only instruction history. Restore a pre-upgrade backup.")
     op.drop_column("test_results", "folder_id")
     for table in ("files", "test_suites"):
         with op.batch_alter_table(table) as batch:

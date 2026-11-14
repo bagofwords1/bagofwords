@@ -421,12 +421,8 @@ class ConsoleService:
         prev_start_date = start_date - period_length
         
         # Get current and previous period metrics (preserve data_source_ids filter)
-        current_params = MetricsQueryParams(start_date=start_date, end_date=end_date,
-                                            data_source_ids=params.data_source_ids,
-                                            scope_data_source_ids=params.scope_data_source_ids)
-        prev_params = MetricsQueryParams(start_date=prev_start_date, end_date=prev_end_date,
-                                         data_source_ids=params.data_source_ids,
-                                         scope_data_source_ids=params.scope_data_source_ids)
+        current_params = params.model_copy(update={"start_date": start_date, "end_date": end_date})
+        prev_params = params.model_copy(update={"start_date": prev_start_date, "end_date": prev_end_date})
 
         current_metrics = await self.get_organization_metrics(db, organization, current_params)
         previous_metrics = await self.get_organization_metrics(db, organization, prev_params)

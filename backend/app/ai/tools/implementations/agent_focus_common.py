@@ -47,6 +47,10 @@ async def accessible_agents(db, organization: Any, user: Any) -> List[Any]:
     rows = list((await db.execute(stmt)).scalars().all())
     from app.services.connected_application_service import filter_agents
     rows = await filter_agents(db, rows, organization.id)
+    from app.services.data_source_service import DataSourceService
+    from app.core.permission_resolver import resolve_permissions
+    rights = await resolve_permissions(db, str(user.id), str(organization.id)) if user else None
+    rows = [ds for ds in rows if DataSourceService.lifecycle_visible(ds, rights)]
     if user is None:
         return [ds for ds in rows if getattr(ds, "is_public", False)]
     is_admin, member_ids = await get_accessible_data_source_ids(
@@ -175,10 +179,15 @@ async def resolve_run_agents(db, organization: Any, user: Any, report: Any,
     if agent_ids is None and not attached and getattr(report, "report_type", "regular") == "artifact_chat":
         return []
     from app.services.folder_service import load_report_folders, training_curator_only
-    if agent_ids is not None and await training_curator_only(
-        db, organization.id, getattr(user, "id", None), getattr(report, "agent_folder_id", None), getattr(report, "mode", None)
-    ):
-        return []
+    if agent_ids is not None and getattr(report, "agent_folder_id", None):
+        from app.services.folder_service import require_report_folder
+        curator_only = False
+        for fid in await load_report_folders(db, report):
+            await require_report_folder(db, organization, user, fid, getattr(report, "mode", None))
+            if await training_curator_only(db, organization.id, getattr(user, "id", None), fid, getattr(report, "mode", None)):
+                curator_only = True
+        if curator_only:
+            return []
     if agent_ids is not None:
         # A run with its own agents (a scheduled task's selection): exactly
         # those, re-checked against what the running user can use today. Like a
@@ -201,11 +210,6 @@ async def resolve_run_agents(db, organization: Any, user: Any, report: Any,
         chosen = {a.id for a in attached}
         agents = [a for a in await accessible_agents(db, organization, user) if a.folder_id in branch or a.id in chosen]
         agents, _ = await DataSourceService().filter_user_usable_data_sources(db, agents, user)
-        from app.core.permission_resolver import resolve_permissions
-        rights = await resolve_permissions(db, str(user.id), str(organization.id))
-        agents = [ds for ds in agents
-                  if (ds.publish_status != "draft" or rights.has_resource_permission("data_source", ds.id, "manage"))
-                  and (ds.reliability_status != "development" or rights.has_resource_permission("data_source", ds.id, "manage_evals"))]
         if not agents:
             from fastapi import HTTPException
             raise HTTPException(409, "No available agents in this folder")
@@ -430,8 +434,18 @@ async def user_can_focus_agent(
             "data_source", str(ds_id), MANAGE_PERMISSION
         )
 
-    from app.core.permission_resolver import user_can_access_data_source
+    from app.core.permission_resolver import user_can_access_data_source, resolve_permissions
+    from app.models.data_source import DataSource
+    from app.services.data_source_service import DataSourceService
 
+    agent = await db.scalar(select(DataSource).where(DataSource.id == ds_id,
+        DataSource.organization_id == str(organization.id), DataSource.deleted_at.is_(None),
+        DataSource.is_active.is_(True), DataSource.publish_status != "disabled"))
+    if agent is None:
+        return False
+    rights = await resolve_permissions(db, str(user.id), str(organization.id)) if user else None
+    if not DataSourceService.lifecycle_visible(agent, rights):
+        return False
     return await user_can_access_data_source(
         db, str(user.id) if user else "", str(organization.id), None, ds_id=str(ds_id)
     )

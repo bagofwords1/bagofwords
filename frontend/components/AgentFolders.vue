@@ -84,8 +84,8 @@
           </p>
           <p v-else-if="!preview" class="mt-1 text-ink-muted">{{ $t('agentsPage.loading') }}</p>
           <template v-else>
-            <p v-if="!preview.changes.length" class="mt-1">{{ $t('sharedFolders.sameParentAccess') }}</p>
-            <ul v-else class="mt-1 max-h-40 space-y-1 overflow-y-auto">
+            <p v-if="!preview.audience_hidden && !preview.changes.length" class="mt-1">{{ $t('sharedFolders.sameParentAccess') }}</p>
+            <ul v-else-if="preview.changes.length" class="mt-1 max-h-40 space-y-1 overflow-y-auto">
               <li v-for="(change, i) in preview.changes" :key="i" class="break-words">{{ change.principal }} · {{ accessLabel(change.from) }} → {{ accessLabel(change.to) }}</li>
             </ul>
             <p class="mt-1 text-ink-muted">{{ $t('sharedFolders.directUnchanged') }}</p>
@@ -124,7 +124,8 @@
                 class="block max-w-full truncate text-start text-xs text-ink-muted hover:underline" :title="grant.source"
                 @click="inspectSource(grant.source_id)">{{ $t(grant.role === 'Custom' ? 'rolesManager.levels.custom' : 'sharedFolders.' + grant.role.toLowerCase()) }} · {{ $t('sharedFolders.via', {name: grant.source}) }}</button>
             </div>
-            <USelect size="xs" color="gray"  :aria-label="$t('sharedFolders.direct', {name:entry.name})" :model-value="entry.role || ''" :disabled="busy || entry.type === 'role'"
+            <span v-if="entry.type === 'role' && entry.role" class="text-xs text-ink-muted">{{ $t(entry.role === 'Custom' ? 'rolesManager.levels.custom' : 'sharedFolders.' + entry.role.toLowerCase()) }}</span>
+            <USelect v-if="entry.type !== 'role'" size="xs" color="gray" :aria-label="$t('sharedFolders.direct', {name:entry.name})" :model-value="entry.role || ''" :disabled="busy"
               :options="roleOptions" @update:model-value="setRole(entry, $event)" />
           </div>
           <p class="mt-2 text-xs text-ink-muted">{{ $t('sharedFolders.hints') }}</p>
@@ -235,7 +236,7 @@ const moving = ref(false)
 const destination = ref<string | null>(null)
 const previewError = ref('')
 const item = ref<{kind: 'agent' | 'folder', id: string, name: string} | null>(null)
-type MovePreview = {audience_version: string, changes: {principal: string, from?:string, to?:string}[]}
+type MovePreview = {audience_hidden: boolean, audience_version: string, changes: {principal: string, from?:string, to?:string}[]}
 const preview = ref<MovePreview | null>(null)
 const originalDestination = ref('')
 const foldersById = computed(() => new Map(folders.value.map(f => [f.id, f])))

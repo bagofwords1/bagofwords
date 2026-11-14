@@ -378,6 +378,12 @@ async def move_item(
     if kind == "folder":
         if body.parent_id is None and not can_create_root(rights):
             raise HTTPException(403, "Root unavailable")
+        if source and body.parent_id is None:
+            direct = await db.scalars(select(ResourceGrant).where(
+                ResourceGrant.organization_id == org.id, ResourceGrant.resource_type == "folder",
+                ResourceGrant.resource_id == item_id, ResourceGrant.deleted_at.is_(None)))
+            if not await has_active_manager(db, org.id, direct):
+                raise HTTPException(409, "Assign a direct manager before moving this folder to root")
         ancestor = body.parent_id
         while ancestor:
             if ancestor == item_id:
@@ -394,11 +400,16 @@ async def move_item(
         await db.scalars(select(Folder.id).where(Folder.organization_id == org.id, Folder.inherits_access.is_(False)))
     )
 
+    hidden_audience = False
+
     async def inherited(parent):
+        nonlocal hidden_audience
         if not (item.inherits_access if kind == "folder" else item.inherits_folder_access):
             return {}
         branch = []
         while parent:
+            if not rights.has_resource_permission("folder", parent, "manage"):
+                hidden_audience = True
             branch.append(parent)
             if parent in boundaries:
                 break
@@ -422,7 +433,8 @@ async def move_item(
     old = await inherited(source)
     new = await inherited(body.parent_id)
     changes = []
-    for principal in sorted(old.keys() | new.keys()):
+    visible_principals = [] if hidden_audience else sorted(old.keys() | new.keys())
+    for principal in visible_principals:
         if old.get(principal) == new.get(principal):
             continue
         kind_name, principal_id = principal
@@ -441,7 +453,7 @@ async def move_item(
         json.dumps([kind, item_id, source, body.parent_id, sorted(old.items()), sorted(new.items())], sort_keys=True).encode()
     ).hexdigest()
     if body.preview:
-        return {"changes": changes, "audience_version": version}
+        return {"changes": changes, "audience_hidden": hidden_audience, "audience_version": version}
     if body.audience_version is not None and version != body.audience_version:
         raise HTTPException(409, "Sharing changed. Preview the move again.")
     await audit_service.log(
@@ -540,20 +552,19 @@ async def delete_folder(
     from sqlalchemy import delete
 
     from app.models.data_source import DataSource
-    from app.models.report import Report
     from app.services.folder_service import require_folder_manager
 
     folder = await require_folder_manager(db, org.id, user.id, folder_id)
-    for _, links, key, _ in RESOURCES.values():
-        if await db.scalar(select(key).where(links.c.folder_id == folder_id).limit(1)):
+    for model, links, key, _ in RESOURCES.values():
+        if await db.scalar(select(key).join(model, model.id == key).where(
+                links.c.folder_id == folder_id, model.deleted_at.is_(None)).limit(1)):
             raise HTTPException(409, "Folder is in use")
     for model in (Instruction, File, TestSuite):
-        if await db.scalar(select(model.id).where(model.owner_folder_id == folder_id).limit(1)):
+        if await db.scalar(select(model.id).where(model.owner_folder_id == folder_id, model.deleted_at.is_(None)).limit(1)):
             raise HTTPException(409, "Folder owns knowledge")
     if (
         await db.scalar(select(Folder.id).where(Folder.parent_id == folder_id).limit(1))
         or await db.scalar(select(DataSource.id).where(DataSource.folder_id == folder_id).limit(1))
-        or await db.scalar(select(Report.id).where(Report.agent_folder_id == folder_id).limit(1))
     ):
         raise HTTPException(409, "Folder is in use")
     await db.execute(
@@ -563,6 +574,12 @@ async def delete_folder(
             ResourceGrant.resource_id == folder_id,
         )
     )
+    # Historic reports retain their scope id. Deleted knowledge keeps its
+    # targeted scope but must release the owner FK before deleting the folder.
+    for model, links, _, _ in RESOURCES.values():
+        await db.execute(delete(links).where(links.c.folder_id == folder_id))
+        await db.execute(update(model).where(model.owner_folder_id == folder_id,
+            model.deleted_at.is_not(None)).values(owner_folder_id=None))
     await db.delete(folder)
     try:
         await db.commit()
@@ -735,7 +752,8 @@ async def create_folder_instruction(
     await lock_tree(db, org, user)
     await require_capability(db, org, user, folder_id, "manage_instructions")
     created = await InstructionService().create_instruction(
-        db, InstructionCreate(**body.model_dump(), status="published"), user, org, folder_id=folder_id
+        db, InstructionCreate(**body.model_dump(), status="draft"), user, org, folder_id=folder_id,
+        version_status_override="published",
     )
     return {"id": created.id, "name": created.title}
 

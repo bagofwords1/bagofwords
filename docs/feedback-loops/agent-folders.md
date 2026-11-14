@@ -449,3 +449,15 @@ instruction_versions. The live scope and both snapshots must be targeted, the
 folder ID must match, and clearing table references must preserve the audience.
 Repeat create_instruction without any agents, folder or destination and confirm
 that it reports an error. Use a database copy so the training build is isolated.
+
+### Folder regression checks for manual verification
+
+Use a disposable organization with a parent and child folder, separate parent and child managers, a query-only member and an instruction curator. Use the application or authenticated API.
+
+* Bulk replace an agent-only instruction’s targets with an empty list. Confirm the persisted scope and new build version are global. Repeat on a rule also attached to a folder and verify it retains its folder target.
+* Start a folder report with a text file and no uploads, project files or agent library files. Check the planner catalog and read the file. Revoke folder access before a scheduled run with pinned agents and verify the run stops before planning.
+* Move a nested folder to root with only inherited managers. Assign an active direct manager after the refusal, then preview and approve. As a child-only manager, preview moving an agent out of the child and check that no inaccessible ancestor principal appears.
+* Remove a folder’s last instruction, then delete the folder even if a historical report references it. Confirm the report retains its original scope. Live knowledge and child agents should still prevent deletion.
+* Compare Auto discovery, direct agent detail and report focus for a query-only user and an agent manager with draft and development agents. Check both periods of the console comparison against each period’s plain metrics.
+* Create a rule through the folder panel as a curator and inspect the pending build before and after manager approval. Refuse an ambiguous chat-tool destination and read the returned hint. Check custom role grants in the role editor and the read-only role entries in the share dialog.
+* For legacy evals, compare the null-scope results before folder09 with the recovered explicit targets afterward. A changed case or inconsistent report attachments must leave the result restricted. Attempt a folder04 downgrade on a disposable backup with folder-only rule history and verify it stops before dropping its scope columns.

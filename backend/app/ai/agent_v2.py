@@ -1280,6 +1280,7 @@ class AgentV2:
             from app.ai.context.agent_files import merge_files
             from app.services.folder_knowledge import report_folder_files
             folder_files = await report_folder_files(self.db, self.organization, getattr(self.head_completion, "user", None), self.report)
+            self._has_folder_files = bool(folder_files)
             return merge_files(self._project_files_cache, folder_files)
         return self._project_files_cache
 
@@ -9413,6 +9414,7 @@ class AgentV2:
             bool(getattr(self.report, "files", None))
             or bool(getattr(self, "agent_files", None))
             or bool(getattr(self, "_project_files_cache", None))
+            or bool(getattr(self, "_has_folder_files", False))
         )
 
     def _run_pool_key(self) -> tuple:

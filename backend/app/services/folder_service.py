@@ -119,6 +119,17 @@ async def has_active_manager(db, org_id, grants):
     managers = [g for g in grants if "manage" in g.permissions]
     user_ids = [g.principal_id for g in managers if g.principal_type == "user"]
     group_ids = [g.principal_id for g in managers if g.principal_type == "group"]
+    role_ids = [g.principal_id for g in managers if g.principal_type == "role"]
+    if role_ids:
+        from app.models.role_assignment import RoleAssignment
+        assignments = await db.execute(select(RoleAssignment.principal_type, RoleAssignment.principal_id).where(
+            RoleAssignment.organization_id == org_id, RoleAssignment.role_id.in_(role_ids),
+            RoleAssignment.deleted_at.is_(None)))
+        for kind, principal in assignments:
+            if kind == "user":
+                user_ids.append(principal)
+            elif kind == "group":
+                group_ids.append(principal)
     members = select(GroupMembership.user_id).where(
         GroupMembership.group_id.in_(group_ids), GroupMembership.deleted_at.is_(None)
     )
@@ -180,6 +191,10 @@ async def can_read_folder_output(db, report, user):
     for fid in await load_report_folders(db, report):
         curator = (not required and report.user_id == user.id and
                    await training_curator_only(db, org.id, user.id, fid, report.mode))
+        # A deleted folder remains a scope marker on historical reports.
+        if not await db.scalar(select(Folder.id).where(Folder.id == fid,
+                Folder.organization_id == org.id, Folder.deleted_at.is_(None))):
+            return False
         if not curator and not rights.has_resource_permission("folder", fid, "view"):
             return False
     from app.services.folder_knowledge import can_read_knowledge_scope
