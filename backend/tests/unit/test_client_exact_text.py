@@ -189,8 +189,10 @@ def _spark():
 
 
 def _duckdb():
-    """A real in-process DuckDB connection, recorded at its execute call."""
+    """A real in-process DuckDB connection, recorded at its execute call.
+    The client is configured over one URI, so `orders` is its view."""
     client, sent = _client("DuckDBClient"), []
+    client.__init__(uris="/data/orders.csv")
     con = duckdb.connect()
     con.execute("CREATE TABLE orders (id INT)")
 

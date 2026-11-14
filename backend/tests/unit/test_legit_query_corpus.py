@@ -38,14 +38,23 @@ from tests.unit.sql_corpus.legit_queries import (
 BS = chr(92)
 
 
+# Clients whose guard also reads their configuration, configured so every
+# corpus table is theirs: a DuckDB connection to a database file reads its
+# tables by plain name. No file is opened.
+CONFIGURED = {"DuckDBClient": {"database": "/data/corpus.duckdb"}}
+
+
 def _sql_clients() -> dict:
     """Every client the guard checks as parsed SQL, from its own registry,
     by family. No connection is opened: the checks read the client's type
-    only."""
+    (and, for `CONFIGURED`, its configuration) only."""
     clients = {}
     for (module, name), entry in _CLIENT_TABLE.items():
         if entry.profile is not None and entry.profile.kind == "sql":
-            clients[entry.family] = object.__new__(getattr(importlib.import_module(module), name))
+            client = object.__new__(getattr(importlib.import_module(module), name))
+            if entry.family in CONFIGURED:
+                client.__init__(**CONFIGURED[entry.family])
+            clients[entry.family] = client
     return clients
 
 

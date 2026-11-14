@@ -30,7 +30,9 @@ ClickHouse so is a lambda that is a WITH entry or has an alias. On
 ClickHouse, the set of an IN is read only in the shapes `_set_item_tables`
 lists (never under a name an alias of the query also has), and a SETTINGS
 clause only with the settings `_CLICKHOUSE_QUERY_SETTINGS` lists; anything
-else is refused.
+else is refused. DuckDB statements are also read with DuckDB's own parser
+(`_duckdb_tables`): its reads list decides what a statement is, and the
+tables DuckDB reads are checked as well as the ones sqlglot finds.
 
 The check fails closed. If sqlglot cannot parse the query, reads it
 differently from the engine (`sql_guard.check_engine_reading`), or the query reads
@@ -58,6 +60,7 @@ from app.ai.code_execution.sql_guard import (
     ReadOnlyViolation,
     check_engine_reading,
     dialect_for_client,
+    duckdb_read,
 )
 
 logger = logging.getLogger(__name__)
@@ -706,6 +709,81 @@ def _display(ref: Name) -> str:
     return ".".join(p.upper() for p in ref)
 
 
+_UNVERIFIED = "Could not verify which tables this query reads, so it was not run."
+
+
+def _not_a_read_of_enabled_tables(verb: str) -> TableScopeViolation:
+    return TableScopeViolation(
+        f"'{verb or 'This'}' statements are not allowed: this agent can only "
+        "read its enabled tables, which are already described in its schema."
+    )
+
+
+def _duckdb_tables(sql: str) -> tuple[str | None, list[Name]]:
+    """A DuckDB statement as DuckDB reads it: (the SELECT left for the
+    sqlglot checks, or None when there is none; the tables it reads).
+
+    A listing read (SHOW, a listing PRAGMA, PRAGMA show) and EXPLAIN are
+    refused; DESCRIBE / DESC / PRAGMA table_info of a name read that name;
+    a SELECT, or the one DESCRIBE describes, reads the tables DuckDB's
+    parser finds in it (its own CTEs left out), and may call no function
+    whose table cannot be checked."""
+    from app.ai.code_execution.duckdb_guard import inspect_duckdb_sql
+
+    try:
+        read = duckdb_read(sql)
+    except ReadOnlyViolation as e:
+        raise TableScopeViolation(f"{_UNVERIFIED} {e}") from e
+    if read is not None and not read.scoped:
+        raise _not_a_read_of_enabled_tables(read.verb)
+    if read is not None and read.name is not None:
+        return None, [read.name]
+    select = read.select if read is not None else sql
+    try:
+        stmt = inspect_duckdb_sql(select)
+    except Exception as e:  # any failure: the tables cannot be verified
+        raise TableScopeViolation(
+            f"{_UNVERIFIED} Rewrite it as a plain SELECT over the agent's enabled tables."
+        ) from e
+    if stmt.describes:
+        raise _not_a_read_of_enabled_tables("DESCRIBE, SHOW and SUMMARIZE inside a query")
+    for function in sorted(stmt.functions | stmt.table_functions):
+        if _DENIED_FUNCTION.match(function) or DENIED_FUNCTIONS["duckdb"].fullmatch(function):
+            raise _unverifiable_function(function)
+    for function in sorted(stmt.table_functions - _SAFE_TABLE_FUNCTIONS):
+        raise _unverifiable_function(function)
+    return select, [tuple(part for part in table if part) for table in sorted(stmt.tables)]
+
+
+def _refuse_denied(denied: list[str]) -> None:
+    if denied:
+        raise TableScopeViolation(
+            f"Table access denied: {', '.join(denied)} "
+            f"{'is' if len(denied) == 1 else 'are'} not enabled for this agent. "
+            "Only the agent's selected tables can be queried; an admin can enable "
+            "more in the agent's Tables settings. Do not retry with other syntax. "
+            "Tell the user the table is not available to this agent."
+        )
+
+
+def _collect_denied(refs, scope: TableScope, dialect: str, denied: list[str]) -> None:
+    """Add to `denied` each of `refs` the scope does not allow."""
+    compared = scope.exact if dialect in _ENGINE_FOLDED and scope.exact is not None else scope
+    for ref in refs:
+        if not is_allowed(_qualify(ref, compared.default_database), compared):
+            if compared.legacy is not None and is_allowed(ref, compared.legacy):
+                logger.warning(
+                    "table_scope: allowed %s only because it matches an enabled table "
+                    "outside the connection's default database %s; this will be refused "
+                    "once database checks are enforced",
+                    _display(ref), (compared.default_database or "").upper(),
+                )
+                continue
+            shown = _display(ref)
+            if shown not in denied:
+                denied.append(shown)
+
+
 def check_table_scope(sql: str, dialect: str, scope: TableScope) -> None:
     """Raise TableScopeViolation unless every table `sql` reads is active."""
     from app.ai.code_execution.sql_parser import parse_guard_sql
@@ -714,27 +792,30 @@ def check_table_scope(sql: str, dialect: str, scope: TableScope) -> None:
     try:
         check_engine_reading(sql, dialect)
     except ReadOnlyViolation as e:
-        raise TableScopeViolation(f"Could not verify which tables this query reads, so it was not run. {e}") from e
+        raise TableScopeViolation(f"{_UNVERIFIED} {e}") from e
+    denied: list[str] = []
+    if dialect == "duckdb":
+        select, refs = _duckdb_tables(sql)
+        _collect_denied(refs, scope, dialect, denied)
+        if select is None:
+            _refuse_denied(denied)
+            return
+        sql = select
     try:
         statements = [s for s in parse_guard_sql(sql, dialect)
                       if s is not None and not isinstance(s, exp.Semicolon)]
     except Exception as e:  # any parser failure: the tables cannot be verified
         logger.info("table_scope: %s parser could not read query: %s", dialect, str(e)[:200])
         raise TableScopeViolation(
-            "Could not verify which tables this query reads, so it was not run. "
-            "Rewrite it as a plain SELECT over the agent's enabled tables."
+            f"{_UNVERIFIED} Rewrite it as a plain SELECT over the agent's enabled tables."
         ) from e
 
-    denied: list[str] = []
     for stmt in statements:
         if isinstance(stmt, exp.Use):
             continue  # the read-only guard only lets USE WAREHOUSE through
         if isinstance(stmt, exp.Command) or type(stmt).__name__ == "Show":
             verb = (str(stmt.this or "") if isinstance(stmt, exp.Command) else "SHOW").split(" ")[0].upper()
-            raise TableScopeViolation(
-                f"'{verb or 'This'}' statements are not allowed: this agent can only "
-                "read its enabled tables, which are already described in its schema."
-            )
+            raise _not_a_read_of_enabled_tables(verb)
 
         _check_names_of_disabled_tables(stmt, scope)
         if dialect == "clickhouse":
@@ -748,8 +829,9 @@ def check_table_scope(sql: str, dialect: str, scope: TableScope) -> None:
         # A denied name as a column or a field: the read-only guard's list,
         # which holds every Postgres entry above that takes one argument
         # (the large-object ones by exact name, so a column such as lo_price
-        # still reads).
-        field_denied = DENIED_FUNCTIONS.get(dialect)
+        # still reads). DuckDB's calls were read by its own parser above,
+        # which tells a call from a column.
+        field_denied = DENIED_FUNCTIONS.get(dialect) if dialect != "duckdb" else None
         if field_denied is not None:
             for node in stmt.find_all(exp.Column, exp.Dot):
                 if field_denied.fullmatch(node.name.lower()):
@@ -764,20 +846,7 @@ def check_table_scope(sql: str, dialect: str, scope: TableScope) -> None:
                     "because the table it reads cannot be checked."
                 )
 
-        compared = scope.exact if dialect in _ENGINE_FOLDED and scope.exact is not None else scope
-        for ref in tables_read(stmt, dialect):
-            if not is_allowed(_qualify(ref, compared.default_database), compared):
-                if compared.legacy is not None and is_allowed(ref, compared.legacy):
-                    logger.warning(
-                        "table_scope: allowed %s only because it matches an enabled table "
-                        "outside the connection's default database %s; this will be refused "
-                        "once database checks are enforced",
-                        _display(ref), (compared.default_database or "").upper(),
-                    )
-                    continue
-                shown = _display(ref)
-                if shown not in denied:
-                    denied.append(shown)
+        _collect_denied(tables_read(stmt, dialect), scope, dialect, denied)
 
         for t in stmt.find_all(exp.Table):
             target = t.this
@@ -795,14 +864,7 @@ def check_table_scope(sql: str, dialect: str, scope: TableScope) -> None:
                 "the table it reads cannot be checked."
             )
 
-    if denied:
-        raise TableScopeViolation(
-            f"Table access denied: {', '.join(denied)} "
-            f"{'is' if len(denied) == 1 else 'are'} not enabled for this agent. "
-            "Only the agent's selected tables can be queried; an admin can enable "
-            "more in the agent's Tables settings. Do not retry with other syntax. "
-            "Tell the user the table is not available to this agent."
-        )
+    _refuse_denied(denied)
 
 
 def enforce_table_scope(client, query) -> None:

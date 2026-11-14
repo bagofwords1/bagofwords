@@ -1,12 +1,17 @@
 from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
+from app.data_sources.clients._duckdb_lockdown import lock_down
 
 import duckdb
 import pandas as pd
+import re
 from contextlib import contextmanager
 from typing import Generator, List
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
 import urllib.parse
+
+# Characters that make a URI a glob pattern to DuckDB.
+_GLOB_CHAR = re.compile(r"[*?\[]")
 
 
 class DuckDBClient(DataSourceClient):
@@ -106,10 +111,11 @@ class DuckDBClient(DataSourceClient):
         used.add(name)
         return name
 
-    def _create_views(self, con: duckdb.DuckDBPyConnection) -> List[str]:
-        created: List[str] = []
+    def view_names(self) -> List[str]:
+        """The name of the view `connect()` registers for each URI, in URI
+        order: the tables agent SQL may read over URIs. Pure: opens nothing."""
+        names: List[str] = []
         used: set[str] = set()
-        import os
         for pattern in self.uri_patterns:
             normalized = self._normalize_uri(pattern)
             # derive a friendly name from the last path segment (filename without extension)
@@ -124,7 +130,13 @@ class DuckDBClient(DataSourceClient):
             else:
                 # strip extension
                 candidate = last_segment.rsplit(".", 1)[0]
-            view = self._safe_view_name(candidate, used)
+            names.append(self._safe_view_name(candidate, used))
+        return names
+
+    def _create_views(self, con: duckdb.DuckDBPyConnection) -> List[str]:
+        created: List[str] = []
+        for pattern, view in zip(self.uri_patterns, self.view_names()):
+            normalized = self._normalize_uri(pattern)
             lower = normalized.lower()
             if lower.endswith(".parquet") or ".parquet" in lower:
                 con.execute(f"CREATE OR REPLACE VIEW {view} AS SELECT * FROM read_parquet({self._sql_literal(normalized)})")
@@ -133,6 +145,22 @@ class DuckDBClient(DataSourceClient):
                 con.execute(f"CREATE OR REPLACE VIEW {view} AS SELECT * FROM read_csv_auto({self._sql_literal(normalized)})")
             created.append(view)
         return created
+
+    def _lockdown_targets(self) -> tuple[List[str], List[str]]:
+        """(the URIs the views read, as exact paths; the directories of
+        glob URIs, up to the last '/' before the first glob character)."""
+        paths: List[str] = []
+        directories: List[str] = []
+        for pattern in self.uri_patterns:
+            uri = self._normalize_uri(pattern)
+            glob = _GLOB_CHAR.search(uri)
+            if glob is None:
+                paths.append(uri)
+                if uri.lower().startswith("file://"):
+                    paths.append(uri[len("file://"):])
+            else:
+                directories.append(uri[:uri.rfind("/", 0, glob.start()) + 1] or uri[:glob.start()])
+        return paths, directories
 
     def _find_local_duckdb_file(self) -> str | None:
         """Check if any URI pattern is a local .duckdb or .db file.
@@ -158,14 +186,20 @@ class DuckDBClient(DataSourceClient):
             if self.database:
                 # Open local .duckdb file directly (read-only for safety)
                 con = duckdb.connect(database=self.database, read_only=True)
+                lock_down(con)
             elif local_db:
                 # Direct connection to local .duckdb file specified in URIs
                 con = duckdb.connect(database=local_db, read_only=True)
+                lock_down(con)
             else:
                 # In-memory database with views from URI patterns
                 con = duckdb.connect(database=":memory:")
                 self._configure_httpfs(con)
                 self._create_views(con)
+                # The views read their URIs lazily: from here on the
+                # connection may read those and nothing else.
+                paths, directories = self._lockdown_targets()
+                lock_down(con, allowed_paths=paths, allowed_directories=directories)
             yield con
         except IndexingCancelled:
             raise

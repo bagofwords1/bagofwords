@@ -31,6 +31,11 @@ Policy, per client:
     of them runs as code, comment, string and name boundaries they place
     differently, spaces, line breaks and names outside ASCII; such text is
     refused before sqlglot parses it.
+  * **DuckDB connections** (DuckDBClient): DuckDB's own parser reads the
+    text, which must be one SELECT or one of a short list of reads (SHOW,
+    DESCRIBE, a few PRAGMAs, EXPLAIN of a SELECT; `duckdb_read`), calling
+    no file reader, settings or catalog function, and naming only the
+    connection's own tables.
   * **Splunk**: SPL is not SQL but can write; its writing commands are refused.
   * **SQL with no sqlglot dialect** (Db2 LUW, z/OS and IBM i, Vertica,
     Sybase, SAP HANA, Pinot): one statement, a read verb (SELECT / WITH /
@@ -52,6 +57,7 @@ import functools
 import logging
 import re
 import unicodedata
+from dataclasses import dataclass
 from typing import Optional, Union
 
 import regex
@@ -178,7 +184,17 @@ _PG_DENIED_FUNCTION = re.compile(
     # replication slot sync.
     r"|pg_(?:clear|restore)_(?:relation|attribute)_stats|pg_log_standby_snapshot|pg_sync_replication_slots"
 )
-DENIED_FUNCTIONS: dict[str, re.Pattern] = {"postgres": _PG_DENIED_FUNCTION, "redshift": _PG_DENIED_FUNCTION}
+# DuckDB: functions that read files, settings, secrets, the environment or
+# the catalog, or run SQL held in a string (the file-connection rule's list,
+# `duckdb_guard`). DuckDB's own parser tells a call from a column, so this
+# is matched on the calls it reports only.
+_DUCKDB_DENIED_FUNCTION = re.compile(
+    r"current_setting|getenv|duckdb_settings|duckdb_secrets|duckdb_extensions|query|query_table|glob"
+    r"|format_type|get_block_size|pg_get_constraintdef|pg_get_viewdef|read_\w*|\w*_scan"
+)
+DENIED_FUNCTIONS: dict[str, re.Pattern] = {
+    "postgres": _PG_DENIED_FUNCTION, "redshift": _PG_DENIED_FUNCTION, "duckdb": _DUCKDB_DENIED_FUNCTION,
+}
 # A name in code text, quoted or not, or a number (so a name glued after a
 # number is read as its own name, as by `check_unparsed`).
 _CODE_NAME = re.compile(r'"(?P<quoted>(?:[^"]|"")*)"|' + _UNPARSED_WORD.pattern)
@@ -606,7 +622,10 @@ def ensure_read_only(client, query) -> Union[str, dict]:
     elif profile.kind == "sql":
         if profile.dialect in _LEXED_DIALECTS:
             return _check_postgres(query, profile.dialect)
-        check_sql(query, profile.dialect, unknown_lexer=profile.unknown_lexer)
+        if profile.dialect == "duckdb":
+            _check_duckdb_client(client, query)
+        else:
+            check_sql(query, profile.dialect, unknown_lexer=profile.unknown_lexer)
     else:
         raise ReadOnlyViolation(_UNCHECKED_PROFILE)
     return query
@@ -628,6 +647,255 @@ def _check_spl_envelope(query, checked: Optional[str] = None) -> None:
     # rule's verdict, so the stripped text needs no second check.
     if spl is not None and (checked is None or spl not in (checked, checked.strip())):
         check_spl(spl)
+
+
+# DuckDB connections (DuckDBClient). The statement is read with DuckDB's own
+# parser (`duckdb_guard.inspect_duckdb_sql`), which serializes one SELECT
+# only; the reads below are recognised first, on DuckDB's tokens.
+_DUCKDB_LISTING_PRAGMAS = ("show_tables", "show_tables_expanded", "database_list", "version", "platform")
+_DUCKDB_TABLE_FUNCTIONS = frozenset({"range", "generate_series", "unnest"})
+_DUCKDB_SPACE = frozenset(" \t\n\r\f\v")
+# A word of the reads list. `$`, which DuckDB also reads inside a name, is
+# left out: a name holding one is read as a SELECT instead.
+_DUCKDB_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+# A table named in a string (`PRAGMA table_info('main.orders')`).
+_DUCKDB_STRING_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*){0,2}")
+# What no part of a table name on a database-file connection may hold: a
+# path, a URL or a file name DuckDB would read in place of a table.
+_DUCKDB_PATH_CHARS = frozenset("./" + chr(92) + ":*?[]{}")
+_DUCKDB_LISTED_TABLES = 50
+
+
+@dataclass(frozen=True)
+class DuckdbRead:
+    """One of the reads a DuckDB connection takes besides a plain SELECT.
+
+    `verb` is the command (SHOW, PRAGMA, DESCRIBE, DESC or EXPLAIN); `name`
+    the table it names, as lowercased parts (one to three), if any;
+    `select` the text of the SELECT it describes or explains, if any.
+    `scoped` is True when a table selection checks the table or the
+    SELECT's tables, False when a table selection refuses the read."""
+
+    verb: str
+    name: Optional[tuple[str, ...]] = None
+    select: Optional[str] = None
+    scoped: bool = False
+
+
+def _duckdb_tokens(sql: str):
+    """The tokens of `sql` as DuckDB reads them, for the few kinds the reads
+    list is made of: (kind, value, end) for a word, a "quoted" name, a
+    'string' or one of `( ) . ;`. Whitespace and comments are skipped (block
+    comments nest and a line comment ends at a CR or an LF, as in DuckDB).
+    Anything else, an unterminated comment or quote included, yields one
+    ("other", "", position) and ends the tokens."""
+    i, n = 0, len(sql)
+    while i < n:
+        c = sql[i]
+        if c in _DUCKDB_SPACE:
+            i += 1
+        elif sql.startswith("--", i):
+            while i < n and sql[i] not in "\r\n":
+                i += 1
+        elif sql.startswith("/*", i):
+            depth, i = 1, i + 2
+            while i < n and depth:
+                if sql.startswith("/*", i):
+                    depth, i = depth + 1, i + 2
+                elif sql.startswith("*/", i):
+                    depth, i = depth - 1, i + 2
+                else:
+                    i += 1
+            if depth:
+                yield ("other", "", i)
+                return
+        elif word := _DUCKDB_WORD.match(sql, i):
+            i = word.end()
+            yield ("word", word.group(), i)
+        elif c in "\"'":
+            end = sql.find(c, i + 1)
+            if end < 0:
+                yield ("other", "", i)
+                return
+            yield ("quoted" if c == '"' else "string", sql[i + 1:end], end + 1)
+            i = end + 1
+        elif c in "().;":
+            i += 1
+            yield ("punct", c, i)
+        else:
+            yield ("other", "", i)
+            return
+
+
+def _duckdb_name_at(tokens: list, i: int) -> Optional[tuple[tuple[str, ...], int]]:
+    """A plain or dotted name of one to three parts (words or non-empty
+    "quoted" parts) at tokens[i]: (lowercased parts, index after it)."""
+    parts: list[str] = []
+    while i < len(tokens) and len(parts) < 3:
+        kind, value, _end = tokens[i]
+        if kind not in ("word", "quoted") or not value:
+            return None
+        parts.append(value.lower())
+        i += 1
+        if i < len(tokens) and tokens[i][:2] == ("punct", ".") and len(parts) < 3:
+            i += 1
+            continue
+        return tuple(parts), i
+    return None
+
+
+def duckdb_read(sql: str) -> Optional[DuckdbRead]:
+    """Which of a DuckDB connection's reads `sql` is, or None when it is
+    none of them (it must then be one SELECT).
+
+    The reads: SHOW TABLES, SHOW ALL TABLES, SHOW DATABASES and the PRAGMAs
+    show_tables, show_tables_expanded, database_list, version and platform;
+    SHOW <name> and PRAGMA show(<name>); DESCRIBE / DESC <name> and PRAGMA
+    table_info(<name>) or table_info('<name>'); DESCRIBE <select> and
+    EXPLAIN <select>, whose SELECT is the rest of the text after the
+    command. Case-insensitive, with comments anywhere and one optional
+    trailing `;`. Any other PRAGMA, an assignment included, raises
+    ReadOnlyViolation."""
+    tokens = list(_duckdb_tokens(sql))
+    if not tokens or tokens[0][0] != "word":
+        return None
+    verb, after_verb = tokens[0][1].upper(), tokens[0][2]
+    if verb == "EXPLAIN":
+        return DuckdbRead("EXPLAIN", select=sql[after_verb:])
+    if verb not in ("SHOW", "DESCRIBE", "DESC", "PRAGMA"):
+        return None
+    rest = tokens[1:]
+
+    def ends_at(i: int) -> bool:
+        return rest[i:] == [] or (len(rest) == i + 1 and rest[i][:2] == ("punct", ";"))
+
+    def words(*expected: str) -> bool:
+        return (len(rest) >= len(expected) and ends_at(len(expected))
+                and all(kind == "word" and value.upper() == word
+                        for (kind, value, _end), word in zip(rest, expected)))
+
+    if verb == "SHOW" and (words("TABLES") or words("ALL", "TABLES") or words("DATABASES")):
+        return DuckdbRead("SHOW")
+    if verb in ("SHOW", "DESCRIBE", "DESC"):
+        named = _duckdb_name_at(rest, 0)
+        if named and ends_at(named[1]):
+            if not _duckdb_describes_table(sql, named[0]):
+                # A name DuckDB reads as a listing (tables, databases, ...).
+                return DuckdbRead(verb)
+            return DuckdbRead(verb, name=named[0], scoped=verb != "SHOW")
+        return DuckdbRead("DESCRIBE", select=sql[after_verb:], scoped=True) if verb == "DESCRIBE" else None
+    pragma = rest[0][1].lower() if rest and rest[0][0] == "word" else ""
+    if pragma in _DUCKDB_LISTING_PRAGMAS and ends_at(1):
+        return DuckdbRead("PRAGMA")
+    if pragma in ("table_info", "show") and len(rest) > 2 and rest[1][:2] == ("punct", "("):
+        if rest[2][0] == "string":
+            named = ((tuple(rest[2][1].lower().split(".")), 3)
+                     if _DUCKDB_STRING_NAME.fullmatch(rest[2][1]) else None)
+        else:
+            named = _duckdb_name_at(rest, 2)
+        if named and named[1] < len(rest) and rest[named[1]][:2] == ("punct", ")") and ends_at(named[1] + 1):
+            return DuckdbRead("PRAGMA", name=named[0], scoped=pragma == "table_info")
+    raise ReadOnlyViolation(
+        "This PRAGMA is not allowed on this connection. Allowed: PRAGMA "
+        + ", ".join(_DUCKDB_LISTING_PRAGMAS) + ", table_info(<table>). Only SELECT queries are allowed otherwise."
+    )
+
+
+def _duckdb_table(name: tuple[str, ...]) -> tuple[str, str, str]:
+    """(catalog, schema, table) of a name of one to three parts."""
+    return ("", "", "", *name)[-3:]
+
+
+def _duckdb_describes_table(sql: str, name: tuple[str, ...]) -> bool:
+    """Whether DuckDB reads `sql`, a SHOW / DESCRIBE / DESC of `name`, as
+    describing the table `name` (True) or as listing tables, databases or
+    schemas, as it does for a few single names (False). Its parser decides;
+    a reading that names another table is refused."""
+    from app.ai.code_execution.duckdb_guard import inspect_duckdb_sql
+
+    tables = inspect_duckdb_sql(sql).tables
+    if not tables:
+        return False
+    if tables != {_duckdb_table(name)}:
+        raise ReadOnlyViolation("The statement could not be read as describing one table. "
+                                "Only SELECT queries are allowed otherwise.")
+    return True
+
+
+def _check_duckdb_client(client, sql: str) -> None:
+    """A DuckDB connection's rule: one SELECT (or one of the reads of
+    `duckdb_read`) as DuckDB reads it, calling no denied function and no
+    table function but a few generators, and naming only the connection's
+    own tables (`_check_duckdb_table`), with or without a table selection."""
+    check_engine_reading(sql, "duckdb")
+    read = duckdb_read(sql)
+    if read is None:
+        _check_duckdb_select(client, sql)
+    elif read.name is not None:
+        _check_duckdb_table(client, _duckdb_table(read.name))
+    elif read.select is not None:
+        _check_duckdb_select(client, read.select, after=read.verb)
+
+
+def _check_duckdb_select(client, sql: str, *, after: Optional[str] = None) -> None:
+    """`sql` is one SELECT DuckDB's parser reads, with the connection's rule
+    on its functions and tables. `after`: the command (DESCRIBE, EXPLAIN)
+    `sql` follows. Text DuckDB cannot parse raises its fixable syntax error
+    (`DuckdbSyntaxError`), unless it follows a command."""
+    from app.ai.code_execution.duckdb_guard import DuckdbQueryError, inspect_duckdb_sql
+
+    try:
+        stmt = inspect_duckdb_sql(sql)
+    except DuckdbQueryError as e:
+        if after is None:
+            raise
+        raise ReadOnlyViolation(f"{after} takes a table name or a SELECT on this connection. {e}") from e
+    if stmt.describes:
+        raise ReadOnlyViolation(
+            "DESCRIBE, SHOW and SUMMARIZE are allowed only as the whole statement, on a table name. "
+            "Only SELECT queries are allowed otherwise."
+        )
+    for function in sorted(stmt.functions | stmt.table_functions):
+        if _DUCKDB_DENIED_FUNCTION.fullmatch(function):
+            raise ReadOnlyViolation(
+                f"{function}() is not allowed on this connection: it reads files, settings or the catalog, "
+                "or runs SQL held in a string. Query its tables by name."
+            )
+    for function in sorted(stmt.table_functions - _DUCKDB_TABLE_FUNCTIONS):
+        raise ReadOnlyViolation(
+            f"Table function {function}() is not allowed on this connection. Query its tables by name."
+        )
+    for table in sorted(stmt.tables):
+        _check_duckdb_table(client, table)
+
+
+def _check_duckdb_table(client, table: tuple[str, str, str]) -> None:
+    """A table a DuckDB connection may name. Over URIs: one of the views it
+    registers (`view_names()`, matched case-insensitively), in the default
+    schema and catalog. On a database file: a name whose parts hold no
+    path, URL or file-name character."""
+    catalog, schema, name = table
+    shown = ".".join(part for part in table if part)
+    if client._is_direct_db_connection():
+        if name and not any(c in _DUCKDB_PATH_CHARS for part in table for c in part):
+            return
+        raise ReadOnlyViolation(
+            f"Table {shown} is not allowed on this connection: query its tables by their names, "
+            "not by a file path or URL."
+        )
+    views = client.view_names()
+    if name in {v.lower() for v in views} and schema in ("", "main") and catalog in ("", "memory"):
+        return
+    # The tables list comes first: with data hidden, the message is cut
+    # where the name the agent wrote holds a quote, ": " or " (".
+    listed = sorted(views, key=str.lower)
+    if listed:
+        more = len(listed) - _DUCKDB_LISTED_TABLES
+        tables = f"The tables of this connection are {', '.join(listed[:_DUCKDB_LISTED_TABLES])}"
+        tables += f" and {more} more." if more > 0 else "."
+    else:
+        tables = "This connection has no tables to query."
+    raise ReadOnlyViolation(f"{tables} Table {shown} is not one of the tables of this connection.")
 
 
 def check_sql(sql: str, dialect: str, *, unknown_lexer: bool = False) -> None:

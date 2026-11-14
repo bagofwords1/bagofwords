@@ -56,11 +56,19 @@ NON_ASCII_SPACES = [chr(c) for c in range(0x80, 0x110000) if chr(c).isspace()]
 SCOPE = TableScope.from_names(active=["orders", "events"], inactive=["secret"])
 
 
+# Clients whose guard also reads their configuration: a DuckDB connection
+# to a database file reads its tables by plain name. No file is opened.
+CONFIGURED = {"DuckDBClient": {"database": "/data/warehouse.duckdb"}}
+
+
 def _client(family: str):
     """A real client of the registered family, with no connection."""
     for (module, name), entry in _CLIENT_TABLE.items():
         if entry.family == family:
-            return object.__new__(getattr(importlib.import_module(module), name))
+            client = object.__new__(getattr(importlib.import_module(module), name))
+            if family in CONFIGURED:
+                client.__init__(**CONFIGURED[family])
+            return client
     raise KeyError(family)
 
 
