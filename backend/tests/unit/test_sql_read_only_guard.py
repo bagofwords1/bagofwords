@@ -338,8 +338,10 @@ def test_the_unparsed_fallback_refuses_text_the_dialect_cannot_tokenize(unparsab
 @pytest.mark.parametrize("dialect, sql", [
     *[(d, "SELECT a FROM t # a note" + NL + "WHERE b = 1") for d in HASH_COMMENT_DIALECTS],
     # Not Athena: its query engine has no backslash escapes, and its
-    # tokenizer cannot read this text, so it is refused.
-    *[(d, "SELECT a FROM t WHERE b = 'it" + BS + "'s'") for d in BACKSLASH_DIALECTS if d != "athena"],
+    # tokenizer cannot read this text, so it is refused. Not MySQL: a
+    # server in another SQL mode ends the string at the backslash, so it is
+    # refused (test_sql_guard_dialects.py, server modes).
+    *[(d, "SELECT a FROM t WHERE b = 'it" + BS + "'s'") for d in BACKSLASH_DIALECTS if d not in ("athena", "mysql")],
     *[(d, "SELECT a FROM t WHERE b = 'x # y' AND c = '-- z'") for d in NON_TERADATA],
     *[(d, "SELECT t1do, col2set FROM t WHERE note = 'please delete'") for d in NON_TERADATA],
 ])

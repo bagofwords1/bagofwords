@@ -19,8 +19,10 @@ from dataclasses import dataclass, field
 class GuardProfile:
     """How the wrapper checks statements for one client family.
 
-    kind: "sql" (parsed with `dialect`), "nonparsing_sql" (SQL without a
-    parser dialect), "spl" (Splunk), "cypher" (Neo4j).
+    kind: "sql" (parsed with `dialect`, a dialect sqlglot knows),
+    "nonparsing_sql" (SQL without a parser dialect), "spl" (Splunk),
+    "cypher" (Neo4j). The guard refuses every query to a client whose
+    profile has any other kind.
     extra_kwargs: keyword arguments the client may receive besides the
     statement; any other keyword is refused.
     accepts_dict: the statement may be a dict envelope (checked by the client
@@ -42,6 +44,8 @@ class GuardProfile:
     unknown_lexer: bool = False
 
     def __post_init__(self):
+        if self.kind == "sql" and not _known_dialect(self.dialect):
+            raise ValueError(f"{self.family}: a sql profile needs a dialect sqlglot knows, not {self.dialect!r}")
         if self.kind == "nonparsing_sql" and self.engine not in NONPARSING_ENGINES:
             raise ValueError(f"{self.family}: engine {self.engine!r} is not one of {sorted(NONPARSING_ENGINES)}")
         if self.kind != "nonparsing_sql" and self.engine is not None:
@@ -50,6 +54,20 @@ class GuardProfile:
 
 # The engines whose rules the guard reads SQL without a parser dialect with.
 NONPARSING_ENGINES = frozenset({"db2", "vertica", "sybase", "hana", "pinot"})
+
+
+def _known_dialect(name) -> bool:
+    """Whether `name` is a dialect sqlglot can read: a "sql" profile without
+    one would leave its client's queries unchecked."""
+    if not isinstance(name, str) or not name:
+        return False
+    from sqlglot.dialects.dialect import Dialect
+
+    try:
+        Dialect.get_or_raise(name)
+    except Exception:
+        return False
+    return True
 
 
 @dataclass(frozen=True)

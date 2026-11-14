@@ -210,11 +210,15 @@ def test_a_number_glued_to_a_word_is_refused_on_mysql_by_the_guard_and_by_table_
 
 @pytest.mark.parametrize("family", ["MysqlClient", "MariadbClient"])
 @pytest.mark.parametrize("sql", [
+    # A number after a lone dot, an exponent, a dot inside the name: the
+    # server reads a number and then the word (live dialect tests).
     "SELECT id FROM orders UNION SELECT .5from secret",
-    "SELECT 1from AS a FROM orders",
-    "SELECT o.1st FROM orders o",
+    "SELECT id FROM orders UNION SELECT x, -.5from secret",
+    "SELECT id FROM orders UNION SELECT x, 1e5from secret",
+    "SELECT id FROM orders UNION SELECT x, 1e+5from secret",
+    "SELECT id FROM orders UNION SELECT x, 1.e5from secret",
 ])
-def test_every_unquoted_name_starting_with_a_digit_is_refused_on_mysql(family, sql):
+def test_a_name_starting_with_a_digit_that_the_server_reads_as_a_number_is_refused_on_mysql(family, sql):
     _refused(family, sql, match="backticks")
 
 
@@ -223,8 +227,48 @@ def test_every_unquoted_name_starting_with_a_digit_is_refused_on_mysql(family, s
     "SELECT `1st`, id1, x1e5 FROM orders WHERE id = 1.5 LIMIT 10",
     "SELECT 1.5e3 AS a, .5 AS b, 0x1F AS c FROM orders",
     "SELECT '1.5from secret' AS a FROM orders",
+    # Names the server reads as one name, as sqlglot does (live dialect
+    # tests): digits then letters or underscores, after a table name too.
+    "SELECT 2023_sales, 1st_quarter, 12abc, 1_000 FROM orders",
+    "SELECT o.1st, o.2023_sales FROM orders o",
+    "SELECT 1efrom, 1e FROM orders",
 ])
-def test_numbers_and_quoted_names_starting_with_a_digit_still_read_on_mysql(family, sql):
+def test_numbers_and_names_starting_with_a_digit_that_the_server_reads_as_one_name_still_read_on_mysql(family, sql):
+    _passes(family, sql)
+
+
+# --------------------------------------------------------------- MySQL / MariaDB server modes
+
+# Each hides a read of the inactive table from sqlglot, which reads MySQL's
+# default mode, while a server in another mode ends the literal at the
+# backslash (proven on mysql:8 and mariadb:11.4 in the live dialect tests).
+MYSQL_MODE_HIDDEN = [
+    # NO_BACKSLASH_ESCAPES: a backslash is a character, not an escape.
+    "SELECT 'a" + BS + "' AS v, x FROM secret -- ' FROM orders",
+    "SELECT N'a" + BS + "' AS v, x FROM secret -- ' FROM orders",
+    # ANSI_QUOTES: "..." is a name, in which a backslash escapes nothing.
+    "SELECT 1 AS \"a" + BS + "\", x FROM secret -- \" FROM orders",
+]
+
+
+@pytest.mark.parametrize("family", ["MysqlClient", "MariadbClient"])
+@pytest.mark.parametrize("sql", MYSQL_MODE_HIDDEN)
+def test_a_literal_that_a_server_mode_ends_elsewhere_is_refused_by_the_guard_and_by_table_scope(family, sql):
+    _hidden_from_sqlglot(family, sql)
+    _refused(family, sql, match="backslash")
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, "mysql", SCOPE)
+
+
+@pytest.mark.parametrize("family", ["MysqlClient", "MariadbClient"])
+@pytest.mark.parametrize("sql", [
+    # A backslash that escapes a backslash, or a letter, ends no literal
+    # elsewhere in any mode (rendered parameters double every backslash).
+    "SELECT 'abc" + BS + BS + "' AS a, 'a" + BS + "nb' AS b FROM orders",
+    "SELECT 'it''s' AS a, \"say \"\"hi\"\"\" AS b, \"a" + BS + BS + "\" AS c FROM orders",
+    "SELECT * FROM orders WHERE note = '" + BS + BS + "'''",
+])
+def test_literals_every_server_mode_ends_at_the_same_place_still_read_on_mysql(family, sql):
     _passes(family, sql)
 
 
@@ -236,6 +280,85 @@ def test_a_digit_led_name_still_reads_where_the_engine_never_splits_a_number_fro
     # underscore (SqlBaseLexer isValidDecimal) and a digit-led word as one
     # IDENTIFIER. Neither reads a number and then FROM.
     ensure_read_only(_client(family), "SELECT 1abc FROM orders")
+
+
+# --------------------------------------------------------------- ClickHouse
+
+# ClickHouse reads the curly double quotes as name quotes and the curly
+# single quotes as string quotes; sqlglot reads all four as name characters
+# (live dialect tests, ClickHouse 25.8).
+LDQ, RDQ, LSQ, RSQ = chr(0x201C), chr(0x201D), chr(0x2018), chr(0x2019)
+CLICKHOUSE_QUOTE_HIDDEN = [
+    "SELECT " + LSQ + "--" + RSQ + " AS a, x FROM secret",
+    "SELECT 1 AS " + LDQ + "--" + RDQ + ", x FROM secret",
+    "SELECT id FROM orders WHERE " + LSQ + "--" + RSQ + " = '--' UNION ALL SELECT x FROM secret",
+    "SELECT " + LSQ + "--" + RSQ + " AS a, * FROM url('http://example.invalid/x', CSV)",
+]
+
+
+@pytest.mark.parametrize("sql", CLICKHOUSE_QUOTE_HIDDEN)
+def test_a_curly_quote_is_refused_on_clickhouse_by_the_guard_and_by_table_scope(sql):
+    _hidden_from_sqlglot("ClickhouseClient", sql)
+    _refused("ClickhouseClient", sql, match="curly quote")
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, "clickhouse", SCOPE)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT 'it" + RSQ + "s " + LDQ + "x" + RDQ + "' AS a FROM orders",
+    "SELECT \"a" + LSQ + "b\", `c" + RDQ + "` FROM orders",
+])
+def test_curly_quotes_inside_a_string_or_a_quoted_name_still_read_on_clickhouse(sql):
+    _passes("ClickhouseClient", sql)
+
+
+# ClickHouse reads a name on the right of IN as a table (a set); sqlglot
+# reads a column (live dialect tests).
+CLICKHOUSE_IN_TABLE = [
+    "SELECT id FROM orders WHERE 42 IN secret",
+    "SELECT id FROM orders WHERE 42 IN (secret)",
+    "SELECT id FROM orders WHERE 42 GLOBAL IN secret",
+    "SELECT id FROM orders WHERE 42 NOT IN secret",
+    "SELECT id FROM orders WHERE 42 GLOBAL NOT IN secret",
+    "SELECT id FROM orders WHERE 42 IN default.secret",
+    "SELECT id FROM orders WHERE 42 IN (default.secret)",
+    "SELECT id FROM orders WHERE (id, 1) IN `secret`",
+]
+
+
+@pytest.mark.parametrize("sql", CLICKHOUSE_IN_TABLE)
+def test_a_name_on_the_right_of_in_is_a_table_that_table_scope_checks_on_clickhouse(sql):
+    _hidden_from_sqlglot("ClickhouseClient", sql)
+    with pytest.raises(TableScopeViolation, match="SECRET"):
+        check_table_scope(ensure_read_only(_client("ClickhouseClient"), sql), "clickhouse", SCOPE)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT id FROM orders WHERE id IN events",
+    "SELECT id FROM orders WHERE id GLOBAL IN (events)",
+    "SELECT id FROM orders WHERE id IN (1, 2)",
+    "SELECT id FROM orders WHERE id IN (SELECT id FROM events)",
+])
+def test_in_over_an_active_table_a_list_or_a_subquery_still_reads_on_clickhouse(sql):
+    _passes("ClickhouseClient", sql)
+
+
+def test_the_tables_read_on_clickhouse_include_the_table_on_the_right_of_in():
+    statement = parse_guard_sql("SELECT id FROM orders WHERE 42 NOT IN db.secret", "clickhouse")[0]
+    assert tables_read(statement, "clickhouse") == [("orders",), ("db", "secret")]
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT x, -.5from secret",
+    "SELECT id FROM orders UNION ALL SELECT 1-.5from secret",
+])
+def test_a_number_after_a_lone_dot_glued_to_a_word_is_refused_on_clickhouse(sql):
+    # ClickHouse 25.8 reads the number and then FROM (live dialect tests).
+    _refused("ClickhouseClient", sql, match="starts with a digit")
+
+
+def test_a_digit_led_name_after_a_table_name_still_reads_on_clickhouse():
+    _passes("ClickhouseClient", "SELECT o.5x FROM orders AS o")
 
 
 # --------------------------------------------------------------- Druid
@@ -701,6 +824,11 @@ VERTICA_DOLLAR_HIDDEN = [
     "SELECT $$'$$ AS a; DROP TABLE orders --'",
     "SELECT $x$'$x$ AS a; DROP TABLE orders --'",
     "SELECT 1 AS a, $$ " + BS + "' $$ AS b; DROP TABLE orders --'",
+    # A number before the tag: a Postgres-style lexer reads the number and
+    # then the dollar-quoted string.
+    "SELECT 1$x$'$x$ AS a; DROP TABLE orders --'",
+    "SELECT .5$x$'$x$ AS a; DROP TABLE orders --'",
+    "SELECT 1e5$x$'$x$ AS a; DROP TABLE orders --'",
 ]
 
 
@@ -715,6 +843,7 @@ def test_a_dollar_quoted_string_is_refused_on_vertica(sql):
 @pytest.mark.parametrize("sql", [
     "SELECT a$b, price$ FROM orders WHERE note = '$$ off'",
     "SELECT 1 AS a FROM orders -- $$",
+    "SELECT x1$a$, _b$c$d$, a$b$1$c$ FROM orders",
 ])
 def test_names_holding_a_dollar_and_dollars_in_strings_still_read_on_vertica(sql):
     assert ensure_read_only(_client("VerticaClient"), sql) == sql
@@ -735,6 +864,12 @@ def test_sql_anywhere_may_read_a_percent_sign_as_a_line_comment():
     _refused("SybaseClient", "SELECT 1 % '" + NL + "; DELETE FROM orders --'")
 
 
+def test_sql_anywhere_may_read_a_backtick_quoted_name():
+    # Read as a name, the backticks hold the quote, and the second
+    # statement after them runs.
+    _refused("SybaseClient", "SELECT `'`, 1; DELETE FROM orders --'")
+
+
 def test_sql_anywhere_may_read_a_backslash_escape_in_a_string():
     _refused("SybaseClient", "SELECT 'a" + BS + "'' ; DELETE FROM orders --' AS a")
 
@@ -742,6 +877,7 @@ def test_sql_anywhere_may_read_a_backslash_escape_in_a_string():
 @pytest.mark.parametrize("sql", [
     "SELECT a % 2, a / 2 FROM orders WHERE note = 'it''s 50%'",
     "SELECT [my col] FROM orders",
+    "SELECT `my col`, `id` FROM orders",
 ])
 def test_sql_anywhere_reads_still_pass(sql):
     assert ensure_read_only(_client("SybaseClient"), sql) == sql
@@ -810,6 +946,28 @@ def test_every_engine_rule_names_an_engine_the_profiles_know():
              and name != "_NONPARSING_READ_VERBS" and isinstance(getattr(sql_guard, name), frozenset)]
     assert rules and all(rule <= NONPARSING_ENGINES for rule in rules)
     assert set(sql_guard._NONPARSING_WRITE_WORDS) <= NONPARSING_ENGINES
+
+
+@pytest.mark.parametrize("dialect", [None, "", "nosuchdialect"])
+def test_a_sql_guard_profile_needs_a_dialect_sqlglot_knows(dialect):
+    from app.ai.code_execution.client_profiles import GuardProfile
+
+    with pytest.raises(ValueError, match="dialect"):
+        GuardProfile(family="X", kind="sql", dialect=dialect)
+
+
+class _UnhandledClient:
+    """A client whose guard profile has a kind the guard has no check for."""
+
+
+def test_a_client_whose_profile_the_guard_cannot_check_is_refused(monkeypatch):
+    from app.ai.code_execution.client_profiles import ClientEntry, GuardProfile
+
+    key = (_UnhandledClient.__module__, _UnhandledClient.__qualname__)
+    profile = GuardProfile(family="Unhandled", kind="graphql", dialect=None)
+    monkeypatch.setitem(_CLIENT_TABLE, key, ClientEntry(family="Unhandled", profile=profile))
+    with pytest.raises(ReadOnlyViolation):
+        ensure_read_only(_UnhandledClient(), "DELETE FROM orders")
 
 
 @pytest.mark.parametrize("dialect", [None, "", "nosuchdialect"])

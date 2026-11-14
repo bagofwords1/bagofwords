@@ -11,7 +11,9 @@ server: its connection factory hands out a fake DBAPI connection (or the
 fake session, job or API the driver library exposes) that records what it
 is sent, or, for the clients that go through SQLAlchemy, a real SQLAlchemy
 connection to an in-memory SQLite database whose cursor executions are
-recorded. The driver below SQLAlchemy is not exercised here; the live
+recorded. Pinot runs pinotdb's own connection and cursor over a recording
+HTTP transport, since pinotdb itself formats the text. The driver below
+SQLAlchemy is not exercised here; the live
 exact-text tests cover psycopg2 and pymysql on real servers
 (tests/integrations/test_exact_text_send_live.py). Vertica has its own
 file (test_vertica_client.py), Postgres goes through the session checks in
@@ -223,6 +225,29 @@ def _timbr():
     return client, sent
 
 
+def _pinot(query_options=None):
+    """Pinot: pinotdb's own connection and cursor, over an HTTP transport
+    that records the SQL each request carries and answers as a broker does."""
+    import json
+
+    import httpx
+
+    from app.data_sources.clients.pinot_client import PinotClient
+
+    sent: list[str] = []
+
+    def broker(request):
+        sent.append(json.loads(request.content)["sql"])
+        return httpx.Response(200, json={
+            "resultTable": {"dataSchema": {"columnNames": ["a"], "columnDataTypes": ["STRING"]}, "rows": [["x"]]},
+            "exceptions": [], "numServersQueried": 1, "numServersResponded": 1, "timeUsedMs": 1,
+        })
+
+    client = PinotClient(host="broker.invalid", port=8099, secure=False, query_options=query_options)
+    client._connect_kwargs["session"] = httpx.Client(transport=httpx.MockTransport(broker))
+    return client, sent
+
+
 def _ibmi():
     """IBM i: a fake Mapepire SQL job that records each query it is given."""
     client, sent = _client("IbmiClient"), []
@@ -252,7 +277,7 @@ RIGS = {
     "MsFabricClient": lambda mp: _dbapi("MsFabricClient"),
     "MysqlClient": lambda mp: _sqlalchemy("MysqlClient"),
     "OracledbClient": lambda mp: _sqlalchemy("OracledbClient"),
-    "PinotClient": lambda mp: _dbapi("PinotClient", query_options=None),
+    "PinotClient": lambda mp: _pinot(),
     "PrestoClient": lambda mp: _trino("PrestoClient"),
     "SapHanaClient": lambda mp: _dbapi("SapHanaClient"),
     "SnowflakeClient": lambda mp: _sqlalchemy("SnowflakeClient"),
@@ -291,6 +316,20 @@ def test_the_driver_receives_exactly_the_checked_text(family, monkeypatch):
         assert sent[-1] == checked and sent.count(checked) == 1
     else:
         assert sent == [checked]
+
+
+@pytest.mark.parametrize("query_options", [None, "timeoutMs=1000"])
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM orders WHERE note LIKE '10%%'",
+    "SELECT * FROM orders WHERE note = '%(x)s' OR code LIKE '%'",
+])
+def test_pinot_sends_percent_signs_as_written(sql, query_options):
+    # pinotdb formats the text it is given with Python's % operator: '%%'
+    # became '%' and '%(' raised. With no parameters the client skips that.
+    client, sent = _pinot(query_options=query_options)
+    df = client.execute_query(ensure_read_only(client, sql))
+    assert sent == [sql]
+    assert df.to_dict("records") == [{"a": "x"}]
 
 
 def test_awswrangler_leaves_text_without_params_unchanged():

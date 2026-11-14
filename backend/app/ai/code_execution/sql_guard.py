@@ -469,14 +469,29 @@ _NONPARSING_SLASH_COMMENTS = frozenset({"pinot", "sybase"})
 # `%` as a line comment: SQL Anywhere when its percent_as_comment option is
 # on.
 _NONPARSING_PERCENT_COMMENTS = frozenset({"sybase"})
-# Backtick-quoted names: perhaps Pinot. To the others a backtick is code.
-_NONPARSING_BACKTICKS = frozenset({"pinot"})
+# Backtick-quoted names: perhaps Pinot and SQL Anywhere. To the others a
+# backtick is code.
+_NONPARSING_BACKTICKS = frozenset({"pinot", "sybase"})
 # Dollar-quoted strings ($$...$$), refused outside strings: Vertica.
 _NONPARSING_DOLLAR_QUOTES = frozenset({"vertica"})
-# A dollar-quote opener: `$$`, or `$tag$` not right after a name character.
-_DOLLAR_QUOTE_OPENER = re.compile(
-    r"\$\$|(?<![A-Za-z0-9_$\x80-\U0010FFFF])\$[A-Za-z_\x80-\U0010FFFF][A-Za-z0-9_\x80-\U0010FFFF]*\$"
-)
+# A dollar-quote tag, and a run of name characters a tag may stand in.
+_DOLLAR_TAG = re.compile(r"\$[A-Za-z_\x80-\U0010FFFF][A-Za-z0-9_\x80-\U0010FFFF]*\$")
+_NAME_CHARS_RUN = re.compile(r"[A-Za-z0-9_$\x80-\U0010FFFF]+")
+
+
+def _opens_dollar_quote(code: str) -> bool:
+    """Whether `code` may open a dollar-quoted string: `$$` anywhere, or a
+    `$tag$` other than inside a name. A run of name characters that starts
+    with a letter, `_` or a character outside ASCII is one name to a
+    Postgres-style lexer; in a run that starts with a digit (a number, as
+    in `1$x$`) or with `$`, a tag may open a string."""
+    if "$$" in code:
+        return True
+    for run in _NAME_CHARS_RUN.finditer(code):
+        first = run.group()[0]
+        if ("0" <= first <= "9" or first == "$") and _DOLLAR_TAG.search(run.group()):
+            return True
+    return False
 
 
 def _nonparsing_readings(sql: str, engine: Optional[str]) -> list[tuple[str, str]]:
@@ -517,7 +532,7 @@ def _check_nonparsing(sql: str, engine: Optional[str]) -> None:
                 "The query has '//' outside a string, which this source reads as the start of a comment. "
                 "Remove it, or write the division with a space between the slashes."
             )
-        if engine in _NONPARSING_DOLLAR_QUOTES and _DOLLAR_QUOTE_OPENER.search(code_only):
+        if engine in _NONPARSING_DOLLAR_QUOTES and _opens_dollar_quote(code_only):
             raise ReadOnlyViolation(
                 "The query has a dollar-quoted string ($$...$$), which the query checks do not read. "
                 "Write a standard string, doubling each quote inside it ('it''s')."
@@ -588,10 +603,12 @@ def ensure_read_only(client, query) -> Union[str, dict]:
             check_cypher(query, allow_gds=client.allow_gds)
         except CypherNotAllowed as e:
             raise ReadOnlyViolation(str(e)) from e
-    elif profile.dialect in _LEXED_DIALECTS:
-        return _check_postgres(query, profile.dialect)
-    elif profile.dialect:
+    elif profile.kind == "sql":
+        if profile.dialect in _LEXED_DIALECTS:
+            return _check_postgres(query, profile.dialect)
         check_sql(query, profile.dialect, unknown_lexer=profile.unknown_lexer)
+    else:
+        raise ReadOnlyViolation(_UNCHECKED_PROFILE)
     return query
 
 
@@ -953,6 +970,20 @@ _NUL = chr(0)
 _LEXED_DIALECTS = frozenset({"postgres", "redshift"})
 _UNREADABLE = "The query could not be read as SQL (an unterminated string, quoted name or comment?). Fix it and retry."
 _UNKNOWN_DIALECT = "The query checks do not know this source's SQL dialect, so the query was not run."
+_UNCHECKED_PROFILE = "The query checks do not know how to check this source's queries, so the query was not run."
+# Quotes ClickHouse reads as quotes and sqlglot reads as name characters:
+# the curly single quotes around a string, the curly double quotes around a
+# name.
+_CLICKHOUSE_CURLY_QUOTES = re.compile("[" + chr(0x2018) + chr(0x2019) + chr(0x201C) + chr(0x201D) + "]")
+# A word starting with a digit that MySQL and MariaDB read as a number and
+# then a word, where sqlglot reads one name: one holding a dot (`1.5from`,
+# `1.e5x`), or digits and an exponent (`1e5from`, `1e+5x`). Other digit-led
+# words (`2023_sales`, `1st`, `1e`, `0x1g`) are one name to both.
+_MYSQL_NUMBER_LED = re.compile(r"[0-9]*\.|[0-9]+[eE][0-9+-]")
+# Tokens after which a dot, written right after them, separates two parts
+# of a name (`t.5x`, `"t".5x`); after anything else MySQL, MariaDB and
+# ClickHouse read a dot and a digit as a number (`-.5from`).
+_BEFORE_A_NAME_DOT = frozenset({"VAR", "IDENTIFIER", "R_PAREN", "R_BRACKET", "NUMBER"})
 # A currency symbol (Unicode category Sc).
 _CURRENCY_SIGN = regex.compile(r"\p{Sc}")
 # Line ends other than LF (a CR before an LF ends the line where the LF
@@ -1165,6 +1196,11 @@ def check_engine_reading(sql: str, dialect: str, *, unknown_lexer: bool = False)
             "or a Unicode line separator) outside a string, which readers end comments at differently. "
             "Use plain newlines."
         )
+    if dialect == "clickhouse" and _CLICKHOUSE_CURLY_QUOTES.search(masked):
+        raise ReadOnlyViolation(
+            "The query has a curly quote outside a string or a quoted name, which ClickHouse reads as a quote "
+            "where the query checks read part of a name. Use straight quotes: '...' for a string, \"...\" for a name."
+        )
     spaces = _ENGINE_SPACES.get(dialect, frozenset())
     for space in _NON_ASCII_SPACE.finditer(masked):
         if space.group() not in spaces:
@@ -1176,6 +1212,7 @@ def check_engine_reading(sql: str, dialect: str, *, unknown_lexer: bool = False)
     comments = _gap_comments(sql, tokens, reader.tokenizer_class)
     if dialect == "mysql":
         _check_mysql_comments(sql, tokens, comments)
+        _check_mysql_escaped_quotes(sql, tokens)
     if dialect in _UNNESTED_COMMENT_DIALECTS:
         if any(mark == "/*" and "/*" in sql[start + 2:end] for mark, start, end in comments):
             raise _comment_inside_comment()
@@ -1201,7 +1238,9 @@ def check_engine_reading(sql: str, dialect: str, *, unknown_lexer: bool = False)
         _check_glued_constants(sql, code)
         _check_currency_signs(sql, masked, code, code_starts)
     if dialect == "mysql" or unknown_lexer:
-        _check_digit_led_names(sql, code)
+        _check_digit_led_names(sql, tokens, every=unknown_lexer)
+    elif dialect == "clickhouse":
+        _check_numbers_after_a_lone_dot(sql, tokens)
     if dialect == "duckdb":
         _check_dollar_tags(sql, masked, tokens)
         _check_e_strings(sql, tokens)
@@ -1228,18 +1267,40 @@ def _check_currency_signs(sql: str, masked: str, code, code_starts: list[int]) -
         )
 
 
-def _check_digit_led_names(sql: str, code) -> None:
+def _check_digit_led_names(sql: str, tokens, *, every: bool) -> None:
     """MySQL and MariaDB read a number glued to a word (`1.5from`) as the
-    number and then the word; sqlglot reads one name. Any unquoted name
-    starting with a digit is refused, and so is a number glued to a word."""
-    for i, token in enumerate(code):
+    number and then the word; sqlglot reads one name. An unquoted name
+    starting with a digit that they read as a number (`_MYSQL_NUMBER_LED`,
+    or after a lone dot) is refused, or every such name (`every`: the
+    engine's lexer is not known), and so is a number glued to a word."""
+    for i, token in enumerate(tokens):
         kind = token.token_type.name
-        first = sql[token.start]
-        if kind in ("VAR", "IDENTIFIER") and "0" <= first <= "9":
-            raise _digit_led_name(sql[token.start:token.end + 1])
-        if kind == "NUMBER" and i + 1 < len(code) and code[i + 1].start == token.end + 1 \
-                and _is_name_char(sql[code[i + 1].start]):
-            raise _digit_led_name(sql[token.start:code[i + 1].end + 1])
+        raw = sql[token.start:token.end + 1]
+        if kind in ("VAR", "IDENTIFIER") and "0" <= raw[0] <= "9" \
+                and (every or _MYSQL_NUMBER_LED.match(raw) or _after_a_lone_dot(tokens, i)):
+            raise _digit_led_name(raw)
+        if kind == "NUMBER" and i + 1 < len(tokens) and tokens[i + 1].start == token.end + 1 \
+                and _is_name_char(sql[tokens[i + 1].start]):
+            raise _digit_led_name(sql[token.start:tokens[i + 1].end + 1])
+
+
+def _check_numbers_after_a_lone_dot(sql: str, tokens) -> None:
+    """ClickHouse reads a dot and a digit after an operator (`-.5from`) as a
+    number and then the word; sqlglot reads a dot and one name."""
+    for i, token in enumerate(tokens):
+        if token.token_type.name in ("VAR", "IDENTIFIER") and "0" <= sql[token.start] <= "9" \
+                and _after_a_lone_dot(tokens, i):
+            raise _digit_led_name(sql[tokens[i - 1].start:token.end + 1])
+
+
+def _after_a_lone_dot(tokens, i: int) -> bool:
+    """Whether `tokens[i]` is written right after a dot that does not
+    separate two parts of a name (`_BEFORE_A_NAME_DOT`)."""
+    dot = tokens[i - 1] if i else None
+    if dot is None or dot.token_type.name != "DOT" or dot.end + 1 != tokens[i].start:
+        return False
+    before = tokens[i - 2] if i > 1 else None
+    return before is None or before.end + 1 != dot.start or before.token_type.name not in _BEFORE_A_NAME_DOT
 
 
 def _digit_led_name(text: str) -> ReadOnlyViolation:
@@ -1302,6 +1363,36 @@ def _check_mysql_comments(sql: str, tokens, comments) -> None:
                 "The query has '--' not followed by a space, which MySQL reads as two minus signs, not a comment. "
                 "Write '-- ' for a comment, or '- -' for two minus signs."
             )
+
+
+def _check_mysql_escaped_quotes(sql: str, tokens) -> None:
+    """sqlglot reads MySQL's default mode, in which a backslash in a string
+    escapes the next character. A server in NO_BACKSLASH_ESCAPES mode reads
+    the backslash as a character, and one in ANSI_QUOTES mode reads "..."
+    as a name, in which a backslash escapes nothing. Every mode ends a
+    literal where sqlglot does unless a backslash escapes the literal's own
+    quote character (a backslash before a backslash or a letter is read as
+    two characters either way, and moves no quote), so that is refused."""
+    for token in tokens:
+        if token.token_type.name not in _LITERAL_TOKENS:
+            continue
+        raw = sql[token.start:token.end + 1]
+        opening = next((at for at, c in enumerate(raw) if c in "'\""), -1)
+        if opening < 0:
+            continue
+        quote, i, end = raw[opening], opening + 1, len(raw) - 1
+        while i < end:
+            if raw[i] == "\\":
+                if raw[i + 1] == quote:
+                    raise ReadOnlyViolation(
+                        "A string holds a backslash right before its quote character, which a MySQL or MariaDB "
+                        "server in another SQL mode (NO_BACKSLASH_ESCAPES, ANSI_QUOTES) reads as the end of the "
+                        "string. Double the quote instead ('it''s')."
+                    )
+                i += 2
+            else:
+                # A quote inside the literal is doubled.
+                i += 2 if raw[i] == quote else 1
 
 
 def _check_glued_constants(sql: str, code) -> None:

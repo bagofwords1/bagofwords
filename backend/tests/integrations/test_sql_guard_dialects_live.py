@@ -1,15 +1,17 @@
 """The engines read these texts differently from sqlglot, and the guard now
 refuses them before anything is sent.
 
-Contract, on real servers (MySQL 8, MariaDB 11.4, SQL Server 2019,
-Postgres 15): for each shape, sqlglot's reading finds only active tables or
-no write, the engine runs more (a hidden read of another table, a file
-written, a table created, a filter dropped), and `ensure_read_only` or
-table scope refuses the text. The engine is driven through its own driver,
-never through the client, so the guard is not in the way of the proof.
-Where an engine reads a character the way sqlglot does (SQL Server's
-spaces, its nested comments; ClickHouse 25.8's digit-led names, run in
-clickhouse-local), the exemption the guard makes for it is pinned here.
+Contract, on real servers (MySQL 8 and MariaDB 11.4, in their default
+mode and in the server modes that move where literals end; SQL Server 2019;
+Postgres 15; ClickHouse 25.8, run in clickhouse-local): for each shape,
+sqlglot's reading finds only active tables or no write, the engine runs
+more (a hidden read of another table, a file written, a table created, a
+filter dropped), and `ensure_read_only` or table scope refuses the text.
+The engine is driven through its own driver or command line, never through
+the client, so the guard is not in the way of the proof. Where an engine
+reads text the way sqlglot does (SQL Server's spaces, its nested comments;
+the digit-led names MySQL, MariaDB and ClickHouse read as one name), the
+exemption the guard makes for it is pinned here.
 
 Needs Docker. CI does not collect tests/integrations; these run on the test
 harness. Without a Docker daemon they skip, or fail when CI is set.
@@ -24,6 +26,7 @@ import pytest
 from app.ai.code_execution.sql_guard import ReadOnlyViolation, ensure_read_only
 from app.ai.code_execution.sql_parser import parse_guard_sql
 from app.ai.code_execution.table_scope import TableScope, TableScopeViolation, check_table_scope, tables_read
+from app.data_sources.clients.clickhouse_client import ClickhouseClient
 from app.data_sources.clients.mariadb_client import MariadbClient
 from app.data_sources.clients.mssql_client import MSSQLClient
 from app.data_sources.clients.mysql_client import MysqlClient
@@ -71,6 +74,18 @@ class _Engine:
         cur = self.conn.cursor()
         cur.execute(sql)
         return [tuple(r) for r in cur.fetchall()] if cur.description else []
+
+    def rows_in_mode(self, mode: str, sql: str) -> list:
+        """`rows(sql)` with the session's sql_mode set to `mode` (MySQL,
+        MariaDB), then set back."""
+        cur = self.conn.cursor()
+        cur.execute("SELECT @@SESSION.sql_mode")
+        previous = cur.fetchone()[0]
+        cur.execute("SET SESSION sql_mode = %s", (mode,))
+        try:
+            return self.rows(sql)
+        finally:
+            cur.execute("SET SESSION sql_mode = %s", (previous,))
 
 
 def _mysql_like(image: str):
@@ -158,6 +173,71 @@ def test_mysql_and_mariadb_read_a_number_glued_to_from_and_read_the_table_after_
         check_table_scope(sql, "mysql", SCOPE)
 
 
+NUMBER_THEN_FROM = [
+    "SELECT x, .5from secret",
+    "SELECT x, -.5from secret",
+    "SELECT x, 1e5from secret",
+    "SELECT x, 1e+5from secret",
+    "SELECT x, 1.e5from secret",
+]
+
+
+@pytest.mark.parametrize("engine_name, client_class", [("mysql", MysqlClient), ("mariadb", MariadbClient)])
+@pytest.mark.parametrize("sql", NUMBER_THEN_FROM)
+def test_mysql_and_mariadb_read_these_digit_led_words_as_a_number_and_then_from(request, engine_name, client_class,
+                                                                                sql):
+    engine = request.getfixturevalue(engine_name)
+    assert engine.rows(sql)[0][0] == SECRET
+    with pytest.raises(ReadOnlyViolation, match="starts with a digit"):
+        ensure_read_only(object.__new__(client_class), sql)
+
+
+@pytest.mark.parametrize("engine_name, client_class", [("mysql", MysqlClient), ("mariadb", MariadbClient)])
+def test_mysql_and_mariadb_read_other_digit_led_words_as_one_name_as_sqlglot_does(request, engine_name,
+                                                                                 client_class):
+    engine = request.getfixturevalue(engine_name)
+    engine.rows("CREATE TABLE IF NOT EXISTS digits (`2023_sales` INT, `1st_quarter` INT, `12abc` INT, `1_000` INT, "
+                "`1e` INT, `1efrom` INT)")
+    engine.rows("DELETE FROM digits")
+    engine.rows("INSERT INTO digits VALUES (1, 2, 3, 4, 5, 6)")
+    sql = "SELECT 2023_sales, d.1st_quarter, 12abc, 1_000, 1e, 1efrom FROM digits d"
+    assert engine.rows(sql) == [(1, 2, 3, 4, 5, 6)]
+    assert _sqlglot_tables(sql, "mysql") == {("digits",)}
+    ensure_read_only(object.__new__(client_class), sql)
+
+
+# Each literal ends at the backslash in the server mode named, while
+# sqlglot reads the default mode, in which the backslash escapes the quote.
+SERVER_MODE_HIDDEN = [
+    ("NO_BACKSLASH_ESCAPES", "SELECT 'a" + chr(92) + "' AS v, x FROM secret -- ' FROM orders"),
+    ("ANSI_QUOTES", "SELECT 1 AS \"a" + chr(92) + "\", x FROM secret -- \" FROM orders"),
+]
+
+
+@pytest.mark.parametrize("engine_name, client_class", [("mysql", MysqlClient), ("mariadb", MariadbClient)])
+@pytest.mark.parametrize("mode, sql", SERVER_MODE_HIDDEN, ids=[mode for mode, _ in SERVER_MODE_HIDDEN])
+def test_a_server_mode_ends_a_literal_at_a_backslash_and_reads_the_table_after_it(request, engine_name,
+                                                                                 client_class, mode, sql):
+    engine = request.getfixturevalue(engine_name)
+    assert _sqlglot_tables(sql, "mysql") == {("orders",)}
+    assert [row[1] for row in engine.rows_in_mode(mode, sql)] == [SECRET]
+    # In the default mode the server reads what sqlglot reads.
+    assert SECRET not in [v for row in engine.rows(sql) for v in row]
+    with pytest.raises(ReadOnlyViolation, match="backslash"):
+        ensure_read_only(object.__new__(client_class), sql)
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, "mysql", SCOPE)
+
+
+def test_into_outfile_hidden_by_a_server_mode_is_refused(mysql):
+    path = "/var/lib/mysql-files/p5a-mode.csv"
+    sql = "SELECT 'a" + chr(92) + "' AS v INTO OUTFILE '" + path + "' -- ' FROM orders"
+    mysql.rows_in_mode("NO_BACKSLASH_ESCAPES", sql)
+    assert mysql.rows(f"SELECT LOAD_FILE('{path}') IS NOT NULL") == [(1,)]
+    with pytest.raises(ReadOnlyViolation):
+        ensure_read_only(object.__new__(MysqlClient), sql)
+
+
 @pytest.mark.parametrize("space", NON_ASCII_SPACES, ids=lambda c: f"U+{ord(c):04X}")
 def test_mysql_reads_a_space_outside_ascii_as_part_of_a_name(mysql, space):
     import pymysql
@@ -221,33 +301,111 @@ def test_sql_server_nests_block_comments(mssql):
 
 # --------------------------------------------------------------- ClickHouse
 
-def _clickhouse_local(sql: str):
-    """Run `sql` with clickhouse-local in a throwaway container; return
-    (exit code, output)."""
+_CLICKHOUSE_TABLES = (
+    "CREATE TABLE orders (id Int32) ENGINE = Memory; INSERT INTO orders VALUES (1); "
+    f"CREATE TABLE secret (x Int32) ENGINE = Memory; INSERT INTO secret VALUES ({SECRET}); "
+)
+
+
+@pytest.fixture(scope="module")
+def clickhouse_local():
+    """A function that runs a query with clickhouse-local, in one container
+    kept asleep for the module, after creating `orders` and `secret`; it
+    returns (exit code, output)."""
     _require_docker()
     import docker
 
     container = docker.from_env().containers.run(
-        "clickhouse/clickhouse-server:25.8", entrypoint="clickhouse", command=["local", "-q", sql], detach=True)
+        "clickhouse/clickhouse-server:25.8", entrypoint="sleep", command=["infinity"], detach=True)
+
+    def run(sql: str):
+        code, out = container.exec_run(["clickhouse", "local", "-q", _CLICKHOUSE_TABLES + sql])
+        return code, out.decode().strip()
+
     try:
-        code = container.wait(timeout=120)["StatusCode"]
-        return code, container.logs().decode()
+        yield run
     finally:
         container.remove(force=True)
 
 
 @pytest.mark.parametrize("sql", ["SELECT 1.5from system.one", "SELECT dummy FROM system.one WHERE 1 = 1.0from system.one"])
-def test_clickhouse_refuses_a_decimal_glued_to_a_word_instead_of_reading_from(sql):
+def test_clickhouse_refuses_a_decimal_glued_to_a_word_instead_of_reading_from(clickhouse_local, sql):
     # sqlglot's ClickHouse tokenizer reads `1.5from` as one name, like the
-    # MySQL one; ClickHouse never reads the number and then FROM, so the
-    # MySQL rule is not needed there.
-    code, out = _clickhouse_local(sql)
+    # MySQL one; ClickHouse refuses a number written right before a word
+    # ("Wrong number"), so it never reads this number and then FROM.
+    code, out = clickhouse_local(sql)
     assert code != 0 and "Wrong number" in out
 
 
-def test_clickhouse_reads_a_digit_led_word_as_one_name_as_sqlglot_does():
-    code, out = _clickhouse_local("SELECT 1from FROM (SELECT 7 AS `1from`)")
-    assert code == 0 and out.strip() == "7"
+@pytest.mark.parametrize("sql", ["SELECT x, -.5from secret", "SELECT 1-.5from secret"])
+def test_clickhouse_reads_a_number_after_a_lone_dot_and_then_from(clickhouse_local, sql):
+    # After an operator, ClickHouse reads `.5` as a number and FROM after
+    # it; sqlglot reads a dot and the name `5from`.
+    code, out = clickhouse_local(sql)
+    assert code == 0 and out.endswith("0.5")
+    with pytest.raises(ReadOnlyViolation, match="starts with a digit"):
+        ensure_read_only(object.__new__(ClickhouseClient), sql)
+
+
+def test_clickhouse_reads_a_digit_led_word_as_one_name_as_sqlglot_does(clickhouse_local):
+    code, out = clickhouse_local("SELECT 1from FROM (SELECT 7 AS `1from`)")
+    assert code == 0 and out == "7"
+
+
+LDQ, RDQ, LSQ, RSQ = chr(0x201C), chr(0x201D), chr(0x2018), chr(0x2019)
+CURLY_QUOTE_HIDDEN = [
+    ("SELECT " + LSQ + "--" + RSQ + " AS a, x FROM secret", "--\t42"),
+    ("SELECT 1 AS " + LDQ + "--" + RDQ + ", x FROM secret", "1\t42"),
+    ("SELECT id FROM orders WHERE " + LSQ + "--" + RSQ + " = '--' UNION ALL SELECT x FROM secret", "42"),
+]
+
+
+@pytest.mark.parametrize("sql, shown", CURLY_QUOTE_HIDDEN)
+def test_clickhouse_reads_curly_quotes_as_quotes_that_sqlglot_reads_as_name_characters(clickhouse_local, sql, shown):
+    # sqlglot reads the curly quote as a name character and a comment from
+    # the dashes on: no table but the enabled one.
+    assert _sqlglot_tables(sql, "clickhouse") <= {("orders",)}
+    code, out = clickhouse_local(sql)
+    assert code == 0 and shown in out.splitlines()
+    with pytest.raises(ReadOnlyViolation, match="curly quote"):
+        ensure_read_only(object.__new__(ClickhouseClient), sql)
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, "clickhouse", SCOPE)
+
+
+def test_clickhouse_reads_curly_quotes_inside_a_string_as_characters(clickhouse_local):
+    sql = "SELECT 'it" + RSQ + "s " + LDQ + "x" + RDQ + "' AS a"
+    code, out = clickhouse_local(sql)
+    assert code == 0 and out == "it" + RSQ + "s " + LDQ + "x" + RDQ
+    ensure_read_only(object.__new__(ClickhouseClient), sql)
+
+
+IN_TABLE = [
+    ("SELECT count() FROM orders WHERE 42 IN secret", "1"),
+    ("SELECT count() FROM orders WHERE 42 IN (secret)", "1"),
+    ("SELECT count() FROM orders WHERE 42 GLOBAL IN secret", "1"),
+    ("SELECT count() FROM orders WHERE 42 NOT IN secret", "0"),
+    ("SELECT count() FROM orders WHERE 42 IN default.secret", "1"),
+    ("SELECT count() FROM orders WHERE 42 IN (default.secret)", "1"),
+]
+
+
+@pytest.mark.parametrize("sql, count", IN_TABLE)
+def test_clickhouse_reads_a_name_on_the_right_of_in_as_a_table(clickhouse_local, sql, count):
+    # sqlglot reads a column there; ClickHouse reads the table's rows as the
+    # set, so whether 42 is in the secret table decides the count.
+    assert _sqlglot_tables(sql, "clickhouse") == {("orders",)}
+    code, out = clickhouse_local(sql)
+    assert code == 0 and out == count
+    with pytest.raises(TableScopeViolation, match="SECRET"):
+        check_table_scope(ensure_read_only(object.__new__(ClickhouseClient), sql), "clickhouse", SCOPE)
+
+
+def test_clickhouse_takes_only_a_table_or_constants_on_the_right_of_in(clickhouse_local):
+    # A column there is an error, so reading the name as a table refuses
+    # no query that runs.
+    code, out = clickhouse_local("SELECT count() FROM orders WHERE 1 IN (id)")
+    assert code != 0 and "constant or table expression" in out
 
 
 # --------------------------------------------------------------- Postgres

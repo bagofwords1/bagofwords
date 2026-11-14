@@ -257,7 +257,8 @@ def _cte_name(cte, dialect: str | None) -> str:
 
 def tables_read(statement, dialect: str | None = None) -> list[Name]:
     """The tables `statement` reads by name, each once: every
-    table reference that is an identifier (not a table function), except a
+    table reference that is an identifier (not a table function), and on
+    ClickHouse every name on the right of IN (`_in_tables`), except a
     one-part name that refers to a CTE visible where it stands. Name parts
     lowered, or for Postgres (`dialect`) folded as Postgres folds them."""
     from sqlglot import exp
@@ -270,6 +271,31 @@ def tables_read(statement, dialect: str | None = None) -> list[Name]:
         if (len(ref) == 1 and _resolves_to_cte(t, dialect)) or ref in out:
             continue
         out.append(ref)
+    if dialect == "clickhouse":
+        for column in _in_tables(statement):
+            ref = tuple(str(part.name).lower() for part in column.parts)
+            if (len(ref) == 1 and _resolves_to_cte(column, dialect)) or ref in out:
+                continue
+            out.append(ref)
+    return out
+
+
+def _in_tables(statement) -> list:
+    """The names (sqlglot Columns) on the right of an IN, GLOBAL IN or NOT
+    IN, bare or alone in parentheses: ClickHouse reads such a name as a
+    table whose rows are the set, where sqlglot reads a column."""
+    from sqlglot import exp
+
+    out = []
+    for node in statement.find_all(exp.In):
+        field = node.args.get("field")
+        items = node.expressions
+        if field is None and node.args.get("query") is None and len(items) == 1:
+            field = items[0]
+        while isinstance(field, exp.Paren):
+            field = field.this
+        if isinstance(field, exp.Column) and isinstance(field.this, exp.Identifier):
+            out.append(field)
     return out
 
 
