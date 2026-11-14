@@ -15,8 +15,8 @@ from app.models.eval import TestSuite, TestCase
 from app.models.file import File
 from app.models.instruction import Instruction
 from app.schemas.test_suite_schema import TestCaseCreate
-from app.services.folder_service import lock_tree
-from app.services.folder_knowledge import RESOURCES, require_capability
+from app.services.folder_service import can_create_root, lock_tree
+from app.services.folder_knowledge import RESOURCES, require_capability, require_knowledge_authority
 from app.models.folder import Folder
 from app.models.organization import Organization
 from app.models.resource_grant import ResourceGrant
@@ -35,15 +35,6 @@ class FolderCreate(BaseModel):
 class FolderPath(BaseModel):
     parent_id: str | None = None
     path_segments: list[Name] = Field(min_length=1, max_length=64)
-
-
-def can_create_root(rights):
-    return (
-        rights.has_org_permission("create_data_source")
-        or rights.has_org_permission("manage_connections")
-        or rights.has_any_resource_permission("manage", "data_source")
-        or rights.has_any_resource_permission("create_data_sources", "connection")
-    )
 
 
 def folder_item(folder, rights):
@@ -544,10 +535,19 @@ async def agent_inheritance(
 @router.delete("/{folder_id}", status_code=204)
 async def delete_folder(
     folder_id: str,
+    mode: Literal["empty", "keep", "contents"] = "empty",
+    destination_id: str | None = None,
     db: AsyncSession = Depends(get_async_db),
     user: User = Depends(current_user),
     org: Organization = Depends(get_current_organization),
 ):
+    if mode != "empty":
+        from app.services.folder_deletion import delete_tree
+        try:
+            await delete_tree(db, org, user, folder_id, mode, destination_id)
+        except IntegrityError as exc:
+            raise HTTPException(409, "A name conflict or dependent item prevents deletion.") from exc
+        return
     await lock_tree(db, org, user)
     from sqlalchemy import delete
 
@@ -637,7 +637,7 @@ async def knowledge_items(
             continue
         if candidates or kind == "evals":
             try:
-                await _canonical_authority(db, user, org, kind, item)
+                await require_knowledge_authority(db, user, org, kind, item)
             except HTTPException as exc:
                 if exc.status_code in (403, 404):
                     continue
@@ -652,26 +652,6 @@ async def knowledge_items(
             row.update(title=title, text=item.text, status=item.status, category=item.category, load_mode=item.load_mode)
         result.append(row)
     return sorted(result, key=lambda r: (r["name"] or "").casefold())
-
-
-async def _canonical_authority(db, user, org, kind, item):
-    if kind == "instructions":
-        from app.services.instruction_authority import require_instruction_authority
-
-        await require_instruction_authority(db, user, org, item)
-    elif kind == "files":
-        rights = await resolve_permissions(db, user.id, org.id)
-        if item.source_kind != "upload" or (
-            item.user_id != user.id and not rights.has_org_permission("full_admin_access")
-        ):
-            raise HTTPException(403, "File unavailable")
-    else:
-        from app.routes.test import _require_suite_authority
-
-        if item.data_source_id:
-            from app.core.permissions_decorator import check_resource_permissions
-            await check_resource_permissions(db, user.id, org.id, "data_source", [item.data_source_id], "manage_evals")
-        await _require_suite_authority(db, user, org, item.id)
 
 
 @router.put("/{folder_id}/knowledge/{kind}/{item_id}")
@@ -703,7 +683,7 @@ async def change_knowledge_link(
         raise HTTPException(404, "Item unavailable")
     condition = (links.c.folder_id == folder_id) & (key == item_id)
     if attach:
-        await _canonical_authority(db, user, org, kind, item)
+        await require_knowledge_authority(db, user, org, kind, item)
     linked = await db.scalar(select(key).where(condition))
     if bool(linked) != attach:
         if kind == "instructions":
@@ -841,7 +821,7 @@ async def linked_suite(db, org, user, folder_id, suite_id):
     )
     if not suite:
         raise HTTPException(404, "Suite unavailable")
-    await _canonical_authority(db, user, org, "evals", suite)
+    await require_knowledge_authority(db, user, org, "evals", suite)
     return suite
 
 

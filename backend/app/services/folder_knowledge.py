@@ -226,3 +226,23 @@ async def authoring_targets(db, org, user, report, capability, destination, fold
         if all(a in allowed and rights.has_resource_permission("data_source", a, capability) for a in agent_ids):
             return None, list(dict.fromkeys(agent_ids))
     raise HTTPException(403, "Choose an authorized destination: selected folder, specific agents, or organization. Ask the user if unclear.")
+
+
+async def require_knowledge_authority(db, user, org, kind, item):
+    if kind == "instructions":
+        from app.services.instruction_authority import require_instruction_authority
+
+        await require_instruction_authority(db, user, org, item)
+    elif kind == "files":
+        rights = await resolve_permissions(db, user.id, org.id)
+        if item.source_kind != "upload" or (
+            item.user_id != user.id and not rights.has_org_permission("full_admin_access")
+        ):
+            raise HTTPException(403, "File unavailable")
+    else:
+        from app.routes.test import _require_suite_authority
+
+        if item.data_source_id:
+            from app.core.permissions_decorator import check_resource_permissions
+            await check_resource_permissions(db, user.id, org.id, "data_source", [item.data_source_id], "manage_evals")
+        await _require_suite_authority(db, user, org, item.id)

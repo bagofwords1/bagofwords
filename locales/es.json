@@ -1,4 +1,12 @@
 {
+  "folderRemoval": {
+    "danger": "Zona de peligro",
+    "title": "¿Eliminar {name}?",
+    "keep": "Eliminar solo la carpeta",
+    "keepHint": "Mueve el contenido al destino elegido. El conocimiento necesita una carpeta de destino.",
+    "contents": "Eliminar la carpeta y su contenido",
+    "contentsHint": "Elimina los agentes descendientes y el conocimiento exclusivo. Conserva los elementos compartidos."
+  },
   "sharedFolders": {
     "chooseScope": "Elegir agentes o carpetas",
     "moveAgent": "Mover agente",

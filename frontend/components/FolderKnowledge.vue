@@ -36,6 +36,8 @@
           <UIcon name="i-heroicons-chevron-right" class="size-3 text-ink-muted rtl:rotate-180" />
         </button>
       </div>
+      <FolderSettingsPanel v-if="folder.can_manage" :folder="folder" :folders="folders" :revision="accessRevision" :has-knowledge="kinds.some(k => items[k].length > 0)"
+        @share="emit('share', $event)" @deleted="emit('deleted')" />
     </template>
     <AgentFilesPanel v-else-if="section === 'files' && sections.includes('files')" class="px-6 py-4"
       :folder-id="folder.id" :can-update="canEdit('files')" @open="emit('file', $event)" @changed="emit('changed')" />
@@ -81,8 +83,9 @@ type Kind = 'instructions' | 'files' | 'evals'
 type Item = { id: string, name: string, owned?: boolean, text?: string }
 const props = defineProps<{suiteId?: string, section?: Kind,
   agents: { id: string, name: string, description?: string, type?: string, connector_key?: string, icon?: string, icon_token?: string }[],
-  folder: {id: string, name: string, capabilities: string[], can_query: boolean}}>()
-const emit = defineEmits<{agent: [id: string], section: [kind?: Kind], changed: [], createInstruction: [folderId: string], instruction: [id: string], file:[item:{id:string, filename:string}]}>()
+  accessRevision:number, folders:{id:string,name:string,parent_id?:string | null,can_manage:boolean}[],
+  folder: {can_manage:boolean, parent_id?:string | null, id: string, name: string, capabilities: string[], can_query: boolean}}>()
+const emit = defineEmits<{share:[name?:string], deleted:[], agent: [id: string], section: [kind?: Kind], changed: [], createInstruction: [folderId: string], instruction: [id: string], file:[item:{id:string, filename:string}]}>()
 const { t } = useI18n()
 const { isTrainingModeEnabled } = useOrgSettings()
 const kinds: Kind[] = ['instructions', 'evals', 'files']

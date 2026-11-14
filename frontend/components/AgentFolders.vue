@@ -57,7 +57,6 @@
             @click="beginMove()">{{ $t('sharedFolders.moveFolder') }}</UButton>
         </div>
         <footer class="flex items-center justify-between border-t border-line px-5 py-3">
-          <UButton color="red" variant="ghost" size="xs" icon="i-heroicons-trash" @click="remove">{{ $t('sharedFolders.delete') }}</UButton>
           <UButton color="blue" @click="editing = false">{{ $t('dashboardCollab.share.done') }}</UButton>
         </footer>
       </div>
@@ -202,6 +201,7 @@ async function save(path: string, method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', b
       return false
     }
     await load()
+    accessRevision.value++
     return true
   } finally { busy.value = false }
 }
@@ -290,9 +290,15 @@ function moveAgent(id: string, target: string | null = null) {
 async function rename() {
   if (item.value && await save(`/folders/${item.value.id}`, 'PATCH', {name:editName.value})) editing.value = false
 }
-async function remove() {
-  if (!item.value || !window.confirm(t('sharedFolders.delete') + ' · ' + item.value.name + '?')) return
-  if (await save(`/folders/${item.value.id}`, 'DELETE')) editing.value = false
+const accessRevision = ref(0)
+async function openMemberAccess(id: string, name?: string) {
+  search.value = name || ''
+  await openShare(id, true)
+}
+async function afterDelete() {
+  open(null)
+  await load()
+  emit('changed')
 }
 const { t } = useI18n()
 const accessLabel = (role?: string) => role ? t('sharedFolders.' + role.toLowerCase()) : '—'
@@ -418,6 +424,6 @@ async function dropAgent(event: DragEvent, id: string | null) {
   moveAgent(agent.id, id || '')
 }
 onBeforeUnmount(endDrag)
-defineExpose({open, folders, current, moveAgent, openAgentAccess, canDrag, startDrag, endDrag, dragged, folderCreated})
+defineExpose({afterDelete, openMemberAccess, accessRevision, open, folders, current, moveAgent, openAgentAccess, canDrag, startDrag, endDrag, dragged, folderCreated})
 onMounted(load)
 </script>

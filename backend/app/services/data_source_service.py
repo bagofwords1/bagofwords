@@ -2327,6 +2327,7 @@ class DataSourceService:
 
         data_source_id = str(data_source.id)
 
+        from app.models.folder import folder_instructions
         attached_elsewhere = (
             select(assoc.c.instruction_id)
             .where(assoc.c.data_source_id != data_source_id)
@@ -2339,6 +2340,8 @@ class DataSourceService:
                 Instruction.organization_id == str(organization.id),
                 Instruction.deleted_at.is_(None),
                 ~Instruction.id.in_(attached_elsewhere),
+                Instruction.owner_folder_id.is_(None),
+                ~Instruction.id.in_(select(folder_instructions.c.instruction_id)),
             )
         )
         titles = {str(row[0]): row[1] for row in only_here_q.fetchall()}
@@ -2506,6 +2509,13 @@ class DataSourceService:
             )
         )).scalars().all()
 
+        from app.models.folder import folder_eval_suites
+        suite_ids = {case.suite_id for case in rows}
+        folder_suites = set(await db.scalars(select(TestSuite.id).where(
+            TestSuite.id.in_(suite_ids),
+            TestSuite.owner_folder_id.is_not(None) | TestSuite.id.in_(select(folder_eval_suites.c.suite_id)),
+        )))
+
         deleted: List[str] = []
         now = datetime.utcnow()
         for case in rows:
@@ -2516,6 +2526,10 @@ class DataSourceService:
             remaining = [x for x in targets if x != data_source_id]
             if remaining:
                 case.data_source_ids_json = remaining
+            elif case.suite_id in folder_suites:
+                # Preserve this shared suite's case and its original pinned target.
+                # It cannot run until a manager gives it an available target.
+                case.status = "archived"
             else:
                 case.deleted_at = now
                 deleted.append(str(case.id))

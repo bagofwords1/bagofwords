@@ -290,3 +290,12 @@ async def allowed_folder_agents(db, org_id, ids):
     return set(await db.scalars(select(DataSource.id).where(
         DataSource.organization_id == org_id, DataSource.deleted_at.is_(None),
         DataSource.inherits_folder_access.is_(True), DataSource.folder_id.in_(branch))))
+
+
+def can_create_root(rights):
+    return (
+        rights.has_org_permission("create_data_source")
+        or rights.has_org_permission("manage_connections")
+        or rights.has_any_resource_permission("manage", "data_source")
+        or rights.has_any_resource_permission("create_data_sources", "connection")
+    )

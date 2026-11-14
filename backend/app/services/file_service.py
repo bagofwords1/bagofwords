@@ -698,7 +698,7 @@ async def files_in_use(db: AsyncSession, file_ids: list) -> set:
     return {str(r[0]) for r in bound} | {str(r[0]) for r in released}
 
 
-async def purge_files(db: AsyncSession, files: list) -> list:
+async def purge_files(db: AsyncSession, files: list, *, discard_bytes=True) -> list:
     """Remove ``files`` for good — every link, tag and schema, the row, then
     the bytes — and commit. Callers decide which files may go. Returns the
     deleted ids."""
@@ -715,6 +715,12 @@ async def purge_files(db: AsyncSession, files: list) -> list:
     await db.execute(File.__table__.delete().where(File.id.in_(ids)))
     await db.commit()
 
+    if discard_bytes:
+        await discard_file_bytes(paths)
+    return ids
+
+
+async def discard_file_bytes(paths):
     # Bytes last, after the rows are gone: a failure here leaves an orphaned
     # blob, never a row that points at nothing.
     for path in paths:
@@ -727,4 +733,3 @@ async def purge_files(db: AsyncSession, files: list) -> list:
             await storage.adiscard(path)
         except Exception as e:  # noqa: BLE001 — best effort, like the local unlink
             logger.warning("file delete: could not discard %s: %s", path, e)
-    return ids
