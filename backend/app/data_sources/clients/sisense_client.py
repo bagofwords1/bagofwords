@@ -1,5 +1,6 @@
 from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
+from app.ai.code_execution.sql_guard import check_one_select
 from app.ai.prompt_formatters import Table, TableColumn, ForeignKey, ServiceFormatter
 from typing import List, Dict, Optional
 import requests
@@ -461,7 +462,16 @@ class SisenseClient(DataSourceClient):
         sql: str,
         max_rows: Optional[int] = None,
     ) -> pd.DataFrame:
-        """Execute SQL query against an ElastiCube."""
+        """Execute SQL query against an ElastiCube.
+
+        Only one SELECT is sent: Sisense documents this endpoint as SELECT
+        only, in "standard SQL" with names in double quotes, and the guide
+        below teaches names in square brackets; how it treats anything else
+        on a live model is not documented. SQLite is the sqlglot dialect that
+        reads both kinds of quoted name and LIMIT; what Sisense's own reader
+        could read differently is refused (`check_one_select`).
+        """
+        check_one_select(sql, "sqlite")
         self.connect()
         headers = self._build_headers()
 

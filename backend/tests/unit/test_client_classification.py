@@ -4,9 +4,11 @@ Contract: every client class production can build is classified `guarded`
 (the wrapper checks its statements), `exempt` (its query surface cannot write
 or run free-form statements, or it checks every statement where it sends it;
 the reason names the file:line it rests on) or `unknown`. The wrapper refuses
-a text statement to an `unknown` connector, so a connector added later
-without a decision cannot receive free text unchecked. Keyword-only calls and
-objects that are not connectors keep today's behaviour.
+a statement of any type, passed by position or by name, to an `unknown`
+connector, so a connector added later without a decision cannot receive free
+text unchecked. A class exempt only through a parent's declaration needs a
+decision of its own (`_INHERITS_EXEMPTION`). Keyword-only calls and objects
+that are not connectors keep today's behaviour.
 """
 from __future__ import annotations
 
@@ -82,6 +84,64 @@ def test_text_built_at_runtime_to_an_undeclared_connector_is_refused(mode):
     with pytest.raises(UnsafeSQLError, match="does not accept free-text queries"):
         _run({"c": client}, "return ds_clients['c'].query(bytes.fromhex('6869').decode())")
     assert client.received == []
+
+
+class _SqlNamedConnector(DiscoveryClient):
+    """An undeclared connector whose statement parameter has its own name
+    and a second parameter that can be passed by position."""
+
+    def __init__(self):
+        self.received: list = []
+
+    def execute_query(self, sql=None, extra=None):
+        self.received.append((sql, extra))
+        return pd.DataFrame([{"rows": 1}])
+
+
+# Every way generated code can hand an undeclared connector a statement:
+# whatever its type, by position or by the parameter's own name. `{first}`
+# is the connector's first parameter.
+_STATEMENT_SHAPES = {
+    "str": "execute_query('anything the source runs')",
+    "list": "execute_query(['anything the source runs'])",
+    "tuple": "execute_query(('anything the source runs',))",
+    "dict": "execute_query({{'q': 'anything the source runs'}})",
+    "bytes": "execute_query(b'anything the source runs')",
+    "number": "execute_query(1)",
+    "first parameter by name": "execute_query({first}='anything the source runs')",
+    "later positional": "execute_query(None, 'anything the source runs')",
+    "alias": "query({first}='anything the source runs')",
+}
+
+
+@pytest.mark.parametrize("connector", [_UndeclaredConnector, _SqlNamedConnector])
+@pytest.mark.parametrize("shape", list(_STATEMENT_SHAPES.values()), ids=list(_STATEMENT_SHAPES))
+def test_a_statement_of_any_shape_to_an_undeclared_connector_is_refused(mode, connector, shape):
+    client = connector()
+    first = next(iter(inspect.signature(client.execute_query).parameters))
+    with pytest.raises(UnsafeSQLError, match="does not accept free-text queries"):
+        _run({"c": client}, "return ds_clients['c']." + shape.format(first=first))
+    assert client.received == []
+
+
+@pytest.mark.parametrize("call", [
+    "execute_query(extra='anything the source runs')",
+    # The params of a keyword call are not rendered (there is no positional
+    # statement); the statement under the client's own name is still refused.
+    "execute_query(sql='a = :v', params={'v': 'x'})",
+])
+def test_a_statement_by_another_parameter_name_to_an_undeclared_connector_is_refused(mode, call):
+    client = _SqlNamedConnector()
+    with pytest.raises(UnsafeSQLError, match="does not accept free-text queries"):
+        _run({"c": client}, "return ds_clients['c']." + call)
+    assert client.received == []
+
+
+def test_a_call_with_no_statement_to_an_undeclared_connector_is_forwarded(mode):
+    client = _SqlNamedConnector()
+    df, _, _ = _run({"c": client}, "return ds_clients['c'].execute_query()")
+    assert df["rows"].tolist() == [1]
+    assert client.received == [(None, None)]
 
 
 def test_a_keyword_only_call_to_an_undeclared_connector_is_forwarded(mode):
@@ -164,13 +224,7 @@ _NAMING_FALLBACK = {
 
 # Classes that take free text with no guard and no read-only proof in their
 # own code: refused any text statement until a decision is made for each.
-_AWAITING_DECISION = {
-    "InforEpmClient",  # caller MDX to an Infor process, infor_epm_client.py:457
-    "OracleBIClient",  # caller Logical SQL, oracle_bi_client.py:270
-    "SisenseClient",  # caller SQL to the ElastiCube SQL endpoint, sisense_client.py:469
-    "TimbrA2aClient",  # caller prompt to a remote agent, timbr_a2a_client.py:105
-    "OpenSearchClient",  # caller SQL to the SQL plugin, opensearch_client.py:421
-}
+_AWAITING_DECISION: set[str] = set()
 
 
 @pytest.fixture(scope="module")
@@ -210,14 +264,82 @@ def test_every_class_is_guarded_or_exempt_except_those_awaiting_a_decision(class
     assert {name for name, v in verdicts.items() if v == "unknown"} == _AWAITING_DECISION
 
 
-@pytest.mark.parametrize("name", sorted(_AWAITING_DECISION))
-def test_a_class_awaiting_a_decision_is_refused_text_and_sent_nothing(mode, classes, name):
-    cls = next(c for c in classes if c.__name__ == name)
-    client = object.__new__(cls)
-    with patch.object(cls, "execute_query", side_effect=AssertionError("sent")) as sent:
-        with pytest.raises(UnsafeSQLError, match="does not accept free-text queries"):
-            _run({"c": client}, "return ds_clients['c'].execute_query('SELECT 1')")
-    assert not sent.called
+def test_no_class_awaits_a_decision():
+    assert _AWAITING_DECISION == set()
+
+
+# A class that is exempt only through a parent's declaration. Its own code
+# may change what the parent's execute_query sends (a helper it overrides),
+# so each one is a decision: the parent whose declaration it inherits, and
+# what the subclass overrides, with the file:line that shows it.
+_GIT_REPO = ("NetworkDirClient", "through GitRepoClient: read_file is NetworkDirClient's with its result scrubbed "
+             "(git_repo_client.py:184), _resolve only narrows the path inside the clone (git_repo_client.py:171), "
+             "_root clones the configured repository (git_repo_client.py:138)")
+_NO_EXECUTE_QUERY = "defines no execute_query; its tools run through call_tool, not the query path"
+_INHERITS_EXEMPTION: dict[str, tuple[str, str]] = {
+    "SapBwXmlaClient": ("XmlaClient", "overrides construction (sap_bw_xmla_client.py:46), the endpoint URL "
+                                      "(sap_bw_xmla_client.py:84) and prompt text (sap_bw_xmla_client.py:110) only"),
+    "InforOlapClient": ("XmlaClient", "overrides the transport only: connect (infor_olap_client.py:95), _soap_call "
+                                      "adding a gateway token to the body it is given (infor_olap_client.py:153), "
+                                      "request context (infor_olap_client.py:217); XmlaClient.execute_query checks "
+                                      "the statement before any of them runs"),
+    "GitHubRepoClient": _GIT_REPO,
+    "GitLabRepoClient": _GIT_REPO,
+    "BitbucketRepoClient": _GIT_REPO,
+    "SharepointClient": ("GraphDriveClient", "presets the mode (graph_drive_client.py:1563) and lists folders by GET "
+                                             "(graph_drive_client.py:1567); read_file is GraphDriveClient's"),
+    "OnedriveClient": ("GraphDriveClient", "presets the mode and recursion only (graph_drive_client.py:1638)"),
+    "OnenoteClient": ("GraphDriveClient", "through GraphOneNoteClient: read_file reads one page by GET "
+                                          "(graph_onenote_client.py:520, graph_onenote_client.py:428), get_schemas "
+                                          "lists pages (graph_onenote_client.py:717)"),
+    "GraphMailClient": ("GraphDriveClient", "read_file reads one message by GET (graph_mail_client.py:344), "
+                                            "get_schemas returns no tables (graph_mail_client.py:373)"),
+    "GraphTeamsClient": ("GraphDriveClient", "read_file reads one thread or chat window by GET "
+                                             "(graph_teams_client.py:798, graph_teams_client.py:714), get_schemas "
+                                             "returns no tables (graph_teams_client.py:824)"),
+    "McpClient": ("ToolProviderClient", f"{_NO_EXECUTE_QUERY} (mcp_client.py:141)"),
+    "CustomApiClient": ("ToolProviderClient", f"{_NO_EXECUTE_QUERY} (custom_api_client.py:45)"),
+    "RemoteServerClient": ("ToolProviderClient", f"{_NO_EXECUTE_QUERY} (remote_server_client.py:37)"),
+    "RemoteSMBClient": ("ToolProviderClient", f"{_NO_EXECUTE_QUERY} (remote_server_client.py:452)"),
+}
+
+
+def _declared_owner(cls):
+    """The class in `cls`'s MRO whose EXEMPT_CLIENTS declaration it relies on."""
+    return next((base for base in cls.__mro__ if (base.__module__, base.__qualname__) in EXEMPT_CLIENTS), None)
+
+
+def _undecided_inheritors(classes, decided) -> set[str]:
+    return {cls.__name__ for cls in classes
+            if classify(object.__new__(cls)) == "exempt"
+            and (cls.__module__, cls.__qualname__) not in EXEMPT_CLIENTS
+            and cls.__name__ not in decided}
+
+
+def test_every_class_exempt_through_a_parent_is_decided(classes):
+    assert _undecided_inheritors(classes + [BowClient], _INHERITS_EXEMPTION) == set()
+    by_name = {cls.__name__: cls for cls in classes}
+    for name, (parent, grounding) in _INHERITS_EXEMPTION.items():
+        cls = by_name.get(name)
+        assert cls is not None, f"declared for no class production builds: {name}"
+        assert (cls.__module__, cls.__qualname__) not in EXEMPT_CLIENTS, f"{name} has its own declaration"
+        owner = _declared_owner(cls)
+        assert owner is not None and owner.__name__ == parent, (name, parent, owner)
+        # Grounded in the subclass's own source: where its overrides are.
+        source = Path(inspect.getsourcefile(cls))
+        lines = [int(line) for file, line in re.findall(r"\b(\w+\.py):(\d+)\b", grounding) if file == source.name]
+        assert lines, f"{name}: the grounding must cite {source.name}"
+        assert all(1 <= line <= len(source.read_text().splitlines()) for line in lines), (name, lines)
+
+
+def test_a_new_subclass_of_an_exempt_class_needs_a_decision():
+    from app.data_sources.clients.network_dir_client import NetworkDirClient
+
+    class _NewSubclass(NetworkDirClient):
+        def read_file(self, *args, **kwargs):
+            raise AssertionError("never called")
+
+    assert _undecided_inheritors([_NewSubclass], _INHERITS_EXEMPTION) == {"_NewSubclass"}
 
 
 def test_the_accelerated_client_is_exempt_as_checked_at_its_dispatch_point(classes):
@@ -235,6 +357,7 @@ _CATEGORIES = (
     "structured spec mapped to read endpoints",
     "keyword-only API",
     "no execute_query text",
+    "remote agent with SQL validation enforced",
 )
 
 
@@ -272,7 +395,25 @@ _DISPATCH_REFUSAL_TESTS = {
     "XmlaClient": ("test_sap_bw_xmla_client.py", "test_non_read_statement_refused"),
     "AnalysisServicesClient": ("test_non_sql_client_rules.py", "test_xmla_refuses_statements_outside_the_read_verbs"),
     "PowerBIClient": ("test_powerbi_client.py", "test_non_guid_id_refused_in_execute_query"),
+    "InforEpmClient": ("test_non_sql_client_rules.py", "test_infor_epm_refuses_statements_outside_one_read"),
+    "OracleBIClient": ("test_non_sql_client_rules.py", "test_oracle_bi_refuses_statements_outside_one_select"),
+    "OpenSearchClient": ("test_non_sql_client_rules.py",
+                         "test_opensearch_refuses_sql_outside_one_select_and_unknown_envelope_keys"),
+    "SisenseClient": ("test_non_sql_client_rules.py", "test_sisense_refuses_sql_outside_one_select"),
 }
+
+
+def test_the_remote_agent_is_exempt_only_with_sql_validation_enforced(classes):
+    from app.data_sources.clients.timbr_a2a_client import TimbrA2aClient
+
+    assert TimbrA2aClient in classes
+    assert classify(object.__new__(TimbrA2aClient)) == "exempt"
+    reason = EXEMPT_CLIENTS[(TimbrA2aClient.__module__, TimbrA2aClient.__qualname__)]
+    assert reason.startswith("remote agent with SQL validation enforced") and "should-validate-sql" in reason
+    assert {name for (_, name), r in EXEMPT_CLIENTS.items()
+            if r.startswith("remote agent with SQL validation enforced")} == {"TimbrA2aClient"}
+    tests = (_UNIT_TESTS / "test_non_sql_client_rules.py").read_text()
+    assert re.search(r"^def test_timbr_a2a_refuses_a_prompt_without_sql_validation\(", tests, re.M)
 
 
 def test_every_dispatch_point_exemption_has_a_refusal_test():

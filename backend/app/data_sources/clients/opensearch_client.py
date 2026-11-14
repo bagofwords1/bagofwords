@@ -1,5 +1,6 @@
 from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
+from app.ai.code_execution.sql_guard import ReadOnlyViolation, check_one_select
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 
 import json
@@ -375,6 +376,7 @@ class OpenSearchClient(DataSourceClient):
             "size": 100, "sort": [...], "_source": [...],
             "sql": "SELECT ..."                 # alternative: SQL plugin
         }
+        Any other key is refused (ReadOnlyViolation) before a request is made.
         """
         try:
             envelope = json.loads(query)
@@ -382,6 +384,12 @@ class OpenSearchClient(DataSourceClient):
             raise ValueError(f"Invalid JSON query: {e}")
         if not isinstance(envelope, dict):
             raise ValueError("Query must be a JSON object")
+        unknown = sorted(k for k in envelope if k not in self.SEARCH_KEYS | {"index", "sql"})
+        if unknown:
+            raise ReadOnlyViolation(
+                f"The query envelope does not take {', '.join(unknown)}; "
+                f"use index, sql or {', '.join(sorted(self.SEARCH_KEYS))}."
+            )
 
         if "sql" in envelope:
             return self._execute_sql(envelope["sql"])
@@ -417,7 +425,13 @@ class OpenSearchClient(DataSourceClient):
         return df
 
     def _execute_sql(self, sql: str) -> pd.DataFrame:
-        """Run a statement via the bundled SQL plugin (`POST /_plugins/_sql`)."""
+        """Run a statement via the bundled SQL plugin (`POST /_plugins/_sql`).
+
+        Only one SELECT is sent. The text is read as MySQL, the closest
+        dialect sqlglot has; the plugin's own reader is not ours, so what the
+        two could read differently is refused (`check_one_select`).
+        """
+        check_one_select(sql, "mysql")
         result = self._request("POST", "/_plugins/_sql", json_body={"query": sql})
         schema = result.get("schema") or []
         cols = [c.get("alias") or c.get("name") for c in schema]

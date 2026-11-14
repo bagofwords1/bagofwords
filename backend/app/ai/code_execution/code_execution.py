@@ -979,10 +979,8 @@ def resolve_guarded_call(client, query, args: tuple, kwargs: dict) -> ResolvedCa
         return ResolvedCall(statement=query, kwargs=kwargs, params=params, profile=None)
 
     name = None
-    try:
-        first = next(iter(inspect.signature(client.execute_query).parameters.values()), None)
-    except (TypeError, ValueError):
-        first = None
+    signature = _execute_query_signature(client)
+    first = next(iter(signature.parameters.values()), None) if signature is not None else None
     if first is not None and first.kind in (
         inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD,
     ):
@@ -1005,6 +1003,36 @@ def resolve_guarded_call(client, query, args: tuple, kwargs: dict) -> ResolvedCa
     # Only BigQuery's profile allows these keywords, so only its calls get here with them.
     _check_bigquery_options(client, kwargs)
     return ResolvedCall(statement=statement, kwargs=kwargs, params=params, profile=profile)
+
+
+def _execute_query_signature(client) -> Optional[inspect.Signature]:
+    """The signature of `client.execute_query`, or None when it cannot be read."""
+    try:
+        return inspect.signature(client.execute_query)
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+def _passes_a_statement(client, query, args: tuple, kwargs: dict) -> bool:
+    """Whether a call hands `client.execute_query` a statement: a value other
+    than None, of any type, bound to a parameter that can be passed by
+    position (however the caller passed it). A call the signature cannot
+    bind, or a signature that cannot be read, counts as one. Only values that
+    all go to keyword-only parameters or `**kwargs` do not."""
+    signature = _execute_query_signature(client)
+    if signature is None:
+        return True
+    try:
+        bound = signature.bind(*(args if query is _NO_QUERY else (query, *args)), **kwargs)
+    except TypeError:
+        return True
+    for name, value in bound.arguments.items():
+        kind = signature.parameters[name].kind
+        if kind == inspect.Parameter.VAR_POSITIONAL and value:
+            return True
+        if kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD) and value is not None:
+            return True
+    return False
 
 
 def _sends_odata(client) -> bool:
@@ -1249,7 +1277,8 @@ class QueryCapturingClientWrapper:
         (`resolve_guarded_call`); that statement is rendered, checked, captured
         and sent positionally. Shapes that cannot be reduced are refused.
         A connector the guard neither checks nor exempts
-        (`client_profiles.classify`) is refused a text statement.
+        (`client_profiles.classify`) is refused any statement, whatever its
+        type and however it is passed (`_passes_a_statement`).
         """
         refusal: Optional[Exception] = None
         unrendered_note = None
@@ -1258,7 +1287,7 @@ class QueryCapturingClientWrapper:
             query, args, kwargs, capture, refusal = self._prepare_guarded(query, args, kwargs)
         else:
             query, capture, unrendered_note = self._prepare_unguarded(query, kwargs)
-            if isinstance(query, str) and self._takes_no_free_text():
+            if self._takes_no_free_text() and _passes_a_statement(self._original, query, args, kwargs):
                 refusal = UnsafeSQLError("This connection does not accept free-text queries")
         # The OData clients build their request from several arguments; what
         # the identity check reads of their calls is each request as sent
@@ -1589,9 +1618,10 @@ class QueryCapturingClientWrapper:
 
     def _takes_no_free_text(self) -> bool:
         """A connector the guard neither checks nor exempts (`classify`):
-        a text statement to it is refused, so a connector added without a
-        decision cannot receive free text unchecked. Keyword-only calls and
-        objects that are not connectors keep today's behaviour."""
+        a statement of any type to it is refused (`_passes_a_statement`), so
+        a connector added without a decision cannot receive free text
+        unchecked. Keyword-only calls and objects that are not connectors
+        keep today's behaviour."""
         from app.ai.code_execution.client_profiles import classify
         from app.data_sources.clients.discovery import DiscoveryClient
 

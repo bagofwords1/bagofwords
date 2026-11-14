@@ -578,3 +578,336 @@ def test_xmla_accepts_the_catalog_the_table_name_names(factory):
     sent = _xmla_session(client)
     client.execute_query("SELECT {} ON 0 FROM [Sales]", "AW/Sales", catalog="AW")
     assert sent == [("SELECT {} ON 0 FROM [Sales]", "AW")]
+
+
+def _json_response(body, status=200):
+    resp = MagicMock()
+    resp.status_code = status
+    resp.json.return_value = body
+    resp.text = json.dumps(body)
+    return resp
+
+
+# ---------------------------------------------------------------------------
+# Infor EPM: the MDX sent through the BOW_ExecuteMdx process
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def infor_epm():
+    from app.data_sources.clients.infor_epm_client import InforEpmClient
+
+    client = InforEpmClient(api_url="https://ion.example/epm", olap_database="DEMO_OLAP",
+                            bearer_token="token", async_mode=False)
+    sent: list = []
+
+    def _post(url, json=None, **kwargs):
+        sent.append((url.rsplit("/", 1)[-1], json))
+        return _json_response({"result": "[Region].[North]\tNUM\t1\n"})
+
+    session = MagicMock()
+    session.post.side_effect = _post
+    client._http = session
+    return client, sent
+
+
+_INFOR_EPM_REFUSED = {
+    "drop": "DROP MEMBER [Sales].[SalesMeasures].[X]",
+    "writeback": "UPDATE CUBE [Sales] SET ([SalesMeasures].[X]) = 1",
+    "second statement": "SELECT {} ON 0 FROM [Sales]; DROP MEMBER [Sales].[SalesMeasures].[X]",
+    "select into": "SELECT INTO [New] FROM [Sales]",
+    "verb after a comment": "-- note\nDELETE FROM [Sales]",
+    "unknown verb": "DRILLTHROUGH SELECT {} ON 0 FROM [Sales]",
+    # The process may pass a lone CR on as written, where a server ending
+    # comments only at LF would read the quoted text below as code.
+    "lone carriage return in a comment": (
+        "SELECT {} ON 0 FROM [Sales] --\r'\n; DROP MEMBER [Sales].[SalesMeasures].[X] --'"),
+    "lone carriage return": "SELECT {} ON 0\rFROM [Sales]",
+    "ambiguous line end": "-- x" + _LINE_SEP + "SELECT {} ON 0 FROM [S]\nDROP MEMBER [S].[M].[X]",
+}
+
+
+@pytest.mark.parametrize("statement", list(_INFOR_EPM_REFUSED.values()), ids=list(_INFOR_EPM_REFUSED))
+def test_infor_epm_refuses_statements_outside_one_read(infor_epm, statement):
+    client, sent = infor_epm
+    _assert_refused(lambda: client.execute_query(statement, "DEMO_OLAP/Sales"), sent)
+
+
+@pytest.mark.parametrize("statement", [
+    "SELECT {[SalesMeasures].[Revenue]} ON COLUMNS, [Region].Members ON ROWS FROM [Sales]",
+    "WITH MEMBER [SalesMeasures].[X] AS 1 SELECT {[SalesMeasures].[X]} ON 0 FROM [Sales]",
+    "-- note\r\nSELECT {} ON 0\r\nFROM [Sales] // tail\r\n",
+    "SELECT {[Region].[Into]} ON 0 FROM [Sales] WHERE ([Period].[2024]);",
+])
+def test_infor_epm_sends_a_read_unchanged(infor_epm, statement):
+    client, sent = infor_epm
+    client.execute_query(statement, "DEMO_OLAP/Sales")
+    assert [(process, body["mdxQuery"], body["OLAPName"]) for process, body in sent] == [
+        ("BOW_ExecuteMdx", statement.strip(), "DEMO_OLAP")]
+
+
+# ---------------------------------------------------------------------------
+# Oracle BI: Logical SQL to XmlViewService.executeXMLQuery
+# ---------------------------------------------------------------------------
+
+_ORACLE_BI_EMPTY_ROWSET = (
+    '<?xml version="1.0" encoding="UTF-8"?>'
+    '<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" '
+    'xmlns:sawsoap="urn://oracle.bi.webservices/v12"><soap:Body>'
+    "<sawsoap:executeXMLQueryResult><sawsoap:return><sawsoap:rowset></sawsoap:rowset>"
+    "</sawsoap:return></sawsoap:executeXMLQueryResult></soap:Body></soap:Envelope>"
+).encode()
+
+
+@pytest.fixture
+def oracle_bi():
+    import re
+    from xml.sax.saxutils import unescape
+
+    from app.data_sources.clients.oracle_bi_client import OracleBIClient
+
+    client = OracleBIClient(host="https://oac.example", username="u", password="p")
+    sent: list = []
+
+    def _post(url, data=None, **kwargs):
+        logical = re.search(r"<logicalSQL>(.*?)</logicalSQL>", data.decode(), re.S)
+        sent.append(unescape(logical.group(1)) if logical else ("other request", url))
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.content = _ORACLE_BI_EMPTY_ROWSET
+        resp.text = _ORACLE_BI_EMPTY_ROWSET.decode()
+        return resp
+
+    session = MagicMock()
+    session.post.side_effect = _post
+    client._http = session
+    client._session_id = "session"
+    return client, sent
+
+
+_ORACLE_BI_REFUSED = {
+    "execute physical": 'EXECUTE PHYSICAL CONNECTION POOL "DB"."Pool" DELETE FROM t',
+    "execute physical in lower case and spread over lines": (
+        'execute\n  physical connection pool "DB"."Pool" delete from t'),
+    "execute physical after a select": (
+        'SELECT "P"."P" FROM "A"; EXECUTE PHYSICAL CONNECTION POOL "DB"."Pool" DELETE FROM t'),
+    "execute physical after a comment and a separator": (
+        'SELECT "P"."P" FROM "A" /* x */ ; // y\nEXECUTE PHYSICAL CONNECTION POOL "DB"."Pool" DELETE FROM t'),
+    "execute inside a select": 'SELECT "P"."P" FROM "A" WHERE 1 = (EXECUTE PHYSICAL CONNECTION POOL p x)',
+    "set variable prefix": 'SET VARIABLE LOGLEVEL = 3; SELECT "P"."P" FROM "A"',
+    "colon separated second statement": 'SELECT "P"."P" FROM "A": SELECT "P"."P" FROM "A"',
+    "procedure call": "CALL SAPurgeAllCache()",
+    "physical select": "SELECT_PHYSICAL a FROM db.schema.t",
+    "physical expression": """SELECT EVALUATE('f(%1)', "P"."P") FROM "A\"""",
+    "physical aggregate": """SELECT EVALUATE_AGGR('f(%1)', "P"."P") FROM "A\"""",
+    "physical predicate": """SELECT "P"."P" FROM "A" WHERE EVALUATE_PREDICATE('f(%1)', "P"."P")""",
+    "physical analytic": """SELECT EVALUATE_ANALYTIC('f(%1)', "P"."P") FROM "A\"""",
+    "double dash, which the reference does not list as a comment": (
+        'SELECT "P"."P" FROM "A" -- \'\n; EXECUTE PHYSICAL CONNECTION POOL p x --\''),
+    "backslash in a string": """SELECT "P"."P" FROM "A" WHERE "P"."P" = 'a\\' OR 1 = 1 --'""",
+    "backslash in a quoted name": 'SELECT "P\\" FROM "A"',
+    "unterminated string": """SELECT "P"."P" FROM "A" WHERE "P"."P" = 'a; EXECUTE PHYSICAL x""",
+    "unterminated quoted name": 'SELECT "P"."P FROM A',
+    "unterminated block comment": 'SELECT "P"."P" FROM "A" /* x',
+    "nested block comment": 'SELECT "P"."P" FROM "A" /* a /* b */ EXECUTE PHYSICAL x */',
+    "line comment ended by a line separator": (
+        'SELECT "P"."P" FROM "A" // x' + _LINE_SEP + 'EXECUTE PHYSICAL CONNECTION POOL p x'),
+    "line comment ended by a vertical tab": '# x' + chr(0x0B) + 'EXECUTE PHYSICAL CONNECTION POOL p x',
+    "verb in a lookalike letter": chr(0x17F) + 'ELECT "P"."P" FROM "A"',
+    "insert": 'INSERT INTO "A" VALUES (1)',
+    "no statement": "/* only a comment */",
+    "not text": {"logicalSQL": 'SELECT "P"."P" FROM "A"'},
+}
+
+
+@pytest.mark.parametrize("statement", list(_ORACLE_BI_REFUSED.values()), ids=list(_ORACLE_BI_REFUSED))
+def test_oracle_bi_refuses_statements_outside_one_select(oracle_bi, statement):
+    client, sent = oracle_bi
+    _assert_refused(lambda: client.execute_query(statement), sent)
+
+
+@pytest.mark.parametrize("statement", [
+    'SELECT "Products"."Product", "Base Facts"."Revenue" FROM "A - Sample Sales"',
+    'select "P"."P" from "A" where "P"."P" = \'it\'\'s; EXECUTE PHYSICAL\' order by 1;',
+    'SELECT "Execute"."Physical", "Evaluate"."X" FROM "A"',
+    '/* lead */ // note\n# hash note\r\nSELECT "P"."P" FROM "A" // EXECUTE PHYSICAL in a comment',
+    'WITH s AS (SELECT "P"."P" FROM "A") SELECT * FROM s',
+    '(SELECT "P"."P" FROM "A") UNION ALL (SELECT "P"."Q" FROM "A")',
+    'SELECT "P"."P" FROM "A" WHERE "P"."T" = TIMESTAMP \'2024-01-01 10:00:00\'',
+    'SELECT "P"."P" FROM "A" WHERE "P"."P" IN (SELECT "P"."P" FROM "A" EXCEPT SELECT "P"."Q" FROM "A")',
+])
+def test_oracle_bi_sends_a_select_unchanged(oracle_bi, statement):
+    client, sent = oracle_bi
+    client.execute_query(statement)
+    assert sent == [statement]
+
+
+# ---------------------------------------------------------------------------
+# OpenSearch: the SQL plugin key and the envelope keys
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def opensearch(monkeypatch):
+    from app.data_sources.clients.opensearch_client import OpenSearchClient
+
+    sent: list = []
+
+    def _request(method, url, json=None, **kwargs):
+        sent.append((method, url.split("://", 1)[1].split("/", 1)[1], json))
+        if url.endswith("/_plugins/_sql"):
+            return _json_response({"schema": [{"name": "n"}], "datarows": [[1]]})
+        return _json_response({"hits": {"hits": []}})
+
+    monkeypatch.setattr("app.data_sources.clients.opensearch_client.pinned_request", _request)
+    return OpenSearchClient(host="http://search.example:9200"), sent
+
+
+_OPENSEARCH_REFUSED = {
+    "delete": {"sql": "DELETE FROM orders WHERE status = 'x'"},
+    "second statement": {"sql": "SELECT 1 FROM orders; DELETE FROM orders"},
+    "ddl": {"sql": "CREATE TABLE copy (a INT)"},
+    "drop": {"sql": "DROP TABLE orders"},
+    "select into": {"sql": "SELECT * INTO copy FROM orders"},
+    "update": {"sql": "UPDATE orders SET status = 'x'"},
+    "not a select": {"sql": "SHOW TABLES LIKE orders"},
+    "unparsable": {"sql": "SELECT FROM WHERE"},
+    "line comment": {"sql": "SELECT status FROM orders -- note"},
+    "hash comment": {"sql": "SELECT status FROM orders # note"},
+    "block comment": {"sql": "SELECT /* note */ status FROM orders"},
+    "backslash": {"sql": "SELECT status FROM orders WHERE status = 'a\\''"},
+    "not text": {"sql": ["SELECT 1"]},
+    "empty": {"sql": "  "},
+    "unknown key beside the search": {"index": "orders", "query": {"match_all": {}}, "script": {"source": "x"}},
+    "unknown key beside the sql": {"sql": "SELECT 1 FROM orders", "pipeline": "p"},
+}
+
+
+@pytest.mark.parametrize("envelope", list(_OPENSEARCH_REFUSED.values()), ids=list(_OPENSEARCH_REFUSED))
+def test_opensearch_refuses_sql_outside_one_select_and_unknown_envelope_keys(opensearch, envelope):
+    client, sent = opensearch
+    _assert_refused(lambda: client.execute_query(json.dumps(envelope)), sent)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT status, COUNT(*) AS n FROM orders GROUP BY status",
+    "select `order id`, total from orders where status = 'it''s' order by total desc limit 5",
+    "WITH big AS (SELECT * FROM orders WHERE total > 10) SELECT COUNT(*) FROM big",
+    "SELECT status FROM orders UNION SELECT status FROM returns",
+    "SELECT status FROM orders WHERE note = 'DELETE; -- #'",
+])
+def test_opensearch_sends_a_select_unchanged(opensearch, sql):
+    client, sent = opensearch
+    client.execute_query(json.dumps({"sql": sql}))
+    assert sent == [("POST", "_plugins/_sql", {"query": sql})]
+
+
+def test_opensearch_sends_a_search_unchanged(opensearch):
+    client, sent = opensearch
+    client.execute_query(json.dumps({"index": "orders", "query": {"match_all": {}}, "size": 5}))
+    assert sent == [("POST", "orders/_search", {"query": {"match_all": {}}, "size": 5, "timeout": "60s"})]
+
+
+# ---------------------------------------------------------------------------
+# Sisense: the /sql endpoint of a data model
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def sisense():
+    from app.data_sources.clients.sisense_client import SisenseClient
+
+    client = SisenseClient(host="https://sisense.example", api_token="token")
+    sent: list = []
+
+    def _get(url, params=None, **kwargs):
+        sent.append((url.split("/api/", 1)[1], params["query"]))
+        return _json_response({"headers": ["n"], "values": [[1]]})
+
+    session = MagicMock()
+    session.get.side_effect = _get
+    client._http = session
+    client._access_token = "token"
+    return client, sent
+
+
+_SISENSE_REFUSED = {
+    "delete": "DELETE FROM Customers",
+    "insert": "INSERT INTO Customers (ID) VALUES (1)",
+    "update": "UPDATE Customers SET Status = 'x'",
+    "ddl": "CREATE TABLE Copy (ID INT)",
+    "drop": "DROP TABLE Customers",
+    "second statement": "SELECT * FROM Customers; DROP TABLE Customers",
+    "select into": "SELECT * INTO Copy FROM Customers",
+    "not a select": "PRAGMA table_info(Customers)",
+    "unparsable": "SELECT FROM WHERE",
+    "line comment": "SELECT * FROM Customers -- note",
+    "block comment": "SELECT * FROM Customers /* note */",
+    "hash": "SELECT * FROM Customers # note",
+    "backslash": "SELECT * FROM Customers WHERE Status = 'a\\''",
+    "not text": ["SELECT * FROM Customers"],
+}
+
+
+@pytest.mark.parametrize("sql", list(_SISENSE_REFUSED.values()), ids=list(_SISENSE_REFUSED))
+def test_sisense_refuses_sql_outside_one_select(sisense, sql):
+    client, sent = sisense
+    _assert_refused(lambda: client.execute_query(sql, datasource_title="Sales Model"), sent)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM Customers",
+    'SELECT "first name", "last name" FROM "Order Details"',
+    "SELECT [Order Details].[Amount] FROM [Order Details] WHERE Status = 'Active' LIMIT 10",
+    "SELECT Category, SUM(Amount) AS Total FROM Orders GROUP BY Category ORDER BY Total DESC LIMIT 10",
+    "WITH a AS (SELECT ID FROM Customers) SELECT COUNT(*) FROM a",
+    "SELECT ID FROM Customers UNION SELECT ID FROM Orders",
+])
+def test_sisense_sends_a_select_unchanged(sisense, sql):
+    client, sent = sisense
+    client.execute_query(sql, datasource_title="Sales Model")
+    assert sent == [("datasources/Sales%20Model/sql", sql)]
+
+
+# ---------------------------------------------------------------------------
+# Timbr A2A: every prompt asks Timbr to validate the SQL it generates
+# ---------------------------------------------------------------------------
+
+def _timbr_a2a(**kwargs):
+    from app.data_sources.clients.timbr_a2a_client import TimbrA2aClient
+
+    client = TimbrA2aClient(host="https://timbr.example", ontology="sales", api_key="key", **kwargs)
+    sent: list = []
+
+    def _post(url, json=None, headers=None, **kw):
+        sent.append((url.rsplit("/", 2)[-2:], json, dict(headers or {})))
+        return _json_response({"status": "success", "data": {"rows": [{"n": 1}]}})
+
+    session = MagicMock()
+    session.post.side_effect = _post
+    client._session = session
+    return client, sent
+
+
+@pytest.mark.parametrize("setup", [
+    lambda: _timbr_a2a(should_validate_sql=False),
+    lambda: _timbr_a2a(should_validate_sql="no"),
+    lambda: _timbr_a2a(should_validate_sql=None),
+], ids=["turned off", "not a boolean", "unset"])
+def test_timbr_a2a_refuses_a_prompt_without_sql_validation(setup):
+    client, sent = setup()
+    _assert_refused(lambda: client.execute_query("How many orders shipped last week?"), sent)
+
+
+def test_timbr_a2a_refuses_a_prompt_when_validation_is_turned_off_after_construction():
+    client, sent = _timbr_a2a()
+    client.should_validate_sql = False
+    _assert_refused(lambda: client.execute_query("How many orders shipped last week?"), sent)
+
+
+def test_timbr_a2a_sends_a_prompt_unchanged_with_sql_validation_on():
+    client, sent = _timbr_a2a()
+    df = client.execute_query("How many orders shipped last week?")
+    assert df["n"].tolist() == [1]
+    assert len(sent) == 1
+    (path, body, headers) = sent[0]
+    assert path == ["execute", "prompt"]
+    assert body == {"prompt": "How many orders shipped last week?"}
+    assert [v for k, v in headers.items() if k.lower() == "should-validate-sql"] == ["true"]

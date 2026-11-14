@@ -2073,15 +2073,14 @@ def test_a_keyword_call_that_times_out_also_notes_its_params_were_not_rendered(m
     assert "value-not-for-logs" not in timings[-1]["error"]
 
 
-@pytest.mark.parametrize("call, structure, sent", [
-    ("execute_query({'q': 'SELECT 1'}, params={'owner': 'value-not-for-logs'})", ["statement=dict", "owner"], 1),
-    # Text to a connector nobody declared is refused (test_client_classification.py), after the
-    # params it did not render are logged.
+# A statement of any type to a connector nobody declared is refused
+# (test_client_classification.py), after the params it did not render are logged.
+@pytest.mark.parametrize("call, structure", [
+    ("execute_query({'q': 'SELECT 1'}, params={'owner': 'value-not-for-logs'})", ["statement=dict", "owner"]),
     ("execute_query('SELECT * FROM t WHERE a = :owner', params=['value-not-for-logs'])",
-     ["statement=str", "params=list"], 0),
+     ["statement=str", "params=list"]),
 ])
-def test_params_an_unguarded_connector_does_not_render_are_logged_by_structure(mode, caplog, call, structure, sent):
-    import contextlib
+def test_params_an_unguarded_connector_does_not_render_are_logged_by_structure(mode, caplog, call, structure):
     import logging
 
     from app.ai.code_execution.code_execution import UnsafeSQLError
@@ -2089,10 +2088,10 @@ def test_params_an_unguarded_connector_does_not_render_are_logged_by_structure(m
     logger = logging.getLogger("app.ai.code_execution.code_execution")
     logger.disabled = False  # alembic's fileConfig disables existing loggers
     client = _ConnectorWithoutRenderer()
-    refused = contextlib.nullcontext() if sent else pytest.raises(UnsafeSQLError)
-    with caplog.at_level(logging.WARNING, logger="app.ai.code_execution.code_execution"), refused:
+    with caplog.at_level(logging.WARNING, logger="app.ai.code_execution.code_execution"), \
+            pytest.raises(UnsafeSQLError, match="does not accept free-text queries"):
         _run({"c": client}, "return ds_clients['c']." + call)
-    assert len(client.received) == sent and all(kwargs == {} for _, kwargs in client.received)
+    assert client.received == []
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING and "params_not_rendered" in r.getMessage()]
     assert len(warnings) == 1, [r.getMessage() for r in caplog.records]
     assert "_ConnectorWithoutRenderer" in warnings[0]

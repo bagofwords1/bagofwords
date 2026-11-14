@@ -42,10 +42,16 @@ Policy, per client:
     VALUES) and no write word, generic or the engine's, with literals and
     comments read by the engine's rules.
   * **Everything else** is not checked here. A connector is either declared
-    exempt (`client_profiles.EXEMPT_CLIENTS`, each with the reason its query
-    surface cannot write or run a free-form statement, or the check it makes
-    where it sends a statement, and the file:line that shows it), or the
-    wrapper refuses it any text statement (`client_profiles.classify`).
+    exempt (`client_profiles.EXEMPT_CLIENTS`: each entry names why, with the
+    file:line that shows it: its query surface cannot write or run a
+    free-form statement, it checks every statement where it sends it, or,
+    for one remote agent, an accepted decision to trust it), or it is
+    `unknown` (`client_profiles.classify`). The wrapper refuses an `unknown`
+    connector's call when any parameter of its `execute_query` that can be
+    passed by position receives a value other than None, whatever its type
+    and however it was passed (by position or by name), and when the call
+    does not fit that signature; it forwards only calls whose values all go
+    to keyword-only parameters or `**kwargs`.
     Connections are expected to use read-only credentials regardless.
 
 A NUL character is refused in every checked statement: some drivers and
@@ -932,6 +938,45 @@ def check_sql(sql: str, dialect: str, *, unknown_lexer: bool = False) -> None:
     _check_parsed(sql, dialect, unparsed)
 
 
+# Marks some SQL readers take as the start of a comment and others do not.
+_COMMENT_MARKS = re.compile(r"--|/\*|\*/|#|//")
+
+
+def check_one_select(sql, dialect: str) -> None:
+    """Refuse `sql` unless it is one SELECT (WITH ... SELECT, a set operation
+    of SELECTs) as `dialect` reads it. For a client that checks the SQL it
+    sends at its own dispatch point and whose engine's own reader is not
+    known, so nothing is guessed at: text sqlglot cannot parse is refused
+    (no unparsed fallback, unlike `check_sql`), and so is a backslash or a
+    comment mark (`--`, `/*`, `*/`, `#`, `//`) outside a string or a quoted
+    name. Raises ReadOnlyViolation."""
+    from app.ai.code_execution.sql_parser import parse_guard_sql
+    from sqlglot import exp
+    from sqlglot.dialects.dialect import Dialect
+
+    if type(sql) is not str:
+        raise ReadOnlyViolation(f"The query must be text, not {type(sql).__name__}.")
+    check_engine_reading(sql, dialect, unknown_lexer=True)
+    masked = _masked(sql, _literal_spans(sql, Dialect.get_or_raise(dialect).tokenize(sql)))
+    mark = _COMMENT_MARKS.search(masked)
+    if mark:
+        raise ReadOnlyViolation(
+            f"The query has '{mark.group()}' outside a string or a quoted name, which this source may read as a "
+            "comment where the query checks do not, or the other way round. Remove it."
+        )
+    try:
+        statements = [s for s in parse_guard_sql(sql, dialect)
+                      if s is not None and not isinstance(s, exp.Semicolon)]
+    except Exception as e:
+        raise ReadOnlyViolation("The query could not be read as one SELECT statement, so it was not run.") from e
+    if len(statements) != 1:
+        raise ReadOnlyViolation(f"Only a single SELECT statement is allowed; got {len(statements)} statements.")
+    stmt = statements[0]
+    if not isinstance(stmt, (exp.Select, exp.SetOperation, exp.Subquery)):
+        raise ReadOnlyViolation(f"Statement '{stmt.key.upper()}' is not allowed. Only SELECT queries are allowed.")
+    _refuse_writes(stmt, dialect)
+
+
 def _check_postgres(sql: str, dialect: str = "postgres") -> str:
     """Check Postgres (or Redshift) text as the server reads it; return the
     canonical text, which is what must be sent."""
@@ -1072,6 +1117,15 @@ def _check_parsed(sql: str, dialect: str, unparsed) -> None:
         )
     if isinstance(stmt, exp.Pragma) and "=" in sql:
         raise ReadOnlyViolation("PRAGMA assignments are not allowed.")
+
+    _refuse_writes(stmt, dialect)
+
+
+def _refuse_writes(stmt, dialect: str) -> None:
+    """Refuse a write anywhere in the parsed `stmt` (a DELETE inside a CTE,
+    `SELECT ... INTO`, an opaque Command) and, in dialects that have them,
+    calls of the `DENIED_FUNCTIONS`."""
+    from sqlglot import exp
 
     writes = (exp.Insert, exp.Update, exp.Delete, exp.Merge, exp.Create, exp.Drop,
               exp.Alter, exp.TruncateTable, exp.Command, exp.Into, exp.Copy)
@@ -1449,10 +1503,7 @@ def check_engine_reading(sql: str, dialect: str, *, unknown_lexer: bool = False)
         tokens = reader.tokenize(sql)
     except Exception as e:
         raise ReadOnlyViolation(_UNREADABLE) from e
-    # Strings and quoted names (an IDENTIFIER token sqlglot read from
-    # unquoted text is code).
-    literal = [(t.start, t.end + 1) for t in tokens if t.token_type.name in _LITERAL_TOKENS
-               or (t.token_type.name == "IDENTIFIER" and sql[t.start:t.start + 1] in ("\"", "`", "["))]
+    literal = _literal_spans(sql, tokens)
     literal_starts = {start for start, _end in literal}
     code = [t for t in tokens if t.start not in literal_starts]
     masked = _masked(sql, literal)
@@ -1520,6 +1571,13 @@ def check_engine_reading(sql: str, dialect: str, *, unknown_lexer: bool = False)
     if dialect == "duckdb":
         _check_dollar_tags(sql, masked, tokens)
         _check_e_strings(sql, tokens)
+
+
+def _literal_spans(sql: str, tokens) -> list[tuple[int, int]]:
+    """The (start, end) spans of `tokens`' strings and quoted names (an
+    IDENTIFIER token sqlglot read from unquoted text is code)."""
+    return [(t.start, t.end + 1) for t in tokens if t.token_type.name in _LITERAL_TOKENS
+            or (t.token_type.name == "IDENTIFIER" and sql[t.start:t.start + 1] in ("\"", "`", "["))]
 
 
 def _check_currency_signs(sql: str, masked: str, code, code_starts: list[int]) -> None:

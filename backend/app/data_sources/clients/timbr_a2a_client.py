@@ -1,5 +1,6 @@
 from app.data_sources.clients.progress import discovery_progress
 from app.data_sources.clients.base import DataSourceClient
+from app.ai.code_execution.sql_guard import ReadOnlyViolation
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
 from typing import List, Optional
 import requests
@@ -99,13 +100,24 @@ class TimbrA2aClient(DataSourceClient):
         }
 
     def _execute_prompt(self, prompt: str, timeout: int = 120) -> dict:
-        """POST a natural-language prompt and return the full response data."""
+        """POST a natural-language prompt and return the full response data.
+
+        Every prompt asks Timbr to validate the SQL it generates before it
+        runs it (`should-validate-sql: true`); a request that would not is
+        refused here and nothing is sent.
+        """
+        headers = self._prompt_headers()
+        if [v for k, v in headers.items() if k.lower() == "should-validate-sql"] != ["true"]:
+            raise ReadOnlyViolation(
+                "Timbr A2A prompts must ask Timbr to validate the SQL it generates "
+                "(should-validate-sql: true); this connection does not, so nothing was sent."
+            )
         session = self._get_session()
         url = f"{self._base_url}/execute/prompt"
         resp = session.post(
             url,
             json={"prompt": prompt},
-            headers=self._prompt_headers(),
+            headers=headers,
             timeout=timeout,
         )
         if resp.status_code >= 300:

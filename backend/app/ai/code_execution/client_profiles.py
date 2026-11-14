@@ -173,7 +173,7 @@ _ID = "positional id, not query text"
 
 PARAMS_REFUSED: dict[tuple[str, str], str] = dict([
     _refused("elasticsearch_client", "ElasticsearchClient", f"{_JSON}, elasticsearch_client.py:1136"),
-    _refused("opensearch_client", "OpenSearchClient", f"{_JSON}, opensearch_client.py:367"),
+    _refused("opensearch_client", "OpenSearchClient", f"{_JSON}, opensearch_client.py:368"),
     _refused("brocade_client", "BrocadeClient", f"{_JSON}, brocade_client.py:448"),
     _refused("appdynamics_client", "AppDynamicsClient", f"{_JSON}, appdynamics_client.py:458"),
     _refused("aria_operations_client", "AriaOperationsClient", f"{_JSON}, aria_operations_client.py:634"),
@@ -199,13 +199,13 @@ PARAMS_REFUSED: dict[tuple[str, str], str] = dict([
     _refused("infor_olap_client", "InforOlapClient", f"{_MDX}, inherited from xmla_base.py:465"),
     _refused("analysis_services_client", "AnalysisServicesClient", f"{_MDX}, analysis_services_client.py:673"),
     _refused("powerbi_client", "PowerBIClient", f"{_MDX}, powerbi_client.py:2114"),
-    _refused("infor_epm_client", "InforEpmClient", f"{_MDX}, infor_epm_client.py:447"),
+    _refused("infor_epm_client", "InforEpmClient", f"{_MDX}, infor_epm_client.py:466"),
     _refused("prometheus_client", "PrometheusClient", "PromQL with no declared renderer, prometheus_client.py:425"),
     _refused("aws_cloudwatch_client", "AwsCloudWatchClient",
              "Metrics / Logs Insights spec with no declared renderer, aws_cloudwatch_client.py:685"),
     _refused("businessobjects_client", "BusinessObjectsClient",
              "result-object list, not query text, businessobjects_client.py:338"),
-    _refused("timbr_a2a_client", "TimbrA2aClient", "natural-language prompt, not query text, timbr_a2a_client.py:212"),
+    _refused("timbr_a2a_client", "TimbrA2aClient", "natural-language prompt, not query text, timbr_a2a_client.py:224"),
     _refused("gmail_mail_client", "GmailMailClient", "Gmail search text with no declared renderer, gmail_mail_client.py:412"),
     _refused("network_dir_client", "NetworkDirClient", f"{_FILE}, network_dir_client.py:1061"),
     _refused("git_repo_client", "GitHubRepoClient", f"{_FILE}, inherited from network_dir_client.py:1061"),
@@ -231,11 +231,13 @@ PARAMS_REFUSED: dict[tuple[str, str], str] = dict([
 
 
 # Clients the wrapper does not check whose query surface cannot write or run
-# a free-form statement, or that check every statement where they send it.
-# Each reason names the file:line of the client's own code it rests on. A
-# declaration covers the classes below it in the MRO only down to the class
-# that defines the `execute_query` in effect: a subclass with its own
-# `execute_query` is not covered and must be declared itself (`classify`).
+# a free-form statement, or that check every statement where they send it,
+# and one remote agent trusted by an accepted decision, on the condition its
+# own code enforces. Each reason names the file:line of the client's own
+# code it rests on. A declaration covers the classes below it in the MRO
+# only down to the class that defines the `execute_query` in effect: a
+# subclass with its own `execute_query` is not covered and must be declared
+# itself (`classify`).
 def _exempt(module: str, name: str, reason: str, package: str = _CLIENTS):
     return (f"{package}.{module}", name), reason
 
@@ -268,6 +270,22 @@ EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
             f"{_DISPATCH}: read verbs only, configured catalog only, analysis_services_client.py:693"),
     _exempt("powerbi_client", "PowerBIClient",
             f"{_DISPATCH}: DAX only to the executeQueries read API, its ids GUIDs before any URL, powerbi_client.py:2199"),
+    # Read-only rules at the dispatch point (P5d).
+    _exempt("infor_epm_client", "InforEpmClient",
+            f"{_DISPATCH}: the XMLA read rules plus LF or CR LF line ends, on the configured OLAP database, "
+            "before the MDX process, infor_epm_client.py:475"),
+    _exempt("oracle_bi_client", "OracleBIClient",
+            f"{_DISPATCH}: one Logical SQL SELECT, EXECUTE PHYSICAL and the EVALUATE functions refused, "
+            "oracle_bi_client.py:368"),
+    _exempt("opensearch_client", "OpenSearchClient",
+            f"{_DISPATCH}: known envelope keys only (opensearch_client.py:387), an index to _search, "
+            "or one parsed SQL SELECT before the SQL plugin, opensearch_client.py:434"),
+    _exempt("sisense_client", "SisenseClient",
+            f"{_DISPATCH}: one parsed SQL SELECT before the /sql endpoint, sisense_client.py:474"),
+    # A remote agent trusted by decision, on the condition its code enforces.
+    _exempt("timbr_a2a_client", "TimbrA2aClient",
+            "remote agent with SQL validation enforced: should-validate-sql is always sent true "
+            "(timbr_a2a_client.py:110); read-only otherwise rests on Timbr-side settings (accepted by decision)"),
     # Query languages with no statement that writes, each sent to its read endpoint.
     _exempt("salesforce_client", "SalesforceClient", f"{_LANGUAGE}: SOQL through the query resource, salesforce_client.py:707"),
     _exempt("posthog_client", "PostHogClient", f"{_LANGUAGE}: HogQL sent as a HogQLQuery, posthog_client.py:250"),
