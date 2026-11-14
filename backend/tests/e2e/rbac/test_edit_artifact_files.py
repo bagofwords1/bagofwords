@@ -294,6 +294,21 @@ def test_create_refuses_a_bowfile_for_a_file_it_does_not_attach(test_client, cas
 
 
 @pytest.mark.e2e
+def test_create_refuses_an_unattached_bowfile_without_vendored_libs(test_client, cast, chatbot, monkeypatch):
+    """No vendored JS libs means no render check; the file check needs no render."""
+    import app.services.artifact_libs as artifact_libs
+    monkeypatch.setattr(artifact_libs, "_find_libs_dir", lambda *a, **k: None)
+    logo = _upload(test_client, cast["owner"]["token"], cast["org_id"], report_id=chatbot["report_id"])
+    code = CODE.replace("<h1>Assistant</h1>", f'<BowFile id="{logo}" /><h1>Assistant</h1>')
+
+    payload = _create(cast, chatbot, {"prompt": "build", "mode": "page", "code": code, "visualization_ids": []})
+
+    assert not payload["output"].get("success"), payload
+    assert "not attached" in json.dumps(payload)
+    assert [v for v in _versions(test_client, cast, chatbot) if v.get("status") == "completed"] == []
+
+
+@pytest.mark.e2e
 def test_create_attaches_a_bowfile_passed_in_file_ids(test_client, cast, chatbot, no_render):
     logo = _upload(test_client, cast["owner"]["token"], cast["org_id"], report_id=chatbot["report_id"])
     code = CODE.replace("<h1>Assistant</h1>", f'<BowFile id="{logo}" /><h1>Assistant</h1>')

@@ -750,12 +750,17 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             # downloaded) must not fail artifact creation — pass through
             # unvalidated, exactly like the missing-Playwright fallback.
             logger.warning(f"Render validation unavailable (thumbnail HTML build failed): {e}")
+            # The <BowFile> check reads only the code and the attached files,
+            # so it still applies: an unattached file shows "File not found".
+            from app.ai.tools.implementations._artifact_refs import file_reference_errors
+            file_errors = file_reference_errors(code, artifact_data) if mode == "page" else []
             yield {
                 "code": code,
-                "clean": True,
+                "clean": not (strict and file_errors),
                 "screenshot": None,
-                "errors": [],
+                "errors": list(file_errors) if strict else [],
                 "repair_attempts": 0,
+                "params_wiring_errors": file_errors,
                 "validation_skipped": True,
             }
             return
