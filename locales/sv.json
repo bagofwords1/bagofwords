@@ -707,7 +707,8 @@
         "cancel": "Avbryt",
         "dismiss": "Stäng"
       }
-    }
+    },
+    "recent": "Senaste"
   },
   "reports": {
     "title": "Rapporter",

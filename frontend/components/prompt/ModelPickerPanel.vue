@@ -16,7 +16,7 @@
       </div>
     </div>
 
-    <!-- Model list (sorted by provider) -->
+    <!-- Model list: the user's recent models, then the rest by provider -->
     <div ref="listRef" class="max-h-72 overflow-y-auto p-1">
       <template v-if="showAuto && !query">
         <button type="button" class="picker-row" :class="rowClass(false, props.modelValue === AUTO)" @click="pick(AUTO)">
@@ -43,8 +43,13 @@
 
       <div v-if="!flat.length" class="px-3 py-4 text-center text-ink-muted">{{ $t('prompt.effort.noMatches') }}</div>
 
+      <template v-for="section in sections" :key="section.key">
+      <div v-if="section.divider" class="my-1 border-t border-gray-100 dark:border-gray-800" />
+      <div v-if="section.label" class="px-2 pt-1 pb-0.5 text-start text-2xs font-medium uppercase tracking-wide text-ink-muted" :data-testid="`model-section-${section.key}`">
+        {{ section.label }}
+      </div>
       <div
-        v-for="m in flat"
+        v-for="m in section.items"
         :key="m.id"
         :data-picker-index="indexOf(m)"
         role="option"
@@ -62,6 +67,7 @@
         </span>
         <Icon v-if="props.modelValue === m.id" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
       </div>
+      </template>
     </div>
 
     <!-- Effort for the selected model: a Faster ↔ Smarter slider -->
@@ -114,6 +120,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import LLMProviderIcon from '@/components/LLMProviderIcon.vue'
+import { splitRecent } from '@/utils/recentItems'
 
 // The model list with search and an effort bar. Consumers own the
 // trigger (each surface styles its own button) and render this in the panel.
@@ -160,10 +167,17 @@ const filtered = computed(() => {
   )
 })
 
-// Sorted by provider name; models keep the API order inside a provider.
+// The few models this user chats on most recently lead the list (hidden while
+// searching — a query ranks by match, not habit). See utils/recentItems.ts.
+const recentModels = computed(() => (query.value.trim() ? [] : splitRecent(filtered.value).recent))
+const recentIds = computed(() => new Set(recentModels.value.map(m => m.id)))
+
+// Everything else sorted by provider name; models keep the API order inside a
+// provider, so this part never moves with usage.
 const groups = computed(() => {
   const by = new Map<string, any[]>()
   for (const m of filtered.value) {
+    if (recentIds.value.has(m.id)) continue
     const key = m.provider?.name || t('prompt.effort.otherProvider')
     if (!by.has(key)) by.set(key, [])
     by.get(key)!.push(m)
@@ -172,7 +186,14 @@ const groups = computed(() => {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([name, models]) => ({ name, models }))
 })
-const flat = computed(() => groups.value.flatMap(g => g.models))
+const sections = computed(() => {
+  const rest = groups.value.flatMap(g => g.models)
+  if (!recentModels.value.length) return [{ key: 'all', label: '', divider: false, items: rest }]
+  const out: any[] = [{ key: 'recent', label: t('prompt.recent'), divider: false, items: recentModels.value }]
+  if (rest.length) out.push({ key: 'all', label: '', divider: true, items: rest })
+  return out
+})
+const flat = computed(() => sections.value.flatMap(s => s.items))
 function indexOf(m: any) { return flat.value.indexOf(m) }
 
 watch(query, () => { highlighted.value = 0 })

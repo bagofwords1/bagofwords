@@ -1076,6 +1076,12 @@ class LLMService:
             m.inherited_default_source = inherited.get("source") if is_inherited else None
             m.inherited_default_group_name = inherited.get("group_name") if is_inherited else None
 
+        last_used = {}
+        if current_user is not None:
+            last_used = await self._last_used_at_by_model(db, organization, current_user, visible_ids)
+        for m in models:
+            m.last_used_at = last_used.get(str(m.id))
+
         # Prefer small default models first, then regular default, then by provider/name
         def _sort_key(m):
             try:
@@ -1091,6 +1097,41 @@ class LLMService:
                 str(model_name).lower(),
             )
         return sorted(models, key=_sort_key)
+
+    async def _last_used_at_by_model(
+        self, db: AsyncSession, organization: Organization, current_user: User, model_ids
+    ) -> dict:
+        """{llm_model_id: when this user last chatted on that model}.
+
+        Reads the planner's usage records: the planner runs every chat turn on
+        the model the user's composer sent (or their default), so its rows are
+        the user's own model choices. Other scopes (judge, titles, artifact
+        coders, ...) run on models the user never picked, and routed rows are
+        the Auto router's pick, not the user's — both are excluded so the
+        "Recent" list means "models I chose". One grouped query.
+        """
+        from sqlalchemy import func
+        from app.models.llm_usage_record import LLMUsageRecord
+
+        ids = [str(i) for i in (model_ids or [])]
+        if not ids:
+            return {}
+        try:
+            rows = (await db.execute(
+                select(LLMUsageRecord.llm_model_id, func.max(LLMUsageRecord.created_at))
+                .where(
+                    LLMUsageRecord.organization_id == str(organization.id),
+                    LLMUsageRecord.user_id == str(current_user.id),
+                    LLMUsageRecord.scope == "planner",
+                    LLMUsageRecord.routed == False,  # noqa: E712
+                    LLMUsageRecord.llm_model_id.in_(ids),
+                )
+                .group_by(LLMUsageRecord.llm_model_id)
+            )).all()
+        except Exception:
+            logger.exception("_last_used_at_by_model failed; model list unranked")
+            return {}
+        return {str(mid): last for mid, last in rows if last is not None}
 
     async def setup_default_providers(
         self,

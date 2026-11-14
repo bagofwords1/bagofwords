@@ -680,6 +680,7 @@
     "autoAgentsHint": "Cualquier agente al que tengas acceso",
     "searchAgents": "Buscar agentes…",
     "noAgentsMatch": "Ningún agente coincide",
+    "recent": "Recientes",
     "loadingDataSources": "Cargando fuentes de datos…",
     "noDataSources": "No se encontraron fuentes de datos",
     "effort": {

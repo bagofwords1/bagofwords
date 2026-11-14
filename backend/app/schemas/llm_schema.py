@@ -3,6 +3,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field, validator, model_validator
 from typing import Optional, Dict, Any, List
 import json
+from app.schemas.base import OptionalUTCDatetime
 
 # Base Provider Classes
 class LLMProviderBase(BaseModel):
@@ -312,6 +313,10 @@ class LLMModelSchema(LLMModelBase):
     is_inherited_default: bool = False
     inherited_default_source: Optional[str] = None  # "group" | "org" | "fallback"
     inherited_default_group_name: Optional[str] = None
+    # When the CALLER last chatted on this model (their own picks; Auto-routed
+    # turns don't count), so pickers can lead with the models they actually
+    # use. None = never. Computed per-request in LLMService.get_models.
+    last_used_at: OptionalUTCDatetime = None
     # Reasoning capability for the model picker and admin card: whether effort
     # applies, what each level (low/medium/high/max) runs as on this model, the
     # admin's mode / default / raw per-level fields. Derived from model_id +
