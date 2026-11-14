@@ -194,6 +194,8 @@ class SearchAgentsTool(Tool):
             # (and its schemas stay loaded in context) — don't re-fetch.
             _seen: dict = runtime_ctx.setdefault("_search_agents_seen", {})
             _qkey = "|".join(sorted(q.strip().lower() for q in (data.query or []) if isinstance(q, str)))
+            if data.same_folder_as:
+                _qkey = f"folder:{data.same_folder_as}:{_qkey}"
             if _qkey and _qkey in _seen:
                 prev = _seen[_qkey]
                 msg = (
@@ -211,6 +213,12 @@ class SearchAgentsTool(Tool):
             # the <connectors> block with their tools.
             from app.services.data_source_kind import is_connector
             candidates = [c for c in candidates if not is_connector(c)]
+            from app.services.folder_service import visible_agent_paths
+            paths = await visible_agent_paths(db, organization, user, candidates)
+            if data.same_folder_as:
+                home = next((a.folder_id for a in candidates if str(a.id) == data.same_folder_as
+                             and str(a.id) in paths), None)
+                candidates = [a for a in candidates if home and a.folder_id == home]
             if not candidates:
                 out = SearchAgentsOutput(success=True, agents=[], total=0,
                                          message=f"No {scope} agents available to search in {mode} mode.")
@@ -251,7 +259,7 @@ class SearchAgentsTool(Tool):
                 if patterns:
                     strong_hay = "\n".join([
                         getattr(ds, "name", "") or "",
-                        one_liners.get(sid, ""),
+                        one_liners.get(sid, ""), paths.get(sid, ""),
                         getattr(ds, "description", "") or "",
                         getattr(ds, "context", "") or "",
                         sid,
@@ -290,6 +298,7 @@ class SearchAgentsTool(Tool):
             items = [
                 SearchAgentsItem(
                     id=str(ds.id), name=getattr(ds, "name", "") or "",
+                    folder_path=paths.get(str(ds.id)),
                     description=one_liners.get(str(ds.id), "") or None,
                     status=getattr(ds, "publish_status", None),
                     reliability_status=getattr(ds, "reliability_status", None),
@@ -344,6 +353,7 @@ class SearchAgentsTool(Tool):
                 + (", EMAIL agent — use search_email/read_email/list_emails, not file tools" if surface_by_id.get(it.id) == "email" else "")
                 + (", CHAT agent — use search_chat_messages/read_chat_thread/list_chat_messages, not file tools" if surface_by_id.get(it.id) == "chat" else "")
                 + (", matched on table names only" if strength.get(it.id) == "weak" else "")
+                + (f", folder: {it.folder_path}" if it.folder_path else "")
                 + (", focused" if it.focused else "")
                 + ("" if it.attached else ", not attached to this report yet")
                 + (", SIGN-IN REQUIRED — the user must Connect this agent from the agent selector before it can be used; do not set_report_agents it, tell the user instead" if it.needs_signin else "")

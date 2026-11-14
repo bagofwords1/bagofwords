@@ -15,6 +15,7 @@ from app.models.eval import TestSuite, TestCase
 from app.models.file import File
 from app.models.instruction import Instruction
 from app.schemas.test_suite_schema import TestCaseCreate
+from app.services.folder_service import lock_tree
 from app.services.folder_knowledge import RESOURCES, require_capability
 from app.models.folder import Folder
 from app.models.organization import Organization
@@ -34,14 +35,6 @@ class FolderCreate(BaseModel):
 class FolderPath(BaseModel):
     parent_id: str | None = None
     path_segments: list[Name] = Field(min_length=1, max_length=64)
-
-
-async def lock_tree(db, org, user):
-    """Serialize grant and structural writes, including SQLite's first write."""
-    from app.core.permission_resolver import invalidate_rbac_memo
-
-    await db.execute(update(Organization).where(Organization.id == org.id).values(updated_at=Organization.updated_at))
-    invalidate_rbac_memo(db, user.id, org.id)
 
 
 def can_create_root(rights):

@@ -3,6 +3,10 @@
     <header class="mb-6 flex items-center gap-3">
       <UIcon name="i-heroicons-folder-open" class="size-6 shrink-0 text-ink-muted" />
       <h2 class="break-words text-lg font-semibold">{{ folder.name }}</h2>
+      <UButton v-if="canEdit('instructions') && isTrainingModeEnabled" size="xs" variant="ghost" color="gray"
+               icon="i-heroicons-academic-cap" :to="{path:'/reports/new', query:{mode:'training', folder:folder.id}}">
+        {{ $t('prompt.training') }}
+      </UButton>
     </header>
     <section v-for="kind in sections" :key="kind" class="mb-6 border-t border-gray-200 pt-4 dark:border-gray-800">
       <div class="flex flex-wrap items-center gap-2">
@@ -62,6 +66,7 @@ type Item = { id: string, name: string, owned?: boolean }
 const props = defineProps<{folder: {id: string, name: string, capabilities: string[], can_query: boolean}}>()
 defineEmits<{instruction: [id: string], file:[item:{id:string, filename:string}]}>()
 const { t } = useI18n()
+const { isTrainingModeEnabled } = useOrgSettings()
 const kinds: Kind[] = ['instructions', 'files', 'evals']
 const canEdit = (kind: Kind) => props.folder.capabilities.includes('manage_' + kind)
 const sections = computed(() => kinds.filter(k => canEdit(k) || (props.folder.can_query && k !== 'evals')))

@@ -503,6 +503,17 @@ class EditInstructionTool(Tool):
             result = await db.execute(stmt)
             instruction = result.scalar_one_or_none()
 
+            active_folder = getattr(report, "agent_folder_id", None)
+            if instruction and active_folder:
+                from app.services.folder_knowledge import instruction_scope
+                from app.services.instruction_authority import require_instruction_authority
+                from app.ai.tools.implementations.read_instruction import ReadInstructionTool
+                _, scope_ids = ReadInstructionTool._resolve_scope(runtime_ctx)
+                if not await db.scalar(select(Instruction.id).where(Instruction.id == instruction.id,
+                        instruction_scope(scope_ids or [], active_folder))):
+                    instruction = None
+                else:
+                    await require_instruction_authority(db, user, organization, instruction)
             if not instruction:
                 yield ToolEndEvent(
                     type="tool.end",

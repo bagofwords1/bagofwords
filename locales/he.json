@@ -1,5 +1,8 @@
 {
   "sharedFolders": {
+    "viewFolder": "הצגת תיקייה",
+    "activity": "פעילות בתיקייה",
+    "viewTrace": "הצגת מעקב",
     "attach": "שיוך פריט קיים",
     "addCase": "הוספת בדיקה",
     "sameAccess": "הגישה נשארת כפי שהיא.",

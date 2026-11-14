@@ -448,6 +448,11 @@
                     <DataSourceIcon v-else-if="agentDetail" :type="agentDetail.type" :connector-key="agentDetail.connector_key" :icon-token="agentDetail.icon_token" :icon="agentDetail.icon" class="h-7 w-7" />
                   </div>
                   <h2 dir="auto" class="break-words text-lg font-semibold leading-7 text-gray-900 dark:text-white">{{ agentDetail?.name || agentViewName }}</h2>
+                  <button v-if="agentDetail?.folder_path" data-testid="agent-location" type="button"
+                    class="mt-1 inline-flex max-w-full items-center gap-1 text-xs text-ink-muted hover:text-ink"
+                    :title="$t('sharedFolders.viewFolder')" @click="folderExplorer?.open(agentDetail.folder_id)">
+                    <UIcon name="i-heroicons-folder" class="shrink-0" /><span class="truncate">{{ agentDetail.folder_path }}</span>
+                  </button>
                   <div v-if="editingDesc || agentDetail?.description || agentCanUpdate" class="mx-auto mt-1.5 max-w-sm">
                     <input v-text-dir v-if="editingDesc" ref="descInputRef" v-model="descForm" type="text" :aria-label="$t('agentsPage.addDescription')" :placeholder="$t('agentsPage.addDescription')" class="w-full border-b border-blue-400 bg-transparent py-1 text-center text-sm text-gray-600 outline-none dark:text-gray-300" @keydown.enter="saveDesc" @keydown.escape="cancelDesc" @blur="saveDesc" />
                     <button v-else-if="agentCanUpdate" type="button" dir="auto" class="rounded px-1 text-sm leading-5 text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200" @click="startEditDesc">{{ agentDetail?.description || $t('agentsPage.addDescription') }}</button>

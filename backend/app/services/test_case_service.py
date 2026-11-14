@@ -175,6 +175,7 @@ class TestCaseService:
         organization_id: str,
         suite_name: str = DEFAULT_DRAFTS_SUITE_NAME,
         data_source_id: str | None = None,
+        folder_id: str | None = None,
     ) -> TestSuite:
         """Find-or-create a default drafts suite.
 
@@ -192,10 +193,15 @@ class TestCaseService:
         ``(organization_id, data_source_id, name)``, but in steady state there
         is at most one row per (org, agent).
         """
+        if folder_id:
+            from app.models.folder import Folder
+            from sqlalchemy import update
+            await db.execute(update(Folder).where(Folder.id == folder_id, Folder.organization_id == organization_id)
+                             .values(updated_at=Folder.updated_at))
         stmt = (
             select(TestSuite)
             .where(TestSuite.organization_id == str(organization_id))
-            .where(TestSuite.name == suite_name, TestSuite.owner_folder_id.is_(None))
+            .where(TestSuite.name == suite_name, TestSuite.owner_folder_id == folder_id)
             .where(TestSuite.deleted_at.is_(None))
             .where(
                 TestSuite.data_source_id == str(data_source_id)
@@ -211,7 +217,7 @@ class TestCaseService:
 
         suite = TestSuite(
             organization_id=str(organization_id),
-            name=suite_name,
+            name=suite_name, owner_folder_id=folder_id,
             data_source_id=str(data_source_id) if data_source_id else None,
             description=(
                 "Default bucket for auto-drafted and unscoped eval cases. "
@@ -220,6 +226,10 @@ class TestCaseService:
             ),
         )
         db.add(suite)
+        if folder_id:
+            from app.models.folder import folder_eval_suites
+            await db.flush()
+            await db.execute(folder_eval_suites.insert().values(folder_id=folder_id, suite_id=suite.id))
         await db.commit()
         await db.refresh(suite)
         return suite

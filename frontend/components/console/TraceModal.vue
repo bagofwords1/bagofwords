@@ -296,6 +296,10 @@
 
                                 <!-- Overview: prompt + assessment (judge) + context -->
                                 <template v-if="selectedItem.id === 'overview'">
+                                    <p v-if="traceData?.folder_name || traceData?.used_agents?.length" class="mb-2 flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+                                        <UIcon name="i-heroicons-folder" /><span>{{ traceData.folder_name }}</span>
+                                        <span v-for="name in traceData.used_agents" :key="name" class="rounded bg-gray-100 px-2 dark:bg-gray-800">{{ name }}</span>
+                                    </p>
                                     <!-- User prompt -->
                                     <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ $t('traceModal.userPrompt') }}</div>
                                     <pre v-text-dir.align class="text-xs text-gray-900 dark:text-gray-100 font-sans whitespace-pre-wrap break-words" style="unicode-bidi: plaintext; text-align: start;">{{ traceData?.head_prompt_snippet || '—' }}</pre>
@@ -741,6 +745,8 @@ interface TimingBreakdown {
 }
 
 interface AgentExecutionTraceResponse {
+    folder_name?: string
+    used_agents?: string[]
     agent_execution: any
     completion_blocks: CompletionBlockV2[]
     head_prompt_snippet?: string

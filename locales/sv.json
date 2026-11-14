@@ -7160,6 +7160,9 @@
     "sentTo": "Skickas till {email}"
   },
   "sharedFolders": {
+    "viewFolder": "Visa mapp",
+    "activity": "Mappaktivitet",
+    "viewTrace": "Visa spårning",
     "attach": "Länka befintligt",
     "addCase": "Lägg till testfall",
     "sameAccess": "Access stays the same.",

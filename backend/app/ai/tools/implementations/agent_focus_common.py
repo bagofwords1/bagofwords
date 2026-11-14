@@ -174,6 +174,10 @@ async def resolve_run_agents(db, organization: Any, user: Any, report: Any,
     # would hand a shared-dashboard chat far more than the owner shared.
     if agent_ids is None and not attached and getattr(report, "report_type", "regular") == "artifact_chat":
         return []
+    from app.services.folder_service import training_curator_only
+    if await training_curator_only(db, organization.id, getattr(user, "id", None),
+                                   getattr(report, "agent_folder_id", None), getattr(report, "mode", None)):
+        return []
     if agent_ids is not None:
         # A run with its own agents (a scheduled task's selection): exactly
         # those, re-checked against what the running user can use today. Like a
@@ -328,7 +332,7 @@ async def resolve_candidate_agents(
         if mode == "training":
             from app.core.permission_resolver import resolve_permissions
             rights = await resolve_permissions(db, str(user.id), str(organization.id))
-            agents = [a for a in agents if rights.has_resource_permission("data_source", str(a.id), "manage")]
+            agents = [a for a in agents if rights.has_resource_permission("data_source", str(a.id), MANAGE_PERMISSION)]
         return agents, "folder", set()
     if mode == "training":
         from app.core.permission_resolver import get_ds_ids_with_permission
@@ -343,6 +347,8 @@ async def resolve_candidate_agents(
             .options(selectinload(DataSource.connections))
             .where(DataSource.organization_id == str(organization.id))
         )
+        if attached_ids:
+            stmt = stmt.where(DataSource.id.in_(attached_ids))
         if not is_admin:
             if not ds_ids:
                 return [], "managed", attached_ids

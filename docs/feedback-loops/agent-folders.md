@@ -414,3 +414,22 @@ To exercise the two real routing choices inside the 300-agent fixture, set `FOLD
 Set `TEST_DATABASE_URL` to an isolated PostgreSQL database for the external run. Set `OPENAI_API_KEY_TEST` for the six live requests. The browser tests require the authenticated seeded stack described above. Role screenshots and the case editor are in [the screenshot and recording gallery](../../media/pr/agent-folders/index.html).
 
 Outstanding release evidence includes role/group edits racing a queued eval, every integration-specific selector and sustained multi-user load. The matrix above remains the acceptance checklist for these cases.
+
+### Folder activity, agent discovery and authoring
+
+| Surface | Permission and behavior | Regression coverage |
+|---|---|---|
+| Monitoring and Diagnosis | An agent manager sees a minimal activity row for each managed agent whose use was recorded. A query grant alone does not grant console access. Opening or exporting a conversation checks the whole report, including the roster exposed in planner snapshots and historical folder knowledge. A revoked grant takes effect on the next read. | `test_folder_activity_only_discloses_observed_managed_agent`, console scope and Diagnosis tests |
+| Trace overview | The selected folder and observed agents are recorded per execution. The displayed names use current metadata. Historical executions without attribution do not produce activity rows. An MCP call through a connection shared by multiple eligible agents cannot identify one specific agent. | Administrator and single-agent manager browser sessions |
+| Training and knowledge capture | Folder instruction curators can open a training report when training is enabled. Without folder query permission its agent roster and query clients are empty. Folder tools require a specific authorized destination. Instruction builds keep their review path. Automated folder evals go into an exact-folder drafts suite. | `test_folder_role_levels_and_agent_exceptions`, `test_folder_authoring_tool_destinations`, and the three exact-folder instruction search modes |
+| Agent discovery | Agent detail links to its visible folder. The roster and search show only the visible suffix of the path. Search can restrict candidates to the visible home folder of a known agent. Pins and limited-access boundaries constrain discovery. | `test_folder_role_roster_at_scale`, agent focus scope tests, and the location-link browser check |
+
+The local reproduction initially returned both the parent and child routing instruction in knowledge mode. The exact-folder test now runs in chat, training and knowledge modes. Browser verification also caught a trace modal that opened before it subscribed to the open event. The regression checks exercise opening the populated trace, the restricted activity row and a curator entering training from the folder.
+
+Run the focused checks from the backend directory:
+
+```sh
+.venv/bin/pytest -q tests/e2e/rbac/test_agent_folders.py tests/e2e/test_search_instructions_chat_mode.py tests/e2e/rbac/test_rbac_console_scope.py tests/e2e/rbac/test_diagnosis_explorer_scope.py
+```
+
+[Seeded browser screenshots](../../media/pr/agent-folders/index.html)

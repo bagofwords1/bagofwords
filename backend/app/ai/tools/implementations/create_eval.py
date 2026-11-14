@@ -190,13 +190,17 @@ class CreateEvalTool(Tool):
                     report_ds_ids = [str(ds.id) for ds in (report.data_sources or [])]
                 except Exception:
                     report_ds_ids = []
-            effective_ds_ids = list(data.data_source_ids or []) or report_ds_ids
+            from app.services.folder_knowledge import authoring_targets, require_suite_placement_edit, require_capability
+            from app.services.folder_service import lock_tree
+            targets = await authoring_targets(db, organization, user, report, "manage_evals",
+                                              data.destination, data.folder_id, data.data_source_ids)
+            folder_id, effective_ds_ids = targets if targets is not None else (None, list(data.data_source_ids or []) or report_ds_ids)
 
             # Authorization: manage_evals on EVERY targeted agent (a per-DS
             # `manage` grant implies manage_evals), or org-level manage_evals /
             # full_admin. A data-source-less (global) case stays an org-level
             # capability — an agent admin cannot create org-wide evals.
-            if resolved.has_org_permission("manage_evals"):
+            if folder_id or resolved.has_org_permission("manage_evals"):
                 authorized = True
             elif effective_ds_ids:
                 authorized = all(
@@ -225,7 +229,18 @@ class CreateEvalTool(Tool):
                 str(effective_ds_ids[0]) if len(effective_ds_ids or []) == 1 else None
             )
             suite: TestSuite
-            if is_knowledge:
+            if folder_id:
+                await lock_tree(db, organization, user)
+                await require_capability(db, organization, user, folder_id, "manage_evals")
+                if data.suite_id:
+                    suite = await db.scalar(select(TestSuite).where(TestSuite.id == data.suite_id,
+                        TestSuite.owner_folder_id == folder_id, TestSuite.organization_id == organization.id,
+                        TestSuite.deleted_at.is_(None)))
+                    if not suite:
+                        raise ValueError("Choose a suite owned by the selected folder")
+                else:
+                    suite = await case_service.get_or_create_drafts_suite(db, str(organization.id), folder_id=folder_id)
+            elif is_knowledge:
                 suite = await case_service.get_or_create_drafts_suite(
                     db, str(organization.id), data_source_id=_home_agent,
                 )
@@ -258,6 +273,9 @@ class CreateEvalTool(Tool):
                     db, str(organization.id), data_source_id=_home_agent,
                 )
 
+            if suite.owner_folder_id != folder_id:
+                raise ValueError("Suite does not match the selected destination")
+            await require_suite_placement_edit(db, organization.id, user, suite.id)
             # --- Resolve final status / auto_generated / provenance ---
             if is_knowledge:
                 final_status = TEST_CASE_STATUS_DRAFT
@@ -305,6 +323,9 @@ class CreateEvalTool(Tool):
             except Exception:
                 expectations_dict = dict(data.expectations or {})
 
+            if folder_id:
+                await lock_tree(db, organization, user)
+                await require_capability(db, organization, user, folder_id, "manage_evals")
             # --- Persist the case ---
             case = TestCase(
                 suite_id=str(suite.id),
@@ -340,7 +361,7 @@ class CreateEvalTool(Tool):
             yield ToolEndEvent(
                 type="tool.end",
                 payload={
-                    "output": output.model_dump(),
+                    "output": {**output.model_dump(), "folder_id": folder_id, "data_source_ids": effective_ds_ids},
                     "observation": {
                         "summary": (
                             f"Created eval '{case.name}' in '{suite.name}' "

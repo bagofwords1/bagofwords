@@ -1,5 +1,8 @@
 {
   "sharedFolders": {
+    "viewFolder": "Ver carpeta",
+    "activity": "Actividad de la carpeta",
+    "viewTrace": "Ver traza",
     "attach": "Vincular existente",
     "addCase": "Añadir caso",
     "sameAccess": "El acceso se mantiene.",

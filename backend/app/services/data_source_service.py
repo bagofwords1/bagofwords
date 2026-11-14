@@ -1399,8 +1399,10 @@ class DataSourceService:
                     folder_name = await db.scalar(select(Folder.name).where(Folder.id == folder_id))
                     folder_role = "manager" if "manage" in inherited else "viewer"
 
+        from app.services.folder_service import visible_agent_paths
+        paths = await visible_agent_paths(db, organization, current_user, [data_source]) if folder_id else {}
         schema = DataSourceSchema(
-            folder_id=folder_id, inherited_folder_name=folder_name, inherited_folder_role=folder_role,
+            folder_path=paths.get(str(data_source.id)), folder_id=folder_id, inherited_folder_name=folder_name, inherited_folder_role=folder_role,
             id=str(data_source.id),
             organization_id=str(data_source.organization_id),
             name=data_source.name,

@@ -195,6 +195,8 @@ def test_folder_role_roster_at_scale(test_client, env, llm, invite_user_to_org, 
         advertised = set(re.findall(r"PortfolioAgent\d{3}", roster.group()))
         assert advertised and advertised <= expected
         assert "External warehouse" not in roster.group()
+        if len(expected) > 2:
+            assert 'folder_path="Roster QA / ' in roster.group()
 
     async def measure_discovery(limit):
         from time import monotonic
@@ -437,6 +439,15 @@ def test_folder_role_levels_and_agent_exceptions(
             assert request(
                 member, "DELETE", f"folders/{folder}/knowledge/instructions/{created.json()['id']}"
             ).is_success
+        if capability == "manage_instructions":
+            training = request(member, "POST", "reports", mode="training", agent_folder_id=folder)
+            assert training.is_success, training.text
+            rid = training.json()["id"]
+            assert request(member, "GET", f"reports/{rid}").is_success
+            llm["planner"].clear()
+            made = request(member, "POST", f"reports/{rid}/completions", prompt={"content": "Review routing rules"})
+            assert made.is_success and llm["planner"], made.text
+            assert "Campaigns" not in llm["planner"][0].partition("<available_agents")[2].partition("</available_agents>")[0]
         assert not rows[folder]["can_query"] and child not in rows
         assert request(member, "POST", "reports", agent_folder_id=folder).status_code == 403
         assert agent not in {a["id"] for a in request(member, "GET", "data_sources/active").json()}
@@ -525,3 +536,53 @@ def test_folder_revoke_racing_instruction_create(test_client, bootstrap_admin, i
     assert len(rows) == int(changed.is_success)
     assert request(editor, "GET", path, None).status_code == 403
     assert request(editor, "POST", path, {"title": "Late rule", "text": "Late write"}).status_code == 403
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_folder_authoring_tool_destinations(test_client, bootstrap_admin, invite_user_to_org):
+    from types import SimpleNamespace
+    from sqlalchemy import select
+    from app.dependencies import async_session_maker
+    from app.ai.tools.implementations.create_instruction import CreateInstructionTool
+    from app.ai.tools.implementations.create_eval import CreateEvalTool
+    from app.models.organization import Organization
+    from app.models.user import User
+    from app.models.folder import folder_instructions, folder_eval_suites
+
+    admin = bootstrap_admin("admin")
+    org = admin["org_id"]
+    member = invite_user_to_org(org_id=org, admin_token=admin["token"])
+    headers = {"Authorization": "Bearer " + admin["token"], "X-Organization-Id": org}
+    def post(path, body):
+        res = test_client.post("/api/" + path, json=body, headers=headers)
+        assert res.is_success, res.text
+        return res.json()
+    folder = post("folders", {"name": "Marketing"})["id"]
+    other = post("folders", {"name": "Finance"})["id"]
+    role = post(f"organizations/{org}/roles", {"name": "Curator", "resource_grants": [{
+        "resource_type": "folder", "resource_id": folder, "permissions": ["manage_instructions", "manage_evals"]}]})
+    post(f"organizations/{org}/role-assignments", {"role_id": role["id"], "principal_type": "user",
+                                                "principal_id": member["user_id"]})
+    async with async_session_maker() as db:
+        ctx = {"mode": "knowledge", "db": db, "organization": await db.get(Organization, org),
+               "user": await db.get(User, member["user_id"]), "report": SimpleNamespace(agent_folder_id=folder, data_sources=[])}
+        for tool, fields in [(CreateInstructionTool(), {"text": "Route campaign ROI questions to the attribution agent.",
+                                                        "confidence": 0.99}),
+                             (CreateEvalTool(), {"name": "Route ROI", "prompt": {"content": "What is campaign ROI?"},
+                                "expectations": {"rules": [{"type": "tool.calls", "tool": "create_data", "min_calls": 1}]}})]:
+            for destination in ({}, {"destination": "global"}, {"folder_id": other}, {"destination": "folder"}):
+                events = [e async for e in tool.run_stream({**fields, **destination}, ctx)]
+                if destination != {"destination": "folder"}:
+                    assert events[-1].type == "tool.error", events[-1]
+                    continue
+                result = events[-1].payload.get("output", {})
+                assert result.get("success"), events[-1]
+                assert result["folder_id"] == folder and result["data_source_ids"] == []
+                if "suite_id" in result:
+                    assert result["status"] == "draft"
+                    assert await db.scalar(select(folder_eval_suites.c.folder_id).where(
+                        folder_eval_suites.c.suite_id == result["suite_id"])) == folder
+                else:
+                    assert await db.scalar(select(folder_instructions.c.folder_id).where(
+                        folder_instructions.c.instruction_id == result["instruction_id"])) == folder

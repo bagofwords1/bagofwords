@@ -335,3 +335,39 @@ def test_manage_grant_via_group_also_opens_the_console(
     resp = get_agent_execution_summaries(user_token=w["outsider"]["token"], org_id=org_id)
     assert resp.status_code == 200, resp.text
     assert [i["prompt"] for i in resp.json()["items"]] == ["runs on agent b"]
+
+
+def test_folder_activity_only_discloses_observed_managed_agent(test_client, console_world):
+    import asyncio
+    from sqlalchemy import select
+    from app.dependencies import async_session_maker
+    from app.models.agent_execution import AgentExecution
+    from app.models.data_source import DataSource
+    from app.services.folder_monitoring import record_used_agents
+
+    w = console_world
+    def get(actor, path):
+        return test_client.get("/api/console/" + path, headers=_headers(w[actor]["token"], w["org_id"]))
+
+    async def record():
+        async with async_session_maker() as db:
+            run = await db.scalar(select(AgentExecution).where(AgentExecution.report_id == w["report_joint"]["id"]))
+            run.starting_folder_id = str(uuid.uuid4())
+            a = await db.get(DataSource, w["agent_a"]["id"])
+            b = await db.get(DataSource, w["agent_b"]["id"])
+            outcome = {"tool_name": "create_data", "tool_input": {"tables_by_source": [{"data_source_id": a.id}]}}
+            await record_used_agents(db, run.id, [a, b], [outcome], [])
+            await record_used_agents(db, run.id, [a, b], [outcome], [])
+            await db.commit()
+            return run.id
+
+    eid = asyncio.run(record())
+    rows = get("manager", "folder-activity").json()
+    assert [(r["agent_id"], r["report_id"], r["completion_id"]) for r in rows] == [(w["agent_a"]["id"], None, None)]
+    assert get("manager", "agent_executions/" + eid).status_code == 403
+    assert get("manager", "reports/" + w["report_joint"]["id"] + "/conversation").status_code == 403
+    assert get("outsider", "folder-activity").status_code == 403
+    assert get("admin", "folder-activity").json()[0]["report_id"] == w["report_joint"]["id"]
+    trace = get("admin", "agent_executions/" + eid)
+    assert trace.is_success, trace.text
+    assert trace.json()["used_agents"] == [w["agent_a"]["name"]]

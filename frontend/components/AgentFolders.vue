@@ -331,6 +331,6 @@ async function dropAgent(event: DragEvent, id: string | null) {
   await move()
 }
 onBeforeUnmount(endDrag)
-defineExpose({folders, current, editItem, canDrag, startDrag, endDrag})
+defineExpose({open, folders, current, editItem, canDrag, startDrag, endDrag})
 onMounted(load)
 </script>

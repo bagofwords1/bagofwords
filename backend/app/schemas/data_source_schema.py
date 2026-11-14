@@ -282,6 +282,7 @@ class DataSourceBase(BaseModel):
 class DataSourceSchema(DataSourceBase, AgentIconTokenMixin):
     """Full DataSource (Domain) schema with nested connection info."""
     folder_id: str | None = None
+    folder_path: str | None = None
     inherited_folder_name: str | None = None
     inherited_folder_role: str | None = None
     class Config:

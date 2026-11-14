@@ -5,6 +5,7 @@ from datetime import datetime
 from app.schemas.base import UTCDatetime
 
 class MetricsQueryParams(BaseModel):
+    _folder_report_ids: Optional[list[str]] = None
     start_date: Optional[datetime] = Field(None, description="Start date for metrics query")
     end_date: Optional[datetime] = Field(None, description="End date for metrics query")
     data_source_ids: Optional[str] = Field(None, description="Comma-separated data source IDs to filter by")

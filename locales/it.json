@@ -7160,6 +7160,9 @@
     "sentTo": "Inviati a {email}"
   },
   "sharedFolders": {
+    "viewFolder": "Apri cartella",
+    "activity": "Attività della cartella",
+    "viewTrace": "Visualizza traccia",
     "attach": "Collega esistente",
     "addCase": "Aggiungi caso",
     "sameAccess": "Access stays the same.",

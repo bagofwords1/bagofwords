@@ -43,6 +43,7 @@
 					:projectSelectable="true"
 					:initialSelectedDataSources="initialAgents"
 					:initialMode="initialMode"
+                    :initial-folder-id="typeof route.query.folder === 'string' ? route.query.folder : undefined"
 					:textareaContent="prefill"
 					:compact="isExcel"
 					@update:modelValue="(v: string) => prefill = v"
@@ -130,6 +131,7 @@ const draftProject = computed(() => {
 // empty — which is Auto — and a prompt sent then would create an Auto report.
 // The selector fills in the full object from its own fetch (alignSelection).
 const initialAgents = computed(() => {
+	if (route.query.folder) return []
 	if (agentIds.value.length) {
 		const byId = new Map((agents.value || []).map((a: any) => [String(a.id), a]))
 		return agentIds.value.map(id => byId.get(String(id)) || { id })

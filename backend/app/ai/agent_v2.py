@@ -1674,7 +1674,7 @@ class AgentV2:
             return sorted(((set(focus_ids) | loaded) & roster_ids) | connector_ids)
         except Exception:
             logger.exception("instruction scope resolve failed; using full attached scope")
-            return [str(d.id) for d in (self.data_sources or [])] or None
+            return [str(d.id) for d in (self.data_sources or [])] or ([] if getattr(self.report, "agent_folder_id", None) else None)
 
     def _connector_ids(self) -> set:
         """Ids of the run's connectors (each person's own accounts/tools — see
@@ -5360,6 +5360,9 @@ class AgentV2:
                 build_id=self.build_id,
                 is_eval_run=self.is_eval_run,
             )
+            if getattr(self.report, "agent_folder_id", None):
+                self.current_execution.starting_folder_id = self.report.agent_folder_id
+                await self.db.commit()
             # Sub-agent child: bind the execution to its row, narrow the catalog to
             # the profile, and load the budget. Must precede the first planner call.
             if self._is_sub_agent:
@@ -8036,6 +8039,10 @@ class AgentV2:
                                     await self._persist_focus_on_use(_tn, _ti_args, _obs)
                                 except Exception:
                                     logger.exception("focus-on-use persist failed")
+                            if getattr(self.report, "agent_folder_id", None):
+                                from app.services.folder_monitoring import record_used_agents
+                                await record_used_agents(self.db, self.current_execution.id, self.data_sources,
+                                                         outcomes, self.used_agent_ids)
                             self._note_question_agents(outcomes)
 
                             observation = self._carry_substantive_observation(

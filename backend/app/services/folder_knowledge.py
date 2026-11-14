@@ -52,7 +52,9 @@ def instruction_scope(agent_ids, folder_id=None):
 async def folder_file_library(db, org, user, folder_id):
     if not folder_id or not user:
         return []
-    await require_capability(db, org, user, folder_id, "view")
+    rights = await resolve_permissions(db, user.id, org.id)
+    if not rights.has_resource_permission("folder", folder_id, "view"):
+        return []
     from app.services.file_access_service import visible_files_clause
 
     visible = await visible_files_clause(db, user, org)
@@ -128,7 +130,9 @@ async def can_read_knowledge_scope(db, report, org, user, rights):
         )
     ).all()
     for fid in {row.folder_id for row in rows}:
-        if not rights.has_resource_permission("folder", fid, "view"):
+        curating = (report.mode == "training" and report.user_id == user.id and report.agent_folder_id == fid
+                    and rights.has_resource_permission("folder", fid, "manage_instructions"))
+        if not curating and not rights.has_resource_permission("folder", fid, "view"):
             return False
         required_files = {r.item_id for r in rows if r.folder_id == fid and r.kind == "files"}
         if required_files and not required_files <= {f.id for f in await folder_file_library(db, org, user, fid)}:
@@ -182,3 +186,23 @@ async def visible_instruction_folders(db, org, user):
     return Instruction.id.in_(
         select(folder_instructions.c.instruction_id).where(folder_instructions.c.folder_id.in_(ids))
     )
+
+
+async def authoring_targets(db, org, user, report, capability, destination, folder_id, agent_ids):
+    """Resolve an explicit write destination independently of the discovery roster."""
+    active = getattr(report, "agent_folder_id", None)
+    if not active and not destination and not folder_id and not agent_ids:
+        return None  # Existing non-folder authoring contract.
+    destination = destination or ("folder" if folder_id else "agents" if agent_ids else None)
+    if destination == "folder" and active and not agent_ids and folder_id in (None, active):
+        await require_capability(db, org, user, active, capability)
+        return active, []
+    rights = await resolve_permissions(db, user.id, org.id)
+    if destination == "global" and not folder_id and not agent_ids and rights.has_org_permission(capability):
+        return None, []
+    if destination == "agents" and agent_ids and not folder_id:
+        from app.ai.tools.implementations.agent_focus_common import resolve_run_agents
+        allowed = {a.id for a in await resolve_run_agents(db, org, user, report)}
+        if all(a in allowed and rights.has_resource_permission("data_source", a, capability) for a in agent_ids):
+            return None, list(dict.fromkeys(agent_ids))
+    raise HTTPException(403, "Choose an authorized destination: selected folder, specific agents, or organization. Ask the user if unclear.")

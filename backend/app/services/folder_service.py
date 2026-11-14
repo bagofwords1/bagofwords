@@ -95,6 +95,22 @@ async def visible_branch(db, org_id, user_id, folder_id):
     return branch
 
 
+async def training_curator_only(db, org_id, user_id, folder_id, mode):
+    if mode != "training" or not folder_id or not user_id:
+        return False
+    from app.core.permission_resolver import resolve_permissions
+    rights = await resolve_permissions(db, user_id, org_id)
+    return (rights.has_resource_permission("folder", folder_id, "manage_instructions")
+            and not rights.has_resource_permission("folder", folder_id, "view")
+            and bool(await db.scalar(select(Folder.id).where(Folder.id == folder_id,
+                Folder.organization_id == org_id, Folder.deleted_at.is_(None)))))
+
+
+async def require_report_folder(db, org, user, folder_id, mode):
+    if not await training_curator_only(db, org.id, user.id, folder_id, mode):
+        await visible_branch(db, org.id, user.id, folder_id)
+
+
 async def has_active_manager(db, org_id, grants):
     from app.models.group_membership import GroupMembership
     from app.models.membership import Membership
@@ -142,13 +158,18 @@ async def can_read_folder_output(db, report, user):
 
     required = set(await db.scalars(select(sources.c.agent_id).where(sources.c.report_id == report.id)))
     if not required and not report.agent_folder_id:
-        return True
+        from app.models.report import folder_report_knowledge
+        if not await db.scalar(select(folder_report_knowledge.c.report_id).where(
+                folder_report_knowledge.c.report_id == report.id).limit(1)):
+            return True
     if not user:
         return False
     org = await db.get(Organization, report.organization_id)
     from app.core.permission_resolver import resolve_permissions
     rights = await resolve_permissions(db, user.id, org.id)
-    if report.agent_folder_id and not rights.has_resource_permission("folder", report.agent_folder_id, "view"):
+    curator = (not required and report.user_id == user.id and
+               await training_curator_only(db, org.id, user.id, report.agent_folder_id, report.mode))
+    if report.agent_folder_id and not curator and not rights.has_resource_permission("folder", report.agent_folder_id, "view"):
         return False
     from app.services.folder_knowledge import can_read_knowledge_scope
     if not await can_read_knowledge_scope(db, report, org, user, rights):
@@ -157,3 +178,37 @@ async def can_read_folder_output(db, report, user):
         visible = await visible_data_source_ids(db, user, org)
         return required <= visible
     return True
+
+
+async def visible_agent_paths(db, organization, user, agents):
+    """Visible suffix of each home path. Stop at the first invisible ancestor."""
+    homes = {str(a.id): a.folder_id for a in agents if getattr(a, "folder_id", None)}
+    if not homes or not user or not organization:
+        return {}
+    from app.core.permission_resolver import resolve_permissions
+    rights = await resolve_permissions(db, user.id, organization.id)
+    rows = await db.execute(select(Folder.id, Folder.parent_id, Folder.name).where(
+        Folder.organization_id == organization.id, Folder.deleted_at.is_(None)))
+    visible = {fid: (parent, name) for fid, parent, name in rows
+               if rights.has_resource_permission("folder", fid, "view")}
+    paths = {}
+    for home in set(homes.values()):
+        names, seen = [], set()
+        node = home
+        while node in visible and node not in seen:
+            seen.add(node)
+            node, name = visible[node]
+            names.append(name)
+        if names:
+            paths[home] = " / ".join(reversed(names))
+    return {aid: paths[home] for aid, home in homes.items() if home in paths}
+
+
+async def lock_tree(db, org, user):
+    """Serialize grant and structural writes, including SQLite's first write."""
+    from app.core.permission_resolver import invalidate_rbac_memo
+    from app.models.organization import Organization
+    from sqlalchemy import update
+
+    await db.execute(update(Organization).where(Organization.id == org.id).values(updated_at=Organization.updated_at))
+    invalidate_rbac_memo(db, user.id, org.id)

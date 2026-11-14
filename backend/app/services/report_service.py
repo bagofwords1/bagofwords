@@ -967,7 +967,7 @@ class ReportService:
         db: AsyncSession,
         current_user: User,
         organization: Organization,
-        training_ds_ids: list[str],
+        training_ds_ids: list[str], folder_id: str | None = None,
     ) -> None:
         """Gate for putting a report into training mode.
 
@@ -1013,7 +1013,9 @@ class ReportService:
                 for ds in training_ds_ids
             )
         )
-        if not can_train and not training_ds_ids:
+        if folder_id and resolved.has_resource_permission("folder", folder_id, "manage_instructions"):
+            can_train = True
+        if not can_train and not training_ds_ids and not folder_id:
             # Agent managers can train against BOW history without attaching
             # a business source. The source applies their manage scope.
             from app.core.console_access import resolve_console_scope
@@ -1030,10 +1032,10 @@ class ReportService:
 
     async def create_report(self, db: AsyncSession, report_data: ReportCreate, current_user: User, organization: Organization) -> ReportSchema:
         if report_data.agent_folder_id is not None:
-            from app.services.folder_service import visible_branch
+            from app.services.folder_service import require_report_folder
             if report_data.data_sources:
                 raise HTTPException(422, "Choose a folder or specific agents")
-            await visible_branch(db, organization.id, current_user.id, report_data.agent_folder_id)
+            await require_report_folder(db, organization, current_user, report_data.agent_folder_id, report_data.mode)
         file_uuids = report_data.files or []
         del report_data.files
         data_source_ids = report_data.data_sources or []
@@ -1081,7 +1083,7 @@ class ReportService:
         # request leaves no half-created chat report behind.
         if requested_mode == 'training':
             await self._assert_can_enter_training_mode(
-                db, current_user, organization, [str(x) for x in data_source_ids]
+                db, current_user, organization, [str(x) for x in data_source_ids], report.agent_folder_id
             )
         report.mode = requested_mode
         # Same gate as ReportUpdate.model_id: the creator must actually be able
@@ -1244,7 +1246,7 @@ class ReportService:
                 else:
                     training_ds_ids = [str(ds.id) for ds in (report.data_sources or [])]
                 await self._assert_can_enter_training_mode(
-                    db, current_user, organization, training_ds_ids
+                    db, current_user, organization, training_ds_ids, (report_data.agent_folder_id if "agent_folder_id" in report_data.model_fields_set else report.agent_folder_id)
                 )
             report.mode = report_data.mode
         # Persist report-level LLM override if present in payload.
@@ -1312,10 +1314,10 @@ class ReportService:
 
         if "agent_folder_id" in report_data.model_fields_set:
             if report_data.agent_folder_id is not None:
-                from app.services.folder_service import visible_branch
+                from app.services.folder_service import require_report_folder
                 if report_data.data_sources:
                     raise HTTPException(422, "Choose a folder or specific agents")
-                await visible_branch(db, organization.id, current_user.id, report_data.agent_folder_id)
+                await require_report_folder(db, organization, current_user, report_data.agent_folder_id, report_data.mode or report.mode)
             report.agent_folder_id = report_data.agent_folder_id
             report.focused_data_source_ids = None
             report_data.data_sources = []

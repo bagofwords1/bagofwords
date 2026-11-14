@@ -32,6 +32,14 @@ async def can_read(db, access, user, *, check_revision=True):
             Report.id.in_(reports), Report.id.in_(_reports_in_scope(scope.data_source_ids))))).scalars())
         if not set(reports).issubset(visible):
             return False
+    if check_revision and access.get("report_ids"):
+        from app.services.folder_monitoring import historic_folder_reports, can_open
+        folders = await db.scalars(select(Report).options(lazyload("*")).where(
+            Report.organization_id == org.id, Report.id.in_(access["report_ids"]),
+            Report.id.in_(historic_folder_reports())))
+        for report in folders:
+            if not await can_open(db, report, user, org, scope.data_source_ids):
+                return False
     return True
 
 

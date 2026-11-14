@@ -224,7 +224,8 @@ async def test_training_mode_keeps_full_text(create_user, login_user, whoami, te
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_chat_search_exact_folder(create_user, login_user, whoami, test_client):
+@pytest.mark.parametrize("mode", ["chat", "knowledge", "training"])
+async def test_chat_search_exact_folder(create_user, login_user, whoami, test_client, mode):
     token, uid, org_id = _new_admin(create_user, login_user, whoami)
     headers = _auth(token, org_id)
     def create(path, **body):
@@ -235,7 +236,10 @@ async def test_chat_search_exact_folder(create_user, login_user, whoami, test_cl
     child = create("folders", name="Acquisition", parent_id=parent)
     ids = [create(f"folders/{fid}/knowledge/instructions", title="Campaign glossary",
                   text="Campaign glossary for " + name) for fid, name in [(parent, "parent"), (child, "child")]]
-    for folder, expected in [(parent, [ids[0]]), (child, [ids[1]]), (None, [])]:
-        result = await _run({"query": ["Campaign glossary"]}, user_id=uid, org_id=org_id, folder_id=folder)
+    for folder, expected in [(parent, [ids[0]]), (child, [ids[1]])]:
+        result = await _run({"query": ["Campaign glossary"]}, user_id=uid, org_id=org_id, folder_id=folder, mode=mode)
         assert result["success"], result
         assert {item["id"] for item in result["instructions"]} == set(expected)
+    if mode == "chat":
+        outside = await _run({"query": ["Campaign glossary"]}, user_id=uid, org_id=org_id, mode=mode)
+        assert outside["success"] and not outside["instructions"]

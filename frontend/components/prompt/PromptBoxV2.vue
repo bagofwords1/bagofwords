@@ -756,6 +756,7 @@ const props = defineProps({
         default: () => []
     },
     // Training instructions for the pill above input
+    initialFolderId: String,
     trainingInstructions: {
         type: Array as () => { instructionId: string; title: string; category: string; isEdit: boolean; lineCount: number }[],
         default: () => []
@@ -1219,7 +1220,9 @@ const modeIcon = computed(() => {
 // the backend gate in report_service.update_report. A plain member (view only)
 // on the agent is denied even if they manage a different agent.
 const { isTrainingModeEnabled, isDemoDataEnabled, isVoiceInputEnabled } = useOrgSettings()
+const folderScope = ref<string | null>(props.initialFolderId || null)
 const canManageInstructionsForSelectedAgents = computed(() => {
+    if (folderScope.value) return useCan('manage_instructions', {type: 'folder', id: folderScope.value})
     const dss = selectedDataSources.value || []
     if (dss.length === 0) {
         // No agent picked yet — offer training to anyone who manages some agent.
@@ -1313,7 +1316,7 @@ async function loadModels() {
     }
 }
 
-const folderScope = ref<string | null>(null)
+
 
 async function hydrateReportDataSources(reportId?: string, { showSpinner = true } = {}) {
     // A box that does not persist its selection (the scheduled-task form)

@@ -20,6 +20,7 @@ schema is deferred (the model can pull another agent in with search_agents).
 from __future__ import annotations
 
 import os
+from xml.sax.saxutils import quoteattr
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -111,6 +112,7 @@ class RosterAgent:
     item_count: int
     item_kind: str  # "tables" | "tools" | "files" | "items"
     status: str     # "published" | "draft" | "disabled"
+    folder_path: str = ""
     surface: str = ""  # "email" when the agent's tools are the email family
 
 
@@ -269,10 +271,11 @@ def render_agent_roster_xml(
     for a in head:
         marks = ' focused="true"' if a.id in focus else (' loaded="true"' if a.id in loaded else "")
         surface = f' surface="{a.surface}"' if getattr(a, "surface", "") else ""
+        location = f" folder_path={quoteattr(a.folder_path)}" if a.folder_path else ""
         body = _xml_escape(a.one_liner) if a.one_liner else ""
         lines.append(
             f'  <agent id="{a.id}" name="{_xml_escape(a.name)}" '
-            f'{a.item_kind}="{a.item_count}" status="{a.status}"{surface}{marks}>{body}</agent>'
+            f'{a.item_kind}="{a.item_count}" status="{a.status}"{surface}{marks}{location}>{body}</agent>'
         )
     if tail:
         named = tail[:MORE_AGENTS_NAME_CAP]
@@ -349,6 +352,8 @@ async def build_focus_and_roster(
 
     count_map, kind_map = _counts_from_sections(schema_sections)
     one_liners = await load_agent_one_liners(db, data_sources, organization, user)
+    from app.services.folder_service import visible_agent_paths
+    paths = await visible_agent_paths(db, organization, user, data_sources)
     agents: List[RosterAgent] = []
     for ds in data_sources:
         sid = str(ds.id)
@@ -368,7 +373,7 @@ async def build_focus_and_roster(
                 item_count=count,
                 item_kind=kind,
                 status=getattr(ds, "publish_status", "published") or "published",
-                surface=surface,
+                surface=surface, folder_path=paths.get(sid, ""),
             )
         )
     return focus_ids, render_agent_roster_xml(agents, focus_ids, usage=usage, top_k=top_k, loaded_ids=loaded_ids), mode

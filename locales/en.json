@@ -1,5 +1,8 @@
 {
   "sharedFolders": {
+    "viewFolder": "View folder",
+    "activity": "Folder activity",
+    "viewTrace": "View trace",
     "attach": "Attach existing",
     "addCase": "Add case",
     "sameAccess": "Access stays the same.",

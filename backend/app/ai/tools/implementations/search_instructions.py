@@ -305,7 +305,7 @@ class SearchInstructionsTool(Tool):
             # compact snippets); session_scoped governs only the search scope, so
             # training gets chat's scoping without chat's presentation.
             chat_mode = runtime_ctx.get("mode") == "chat"
-            session_scoped = runtime_ctx.get("mode") in ("chat", "training")
+            session_scoped = runtime_ctx.get("mode") in ("chat", "training") or (runtime_ctx.get("mode") == "knowledge" and getattr(runtime_ctx.get("report"), "agent_folder_id", None))
             effective_ds_ids = data.data_source_ids
             if session_scoped:
                 from app.ai.tools.implementations.read_instruction import ReadInstructionTool

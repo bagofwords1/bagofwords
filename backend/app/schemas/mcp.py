@@ -84,6 +84,7 @@ class ToolInfo(BaseModel):
 
 class DataSourceInfo(BaseModel):
     """Summary of a data source with its tables."""
+    folder_path: Optional[str] = None
     id: str
     name: str
     type: Optional[str] = None

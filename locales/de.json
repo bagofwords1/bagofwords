@@ -7160,6 +7160,9 @@
     "sentTo": "Gesendet an {email}"
   },
   "sharedFolders": {
+    "viewFolder": "Ordner anzeigen",
+    "activity": "Ordneraktivität",
+    "viewTrace": "Trace anzeigen",
     "attach": "Vorhandenes verknüpfen",
     "addCase": "Testfall hinzufügen",
     "sameAccess": "Access stays the same.",

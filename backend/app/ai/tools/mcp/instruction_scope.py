@@ -46,6 +46,7 @@ def instruction_builder(
         db,
         organization,
         current_user=user,
+        folder_id=getattr(report, "agent_folder_id", None),
         organization_settings=organization_settings,
         data_source_ids=[str(ds.id) for ds in data_sources],
         mode=getattr(report, "mode", None),

@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 
 class SearchAgentsInput(BaseModel):
+    same_folder_as: Optional[str] = Field(None, description="Limit results to the visible home folder of this accessible agent ID.")
     query: Optional[List[str]] = Field(
         None,
         description=(
@@ -29,6 +30,7 @@ class SearchAgentsInput(BaseModel):
 class SearchAgentsItem(BaseModel):
     id: str
     name: str
+    folder_path: Optional[str] = None
     description: Optional[str] = None
     status: Optional[str] = None
     # ok | training | development — combined with status (publish_status) by

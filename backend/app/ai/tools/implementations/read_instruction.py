@@ -466,7 +466,10 @@ class ReadInstructionTool(Tool):
         if context_hub is not None:
             ib = getattr(context_hub, "instruction_builder", None)
             if ib is not None:
-                return True, getattr(ib, "data_source_ids", None)
+                ids = getattr(ib, "data_source_ids", None)
+                if getattr(runtime_ctx.get("report"), "agent_folder_id", None):
+                    return True, ids or []
+                return True, ids
             data_sources = getattr(context_hub, "data_sources", None)
             if data_sources is not None:
                 return True, [str(ds.id) for ds in data_sources]
