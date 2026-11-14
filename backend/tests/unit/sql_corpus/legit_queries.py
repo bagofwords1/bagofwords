@@ -85,6 +85,7 @@ _POSTGRES = [
     "SELECT * FROM orders WHERE customer_id IN (SELECT id FROM customers WHERE region = 'EU')",
     "SELECT * FROM orders o WHERE EXISTS (SELECT 1 FROM order_items i WHERE i.order_id = o.id)",
     "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 10) SELECT i FROM n",
+    "WITH RECURSIVE r AS (SELECT 1 AS x UNION ALL SELECT x+1 FROM r WHERE x<3) SELECT sum(x) FROM r",
     "SELECT amount, SUM(amount) OVER (ORDER BY created_at ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) FROM orders",
     "SELECT * FROM orders WHERE id = ANY (ARRAY[1, 2, 3])",
     "SELECT round(avg(amount)::numeric, 2) AS avg_amount FROM orders",
@@ -249,6 +250,8 @@ _OTHER_DIALECTS = {
         "WITH Recent AS (SELECT id FROM orders WHERE created_at >= today() - 7) SELECT count() FROM Recent",
         "SELECT count() FROM orders SETTINGS max_execution_time = 30, max_threads = 4",
         "SELECT * FROM orders LIMIT 100 SETTINGS max_result_rows = 1000, result_overflow_mode = 'break'",
+        "WITH RECURSIVE r AS (SELECT 1 AS x UNION ALL SELECT x+1 FROM r WHERE x<3) SELECT sum(x) FROM r",
+        "WITH a AS (SELECT 42 IN c AS r), c AS (SELECT id FROM orders) SELECT r FROM a",
     ],
     "databricks": [
         "SELECT date_format(created_at, 'yyyy-MM') AS ym, COUNT(*) FROM orders GROUP BY 1",

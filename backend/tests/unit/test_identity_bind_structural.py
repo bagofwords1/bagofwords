@@ -112,12 +112,24 @@ CLICKHOUSE_ROW_READS_WITHOUT_FROM = [
     "WITH users AS u SELECT '{v}' IN u AS is_user",
     "SELECT 1 AS hit WHERE globalIn('{v}', users AS s)",
     "SELECT * FROM (SELECT dictGet('users_dict', 'region', toUInt64(1)) AS region)",
+    # The entry's own name inside its body is the table.
+    "WITH (SELECT '{v}' IN users) AS users SELECT users AS is_user",
 ]
 
 
 @pytest.mark.parametrize("query", CLICKHOUSE_ROW_READS_WITHOUT_FROM)
 def test_a_clickhouse_query_that_reads_rows_without_a_from_table_is_not_counted_as_reading_nothing(query):
     assert _check([query], "sarah@example.com", "ClickhouseClient") is not None
+
+
+def test_a_scalar_with_entry_whose_body_reads_the_table_of_its_own_name_is_not_scoped():
+    from app.ai.code_execution.identity_bind import _sql_binds
+    from app.ai.code_execution.table_scope import reads_rows
+    from sqlglot import parse_one
+
+    sql = "WITH (SELECT 42 IN secret) AS secret SELECT secret"
+    assert reads_rows(parse_one(sql, read="clickhouse"), "clickhouse") is True
+    assert _sql_binds(sql, "clickhouse", ("u1",)) is not True
 
 
 @pytest.mark.parametrize("query", [

@@ -567,6 +567,97 @@ def test_the_tables_read_on_clickhouse_follow_every_with_entry_of_an_in_set_name
     assert tables_read(statement, "clickhouse") == [("orders",), ("secret",)]
 
 
+# Inside a WITH entry's own body its name is not the entry: ClickHouse reads
+# the table of that name there, on a table reference (also in the first
+# operand of a recursive entry's UNION) and as the set of an IN (live
+# dialect tests). sqlglot reads the entry.
+CLICKHOUSE_OWN_NAME_IN_BODY = [
+    "WITH RECURSIVE secret AS (SELECT x FROM secret) SELECT x FROM secret",
+    "WITH RECURSIVE secret AS (SELECT x FROM secret) SELECT sum(x) FROM secret",
+    "WITH RECURSIVE secret AS (SELECT x FROM secret UNION ALL SELECT x FROM secret WHERE 0) SELECT x FROM secret",
+    "WITH secret AS (SELECT 42 IN secret AS r) SELECT r FROM secret",
+    "WITH secret AS (SELECT arrayFilter(v -> v IN secret, [7, 42]) AS r) SELECT r FROM secret",
+    "WITH secret AS (SELECT arrayJoin([globalIn(42, secret), globalIn(7, secret)]) AS hit) SELECT hit FROM secret",
+    "WITH (SELECT groupArray(n) FROM (SELECT arrayJoin(range(50)) AS n) WHERE n IN secret) AS secret SELECT secret",
+    "WITH secret AS (SELECT * FROM (SELECT 42 IN secret AS r)) SELECT r FROM secret",
+    "WITH secret AS (SELECT globalIn(42, secret) AS r) SELECT r FROM secret",
+    "WITH (SELECT 42 IN secret) AS secret SELECT secret",
+]
+
+
+@pytest.mark.parametrize("sql", CLICKHOUSE_OWN_NAME_IN_BODY)
+def test_a_with_entry_s_own_name_inside_its_body_is_the_table_on_clickhouse(sql):
+    assert "secret" in _sqlglot_cte_names(sql, "clickhouse")
+    with pytest.raises(TableScopeViolation, match="SECRET"):
+        check_table_scope(ensure_read_only(_client("ClickhouseClient"), sql), "clickhouse", SCOPE)
+
+
+@pytest.mark.parametrize("family", ["PostgresqlClient", "MysqlClient", "MariadbClient", "ClickhouseClient"])
+@pytest.mark.parametrize("sql", [
+    "WITH RECURSIVE secret AS (SELECT x FROM secret) SELECT x FROM secret",
+    "WITH RECURSIVE secret AS (SELECT x FROM secret UNION ALL SELECT x FROM secret WHERE 1 = 0) SELECT x FROM secret",
+    "WITH RECURSIVE secret AS (SELECT x FROM secret EXCEPT SELECT x FROM secret) SELECT x FROM secret",
+])
+def test_a_recursive_entry_s_own_name_outside_the_recursive_part_of_its_union_is_the_table(family, sql):
+    with pytest.raises(TableScopeViolation, match="SECRET"):
+        check_table_scope(ensure_read_only(_client(family), sql),
+                          dialect_for_client(_client(family)), SCOPE)
+
+
+RECURSIVE_SUM = "WITH RECURSIVE r AS (SELECT 1 AS x UNION ALL SELECT x+1 FROM r WHERE x<3) SELECT sum(x) FROM r"
+
+
+@pytest.mark.parametrize("family, sql", [
+    ("ClickhouseClient", RECURSIVE_SUM),
+    ("PostgresqlClient", RECURSIVE_SUM),
+    ("ClickhouseClient", "WITH RECURSIVE secret AS (SELECT 1 AS x UNION ALL SELECT x+1 FROM secret WHERE x<3) "
+                         "SELECT sum(x) FROM secret"),
+    ("ClickhouseClient", "WITH RECURSIVE secret AS (SELECT 1 AS x UNION ALL SELECT x+1 FROM secret "
+                         "WHERE x < 3 AND 1 IN secret) SELECT sum(x) FROM secret"),
+    ("ClickhouseClient", "WITH RECURSIVE secret AS (SELECT 1 AS x UNION ALL SELECT x FROM "
+                         "(SELECT x+1 AS x FROM secret WHERE x<3)) SELECT sum(x) FROM secret"),
+    ("ClickhouseClient", "WITH a AS (SELECT 42 IN secret AS r), secret AS (SELECT 1 AS x) SELECT r FROM a"),
+])
+def test_a_recursive_entry_read_in_its_recursive_part_and_a_later_entry_in_an_in_set_still_read(family, sql):
+    _passes(family, sql)
+
+
+def _alias_chain(levels: int, bottom: str) -> str:
+    """A WITH whose entry `a{k}` holds the pair (a{k-1}, a{k-1}), down to
+    `bottom` (the IN set names the top entry): every entry is reached by
+    two ways from the one above it."""
+    entries = [f"{bottom} AS a0"] + [f"(a{k - 1}, a{k - 1}) AS a{k}" for k in range(1, levels + 1)]
+    return f"WITH {', '.join(entries)} SELECT id FROM orders WHERE id IN a{levels}"
+
+
+def _nested_repeats(levels: int, bottom: str) -> str:
+    """`levels` nested subqueries, each with a WITH entry `a` holding the
+    pair (a, a), under an outer entry `a` holding `bottom`."""
+    sql = "SELECT id FROM orders WHERE id IN a"
+    for _ in range(levels):
+        sql = f"SELECT * FROM (WITH (a, a) AS a {sql})"
+    return f"WITH {bottom} AS a {sql}"
+
+
+@pytest.mark.timeout(60)
+@pytest.mark.parametrize("build", [_alias_chain, _nested_repeats])
+def test_an_in_set_reached_through_30_levels_of_with_entries_is_read_once_per_entry(build):
+    import time
+
+    started = time.monotonic()
+    check_table_scope(build(30, "orders"), "clickhouse", SCOPE)
+    with pytest.raises(TableScopeViolation, match="SECRET"):
+        check_table_scope(build(30, "secret"), "clickhouse", SCOPE)
+    assert time.monotonic() - started < 1.0
+
+
+def test_an_in_set_reached_through_more_with_entries_than_table_scope_follows_is_refused():
+    entries = ["orders AS a0"] + [f"a{k - 1} AS a{k}" for k in range(1, 1200)]
+    sql = f"WITH {', '.join(entries)} SELECT id FROM orders WHERE id IN a1199"
+    with pytest.raises(TableScopeViolation, match="Could not verify which table this IN reads"):
+        check_table_scope(sql, "clickhouse", SCOPE)
+
+
 # Query settings that hold SQL (or anything outside the common ones) are
 # refused, wherever the SELECT stands (live dialect tests).
 CLICKHOUSE_SETTINGS_REFUSED = [

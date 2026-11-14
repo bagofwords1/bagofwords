@@ -261,6 +261,32 @@ def test_a_failed_close_is_logged_by_type_only_and_the_result_still_returned(ser
         "vertica: closing the connection failed (ConnectionError)"]
 
 
+def test_a_failed_query_is_logged_by_type_only_and_nothing_is_printed(server, monkeypatch, caplog, capsys):
+    import logging
+
+    server.error = vertica_python.errors.ProgrammingError("password=pw denied")
+    logger = logging.getLogger("app.data_sources.clients.vertica_client")
+    logger.disabled = False
+    with caplog.at_level(logging.WARNING, logger=logger.name), pytest.raises(vertica_python.errors.ProgrammingError):
+        _client().execute_query("SELECT 1")
+    assert capsys.readouterr().out == ""
+    assert [r.getMessage() for r in caplog.records] == ["vertica: the query failed (ProgrammingError)"]
+
+
+def test_a_failed_catalog_read_is_logged_by_type_only_and_nothing_is_printed(server, monkeypatch, caplog, capsys):
+    import logging
+
+    server.error = RuntimeError("password=pw denied")
+    logger = logging.getLogger("app.data_sources.clients.vertica_client")
+    logger.disabled = False
+    with caplog.at_level(logging.WARNING, logger=logger.name):
+        assert _client().get_tables() == []
+    assert capsys.readouterr().out == ""
+    messages = [r.getMessage() for r in caplog.records]
+    assert messages[-1] == "vertica: reading the catalog failed (RuntimeError)"
+    assert not any("password" in m for m in messages)
+
+
 def test_the_description_names_the_driver_the_client_uses():
     text = _client().description
     assert "verticapy" not in text and "vertica_python" in text

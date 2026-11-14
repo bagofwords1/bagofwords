@@ -555,6 +555,55 @@ def test_clickhouse_reads_the_table_a_scalar_or_differently_cased_with_entry_is_
         check_table_scope(ensure_read_only(object.__new__(ClickhouseClient), sql), "clickhouse", CLICKHOUSE_SCOPE)
 
 
+# Inside a WITH entry's own body its name is the table, also in the first
+# operand of a recursive entry's UNION and as the set of an IN. sqlglot
+# reads a CTE named `secret`.
+CLICKHOUSE_OWN_NAME_IN_BODY = [
+    ("WITH RECURSIVE secret AS (SELECT x FROM secret) SELECT x FROM secret", str(SECRET)),
+    ("WITH RECURSIVE secret AS (SELECT x FROM secret) SELECT sum(x) FROM secret", str(SECRET)),
+    ("WITH RECURSIVE secret AS (SELECT x FROM secret UNION ALL SELECT x FROM secret WHERE 0) SELECT x FROM secret",
+     str(SECRET)),
+    ("WITH secret AS (SELECT 42 IN secret AS r) SELECT r FROM secret", "1"),
+    ("WITH secret AS (SELECT arrayFilter(v -> v IN secret, [7, 42]) AS r) SELECT r FROM secret", "[42]"),
+    ("WITH secret AS (SELECT arrayJoin([globalIn(42, secret), globalIn(7, secret)]) AS hit) SELECT hit FROM secret",
+     "1" + NL + "0"),
+    ("WITH (SELECT groupArray(n) FROM (SELECT arrayJoin(range(50)) AS n) WHERE n IN secret) AS secret SELECT secret",
+     "[42]"),
+    ("WITH secret AS (SELECT * FROM (SELECT 42 IN secret AS r)) SELECT r FROM secret", "1"),
+    ("WITH secret AS (SELECT globalIn(42, secret) AS r) SELECT r FROM secret", "1"),
+    ("WITH (SELECT 42 IN secret) AS secret SELECT secret", "1"),
+]
+
+
+@pytest.mark.parametrize("sql, shown", CLICKHOUSE_OWN_NAME_IN_BODY)
+def test_clickhouse_reads_the_table_a_with_entry_names_inside_its_own_body(clickhouse_local, sql, shown):
+    assert "secret" in _sqlglot_cte_names(sql, "clickhouse")
+    code, out = clickhouse_local(sql)
+    assert code == 0 and out == shown
+    with pytest.raises(TableScopeViolation, match="SECRET"):
+        check_table_scope(ensure_read_only(object.__new__(ClickhouseClient), sql), "clickhouse", CLICKHOUSE_SCOPE)
+
+
+# The recursive part of a recursive entry (the UNION's operands after the
+# first) reads the entry, by FROM, through a subquery and as an IN set; an
+# IN set in one entry reads a later entry of the same WITH. None of them
+# reads the table of that name (it holds 42).
+@pytest.mark.parametrize("sql, shown", [
+    ("WITH RECURSIVE r AS (SELECT 1 AS x UNION ALL SELECT x+1 FROM r WHERE x<3) SELECT sum(x) FROM r", "6"),
+    ("WITH RECURSIVE secret AS (SELECT 1 AS x UNION ALL SELECT x+1 FROM secret WHERE x<3) SELECT sum(x) FROM secret",
+     "6"),
+    ("WITH RECURSIVE secret AS (SELECT 1 AS x UNION ALL SELECT x+1 FROM secret WHERE x < 3 AND 42 IN secret) "
+     "SELECT sum(x) FROM secret", "1"),
+    ("WITH RECURSIVE secret AS (SELECT 1 AS x UNION ALL SELECT y FROM (SELECT x AS y FROM secret WHERE x = 42)) "
+     "SELECT groupArray(x) FROM secret", "[1]"),
+    ("WITH a AS (SELECT 42 IN secret AS r), secret AS (SELECT 1 AS x) SELECT r FROM a", "0"),
+])
+def test_clickhouse_reads_the_entry_in_a_recursive_part_and_a_later_entry_in_an_in_set(clickhouse_local, sql, shown):
+    code, out = clickhouse_local(sql)
+    assert code == 0 and out == shown
+    check_table_scope(ensure_read_only(object.__new__(ClickhouseClient), sql), "clickhouse", CLICKHOUSE_SCOPE)
+
+
 def test_mysql_reads_the_table_a_differently_cased_cte_is_named_after(mysql):
     sql = "WITH SECRET AS (SELECT 7 AS x) SELECT x FROM secret"
     assert "secret" in _sqlglot_cte_names(sql, "mysql")

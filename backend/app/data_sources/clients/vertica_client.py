@@ -91,7 +91,8 @@ class VerticaClient(DataSourceClient):
         try:
             return self._frame(sql)
         except Exception as e:
-            print(f"Error executing SQL: {e}")
+            # The type only: a driver message may hold connection details.
+            logger.warning("vertica: the query failed (%s)", type(e).__name__)
             raise
 
     def get_tables(self) -> List[Table]:
@@ -232,7 +233,7 @@ class VerticaClient(DataSourceClient):
             raise
         except Exception as e:
             self.mark_discovery_incomplete("vertica catalog")
-            print(f"Error retrieving tables: {e}")
+            logger.warning("vertica: reading the catalog failed (%s)", type(e).__name__)
             return []
 
     def get_schema(self, table_id: str) -> Table:

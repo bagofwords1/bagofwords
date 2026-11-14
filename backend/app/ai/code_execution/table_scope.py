@@ -245,38 +245,68 @@ def _resolves_to_cte(table, dialect: str | None = None) -> bool:
     holds a value rather than a query (ClickHouse's `WITH 1 AS name`, or
     `WITH (SELECT ...) AS name`), which does not stand for a table.
 
-    A WITH clause is visible only inside the query it belongs to (and the
-    queries nested in it), so a CTE defined in a subquery must not exempt a
-    same-named table read in the outer query or in a sibling subquery. Inside
-    a CTE's own body only the CTEs defined before it are visible, plus itself
-    when the WITH is RECURSIVE.
+    Which entries are visible where the reference stands is
+    `_visible_with_entries` (inside an entry's own body, the entries
+    defined before it).
     """
-    entries = _visible_ctes(table, dialect)
+    entries = _visible_with_entries(table, lambda ident: _same_name(ident, table.this, dialect), later=False)
     return bool(entries) and all(_holds_query(entry) for entry in entries)
 
 
-def _visible_ctes(table, dialect: str | None) -> list:
-    """The WITH entries visible where `table` stands (see
-    `_resolves_to_cte`) whose name is the reference as written."""
+def _visible_with_entries(node, named, *, later: bool) -> list:
+    """The WITH entries visible where `node` stands whose name (an
+    Identifier) `named` accepts. Both readings of a name as a WITH entry
+    use it: a table reference (`_resolves_to_cte`) and the set of a
+    ClickHouse IN (`_with_entries`).
+
+      * A WITH is visible only inside the query it belongs to and the
+        queries nested in it.
+      * Inside an entry's own body the entry is not visible: the engine
+        reads its name there as the table of that name (ClickHouse even in
+        a WITH RECURSIVE entry). The one exception is the recursive part of
+        a WITH RECURSIVE entry whose body is a UNION: inside the UNION's
+        operands after the first, the name is the entry.
+      * Inside an entry's own body, the entries of that WITH defined before
+        it are visible, and with `later` the ones after it too (ClickHouse
+        reads them as the set of an IN).
+    """
     from sqlglot import exp
 
     found = []
-    child, inside_cte = table, None
-    node = table.parent
-    while node is not None:
-        if isinstance(node, exp.CTE):
-            inside_cte = node
-        w = node.args.get("with") if isinstance(node, exp.Expression) else None
+    path: set[int] = set()  # `node` and the ancestors passed so far
+    child, inside = node, None
+    parent = node.parent
+    while parent is not None:
+        path.add(id(child))
+        if isinstance(parent, exp.CTE):
+            inside = parent
+        w = parent.args.get("with")
         if isinstance(w, exp.With):
-            ctes = list(w.expressions)
-            if child is w and inside_cte in ctes:
-                i = ctes.index(inside_cte)
-                visible = ctes[:i] + ([inside_cte] if w.args.get("recursive") else [])
+            entries = list(w.expressions)
+            if child is w and inside in entries:
+                i = entries.index(inside)
+                visible = entries[:i] + (entries[i + 1:] if later else [])
+                if w.args.get("recursive") and _in_recursive_part(inside, path):
+                    visible.append(inside)
             else:
-                visible = ctes
-            found += [c for c in visible if _same_name(_cte_ident(c), table.this, dialect)]
-        child, node = node, node.parent
+                visible = entries
+            found += [c for c in visible if (ident := _cte_ident(c)) is not None and named(ident)]
+        child, parent = parent, parent.parent
     return found
+
+
+def _in_recursive_part(entry, path: set[int]) -> bool:
+    """Whether a node whose ancestors are `path` (ids) stands in the
+    recursive part of `entry`: its body is a UNION and the node is inside
+    one of the UNION's operands after the first."""
+    from sqlglot import exp
+
+    body = entry.this
+    while isinstance(body, exp.Union):
+        if id(body.expression) in path:
+            return True
+        body = body.this
+    return False
 
 
 def _cte_ident(cte):
@@ -368,6 +398,7 @@ def _in_set_tables(statement) -> list[Name]:
     from sqlglot import exp
 
     out: list[Name] = []
+    followed: dict = {}  # shared by every set of the statement (`_set_item_tables`)
     for node in statement.find_all(exp.In):
         query, field, items = node.args.get("query"), node.args.get("field"), list(node.expressions)
         if node.args.get("unnest") is not None or [query is not None, field is not None, bool(items)].count(True) != 1:
@@ -377,16 +408,22 @@ def _in_set_tables(statement) -> list[Name]:
                 raise _unread_in_set()
             continue  # its tables are read where it stands
         for item in [field] if field is not None else items:
-            out += _set_item_tables(item, frozenset())
+            out += _set_item_tables(item, followed)
     for node in statement.find_all(exp.Func):
         if _IN_FUNCTION.fullmatch(_func_name(node)):
             if not isinstance(node, exp.Anonymous) or len(node.expressions) != 2:
                 raise _unread_in_set()
-            out += _set_item_tables(node.expressions[1], frozenset())
+            out += _set_item_tables(node.expressions[1], followed)
     return out
 
 
-def _set_item_tables(node, followed: frozenset) -> list[Name]:
+# The most WITH entries `_set_item_tables` follows for one statement's IN
+# sets. More is refused: it keeps the check's time and depth bounded.
+_MAX_SET_FOLLOWS = 64
+_FOLLOWING = object()
+
+
+def _set_item_tables(node, followed: dict) -> list[Name]:
     """The tables ClickHouse reads for one item of an IN set, with any
     parentheses and alias around it unwrapped:
 
@@ -397,8 +434,10 @@ def _set_item_tables(node, followed: frozenset) -> list[Name]:
         (`_with_entries`) reads what every one of them holds, read as an
         item in turn; any other name is the table of that name.
 
-    Anything else, or WITH entries that name each other in a loop, is
-    refused."""
+    Each entry is followed once per statement: `followed` holds what each
+    entry (by id) reads, or `_FOLLOWING` while it is being followed.
+    Anything else, WITH entries that name each other in a loop, and more
+    than `_MAX_SET_FOLLOWS` entries followed are refused."""
     from sqlglot import exp
 
     while isinstance(node, (exp.Paren, exp.Alias)):
@@ -406,7 +445,7 @@ def _set_item_tables(node, followed: frozenset) -> list[Name]:
     if _is_value(node) or isinstance(node, exp.Query):
         return []
     if isinstance(node, (exp.Tuple, exp.Array)):
-        return [ref for item in node.expressions for ref in _set_item_tables(item, followed)]
+        return _distinct(ref for item in node.expressions for ref in _set_item_tables(item, followed))
     if isinstance(node, exp.Identifier):
         parts = [node]
     elif isinstance(node, exp.Column) and all(isinstance(p, exp.Identifier) for p in node.parts):
@@ -418,26 +457,32 @@ def _set_item_tables(node, followed: frozenset) -> list[Name]:
         return [tuple(str(p.name).lower() for p in parts)]
     out: list[Name] = []
     for entry in entries:
-        if id(entry) in followed:
+        key = id(entry)
+        if key not in followed:
+            if len(followed) >= _MAX_SET_FOLLOWS:
+                raise _unread_in_set()
+            followed[key] = _FOLLOWING
+            followed[key] = _set_item_tables(entry.this, followed)
+        if followed[key] is _FOLLOWING:
             raise _unread_in_set()
-        out += _set_item_tables(entry.this, followed | {id(entry)})
+        out += followed[key]
+    return _distinct(out)
+
+
+def _distinct(refs) -> list[Name]:
+    out: list[Name] = []
+    for ref in refs:
+        if ref not in out:
+            out.append(ref)
     return out
 
 
 def _with_entries(node, name: str) -> list:
-    """Every entry of every WITH around `node` (in any position) named
-    `name`, letter for letter (ClickHouse compares names case by case and
-    reads a quoted name as the same name)."""
-    from sqlglot import exp
-
-    found = []
-    parent = node.parent
-    while parent is not None:
-        w = parent.args.get("with")
-        if isinstance(w, exp.With):
-            found += [c for c in w.expressions if (ident := _cte_ident(c)) is not None and ident.name == name]
-        parent = parent.parent
-    return found
+    """The WITH entries visible where `node` stands (`_visible_with_entries`,
+    later entries of the same WITH included) named `name`, letter for
+    letter (ClickHouse compares names case by case and reads a quoted name
+    as the same name)."""
+    return _visible_with_entries(node, lambda ident: ident.name == name, later=True)
 
 
 def _is_value(node) -> bool:
