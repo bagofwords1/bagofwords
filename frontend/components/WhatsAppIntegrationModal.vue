@@ -217,6 +217,7 @@
 </template>
 
 <script setup lang="ts">
+import { loadAgentFolderOptions, channelScopePayload, channelScopeValues } from '~/composables/useAgentFolderOptions'
 import { ref, computed, onMounted, nextTick } from 'vue'
 const props = defineProps<{
   instances?: any[]
@@ -270,7 +271,8 @@ async function loadAgents() {
   const res = await useMyFetch('/api/data_sources', { query: { show_all: true } })
   agentsLoading.value = false
   if (res.status.value === 'success') {
-    allAgents.value = ((res.data.value as any[]) || []).map((d: any) => ({ id: d.id, name: d.name }))
+    const folders = await loadAgentFolderOptions()
+    allAgents.value = [...folders.map(f => ({ id: 'folder:' + f.id, name: '📁 ' + f.path })), ...((res.data.value as any[]) || []).map((d: any) => ({ id: d.id, name: d.name }))]
   }
 }
 
@@ -278,7 +280,7 @@ async function loadScope(id: string) {
   scopeDraft.value = []
   const res = await useMyFetch(`/api/settings/integrations/${id}/agents`)
   if (res.status.value === 'success') {
-    scopeDraft.value = ((res.data.value as any)?.agent_ids || []) as string[]
+    scopeDraft.value = channelScopeValues((res.data.value as any)?.agent_ids, (res.data.value as any)?.agent_folder_ids)
   }
 }
 
@@ -286,11 +288,11 @@ async function saveScope(id: string) {
   savingScope.value = true
   const res = await useMyFetch(`/api/settings/integrations/${id}/agents`, {
     method: 'PUT',
-    body: { agent_ids: scopeDraft.value },
+    body: channelScopePayload(scopeDraft.value),
   })
   savingScope.value = false
   if (res.status.value === 'success') {
-    scopeDraft.value = ((res.data.value as any)?.agent_ids || []) as string[]
+    scopeDraft.value = channelScopeValues((res.data.value as any)?.agent_ids, (res.data.value as any)?.agent_folder_ids)
     toast.add({ title: t('settings.integrations.channels.whatsapp.agentScopeSaved'), color: 'green' })
   } else {
     toast.add({

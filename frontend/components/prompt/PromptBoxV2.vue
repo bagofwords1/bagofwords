@@ -687,6 +687,7 @@
             v-model="showScheduledPromptModal"
             :reportId="report_id || ''"
             :initialDataSources="selectedDataSources"
+            :initial-folder-ids="folderScope"
             :draftContent="scheduleDraftContent"
             :draftModel="scheduleDraftModel"
             @saved="emit('scheduledPromptSaved')"
@@ -717,7 +718,7 @@ import { useExcel } from '@/composables/useExcel'
 
 const props = defineProps({
     report_id: String,
-    allowFolderScope: Boolean,
+    allowFolderScope: { type: Boolean, default: true },
     // Project (folder) this conversation lives in — renders a lightweight
     // chip in the bottom toolbar that doubles as the move-to-project picker.
     project: {
@@ -759,6 +760,7 @@ const props = defineProps({
     },
     // Training instructions for the pill above input
     initialFolderId: String,
+    initialFolderIds: Array as () => string[],
     trainingInstructions: {
         type: Array as () => { instructionId: string; title: string; category: string; isEdit: boolean; lineCount: number }[],
         default: () => []
@@ -1222,7 +1224,8 @@ const modeIcon = computed(() => {
 // the backend gate in report_service.update_report. A plain member (view only)
 // on the agent is denied even if they manage a different agent.
 const { isTrainingModeEnabled, isDemoDataEnabled, isVoiceInputEnabled } = useOrgSettings()
-const folderScope = ref<string[]>(props.initialFolderId ? [props.initialFolderId] : [])
+const folderScope = ref<string[]>(props.initialFolderIds || (props.initialFolderId ? [props.initialFolderId] : []))
+watch(() => JSON.stringify(props.initialFolderIds ?? []), () => { folderScope.value = [...(props.initialFolderIds || [])] })
 watch(folderScope, ids => emit('update:folderIds', ids), {immediate:true})
 const canManageInstructionsForSelectedAgents = computed(() => {
     if (folderScope.value.length) return folderScope.value.every(id => useCan('manage_instructions', {type: 'folder', id})) && selectedDataSources.value.every(ds => useCan('manage_instructions', {type:'data_source', id:ds.id}))
@@ -2093,6 +2096,7 @@ defineExpose({
     // Reasoning level paired with the model (null = Default).
     getEffort: () => selectedEffort.value,
     getMentions: () => inlineMentions.value,
+    getFolderIds: () => [...folderScope.value],
     getDataSources: () => selectedDataSources.value,
     // Toggle one agent through the selector itself, so an external picker gets
     // the same auto-mode handling and report persistence as the dropdown rows.

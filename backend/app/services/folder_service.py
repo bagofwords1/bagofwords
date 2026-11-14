@@ -254,3 +254,39 @@ async def lock_tree(db, org, user):
 
     await db.execute(update(Organization).where(Organization.id == org.id).values(updated_at=Organization.updated_at))
     invalidate_rbac_memo(db, user.id, org.id)
+
+
+async def validate_scope_folders(db, org_id, user_id, ids):
+    if not ids:
+        return []
+    from app.core.permission_resolver import resolve_permissions
+    wanted = list(dict.fromkeys(ids))
+    rights = await resolve_permissions(db, user_id, org_id)
+    existing = set(await db.scalars(select(Folder.id).where(
+        Folder.organization_id == org_id, Folder.deleted_at.is_(None), Folder.id.in_(wanted))))
+    if any(fid not in existing or not rights.has_resource_permission("folder", fid, "view") for fid in wanted):
+        raise HTTPException(403, "Folder unavailable")
+    return wanted
+
+
+async def allowed_folder_agents(db, org_id, ids):
+    """Expand an application/channel ceiling. Limited-access subtrees require an explicit selection."""
+    if not ids:
+        return set()
+    from app.models.data_source import DataSource
+    rows = (await db.execute(select(Folder.id, Folder.parent_id, Folder.inherits_access).where(
+        Folder.organization_id == org_id, Folder.deleted_at.is_(None)))).all()
+    children = {}
+    for fid, parent, inherits in rows:
+        if inherits:
+            children.setdefault(parent, []).append(fid)
+    pending = list(set(ids).intersection(fid for fid, _, _ in rows))
+    branch = set()
+    while pending:
+        fid = pending.pop()
+        if fid not in branch:
+            branch.add(fid)
+            pending.extend(children.get(fid, []))
+    return set(await db.scalars(select(DataSource.id).where(
+        DataSource.organization_id == org_id, DataSource.deleted_at.is_(None),
+        DataSource.inherits_folder_access.is_(True), DataSource.folder_id.in_(branch))))

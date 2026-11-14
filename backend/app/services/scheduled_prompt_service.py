@@ -175,6 +175,8 @@ class ScheduledPromptService:
         await self.ensure_can_manage(db, report, current_user, organization)
 
         subscribers = [s.model_dump() for s in data.notification_subscribers] if data.notification_subscribers else None
+        from app.services.folder_service import validate_scope_folders
+        task_folders = await validate_scope_folders(db, organization.id, current_user.id, data.agent_folder_ids)
         task_agents = await self._resolve_task_agents(db, data.data_source_ids, current_user, organization)
 
         sp = ScheduledPrompt(
@@ -187,7 +189,7 @@ class ScheduledPromptService:
             is_active=True if data.is_active is None else bool(data.is_active),
             spawn_new_report=bool(data.spawn_new_report),
             notification_subscribers=subscribers,
-            data_source_ids=task_agents,
+            data_source_ids=task_agents, agent_folder_ids=task_folders,
         )
         if data.cron_schedule is None and data.run_once_at is None:
             raise HTTPException(status_code=400, detail="Provide cron_schedule or run_once_at")
@@ -252,6 +254,9 @@ class ScheduledPromptService:
             sp.spawn_new_report = data.spawn_new_report
         if data.notification_subscribers is not None:
             sp.notification_subscribers = [s.model_dump() for s in data.notification_subscribers]
+        if data.agent_folder_ids is not None:
+            from app.services.folder_service import validate_scope_folders
+            sp.agent_folder_ids = await validate_scope_folders(db, organization.id, sp.user_id, data.agent_folder_ids)
         if data.data_source_ids is not None:
             # Checked against the task's owner: their access is what the runs use.
             owner = await db.get(User, sp.user_id) or current_user
@@ -592,6 +597,7 @@ class ScheduledPromptService:
                     scheduled_prompt_id=sp.id,
                     # The task's own agents. A spawned run report is created
                     # with them attached, so it needs no override.
+                    run_folder_ids=sp.agent_folder_ids if target_report is report else None,
                     run_data_source_ids=(
                         list(sp.data_source_ids)
                         if sp.data_source_ids and target_report is report else None
@@ -686,9 +692,10 @@ class ScheduledPromptService:
         from app.schemas.report_schema import ReportCreate
 
         ds_ids = (
-            [str(i) for i in sp.data_source_ids] if sp.data_source_ids
+            [str(i) for i in (sp.data_source_ids or [])] if sp.data_source_ids or sp.agent_folder_ids
             else [str(ds.id) for ds in (host_report.data_sources or [])]
         )
+        folders = sp.agent_folder_ids or ([] if sp.data_source_ids else report_folder_ids(host_report))
         run_date = datetime.utcnow().strftime("%b %d, %Y")
         title = f"{sp.title or host_report.title or 'Scheduled run'} — {run_date}"
 
@@ -701,7 +708,7 @@ class ScheduledPromptService:
             try:
                 report_schema = await ReportService().create_report(
                     db=db,
-                    report_data=ReportCreate(title=title, files=[], agent_folder_ids=[] if sp.data_source_ids else report_folder_ids(host_report), data_sources=ds_ids,
+                    report_data=ReportCreate(title=title, files=[], agent_folder_ids=folders, data_sources=ds_ids,
                                              project_id=str(host_report.project_id)),
                     current_user=user,
                     organization=organization,
@@ -714,7 +721,7 @@ class ScheduledPromptService:
         if report_schema is None:
             report_schema = await ReportService().create_report(
                 db=db,
-                report_data=ReportCreate(title=title, files=[], agent_folder_ids=[] if sp.data_source_ids else report_folder_ids(host_report), data_sources=ds_ids),
+                report_data=ReportCreate(title=title, files=[], agent_folder_ids=folders, data_sources=ds_ids),
                 current_user=user,
                 organization=organization,
             )

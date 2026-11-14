@@ -73,6 +73,7 @@
 </template>
 
 <script setup lang="ts">
+import { loadAgentFolderOptions, channelScopePayload, channelScopeValues } from '~/composables/useAgentFolderOptions'
   import { ref, watch, onMounted } from 'vue'
 
   // Shared "Channel -> agent routing" panel for any external connection that
@@ -108,7 +109,8 @@
     const res = await useMyFetch('/api/data_sources', { query: { show_all: true } })
     agentsLoading.value = false
     if (res.status.value === 'success') {
-      allAgents.value = (((res.data.value as any) || []) as any[]).map((d) => ({ id: d.id, name: d.name }))
+      const folders = await loadAgentFolderOptions()
+      allAgents.value = [...folders.map(f => ({ id: 'folder:' + f.id, name: '📁 ' + f.path })), ...(((res.data.value as any) || []) as any[]).map((d) => ({ id: d.id, name: d.name }))]
     }
   }
 
@@ -120,10 +122,10 @@
     channelsLoading.value = false
     if (res.status.value === 'success') {
       const data = res.data.value as any
-      defaultSel.value = (data?.default_agent_ids || []) as string[]
+      defaultSel.value = channelScopeValues(data?.default_agent_ids, data?.default_folder_ids)
       channels.value = (data?.channels || []) as any[]
       const map: Record<string, string[]> = {}
-      for (const ch of channels.value) map[ch.external_channel_id] = (ch.agent_ids || []) as string[]
+      for (const ch of channels.value) map[ch.external_channel_id] = channelScopeValues(ch.agent_ids, ch.agent_folder_ids)
       channelSel.value = map
     }
   }
@@ -136,7 +138,7 @@
     const id = props.integrationId
     if (!id) return false
     const q = channel ? `?channel=${encodeURIComponent(channel)}` : ''
-    const res = await useMyFetch(`/api/settings/integrations/${id}/agents${q}`, { method: 'PUT', body: { agent_ids: agentIds } })
+    const res = await useMyFetch(`/api/settings/integrations/${id}/agents${q}`, { method: 'PUT', body: channelScopePayload(agentIds) })
     return res.status.value === 'success'
   }
 

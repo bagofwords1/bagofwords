@@ -26,6 +26,7 @@ class Webhook(BaseSchema):
     """
 
     __tablename__ = 'webhooks'
+    agent_folder_ids = Column(JSON, nullable=True)
 
     # NULL = standalone trigger (spawn mode); set = report-bound webhook.
     report_id = Column(String(36), ForeignKey('reports.id'), nullable=True, index=True)

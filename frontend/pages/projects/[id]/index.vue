@@ -236,6 +236,8 @@
                                                 class="w-full h-7 px-2 mb-1 text-xs bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded outline-none focus:border-gray-300"
                                             />
                                             <div class="max-h-56 overflow-y-auto">
+                                                <AgentFolderChoices :agents="orgAgents" :search="agentSearch" :disabled="savingAgents"
+                                                    :selected="(project?.data_sources || []).map(a => a.id)" @select="addFolderAgents" />
                                                 <button
                                                     v-for="agent in agentCandidates"
                                                     :key="agent.id"
@@ -625,6 +627,10 @@ const saveAgentIds = async (ids: string[]) => {
     } finally {
         savingAgents.value = false
     }
+}
+const addFolderAgents = async (ids: string[]) => {
+    agentPickerOpen.value = false
+    await saveAgentIds([...new Set([...(project.value?.data_sources || []).map((a: any) => String(a.id)), ...ids])])
 }
 const addAgent = async (id: string) => {
     agentPickerOpen.value = false

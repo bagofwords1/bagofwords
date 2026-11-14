@@ -179,6 +179,7 @@ async def list_builds(
     limit: int = Query(50, ge=1, le=200),
     status: Optional[str] = Query(None, description="Filter by status: draft | pending_approval | approved | rejected (defaults to approved)"),
     created_by: Optional[str] = Query(None, description="Filter by creator: 'me' for current user's builds only"),
+    folder_id: Optional[str] = Query(None),
     data_source_id: Optional[str] = Query(None, description="Restrict to builds that touch this data source"),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
@@ -214,7 +215,12 @@ async def list_builds(
     if not rights.has_org_permission("full_admin_access"):
         folder_filter = (await visible_instruction_folders(db, organization, current_user)) | instruction_scope(accessible_ds_ids)
 
+    branch = None
+    if folder_id:
+        from app.services.folder_service import visible_branch
+        branch = await visible_branch(db, organization.id, current_user.id, folder_id)
     result = await build_service.list_builds(
+        folder_branch=branch,
         db=db,
         org_id=organization.id,
         status=effective_status,

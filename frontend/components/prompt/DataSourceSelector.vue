@@ -93,8 +93,11 @@
                         <Icon v-if="isAutoMode" name="heroicons-check" class="w-4 h-4 text-blue-500" />
                     </button>
                     <div v-if="!hasQuery" class="my-1 border-t border-gray-100 dark:border-gray-800" />
+                    <AgentFolderChoices v-if="expandFolderSelection" :agents="visibleDataSources"
+                        :selected="internalSelectedDataSources.map(ds => ds.id)" :search="agentQuery"
+                        @select="selectFolderMembers" />
                     <button v-for="folder in scopeFolders" :key="folder.id" class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-surface-muted"
-                        :aria-pressed="folderIds.includes(folder.id)" @click="chooseFolder(folder.id)"><UIcon name="i-heroicons-folder" /><span class="flex-1 text-start">{{ folder.path }}</span><UIcon v-if="folderIds.includes(folder.id)" name="i-heroicons-check" class="size-4 text-blue-500" /></button>
+                        :aria-pressed="folderIds.includes(folder.id)" @click="chooseFolder(folder.id)"><UIcon name="i-heroicons-folder" /><span class="flex-1 truncate text-start" :title="folder.path">{{ folder.path }}</span><UIcon v-if="folderIds.includes(folder.id)" name="i-heroicons-check" class="size-4 text-blue-500" /></button>
                     <div v-if="isLoading" class="flex items-center justify-center py-6 text-gray-500 dark:text-gray-400 space-x-2">
                         <Spinner class="w-4 h-4 text-ink-muted animate-spin" />
                         <span>{{ $t('prompt.loadingDataSources') }}</span>
@@ -209,6 +212,7 @@
 </template>
 
 <script lang="ts" setup>
+import { loadAgentFolderOptions } from '~/composables/useAgentFolderOptions'
 import Spinner from '@/components/Spinner.vue'
 import AgentFlyout from '~/components/AgentFlyout.vue'
 import AgentIcon from '~/components/icons/AgentIcon.vue'
@@ -398,6 +402,7 @@ const onFlyoutLeave = () => {
 
 const props = defineProps({
     allowFolderScope: Boolean,
+    expandFolderSelection: Boolean,
     folderIds: { type: Array as () => string[], default: () => [] },
     selectedDataSources: {
         type: Array,
@@ -587,28 +592,26 @@ function isServiceAccount(ds: any) {
         && !ds?.user_status?.has_user_credentials
 }
 
-type ScopeFolder = { can_query?: boolean, id: string, name: string, parent_id: string | null }
-const folders = ref<ScopeFolder[]>([])
-const folderNames = computed(() => new Map(folders.value.map(f => [f.id, f.name])))
-const availableFolders = computed(() => {
-    const byId = new Map(folders.value.map(f => [f.id, f]))
-    return folders.value.filter(f => f.can_query !== false).map(f => {
-        const path = [f.name]
-        let parent = f.parent_id && byId.get(f.parent_id)
-        while (parent) {
-            path.unshift(parent.name)
-            parent = parent.parent_id && byId.get(parent.parent_id)
-        }
-        return {id: f.id, path: path.join(' / ')}
-    })
-})
+const availableFolders = ref<Awaited<ReturnType<typeof loadAgentFolderOptions>>>([])
+const { getErrorMessage } = useErrorMessage()
+const folderNames = computed(() => new Map(availableFolders.value.map(f => [f.id, f.path])))
 const scopeFolders = computed(() => availableFolders.value.filter(f => f.path.toLowerCase().includes(agentQuery.value.toLowerCase())))
 watch(availableFolders, items => emit('update:availableFolders', items), {immediate:true})
 onMounted(async () => {
     if (!props.allowFolderScope) return
-    const {data} = await useMyFetch<{folders: ScopeFolder[]}>('/folders')
-    folders.value = data.value?.folders || []
+    try {
+        availableFolders.value = await loadAgentFolderOptions()
+    } catch (error) {
+        toast.add({title: getErrorMessage(error), color: 'red'})
+    }
 })
+function selectFolderMembers(ids: string[]) {
+    const picked = new Map(internalSelectedDataSources.value.map(ds => [ds.id, ds]))
+    for (const ds of visibleDataSources.value) if (ids.includes(ds.id)) picked.set(ds.id, ds)
+    internalSelectedDataSources.value = [...picked.values()]
+    handleSelectionChange()
+    persistSelectionIfReport()
+}
 function chooseFolder(id: string) {
     if (!props.allowFolderScope || !availableFolders.value.some(f => f.id === id)) return
     const ids = props.folderIds.includes(id) ? props.folderIds.filter(f => f !== id) : [...props.folderIds, id]

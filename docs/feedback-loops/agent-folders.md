@@ -474,3 +474,17 @@ Use a disposable organization with a parent and child folder, separate parent an
 In a disposable organization with two folders, use an account that manages both. From Agents, create a published instruction, select both folders, and save. Reopen each folder and check that the same instruction ID appears. Inspect its active build version and confirm both folder IDs and targeted scope.
 
 Before the fix, the create request returned 503. The backend logged a 403 from the folder check in `BuildService.promote_build`: `InstructionService._auto_finalize_build` passed the build but omitted the acting user. After passing the actor, the same create route on a disposable SQLite copy succeeded. A fresh database session confirmed both folder links, published status, targeted scope, and both folder IDs on the main build version.
+
+### Folder selection in automations and channels
+
+On the previous revision, Schedule a task and webhook triggers used the report composer with folder selection switched off. Connected applications and channel routing had separate agent-only controls. The composer now enables folder selection by default. The automation and channel APIs store folder IDs separately from explicit agent IDs.
+
+To repeat the browser check, use a seeded organization with a queryable Marketing folder.
+
+1. In Automations, create a task, open Auto, select Marketing, enter a prompt, and save. Check the scheduled prompt response for Marketing in `agent_folder_ids`. Reopen the task. Its Agents summary and editor should show Marketing.
+2. Repeat with an inactive webhook trigger. Reopen it and check the Agents summary. Its spawned report should carry the same folder IDs.
+3. Under Settings → Channels → Connected applications, select Only selected agents, find Marketing, check it, and save. Reload the application. The folder should remain checked. For a folder-only ceiling the response should contain an empty `agent_ids` list and the selected folder ID.
+4. Configure a messaging connection default and an override for one channel. An unmapped channel should follow the default. Selecting an empty folder for the override should leave that channel with no available agents.
+5. Move a permitted agent into or out of a selected folder and resolve the next run. Scheduled tasks and triggers use current membership. A task running in its host report must retain the host’s stored placement. Application and channel allowlists intersect with existing access and stop at limited-access descendants.
+
+Project defaults, ordinary eval targets, prompt audiences, and dashboard settings store explicit agents. Their folder controls select eligible members at selection time. Folder-owned routing evals continue to execute against the folder.

@@ -28,11 +28,13 @@ class ResolveBody(BaseModel):
 
 
 class ReadAllBody(BaseModel):
+    folder_id: Optional[str] = None
     agent_id: Optional[str] = None
 
 
 @router.get("/review")
 async def list_review(
+    folder_id: Optional[str] = Query(None),
     agent_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None, description="comma-separated"),
     type: Optional[str] = Query(None, description="comma-separated"),
@@ -46,7 +48,7 @@ async def list_review(
         return [s for s in (v.split(",") if v else []) if s] or None
     return await review_service.list_items(
         db, organization, current_user,
-        agent_id=agent_id,
+        agent_id=agent_id, folder_id=folder_id,
         statuses=_split(status),
         types=_split(type),
         severities=_split(severity),
@@ -70,7 +72,7 @@ async def read_all_review(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    n = await review_service.mark_all_read(db, organization, current_user, agent_id=body.agent_id)
+    n = await review_service.mark_all_read(db, organization, current_user, agent_id=body.agent_id, folder_id=body.folder_id)
     return {"ok": True, "marked": n}
 
 

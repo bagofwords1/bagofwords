@@ -124,6 +124,7 @@
 
                 <!-- Agent list -->
                 <div class="max-h-52 overflow-y-auto">
+                  <AgentFolderChoices :agents="listAgents" :selected="activeSelection" @select="ids => selectAgents(ids)" />
                   <button
                     v-for="a in listAgents"
                     :key="a.id"

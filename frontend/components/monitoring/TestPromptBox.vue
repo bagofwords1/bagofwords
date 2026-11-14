@@ -35,7 +35,7 @@
             <Icon name="heroicons-folder" class="size-4 shrink-0" />
             <span class="truncate">{{ folderName || $t('rolesManager.types.folder') }}</span>
           </span>
-          <DataSourceSelector v-else v-model:selectedDataSources="selectedDataSources" :reportId="report_id" :permission="permission" />
+          <DataSourceSelector v-else expand-folder-selection v-model:selectedDataSources="selectedDataSources" :reportId="report_id" :permission="permission" />
         </div>
       </div>
 

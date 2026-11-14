@@ -34,7 +34,7 @@
                             />
                             <Icon v-else name="heroicons:funnel" class="w-4 h-4 text-ink-muted flex-shrink-0" />
                             <span class="truncate flex-1 text-start font-medium text-gray-900 dark:text-white">
-                                {{ selectedDsFilter ? (selectedDsFilter as any).name : 'All data sources' }}
+                                {{ dsFilterId?.startsWith('folder:') ? folderLabel : selectedDsFilter ? (selectedDsFilter as any).name : 'All data sources' }}
                             </span>
                             <Icon name="heroicons:chevron-down" class="w-3 h-3 text-ink-muted flex-shrink-0" />
                         </button>
@@ -58,6 +58,7 @@
                                     <span class="truncate flex-1 font-medium">All data sources</span>
                                     <Icon v-if="dsFilterId === null" name="heroicons:check" class="w-3 h-3 text-blue-500" />
                                 </button>
+                                <AgentFolderChoices :agents="agentList" @select="(_, f) => { dsFilterId = 'folder:' + f.id; folderLabel = f.path; dsFilterDropdownOpen = false }" />
                                 <button
                                     v-for="d in agentList"
                                     :key="d.id"
@@ -876,6 +877,7 @@ const selectedBuild = ref<Build | null>(null)
 
 // DS filter (top of left pane). null = all data sources.
 const { agents: agentList } = useAgent()
+const folderLabel = ref('')
 const dsFilterId = ref<string | null>(null)
 const dsFilterDropdownOpen = ref(false)
 const dsFilterRef = ref<HTMLElement | null>(null)
@@ -1099,7 +1101,7 @@ const fetchBuilds = async () => {
         // Otherwise fetch all builds for the Version Explorer
         const statusParam = props.suggestionsMode ? 'pending_approval' : 'all'
         const createdByParam = props.userOnly ? '&created_by=me' : ''
-        const dsParam = dsFilterId.value ? `&data_source_id=${dsFilterId.value}` : ''
+        const dsParam = dsFilterId.value?.startsWith('folder:') ? '&folder_id=' + encodeURIComponent(dsFilterId.value.slice(7)) : dsFilterId.value ? `&data_source_id=${dsFilterId.value}` : ''
         const response = await useMyFetch<{ items: Build[], total: number }>(`/builds?limit=50&status=${statusParam}${createdByParam}${dsParam}`)
         if (response.data.value) {
             builds.value = response.data.value.items || []

@@ -261,7 +261,7 @@ def scope_report_to_run_agents(report: Any, agents: List[Any]) -> None:
 async def prepare_run_agents(db, organization: Any, user: Any, report: Any,
                              data_source_service: Any = None,
                              agent_ids: Optional[List[str]] = None,
-                             exclude_personal_connectors: bool = False) -> Tuple[List[Any], Dict[str, Any]]:
+                             exclude_personal_connectors: bool = False, folder_ids=None) -> Tuple[List[Any], Dict[str, Any]]:
     """``(agents, clients)`` for a run — the working set and its query clients.
 
     An agent the user cannot reach 403s inside ``construct_clients``; it is
@@ -271,6 +271,22 @@ async def prepare_run_agents(db, organization: Any, user: Any, report: Any,
     from app.services.data_source_service import DataSourceService
     from fastapi import HTTPException
 
+    if folder_ids:
+        from app.models.report import ReportAdditionalFolder
+        from app.services.folder_service import load_report_folders, require_report_folder, validate_scope_folders
+        from sqlalchemy.orm.attributes import set_committed_value
+        for fid in await load_report_folders(db, report):
+            await require_report_folder(db, organization, user, fid, report.mode)
+        await validate_scope_folders(db, organization.id, user.id, folder_ids)
+        if report.mode == "training":
+            from app.services.report_service import ReportService
+            await ReportService()._assert_can_enter_training_mode(db, user, organization, agent_ids or [], folder_ids)
+        set_committed_value(report, "agent_folder_id", folder_ids[0])
+        set_committed_value(report, "additional_folders", [ReportAdditionalFolder(folder_id=fid) for fid in folder_ids[1:]])
+        wanted = set(agent_ids or [])
+        pins = [ds for ds in await accessible_agents(db, organization, user) if ds.id in wanted] if wanted else []
+        set_committed_value(report, "data_sources", pins)
+        agent_ids = None
     svc = data_source_service or DataSourceService()
     agents = await resolve_run_agents(db, organization, user, report, agent_ids=agent_ids,
                                       exclude_personal_connectors=exclude_personal_connectors)

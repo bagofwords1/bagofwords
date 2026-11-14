@@ -379,6 +379,7 @@ class BuildService:
         created_by_user_id: Optional[str] = None,
         accessible_data_source_ids: Optional[List[str]] = None,
         data_source_id: Optional[str] = None,
+        folder_branch=None,
         folder_read_filter=None,
     ) -> Dict[str, Any]:
         """List builds for an organization with optional status filter.
@@ -419,6 +420,15 @@ class BuildService:
             )
             conditions.append(InstructionBuild.id.notin_(hidden_changes))
 
+        if folder_branch is not None:
+            from app.models.folder import folder_instructions
+            from app.models.data_source import DataSource
+            from app.models.instruction import instruction_data_source_association as idsa
+            direct = select(folder_instructions.c.instruction_id).where(folder_instructions.c.folder_id.in_(folder_branch))
+            agents = select(idsa.c.instruction_id).join(DataSource, DataSource.id == idsa.c.data_source_id).where(
+                DataSource.folder_id.in_(folder_branch), DataSource.organization_id == org_id)
+            conditions.append(InstructionBuild.id.in_(select(BuildContent.build_id).where(
+                BuildContent.instruction_id.in_(direct.union(agents)))))
         if data_source_id:
             from app.models.instruction import instruction_data_source_association as idsa
             # Restrict to builds that contain at least one instruction scoped to this DS.

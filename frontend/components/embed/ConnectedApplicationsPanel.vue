@@ -27,8 +27,13 @@
           <p class="text-xs text-ink-muted">{{ $t('connectedApps.agentHelp') }}</p>
           <URadio v-model="allAgents" name="agent-access" :value="false" :label="$t('connectedApps.selectedAgents')" />
           <div v-if="!allAgents" class="max-h-60 overflow-y-auto rounded-lg border border-line p-3 space-y-2">
-            <UCheckbox v-for="agent in agents" :key="agent.id" v-model="agentIds" :value="agent.id" :label="agent.name" />
-            <p v-if="!agents.length" class="text-xs text-ink-muted">{{ $t('connectedApps.noAgents') }}</p>
+            <UInput v-model="scopeSearch" size="xs" icon="i-heroicons-magnifying-glass" :placeholder="$t('common.search')" />
+            <label v-for="folder in visibleFolders" :key="folder.id" class="flex items-center gap-2 text-sm">
+              <input v-model="folderIds" type="checkbox" :value="folder.id" />
+              <UIcon name="i-heroicons-folder" class="shrink-0" /><span class="truncate" :title="folder.path">{{ folder.path }}</span>
+            </label>
+            <UCheckbox v-for="agent in visibleAgents" :key="agent.id" v-model="agentIds" :value="agent.id" :label="agent.name" />
+            <p v-if="!agents.length && !folders.length" class="text-xs text-ink-muted">{{ $t('connectedApps.noAgents') }}</p>
           </div>
           <URadio v-model="allAgents" name="agent-access" :value="true" :label="$t('connectedApps.allAgents')" />
         </fieldset>
@@ -65,6 +70,7 @@
 </template>
 
 <script setup lang="ts">
+import { loadAgentFolderOptions } from '~/composables/useAgentFolderOptions'
 import HostApplicationsPanel from '~/components/embed/HostApplicationsPanel.vue'
 import OAuthClientsModal from '~/components/OAuthClientsModal.vue'
 import Spinner from '~/components/Spinner.vue'
@@ -73,7 +79,12 @@ const { t } = useI18n()
 const { getErrorMessage } = useErrorMessage()
 const toast = useToast()
 const applications = ref<any[]>([])
+const folders = ref<Awaited<ReturnType<typeof loadAgentFolderOptions>>>([])
+const folderIds = ref<string[]>([])
 const agents = ref<any[]>([])
+const scopeSearch = ref('')
+const visibleFolders = computed(() => folders.value.filter(f => f.path.toLowerCase().includes(scopeSearch.value.toLowerCase())))
+const visibleAgents = computed(() => agents.value.filter(a => a.name.toLowerCase().includes(scopeSearch.value.toLowerCase())))
 const selected = ref<any>(null)
 const tab = ref('general')
 const loading = ref(true)
@@ -91,10 +102,12 @@ const tabs = computed(() => [
   { id: 'oauth', label: t('connectedApps.oauth') },
 ])
 function open(app: any) {
+  scopeSearch.value = ''
   selected.value = app
   name.value = app.name
   enabled.value = app.enabled
   allAgents.value = app.agent_ids === null
+  folderIds.value = [...(app.agent_folder_ids || [])]
   agentIds.value = [...(app.agent_ids || [])]
   tab.value = 'general'
   error.value = ''
@@ -124,7 +137,7 @@ async function create() {
   if (app) { creating.value = false; newName.value = ''; open(app) }
 }
 async function save() {
-  const app = await mutate(`/api/connected_applications/${selected.value.id}`, 'PATCH', { name: name.value.trim(), enabled: enabled.value, agent_ids: allAgents.value ? null : agentIds.value })
+  const app = await mutate(`/api/connected_applications/${selected.value.id}`, 'PATCH', { name: name.value.trim(), enabled: enabled.value, agent_folder_ids: allAgents.value ? [] : folderIds.value, agent_ids: allAgents.value ? null : agentIds.value })
   if (app) { open(app); toast.add({ title: t('connectedApps.saved') }) }
 }
 async function remove() {
@@ -136,6 +149,7 @@ onMounted(async () => {
   const res = await useMyFetch('/api/data_sources', { query: { show_all: true } })
   if (res.error.value) error.value = getErrorMessage(res.error.value)
   else agents.value = (res.data.value as any[]) || []
+  try { folders.value = await loadAgentFolderOptions() } catch (err) { error.value = getErrorMessage(err) }
   const id = useRoute().query.application
   const app = applications.value.find(a => a.id === id)
   if (app) open(app)
