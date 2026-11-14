@@ -210,21 +210,20 @@
           </TreeGroup>
           <div class="h-px bg-gray-100 dark:bg-gray-800 my-2 mx-1"></div>
 
-          <div class="px-2 pt-1 pb-1 flex items-center justify-between">
-            <span class="text-2xs font-semibold uppercase tracking-wider text-ink-muted">{{ $t('agentsPage.agentsSection') }}</span>
+          <AgentFolders ref="folderExplorer" :agents="agents" :loading="!agentsLoaded"
+            :active-folder="folderPaneVisible ? selectedFolder : null" :active-agent="agentView?.agentId || panelView?.agentId"
+            @changed="fetchAgents" @select="clearRightPane(); selectedFolder = $event"
+            @create="(parentId) => openDirModal(parentId ? 'subfolder' : 'create', GLOBAL_SCOPE, { kind: 'agent-folder', parentId })">
+            <template #header>
             <UTooltip v-if="canViewAllAgents" :text="$t('data.showAllAgentsHint')">
               <label class="flex items-center gap-1 text-2xs text-ink-muted cursor-pointer hover:text-gray-600 dark:hover:text-gray-400 select-none">
                 <UToggle v-model="showAllAgents" size="2xs" />
                 <span>{{ $t('data.showAllAgents') }}</span>
               </label>
             </UTooltip>
-          </div>
-
-          <div v-if="!agentsLoaded" class="flex items-center gap-2 h-8 text-sm text-ink-muted px-2"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
-
-          <AgentFolders ref="folderExplorer" @changed="fetchAgents" @select="clearRightPane(); selectedFolder = $event" />
-          <template v-for="agent in agents.filter(a => (a.folder_id || null) === selectedFolder)" :key="agent.id">
-            <TreeGroup :drag-agent="canManageAgent(agent.id) && folderExplorer?.canDrag(agent.folder_id)"
+            </template>
+            <template #agent="{ agent }">
+            <TreeGroup :dragging-agent="folderExplorer?.dragged?.id === agent.id" :drag-agent="canManageAgent(agent.id) && folderExplorer?.canDrag(agent.folder_id)"
               @agent-drag="folderExplorer?.startDrag($event, agent)" @agent-drag-end="folderExplorer?.endDrag()"
               :label="agent.name" :count="agentCount(agent.id) || undefined" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? $t('agentsPage.signInBadge') : (agent.publish_status === 'disabled' ? $t('agentsPage.disabledBadge') : (agent.is_connector ? $t('agentsPage.connectorBadge') : ''))" :badge-interactive="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
               <template #icon><DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon-token="agent.icon_token" :icon="agent.icon" class="w-4 h-4 shrink-0" /></template>
@@ -365,7 +364,8 @@
                 <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0 opacity-0 group-hover:opacity-100 rtl:rotate-180" />
               </button>
             </TreeGroup>
-          </template>
+            </template>
+          </AgentFolders>
         </div>
 
         <!-- Connections footer. The icon preview is the only flexible part: it
@@ -1196,12 +1196,15 @@
           <p v-else class="text-xs text-gray-500 dark:text-gray-400 mt-2">{{ $t('agentsPage.dirDeleteConfirm', { name: dirModal.dir?.name }) }}</p>
         </template>
         <template v-else>
+          <p v-if="dirModal.kind === 'agent-folder' && dirModal.parentId" class="mt-1 truncate text-xs text-ink-muted">
+            {{ folderExplorer?.folders.find((folder: any) => folder.id === dirModal.parentId)?.name }}
+          </p>
           <input v-text-dir
             ref="dirModalInput"
             v-model="dirModal.name"
             type="text"
             :placeholder="dirModal.kind === 'suite' ? $t('agentsPage.suiteNamePrompt') : $t('agentsPage.dirNamePrompt')"
-            maxlength="100"
+            :maxlength="dirModal.kind === 'agent-folder' ? 160 : 100"
             class="mt-3 w-full h-9 text-sm border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2.5 focus:outline-none focus:ring-2 focus:ring-blue-200 dark:focus:ring-blue-500/40"
           />
         </template>
@@ -1219,6 +1222,7 @@
 </template>
 
 <script setup lang="ts">
+import {treeDragSource, treeDropTarget} from '~/utils/treeDragStyles'
 import { h as createElement } from 'vue'
 import InstructionTrackedChanges from '~/components/instructions/InstructionTrackedChanges.vue'
 import InstructionEditor from '~/components/instructions/InstructionEditor.vue'
@@ -1491,7 +1495,7 @@ type DirModalMode = 'create' | 'subfolder' | 'rename' | 'delete'
 // Eval suites reuse this dialog rather than window.prompt. They are the same
 // interaction — name a container in the tree — and a native prompt next to a
 // styled tree was jarring, unstyleable and gave no way to report a 403.
-type DirModalKind = 'dir' | 'suite'
+type DirModalKind = 'dir' | 'suite' | 'agent-folder'
 const dirModal = ref<{ open: boolean; mode: DirModalMode; kind: DirModalKind; scope: string; parentId: string | null; dir: Dir | null; suite: any | null; name: string; busy: boolean }>(
   { open: false, mode: 'create', kind: 'dir', scope: GLOBAL_SCOPE, parentId: null, dir: null, suite: null, name: '', busy: false }
 )
@@ -1532,6 +1536,13 @@ const submitDirModal = async () => {
   if (m.mode !== 'delete' && !name) return
   dirModal.value = { ...m, busy: true }
   try {
+    if (m.kind === 'agent-folder') {
+      const { error } = await useMyFetch('/folders', {method: 'POST', body: {name, parent_id: m.parentId}})
+      if (error.value) throw new Error(error.value.data?.detail || error.value.message)
+      await folderExplorer.value?.folderCreated(m.parentId)
+      closeDirModal()
+      return
+    }
     if (m.kind === 'suite') {
       await submitSuiteModal(m, name)
       closeDirModal()
@@ -2330,7 +2341,7 @@ const agentLandingActions = computed(() => {
   if (!id) return []
   const groups: any[][] = [[{ label: t('agentsPage.connections'), icon: 'i-heroicons-link', click: () => openAgentCard(id) }]]
   if (agentCanUpdate.value) groups.push([
-    { label: t('sharedFolders.edit'), icon: 'i-heroicons-folder', click: () => folderExplorer.value?.editItem('agent', id, agentViewName.value, agents.value.find(a => a.id === id)?.limited_access) },
+    { label: t('sharedFolders.edit'), icon: 'i-heroicons-folder', click: () => folderExplorer.value?.editItem('agent', id, agentViewName.value, agents.value.find(a => a.id === id)?.limited_access, agents.value.find(a => a.id === id)?.folder_id) },
     { label: t('agentsPage.settings'), icon: 'i-heroicons-cog-6-tooth', click: () => openAgentSection('settings', id) },
     { label: t('agentsPage.manageConnections'), icon: 'i-heroicons-circle-stack', click: () => openConnModal(id) },
     { label: t('agentLanding.editStarters'), icon: 'i-heroicons-chat-bubble-left-ellipsis', click: openEditStarters },
@@ -2867,11 +2878,15 @@ const { showTopBanner, bannerHeight } = useTopBanner()
 // so we show one at a time. `detailOpen` is true whenever the detail pane has
 // something to show; `backToTree` clears every detail state to return to the tree.
 const { isMobile } = useMobile()
-const detailOpen = computed(() => !!(
-  reviewView.value || agentView.value || panelView.value ||
+const otherPaneVisible = computed(() => !!(
+  reviewView.value || agentView.value || panelView.value || evalCaseView.value ||
   previewFile.value || detail.value || creating.value || queryView.value
 ))
+const folderPaneVisible = computed(() => !!selectedFolder.value && !otherPaneVisible.value)
+const detailOpen = computed(() => otherPaneVisible.value || folderPaneVisible.value)
 const backToTree = () => {
+  selectedFolder.value = null
+  closeEvalCase()
   closeReview()
   closeAgentView()
   closePanel()
@@ -4238,15 +4253,15 @@ const fmtDate = (s?: string) => { if (!s) return ''; try { return _df.format(s, 
 
 // ── Inline tree sub-components ──────────────────────────
 const TreeGroup = defineComponent({
-  props: { dragAgent: Boolean, label: String, icon: String, count: { type: Number, default: undefined }, countAccent: Boolean, pending: Boolean, open: Boolean, mono: Boolean, indent: { type: Number, default: 0 }, addable: Boolean, folderable: Boolean, gearable: Boolean, reloadable: Boolean, renamable: Boolean, deletable: Boolean, runnable: Boolean, running: Boolean, badge: String, badgeLoading: Boolean, badgeInteractive: { type: Boolean, default: true }, disabled: Boolean, labelClickable: Boolean, active: Boolean, statusDot: String, lock: Boolean, dropActive: Boolean, onDropzone: Function, onDragover: Function, onDragleave: Function },
+  props: { draggingAgent: Boolean, dragAgent: Boolean, label: String, icon: String, count: { type: Number, default: undefined }, countAccent: Boolean, pending: Boolean, open: Boolean, mono: Boolean, indent: { type: Number, default: 0 }, addable: Boolean, folderable: Boolean, gearable: Boolean, reloadable: Boolean, renamable: Boolean, deletable: Boolean, runnable: Boolean, running: Boolean, badge: String, badgeLoading: Boolean, badgeInteractive: { type: Boolean, default: true }, disabled: Boolean, labelClickable: Boolean, active: Boolean, statusDot: String, lock: Boolean, dropActive: Boolean, onDropzone: Function, onDragover: Function, onDragleave: Function },
   emits: ['agentDrag', 'agentDragEnd', 'toggle', 'add', 'folder', 'gear', 'reload', 'rename', 'delete', 'run', 'badge', 'label'],
   setup(props, { slots, emit }) {
     // When `labelClickable` is set, the chevron/icon area toggles the tree and the
     // label text opens the panel (`@label`); otherwise the whole row toggles.
     return () => createElement('div', {}, [
       createElement('div', {
-        class: ['group w-full flex items-center gap-1.5 h-8 rounded-md text-sm transition-colors min-w-0', props.dropActive ? 'bg-blue-50 dark:bg-blue-500/10 ring-1 ring-blue-300 dark:ring-blue-500/40' : (props.active ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300'), props.disabled ? 'opacity-90' : 'hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer'],
-        style: { paddingInlineStart: (6 + props.indent * 14) + 'px', paddingInlineEnd: '8px' },
+        class: ['group w-full flex items-center gap-1.5 h-8 rounded-md text-sm transition-colors min-w-0', props.dropActive ? 'bg-blue-50 dark:bg-blue-500/10 ring-1 ring-blue-300 dark:ring-blue-500/40' : (props.active ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300'), props.disabled ? 'opacity-90' : 'hover:bg-gray-100 dark:hover:bg-gray-800/70', props.dragAgent ? treeDragSource : 'cursor-pointer', props.draggingAgent && 'opacity-50'],
+        style: { ...(props.dragAgent ? { WebkitUserDrag: 'element' } : {}), paddingInlineStart: (6 + props.indent * 14) + 'px', paddingInlineEnd: '8px' },
         draggable: props.dragAgent || undefined,
         onDragstart: props.dragAgent ? (event: DragEvent) => emit('agentDrag', event) : undefined,
         onDragend: props.dragAgent ? () => emit('agentDragEnd') : undefined,
@@ -4316,7 +4331,7 @@ const InstrLeaf = defineComponent({
         role: 'button',
         tabindex: 0,
         draggable: props.draggable ? 'true' : undefined,
-        class: ['group w-full flex items-center gap-2 rounded-md text-sm transition-colors min-w-0 text-start select-none', snippetText ? 'py-1.5' : 'h-8', sel ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70', dragging ? 'opacity-50' : '', props.draggable ? 'cursor-grab active:cursor-grabbing' : ''],
+        class: ['group w-full flex items-center gap-2 rounded-md text-sm transition-colors min-w-0 text-start select-none', snippetText ? 'py-1.5' : 'h-8', sel ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70', dragging ? 'opacity-50' : '', props.draggable ? treeDragSource : ''],
         // WebkitUserDrag: Safari refuses to start a drag on a plain element
         // (especially one with user-select: none) unless it is asked to treat
         // the element itself as the drag source. No effect in Chrome/Firefox.
@@ -4388,7 +4403,7 @@ const DirNode = defineComponent({
       const onDrop = (e: DragEvent) => { e.preventDefault(); e.stopPropagation(); onDropInto(scope, dir.id, dropKey) }
       const header = createElement('div', {
         draggable: props.canManage ? 'true' : undefined,
-        class: ['group w-full flex items-center gap-1.5 h-8 rounded-md text-sm transition-colors min-w-0 cursor-pointer', dropActive ? 'bg-blue-100 dark:bg-blue-500/20 ring-1 ring-inset ring-blue-400 dark:ring-blue-500/50 text-blue-800 dark:text-blue-200' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'],
+        class: ['group w-full flex items-center gap-1.5 h-8 rounded-md text-sm transition-colors min-w-0 cursor-pointer', dropActive ? treeDropTarget : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'],
         style: { paddingInlineStart: (6 + indent * 14) + 'px', paddingInlineEnd: '8px', ...(props.canManage ? { WebkitUserDrag: 'element' } : {}) },
         onClick: toggle,
         onDragstart: props.canManage ? (e: DragEvent) => { e.stopPropagation(); startDragDir(scope, dir.id, e) } : undefined,

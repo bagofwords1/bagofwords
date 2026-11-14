@@ -39,7 +39,7 @@
     <UModal v-model="show" :ui="{width:action === 'case' ? 'sm:max-w-4xl' : 'sm:max-w-md'}">
       <div v-if="action === 'case'" class="space-y-4 p-5">
         <TestCaseEditor ref="caseEditor" :folder-id="folder.id" :suite-id="suite" :case-id="caseId || undefined" @close="show = false" @created="caseSaved" @updated="caseSaved" />
-        <div class="flex justify-end"><UButton color="black" :loading="caseEditor?.isSaving" @click="caseEditor?.save()">{{ $t('common.save') }}</UButton></div>
+        <div class="flex justify-end"><UButton color="blue" :loading="caseEditor?.isSaving" @click="caseEditor?.save()">{{ $t('common.save') }}</UButton></div>
       </div>
       <form v-else class="space-y-4 p-5" @submit.prevent="save">
         <h3 class="font-medium">{{ dialogTitle }}</h3>
@@ -53,7 +53,7 @@
         <p v-if="feedback" role="alert" class="text-sm text-red-600">{{ feedback }}</p>
         <div class="flex justify-end gap-2">
           <UButton color="gray" variant="ghost" @click="show = false">{{ $t('common.cancel') }}</UButton>
-          <UButton type="submit" color="black" :loading="busy" :disabled="action === 'attach' && !pick">{{ $t('common.save') }}</UButton>
+          <UButton type="submit" color="blue" :loading="busy" :disabled="action === 'attach' && !pick">{{ $t('common.save') }}</UButton>
         </div>
       </form>
     </UModal>
