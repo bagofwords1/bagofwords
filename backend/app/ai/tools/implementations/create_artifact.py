@@ -767,10 +767,10 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         # The viz-reference contract rides along too: a reference to a viz that
         # isn't in the payload (or a payload viz the code never renders) is a
         # silent-wrong-data defect no screenshot can catch.
-        from app.ai.tools.implementations._artifact_refs import viz_reference_errors, design_errors, chart_prop_errors
+        from app.ai.tools.implementations._artifact_refs import viz_reference_errors, design_errors, chart_prop_errors, file_reference_errors
         wiring = self.params_wiring_errors(code, artifact_data) if mode == "page" else []
         if mode == "page":
-            wiring = wiring + viz_reference_errors(code, artifact_data) + design_errors(code, artifact_data) + chart_prop_errors(code, artifact_data)
+            wiring = wiring + viz_reference_errors(code, artifact_data) + design_errors(code, artifact_data) + chart_prop_errors(code, artifact_data) + file_reference_errors(code, artifact_data)
 
         original_code = code
         original_screenshot = screenshot
@@ -805,7 +805,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             fatal = self.fatal_render_errors(errors)
             wiring = self.params_wiring_errors(candidate, artifact_data) if mode == "page" else []
             if mode == "page":
-                wiring = wiring + viz_reference_errors(candidate, artifact_data) + design_errors(candidate, artifact_data) + chart_prop_errors(candidate, artifact_data)
+                wiring = wiring + viz_reference_errors(candidate, artifact_data) + design_errors(candidate, artifact_data) + chart_prop_errors(candidate, artifact_data) + file_reference_errors(candidate, artifact_data)
 
         if strict and not fatal and wiring:
             # Strict (planner-authored) mode: contract errors are as fatal as
@@ -1164,30 +1164,46 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         # Only files the run's user may see: embedding a file makes it readable
         # by everyone who can view the artifact. Stored on the artifact content
         # so the frontend can fetch + inject them for the <BowFile> component.
+        # The same rule as edit_artifact (_artifact_files): images and PDFs the
+        # run's user may see; every requested id must resolve, with one answer
+        # for missing, forbidden and wrong-type ids.
         included_files: List[Dict[str, Any]] = []
-        requested_file_ids = getattr(data, "file_ids", None) or []
+        from app.ai.tools.implementations._artifact_refs import normalize_file_id
+        requested_file_ids = list(dict.fromkeys(
+            normalize_file_id(f) for f in getattr(data, "file_ids", None) or [] if str(f or "").strip()
+        ))
         if requested_file_ids:
+            from app.ai.tools.implementations._artifact_files import attachable_files, FileLookupFailed
+            file_error: Optional[Dict[str, Any]] = None
             try:
-                from app.services.file_access_service import run_viewable_file_ids
-                allowed = await run_viewable_file_ids(
-                    db, user=user, report=report, organization=organization,
-                    file_ids=[str(f) for f in requested_file_ids],
+                attachable = await attachable_files(
+                    db, user=user, report=report, organization=organization, file_ids=requested_file_ids,
                 )
-                file_result = await db.execute(select(File).where(File.id.in_(list(allowed))))
-                fetched_files = {str(f.id): f for f in file_result.scalars().all()}
-            except Exception as e:
-                logger.warning(f"create_artifact: failed to fetch files: {e}")
-                fetched_files = {}
-            for fid in requested_file_ids:
-                f = fetched_files.get(str(fid))
-                if f is None:
-                    warnings.append(f"File {fid} not found or not accessible")
-                    continue
-                included_files.append({
-                    "id": str(f.id),
-                    "content_type": f.content_type or "application/octet-stream",
-                    "filename": f.filename,
-                })
+                refused = [fid for fid in requested_file_ids if fid not in attachable]
+                if refused:
+                    file_error = {
+                        "type": "file_not_attachable",
+                        "message": f"Cannot attach file {refused[0]}: it does not exist, you cannot access it, or it is not an image or PDF.",
+                        "file_ids": refused,
+                        "remediation": "Pass only ids of images or PDFs from the conversation's files.",
+                    }
+            except FileLookupFailed:
+                file_error = {
+                    "type": "file_lookup_failed",
+                    "message": "Could not look up the requested files (a temporary error). Nothing was created.",
+                    "file_ids": requested_file_ids,
+                    "remediation": "Call create_artifact again with the same arguments.",
+                }
+            if file_error:
+                yield ToolEndEvent(
+                    type="tool.end",
+                    payload={
+                        "output": {"success": False, "error": file_error["message"]},
+                        "observation": {"summary": f"Failed to create artifact: {file_error['message']}", "error": file_error},
+                    },
+                )
+                return
+            included_files = [attachable[fid] for fid in requested_file_ids]
 
         # Explicit analytical/file references must resolve. A page that requests
         # neither may be a static site or a resource-backed application.

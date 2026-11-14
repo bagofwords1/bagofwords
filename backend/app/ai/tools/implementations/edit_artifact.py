@@ -9,7 +9,6 @@ planner can correct in its own loop — the planner IS the repair loop here.
 """
 
 import logging
-import re
 from types import SimpleNamespace
 from typing import Any, AsyncIterator, Dict, List, Optional, Type
 
@@ -28,25 +27,15 @@ from app.ai.tools.schemas import (
 )
 from app.ai.tools.schemas.edit_artifact import EditArtifactInput, EditArtifactOutput
 from app.ai.tools.artifact_verification import with_automatic_artifact_check
-from app.ai.tools.implementations._artifact_refs import migrate_positional_viz_refs, viz_reference_errors, design_errors, chart_prop_errors
+from app.ai.tools.implementations._artifact_refs import (
+    migrate_positional_viz_refs, viz_reference_errors, design_errors, chart_prop_errors,
+    file_reference_errors, bow_file_literal_ids, normalize_file_id,
+)
+from app.ai.tools.implementations._artifact_files import attachable_files, FileLookupFailed
 from app.models.artifact import ArtifactVersion
 from app.services.artifact_service import new_version
 
 logger = logging.getLogger(__name__)
-
-# A literal id on a <BowFile>: id="x", id='x', id={"x"}, id={`x`}. An id held in
-# a variable can't be resolved here and is left to the runtime's placeholder.
-_BOW_FILE_ID = re.compile(r"""<BowFile\b[^>]*?\sid\s*=\s*\{?\s*["'`]([^"'`]+)["'`]""")
-
-
-def _bow_file_ids(code: str) -> set[str]:
-    return {file_id for file_id in _BOW_FILE_ID.findall(code or "") if "${" not in file_id}
-
-
-def _attachable_type(content_type: Optional[str]) -> bool:
-    media_type = (content_type or "").split(";", 1)[0].strip().lower()
-    return media_type.startswith("image/") or media_type == "application/pdf"
-
 
 class EditArtifactTool(Tool):
     """Mechanical find/replace edits on a page or slides artifact — no inner LLM."""
@@ -69,7 +58,7 @@ class EditArtifactTool(Tool):
                 "you exactly what to correct — fix the ops and call again. If the current code is not in your "
                 "context, call read_artifact first. For a from-scratch redesign, author new source and call "
                 "create_artifact with `code`. To show a file the artifact does not have yet (a new logo, for example), add its "
-                "<BowFile id=\"...\" /> in the ops AND pass its id in `file_ids`. For slides, ops edit the python-pptx script; "
+                "<BowFile id=\"...\" /> in the ops AND pass its id in `file_ids`; to stop showing one (a replaced logo), delete its <BowFile> and pass its id in `remove_file_ids`, so viewers can no longer open it. For slides, ops edit the python-pptx script; "
                 "validation = the script executes and saves a deck."
             ),
             category="action",
@@ -112,27 +101,6 @@ class EditArtifactTool(Tool):
                 "observation": obs,
             },
         )
-
-    async def _attachable_files(self, db, *, user, report, organization, file_ids: List[str]) -> Dict[str, Dict[str, Any]]:
-        """The requested files this run may attach, as content.files entries.
-
-        Attaching makes a file readable by everyone who can view the artifact,
-        and the ids come from the model, so they go through the same check as
-        create_artifact. A failed check attaches nothing.
-        """
-        from app.models.file import File
-        from app.services.file_access_service import run_viewable_file_ids
-
-        try:
-            allowed = await run_viewable_file_ids(db, user=user, report=report, organization=organization, file_ids=file_ids)
-            rows = (await db.execute(select(File).where(File.id.in_(list(allowed))))).scalars().all()
-        except Exception as e:
-            logger.warning(f"edit_artifact: failed to resolve file_ids: {e}")
-            return {}
-        return {
-            str(f.id): {"id": str(f.id), "content_type": f.content_type or "application/octet-stream", "filename": f.filename}
-            for f in rows if _attachable_type(f.content_type)
-        }
 
     @with_automatic_artifact_check
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
@@ -227,16 +195,32 @@ class EditArtifactTool(Tool):
             return
         new_code = working
 
-        # Merge embedded files: existing + new. Every requested id must resolve;
-        # the same answer for missing, forbidden and wrong-type ids reveals
-        # nothing about files this user can't see.
-        merged_files: List[Dict[str, Any]] = list(content.get("files") or [])
-        attached_ids = {str(f.get("id")) for f in merged_files if isinstance(f, dict)}
-        requested_file_ids = list(dict.fromkeys(str(f) for f in (data.file_ids or []) if str(f) not in attached_ids))
+        # Embedded files: existing, minus removals, plus new. Ids are compared
+        # normalised. Every requested id must resolve; the same answer for
+        # missing, forbidden and wrong-type ids reveals nothing about files
+        # this user can't see.
+        merged_files: List[Dict[str, Any]] = [f for f in content.get("files") or [] if isinstance(f, dict)]
+        previously_attached = {normalize_file_id(f.get("id")) for f in merged_files}
+        removed_file_ids = {normalize_file_id(f) for f in data.remove_file_ids or [] if str(f or "").strip()}
+        if removed_file_ids:
+            merged_files = [f for f in merged_files if normalize_file_id(f.get("id")) not in removed_file_ids]
+        attached_ids = {normalize_file_id(f.get("id")) for f in merged_files}
+        requested_file_ids = [
+            fid for fid in dict.fromkeys(normalize_file_id(f) for f in data.file_ids or [] if str(f or "").strip())
+            if fid not in attached_ids
+        ]
         if requested_file_ids:
-            attachable = await self._attachable_files(
-                db, user=user, report=report, organization=runtime_ctx.get("organization"), file_ids=requested_file_ids,
-            )
+            try:
+                attachable = await attachable_files(
+                    db, user=user, report=report, organization=runtime_ctx.get("organization"), file_ids=requested_file_ids,
+                )
+            except FileLookupFailed:
+                yield self._fail(
+                    artifact, "file_lookup_failed",
+                    "Could not look up the requested files (a temporary error). Nothing was applied.",
+                    {"file_ids": requested_file_ids, "remediation": "Call edit_artifact again with the same arguments."},
+                )
+                return
             refused = [fid for fid in requested_file_ids if fid not in attachable]
             if refused:
                 yield self._fail(
@@ -249,15 +233,22 @@ class EditArtifactTool(Tool):
             attached_ids.update(requested_file_ids)
 
         # A <BowFile> for a file that isn't attached renders "File not found"
-        # while the render check still passes. References the artifact already
-        # had are left alone, so an unrelated edit isn't blocked by them.
+        # while the render check still passes. References that were already
+        # broken before this edit are left alone, so an unrelated edit isn't
+        # blocked by them; a file removed in this edit must lose its tag too.
         if artifact.mode == "page":
-            unattached = sorted(_bow_file_ids(new_code) - _bow_file_ids(code) - attached_ids)
-            if unattached:
+            already_broken = bow_file_literal_ids(code) - previously_attached
+            file_errors = file_reference_errors(new_code, {"files": merged_files}, ignore_ids=already_broken)
+            if file_errors:
+                unattached = sorted(bow_file_literal_ids(new_code) - attached_ids - already_broken)
+                removed_but_shown = [fid for fid in unattached if fid in removed_file_ids]
                 yield self._fail(
-                    artifact, "file_not_attached",
-                    f"The edits add <BowFile id=\"{unattached[0]}\" /> but that file is not attached to the artifact.",
-                    {"file_ids": unattached, "remediation": "Call edit_artifact again with the same edits and this id in `file_ids`."},
+                    artifact, "file_not_attached", file_errors[0],
+                    {"file_ids": unattached, "remediation": (
+                        "Delete the <BowFile> tags for the files you are removing."
+                        if removed_but_shown else
+                        "Call edit_artifact again with the same edits and this id in `file_ids`."
+                    )},
                 )
                 return
 

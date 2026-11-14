@@ -20,6 +20,7 @@ copy at edit time and persists only as the next version.
 from __future__ import annotations
 
 import re
+import uuid
 from typing import Any, Dict, List, Tuple
 
 VIZ_POSITIONAL_RE = re.compile(r"\bviz\[(\d+)\]")
@@ -315,6 +316,64 @@ def _jsx_prop(body: str, name: str):
             if depth == 0:
                 return ("expr", rest[1:j].strip())
     return None
+
+
+_BOW_FILE_TAG_RE = re.compile(r"<BowFile\b")
+# One string literal and nothing else: "x", 'x' or `x` without ${...}.
+_STRING_LITERAL_RE = re.compile(r"""^(?:"([^"\\]*)"|'([^'\\]*)'|`([^`\\$]*)`)$""")
+
+
+def normalize_file_id(value: Any) -> str:
+    """One spelling per file id: the canonical UUID form, else trimmed lower case."""
+    text = str(value if value is not None else "").strip()
+    try:
+        return str(uuid.UUID(text))
+    except ValueError:
+        return text.lower()
+
+
+def bow_file_literal_ids(code: str) -> set:
+    """Normalised ids that ``<BowFile id=…>`` tags name literally.
+
+    The tag is read with the JSX-aware helpers, so a ``>`` inside an earlier
+    attribute (``onLoad={() => …}``, ``alt="a > b"``) doesn't end it. Only an id
+    that is one string literal counts; a computed id (``{"img-" + theme}``,
+    a variable) can't be checked here and is left to the runtime.
+    """
+    src = code or ""
+    found: set = set()
+    for m in _BOW_FILE_TAG_RE.finditer(src):
+        prop = _jsx_prop(_jsx_tag_body(src, m.start()), "id")
+        if not prop:
+            continue
+        kind, value = prop
+        if kind == "str":
+            literal = value
+        else:
+            lit = _STRING_LITERAL_RE.match(value or "")
+            if not lit:
+                continue
+            literal = next(g for g in lit.groups() if g is not None)
+        if literal.strip():
+            found.add(normalize_file_id(literal))
+    return found
+
+
+def file_reference_errors(code: str, artifact_data: Dict[str, Any], ignore_ids: Any = ()) -> List[str]:
+    """A ``<BowFile>`` naming a file that isn't attached renders "File not found".
+
+    ``artifact_data["files"]`` holds the attached files. ``ignore_ids`` lets an
+    edit leave references the page already had alone, so an unrelated edit
+    isn't blocked by them.
+    """
+    attached = {normalize_file_id(f.get("id")) for f in (artifact_data or {}).get("files") or [] if isinstance(f, dict)}
+    ignored = {normalize_file_id(i) for i in ignore_ids or ()}
+    missing = sorted(bow_file_literal_ids(code) - attached - ignored)
+    return [
+        f'<BowFile id="{fid}" /> names a file that is not attached to the artifact, so it would show "File not found". '
+        f"Pass its id in `file_ids`, or remove the tag."
+        for fid in missing
+    ]
 
 
 _PARAM_LIST_RES = (

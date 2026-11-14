@@ -1,10 +1,12 @@
-"""edit_artifact attaches files, and only ones the run may share.
+"""create_artifact and edit_artifact attach files, and only ones the run may share.
 
 Attaching a file makes it readable by everyone who can view the artifact, so
-edit_artifact holds the same line as create_artifact. A <BowFile> whose file
-isn't attached shows "File not found" while the edit still reports success, so
-that case is refused before it is saved.
+both tools apply one rule (_artifact_files). A <BowFile> whose file isn't
+attached shows "File not found" while the render still passes, so both refuse
+it before anything is saved (file_reference_errors). edit_artifact can also
+detach a file (remove_file_ids), so viewers can no longer open it.
 """
+import json
 import asyncio
 import struct
 import uuid
@@ -96,6 +98,20 @@ def _edit(cast, chatbot, tool_input):
     return asyncio.run(go())
 
 
+def _create(cast, chatbot, tool_input):
+    async def go():
+        async with async_session_maker() as db:
+            ctx = {
+                "db": db,
+                "report": await db.get(Report, chatbot["report_id"]),
+                "user": await db.get(User, cast["owner"]["user_id"]),
+                "organization": await db.get(Organization, cast["org_id"]),
+            }
+            ends = [e async for e in CreateArtifactTool().run_stream(tool_input, ctx) if e.type == "tool.end"]
+            return ends[-1].payload
+    return asyncio.run(go())
+
+
 def _add_logo(file_id):
     return [{"find": "<h1>Assistant</h1>", "replace": f'<BowFile id="{file_id}" /><h1>Assistant</h1>'}]
 
@@ -178,7 +194,9 @@ def test_edit_attaches_only_images_and_pdfs(test_client, cast, chatbot, no_rende
 
 @pytest.mark.e2e
 @pytest.mark.parametrize("tag", ['<BowFile id="{}" />', "<BowFile className='h-8' id='{}'/>", '<BowFile id={{"{}"}} />',
-                                 "<BowFile fit=\"cover\" id={{`{}`}} />"])
+                                 "<BowFile fit=\"cover\" id={{`{}`}} />",
+                                 # A ">" inside an earlier attribute doesn't end the tag.
+                                 '<BowFile onLoad={{() => x}} id="{}" />', '<BowFile alt="a > b" id="{}" />'])
 def test_edit_refuses_a_bowfile_for_a_file_it_does_not_attach(test_client, cast, chatbot, no_render, tag):
     logo = _upload(test_client, cast["owner"]["token"], cast["org_id"], report_id=chatbot["report_id"])
     artifact = chatbot["seed"]({"code": CODE, "visualization_ids": []})
@@ -190,7 +208,7 @@ def test_edit_refuses_a_bowfile_for_a_file_it_does_not_attach(test_client, cast,
 
 @pytest.mark.e2e
 @pytest.mark.parametrize("tag", ["<BowFile id={logoId} />", "<BowFile id={`${logoId}`} />",
-                                 '<BowFile data-id="not-a-file" id={logoId} />'])
+                                 '<BowFile data-id="not-a-file" id={logoId} />', '<BowFile id={"img-" + logoId} />'])
 def test_edit_does_not_refuse_a_bowfile_whose_id_is_computed(test_client, cast, chatbot, no_render, tag):
     code = CODE.replace("function App() {", "function App() { const logoId = window.ARTIFACT_DATA.files[0].id;")
     artifact = chatbot["seed"]({"code": code, "visualization_ids": []})
@@ -209,3 +227,80 @@ def test_an_unrelated_edit_is_not_blocked_by_an_older_broken_bowfile(test_client
     payload = _edit(cast, chatbot, {"artifact_id": artifact, "edits": [{"find": "Assistant", "replace": "Helper"}]})
 
     assert payload["output"]["success"] is True, payload
+
+
+@pytest.mark.e2e
+def test_edit_attaches_a_file_named_in_another_case(test_client, cast, chatbot, no_render):
+    logo = _upload(test_client, cast["owner"]["token"], cast["org_id"], report_id=chatbot["report_id"])
+    artifact = chatbot["seed"]({"code": CODE, "visualization_ids": []})
+
+    payload = _edit(cast, chatbot, {"artifact_id": artifact, "edits": _add_logo(logo.upper()), "file_ids": [f" {logo.upper()} "]})
+
+    assert payload["output"]["success"] is True, payload
+    assert _file_ids(test_client, cast, payload["output"]["artifact_id"]) == {logo}
+
+
+@pytest.mark.e2e
+def test_edit_detaches_a_file_whose_tag_it_removes(test_client, cast, chatbot, no_render):
+    old = _upload(test_client, cast["owner"]["token"], cast["org_id"], report_id=chatbot["report_id"], name="old.png")
+    new = _upload(test_client, cast["owner"]["token"], cast["org_id"], report_id=chatbot["report_id"], name="new.png")
+    code = CODE.replace("<h1>Assistant</h1>", f'<BowFile id="{old}" /><h1>Assistant</h1>')
+    artifact = chatbot["seed"]({"code": code, "visualization_ids": [],
+                                "files": [{"id": old, "content_type": "image/png", "filename": "old.png"}]})
+
+    payload = _edit(cast, chatbot, {"artifact_id": artifact, "file_ids": [new], "remove_file_ids": [old],
+                                    "edits": [{"find": f'<BowFile id="{old}" />', "replace": f'<BowFile id="{new}" />'}]})
+
+    assert payload["output"]["success"] is True, payload
+    assert _file_ids(test_client, cast, payload["output"]["artifact_id"]) == {new}
+
+
+@pytest.mark.e2e
+def test_edit_refuses_to_detach_a_file_the_code_still_shows(test_client, cast, chatbot, no_render):
+    old = _upload(test_client, cast["owner"]["token"], cast["org_id"], report_id=chatbot["report_id"])
+    code = CODE.replace("<h1>Assistant</h1>", f'<BowFile id="{old}" /><h1>Assistant</h1>')
+    artifact = chatbot["seed"]({"code": code, "visualization_ids": [],
+                                "files": [{"id": old, "content_type": "image/png", "filename": "logo.png"}]})
+
+    payload = _edit(cast, chatbot, {"artifact_id": artifact, "remove_file_ids": [old],
+                                    "edits": [{"find": "Assistant", "replace": "Helper"}]})
+
+    _assert_refused(payload, "file_not_attached", test_client, cast, chatbot)
+
+
+@pytest.mark.e2e
+def test_create_refuses_a_bowfile_for_a_file_it_does_not_attach(test_client, cast, chatbot, no_render):
+    logo = _upload(test_client, cast["owner"]["token"], cast["org_id"], report_id=chatbot["report_id"])
+    code = CODE.replace("<h1>Assistant</h1>", f'<BowFile onLoad={{() => x}} id="{logo}" /><h1>Assistant</h1>')
+
+    payload = _create(cast, chatbot, {"prompt": "build", "mode": "page", "code": code, "visualization_ids": []})
+
+    assert not payload["output"].get("success"), payload
+    assert "not attached" in json.dumps(payload)
+    # A failed create keeps a status="failed" row for debugging; nothing is completed.
+    assert [v for v in _versions(test_client, cast, chatbot) if v.get("status") == "completed"] == []
+
+
+@pytest.mark.e2e
+def test_create_attaches_a_bowfile_passed_in_file_ids(test_client, cast, chatbot, no_render):
+    logo = _upload(test_client, cast["owner"]["token"], cast["org_id"], report_id=chatbot["report_id"])
+    code = CODE.replace("<h1>Assistant</h1>", f'<BowFile id="{logo}" /><h1>Assistant</h1>')
+
+    payload = _create(cast, chatbot, {"prompt": "build", "mode": "page", "code": code, "visualization_ids": [], "file_ids": [logo]})
+
+    assert payload["output"].get("artifact_id"), payload.get("observation")
+    assert [v["status"] for v in _versions(test_client, cast, chatbot)] == ["completed"]
+    assert _file_ids(test_client, cast, payload["output"]["artifact_id"]) == {logo}
+
+
+@pytest.mark.e2e
+def test_create_attaches_only_images_and_pdfs_like_edit(test_client, cast, chatbot, no_render):
+    csv = _upload(test_client, cast["owner"]["token"], cast["org_id"], report_id=chatbot["report_id"],
+                  name="data.csv", body=b"k,v\n1,2\n", content_type="text/csv")
+
+    payload = _create(cast, chatbot, {"prompt": "build", "mode": "page", "code": CODE, "visualization_ids": [], "file_ids": [csv]})
+
+    assert not payload["output"].get("success"), payload
+    assert payload["observation"]["error"]["type"] == "file_not_attachable"
+    # A failed create keeps a status="failed" row for debugging; nothing is completed.
+    assert [v for v in _versions(test_client, cast, chatbot) if v.get("status") == "completed"] == []

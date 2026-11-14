@@ -31,6 +31,7 @@ class EditArtifactInput(BaseModel):
     visualization_ids: Optional[List[str]] = Field(default=None, description="NEW visualization ids to add to the artifact's data payload (existing ones are kept automatically). Your edits must add code sections rendering them via vizById(\"<uuid>\").")
     remove_visualization_ids: Optional[List[str]] = Field(default=None, description="Visualization ids to REMOVE from the payload. Your edits must delete every code section referencing them.")
     file_ids: Optional[List[str]] = Field(default=None, description="NEW image or PDF file ids (uploaded or from generate_image) to attach to the artifact (files already attached are kept automatically). Required whenever your edits add a <BowFile id=\"<id>\" /> for a file the artifact does not have yet.")
+    remove_file_ids: Optional[List[str]] = Field(default=None, description="Attached file ids to DETACH, so viewers of the artifact can no longer open them (a replaced logo, a file attached by mistake). Your edits must delete every <BowFile> showing them. Ids that aren't attached are ignored.")
     title: Optional[str] = Field(default=None, description="Updated artifact title (kept if omitted).")
 
     @model_validator(mode="before")
