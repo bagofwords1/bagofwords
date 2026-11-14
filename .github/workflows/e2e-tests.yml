@@ -513,7 +513,7 @@ jobs:
 
   dispatch-build:
     if: github.ref == 'refs/heads/main'
-    needs: [e2e-tests, playwright-tests, integration-data-sources, integration-llms]
+    needs: [e2e-tests, playwright-tests, frontend-unit-tests, integration-data-sources, integration-llms]
     runs-on: ubuntu-latest
     steps:
     - name: Trigger Docker build workflow
