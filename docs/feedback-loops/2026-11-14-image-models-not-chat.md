@@ -77,3 +77,13 @@ Seeded sandbox data, OpenAI provider with a dummy key.
 - PR #1721 (decision models) adds a server-side `kind` filter to
   `GET /llm/models`; once both land, image models can move onto that same
   mechanism and the client filters can go.
+
+## CI follow-up
+
+`tests/e2e/dashboards/test_artifact_conversations.py::test_the_policy_names_the_model_a_viewer_runs_on`
+(sqlite + postgres-dashboards) pinned "any model other than the default" as a
+dashboard's chat model — with an OpenAI provider that list starts with the GPT
+Image models, so it pinned an image model. The fix now (correctly) ignores
+that pin and the viewer falls back, which is the intended behavior; the test
+now picks another *chat* model. Verified: fails without the change
+(`'fallback' == 'pinned'`), file passes with it (28 passed).
