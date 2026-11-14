@@ -288,6 +288,40 @@ jobs:
       run: |
         uv run pytest tests/unit -n 4 --db=sqlite --disable-warnings --timeout=600 --timeout-method=thread
 
+  # The frontend unit tests (frontend/tests/unit/*.mjs): artifact runtime
+  # components (charts, tables, kit controls), locales, embed SDK and more.
+  # Each file is a standalone node script; several drive headless Chromium
+  # against the artifact iframe, which loads the vendored libs below.
+  frontend-unit-tests:
+    # Same pin as playwright-tests (Playwright 1.56.0 and ubuntu-26.04).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: 'yarn'
+        cache-dependency-path: frontend/yarn.lock
+
+    - name: Install frontend dependencies
+      working-directory: ./frontend
+      run: yarn install --frozen-lockfile
+
+    - name: Download vendored artifact libraries
+      run: bash scripts/download-vendor-libs.sh frontend/public/libs
+
+    - name: Install Playwright browsers
+      working-directory: ./frontend
+      run: npx playwright install --with-deps chromium
+
+    - name: Run frontend unit tests
+      working-directory: ./frontend
+      run: node --test --test-concurrency=4 tests/unit/*.mjs
+
   playwright-tests:
     # Pinned: Playwright 1.56.0 can't install chromium on ubuntu-26.04, which
     # ubuntu-latest is moving to. Unpin after upgrading Playwright.
@@ -313,10 +347,6 @@ jobs:
     - name: Install Playwright browsers
       working-directory: ./frontend
       run: npx playwright install --with-deps chromium
-
-    - name: Embed SDK tests
-      working-directory: ./frontend
-      run: node --test tests/unit/embedSdk.mjs tests/unit/embedSdkBrowser.mjs
 
     - name: Start backend server
       working-directory: ./backend
